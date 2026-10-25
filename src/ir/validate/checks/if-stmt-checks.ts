@@ -321,6 +321,15 @@ function validateElixirIfSupport(loom: EnrichedLoomModel, diags: LoomDiagnostic[
           for (const op of agg.operations) {
             flag(`operation '${agg.name}.${op.name}'`, op.statements, opKind);
           }
+          // `create` / `destroy` actions live outside `agg.operations` but are
+          // command bodies all the same: on an event-sourced aggregate they
+          // render through the same ES command runner.
+          for (const c of agg.creates ?? []) {
+            flag(`create '${agg.name}.${c.name}'`, c.statements, opKind);
+          }
+          for (const d of agg.destroys ?? []) {
+            flag(`destroy '${agg.name}.${d.name}'`, d.statements, opKind);
+          }
           for (const fn of agg.functions) {
             if (!("stmts" in fn.body)) continue;
             // A pure `function` body renders the same way on an ES aggregate as
@@ -347,6 +356,19 @@ function validateElixirIfSupport(loom: EnrichedLoomModel, diags: LoomDiagnostic[
         for (const svc of ctx.domainServices) {
           for (const op of svc.operations) {
             flag(`domainService operation '${svc.name}.${op.name}'`, op.body, "value");
+          }
+        }
+        for (const wf of ctx.workflows) {
+          // A workflow `function` renders through the same pure tail-value
+          // emitter as an aggregate one (`function-emit.ts`).
+          for (const fn of wf.functions ?? []) {
+            if (!("stmts" in fn.body)) continue;
+            flag(`function '${wf.name}.${fn.name}'`, fn.body.stmts, "value");
+          }
+          // An `eventSourced` workflow's appliers render through the same fold
+          // emitter as an aggregate's (`fold-stmt-emit.ts`), which has no `if`.
+          for (const ap of wf.appliers ?? []) {
+            flag(`apply(${ap.event}) on workflow '${wf.name}'`, ap.statements, "event-sourced");
           }
         }
       }

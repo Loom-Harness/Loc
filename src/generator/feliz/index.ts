@@ -46,6 +46,7 @@ import {
   E2E_TSCONFIG_JSON,
   PLAYWRIGHT_CONFIG_TS,
 } from "../_frontend/e2e-harness.js";
+import { deriveSidebarFromUi, type NavSectionVM } from "../_frontend/menu-emitter.js";
 import { smokeSpec } from "../_frontend/smoke-spec.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { APP_SHELL_CHROME, chromeKey } from "../_walker/i18n-chrome.js";
@@ -137,6 +138,7 @@ import {
   renderFileRefType,
   renderFormTypes,
   renderProvLineageType,
+  renderServerErrorsModule,
   renderValidation,
   renderViewModule,
   renderWireTypes,
@@ -728,30 +730,59 @@ function humanizeLabel(name: string): string {
  *  button) — otherwise the bar advertises a route whose own view immediately
  *  renders `forbiddenView` and whose backend answers 403.  This is the Feliz
  *  half of the per-link auth the JS frontends get from
- *  `_frontend/menu-emitter.ts` (`requiresJs`). */
+ *  `_frontend/menu-emitter.ts` (`requiresJs`).
+ *
+ *  An explicit `menu { }` replaces the page list: its sections and links, in
+ *  the author's order, from the SAME derivation the JS sidebars render
+ *  (`deriveSidebarFromUi`) — a section heading is a `menu-title` item, an
+ *  authored label renders through `I18n.t` under its catalog key, and a link to
+ *  a `requires`-gated page carries the page's own claims guard. */
 function renderNavbar(
   pages: readonly PageIR[],
   brand: string,
   i18nEnabled = false,
   pageGate = false,
+  menu?: readonly NavSectionVM[],
 ): string {
-  const navPages = pages.filter((p) => !hasRouteParam(p));
-  if (navPages.length < 2) return "";
-  const items = navPages
-    .map((p) => {
-      // PATH href (History API routing), not a `#/…` hash link.
-      const href = p.route ?? "/";
-      const li = `Html.li [ prop.children [ Html.a [ prop.href "${href}"; prop.text "${humanizeLabel(p.name)}" ] ] ]`;
-      // ONE line per entry, guard included: F# keys a newline-separated list
-      // element by its first-token column, so a multi-line guard here would
-      // have to re-indent with the surrounding `prop.children [` block.
-      const gated =
-        pageGate && p.requires
-          ? `(match model.CurrentUser with Some currentUser when ${renderFelizGate(p.requires, "currentUser")} -> ${li} | _ -> Html.none)`
-          : li;
-      return `          ${gated}`;
-    })
-    .join("\n");
+  // ONE line per entry, guard included: F# keys a newline-separated list
+  // element by its first-token column, so a multi-line guard here would
+  // have to re-indent with the surrounding `prop.children [` block.
+  const guard = (page: PageIR | undefined, li: string): string =>
+    pageGate && page?.requires
+      ? `(match model.CurrentUser with Some currentUser when ${renderFelizGate(page.requires, "currentUser")} -> ${li} | _ -> Html.none)`
+      : li;
+  const label = (text: string, key: string | undefined): string =>
+    i18nEnabled && key ? `(I18n.t ${fsString(key)} ${fsString(text)})` : fsString(text);
+  let entries: string[];
+  if (menu) {
+    entries = menu.flatMap((section) => [
+      ...(section.label
+        ? [
+            `Html.li [ prop.className "menu-title"; prop.text ${label(section.label, section.labelKey)} ]`,
+          ]
+        : []),
+      ...section.entries.map((e) =>
+        e.external
+          ? `Html.li [ prop.children [ Html.a [ prop.href ${fsString(e.href ?? "")}; prop.target "_blank"; prop.rel "noopener noreferrer"; prop.text ${label(e.label, e.labelKey)} ] ] ]`
+          : guard(
+              pages.find((p) => p.route === e.to),
+              `Html.li [ prop.children [ Html.a [ prop.href ${fsString(e.to)}; prop.text ${label(e.label, e.labelKey)} ] ] ]`,
+            ),
+      ),
+    ]);
+    if (entries.length === 0) return "";
+  } else {
+    const navPages = pages.filter((p) => !hasRouteParam(p));
+    if (navPages.length < 2) return "";
+    // PATH href (History API routing), not a `#/…` hash link.
+    entries = navPages.map((p) =>
+      guard(
+        p,
+        `Html.li [ prop.children [ Html.a [ prop.href "${p.route ?? "/"}"; prop.text "${humanizeLabel(p.name)}" ] ] ]`,
+      ),
+    );
+  }
+  const items = entries.map((e) => `          ${e}`).join("\n");
   // The bar is a real <nav> landmark (a11y contract) — a screen reader
   // announces it as the primary navigation and can jump straight to it.
   // The landmark's accessible name is pack-chrome: translated through the
@@ -790,13 +821,16 @@ function renderRootView(
   brand = "",
   i18nEnabled = false,
   pageGate = false,
+  /** The ui's explicit `menu { }`, derived — the navbar renders it instead of
+   *  the top-level page list. */
+  menu?: readonly NavSectionVM[],
 ): string {
   const arms = pages.map((p) => {
     const names = routeParamNames(p);
     const args = names.length > 0 ? ` ${names.map(fsIdent).join(" ")}` : "";
     return `        | ${pageCase(p, nameCtx)}${caseArgs(names)} -> ${pageViewFn(p, nameCtx)} model dispatch${args}`;
   });
-  const navbar = renderNavbar(pages, brand, i18nEnabled, pageGate);
+  const navbar = renderNavbar(pages, brand, i18nEnabled, pageGate, menu);
   const router = [
     "    React.router [",
     // PATH-based routing (History API), NOT hash (`#/…`) — the generated SPA
@@ -1599,7 +1633,15 @@ function renderAppFs(
           return text;
         }),
         "",
-        renderRootView(pages, nameCtx, rootFn, ui.name, i18nEnabled, pageGate),
+        renderRootView(
+          pages,
+          nameCtx,
+          rootFn,
+          ui.name,
+          i18nEnabled,
+          pageGate,
+          ui.menu ? deriveSidebarFromUi(ui, nameCtx) : undefined,
+        ),
       ]
     : [
         ((): string => {
@@ -1660,7 +1702,13 @@ function renderAppFs(
   // already knows.  Purely additive — it can turn the open ON where it was
   // missing, never off, so every app that compiled before is byte-identical.
   const viewsNavigate = views.some((v) => v.includes("Router."));
-  const viewsToast = views.some((v) => v.includes(`${FELIZ_ACTION_TOAST} (`));
+  // The same built-in toast is reached from two places: a view's
+  // `Action { …, then: toast(…) }` closure and an action body's `toast(…)`
+  // statement in `update`.  F# is order-sensitive and a module may not bind
+  // the name twice, so it is declared once — ahead of `update` when an arm
+  // calls it (the views follow `update` and see it too), else ahead of the views.
+  const updateToast = update.includes(`${FELIZ_ACTION_TOAST} (`);
+  const viewsToast = !updateToast && views.some((v) => v.includes(`${FELIZ_ACTION_TOAST} (`));
 
   return lines(
     "module App",
@@ -1675,8 +1723,9 @@ function renderAppFs(
     "open Elmish",
     "open Elmish.React",
     // Thoth is needed for decoders (reads + async effects), encoders (forms),
-    // the UI-gate claims decode, AND the FileRef upload decoder.
-    (hasReads || hasForms || hasEffects || pageGate || hasFileState || hasFileWire) &&
+    // a rejected submit's `ServerErrors` decode, the UI-gate claims decode, AND
+    // the FileRef upload decoder.
+    (hasReads || hasFormSubmits || hasEffects || pageGate || hasFileState || hasFileWire) &&
       "open Thoth.Json",
     hasHttp && "open Fable.SimpleHttp",
     // Browser.Dom provides `window` for the auth sign-in/out redirects.
@@ -1752,14 +1801,18 @@ function renderAppFs(
     hasForms && encoders,
     hasForms && validation ? "" : false,
     validation || undefined,
+    // A rejected submit's decoded ProblemDetails — the error every create /
+    // operation / workflow Api fn fails with, so it precedes `Api`.
+    hasFormSubmits && "",
+    hasFormSubmits && renderServerErrorsModule(),
     // Api module — reads (fetch + decode), mutations (verb request), creates (POST).
     hasHttp && "",
     hasHttp && api,
     // View helpers — Remote matchers (reads) + the per-field `fieldError` matcher
     // (validated forms), so a form-only page still gets the helper.
-    (hasReads || hasFieldErrors || usesChart) && "",
-    (hasReads || hasFieldErrors || usesChart) &&
-      renderViewModule(reads, hasIdSelect, hasFieldErrors, usesChart),
+    (hasReads || hasFieldErrors || usesChart || hasForms) && "",
+    (hasReads || hasFieldErrors || usesChart || hasForms) &&
+      renderViewModule(reads, hasIdSelect, hasFieldErrors, usesChart, hasForms),
     // Routing table (multi-page only) — Page union + parseUrl, ahead of Model.
     routed && "",
     routed && renderRouting(pages, nameCtx, usesRouteIdFn(update, init)),
@@ -1777,6 +1830,8 @@ function renderAppFs(
     "",
     init,
     "",
+    updateToast ? renderFelizActionToast(FELIZ_ACTION_TOAST) : false,
+    updateToast ? "" : false,
     update,
     // The persistence write-back wrapper + the `url` tier's `popstate`
     // subscription — both reference `update` / `Msg`, so they follow it.
@@ -1835,7 +1890,7 @@ function renderAppFs(
     "  with ex ->",
     '    Fable.Core.JS.console.error ("Uncaught render error:", ex)',
     '    Html.div [ prop.role "alert"; prop.className "p-4"; prop.children [',
-    '      Html.h2 [ prop.className "text-red-700 font-semibold"; prop.text "Something went wrong." ]',
+    `      Html.h2 [ prop.className "text-red-700 font-semibold"; prop.text ${shellChrome("rootErrorTitle", i18nEnabled)} ]`,
     '      Html.pre [ prop.className "text-red-700 whitespace-pre-wrap"; prop.text ex.Message ]',
     "    ] ]",
     "",
@@ -1931,9 +1986,9 @@ const PACKAGE_JSON = (name: string, usesDataGrid = false, usesI18n = false): str
         dev: "npm run fable && vite",
       },
       dependencies: {
-        react: "^18.2.0",
-        "react-dom": "^18.2.0",
-        ...(usesDataGrid ? { "@tanstack/table-core": "^8.21.3" } : {}),
+        react: "18.3.1",
+        "react-dom": "18.3.1",
+        ...(usesDataGrid ? { "@tanstack/table-core": "8.21.3" } : {}),
         // The ICU half of the generated `I18n` module (M-T1.11) — the same
         // engine, at the same pin, the four JS frontends' stacks carry.
         ...(usesI18n ? { "intl-messageformat": FELIZ_INTL_MESSAGEFORMAT } : {}),
@@ -1944,11 +1999,11 @@ const PACKAGE_JSON = (name: string, usesDataGrid = false, usesI18n = false): str
       // supplies the component layer + themes.  Pinned to Tailwind v3 / daisyUI
       // v4 (the v3 `@tailwind base` directive syntax, matching the HEEx pack).
       devDependencies: {
-        vite: "^5.4.0",
-        tailwindcss: "^3.4.0",
-        daisyui: "^4.12.0",
-        autoprefixer: "^10.4.0",
-        postcss: "^8.4.0",
+        vite: "5.4.21",
+        tailwindcss: "3.4.19",
+        daisyui: "4.12.24",
+        autoprefixer: "10.6.1",
+        postcss: "8.5.31",
       },
     },
     null,
@@ -1957,14 +2012,34 @@ const PACKAGE_JSON = (name: string, usesDataGrid = false, usesI18n = false): str
 
 /** Vite config for the Feliz bundle.  `base` is set only for a sub-path
  *  embed (Phoenix `/app`) so built asset URLs carry the prefix; unset
- *  (root-served) keeps vite's default `/` → byte-identical to before. */
-const renderViteConfig = (basePath: string): string =>
-  `import { defineConfig } from "vite";
+ *  (root-served) keeps vite's default `/`.  A standalone deployable (one that
+ *  `targets:` a backend) also gets the native-run block: `npm run dev` serves
+ *  on its declared port (PORT overrides it) and proxies the bundle's relative
+ *  `/api` to the target backend's declared port; `vite preview` takes the port only
+ *  and an explicitly empty proxy (it otherwise inherits `server.proxy`), so a
+ *  backend-less preview stays a static host.  The image serves the built
+ *  bundle through nginx, which reads none of this. */
+const renderViteConfig = (
+  basePath: string,
+  native?: { port: number; apiTarget: string },
+): string => {
+  const head = native
+    ? `// A native run serves on the deployable's declared port, and PORT overrides it.
+const port = Number(process.env.PORT ?? ${native.port});
+const proxy = { "/api": process.env.VITE_API_PROXY_TARGET ?? ${JSON.stringify(native.apiTarget)} };
 
-export default defineConfig({
+`
+    : "";
+  const serve = native
+    ? `  server: { port, host: true, proxy },\n  preview: { port, host: true, proxy: {} },\n`
+    : "";
+  return `import { defineConfig } from "vite";
+
+${head}export default defineConfig({
 ${basePath ? `  base: "${basePath}/",\n` : ""}  build: { outDir: "dist" },
-});
+${serve}});
 `;
+};
 
 // The default daisyUI theme applied on <html data-theme="…">.  `corporate` is a
 // clean, flat, professional light theme; `business` is its dark sibling (wired
@@ -1973,7 +2048,7 @@ const DEFAULT_FELIZ_THEME = "corporate";
 
 /** The daisyUI theme a feliz deployable renders under, chosen by its `design:`
  *  slot.  A `design:` naming a built-in daisyUI theme (`design: dracula`) selects
- *  it; anything else (unset → the lowered `mantine@v7` default, or a non-theme
+ *  it; anything else (unset → the lowered `mantine@v9` default, or a non-theme
  *  value) falls back to `corporate`.  The validator (Rule 14, feliz branch)
  *  already rejects a user-written non-theme `design:`, so the fallback only ever
  *  fires for the unset default. */
@@ -2175,7 +2250,13 @@ export function generateFelizForContexts(
     "package.json",
     PACKAGE_JSON(`${deployable.name}-feliz`, uiUsesDataGrid(ui), felizI18nEnabled(ui)),
   );
-  out.set("vite.config.js", renderViteConfig(basePath));
+  out.set(
+    "vite.config.js",
+    renderViteConfig(
+      basePath,
+      target ? { port: deployable.port, apiTarget: `http://localhost:${target.port}` } : undefined,
+    ),
+  );
   out.set("index.html", INDEX_HTML(theme, humanize(sys.name)));
   out.set("styles.css", STYLES_CSS);
   out.set("tailwind.config.js", TAILWIND_CONFIG(theme));

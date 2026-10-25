@@ -851,6 +851,7 @@ function applySuffixToRecv(
           verb: ms.member,
           capability: verbDef?.capability ?? "",
           ...(verbDef?.interfaceOverride ? { interface: verbDef.interfaceOverride } : {}),
+          ...(recv.resourceApiName ? { boundApi: recv.resourceApiName } : {}),
         },
       };
       const resultType = verbResultType(verbDef);
@@ -973,7 +974,7 @@ function applySuffixToRecv(
     // (src/util/value-object-intrinsics.ts).  It lowers to the SAME
     // `binary ==` node a `vo == other` writes, so every backend renders it
     // through its one value-equality leaf (python `==` on the frozen
-    // dataclass, java `Objects.equals`, .NET record `==`, elixir struct `==`,
+    // dataclass, java `Objects.equals`, .NET record `==`, elixir `Loom.ValueObject.equal?/2`,
     // node `.equals(…)`) instead of each emitter meeting a `method-call` named
     // `equals` it has no idiom for — python rendered `x.equals(…)` (no such
     // attribute; mypy rejects it) and elixir's test emitter threw.  A value
@@ -1087,7 +1088,9 @@ function applySuffixToRecv(
       !env.ctx &&
       (env.actions !== undefined || env.stores !== undefined) &&
       uiEnumOwnersFor(ms.member, suffix).includes(enumName);
-    if (localEnum || rootEnum || uiEnum) {
+    // `Kind.Fire` naming a sibling context's enum — see `enumCandidatesFor`.
+    const siblingEnum = !!env.ctx && siblingEnumOwnersFor(ms.member, env.ctx).includes(enumName);
+    if (localEnum || rootEnum || uiEnum || siblingEnum) {
       return {
         recv: {
           kind: "ref",
@@ -1862,6 +1865,16 @@ function uiEnumIndexFor(root: AstNode): ReadonlyMap<string, readonly string[]> {
   return index;
 }
 
+/** Every enum declared ANYWHERE in `ctx`'s document that owns value `name` —
+ *  the sibling-context fallback for a bare / qualified enum value in a context
+ *  body (the IR-side twin of `enumPool`).  Same-document only: a sibling
+ *  context in another file is reached through its `import`, whose root enums
+ *  the ambient index already carries. */
+function siblingEnumOwnersFor(name: string, ctx: AstNode): readonly string[] {
+  const root = AstUtils.getContainerOfType(ctx, isModel);
+  return (root ? uiEnumIndexFor(root).get(name) : undefined) ?? [];
+}
+
 /** Append `enumName` to the candidate list for `valueName`, skipping a
  *  duplicate (the same enum reached twice through two index levels). */
 function pushCandidate(index: Map<string, string[]>, valueName: string, enumName: string): void {
@@ -1914,7 +1927,14 @@ function enumCandidatesFor(name: string, env: Env, node?: AstNode): readonly str
       if (isEnumDecl(m) && m.values.some((v) => v.name === name)) local.push(m.name);
     }
     if (local.length > 0) return local;
-    return ambientEnumIndex.get(name) ?? [];
+    const ambient = ambientEnumIndex.get(name);
+    if (ambient && ambient.length > 0) return ambient;
+    // A SIBLING context's enum (`Clm.kind: Kind`, `Kind` declared in another
+    // context of the system) is a legal, linked field type, so its bare value
+    // must resolve too — otherwise the ref stays `unknown` and every backend
+    // emits the bare identifier (`Clm.Create(kind: Fire, …)`: CS0103 / TS2304).
+    // Lowest precedence: own and ambient enums still shadow (claims D1).
+    return siblingEnumOwnersFor(name, env.ctx);
   }
   // A `ui` body has no enclosing context — see the ui arm of `resolveNameRef`
   // for why this is gated to ui bodies rather than every ctx-less body.
@@ -2119,6 +2139,14 @@ function hasIdBinding(env: Env): boolean {
     env.refAliases?.has(ID_NAME) === true ||
     env.locals.has(ID_NAME)
   );
+}
+
+/** `{ boundApi }` when the resource handle `name` binds an in-system `api`
+ *  (M-T4.8), else `{}` — spread into a `resourceOp` so the IR validator can
+ *  refuse a raw verb on such a resource (`loom.resource-verb-invalid`). */
+export function boundApiOf(name: string, env: Env): { boundApi?: string } {
+  const api = env.resourceApis?.get(name);
+  return api ? { boundApi: api } : {};
 }
 
 /** The kind of the ambient resource handle `name` names, or `undefined` when

@@ -70,7 +70,7 @@ describe("angular operation action-button gate", () => {
     expect(c).toContain('import { SessionService } from "../auth/session.service";');
     expect(c).toContain("readonly session = inject(SessionService);");
     expect(c).toContain(
-      "get currentUser(): Record<string, unknown> { return this.session.user() ?? {}; }",
+      "get currentUser(): Record<string, any> { return this.session.user() ?? {}; }",
     );
     // confirm() gated — `@if`-wrapped, no `@else { null }` (Angular renders
     // bare `null` as visible text, so the hide drops the else).

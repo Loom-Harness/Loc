@@ -3,14 +3,16 @@ import {
   aggregateUsesPrincipalContextFilter,
   exprUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
+import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake } from "../../../util/naming.js";
 import { desugarAuthzFilterInApp } from "../../_expr/authz-filter-inapp.js";
+import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { bypassDrops, type FilterBypass } from "../capability-filter.js";
 import { javaLocals, localOf } from "../java-ident.js";
-import { collectJavaExprImports, renderJavaExpr, renderJavaType } from "../render-expr.js";
+import { renderJavaExpr, renderJavaType } from "../render-expr.js";
 import { javaNotFoundThrow } from "./common.js";
 import type { JavaRepoCtx } from "./repository.js";
 import {
@@ -21,6 +23,7 @@ import {
   inMemoryRetrievalLines,
   isPagedFind,
   unionFindAsOptionalTwin,
+  versionFieldName,
 } from "./repository.js";
 import { javaBlobWriteGuardLines, writeScopeUsesPrincipal } from "./write-scope.js";
 
@@ -145,31 +148,15 @@ export function renderJavaDocumentRepositoryImpl(
   const aggregateLoadedLog = `        CatalogLog.event(${javaLogEvent("aggregateLoaded")}, "aggregate", "${agg.name}", "id", String.valueOf(id.value()), "found", found.isPresent());`;
   const writeGuardLines = javaBlobWriteGuardLines(agg, idClass, aggregateLoadedLog);
 
-  // Expression imports the in-app find / capability predicates need — notably
-  // `java.util.Objects` for a string/ref `==` (renders to `Objects.equals`).
-  // (The pre-existing emit hardcoded a fixed import list and omitted this, so a
-  // document aggregate with a string-equality find failed to compile.)
-  const exprImports = new Set<string>();
-  for (const f of finds) if (f.filter) collectJavaExprImports(f.filter, exprImports);
-  // The in-app filters are rendered from the DESUGARED IR (an `authz-filter`
-  // sentinel carries no expression nodes of its own), so collect their imports
-  // from the same desugared tree the renderer sees — otherwise a `policy { allow
-  // deep … }` tenant floor emits `Objects.equals(...)` with no
-  // `import java.util.Objects`, and the generated project fails to compile.
-  for (const p of agg.contextFilters ?? [])
-    collectJavaExprImports(desugarAuthzFilterInApp(p, agg.name), exprImports);
-  // Same for the command load's in-app write-scope guard.
-  if (agg.writeScopeFilter)
-    collectJavaExprImports(desugarAuthzFilterInApp(agg.writeScopeFilter, agg.name), exprImports);
+  const paged = javaRef(`${ctx.basePkg}.domain.common`, "Paged");
+  const accessorType = javaRef(`${ctx.basePkg}.auth`, "CurrentUserAccessor");
 
   // Retrievals (`retrieval` bundles) can't query the jsonb document, so each
   // `run<Name>` rehydrates every row and evaluates its `where` + `sort` in
-  // memory (the .NET document-repository shape).  `collectJavaExprImports`
-  // runs inside the helper, so its predicate imports land in `exprImports`.
+  // memory (the .NET document-repository shape).
   const retrievalLines = inMemoryRetrievalLines(
     agg,
     ctx.retrievals ?? [],
-    exprImports,
     (retrievalName, varName) => capClauseFor(ctx.bypassByRetrieval?.get(retrievalName), varName),
     baseCall,
     (retrievalName) => principalBindFor(ctx.bypassByRetrieval?.get(retrievalName)),
@@ -188,8 +175,10 @@ export function renderJavaDocumentRepositoryImpl(
       IN_MEMORY_READ_NAMES,
     );
     const params = f.params.map((p) => `${renderJavaType(p.type)} ${localOf(locals, p.name)}`);
-    const ownFilter = f.filter
-      ? `.filter(x -> ${renderJavaExpr(f.filter, { thisName: "x", agg, accessorProps: true, ...inMemoryParamExpr(locals) })})`
+    // A clause-less find still filters — by its implicit key match.
+    const own = effectiveFindFilter(f, agg);
+    const ownFilter = own
+      ? `.filter(x -> ${renderJavaExpr(own, { thisName: "x", agg, accessorProps: true, ...inMemoryParamExpr(locals) })})`
       : "";
     // Conjoin the capabilities this find does NOT `ignoring`, over the same `x`
     // — empty in the no-bypass shape, where `findAll()` already applied them.
@@ -200,7 +189,7 @@ export function renderJavaDocumentRepositoryImpl(
       const sig = [...params, "int page", "int pageSize", "String sort", "String dir"].join(", ");
       return [
         `    @Override`,
-        `    public Paged<${agg.name}> ${f.name}(${sig}) {`,
+        `    public ${paged}<${agg.name}> ${f.name}(${sig}) {`,
         ...prelude,
         `        var all = ${baseCall}.stream()${filter}.toList();`,
         ...inMemoryPagedSortLines(agg),
@@ -237,13 +226,51 @@ export function renderJavaDocumentRepositoryImpl(
   const methodLines = [...findLines, ...retrievalLines];
   while (methodLines.length > 0 && methodLines[methodLines.length - 1] === "") methodLines.pop();
 
+  // Versioned save (M-T6.95) — the write-time CAS.  The upsert's update arm is
+  // guarded on the version THIS handle was loaded at (the service has already
+  // refused a stale `If-Match` against that same value), so a handle another
+  // writer moved past matches no row: `returning` comes back empty and the
+  // save throws the `ObjectOptimisticLockingFailureException(<Agg>.class, id)`
+  // every other raise site passes — the RS-40 409.  Unguarded, two handles (or
+  // two requests) that loaded one version both committed, the second silently
+  // overwriting the first.  On success the bumped counter is reflected onto the
+  // instance (`_applyVersion`), so the same handle saved again is not stale.
+  //
+  // RS-14 — the wire `version` of a document aggregate is served out of the
+  // `data` jsonb (the serialized aggregate), while the concurrency counter
+  // lives in the `version` COLUMN.  The aggregate is serialized BEFORE the next
+  // version is known, so `jsonb_set` stamps the incremented counter back into
+  // `data.version` in the upsert itself and the blob and the column can never
+  // disagree.  (Versioned only — without the capability there is no `version`
+  // key in `data` and `jsonb_set` would CREATE one.)
+  const versionField = versionFieldName(agg);
+  const versionedSaveLines = [
+    `        var __expectedVersion = aggregate.${versionField}();`,
+    `        String __data;`,
+    `        try {`,
+    `            __data = JSON.writeValueAsString(aggregate);`,
+    `        } catch (tools.jackson.core.JacksonException e) {`,
+    `            throw new IllegalStateException("document serialization failed", e);`,
+    `        }`,
+    `        var __written = jdbc.query(`,
+    `            "insert into ${table} (id, data, version) values (?, ?::jsonb, 1) "`,
+    `                + "on conflict (id) do update set "`,
+    `                + "data = jsonb_set(excluded.data, '{version}', to_jsonb(${bare}.version + 1)), "`,
+    `                + "version = ${bare}.version + 1 "`,
+    `                + "where ${bare}.version = ? returning version",`,
+    `            (rs, i) -> rs.getInt(1),`,
+    `            aggregate.id().value(), __data, __expectedVersion);`,
+    `        if (__written.isEmpty()) {`,
+    `            throw new ${javaRef("org.springframework.orm", "ObjectOptimisticLockingFailureException")}(${agg.name}.class, aggregate.id().value());`,
+    `        }`,
+    `        aggregate._applyVersion(__written.get(0));`,
+  ];
+
   return lines(
     `package ${ctx.infraPkg};`,
     ``,
     `import java.util.ArrayList;`,
-    exprImports.has("java.util.Comparator") ? `import java.util.Comparator;` : null,
     `import java.util.List;`,
-    exprImports.has("java.util.Objects") ? `import java.util.Objects;` : null,
     `import java.util.Optional;`,
     ``,
     `import com.fasterxml.jackson.annotation.JsonAutoDetect;`,
@@ -255,11 +282,7 @@ export function renderJavaDocumentRepositoryImpl(
     `import org.springframework.stereotype.Repository;`,
     ``,
     `import ${ctx.basePkg}.config.CatalogLog;`,
-    ctx.entityPkg !== ctx.infraPkg ? `import ${ctx.entityPkg}.${agg.name};` : null,
-    ctx.domainPkg !== ctx.infraPkg ? `import ${ctx.domainPkg}.${agg.name}Repository;` : null,
     `import ${ctx.basePkg}.domain.common.AggregateNotFoundException;`,
-    finds.some(isPagedFind) ? `import ${ctx.basePkg}.domain.common.Paged;` : null,
-    needsAccessor ? `import ${ctx.basePkg}.auth.CurrentUserAccessor;` : null,
     `import ${ctx.basePkg}.domain.ids.*;`,
     // The enums wildcard, matching the RELATIONAL impl (repository.ts:305).
     // A declared find's params are rendered with `renderJavaType`, which spells
@@ -273,7 +296,7 @@ export function renderJavaDocumentRepositoryImpl(
     `/** Document repository — the whole aggregate round-trips one jsonb`,
     ` *  column in ${table} via a field-visibility Jackson mapper. */`,
     `@Repository`,
-    `public class ${agg.name}RepositoryImpl implements ${agg.name}Repository {`,
+    `public class ${agg.name}RepositoryImpl implements ${javaRef(ctx.domainPkg, `${agg.name}Repository`)} {`,
     `    /** Field-visibility mapper: the entity's package-private fields`,
     ` *  round-trip directly (record-style accessors are not getters);`,
     ` *  transient fields (_domainEvents) stay out of the document. */`,
@@ -293,42 +316,29 @@ export function renderJavaDocumentRepositoryImpl(
     // inject the same CurrentUserAccessor bean the relational path uses.  Only
     // wired when the aggregate carries such a filter (non-principal document
     // aggregates stay byte-identical: no field, no ctor param, no import).
-    needsAccessor ? `    private final CurrentUserAccessor currentUserAccessor;` : null,
+    needsAccessor ? `    private final ${accessorType} currentUserAccessor;` : null,
     ``,
     needsAccessor
-      ? `    public ${agg.name}RepositoryImpl(JdbcTemplate jdbc, CurrentUserAccessor currentUserAccessor) {`
+      ? `    public ${agg.name}RepositoryImpl(JdbcTemplate jdbc, ${accessorType} currentUserAccessor) {`
       : `    public ${agg.name}RepositoryImpl(JdbcTemplate jdbc) {`,
     `        this.jdbc = jdbc;`,
     needsAccessor ? `        this.currentUserAccessor = currentUserAccessor;` : null,
     `    }`,
     ``,
     `    @Override`,
-    `    public ${agg.name} save(${agg.name} aggregate) {`,
-    `        try {`,
-    `            jdbc.update(`,
-    `                "insert into ${table} (id, data, version) values (?, ?::jsonb, 1) "`,
-    // RS-14 — the wire `version` of a document aggregate is served out of the
-    // `data` jsonb (the serialized aggregate), while the concurrency counter
-    // lives in the `version` COLUMN.  Bumping only the column left the wire
-    // value frozen at its created value forever (golden 2, we read 1).  Since
-    // the aggregate is serialized BEFORE the next version is known, stamp it in
-    // the upsert itself: `jsonb_set` writes the incremented counter back into
-    // `data.version`, so the blob and the column can never disagree.  Guarded on
-    // `versioned` — without the capability there is no `version` key in `data`
-    // and `jsonb_set` would CREATE one (a wire field out of thin air).
+    `    public ${javaRef(ctx.entityPkg, agg.name)} save(${agg.name} aggregate) {`,
     ...(aggregateIsVersioned(agg)
-      ? [
-          `                    + "on conflict (id) do update set "`,
-          `                    + "data = jsonb_set(excluded.data, '{version}', to_jsonb(${bare}.version + 1)), "`,
-          `                    + "version = ${bare}.version + 1",`,
-        ]
+      ? versionedSaveLines
       : [
+          `        try {`,
+          `            jdbc.update(`,
+          `                "insert into ${table} (id, data, version) values (?, ?::jsonb, 1) "`,
           `                    + "on conflict (id) do update set data = excluded.data, version = ${bare}.version + 1",`,
+          `                aggregate.id().value(), JSON.writeValueAsString(aggregate));`,
+          `        } catch (tools.jackson.core.JacksonException e) {`,
+          `            throw new IllegalStateException("document serialization failed", e);`,
+          `        }`,
         ]),
-    `                aggregate.id().value(), JSON.writeValueAsString(aggregate));`,
-    `        } catch (tools.jackson.core.JacksonException e) {`,
-    `            throw new IllegalStateException("document serialization failed", e);`,
-    `        }`,
     // repository_save (debug) — after the upsert; (aggregate, id) prefix mirrors
     // the relational repo + .NET/Hono emission (children omitted).
     `        CatalogLog.event(${javaLogEvent("repositorySave")}, "aggregate", "${agg.name}", "id", String.valueOf(aggregate.id().value()));`,

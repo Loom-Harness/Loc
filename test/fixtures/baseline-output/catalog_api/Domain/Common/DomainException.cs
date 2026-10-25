@@ -9,9 +9,23 @@ using CatalogApi.Domain.Events;
 
 namespace CatalogApi.Domain.Common;
 
+/// <summary>Which rung of the domain floor refused a call — carried apart
+/// from the message, which an authored <c>message "..."</c> replaces.</summary>
+public enum DomainErrorKind
+{
+    Precondition,
+    Invariant,
+}
+
 public sealed class DomainException : Exception
 {
-    public DomainException(string message) : base(message) { }
+    /// <summary>The rung that refused; null outside the precondition /
+    /// invariant floor.</summary>
+    public DomainErrorKind? Kind { get; }
+    public DomainException(string message, DomainErrorKind? kind = null) : base(message)
+    {
+        Kind = kind;
+    }
 }
 
 /// <summary>A value object's invariant refused a value (M-T5.1).
@@ -74,6 +88,29 @@ public sealed class WireFormatException : Exception
     public string FieldPointer { get; }
     public WireFormatException(string fieldPointer, string message)
         : base(message) => FieldPointer = fieldPointer;
+
+    /// <summary>node's money grammar, character for character:
+    /// <c>^-?[0-9]+(\.[0-9]+)?$</c> — ASCII digits only, no exponent, no
+    /// leading '+', no surrounding whitespace and no GROUPING.  It gates the
+    /// parse because no NumberStyles combination states it:
+    /// <c>NumberStyles.Number</c> takes "12,50" as 1250 (the invariant
+    /// thousands separator), and even AllowLeadingSign | AllowDecimalPoint
+    /// still takes "+5", ".5" and "5.".  A hand loop rather than a Regex, so
+    /// nothing depends on .NET's Unicode <c>\d</c> or its <c>$</c> that also
+    /// matches before a trailing newline.</summary>
+    public static bool IsMoneyGrammar(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return false;
+        var i = value[0] == '-' ? 1 : 0;
+        var start = i;
+        while (i < value.Length && value[i] >= '0' && value[i] <= '9') i++;
+        if (i == start) return false;
+        if (i == value.Length) return true;
+        if (value[i] != '.') return false;
+        var fraction = ++i;
+        while (i < value.Length && value[i] >= '0' && value[i] <= '9') i++;
+        return i > fraction && i == value.Length;
+    }
 }
 
 /// <summary>

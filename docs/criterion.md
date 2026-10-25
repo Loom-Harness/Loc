@@ -37,7 +37,8 @@ guards.
 > (`loom.repository-find-deprecated`, a warning): a `find byX(...): T[]` /
 > `T paged` is a bespoke list finder — pass a criterion to `run`
 > (`Repo.run(<Criterion>(args))`) or name a `retrieval` instead of accreting a
-> method per query.  A **unique-key reconstitution** find (returning a single
+> method per query, and expose it with `scaffoldPaged(of: …)` +
+> `scaffoldPagedApi(of: …)` when a client must call it.  A **unique-key reconstitution** find (returning a single
 > `T` / `T?` by identity) is *not* a list query and stays legal.  The
 > single-result `Repo.find(<Criterion>)` is **shipped on every backend** as the
 > source of an `if let` workflow statement — `if let x = Repo.find(<Criterion>)
@@ -205,20 +206,11 @@ model. They're worth trusting; both fire early:
 
 | Code | Fires when | Steers you to |
 |---|---|---|
-| `loom.repository-find-deprecated` | A `repository` declares a `find` returning a collection (`: T[]`) — a bespoke list finder accreting on the repo — **in a context that already declares a `criterion` or a `retrieval`** (see the scope note below). | Pass a criterion to `run` (`Repo.run(<Criterion>(args))`) or name a `retrieval` instead. A unique-key reconstitution find returning a single `T` / `T?` stays fine. |
+| `loom.repository-find-deprecated` | A `repository` declares a `find` returning a collection (`: T[]` / `T paged`) — a bespoke list finder accreting on the repo. | Pass a criterion to `run` (`Repo.run(<Criterion>(args))`) or name a `retrieval` instead; put it on the wire with `scaffoldPaged(of: <it>)` on the context and `scaffoldPagedApi(of: <it>)` on the api. A unique-key reconstitution find returning a single `T` / `T?` stays fine. |
 | `loom.index-suggestion` | A field is read on a query filter — a `find … where`, a reified `filter`, a `criterion` body or a `retrieval`'s `where` — but has no index. | Add `index: <Agg>.<field>` on the aggregate's `kind: state` resource — the column then shows up in the migration. |
 
-> **Scope of the find deprecation (interim).** The warning fires only inside a
-> bounded context that already declares a `criterion` or a `retrieval`. The
-> replacement it names is not yet at parity with a `find` — a criterion /
-> retrieval read emits a repository method, but no HTTP route, no client hook
-> and no scaffolded filter bar — so a model that has adopted neither (the
-> `ddd new --template crud` starter among them) is not nagged about the only
-> spelling that works end to end. The gate is temporary: once a `retrieval`
-> carries its own route, the warning returns on every list `find`.
-> The index suggestion is *not* scoped this way — it follows the migration, so
-> a `find … where` rewritten as a `criterion` + `retrieval` keeps earning the
-> same `loom.index-suggestion`.
+> The index suggestion follows the migration: a `find … where` rewritten as a
+> `criterion` + `retrieval` keeps earning the same `loom.index-suggestion`.
 
 The intent is "pit of success": the compiler notices a performance smell in a
 DDD model — an unusual and welcome nudge — and points at the idiomatic fix

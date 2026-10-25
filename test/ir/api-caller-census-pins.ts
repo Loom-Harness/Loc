@@ -536,6 +536,9 @@ export const UNCALLED_PINS: Record<string, Record<string, string>> = {
   "corpus/state-gate": {
     canCancelOrder: R.gateProbe,
   },
+  "corpus/create-contract": {
+    canConfirmAppointment: R.gateProbe,
+  },
   // ── The ROUTED-HANDLER fixture's two id-taking aggregate routes ──────────
   // `handler-triad`'s whole api is explicit `route … -> Sales.<Handler>`
   // bindings, and all five are now driven (`api.sales.echo(…)` &c) along with
@@ -570,6 +573,9 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // read model is read through `GET /api/projections/order_board/{key}`, which
   // `deriveContextOperations` lists under `apiSurfaceCoverage.notLifted`.
   "corpus/projection-valueobject-row": ["api.orderBoard.byKey (no such aggregate)"],
+  // A workflow run (`POST /api/workflows/drop_via`) — the not-yet-lifted
+  // workflow-run class, like `corpus/vo-invariant-in-body`'s `api.bump.run`.
+  "corpus/contained-part-removal": ["api.dropVia.run (no such aggregate)"],
   // M-T5.1 — the workflow router is one of the two body sites a value-object
   // breach answers through, so the fixture drives `POST /api/workflows/bump`.
   // A workflow run is the `notLifted` class (same as `workflow-create-state`).
@@ -580,11 +586,26 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.debitOnce.run (no such aggregate)",
     "api.debitTwice.run (no such aggregate)",
   ],
+  // Workflow runs (M-T6.98) — not a lifted route class.
+  "corpus/workflow-two-handles-document-eventlog": [
+    "api.hitSameTwice.run (no such aggregate)",
+    "api.hitTwice.run (no such aggregate)",
+    "api.hitViaSecond.run (no such aggregate)",
+    "api.withdrawSameTwice.run (no such aggregate)",
+    "api.withdrawTwice.run (no such aggregate)",
+    "api.withdrawViaSecond.run (no such aggregate)",
+  ],
   // Workflow runs (M-T6.90) — not a lifted route class, same as above.
   "corpus/workflow-two-handles-containment": [
     "api.addTwice.run (no such aggregate)",
     "api.addViaSecond.run (no such aggregate)",
     "api.dropViaSecond.run (no such aggregate)",
+  ],
+  // M-T4.3 item 6 — the same two shapes, the rollback one forced by a failed
+  // precondition after an `if let` branch saved.
+  "corpus/transactional-workflow-post-commit-dispatch": [
+    "api.debitOnce.run (no such aggregate)",
+    "api.debitThenOverdraw.run (no such aggregate)",
   ],
   // `api.orders.history(...)` reads the entity-history endpoint over
   // `audit_records` (#2378) — a machinery read `deriveContextOperations` does
@@ -598,6 +619,14 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.invoices.history (no derived operation)",
     "api.memos.history (no derived operation)",
     "api.orders.history (no derived operation)",
+  ],
+  // The same entity-history read class: `field-mask` reads its audited
+  // aggregate's trail as the unprivileged principal (the masked-field DROP and
+  // the RS-45 `actor`).
+  "corpus/field-mask": ["api.employees.history (no derived operation)"],
+  "corpus/audit-history-guarded": [
+    "api.employees.history (no derived operation)",
+    "api.payslips.history (no derived operation)",
   ],
   // The QUERY-TIME projection reads (`GET /api/projections/<snake>`) — same
   // `notLifted` class as the folded projection above, one shape further along:
@@ -692,6 +721,14 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // Wave C3 packet 3a: the same WORKFLOW-accessor class, on the command
   // workflow whose primitive params the drained block sends.
   "corpus/workflow-primitive-params": ["api.topUp.run (no such aggregate)"],
+  // B-03 — the workflow `create(…): T` result fixture drives three command
+  // workflows (two answering a value, one the 204 sibling); same not-lifted
+  // workflow-route class.
+  "corpus/workflow-create-result": [
+    "api.openAccount.run (no such aggregate)",
+    "api.topUp.run (no such aggregate)",
+    "api.transfer.run (no such aggregate)",
+  ],
   // M-T9.42 — the EVENT-SOURCED saga's instance reads (LIST folds every stream,
   // by-key folds one), the same not-lifted workflow-route class as above.
   // …and the plain (state-table) saga's by-key read (M-T9.42 own-state).
@@ -710,6 +747,12 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.review.instances (no such aggregate)",
   ],
   "corpus/workflow-command-payload": ["api.claimHandling.run (no such aggregate)"],
+  // The two `transactional` workflows the domain-service tiers orchestrate —
+  // the same not-lifted workflow-run class as the entries above.
+  "corpus/domain-services": [
+    "api.moveMoney.run (no such aggregate)",
+    "api.registerAccount.run (no such aggregate)",
+  ],
   "corpus/projection-implicit-sub": [
     "api.fulfilment.instance (no such aggregate)",
     "api.fulfilment.instances (no such aggregate)",
@@ -809,6 +852,18 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // wire golden with no new content — a `using` alias is not observable on the
   // wire.  Signed with its reason in gate-ledger's BEHAVIOURAL_ABSENT.
   "dotnet-bcl-type-collision",
+  // The defect is an elixir COMPILE failure (`alias Claims.Claims` shadowing the
+  // app module in every controller, so `Claims.GuardError` was undefined); the
+  // fix only changes how the controller spells the facade, which is not
+  // observable on the wire.  `corpus-elixir-build` is its oracle.  Signed with
+  // its reason in gate-ledger's BEHAVIOURAL_ABSENT.
+  "context-named-like-app",
+  // The adversarial identifier-legality fixture: every target's reserved
+  // words as fields / enum values / operations / params.  Its defect is a
+  // COMPILE failure on the backend that cannot spell a name, so the five corpus
+  // compile legs are its oracle; the escape is invisible on the wire by ruling
+  // D-TARGET-RESERVED-NAMES.  Signed in gate-ledger's BEHAVIOURAL_ABSENT.
+  "target-reserved-words",
   // COMPILE-TIER WITNESS (dev-experience audit D6/P2) — an id-typed `user { … }`
   // claim (`customerId: Customer id?`), which broke four of five backends two
   // ways at once (the optional marker emitted twice; the strong-id class never
@@ -854,6 +909,13 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // the existence of a declaration, which the compile tier reads directly; no
   // route of the fixture reads the claim.  Reasoned permanent entry.
   "auth-id-claim-foreign",
+  // COMPILE-TIER WITNESS (claims eval D18) — an `X id` on hosted declarations
+  // whose target aggregate is in a sibling context the deployable does not
+  // host: the brand was referenced and declared nowhere.  The defect is a
+  // missing DECLARATION, which the compile tier reads directly; the CRUD routes
+  // the fixture exposes are the ones `core-domain` already boots.  Reasoned
+  // permanent entry.
+  "foreign-id-field",
   // COMPILE-TIER WITNESS (audit F57 / M-T6.57) — the `envelope` carrier, which
   // NO `.ddd` in the repo instantiated before this fixture, so every compile
   // gate was blind to it and java/dotnet emitted output that did not build.
@@ -1232,7 +1294,7 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
 export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   tenantRegistryRow: 20,
   seededListReadUnwritten: 2,
-  gateProbe: 1,
+  gateProbe: 2,
   clockDependentFind: 1,
   // +2 — `corpus/handler-triad` joined the census when the routed-handler call
   // form made its api addressable, and brought its aggregate's two id-taking

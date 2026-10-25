@@ -26,15 +26,14 @@
 
 import { type TypeIR, typeUsesMoney } from "../../ir/types/loom-ir.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
+import { tsCodePointSubstring } from "./code-point.js";
 export const JS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[]) => string> = {
   "string.trim": (recv) => `${recv}.trim()`,
   "string.toUpper": (recv) => `${recv}.toUpperCase()`,
   "string.toLower": (recv) => `${recv}.toLowerCase()`,
-  // 0-based clamping semantics = JS slice (see the catalogue contract).
-  "string.substring": (recv, args) =>
-    args.length > 1
-      ? `${recv}.slice(${args[0]}, (${args[0]}) + (${args[1]}))`
-      : `${recv}.slice(${args[0]})`,
+  // 0-based, clamping, counted in CODE POINTS like `.length` (the catalogue
+  // contract; `_expr/code-point.ts`).
+  "string.substring": (recv, args) => tsCodePointSubstring(recv, args[0]!, args[1]),
   "string.startsWith": (recv, args) => `${recv}.startsWith(${args[0]})`,
   "string.endsWith": (recv, args) => `${recv}.endsWith(${args[0]})`,
   "string.contains": (recv, args) => `${recv}.includes(${args[0]})`,
@@ -79,6 +78,19 @@ export const JS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   // `recv` three times is safe.
   "datetime.startOfDay": (recv) =>
     `new Date(Date.UTC((${recv}).getUTCFullYear(), (${recv}).getUTCMonth(), (${recv}).getUTCDate()))`,
+  // The UTC calendar date of an instant.  `new Date(…)` accepts both a `Date`
+  // (the backend) and the ISO text a datetime is after crossing the wire (the
+  // frontends), so one arm serves both surfaces.
+  "datetime.toDate": (recv) => `new Date(${recv}).toISOString().slice(0, 10)`,
+  // ---- date ----------------------------------------------------------------
+  // A `date` is its ISO `YYYY-MM-DD` text on every JS surface, so the
+  // components are fixed-position slices and `Date.parse` of that form is UTC
+  // midnight by spec — the day distance never follows the host's zone.
+  "date.year": (recv) => `Number((${recv}).slice(0, 4))`,
+  "date.month": (recv) => `Number((${recv}).slice(5, 7))`,
+  "date.day": (recv) => `Number((${recv}).slice(8, 10))`,
+  "date.daysUntil": (recv, args) =>
+    `Math.round((Date.parse(${args[0]}) - Date.parse(${recv})) / 86400000)`,
 };
 
 /**

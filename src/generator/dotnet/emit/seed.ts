@@ -24,6 +24,7 @@
 // indirection was considered and not adopted).
 
 import type { EnrichedBoundedContextIR, SeedRowIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import { enumPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import {
@@ -163,6 +164,9 @@ function coerceSeedValue(type: TypeIR, rendered: string): string {
   if (leaf.kind === "primitive" && leaf.name === "datetime") {
     return `DateTime.Parse(${rendered}, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal)`;
   }
+  if (leaf.kind === "primitive" && leaf.name === "date") {
+    return `DateOnly.ParseExact(${rendered}, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)`;
+  }
   return rendered;
 }
 
@@ -209,7 +213,7 @@ function renderSeedFile(
   const body = lines(...fnBlocks);
   const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
   const usesVo = ctx.valueObjects.some((v) => new RegExp(`\\b${v.name}\\b`).test(scan));
-  const usesEnum = ctx.enums.some((e) => new RegExp(`\\b${e.name}\\b`).test(scan));
+  const usesEnum = enumPool(ctx).some((e) => new RegExp(`\\b${e.name}\\b`).test(scan));
 
   const usings = lines(
     "using System;",

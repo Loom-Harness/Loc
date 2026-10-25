@@ -1,0 +1,227 @@
+{
+  "case": "create-contract",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/appointments",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "GET",
+      "path": "/api/appointments/{id}",
+      "status": 200,
+      "body": {
+        "fee": {
+          "amount": 50,
+          "currency": "EUR"
+        },
+        "id": "<volatile:key>",
+        "minutes": 30,
+        "notes": null,
+        "patient": "p-1",
+        "priority": 3,
+        "room": "A1",
+        "status": "Requested",
+        "tags": [],
+        "urgent": false,
+        "version": 1
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/appointments/{id}/confirm",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/appointments/{id}",
+      "status": 200,
+      "body": {
+        "fee": {
+          "amount": 50,
+          "currency": "EUR"
+        },
+        "id": "<volatile:key>",
+        "minutes": 30,
+        "notes": null,
+        "patient": "p-1",
+        "priority": 3,
+        "room": "A1",
+        "status": "Confirmed",
+        "tags": [],
+        "urgent": false,
+        "version": 2
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/appointments/{id}/confirm",
+      "status": 409,
+      "body": {
+        "detail": "operation 'confirm' is not allowed in the current state of Appointment (when status == Requested).",
+        "instance": "/api/appointments/{id}/confirm",
+        "status": 409,
+        "title": "Disallowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/appointments?dir=asc&sort=patient",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "fee": {
+              "amount": 50,
+              "currency": "EUR"
+            },
+            "id": "<volatile:key>",
+            "minutes": 30,
+            "notes": null,
+            "patient": "p-1",
+            "priority": 3,
+            "room": "A1",
+            "status": "Confirmed",
+            "tags": [],
+            "urgent": false,
+            "version": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/appointments",
+      "status": 422,
+      "body": {
+        "detail": "A patient name needs two characters",
+        "errors": [
+          {
+            "code": "msg.ojnyph",
+            "message": "A patient name needs two characters",
+            "pointer": "/patient"
+          }
+        ],
+        "instance": "/api/appointments",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/appointments",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "msg.f0bvq7",
+            "message": "Duration must be 10–120 minutes",
+            "pointer": "/minutes"
+          }
+        ],
+        "instance": "/api/appointments",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "PATCH",
+      "path": "/api/appointments",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/appointments",
+        "instance": "/api/appointments",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/appointments",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/appointments",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/appointments/{id}/confirm",
+      "status": 404,
+      "body": {
+        "detail": "Appointment {id} not found",
+        "instance": "/api/appointments/{id}/confirm",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/appointments/{id}/confirm",
+      "status": 404,
+      "body": {
+        "detail": "Appointment {id} not found",
+        "instance": "/api/appointments/{id}/confirm",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/appointments/{id}/confirm",
+      "status": 415,
+      "body": {
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/appointments/{id}/confirm",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

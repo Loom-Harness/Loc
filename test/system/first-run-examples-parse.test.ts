@@ -113,15 +113,30 @@ function asSystem(b: Block): string {
 }
 
 /** Blocks that are invalid ON PURPOSE — a doc demonstrating a diagnostic.
- *  Keyed `<doc>:<fence line>` → the `loom.*` code the prose promises, so the
- *  gate pins the promise instead of looking away: the block must produce THAT
- *  code, not merely fail somehow. */
-const EXPECTED_INVALID: Record<string, string> = {
-  "docs/api-toolkit.md:153": "loom.bare-aggregate-in-type",
+ *  Each entry names the doc, a MARKER (a line of text unique to that block,
+ *  so the pin survives edits elsewhere in the doc — a line-number key broke
+ *  whenever a sibling section grew or shrank) and the `loom.*` code the prose
+ *  promises, so the gate pins the promise instead of looking away: the block
+ *  must produce THAT code, not merely fail somehow.  An entry whose marker no
+ *  longer matches exactly one block fails below, so a removed example deletes
+ *  its entry. */
+const EXPECTED_INVALID: readonly { doc: string; marker: string; code: string }[] = [
+  {
+    doc: "docs/api-toolkit.md",
+    marker: "aggregate Order { line: Item }",
+    code: "loom.bare-aggregate-in-type",
+  },
   // A fail-closed register repro the single typing pass now refuses upstream
   // (page `state` is typed, so `xs.reverse()` on an `int[]` is an unknown member).
-  "docs/new-plan/missions/M-T9.77-fail-closed-register.md:857": "loom.unknown-member",
-};
+  {
+    doc: "docs/new-plan/missions/M-T9.77-fail-closed-register.md",
+    marker: "action say() { xs := xs.reverse() }",
+    code: "loom.unknown-member",
+  },
+];
+
+const expectedFor = (rel: string, b: Block) =>
+  EXPECTED_INVALID.find((e) => e.doc === rel && b.text.includes(e.marker));
 
 /** Every `.md` under `docs/`, plus the README.  `old/` is the frozen design
  *  record and `audits/` are snapshot records of broken input — neither makes a
@@ -154,9 +169,16 @@ describe("the examples a new user copies actually parse", () => {
     expect(found.some((x) => x.rel === "README.md")).toBe(true);
   });
 
+  it("every EXPECTED_INVALID marker matches exactly one block (the list ratchets)", () => {
+    const misses = EXPECTED_INVALID.filter(
+      (e) => found.filter(({ rel, b }) => rel === e.doc && b.text.includes(e.marker)).length !== 1,
+    ).map((e) => `${e.doc}: ${e.marker}`);
+    expect(misses, "stale or ambiguous marker — fix or delete the entry").toEqual([]);
+  });
+
   for (const { rel, b } of found) {
     const key = `${rel}:${b.line}`;
-    const expectedCode = EXPECTED_INVALID[key];
+    const expectedCode = expectedFor(rel, b)?.code;
 
     if (expectedCode) {
       it(`${key} — shows ${expectedCode}`, async () => {
@@ -194,9 +216,9 @@ describe("the examples a new user copies actually parse", () => {
 // Two of them had drifted from the grammar with nothing to catch it: the
 // formal reference (`docs/language.md`) documented `channel Name { carries:
 // [Event, …] }`, a bracketed list the grammar has never taken (`Expecting token
-// of type 'ID' but found '['`), and chapter 06 told the reader that "omitting
-// the parens" silences `loom.create-params-not-wire` when `create { }` does not
-// parse at all.  Both are lines a new user reads FIRST.
+// of type 'ID' but found '['`), and chapter 06 told the reader to "omit the
+// parens" of a `create` when `create { }` does not parse at all.  Both are
+// lines a new user reads FIRST.
 //
 // The question here is SYNTAX ONLY — `parseRawResult`, not `parseString` — and
 // that is deliberate, not laziness.  A reference doc's job is to show the

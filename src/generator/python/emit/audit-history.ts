@@ -26,7 +26,17 @@ import type { EnrichedAggregateIR } from "../../../ir/types/loom-ir.js";
 import { maskedHistoryFields, unmaskedHistoryFields } from "../../../ir/util/audit-history.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
+import { pyRef } from "../../_imports/python.js";
+import { pyIdType } from "../py-symbols.js";
 import { renderPyExpr } from "../render-expr.js";
+
+// What the per-aggregate mapper references, as `ref()` markers (the routes
+// module's import block derives from use).
+const AUDIT_RECORD_ROW = pyRef("app.db.audit", "AuditRecordRow");
+const AUDIT_SNAPSHOT_VALUE = pyRef("app.audit.history", "audit_snapshot_value");
+const AUDIT_VALUE_CHANGED = pyRef("app.audit.history", "audit_value_changed");
+const CURRENT_USER = pyRef("app.auth.user", "current_user");
+const ISO = pyRef("app.db.wire", "iso");
 
 /** Name of the per-aggregate row → entry mapper emitted into the routes file. */
 export function pyHistoryMapperName(agg: EnrichedAggregateIR): string {
@@ -106,23 +116,23 @@ export function renderPyHistoryMapper(agg: EnrichedAggregateIR): string {
   const unmasked = unmaskedHistoryFields(agg);
   const masked = maskedHistoryFields(agg);
   const body: (string | null)[] = [
-    `def ${pyHistoryMapperName(agg)}(row: AuditRecordRow) -> dict[str, object]:`,
+    `def ${pyHistoryMapperName(agg)}(row: ${AUDIT_RECORD_ROW}) -> dict[str, object]:`,
     `    changes: list[dict[str, object]] = []`,
   ];
   if (unmasked.length > 0) {
     const keys = unmasked.map((f) => JSON.stringify(f.name)).join(", ");
     body.push(
       `    for key in (${keys}${unmasked.length === 1 ? "," : ""}):`,
-      `        __b = audit_snapshot_value(row.before, key)`,
-      `        __a = audit_snapshot_value(row.after, key)`,
-      `        if audit_value_changed(__b, __a):`,
+      `        __b = ${AUDIT_SNAPSHOT_VALUE}(row.before, key)`,
+      `        __a = ${AUDIT_SNAPSHOT_VALUE}(row.after, key)`,
+      `        if ${AUDIT_VALUE_CHANGED}(__b, __a):`,
       `            changes.append({"field": key, "before": __b, "after": __a})`,
     );
   }
   if (masked.length > 0) {
     // The ambient principal, read through the NON-raising getter — an
     // unauthenticated caller yields None and every masked entry drops.
-    body.push(`    _mask_user = current_user()`);
+    body.push(`    _mask_user = ${CURRENT_USER}()`);
   }
   for (const f of masked) {
     // The SAME `mask unless` predicate the entity read applies via
@@ -135,16 +145,16 @@ export function renderPyHistoryMapper(agg: EnrichedAggregateIR): string {
       `    # A redacted-but-present entry would still disclose that it changed, when,`,
       `    # and by whom, which is the disclosure the mask exists to prevent.`,
       `    if _mask_user is not None and (${pred}):`,
-      `        __b = audit_snapshot_value(row.before, ${key})`,
-      `        __a = audit_snapshot_value(row.after, ${key})`,
-      `        if audit_value_changed(__b, __a):`,
+      `        __b = ${AUDIT_SNAPSHOT_VALUE}(row.before, ${key})`,
+      `        __a = ${AUDIT_SNAPSHOT_VALUE}(row.after, ${key})`,
+      `        if ${AUDIT_VALUE_CHANGED}(__b, __a):`,
       `            changes.append({"field": ${key}, "before": __b, "after": __a})`,
     );
   }
   body.push(
     `    return {`,
     `        "auditId": row.audit_id,`,
-    `        "at": iso(row.at),`,
+    `        "at": ${ISO}(row.at),`,
     `        "action": row.action,`,
     `        "operationId": row.operation_id,`,
     `        "actor": row.actor,`,
@@ -158,15 +168,16 @@ export function renderPyHistoryMapper(agg: EnrichedAggregateIR): string {
 /** The `history(id)` repository query — filtered on the `(target_type,
  *  target_id)` pair the write side indexes, oldest first. */
 export function renderPyHistoryRepoMethod(agg: EnrichedAggregateIR): string {
+  const row = pyRef("app.db.audit", "AuditRecordRow");
   return lines(
-    `    async def history(self, id: ${agg.name}Id) -> Sequence[AuditRecordRow]:`,
+    `    async def history(self, id: ${pyIdType(agg.name)}) -> ${pyRef("collections.abc", "Sequence")}[${row}]:`,
     `        __stmt = (`,
-    `            select(AuditRecordRow)`,
+    `            ${pyRef("sqlalchemy", "select")}(${row})`,
     `            .where(`,
-    `                AuditRecordRow.target_type == ${JSON.stringify(agg.name)},`,
-    `                AuditRecordRow.target_id == str(id),`,
+    `                ${row}.target_type == ${JSON.stringify(agg.name)},`,
+    `                ${row}.target_id == str(id),`,
     `            )`,
-    `            .order_by(AuditRecordRow.at)`,
+    `            .order_by(${row}.at)`,
     `        )`,
     `        return (await self._session.execute(__stmt)).scalars().all()`,
   );

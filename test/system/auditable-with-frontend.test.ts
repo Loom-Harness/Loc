@@ -119,7 +119,9 @@ describe("`auditable` + a frontend — the principal is not a domain aggregate",
     // What it renders as instead: the stamped value, read-only.
     expect(detail).toContain("<Text>{widgetById.data.createdBy}</Text>");
     expect(detail).toContain("<Text>{widgetById.data.updatedBy}</Text>");
-    expect(list).toContain("<Text>{row.createdBy}</Text>");
+    // The list leaves the principal stamps out entirely — bookkeeping, not a
+    // column a reader scans by (`listShapeForAggregate`); Detail keeps them.
+    expect(list).not.toContain("row.createdBy");
   });
 
   it("the stamped fields stay out of the create form — they are `managed`, not inputs", async () => {

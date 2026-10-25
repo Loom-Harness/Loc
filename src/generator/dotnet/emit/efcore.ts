@@ -12,11 +12,14 @@ import type {
 import { exprUsesCurrentUser, isMaterializedProjection } from "../../../ir/types/loom-ir.js";
 import { directParentName } from "../../../ir/util/containment-parent.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
+import { implicitFindMatches } from "../../../ir/util/implicit-find-filter.js";
 import {
   type AggPool,
+  inheritedFilterCount,
   isTphBase,
   isTphConcrete,
   ownFieldsOf,
+  rootBaseOf,
   tableOwnerName,
 } from "../../../ir/util/inheritance.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
@@ -294,9 +297,10 @@ export function renderDbContext(
     const names = queryFilterNames(a, ctx.aggregates);
     const host = tableOwnerName(a, ctx.aggregates);
     const guardKind = isTphConcrete(a, ctx.aggregates) ? a.name : undefined;
+    const rootHosted = rootHostedFilterCount(a, ctx.aggregates);
     return (a.contextFilters ?? [])
       .map((predicate, i) => [predicate, i] as const)
-      .filter(([predicate]) => exprRefsCurrentUser(predicate))
+      .filter(([predicate, i]) => i >= rootHosted && exprRefsCurrentUser(predicate))
       .map(([predicate, i]) => {
         let body = renderCsExpr(predicate, {
           thisName: "x",
@@ -829,11 +833,8 @@ function indexedColumnsFor(agg: AggregateIR, ctx: BoundedContextIR): Set<string>
     if (find.filter) {
       collectColumnRefs(find.filter, out);
     } else {
-      for (const p of find.params) {
-        const matched = agg.fields.find(
-          (f) => f.name === p.name || `${f.name.replace(/Id$/, "")}Id` === p.name,
-        );
-        if (matched) out.add(matched.name);
+      for (const { field: matched } of implicitFindMatches(find, agg)) {
+        out.add(matched.name);
       }
     }
   }
@@ -860,8 +861,14 @@ function indexedColumnsFor(agg: AggregateIR, ctx: BoundedContextIR): Set<string>
  *  plain aggregate and emit bypass names that match nothing. */
 export function queryFilterNames(agg: AggregateIR, pool: AggPool): string[] {
   const prefix = isTphConcrete(agg, pool) ? `${agg.name}_` : "";
+  const rootHosted = rootHostedFilterCount(agg, pool);
+  const rootNames = rootHosted > 0 ? queryFilterNames(rootBaseOf(agg, pool), pool) : [];
   const seen = new Set<string>();
   return (agg.contextFilters ?? []).map((predicate, i) => {
+    if (i < rootHosted) {
+      seen.add(rootNames[i]!);
+      return rootNames[i]!;
+    }
     let name = `${prefix}${queryFilterName(predicate, agg.contextFilterRefs?.[i], i)}`;
     if (seen.has(name)) {
       let n = 2;
@@ -871,6 +878,17 @@ export function queryFilterNames(agg: AggregateIR, pool: AggPool): string[] {
     seen.add(name);
     return name;
   });
+}
+
+/** How many of a TPH concrete's leading filters it inherited from the ROOT
+ *  base.  The root config registers those once, unguarded and under the root's
+ *  own names, and they already constrain every concrete's rows — so the
+ *  concrete neither re-registers them nor prefixes their names, and its
+ *  `ignoring <baseCap>` resolves to the root's name.  A filter inherited from
+ *  an intermediate abstract base (which hosts no config) is the concrete's to
+ *  register, like its own.  0 for anything that is not a TPH concrete. */
+function rootHostedFilterCount(agg: AggregateIR, pool: AggPool): number {
+  return isTphConcrete(agg, pool) ? inheritedFilterCount(agg, rootBaseOf(agg, pool)) : 0;
 }
 
 /** The `kind`-discriminator guard that scopes a root-hosted query filter to one
@@ -893,9 +911,10 @@ function kindGuarded(kind: string, body: string): string {
  *  concrete's rows. */
 function staticQueryFilterLines(agg: AggregateIR, pool: AggPool, guardKind?: string): string[] {
   const names = queryFilterNames(agg, pool);
+  const rootHosted = rootHostedFilterCount(agg, pool);
   return (agg.contextFilters ?? [])
     .map((predicate, i) => [predicate, i] as const)
-    .filter(([predicate]) => !exprRefsCurrentUser(predicate))
+    .filter(([predicate, i]) => i >= rootHosted && !exprRefsCurrentUser(predicate))
     .map(([predicate, i]) => {
       const body = renderCsExpr(predicate, { thisName: "x", efQuery: true });
       return `        builder.HasQueryFilter(${JSON.stringify(names[i])}, x => ${

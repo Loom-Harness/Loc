@@ -14,6 +14,8 @@ import {
   operationGates,
   workflowNeedsCurrentUser,
 } from "../../ir/util/op-gates.js";
+import { reactorNeedsPrincipal } from "../../ir/util/system-principal.js";
+import { workflowPreconditionThrowArgs } from "../_i18n/domain-floor.js";
 
 /** The resolved body of one subscription (the `on` reactor or event-`create`
  *  starter): its statements, aggregate saves, and correlation routing expr. */
@@ -41,6 +43,7 @@ import {
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
 } from "../../ir/util/walk.js";
+import { commandCreateResult, emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
@@ -69,6 +72,7 @@ import {
 import { dotnetNotFoundThrow } from "./emit/common.js";
 import { dapperWorkflowStateColumns } from "./emit/dapper-workflow.js";
 import type { OpFragment } from "./emit/entity.js";
+import { csReadOwnParams } from "./local-names.js";
 import type { CsRenderContext } from "./render-expr.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "./render-expr.js";
 import { collectCsStmtUsings, renderCsStatements } from "./render-stmt.js";
@@ -368,16 +372,6 @@ ${noNulCharUsing(ns, recs)}
 namespace ${ns}.Application.Workflows;
 
 ${recs}`;
-}
-
-/** A workflow exposes an HTTP command POST when its facade (the primary
- *  unnamed create) is command-triggered.  A workflow whose only create is
- *  event-triggered (`create(e: Event)`) — i.e. a reactor / saga started by an
- *  event, never by an HTTP call — has no command surface. */
-function emitsCommandRoute(wf: WorkflowIR): boolean {
-  const facade =
-    wf.creates.find((c) => c.name === null && c.triggerKind === "command") ?? wf.creates[0];
-  return !facade || facade.triggerKind === "command";
 }
 
 // ---------------------------------------------------------------------------
@@ -715,6 +709,15 @@ function renderEventReactorHandler(
   // method level and the buffer may lead the statements.  `renderHandler`'s
   // twin must NOT do this; see the note there.
   if (usage.hasEmit) stmtLines.push("        var _workflowEvents = new List<IDomainEvent>();");
+  // A reactor has no request principal: it runs as the SYSTEM principal
+  // (ruling D1), carrying the dispatching request's tenant and recording its
+  // user as `CausedBy`.  Bound only when the body — or an operation it calls,
+  // hoisted gate included — reads `currentUser` (it was an unbound CS0103).
+  if (reactorNeedsPrincipal(statements, ctx)) {
+    stmtLines.push(
+      `        var currentUser = global::${ns}.Auth.User.SystemPrincipal(RequestContext.Current?.CurrentUser);`,
+    );
+  }
   const resourceClasses = buildResourceClasses(sys);
   const usesResourceOp = statements.some((st) => {
     const call =
@@ -1273,6 +1276,10 @@ public sealed record ${upperFirst(wf.name)}Request(${params});
 
 function renderCommand(wf: WorkflowIR, ns: string): string {
   const params = wf.params.map((p) => `${renderCsType(p.type)} ${upperFirst(p.name)}`).join(", ");
+  // `create(…): T` — the command carries its result type (`ICommand<T>`), the
+  // commandHandler shape; a result-less workflow keeps the unit `ICommand`.
+  const result = commandCreateResult(wf);
+  const iface = result ? `ICommand<${renderCsType(result.type)}>` : "ICommand";
   return `// Auto-generated.
 using Mediator;
 using ${ns}.Domain.Ids;
@@ -1281,7 +1288,7 @@ using ${ns}.Domain.Enums;
 
 namespace ${ns}.Application.Workflows;
 
-public sealed record ${upperFirst(wf.name)}Command(${params}) : ICommand;
+public sealed record ${upperFirst(wf.name)}Command(${params}) : ${iface};
 `;
 }
 
@@ -1307,7 +1314,9 @@ function renderWorkflowFunctions(wf: WorkflowIR, ns: string): string | undefined
     `${ns}.Domain.Enums`,
   ]);
   const methods = fns.flatMap((fn) => {
-    const params = fn.params.map((p) => `${renderCsType(p.type)} ${p.name}`).join(", ");
+    const params = fn.params
+      .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
+      .join(", ");
     const head = `    public static ${renderCsType(fn.returnType)} ${upperFirst(fn.name)}(${params})`;
     if ("expr" in fn.body) {
       collectCsExprUsings(fn.body.expr, usings, ns);
@@ -1352,6 +1361,10 @@ function renderHandler(
   // the INLINE op-call site inside this body, so the principal can be needed by
   // a workflow that never spells `currentUser` itself (CS0103 otherwise).
   const usesUser = workflowNeedsCurrentUser(wf, ctx);
+  // `create(…): T { … return <expr> }` — the handler returns the value instead
+  // of `Unit` (the route answers 200 with it).
+  const result = commandCreateResult(wf);
+  const resultCs = result ? renderCsType(result.type) : "Unit";
   // F58 — a state-bearing workflow's COMMAND handler must load-or-allocate the
   // same saga row `renderEventReactorHandler` does and render the body against
   // it.  Without this the body's own-state writes rendered `this.<Field>` on a
@@ -1588,6 +1601,10 @@ function renderHandler(
   }
   // Persist the saga row (a fresh allocation, or a `this.<stateField>` write).
   if (corrParam) stmtLines.push("        await _sagaState.SaveChangesAsync(cancellationToken);");
+  // The result is read where the body's locals are in scope — inside the `try`
+  // of a transactional workflow, so it is the value the commit made durable —
+  // and returned after the commit and the event drain.
+  if (result) stmtLines.push(`        workflowResult = ${renderArg(result.value)};`);
 
   // `workflow_started` at handler entry (before any tx begins); `workflow_completed`
   // on the success tail (after emits dispatch, before returning Unit) — a thrown
@@ -1605,6 +1622,7 @@ function renderHandler(
   // it.  Emitted for both paths, keeping the non-transactional output
   // byte-identical to where the declaration used to lead `stmtLines`.
   if (usage.hasEmit) body += "        var _workflowEvents = new List<IDomainEvent>();\n";
+  if (result) body += `        ${resultCs} workflowResult = default!;\n`;
   if (wf.transactional) {
     const beginCall = effectiveIsolation
       ? `_uow.BeginTransactionAsync(IsolationLevel.${csIsolationLevel(effectiveIsolation)}, cancellationToken)`
@@ -1636,7 +1654,7 @@ function renderHandler(
       `            await _events.DispatchAsync(ev, cancellationToken);\n`;
   }
   body += completedLog;
-  body += "        return Unit.Value;\n";
+  body += result ? "        return workflowResult;\n" : "        return Unit.Value;\n";
 
   const ctor =
     ctorParamPairs.length === 0
@@ -1675,12 +1693,12 @@ ${aggUsings.join("\n")}${externUsings.length > 0 ? "\n" + externUsings.join("\n"
 
 namespace ${ns}.Application.Workflows;
 
-public sealed class ${handlerName} : ICommandHandler<${cmdName}, Unit>
+public sealed class ${handlerName} : ICommandHandler<${cmdName}, ${resultCs}>
 {
 ${fields.join("\n")}
 ${ctor}
 
-    public async ValueTask<Unit> Handle(${cmdName} command, CancellationToken cancellationToken)
+    public async ValueTask<${resultCs}> Handle(${cmdName} command, CancellationToken cancellationToken)
     {
 ${body}    }
 }
@@ -1793,12 +1811,19 @@ export function csWorkflowStmtTarget(
   // namer per rendered body hands out a distinct name to every wrap — see
   // `MaskNamer` in dto-mapping.ts.
   const maskNames = maskNamer();
+  // The `Run<Name>Async` method's own `bypass` / `cancellationToken` names —
+  // each yields to a same-named retrieval param, so a call passing them by
+  // name must spell the yielded name.
+  const runOwnParams = (retrievalName: string) =>
+    csReadOwnParams(
+      (ctx.retrievals ?? []).find((r) => r.name === retrievalName)?.params.map((p) => p.name) ?? [],
+    );
   return {
     indentUnit: "    ",
     precondition: (st, indent) => {
       const expr = renderArg(st.expr);
       return [
-        `${indent}if (!(${expr})) throw new DomainException(${JSON.stringify(`Precondition failed: ${st.source}`)});`,
+        `${indent}if (!(${expr})) throw new DomainException(${workflowPreconditionThrowArgs(st, "DomainErrorKind.Precondition")});`,
       ];
     },
     requires: (st, indent) => {
@@ -1984,19 +2009,20 @@ export function csWorkflowStmtTarget(
       // names>)` — the DSL capability names, NOT EF filter names; the repository
       // adapter translates them (see `emit/repository.ts`).  `FilterBypass`
       // resolves via the handler file's `using <ns>.Domain.Common;` preamble.
+      const own = runOwnParams(st.retrievalName);
       const bypassArgs: string[] = [];
       if (st.bypassAll) {
-        bypassArgs.push("bypass: FilterBypass.BypassAll()");
+        bypassArgs.push(`${own.bypass}: FilterBypass.BypassAll()`);
       } else if ((st.bypassCaps?.length ?? 0) > 0) {
         const caps = st.bypassCaps ?? [];
         bypassArgs.push(
-          `bypass: FilterBypass.Bypass(${caps.map((c) => JSON.stringify(c)).join(", ")})`,
+          `${own.bypass}: FilterBypass.Bypass(${caps.map((c) => JSON.stringify(c)).join(", ")})`,
         );
       }
       // `cancellationToken` is passed NAMED: the run method has an optional
       // `page` param before it (and the optional `ignore*` params after), so a
       // positional token would bind to `page`.  Named, it skips the defaults.
-      const callArgs = [...args, ...bypassArgs, "cancellationToken: cancellationToken"].join(", ");
+      const callArgs = [...args, ...bypassArgs, `${own.ct}: cancellationToken`].join(", ");
       return [
         `${indent}var ${st.name} = await ${fieldName}.Run${upperFirst(st.retrievalName)}Async(${callArgs});`,
       ];
@@ -2026,7 +2052,9 @@ export function csWorkflowStmtTarget(
       const args = st.retrievalArgs.map(renderArg);
       args.push("(null, 1)"); // page: limit 1, no offset — single result
       // Named `cancellationToken` — it now follows the optional `ignore*` params.
-      const callArgs = [...args, "cancellationToken: cancellationToken"].join(", ");
+      const callArgs = [...args, `${runOwnParams(st.retrievalName).ct}: cancellationToken`].join(
+        ", ",
+      );
       const hits = `__${st.var}Hits`;
       const inner = `${indent}    `;
       const saveLine = (sv: { repoName: string; name: string }): string => {
@@ -2035,9 +2063,19 @@ export function csWorkflowStmtTarget(
       };
       const thenSaves = st.savesInThen.map(saveLine);
       const elseSaves = st.savesInElse.map(saveLine);
+      // A declared optional find (`findMethod`) is emitted under its own name
+      // with no `Async` suffix (the `repoLet` convention) and already answers
+      // `Task<T?>`, so it binds directly.
+      const lookup = st.findMethod
+        ? [
+            `${indent}var ${st.var} = await ${fieldName}.${upperFirst(st.findMethod)}(${[...st.retrievalArgs.map(renderArg), "cancellationToken"].join(", ")});`,
+          ]
+        : [
+            `${indent}var ${hits} = await ${fieldName}.Run${upperFirst(st.retrievalName)}Async(${callArgs});`,
+            `${indent}var ${st.var} = ${hits}.Count > 0 ? ${hits}[0] : null;`,
+          ];
       const out = [
-        `${indent}var ${hits} = await ${fieldName}.Run${upperFirst(st.retrievalName)}Async(${callArgs});`,
-        `${indent}var ${st.var} = ${hits}.Count > 0 ? ${hits}[0] : null;`,
+        ...lookup,
         `${indent}if (${st.var} is not null)`,
         `${indent}{`,
         ...thenLines,
@@ -2206,6 +2244,13 @@ export function renderExprWithEventParam(
   return renderCsExpr(rewritten, { thisName, resourceClasses });
 }
 
+/** The CLR type a workflow route's declared result crosses the wire as — an
+ *  id's raw value type, else the scalar itself.  Only the kinds phase ④ admits
+ *  (`loom.workflow-return-type-unsupported`) reach here. */
+function workflowResultWireCs(t: import("../../ir/types/loom-ir.js").TypeIR): string {
+  return t.kind === "id" ? csIdValueClrType(t.valueType) : renderCsType(t);
+}
+
 // ---------------------------------------------------------------------------
 // Controller — one class per context exposing every workflow as a POST.
 // ---------------------------------------------------------------------------
@@ -2251,17 +2296,27 @@ function renderController(
     )
       .map((s) => `    [ProducesResponseType(typeof(ProblemDetails), ${s})]\n`)
       .join("");
+    // `create(…): T` — 200 with the value.  An id answers its raw value
+    // (`.Value`, a Guid/int/long/string), the same JSON token the aggregate's
+    // own `id` field carries on the wire, not the strongly-typed id record.
+    const result = commandCreateResult(wf);
+    const success = result
+      ? `    [ProducesResponseType(typeof(${workflowResultWireCs(result.type)}), 200)]\n`
+      : // Explicit success (NoContent → 204) so the added error
+        // [ProducesResponseType] doesn't suppress Swashbuckle's 2xx inference.
+        `    [ProducesResponseType(204)]\n`;
+    const send = result
+      ? `        var result = await _mediator.Send(cmd);\n` +
+        `        return Ok(result${result.type.kind === "id" ? ".Value" : ""});\n`
+      : `        await _mediator.Send(cmd);\n` + `        return NoContent();\n`;
     blocks.push(
       `    [HttpPost("${snake(wf.name)}")]\n` +
-        // Explicit success (NoContent → 204) so the added error
-        // [ProducesResponseType] doesn't suppress Swashbuckle's 2xx inference.
-        `    [ProducesResponseType(204)]\n` +
+        success +
         errorAttrs +
         `    public async Task<IActionResult> ${upperFirst(camelId(opWorkflow(wf.name)))}([FromBody] ${upperFirst(wf.name)}Request request)\n` +
         `    {\n` +
         `        var cmd = new ${upperFirst(wf.name)}Command(\n            ${cmdArgs});\n` +
-        `        await _mediator.Send(cmd);\n` +
-        `        return NoContent();\n` +
+        send +
         `    }\n`,
     );
   }

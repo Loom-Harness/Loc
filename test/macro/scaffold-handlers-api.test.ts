@@ -281,10 +281,12 @@ describe("scaffoldHandlers + scaffoldApi — A3.2 create / find source kinds", (
     const routes = api.routes.map((r) => `${r.method} ${r.path} -> ${r.target.handler}`);
     expect(routes).toContain("POST /orders -> CreateOrder");
     expect(routes).toContain("GET /orders/by_status -> ByStatusOrder");
-    // Full ordered surface: get-by-id, find, create, operation, destroy.
+    // Full ordered surface: find, get-by-id, create, operation, destroy — the
+    // static `by_status` precedes `{orderId}`, which first-match routers would
+    // otherwise let swallow it.
     expect(routes).toEqual([
-      "GET /orders/{orderId} -> GetOrder",
       "GET /orders/by_status -> ByStatusOrder",
+      "GET /orders/{orderId} -> GetOrder",
       "POST /orders -> CreateOrder",
       "POST /orders/{orderId}/cancel -> CancelOrder",
       "DELETE /orders/{orderId} -> DestroyOrder",
@@ -316,5 +318,43 @@ describe("scaffoldHandlers + scaffoldApi — A3.2 create / find source kinds", (
       .filter((d) => d.severity === "error")
       .map((d) => `${d.code}: ${d.message}`);
     expect(errors).toEqual([]);
+  });
+});
+
+// A declared `create(…)`'s parameter list IS the create input
+// (`declaredCreateParamNames`), so the scaffolded create command record and the
+// `<Agg>.create({ … })` it calls carry exactly those params — naming the
+// defaulted `status` would call a factory input the declared create does not take.
+describe("scaffoldHandlers — a narrowed create's params are the command record", () => {
+  it("the CreateOrder handler passes only the declared params", async () => {
+    const { model } = await parseString(A32, { validate: false });
+    const cmd = [...AstUtils.streamAllContents(model)]
+      .filter(isCommandHandler)
+      .find((c) => c.name === "CreateOrder") as CommandHandler;
+    const printed = printStructural(cmd);
+    expect(printed).toContain("Order.create({ code: cmd.code })");
+    expect(printed).not.toContain("cmd.status");
+  });
+
+  it("the CreateOrderCommand record lists only the declared params", async () => {
+    const { model } = await parseString(A32, { validate: false });
+    const record = [...AstUtils.streamAllContents(model)].find(
+      (n) => (n as { name?: string }).name === "CreateOrderCommand",
+    );
+    expect(record, "no CreateOrderCommand record").toBeDefined();
+    const fields = ((record as { fields?: { name: string }[] }).fields ?? []).map((f) => f.name);
+    expect(fields).toEqual(["code"]);
+  });
+
+  it("a create listing every writable field exposes them all", async () => {
+    const src = A32.replace(
+      "create(code: string) { code := code }",
+      "create(code: string, status: string) { code := code }",
+    );
+    const { model } = await parseString(src, { validate: false });
+    const cmd = [...AstUtils.streamAllContents(model)]
+      .filter(isCommandHandler)
+      .find((c) => c.name === "CreateOrder") as CommandHandler;
+    expect(printStructural(cmd)).toContain("Order.create({ code: cmd.code, status: cmd.status })");
   });
 });

@@ -7,11 +7,12 @@
 
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import type { Aggregate, Area, Expression, Page, Ui, Workflow } from "../../api/index.js";
-import { area, boolLit, callExpr, cloneExpr, page, stringLit } from "../../api/index.js";
+import { area, boolLit, callExpr, page, stringLit } from "../../api/index.js";
 import {
   filterFindsForAggregate,
   filterStateFields,
   listReadGateForAggregate,
+  listShapeForAggregate,
   scaffoldDetailsParts,
   scaffoldHome,
   scaffoldInstanceDetails,
@@ -20,9 +21,10 @@ import {
   scaffoldNewForm,
   scaffoldWorkflowForm,
   scaffoldWorkflowsIndex,
-  scalarColumnsForAggregate,
+  viewFindsForAggregate,
 } from "./_body-builders.js";
 import { dashboardFieldsFor, summableFields } from "./_dashboard-shared.js";
+import { cloneGateInliningPolicies } from "./_policy-inline.js";
 
 /** The ui's first api handle (`api <name>: <Api>`), or `undefined` when the ui
  *  serves no api — the receiver root the scaffolded aggregate queries reach
@@ -106,18 +108,20 @@ export function pagesForAggregate(agg: Aggregate, ui: Ui): Page[] {
   // `currentUser`-only by validation (`loom.find-gate-not-current-user`), so it
   // ports to the client unchanged.
   const listGate = listReadGateForAggregate(agg);
+  const list = listShapeForAggregate(agg);
   return [
     page({
       name: "List",
       route: `/${pluralSnake}`,
-      requires: listGate ? cloneExpr(listGate) : undefined,
+      requires: listGate ? cloneGateInliningPolicies(listGate, agg) : undefined,
       // The full Breadcrumbs/Toolbar/QueryView/Table tree, emitted directly as
       // unfoldable source (no IR-phase sentinel expansion).  The find-filter
       // inputs bind to page state named by `filterStateFields`.
-      body: scaffoldList(aggName, scalarColumnsForAggregate(agg), {
+      body: scaffoldList(aggName, list.columns, {
         apiHandle,
         filters,
         paged: aggregateHasPagedFindAll(agg),
+        label: list.label,
       }),
       // Filter-bar state + the interactive-table sort/page state (M-T1.1):
       // `sortKey`/`sortDir` (string-init "", unsorted) drive column sort;
@@ -160,7 +164,56 @@ export function pagesForAggregate(agg: Aggregate, ui: Ui): Page[] {
       ]),
       menu: { hidden: boolLit(true) },
     }),
+    ...viewPagesForAggregate(agg, apiHandle, list),
   ];
+}
+
+/** Page names a view page never takes: the per-aggregate area's role names,
+ *  and the singleton names `classifyPage` reads as a dashboard wherever they
+ *  sit. */
+const RESERVED_PAGE_NAMES: ReadonlySet<string> = new Set([
+  "List",
+  "New",
+  "Detail",
+  "Home",
+  "WorkflowsIndex",
+]);
+
+/** One read-only list page per parameterless list `find` the author declared
+ *  (`viewFindsForAggregate`) — `find mine(): Ticket[]` becomes "Tickets: Mine"
+ *  at `/tickets/views/mine`.  The author named the view, so it is a place to go:
+ *  the page lists the find's rows with the List page's columns, gated by the
+ *  find's own `requires`, and gets a sidebar entry beside the List.
+ *
+ *  The route sits under `views/` so it never competes with `/<plural>/:id` for
+ *  a single segment (Angular matches routes in declaration order). */
+function viewPagesForAggregate(
+  agg: Aggregate,
+  apiHandle: string | undefined,
+  list: ReturnType<typeof listShapeForAggregate>,
+): Page[] {
+  const pluralSnake = snake(plural(agg.name));
+  const labelPlural = humanize(plural(agg.name));
+  return viewFindsForAggregate(agg).map((f) => {
+    const base = upperFirst(f.name);
+    const title = humanize(f.name);
+    return page({
+      name: RESERVED_PAGE_NAMES.has(base) ? `${base}View` : base,
+      route: `/${pluralSnake}/views/${snake(f.name)}`,
+      requires: f.gate ? cloneGateInliningPolicies(f.gate, agg) : undefined,
+      body: scaffoldList(agg.name, list.columns, {
+        apiHandle,
+        label: list.label,
+        paged: false,
+        view: { find: f.name, title },
+      }),
+      state: ["sortKey", "sortDir", { name: "pageNum", type: "int", init: 1 } as const],
+      menu: {
+        section: stringLit("Aggregates"),
+        label: stringLit(`${labelPlural}: ${title}`),
+      },
+    });
+  });
 }
 
 /** An event-triggered-only workflow (every `create` carries a `by`
@@ -225,7 +278,10 @@ export function pagesForWorkflowInstances(wf: Workflow): Page[] {
   // Sound because a workflow header gate is `currentUser`-only by validation
   // (`loom.workflow-gate-not-current-user`), which is precisely the subset a
   // page gate can evaluate client-side.
-  const gate = (): Expression | undefined => (wf.gate ? cloneExpr(wf.gate) : undefined);
+  // A named `policy` reference in the header is inlined at the copy: the page
+  // lives outside the context, so it could not resolve the name (D9).
+  const gate = (): Expression | undefined =>
+    wf.gate ? cloneGateInliningPolicies(wf.gate, wf) : undefined;
   return [
     page({
       name: `${upperFirst(wfName)}InstancesList`,
@@ -284,11 +340,20 @@ export function homePage(
     // The launcher cards mirror the sidebar the app-shell renders: one per
     // scaffolded aggregate (its List route, under the label the sidebar uses),
     // plus the workflows index when there is one (finding C4).
+    //
+    // A card links only to a List page every signed-in principal may open.
+    // The sidebar hides a gated List per principal by evaluating the page's
+    // `requires`; Home is a static body that cannot evaluate it, so a card for
+    // a gated List would offer a link that lands on "Forbidden".  Those lists
+    // stay one click away in the sidebar, which shows them to exactly the
+    // principals the gate admits.
     body: scaffoldHome(counts, kpis, {
-      aggregates: aggregates.map((agg) => ({
-        label: humanize(plural(agg.name)),
-        route: `/${snake(plural(agg.name))}`,
-      })),
+      aggregates: aggregates
+        .filter((agg) => !listReadGateForAggregate(agg))
+        .map((agg) => ({
+          label: humanize(plural(agg.name)),
+          route: `/${snake(plural(agg.name))}`,
+        })),
     }),
     menu: { hidden: boolLit(true) },
   });

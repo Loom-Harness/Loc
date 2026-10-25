@@ -28,6 +28,7 @@
 // ---------------------------------------------------------------------------
 
 import type { ExprIR, UiIR } from "../../ir/types/loom-ir.js";
+import { explicitMenuReadsPageLabel } from "../../ir/util/page-menu.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { contentHash } from "../../util/content-hash.js";
 import { USER_VISIBLE_SLOTS } from "../../util/user-visible-slots.js";
@@ -232,8 +233,11 @@ export function collectUiMessages(ui: UiIR): MessageEntry[] {
     collectBody(page.body, prefix, out);
 
     // Per-page sidebar chrome — `menu { section: "…", label: "…" }` metadata.
+    // An explicit ui `menu { … }` replaces the page-derived sidebar, so there a
+    // page's metadata is catalogued only where a `link Page` still reads it.
     for (const entry of page.menuMeta?.entries ?? []) {
       if (entry.name !== "section" && entry.name !== "label") continue;
+      if (ui.menu && (entry.name === "section" || !explicitMenuReadsPageLabel(page, ui))) continue;
       const message = literalString(entry.value);
       if (message === undefined) continue;
       out.push({ key: messageKey(prefix, `menu.${entry.name}`, message), message });

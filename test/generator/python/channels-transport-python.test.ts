@@ -61,7 +61,7 @@ describe("redis broker transport — python leg (M-T4.4 slice 2b)", () => {
       expect(mod).toContain('"env_var": "LOOM_CHANNEL_LIFECYCLE_BUS_URL"');
       expect(mod).toContain("class RedisChannelTransport:");
       expect(mod).toContain("async def publish_event(event: DomainEvent) -> bool:");
-      expect(files.get(`${dep}/pyproject.toml`)).toContain('"redis>=');
+      expect(files.get(`${dep}/pyproject.toml`)).toContain('"redis==');
     }
   });
 
@@ -70,7 +70,7 @@ describe("redis broker transport — python leg (M-T4.4 slice 2b)", () => {
     for (const dep of ["sales_api", "ship_api"]) {
       const dispatch = files.get(`${dep}/app/dispatch.py`) ?? "";
       expect(dispatch).toContain("class ChannelTeeDispatcher:");
-      expect(dispatch).toContain("return ChannelTeeDispatcher(");
+      expect(dispatch).toContain("return PostCommitDispatcher(ChannelTeeDispatcher(");
       const main = files.get(`${dep}/app/main.py`) ?? "";
       expect(main).toContain("init_channel_transports()");
       expect(main).toContain("await close_channel_transports()");
@@ -155,7 +155,7 @@ system Bare {
 `;
     const files = await generateSystemFiles(bare);
     expect(files.get("api/app/channels.py")).toBeUndefined();
-    expect(files.get("api/pyproject.toml")).not.toContain('"redis>=');
+    expect(files.get("api/pyproject.toml")).not.toContain('"redis==');
     expect(files.get("api/app/main.py")).not.toContain("channel");
     expect(files.get("api/app/dispatch.py")).toBeUndefined();
   });

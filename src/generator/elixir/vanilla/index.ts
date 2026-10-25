@@ -10,12 +10,13 @@
 // ---------------------------------------------------------------------------
 
 import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
-import type { ChannelIR } from "../../../ir/types/loom-ir.js";
+import { type ChannelIR, workflowEmitsCommandRoute } from "../../../ir/types/loom-ir.js";
 import {
   aggregatesHaveUniqueKeys,
   aggregatesNeedConcurrency,
 } from "../../../ir/util/aggregate-flags.js";
 import { apiResourceBindings } from "../../../ir/util/api-resource-binding.js";
+import { contextHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { durableEventTypes } from "../../../ir/util/channels.js";
 import { echoesDenialDetail } from "../../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
@@ -75,6 +76,7 @@ import { emitVanillaEventSourcedFiles } from "./eventsourced-emit.js";
 import { emitExplicitHandlers, emitExplicitRoutesController } from "./explicit-handlers-emit.js";
 import { emitVanillaExternModules } from "./extern-emit.js";
 import { emitVanillaFilesController } from "./files-controller-emit.js";
+import { contextsHaveCheckedFindParams } from "./find-controller.js";
 import { emitOpenApiSpec } from "./openapi-emit.js";
 import { contextsHavePagedReads } from "./page-param.js";
 import { renderVanillaProblemDetailsModule } from "./problem-details-emit.js";
@@ -174,11 +176,19 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // …OR a paged read: an out-of-range `page`/`pageSize` now answers the same
   // `errors[]` 422 rather than being clamped past the bounds this app's own
   // OpenAPI document publishes (page-param.ts), and it sends through the same
-  // responder.  An app with neither stays byte-identical.
+  // responder.  So does a find whose declared query params fail their
+  // published type (find-controller.ts).  An app with none stays byte-identical.
   const hasWireDenials =
     contexts.some((c) =>
       c.aggregates.some((agg) => (agg.operations ?? []).some((op) => opHasWireDenial(op))),
-    ) || contextsHavePagedReads(contexts);
+    ) ||
+    contextsHavePagedReads(contexts) ||
+    contextsHaveCheckedFindParams(contexts) ||
+    // …OR a command workflow with params: a request omitting one answers the
+    // same `errors[]` 422 (one pointer per missing param, L1-E / E7).
+    contexts.some((c) =>
+      c.workflows.some((w) => workflowEmitsCommandRoute(w) && (w.params ?? []).length > 0),
+    );
   out.set(
     `lib/${appName}_web/problem_details.ex`,
     renderVanillaProblemDetailsModule(
@@ -676,9 +686,11 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     appName,
     appModule,
     // A hosted `mask unless` aggregate needs the principal in the process
-    // dictionary (the REST `serialize/1` reads it to redact fail-closed).
-    hasFieldMask: contexts.some((c) =>
-      c.aggregates.some((a) => a.fields.some((f) => f.maskUnless)),
+    // dictionary (the REST `serialize/1` reads it to redact fail-closed), and
+    // so does an audited one: `Audit.record/2` reads it for the row's `actor`.
+    hasFieldMask: contexts.some(
+      (c) =>
+        contextHasAuditedTarget(c) || c.aggregates.some((a) => a.fields.some((f) => f.maskUnless)),
     ),
   });
   for (const [path, content] of authFiles) {
@@ -749,7 +761,10 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       channelBindings,
       carriedEventIrs,
       [...routeMap.values()],
-      { durableBroker: durableBrokerEvents.size > 0 },
+      {
+        durableBroker: durableBrokerEvents.size > 0,
+        carriesOrigin: deployable.auth?.required === true && !!sys.user,
+      },
     );
     for (const [path, content] of emission.files) out.set(path, content);
     channelChildren = emission.children;
@@ -770,6 +785,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       appModule,
       durableEventIrs,
       hostedDispatchers,
+      deployable.auth?.required === true && !!sys.user,
     );
     for (const [path, content] of emission.files) out.set(path, content);
     channelChildren = emission.children;
@@ -778,27 +794,27 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // A `cron:` timer rides `crontab` (next-boundary computation) + `oban` (the
   // durable single-fire/retry job store); an `every:`-only timer needs neither.
   const hexDeps = usesCron
-    ? { ...resourceEmission.hexDeps, crontab: '"~> 1.1"', oban: '"~> 2.19"' }
+    ? { ...resourceEmission.hexDeps, crontab: '"1.2.1"', oban: '"2.24.2"' }
     : resourceEmission.hexDeps;
   // The emitted client imports `Req`; without this the project references a
   // package it does not depend on (the exact defect that shipped an
   // httpx-importing Python client into a project with no httpx).
-  if (apiClients) (hexDeps as Record<string, string>).req = '"~> 0.5"';
+  if (apiClients) (hexDeps as Record<string, string>).req = '"0.7.5"';
   // Channel drivers, wiring-gated so a channel-less mix.exs stays
   // byte-identical: Redix (MIT — design §6a) for redis pub/sub; the hex
   // `amqp` client (MIT, wrapping the official RabbitMQ Erlang client) for
   // rabbitmq — same `~> 4.0` line the queue resource adapter pins, so a
   // project wiring both never carries two conflicting requirements.
   if (channelBindings.some((b) => b.transport === "redis")) {
-    (hexDeps as Record<string, string>).redix = '"~> 1.5"';
+    (hexDeps as Record<string, string>).redix = '"1.10.0"';
   }
   if (channelBindings.some((b) => b.transport === "rabbitmq")) {
-    (hexDeps as Record<string, string>).amqp = '"~> 4.0"';
+    (hexDeps as Record<string, string>).amqp = '"4.3.0"';
   }
   if (channelBindings.some((b) => b.transport === "kafka")) {
     // brod (Apache 2.0 — Klarna's Erlang kafka client, the plain-driver
     // choice matching Redix/amqp).
-    (hexDeps as Record<string, string>).brod = '"~> 4.4"';
+    (hexDeps as Record<string, string>).brod = '"4.7.0"';
   }
 
   // JWKS strategy (OIDC only): the joken_jwks GenServer that fetches, caches,
@@ -863,6 +879,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     // called from `Application.start/2` once the Repo is supervised (and from
     // the `priv/repo/seeds.exs` manual entry the shell emits alongside).
     seedModules,
+    deployable.port,
   );
 
   // Deployment + boot machinery — the Elixir release, Dockerfile, and Ecto

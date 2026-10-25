@@ -10,15 +10,18 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
-import { sortableFields } from "../../../ir/util/sortable-fields.js";
+import { CONCURRENCY_CONFLICT_SUFFIX } from "../../../ir/util/openapi-errors.js";
+import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
+import { isDenyFilter } from "../../../ir/util/tenant-stance.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { domainFindShape } from "../find-emit.js";
-import { csLocalNamer } from "../local-names.js";
+import { csLocalNamer, csReadOwnParams } from "../local-names.js";
 import {
   AMBIENT_CURRENT_USER,
   csValueTypeForId,
@@ -80,13 +83,11 @@ export function renderRepositoryInterface(
       ? ["int page", "int pageSize", "string sort", "string dir"]
       : [];
     return [
-      keywordParamSuppression(f.params),
       `    Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser, pageExtra)});`,
     ];
   });
   // `Run<Name>Async(args, page?, cancellationToken)` per context retrieval (retrieval.md).
   const retrievalLines = retrievals.map((r) => [
-    keywordParamSuppression(r.params),
     `    Task<IReadOnlyList<${agg.name}>> Run${upperFirst(r.name)}Async(${renderRetrievalParamsWithCt(r.params)});`,
   ]);
   return (
@@ -119,7 +120,7 @@ export function renderRepositoryInterface(
       `    ${bclTask} SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default);`,
       // Hard delete — only when the aggregate has a canonical `destroy`
       // (declared or via `crudish`); keeps plain repos unchanged.
-      ...(agg.canonicalDestroy
+      ...(canonicalDestroy(agg)
         ? [
             `    ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default);`,
           ]
@@ -205,6 +206,18 @@ export function renderRepositoryImpl(
   // src/generator/typescript/repository-builder.ts).
   const loadByIdLines = buildLoadByIdLines(associations);
   const loadManyByIdsLines = buildLoadManyByIdsLines(agg.name, setName, associations);
+  // A find returning aggregates hydrates their reference collections (`X id[]`
+  // join rows) the way `GetByIdAsync` / `FindManyByIdsAsync` do.  Without it the
+  // collection stayed null on every find — the paged `all` included — and the
+  // query handler's `d.Tags.Select(…)` threw (500).  Found by M-T6.94's corpus
+  // case.  Emitted only when a find needs it, so the helper is never unused.
+  const findsHydrate =
+    associations.length > 0 &&
+    finds.some(
+      (f) =>
+        !!pagedReturn(f.returnType) ||
+        hydrateFindResultLine(f.returnType, agg.name, "r").length > 0,
+    );
   const saveDiffSyncLines = buildSaveDiffSyncLines(associations);
   // Optimistic concurrency (`versioned`): on an UPDATE (the entity is tracked,
   // not freshly added), guard the write on the loaded version — overridden by
@@ -273,7 +286,8 @@ export function renderRepositoryImpl(
     // §11) — installed on the IQueryable BEFORE `.Where(...)`, so the bypassed
     // capability filter(s) never compose into this read.
     const ignore = body?.ignoreClause ?? "";
-    const projection = body?.projectionClause ?? ".ToListAsync(cancellationToken)";
+    const { ct } = csReadOwnParams(f.params.map((p) => p.name));
+    const projection = body?.projectionClause ?? `.ToListAsync(${ct})`;
     const usesUser = findUsesCurrentUser(f);
     // The method's own locals yield (`__`-prefixed) to a same-named find param
     // (CS0136) — only on a collision, so every other model is byte-identical.
@@ -293,17 +307,30 @@ export function renderRepositoryImpl(
         .filter((wf) => wf !== "id")
         .map((wf) => `"${wf}" => "${upperFirst(wf)}"`)
         .join(", ");
+      const declaredOrder = defaultSortOrder(f.defaultSort)
+        ?.map(
+          (t, i) =>
+            `.${i === 0 ? (t.direction === "desc" ? "OrderByDescending" : "OrderBy") : t.direction === "desc" ? "ThenByDescending" : "ThenBy"}(e => e.${upperFirst(t.field)})`,
+        )
+        .join("");
       const orderExpr = (asc: boolean): string =>
         `_db.${setName}${ignore}${filter}.${asc ? "OrderBy" : "OrderByDescending"}(e => EF.Property<object>(e, ${L("sortColumn")}))`;
       return [
         `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser, ["int page", "int pageSize", "string sort", "string dir"])})`,
         "    {",
         `        var ${L("offset")} = (page - 1) * pageSize;`,
-        `        var ${L("sortColumn")} = sort switch { ${sortArms}${sortArms ? ", " : ""}_ => "Id" };`,
-        `        var ${L("total")} = await _db.${setName}${ignore}${filter}.CountAsync(cancellationToken);`,
+        `        var ${L("sortColumn")} = sort switch { ${sortArms}${sortArms ? ", " : ""}_ => ${declaredOrder ? "(string?)null" : '"Id"'} };`,
+        `        var ${L("total")} = await _db.${setName}${ignore}${filter}.CountAsync(${ct});`,
         `        var ${L("totalPages")} = pageSize > 0 ? (int)System.Math.Ceiling((double)${L("total")} / pageSize) : 0;`,
-        `        var ${L("ordered")} = dir == "desc" ? ${orderExpr(false)} : ${orderExpr(true)};`,
-        `        var ${L("items")} = await ${L("ordered")}.Skip(${L("offset")}).Take(pageSize).ToListAsync(cancellationToken);`,
+        declaredOrder
+          ? // An unwhitelisted `sort` (the route's `""` default) takes the
+            // read's declared order (`defaultSortOrder`).
+            `        var ${L("ordered")} = ${L("sortColumn")} is null ? _db.${setName}${ignore}${filter}${declaredOrder} : dir == "desc" ? ${orderExpr(false)} : ${orderExpr(true)};`
+          : `        var ${L("ordered")} = dir == "desc" ? ${orderExpr(false)} : ${orderExpr(true)};`,
+        `        var ${L("items")} = await ${L("ordered")}.Skip(${L("offset")}).Take(pageSize).ToListAsync(${ct});`,
+        ...(associations.length > 0
+          ? [`        await HydrateReferenceCollectionsAsync(${L("items")}, ${ct});`]
+          : []),
         `        ${renderDotnetLogCall("findExecuted", [
           { name: "aggregate", valueExpr: `"${agg.name}"` },
           { name: "find", valueExpr: `"${f.name}"` },
@@ -314,10 +341,13 @@ export function renderRepositoryImpl(
       ];
     }
     const rowsExpr = findRowsExpr(f.returnType, L("result"));
+    const hydrate =
+      associations.length > 0 ? hydrateFindResultLine(f.returnType, agg.name, L("result")) : [];
     return [
       `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser)})`,
       "    {",
       `        var ${L("result")} = await _db.${setName}${ignore}${filter}${projection};`,
+      ...hydrate,
       `        ${renderDotnetLogCall("findExecuted", [
         { name: "aggregate", valueExpr: `"${agg.name}"` },
         { name: "find", valueExpr: `"${f.name}"` },
@@ -360,26 +390,26 @@ export function renderRepositoryImpl(
   const allBypassNames = hasNonBypassableFilter(agg) ? bypassableFilterNames(agg, pool) : null;
   // `q` is the method's IQueryable local (`__q` unless a retrieval param takes
   // that name — see csLocalNamer).
-  const bypassAllLines = (q: string): string[] =>
+  const bypassAllLines = (q: string, bypass: string): string[] =>
     allBypassNames === null
-      ? [`        if (bypass.All) ${q} = ${q}.IgnoreQueryFilters();`]
+      ? [`        if (${bypass}.All) ${q} = ${q}.IgnoreQueryFilters();`]
       : allBypassNames.length > 0
         ? [
-            `        if (bypass.All) ${q} = ${q}.IgnoreQueryFilters([${allBypassNames
+            `        if (${bypass}.All) ${q} = ${q}.IgnoreQueryFilters([${allBypassNames
               .map((n) => JSON.stringify(n))
               .join(", ")}]);`,
           ]
         : [];
-  const bypassBody = (q: string): string[] => [
-    ...bypassAllLines(q),
+  const bypassBody = (q: string, bypass: string): string[] => [
+    ...bypassAllLines(q, bypass),
     ...(bypassPairs.length > 0
       ? [
-          `        ${bypassAllLines(q).length > 0 ? "else if" : "if"} (bypass.Capabilities is { Count: > 0 })`,
+          `        ${bypassAllLines(q, bypass).length > 0 ? "else if" : "if"} (${bypass}.Capabilities is { Count: > 0 })`,
           "        {",
           `            var __ignore = new (string Capability, string Filter)[] { ${bypassPairs
             .map((p) => `(${JSON.stringify(p.cap)}, ${JSON.stringify(p.filter)})`)
             .join(", ")} }`,
-          "                .Where(m => bypass.Capabilities.Contains(m.Capability)).Select(m => m.Filter).ToArray();",
+          `                .Where(m => ${bypass}.Capabilities.Contains(m.Capability)).Select(m => m.Filter).ToArray();`,
           `            if (__ignore.Length > 0) ${q} = ${q}.IgnoreQueryFilters(__ignore);`,
           "        }",
         ]
@@ -394,6 +424,7 @@ export function renderRepositoryImpl(
       r.params.map((p) => p.name),
       ["__q", "result"],
     );
+    const own = csReadOwnParams(r.params.map((p) => p.name));
     return [
       `    public async Task<IReadOnlyList<${agg.name}>> Run${upperFirst(r.name)}Async(${renderRetrievalParamsWithCt(r.params)})`,
       "    {",
@@ -402,8 +433,8 @@ export function renderRepositoryImpl(
       // domain `bypass` (capability names) is translated to EF filter names
       // adapter-side, above.
       `        var ${L("__q")} = _db.${setName}.AsQueryable();`,
-      ...bypassBody(L("__q")),
-      `        var ${L("result")} = await ${L("__q")}.WithSpecification(new ${upperFirst(r.name)}Spec(${specArgs})).ApplyPaging(page).ToListAsync(cancellationToken);`,
+      ...bypassBody(L("__q"), own.bypass),
+      `        var ${L("result")} = await ${L("__q")}.WithSpecification(new ${upperFirst(r.name)}Spec(${specArgs})).ApplyPaging(${own.page}).ToListAsync(${own.ct});`,
       `        ${renderDotnetLogCall("findExecuted", [
         { name: "aggregate", valueExpr: `"${agg.name}"` },
         { name: "find", valueExpr: `"Run${upperFirst(r.name)}"` },
@@ -502,6 +533,9 @@ export function renderRepositoryImpl(
       ...loadManyByIdsLines,
       "    }",
       "",
+      ...(findsHydrate
+        ? [...buildHydrateReferenceCollectionsLines(agg.name, associations), ""]
+        : []),
       `    public async ${bclTask} SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
       "    {",
       // The context tracking this handle — a fork for a second load of a row
@@ -590,7 +624,7 @@ export function renderRepositoryImpl(
       // Hard delete — gated on a canonical `destroy`.  `Remove` + Save;
       // containment children and join-table rows drop via the schema's
       // ON DELETE CASCADE FKs (mirrors the Hono Drizzle delete).
-      ...(agg.canonicalDestroy
+      ...(canonicalDestroy(agg)
         ? [
             "",
             `    public async ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
@@ -629,6 +663,61 @@ function buildLoadByIdLines(associations: AssociationIR[]): string[] {
     out.push(`                .ToListAsync(cancellationToken);`);
   }
   out.push("        }");
+  return out;
+}
+
+/** The hydrate call a non-paged find makes over its result, when that result
+ *  is the aggregate itself (a list, or a single possibly-absent row).  Empty for
+ *  any other projection (a count, a scalar). */
+function hydrateFindResultLine(returnType: TypeIR, aggName: string, result: string): string[] {
+  const t = returnType.kind === "optional" ? returnType.inner : returnType;
+  const isAgg = (x: TypeIR): boolean => x.kind === "entity" && x.name === aggName;
+  if (t.kind === "array" && isAgg(t.element)) {
+    return [`        await HydrateReferenceCollectionsAsync(${result}, cancellationToken);`];
+  }
+  if (isAgg(t)) {
+    return [
+      `        if (${result} is not null) await HydrateReferenceCollectionsAsync([${result}], cancellationToken);`,
+    ];
+  }
+  return [];
+}
+
+/** `HydrateReferenceCollectionsAsync` — loads every reference collection's join
+ *  rows for a set of already-loaded roots, grouped by owner (one query per
+ *  association), the body `FindManyByIdsAsync` runs after its root query. */
+function buildHydrateReferenceCollectionsLines(
+  aggName: string,
+  associations: AssociationIR[],
+): string[] {
+  const out: string[] = [
+    `    private async Task HydrateReferenceCollectionsAsync(List<${aggName}> roots, CancellationToken cancellationToken)`,
+    "    {",
+    "        if (roots.Count == 0) return;",
+    "        var ids = roots.Select(r => r.Id).ToList();",
+  ];
+  for (const a of associations) {
+    const cap = upperFirst(a.fieldName);
+    const dbSet = joinDbSetName(a);
+    const owner = joinFkPropName(a.ownerFk);
+    const target = joinFkPropName(a.targetFk);
+    const targetType = `${a.targetAgg}Id`;
+    out.push(`        var __${a.fieldName}Rows = await _db.${dbSet}`);
+    out.push(`            .Where(j => ids.Contains(j.${owner}))`);
+    out.push(`            .OrderBy(j => j.${owner}).ThenBy(j => j.${target})`);
+    out.push(`            .Select(j => new { Owner = j.${owner}, Target = j.${target} })`);
+    out.push(`            .ToListAsync(cancellationToken);`);
+    out.push(`        var __${a.fieldName}ByOwner = __${a.fieldName}Rows`);
+    out.push(`            .GroupBy(r => r.Owner)`);
+    out.push(`            .ToDictionary(g => g.Key, g => g.Select(r => r.Target).ToList());`);
+    out.push("        foreach (var __root in roots)");
+    out.push("        {");
+    out.push(
+      `            __root.${cap} = __${a.fieldName}ByOwner.TryGetValue(__root.Id, out var __${a.fieldName}List) ? __${a.fieldName}List : new List<${targetType}>();`,
+    );
+    out.push("        }");
+  }
+  out.push("    }");
   return out;
 }
 
@@ -744,6 +833,39 @@ function buildSaveDiffSyncLines(associations: AssociationIR[]): string[] {
 // shape — a silent cross-tenant read.  node/java/python filter document reads
 // in-app the same way.
 // ---------------------------------------------------------------------------
+/** The in-app capability-filter suffix a document-store FIND applies to its
+ *  rehydrated rows, honouring the find's `ignoring` clause (C2, M-T6.75).
+ *  No clause → the shared `_CapabilityVisible` (every filter).  A bypass keeps
+ *  only the filters it does not name — same selection rule as
+ *  `bypassedFilterNames` on the relational path: `ignoring *` drops every
+ *  bypassable filter, `ignoring A` drops the filters whose contributing
+ *  capability is `A`, and a deny sentinel is never dropped. */
+function docFindCapFilter(
+  agg: EnrichedAggregateIR,
+  f: { bypassAll?: boolean; bypassCaps?: string[] },
+  capPredicate: string | null,
+): string {
+  if (!capPredicate) return "";
+  const filters = agg.contextFilters ?? [];
+  const origins = agg.contextFilterOrigins ?? [];
+  const caps = new Set(f.bypassCaps ?? []);
+  if (!f.bypassAll && caps.size === 0) return ".Where(_CapabilityVisible)";
+  const kept = filters.filter((p, i) => {
+    if (isDenyFilter(p)) return true;
+    if (f.bypassAll) return false;
+    const origin = origins[i];
+    return !(origin != null && caps.has(origin));
+  });
+  if (kept.length === filters.length) return ".Where(_CapabilityVisible)";
+  if (kept.length === 0) return "";
+  const pred = kept
+    .map(
+      (p) => `(${renderCsExpr(p, { thisName: "x", agg, currentUserExpr: AMBIENT_CURRENT_USER })})`,
+    )
+    .join(" && ");
+  return `.Where(x => ${pred})`;
+}
+
 export function renderDocumentRepositoryImpl(
   agg: EnrichedAggregateIR,
   repo: RepositoryIR | undefined,
@@ -842,10 +964,11 @@ export function renderDocumentRepositoryImpl(
     // De-async the EF terminal — finds run in-memory over the rehydrated
     // documents, so the async EF operators become their LINQ-to-objects
     // equivalents.
-    const projection = (body?.projectionClause ?? ".ToListAsync(cancellationToken)")
-      .replace(".ToListAsync(cancellationToken)", ".ToList()")
-      .replace(".FirstOrDefaultAsync(cancellationToken)", ".FirstOrDefault()")
-      .replace(".FirstAsync(cancellationToken)", ".First()");
+    const { ct } = csReadOwnParams(f.params.map((p) => p.name));
+    const projection = (body?.projectionClause ?? `.ToListAsync(${ct})`)
+      .replace(`.ToListAsync(${ct})`, ".ToList()")
+      .replace(`.FirstOrDefaultAsync(${ct})`, ".FirstOrDefault()")
+      .replace(`.FirstAsync(${ct})`, ".First()");
     const usesUser = findUsesCurrentUser(f);
     // `result` yields to a same-named find param (CS0136).
     const result = csLocalNamer(f.params.map((p) => p.name))("result");
@@ -859,7 +982,15 @@ export function renderDocumentRepositoryImpl(
     // by id since it was written; the other four did not, so one fixture
     // answered two different orders across the backends.  Id is the primary
     // key, so this is an index scan.
-    const loadAll = `var __all = (await _db.${setName}.OrderBy(__d => __d.Id).ToListAsync(cancellationToken)).Select(__d => ${deser})${capPredicate ? ".Where(_CapabilityVisible)" : ""};`;
+    //
+    // C2 (M-T6.75): the find's `ignoring` clause (named-filter-bypass.md §11)
+    // narrows WHICH capability filters apply — the in-app twin of the
+    // relational `.IgnoreQueryFilters(…)`.  No clause keeps the shared
+    // `_CapabilityVisible`; a bypass renders only the retained conjuncts
+    // inline, so the root reads (`GetByIdAsync` / `FindManyByIdsAsync`) keep
+    // every filter whatever a find bypasses.  A deny sentinel is never
+    // bypassable (deny wins over `ignoring *`).
+    const loadAll = `var __all = (await _db.${setName}.OrderBy(__d => __d.Id).ToListAsync(${ct})).Select(__d => ${deser})${docFindCapFilter(agg, f, capPredicate)};`;
     // `find … paged` over a document carrier — see `inMemoryPagedFindLines`.
     if (pagedReturn(f.returnType)) {
       return inMemoryPagedFindLines(agg, f, { loadAll, filter, usesUser });
@@ -963,7 +1094,17 @@ export function renderDocumentRepositoryImpl(
       ...(aggregateIsVersioned(agg)
         ? [
             `        var __existing = await _db.${setName}.FirstOrDefaultAsync(x => x.Id == aggregate.Id.Value, cancellationToken);`,
-            "        var __nextVersion = __existing == null ? 1 : __existing.Version + 1;",
+            // M-T6.98 — the write-time CAS compares against the version THIS
+            // handle was loaded at (or the client's `If-Match`), not the row
+            // just re-read: `__existing` is EF's tracked instance, which a
+            // sibling handle's save has already advanced, so bumping it
+            // `+ 1` let a stale handle overwrite the row.  Setting the
+            // concurrency token's ORIGINAL value makes SaveChanges issue
+            // `UPDATE … WHERE version = <expected>`; zero rows raise EF's
+            // native DbUpdateConcurrencyException → the RS-40 409.
+            "        var __expected = RequestContext.Current?.ExpectedVersion ?? aggregate.Version;",
+            "        if (__existing != null) _db.Entry(__existing).Property(x => x.Version).OriginalValue = __expected;",
+            "        var __nextVersion = __existing == null ? 1 : __expected + 1;",
             // INSERT only: a jsonb aggregate is not EF-tracked, so the
             // AuditableInterceptor never stamps it.  Must run BEFORE the
             // snapshot is serialized.  The update path rewrites the whole blob
@@ -1023,7 +1164,7 @@ export function renderDocumentRepositoryImpl(
       // `Remove` it; a missing row is a no-op.  Without this, a document-shaped
       // aggregate with `crudish` fails CS0535 — the interface declares
       // `DeleteAsync` but the impl wouldn't provide it.
-      ...(agg.canonicalDestroy
+      ...(canonicalDestroy(agg)
         ? [
             "",
             `    public async ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
@@ -1154,15 +1295,16 @@ export function renderEventSourcedRepositoryImpl(
   const findMethodLines = finds.flatMap((f) => {
     const body = findBodies.find((b) => b.name === f.name);
     const filter = body?.filterClause ?? "";
-    const projection = (body?.projectionClause ?? ".ToListAsync(cancellationToken)")
-      .replace(".ToListAsync(cancellationToken)", ".ToList()")
-      .replace(".FirstOrDefaultAsync(cancellationToken)", ".FirstOrDefault()")
-      .replace(".FirstAsync(cancellationToken)", ".First()");
+    const { ct } = csReadOwnParams(f.params.map((p) => p.name));
+    const projection = (body?.projectionClause ?? `.ToListAsync(${ct})`)
+      .replace(`.ToListAsync(${ct})`, ".ToList()")
+      .replace(`.FirstOrDefaultAsync(${ct})`, ".FirstOrDefault()")
+      .replace(`.FirstAsync(${ct})`, ".First()");
     const usesUser = findUsesCurrentUser(f);
     // `result` yields to a same-named find param (CS0136).
     const result = csLocalNamer(f.params.map((p) => p.name))("result");
     const rowsExpr = findRowsExpr(f.returnType, result);
-    const loadAll = "var __all = await _LoadAllAsync(cancellationToken);";
+    const loadAll = `var __all = await _LoadAllAsync(${ct});`;
     // `find … paged` over an event-log carrier — see `inMemoryPagedFindLines`.
     if (pagedReturn(f.returnType)) {
       return inMemoryPagedFindLines(agg, f, { loadAll, filter, usesUser });
@@ -1254,11 +1396,16 @@ export function renderEventSourcedRepositoryImpl(
       "        if (__pending.Count > 0)",
       "        {",
       "            var __sid = aggregate.Id.Value.ToString();",
-      `            var __version = await _db.${dbSet}.Where(e => e.StreamType == "${streamType}" && e.StreamId == __sid).Select(e => (int?)e.Version).MaxAsync(cancellationToken) ?? 0;`,
+      // Expected-version append (M-T6.98): continue from the version THIS
+      // handle was folded to, not from a `Max(Version)` re-read here — a
+      // re-read lets a handle loaded before another append keep a decision
+      // taken on its stale fold.
+      "            var __version = aggregate._StreamVersion;",
+      `            var __appended = new List<${recordCls}>();`,
       "            foreach (var __ev in __pending)",
       "            {",
       "                __version++;",
-      `                _db.${dbSet}.Add(new ${recordCls}`,
+      `                var __rec = new ${recordCls}`,
       "                {",
       `                    StreamType = "${streamType}",`,
       "                    StreamId = __sid,",
@@ -1266,11 +1413,13 @@ export function renderEventSourcedRepositoryImpl(
       "                    Type = __ev.GetType().Name,",
       "                    Data = System.Text.Json.JsonSerializer.Serialize((object)__ev, __json),",
       "                    OccurredAt = DateTime.UtcNow,",
-      "                });",
+      "                };",
+      `                _db.${dbSet}.Add(__rec);`,
+      "                __appended.Add(__rec);",
       "            }",
       // The (stream_id, version) PK IS the event stream's optimistic-concurrency
-      // control: a competing append that read the same Max(Version) inserts the
-      // same version and loses with a Postgres 23505.  EF surfaces it as a
+      // control: a stale handle's append re-inserts a version that exists and
+      // loses with a Postgres 23505.  EF surfaces it as a
       // DbUpdateException with a PostgresException inner; translate it to the EF
       // concurrency exception the DomainExceptionFilter maps to 409 (parity with
       // the `versioned` guarded write's stale-write rejection).
@@ -1281,8 +1430,16 @@ export function renderEventSourcedRepositoryImpl(
       "            catch (Microsoft.EntityFrameworkCore.DbUpdateException __ex)",
       '                when (__ex.InnerException is Npgsql.PostgresException { SqlState: "23505" })',
       "            {",
-      '                throw new Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException("The resource was modified by another request; reload and retry.", __ex);',
+      "                foreach (var __rec in __appended) _db.Entry(__rec).State = EntityState.Detached;",
+      `                throw new Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException($"${agg.name} {__sid} ${CONCURRENCY_CONFLICT_SUFFIX}", __ex);`,
       "            }",
+      // Append-only rows are never updated through this context, so they are
+      // detached once written.  Left tracked, a second handle's stale append
+      // of the same (stream_type, stream_id, version) key failed IN EF —
+      // "another instance with the same key value is already being tracked",
+      // a 500 — instead of reaching the database's key and its 409.
+      "            foreach (var __rec in __appended) _db.Entry(__rec).State = EntityState.Detached;",
+      "            aggregate._StreamVersion = __version;",
       "        }",
       `        ${renderDotnetLogCall("repositorySave", [
         { name: "aggregate", valueExpr: `"${agg.name}"` },
@@ -1411,19 +1568,6 @@ function findRowsExpr(returnType: TypeIR, result = "result"): string {
   return returnType.kind === "optional" ? `${result} == null ? 0 : 1` : "1";
 }
 
-/** CA1716 (an error under `/warnaserror`) rejects a parameter of an
- *  INTERFACE member spelled like a language keyword, even escaped — `@static`
- *  is still the parameter `static` to a caller in another .NET language.  The
- *  `.ddd` author chose the name (`find byLevel(static: int)`), and renaming it
- *  would break the implementation's body and every named-argument caller, so
- *  the port member carries a targeted suppression instead — only when one of
- *  its parameters needed the verbatim prefix. */
-function keywordParamSuppression(params: ParamIR[]): string | null {
-  return params.some((p) => escapeCsharpIdent(p.name) !== p.name)
-    ? `    [global::System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1716:Identifiers should not match keywords", Justification = "Parameter name is the .ddd source's own spelling.")]`
-    : null;
-}
-
 function renderParamsWithCt(
   params: ParamIR[],
   usesUser: boolean = false,
@@ -1436,9 +1580,10 @@ function renderParamsWithCt(
   ]
     .filter(Boolean)
     .join(", ");
+  const { ct } = csReadOwnParams(params.map((p) => p.name));
   return head.length > 0
-    ? `${head}, CancellationToken cancellationToken = default`
-    : "CancellationToken cancellationToken = default";
+    ? `${head}, CancellationToken ${ct} = default`
+    : `CancellationToken ${ct} = default`;
 }
 
 /** Retrieval params + an optional call-site `page` argument
@@ -1446,9 +1591,10 @@ function renderParamsWithCt(
  *  never part of the retrieval declaration (retrieval.md) — it rides on
  *  the run method. */
 export function renderRetrievalParamsWithCt(params: ParamIR[]): string {
+  const own = csReadOwnParams(params.map((p) => p.name));
   const head = [
     ...params.map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`),
-    "(int? offset, int? limit)? page = null",
+    `(int? offset, int? limit)? ${own.page} = null`,
   ].join(", ");
   // The `bypass` param carries an inline read's `ignoring` clause
   // (named-filter-bypass.md §11) from the call site to the shared retrieval
@@ -1457,5 +1603,6 @@ export function renderRetrievalParamsWithCt(params: ParamIR[]): string {
   // (audit S7); the adapter translates it.  `cancellationToken` MUST stay last
   // (CA1068, an error under `/warnaserror`), so `bypass` sits before it; call
   // sites pass `cancellationToken` NAMED (it follows the optional `page`).
-  return `${head}, FilterBypass bypass = default, CancellationToken cancellationToken = default`;
+  // All three yield to a same-named retrieval param — see `csReadOwnParams`.
+  return `${head}, FilterBypass ${own.bypass} = default, CancellationToken ${own.ct} = default`;
 }

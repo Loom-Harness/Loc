@@ -43,14 +43,26 @@ system StampsPrincipal {
       }
       repository Tickets for Ticket { }
     }
+    // Its own context, so `Desk`'s context-wide stamp does not reach it.
+    context Journal {
+      // The prelude `auditable`: `createdBy` on create, `updatedBy` on update.
+      // A fresh row is stamped with BOTH sets — an insert is the row's last
+      // write so far — so `updatedBy` names the creating principal, not an
+      // empty default.
+      aggregate Note with crudish, auditable {
+        body: string
+      }
+      repository Notes for Note { }
+    }
   }
   api DeskApi from Desk
   storage primary { type: postgres }
   resource deskState { for: Desk, kind: state, use: primary }
+  resource journalState { for: Journal, kind: state, use: primary }
   deployable d {
     platform: __PLATFORM__
-    contexts: [Desk]
-    dataSources: [deskState]
+    contexts: [Desk, Journal]
+    dataSources: [deskState, journalState]
     serves: DeskApi
     port: 4000
     auth: required
@@ -79,5 +91,19 @@ system StampsPrincipal {
 
     api.tickets.destroy(t)
     expect(api.tickets.getById(t)).toThrow(404)
+
+    let n = api.notes.create({ body: "first" })
+    let note = api.notes.getById(n)
+    expect(note.body).toBe("first")
+    expect(note.updatedBy).toBe(note.createdBy)
+    api.notes.update(n, { body: "second" })
+    let edited = api.notes.getById(n)
+    expect(edited.body).toBe("second")
+    expect(edited.createdBy).toBe(note.createdBy)
+    expect(edited.updatedBy).toBe(note.createdBy)
+    let notes = api.notes.all()
+    expect(notes.total).toBe(1)
+    api.notes.destroy(n)
+    expect(api.notes.getById(n)).toThrow(404)
   }
 }

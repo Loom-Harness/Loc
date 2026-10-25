@@ -4,6 +4,7 @@ import type {
   EnumIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
+import { enumPool } from "../../../ir/util/reachable-types.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import { snake, upperFirst } from "../../../util/naming.js";
@@ -59,6 +60,14 @@ export function valueCollectionsWithVo(
   });
 }
 
+/** The (snake-cased) value-collection fields of an aggregate that persist as a
+ *  `has_many` child table — exactly the set `valueCollectionsWithVo` gives a
+ *  schema module, so an operation's persist tail and the schema agree on which
+ *  fields are associations (M-T6.94). */
+export function valueRowFieldsOf(agg: AggregateIR, ctx: BoundedContextIR): Set<string> {
+  return new Set(valueCollectionsWithVo(agg, ctx).map(({ vc }) => snake(vc.fieldName)));
+}
+
 /** Emit one child schema module file per value-collection field on every
  *  aggregate in the context. */
 export function emitVanillaValueCollectionSchemas(
@@ -68,7 +77,7 @@ export function emitVanillaValueCollectionSchemas(
 ): void {
   const appSnake = appModule.replace(/([A-Z])/g, (_, c, i) => (i ? "_" : "") + c.toLowerCase());
   const ctxSnake = snake(ctx.name);
-  const enumsByName = new Map(ctx.enums.map((e) => [e.name, e]));
+  const enumsByName = new Map(enumPool(ctx).map((e) => [e.name, e]));
   for (const agg of ctx.aggregates) {
     // Event-sourced aggregates have NO state table — the migration emits no
     // `<owner>_<field>` child table for them, and the aggregate module is a
@@ -106,6 +115,8 @@ function ectoFieldType(
           return ":boolean";
         case "datetime":
           return LOOM_DATETIME_MODULE;
+        case "date":
+          return ":date";
         case "guid":
           return "Ecto.UUID";
         case "json":

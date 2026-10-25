@@ -47,7 +47,7 @@
 import type { UiIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { buildUiCatalog } from "../_frontend/i18n-runtime.js";
-import { APP_SHELL_CHROME, chromeKey } from "../_walker/i18n-chrome.js";
+import { APP_SHELL_CHROME, chromeKey, chromeMessage } from "../_walker/i18n-chrome.js";
 import { collectUiMessages } from "../_walker/i18n-extract.js";
 
 /** The gettext domain every generated message lands in — the Phoenix default,
@@ -55,7 +55,7 @@ import { collectUiMessages } from "../_walker/i18n-extract.js";
 export const GETTEXT_DOMAIN = "default";
 
 /** The hex dependency line for the generated `mix.exs` `deps do` list. */
-export const GETTEXT_DEP = `{:gettext, "~> 0.26"}`;
+export const GETTEXT_DEP = `{:gettext, "0.26.2"}`;
 
 /** The ICU formatter dependency, added only for a ui with an INTERPOLATED
  *  message (D-I18N-HEEX-ICU).  `ex_cldr_messages` is the Elixir ICU
@@ -63,7 +63,7 @@ export const GETTEXT_DEP = `{:gettext, "~> 0.26"}`;
  *  the four JS frontends and Feliz, and of `package:intl`'s `MessageFormat` on
  *  Flutter.  It pulls `ex_cldr` + `ex_cldr_numbers` transitively; `ex_cldr` is
  *  named explicitly because the generated backend module `use`s it. */
-export const ICU_DEPS = [`{:ex_cldr, "~> 2.47"}`, `{:ex_cldr_messages, "~> 1.0"}`];
+export const ICU_DEPS = [`{:ex_cldr, "2.47.5"}`, `{:ex_cldr_messages, "1.0.4"}`];
 
 /** True when this ui has any extractable user-visible string — the single gate
  *  for the whole runtime (backend module + `.po`/`.pot` + the `mix.exs` dep +
@@ -347,6 +347,16 @@ export function shellChromeText(name: string, i18nEnabled: boolean): string {
 export function shellChromeAria(name: string, i18nEnabled: boolean): string {
   const key = chromeKey(name);
   const english = APP_SHELL_CHROME[key]!;
+  return i18nEnabled
+    ? `{pgettext(${elixirI18nString(key)}, ${elixirI18nString(english)})}`
+    : `"${english}"`;
+}
+
+/** A walker-chrome string (`CHROME_MESSAGES`) as a HEEx ATTRIBUTE VALUE — the
+ *  `{pgettext(…)}` expression form under i18n, else the quoted English. */
+export function formChromeAttr(name: string, i18nEnabled: boolean): string {
+  const key = chromeKey(name);
+  const english = chromeMessage(name);
   return i18nEnabled
     ? `{pgettext(${elixirI18nString(key)}, ${elixirI18nString(english)})}`
     : `"${english}"`;

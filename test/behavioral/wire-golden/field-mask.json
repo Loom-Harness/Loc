@@ -110,13 +110,94 @@
     },
     {
       "seq": 8,
+      "method": "GET",
+      "path": "/api/employees/{id}/history",
+      "status": 200,
+      "body": [
+        {
+          "action": "create",
+          "actor": {
+            "id": "<volatile:key>",
+            "permissions": [
+              "ops.manage"
+            ],
+            "role": "agent"
+          },
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": "Ada",
+              "before": null,
+              "field": "name"
+            },
+            {
+              "after": 2,
+              "before": null,
+              "field": "grade"
+            },
+            {
+              "after": [],
+              "before": null,
+              "field": "reviews"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        },
+        {
+          "action": "promote",
+          "actor": {
+            "id": "<volatile:key>",
+            "permissions": [
+              "ops.manage"
+            ],
+            "role": "agent"
+          },
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": 5,
+              "before": 2,
+              "field": "grade"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        },
+        {
+          "action": "update",
+          "actor": {
+            "id": "<volatile:key>",
+            "permissions": [
+              "ops.manage"
+            ],
+            "role": "agent"
+          },
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": "Ada L",
+              "before": "Ada",
+              "field": "name"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        }
+      ]
+    },
+    {
+      "seq": 9,
       "method": "DELETE",
       "path": "/api/employees/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 9,
+      "seq": 10,
       "method": "GET",
       "path": "/api/employees/{id}",
       "status": 404,
@@ -129,7 +210,7 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 11,
       "method": "GET",
       "path": "/api/employees",
       "status": 200,
@@ -142,7 +223,7 @@
       }
     },
     {
-      "seq": 11,
+      "seq": 12,
       "method": "PATCH",
       "path": "/api/employees",
       "status": 405,
@@ -155,7 +236,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 13,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -168,7 +249,7 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 14,
       "method": "POST",
       "path": "/api/employees",
       "status": 400,
@@ -181,7 +262,7 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 15,
       "method": "GET",
       "path": "/api/auth/me",
       "status": 200,
@@ -192,7 +273,26 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 16,
+      "method": "POST",
+      "path": "/api/employees/{id}/promote",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/newGrade"
+          }
+        ],
+        "instance": "/api/employees/{id}/promote",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 17,
       "method": "POST",
       "path": "/api/employees",
       "status": 201,
@@ -201,37 +301,37 @@
       }
     },
     {
-      "seq": 16,
-      "method": "GET",
-      "path": "/api/employees/{id}",
-      "status": 200,
-      "body": {
-        "grade": 1,
-        "id": "<volatile:key>",
-        "name": "Ladder",
-        "nationalId": null,
-        "reviews": [],
-        "salary": null,
-        "version": 1
-      }
-    },
-    {
-      "seq": 17,
-      "method": "GET",
-      "path": "/api/employees/{id}",
-      "status": 200,
-      "body": {
-        "grade": 1,
-        "id": "<volatile:key>",
-        "name": "Ladder",
-        "nationalId": null,
-        "reviews": [],
-        "salary": null,
-        "version": 1
-      }
-    },
-    {
       "seq": 18,
+      "method": "GET",
+      "path": "/api/employees/{id}",
+      "status": 200,
+      "body": {
+        "grade": 1,
+        "id": "<volatile:key>",
+        "name": "Ladder",
+        "nationalId": null,
+        "reviews": [],
+        "salary": null,
+        "version": 1
+      }
+    },
+    {
+      "seq": 19,
+      "method": "GET",
+      "path": "/api/employees/{id}",
+      "status": 200,
+      "body": {
+        "grade": 1,
+        "id": "<volatile:key>",
+        "name": "Ladder",
+        "nationalId": null,
+        "reviews": [],
+        "salary": null,
+        "version": 1
+      }
+    },
+    {
+      "seq": 20,
       "method": "GET",
       "path": "/api/employees",
       "status": 200,
@@ -254,7 +354,7 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 21,
       "method": "GET",
       "path": "/api/employees",
       "status": 200,

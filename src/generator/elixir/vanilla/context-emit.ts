@@ -9,6 +9,7 @@
 // calls in the workflow body).
 // ---------------------------------------------------------------------------
 
+import { declaredCreateParamNames } from "../../../ir/enrich/wire-projection.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -27,12 +28,18 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { stmtUsesCurrentUser } from "../../../ir/types/loom-ir.js";
-import { lifecycleGates, lifecycleGatesUseCurrentUser } from "../../../ir/util/op-gates.js";
+import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
+import {
+  createBodyParams,
+  createBodyStatements,
+  lifecycleGates,
+  lifecycleGatesUseCurrentUser,
+} from "../../../ir/util/op-gates.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
-import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
-import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
+import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { INT32_MAX, INT32_MIN, INTEGER_RANGE_MESSAGE } from "../../../util/numeric-range.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { declarationSubRegion, statementSubRegions } from "../../_trace/sourcemap.js";
@@ -49,6 +56,7 @@ import { renderReadingServiceContextFns } from "../domain-service-emit.js";
 import { unguardedName } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
+import { baseReaderShape } from "./base-reader.js";
 import {
   aggregateUsesPrincipalContextFilter,
   findUsesPrincipal,
@@ -84,20 +92,23 @@ import {
   opEmitsEvent,
   opHasGuards,
   opHasWhenGate,
+  opRewritesRelation,
   persistPutBodies,
   renderDurableEmitDispatchParts,
   renderEmitDispatchLines,
+  renderOpGuardClause,
   renderPrivateOpHelpers,
   renderReturningOpFunction,
   renderReturningStmt,
   wrapOpBodyWithGuards,
 } from "./operation-returns-emit.js";
-import { refCollFieldNames } from "./ref-collection-emit.js";
+import { isForeignRefColl, refCollFieldNames, refCollFields } from "./ref-collection-emit.js";
 import { renderRefLabelFacade } from "./ref-label.js";
 import { customFindsOf } from "./repository-emit.js";
 import { emitsRestDelete } from "./rest-surface.js";
 import { usesRelationalContainments } from "./schema-emit.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
+import { valueRowFieldsOf } from "./value-collection-schema-emit.js";
 
 // ---------------------------------------------------------------------------
 // The canonical `create` / `destroy` authorization gate — IN THE CONTEXT.
@@ -304,7 +315,7 @@ function paramGuardClause(wireName: string, type: TypeIR | undefined): string | 
   switch (t.name) {
     case "money":
     case "decimal":
-      return `{:ok, ${escapeElixirIdent(snake(wireName))}} <- __loom_decimal_param(record, ${field}, ${access})`;
+      return `{:ok, ${elixirLocal(wireName)}} <- __loom_decimal_param(record, ${field}, ${access})`;
     // An `int` is an int4 COLUMN, so the guard carries its declared range as
     // well as its type: without it a contract-conforming-looking value like
     // 9543751572142 cast cleanly, reached the column and the DATABASE refused
@@ -313,9 +324,14 @@ function paramGuardClause(wireName: string, type: TypeIR | undefined): string | 
     // ceiling is the cross-backend `D-LONG-AVG-DEFAULTS` one, not int64, and
     // moving it is a five-backend ruling rather than this row.
     case "int":
-      return `{:ok, ${escapeElixirIdent(snake(wireName))}} <- __loom_int32_param(record, ${field}, ${access})`;
+      return `{:ok, ${elixirLocal(wireName)}} <- __loom_int32_param(record, ${field}, ${access})`;
     case "long":
-      return `{:ok, ${escapeElixirIdent(snake(wireName))}} <- __loom_int_param(record, ${field}, ${access})`;
+      return `{:ok, ${elixirLocal(wireName)}} <- __loom_int_param(record, ${field}, ${access})`;
+    // A `date` is ISO `YYYY-MM-DD` text on the wire; the op persists through
+    // `force_change` (no cast), so a non-date would reach the `:date` column
+    // as a binary and raise — refused here as the 422 instead.
+    case "date":
+      return `{:ok, ${elixirLocal(wireName)}} <- __loom_date_param(record, ${field}, ${access})`;
     default:
       return null;
   }
@@ -336,22 +352,16 @@ function paramGuardClause(wireName: string, type: TypeIR | undefined): string | 
  *  .NET.  A fractional value for an `int` is refused rather than truncated —
  *  the same strictness M-T6.48 pins for Java's `ACCEPT_FLOAT_AS_INT`. */
 /** The refusal an out-of-int32 `int` gets, on both ingress paths — the op-param
- *  guard here and the create/update changeset in `changeset-emit.ts`.
- *
- *  Spelled like `MONEY_RANGE_MESSAGE` beside it, and for the same reason: a
- *  client sees ONE family of wire refusals rather than a different sentence per
- *  column kind.  It is elixir-local because the other four backends each render
- *  their framework's own text for this (zod's "Number must be less than or
- *  equal to …", pydantic's "Input should be less than or equal to …", Bean
- *  Validation's "must be less than or equal to …"), so there is no shared
- *  string to converge on — only a shared STATUS, which is the part that
- *  matters: 422, not the 500 the database used to answer. */
-export const INT32_RANGE_MESSAGE = "Integer out of range";
+ *  guard here and the create/update changeset in `changeset-emit.ts`.  It is
+ *  the cross-backend range sentence (RS-42, `INTEGER_RANGE_MESSAGE`), sent
+ *  bare — no value appended — exactly as the other four send it. */
+export const INT32_RANGE_MESSAGE = INTEGER_RANGE_MESSAGE;
 
 function renderNumericParamHelpers(
   needsDecimal: boolean,
   needsInt: boolean,
   needsInt32: boolean,
+  needsDate = false,
 ): string {
   // Emitted SEPARATELY, not as one block: `mix compile --warnings-as-errors`
   // rejects an unused private function, so a context whose ops take an `int`
@@ -419,15 +429,31 @@ function renderNumericParamHelpers(
        do: {:ok, value}
 
   defp __loom_int32_param(record, field, value) when is_integer(value),
-    do: {:error, __loom_param_error(record, field, value, ${JSON.stringify(INT32_RANGE_MESSAGE)})}
+    do: {:error, Ecto.Changeset.add_error(Ecto.Changeset.change(record, %{}), field, ${JSON.stringify(INT32_RANGE_MESSAGE)})}
 
   defp __loom_int32_param(record, field, value),
     do: {:error, __loom_param_error(record, field, value, "Invalid integer")}
 `;
+  // `Date.from_iso8601/1` is strict ISO `YYYY-MM-DD`: a datetime-shaped value
+  // is refused rather than having its time-of-day dropped.
+  const date = `
+  defp __loom_date_param(_record, _field, nil), do: {:ok, nil}
+  defp __loom_date_param(_record, _field, %Date{} = value), do: {:ok, value}
+
+  defp __loom_date_param(record, field, value) when is_binary(value) do
+    case Date.from_iso8601(value) do
+      {:ok, d} -> {:ok, d}
+      _ -> {:error, __loom_param_error(record, field, value, "Invalid date")}
+    end
+  end
+
+  defp __loom_date_param(record, field, value),
+    do: {:error, __loom_param_error(record, field, value, "Invalid date")}
+`;
   return `  # Wire-format guards for operation params (M-T6.48).  Each returns
   # \`{:ok, value}\` or \`{:error, changeset}\` — the latter renders as the
   # standard 422 with a \`/<param>\` pointer.
-${err}${needsDecimal ? dec : ""}${needsInt ? int : ""}${needsInt32 ? int32 : ""}`;
+${err}${needsDecimal ? dec : ""}${needsInt ? int : ""}${needsInt32 ? int32 : ""}${needsDate ? date : ""}`;
 }
 
 function renderContextModule(
@@ -463,9 +489,11 @@ function renderContextModule(
     // seam to delegate to).  Emitting them would reference functions the
     // read-only base repository never defines.
     if (isAbstractBase(agg)) {
+      // The reader threads the actor whenever a concrete read it fronts does.
+      const baseActor = baseReaderShape(agg, ctx, sys).principal ? ", current_user \\\\ nil" : "";
       return `  # ${aggPascal} (abstract base — read-only polymorphic reader)
-  defdelegate list_${aggSnake}s(), to: ${repoMod}, as: :list
-  defdelegate get_${aggSnake}(id), to: ${repoMod}, as: :find_by_id
+  defdelegate list_${aggSnake}s(${baseActor.slice(2)}), to: ${repoMod}, as: :list
+  defdelegate get_${aggSnake}(id${baseActor}), to: ${repoMod}, as: :find_by_id
 `;
     }
     // A principal (tenancy) filter threads the request actor through the read
@@ -498,6 +526,38 @@ function renderContextModule(
     // the If-Match header at the controller) as a trailing `expected_version \\ nil`
     // arg through the update defdelegate to the repository's optimistic-lock write.
     const versionedArg = aggregateIsVersioned(agg) ? ", expected_version \\\\ nil" : "";
+    // An AUDITED `update` (aggregate-wide `audited`, or `operation update(…)
+    // audited`) records its row in the context seam both the REST action and
+    // the LiveView edit form call: the field update goes through the
+    // repository, not the op body that stages audit for every other
+    // operation, so a plain delegate left the most common audited write with
+    // no trail.  The row commits in the save's transaction.
+    const updateOp = agg.operations.find((o) => o.name === "update");
+    const updateSeam = updateOp?.audited
+      ? `  def update_${aggSnake}(record, attrs${stampActorArg}${versionedArg}) do
+    ${appModule}.Repo.transaction(fn ->
+      case ${repoMod}.update(record, attrs${stampActorArg ? ", current_user" : ""}${versionedArg ? ", expected_version" : ""}) do
+        {:ok, updated} ->
+${auditRecordCall({
+  appModule,
+  operationId: `update${aggPascal}`,
+  action: "update",
+  targetType: aggPascal,
+  targetId: "updated.id",
+  before: wireSnapshot("record", false, appModule),
+  after: wireSnapshot("updated", false, appModule),
+  indent: "          ",
+})}
+
+          updated
+
+        {:error, reason} ->
+          ${appModule}.Repo.rollback(reason)
+      end
+    end)
+  end
+`
+      : `  defdelegate update_${aggSnake}(record, attrs${stampActorArg}${versionedArg}), to: ${repoMod}, as: :update`;
     // Skip ops whose names collide with the CRUD defdelegates above —
     // notably `update`/`destroy` from `with crudish` would redefine
     // `update_<agg>/2`/`delete_<agg>/1` otherwise.  The CRUD seam
@@ -565,7 +625,7 @@ function renderContextModule(
     const repo = (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name);
     const findLines = customFindsOf(repo).map((f) => {
       const findSnake = snake(f.name);
-      const baseArgs = f.params.map((p) => escapeElixirIdent(snake(p.name)));
+      const baseArgs = f.params.map((p) => elixirLocal(p.name));
       // A `paged` find carries the same `page`/`page_size` + `sort`/`dir` arity
       // (with defaults) the repository fn declares, so the defdelegate matches
       // and the controller's paged call routes through (M-T2.6).
@@ -620,14 +680,14 @@ function renderContextModule(
       contextModule: facadeMod,
       agg: agg as EnrichedAggregateIR,
     };
-    const destroyClauses = lifecycleEnsureClauses(agg.canonicalDestroy, destroyGateRc);
+    const destroyClauses = lifecycleEnsureClauses(canonicalDestroy(agg), destroyGateRc);
     // `destroy_<agg>!` takes the principal when the gate reads it.  On a
     // principal (tenancy-filtered) aggregate the getter already carries one, and
     // that same binding feeds the gate — no second parameter.
     const destroyBangArgs =
       destroyClauses.length === 0 || principal
         ? getArgs
-        : `id, ${principalParam(lifecycleGatesUseCurrentUser(agg.canonicalDestroy))}`;
+        : `id, ${principalParam(lifecycleGatesUseCurrentUser(canonicalDestroy(agg)))}`;
     const destroyBangBody =
       destroyClauses.length === 0
         ? `      {:ok, record} -> ${appModule}.Repo.delete!(record)`
@@ -743,7 +803,7 @@ ${body}
     // then delegates — so EVERY caller (REST controller, LiveView form,
     // DestroyForm) passes the gate, not just the ones that go through a
     // controller.  Ungated aggregates keep the delegate byte-identical.
-    const createClauses = lifecycleEnsureClauses(agg.canonicalCreate, {
+    const createClauses = lifecycleEnsureClauses(canonicalCreate(agg), {
       thisName: "record",
       contextModule: facadeMod,
       agg: agg as EnrichedAggregateIR,
@@ -771,13 +831,117 @@ ${body}
     // unauthorized caller could not compute.
     const createValidateClause = isDoc
       ? `{:ok, _} <- Ecto.Changeset.apply_action(${changesetMod}.document_changeset(%${facadeMod}.${aggPascal}{}, attrs, 1), :insert)`
-      : `{:ok, _} <- Ecto.Changeset.apply_action(${changesetMod}.base_changeset(attrs), :insert)`;
+      : `{:ok, _} <- Ecto.Changeset.apply_action(${changesetMod}.base_changeset(${declaredCreateParamNames(agg) !== undefined ? `${changesetMod}.take_create_attrs(attrs)` : "attrs"}), :insert)`;
+    // The create BODY (`createBodyStatements`): its `precondition`s and
+    // `let`s join the same `with` chain, evaluated against the validated draft
+    // struct — `record`, exactly what an operation's guards read — with each
+    // read create param bound off it (a param IS its same-named field).  Its
+    // `emit`s dispatch after the insert, off the inserted row.
+    const body = createBodyStatements(agg);
+    const bodyRc: RenderCtx = {
+      thisName: "record",
+      contextModule: facadeMod,
+      agg: agg as EnrichedAggregateIR,
+    };
+    const bodyReadsRecord = body.some((st) => st.kind !== "emit");
+    const bodyClauses = [
+      ...createBodyParams(agg).map(
+        (p) => `${escapeElixirIdent(snake(p.name))} = record.${snake(p.name)}`,
+      ),
+      ...body.flatMap((st) => {
+        // An empty wire set: a create precondition is not lifted into the
+        // create request validator on any backend, so it answers the domain
+        // floor (with its `errors[]` entry when messaged), like the other four.
+        if (st.kind === "precondition") return [renderOpGuardClause(st, bodyRc, new Set())];
+        if (st.kind === "let")
+          return [`${escapeElixirIdent(snake(st.name))} = ${renderExpr(st.expr, bodyRc)}`];
+        return [];
+      }),
+    ];
+    const bodyEmits = body.some((st) => st.kind === "emit");
+    const emitAction = { ...canonicalCreate(agg)!, statements: body };
+    const createHasDispatcher = contextHasDispatcher(
+      ctx as EnrichedBoundedContextIR,
+      extraChannels,
+    );
+    const durableCreateEmit = bodyEmits && opEmitsDurableEvent(emitAction, channels);
+    const validateClause =
+      bodyReadsRecord && body.length > 0
+        ? createValidateClause.replace("{:ok, _} <-", "{:ok, record} <-")
+        : createValidateClause;
+    const insertCall = `${repoMod}.insert(attrs${stampActorArg ? ", current_user" : ""})`;
+    // A durable event's dispatch is an outbox INSERT, so it shares the
+    // insert's transaction; its PubSub broadcast waits for the commit.  The
+    // event structs are returned out of the transaction alongside the row so
+    // the broadcast can reach them.
+    const durableParts = durableCreateEmit
+      ? renderDurableEmitDispatchParts(
+          emitAction,
+          bodyRc,
+          createHasDispatcher,
+          {
+            bind: "              ",
+            dispatch: "              ",
+            broadcast: "          ",
+          },
+          undefined,
+          undefined,
+          channels,
+        )
+      : { bind: [], dispatch: [], broadcast: [] };
+    const durableVars = body.filter((st) => st.kind === "emit").map((_, i) => `loom_event_${i}`);
+    const createDo = !bodyEmits
+      ? `      ${insertCall}`
+      : durableCreateEmit
+        ? `      tx_result =
+        ${appModule}.Repo.transaction(fn ->
+          case ${insertCall} do
+            {:ok, record} ->
+${[...durableParts.bind, ...durableParts.dispatch].join("\n")}
+              {record, ${durableVars.join(", ")}}
+
+            {:error, reason} ->
+              ${appModule}.Repo.rollback(reason)
+          end
+        end)
+
+      case tx_result do
+        {:ok, {record, ${durableVars.join(", ")}}} ->
+${durableParts.broadcast.join("\n")}
+          {:ok, record}
+
+        error ->
+          error
+      end`
+        : `      case ${insertCall} do
+        {:ok, record} ->
+${renderEmitDispatchLines(emitAction, bodyRc, createHasDispatcher, "          ", undefined, undefined, channels).join("\n")}
+          {:ok, record}
+
+        error ->
+          error
+      end`;
+    // The body is DOMAIN logic, not authorization, so it runs in the entry
+    // every caller reaches — the ungated `create_<agg>`, or, when a `requires`
+    // gate splits the seam, `create_<agg>_unguarded` (workflow steps and event
+    // dispatch call that one, and run the body like every other backend's
+    // domain factory does).
+    const bodyEntry = (name: string): string =>
+      body.length === 0
+        ? `  defdelegate ${name}(attrs${stampActorArg}), to: ${repoMod}, as: :insert`
+        : `  @doc "Create a ${aggPascal}: validate, run the canonical \`create\` body's guards over the draft, insert, then dispatch its events."
+  def ${name}(attrs${stampActorArg}) do
+    with ${[validateClause, ...bodyClauses].join(",\n         ")} do
+${createDo}
+    end
+  end
+`;
     const createDelegate =
       createClauses.length === 0
-        ? `  defdelegate create_${aggSnake}(attrs${stampActorArg}), to: ${repoMod}, as: :insert`
+        ? bodyEntry(`create_${aggSnake}`)
         : `  @doc "Create a ${aggPascal} — the request is validated FIRST (the same 422 the other backends' request validator answers), then the canonical \`create\`'s \`requires\` gate runs HERE, so the REST and LiveView callers are gated alike."
   def create_${aggSnake}(attrs, ${principalParam(
-    lifecycleGatesUseCurrentUser(agg.canonicalCreate) || createStampsActor,
+    lifecycleGatesUseCurrentUser(canonicalCreate(agg)) || createStampsActor,
   )}) do
     with ${[createValidateClause, ...createClauses].join(",\n         ")} do
       ${unguardedName("create", agg.name)}(attrs${createStampsActor ? ", current_user" : ""})
@@ -785,8 +949,8 @@ ${body}
   end
 
   @doc "Create a ${aggPascal} with NO authorization gate — the in-process entry (workflow step, event dispatch, emitted integration test), which carries no request principal.  Request-side callers use \`create_${aggSnake}/2\`."
-  defdelegate ${unguardedName("create", agg.name)}(attrs${stampActorArg}), to: ${repoMod}, as: :insert`;
-    const deleteClauses = lifecycleEnsureClauses(agg.canonicalDestroy, destroyGateRc);
+${bodyEntry(unguardedName("create", agg.name))}`;
+    const deleteClauses = lifecycleEnsureClauses(canonicalDestroy(agg), destroyGateRc);
     const deleteDelegate = !emitsRestDelete(agg)
       ? ""
       : deleteClauses.length === 0
@@ -794,7 +958,7 @@ ${body}
         : `\n
   @doc "Delete a ${aggPascal} — the canonical \`destroy\`'s \`requires\` gate runs HERE, against the loaded row."
   def delete_${aggSnake}(record, ${principalParam(
-    lifecycleGatesUseCurrentUser(agg.canonicalDestroy),
+    lifecycleGatesUseCurrentUser(canonicalDestroy(agg)),
   )}) do
     with ${deleteClauses.join(",\n         ")} do
       ${unguardedName("delete", agg.name)}(record)
@@ -811,7 +975,7 @@ ${body}
       : ""
   }
 ${createDelegate}
-  defdelegate update_${aggSnake}(record, attrs${stampActorArg}${versionedArg}), to: ${repoMod}, as: :update${deleteDelegate}${changeFacade}${destroyFacade}${opBangFacade}${canFacade}${renderRefLabelFacade(appModule, facadeMod, agg, ctx, sys)}
+${updateSeam}${deleteDelegate}${changeFacade}${destroyFacade}${opBangFacade}${canFacade}${renderRefLabelFacade(appModule, facadeMod, agg, ctx, sys)}
 ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privateOpHelpers.length > 0 ? `${privateOpHelpers.join("\n")}\n` : ""}${functionBlock}`;
   });
 
@@ -828,7 +992,7 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
       const retMod = `${facadeMod}.Retrievals.${upperFirst(r.name)}`;
       // `defdelegate` carries the function arity through to the target.
       // `\\\\ []` is the default for the trailing `opts` arg.
-      const args = r.params.map((p) => escapeElixirIdent(snake(p.name)));
+      const args = r.params.map((p) => elixirLocal(p.name));
       const argList = args.length > 0 ? `${args.join(", ")}, opts \\\\ []` : "opts \\\\ []";
       return `  defdelegate run_${retSnake}_${aggSnake}(${argList}), to: ${retMod}, as: :run`;
     });
@@ -852,7 +1016,7 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
   // `contains` membership test; `__resolve_refs/2` (and its `import Ecto.Query`)
   // only by the mutation path.  Gate them separately so a contains-only op
   // doesn't emit an unused `__resolve_refs` (a `--warnings-as-errors` break).
-  const mutatesRefColl = contextMutatesRefColl(ctx);
+  const mutatesRefColl = contextMutatesRefColl(ctx, true);
   const refCollHelpers = contextUsesRefCollOp(ctx)
     ? `\n${renderContextRefCollHelpers(appModule, mutatesRefColl)}\n`
     : "";
@@ -895,6 +1059,13 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
       ? `\n  # Reading-tier domain services (ambient Repo) — domain-services.md rev. 4\n${readingServiceFns.join("\n\n")}\n`
       : "";
 
+  // Value-object-collection row helper (M-T6.94) — emitted iff a rendered op
+  // block calls it (derive, don't stamp: the same call-site gate as
+  // `__truncate_dt/1` below).
+  const putValueRowsHelper = blocks.join("\n").includes("__put_value_rows(")
+    ? `\n${renderPutValueRowsHelper()}\n`
+    : "";
+
   const truncateDtBody = [
     blocks.join("\n"),
     retrievalBlock,
@@ -914,9 +1085,10 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
   const needsDecimalParam = assembledBody.includes("__loom_decimal_param(");
   const needsIntParam = assembledBody.includes("__loom_int_param(");
   const needsInt32Param = assembledBody.includes("__loom_int32_param(");
+  const needsDateParam = assembledBody.includes("__loom_date_param(");
   const numericParamHelpers =
-    needsDecimalParam || needsIntParam || needsInt32Param
-      ? `\n${renderNumericParamHelpers(needsDecimalParam, needsIntParam, needsInt32Param)}`
+    needsDecimalParam || needsIntParam || needsInt32Param || needsDateParam
+      ? `\n${renderNumericParamHelpers(needsDecimalParam, needsIntParam, needsInt32Param, needsDateParam)}`
       : "";
 
   return `# Auto-generated.
@@ -929,7 +1101,7 @@ defmodule ${facadeMod} do
   workflow body).  Plain Elixir context module.
   """${requireLogger}${mutatesRefColl ? "\n  import Ecto.Query" : ""}
 
-${blocks.join("\n")}${retrievalBlock}${readingServiceBlock}${ensureBlock}${refCollHelpers}${putAssocPartsHelper}${truncateDtBody}${numericParamHelpers}end
+${blocks.join("\n")}${retrievalBlock}${readingServiceBlock}${ensureBlock}${refCollHelpers}${putAssocPartsHelper}${putValueRowsHelper}${truncateDtBody}${numericParamHelpers}end
 `;
 }
 
@@ -950,8 +1122,9 @@ function contextNeedsGuardEnsure(ctx: BoundedContextIR): boolean {
     // exactly the shape that would otherwise emit `ensure(...)` calls with no
     // `ensure/2` defined (undefined function, not a warning).
     if (
-      lifecycleGates(agg.canonicalCreate).length > 0 ||
-      lifecycleGates(agg.canonicalDestroy).length > 0
+      lifecycleGates(canonicalCreate(agg)).length > 0 ||
+      lifecycleGates(canonicalDestroy(agg)).length > 0 ||
+      createBodyStatements(agg).some((st) => st.kind === "precondition")
     ) {
       return true;
     }
@@ -969,9 +1142,10 @@ function contextEmitsEvent(ctx: BoundedContextIR): boolean {
   return ctx.aggregates.some(
     (agg) =>
       !isEventSourced(agg) &&
-      (agg.operations ?? []).some(
+      ((agg.operations ?? []).some(
         (op) => !CRUD_RESERVED_NAMES.has(op.name) && op.statements.some((s) => s.kind === "emit"),
-      ),
+      ) ||
+        createBodyStatements(agg).some((s) => s.kind === "emit")),
   );
 }
 
@@ -1001,10 +1175,18 @@ function stmtHasRefCollContains(s: StmtIR): boolean {
  *  back to structs.  A read-only `contains` never touches it, so keeping this
  *  gate mutation-only avoids an emitted-but-unused `__resolve_refs` under
  *  `--warnings-as-errors`. */
-function contextMutatesRefColl(ctx: BoundedContextIR): boolean {
+function contextMutatesRefColl(ctx: BoundedContextIR, localOnly = false): boolean {
   return ctx.aggregates.some((agg) => {
     if (isEventSourced(agg)) return false;
-    const names = refCollFieldNames(agg);
+    // `localOnly`: count only same-context targets — a FOREIGN one persists
+    // through its join-row schema's `rows/2`, never `__resolve_refs`.
+    const names = localOnly
+      ? new Set(
+          refCollFields(agg)
+            .filter((rc) => !isForeignRefColl(rc, ctx.aggregates))
+            .map((rc) => snake(rc.field.name)),
+        )
+      : refCollFieldNames(agg);
     if (names.size === 0) return false;
     return (agg.operations ?? []).some(
       (op) =>
@@ -1138,10 +1320,50 @@ function renderPutAssocPartsHelper(): string {
     |> Enum.reject(fn {_k, v} ->
       match?(%Ecto.Association.NotLoaded{}, v) or is_nil(v)
     end)
-    |> Map.new()
+    |> Map.new(fn {k, v} -> {k, __put_assoc_nested(v)} end)
   end
 
-  defp __put_assoc_parts(other), do: other`;
+  defp __put_assoc_parts(other), do: other
+
+  # A NESTED part (\`Line.notes\`) is normalised the same way.  Left a loaded
+  # struct, Ecto reads it as an existing row of whatever parent it is cast
+  # under — so a line rebuilt from an old one (carrying the old line's note
+  # structs) answered a stale-entry 409 instead of re-inserting them.
+  defp __put_assoc_nested(list) when is_list(list), do: Enum.map(list, &__put_assoc_nested/1)
+  defp __put_assoc_nested(%{__meta__: %Ecto.Schema.Metadata{}} = part), do: __put_assoc_parts(part)
+  defp __put_assoc_nested(other), do: other`;
+}
+
+/** The private helper a context module emits when a named op rewrites a
+ *  value-object collection (`charges += Charge{…}` / `charges -= c` over a
+ *  `has_many` child table).  The persist tail used to `force_change` the field,
+ *  which Ecto refuses for an association ("changing assocs with force_change/3 is
+ *  not supported") — every such operation answered 500 (M-T6.94).  A value
+ *  object has no identity, so every element becomes a NEW row (no id), stamped
+ *  with its list position the way the create/update `prepare_vc_attrs` does;
+ *  `put_assoc` over the struct AS LOADED (`record_before`) then deletes every
+ *  old row through the schema's `on_replace: :delete` — the dropped element's
+ *  row included. */
+function renderPutValueRowsHelper(): string {
+  return `  # Normalise a value-object collection to \`put_assoc\`-ready rows: a value object
+  # has no identity, so each element is a NEW row stamped with its position, and
+  # \`on_replace: :delete\` drops the rows the loaded struct held.
+  defp __put_value_rows(list) when is_list(list) do
+    list
+    |> Enum.with_index()
+    |> Enum.map(fn {el, i} -> el |> __value_row_fields() |> Map.put(:ordinal, i) end)
+  end
+
+  defp __put_value_rows(nil), do: []
+
+  defp __value_row_fields(%{__struct__: _} = el) do
+    el
+    |> Map.from_struct()
+    |> Map.drop([:__meta__, :id, :ordinal])
+    |> Map.reject(fn {_k, v} -> match?(%Ecto.Association.NotLoaded{}, v) end)
+  end
+
+  defp __value_row_fields(%{} = el), do: el`;
 }
 
 /** The two private helpers a context module emits when a named op mutates a
@@ -1236,7 +1458,7 @@ function renderExternOpFunction(
     .filter((p) => paramGuardClause(p.name, p.type) == null)
     .map(
       (p) =>
-        `    ${escapeElixirIdent(snake(p.name))} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}\n`,
+        `    ${elixirLocal(p.name)} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}\n`,
     )
     .join("");
   // Re-assert the aggregate's cross-field invariants after the hook mutates and
@@ -1331,7 +1553,7 @@ function renderNamedOpFunction(
     .filter((p) => paramGuardClause(p.name, p.type) == null)
     .map(
       (p) =>
-        `    ${escapeElixirIdent(snake(p.name))} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}`,
+        `    ${elixirLocal(p.name)} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}`,
     );
 
   // S5a: a body that `emit`s a domain event is restructured to persist-then-
@@ -1433,30 +1655,26 @@ function renderNamedOpFunction(
     facadeMod.split(".")[0]!,
     facadeMod.split(".").slice(1).join("."),
     relationalContainments,
+    ctx.aggregates,
+    valueRowFieldsOf(agg, ctx),
   );
   const putBlock = putBodies.map((b) => `\n    |> ${b}`).join("");
   const putBlock6 = putBodies.map((b) => `\n      |> ${b}`).join("");
 
-  // An op that mutates an EMBEDDED containment (`items += Item{…}` on an
-  // `embeds_many`/`embeds_one` jsonb field) rebinds `record.<field>` in the body,
-  // then persists via `put_embed(:<field>, record.<field>)`.  `put_embed`, like
-  // `put_change`, DROPS the change when the new embed equals the changeset DATA —
-  // and the data is the ALREADY-mutated `record`, so `Repo.update` runs no SQL
-  // and the write is silently lost (the embed analogue of the `force_change`
-  // scalar trap; embeds have no `force_` variant).  B5.  Build the persist
-  // changeset off the ORIGINAL (pre-mutation) struct `record_before` so
-  // `put_embed` sees a real diff; scalar columns still `force_change` regardless
-  // of the base.  Relational containments (`put_assoc`) don't hit this, so the
-  // swap is gated on embedded-containment mutation only (byte-identical
-  // otherwise).
-  const containNames = new Set(agg.contains.map((c) => snake(c.name)));
-  const mutatesEmbeddedContainment = opBodyStmtsDeep(op.statements).some((s) => {
-    if (s.kind !== "add" && s.kind !== "remove") return false;
-    const f = snake(s.target.segments[0] ?? "");
-    return containNames.has(f) && !relationalContainments.has(f);
-  });
-  const persistBase = mutatesEmbeddedContainment ? "record_before" : "record";
-  const captureBase = mutatesEmbeddedContainment ? "    record_before = record\n" : "";
+  // An op that rewrites a relation-backed field — a containment (embedded
+  // `embeds_*` OR relational `has_*` child table) or a value-object collection —
+  // rebinds `record.<field>` in the body, then persists via `put_embed` /
+  // `put_assoc` / `force_change`.  All three DIFF the new value against the
+  // changeset DATA, and when the data is the ALREADY-mutated `record` the diff
+  // is empty: an embed write is dropped outright (B5), and a relational removal
+  // (`lines -= l`) issues no DELETE — the op answers 2xx and the child row stays
+  // (M-T6.94).  Build the persist changeset off the ORIGINAL (pre-mutation)
+  // struct `record_before` so the relation diff sees the real before/after;
+  // scalar columns still `force_change` regardless of the base.  See
+  // `opRewritesRelation`.  Byte-identical for every other op.
+  const rewritesRelation = opRewritesRelation(op, agg);
+  const persistBase = rewritesRelation ? "record_before" : "record";
+  const captureBase = rewritesRelation ? "    record_before = record\n" : "";
 
   // Optimistic concurrency on the NAMED-OPERATION write path (M-T6.27).
   //

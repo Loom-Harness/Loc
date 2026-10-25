@@ -126,6 +126,7 @@ import type {
   EventIR,
   ExprIR,
   FieldIR,
+  FindIR,
   IdValueType,
   LayoutIR,
   LoadPlanIR,
@@ -166,6 +167,7 @@ import { lit } from "../types/loom-ir.js";
 import { type ApiOperationIR, deriveContextOperations } from "../util/api-surface.js";
 import { classifyPage, type PageKind, type PageNameCtx } from "../util/page-kind.js";
 import { computePermissionClosures, type PermissionEdge } from "../util/permission-closure.js";
+import { isByIdReadShape } from "../util/read-gates.js";
 import { lowerAuth } from "./lower-auth.js";
 import type { ContextLevelCapabilities } from "./lower-capabilities.js";
 import {
@@ -484,6 +486,7 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
             migration: m.name,
             index,
             sql: step.sql,
+            ...(step.placement === "before" ? { before: true } : {}),
             origin: originFor(step),
           });
         } else if (isColumnStep(step)) {
@@ -1213,7 +1216,7 @@ function lowerE2E(block: TestE2E, env: Env, kind: "api" | "ui"): TestE2EIR {
   const statements: TestStmtIR[] = [];
   for (const s of inner) {
     if (isExpectStmt(s)) {
-      statements.push(expectStmtIR(lowerExpr(s.expr, curEnv), cstText(s.expr)));
+      statements.push(expectStmtIR(lowerExpr(s.expr, curEnv), cstText(s.expr), originFor(s)));
     } else {
       // `expect` is filtered above; the remaining shapes are exactly
       // `Statement`.
@@ -1620,6 +1623,7 @@ function lowerRetrieval(r: Retrieval, env: Env): RetrievalIR {
     criterionRef: criterionRefOf(r.where, bodyEnv),
     sort,
     loadPlan,
+    origin: originFor(r),
   };
 }
 
@@ -1739,8 +1743,6 @@ function lowerAggregate(
     for (const c of creates) c.audited = true;
     for (const d of destroys) d.audited = true;
   }
-  const canonicalCreate = creates.find((c) => c.canonical) ?? null;
-  const canonicalDestroy = destroys.find((d) => d.canonical) ?? null;
   const appliers = (agg.members.filter(isApply) as Apply[]).map((a) => lowerApply(a, inner));
   const tests = collectSubjectTests(agg.members.filter(isTestBlock), agg, inner);
   // Capability source nodes — read structurally from agg.members,
@@ -1762,8 +1764,6 @@ function lowerAggregate(
     operations,
     creates,
     destroys,
-    canonicalCreate,
-    canonicalDestroy,
     parts,
     tests,
     contextFilters: filters.length > 0 ? filters.map((f) => f.predicate) : undefined,
@@ -1816,7 +1816,7 @@ function lowerRepository(
       // Referencing an aggregate field is then a name-resolution error, exactly
       // the restriction we want.
       const gateEnv = newEnv(repo.$container as BoundedContext, user, modulePermissions);
-      return {
+      const lowered: FindIR = {
         name: f.name,
         params: f.params.map((p) => ({ name: p.name, type: lowerType(p.type) })),
         returnType: lowerType(f.returnType),
@@ -1825,6 +1825,30 @@ function lowerRepository(
         criterionRef: criterionRefOf(f.filter, env),
         ...resolveBypass(f),
       };
+      // M-T3.19 — the by-id read (`find byId(id: T id): T? requires …`) is
+      // written without a `where`; supply the one filter its shape means, so
+      // the find's own route + repository method read THE row (a filterless
+      // optional find reads the table's first row).  Spelled exactly as the
+      // author's `where this.id == id` would lower.
+      if (!lowered.filter && aggRoot && isByIdReadShape(lowered, aggRoot.name)) {
+        const param = lowered.params[0]!;
+        lowered.filter = {
+          kind: "binary",
+          op: "==",
+          left: {
+            kind: "member",
+            receiver: { kind: "this" },
+            member: "id",
+            receiverType: { kind: "entity", name: aggRoot.name },
+            memberType: param.type,
+          },
+          right: { kind: "ref", name: param.name, refKind: "param", type: param.type },
+          leftType: param.type,
+          rightType: param.type,
+          resultType: { kind: "primitive", name: "bool" },
+        };
+      }
+      return lowered;
     }),
     origin: originFor(repo),
   };

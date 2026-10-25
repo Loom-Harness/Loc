@@ -96,11 +96,21 @@ Flutter page bodies do not translate them yet.
 | `floor` | `(): money` | yes |
 | `ceil` | `(): money` | yes |
 
+#### `date`
+
+| op | signature | queryable |
+| --- | --- | --- |
+| `year` | `(): int` | no |
+| `month` | `(): int` | no |
+| `day` | `(): int` | no |
+| `daysUntil` | `(other: date): int` | no |
+
 #### `datetime`
 
 | op | signature | queryable |
 | --- | --- | --- |
 | `startOfDay` | `(): datetime` | yes |
+| `toDate` | `(): date` | no |
 
 ## Collection operations
 
@@ -159,7 +169,9 @@ defining property of a value object — and means exactly what `a == b` means
 on two value objects.  It lowers to that same comparison, so each backend
 renders its own value-equality idiom: python `==` (frozen-dataclass
 `__eq__`), Java `Objects.equals` (record `equals`), .NET record `==`, Elixir
-`==`, TypeScript the `equals()` method every value-object class emits.  The
+`Loom.ValueObject.equal?/2` (field-wise across the map, column and
+collection-element shapes a value object takes there), TypeScript the
+`equals()` method every value-object class emits.  The
 argument must be the same value object type and the receiver must be
 non-null (the `loom.intrinsic-*` diagnostics); a value object that declares
 its own `equals` member keeps it.  Domain logic only — in a
@@ -196,11 +208,12 @@ function roundTo(n: decimal, places: int): decimal = n.round(places)
 
 ### `temporal`
 
-Datetime comparisons against `now()`.
+Datetime comparisons against `now()`, and `today()`'s UTC calendar date.
 
 ```ddd
 // Loom stdlib — temporal.
 function isOverdue(due: datetime): bool = now() > due
 function isFuture(t: datetime): bool = t > now()
 function isPast(t: datetime): bool = t < now()
+function today(): date = now().toDate()
 ```

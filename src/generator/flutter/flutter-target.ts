@@ -40,6 +40,7 @@ import { isConstructible } from "../../ir/enrich/wire-projection.js";
 import type { AggregateIR, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
+import { renderValueEqualsCall } from "../_frontend/value-equals.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
 import { giveUp } from "../_walker/give-up.js";
 import { localizedNamedValue, localizedPositionalTranslation } from "../_walker/i18n-emit.js";
@@ -741,7 +742,8 @@ export const flutterTarget: WalkerTarget = {
         "Action: first argument must be <instance>.<operation>",
       );
     }
-    const aggName = ctx.paramTypes?.get(opRef.receiver.name);
+    const recordAgg = ctx.paramTypes?.get(opRef.receiver.name);
+    const aggName = recordAgg ?? ctx.listRowAggregates?.get(opRef.receiver.name);
     const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
     const op = agg?.operations.find(
       (o) => o.name === opRef.member && o.visibility === "public" && o.params.length === 0,
@@ -755,18 +757,24 @@ export const flutterTarget: WalkerTarget = {
     }
     const coll = snake(plural(agg.name));
     const opPath = snake(op.routeSlug ?? op.name);
-    // Address the row by the page's route `id` — on a byId detail page (the only
-    // place `paramTypes` resolves the instance) it IS the loaded record's id, and
-    // it's always in scope (the shell binds it under `usesRouteId`).  This mirrors
-    // Feliz, and sidesteps the QueryView data-param rename (`p` → the provider var).
-    ctx.usesRouteId = true;
+    // Address a detail record by the page's route `id` — on a byId detail page
+    // (where `paramTypes` resolves the instance) it IS the loaded record's id,
+    // and it's always in scope (the shell binds it under `usesRouteId`).  This
+    // mirrors Feliz, and sidesteps the QueryView data-param rename (`p` → the
+    // provider var).  A ROW of a list (a `Table` column / `For` lambda —
+    // `listRowAggregates`) addresses itself.
+    let id = "id";
+    if (recordAgg) ctx.usesRouteId = true;
+    else id = `${emitExpr(opRef.receiver, ctx)}.id`;
     const label = humanize(op.name);
     // A `when`-gated op watches its `can_<op>` probe (`gates.dart`) through a
     // `Consumer` — the page may have no `ref` of its own — disables while the
     // probe answers false (reason as tooltip), and re-queries it after a
     // successful POST.  The author's `then:` effect runs on success in place
     // of the default "<Op> done" snackbar.
-    const gate = opGateFor(ctx, agg, op);
+    // A `when`-gated op's `can_<op>` probe is per RECORD, so a row button does
+    // not pre-disable on it; the server still answers the op's own refusal.
+    const gate = recordAgg ? opGateFor(ctx, agg, op) : undefined;
     const provider = canProbeProviderName(agg.name, op.name);
     const thenArg = namedArg(call, "then");
     const onSuccess =
@@ -774,9 +782,13 @@ export const flutterTarget: WalkerTarget = {
       (thenArg
         ? flutterActionThen(thenArg, ctx)
         : `ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(${dartString(`${label} done`)})));`);
+    // The op is parameter-less, but its route still parses a JSON body: a POST
+    // with no body and no content-type is a 415 on every backend, so send the
+    // empty object every other frontend's one-click action sends.
     const press =
       `() async { ` +
-      `final res = await http.post(apiUri('/${coll}/\${id}/${opPath}')); ` +
+      `final res = await http.post(apiUri('/${coll}/\${${id}}/${opPath}'), ` +
+      `headers: const {'Content-Type': 'application/json'}, body: '{}'); ` +
       `if (res.statusCode >= 200 && res.statusCode < 300 && context.mounted) { ` +
       `${onSuccess} ` +
       `} }`;
@@ -873,10 +885,17 @@ export const flutterTarget: WalkerTarget = {
       `showDialog(context: context, ` +
       `builder: (dialogContext) => AlertDialog(title: Text(${title}), ` +
       `content: SizedBox(width: double.maxFinite, child: SingleChildScrollView(child: ${opFormWidgetCall(resolved)}))))`;
-    return (
+    const triggerWidget =
       gatedOpTrigger(agg, op, resolved.idExpr, openDialog, labelExpr, ctx) ??
-      `ElevatedButton(onPressed: () => ${openDialog}, child: Text(${labelExpr}))`
-    );
+      `ElevatedButton(onPressed: () => ${openDialog}, child: Text(${labelExpr}))`;
+    // A currentUser-only `requires` hides the trigger for a principal it
+    // refuses, exactly as `renderAction` hides a one-click op button.
+    const userGate = ctx.authUi ? opActionGate(op) : null;
+    if (userGate) {
+      ctx.usesCurrentUser = true;
+      return `(${userGate}) ? ${triggerWidget} : const SizedBox.shrink()`;
+    }
+    return triggerWidget;
   },
 
   // `FileLink(<file-ref>)` → a null-guarded, selectable file reference.  The
@@ -1219,6 +1238,10 @@ export const flutterTarget: WalkerTarget = {
   // host's operators mean the wrong thing: `+` concatenates and `<` does not
   // compile.  Every money-involving operator routes through `LoomMoney`.
   exprMoneyBinary: (left, right, e) => dartMoneyBinary(left, right, e),
+  // The wire models declare no `operator ==`, so Dart's `==` on two value
+  // objects is identity.  `loomValueEquals` (`lib/value_equals.dart`) compares
+  // their fields.
+  exprValueEquality: (left, right, e) => renderValueEqualsCall(left, right, e.op),
 
   // Scalar intrinsics — the ONE table both the page-view walk and the
   // Notifier/action-body walk consume (both route through the shared

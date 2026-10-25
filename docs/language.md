@@ -50,7 +50,9 @@ expression keywords (`context`, `aggregate`, `entity`, `event`, `repository`,
 `return`, `for`, `in`, `if`, `match`, `else`, `expect`, `test`, `when`,
 `extends`, `abstract`, `private`, `extern`, `audited`, `mask`, `unless`,
 `true`, `false`, `null`, `this`, `now`, `id`, `Self`, and the primitive
-type names `int long decimal money string bool datetime guid json File`,
+type names `int long decimal money string bool datetime guid json File`
+(`date` is a primitive type name too, but a SOFT one — a field may still be
+named `date`),
 plus the system-level heads — `system`, `subdomain`, `deployable`,
 `storage`, `api`, `ui`, `component`, `theme`, `user`,
 `auth`, `policy`, `projection`, `workflow`, `capability`, `seed`,
@@ -235,7 +237,7 @@ preserved at [`plans/multi-file-source.md`](old/plans/multi-file-source.md).
 | Form | Purpose |
 | --- | --- |
 | `subdomain Name { … }` | Groups one or more bounded contexts under a name.  A subdomain is a logical unit; it doesn't directly produce code.  Was named `module` before the D-STORAGE-SPLIT rename. |
-| `deployable name { platform: dotnet\|node\|elixir\|python\|java, contexts: [A, B], dataSources: [X, Y], port: N, … }` | A **backend** deployable: one project, one HTTP server, one DbContext, listening on `port`.  `contexts:` names which bounded contexts this deployable hosts; `dataSources:` lists the system-scope `resource` decls that route those contexts' persistence (every hosted aggregate must have a matching binding — see the `resource` row below; the clause keyword stays `dataSources:` for compatibility).  Further clauses, all order-independent: `serves: <Api>` (which api contracts it exposes), `channels: [<channelSource>, …]` (broker bindings — [`channels.md`](channels.md)), `ui: <Ui>` / `ui: <Ui> { Param: <deployable>, … }` (mount a UI on a fullstack host — `elixir` renders it as HEEx, `dotnet` / `java` embed a SPA), `hosts: [...]`, `auth: required` (JWT-decode middleware + verifier seam — [`auth.md`](auth.md)), `design: <pack>`, `favicon: "…"`.  `platform:` accepts a bareword or a quoted `"family@version"` pin (`"node@v4"`), optionally followed by a **realization block** `{ persistence: …, directoryLayout: … }` — the only two axes that remain (see [Deployable platforms](#deployable-platforms)). |
+| `deployable name { platform: dotnet\|node\|elixir\|python\|java, contexts: [A, B], dataSources: [X, Y], port: N, … }` | A **backend** deployable: one project, one HTTP server, one DbContext, listening on `port`.  `contexts:` names which bounded contexts this deployable hosts; `dataSources:` lists the system-scope `resource` decls that route those contexts' persistence (every hosted aggregate must have a matching binding — see the `resource` row below; the clause keyword stays `dataSources:` for compatibility).  Further clauses, all order-independent: `serves: <Api>` (which api contracts it exposes), `channels: [<channelSource>, …]` (broker bindings — [`channels.md`](channels.md)), `ui: <Ui>` / `ui: <Ui> { Param: <deployable>, … }` (mount a UI on a fullstack host — `elixir` renders it as HEEx, `dotnet` / `java` embed a SPA), `hosts: [...]`, `auth: required` (JWT-decode middleware + verifier seam — [`auth.md`](auth.md)), `design: <pack>`, `favicon: "…"`.  `platform:` accepts a bareword or a quoted `"family@version"` pin (`"node@v5"`), optionally followed by a **realization block** `{ persistence: …, directoryLayout: … }` — the only two axes that remain (see [Deployable platforms](#deployable-platforms)). |
 | `deployable name { platform: react\|vue\|svelte\|angular\|feliz\|flutter, targets: <backend>, ui: <Ui>, port: N }` | A **frontend** deployable.  `targets:` names the backend whose API base URL it is wired to and whose hosted contexts it inherits; a `ui:` binding is **required** (every page flows through the page metamodel — `ui Web with scaffold(subdomains: [...]) { }` is the bulk-CRUD shape).  The four static-bundle hosts (react / vue / svelte / angular) render a `ui` of any of those four `framework:`s; `feliz` (F#/Fable/Elmish) and `flutter` (Dart/Riverpod) host only their own.  Optional `auth: ui` mounts the login redirect + route guard under a system `auth { … }`. |
 | `context Name { … }` | Allowed directly inside a system; treated as if it were in an implicit `_default` subdomain. |
 | `test e2e "name" against <deployable> [verifies <TestCase>] { … }` | End-to-end test that runs against the named deployable — HTTP (vitest + fetch) for a backend, Playwright page objects for a frontend; lowers to `<system>/e2e/<System>.e2e.test.ts` / `<frontend>/e2e/<System>.ui.spec.ts`.  See [End-to-end tests](#end-to-end-tests-against-a-deployable). |
@@ -258,8 +260,17 @@ is no shared-library / npm-workspace shape; duplication is the
 trade-off for simplicity.
 
 Cross-context type references (`X id`, value-object usage, enum
-values) work freely as long as both types are reachable from the same
-deployable's hosted context set.  The Langium scope provider exports
+values) resolve across context and subdomain boundaries.  A deployable
+need not host the context that DECLARES a value object or enum: when a
+hosted declaration (an aggregate or part field, an operation / find /
+workflow / handler parameter, a hosted value object's or event's field,
+…) names a value object or enum declared in a sibling context the
+deployable does not host, every backend declares that type itself —
+only the ones the hosted surface reaches, transitively through value-object
+fields.  The same holds for an `X id` named by a workflow parameter or
+state field or a broker-consumed foreign event; an
+`X id` *field* on a hosted aggregate whose target `X` is not hosted is
+not yet covered, so host `X`'s context alongside it.  The Langium scope provider exports
 all named declarations — aggregates, entity parts, value objects,
 enums — across subdomain / context boundaries within the same source
 file.
@@ -277,7 +288,7 @@ lowers to the runtime string `<lowercase-subdomain>.<name>`.  The block is **sub
 | `platform:` | Stack |
 | --- | --- |
 | `dotnet` | ASP.NET Core + EF Core + Mediator (martinothamar) + Swashbuckle.  Default port 8080. |
-| `node`   | Hono + Drizzle ORM + Zod with `@hono/zod-openapi` (bareword resolves to the `hono@v5` package; `"node@v4"` pins the previous one).  Default port 3000. |
+| `node`   | Hono + Drizzle ORM + Zod with `@hono/zod-openapi` (bareword resolves to the `hono@v5` package, the only registered version; `node@v4` (zod 3 / TS 5) was retired, and pinning it is a validation error naming `node@v5`).  Default port 3000. |
 | `elixir` | Phoenix + plain Ecto (the Ash foundation was removed).  A fullstack host: mounts a `framework: phoenixLiveView` ui as HEEx (`coreComponents` / `daisyui` packs).  The old `platform: phoenix` / `phoenixLiveView` aliases were retired — `elixir` is the only spelling.  Default port 4000. |
 | `python` | FastAPI + SQLAlchemy 2 + Pydantic.  Default port 8000. |
 | `java`   | Spring Boot + Spring Data JPA + Hibernate.  Default port 8081. |
@@ -331,7 +342,7 @@ order:
 | `repository Name for Aggregate { find … }` | Repository declaration with optional find queries (see [Repositories](#repositories)). |
 | `criterion Name(params) of Aggregate = Expr` / `retrieval Name of Aggregate { where: Expr sort: [field desc, other asc] }` | Reusable, SQL-inlinable predicate specifications and the named list-read shapes `Repo.run(...)` consumes.  A retrieval also has a one-line form, `retrieval Name of Aggregate = Expr`.  **The block's clauses are NOT comma-separated** — `where:` / `sort:` follow one another directly (a newline between them is the readable spelling); only the items *inside* `sort: [...]` take commas.  The grammar also admits a `loads: [path, …]` clause, but declaring one is rejected today (`loom.retrieval-loads-unsupported` — a retrieval loads the whole aggregate).  See [`criterion.md`](criterion.md). |
 | `projection Name[(params)] [keyed by <field>] [requires Expr] { <fields> from <Source> [as x] [where …] [ignoring …] [join Agg as a on …] [group by …] select f = …, … }` / `projection Name keyed by k { <fields> on(e: Event) [by e.key] { … } }` | A read model: **query-time** (a `select` over an aggregate / projection / workflow source — optional `where`, `join`, `group by`, whole-table aggregation, paged reads) or **folded** (`on(e: Event)` arms folding a stream into a keyed row).  Exposed as `GET /projections/<name>` and readable from pages.  ~50 `loom.projection-*` gates; see [`language-reference/10-repositories-and-queries.md`](language-reference/10-repositories-and-queries.md) and [`scaffold-macros.md`](scaffold-macros.md) (`scaffoldDashboard`). |
-| `workflow Name { create(...) …, handle …, on(e: Event) …, function … }` | Context-level orchestration across aggregates, with `create` / `handle` / `on` reactors and workflow-local state.  See [`workflow.md`](workflow.md). |
+| `workflow Name { create(...)[: T] …, handle …, on(e: Event) …, function … }` | Context-level orchestration across aggregates, with `create` / `handle` / `on` reactors and workflow-local state.  A command-triggered `create(…): T { … return <expr> }` answers its `POST` with 200 + the value (an `X id` / `string` / `int` / `long` / `bool`); without `: T` it stays 204.  See [`workflow.md`](workflow.md#returning-a-result--createt). |
 | `[extern] commandHandler Name(cmd: Cmd)[: Response] { … }` / `[extern] queryHandler Name(q: Query): Response { … }` | Application-layer handlers — a single-aggregate `handle` lifted out of a workflow (load → mutate → save → `return`), routable from an `api { … }` body.  `queryHandler` must not save (`loom.query-handler-saves`); `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`).  An `extern` handler is bodyless (`;`) — see [`extern.md`](extern.md). |
 | `domainService Name { operation calc(...): T { … } }` | A stateless, pure cross-aggregate calculator.  See [`domain-services.md`](domain-services.md). |
 | `channel Name { carries: EventA, EventB, delivery: broadcast\|queue, retention: ephemeral\|log\|work, key: field }` | Publisher-side contract for how a context's events are transported (paired with a system `channelSource`).  **`carries:` takes a bare comma-separated event list — no `[ ]`** (unlike `contexts:` / `dataSources:` on a deployable, which do take brackets).  See [`channels.md`](channels.md). |
@@ -438,18 +449,18 @@ Inside an aggregate or an `entity` part:
 | `derived display: string = Expression` | **Reserved** — declares the aggregate's user-facing label.  When present, `string(aggregate)` and implicit `"x " + aggregate` compile to a member access on this derived; React Select pickers use it for option text.  Without it, those expressions are compile errors. |
 | `derived inspect: string = Expression` | **Reserved** — declares the aggregate's developer-facing debug form.  Auto-generated when omitted (structural form, sensitive fields shown as `<redacted>`).  Backends emit it as `ToString()` / `[util.inspect.custom]` / `Inspect` so debugger watches, exceptions, and logger output get a useful representation. |
 | `[private] invariant Expression [when Expression] [message "…"]` | `bool` predicate; checked after every mutation. Optional `when` is a guard; `message` is the user-facing text (also the i18n key). `private` keeps the rule off the wire-layer schemas (Zod / FluentValidation / OpenAPI) — it runs only in the domain floor. |
-| `unique (a, b)` | Set-level natural-key invariant — derived into a DB unique index (partial under `softDeletable`) plus a per-backend 23505 → 409 mapping (`loom.unique-*`). |
+| `unique (a, b)` | Set-level natural-key invariant — derived into a DB unique index (partial under `softDeletable`) plus a per-backend 23505 → 409 mapping (`loom.unique-*`).  A find that returns a single row (`T` / `T?`) by equality on fields no `unique (…)` covers gets the advisory `loom.single-row-find-not-unique` — with duplicates, every backend would return whichever row the database yields first. |
 | `function name(params): TypeRef = Expression` | Pure helper (expression form); callable from any expression in the same aggregate. Stays SQL-inlinable like a `criterion`. |
 | `function name(params): TypeRef { … }` | Pure helper (block form); `let` + branch (ternary/`match`, or a statement `if`/`else`) + bug-regime `precondition`/`requires`, returning a value on **every path** (`loom.function-block-no-return` — a `return` inside an `if` counts, but an `if` with no `else` leaves one path valueless). Still **pure** — no mutation, no `emit`, no repository / operation / domain-service / extern call (the IR validator rejects each). **Not queryable** (a block-form call is rejected in a `where` / `criterion` filter). |
 | `[private] operation name(params) [extern] [audited] [: ReturnType] [requires Expr] [when Expr] { … }` | Mutating method (root only). `private` = callable only from within the same aggregate root (no route). `audited` records an `audit_records` row per call. `: A or B` declares an exception-less outcome returned via `return` (an `error` variant maps to a ProblemDetails status — [`payloads.md`](payloads.md)). `requires` is the authorization gate (403; [`auth.md`](auth.md)). |
 | `operation name(params) extern { precondition … }` | Public op whose business decision lives in user code; body must contain only `precondition` statements. See [`extern.md`](extern.md). |
 | `operation name(params) when <pred> { … }` | **canCommand state gate** ([`criterion.md`](criterion.md), use site 2): `<pred>` is a pure bool predicate over the aggregate's own state — referencing an operation parameter is an error (move argument-aware checks into a `precondition`); evaluated against the loaded instance before the body. False → 409 "Disallowed" ProblemDetails; a side-effect-free `GET /{id}/can_<op>` companion returns `{ allowed }` for UI enablement (so `when` on a `private` operation is rejected — nothing could read it). Named criteria / aggregate functions inline like any bool position. Supported on all five backends. Distinct from `requires` (auth, 403) and `precondition` (domain validity, 422). |
-| `create [name](params) [audited] { … }` | Lifecycle factory — the unnamed form is the aggregate's canonical creator (the `POST /<plural>` route takes its params).  **On a state-based aggregate (the default) the body is INERT** — every `precondition`, `emit` and assignment in it is dropped and raises `loom.lifecycle-body-dropped`, so the aggregate cannot guard its own construction or raise a creation event; put that logic in a `workflow` or an `operation`.  The body runs only on a `persistedAs: eventLog` aggregate, where the `create` emits the creation event and the applier folds it.  Closing the gap is M-T3.16.  See [`language-reference/06-behavior-and-statements.md`](language-reference/06-behavior-and-statements.md). |
+| `create [name](params) [audited] [{ … }]` | Lifecycle factory — the unnamed form is the aggregate's canonical creator, and its parameter list IS the `POST /<plural>` request contract (a field it leaves out takes its declared default; the empty `create()` keeps the full field-derived input).  The body is optional: `create(title: string)` is the same declaration as `create(title: string) { }` (likewise a workflow starter).  On a state-based aggregate the body runs against the constructed instance like an operation body: a `requires` gates the route (403), a `precondition` refuses with the domain-floor 422, an `emit` publishes on save, and a `let` binds a value either reads.  Any other statement (a computed assignment, `+=`, a call) is refused by `loom.lifecycle-body-dropped`.  On a `persistedAs: eventLog` aggregate the `create` emits the creation event and the applier folds it.  See [`language-reference/06-behavior-and-statements.md`](language-reference/06-behavior-and-statements.md). |
 | `destroy [name][(params)] [audited] { … }` | Lifecycle terminator — loaded by id, the body runs (a throw aborts removal), then the framework removes the row; the unnamed `destroy { }` is the canonical `DELETE`. |
 | `apply(e: <Event>) { … }` | **Event-sourcing fold** (only on a `persistedAs: eventLog` aggregate).  Folds one emitted event type into state — a pure transition: assignments / collection mutations / `let` only, no `emit`, no side-effecting calls, no guards (`loom.applier-impure`).  One `apply` per event type.  See the event-sourcing note below. |
 | `filter …` / `stamp …` / `implements Cap` | Aggregate-level capability contributions — a read-side query filter, a write-side stamp, a typed capability application.  See [`capabilities.md`](capabilities.md). |
 | `entity Name { … }` | Nested part declaration (inside an aggregate). |
-| `test "name" { … }` | Unit test block nested in the aggregate; also declarable beside it as `test "…" for <Aggregate>` (root, context, or a `tests/*.ddd` file). Lowers per backend — see [Tests](#tests). |
+| `test "name" { … }` | Unit test block nested in the aggregate; also declarable beside it as `test "…" for <Aggregate>` (root, context, or a `tests/*.ddd` file — which must be `import`ed from the entry file). Lowers per backend — see [Tests](#tests). |
 
 Entity parts may declare only `contains`, properties, `derived`,
 `invariant`, and `function` — no `operation` / `create` / `destroy` /
@@ -500,7 +511,27 @@ def is_at(self, pier: str, position: int) -> bool:
 ```
 
 Java renders `Objects.equals(this.berth, new Berth(pier, position))`, .NET
-`this.Berth == new Berth(pier, position)` (record equality), Elixir `==`.
+`this.Berth == new Berth(pier, position)` (record equality), Elixir
+`Loom.ValueObject.equal?(record.berth, %{pier: pier, position: position})` — value
+equality across the shapes an Elixir value object takes (a column value, a
+constructor map, a collection-element struct; decimals by value, not scale).
+
+The same holds in a `ui` page expression.  A page-side value object on the JS
+frontends is the plain JSON the wire delivered, so `===` would compare
+references; the comparison renders through a `loomValueEquals` helper emitted
+into the file that uses it (Flutter: `lib/value_equals.dart`):
+
+```ddd
+Column { "Ship", o => Text { o.shipTo == o.billTo ? "same" : "split" } }
+```
+
+```tsx
+<Text>{(loomValueEquals(row.shipTo, row.billTo) ? "same" : "split")}</Text>
+```
+
+Feliz renders F#'s structural record `=` (an optional/plain pair compares as
+`row.alt = (Some row.shipTo)`), HEEx Elixir's structural `==`.  A comparison
+with `null` stays a presence test on every frontend.
 
 #### Event sourcing — `persistedAs: eventLog` + `apply(...)`
 
@@ -545,6 +576,36 @@ aggregate Account persistedAs: eventLog {
   apply(e: Opened) { owner := e.owner  balance := 0 }   // fold (initialises)
   apply(e: Deposited) { balance := balance + e.amount }   // fold
 }
+```
+
+- **The stream is the concurrency control (expected-version appends).** A
+  loaded handle remembers the stream version it was folded to, and its save
+  appends the versions *after* that one. If another append landed in between,
+  the first re-used version collides with the `(stream_type, stream_id,
+  version)` key and the save answers the optimistic-concurrency 409
+  ([RS-40](conformance-semantics.md) sentence, [RS-41](conformance-semantics.md)
+  rule). A decision taken on a stale fold is never kept. That is why
+  `versioned` is not spliced onto an event-sourced aggregate. One handle
+  changed twice does not conflict with itself.
+
+```
+workflow withdrawTwice transactional {
+  create(a: Account id, amount: int) {
+    let first = Accounts.getById(a)
+    let second = Accounts.getById(a)
+    first.withdraw(amount)
+    second.withdraw(amount)   // stale fold → 409, neither withdrawal kept
+  }
+}
+```
+
+```ts
+// node — AccountRepository.save (excerpt)
+let version = aggregate._streamVersion;          // the version this handle folded
+const rows = pending.map((event) => ({ …, version: ++version, … }));
+try { await this.db.insert(schema.ledgerEvents).values(rows); }
+catch (err) { if (/* 23505 */) throw new ConcurrencyError("Account", aggregate.id); throw err; }
+aggregate._streamVersion = version;
 ```
 
 Storage emission ships on **node, .NET, Python, Java, and Phoenix** (plain
@@ -632,6 +693,50 @@ shares: **Client read** = `forApiRead`, **create input** = `forCreateInput`,
 > `internal` or `secret` field (`row.isDeleted`, `row.tenantId`) won't type-check
 > against the API-read DTO, which omits them. Both are the same rule read off the
 > two ✗ columns above.
+
+#### A server-owned field with no default starts at its type's seed
+
+A `managed` / `token` / `internal` field is off the create input, so a
+non-optional one with no `= <default>` gets its first value from the create
+factory: the language-defined **seed** for its type
+(`src/ir/util/server-init-seed.ts`, one table every backend reads).
+
+| Type | Seed |
+|---|---|
+| `datetime` | now (UTC) |
+| `int` / `long` / `decimal` | `0` |
+| `bool` | `false` |
+| `string` | `""` |
+| `T[]` | `[]` |
+
+```ddd
+aggregate Ticket {
+  title: string
+  openedAt: datetime managed       // no default: created at now
+  hits: int managed                // created at 0
+  create(title: string) { }
+}
+```
+
+```java
+// Java — Ticket.create(...)
+e.openedAt = java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+e.hits = 0;
+```
+
+```elixir
+# Elixir — Ticket changeset, ahead of validate_required
+|> __default(:opened_at, Loom.Datetime.normalize(DateTime.utc_now()))
+|> __default(:hits, 0)
+```
+
+The other types have no honest seed: `money` has no currency, an enum has no
+first value, a value object or `X id` has no value to invent, and a `guid` has
+no "absent" (`""` is not a uuid and the nil uuid is a real value). A
+non-optional server-owned field of one of these needs a `= <default>`, a
+capability stamp, or a `?`. Otherwise it is refused with
+`loom.unconstructible-server-field`. The `corpus/managed-seeds` wire golden
+pins the seeds on all five backends.
 
 #### `immutable` constrains the CLIENT UPDATE INPUT, not domain assignment
 
@@ -808,7 +913,7 @@ BaseType      = PrimitiveType | SlotType | ActionType | SelfType | IdType | Name
 IdType        = Identifier 'id'                // cross-aggregate FK
 NamedType     = Identifier                     // bare name
 SelfType      = 'Self'                         // the host aggregate, inside a capability
-PrimitiveType = 'int' | 'long' | 'decimal' | 'money' | 'string' | 'bool' | 'datetime' | 'guid' | 'json' | 'File'
+PrimitiveType = 'int' | 'long' | 'decimal' | 'money' | 'string' | 'bool' | 'date' | 'datetime' | 'guid' | 'json' | 'File'
 SlotType      = 'slot'                         // element-shaped param marker — UI-only
 ActionType    = 'action' ('(' TypeRef ')')?    // callback-shaped param marker — UI-only
 // `money("10.50")` — the precise-decimal literal — has no rule of its own: it
@@ -1115,7 +1220,8 @@ get label(): string { return "Order #" + String(this._quantity) + " for " + this
   `{at, date}` / `{at, time}`, `{n, plural, one {# item} other {# items}}`,
   `{n, selectordinal, …}`, `{kind, select, a {…} other {…}}`.  An unknown
   format is `loom.interp-format-unknown`; a format that doesn't fit the hole's
-  type (a `date` on a non-`datetime`, a `number` on a non-numeric, a `select`
+  type (a `date` on anything but a `datetime` or `date`, a `time` on a
+  non-`datetime`, a `number` on a non-numeric, a `select`
   on a non-string/enum) is `loom.interp-hole-type`.  These drive the i18n
   string catalog — see [`new-plan/archive/T1-done.md`](new-plan/archive/T1-done.md) § M-T1.11.
   **Formats only render in a `ui` page slot** (on the JS/TS frontends; LiveView
@@ -1198,6 +1304,13 @@ width per unit — no calendar-relative `months` / `years`):
 - everything else (`duration ÷ x`, `datetime × …`, mixing with a
   non-`int` numeric) is rejected.
 
+A calendar `date` stays outside this algebra: two dates compare, and
+`a.daysUntil(b)` / `.year()` / `.month()` / `.day()` / `datetime.toDate()` /
+`today()` cover the rest — see
+[the type-system chapter](language-reference/04-type-system.md#date--a-calendar-day).
+There is no `time` (time-of-day) type, by decision: without a date it has no
+ordering across a daylight-saving change.
+
 ```ddd
 aggregate Invoice {
   issuedAt: datetime
@@ -1213,7 +1326,10 @@ get overdue(): boolean { return new Date() > this.dueAt; }
 ```
 
 There is no `duration` field type on the wire — it lives only in
-expressions (and as the `every:` cadence of a `timerSource`).
+expressions (and as the `every:` cadence of a `timerSource`).  Written as a
+field, parameter or return type it is refused with that explanation; carry
+the amount as an `int` in a fixed unit (`function slaHours(p: Priority): int`)
+and build the duration where it is used (`openedAt + hours(slaHours(priority))`).
 
 ### `money` — precise decimal, distinct from `decimal`
 
@@ -1278,9 +1394,9 @@ decimal`.
 | `emit EventName { field: expr, … }` | Raise a domain event; drained by the repository on `save`. |
 | `let name = Expression` | Local binding for the rest of the body. |
 | `helperName(args)` / `this.op(args)` | Call a helper `function` or `private operation` of the same aggregate (`loom.call-arg-count` / `loom.call-arg-type`). |
-| `return Expression` | The designed-in outcome of an operation / handler declared with an `or`-union return type — an `error` variant maps to a ProblemDetails status, a success variant to 200.  See [`payloads.md`](payloads.md). |
+| `return Expression` | The designed-in outcome of an operation / handler declared with an `or`-union return type — an `error` variant maps to a ProblemDetails status, a success variant to 200.  See [`payloads.md`](payloads.md).  Also the result of a workflow `create(…): T` — last top-level statement only, answered as the `POST`'s 200 body (`loom.workflow-return-*`; [`workflow.md`](workflow.md#returning-a-result--createt)). |
 | `match subject { Variant [b] => { … }, else => { … } }` | Statement-form variant match — arms run statements (state writes, `navigate(...)`) rather than yield a value.  In a page `action`, `match await Agg.op(...) { Ok r => …, Err e => … }` is how a remote command is awaited and its Result handled — a remote mutating call *without* the marker is `loom.missing-effect-marker`; `loom.match-await*` gates the awaited call's shape ([`actions.md`](actions.md)). |
-| `for x in Repo.run(R(args)) { … }` | **Workflow / handler bodies only** — iterate an aggregate array, saving each element's mutations per iteration ([`workflow.md`](workflow.md)). |
+| `let xs = Repo.run(R(args))` then `for x in xs { … }` | **Workflow / handler bodies only** — iterate an aggregate array, saving each element's mutations per iteration ([`workflow.md`](workflow.md)).  The iterable must be a `let`-bound `Repo.run(...)` result; iterating the call inline (`for x in Repo.run(...)`) is refused with `loom.workflow-foreach-source`. |
 | `if let x = Repo.find(C(args)) { … } else { … }` | **Workflow / handler bodies only** — bind an optional repository result and branch on presence. |
 | `if Expression { … } else { … }` | Boolean branch; `else` is optional and `else if` chains.  The condition is a full boolean expression EXCEPT that a `{`-opening form (a part / value-object construction, an object literal, a `match`) must be parenthesised — otherwise it would claim the `if`'s own body block.  **Rendered on node / dotnet / java / python.**  Refused with `loom.elixir-if-stmt-unsupported` when an elixir deployable hosts the context (a Phoenix body threads its result through a rebound `record`, and an Elixir `if` block's bindings do not escape it), and with `loom.if-stmt-page-body-unsupported` in a `ui` body — a page expresses a condition as a VALUE (`cond ? a : b` or `match`). |
 
@@ -1323,7 +1439,10 @@ Each aggregate may declare zero or more `test` blocks at the root level
 hoisted beside its subject — or into a `tests/*.ddd` file — as
 `test "…" for <Subject> { … }`, where the subject is an aggregate, value
 object, domain service, or a bounded context for the in-process
-integration rung):
+integration rung).  A `tests/*.ddd` file is **not** discovered on its own:
+like any other file it joins the project only through an `import` from
+the entry file (`import "./tests/order.ddd"` in `main.ddd`) — an
+unimported test file is silently ignored.
 
 ```ddd
 test "money literal builds" {
@@ -1361,7 +1480,7 @@ operation statements are allowed plus:
 | Form | Lowers to |
 | --- | --- |
 | `expect(<actual>).<matcher>(…)` | vitest `expect(<actual>).<matcher>(…)` / xUnit `Assert.*` / Playwright matcher. |
-| `expect(<call>).toThrow()` | the call is **refused by the domain** — see *what a bare `toThrow()` accepts* below.  node `expectDomainRejection(() => { <call>; })` / python `pytest.raises((DisallowedError, DomainError, ForbiddenError))` / xUnit `Assert.Throws<DomainException>(() => <call>)` / JUnit `assertThrows(DomainException.class, …)` / ExUnit `assert_raise <App>.GuardError` or `assert {:error, _} =`. |
+| `expect(<call>).toThrow()` | the call is **refused by the domain** — see *what a bare `toThrow()` accepts* below.  node `expectDomainRejection(() => { <call>; })` / python `pytest.raises((DisallowedError, DomainError, ForbiddenError))` / xUnit `Assert.ThrowsAny<Exception>(…)` + an `is DomainException or DisallowedException or ForbiddenException` check / JUnit `assertThrows(RuntimeException.class, …)` + the same `instanceof` family check (a `create(...)` keeps the exact `DomainException` assertion, and a value-object literal the exact `ValueObjectInvariantException` one, since its invariant throws that type) / ExUnit `assert_raise <App>.GuardError` or `assert {:error, _} =`. |
 | `expect(<call>).toThrow(<kind>)` | unit `test` only — additionally pins WHICH rung rejected (`precondition` / `invariant`).  See below. |
 | `expect(<api-call>).toThrow(<status>)` | api e2e only — `.rejects.toThrow(/→ <status>\b/)` (pins the rejected HTTP status).  Rejected in a ui e2e body. |
 | `expect(<actual>).toBeNull()` | vitest `.toBeNull()` / `.Should().BeNull()` / `assertNull` / `assert x is None` / `assert is_nil(x)`. |
@@ -1466,14 +1585,34 @@ with pytest.raises((DisallowedError, DomainError, ForbiddenError)):
 
 On both, `DomainError` covers preconditions and invariants; a value object's
 `ValueObjectInvariantError` subclasses it.  `DisallowedError` is the `when` gate,
-and `ForbiddenError` is a `requires` left in the operation body.  Java and .NET
-assert `DomainException` (a value-object construction asserts
-`ValueObjectInvariantException` on .NET), and elixir asserts its `GuardError` or an
-`{:error, _}` result.  All of these are domain classes, so a crash fails the test
-there too.  **Known gap:** Java and .NET assert `DomainException` alone, and their
-`when` gate throws a sibling `DisallowedException`.  A bare `toThrow()` over a
-`when`-refused operation therefore fails on those two backends today.  Pin such a
-test on node / python / elixir, or assert the state instead.
+and `ForbiddenError` is a `requires` left in the operation body.  Java, .NET and
+elixir accept the same **domain-rejection family** — a precondition, an
+invariant, a `when` gate and a `requires`.  Java and .NET catch the throw and then
+assert it is one of `DomainException` / `DisallowedException` /
+`ForbiddenException` (.NET adds `ValueObjectInvariantException` when the context
+emits it); the `when` gate's `DisallowedException` is a sibling of
+`DomainException`, not a subclass, so a single-type assertion would miss it.
+Elixir asserts its `GuardError` (whose `:kind` is `:precondition`, `:forbidden` or
+`:disallowed` — the pure op core checks the `when` gate first) or an
+`{:error, _}` result.  A `create(...)` or a value-object literal can only be
+refused by an invariant, so there the bare form keeps its exact single-type
+assertion (`DomainException`; `ValueObjectInvariantException` for a .NET value
+object).  Every member of the family is a domain class, so a crash fails the test
+on these backends too.
+
+```java
+// generated (java): `expect(t.close()).toThrow()` over a `when`-gated op
+RuntimeException __thrown2 = assertThrows(RuntimeException.class, () -> t.close());
+assertTrue(__thrown2 instanceof DomainException || __thrown2 instanceof DisallowedException || __thrown2 instanceof ForbiddenException,
+    "expected the domain to reject this call, but it threw: " + __thrown2);
+```
+
+```csharp
+// generated (.NET)
+var __thrown2 = Assert.ThrowsAny<Exception>(() => { t.Close(); });
+Assert.True(__thrown2 is DomainException or DisallowedException or ForbiddenException,
+    $"expected the domain to reject this call, but it threw: {__thrown2}");
+```
 
 The context-level integration `test` (the `for <Context>` rung) is not covered by
 this.  It still accepts any rejection, because a repository read can also refuse
@@ -1488,25 +1627,61 @@ is deleted and a different rule throws in its place — measured, not
 hypothetical: that is the 2026-09-13 testability audit's F11.  Name the rung:
 
 ```ddd
+operation complete() {
+    precondition status == InProgress message "finish the work first"
+    status := Completed
+}
+
 test "a fresh work order cannot be completed" {
     let wo = WorkOrder.create({ reference: "WO-1", customerName: "Ada", status: Draft })
     expect(wo.complete()).toThrow(precondition)
 }
 ```
 
+The rung is **structural** on every backend: the domain error carries it as a
+field, separate from the message, so an authored `message "…"` on the rule costs
+the assertion nothing.
+
 ```ts
-// generated (node)
-expect(() => { wo.complete(); }).toThrow(/^Precondition failed: /);
+// generated (node) — domain/workOrder.ts
+if (!(this._status === WorkStatus.InProgress)) throw new DomainError("finish the work first", "precondition", "msg.…", "");
+// generated (node) — domain/workOrder.test.ts
+expectDomainRejection(() => { wo.complete(); }, "precondition");   // reads err.kind
+```
+
+```python
+# generated (python)
+with pytest.raises(DomainError) as rejected:
+    wo.complete()
+assert rejected.value.kind == "precondition", str(rejected.value)
+```
+
+```java
+// generated (java)
+DomainException __thrown1 = assertThrows(DomainException.class, () -> wo.complete());
+assertEquals(DomainException.Kind.PRECONDITION, __thrown1.getKind(), __thrown1.getMessage());
+```
+
+```csharp
+// generated (.NET)
+var __thrown1 = Assert.Throws<DomainException>(() => { wo.Complete(); });
+Assert.Equal(DomainErrorKind.Precondition, __thrown1.Kind);
 ```
 
 ```elixir
-# generated (elixir) — structural, because GuardError is `defexception [:message, :kind]`
-__thrown1 = assert_raise Api.GuardError, fn -> Api.Ops.WorkOrder.complete(wo, %{}) end
-assert __thrown1.kind == :precondition
+# generated (elixir)
+rejected1 = assert_raise Api.GuardError, fn -> Api.Ops.WorkOrder.complete(wo, %{}) end
+assert rejected1.kind == :precondition
 ```
 
+The field is `DomainError.kind` (node, python), `DomainException.getKind()`
+(java), `DomainException.Kind` (.NET; a value object's invariant throws the
+separate `ValueObjectInvariantException`, so there the type is the rung) and
+`GuardError.kind` (elixir).  It does not reach the wire: the HTTP answer is the
+same 422 problem whose `detail` is the authored message.
+
 `precondition` and `invariant` are keywords, not values — they are legal only in
-this one argument position (`loom.throw-kind-outside-tothrow`).  Three rules
+this one argument position (`loom.throw-kind-outside-tothrow`).  Two rules
 bound the form, each for its own reason:
 
 - **Unit tier only.** In a `test e2e` body it is refused
@@ -1516,13 +1691,6 @@ bound the form, each for its own reason:
   refused in a context-integration `test`
   (`loom.throw-kind-integration-unsupported`), which renders through a separate
   emitter carrying no rung.
-- **Not against a rule with a custom `message`**
-  (`loom.throw-kind-custom-message`).  The node / python / java / .NET domain
-  layers discriminate on the derived `"Precondition failed: "` /
-  `"Invariant violated: "` prefix, and an authored `message "…"` *replaces* that
-  string rather than extending it.  Elixir alone is structural, but a unit test
-  is emitted for all five backends from one `.ddd`.  Drop the `message`, or
-  assert the bare `toThrow()` here and pin the wording in a `test e2e` block.
 - **`requires` is not a rung here.**  It is an authorization gate (403) needing a
   principal the unit tier has no vocabulary for.
 
@@ -1826,11 +1994,15 @@ by the queryable-subset validator.
 
 `findById` and `getById` are auto-generated for every aggregate
 (no need to declare them in the repository).  An auto-included
-`find all(): T[]` is also added to every aggregate's repository, so
+`find all(): T paged` is also added to every aggregate's repository (a bare
+`T[]` for an event-sourced, `document`/`embedded`-shaped or `extends`
+subtype aggregate, whose rows cannot page), so
 all five backends always expose `GET /<plural>` and every frontend
 (react, vue, svelte, angular, feliz, flutter) always has a list page to
 render.  Declaring your own `find all(...)` in the DSL overrides the
-implicit one.
+implicit one, and its declared return type is the wire contract: write
+`find all(): T paged requires <expr>` to gate the list and keep the
+`Paged<T>` envelope; `find all(): T[]` answers a bare JSON array.
 
 **Absence, in a body.**  `getById` and a find declared `: T` load a single
 row and answer the declared **404** when it is not there — on the GET route,

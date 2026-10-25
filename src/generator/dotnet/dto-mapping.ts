@@ -118,6 +118,9 @@ const CS_WIRE_PRIMITIVE: Record<WirePrimitive, string> = {
   string: "string",
   bool: "bool",
   datetime: "string",
+  // A calendar date crosses as its ISO `yyyy-MM-dd` text (parsed into
+  // `DateOnly` at the command boundary, formatted back on the response).
+  date: "string",
   guid: "Guid",
   // Opaque JSON blob — round-trips through System.Text.Json untouched
   // (System.Text.Json serialises a JsonElement back verbatim).
@@ -126,6 +129,12 @@ const CS_WIRE_PRIMITIVE: Record<WirePrimitive, string> = {
   // (bytes live in object storage; the DTO carries only the reference).
   File: "FileRef",
 };
+
+/** The C# `DateOnly` → wire-text half of a `date` field: ISO `yyyy-MM-dd`,
+ *  culture-pinned so a non-Gregorian host calendar cannot respell it. */
+function csCalendarDateWire(domainExpr: string): string {
+  return `${domainExpr}.ToString("yyyy'-'MM'-'dd", System.Globalization.CultureInfo.InvariantCulture)`;
+}
 
 /** C# expression rendering a domain `DateTime` as its canonical wire string
  *  (RS-4 + RS-38): ISO-8601 UTC in MILLISECONDS — exactly three fractional
@@ -498,10 +507,27 @@ export function wireToCommandArgument(
           (out) => `${out}.AddTicks(-(${out}.Ticks % TimeSpan.TicksPerMillisecond))`,
         );
       }
+      if (info.primitive === "date") {
+        // Wire string → DateOnly.  EXACT `yyyy-MM-dd`: a datetime-shaped value
+        // (`2026-01-01T00:00Z`) is refused as a typed 422 rather than having
+        // its time-of-day dropped silently.
+        return wireParseGuard(
+          expr,
+          site,
+          "date",
+          (out) =>
+            `DateOnly.TryParseExact(${expr}, "yyyy-MM-dd", CultureInfo.InvariantCulture, ` +
+            `DateTimeStyles.None, out var ${out})`,
+        );
+      }
       if (info.primitive === "money") {
-        // Wire string → System.Decimal.  InvariantCulture so a locale's
-        // comma-vs-dot doesn't flip the parse — and TryParse so `"12,50"`
-        // answers 422 like node's `moneySchema` instead of 500.
+        // Wire string → System.Decimal, gated by node's money GRAMMAR
+        // (`WireFormatException.IsMoneyGrammar`) before the parse: the parse
+        // style alone cannot say it — `NumberStyles.Number` reads `"12,50"`
+        // as 1250 through the invariant thousands separator.  The style below
+        // is then only what the grammar already admits (a leading `-`, one
+        // `.`), and InvariantCulture keeps a locale's comma-vs-dot out of it.
+        // TryParse, so a refusal is node's 422, not a 500.
         // The second guard is RANGE, not format: a value can parse as a
         // `decimal` and still not fit NUMERIC(MONEY_PRECISION, MONEY_WIRE_SCALE),
         // in which case it would reach the DATABASE and come back a 500 for a
@@ -513,8 +539,9 @@ export function wireToCommandArgument(
           site,
           "decimal",
           (out) =>
-            `decimal.TryParse(${expr}, NumberStyles.Number, CultureInfo.InvariantCulture, ` +
-            `out var ${out})`,
+            `global::${site.ns}.Domain.Common.WireFormatException.IsMoneyGrammar(${expr}) && ` +
+            `decimal.TryParse(${expr}, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, ` +
+            `CultureInfo.InvariantCulture, out var ${out})`,
           {
             predicate: (out) => `System.Math.Abs(${out}) < ${MONEY_MAX_EXCLUSIVE}m`,
             message: MONEY_RANGE_MESSAGE,
@@ -582,7 +609,7 @@ export function collectWireUsings(
   if (info.isNullable) return collectWireUsings(peelNullable(t), ctx, into);
   if (info.isCollection) return collectWireUsings(peelCollection(t), ctx, into);
   if (info.refKind === "primitive") {
-    if (info.primitive === "datetime" || info.primitive === "money") {
+    if (info.primitive === "datetime" || info.primitive === "date" || info.primitive === "money") {
       // `CultureInfo` + `DateTimeStyles` + `NumberStyles` all live here.  The
       // `WireFormatException` the guard throws is fully qualified at the call
       // site, so it needs no using of its own — `Domain.Common` is only
@@ -633,6 +660,7 @@ export function projectToResponse(
         // clients see one shape (RS-4).  See `csCanonicalInstantWire`.
         return csCanonicalInstantWire(domainExpr);
       }
+      if (info.primitive === "date") return csCalendarDateWire(domainExpr);
       if (info.primitive === "money") {
         // System.Decimal → wire string at the FIXED money scale (RS-12): the
         // bare `.ToString()` echoes the value's own scale (`12.5` vs `12.50`),
@@ -716,6 +744,7 @@ export function domainToRequestExpr(
       if (info.primitive === "datetime") {
         return csCanonicalInstantWire(domainExpr);
       }
+      if (info.primitive === "date") return csCalendarDateWire(domainExpr);
       return domainExpr;
     case "id":
       return `${domainExpr}.Value`;
@@ -764,6 +793,7 @@ export function isWireValueType(t: TypeIR): boolean {
       info.primitive !== "string" &&
       info.primitive !== "money" &&
       info.primitive !== "datetime" &&
+      info.primitive !== "date" &&
       info.primitive !== "File")
   );
 }

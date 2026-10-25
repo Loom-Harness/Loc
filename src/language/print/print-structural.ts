@@ -993,10 +993,12 @@ function printWorkflowCreateDecl(node: import("../generated/ast.js").WorkflowCre
   const name = node.name ? ` ${node.name}` : "";
   const params = node.params.map(printParameter).join(", ");
   const by = node.correlation ? ` by ${printExpr(node.correlation)}` : "";
+  // The optional `: T` result sits after the signature modifiers, before `by`.
+  const ret = node.returnType ? `: ${printTypeRef(node.returnType)}` : "";
   // Authorization gate (authorization.md §11.3) — after `by`, before the body;
   // the modifier slots bracket it exactly as the grammar orders them.
   return block(
-    `${callableLead(node)}create${name}(${params})${callableSig(node)}${by}${callableGates(node)}`,
+    `${callableLead(node)}create${name}(${params})${callableSig(node)}${ret}${by}${callableGates(node)}`,
     () => node.body.map(printStmt),
   );
 }
@@ -1247,7 +1249,8 @@ function printMigration(node: import("../generated/ast.js").Migration): string {
   return block(`migration ${JSON.stringify(node.name)}`, () =>
     node.steps.map((s) => {
       if (s.$type === "TableRename") return `${s.fromTable} -> ${s.toAggregate.$refText}`;
-      if (s.$type === "SqlStep") return `sql ${JSON.stringify(s.sql)}`;
+      if (s.$type === "SqlStep")
+        return `sql ${s.placement ? `${s.placement} ` : ""}${JSON.stringify(s.sql)}`;
       // ColumnStep — rename (`renamedTo`) or backfill (`value`), M-T2.3.
       return s.value !== undefined
         ? `${s.aggregate.$refText}.${s.field} = ${printExpr(s.value)}`

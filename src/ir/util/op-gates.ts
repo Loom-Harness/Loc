@@ -27,11 +27,18 @@ import {
   type ExprIR,
   exprUsesCurrentUser,
   type OperationIR,
+  type ParamIR,
   type StmtIR,
   stmtUsesCurrentUser,
   type WorkflowStmtIR,
 } from "../types/loom-ir.js";
-import { walkExprDeep, walkWorkflowStmtExprsDeep, walkWorkflowStmtsDeep } from "./walk.js";
+import { canonicalCreate, canonicalDestroy } from "./canonical-lifecycle.js";
+import {
+  walkExprDeep,
+  walkStmtExprsDeep,
+  walkWorkflowStmtExprsDeep,
+  walkWorkflowStmtsDeep,
+} from "./walk.js";
 
 /** A `requires` statement, narrowed out of the general `StmtIR` union. */
 export type RequiresStmtIR = Extract<StmtIR, { kind: "requires" }>;
@@ -100,8 +107,8 @@ export function lifecycleGates(action: OperationIR | null | undefined): Requires
  *  and the bare `AggregateIR` satisfy it without this module importing either. */
 export interface GatedAggregate {
   readonly operations: readonly OperationIR[];
-  readonly canonicalCreate?: OperationIR | null;
-  readonly canonicalDestroy?: OperationIR | null;
+  readonly creates?: readonly OperationIR[];
+  readonly destroys?: readonly OperationIR[];
 }
 
 /**
@@ -125,8 +132,8 @@ export interface GatedAggregate {
 export function callerGates(agg: GatedAggregate): RequiresStmtIR[] {
   return [
     ...agg.operations.flatMap(operationGates),
-    ...lifecycleGates(agg.canonicalCreate),
-    ...lifecycleGates(agg.canonicalDestroy),
+    ...lifecycleGates(canonicalCreate(agg)),
+    ...lifecycleGates(canonicalDestroy(agg)),
   ];
 }
 
@@ -256,4 +263,58 @@ export const ES_CREATE_GATE_BACKENDS: ReadonlySet<string> = new Set(["elixir"]);
  *  `_init` — empty when every host can enforce it.  Sorted, for stable wording. */
 export function esCreateGateUnsupportedOn(backendPlatforms: Iterable<string>): string[] {
   return [...backendPlatforms].filter((p) => !ES_CREATE_GATE_BACKENDS.has(p)).sort();
+}
+
+/** The statement kinds a state-based canonical `create` body RENDERS on every
+ *  backend — beside its `requires` gate, which the caller hoists (above).
+ *
+ *  Each backend runs them against the freshly constructed instance, so they
+ *  read exactly what an operation body reads: the create params as locals and
+ *  the instance's own fields (every field the params do not supply already
+ *  holds its declared default).  A `precondition` throws the domain-floor 422
+ *  an operation's does; an `emit` records the event on the instance, and the
+ *  create's save dispatches it like any other.  A `let` binds a value either
+ *  may read.
+ *
+ *  Assignments are NOT here: the create input already supplies every listed
+ *  field, and the factory seeds the rest from their declarations, so an
+ *  assignment either restates that (`name := name`, admitted) or is a
+ *  construction rule the body does not render (`loom.lifecycle-body-dropped`). */
+export const RENDERED_CREATE_STMT_KINDS: ReadonlySet<StmtIR["kind"]> = new Set([
+  "precondition",
+  "emit",
+  "let",
+]);
+
+/** The statements of a state-based canonical `create` body every backend
+ *  renders after construction — see {@link RENDERED_CREATE_STMT_KINDS}.  Empty
+ *  for an event-sourced aggregate (its create body is the `_init` fold) and
+ *  for an aggregate with no canonical create, so a call site can use this
+ *  unconditionally and stay byte-identical when it is empty. */
+export function createBodyStatements(agg: {
+  readonly creates?: readonly OperationIR[];
+  readonly persistedAs?: string;
+}): StmtIR[] {
+  if (agg.persistedAs === "eventLog") return [];
+  return (canonicalCreate(agg)?.statements ?? []).filter((s) =>
+    RENDERED_CREATE_STMT_KINDS.has(s.kind),
+  );
+}
+
+/** The canonical create's params its rendered body READS, in declaration
+ *  order — the parameter list of the method (or the bindings of the context
+ *  function) each backend runs {@link createBodyStatements} through.  Only the
+ *  read ones, so no backend emits an unused parameter or binding (`tsc`
+ *  `noUnusedParameters`, `mix compile --warnings-as-errors`). */
+export function createBodyParams(agg: {
+  readonly creates?: readonly OperationIR[];
+  readonly persistedAs?: string;
+}): ParamIR[] {
+  const read = new Set<string>();
+  for (const s of createBodyStatements(agg)) {
+    walkStmtExprsDeep(s, (e) => {
+      if (e.kind === "ref" && e.refKind === "param") read.add(e.name);
+    });
+  }
+  return (canonicalCreate(agg)?.params ?? []).filter((p) => read.has(p.name));
 }

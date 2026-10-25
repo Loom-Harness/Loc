@@ -87,9 +87,17 @@ MigrationStepDecl:
 // One raw one-shot SQL statement (M-T2.3), applied through the migration
 // chain exactly once (the builder records `<block>#<index>` in the snapshot's
 // `appliedDataMigrations` ledger).  Postgres-flavoured — every backend
-// applies Postgres (Ecto wraps it in `execute/1`).
+// applies Postgres (Ecto wraps it in `execute/1`).  By default the step runs
+// AFTER the generation's structural DDL; the opt-in `before` placement
+// (`sql before "…"`) emits it AHEAD of them — the dedupe that must precede a
+// new `unique (…)` index, or any fix-up the new DDL would otherwise reject.
+// `placement` is a bare ID, NOT a `'before'` keyword: Langium keywords are
+// lexed globally, so a keyword would reserve `before` in every name position
+// that is not soft-keyword-aware (workflow / let / param names — the corpus
+// uses all of them).  The validator admits only `before`
+// (`loom.migration-sql-placement`).
 SqlStep:
-    'sql' sql=STRING;
+    'sql' (placement=ID)? sql=STRING;
 
 // A column step, left-factored on the shared `Agg.field` prefix:
 //   - rename:   `Order.qty -> quantity`   (`renamedTo` set; `field` is the
@@ -1496,22 +1504,28 @@ Workflow:
 WorkflowMember:
     WorkflowCreateDecl | Apply | OnDecl | HandleDecl | Property | FunctionDecl;
 
-// A workflow starter.  Param-shape discriminates the trigger (resolved at
-// lowering, not parse time):
+// A workflow starter.  The body is optional — a bodyless starter is the
+// same AST as one with `{ }`.  Param-shape discriminates the trigger
+// (resolved at lowering, not parse time):
 //   create(event: E) by <expr>  → event-triggered (allocate-if-correlation-misses)
 //   create(c: Command)          → explicit command-triggered
 //   create(p1: T1, p2: T2, …)   → implicit command sugar (legacy paren-body lands here)
 // `by` reuses CorrelationExpr (the restricted name/postfix grammar `on` uses, so a
 // BuilderCall can't swallow the body block).
+// `: T` — the optional RESULT of a command-triggered starter (mirrors
+// `commandHandler name(params): T`): the body ends in `return <expr>` and the
+// command route answers 200 with that value instead of 204.  An
+// event-triggered starter has no caller to answer, so it may not declare one
+// (`loom.workflow-return-no-caller`).
 WorkflowCreateDecl:
     CallableLeadModifiers 'create' (name=ID)?
         '(' (params+=Parameter (',' params+=Parameter)*)? ')'
-        CallableSigModifiers
+        CallableSigModifiers (':' returnType=TypeRef)?
         ('by' correlation=CorrelationExpr)?
         CallableGates
-    '{'
+    ('{'
         body+=Statement*
-    '}';
+    '}')?;
 
 
 // A named orchestration command handler on a workflow: `handle
@@ -1985,14 +1999,16 @@ Operation:
 // body populates a pre-bound fresh `this`; the framework owns
 // persistence (allocate id → persist → return the populated
 // instance).  Parens are required — a factory almost always takes
-// arguments.  An unnamed `create(...)` is the aggregate's canonical
+// arguments.  The body is optional: params that name fields populate
+// them without one, so a bodyless `create(title: string)` is the same
+// AST as `create(title: string) { }`.  An unnamed `create(...)` is the aggregate's canonical
 // creator.  Lowers to an `OperationIR` with `kind: "create"`; never
 // joins `agg.operations` (which stays mutate-only).
 Create:
     CallableLeadModifiers 'create' (name=ID)? '(' (params+=Parameter (',' params+=Parameter)*)? ')'
-        CallableSigModifiers CallableGates '{'
+        CallableSigModifiers CallableGates ('{'
         body+=Statement*
-    '}';
+    '}')?;
 
 // Lifecycle terminator — `destroy [name][(params)] { body }`.  The
 // instance is loaded by id; the body runs (cleanup / soft-delete
@@ -2077,7 +2093,7 @@ CommonSoftKeywords returns string:
       | 'channels' | 'channelSource' | 'check' | 'claims' | 'clickhouse' | 'clientId' | 'clientSecret'
       | 'command' | 'commandHandler' | 'component' | 'config' | 'connection' | 'context' | 'contexts'
       | 'cookie' | 'coreComponents' | 'covers' | 'criterion' | 'cron' | 'crossTenant' | 'daisyui'
-      | 'dataSources' | 'deep' | 'delivery' | 'deny' | 'denyByDefault' | 'deployable' | 'desc' | 'description'
+      | 'dataSources' | 'date' | 'deep' | 'delivery' | 'deny' | 'denyByDefault' | 'deployable' | 'desc' | 'description'
       | 'design' | 'directoryLayout' | 'document' | 'domainService' | 'dotnet' | 'e2e' | 'elastic' | 'elixir'
       | 'embedded' | 'enforcement' | 'entitles' | 'env' | 'envelope' | 'ephemeral' | 'error' | 'event'
       | 'eventLog' | 'eventSourced' | 'every' | 'extern' | 'favicon' | 'feliz' | 'filter' | 'flowbite'
@@ -2164,7 +2180,7 @@ BaseType:
     PrimitiveType | SlotType | ActionType | SelfType | IdType | NamedType;
 
 PrimitiveType:
-    name=('int' | 'long' | 'decimal' | 'money' | 'string' | 'bool' | 'datetime' | 'guid' | 'json' | 'File');
+    name=('int' | 'long' | 'decimal' | 'money' | 'string' | 'bool' | 'date' | 'datetime' | 'guid' | 'json' | 'File');
 
 // Element-shaped param type for component slot injection.  Valid only on a
 // `component`'s parameter list; values flow as JSX (`React.ReactNode`-ish in

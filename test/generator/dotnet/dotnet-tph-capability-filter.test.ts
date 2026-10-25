@@ -209,11 +209,58 @@ describe(".NET TPH × capability filter", () => {
 
   it("a PRINCIPAL filter on a subtype registers on the root, with distinct names per subtype", async () => {
     // `modelBuilder.Entity<Car>().HasQueryFilter(…)` threw at model build; and
-    // because both subtypes' `tenantOwned` produces the same base name
-    // ("TenantIdFilter"), hosting them on one root type without a prefix would
+    // because both subtypes' filters derive the same base name
+    // ("OwnerIdFilter"), hosting them on one root type without a prefix would
     // have had the second registration silently OVERWRITE the first — one
-    // subtype's tenant isolation vanishing.
+    // subtype's isolation vanishing.
     const { files, diags } = await emit(`
+      system Acme {
+        user { id: guid  tenantId: string }
+        subdomain Registry {
+          context Fleet {
+            abstract aggregate Vehicle { name: string  ownerId: string }
+            aggregate Car extends Vehicle { doors: int  filter this.ownerId == currentUser.tenantId }
+            aggregate Truck extends Vehicle { payloadKg: int  filter this.ownerId == currentUser.tenantId }
+            repository Cars for Car { }
+            repository Trucks for Truck { }
+          }
+        }
+        storage primary { type: postgres }
+        resource fleetState { for: Fleet, kind: state, use: primary }
+        deployable api {
+          platform: dotnet
+          contexts: [Fleet]
+          dataSources: [fleetState]
+          port: 8080
+          auth: required
+        }
+      }
+    `);
+    expect(
+      diags.filter((d) => d.code === "loom.tph-filter-unsupported"),
+      "the filters read a ROOT column — expressible, not gated",
+    ).toEqual([]);
+
+    const dbCtx = fileNamed(files, "AppDbContext.cs");
+    expect(dbCtx, "AppDbContext emitted").not.toEqual("");
+    expect(dbCtx, "no filter is registered on a derived entity type").not.toMatch(
+      /modelBuilder\.Entity<(Car|Truck)>\(\)\.HasQueryFilter/,
+    );
+    expect(dbCtx, "Car's filter is on the root, guarded and prefixed").toContain(
+      'modelBuilder.Entity<Vehicle>().HasQueryFilter("Car_OwnerIdFilter", x => EF.Property<string>(x, "kind") != "Car" || (x.OwnerId == _currentUser.User.TenantId));',
+    );
+    expect(dbCtx, "Truck's filter is a DISTINCT key, so neither overwrites the other").toContain(
+      '"Truck_OwnerIdFilter"',
+    );
+  });
+
+  it("a BASE's principal filter registers once on the root and reaches every subtype", async () => {
+    // The base's capability applies to every subtype (D-INHERITED-CAPABILITIES):
+    // the root registration already constrains each concrete's rows, so a
+    // subtype repeating the capability adds no second, `kind`-guarded copy —
+    // and an `ignoring tenantOwned` on a subtype names the root's filter, the
+    // one EF actually applies.
+    const { files } = await emit(`
       system Acme {
         user { id: guid  tenantId: string }
         tenancy by user.tenantId of Org
@@ -222,9 +269,11 @@ describe(".NET TPH × capability filter", () => {
           context Fleet {
             abstract aggregate Vehicle with tenantOwned { name: string }
             aggregate Car extends Vehicle with tenantOwned { doors: int }
-            aggregate Truck extends Vehicle with tenantOwned { payloadKg: int }
+            aggregate Truck extends Vehicle { payloadKg: int }
             repository Cars for Car { }
-            repository Trucks for Truck { }
+            repository Trucks for Truck {
+              find anyTenant(): Truck[] where this.payloadKg > 0 ignoring tenantOwned
+            }
           }
         }
         storage primary { type: postgres }
@@ -239,26 +288,16 @@ describe(".NET TPH × capability filter", () => {
         }
       }
     `);
-    expect(
-      diags.filter((d) => d.code === "loom.tph-filter-unsupported"),
-      "`tenantOwned` on the base puts tenantId on the ROOT — expressible, not gated",
-    ).toEqual([]);
-
     const dbCtx = fileNamed(files, "AppDbContext.cs");
-    expect(dbCtx, "AppDbContext emitted").not.toEqual("");
-    expect(dbCtx, "no filter is registered on a derived entity type").not.toMatch(
-      /modelBuilder\.Entity<(Car|Truck)>\(\)\.HasQueryFilter/,
-    );
-    expect(dbCtx, "Car's filter is on the root, guarded and prefixed").toContain(
-      'modelBuilder.Entity<Vehicle>().HasQueryFilter("Car_TenantIdFilter", x => EF.Property<string>(x, "kind") != "Car" || (x.TenantId == _currentUser.User.TenantId));',
-    );
-    expect(dbCtx, "Truck's filter is a DISTINCT key, so neither overwrites the other").toContain(
-      '"Truck_TenantIdFilter"',
-    );
-    // The abstract base was excluded from the walk entirely, so its own
-    // principal filter was dropped on top of everything else.
-    expect(dbCtx, "the base's own filter is registered too, unguarded").toContain(
+    expect(dbCtx, "the base's filter is registered on the root, unguarded").toContain(
       'modelBuilder.Entity<Vehicle>().HasQueryFilter("TenantIdFilter", x => x.TenantId == _currentUser.User.TenantId);',
+    );
+    expect(dbCtx, "no per-subtype copy of the inherited filter").not.toMatch(
+      /"(Car|Truck)_TenantIdFilter"/,
+    );
+    const trucks = fileNamed(files, "Repositories/TruckRepository.cs");
+    expect(trucks, "the bypass lifts the root's filter").toContain(
+      'IgnoreQueryFilters(["TenantIdFilter"])',
     );
   });
 });

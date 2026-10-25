@@ -1,3 +1,4 @@
+import { declaredCreateParamNames } from "../../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -9,11 +10,19 @@ import type {
   SystemIR,
   TestIR,
 } from "../../../ir/types/loom-ir.js";
+import { disallowedDetail } from "../../../ir/util/denial-detail.js";
+import { createBodyParams, createBodyStatements } from "../../../ir/util/op-gates.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
-import { elixirString, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
-import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
+import {
+  elixirLocal,
+  elixirString,
+  escapeElixirIdent,
+  snake,
+  upperFirst,
+} from "../../../util/naming.js";
+import { exprUsesParam, opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
-import { denialTerm, guardErrorModule, guardRaiseLine } from "./denial.js";
+import { denialMessage, denialTerm, guardErrorModule, guardRaiseLine } from "./denial.js";
 import { isVanillaDocAgg } from "./document-emit.js";
 import { esInvariantChecks, isEventSourced } from "./eventsourced-emit.js";
 import { bodyUsesParam, bodyUsesReceiver, renderFunctionBodyLines } from "./function-emit.js";
@@ -159,19 +168,67 @@ export function renderAggregatePureCore(
   // (`expect(d.berth.ship == s.id)`) compared `nil == nil` and passed for any
   // value, where the other four backends compare two real ids.
   const fresh = "%__MODULE__{id: UUIDv7.generate()}";
+  // A narrowed declared `create(…)` takes only its parameters' keys.
+  const createAttrs =
+    declaredCreateParamNames(agg) !== undefined
+      ? `${changesetMod}.take_create_attrs(attrs)`
+      : "attrs";
+  // The create BODY's `precondition`s / `let`s (`createBodyStatements`) run
+  // over the applied draft, the read params bound off it (a param IS its
+  // same-named field).  A failed precondition is the `{:error, …}` tuple this
+  // core already answers an invalid changeset with.  Its `emit`s are effects,
+  // dispatched by the context's persisted create — the pure core drops them,
+  // as it does an operation's.
+  const bodyRc: RenderCtx = {
+    thisName: "record",
+    contextModule: `${appModule}.${ctxModule}`,
+    captureProvenance: false,
+  };
+  const bodyClauses = createBodyStatements(agg).some((st) => st.kind !== "emit")
+    ? [
+        // Only the params a guard / `let` reads: the dropped `emit`s read none
+        // here, and an unused binding fails `--warnings-as-errors`.
+        ...createBodyParams(agg)
+          .filter((p) =>
+            createBodyStatements(agg).some((st) => st.kind !== "emit" && stmtUsesParam(st, p.name)),
+          )
+          .map((p) => `${escapeElixirIdent(snake(p.name))} = record.${snake(p.name)}`),
+        ...createBodyStatements(agg).flatMap((st) => {
+          if (st.kind === "precondition") {
+            return [
+              `:ok <- if(${renderExpr(st.expr, bodyRc)}, do: :ok, else: {:error, {:precondition_failed, ${elixirString(denialMessage(st))}}})`,
+            ];
+          }
+          if (st.kind === "let")
+            return [`${escapeElixirIdent(snake(st.name))} = ${renderExpr(st.expr, bodyRc)}`];
+          return [];
+        }),
+      ]
+    : [];
   const createBody =
-    collectionContainments.length === 0
+    bodyClauses.length > 0
       ? [
-          `    ${changesetMod}.base_changeset(${fresh}, attrs)`,
-          "    |> Ecto.Changeset.apply_action(:insert)",
-        ]
-      : [
           "    with {:ok, record} <-",
-          `           ${changesetMod}.base_changeset(${fresh}, attrs)`,
-          "           |> Ecto.Changeset.apply_action(:insert) do",
-          `      {:ok, %{record | ${collectionContainments.map((n) => `${n}: []`).join(", ")}}}`,
+          `           ${changesetMod}.base_changeset(${fresh}, ${createAttrs})`,
+          "           |> Ecto.Changeset.apply_action(:insert),",
+          ...bodyClauses.map((c, i) => `         ${c}${i < bodyClauses.length - 1 ? "," : " do"}`),
+          collectionContainments.length === 0
+            ? "      {:ok, record}"
+            : `      {:ok, %{record | ${collectionContainments.map((n) => `${n}: []`).join(", ")}}}`,
           "    end",
-        ];
+        ]
+      : collectionContainments.length === 0
+        ? [
+            `    ${changesetMod}.base_changeset(${fresh}, ${createAttrs})`,
+            "    |> Ecto.Changeset.apply_action(:insert)",
+          ]
+        : [
+            "    with {:ok, record} <-",
+            `           ${changesetMod}.base_changeset(${fresh}, ${createAttrs})`,
+            "           |> Ecto.Changeset.apply_action(:insert) do",
+            `      {:ok, %{record | ${collectionContainments.map((n) => `${n}: []`).join(", ")}}}`,
+            "    end",
+          ];
   const out: string[] = [
     `  @doc "Pure create core — validates + applies the changeset in memory (no persistence)."`,
     "  def create(attrs) when is_map(attrs) do",
@@ -346,7 +403,7 @@ function renderPureFunction(
     ...(struct.docStruct ? { docStruct: true } : {}),
   };
   const params = fn.params.map((p) =>
-    bodyUsesParam(fn.body, p.name) ? escapeElixirIdent(snake(p.name)) : `_${snake(p.name)}`,
+    bodyUsesParam(fn.body, p.name) ? elixirLocal(p.name) : `_${snake(p.name)}`,
   );
   // Same rule the facade copy applies to its receiver: a body that never reads
   // the struct (`function inList(q: int): int { let xs = [q, 2, 3] … }`) must
@@ -387,12 +444,28 @@ function renderPureOp(
   // state — strip it so the core stays pure / Repo-free.  Lets it depends on
   // survive (only the broadcast statement is dropped).
   const stmts = op.statements.filter((s) => s.kind !== "emit");
-  const usedParams = op.params.filter((p) => stmts.some((s) => stmtUsesParam(s, p.name)));
+  const usedParams = op.params.filter(
+    (p) => exprUsesParam(op.when, p.name) || stmts.some((s) => stmtUsesParam(s, p.name)),
+  );
   const paramsArg = usedParams.length > 0 ? "params" : "_params";
   const guard = usedParams.length > 0 ? " when is_map(params)" : "";
   const paramBinds = usedParams.map(
-    (p) => `    ${escapeElixirIdent(snake(p.name))} = Map.get(params, ${JSON.stringify(p.name)})`,
+    (p) => `    ${elixirLocal(p.name)} = Map.get(params, ${JSON.stringify(p.name)})`,
   );
+  // The `when` STATE GATE, ahead of the body exactly as the persisting
+  // `<op>_<agg>` checks it first (`ensure(<when>, {:disallowed, …})`).  The
+  // pure core used to skip it, so an op refused in the current state ran its
+  // body anyway and `expect(t.close()).toThrow()` on a closed ticket failed
+  // where every other backend raises (claims D17).  It raises the same typed
+  // `GuardError` the body's guards do, with the gate's own `:disallowed` kind
+  // and the detail every backend's 409 carries.
+  const whenGate = op.when
+    ? [
+        `    if not (${renderExpr(op.when, rc)}), do: raise(${guardErrorModule(appModule)}, kind: :disallowed, message: ${elixirString(
+          disallowedDetail(op.name, agg.name, op.whenSource),
+        )})`,
+      ]
+    : [];
   const bodyLines = stmts.map((s, i) => renderReturningStmt(s, ctx, rc, i));
   // A void op returns the mutated struct; a value-returning op's `return`
   // statement is already the body's tail value (renderReturningStmt emits it).
@@ -406,6 +479,7 @@ function renderPureOp(
     `  @doc "Pure domain core of \`${op.name}\` — preconditions + in-memory mutation (no persistence)."`,
     `  def ${opSnake}(%${struct.guard}{} = record, ${paramsArg}${actorArg})${guard} do`,
     ...paramBinds,
+    ...whenGate,
     ...bodyLines,
     ...tail,
     "  end",

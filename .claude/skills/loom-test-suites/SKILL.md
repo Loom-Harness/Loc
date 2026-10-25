@@ -43,7 +43,7 @@ npm run test:react-e2e    # LOOM_REACT_E2E=1 — RUNTIME e2e: vite build + `vite
 npm run test:vue-e2e      # LOOM_VUE_E2E=1 (pack via LOOM_VUE_E2E_PACK)
 npm run test:svelte-e2e   # LOOM_SVELTE_E2E=1
 npm run test:angular-e2e  # LOOM_ANGULAR_E2E=1 (pack via LOOM_ANGULAR_E2E_PACK)
-npm run test:dotnet       # LOOM_DOTNET_BUILD=1 — `dotnet build /warnaserror` against generated .NET projects
+npm run test:dotnet       # LOOM_DOTNET_BUILD=1 — `dotnet build /warnaserror` against generated .NET projects, then builds + runs each emitted xUnit `Tests/` project (fails on zero tests run)
 npm run test:java         # LOOM_JAVA_BUILD=1 — `gradle testClasses bootJar` against generated Spring Boot projects (JDK 25 + Gradle 9.1+)
                           # CI runs it with javac at -Xlint:all -Werror: copy test/e2e/support/java-werror.init.gradle into
                           # ~/.gradle/init.d/ to reproduce (remove it after — init.d applies to every Gradle build), or pass
@@ -95,9 +95,9 @@ npm run test:schema-load           # LOOM_SCHEMA_LOAD=1 (docker sidecar, or LOOM
 # the declared schema, declared required/format/enum/bounds honored.  Known findings are ratcheting
 # ROOT-CAUSE rules in test/behavioral/schemathesis-waivers.json (unattributed finding fails the run;
 # a rule that stops reproducing fails it too), documented in docs/audits/schemathesis-findings-2026-08.md.
-# Needs `uv tool install schemathesis` + `cd test/behavioral && npm ci`.  ~1 min; nightly in CI.
+# Needs `uv tool install schemathesis==4.24.3 --with jsonschema-rs==0.49.1` + `cd test/behavioral && npm ci`.  ~1 min; nightly in CI.
 npm run test:schemathesis          # LOOM_SCHEMATHESIS=1 (node/Hono leg)
-npm run test:schemathesis-{python,java,dotnet,elixir}   # booted legs; the elixir one is a discovery cell (not binding)
+npm run test:schemathesis-{python,java,dotnet,elixir}   # booted legs; all five bind
 
 # Channels runtime e2e — cross-deployable eventing (redis/rabbitmq/kafka, CloudEvents + outbox relay);
 # per-broker × per-backend legs, each behind its own LOOM_CHANNELS_E2E[_<BROKER>][_<BACKEND>] var.
@@ -119,6 +119,11 @@ npm run test:auth-e2e              # LOOM_AUTH_E2E=1 — Hono, native boot
 npm run test:auth-e2e-{dotnet,java,python}         # LOOM_AUTH_E2E_<BACKEND>=1 — native per backend
 npm run test:auth-e2e-compose      # LOOM_AUTH_E2E_COMPOSE=1 — full generated docker-compose stack + bundled dev Keycloak
 npm run test:auth-e2e-phoenix      # LOOM_AUTH_E2E_PHOENIX=1 — the Phoenix compose sibling
+# Identity in a generated stack: `auth { oidc }` (ANY provider, hosted presets included) bundles a dev
+# Keycloak (`demo`/`demo`) and the backends accept only its tokens — `x-loom-dev-claims` is ignored
+# there. The emitted e2e suite mints its own token (E2E_BEARER_TOKEN overrides, E2E_DEV_IDP=off
+# disables). The dev-claims header works only without an auth block, and in the playground preview
+# (which registers the emitted dev stub). docs/auth.md § "Local dev IdP".
 
 npm run test:obs          # LOOM_OBS_E2E=1 — boots generated Hono backend, asserts catalog envelope on stdout
 npm run test:obs-dotnet   # LOOM_OBS_E2E_DOTNET=1 — same for the .NET backend (postgres sidecar via docker)

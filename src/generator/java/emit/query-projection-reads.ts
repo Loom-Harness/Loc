@@ -22,6 +22,7 @@ import {
 import { aggregateArgColumn, sqlColumnName } from "../../../ir/util/projection-column.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import { javaRef } from "../../_imports/java.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { joinReadFieldNames } from "../../_projection/join-read.js";
 import { MONEY_WIRE_ZERO } from "../../money-scale.js";
@@ -39,13 +40,9 @@ import {
   movedLocalOrUndefined,
   requestParam,
 } from "../java-ident.js";
+import { J } from "../java-symbols.js";
 import { JAVA_NUMERIC, javaMoneyProjectionKeyEncode } from "../numeric-codec.js";
-import {
-  collectJavaExprImports,
-  javaValueTypeForId,
-  renderJavaExpr,
-  renderJavaType,
-} from "../render-expr.js";
+import { javaValueTypeForId, renderJavaExpr, renderJavaType } from "../render-expr.js";
 import {
   JPQL_INTRINSIC_SQL,
   type JpqlCtx,
@@ -55,7 +52,7 @@ import {
 } from "../render-jpql.js";
 import { projectionRepoField } from "./projection-reads.js";
 import { projectionRowClass } from "./projection-state.js";
-import { collectWireImports, domainToWire, javaInstantWire, wireJavaType } from "./wire.js";
+import { domainToWire, javaInstantWire, wireJavaType } from "./wire.js";
 import { workflowStateClass } from "./workflow-state.js";
 
 // ---------------------------------------------------------------------------
@@ -86,9 +83,58 @@ import { workflowStateClass } from "./workflow-state.js";
 // projections; java joined after node/python/elixir.
 // ---------------------------------------------------------------------------
 
+/** Methods every generated `<Agg>JpaRepository` already has — inherited
+ *  from Spring Data's `JpaRepository` / `ListCrudRepository` /
+ *  `ListPagingAndSortingRepository` / `QueryByExampleExecutor`, plus
+ *  `java.lang.Object`.  A synthesized source read spelled like one of them
+ *  either fails javac (`count()` clashes with `long count()`) or silently
+ *  overrides the inherited method every other caller relies on. */
+const SPRING_DATA_REPOSITORY_MEMBERS: ReadonlySet<string> = new Set([
+  "count",
+  "delete",
+  "deleteAll",
+  "deleteAllById",
+  "deleteAllByIdInBatch",
+  "deleteAllInBatch",
+  "deleteById",
+  "deleteInBatch",
+  "exists",
+  "existsById",
+  "findAll",
+  "findAllById",
+  "findBy",
+  "findById",
+  "findOne",
+  "flush",
+  "getById",
+  "getOne",
+  "getReferenceById",
+  "save",
+  "saveAll",
+  "saveAllAndFlush",
+  "saveAndFlush",
+  "clone",
+  "equals",
+  "finalize",
+  "getClass",
+  "hashCode",
+  "notify",
+  "notifyAll",
+  "toString",
+  "wait",
+]);
+
+/** The repository-side name of a query-time projection's source read:
+ *  `lowerFirst(projection name)`, suffixed `Source` when that spelling is a
+ *  Spring Data / `Object` member of the JPA repository it is declared on. */
+function sourceFindName(projName: string): string {
+  const name = lowerFirst(projName);
+  return SPRING_DATA_REPOSITORY_MEMBERS.has(name) ? `${name}Source` : name;
+}
+
 /** Query-time projections sourced from `agg`, as synthesized parameterless
- *  finds the repository emitters pick up (name = lowerFirst(projection name)) —
- *  the `viewFindsFor` analogue, so the source read shares the JPQL find path. */
+ *  finds the repository emitters pick up (name = `sourceFindName`) — the
+ *  `viewFindsFor` analogue, so the source read shares the JPQL find path. */
 export function queryProjectionFindsFor(
   aggName: string,
   ctx: EnrichedBoundedContextIR,
@@ -103,7 +149,7 @@ export function queryProjectionFindsFor(
   return (ctx.projections ?? [])
     .filter((p) => isQueryTimeProjection(p) && p.query?.source === aggName)
     .map((p) => ({
-      name: lowerFirst(p.name),
+      name: sourceFindName(p.name),
       // The projection's own parameters — its inlined `where` names them, so a
       // parameterless read emitted `@Query("… = :o")` with no `@Param`, which
       // compiles and then fails at Spring context startup.
@@ -189,7 +235,6 @@ function aggregationScope(
   proj: ProjectionIR,
   ctx: EnrichedBoundedContextIR,
   enumsPkg: string,
-  imports: Set<string>,
 ): AggregationScope {
   const principalAccessors = new Set<string>();
   // `EntityManager.createQuery` mode (§F2, Wave 2 packet 2.4): this read runs
@@ -204,7 +249,6 @@ function aggregationScope(
   };
   const filter = proj.query!.filter;
   const ownWhere = filter ? renderJpqlWhere(filter, jpqlCtx) : null;
-  if (filter) collectJavaExprImports(filter, imports);
   const capWheres: string[] = [];
   const sourceAgg = ctx.aggregates.find((a) => a.name === proj.query!.source);
   const bypass = filterBypassOf(proj);
@@ -214,7 +258,6 @@ function aggregationScope(
     const origin = origins[i];
     if (origin !== undefined && bypassDrops(origin, bypass)) continue;
     capWheres.push(`(${renderJpqlWhere(pred, jpqlCtx)})`);
-    collectJavaExprImports(pred, imports);
   }
   // The projection's own `where` is parenthesised only when a capability
   // conjunct joins it — an unparenthesised top-level `or` would otherwise bind
@@ -305,7 +348,7 @@ export function renderJavaQueryProjections(
   if (projections.length === 0) return null;
 
   const out = new Map<string, { category: "view-service" | "api-common"; content: string }>();
-  const imports = new Set<string>(["java.util.List"]);
+  const imports = new Set<string>();
   const explicitImports = new Set<string>();
   const methods: string[] = [];
   const repoAggs = new Set<string>();
@@ -324,7 +367,7 @@ export function renderJavaQueryProjections(
   // ApiExceptionAdvice).  The `currentUser`-only gate binds the principal from a
   // `CurrentUserAccessor` before evaluating.  Exact twin of the repository find
   // gate in `api.ts`.
-  const controllerGateImports = new Set<string>();
+  const accessor = javaRef(`${qpctx.basePkg}.auth`, "CurrentUserAccessor");
   let usesEntityManager = false;
   // Emitted only when some grouped projection carries a TRANSFORMED key (the
   // `function(…)` HQL escape has no static return type) — see the call site.
@@ -390,7 +433,12 @@ export function renderJavaQueryProjections(
         joined.has(f.name) && f.type.kind !== "optional"
           ? { kind: "optional", inner: f.type }
           : f.type;
-      collectWireImports(t, rowImports, "Response");
+      // `FileRef` lives in the generated `domain.common` package, which
+      // `wireJavaType` (base-package-agnostic) spells bare.
+      const leaf = t.kind === "optional" ? t.inner : t;
+      if (leaf.kind === "primitive" && leaf.name === "File") {
+        rowImports.add(`${qpctx.basePkg}.domain.common.FileRef`);
+      }
       return `${jsonProp(f.name, rowImports)}${wireJavaType(t, "Response")} ${jid(f.name)}`;
     });
     out.set(`${rowName}.java`, {
@@ -423,8 +471,6 @@ export function renderJavaQueryProjections(
       // the response is the LIST shape (`List<<P>Row>`), not the one-object
       // read.
       usesEntityManager = true;
-      imports.add("jakarta.persistence.EntityManager");
-      imports.add("jakarta.persistence.PersistenceContext");
       // ONE renderer for all three key positions (select / group by / order by)
       // so they cannot disagree — Postgres matches a grouped select against the
       // GROUP BY expression syntactically.  A COMPUTED key (a date bucket)
@@ -455,7 +501,7 @@ export function renderJavaQueryProjections(
       // The projection's own `where` AND the source aggregate's capability
       // filters — the read reads the table directly, so nothing else applies
       // them (see `aggregationScope`).
-      const scope = aggregationScope(proj, ctx, `${qpctx.basePkg}.domain.enums`, imports);
+      const scope = aggregationScope(proj, ctx, `${qpctx.basePkg}.domain.enums`);
       const jpql =
         `select ${[...keyCols, ...aggCols].join(", ")} from ${docTable ?? source} e${scope.where}` +
         ` group by ${groupCols.join(", ")} order by ${groupCols.join(", ")}`;
@@ -483,7 +529,7 @@ export function renderJavaQueryProjections(
           groupKeyCoerce(
             k.type,
             groupedCol(i),
-            imports,
+            qpctx.basePkg,
             groupKeyOf(k.expr)?.transform !== undefined,
           ),
         ),
@@ -517,8 +563,6 @@ export function renderJavaQueryProjections(
       // `@Query` to the aggregate's repository would make the READ MODEL edit
       // the aggregate's own port for a projection it knows nothing about.
       usesEntityManager = true;
-      imports.add("jakarta.persistence.EntityManager");
-      imports.add("jakarta.persistence.PersistenceContext");
       // A `shape: document` source has no JPA entity to name, so the
       // SAME query runs NATIVE over its `(id, data, version)` table.
       const docTable = qpctx.documentTableOf(source);
@@ -526,7 +570,7 @@ export function renderJavaQueryProjections(
         .map((a) => jpqlAggregate(a.aggregate, srcAgg, ctx, docTable !== undefined))
         .join(", ");
       // Same scoping as the grouped arm — see `aggregationScope`.
-      const scope = aggregationScope(proj, ctx, `${qpctx.basePkg}.domain.enums`, imports);
+      const scope = aggregationScope(proj, ctx, `${qpctx.basePkg}.domain.enums`);
       const jpql = `select ${cols} from ${docTable ?? source} e${scope.where}`;
       // `getSingleResult()` returns an `Object[]` only for a MULTI-column
       // selection; a SINGLE `select` (`select total = count()`) hands back the
@@ -565,7 +609,6 @@ export function renderJavaQueryProjections(
       const args = shape.map((f) => {
         const sel = selectByField.get(f.name);
         if (!sel) return `null`;
-        collectJavaExprImports(sel.expr, imports);
         return domainToWire(
           f.type,
           renderJavaExpr(sel.expr, {
@@ -577,10 +620,7 @@ export function renderJavaQueryProjections(
       });
       const filter = proj.query!.filter;
       const filterLine = filter
-        ? (() => {
-            collectJavaExprImports(filter, imports);
-            return `            .filter(x -> ${renderJavaExpr(filter, { thisName: "x", accessorProps: true, paramExpr: svcParamExpr })})`;
-          })()
+        ? `            .filter(x -> ${renderJavaExpr(filter, { thisName: "x", accessorProps: true, paramExpr: svcParamExpr })})`
         : undefined;
       methods.push(
         `    public List<${rowName}> ${findName}(${projParamDecls.join(", ")}) {`,
@@ -605,7 +645,6 @@ export function renderJavaQueryProjections(
       const args = shape.map((f) => {
         const sel = selectByField.get(f.name);
         if (!sel) return `null`;
-        collectJavaExprImports(sel.expr, imports);
         return domainToWire(
           f.type,
           renderJavaExpr(sel.expr, {
@@ -617,10 +656,7 @@ export function renderJavaQueryProjections(
       });
       const filter = proj.query!.filter;
       const filterLine = filter
-        ? (() => {
-            collectJavaExprImports(filter, imports);
-            return `            .filter(x -> ${renderJavaExpr(filter, { thisName: "x", accessorProps: true, paramExpr: svcParamExpr })})`;
-          })()
+        ? `            .filter(x -> ${renderJavaExpr(filter, { thisName: "x", accessorProps: true, paramExpr: svcParamExpr })})`
         : undefined;
       methods.push(
         `    public List<${rowName}> ${findName}(${projParamDecls.join(", ")}) {`,
@@ -647,11 +683,9 @@ export function renderJavaQueryProjections(
         if (!mapVar) {
           mapVar = `${lowerFirst(join.aggregate)}ById`;
           aggMapVar.set(join.aggregate, mapVar);
-          imports.add("java.util.Map");
-          imports.add("java.util.stream.Collectors");
           mapLines.push(
             `        var ${mapVar} = ${repoField(join.aggregate)}.findAll().stream()`,
-            `            .collect(Collectors.toMap(__a -> __a.id().value(), __a -> __a));`,
+            `            .collect(${javaRef("java.util.stream", "Collectors")}.toMap(__a -> __a.id().value(), __a -> __a));`,
           );
         }
         // The join keys on `<idRef>` rendered off the source row `a`, then `.value()`
@@ -676,14 +710,13 @@ export function renderJavaQueryProjections(
           : shape.map((f) => {
               const sel = selectByField.get(f.name);
               if (!sel) return `null`;
-              collectJavaExprImports(sel.expr, imports);
               return renderSelectWire(f.type, sel.expr, aliasMap);
             });
 
       methods.push(
         `    public List<${rowName}> ${findName}(${projParamDecls.join(", ")}) {`,
         ...mapLines,
-        `        return ${repoField(source)}.${findName}(${projArgNames.join(", ")}).stream()`,
+        `        return ${repoField(source)}.${sourceFindName(proj.name)}(${projArgNames.join(", ")}).stream()`,
         `            .map(a -> new ${rowName}(${args.join(", ")}))`,
         `            .toList();`,
         `    }`,
@@ -696,13 +729,12 @@ export function renderJavaQueryProjections(
     const gateLines: string[] = [];
     if (gate) {
       anyGate = true;
-      collectJavaExprImports(gate, controllerGateImports);
       if (exprUsesCurrentUser(gate)) {
         anyGateUsesUser = true;
         gateLines.push(`        var currentUser = currentUserAccessor.user();`);
       }
       gateLines.push(
-        `        if (!(${renderJavaExpr(gate, { thisName: "this", paramExpr: (n) => movedLocalOrUndefined(routeLocals, n) })})) throw new ForbiddenException(${JSON.stringify(
+        `        if (!(${renderJavaExpr(gate, { thisName: "this", paramExpr: (n) => movedLocalOrUndefined(routeLocals, n) })})) throw new ${javaRef(`${qpctx.basePkg}.domain.common`, "ForbiddenException")}(${JSON.stringify(
           `Forbidden: projection ${proj.name}`,
         )});`,
       );
@@ -768,6 +800,7 @@ export function renderJavaQueryProjections(
     content: lines(
       `package ${qpctx.pkg};`,
       ``,
+      `import java.util.List;`,
       ...[...imports].sort().map((i) => `import ${i};`),
       ``,
       `import org.springframework.stereotype.Service;`,
@@ -783,7 +816,10 @@ export function renderJavaQueryProjections(
       `public class ${serviceName} {`,
       ...injected.map((d) => `    private final ${d.type} ${d.field};`),
       ...(usesEntityManager
-        ? [`    @PersistenceContext`, `    private EntityManager entityManager;`]
+        ? [
+            `    @${javaRef("jakarta.persistence", "PersistenceContext")}`,
+            `    private ${javaRef("jakarta.persistence", "EntityManager")} entityManager;`,
+          ]
         : []),
       ``,
       `    public ${serviceName}(${injected.map((d) => `${d.type} ${d.field}`).join(", ")}) {`,
@@ -823,9 +859,6 @@ export function renderJavaQueryProjections(
       ``,
       `import org.springframework.web.bind.annotation.*;`,
       ``,
-      ...[...controllerGateImports].sort().map((i) => `import ${i};`),
-      anyGate ? `import ${qpctx.basePkg}.domain.common.ForbiddenException;` : null,
-      anyGateUsesUser ? `import ${qpctx.basePkg}.auth.CurrentUserAccessor;` : null,
       anyGate ? `import ${qpctx.basePkg}.domain.enums.*;` : null,
       anyGate ? `import ${qpctx.basePkg}.domain.ids.*;` : null,
       `import ${qpctx.pkg}.*;`,
@@ -834,9 +867,9 @@ export function renderJavaQueryProjections(
       `@RequestMapping("${qpctx.routePrefix ?? ""}/projections")`,
       `public class ${ctx.name}QueryProjectionsController {`,
       `    private final ${serviceName} queryProjections;`,
-      anyGateUsesUser ? `    private final CurrentUserAccessor currentUserAccessor;` : null,
+      anyGateUsesUser ? `    private final ${accessor} currentUserAccessor;` : null,
       ``,
-      `    public ${ctx.name}QueryProjectionsController(${serviceName} queryProjections${anyGateUsesUser ? ", CurrentUserAccessor currentUserAccessor" : ""}) {`,
+      `    public ${ctx.name}QueryProjectionsController(${serviceName} queryProjections${anyGateUsesUser ? `, ${accessor} currentUserAccessor` : ""}) {`,
       `        this.queryProjections = queryProjections;`,
       anyGateUsesUser ? `        this.currentUserAccessor = currentUserAccessor;` : null,
       `    }`,
@@ -937,14 +970,9 @@ function jpqlCoerce(s: AggregateSelect, read: string): string {
  *  guid reads cast to that mapping while the numerics keep the same
  *  `Number`/`toString` discipline as the aggregates.  A nullable key (optional
  *  column ⇒ a NULL group) stays null. */
-function groupKeyCoerce(
-  t: TypeIR,
-  read: string,
-  imports: Set<string>,
-  viaFunction = false,
-): string {
+function groupKeyCoerce(t: TypeIR, read: string, basePkg: string, viaFunction = false): string {
   if (t.kind === "optional") {
-    return `${read} == null ? null : ${groupKeyCoerce(t.inner, read, imports, viaFunction)}`;
+    return `${read} == null ? null : ${groupKeyCoerce(t.inner, read, basePkg, viaFunction)}`;
   }
   if (t.kind === "enum") return `(${t.name}) ${read}`;
   if (t.kind === "id") {
@@ -969,8 +997,7 @@ function groupKeyCoerce(
         // money → wire STRING at the fixed money scale (RS-12), matching
         // `domainToWire` — the SAME `projection-read` transform
         // `jpqlCoerce`'s aggregate arm applies, spelled with the short
-        // `BigDecimal` name this file already imports.
-        imports.add("java.math.BigDecimal");
+        // `BigDecimal` name (a marker — the import is derived).
         return javaMoneyProjectionKeyEncode(read);
       case "datetime":
         // Instant → ISO-8601 wire string.  Through HQL's `function(…)` escape
@@ -983,8 +1010,18 @@ function groupKeyCoerce(
       case "bool":
         return `(Boolean) ${read}`;
       case "guid":
-        imports.add("java.util.UUID");
-        return `(UUID) ${read}`;
+        return `(${J.UUID}) ${read}`;
+      case "json":
+        // A jsonb column groups by jsonb equality; the entity maps it as the
+        // same `JsonNode` the wire row carries.
+        return `(${J.JsonNode}) ${read}`;
+      case "File":
+        // A File column is jsonb holding the FileRef record — the domain
+        // and the wire shape are the same record.
+        return `(${javaRef(`${basePkg}.domain.common`, "FileRef")}) ${read}`;
+      case "date":
+        // A `LocalDate` column → its ISO `yyyy-MM-dd` wire text.
+        return `((${J.LocalDate}) ${read}).toString()`;
     }
   }
   throw new Error(

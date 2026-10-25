@@ -35,7 +35,7 @@ import {
   readPortsForOperation,
 } from "../../../ir/util/domain-service-read-ports.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
+import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import { type UnionMember, unionMembers } from "../../_payload/union-wire.js";
 import type { CsRenderContext } from "../render-expr.js";
 import { renderCsType } from "../render-expr.js";
@@ -68,12 +68,18 @@ function serviceReadPorts(svc: DomainServiceIR): ReadPort[] {
 function serviceRenderContext(
   reading: boolean,
   returnUnion: CsRenderContext["returnUnion"],
+  ctx: BoundedContextIR,
 ): CsRenderContext {
   const base: CsRenderContext = returnUnion
     ? { thisName: "this", returnUnion }
     : { thisName: "this" };
   if (!reading) return base;
-  return { ...base, repoReadHandle: portFieldName };
+  return {
+    ...base,
+    repoReadHandle: portFieldName,
+    retrievalParamNames: (name) =>
+      (ctx.retrievals ?? []).find((r) => r.name === name)?.params.map((p) => p.name) ?? [],
+  };
 }
 
 /** Emit `Domain/Services/<Name>.cs` per domain service in the context, plus
@@ -227,7 +233,7 @@ function renderOperation(
   serviceIsReading: boolean,
 ): string {
   const opReads = readPortsForOperation(op).length > 0;
-  const userParams = op.params.map((p) => `${renderCsType(p.type)} ${p.name}`);
+  const userParams = op.params.map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`);
   const params = (
     opReads ? [...userParams, "CancellationToken cancellationToken = default"] : userParams
   ).join(", ");
@@ -244,7 +250,7 @@ function renderOperation(
           members: unionMembers(op.returnType.variants, ctx) as UnionMember[],
         }
       : undefined;
-  const body = renderCsStatements(op.body, serviceRenderContext(opReads, returnUnion));
+  const body = renderCsStatements(op.body, serviceRenderContext(opReads, returnUnion, ctx));
   // Pure service → `public static`; reading service → instance method (the read
   // op also carries `async`).
   const modifiers = serviceIsReading ? (opReads ? "public async" : "public") : "public static";

@@ -1,0 +1,335 @@
+// Helpdesk v4 — re-run on the fleet H1–H8 toolchain: the role-branching
+// row filters that v3 had to leave as WANTED comments now validate.
+//
+// Helpdesk v3 — after month-1 feedback:
+//  * "customers can still read internal notes / other customers' tickets"
+//      → row filter on Ticket + internal notes split into their own agent-only aggregate
+//  * "we want categories and free-form tags"           → Category aggregate + tags: string[]
+//  * "managers want open tickets per priority"         → grouped projection
+//  * "breached tickets must escalate automatically"    → SlaBreached reactor bumps priority
+//
+// Helpdesk v2 — after week-1 feedback:
+//  * "customers can read our internal notes"      → auth + roles + hide internal comments
+//  * "openedAt is typed by hand"                  → server-stamped timestamps
+//  * "ticket numbers collide"                     → unique (number)
+//  * "we need SLAs per priority + breach alerts"  → derived due date + timer sweep
+//  * "agents want a 'my queue' and 'unassigned'"  → user-aware reads
+//  * "email the customer when resolved"           → mailer
+
+system Helpdesk {
+
+  user {
+    id: string
+    role: string
+    customerId: Customer id?
+    agentId: Agent id?
+  }
+
+  // auth { oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") audience: env("OIDC_AUDIENCE") } }
+  // ^ disabled for local dev: with an oidc block there is no dev-stub verifier.
+
+  subdomain Support {
+    context Ticketing {
+
+      policy AgentOnly(): bool = currentUser.role == "agent"
+
+      enum TicketStatus { Open, InProgress, Waiting, Resolved, Closed }
+      enum Priority { Low, Normal, High, Urgent }
+
+      event TicketOpened { ticket: Ticket id, priority: Priority, at: datetime }
+      event TicketAssigned { ticket: Ticket id, agent: Agent id }
+      event TicketResolved { ticket: Ticket id, at: datetime }
+      event SlaBreached { ticket: Ticket id, priority: Priority }
+      event SlaTick { sweep: SlaSweep id, at: datetime }
+
+      aggregate SlaSweep {
+        at: datetime
+      }
+      channel Ticks { carries: SlaTick }
+
+      criterion Overdue(at: datetime) of Ticket = status != Resolved && status != Closed && breached == false && dueAt < at
+      retrieval OverdueTickets(at: datetime) of Ticket = Overdue(at)
+
+      workflow slaWatch requires currentUser.role == "agent" {
+        sweep: SlaSweep id
+        create(t: SlaTick) by t.sweep {
+          let due = Tickets.run(OverdueTickets(t.at))
+          for ticket in due {
+            ticket.flagBreached()
+          }
+        }
+      }
+
+      // Customers open tickets for themselves through this workflow: the
+      // customer id comes from the verified principal, not the request.
+      workflow openTicket requires currentUser.role == "agent" {
+        ticket: Ticket id
+        create(number: string, subject: string, description: string, priority: Priority, customer: Customer id) {
+          requires currentUser.customerId == customer
+          let t = Ticket.create({ number: number, subject: subject, description: description, priority: priority, customer: customer })
+          emit TicketOpened { ticket: t.id, priority: priority, at: now() }
+        }
+      }
+
+      workflow escalation requires currentUser.role == "agent" {
+        ticket: Ticket id
+        create(e: SlaBreached) by e.ticket {
+          let tk = Tickets.getById(e.ticket)
+          tk.escalate()
+        }
+      }
+
+      projection OpenByPriority requires currentUser.role == "agent" {
+        priority: Priority  open: int
+        from Ticket as t
+        where t.status != Closed && t.status != Resolved
+        group by t.priority
+        select priority = t.priority, open = count()
+      }
+
+      workflow notifyResolved requires currentUser.role == "agent" {
+        ticket: Ticket id
+        create(e: TicketResolved) by e.ticket {
+          let tk = Tickets.getById(e.ticket)
+          let c = Customers.getById(tk.customer)
+          mail.send(c.email, "Ticket resolved", "Your ticket " + tk.number + " was resolved.")
+        }
+      }
+
+      aggregate Customer with crudish(requires: AgentOnly) {
+        name: string
+        email: string
+        company: string?
+        derived display: string = name
+        invariant email.contains("@") message "email must contain @"
+        unique (email)
+      }
+
+      aggregate Agent with crudish(requires: AgentOnly) {
+        name: string
+        email: string
+        active: bool = true
+        derived display: string = name
+        unique (email)
+      }
+
+      aggregate Category with crudish(requires: AgentOnly) {
+        name: string
+        derived display: string = name
+        unique (name)
+      }
+
+      // Internal notes live outside the Ticket so a row filter can hide them.
+      aggregate InternalNote {
+        ticket: Ticket id
+        body: string
+        author: string managed
+        stamp onCreate { author := currentUser.id }
+        filter currentUser.role == "agent"
+        create(ticket: Ticket id, body: string) {
+          requires currentUser.role == "agent"
+        }
+      }
+
+      aggregate Ticket {
+        number: string
+        subject: string
+        description: string
+        status: TicketStatus = Open
+        priority: Priority = Normal
+        customer: Customer id
+        assignee: Agent id?
+        resolvedAt: datetime?
+        breached: bool = false
+        category: Category id?
+        tags: string[]
+        implements auditable
+
+        // Agents see every ticket; a customer sees only their own — on every
+        // read, the synthesised GET /tickets/{id} included.
+        filter currentUser.role == "agent" || this.customer == currentUser.customerId
+        contains comments: Comment[]
+
+        derived display: string = number + " " + subject
+        derived commentCount: int = comments.count
+        derived isOpen: bool = status != Resolved && status != Closed
+
+        invariant subject.length > 0 message "subject is required"
+        unique (number)
+
+        function slaHours(): int = match {
+          priority == Urgent => 4,
+          priority == High => 8,
+          priority == Normal => 24,
+          else => 72
+        }
+        // Derived fields are not queryable, so the SLA deadline is stored.
+        dueAt: datetime managed
+        stamp onCreate { dueAt := now() + hours(slaHours()) }
+        derived overdue: bool = isOpen && now() > dueAt
+        invariant resolvedAt != null when status == Resolved
+
+        create(number: string, subject: string, description: string, priority: Priority, customer: Customer id) {
+          requires currentUser.role == "agent"
+        }
+
+        operation assign(agent: Agent id) when isOpen {
+          requires currentUser.role == "agent"
+          assignee := agent
+          if status == Open {
+            status := InProgress
+          }
+          emit TicketAssigned { ticket: id, agent: agent }
+        }
+
+        operation comment(body: string) when status != Closed {
+          requires currentUser.role == "agent" || currentUser.customerId == customer
+          precondition body.length > 0 message "comment body is required"
+          comments += Comment { author: currentUser.id, body: body, at: now() }
+        }
+
+        operation tag(label: string) {
+          requires currentUser.role == "agent"
+          precondition !tags.contains(label) message "already tagged"
+          tags += label
+        }
+
+        operation categorize(category: Category id) {
+          requires currentUser.role == "agent"
+          this.category := category
+        }
+
+        operation escalate() when isOpen && priority != Urgent {
+          requires true
+          priority := match {
+            priority == Low => Normal,
+            priority == Normal => High,
+            else => Urgent
+          }
+          dueAt := createdAt + hours(slaHours())
+        }
+
+        operation waitForCustomer() when status == InProgress {
+          requires currentUser.role == "agent"
+          status := Waiting
+        }
+
+        operation resolve() when isOpen {
+          requires currentUser.role == "agent"
+          precondition assignee != null message "assign the ticket before resolving"
+          status := Resolved
+          resolvedAt := now()
+          emit TicketResolved { ticket: id, at: now() }
+        }
+
+        operation reopen() when status == Resolved {
+          requires currentUser.role == "agent" || currentUser.customerId == customer
+          status := InProgress
+          resolvedAt := null
+        }
+
+        operation close() when status == Resolved {
+          requires currentUser.role == "agent" || currentUser.customerId == customer
+          status := Closed
+        }
+
+        operation changePriority(priority: Priority) when isOpen {
+          requires currentUser.role == "agent"
+          this.priority := priority
+          dueAt := createdAt + hours(slaHours())
+        }
+
+        operation flagBreached() when overdue && !breached {
+          requires true
+          breached := true
+          emit SlaBreached { ticket: id, priority: priority }
+        }
+
+        entity Comment {
+          author: string
+          body: string
+          at: datetime
+        }
+
+        test "resolve requires assignee" {
+          let t = Ticket.create({ number: "T-1", subject: "Printer", description: "jam", priority: Normal, customer: "c1" })
+          expect(t.resolve()).toThrow()
+        }
+      }
+
+      criterion OpenFor(a: Agent id) of Ticket = assignee == a && status != Resolved && status != Closed
+      retrieval AgentQueue(a: Agent id) of Ticket {
+        where: OpenFor(a)
+        sort: [priority desc, createdAt asc]
+      }
+      retrieval Unassigned of Ticket {
+        where: assignee == null && status == Open
+        sort: [createdAt asc]
+      }
+
+      repository Customers for Customer {
+        find all(): Customer paged requires currentUser.role == "agent"
+      }
+      repository Agents for Agent {
+        find all(): Agent paged requires currentUser.role == "agent"
+      }
+      repository Categories for Category {
+        find all(): Category paged requires currentUser.role == "agent"
+      }
+      repository InternalNotes for InternalNote {
+        find all(): InternalNote paged requires currentUser.role == "agent"
+        find forTicket(ticket: Ticket id): InternalNote[] requires currentUser.role == "agent"
+      }
+      repository SlaSweeps for SlaSweep {
+        find all(): SlaSweep paged requires currentUser.role == "agent"
+      }
+      repository Tickets for Ticket {
+        find byNumber(number: string): Ticket? requires currentUser.role == "agent"
+        find all(): Ticket paged requires currentUser.role == "agent"
+        find myQueue(): Ticket[] requires currentUser.role == "agent"
+          where assignee == currentUser.agentId && status != Resolved && status != Closed
+        find unassigned(): Ticket[] requires currentUser.role == "agent"
+          where assignee == null && status == Open
+        find mine(): Ticket[] requires currentUser.customerId != null
+          where customer == currentUser.customerId
+      }
+    }
+  }
+
+  ui Desk with scaffold(subdomains: [Support]) {
+  }
+
+  storage primary { type: postgres }
+  resource deskState { for: Ticketing, kind: state, use: primary, index: [Ticket.status, Ticket.assignee, Ticket.dueAt] }
+  storage mailServer { type: smtp, config: { from: "help@desk.io" } }
+  resource mail { for: Ticketing, kind: mailer, use: mailServer }
+  timerSource sla { for: SlaTick, every: 30s }
+
+  deployable api {
+    platform: node,
+    contexts: [Ticketing],
+    dataSources: [deskState, mail],
+    auth: required,
+    port: 3000
+  }
+
+  deployable web {
+    platform: react,
+    targets: api,
+    ui: Desk,
+    port: 3001,
+    design: mantine,
+    auth: ui
+  }
+}
+
+migration "opened-at-becomes-created-at" {
+  Ticket.openedAt -> createdAt
+  Ticket.updatedAt = createdAt
+  Ticket.createdBy = "system"
+  Ticket.updatedBy = "system"
+}
+
+migration "stored-sla-deadline" {
+  Ticket.dueAt = createdAt + hours(24)
+}

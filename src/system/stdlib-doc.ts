@@ -37,6 +37,7 @@ const RECEIVER_ORDER: ReadonlyArray<{ receiver: IntrinsicReceiver; heading: stri
   { receiver: "long", heading: "long" },
   { receiver: "decimal", heading: "decimal" },
   { receiver: "money", heading: "money" },
+  { receiver: "date", heading: "date" },
   { receiver: "datetime", heading: "datetime" },
 ];
 
@@ -44,7 +45,7 @@ const RECEIVER_ORDER: ReadonlyArray<{ receiver: IntrinsicReceiver; heading: stri
 const PRELUDE_BLURBS: Readonly<Record<string, string>> = {
   strings: "String predicates and shaping.",
   math: "Numeric clamping, ratios, and rounding.",
-  temporal: "Datetime comparisons against `now()`.",
+  temporal: "Datetime comparisons against `now()`, and `today()`'s UTC calendar date.",
 };
 
 function intrinsicTable(receiver: IntrinsicReceiver): string {
@@ -166,7 +167,9 @@ export function renderStdlibMarkdown(): string {
     "on two value objects.  It lowers to that same comparison, so each backend",
     "renders its own value-equality idiom: python `==` (frozen-dataclass",
     "`__eq__`), Java `Objects.equals` (record `equals`), .NET record `==`, Elixir",
-    "`==`, TypeScript the `equals()` method every value-object class emits.  The",
+    "`Loom.ValueObject.equal?/2` (field-wise across the map, column and",
+    "collection-element shapes a value object takes there), TypeScript the",
+    "`equals()` method every value-object class emits.  The",
     "argument must be the same value object type and the receiver must be",
     "non-null (the `loom.intrinsic-*` diagnostics); a value object that declares",
     `its own \`${VALUE_OBJECT_EQUALS}\` member keeps it.  Domain logic only — in a`,

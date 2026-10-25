@@ -63,6 +63,7 @@ import { lowerCallableParams } from "./callable-params.js";
 import { resolveBypass } from "./lower-capabilities.js";
 import {
   ambientResourceKind,
+  boundApiOf,
   inferExprType,
   lowerEmitFields,
   lowerExpr,
@@ -82,6 +83,7 @@ import { originFor } from "./origin.js";
 import {
   matchFindAllCall,
   matchFindCall,
+  matchOptionalFindCall,
   matchRepoCall,
   matchRetrievalRunCall,
   runCriterionMatcher,
@@ -231,7 +233,17 @@ function lowerWorkflowCreate(
   const statements: WorkflowStmtIR[] = c.gate
     ? [{ kind: "requires", expr: lowerExpr(c.gate, gateEnv), source: cstText(c.gate) }]
     : [];
+  // A terminal `return <expr>` (the `create(…): T` result) is held apart as
+  // `returnValue`, exactly as `lowerHandlerBody` does for a commandHandler —
+  // the workflow statement vocabulary has no `return` arm.  Placement (last,
+  // top-level) and the annotation pairing are AST-validator rules
+  // (`loom.workflow-return-*`), so a return is captured wherever it sits.
+  let returnValue: ExprIR | undefined;
   for (const s of c.body) {
+    if (isReturnStmt(s)) {
+      returnValue = lowerExpr(s.value, inner);
+      continue;
+    }
     const lowered = lowerWorkflowStatement(
       s,
       inner,
@@ -252,6 +264,8 @@ function lowerWorkflowCreate(
     savesAtExit: computeSaves(statements, repoForAgg, undefined, saveResolver),
     ...(eventBinding ? { eventBinding } : {}),
     ...(eventRef ? { eventRef } : {}),
+    ...(c.returnType ? { returnType: lowerType(c.returnType, baseEnv) } : {}),
+    ...(returnValue ? { returnValue } : {}),
   };
 }
 
@@ -547,6 +561,9 @@ function lowerWorkflowStatementInner(
         kind: "precondition",
         expr: lowerExpr(stmt.expr, env),
         source: cstText(stmt.expr),
+        // The authored `message "…"` (banking eval B-02) — same shape as an
+        // operation-body precondition (lower-stmt.ts).
+        message: stmt.message ? { text: stmt.message } : undefined,
       },
       envAfter: env,
     };
@@ -623,13 +640,20 @@ function lowerWorkflowStatementInner(
   }
   if (isIfLetStmt(stmt)) {
     // `if let <var> = Repo.find(<Criterion>) { then } else { else }`
-    // (criterion.md, use site 3).  The source must be `Repo.find(<Criterion>)`
-    // (the only optional producer this release); a non-matching source leaves
-    // `synthCriterion.name` empty for the validator (`loom.iflet-bad-source`).
-    // The criterion args lower in the OUTER env; `var` (the unwrapped match)
-    // is in scope only in `thenBody`, never in `elseBody`.
+    // (criterion.md, use site 3), or `if let <var> = Repo.<find>(args)` over a
+    // declared optional find.  Any other source leaves both
+    // `synthCriterion.name` and `findMethod` empty for the validator
+    // (`loom.iflet-bad-source`) — still naming the repository's aggregate when
+    // the source called one, so the binder is typed and no phantom `Unknown`
+    // aggregate reaches the handler gates.  The source args lower in the OUTER
+    // env; `var` (the unwrapped match) is in scope only in `thenBody`, never
+    // in `elseBody`.
     const findCall = matchFindCall(stmt.source, reposByName);
-    const repo = findCall?.repo;
+    const declaredFind = findCall
+      ? undefined
+      : matchOptionalFindCall(stmt.source, reposByName, env);
+    const repo =
+      findCall?.repo ?? declaredFind?.repo ?? matchRepoCall(stmt.source, reposByName)?.repo;
     const aggName = repo?.aggregate?.ref?.name ?? "Unknown";
     const repoName = repo?.name ?? "";
     const saveRepoName = repoForAgg.get(aggName) ?? plural(aggName);
@@ -680,8 +704,11 @@ function lowerWorkflowStatementInner(
         repoName,
         aggName,
         retrievalName: findCall ? `findAllBy${findCall.criterionName}` : "",
-        retrievalArgs: (findCall?.criterionArgs ?? []).map((a) => lowerExpr(a, env)),
+        retrievalArgs: (findCall?.criterionArgs ?? declaredFind?.args ?? []).map((a) =>
+          lowerExpr(a, env),
+        ),
         synthCriterion: { name: findCall?.criterionName ?? "" },
+        ...(declaredFind ? { findMethod: declaredFind.method } : {}),
         thenBody,
         ...(elseBody.length > 0 ? { elseBody } : {}),
         savesInThen,
@@ -914,6 +941,7 @@ function lowerWorkflowStatementInner(
                 verb,
                 capability: verbDef?.capability ?? "",
                 ...(verbDef?.interfaceOverride ? { interface: verbDef.interfaceOverride } : {}),
+                ...boundApiOf(lv.head, env),
               },
             },
           },

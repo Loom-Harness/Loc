@@ -6,6 +6,7 @@
 // reference them by name?  These tests confirm it can.
 
 import { describe, expect, it } from "vitest";
+import { canonicalCreate, canonicalDestroy } from "../../src/ir/util/canonical-lifecycle.js";
 import type { Aggregate, Model } from "../../src/language/generated/ast.js";
 import {
   isAggregate,
@@ -270,13 +271,13 @@ describe("crudish via IR lowering", () => {
             expect(op!.params.map((p) => p.name)).toEqual(["subject", "amount"]);
             // Lifecycle actions land in their own arrays, surfaced as the
             // canonical create/destroy.
-            expect(a.canonicalCreate).not.toBeNull();
-            expect(a.canonicalCreate!.kind).toBe("create");
-            expect(a.canonicalCreate!.canonical).toBe(true);
-            expect(a.canonicalCreate!.params.map((p) => p.name)).toEqual(["subject", "amount"]);
-            expect(a.canonicalDestroy).not.toBeNull();
-            expect(a.canonicalDestroy!.kind).toBe("destroy");
-            expect(a.canonicalDestroy!.canonical).toBe(true);
+            expect(canonicalCreate(a)).not.toBeNull();
+            expect(canonicalCreate(a)!.kind).toBe("create");
+            expect(canonicalCreate(a)!.canonical).toBe(true);
+            expect(canonicalCreate(a)!.params.map((p) => p.name)).toEqual(["subject", "amount"]);
+            expect(canonicalDestroy(a)).not.toBeNull();
+            expect(canonicalDestroy(a)!.kind).toBe("destroy");
+            expect(canonicalDestroy(a)!.canonical).toBe(true);
             // `operations` stays mutate-only — create/destroy are NOT folded in.
             expect(a.operations.some((o) => o.kind === "create" || o.kind === "destroy")).toBe(
               false,

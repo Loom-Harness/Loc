@@ -12,9 +12,12 @@ import type {
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { contextUsesMoney } from "../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { type PageNameCtx, pageConstructId } from "../../ir/util/page-kind.js";
+import { menuMetaString } from "../../ir/util/page-menu.js";
+import { pagedFindRoutes } from "../../ir/util/paged-find-routes.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
@@ -51,6 +54,7 @@ import { smokeSpec } from "../_frontend/smoke-spec.js";
 import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
 import { prepareThemeVM } from "../_frontend/theme-preparer.js";
 import { DOM_TOAST_SOURCE, uiUsesToastEffect } from "../_frontend/toast-effect.js";
+import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
 import { hasAnyWorkflow } from "../_frontend/workflows-module.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
@@ -72,6 +76,7 @@ import {
 } from "./realtime-handlers-builder.js";
 import { ANGULAR_REF_LABEL, ANGULAR_REF_LABEL_PATH } from "./ref-label-runtime.js";
 import { type AngularRouteDesc, renderAngularRoutes, routePath } from "./routes-emitter.js";
+import { ANGULAR_SERVER_ERRORS_TS } from "./server-errors.js";
 import { renderAngularStoreModule, storeFileSlug } from "./store-builder.js";
 import { angularTargetFor } from "./walker/angular-target.js";
 import {
@@ -132,7 +137,9 @@ export function generateAngularForContexts(
   // surface in `required-primitives.ts` — display / layout / input templates;
   // forms render inline via the walker seam, so `form-of` / `field-input-*` /
   // `modal` are deliberately not pack templates.  Required-validation is on.
-  const pack = loadPack(resolvePackDir(deployable.design ?? DEFAULT_DESIGN));
+  const pack = loadPack(
+    resolvePackDir(deployable.design ?? DEFAULT_DESIGN, deployable.designBaseDir),
+  );
 
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
   const apiBaseUrl = options.apiBaseUrl ?? API_BASE_PATH;
@@ -140,6 +147,10 @@ export function generateAngularForContexts(
   // overrides it with VITE_API_PROXY_TARGET (→ the backend SERVICE); a local
   // `node server.mjs` falls back to the backend on localhost.
   const apiProxyTarget = `http://localhost:${target?.port ?? 8080}`;
+  // A native run (`ng serve`, `node server.mjs`) listens on this deployable's
+  // declared port.  Only a standalone frontend (one that `targets:` a
+  // backend) has a port of its own; the image sets PORT to its container port.
+  const devPort = target ? deployable.port : undefined;
   // Sub-path the bundle is served under (Phoenix `/app`).  Angular threads a
   // single `baseHref` into (a) the angular.json build option and (b) the
   // `<base href>` tag in index.html; the router reads it back off the `<base>`
@@ -160,7 +171,7 @@ export function generateAngularForContexts(
   for (const ctx of contexts) {
     for (const repo of ctx.repositories) repoByAggregate.set(repo.aggregateName, repo);
   }
-  const hasDelete = aggregates.some((a) => !!a.agg.canonicalDestroy);
+  const hasDelete = aggregates.some((a) => !!canonicalDestroy(a.agg));
   const usesMoney = contexts.some(contextUsesMoney);
   const authUi = !!(deployable.auth?.ui && target?.auth?.required && sys.user);
   // Hoisted above the project shell: the shell's package.json / angular.json /
@@ -184,18 +195,30 @@ export function generateAngularForContexts(
     "angular.json",
     pack.render("angular-json", {
       baseHref: basePath ? baseHref : undefined,
+      port: devPort,
+      proxyConfig: target ? "proxy.conf.json" : undefined,
       highlightThemeStyle: usesCodeBlock ? HIGHLIGHT_THEME_ANGULAR_STYLE : undefined,
     }),
   );
+  // `ng serve` reaches the backend the way `server.mjs` does: a same-origin
+  // `/api` proxy, here to the target backend's declared port.
+  if (target) {
+    out.set(
+      "proxy.conf.json",
+      `${JSON.stringify({ "/api": { target: apiProxyTarget, secure: false } }, null, 2)}\n`,
+    );
+  }
   out.set("tsconfig.json", pack.render("tsconfig", {}));
   out.set("tsconfig.app.json", pack.render("tsconfig-app", {}));
   out.set("src/main.ts", pack.render("main", { usesCodeBlock }));
   if (usesCodeBlock) out.set("src/lib/highlight.ts", HIGHLIGHT_MODULE_ANGULAR_TS);
   out.set("src/styles.css", pack.render("theme", prepareThemeVM(sys.theme)));
-  out.set("src/lib/format.ts", pack.render("format-helpers", { moneySource: MONEY_TEXT_SOURCE }));
   // Interactive-table sort helper (M-T1.1) — re-exposed as a component member
   // by any page rendering a sortable Table; emitted unconditionally.
   out.set("src/lib/table-sort.ts", buildTableSortHelper());
+  // The submit handlers' 422 → form-control mapper (`server-errors.ts`);
+  // emitted unconditionally, like React's `apply-server-errors.ts`.
+  out.set("src/lib/server-errors.ts", ANGULAR_SERVER_ERRORS_TS);
   // The `toast(<msg>)` PAGE EFFECT (docs/page-metamodel.md §15).  The walker
   // renders the call verbatim, exactly like `navigate(…)`, so without an
   // emitted module and a matching import the component references a symbol the
@@ -245,6 +268,9 @@ export function generateAngularForContexts(
   // Pack-DECLARED chrome rides the SAME already-enabled gate (see the React
   // generator for the rationale) — never flips the runtime on by itself.
   pack.setChromeI18n(i18nEnabled);
+  // The format helpers carry pack chrome (a bool cell's Yes / No), so they
+  // render only once the pack's chrome binding knows the i18n state.
+  out.set("src/lib/format.ts", pack.render("format-helpers", { moneySource: MONEY_TEXT_SOURCE }));
   if (i18nEnabled && ui) {
     // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
     // produced (scoped to this ui's keys, `TODO:` values already dropped by
@@ -605,10 +631,16 @@ export function generateAngularForContexts(
   // the banner spliced in at `errorBanner` below.  Unconditional: an app that
   // cannot fail is not a thing.
   appClassMembers.push("  readonly errors = inject(LoomErrorHandler);");
-  if (navUsesSession) {
+  // The shell injects the session for two consumers: the gated nav links
+  // (`currentUser`) and the `auth: ui` Sign out control in the shell chrome
+  // (the AuthGate wraps only the router outlet, so it cannot host it).
+  const shellUsesSession = authUi || navUsesSession;
+  if (shellUsesSession) {
     appClassMembers.push("  readonly session = inject(SessionService);");
+  }
+  if (navUsesSession) {
     appClassMembers.push(
-      "  get currentUser(): Record<string, unknown> { return this.session.user() ?? {}; }",
+      "  get currentUser(): Record<string, any> { return this.session.user() ?? {}; }",
     );
   }
   if (i18nEnabled) appClassMembers.push("  protected readonly t = t;");
@@ -632,6 +664,7 @@ export function generateAngularForContexts(
       hasNav: navSections.some((s) => s.entries.length > 0),
       authUi,
       navUsesSession,
+      shellUsesSession,
       hasRealtimeHandlers,
       i18nEnabled,
       skipToContentText,
@@ -666,7 +699,7 @@ export function generateAngularForContexts(
   // index route; a wildcard NotFound always.
   const hasIndex = routeDescs.some((d) => routePath(d.route) === "");
   out.set("src/app/app.routes.ts", renderAngularRoutes(routeDescs, !hasIndex));
-  out.set("src/app/not-found.component.ts", NOT_FOUND_COMPONENT);
+  out.set("src/app/not-found.component.ts", renderNotFoundComponent(i18nEnabled));
   if (!hasIndex) out.set("src/app/home.component.ts", HOME_COMPONENT);
 
   // --- Shared neutral sources (angular/ + api/) ----------------------
@@ -691,7 +724,12 @@ export function generateAngularForContexts(
   for (const { agg } of aggregates) {
     out.set(
       `src/api/${lowerFirst(agg.name)}.ts`,
-      buildAngularApiModule(agg, repoByAggregate.get(agg.name), bcByAggregate.get(agg.name)),
+      buildAngularApiModule(
+        agg,
+        repoByAggregate.get(agg.name),
+        bcByAggregate.get(agg.name),
+        pagedFindRoutes(sys, target ?? deployable),
+      ),
     );
   }
   // Workflows API module — the Angular-native sibling of the
@@ -755,7 +793,7 @@ export function generateAngularForContexts(
   // proxy) so the bundle's RELATIVE `/api` reaches the backend — proxied here
   // because under compose / k8s the backend is a peer SERVICE, not this
   // origin.  See the Dockerfile (runs `node server.mjs`).
-  out.set("server.mjs", renderAngularServerMjs(apiProxyTarget));
+  out.set("server.mjs", renderAngularServerMjs(apiProxyTarget, devPort ?? 3000));
   out.set("Dockerfile", pack.render("dockerfile", {}));
   out.set(".dockerignore", pack.render("dockerignore", {}));
   out.set("certs/.gitkeep", "");
@@ -765,6 +803,10 @@ export function generateAngularForContexts(
   if ([...out.values()].some((c) => c.includes("<loom-ref-label"))) {
     out.set(ANGULAR_REF_LABEL_PATH, ANGULAR_REF_LABEL);
   }
+
+  // Value-object `==` in a page body renders `loomValueEquals(…)`; define it
+  // in every finished file that calls it (`_frontend/value-equals.ts`).
+  emitJsValueEqualsHelpers(out);
 
   // Fullstack embed: relocate the whole project under the host's prefix
   // (e.g. `ClientApp/`).  Mirrors react/svelte/vue's post-pass.
@@ -791,22 +833,28 @@ import { Component } from "@angular/core";
 export class HomeComponent {}
 `;
 
-const NOT_FOUND_COMPONENT = `// Auto-generated.
+/** The 404 route's component.  Its chrome reads the shared `chrome.notFound`
+ *  / `backToHome` keys under i18n (the template resolves `t` against the
+ *  component instance, hence the member); off it, the English — byte-identical
+ *  to the untranslated view. */
+function renderNotFoundComponent(i18nEnabled: boolean): string {
+  return `// Auto-generated.
 import { Component } from "@angular/core";
 import { RouterLink } from "@angular/router";
-
+${i18nEnabled ? 'import { t } from "../lib/i18n";\n' : ""}
 @Component({
   selector: "app-not-found",
   imports: [RouterLink],
   template: \`
     <section data-testid="not-found" style="padding: 16px">
-      <h2>Not found</h2>
-      <a routerLink="/">&larr; Back to home</a>
+      <h2>${angularChromeText("notFound", i18nEnabled)}</h2>
+      <a routerLink="/">&larr; ${angularChromeText("backToHome", i18nEnabled)}</a>
     </section>
   \`,
 })
-export class NotFoundComponent {}
+export class NotFoundComponent {${i18nEnabled ? "\n  protected readonly t = t;\n" : ""}}
 `;
+}
 
 /** The root error-handler FALLBACK, spliced into every Angular pack's app
  *  shell as its first template node.
@@ -853,7 +901,10 @@ function defaultAngularNavSection(
     label: humanize(sys.name),
     entries: pages.map((p) => ({
       to: p.route ?? "",
-      label: humanize(p.name),
+      // A page's own `menu { label: … }` (a scaffold List page's "Products")
+      // names its link; `deriveSidebarFromUi` keys it and groups it under the
+      // page's `menu { section: … }`.
+      label: menuMetaString(p, "label") ?? humanize(p.name),
       testId: `nav-${pageSlug(p, pageCtx)}`,
       activeArgs: JSON.stringify(p.route ?? ""),
       ...(authUi && p.requires ? { requiresJs: renderGateExpr(p.requires, "currentUser") } : {}),
@@ -868,7 +919,7 @@ function defaultAngularNavSection(
  * service) overrides it at runtime.  Kept template-literal-free internally so
  * it embeds cleanly here.
  */
-function renderAngularServerMjs(devTarget: string): string {
+function renderAngularServerMjs(devTarget: string, devPort: number): string {
   return `// Auto-generated.
 // Static host for the built Angular bundle (SPA fallback) + a same-origin
 // "/api" reverse proxy.  The bundle fetches /api RELATIVE; under compose / k8s
@@ -883,7 +934,7 @@ import { join, normalize, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("./browser/", import.meta.url));
-const PORT = Number(process.env.PORT ?? "3000");
+const PORT = Number(process.env.PORT ?? "${devPort}");
 const API_TARGET = process.env.VITE_API_PROXY_TARGET ?? ${JSON.stringify(devTarget)};
 
 const MIME = {

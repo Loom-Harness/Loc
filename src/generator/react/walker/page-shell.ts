@@ -36,10 +36,8 @@ import {
 } from "../../_frontend/component-prop-type.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
 import type { LoadedPack } from "../../_packs/loader.js";
-import {
-  resolverModelsTransformForStack,
-  routerPackageForStack,
-} from "../../_packs/stack-runtime.js";
+import { ROUTER_PACKAGE } from "../../_packs/stack-runtime.js";
+import { chromeMessage, opDialogChrome } from "../../_walker/i18n-chrome.js";
 import { storeHookName, storeMemberLocal } from "../../_walker/js-target-helpers.js";
 import {
   addImportToMap,
@@ -94,6 +92,7 @@ function renderActionMutations(
     .map(([mod, names]) => `import { ${[...names].sort().join(", ")} } from "${mod}";\n`)
     .join("");
   const decls = actionMutations
+    .filter((m) => !m.importOnly)
     .map(
       (m) => `  const ${m.localVar} = ${m.hookName}(${renderActionMutationArg(m, (id) => id)});\n`,
     )
@@ -525,7 +524,7 @@ export function renderCustomLayoutPage(
   if (usesRouterLink) routerSpecifiers.push("Link as RouterLink");
   const reactRouterImport =
     routerSpecifiers.length > 0
-      ? `import { ${routerSpecifiers.join(", ")} } from "${routerPackageForStack(pack.manifest.stack)}";\n`
+      ? `import { ${routerSpecifiers.join(", ")} } from "${ROUTER_PACKAGE}";\n`
       : "";
   // Emit the `useState` hook + per-field declaration
   // when any state ref or `:=` mutation surfaced during the walk.
@@ -723,27 +722,12 @@ function renderStoreWiring(
 /** The `useForm` type arguments for a form.  Single generic by default; the
  *  RHF THREE-generic form (`<FormState, unknown, Request>`) when the schema
  *  carries a transform — see `FormStateBase.formStateType`.  `zodResolver`
- *  types the resolver's INPUT as `z.input`, so a money-bearing form under the
- *  single generic asks for `Resolver<Request, …>` and gets
- *  `Resolver<FormState, …>`: TS2322 in the emitted page, plus a TS2345 where
- *  `handleSubmit`'s callback value flows into the mutation.
- *
- *  The three-generic spelling is only available where the pack's STACK ships
- *  `@hookform/resolvers` v5 — its `zodResolver` returns the three-generic
- *  `Resolver`.  Stack `v1` pins v3, whose two-generic `Resolver` is not
- *  assignable to it, so the transform split is invisible there in BOTH
- *  directions and the single generic is both necessary and sufficient.
- *  Getting this wrong is not a type nicety: it is a `tsc --noEmit` failure in
- *  every generated project on the older stack (mantine@v7, mui@v5,
- *  shadcn@v3, chakra@v2). */
-function formGenericsFor(
-  requestType: string,
-  formStateType: string | undefined,
-  pack: LoadedPack,
-): string {
-  return formStateType && resolverModelsTransformForStack(pack.manifest.stack)
-    ? `${formStateType}, unknown, ${requestType}`
-    : requestType;
+ *  (`@hookform/resolvers` v5) types the resolver's INPUT as `z.input`, so a
+ *  money-bearing form under the single generic asks for `Resolver<Request, …>`
+ *  and gets `Resolver<FormState, …>`: TS2322 in the emitted page, plus a
+ *  TS2345 where `handleSubmit`'s callback value flows into the mutation. */
+function formGenericsFor(requestType: string, formStateType: string | undefined): string {
+  return formStateType ? `${formStateType}, unknown, ${requestType}` : requestType;
 }
 
 type FormWiring = {
@@ -777,7 +761,7 @@ function renderFormOfWiring(
   }
   const { agg, idTargets, useController, defaultValuesTs, fieldArrays, onSubmitJs } = state;
   const tplCtx = {
-    formGenerics: formGenericsFor(`Create${agg.name}Request`, state.formStateType, pack),
+    formGenerics: formGenericsFor(`Create${agg.name}Request`, state.formStateType),
     aggregateName: agg.name,
     aggregateNameCamel: lowerFirst(agg.name),
     pluralAggregateName: plural(agg.name),
@@ -823,7 +807,7 @@ function renderFormOpWiring(
     state;
   const opPascal = upperFirst(op.name);
   const tplCtx = {
-    formGenerics: formGenericsFor(`${opPascal}${agg.name}Request`, state.formStateType, pack),
+    formGenerics: formGenericsFor(`${opPascal}${agg.name}Request`, state.formStateType),
     // Present iff a this-relative default seeded from the loaded record: the
     // component takes a `record: <recordType>` prop and its `defaultValues`
     // reads it (`record.<field>`).  Absent → no record prop (default path).
@@ -841,11 +825,16 @@ function renderFormOpWiring(
     // which is what every pack hardcoded before the slot was honoured.  Two
     // spellings because packs render the title in both positions: markup text
     // (`<DialogTitle>`) and a JS prop (Mantine's `modals.open({ title })`).
-    // Pack chrome the TEMPLATE bakes in: routed through the stable
-    // `chrome.cancel` key so the catalog entry the extraction pass records for
-    // a Modal is actually USED (an unused entry is the same dead-catalog bug as
-    // an unrendered slot, seen from the other side).
-    cancelLabel: state.cancelLabel ?? "Cancel",
+    // Pack chrome the TEMPLATE bakes in: the dialog's dismiss label and its
+    // close icon's name, routed through the `chrome.*` keys `opDialogChrome`
+    // picks so the catalog entries the extraction pass records for a Modal are
+    // actually USED (an unused entry is the same dead-catalog bug as an
+    // unrendered slot, seen from the other side).  Neither ever equals
+    // `humanOp`.
+    cancelLabel: state.cancelLabel ?? chromeMessage(opDialogChrome(humanize(op.name)).dismiss),
+    closeLabelExpr:
+      state.closeLabelExpr ??
+      JSON.stringify(chromeMessage(opDialogChrome(humanize(op.name)).close)),
     modalTitle: state.modalTitle || humanize(op.name),
     modalTitleExpr: state.modalTitleExpr ?? JSON.stringify(humanize(op.name)),
     slug: snake(plural(agg.name)),
@@ -917,7 +906,7 @@ function renderFormRunsWiring(
   // `api/workflows.ts` exported.
   const wfPascal = state.requestBase;
   const tplCtx = {
-    formGenerics: formGenericsFor(`${wfPascal}Request`, state.formStateType, pack),
+    formGenerics: formGenericsFor(`${wfPascal}Request`, state.formStateType),
     workflowName: workflow.name,
     workflowPascal: wfPascal,
     humanWorkflow: humanize(workflow.name),
@@ -1203,7 +1192,7 @@ export function renderUserComponentFile(
   if (usesRouterLink) routerSpecifiers.push("Link as RouterLink");
   const reactRouterImport =
     routerSpecifiers.length > 0
-      ? `import { ${routerSpecifiers.join(", ")} } from "${routerPackageForStack(pack.manifest.stack)}";\n`
+      ? `import { ${routerSpecifiers.join(", ")} } from "${ROUTER_PACKAGE}";\n`
       : "";
   const reactSpecifiers: string[] = [];
   if (usesFragment) reactSpecifiers.push("Fragment");
@@ -1553,6 +1542,7 @@ function stateTypeAsTsString(type: TypeIR): string {
       case "bool":
         return "boolean";
       case "string":
+      case "date":
       case "datetime":
       case "guid":
         return "string";

@@ -1,4 +1,5 @@
 import {
+  createInputFields,
   createOmissionValue,
   forCreateInput,
   hasCreate,
@@ -15,24 +16,30 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
-import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import { disallowedDetail } from "../../../ir/util/denial-detail.js";
+import {
+  createBodyParams,
+  createBodyStatements,
+  operationBody,
+  operationBodyUsesCurrentUser,
+} from "../../../ir/util/op-gates.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
+import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
+import { javaRef } from "../../_imports/java.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import type { SourceMapSubRegion } from "../../_trace/sourcemap.js";
-import { constructionSeededFields } from "../../construction-default.js";
+import { constructionSeededFields, serverSeededFields } from "../../construction-default.js";
 import { promotedFilters, sqlRestrictionFilters } from "../capability-filter.js";
 import { jid } from "../java-ident.js";
 import {
   buildJavaRegexFields,
-  collectJavaExprImports,
   collectJavaRegexLiterals,
-  collectJavaTypeImports,
   type JavaRenderContext,
   renderJavaExpr,
   renderJavaType,
@@ -40,7 +47,6 @@ import {
 } from "../render-expr.js";
 import { renderSqlRestriction } from "../render-sql-restriction.js";
 import {
-  collectJavaStmtImports,
   declarationSubRegion,
   renderJavaStatementChunks,
   renderJavaStatements,
@@ -55,8 +61,18 @@ import {
   jpaParentIdAnnotations,
   jpaSingleContainmentAnnotations,
   jpaSingleContainmentParentAnnotations,
-  needsHibernateTypes,
 } from "./jpa-annotations.js";
+
+const ARRAY_LIST = javaRef("java.util", "ArrayList");
+const JDBC_TYPE_CODE = javaRef("org.hibernate.annotations", "JdbcTypeCode");
+const SQL_TYPES = javaRef("org.hibernate.type", "SqlTypes");
+const SQL_RESTRICTION = javaRef("org.hibernate.annotations", "SQLRestriction");
+const FILTER = javaRef("org.hibernate.annotations", "Filter");
+const FILTER_DEF = javaRef("org.hibernate.annotations", "FilterDef");
+const AUDITING_ENTITY_LISTENER = javaRef(
+  "org.springframework.data.jpa.domain.support",
+  "AuditingEntityListener",
+);
 
 /** True for a field type that is a collection of references
  * (`Id<T>[]`) — persisted via a join table, not a column. */
@@ -159,6 +175,12 @@ export interface JavaEntityOptions {
    *  the way python's `_stamp_on_create` is called by its route.
    *  NOT set for event-sourced roots: their stamps are gated upstream. */
   documentClaimStamps?: boolean;
+  /** A `shape: document` ROOT (M-T6.95).  Its JdbcTemplate store guards the
+   *  upsert on the loaded `version` and reflects the bumped counter back onto
+   *  the instance through `_applyVersion`, exactly as the relational
+   *  repository does — so the mutator is emitted although `persistence` is
+   *  undefined. */
+  documentRoot?: boolean;
   /** JPA mapping inputs — when present the class is annotated against
    *  the Flyway-owned schema (`schemaFromModule` naming).  The
    *  orchestrator always passes it; absent only in focused unit tests. */
@@ -210,27 +232,43 @@ export interface JavaEntityOptions {
   opFragments?: OpFragment[];
 }
 
-/** Claim-valued principal stamps (`tenantId := currentUser.tenantId`) for one
- *  lifecycle event.  A BARE `currentUser` value is excluded — it rides the
- *  @CreatedBy/@LastModifiedBy annotation path instead.
+/** The Spring Data auditing annotation a stamp value can ride, or `null` when
+ *  the value needs an explicit lifecycle hook.  Only the two values Spring's
+ *  AuditingEntityListener actually produces qualify: a bare `now()` (its clock →
+ *  @CreatedDate/@LastModifiedDate) and a bare `currentUser` (the
+ *  AuditorAware<UUID> actor → @CreatedBy/@LastModifiedBy).  Anything else — a
+ *  claim read (`currentUser.tenantId`), or a computed value such as
+ *  `now() + hours(slaHours())` — would be silently replaced by the listener's
+ *  value, so it is evaluated in `_stampOnCreate` / `_stampOnUpdate` instead. */
+function auditAnnotationOf(value: ExprIR, createEvent: boolean): string | null {
+  if (value.kind === "literal" && value.lit === "now") {
+    return createEvent ? "CreatedDate" : "LastModifiedDate";
+  }
+  if (value.kind === "ref" && value.refKind === "current-user") {
+    return createEvent ? "CreatedBy" : "LastModifiedBy";
+  }
+  return null;
+}
+
+/** The stamps for one lifecycle event that are evaluated in an explicit
+ *  `_stampOnCreate()` / `_stampOnUpdate()` hook rather than by a Spring auditing
+ *  annotation ({@link auditAnnotationOf}): claim-valued principal stamps
+ *  (`tenantId := currentUser.tenantId`) and computed values
+ *  (`dueAt := now() + hours(slaHours())`).
  *
  *  THE SINGLE SOURCE both halves of the document-stamp contract read: this file
  *  emits `_stampOnCreate()` / `_stampOnUpdate()` when it returns non-empty, and
  *  `service.ts` emits the call when it does.  Computing that predicate twice is
  *  how the two halves drift apart (experience_gathered.md §89) — a method with
  *  no caller stamps nothing, a caller with no method does not compile. */
-export function claimStampsFor(
+export function hookStampsFor(
   agg: { contextStamps?: ContextStampIR[] },
   event: "create" | "update",
 ): { field: string; value: ExprIR }[] {
   return (agg.contextStamps ?? [])
     .filter((r) => r.event === event)
     .flatMap((r) => r.assignments)
-    .filter(
-      (a) =>
-        exprUsesCurrentUser(a.value) &&
-        !(a.value.kind === "ref" && a.value.refKind === "current-user"),
-    )
+    .filter((a) => auditAnnotationOf(a.value, event === "create") === null)
     .map((a) => ({ field: a.field, value: a.value }));
 }
 
@@ -249,7 +287,7 @@ export function renderJavaEntity(
   const _idValueType = isAgg(entity) ? entity.idValueType : "guid";
   const idClass = superType?.sharesIdentity ? `${superType.name}Id` : `${entity.name}Id`;
   const operations = isAgg(entity) ? entity.operations : [];
-  const createInputFieldList = isAgg(entity) ? forCreateInput(entity.fields) : [];
+  const createInputFieldList = isAgg(entity) ? createInputFields(entity) : [];
   // The declared value an omittable create input takes when the caller passes
   // null, or undefined when the caller must supply it.  Server-sourced defaults
   // (`now()`, `currentUser.*`) keep their existing path.
@@ -265,8 +303,7 @@ export function renderJavaEntity(
       // after create, a domain `test` body) is `.add(t)` on it →
       // UnsupportedOperationException.  Copy into a mutable list.
       if (omission.expr.kind === "list") {
-        javaImports.add("java.util.ArrayList");
-        return `new ArrayList<>(${rendered})`;
+        return `new ${ARRAY_LIST}<>(${rendered})`;
       }
       return rendered;
     }
@@ -275,66 +312,13 @@ export function renderJavaEntity(
     // `List.of()` would be shorter but is immutable, and Hibernate manages
     // these fields after construction — an `@ElementCollection` it tries to
     // add into would throw `UnsupportedOperationException` at flush.
-    if (omission.kind === "empty-collection") {
-      javaImports.add("java.util.ArrayList");
-      return "new ArrayList<>()";
-    }
+    if (omission.kind === "empty-collection") return `new ${ARRAY_LIST}<>()`;
     return undefined; // plain optional — already nullable
   };
   const eventSourced = isAgg(entity) && entity.persistedAs === "eventLog";
   const appliers = isAgg(entity) ? (entity.appliers ?? []) : [];
   const esCreate = isAgg(entity) ? entity.creates?.[0] : undefined;
   const hasExtern = operations.some((o) => o.extern);
-
-  const javaImports = new Set<string>(["java.util.List"]);
-  for (const f of entity.fields) {
-    collectJavaTypeImports(f.type, javaImports);
-    // A field DEFAULT is rendered into the `create` factory
-    // (`total != null ? total : new Money(new BigDecimal("0"), "USD")`), so it
-    // pulls imports exactly like a derived expression or an invariant does.
-    // It was the one expression on the entity that nothing scanned — invisible
-    // while the only defaults reaching here were scalars whose rendering needs
-    // no import, and a `cannot find symbol` on `BigDecimal` the moment a
-    // value-object or decimal default did.
-    if (f.default) collectJavaExprImports(f.default, javaImports);
-  }
-  for (const d of entity.derived) {
-    collectJavaExprImports(d.expr, javaImports);
-    collectJavaTypeImports(d.type, javaImports);
-  }
-  for (const fn of entity.functions) {
-    if ("expr" in fn.body) collectJavaExprImports(fn.body.expr, javaImports);
-    else collectJavaStmtImports(fn.body.stmts, javaImports);
-    collectJavaTypeImports(fn.returnType, javaImports);
-    for (const p of fn.params) collectJavaTypeImports(p.type, javaImports);
-  }
-  for (const inv of entity.invariants) {
-    collectJavaExprImports(inv.expr, javaImports);
-    if (inv.guard) collectJavaExprImports(inv.guard, javaImports);
-  }
-  for (const op of operations) {
-    collectJavaStmtImports(op.statements, javaImports);
-    // The `when` state gate renders a predicate at the DOMAIN method entry
-    // (see `whenGate` below) — an expression like any other, so it pulls
-    // `Objects` / `Pattern` / `Instant` exactly like an invariant does.  It was
-    // the one expression on the entity nothing scanned (audit A17).
-    if (op.when) collectJavaExprImports(op.when, javaImports);
-    for (const p of op.params) collectJavaTypeImports(p.type, javaImports);
-    if (op.returnType) collectJavaTypeImports(op.returnType, javaImports);
-  }
-  for (const ap of appliers) collectJavaStmtImports(ap.statements, javaImports);
-  if (esCreate) {
-    collectJavaStmtImports(esCreate.statements, javaImports);
-    for (const p of esCreate.params) collectJavaTypeImports(p.type, javaImports);
-  }
-  // Containment collections + the root's event list need ArrayList.
-  if (
-    isRoot ||
-    entity.contains.some((c) => c.collection) ||
-    entity.fields.some((f) => isRefCollection(f.type))
-  ) {
-    javaImports.add("java.util.ArrayList");
-  }
 
   // Hoist `string.matches("…")` regex literals (invariants / derived / pure
   // expr-functions — the per-create/update hot path) into reusable
@@ -362,7 +346,8 @@ export function renderJavaEntity(
     eventFields: options.eventFields,
     regexFields: regex.fields,
   };
-  const anyOpUsesCurrentUser = operations.some(operationBodyUsesCurrentUser);
+  const userType = javaRef(`${basePkg}.auth`, "User");
+  const currentUserAccessor = javaRef(`${basePkg}.auth`, "CurrentUserAccessor");
   // A body that calls a domain service (`Pricing.quote(...)`) needs the
   // `domain.services.*` import so the generated static class resolves.
   const callsDomainService =
@@ -399,6 +384,10 @@ export function renderJavaEntity(
   // CurrentUserAccessor (the same holder the repository's SpEL principal
   // filter resolves through), null-safe so a non-request (seed / system) save
   // stays unstamped.  Bare `currentUser` keeps the annotation path unchanged.
+  // A COMPUTED stamp value (`dueAt := now() + hours(slaHours())`) cannot ride
+  // @CreatedDate either — the listener would overwrite it with the bare clock —
+  // so it joins the same hooks, evaluated against `this` (the entity being
+  // persisted) and independent of the principal.
   const auditAnnotationFor = new Map<string, { annotation: string; createEvent: boolean }>();
   const claimStampColumnFor = new Map<string, { createEvent: boolean }>();
   const claimStamps: { field: string; value: ExprIR; createEvent: boolean }[] = [];
@@ -406,20 +395,12 @@ export function renderJavaEntity(
     for (const rule of entity.contextStamps ?? []) {
       const createEvent = rule.event === "create";
       for (const a of rule.assignments) {
-        const principal = exprUsesCurrentUser(a.value);
-        const bare = a.value.kind === "ref" && a.value.refKind === "current-user";
-        if (principal && !bare) {
+        const annotation = auditAnnotationOf(a.value, createEvent);
+        if (annotation === null) {
           claimStampColumnFor.set(a.field, { createEvent });
           claimStamps.push({ field: a.field, value: a.value, createEvent });
           continue;
         }
-        const annotation = principal
-          ? createEvent
-            ? "CreatedBy"
-            : "LastModifiedBy"
-          : createEvent
-            ? "CreatedDate"
-            : "LastModifiedDate";
         auditAnnotationFor.set(a.field, { annotation, createEvent });
       }
     }
@@ -430,10 +411,7 @@ export function renderJavaEntity(
   const persistence = options.persistence;
   const fieldLines: string[] = [];
   // Hoisted regex patterns first (static finals, compiled once).
-  if (regex.decls.length > 0) {
-    javaImports.add("java.util.regex.Pattern");
-    for (const d of regex.decls) fieldLines.push(`    ${d}`);
-  }
+  for (const d of regex.decls) fieldLines.push(`    ${d}`);
   if (!superType?.sharesIdentity) {
     if (persistence) fieldLines.push(...jpaIdAnnotations());
     fieldLines.push(`    ${idClass} id;`);
@@ -456,7 +434,7 @@ export function renderJavaEntity(
       // drives the value; the @Column keeps the explicit snake_case binding
       // against the Flyway-owned schema (`updatable = false` on create-event
       // columns, which are set once on INSERT).
-      fieldLines.push(`    @${audit.annotation}`);
+      fieldLines.push(`    @${javaRef("org.springframework.data.annotation", audit.annotation)}`);
       if (persistence) {
         fieldLines.push(
           `    @Column(name = "${hbIdent(snake(f.name))}"${audit.createEvent ? ", updatable = false" : ""})`,
@@ -491,7 +469,7 @@ export function renderJavaEntity(
     // repository save (guarded `where version = :expected`) instead.
     if (persistence) fieldLines.push(...jpaFieldAnnotations(f, entity, persistence));
     if (isRefCollection(f.type)) {
-      fieldLines.push(`    ${renderJavaType(f.type)} ${jid(f.name)} = new ArrayList<>();`);
+      fieldLines.push(`    ${renderJavaType(f.type)} ${jid(f.name)} = new ${ARRAY_LIST}<>();`);
     } else {
       fieldLines.push(`    ${renderJavaType(f.type)} ${jid(f.name)};`);
     }
@@ -501,12 +479,12 @@ export function renderJavaEntity(
     // the parts serialize inline (no part table, no relation).
     if (persistence?.embedded) {
       fieldLines.push(
-        `    @JdbcTypeCode(SqlTypes.JSON)`,
+        `    @${JDBC_TYPE_CODE}(${SQL_TYPES}.JSON)`,
         `    @Column(name = "${hbIdent(snake(c.name))}", nullable = false)`,
       );
       fieldLines.push(
         c.collection
-          ? `    List<${c.partName}> ${jid(c.name)} = new ArrayList<>();`
+          ? `    List<${c.partName}> ${jid(c.name)} = new ${ARRAY_LIST}<>();`
           : `    ${c.partName} ${jid(c.name)};`,
       );
       continue;
@@ -517,7 +495,7 @@ export function renderJavaEntity(
           ...jpaContainmentAnnotations(persistence.containmentOwnerName ?? entity.name),
         );
       }
-      fieldLines.push(`    List<${c.partName}> ${jid(c.name)} = new ArrayList<>();`);
+      fieldLines.push(`    List<${c.partName}> ${jid(c.name)} = new ${ARRAY_LIST}<>();`);
     } else {
       // Inverse side of the part's hidden owning `_parent` @OneToOne — emitted
       // for the declaring entity whether it's the root or a sibling part (a
@@ -538,19 +516,19 @@ export function renderJavaEntity(
     fieldLines.push("");
     for (const f of provFields) {
       if (persistence) {
-        fieldLines.push(`    @JdbcTypeCode(SqlTypes.JSON)`);
+        fieldLines.push(`    @${JDBC_TYPE_CODE}(${SQL_TYPES}.JSON)`);
         fieldLines.push(`    @Column(name = "${snake(f.name)}_provenance")`);
       }
       fieldLines.push(`    ProvLineage ${jid(f.name)}Provenance;`);
     }
     fieldLines.push(
-      `    private final transient List<ProvLineage> _provTraces = new ArrayList<>();`,
+      `    private final transient List<ProvLineage> _provTraces = new ${ARRAY_LIST}<>();`,
     );
   }
   if (isRoot) {
     fieldLines.push("");
     fieldLines.push(
-      `    private final transient List<DomainEvent> _domainEvents = new ArrayList<>();`,
+      `    private final transient List<DomainEvent> _domainEvents = new ${ARRAY_LIST}<>();`,
     );
   }
 
@@ -646,7 +624,7 @@ export function renderJavaEntity(
   const whenGate = (op: (typeof operations)[number]): string | null =>
     op.when
       ? `        if (!(${renderJavaExpr(op.when, opScope(op))})) throw new DisallowedException(${JSON.stringify(
-          `operation '${op.name}' is not allowed in the current state of ${entity.name}.`,
+          disallowedDetail(op.name, entity.name, op.whenSource),
         )});`
       : null;
   const opLines: string[] = [];
@@ -657,7 +635,9 @@ export function renderJavaEntity(
     // (op-gates.ts) — the entity renders only what remains.
     const opBody = operationBody(op);
     const baseParams = op.params.map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`).join(", ");
-    const params = [baseParams, usesUser ? "User currentUser" : ""].filter(Boolean).join(", ");
+    const params = [baseParams, usesUser ? `${userType} currentUser` : ""]
+      .filter(Boolean)
+      .join(", ");
     const traceCtx = {
       emitTrace,
       aggregate: entity.name,
@@ -754,7 +734,7 @@ export function renderJavaEntity(
   // enough: `directoryLayout` can put the repository impl in a different package
   // from the entity.
   const versionFieldName =
-    persistence && isAgg(entity) && aggregateIsVersioned(entity)
+    (persistence || options.documentRoot === true) && isAgg(entity) && aggregateIsVersioned(entity)
       ? entity.fields.find((f) => f.access === "token" && !superType?.fieldNames.has(f.name))?.name
       : undefined;
   const applyVersionLines: string[] =
@@ -816,12 +796,33 @@ export function renderJavaEntity(
     applierLines.push(`        }`);
     applierLines.push(`    }`);
     applierLines.push("");
+    // The stream version this instance was folded to (M-T6.98) — the EXPECTED
+    // version of its next append.  The event store continues from it and then
+    // advances it, so a second handle loaded at the same version re-inserts a
+    // version the first already wrote and loses the (stream_type, stream_id,
+    // version) key — the RS-40 409 — instead of keeping a decision taken on a
+    // stale fold.  Public accessors: `directoryLayout` can put the store in a
+    // different package from the entity.
+    applierLines.push(`    private transient int _streamVersion;`);
+    applierLines.push("");
+    applierLines.push(`    /** Internal: the stream version this instance was folded to. */`);
+    applierLines.push(`    public int _streamVersion() {`);
+    applierLines.push(`        return _streamVersion;`);
+    applierLines.push(`    }`);
+    applierLines.push("");
+    applierLines.push(`    /** Internal: advance the folded stream version after an append. */`);
+    applierLines.push(`    public void _streamVersion(int next) {`);
+    applierLines.push(`        this._streamVersion = next;`);
+    applierLines.push(`    }`);
+    applierLines.push("");
     applierLines.push(
       `    public static ${entity.name} _fromEvents(${idClass} id, List<DomainEvent> events) {`,
     );
     applierLines.push(`        var e = new ${entity.name}();`);
     applierLines.push(`        e.id = id;`);
     applierLines.push(`        for (var ev : events) e._apply(ev);`);
+    // A stream is gap-free from 1, so the folded count IS its head version.
+    applierLines.push(`        e._streamVersion = events.size();`);
     applierLines.push(
       emitTrace ? `        e._assertInvariants("<init>");` : `        e._assertInvariants();`,
     );
@@ -873,8 +874,8 @@ export function renderJavaEntity(
       inv.message ? inv.message.text : `Invariant violated: ${inv.source}`,
     );
     const thrown = code
-      ? `throw new DomainException(${text}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))})`
-      : `throw new DomainException(${text})`;
+      ? `throw new DomainException(${text}, DomainException.Kind.INVARIANT, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))})`
+      : `throw new DomainException(${text}, DomainException.Kind.INVARIANT)`;
     if (!emitTrace) {
       const check = inv.guard
         ? `if ((${renderJavaExpr(inv.guard, renderCtx)}) && !(${renderJavaExpr(inv.expr, renderCtx)}))`
@@ -907,6 +908,8 @@ export function renderJavaEntity(
   // --- factories --------------------------------------------------------------------
   // Public create — constructible, state-based roots only (event-sourced
   // construction goes through the `_init` emit-and-fold path above).
+  const createBody = isAgg(entity) ? createBodyStatements(entity) : [];
+  const createParams = isAgg(entity) ? createBodyParams(entity) : [];
   const createPublicLines: string[] =
     isRoot && isAgg(entity) && hasCreate(entity) && !eventSourced
       ? [
@@ -927,8 +930,22 @@ export function renderJavaEntity(
           `        e.id = ${idClass}.newId();`,
           ...createInputFieldList.map((f) => {
             const dflt = javaFactoryDefault(f);
+            const t = f.type.kind === "optional" ? f.type.inner : f.type;
+            // A collection the CALLER passes is copied into a mutable list: an
+            // immutable `List.of()` (what a domain `test` body's `[]` renders to)
+            // stored as-is made the first `charges += c` after create throw
+            // UnsupportedOperationException — the same pitfall the defaults below
+            // avoid, reached through the argument instead (found by M-T6.94's
+            // corpus case).
+            const given = t.kind === "array" ? `new ${ARRAY_LIST}<>(${jid(f.name)})` : jid(f.name);
             // `!= null`, not a truthiness test: an explicit 0/""/false survives.
-            return `        e.${jid(f.name)} = ${dflt === undefined ? jid(f.name) : `${jid(f.name)} != null ? ${jid(f.name)} : ${dflt}`};`;
+            return `        e.${jid(f.name)} = ${
+              dflt === undefined
+                ? t.kind === "array"
+                  ? `${jid(f.name)} != null ? ${given} : null`
+                  : jid(f.name)
+                : `${jid(f.name)} != null ? ${given} : ${dflt}`
+            };`;
           }),
           // Server-seeded literal defaults (RS-11): fields outside the create-
           // input set (`token`/`managed`/`internal`) whose default is a
@@ -940,14 +957,62 @@ export function renderJavaEntity(
           // `new BigDecimal("2.50")`, so a `money managed = money("2.50")` no
           // longer INSERTs a null into its NOT NULL column.
           ...(isAgg(entity)
-            ? constructionSeededFields(entity.fields).map(
-                (f) => `        e.${jid(f.name)} = ${renderJavaExpr(f.default, renderCtx)};`,
+            ? constructionSeededFields(
+                entity.fields,
+                new Set(createInputFieldList.map((f) => f.name)),
+              ).map((f) => `        e.${jid(f.name)} = ${renderJavaExpr(f.default, renderCtx)};`)
+            : []),
+          // A field a narrowed `create(…)` leaves out with no declared default
+          // is a bare `bool` or a collection (`loom.create-param-required-
+          // omitted` refuses the rest); seed its omission value, or the column
+          // would INSERT null.
+          ...(isAgg(entity)
+            ? forCreateInput(entity.fields)
+                .filter(
+                  (f) =>
+                    !createInputFieldList.some((c) => c.name === f.name) && f.default === undefined,
+                )
+                .flatMap((f) => {
+                  const v = javaFactoryDefault(f);
+                  return v === undefined ? [] : [`        e.${jid(f.name)} = ${v};`];
+                })
+            : []),
+          // A server-owned field with no default (`openedAt: datetime managed`)
+          // takes the shared language-defined seed — the value node and python
+          // name too.  Left unassigned it went into its NOT NULL column as NULL
+          // (500), for every type Java has no primitive zero for.
+          ...(isAgg(entity)
+            ? serverSeededFields(entity).map(
+                ({ field, seed }) =>
+                  `        e.${jid(field.name)} = ${javaServerInitSeed(seed, field.type)};`,
               )
             : []),
           emitTrace ? `        e._assertInvariants("<init>");` : `        e._assertInvariants();`,
+          // The create body (`createBodyStatements`) runs against the
+          // constructed instance, exactly like an operation body: params as
+          // locals, unlisted fields already at their declared defaults.
+          ...(createBody.length > 0
+            ? [`        e._createBody(${createParams.map((p) => jid(p.name)).join(", ")});`]
+            : []),
           `        return e;`,
           `    }`,
           ``,
+          ...(createBody.length > 0
+            ? [
+                `    private void _createBody(${createParams
+                  .map((p) => `${renderJavaType(p.type)} ${jid(p.name)}`)
+                  .join(", ")}) {`,
+                renderJavaStatements(createBody, renderCtx, {
+                  emitTrace,
+                  aggregate: entity.name,
+                  op: "create",
+                  eventSourced,
+                  domainFloorCodes: true,
+                }),
+                `    }`,
+                ``,
+              ]
+            : []),
         ]
       : [];
   // Part factory — the target of the renderer's `new <Part>` arm:
@@ -999,22 +1064,24 @@ export function renderJavaEntity(
       // fully-qualified on parts so neither import shadows the other.
       "@org.jmolecules.ddd.annotation.Entity";
 
-  // Claim-valued principal stamps → explicit JPA lifecycle callbacks.  The
-  // @PrePersist arm applies create + update assignments (a fresh row is both
-  // created and current, matching the @LastModified* fill-on-insert semantics
-  // and the node insert branch); the @PreUpdate arm re-applies only the
-  // update-event ones.  The principal is read statically off
-  // CurrentUserAccessor (entity callbacks can't inject beans) and a
-  // principal-less save (seed / system) returns unstamped — the write-side
-  // analogue of the repository filter's null-safe SpEL accessor.
+  // Hook-evaluated stamps (claim-valued principal reads and computed values)
+  // → explicit JPA lifecycle callbacks.  The @PrePersist arm applies create +
+  // update assignments (a fresh row is both created and current, matching the
+  // @LastModified* fill-on-insert semantics and the node insert branch); the
+  // @PreUpdate arm re-applies only the update-event ones.  A computed value
+  // reads `this` — the entity about to be written — and is assigned
+  // unconditionally, exactly like the clock the auditing listener supplies.  A
+  // principal read goes through CurrentUserAccessor (entity callbacks can't
+  // inject beans) and a principal-less save (seed / system) leaves those
+  // columns unstamped — the write-side analogue of the repository filter's
+  // null-safe SpEL accessor.
   const claimStampHookLines: string[] = [];
   // A document root has no persistence context, so the methods emit WITHOUT the
   // JPA annotations and the service calls them directly (see documentClaimStamps).
   const plainStampHooks = !persistence && options.documentClaimStamps === true;
   if ((persistence || plainStampHooks) && claimStamps.length > 0) {
-    const claimAssign = (s: { field: string; value: ExprIR }): string =>
+    const assign = (s: { field: string; value: ExprIR }): string =>
       `        this.${s.field} = ${renderJavaExpr(s.value, renderCtx)};`;
-    const updateClaims = claimStamps.filter((s) => !s.createEvent);
     // F-018 — refuse a principal whose claim is absent BEFORE assigning.  After
     // the assignment the null is on the entity and the NOT NULL violation is
     // Hibernate's to report at flush, as an opaque 500.
@@ -1026,24 +1093,37 @@ export function renderJavaEntity(
             `        }`,
           ])
         : [];
+    const hookBody = (
+      stamps: readonly { field: string; value: ExprIR }[],
+      event: "create" | "update",
+    ): string[] => {
+      const computed = stamps.filter((s) => !exprUsesCurrentUser(s.value));
+      const principal = stamps.filter((s) => exprUsesCurrentUser(s.value));
+      return [
+        ...computed.map(assign),
+        ...(principal.length > 0
+          ? [
+              `        var currentUser = ${currentUserAccessor}.currentOrNull();`,
+              `        if (currentUser == null) return;`,
+              ...claimGuards(event),
+              ...principal.map(assign),
+            ]
+          : []),
+      ];
+    };
     claimStampHookLines.push(
       ...(plainStampHooks ? [] : [`    @PrePersist`]),
       `    void _stampOnCreate() {`,
-      `        var currentUser = CurrentUserAccessor.currentOrNull();`,
-      `        if (currentUser == null) return;`,
-      ...claimGuards("create"),
-      ...claimStamps.map(claimAssign),
+      ...hookBody(claimStamps, "create"),
       `    }`,
       ``,
     );
-    if (updateClaims.length > 0) {
+    const updateStamps = claimStamps.filter((s) => !s.createEvent);
+    if (updateStamps.length > 0) {
       claimStampHookLines.push(
         ...(plainStampHooks ? [] : [`    @PreUpdate`]),
         `    void _stampOnUpdate() {`,
-        `        var currentUser = CurrentUserAccessor.currentOrNull();`,
-        `        if (currentUser == null) return;`,
-        ...claimGuards("update"),
-        ...updateClaims.map(claimAssign),
+        ...hookBody(updateStamps, "update"),
         `    }`,
         ``,
       );
@@ -1068,12 +1148,6 @@ export function renderJavaEntity(
   ];
   while (body.length > 0 && body[body.length - 1] === "") body.pop();
 
-  const usesHibernateTypes =
-    persistence &&
-    (needsHibernateTypes(entity.fields) ||
-      provFields.length > 0 ||
-      (persistence.embedded &&
-        (entity.contains.length > 0 || entity.fields.some((f) => isRefCollection(f.type)))));
   // Non-principal capability filters (relational soft-delete et al.) ride
   // Hibernate's @SQLRestriction: one static WHERE fragment appended to every
   // SELECT (the HasQueryFilter analog).  PRINCIPAL (tenancy) filters can't —
@@ -1098,7 +1172,7 @@ export function renderJavaEntity(
   // the EF adapter's discriminator-guarded root filter).
   const sqlRestriction =
     persistence && contextFilters.length > 0 && !superType?.sharesIdentity
-      ? `@SQLRestriction(${JSON.stringify(contextFilters.map(renderSqlRestriction).join(" and "))})`
+      ? `@${SQL_RESTRICTION}(${JSON.stringify(contextFilters.map(renderSqlRestriction).join(" and "))})`
       : null;
   // Promoted capabilities → bypassable Hibernate named filters.  `autoEnabled`
   // reproduces @SQLRestriction's always-on semantics with no interceptor;
@@ -1112,34 +1186,19 @@ export function renderJavaEntity(
   const filterAnnotations: string[] = [];
   for (const p of promoted) {
     filterDefAnnotations.push(
-      `@FilterDef(name = ${JSON.stringify(p.cap)}, autoEnabled = true, applyToLoadByKey = true)`,
+      `@${FILTER_DEF}(name = ${JSON.stringify(p.cap)}, autoEnabled = true, applyToLoadByKey = true)`,
     );
     filterAnnotations.push(
-      `@Filter(name = ${JSON.stringify(p.cap)}, condition = ${JSON.stringify(p.condition)})`,
+      `@${FILTER}(name = ${JSON.stringify(p.cap)}, condition = ${JSON.stringify(p.condition)})`,
     );
   }
-  const hasNamedFilters = promoted.length > 0;
   return lines(
     `package ${pkg};`,
     ``,
-    ...[...javaImports].sort().map((i) => `import ${i};`),
+    `import java.util.List;`,
     ``,
+    // An on-demand import — the JPA annotations stay simple-named under it.
     persistence ? `import jakarta.persistence.*;` : null,
-    usesHibernateTypes ? `import org.hibernate.annotations.JdbcTypeCode;` : null,
-    sqlRestriction ? `import org.hibernate.annotations.SQLRestriction;` : null,
-    hasNamedFilters ? `import org.hibernate.annotations.Filter;` : null,
-    hasNamedFilters ? `import org.hibernate.annotations.FilterDef;` : null,
-    usesHibernateTypes ? `import org.hibernate.type.SqlTypes;` : null,
-    // Spring Data JPA auditing: the @Created*/@LastModified* field annotations
-    // + the listener that fills them at persist time (§5b).
-    ...(isAuditable
-      ? [
-          ...[...new Set([...auditAnnotationFor.values()].map((a) => a.annotation))]
-            .sort()
-            .map((a) => `import org.springframework.data.annotation.${a};`),
-          `import org.springframework.data.jpa.domain.support.AuditingEntityListener;`,
-        ]
-      : []),
     persistence ? `` : null,
     `import ${basePkg}.domain.common.*;`,
     `import ${basePkg}.domain.enums.*;`,
@@ -1147,11 +1206,6 @@ export function renderJavaEntity(
     `import ${basePkg}.domain.ids.*;`,
     `import ${basePkg}.domain.valueobjects.*;`,
     callsDomainService ? `import ${basePkg}.domain.services.*;` : null,
-    anyOpUsesCurrentUser ? `import ${basePkg}.auth.User;` : null,
-    // Claim-valued stamps read the ambient principal statically off the
-    // request-scoped holder (the same one the SpEL principal filter uses).
-    claimStampHookLines.length > 0 ? `import ${basePkg}.auth.CurrentUserAccessor;` : null,
-    superType?.pkg && superType.pkg !== pkg ? `import ${superType.pkg}.${superType.name};` : null,
     ``,
     // TPH concretes (sharesIdentity) inherit the base's shared @Table —
     // they carry only @Entity + their @DiscriminatorValue (= the kind
@@ -1169,9 +1223,9 @@ export function renderJavaEntity(
     ...filterAnnotations,
     // Compose the auditing listener (it stacks with inheritance — no
     // @MappedSuperclass needed, so it doesn't collide with `extends`).
-    isAuditable ? `@EntityListeners(AuditingEntityListener.class)` : null,
+    isAuditable ? `@EntityListeners(${AUDITING_ENTITY_LISTENER}.class)` : null,
     jmolecules,
-    `public class ${entity.name}${superType ? ` extends ${superType.name}` : ""}${
+    `public class ${entity.name}${superType ? ` extends ${javaRef(superType.pkg ?? pkg, superType.name)}` : ""}${
       isAuditable ? ` implements Auditable` : ""
     } {`,
     ...fieldLines,
@@ -1215,17 +1269,11 @@ export function renderJavaAbstractBaseEntity(
   const subtypeRestrictions = options.tph ? (options.subtypeRestrictions ?? []) : [];
   const hoistedRestriction =
     options.persistence && subtypeRestrictions.length > 0
-      ? `@SQLRestriction(${JSON.stringify(
+      ? `@${SQL_RESTRICTION}(${JSON.stringify(
           subtypeRestrictions.map((r) => `(kind <> '${r.kind}' or (${r.condition}))`).join(" and "),
         )})`
       : null;
   const persistence = options.persistence;
-  const javaImports = new Set<string>();
-  for (const f of base.fields) collectJavaTypeImports(f.type, javaImports);
-  for (const d of base.derived) {
-    collectJavaExprImports(d.expr, javaImports);
-    collectJavaTypeImports(d.type, javaImports);
-  }
   // `protected` — concretes may live in a different package (byLayer)
   // and their factories / operations write through these fields.
   const idLines = options.tph
@@ -1303,14 +1351,8 @@ export function renderJavaAbstractBaseEntity(
   return lines(
     `package ${pkg};`,
     ``,
-    ...[...javaImports].sort().map((i) => `import ${i};`),
-    javaImports.size > 0 ? `` : null,
+    // An on-demand import — the JPA annotations stay simple-named under it.
     persistence ? `import jakarta.persistence.*;` : null,
-    persistence && needsHibernateTypes(base.fields)
-      ? `import org.hibernate.annotations.JdbcTypeCode;`
-      : null,
-    hoistedRestriction ? `import org.hibernate.annotations.SQLRestriction;` : null,
-    persistence && needsHibernateTypes(base.fields) ? `import org.hibernate.type.SqlTypes;` : null,
     persistence ? `` : null,
     `import ${basePkg}.domain.common.*;`,
     `import ${basePkg}.domain.enums.*;`,
@@ -1342,4 +1384,22 @@ export function renderJavaAbstractBaseEntity(
     `}`,
     ``,
   );
+}
+
+/** The Java spelling of a shared server-init seed kind
+ *  (`src/ir/util/server-init-seed.ts`) for a field of type `t`. */
+function javaServerInitSeed(seed: ServerInitSeed, t: TypeIR): string {
+  const name = t.kind === "primitive" ? t.name : "";
+  switch (seed) {
+    case "now":
+      return "java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS)";
+    case "zero":
+      return name === "decimal" ? "java.math.BigDecimal.ZERO" : name === "long" ? "0L" : "0";
+    case "false":
+      return "false";
+    case "empty-string":
+      return '""';
+    case "empty-collection":
+      return "new java.util.ArrayList<>()";
+  }
 }

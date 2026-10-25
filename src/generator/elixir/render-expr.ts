@@ -1,4 +1,12 @@
-import type { BinOp, EnrichedAggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type {
+  BinOp,
+  DerivedIR,
+  EnrichedAggregateIR,
+  ExprIR,
+  TypeIR,
+} from "../../ir/types/loom-ir.js";
+import { type PrincipalTerm, principalTerm } from "../../ir/util/principal-term.js";
+import { isPrincipalIsSystem } from "../../ir/util/system-principal.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import {
   DATA_KEY_LIKE_ESCAPE,
@@ -12,6 +20,7 @@ import {
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import {
+  elixirLocal,
   elixirRegexBody,
   elixirString,
   escapeElixirIdent,
@@ -19,7 +28,8 @@ import {
   upperFirst,
 } from "../../util/naming.js";
 import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
-import { elixirCodePointLength } from "../_expr/code-point.js";
+import { elixirCodePointLength, elixirCodePointSubstring } from "../_expr/code-point.js";
+import { renderPrincipalTest } from "../_expr/principal-term.js";
 import { exSubtreeLikePattern } from "../_expr/subtree-like.js";
 import {
   type BinaryExpr,
@@ -33,6 +43,7 @@ import {
   renderExprWith,
   type UnaryExpr,
 } from "../_expr/target.js";
+import { isValueObjectType, renderValueObjectEquality } from "./vanilla/value-object-type-emit.js";
 
 // ---------------------------------------------------------------------------
 // Expression renderer for the Phoenix LiveView / Elixir backend.
@@ -61,6 +72,10 @@ import {
 export interface RenderCtx {
   /** Rendered name for `this`-rooted references.  Default: `"record"`. */
   thisName: string;
+  /** Set by an event reactor that bound `current_user` to the system
+   *  principal (ruling D1): an op-call to a `currentUser`-reading operation
+   *  threads it as the context function's trailing actor.  Unset elsewhere. */
+  reactorPrincipal?: boolean;
   /** Module prefix for the current bounded context, e.g. `"MyApp.Sales"`. */
   contextModule: string;
   /** Set only by the WORKFLOW `run/1` body (M-T5.1 A4): a `getById` load tags
@@ -168,6 +183,16 @@ export interface RenderCtx {
    *  (`snake(field)`), not struct-dot on an unbound `cmd`.  Set only by the
    *  handler emitter; empty/undefined everywhere else (byte-identical). */
   recordParams?: ReadonlySet<string>;
+  /** Render an aggregate `function` call module-qualified on `contextModule`
+   *  (`Api.Ticketing.sla_hours(record)`) instead of bare.  The facade module
+   *  defines every aggregate function, so a bare call only resolves inside it;
+   *  a stamp value rendered into the repository module (`stamp-emit.ts`) sets
+   *  this.  Unset everywhere else (bare call). */
+  qualifyFunctions?: boolean;
+  /** The host aggregate's `derived` definitions, for inlining a `this-derived`
+   *  read when no enriched {@link agg} is in hand (the stamp pipe).  Consulted
+   *  only when `agg` is unset. */
+  derivedDefs?: readonly DerivedIR[];
 }
 
 const DEFAULT: RenderCtx = { thisName: "record", contextModule: "MyApp" };
@@ -177,6 +202,16 @@ const DEFAULT: RenderCtx = { thisName: "record", contextModule: "MyApp" };
  *  of truth shared by every renderer site so the two stay in lockstep. */
 const isDecimalStruct = (name: string | undefined): boolean =>
   name === "money" || name === "decimal";
+
+/** `""` for a `money`/`decimal` stamp, `"?"` for its nullable form, null for
+ *  anything else. */
+function decimalStructOperand(t: TypeIR | undefined): "" | "?" | null {
+  if (t?.kind === "primitive" && isDecimalStruct(t.name)) return "";
+  if (t?.kind === "optional" && t.inner.kind === "primitive" && isDecimalStruct(t.inner.name)) {
+    return "?";
+  }
+  return null;
+}
 
 const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
   // The one backend whose double-quoted string literal interpolates (`#{…}`)
@@ -389,6 +424,9 @@ function renderElixirConvert(
     // "2026-01-01 00:00:00Z" — a SPACE where the wire form has `T`, so it is
     // not the value .NET / java / python / node emit for this conversion.
     if (from === "datetime") return `DateTime.to_iso8601(${v})`;
+    // `to_string(%Date{})` is already ISO `YYYY-MM-DD`; spelled explicitly so
+    // the wire form does not rest on `String.Chars`.
+    if (from === "date") return `Date.to_iso8601(${v})`;
     return `to_string(${v})`;
   }
   if (target === "long" || target === "int") {
@@ -440,9 +478,9 @@ function renderRef(e: RefExpr, ctx: RenderCtx): string {
       // param is a bare local.  (`let`/`lambda` are always locals.)
       if (ctx.filterArgs) {
         // Ecto query filter — pin the bound local.
-        return `^${escapeElixirIdent(snake(e.name))}`;
+        return `^${elixirLocal(e.name)}`;
       }
-      return escapeElixirIdent(snake(e.name));
+      return elixirLocal(e.name);
     case "let":
     case "lambda":
       // Locals introduced inside the body; escape keyword collisions so the
@@ -460,7 +498,7 @@ function renderRef(e: RefExpr, ctx: RenderCtx): string {
       // key that raises `KeyError` at runtime (#1765).  Recurse into a
       // derived-of-derived; the `derivedStack` guard breaks a cycle (validator
       // -prevented) and the fallback covers a ctx with no aggregate index.
-      const d = ctx.agg?.derived.find((x) => x.name === e.name);
+      const d = (ctx.agg?.derived ?? ctx.derivedDefs)?.find((x) => x.name === e.name);
       if (d && !ctx.derivedStack?.has(e.name)) {
         const inner: RenderCtx = {
           ...ctx,
@@ -556,6 +594,15 @@ function renderMember(recv: string, e: MemberExpr, ctx: RenderCtx): string {
   // the derived capability/tenancy filters (`capability-filter.ts`) AND the
   // author-written `find … where` / `retrieval … where:` / query-projection
   // `where` predicates, which previously emitted the unpinned form.
+  // `currentUser.isSystem` (ruling D1).  The request principal is a plain map
+  // that never carries the key — only `system_principal/0` sets it — so read it
+  // with a default rather than struct-dot (`KeyError` on every request
+  // principal), and tolerate a nil actor (an internal caller) as "not system".
+  if (isPrincipalIsSystem(e)) {
+    const u = ctx.filterArgs ? "current_user" : recv;
+    const read = `(is_map(${u}) and Map.get(${u}, :is_system, false) == true)`;
+    return ctx.filterArgs ? `^${read}` : read;
+  }
   if (ctx.filterArgs && e.receiver.kind === "ref" && e.receiver.refKind === "current-user") {
     const claim = snake(e.member);
     return `^(current_user && current_user.${claim})`;
@@ -588,15 +635,13 @@ function renderMember(recv: string, e: MemberExpr, ctx: RenderCtx): string {
     // `validate_length/3` has no `:codepoints` option.
     return elixirCodePointLength(recv);
   }
-  // Value-object SUB-field read (`this.money.amount`) — issue #1660.  A value
-  // object has THREE inconsistent runtime shapes on vanilla: a single VO field is
-  // a STRING-keyed jsonb map, a VO collection element is an ATOM-keyed child
-  // struct, and a freshly-built VO ctor is an ATOM-keyed map.  Struct-dot
-  // (`.amount`) crashes with `KeyError` on the string-keyed map; bracket
-  // (`["amount"]`) crashes on the struct.  Read via a key-type-agnostic fallback
-  // — atom key first, string key second — which is correct for all three (and
-  // fail-softs a nil optional VO to nil).  This is the elixir sibling of the
-  // typed-VO handling the other backends get for free.
+  // Value-object SUB-field read (`this.money.amount`).  A single VO column
+  // loads ATOM-keyed (`Loom.ValueObject`, value-object-type-emit.ts) and a
+  // freshly-built VO ctor is an ATOM-keyed map, but a VO collection element is
+  // a child struct and a VO inside a document embed stays a STRING-keyed map.
+  // Struct-dot (`.amount`) crashes with `KeyError` on the string-keyed map.
+  // Read via a key-type-agnostic fallback — atom key first, string key
+  // second — which is correct for every shape.
   if (e.receiverType.kind === "valueobject") {
     const k = snake(e.member);
     const read = `Map.get(${recv}, :${k}, Map.get(${recv}, ${JSON.stringify(k)}))`;
@@ -647,16 +692,10 @@ export const ELIXIR_INTRINSIC_RENDERERS: Record<string, (recv: string, args: str
     "string.trim": (recv) => `String.trim(${recv})`,
     "string.toUpper": (recv) => `String.upcase(${recv})`,
     "string.toLower": (recv) => `String.downcase(${recv})`,
-    // 0-based clamping semantics = JS slice (the catalogue contract):
-    // `String.slice/3` takes start + LENGTH and clamps at both ends; the
-    // omitted-len arity runs to the end via the stepped range (`..-1//1`
-    // keeps an out-of-range start yielding "" instead of wrapping).
-    // Grapheme-vs-codeunit divergence is accepted and documented in the
-    // catalogue.
-    "string.substring": (recv, args) =>
-      args.length > 1
-        ? `String.slice(${recv}, ${args[0]}, ${args[1]})`
-        : `String.slice(${recv}, ${args[0]}..-1//1)`,
+    // 0-based, CLAMPING, counted in CODE POINTS like `.length` (the
+    // catalogue contract; `_expr/code-point.ts`) — `String.slice/3` would
+    // count graphemes.
+    "string.substring": (recv, args) => elixirCodePointSubstring(recv, args[0]!, args[1]),
     "string.startsWith": (recv, args) => `String.starts_with?(${recv}, ${args[0]})`,
     "string.endsWith": (recv, args) => `String.ends_with?(${recv}, ${args[0]})`,
     // String-receiver `contains` is the intrinsic (lowering keys
@@ -703,6 +742,14 @@ export const ELIXIR_INTRINSIC_RENDERERS: Record<string, (recv: string, args: str
     // TIME to midnight is the catalogue's midnight-UTC bucket.
     "datetime.startOfDay": (recv) =>
       `DateTime.new!(DateTime.to_date(${recv}), ~T[00:00:00], "Etc/UTC")`,
+    // The `%DateTime{}` is UTC (above), so its date IS the UTC calendar date.
+    "datetime.toDate": (recv) => `DateTime.to_date(${recv})`,
+    // ---- date — a `%Date{}`; `Date.diff/2` is the signed whole-day distance
+    // (`Date.diff(b, a)` is `b - a`).
+    "date.year": (recv) => `${recv}.year`,
+    "date.month": (recv) => `${recv}.month`,
+    "date.day": (recv) => `${recv}.day`,
+    "date.daysUntil": (recv, args) => `Date.diff(${args[0]}, ${recv})`,
   };
 
 export const ECTO_INTRINSIC_FRAGMENTS: Record<string, (recv: string, args: string[]) => string> = {
@@ -1048,7 +1095,13 @@ function sortSorter(e: Extract<ExprIR, { kind: "method-call" }> | undefined): st
   const lam = e?.args[0];
   const bodyT = lam?.kind === "lambda" && lam.body ? bodyTypeOf(lam.body) : undefined;
   const name = bodyT?.kind === "primitive" ? bodyT.name : undefined;
-  const mod = isDecimalStruct(name) ? "Decimal" : name === "datetime" ? "DateTime" : null;
+  const mod = isDecimalStruct(name)
+    ? "Decimal"
+    : name === "datetime"
+      ? "DateTime"
+      : name === "date"
+        ? "Date"
+        : null;
   if (!mod) return desc ? ":desc" : null;
   return desc ? `{:desc, ${mod}}` : mod;
 }
@@ -1063,6 +1116,7 @@ function reductionSorter(
   const notToken = kind === "min" ? ":gt" : ":lt";
   if (isDecimalStruct(name)) return `&(Decimal.compare(&1, &2) != ${notToken})`;
   if (name === "datetime") return `&(DateTime.compare(&1, &2) != ${notToken})`;
+  if (name === "date") return `&(Date.compare(&1, &2) != ${notToken})`;
   return kind === "min" ? "&<=/2" : "&>=/2";
 }
 
@@ -1121,9 +1175,8 @@ function renderCall(args: string[], e: CallExpr, ctx: RenderCtx): string {
       // Elixir.  On the document path (Route A) the receiver is the rehydrated
       // `%<Agg>.Data{}` embed, still bound as `record` (`ctx.thisName`).
       const recv = ctx.thisName;
-      return args.length > 0
-        ? `${snake(e.name)}(${recv}, ${args.join(", ")})`
-        : `${snake(e.name)}(${recv})`;
+      const fn = ctx.qualifyFunctions ? `${ctx.contextModule}.${snake(e.name)}` : snake(e.name);
+      return args.length > 0 ? `${fn}(${recv}, ${args.join(", ")})` : `${fn}(${recv})`;
     }
     case "workflow-fn":
       // A workflow's own `function` — a `defp <snake(fn)>(params)` in the
@@ -1389,6 +1442,28 @@ function isStringType(e: ExprIR): boolean {
   return false;
 }
 
+/** The Elixir boolean for a principal term, over a NON-nil `current_user`
+ *  (the caller guards the actor).  Enum claims compare as their declared name
+ *  through `to_string/1`, so an atom-valued and a string-valued claim agree. */
+function renderEctoPrincipalTest(pt: PrincipalTerm): string | null {
+  const hasEnum = [pt.left, pt.right].some(
+    (o) => o.kind === "value" && o.expr.kind === "ref" && o.expr.refKind === "enum-value",
+  );
+  return renderPrincipalTest(pt, {
+    claim: (field) =>
+      hasEnum ? `to_string(current_user.${snake(field)})` : `current_user.${snake(field)}`,
+    value: (v) => {
+      if (v.kind === "ref" && v.refKind === "enum-value") return JSON.stringify(v.name);
+      if (v.kind === "literal") return renderLiteral(v.lit, v.value);
+      return null;
+    },
+    isNull: (x) => `is_nil(${x})`,
+    isNotNull: (x) => `not is_nil(${x})`,
+    eq: (l, r) => `${l} == ${r}`,
+    ne: (l, r) => `${l} != ${r}`,
+  });
+}
+
 function renderBinary(
   l: string,
   r: string,
@@ -1407,6 +1482,17 @@ function renderBinary(
   if (ectoQuery) {
     if (isNowLiteral(e.left)) l = "^DateTime.utc_now()";
     if (isNowLiteral(e.right)) r = "^DateTime.utc_now()";
+  }
+  // A principal term (`currentUser.role == "agent"`) reads no column: its
+  // truth is fixed for the request, so it is decided in Elixir — false without
+  // an actor — and pinned as ONE boolean, which Ecto casts as `:boolean`
+  // inside `and` / `or` / `not`.
+  if (ectoQuery) {
+    const pt = principalTerm(e);
+    if (pt) {
+      const test = renderEctoPrincipalTest(pt);
+      if (test !== null) return `^(not is_nil(current_user) and ${test})`;
+    }
   }
   // A5 temporal: datetime ± duration / datetime − datetime / duration +
   // datetime.  `duration ± duration` and `duration * int` stay native integer
@@ -1429,9 +1515,55 @@ function renderBinary(
       return e.op === "==" ? `is_nil(${operand})` : `not is_nil(${operand})`;
     }
   }
+  // A `money?` / `decimal?` side in an in-memory comparison.  The arm below
+  // only fires on a bare `money`/`decimal` stamp, so a nullable LEFT fell to
+  // native `==` (struct equality: `10` ≠ `10.00`) / native `>` (Erlang term
+  // order over the struct maps), and a nullable RIGHT reached
+  // `Decimal.compare(x, nil)`, which raises.  Equality is nil-safe — both
+  // absent → equal, one absent → unequal, both present → `Decimal.equal?`;
+  // ordering dispatches through `Decimal.compare` (a guarded
+  // `x == null || x > …` never reaches it absent).
+  if (!inFilter) {
+    const lt = decimalStructOperand(e.leftType);
+    const rt = decimalStructOperand(e.rightType);
+    if (lt !== null && rt !== null && (lt === "?" || rt === "?")) {
+      if (e.op === "==" || e.op === "!=") {
+        // Only the nullable side gets a `nil` clause, so no clause is
+        // statically unreachable (Elixir 1.18's type checker would warn).
+        const nilClauses = [
+          ...(lt === "?" && rt === "?" ? ["{nil, nil} -> true"] : []),
+          ...(lt === "?" ? ["{nil, _} -> false"] : []),
+          ...(rt === "?" ? ["{_, nil} -> false"] : []),
+        ];
+        const eq = `(case {${l}, ${r}} do ${[...nilClauses, "{loom_l, loom_r} -> Decimal.equal?(loom_l, loom_r)"].join("; ")} end)`;
+        return e.op === "==" ? eq : `not ${eq}`;
+      }
+      if (e.op === "<" || e.op === "<=" || e.op === ">" || e.op === ">=") {
+        return renderDecimalBinary(e.op, l, r);
+      }
+    }
+  }
   if (ectoQuery) {
     const nullAware = renderEctoNullableComparison(l, r, e);
     if (nullAware !== null) return nullAware;
+  }
+  // VALUE equality on value objects.  One value object reaches here in several
+  // runtime shapes — a column value (canonical atom-keyed map), a constructor
+  // map, a collection element (an Ecto struct carrying an id, parent FK and
+  // ordinal), a document embed (string-keyed) — and two equal decimals may
+  // differ in scale, so native `==` answered false for equal values.
+  // `Loom.ValueObject.equal?/2` compares them field by field
+  // (value-object-type-emit.ts); it is nil-safe, so an optional operand needs
+  // no separate arm.  This is also where `<vo>.equals(other)` lands — the
+  // lowerer turns it into this same `binary ==` node.  Inside an Ecto query a
+  // function call is not a query expression, so the native operator stays.
+  if (
+    !inFilter &&
+    (e.op === "==" || e.op === "!=") &&
+    (isValueObjectType(e.leftType) || isValueObjectType(e.rightType))
+  ) {
+    const eq = renderValueObjectEquality(e.op, l, r);
+    return e.op === "==" ? eq : `(${eq})`;
   }
   // money / decimal operands cannot use the native `+`/`*`/`>` operators in
   // Elixir — both are `Decimal` structs.  Arithmetic dispatches through
@@ -1492,6 +1624,16 @@ function renderBinary(
     (e.op === "<" || e.op === "<=" || e.op === ">" || e.op === ">=")
   ) {
     return renderDateTimeCompare(e.op, l, r);
+  }
+  // A `%Date{}` is a struct too — the same structural-order hazard, through
+  // `Date.compare/2`.
+  if (
+    !ectoQuery &&
+    e.leftType?.kind === "primitive" &&
+    e.leftType.name === "date" &&
+    (e.op === "<" || e.op === "<=" || e.op === ">" || e.op === ">=")
+  ) {
+    return renderDateTimeCompare(e.op, l, r, "Date");
   }
   // Prefer the IR-level `leftType` over the AST-shape check: chained
   // string concats (`a + b + c`) carry `leftType: string` on the outer
@@ -1570,11 +1712,16 @@ function renderEctoNullableComparison(l: string, r: string, e: BinaryExpr): stri
 
 /** `DateTime.compare/2`-based order comparison (A5 temporal) — the datetime
  *  sibling of `renderDecimalBinary`'s comparison arms. */
-function renderDateTimeCompare(op: "<" | "<=" | ">" | ">=", l: string, r: string): string {
-  if (op === "<") return `DateTime.compare(${l}, ${r}) == :lt`;
-  if (op === "<=") return `DateTime.compare(${l}, ${r}) in [:lt, :eq]`;
-  if (op === ">") return `DateTime.compare(${l}, ${r}) == :gt`;
-  return `DateTime.compare(${l}, ${r}) in [:gt, :eq]`;
+function renderDateTimeCompare(
+  op: "<" | "<=" | ">" | ">=",
+  l: string,
+  r: string,
+  mod: "DateTime" | "Date" = "DateTime",
+): string {
+  if (op === "<") return `${mod}.compare(${l}, ${r}) == :lt`;
+  if (op === "<=") return `${mod}.compare(${l}, ${r}) in [:lt, :eq]`;
+  if (op === ">") return `${mod}.compare(${l}, ${r}) == :gt`;
+  return `${mod}.compare(${l}, ${r}) in [:gt, :eq]`;
 }
 
 const DECIMAL_ARITH: Record<string, string | undefined> = {
@@ -1771,6 +1918,8 @@ export function renderTypespec(t: TypeIR, contextModule: string, typesModule?: s
           return "boolean()";
         case "datetime":
           return typesModule ? `${typesModule}.timestamp()` : "DateTime.t()";
+        case "date":
+          return "Date.t()";
         case "guid":
           // UUIDs are plain binary strings on the struct.
           return "String.t()";

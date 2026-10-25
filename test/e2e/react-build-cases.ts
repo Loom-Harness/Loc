@@ -1,9 +1,8 @@
 // The example list AND the pack list the React build sweep runs, shared
 // between the slow sweep itself (generated-react-build.test.ts, excluded
-// from the fast `npm test`) and the always-on matrix drift guard
-// (react-build-matrix-sync.test.ts, which DOES run in the fast suite).
-// Keeping them in one place is what lets the guard pin the CI workflow
-// matrix against the exact set the build test would run.
+// from the fast `npm test`) and the always-on drift guard
+// (react-build-matrix-sync.test.ts, which DOES run in the fast suite and
+// pins the workflow's PR / queue slice against these names).
 //
 // Single-file examples only.  The build harness copies one .ddd into a
 // temp dir before injecting the design pack, so multi-file examples with
@@ -114,13 +113,9 @@ export interface ReactPackSpec {
  *  CI sweep asks the harness for "all packs" per example rather than
  *  enumerating them in the workflow. */
 export const reactBuildPacks: readonly ReactPackSpec[] = [
-  { family: "mantine", version: "v7" },
   { family: "mantine", version: "v9" },
-  { family: "shadcn", version: "v3" },
   { family: "shadcn", version: "v4" },
-  { family: "mui", version: "v5" },
   { family: "mui", version: "v7" },
-  { family: "chakra", version: "v2" },
   { family: "chakra", version: "v3" },
 ];
 

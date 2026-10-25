@@ -7,12 +7,13 @@
   },
   "scripts": {
     "build": "ng build",
+    "dev": "ng serve",
     "start": "ng serve",
     "ng": "ng"
   },
   "dependencies": {
 {{> stack-package-deps}}{{#if usesMoney}},
-    "decimal.js": "^10.4.3"{{/if}}
+    "decimal.js": "10.6.0"{{/if}}
   },
   "devDependencies": {
 {{> stack-package-devdeps}}

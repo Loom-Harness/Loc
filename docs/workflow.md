@@ -76,13 +76,43 @@ context Sales {
 | `let x = Repo.<find>(args)` | Call any repo-declared find whose return is a single non-nullable aggregate.  A plain `let` can't bind an array or nullable result. |
 | `let xs = Repo.run(<Retrieval>(args), page?)` / `let xs = Repo.findAll(<Criterion>, page?)` | Bind an aggregate **array**; consumable only by a `for` loop. |
 | `for x in xs { ... }` | Iterate an aggregate array, binding each element to `x`; per-iteration mutations save inside the loop. |
-| `if let x = Repo.find(<Criterion>) { ... } else { ... }` | Look up a **single** aggregate by criterion (the shared `findAllBy<Criterion>` retrieval, capped at one row).  `x` is bound (non-null) only in the then-branch; `else` runs on no match.  The body's only option/null-handling construct.  `else` is optional. |
+| `if let x = Repo.find(<Criterion>) { ... } else { ... }` / `if let x = Repo.<find>(args) { ... }` | Look up a **single** aggregate by criterion (the shared `findAllBy<Criterion>` retrieval, capped at one row) or through a declared optional `find` (`T?`).  `x` is bound (non-null) only in the then-branch; `else` runs on no match.  The body's only option/null-handling construct.  `else` is optional. |
 | `name.opName(args)` | Invoke a public operation on a let-bound aggregate.  The op's own preconditions / invariants run inside that call. |
 | `let x = expr` | Plain expression binding. |
 | `emit EventName { field: expr, ... }` | Workflow-level event.  Event must be declared in the same context.  Drains through `IDomainEventDispatcher` after all saves (after commit when `transactional`). |
 
 Every `Repo.…` form above names a repository of the workflow's **own
 context** — see below.
+
+### A `when`-gated operation in a `for` loop is gated per row
+
+An operation's `when` state gate runs inside the generated domain method on
+every backend (D-WHEN-GATE-DOMAIN), so a workflow — or a timer's handler —
+calling it on a loop element is refused exactly as an HTTP caller would be.
+There is no per-element isolation: the refusal throws out of the loop, the
+elements after it are never visited, and the run fails (a `transactional`
+workflow also rolls back the iterations before it; otherwise each earlier
+iteration's save has already committed).  So the retrieval being iterated
+must select only rows the gate admits — make its criterion imply the `when`
+predicate:
+
+```ddd
+aggregate Ticket {
+  status: Status
+  dueAt: datetime
+  operation flagBreached() when status == Open { status := Breached }
+}
+// Overdue, AND still Open — so every row satisfies flagBreached's gate.
+criterion DueOpen(asOf: datetime) of Ticket = dueAt < asOf && status == Open
+retrieval Due(asOf: datetime) of Ticket { where: DueOpen(asOf) }
+
+// in the workflow / timer body
+let due = Tickets.run(Due(now()))
+for t in due { t.flagBreached() }
+```
+
+A criterion that selects only `dueAt < asOf` would also pick up tickets
+already `Breached`, and the first of them would abort the sweep.
 
 ### Repositories are context-local — `loom.workflow-cross-context-repository`
 
@@ -112,10 +142,34 @@ no repository constructed, no `await`, `tsc`: *Cannot find name 'Technicians'*).
 
 Reach the other context at its **public surface** instead — the same two
 sanctioned crossings [`domain-services.md`](domain-services.md#cross-context-data-in-ddd-terms-a-decision-not-a-todo)
-names, both of which a workflow may use: call `Directory`'s api through a
-`resource { kind: api }` binding, or read a local projection folded over
-`Directory`'s published events.  If the two aggregates genuinely change
-together in one transaction, they belong in the same context.
+names: call `Directory`'s api through a `resource { kind: api }` binding, or
+consume `Directory`'s published events.  To use event-fed data **inside a
+workflow**, fold the events into a local **replica aggregate** and read that
+through its repository — a workflow loads data only through its own context's
+repositories:
+
+```ddd
+aggregate TechReplica { tech: Technician id immutable  unique (tech)  skills: string[] }
+repository TechReplicas for TechReplica { }
+criterion ForTech(t: Technician id) of TechReplica = tech == t
+
+workflow replicateTechs {
+  tech: Technician id                       // the correlation field
+  create(e: TechnicianRegistered) by e.tech { let r = TechReplica.create({ tech: e.tech, skills: e.skills }) }
+}
+workflow assign {
+  create(workOrderId: WorkOrder id, assignTo: Technician id) {
+    if let t = TechReplicas.find(ForTech(assignTo)) { … } else { precondition false message "unknown technician" }
+  }
+}
+```
+
+A `projection` folded over the same events is **not** readable from a
+workflow — it is a read model with no repository, served through its GET
+endpoint and pages.  `let s = Seen.byKey(k)` in a workflow body is refused with
+`loom.workflow-unknown-name` (before the gate, every backend emitted an
+undefined `Seen` receiver).  If the two aggregates genuinely change together in
+one transaction, they belong in the same context.
 
 ### `if let` — single-result criterion lookup
 
@@ -140,7 +194,29 @@ Both `find` and `findAll` over one criterion share a single internal
 `findAllBy<Criterion>` retrieval (no public endpoint is exposed — unlike a
 declared `find`).  The else-branch may create a fallback aggregate
 (`let s = Seat.create({...})`); branch-local creations / mutations save at the
-end of their branch.  `if let`'s source is a criterion `find` in this release.
+end of their branch.
+
+The source may also be a **declared optional find** — `if let o =
+Orders.byCode(c.code) { … }` over `find byCode(c: string): Order?`.  The
+generated code calls the repository's own find (no retrieval is synthesised)
+and branches on presence, exactly as above; the same form works in a
+`commandHandler` / `queryHandler` body.  Any other source (`getById`, a
+non-optional or union-valued find) is `loom.iflet-bad-source`.
+
+```ddd
+commandHandler BumpByCode(code: string, n: int) {
+  if let hit = Orders.byCode(code) { hit.bump(n) }
+}
+```
+
+```ts
+// node (Hono) — the handler body
+const hit = await orders.byCode(code);
+if (hit !== null) {
+  hit.bump(n);
+  await orders.save(hit);
+}
+```
 
 Own-state assignment (`field := value`) — writing one of the workflow's own
 declared state fields — is allowed inside a `create` / `handle` / `on` body; it
@@ -222,6 +298,85 @@ Two constraints keep the helper a well-formed module/static function:
   there is no `this`.  A body that does is rejected —
   `loom.workflow-function-uses-state`.  Pass the value in as a parameter.
 
+## Returning a result — `create(…): T`
+
+A workflow `POST` answers **204** by default.  A command-triggered `create`
+can instead answer its caller — the `commandHandler … : T` shape: declare a
+result type after the parameter list and end the body in `return <expr>`.
+The route then answers **200** with that value as its JSON body, and the
+published OpenAPI response carries its schema.
+
+```ddd
+workflow openAccount {
+  create(owner: Customer id, number: string): Account id {
+    let account = Account.create({ owner: owner, number: number, balance: 0 })
+    return account.id
+  }
+}
+
+workflow transfer transactional {
+  create(fromAccount: Account id, toAccount: Account id, amount: int): int {
+    let source = Accounts.getById(fromAccount)
+    let target = Accounts.getById(toAccount)
+    source.withdraw(amount)
+    target.deposit(amount)
+    return source.balance          // read inside the tx, answered after commit
+  }
+}
+```
+
+```
+POST /api/workflows/open_account  {"owner": "…", "number": "A-1"}   → 200 "0192f1c4-…"
+POST /api/workflows/transfer      {"fromAccount": "…", "toAccount": "…", "amount": 30} → 200 70
+```
+
+Generated (node, `http/workflows.ts`):
+
+```ts
+responses: { 200: { description: "OK", content: { "application/json": { schema: z.number().int().openapi({ format: "int32" }) } } }, … },
+async (httpCtx) => {
+  …
+  let workflowResult!: number;
+  await db.transaction(async (tx) => {
+    const accounts = new AccountRepository(tx, events);
+    const source = await accounts.getById(fromAccount);
+    const target = await accounts.getById(toAccount);
+    source.withdraw(amount);
+    target.deposit(amount);
+    await accounts.save(source);
+    await accounts.save(target);
+    workflowResult = source.balance;
+  });
+  return httpCtx.json(workflowResult, 200);
+}
+```
+
+The other four: .NET's command becomes `ICommand<T>` and the controller
+answers `Ok(result.Value)` for an id (`[ProducesResponseType(typeof(Guid), 200)]`);
+java's service method returns the wire value (`account.id().value()`) and the
+controller method returns it (`public UUID openAccount(…)`); python's route
+is `status_code=200` with a `-> str` / `-> Int32` annotation; elixir closes
+the `with` chain on `{:ok, account.id}` and the controller answers it through
+`respond_result/2`.  An id always crosses as its raw value — the same JSON
+token the aggregate's own `id` field carries — so it feeds straight into
+`GET /api/accounts/{id}`.  Full per-backend output:
+[`language-reference/13-workflows.md`](language-reference/13-workflows.md#returning-a-result).
+
+Rules (all compile-time errors):
+
+| Rule | Code |
+| --- | --- |
+| Result type is an `X id`, `string`, `int`, `long` or `bool` | `loom.workflow-return-type-unsupported` |
+| The returned value is assignable to `T` | `loom.workflow-return-type-mismatch` |
+| `: T` needs a terminal `return`; a `return` needs `: T` | `loom.workflow-return-missing` / `loom.workflow-return-untyped` |
+| `return` is the last top-level statement | `loom.workflow-return-not-last` |
+| Only the create the `POST` serves — not `create(e: E) by …`, not a named create beside the unnamed one | `loom.workflow-return-no-caller` |
+| Not on an `eventSourced` workflow (its create may only `emit`) | `loom.workflow-return-event-sourced` |
+
+Returning an aggregate, a payload or a value object is not supported yet
+(each needs the per-backend wire projection the `commandHandler` route
+has) — return the id and read the record back, or use a `commandHandler`.
+
 ## Save + event drain semantics
 
 - **Fresh aggregates** (`Agg.create`) are always saved at workflow
@@ -297,7 +452,7 @@ Generators emit explicit settings only when the keyword is
 supplied:
 
 - **.NET**: `await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct)` (etc.).
-- **Hono**: `await db.transaction(async (tx) => { ... }, { isolationLevel: "serializable" })` (etc.).
+- **Hono**: `await db.transaction(async (tx) => { ... }, { isolationLevel: "serializable" })` (etc.); under `persistence: mikroorm`, `await db.transactional(async (tx) => { ... }, { isolationLevel: IsolationLevel.SERIALIZABLE })`.
 - **Python**: `await session.connection(execution_options={"isolation_level": "SERIALIZABLE"})` (etc.).
 - **Java**: `@Transactional(isolation = Isolation.SERIALIZABLE)` (etc.).
 
@@ -499,6 +654,13 @@ types are in scope **only** in `create` / `handle` parameter positions —
 elsewhere a bare event/payload name stays unresolved.  See the
 [language reference](language.md#type-references).
 
+> **Principal.** A reactor / event starter has no request, so it runs as the
+> **system principal** ([D-REACTOR-SYSTEM-PRINCIPAL](decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)): `currentUser.isSystem` is true, every claim is
+> empty, and the tenant is the triggering event's.  Gates on the operations it
+> calls are evaluated against it — `requires currentUser.isSystem || …` admits
+> it; a gate that reads `currentUser` without that disjunct is warned
+> (`loom.reactor-gate-unsatisfiable`).  See [`language-reference/17-auth.md` § Reactors](language-reference/17-auth.md#reactors--the-system-principal-currentuserissystem).
+
 > **Status.** The parameter surface above parses, resolves, and
 > type-checks today.  **In-process dispatch ships on the Hono, .NET,
 > Phoenix, Python, and Java backends** (channels.md): when a `channel` in the deployable
@@ -551,3 +713,5 @@ elsewhere a bare event/payload name stays unresolved.  See the
 > `channelSource`).  See
 > [`channels.md`](old/proposals/channels.md) and
 > [`workflow-and-applier.md`](old/proposals/workflow-and-applier.md).
+
+Not sure whether a use-case is a `workflow`, a `commandHandler`, an aggregate `operation` or a `domainService`? See [Choosing a callable kind](language-reference/06-behavior-and-statements.md#choosing-a-callable-kind) — one table, with what each may mutate, call and emit.

@@ -346,9 +346,9 @@ defmodule {{webModule}}.CoreComponents do
         disabled={@page <= 1}
         class="btn btn-outline btn-xs"
       >
-        Previous
+        {{{sharedChrome "prev"}}}
       </button>
-      <span aria-live="polite">Page {@page} of {max(@total_pages, 1)}</span>
+      <span aria-live="polite">{{{sharedChrome "pageOf" page="@page" pages="max(@total_pages, 1)"}}}</span>
       <button
         type="button"
         phx-click="loom-page"
@@ -356,7 +356,7 @@ defmodule {{webModule}}.CoreComponents do
         disabled={@page >= @total_pages}
         class="btn btn-outline btn-xs"
       >
-        Next
+        {{{sharedChrome "next"}}}
       </button>
     </nav>
     """
@@ -448,6 +448,7 @@ defmodule {{webModule}}.CoreComponents do
   attr :id, :string, required: true
   attr :show, :boolean, default: false
   attr :on_cancel, JS, default: %JS{}
+  attr :close_label, :string, default: nil, doc: "accessible name of the close button"
   slot :title
   slot :inner_block, required: true
 
@@ -481,7 +482,7 @@ defmodule {{webModule}}.CoreComponents do
                   type="button"
                   phx-click={hide_modal(@on_cancel, @id)}
                   class="rounded-md p-1 text-base-content/50 hover:text-base-content"
-                  {{{chromeAttr "aria-label" "closeFlash"}}}
+                  aria-label={@close_label || {{{chromeValue "closeFlash"}}} }
                 >
                   &times;
                 </button>

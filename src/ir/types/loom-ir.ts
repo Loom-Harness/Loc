@@ -47,6 +47,10 @@ export type PrimitiveName =
   | "money"
   | "string"
   | "bool"
+  /** A CALENDAR date — year, month, day; no time-of-day, no offset.  Wire
+   *  form is the ISO-8601 calendar date `"2026-01-01"`; Postgres `date`.
+   *  Distinct from `datetime` so a value west of UTC never shifts a day. */
+  | "date"
   | "datetime"
   | "guid"
   /** Opaque JSON blob — interior is not modelled by Loom.  Maps to
@@ -93,6 +97,7 @@ export const PRIMITIVES: readonly PrimitiveName[] = [
   "decimal",
   "money",
   "bool",
+  "date",
   "datetime",
   "guid",
   "json",
@@ -484,6 +489,10 @@ export interface OperationIR {
    * functions inline like any boolean position.  Emitted by every
    * backend. */
   when?: ExprIR;
+  /** The `when` predicate's `.ddd` source text (whitespace-collapsed), named
+   *  in the 409 Disallowed `detail` by `disallowedDetail`
+   *  (src/ir/util/denial-detail.ts) on every backend.  Absent when `when` is. */
+  whenSource?: string;
   /** Provenance chain back to the `.ddd` source — see
    * src/ir/types/origin.ts.  Populated at lowering; absent on purely
    * derived nodes. */
@@ -581,11 +590,6 @@ export interface AggregateIR {
   /** `kind: "destroy"` lifecycle terminator actions.  Populated by
    * lowering; empty array when none. */
   destroys?: OperationIR[];
-  /** The single unnamed canonical `create`, if declared, else null.
-   * Convenience accessor over `creates`. */
-  canonicalCreate?: OperationIR | null;
-  /** The single unnamed canonical `destroy`, if declared, else null. */
-  canonicalDestroy?: OperationIR | null;
   parts: EntityPartIR[];
   tests: TestIR[];
   /** Reified create-input contract — the client-suppliable field set with
@@ -804,6 +808,10 @@ export type TestStmtIR =
        *  Mutually exclusive with `status` by grammar: the `ThrowKind` slot and
        *  the `CallArg` list are alternatives on the same suffix. */
       throwKind?: ThrowKindName;
+      /** The `expect(...)` statement's own span, present with `throwKind` —
+       *  an IR-phase diagnostic about the rung points at the assertion that
+       *  wrote it rather than at the enclosing test or declaration. */
+      origin?: OriginRef;
     };
 
 export interface EnumIR {
@@ -891,6 +899,12 @@ export interface PayloadIR {
   generic?: { ctor: GenericCtorName; arg: TypeIR };
 }
 
+/** One clause-less find parameter and the aggregate field it equals. */
+export interface FindParamBindingIR {
+  param: string;
+  field: string;
+}
+
 export interface FindIR {
   name: string;
   params: ParamIR[];
@@ -907,6 +921,15 @@ export interface FindIR {
   requires?: ExprIR;
   /** Optional `where ...` filter expression in IR form. */
   filter?: ExprIR;
+  /** A clause-less find's parameters, each paired with the aggregate field it
+   *  filters on (`find byReference(reference: string)` → `reference ==
+   *  this.reference`).  Resolved once in enrichment, after the inheritance
+   *  field merge, by `bindFindParams`; backends read it through
+   *  `implicitFindMatches` / `effectiveFindFilter` and never match names
+   *  themselves.  In parameter order; a parameter that names no field has no
+   *  entry (and is refused, `loom.find-param-unbound`).  Absent when the find
+   *  has a `where` (it replaces the convention) or no parameters. */
+  paramBindings?: FindParamBindingIR[];
   /** Set when the `where` filter is *exactly* one named `criterion`
    *  reference — its name + lowered args, for backends that consume the
    *  reified `Criterion`.  `filter` still carries the inlined predicate, so
@@ -930,6 +953,12 @@ export interface FindIR {
    *  the aggregate router skips this find (route + query schema + paged DTO).
    *  The repository builder still emits the method. */
   synthesized?: boolean;
+  /** The order a PAGED find's page is taken in when the caller's `sort` key
+   *  names no whitelisted column — its route's `sort` then defaults to `""`
+   *  (`pagedSortDefault`).  Absent: the `id` order every paged read falls back
+   *  to.  Set on the paged find a `queryHandler` over `Repo.run(<Retrieval>)`
+   *  synthesizes, from the retrieval's declared `sort:`. */
+  defaultSort?: SortTermIR[];
   /** The compiler-synthesized per-entity history read (`docs/audit.md`) —
    *  `GET /<agg>/{id}/history`, served from the module's `audit_records` table
    *  rather than from the aggregate's own table.  Injected by enrichment onto
@@ -943,6 +972,13 @@ export interface FindIR {
    *  find-route + repository builders skip it and each backend's audit emitter
    *  serves it instead. */
   auditHistory?: boolean;
+  /** `requires` is the DENY gate enrichment synthesised (a `false` literal),
+   *  not one the author wrote (M-T3.19).  Set on the list read (`all`) — and
+   *  on the by-id read `byIdRouteFind` synthesises — of a repository marked
+   *  `readsDefaultDenied`, when the author declared no gate for it: under
+   *  `denyByDefault` that read fails closed (403 before the load) on every
+   *  backend, and the validator still reports it as ungated. */
+  defaultDenied?: boolean;
 }
 
 export interface RepositoryIR {
@@ -965,6 +1001,13 @@ export interface RepositoryIR {
    *  resolved for `op.audited`; a separate field makes consumption OPT-IN, so
    *  a backend that has not ported history emits nothing instead of garbage. */
   historyFind?: FindIR;
+  /** Set by enrichment (M-T3.19) when the aggregate is served by an
+   *  `auth: required` backend under `enforcement: denyByDefault`: its two
+   *  compiler-derived reads (list, by-id) fail CLOSED unless the author
+   *  declares a gated `find all` / `find byId`.  A system-composition fact the
+   *  per-context backends cannot re-derive (they never see the deployables),
+   *  hence stored.  Consumed through `read-gates.ts`. */
+  readsDefaultDenied?: boolean;
   /** Provenance chain back to the `.ddd` source — see
    * src/ir/types/origin.ts.  Populated at lowering; absent on purely
    * derived nodes. */
@@ -1080,6 +1123,9 @@ export interface RetrievalIR {
   sort: SortTermIR[];
   /** Fetch shape; `{ kind: "whole" }` when no `loads:` clause. */
   loadPlan: LoadPlanIR;
+  /** Provenance back to the `retrieval` declaration — the span its
+   *  diagnostics point at. */
+  origin?: OriginRef;
 }
 
 export interface BoundedContextIR {
@@ -1134,6 +1180,14 @@ export interface BoundedContextIR {
    *  translator reads `errorStatusOverrides?.[name] ?? defaultErrorStatus(name)`.
    *  Undefined in single-context (no-api) lowering — defaults apply. */
   errorStatusOverrides?: Record<string, number>;
+  /** Router slots (`routeSlot` form, `"get /api/orders/{}"`) occupied by the
+   *  explicit `route`s of the apis surfacing this subdomain.  The auto-derived
+   *  REST surface YIELDS any of its operations whose slot is listed
+   *  (D-EXPLICIT-ROUTE-WINS): the derivation flags it `claimedByExplicitRoute`,
+   *  the route + OpenAPI emitters skip it, and the explicit handler alone
+   *  serves the slot.  Populated by `enrichLoomModel`; undefined when those
+   *  apis declare no explicit route. */
+  explicitRouteSlots?: string[];
   /** App-wide resolved HTTP status for each structural-conflict built-in
    *  (`UniquenessConflict` / `ConcurrencyConflict` / `Disallowed` /
    *  `ReferencedInUse` — expressible-builtins.md §3 / M-T3.4a). Folded across
@@ -1481,6 +1535,17 @@ export interface CreateIR {
   /** Event-triggered only: the bound event-param name and its event type. */
   eventBinding?: string;
   eventRef?: string;
+  /** The declared `: T` result of a command-triggered starter (`create(…): T
+   *  { … return <expr> }`) — the commandHandler twin.  When set, the command
+   *  route answers 200 with `returnValue` as its JSON body instead of 204.
+   *  Read through `commandCreateResult` (src/ir/util/workflow-command-route.ts),
+   *  which also decides that this create is the one the route serves. */
+  returnType?: TypeIR;
+  /** The lowered terminal `return <expr>`, held apart from `statements` (the
+   *  shared workflow statement vocabulary has no `return` arm — see
+   *  `CommandHandlerIR.returnValue`).  Lowered whenever the body ends in a
+   *  return, annotated or not, so the validator can refuse the unannotated one. */
+  returnValue?: ExprIR;
 }
 
 /** A `on(e: Event) [by <expr>] { … }` reactor on a workflow — an extrinsic
@@ -1876,14 +1941,27 @@ export type WorkflowStmtIR =
       // repository `find` which would auto-expose a query endpoint.  This is
       // why the optional never becomes a standalone `repo-let` (which forbids
       // nullable returns) nor a public `find`.
+      //
+      // The second source form is a DECLARED optional find
+      // (`if let o = Orders.byCode(c)` over `find byCode(..): Order?`):
+      // `findMethod` names it, `retrievalArgs` carry its arguments, and
+      // `retrievalName` / `synthCriterion.name` stay empty.  The backends call
+      // the repository's own nullable find method and branch on presence —
+      // no retrieval is synthesised.
       kind: "if-let";
       var: string;
       repoName: string;
       aggName: string;
-      /** Name of the shared synthetic retrieval (`findAllBy<Criterion>`). */
+      /** Name of the shared synthetic retrieval (`findAllBy<Criterion>`);
+       *  empty for a declared-find source. */
       retrievalName: string;
+      /** The source call's arguments: the criterion's, or — when `findMethod`
+       *  is set — the declared find's. */
       retrievalArgs: ExprIR[];
       synthCriterion: { name: string };
+      /** The declared optional find the source calls, when the source is
+       *  `Repo.<find>(args)` rather than `Repo.find(<Criterion>)`. */
+      findMethod?: string;
       thenBody: WorkflowStmtIR[];
       elseBody?: WorkflowStmtIR[];
       /** Saves for aggregates created/mutated inside `thenBody` (the bound
@@ -2067,6 +2145,10 @@ export interface SqlStepIR {
   index: number;
   /** The raw Postgres statement, verbatim. */
   sql: string;
+  /** `sql before "…"` — emitted AHEAD of the generation's structural steps
+   *  (a dedupe that must precede a new `unique (…)` index) instead of after
+   *  them.  Absent/false = the default trailing position. */
+  before?: boolean;
   /** Provenance back to the step's `.ddd` source. */
   origin?: OriginRef;
 }
@@ -3187,9 +3269,9 @@ export interface DeployableIR {
    *  `family@version` pin in the source is normalised here to its
    *  family so `platform === "node"` etc. stay valid. */
   platform: Platform;
-  /** The fully-qualified backend ref (`"node@v4"`) after lowering,
+  /** The fully-qualified backend ref (`"node@v5"`) after lowering,
    *  mirroring `design?`.  Bareword `platform: node` resolves through
-   *  `BUILTIN_PLATFORM_LATEST`; a pin (`platform: "node@v4"`) flows
+   *  `BUILTIN_PLATFORM_LATEST`; a pin (`platform: "node@v5"`) flows
    *  through as written.  For frontend platforms (`react`/`static`)
    *  this equals `platform` (they version via the design/stack axis,
    *  not here).  The system orchestrator's dispatch keys on `platform`
@@ -3224,7 +3306,7 @@ export interface DeployableIR {
    *  ignored otherwise.
    *
    *  After lowering this field is always fully qualified
-   *  (`family@version`, e.g. `"mantine@v7"`) for built-in packs.  The
+   *  (`family@version`, e.g. `"mantine@v9"`) for built-in packs.  The
    *  bareword DSL form `design: mantine` resolves through
    *  `BUILTIN_PACK_LATEST` during lowering, so downstream consumers
    *  (generator dispatch in `src/generator/react/index.ts`, the
@@ -3237,6 +3319,11 @@ export interface DeployableIR {
    *  `ui` a keyword in the deployable block would shadow the test-DSL
    *  accessor and break parsing of existing examples. */
   design?: string;
+  /** For a custom `design:` path: the directory of the `.ddd` file that
+   *  declared this deployable, which a RELATIVE path resolves against
+   *  (`resolvePackDir(design, designBaseDir)`).  Absent for built-in packs
+   *  and for a model with no file location (an in-memory source). */
+  designBaseDir?: string;
   /** Realization axes (D-REALIZATION-AXES).  Each decomposes the
    *  platform bundle into one orthogonal concern.  All optional in the
    *  type but **always concrete on backend deployables post-lowering**
@@ -3687,6 +3774,11 @@ export type ExprIR =
         verb: string;
         capability: string;
         interface?: LoomInterface;
+        /** Set when the resource is an `api` bound to an IN-SYSTEM api (M-T4.8).
+         *  Such a resource has no raw-verb vocabulary — its calls lower to
+         *  `remote-api-op` — so a resource-op carrying this is always refused
+         *  (`loom.resource-verb-invalid#api-bound`); no renderer reads it. */
+        boundApi?: string;
       };
       /** Populated when `callKind === "remote-api-op"` (M-T4.8) — a typed call
        *  on a resource that binds an in-system `api`.  Fully resolved at

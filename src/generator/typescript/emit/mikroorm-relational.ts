@@ -18,9 +18,11 @@ import type {
   RetrievalIR,
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
+import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import { discriminatorValue, tableOwnerName } from "../../../ir/util/inheritance.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
-import { sortableFields } from "../../../ir/util/sortable-fields.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
@@ -39,7 +41,14 @@ import {
   provColumnEntries,
 } from "../repository-save-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "../repository-wire-builder.js";
-import { aggregateIsAudited, insertStampEntries, updateStampEntries } from "./audit-stamp.js";
+import {
+  aggregateIsAudited,
+  insertStampEntries,
+  stampImportLine,
+  stampInsertCall,
+  stampUpdateCall,
+  updateStampEntries,
+} from "./audit-stamp.js";
 import {
   MIKRO_OUTBOX_DRAIN_LINES,
   MIKRO_OUTBOX_RECORD_LINE,
@@ -581,7 +590,7 @@ export function renderMikroRepository(
           createOnly.length > 0
             ? `, { onConflictExcludeFields: [${createOnly.map((f) => JSON.stringify(f)).join(", ")}] }`
             : "";
-        return `    await em.upsert(${row}, stampInsert(${saveProjection})${opts});`;
+        return `    await em.upsert(${row}, ${stampInsertCall(agg, saveProjection)}${opts});`;
       })()
     : `    await em.upsert(${row}, ${saveProjection});`;
 
@@ -612,15 +621,18 @@ export function renderMikroRepository(
     ...provEntries,
     { fieldName: "version", expr: "expected + 1" },
   ]);
-  const insertValues = audited ? `stampInsert(${insertProjection})` : insertProjection;
-  const updateSet = audited ? `stampUpdate(${updateData})` : updateData;
+  const insertValues = audited ? stampInsertCall(agg, insertProjection) : insertProjection;
+  const updateSet = audited ? stampUpdateCall(agg, updateData) : updateData;
   const versionedSaveLines = [
     `    const expected = expectedVersion ?? aggregate.version;`,
+    // The existence probe stays unscoped (a primary-key question about the whole
+    // shared table); the kind guard belongs on the WRITE so a foreign-subtype id
+    // matches nothing and raises ConcurrencyError instead of rewriting that row.
     `    const existing = await em.findOne(${row}, { id: aggregate.id as string });`,
     `    if (existing === null) {`,
     `      await em.insert(${row}, ${insertValues});`,
     `    } else {`,
-    `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, version: expected }, ${updateSet});`,
+    `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, version: expected${kind ? `, kind: ${JSON.stringify(kind)}` : ""} }, ${updateSet});`,
     `      if (affected === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
     `    }`,
   ];
@@ -655,13 +667,11 @@ export function renderMikroRepository(
       // The find's OWN predicate reads the declared `currentUser` parameter;
       // the capability filters (`caps`) keep the ambient accessor, because they
       // ride reads that have no such parameter.
+      // A clause-less find still filters — by its implicit key match.
+      const own = effectiveFindFilter(f, agg);
       filter = withContextFilters(
-        f.filter
-          ? whereToMikroFilter(
-              f.filter,
-              usesUser ? "currentUser" : AMBIENT_PRINCIPAL,
-              agg.associations,
-            )
+        own
+          ? whereToMikroFilter(own, usesUser ? "currentUser" : AMBIENT_PRINCIPAL, agg.associations)
           : "{}",
         caps,
       );
@@ -697,12 +707,17 @@ export function renderMikroRepository(
         ["sortable", "sortField", "orderBy", "total", "totalPages", "items"] as const,
         findParamBindings(f.params),
       );
+      // An unwhitelisted `sort` (the route's `""` default) takes the read's
+      // declared order (`defaultSortOrder`).
+      const declaredOrder = defaultSortOrder(f.defaultSort)
+        ?.map((t) => `${t.field}: "${t.direction}"`)
+        .join(", ");
       return lines(
         `  async ${name}(${pagedParams}): Promise<{ items: ${agg.name}[]; page: number; pageSize: number; total: number; totalPages: number }> {`,
         `    const em = this.em.fork({ keepTransactionContext: true });`,
         `    const ${L.sortable} = new Set<string>([${sortable}]);`,
-        `    const ${L.sortField} = ${L.sortable}.has(sort) ? sort : "id";`,
-        `    const ${L.orderBy}: Record<string, "asc" | "desc"> = { [${L.sortField}]: dir === "desc" ? "desc" : "asc" };`,
+        `    const ${L.sortField} = ${L.sortable}.has(sort) ? sort : ${declaredOrder ? "null" : '"id"'};`,
+        `    const ${L.orderBy}: Record<string, "asc" | "desc"> = ${declaredOrder ? `${L.sortField} === null ? { ${declaredOrder} } : ` : ""}{ [${L.sortField}]: dir === "desc" ? "desc" : "asc" };`,
         `    const ${L.total} = await em.count(${row}, ${filter});`,
         `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
         `    const rows = await em.find(${row}, ${filter}, { limit: pageSize, offset: (page - 1) * pageSize, ${L.orderBy === "orderBy" ? "orderBy" : `orderBy: ${L.orderBy}`} });`,
@@ -798,7 +813,7 @@ export function renderMikroRepository(
       );
     });
 
-  const deleteMethod = agg.canonicalDestroy
+  const deleteMethod = canonicalDestroy(agg)
     ? hasChildren
       ? lines(
           `  async delete(id: Ids.${agg.name}Id): Promise<void> {`,
@@ -901,7 +916,10 @@ export function renderMikroRepository(
     .replace(/"(?:\\.|[^"\\])*"/g, '""')
     .replace(/'(?:\\.|[^'\\])*'/g, "''")
     .replace(/`(?:\\.|[^`\\])*`/g, "``");
-  const candidates = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)];
+  const candidates = [
+    ...valueObjectPool(ctx).map((v) => v.name),
+    ...enumPool(ctx).map((e) => e.name),
+  ];
   const referenced = candidates.filter((n) => new RegExp(`\\b${n}\\b`).test(bodyScan));
   const isValueUsed = (n: string): boolean =>
     new RegExp(`new\\s+${n}\\(|\\b${n}\\.\\w`).test(bodyScan);
@@ -936,7 +954,7 @@ export function renderMikroRepository(
       // Persist-time audit stamping helper — pulled in only when this
       // aggregate's `save()` stamps (audited).  Stamps the audit columns from
       // the ambient request principal at the upsert (db/audit-stamp.ts).
-      audited && `import { stampInsert${versioned ? ", stampUpdate" : ""} } from "../audit-stamp";`,
+      audited && stampImportLine(agg, { update: versioned }),
       // The aggregate root + its contained entity parts (same domain module).
       `import { ${[agg.name, ...(agg.parts ?? []).map((p) => p.name)].join(", ")} } from "../../domain/${lowerFirst(agg.name)}";`,
       voImportLine,

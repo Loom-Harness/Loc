@@ -10,13 +10,23 @@
 // so hanging it off either of those would close an import cycle.
 // ---------------------------------------------------------------------------
 
-import type { EnumIR, TypeIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
+import type { BoundedContextIR, EnumIR, TypeIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
+import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { snake } from "../../util/naming.js";
 
 /** The declarations a zero value is built from — the hosting context. */
 export interface StateDefaultDecls {
   readonly valueObjects?: readonly ValueObjectIR[];
   readonly enums?: readonly EnumIR[];
+}
+
+/** The decls a context's saga state resolves its field types against — the
+ *  context's OWN enums / value objects PLUS the sibling-context ones a field
+ *  may legally name (`enumPool` / `valueObjectPool`).  Passing the context
+ *  itself would read only its own `.enums`, zeroing a sibling-enum state
+ *  field to `nil` (claims D1). */
+export function stateDefaultDecls(ctx: BoundedContextIR): StateDefaultDecls {
+  return { enums: enumPool(ctx), valueObjects: valueObjectPool(ctx) };
 }
 
 /** A backend-zero Elixir literal for a required saga column at allocation.
@@ -46,6 +56,8 @@ export function stateDefault(
         return "false";
       case "datetime":
         return "DateTime.utc_now()";
+      case "date":
+        return "Date.utc_today()";
       default:
         return '""';
     }

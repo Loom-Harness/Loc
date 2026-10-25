@@ -4,7 +4,7 @@ Context-level orchestration: a `workflow` loads or creates several aggregates, c
 
 > **Grammar:** `Workflow`, `WorkflowCreateDecl`, `HandleDecl`, `OnDecl`, `Apply`, `FunctionDecl`, `IsolationLevel`, `TimerSource` · **Validators:** `loom.workflow-*`, `loom.transactional-no-effect`, `loom.isolation-requires-transactional`, `loom.resource-op-in-transaction`, `loom.resource-op-outside-workflow`, `loom.workflow-correlation-required`, `loom.correlation-*`, `loom.workflow-gate-not-current-user`, `loom.timer-*` (`src/ir/validate/checks/workflow-checks.ts` + `timer-checks.ts`, `src/language/validators/timer.ts`) · **Docs:** [`../workflow.md`](../workflow.md), [`../resources.md`](../resources.md)
 
-A workflow shares its context's namespace (a workflow named like an aggregate / event / repository is a `loom.workflow-name-collision`). Bodies reuse the operation [statement vocabulary](06-behavior-and-statements.md) but the validator narrows it to the orchestration subset: factory-`let`, repo-`let`, op-call, `precondition` / `requires`, `emit`, plus the workflow-only `for` / `if let`. Mutation forms (`:=` / `+=` / `-=`) are rejected in a workflow body (they belong in an aggregate op) — except inside an `eventSourced` workflow's `apply` fold.
+A workflow shares its context's namespace (a workflow named like an aggregate / event / repository is a `loom.workflow-name-collision`).  Its state table shares the context's schema too: the table name is derived from the declared name (`workflow slaSweep` → `sla_sweeps`), so a workflow whose derived table matches any other persisted table of the context — `aggregate SlaSweep`, an entity part, a materialized projection, a join or value-collection table — is refused as `loom.persisted-table-collision` (the migration would otherwise create the table twice). Bodies reuse the operation [statement vocabulary](06-behavior-and-statements.md) but the validator narrows it to the orchestration subset: factory-`let`, repo-`let`, op-call, `precondition` / `requires`, `emit`, plus the workflow-only `for` / `if let`. Mutation forms (`:=` / `+=` / `-=`) are rejected in a workflow body (they belong in an aggregate op) — except inside an `eventSourced` workflow's `apply` fold.
 
 > **Output sourcing.** Every tab below is excerpted from one generated tree: `generate system` over a `Sales` context with one deployable per backend (`node` / `dotnet` / `python` / `java` / `elixir`). Tabs are elided, never invented — where a block shows fewer than five backends the others emit the same shape and are left out for length, and a genuine gap is called out in prose.
 
@@ -21,7 +21,7 @@ workflow fulfillment {
 }
 ```
 
-A workflow with event consumers but no id-shaped state field is `loom.workflow-correlation-required`; two id-shaped fields is `loom.correlation-field-ambiguous`. The correlation field surfaces a read model — each backend emits `GET /api/workflows/<wf>/instances` + `/{id}` returning the instance state (`FulfillmentInstanceResponse { orderId, attempts }`), which clients read to inspect in-flight instances.
+A workflow with event consumers but no id-shaped state field is `loom.workflow-correlation-required`; two id-shaped fields is `loom.correlation-field-ambiguous`. An `eventSourced` workflow needs exactly one even with no event consumers (only a command `create`), because the correlation field is its event stream's key — both codes apply to it the same way. The correlation field surfaces a read model — each backend emits `GET /api/workflows/<wf>/instances` + `/{id}` returning the instance state (`FulfillmentInstanceResponse { orderId, attempts }`), which clients read to inspect in-flight instances.
 
 ### `requires` on the header — the instance-read gate
 
@@ -203,6 +203,105 @@ end
 ```
 ::: end
 
+### Returning a result
+
+A command-triggered `create` may answer its caller: declare a result type after the parameter list — the `commandHandler … : T` shape — and end the body in `return <expr>`. The `POST` then answers **200** with that value as its JSON body instead of 204, and the published OpenAPI response says so. Without the annotation nothing changes (the route stays 204, byte-identical).
+
+```ddd
+workflow openAccount {
+  create(owner: Customer id, number: string): Account id {
+    let account = Account.create({ owner: owner, number: number, balance: 0 })
+    return account.id
+  }
+}
+```
+
+`POST /api/workflows/open_account` → `200 "0192f1c4-…"`. An id crosses as its raw value — the same JSON token the account's own `id` field carries — so the caller can `GET /api/accounts/{id}` with it directly. In a `transactional` workflow the value is computed inside the transaction and answered after it commits; a failing step answers its error and returns nothing.
+
+| Rule | Diagnostic |
+|---|---|
+| The result type is an `X id`, `string`, `int`, `long` or `bool` (an aggregate / payload / value object / decimal / money / datetime needs a wire projection the workflow route doesn't have yet — use a `commandHandler`, or return the id and read it back) | `loom.workflow-return-type-unsupported` |
+| The returned value is assignable to the declared type | `loom.workflow-return-type-mismatch` |
+| A `: T` needs a terminal `return`, and a `return` needs a `: T` | `loom.workflow-return-missing` / `loom.workflow-return-untyped` |
+| `return` is the last top-level statement (not nested in `if` / `for`, not mid-body) | `loom.workflow-return-not-last` |
+| Only the create the `POST` route serves may declare one — not an event-triggered `create(e: E) by …`, not a named create beside the unnamed one | `loom.workflow-return-no-caller` |
+| An `eventSourced` workflow's create may only `emit`, so it declares no result | `loom.workflow-return-event-sourced` |
+
+::: tabs backend
+== node
+```ts
+// http/workflows.ts — the 200 is typed from the declared result
+responses: { 200: { description: "OK", content: { "application/json": { schema: z.string() } } }, … },
+async (httpCtx) => {
+  …
+  let workflowResult!: string;
+  const accounts = new AccountRepository(db, events);
+  const account = Account.create({ owner: owner, number: number, balance: 0 });
+  await accounts.save(account);
+  workflowResult = account.id;
+  return httpCtx.json(workflowResult, 200);
+}
+```
+== dotnet
+```csharp
+// Application/Workflows/OpenAccountCommand.cs + the handler returns the value
+public sealed record OpenAccountCommand(CustomerId Owner, string Number) : ICommand<AccountId>;
+public async ValueTask<AccountId> Handle(OpenAccountCommand command, CancellationToken cancellationToken)
+{
+    AccountId workflowResult = default!;
+    var account = Account.Create(owner: command.Owner, number: command.Number, balance: 0);
+    await _accounts.SaveAsync(account, cancellationToken);
+    workflowResult = account.Id;
+    return workflowResult;
+}
+// Api/BankingWorkflowsController.cs
+[ProducesResponseType(typeof(Guid), 200)]
+…
+var result = await _mediator.Send(cmd);
+return Ok(result.Value);
+```
+== python
+```python
+# app/http/workflows_routes.py
+@router.post("/open_account", status_code=200, operation_id="openAccountWorkflow", …)
+async def open_account_workflow(body: OpenAccountRequest, session: SessionDep) -> str:
+    …
+    account = Account.create(owner=owner, number=number, balance=0)
+    await accounts.save(account)
+    workflow_result = account.id
+    return workflow_result
+```
+== java
+```java
+// application/workflows/BankingWorkflows.java — the service returns the wire value
+public UUID openAccount(OpenAccountRequest request) {
+    …
+    var account = Account.create(owner, number, 0);
+    accountsRepository.save(account);
+    var workflowResult = account.id().value();
+    return workflowResult;
+}
+// api/BankingWorkflowsController.java
+@PostMapping("/open_account")
+public UUID openAccount(@Valid @RequestBody OpenAccountRequest request) {
+    return workflows.openAccount(request);
+}
+```
+== elixir
+```elixir
+# lib/d/banking/workflows/open_account.ex — the declared result closes the `with` chain
+with {:ok, account} <- Context.create_account(%{owner: owner, number: number, balance: 0}) do
+  {:ok, account.id}
+end
+# lib/d_web/controllers/workflows_controller.ex
+def open_account(conn, params), do: respond_result(conn, D.Banking.Workflows.OpenAccount.run(params))
+def respond_result(conn, {:ok, result}), do: conn |> put_status(200) |> json(result)
+def respond_result(conn, other), do: respond(conn, other)
+```
+::: end
+
+Elixir's operations return the updated struct rather than mutating in place, so on this path an operation whose receiver the result reads rebinds it (`{:ok, source} <- Context.withdraw_account(source, …)`) — `return source.balance` answers the post-operation value, as on the other four backends. The generated workflow form pages on all six frontends accept a 2xx with or without a body, so a result changes nothing on the UI side.
+
 ## Body vocabulary
 
 The workflow body draws from a narrowed statement set — distinct from an aggregate op body. The validator (`validateWorkflowBody`) classifies each statement and rejects anything outside this list (`loom.workflow-unrecognised-statement`).
@@ -214,7 +313,7 @@ The workflow body draws from a narrowed statement set — distinct from an aggre
 | `let x = Repo.<find>(args)` | A declared find returning a single non-nullable aggregate. An array (`loom.workflow-load-array-unsupported`) or nullable (`…-nullable-unsupported`) return is rejected here — bind it via `Repo.run`/`find` below. |
 | `let xs = Repo.run(<Retrieval>(args), page?)` / `Repo.findAll(<Criterion>, page?)` | Bind an aggregate **array** — consumable only by a `for` loop. |
 | `for x in xs { … }` | Iterate an aggregate array; per-iteration op-calls save inside the loop. |
-| `if let x = Repo.find(<Criterion>) { … } else { … }` | Single-result criterion lookup; `x` bound (non-null) only in the then-branch. The body's only option-handling construct. |
+| `if let x = Repo.find(<Criterion>) { … } else { … }` / `if let x = Repo.<find>(args) { … }` | Single-result lookup — a criterion, or a declared optional `find` (`T?`); `x` bound (non-null) only in the then-branch. The body's only option-handling construct. |
 | `name.op(args)` | Invoke a public operation on a let-bound aggregate (its own preconditions / invariants run inside the call). `private` ops are rejected (`loom.workflow-private-operation`). |
 | `precondition Expr` / `requires Expr` | Guard → 400 (`DomainError`) / 403 (`ForbiddenError`). |
 | `emit Event { … }` | Workflow-level event; drains after all saves (after commit when `transactional`). |
@@ -464,7 +563,7 @@ The tick rides the ordinary in-process dispatcher, so a reactor sees no differen
 
 ## `apply` — the `eventSourced` fold
 
-Mark a workflow `eventSourced` and its truth becomes its own event stream (a `<wf>_events` table) instead of a `<Wf>State` row. There, `create` / `on` bodies may only `emit`; each emitted event must be folded by an `apply(param: Event) { body }` block — a pure fold (`:=` assignments only), exactly like an aggregate [applier](06-behavior-and-statements.md#applye-event--the-event-sourcing-fold). An emitted event with no applier is `loom.workflow-emitted-event-no-applier`; an `apply` on a non-`eventSourced` workflow is `loom.workflow-applier-on-non-event-sourced`, a duplicate one `loom.workflow-duplicate-applier`, and any non-`:=` mutation in an `eventSourced` body is `loom.workflow-event-sourced-mutation`.
+Mark a workflow `eventSourced` and its truth becomes its own event stream (a `<wf>_events` table) instead of a `<Wf>State` row. There, `create` / `on` bodies may only `emit`; each emitted event must be folded by an `apply(param: Event) { body }` block — a pure fold (`:=` / `+=` / `-=`, `let` and `if`), under exactly the rules of an aggregate [applier](06-behavior-and-statements.md#applye-event--the-event-sourcing-fold) (`loom.applier-emits` / `loom.applier-guard` / `loom.applier-impure-call` / `loom.applier-stmt-invalid`). An emitted event with no applier is `loom.workflow-emitted-event-no-applier`; an `apply` on a non-`eventSourced` workflow is `loom.workflow-applier-on-non-event-sourced`, a duplicate one `loom.workflow-duplicate-applier`, and any non-`:=` mutation in an `eventSourced` body is `loom.workflow-event-sourced-mutation`.
 
 ```ddd
 workflow settlement eventSourced {
@@ -616,7 +715,7 @@ public void transferCredit(TransferCreditRequest request) {
 
 ## Resource consumption
 
-`objectStore` / `queue` / `api` / `mailer` resources are *used*, not persisted to. A workflow calls them through an **ambient handle** (the resource name, in scope like `currentUser`) and a closed per-kind verb vocabulary — `objectStore`: `put` / `get` / `list` / `signedUrl` / `delete`; `queue`: `enqueue` / `publish`; `api`: `get` / `post`; `mailer`: `send(to, subject, body)`. The verbs are legal in a **workflow body and a `commandHandler` / `queryHandler` body, and nowhere else** — an aggregate `operation`, an invariant, a `derived`, a repository filter, and a `domainService` operation are all `loom.resource-op-outside-workflow` (only the two application-layer render sites have the client in scope). They are capability-gated against the bound sourceType (an unknown verb is `loom.resource-verb-invalid`) and **forbidden inside a transactional span** (`loom.resource-op-in-transaction` — an external effect can't roll back with the DB).
+`objectStore` / `queue` / `api` / `mailer` resources are *used*, not persisted to. A workflow calls them through an **ambient handle** (the resource name, in scope like `currentUser`) and a closed per-kind verb vocabulary — `objectStore`: `put` / `get` / `list` / `signedUrl` / `delete`; `queue`: `enqueue` / `publish`; `api`: `get` / `post`; `mailer`: `send(to, subject, body)`. The verbs are legal in a **workflow body and a `commandHandler` / `queryHandler` body, and nowhere else** — an aggregate `operation`, an invariant, a `derived`, any `function` (a workflow's included), a handler's `return` value, a repository filter, and a `domainService` operation are all `loom.resource-op-outside-workflow` (only the application-layer render sites have the client in scope; a projection fold is `loom.projection-fold-impure`). They are capability-gated against the bound sourceType (an unknown verb is `loom.resource-verb-invalid`) and **forbidden inside a transactional span** (`loom.resource-op-in-transaction` — an external effect can't roll back with the DB).
 
 ```ddd
 resource files { for: Sales, kind: objectStore, use: bucket }

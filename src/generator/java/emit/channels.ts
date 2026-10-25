@@ -14,9 +14,11 @@ import {
   type WireDecodeLeaf,
   type WireDecodeTarget,
 } from "../../_channels/wire-codec.js";
+import { javaRef } from "../../_imports/java.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { jid } from "../java-ident.js";
+import { J } from "../java-symbols.js";
 import { JAVA_NUMERIC } from "../numeric-codec.js";
 import { javaInstantWire } from "./wire.js";
 
@@ -126,6 +128,8 @@ function toDataExpr(access: string, t: TypeIR, vo?: JavaVoEncode): string {
       return `encode${inner.name}(${access})`;
     }
     if (inner.kind === "primitive" && inner.name === "datetime") return javaInstantWire(access);
+    // `LocalDate.toString()` is ISO `yyyy-MM-dd` — the calendar-date wire form.
+    if (inner.kind === "primitive" && inner.name === "date") return `${access}.toString()`;
     // money pins the FIXED wire scale (RS-12) — a bare `toPlainString()` echoes
     // whatever scale the domain `BigDecimal` happens to carry (the write scale,
     // an arithmetic result's scale), which need not be 4dp: the SAME class of
@@ -175,9 +179,9 @@ function renderVoEncoders(vo: JavaVoEncode): string[] {
 }
 
 /** Java's `WireDecodeTarget` — the leaf half of the shared channel wire codec
- *  (`src/generator/_channels/wire-codec.ts`).  Built per emission: the leaves
- *  record the `java.*` imports their expressions need, and the `id` leaf needs
- *  the system's id-value-type lookup.
+ *  (`src/generator/_channels/wire-codec.ts`).  Built per emission: the `id`
+ *  leaf needs the system's id-value-type lookup (the leaves' `java.*` types
+ *  are markers, so the unit's import block is derived).
  *
  *  Behaviour is unchanged from the private `fromDataExpr` this replaces (the
  *  port is byte-identical); what moved out is the `TypeIR.kind` DISPATCH,
@@ -186,10 +190,7 @@ function renderVoEncoders(vo: JavaVoEncode): string[] {
  *
  *  Of the five backends this is the codec that was already MOST complete: it
  *  is the only pre-port one with a real optional null-guard. */
-function javaWireDecode(
-  idValueTypeOf: (target: string) => string,
-  imports: Set<string>,
-): WireDecodeTarget {
+function javaWireDecode(idValueTypeOf: (target: string) => string): WireDecodeTarget {
   const asString: WireDecodeLeaf = (e) => `(String) ${e}`;
   return {
     lang: "java",
@@ -198,18 +199,10 @@ function javaWireDecode(
       int: (e) => numericEncode(JAVA_NUMERIC, "int", "find-param", e),
       long: (e) => numericEncode(JAVA_NUMERIC, "long", "find-param", e),
       bool: (e) => `(Boolean) ${e}`,
-      decimal: (e) => {
-        imports.add("java.math.BigDecimal");
-        return numericEncode(JAVA_NUMERIC, "decimal", "find-param", e);
-      },
-      money: (e) => {
-        imports.add("java.math.BigDecimal");
-        return numericEncode(JAVA_NUMERIC, "money", "find-param", `(String) ${e}`);
-      },
-      datetime: (e) => {
-        imports.add("java.time.Instant");
-        return `Instant.parse((String) ${e})`;
-      },
+      decimal: (e) => numericEncode(JAVA_NUMERIC, "decimal", "find-param", e),
+      money: (e) => numericEncode(JAVA_NUMERIC, "money", "find-param", `(String) ${e}`),
+      datetime: (e) => `${J.Instant}.parse((String) ${e})`,
+      date: (e) => `${J.LocalDate}.parse((String) ${e})`,
       string: asString,
       guid: asString,
       json: asString,
@@ -226,8 +219,7 @@ function javaWireDecode(
         return `new ${targetName}Id(${numericEncode(JAVA_NUMERIC, "int", "find-param", e)})`;
       if (vt === "long")
         return `new ${targetName}Id(${numericEncode(JAVA_NUMERIC, "long", "find-param", e)})`;
-      imports.add("java.util.UUID");
-      return `new ${targetName}Id(UUID.fromString((String) ${e}))`;
+      return `new ${targetName}Id(${J.UUID}.fromString((String) ${e}))`;
     },
     enumValue: (e, name) => `${name}.valueOf((String) ${e})`,
     optional: (e, decoded) => `${e} == null ? null : ${decoded}`,
@@ -248,13 +240,12 @@ function fromDataExpr(
   name: string,
   t: TypeIR,
   idValueTypeOf: (target: string) => string,
-  imports: Set<string>,
   vos?: ReadonlyMap<string, readonly FieldIR[]>,
 ): string {
   return decodeField(
     "data",
     { name, type: t, optional: t.kind === "optional" },
-    javaWireDecode(idValueTypeOf, imports),
+    javaWireDecode(idValueTypeOf),
     vos,
   );
 }
@@ -285,6 +276,11 @@ export function renderJavaChannelFiles(
     /** The value objects in scope (hosted + the foreign-event closure) — a
      *  carried VO is encoded as a DSL-keyed record and rebuilt on decode. */
     valueObjects?: readonly ValueObjectIR[];
+    /** The deployable carries auth: every envelope carries the raising
+     *  thread's EVENT ORIGIN (`tenantid` / `loomorgpath` / `loomcausedby`,
+     *  ruling D1), the outbox row records it, and the consumer dispatches each
+     *  event as the system principal of that origin (`auth/EventOrigin.java`). */
+    carriesOrigin?: boolean;
   } = {
     durableBroker: false,
   },
@@ -294,6 +290,7 @@ export function renderJavaChannelFiles(
     (opts.valueObjects ?? []).map((v) => [v.name, v.fields] as const),
   );
   const voEncode: JavaVoEncode = { fields: vos, used: new Set() };
+  const carriesOrigin = opts.carriesOrigin ?? false;
   const unique = uniqueBindings(bindings);
   const hasRedis = unique.some((b) => b.transport === "redis");
   const hasRabbit = unique.some((b) => b.transport === "rabbitmq");
@@ -334,6 +331,8 @@ export function renderJavaChannelFiles(
       ``,
       `import tools.jackson.databind.json.JsonMapper;`,
       ``,
+      carriesOrigin ? `import ${basePkg}.auth.EventOrigin;` : null,
+      carriesOrigin ? `` : null,
       `/** CloudEvents 1.0 JSON envelope — the cross-backend wire contract`,
       ` *  (loom envelope pin, src/util/channels.ts). */`,
       `public record LoomEventEnvelope(`,
@@ -349,6 +348,17 @@ export function renderJavaChannelFiles(
             `        /** The channel's key: field value — kafka's partition key`,
             `         *  (loomkey ?? id, design §4); null off the kafka path. */`,
             `        String loomKey,`,
+          ]
+        : []),
+      ...(carriesOrigin
+        ? [
+            `        /** The raising principal's tenant (ruling D1) — the consuming`,
+            `         *  reactor runs as the system principal OF this tenant. */`,
+            `        String tenantId,`,
+            `        /** That tenant's materialized path (hierarchical tenancy). */`,
+            `        String loomOrgPath,`,
+            `        /** The originating user id — audit and logs only. */`,
+            `        String loomCausedBy,`,
           ]
         : []),
       `        Map<String, Object> data) {`,
@@ -379,6 +389,19 @@ export function renderJavaChannelFiles(
       ...(hasKafka
         ? [`        if (loomKey != null) {`, `            m.put("loomkey", loomKey);`, `        }`]
         : []),
+      ...(carriesOrigin
+        ? [
+            `        if (tenantId != null) {`,
+            `            m.put("tenantid", tenantId);`,
+            `        }`,
+            `        if (loomOrgPath != null) {`,
+            `            m.put("loomorgpath", loomOrgPath);`,
+            `        }`,
+            `        if (loomCausedBy != null) {`,
+            `            m.put("loomcausedby", loomCausedBy);`,
+            `        }`,
+          ]
+        : []),
       `        m.put("data", data);`,
       `        return JSON.writeValueAsString(m);`,
       `    }`,
@@ -395,8 +418,27 @@ export function renderJavaChannelFiles(
       `                (String) m.get("datacontenttype"),`,
       `                (String) m.get("loomchannel"),`,
       ...(hasKafka ? [`                (String) m.get("loomkey"),`] : []),
+      ...(carriesOrigin
+        ? [
+            `                (String) m.get("tenantid"),`,
+            `                (String) m.get("loomorgpath"),`,
+            `                (String) m.get("loomcausedby"),`,
+          ]
+        : []),
       `                (Map<String, Object>) m.get("data"));`,
       `    }`,
+      ...(carriesOrigin
+        ? [
+            ``,
+            `    /** The event origin this envelope names, or null (a producer`,
+            `     *  without auth, a timer-raised event). */`,
+            `    public EventOrigin origin() {`,
+            `        return tenantId == null && loomOrgPath == null && loomCausedBy == null`,
+            `                ? null`,
+            `                : new EventOrigin(tenantId, loomOrgPath, loomCausedBy);`,
+            `    }`,
+          ]
+        : []),
       `}`,
       ``,
     ),
@@ -962,7 +1004,6 @@ export function renderJavaChannelFiles(
     ),
   );
 
-  const codecImports = new Set<string>(["java.util.LinkedHashMap", "java.util.Map"]);
   const toArms = carried.map((ev) => {
     const puts = ev.fields.map(
       (f) =>
@@ -979,7 +1020,7 @@ export function renderJavaChannelFiles(
   const fromArms = carried.map(
     (ev) =>
       `            case ${JSON.stringify(ev.name)} -> new ${ev.name}(${ev.fields
-        .map((f) => fromDataExpr(f.name, f.type, idValueTypeOf, codecImports, vos))
+        .map((f) => fromDataExpr(f.name, f.type, idValueTypeOf, vos))
         .join(", ")});`,
   );
   // Rendered before the header: a helper body can reach a nested VO, and
@@ -990,7 +1031,8 @@ export function renderJavaChannelFiles(
     lines(
       `package ${pkg};`,
       ``,
-      ...[...codecImports].sort().map((i) => `import ${i};`),
+      `import java.util.LinkedHashMap;`,
+      `import java.util.Map;`,
       ``,
       `import ${basePkg}.domain.enums.*;`,
       `import ${basePkg}.domain.events.*;`,
@@ -1087,6 +1129,8 @@ export function renderJavaChannelFiles(
       `import java.util.Map;`,
       `import java.util.concurrent.atomic.AtomicLong;`,
       ``,
+      carriesOrigin ? `import ${basePkg}.auth.User;` : null,
+      carriesOrigin ? `` : null,
       `/** Envelope construction shared by the inline tee and the outbox relay`,
       ` *  publisher.  Relay-published (durable) events pass their outbox row`,
       ` *  id — the stable consumer-side idempotency key; inline (ephemeral)`,
@@ -1110,6 +1154,12 @@ export function renderJavaChannelFiles(
       `                : Long.toHexString(System.currentTimeMillis()) + "-"`,
       `                        + Long.toHexString(ProcessHandle.current().pid()) + "-"`,
       `                        + Long.toHexString(COUNTER.incrementAndGet());`,
+      ...(carriesOrigin
+        ? [
+            `        // The raising thread's event origin (ruling D1).`,
+            `        var origin = User.currentEventOrigin();`,
+          ]
+        : []),
       ...(hasKafka
         ? [
             `        // The channel's key: field value rides as loomkey — kafka's`,
@@ -1120,12 +1170,12 @@ export function renderJavaChannelFiles(
             `        }`,
             `        return new LoomEventEnvelope("1.0", id, bound.context() + "." + type,`,
             `                "/loom/" + bound.context(), Instant.now().toString(), "application/json",`,
-            `                address, loomKey, data);`,
+            `                address, loomKey, ${carriesOrigin ? "origin == null ? null : origin.tenant(), origin == null ? null : origin.orgPath(),\n                origin == null ? null : origin.causedBy(), " : ""}data);`,
           ]
         : [
             `        return new LoomEventEnvelope("1.0", id, bound.context() + "." + type,`,
             `                "/loom/" + bound.context(), Instant.now().toString(), "application/json",`,
-            `                address, data);`,
+            `                address, ${carriesOrigin ? "origin == null ? null : origin.tenant(), origin == null ? null : origin.orgPath(),\n                origin == null ? null : origin.causedBy(), " : ""}data);`,
           ]),
       `    }`,
       ``,
@@ -1147,6 +1197,7 @@ export function renderJavaChannelFiles(
       `import ${basePkg}.domain.events.DomainEvent;`,
       opts.durableBroker ? `import ${opts.outboxEntityPkg}.LoomOutboxMessage;` : null,
       opts.durableBroker ? `import ${opts.outboxRepoPkg}.LoomOutboxRepository;` : null,
+      opts.durableBroker && carriesOrigin ? `import ${basePkg}.auth.EventOrigin;` : null,
       ``,
       `/** Producer tee — the delivery-uniformity rule (design §4): an event`,
       ` *  carried by a broker-bound channel is PUBLISHED and not fanned out`,
@@ -1183,7 +1234,9 @@ export function renderJavaChannelFiles(
           ? [
               `        if (ChannelBindings.DURABLE_ROUTING.containsKey(type)) {`,
               `            // Design §5: durable events ride the outbox — the relay publishes.`,
-              `            outbox.save(new LoomOutboxMessage(type, ChannelCodec.toData(event)));`,
+              carriesOrigin
+                ? `            outbox.save(new LoomOutboxMessage(type, EventOrigin.capture(ChannelCodec.toData(event))));`
+                : `            outbox.save(new LoomOutboxMessage(type, ChannelCodec.toData(event)));`,
               `            return;`,
               `        }`,
             ]
@@ -1308,15 +1361,13 @@ export function renderJavaChannelFiles(
       lines(
         `package ${pkg};`,
         ``,
-        hasRedis ? `import java.util.concurrent.ExecutorService;` : null,
-        hasRedis ? `import java.util.concurrent.Executors;` : null,
-        hasRedis ? `` : null,
         `import org.springframework.context.SmartLifecycle;`,
         `import org.springframework.stereotype.Component;`,
         ``,
         ...dispatchers
           .filter((h) => h.dispatcherPkg !== pkg)
           .map((h) => `import ${h.dispatcherPkg}.${h.dispatcherClass};`),
+        carriesOrigin ? `import ${basePkg}.auth.CurrentUserAccessor;` : null,
         opts.durableBroker ? `import ${basePkg}.domain.common.OutboxDelivery;` : null,
         `import ${basePkg}.domain.events.*;`,
         ``,
@@ -1344,7 +1395,7 @@ export function renderJavaChannelFiles(
           (h) => `    private final ${h.dispatcherClass} ${lowerFirst(h.dispatcherClass)};`,
         ),
         hasRedis
-          ? `    private final ExecutorService executor = Executors.newSingleThreadExecutor();`
+          ? `    private final ${javaRef("java.util.concurrent", "ExecutorService")} executor = ${javaRef("java.util.concurrent", "Executors")}.newSingleThreadExecutor();`
           : null,
         `    private volatile boolean running;`,
         ``,
@@ -1358,7 +1409,17 @@ export function renderJavaChannelFiles(
         ),
         `    }`,
         ``,
-        `    private void dispatch(LoomEventEnvelope envelope) {`,
+        ...(carriesOrigin
+          ? [
+              `    private void dispatch(LoomEventEnvelope envelope) {`,
+              `        // The reactor runs as the system principal of the envelope's`,
+              `        // event origin — the tenant that raised it (ruling D1).`,
+              `        CurrentUserAccessor.runAsEventOrigin(envelope.origin(), () -> dispatchAsOrigin(envelope));`,
+              `    }`,
+              ``,
+              `    private void dispatchAsOrigin(LoomEventEnvelope envelope) {`,
+            ]
+          : [`    private void dispatch(LoomEventEnvelope envelope) {`]),
         `        var bare = envelope.type().contains(".")`,
         `                ? envelope.type().substring(envelope.type().indexOf('.') + 1)`,
         `                : envelope.type();`,
@@ -1479,6 +1540,10 @@ export function renderJavaOutboxFiles(pkgs: {
   configPkg: string;
   entityPkg: string;
   repoPkg: string;
+  /** The deployable carries auth: the relay publishes each drained row as
+   *  the system principal of its recorded EVENT ORIGIN (ruling D1). */
+  carriesOrigin?: boolean;
+  basePkg?: string;
 }): {
   name: string;
   category: "infra-persistence" | "spring-data-repository" | "config";
@@ -1597,6 +1662,8 @@ export function renderJavaOutboxFiles(pkgs: {
         `import org.springframework.context.SmartLifecycle;`,
         `import org.springframework.stereotype.Component;`,
         ``,
+        pkgs.carriesOrigin ? `import ${pkgs.basePkg}.auth.CurrentUserAccessor;` : null,
+        pkgs.carriesOrigin ? `import ${pkgs.basePkg}.auth.EventOrigin;` : null,
         `import ${pkgs.repoPkg}.LoomOutboxRepository;`,
         ``,
         `/** Drains __loom_outbox to the broker at-least-once (design §5) —`,
@@ -1649,8 +1716,16 @@ export function renderJavaOutboxFiles(pkgs: {
         `                // envelope carries the row id — the consumer-side idempotency`,
         `                // key).  A non-broker durable row has no local redelivery path`,
         `                // on java; either way the row completes.`,
-        `                ChannelRelayPublisher.tryPublish(transports, row.getType(), row.getPayload(),`,
-        `                        row.getId().toString());`,
+        ...(pkgs.carriesOrigin
+          ? [
+              `                CurrentUserAccessor.runAsEventOrigin(EventOrigin.of(row.getPayload()),`,
+              `                        () -> ChannelRelayPublisher.tryPublish(transports, row.getType(),`,
+              `                                EventOrigin.strip(row.getPayload()), row.getId().toString()));`,
+            ]
+          : [
+              `                ChannelRelayPublisher.tryPublish(transports, row.getType(), row.getPayload(),`,
+              `                        row.getId().toString());`,
+            ]),
         `                row.setDispatchedAt(Instant.now());`,
         `                outbox.save(row);`,
         `            } catch (RuntimeException e) {`,
@@ -1711,8 +1786,12 @@ export function renderJavaStandaloneOutboxFiles(
     configPkg: string;
     entityPkg: string;
     repoPkg: string;
+    /** The deployable carries auth: rows record the EVENT ORIGIN and the
+     *  relay delivers each as its system principal (ruling D1). */
+    carriesOrigin?: boolean;
   },
 ): { name: string; category: "config"; content: string }[] {
+  const carriesOrigin = opts.carriesOrigin ?? false;
   const durable = [...opts.durableEvents].sort();
   const byEvent = new Map<string, ChannelConsumerHandler[]>();
   for (const h of opts.handlers) {
@@ -1749,6 +1828,7 @@ export function renderJavaStandaloneOutboxFiles(
         `import tools.jackson.databind.ObjectMapper;`,
         `import tools.jackson.databind.json.JsonMapper;`,
         ``,
+        carriesOrigin ? `import ${basePkg}.auth.EventOrigin;` : null,
         `import ${basePkg}.domain.events.DomainEvent;`,
         `import ${opts.entityPkg}.LoomOutboxMessage;`,
         `import ${opts.repoPkg}.LoomOutboxRepository;`,
@@ -1781,7 +1861,9 @@ export function renderJavaStandaloneOutboxFiles(
         `        }`,
         `        @SuppressWarnings("unchecked")`,
         `        var payload = (Map<String, Object>) mapper.convertValue(event, Map.class);`,
-        `        outbox.save(new LoomOutboxMessage(type, payload));`,
+        carriesOrigin
+          ? `        outbox.save(new LoomOutboxMessage(type, EventOrigin.capture(payload)));`
+          : `        outbox.save(new LoomOutboxMessage(type, payload));`,
         `    }`,
         `}`,
         ``,
@@ -1804,6 +1886,8 @@ export function renderJavaStandaloneOutboxFiles(
         `import tools.jackson.databind.ObjectMapper;`,
         `import tools.jackson.databind.json.JsonMapper;`,
         ``,
+        carriesOrigin ? `import ${basePkg}.auth.CurrentUserAccessor;` : null,
+        carriesOrigin ? `import ${basePkg}.auth.EventOrigin;` : null,
         `import ${basePkg}.domain.common.OutboxDelivery;`,
         `import ${basePkg}.domain.events.*;`,
         `import ${opts.repoPkg}.LoomOutboxRepository;`,
@@ -1866,7 +1950,9 @@ export function renderJavaStandaloneOutboxFiles(
         `            try {`,
         `                OutboxDelivery.setCurrentEventId(row.getId().toString());`,
         `                try {`,
-        `                    deliver(row.getType(), row.getPayload());`,
+        carriesOrigin
+          ? `                    CurrentUserAccessor.runAsEventOrigin(EventOrigin.of(row.getPayload()),\n                            () -> deliver(row.getType(), EventOrigin.strip(row.getPayload())));`
+          : `                    deliver(row.getType(), row.getPayload());`,
         `                } finally {`,
         `                    OutboxDelivery.clear();`,
         `                }`,

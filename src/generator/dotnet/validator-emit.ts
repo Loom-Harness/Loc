@@ -1,8 +1,7 @@
-import { emitsRestCreate, forCreateInput } from "../../ir/enrich/wire-projection.js";
+import { createInputFields, emitsRestCreate } from "../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
   ExprIR,
-  FieldIR,
   InvariantIR,
   OperationIR,
   TypeIR,
@@ -16,8 +15,9 @@ import {
   singleFieldShape,
 } from "../../ir/validate/invariant-classify.js";
 import { messageCode } from "../../util/message-code.js";
-import { plural, upperFirst } from "../../util/naming.js";
+import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
 import { csCodePointLength } from "../_expr/code-point.js";
+import { singleFieldMessage } from "../zod-refine.js";
 import { collectCsExprUsings } from "./render-expr.js";
 import { isNullableWireDefault } from "./wire-default.js";
 
@@ -61,10 +61,7 @@ interface ValidatorEmission {
 }
 
 /** Render the validator file for a Create<Agg>Command. */
-export function renderCreateValidator(
-  agg: { name: string; invariants: InvariantIR[]; fields: FieldIR[] },
-  ns: string,
-): ValidatorEmission {
+export function renderCreateValidator(agg: AggregateIR, ns: string): ValidatorEmission {
   return renderValidatorFile({
     ns,
     aggName: agg.name,
@@ -74,7 +71,7 @@ export function renderCreateValidator(
     // an invariant over an excluded field (e.g. a `managed` collection)
     // is enforced in the domain layer, not here, so it must not reference
     // an absent request property.
-    available: new Set(forCreateInput(agg.fields).map((f) => f.name)),
+    available: new Set(createInputFields(agg).map((f) => f.name)),
   });
 }
 
@@ -152,7 +149,7 @@ function buildFluentRules(
   }
   for (const [field, patterns] of chainsByField) {
     let line = `        RuleFor(x => x.${upperFirst(field)})`;
-    for (const p of patterns) line += chainSingleFieldFluent(p);
+    for (const p of patterns) line += chainSingleFieldFluent(p, field);
     ruleLines.push(`${line};`);
   }
   // Tracks namespaces this validator's `.Must(x => …)` predicates
@@ -320,7 +317,7 @@ function requestParamSets(
       name: `Create${agg.name}Request`,
       params: esCreate
         ? esCreate.params.map((p) => ({ name: p.name, type: p.type }))
-        : forCreateInput(agg.fields).map((f) => ({
+        : createInputFields(agg).map((f) => ({
             name: f.name,
             type: f.type,
             default: f.default,
@@ -428,14 +425,24 @@ ${classes.join("\n\n")}
 // Single-field pattern → idiomatic FluentValidation chain.
 // ---------------------------------------------------------------------------
 
-/** One code-point length rule: the `.Must` predicate plus a message in
- *  FluentValidation's own voice (a bare `.Must` would otherwise degrade every
- *  message-less length rule to "The specified condition was not met"). */
-function lengthMust(check: string, phrase: string): string {
-  return `.Must(v => v == null || ${check})\n            .WithMessage("'{PropertyName}' must be ${phrase}.")`;
+/** One code-point length rule: the `.Must` predicate.  The message is attached
+ *  by `chainSingleFieldFluent` like every other arm's (a bare `.Must` would
+ *  otherwise degrade to "The specified condition was not met"). */
+function lengthMust(check: string): string {
+  return `.Must(v => v == null || ${check})`;
 }
 
-function chainSingleFieldFluent(p: SingleFieldPattern): string {
+/** One FluentValidation rule for a message-less single-field pattern, carrying
+ *  node's synthesized sentence (`singleFieldMessage` — "Amount must be at least
+ *  1", "Code is not in the expected format") rather than FluentValidation's own
+ *  `'Amount' must be greater than or equal to '1'.`: one `errors[].message` per
+ *  rule on every backend (D-MESSAGELESS-RULE-WIRE-MESSAGE).  The sentence holds
+ *  no `{…}`, so FluentValidation's placeholder formatter leaves it verbatim. */
+function chainSingleFieldFluent(p: SingleFieldPattern, field: string): string {
+  return `${chainSingleFieldCheck(p)}\n            .WithMessage(${csStringLiteral(singleFieldMessage(field, p))})`;
+}
+
+function chainSingleFieldCheck(p: SingleFieldPattern): string {
   switch (p.kind) {
     case "min":
       // Exclusive bounds only arise on decimal/money fields (a strict `>` on a
@@ -456,15 +463,14 @@ function chainSingleFieldFluent(p: SingleFieldPattern): string {
     // validators all return true for a null value) and keeps the lambda
     // null-safe on an optional (`string?`) property.
     case "len-min":
-      return lengthMust(`${csCodePointLength("v")} >= ${p.n}`, `at least ${p.n} characters`);
+      return lengthMust(`${csCodePointLength("v")} >= ${p.n}`);
     case "len-max":
-      return lengthMust(`${csCodePointLength("v")} <= ${p.n}`, `at most ${p.n} characters`);
+      return lengthMust(`${csCodePointLength("v")} <= ${p.n}`);
     case "len-eq":
-      return lengthMust(`${csCodePointLength("v")} == ${p.n}`, `exactly ${p.n} characters`);
+      return lengthMust(`${csCodePointLength("v")} == ${p.n}`);
     case "len-range":
       return lengthMust(
         `${csCodePointLength("v")} >= ${p.lo} && ${csCodePointLength("v")} <= ${p.hi}`,
-        `between ${p.lo} and ${p.hi} characters`,
       );
     case "regex":
       // FluentValidation's `.Matches` accepts a string regex; we
@@ -563,7 +569,7 @@ function renderRef(e: Extract<ExprIR, { kind: "ref" }>): string {
     case "lambda":
       return e.name;
     case "enum-value":
-      return `${e.enumName}.${e.name}`;
+      return `${e.enumName}.${escapeCsharpIdent(e.name)}`;
     default:
       return `false /* UNRENDERABLE-REF:${e.refKind} */`;
   }
@@ -604,8 +610,10 @@ function renderMethodCall(e: Extract<ExprIR, { kind: "method-call" }>): string {
   }
   if (e.isCollectionOp) {
     switch (e.member) {
+      // The `Count` property, not LINQ `Count()` (CA1829) — every collection
+      // on a command/request record is a `List<T>`.
       case "count":
-        return `(${recv}).Count()`;
+        return `(${recv}).Count`;
       case "all":
         return `(${recv}).All(${args[0] ?? "_ => true"})`;
       case "any":

@@ -198,7 +198,7 @@ drops `tenantOwned`'s filter — bypasses it.
 ### The bundled dev Keycloak's demo tenant
 
 Because the self-scope matches only a uuid claim, the demo user of the bundled
-dev Keycloak (an `auth { oidc … }` block with a self-hosted provider) is seeded
+dev Keycloak (bundled for any `auth { oidc … }` block, whatever the provider) is seeded
 with a **uuid** tenancy claim, `00000000-0000-4000-8000-00000000de40`
 (`DEMO_TENANT_ID`, `src/ir/util/demo-tenant.ts`) — not `demo-<claim>`, which
 matched no registry row ever (eval-closure #26). A matching first-boot registry
@@ -268,7 +268,7 @@ stays, as the standing record that this read crosses the boundary.
 
 Under a system with `tenancy by`, **every persisted aggregate must declare a
 stance** — `with tenantOwned` or `crossTenant` (the registry and abstract
-bases are exempt). An unmarked aggregate is a hard error:
+bases are exempt; a subtype inherits its base's stance). An unmarked aggregate is a hard error:
 
 | Code | Fires when | Severity |
 |---|---|---|
@@ -283,19 +283,16 @@ bases are exempt). An unmarked aggregate is a hard error:
 | `loom.tenant-owned-claim-type` | a `tenantOwned` aggregate exists but the claim isn't `string` (the capability's field is `tenantId: string`; a `guid` claim mis-compiles typed backends — declare the claim `string`, guid values round-trip as text) | error |
 | `loom.tenancy-filter-bypass` | a read (`find` / query-time `projection` / inline `Repo.run`) whose `ignoring` clause drops the tenant floor or the registry self-scope — see [`ignoring` and the tenant filter](#ignoring-and-the-tenant-filter). Independent of `auth { enforcement: }` | warning |
 
-### Inheritance: the stance is declared per CONCRETE
+### Inheritance: a subtype inherits its base's stance
 
-An abstract base is exempt from the rule, and its stance does **not** propagate
-to its subtypes: only the base's *fields* are inherited. So `abstract aggregate
-Vehicle with tenantOwned` gives every subtype the `tenant_id` column while
-nothing stamps or filters it — which is why an unmarked subtype is still
-`loom.tenancy-stance-unmarked` (with a message that names this, rather than
-telling you to add a marker you already wrote on the base), and why writing
-`crossTenant` on the subtype instead is rejected outright: the column is NOT
-NULL either way, so the two halves disagree at runtime — node/python persist
-every row under an empty tenant with no isolation, java/.NET/elixir cannot
-insert at all. Repeat `with tenantOwned` on each concrete, or move the
-capability off the base onto the subtypes that want it.
+An abstract base is exempt from the rule because it persists no rows; its
+stance reaches every subtype (D-INHERITED-CAPABILITIES). `abstract aggregate
+Vehicle with tenantOwned` makes each `… extends Vehicle` tenant-owned — the
+column, the stamp that fills it and the filter that scopes reads by it — with
+no marker of its own. Writing `crossTenant` on such a subtype is
+`loom.tenancy-inherited-stance-conflict`: the subtype would be both tenant data
+and shared data. A `crossTenant` base makes its subtypes `crossTenant` the same
+way.
 
 There is deliberately **no severity knob**: the escape hatch is writing
 `crossTenant` — one keyword, intent declared. This is fail-closed without
@@ -327,6 +324,38 @@ read DTOs by default. `dataKey` is the exception: it is dropped from
 
 Cross-tenant reads of another tenant's row return **404** (existence hidden),
 falling out of the filter semantics: the row simply isn't found.
+
+## Reactors and timers — the system principal's tenant
+
+An event reactor runs as the **system principal** ([D-REACTOR-SYSTEM-PRINCIPAL](decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)), and filters and
+stamps inside it use the **triggering event's tenant**: the system principal
+copies the tenancy claim and `orgPath` from the principal of the request that
+raised the event, so a reactor reads and writes in exactly the tenant its event
+came from. A `timerSource` tick has no originating request and therefore **no
+tenant** — a tenant-owned read in a timer-driven reactor would match nothing —
+so it must be explicitly cross-tenant: declare it as a `find` (or an inline
+`Repo.run`) with `ignoring tenantOwned`, or `loom.timer-tenant-read` (error)
+refuses it.
+
+```ddd
+repository Jobs for Job {
+  find anyTenant(c: string): Job where this.code == c ignoring tenantOwned
+}
+workflow sweepRun {
+  sweep: Sweep id
+  create(t: SweepTick) by t.sweep {
+    let j = Jobs.anyTenant("x")      // `Jobs.byCode("x")` here: loom.timer-tenant-read
+    j.close()
+  }
+}
+```
+
+An event that crosses the transactional outbox or a broker carries its
+**origin** — tenant, `orgPath`, `causedBy` — on the outbox row and as the
+envelope's `tenantid` / `loomorgpath` / `loomcausedby` attributes, and the
+relay / consumer delivers it as the system principal of that tenant, so a
+relay- or broker-fed reactor reads and writes in the event's tenant too
+([`channels.md` § Event origin](channels.md#event-origin--the-reactors-tenant-across-the-outbox-and-the-broker)).
 
 ## Hierarchy — the registry tree (`implements tenantRegistry`, Phase 2)
 

@@ -55,7 +55,9 @@ describe("python aggregate emission", () => {
     const order = files.get("api/app/domain/order.py")!;
     expect(order).toContain("parent_id: OrderId");
     expect(order).toContain("    def parent_id(self) -> OrderId:");
-    expect(order).toContain('            raise DomainError("Invariant violated: quantity > 0")');
+    expect(order).toContain(
+      '            raise DomainError("Invariant violated: quantity > 0", "invariant")',
+    );
   });
 
   it("operations guard preconditions and re-assert invariants when void", async () => {
@@ -63,7 +65,9 @@ describe("python aggregate emission", () => {
     const order = files.get("api/app/domain/order.py")!;
     expect(order).toContain("    def add_line(self, qty: int, price: Money) -> None:");
     expect(order).toContain("        if not (self.is_mutable()):");
-    expect(order).toContain('            raise DomainError("Precondition failed: isMutable()")');
+    expect(order).toContain(
+      '            raise DomainError("Precondition failed: isMutable()", "precondition")',
+    );
     // Trailing re-assert.
     expect(order).toMatch(/add_line[\s\S]*?self\._assert_invariants\(\)/);
   });

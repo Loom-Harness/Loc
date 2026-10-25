@@ -28,6 +28,7 @@
       "body": {
         "capacity": 40,
         "deletedAt": null,
+        "fee": 2.5,
         "id": "<volatile:key>",
         "name": "Hall",
         "openedAt": "<timestamp>",
@@ -42,6 +43,7 @@
       "body": {
         "capacity": 12,
         "deletedAt": null,
+        "fee": 1.25,
         "id": "<volatile:key>",
         "name": "Annex",
         "openedAt": "<timestamp>",
@@ -158,6 +160,7 @@
           "slotId": "<volatile:key>",
           "startsAt": "<timestamp>",
           "venueCapacity": null,
+          "venueFee": null,
           "venueName": null,
           "venueOpenedAt": null
         },
@@ -166,6 +169,7 @@
           "slotId": "<volatile:key>",
           "startsAt": "<timestamp>",
           "venueCapacity": 40,
+          "venueFee": 2.5,
           "venueName": "Hall",
           "venueOpenedAt": "<timestamp>"
         }
@@ -181,6 +185,7 @@
           {
             "capacity": 40,
             "deletedAt": null,
+            "fee": 2.5,
             "id": "<volatile:key>",
             "name": "Hall",
             "openedAt": "<timestamp>",
@@ -221,6 +226,7 @@
       "body": {
         "capacity": 40,
         "deletedAt": null,
+        "fee": 2.5,
         "id": "<volatile:key>",
         "name": "Hall",
         "openedAt": "<timestamp>",
@@ -317,6 +323,64 @@
         "instance": "/api/venues",
         "status": 400,
         "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 26,
+      "method": "POST",
+      "path": "/api/venues/{id}/soft_delete",
+      "status": 404,
+      "body": {
+        "detail": "Venue {id} not found",
+        "instance": "/api/venues/{id}/soft_delete",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 27,
+      "method": "POST",
+      "path": "/api/venues/{id}/soft_delete",
+      "status": 404,
+      "body": {
+        "detail": "Venue {id} not found",
+        "instance": "/api/venues/{id}/soft_delete",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 28,
+      "method": "POST",
+      "path": "/api/venues/{id}/soft_delete",
+      "status": 415,
+      "body": {
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/venues/{id}/soft_delete",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 29,
+      "method": "POST",
+      "path": "/api/slots/{id}/reschedule",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/at"
+          }
+        ],
+        "instance": "/api/slots/{id}/reschedule",
+        "status": 422,
+        "title": "Validation failed",
         "type": "about:blank"
       }
     }

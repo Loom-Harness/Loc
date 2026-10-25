@@ -120,9 +120,12 @@ describe("React i18n runtime", () => {
     const files = await generateSystemFiles(SYSTEM(`Heading { "Hi" }`));
     const i18n = [...files].find(([p]) => p.endsWith("src/i18n.ts"))![1];
     expect(i18n).toContain('import { IntlMessageFormat } from "intl-messageformat"');
-    expect(i18n).toContain("new IntlMessageFormat(message, locale).format(values)");
+    expect(i18n).toContain(
+      "new IntlMessageFormat(message, locale).format(formatValues(message, values))",
+    );
     // `values` widened to admit Date (for `, date`) + boolean alongside string/number.
-    expect(i18n).toMatch(/values\?: Record<string, string \| number \| boolean \| Date>/);
+    expect(i18n).toContain("type Values = Record<string, string | number | boolean | Date>;");
+    expect(i18n).toMatch(/values\?: Values/);
     // No leftover regex shim.
     expect(i18n).not.toContain("message.replace(");
     // A plain 2-arg call (no values) still returns the message untouched (no parse cost).
@@ -265,10 +268,10 @@ describe("React i18n runtime", () => {
   });
 
   it("renders the translated Divider label on the chakra packs too", async () => {
-    // chakra v2/v3 had a `hasLabel` branch identical to the unlabelled one, so the
-    // label was extracted into the catalog and rendered NOWHERE — a translator
-    // translating a string the app never showed.  Both now split the rule.
-    for (const design of ["chakra", `"chakra@v2"`]) {
+    // A `hasLabel` branch identical to the unlabelled one extracts the label
+    // into the catalog and renders it NOWHERE — a translator translating a
+    // string the app never shows.  The pack splits the rule around the label.
+    for (const design of ["chakra", `"chakra@v3"`]) {
       const files = await generateSystemFiles(
         SYSTEM(`Divider { label: "Section break" }`).replace(
           "ui: Web { Sales: api } port: 3100",

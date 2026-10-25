@@ -89,7 +89,7 @@ describe("kafka log transport — python leg (M-T4.4 slice 8a)", () => {
       expect(mod).not.toContain("RedisChannelTransport");
       expect(mod).not.toContain("RabbitChannelTransport");
       const pyproject = files.get(`${dep}/pyproject.toml`) ?? "";
-      expect(pyproject).toContain('"aiokafka>=0.12,<0.13",');
+      expect(pyproject).toContain('"aiokafka==0.12.0",');
       expect(pyproject).toContain('module = "aiokafka.*"');
       expect(pyproject).not.toContain("aio-pika");
     }

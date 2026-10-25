@@ -116,7 +116,7 @@ jobs:
           # the op-gated Action button (and its backend 403), and — on feliz —
           # the menu-link gates, driven through the backend's dev-stub
           # principals (`x-loom-dev-claims`).  run-ui-auth.mjs carries a
-          # ratcheting KNOWN_DEFECTS register (flutter has one entry).
+          # ratcheting KNOWN_DEFECTS register (empty).
           - frontend: feliz-auth
             case: feliz
             runner: run-ui-auth.mjs
@@ -154,6 +154,8 @@ jobs:
         with:
           channel: stable
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       - name: Install Loom toolchain
         run: npm ci
 

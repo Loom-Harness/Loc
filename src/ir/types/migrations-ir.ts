@@ -31,6 +31,7 @@ export type ColumnType =
   // scale each backend happens to write, and the stored money diverges across
   // backends.
   | { kind: "decimal"; precision?: number; scale?: number }
+  | { kind: "date" }
   | { kind: "datetime" }
   | { kind: "json" }
   | { kind: "array"; inner: ColumnType };
@@ -97,6 +98,14 @@ export interface ColumnShape {
    *  back from the baseline and so are written out.)  Optional ⇒
    *  `schemaVersion` stays 1, and a committed snapshot never carries it. */
   addColumnDefault?: string;
+  /** The built-in capability that contributed this column (`softDeletable`'s
+   *  `is_deleted`, `tenantOwned`'s `tenant_id`, `auditable`'s stamps) — the
+   *  author never declared it, so when it arrives on a populated table the
+   *  destructive-change gate explains what the capability needs instead of
+   *  naming a column the source does not spell.  Derivation-only, exactly like
+   *  `addColumnDefault`: no renderer reads it, the diff never compares it, and
+   *  `serializeSnapshot` strips it. */
+  capability?: string;
 }
 
 export interface FKShape {

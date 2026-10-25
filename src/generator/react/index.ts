@@ -10,10 +10,12 @@ import {
   type UiIR,
   uiUsesMoney,
 } from "../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { classifyPage, type PageNameCtx } from "../../ir/util/page-kind.js";
+import { pagedFindRoutes } from "../../ir/util/paged-find-routes.js";
 import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
@@ -35,6 +37,7 @@ import { buildProjectionsApiModule, readableProjections } from "../_frontend/pro
 import { renderRealtimeClient } from "../_frontend/realtime.js";
 import { jsxChromeText as shellChromeText } from "../_frontend/shell-chrome.js";
 import { smokeSpec } from "../_frontend/smoke-spec.js";
+import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
 import {
   allWorkflows,
   buildWorkflowsApiModule,
@@ -141,6 +144,10 @@ export function generateReactForContexts(
   // `vite dev` same-origin proxy target: the standalone backend's dev
   // URL, so a relative `/api/*` fetch reaches it without CORS.
   const apiProxyTarget = `http://localhost:${target?.port ?? 8080}`;
+  // A native `vite` run serves on this deployable's declared port.  Only a
+  // standalone frontend (one that `targets:` a backend) has a port of its
+  // own; a bundle embedded in a backend keeps the template default.
+  const devPort = target ? deployable.port : undefined;
   // Sub-path the bundle is served under (Phoenix `/app`).  `viteBase`
   // is the trailing-slashed form vite wants (`/app/`); `basename` is
   // the slashless router basename.  Unset for root-served hosts.
@@ -163,11 +170,11 @@ export function generateReactForContexts(
 
   // Route list-page emission through the new template-pack
   // layer.  `deployable.design` is fully qualified by the lowering
-  // pass (e.g. "mantine@v7"); the `??` default is defensive against
+  // pass (e.g. "mantine@v9"); the `??` default is defensive against
   // programmatic IR construction that bypasses lowering and matches
   // the current toolchain's default Mantine version.
-  const design = deployable.design ?? "mantine@v7";
-  const pack = loadPack(resolvePackDir(design));
+  const design = deployable.design ?? "mantine@v9";
+  const pack = loadPack(resolvePackDir(design, deployable.designBaseDir));
 
   // Page metamodel routing.  Every React deployable declares a
   // `ui:` binding (validator rule `loom.react-deployable-missing-ui`
@@ -190,9 +197,15 @@ export function generateReactForContexts(
   // Per-aggregate api modules — always emitted; 1:1 with the
   // aggregate inventory.  Page emission below walks the resolved
   // `ui.pages` for both pages and page-objects (single source).
+  // A synthesized paged find is reachable only through the explicit route
+  // the backend serves for it, so its hook binds to that route (or is absent).
+  const findRoutes = pagedFindRoutes(sys, target ?? deployable);
   for (const { agg, ctx } of aggregates) {
     const repo = ctx.repositories.find((r) => r.aggregateName === agg.name);
-    out.set(`src/api/${lowerFirst(agg.name)}.ts`, buildApiModule(agg, repo, ctx));
+    out.set(
+      `src/api/${lowerFirst(agg.name)}.ts`,
+      buildApiModule(agg, repo, ctx, { pagedFindRoutes: findRoutes }),
+    );
   }
 
   const workflows = allWorkflows(contexts);
@@ -285,7 +298,7 @@ export function generateReactForContexts(
   // `api.delete` helper only when some served aggregate has a canonical
   // destroy (declared or via `crudish`) — keeps the shared client
   // byte-identical for projects without any hard-delete.
-  const hasDelete = aggregates.some((a) => !!a.agg.canonicalDestroy);
+  const hasDelete = aggregates.some((a) => !!canonicalDestroy(a.agg));
   // `authUi` computed above (before page emission, which consumes it for the
   // `page { requires … }` gate).  Drives the session client + route guard emits.
   out.set(
@@ -547,7 +560,7 @@ export function generateReactForContexts(
   out.set("tsconfig.node.json", renderShellFile("tsconfig-node", {}, pack));
   out.set(
     "vite.config.ts",
-    renderShellFile("vite-config", { base: viteBase, apiProxyTarget }, pack),
+    renderShellFile("vite-config", { base: viteBase, apiProxyTarget, port: devPort }, pack),
   );
   // `usesCodeBlock` also rides into the shell HTML — as the second module
   // entry (`/src/lib/highlight.ts`) Vite bundles and links the theme CSS for,
@@ -591,6 +604,10 @@ export function generateReactForContexts(
   }
   emitShellFiles(pack, out);
   emitShellGlobs(pack, out);
+
+  // Value-object `==` in a page body renders `loomValueEquals(…)`; define it
+  // in every finished file that calls it (`_frontend/value-equals.ts`).
+  emitJsValueEqualsHelpers(out);
 
   // Path-prefix transform — applied once at the end so the per-page
   // emitters, pack shellFiles, shellGlobs, e2e harness, and every

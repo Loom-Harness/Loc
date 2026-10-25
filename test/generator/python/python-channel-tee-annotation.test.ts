@@ -86,7 +86,7 @@ describe("Python channel tee — the wrapped-dispatcher annotation (M-T6.68)", (
     expect(py).toContain("def __init__(self, inner: DomainEventDispatcher) -> None:");
     // …and the protocol is actually imported, or the annotation is a NameError
     // waiting to happen at import time.
-    expect(py).toMatch(/from app\.domain\.events import .*\bDomainEventDispatcher\b/);
+    expect(py).toMatch(/from app\.domain\.events import (?:\([^)]*|.*)\bDomainEventDispatcher\b/);
 
     // The narrow annotation is what made the file reject its own construction.
     expect(py).not.toContain("def __init__(self, inner: NoopDomainEventDispatcher) -> None:");
@@ -100,7 +100,7 @@ describe("Python channel tee — the wrapped-dispatcher annotation (M-T6.68)", (
     // a broadcast channel puts a `RealtimeDispatcher` between the tee and the
     // Noop.  This is the mismatched argument, pinned.
     expect(py).toContain(
-      "return ChannelTeeDispatcher(RealtimeDispatcher(NoopDomainEventDispatcher()))",
+      "return PostCommitDispatcher(ChannelTeeDispatcher(RealtimeDispatcher(NoopDomainEventDispatcher())))",
     );
   });
 });

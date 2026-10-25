@@ -8,15 +8,19 @@ import type {
   RepositoryIR,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
-import { findUsesCurrentUser } from "../../ir/types/loom-ir.js";
+import { exprUsesCurrentUser, findUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
-import { fieldIdTargets, valueObjectIdTargets } from "../../ir/util/id-targets.js";
-import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
+import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
+import { CONCURRENCY_CONFLICT_SUFFIX } from "../../ir/util/openapi-errors.js";
+import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
+import { PY_IMPORTS } from "../_imports/python.js";
 import { numericEncode } from "../_numeric/target.js";
 import { renderPyHistoryRepoMethod } from "./emit/audit-history.js";
+import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
 import {
   aggUsesPrincipalContextFilter,
   documentCapabilityBody,
@@ -24,23 +28,26 @@ import {
 } from "./find-predicate.js";
 import { PY_NUMERIC, pyDocumentDecimalDecode } from "./numeric-codec.js";
 import { rowClassName } from "./py-columns.js";
-import { dtImportLine, wireHelperImport } from "./py-type-imports.js";
+import { PY, pyIdType, pyVoOrEnum } from "./py-symbols.js";
 import { renderPyExpr, renderPyType } from "./render-expr.js";
 import {
   type AggregateReadShape,
   aggHasFieldMask,
-  authUserImport,
+  aggRef,
+  allFindOf,
   emittableFinds,
   findExecutedLine,
   PY_PAGED_FIND_PARAMS,
+  partRef,
   partWireMethod,
   pyInMemoryPagedFind,
   queryProjectionViews,
+  R,
   recordAuditMethod,
+  schemaRow,
   toWireMaskedMethod,
   toWireMethod,
   writeGuardInApp,
-  writeGuardInAppUsesPrincipal,
 } from "./repository-builder.js";
 
 // ---------------------------------------------------------------------------
@@ -65,15 +72,14 @@ export function buildPyDocumentRepositoryFile(
   repo: RepositoryIR | undefined,
   ctx: EnrichedBoundedContextIR,
 ): string {
-  const row = rowClassName(agg.name);
+  const row = schemaRow(rowClassName(agg.name));
   const parts: EnrichedEntityPartIR[] = agg.parts;
   const versioned = aggregateIsVersioned(agg);
   // `delete(id)` is emitted under the same reachable-`destroy` gate the
   // relational builder + routes-builder use — the destroy route calls
   // `repo.delete(id)` regardless of saving shape.  No cascade rows: contained
   // parts / references live inside the jsonb document, so one row is deleted.
-  const emitsDelete = !!agg.canonicalDestroy;
-  const findUser = emittableFinds(repo).some(findUsesCurrentUser);
+  const emitsDelete = !!canonicalDestroy(agg);
   // Capability `filter` on a document aggregate (DEBT-02 tail): the jsonb blob
   // isn't per-field queryable, so the predicate is evaluated IN-APP over the
   // rehydrated instance, mirroring node's `documentCapabilityBody` `.filter`.
@@ -86,7 +92,26 @@ export function buildPyDocumentRepositoryFile(
   const capRec = documentCapabilityBody(agg, "rec");
   const capX = documentCapabilityBody(agg, "x");
   const usesPrincipal = aggUsesPrincipalContextFilter(agg);
-  const principalBind = usesPrincipal ? ["        current_user = require_current_user()"] : [];
+  const principalBind = usesPrincipal ? [`        current_user = ${R.require_current_user}()`] : [];
+  // A DECLARED `find all(): X[] where <pred>` (and/or its `ignoring` stance)
+  // shapes the dedicated `all()` read — excluded from `emittableFinds`, so its
+  // `where` is AND-ed in here, in-app over the rehydrated instance, as node's
+  // document `all()` does (B-A1, the document half of eval item 2).  The
+  // declared finds then read a RAW load (the capability-scoped `findMethod`
+  // path) rather than layering on the now-narrowed `all()`.
+  const allFind = allFindOf(repo);
+  const allBypass = !!allFind && (allFind.bypassAll || (allFind.bypassCaps?.length ?? 0) > 0);
+  const allCap = allBypass
+    ? documentCapabilityBody(agg, "x", {
+        bypassAll: allFind?.bypassAll,
+        bypassCaps: allFind?.bypassCaps,
+      })
+    : capX;
+  const allCond = allFind?.filter ? renderPyExpr(allFind.filter, { thisName: "x" }) : null;
+  const allShaped = allBypass || allCond != null;
+  const allUsesPrincipal =
+    (allShaped ? !!allCap?.usesPrincipal : usesPrincipal) || exprUsesCurrentUser(allFind?.filter);
+  const allConds = [allCap?.expr, allCond].filter((c): c is string => c != null);
   const fromDoc = `_${snake(agg.name)}_from_doc`;
   // A versioned root rehydrates its `version` from the authoritative column, so
   // every root load threads `<row>.version` alongside the jsonb blob.
@@ -95,11 +120,11 @@ export function buildPyDocumentRepositoryFile(
 
   const body = lines(
     `class ${agg.name}Repository:`,
-    "    def __init__(self, session: AsyncSession, events: DomainEventDispatcher) -> None:",
+    `    def __init__(self, session: ${R.AsyncSession}, events: ${R.DomainEventDispatcher}) -> None:`,
     "        self._session = session",
     "        self._events = events",
     "",
-    `    async def find_by_id(self, id: ${agg.name}Id) -> ${agg.name} | None:`,
+    `    async def find_by_id(self, id: ${pyIdType(agg.name)}) -> ${aggRef(agg)} | None:`,
     `        row = await self._session.get(${row}, id)`,
     "        if row is None:",
     "            return None",
@@ -113,11 +138,11 @@ export function buildPyDocumentRepositoryFile(
         ]
       : [`        return ${fromDocCall("row")}`]),
     "",
-    `    async def get_by_id(self, id: ${agg.name}Id) -> ${agg.name}:`,
+    `    async def get_by_id(self, id: ${pyIdType(agg.name)}) -> ${aggRef(agg)}:`,
     "        found = await self.find_by_id(id)",
-    `        log("debug", "aggregate_loaded", aggregate=${JSON.stringify(agg.name)}, id=str(id), found=found is not None)`,
+    `        ${PY.log}("debug", "aggregate_loaded", aggregate=${JSON.stringify(agg.name)}, id=str(id), found=found is not None)`,
     "        if found is None:",
-    `            raise AggregateNotFoundError(f"${agg.name} {id} not found")`,
+    `            raise ${R.AggregateNotFoundError}(f"${agg.name} {id} not found")`,
     "        return found",
     // Command load (authorization): the whole aggregate lives in
     // one jsonb blob, so the write-scope guard is checked IN-APP over the loaded
@@ -125,24 +150,34 @@ export function buildPyDocumentRepositoryFile(
     // READ filters.
     ...writeGuardInApp(agg),
     "",
-    `    async def all(self) -> list[${agg.name}]:`,
-    `        rows = (await self._session.execute(select(${row}).order_by(${row}.id))).scalars().all()`,
-    ...(capX
-      ? [
-          ...principalBind,
-          `        return [x for x in (${fromDocCall("r")} for r in rows) if (${capX.expr})]`,
-        ]
-      : [`        return [${fromDocCall("r")} for r in rows]`]),
+    `    async def all(self) -> list[${aggRef(agg)}]:`,
+    `        rows = (await self._session.execute(${R.select}(${row}).order_by(${row}.id))).scalars().all()`,
+    ...(!allShaped
+      ? capX
+        ? [
+            ...principalBind,
+            `        return [x for x in (${fromDocCall("r")} for r in rows) if (${capX.expr})]`,
+          ]
+        : [`        return [${fromDocCall("r")} for r in rows]`]
+      : allConds.length > 0
+        ? [
+            ...(allUsesPrincipal ? [`        current_user = ${R.require_current_user}()`] : []),
+            `        return [x for x in (${fromDocCall("r")} for r in rows) if ${allConds.map((c) => `(${c})`).join(" and ")}]`,
+          ]
+        : [`        return [${fromDocCall("r")} for r in rows]`]),
     "",
-    `    async def find_many_by_ids(self, ids: list[${agg.name}Id]) -> list[${agg.name}]:`,
-    `        rows = (await self._session.execute(select(${row}).where(${row}.id.in_(list(ids))))).scalars().all()`,
+    `    async def find_many_by_ids(self, ids: list[${pyIdType(agg.name)}]) -> list[${aggRef(agg)}]:`,
+    `        rows = (await self._session.execute(${R.select}(${row}).where(${row}.id.in_(list(ids))))).scalars().all()`,
     ...(capX
       ? [
           ...principalBind,
           `        return [x for x in (${fromDocCall("r")} for r in rows) if (${capX.expr})]`,
         ]
       : [`        return [${fromDocCall("r")} for r in rows]`]),
-    ...emittableFinds(repo).flatMap((f) => ["", findMethod(agg, f, ctx, capX != null)]),
+    ...emittableFinds(repo).flatMap((f) => [
+      "",
+      findMethod(agg, f, ctx, capX != null || allShaped),
+    ]),
     // Query-time projections sourced from this aggregate synthesise the same
     // parameterless `repo.<snake(projName)>()` read the RELATIONAL builder emits
     // (`queryProjectionViews` → `viewFindMethod`).  The projection route calls it
@@ -154,12 +189,12 @@ export function buildPyDocumentRepositoryFile(
     // `where` as the find filter and its `ignoring` clause as the bypass.
     ...queryProjectionViews(agg, ctx).flatMap((v) => [
       "",
-      findMethod(agg, projectionViewFind(agg, v), ctx, capX != null),
+      findMethod(agg, projectionViewFind(agg, v), ctx, capX != null || allShaped),
     ]),
     "",
     versioned
-      ? `    async def save(self, aggregate: ${agg.name}, expected_version: int | None = None) -> None:`
-      : `    async def save(self, aggregate: ${agg.name}) -> None:`,
+      ? `    async def save(self, aggregate: ${aggRef(agg)}, expected_version: int | None = None) -> None:`
+      : `    async def save(self, aggregate: ${aggRef(agg)}) -> None:`,
     `        data = _${snake(agg.name)}_to_doc(aggregate)`,
     // Optimistic-concurrency guard (default-on `versioned`), byte-for-byte the
     // relational/embedded guarded upsert over the `(id, data, version)` row: a
@@ -174,7 +209,7 @@ export function buildPyDocumentRepositoryFile(
       ? [
           "        _expected = aggregate.version if expected_version is None else expected_version",
           "        _guarded = await self._session.execute(",
-          `            insert(${row})`,
+          `            ${R.insert}(${row})`,
           "            .values(id=aggregate.id, data=data, version=aggregate.version)",
           "            .on_conflict_do_update(",
           '                index_elements=["id"],',
@@ -184,7 +219,7 @@ export function buildPyDocumentRepositoryFile(
           `            .returning(${row}.id)`,
           "        )",
           "        if _guarded.first() is None:",
-          `            raise ConcurrencyError(f"${agg.name} {aggregate.id} was modified concurrently")`,
+          `            raise ${R.ConcurrencyError}(f"${agg.name} {aggregate.id} ${CONCURRENCY_CONFLICT_SUFFIX}")`,
         ]
       : [
           `        existing = await self._session.get(${row}, aggregate.id)`,
@@ -195,7 +230,7 @@ export function buildPyDocumentRepositoryFile(
           "            existing.version += 1",
         ]),
     "        await self._session.flush()",
-    `        log("debug", "repository_save", aggregate=${JSON.stringify(agg.name)}, id=str(aggregate.id))`,
+    `        ${PY.log}("debug", "repository_save", aggregate=${JSON.stringify(agg.name)}, id=str(aggregate.id))`,
     ...(ctx.events.length > 0
       ? [
           "        for event in aggregate.pull_events():",
@@ -205,8 +240,8 @@ export function buildPyDocumentRepositoryFile(
     ...(emitsDelete
       ? [
           "",
-          `    async def delete(self, id: ${agg.name}Id) -> None:`,
-          `        await self._session.execute(delete(${row}).where(${row}.id == id))`,
+          `    async def delete(self, id: ${pyIdType(agg.name)}) -> None:`,
+          `        await self._session.execute(${R.delete}(${row}).where(${row}.id == id))`,
           "        await self._session.flush()",
         ]
       : []),
@@ -224,7 +259,7 @@ export function buildPyDocumentRepositoryFile(
     // #2528 fixed exactly this on the TypeScript builders and stopped there —
     // which is why the register recorded F2 as closed while python still had it.
     ...(aggHasFieldMask(agg) ? [toWireMaskedMethod(agg)] : []),
-    ...parts.flatMap((p) => ["", partWireMethod(p, ctx)]),
+    ...parts.flatMap((p) => ["", partWireMethod(p, agg, ctx)]),
     // Audit trail (pairwise F7).  The routes call `repo.record_audit(...)` from
     // the create / update / destroy paths and `repo.history(...)` from the
     // history route whenever the aggregate is `audited` — with NO check on
@@ -245,104 +280,10 @@ export function buildPyDocumentRepositoryFile(
     ...[agg, ...parts].flatMap((e) => [entityFromDoc(e, e === agg, agg, ctx), "", ""]),
   );
 
-  const scan = `${body}\n${serializers}`.replace(/"(?:\\.|[^"\\])*"/g, '""');
-  const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
-  const idNames = [
-    ...new Set([
-      ...[agg, ...parts].flatMap((e) => [
-        `${e.name}Id`,
-        ...fieldIdTargets(e.fields).map((n) => `${n}Id`),
-      ]),
-      // …plus every id a VALUE OBJECT holds.  The brand is rendered INSIDE the
-      // VO constructor (`Berth(ShipId(...), ...)`) while the aggregate's own
-      // field is typed `Berth`, so the walk above never proposes it and the
-      // module names it unimported — `ruff F821`, and a `NameError` on the
-      // first read.  Freight audit D3 / M-T6.64; the relational emitter carried
-      // the identical gap.  Candidates are free: `refersTo` drops any this
-      // module does not actually spell.
-      // Sourced from `valueObjectPool`, not `ctx.valueObjects`, to match the
-      // `voEnumNames` line below: a VO declared in a SIBLING context is a legal
-      // reference whose declaration never enters this context's own list.  That
-      // branch is currently unobservable — the cross-context hydrate emits
-      // `berth=row.berth` against flattened `berth_ship`/`berth_position`
-      // columns, so it never reaches the brand at all (a separate, upstream
-      // defect; reported on #2864, not fixed here) — but the pool is the right
-      // source the moment it is, and costs nothing meanwhile since `refersTo`
-      // filters every candidate.
-      ...valueObjectIdTargets(valueObjectPool(ctx)).map((n) => `${n}Id`),
-    ]),
-  ]
-    .filter(refersTo)
-    .sort();
-  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
-    .filter(refersTo)
-    .sort();
-  const domainNames = [agg.name, ...parts.map((p) => p.name)].filter(refersTo);
-
   return lines(
     `"""${agg.name} document repository (shape: document).  Auto-generated."""`,
     "",
-    refersTo("math") ? "import math" : null,
-    // In-app filters render domain expressions (A5 temporal included), so
-    // `UTC` (`now()`) and `timedelta` (absolute durations) ride in on use.
-    dtImportLine(refersTo),
-    refersTo("Decimal") ? "from decimal import Decimal" : null,
-    refersTo("math") || refersTo("datetime") || refersTo("timedelta") || refersTo("Decimal")
-      ? ""
-      : null,
-    // `history()` is annotated `-> Sequence[...]` (F7).
-    aggHasAuditedTarget(agg) ? "from collections.abc import Sequence" : null,
-    refersTo("cast") ? "from typing import cast" : null,
-    "",
-    emitsDelete ? "from sqlalchemy import delete, select" : "from sqlalchemy import select",
-    versioned ? "from sqlalchemy.dialects.postgresql import insert" : null,
-    // `uuid4` + `AuditRecordRow` for `record_audit`'s insert (F7) — the same two
-    // lines the relational builder gates on its own `hasAudit`.  `datetime`/`UTC`
-    // need no gate: `refersTo` scans the emitted body, which now contains them.
-    aggHasAuditedTarget(agg) ? "from uuid import uuid4" : null,
-    "from sqlalchemy.ext.asyncio import AsyncSession",
-    "",
-    // `User` for a per-find `where` principal param; `require_current_user` for
-    // an always-on principal capability filter (DEBT-02 tail) — one sorted import.
-    // Third gate: `current_user` (the non-raising getter) rides in for the
-    // read-mask projection's fail-closed principal read (`to_wire_masked`) —
-    // the same argument the relational builder passes.  Omitting it is what
-    // turned F6's emitted method into ruff F821 `Undefined name current_user`.
-    // The SECOND gate takes the union of both reasons a principal accessor is
-    // needed: a per-find principal filter, and #2694's in-app write guard.
-    authUserImport(
-      findUser,
-      usesPrincipal || writeGuardInAppUsesPrincipal(agg),
-      aggHasFieldMask(agg),
-    ),
-    `from app.db.schema import ${row}`,
-    aggHasAuditedTarget(agg) ? "from app.db.audit import AuditRecordRow" : null,
-    wireHelperImport(refersTo),
-    versioned
-      ? "from app.domain.errors import AggregateNotFoundError, ConcurrencyError"
-      : "from app.domain.errors import AggregateNotFoundError",
-    refersTo("DomainEvent")
-      ? "from app.domain.events import DomainEvent, DomainEventDispatcher"
-      : "from app.domain.events import DomainEventDispatcher",
-    idNames.length > 0 ? `from app.domain.ids import ${idNames.join(", ")}` : null,
-    // The shared paging carrier — demand-gated like every import here, so a
-    // document repository with no `find … paged` stays byte-identical
-    // (F2-CB-C1 taught the in-memory paged branch to this builder).
-    refersTo("PagedResult") ? "from app.domain.paging import PagedResult" : null,
-    domainNames.length > 0
-      ? `from app.domain.${snake(agg.name)} import ${domainNames.join(", ")}`
-      : null,
-    voEnumNames.length > 0
-      ? `from app.domain.value_objects import ${voEnumNames.join(", ")}`
-      : null,
-    // `log` for the mechanism-debug trio (aggregate_loaded / repository_save /
-    // find_executed) — always emitted now (S5).
-    // The audit insert reads the ambient RequestContext accessors for the
-    // correlation / scope / parent ids (F7), so they join `log` in this import
-    // exactly as the relational builder unions them.  Sorted, single line.
-    aggHasAuditedTarget(agg)
-      ? "from app.obs.log import correlation_id, log, parent_id, scope_id"
-      : "from app.obs.log import log",
+    PY_IMPORTS,
     "",
     "",
     body,
@@ -381,7 +322,7 @@ function findMethod(
   void lowerToSqlAlchemy;
   const params = find.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`);
   const usesUser = findUsesCurrentUser(find);
-  if (usesUser) params.push("current_user: User");
+  if (usesUser) params.push(`current_user: ${R.User}`);
   const sig = ["self", ...params].join(", ");
   const pred = find.filter
     ? `lambda x: ${renderPyExpr(find.filter, { thisName: "x" })}`
@@ -389,7 +330,7 @@ function findMethod(
   const isList = find.returnType.kind === "array";
   const isOptional = find.returnType.kind === "optional";
   const isPaged = !!pagedReturn(find.returnType);
-  const ret = isList ? `list[${agg.name}]` : isOptional ? `${agg.name} | None` : agg.name;
+  const ret = isList ? `list[${aggRef(agg)}]` : isOptional ? `${aggRef(agg)} | None` : aggRef(agg);
   // `find … paged` over a document carrier — the four wire controls join the
   // signature and the body pages in memory (`pyInMemoryPagedFind`, F2-CB-C1).
   const pagedSig = ["self", ...params, ...PY_PAGED_FIND_PARAMS].join(", ");
@@ -420,8 +361,8 @@ function findMethod(
       // ORDER BY id — see the node/java note: an unordered select over the
       // document table answers in Postgres heap order, which moves a row when
       // `update` rewrites its tuple.  `id` is the primary key.
-      `        rows = (await self._session.execute(select(${rowClassName(agg.name)}).order_by(${rowClassName(agg.name)}.id))).scalars().all()`,
-      ...(bindPrincipal ? ["        current_user = require_current_user()"] : []),
+      `        rows = (await self._session.execute(${R.select}(${schemaRow(rowClassName(agg.name))}).order_by(${schemaRow(rowClassName(agg.name))}.id))).scalars().all()`,
+      ...(bindPrincipal ? [`        current_user = ${R.require_current_user}()`] : []),
       aggregateIsVersioned(agg)
         ? `        items = [_${snake(agg.name)}_from_doc(r.data, r.version) for r in rows]`
         : `        items = [_${snake(agg.name)}_from_doc(r.data) for r in rows]`,
@@ -480,11 +421,8 @@ function conventionPredicate(agg: EnrichedAggregateIR, find: FindIR): string | u
  *  where the find condition is AND-ed with the capability predicate over `x`. */
 function conventionInline(agg: EnrichedAggregateIR, find: FindIR): string | undefined {
   const clauses: string[] = [];
-  for (const p of find.params) {
-    const matched = agg.fields.find(
-      (f) => f.name === p.name || `${f.name.replace(/Id$/, "")}Id` === p.name,
-    );
-    if (matched) clauses.push(`x.${pythonIdent(matched.name)} == ${pythonIdent(p.name)}`);
+  for (const { param: p, field: matched } of implicitFindMatches(find, agg)) {
+    clauses.push(`x.${pythonIdent(matched.name)} == ${pythonIdent(p.name)}`);
   }
   return clauses.length > 0 ? clauses.join(" and ") : undefined;
 }
@@ -518,7 +456,7 @@ export function entityToDoc(
     );
   }
   return lines(
-    `def _${snake(entity.name)}_to_doc(a: ${entity.name}) -> dict[str, object]:`,
+    `def _${snake(entity.name)}_to_doc(a: ${partRef(root, entity.name)}) -> dict[str, object]:`,
     `    return {${entries.join(", ")}}`,
   );
 }
@@ -537,8 +475,8 @@ export function entityFromDoc(
   // (the same single-source-of-truth the relational path gets for free from its
   // column read).  Parts carry no version.
   const rootVersioned = isRoot && aggregateIsVersioned(entity as EnrichedAggregateIR);
-  const entries: string[] = [`id=${entity.name}Id(cast(str, d["id"]))`];
-  if (!isRoot) entries.push(`parent_id=${root.name}Id(cast(str, d["parent_id"]))`);
+  const entries: string[] = [`id=${pyIdType(entity.name)}(${PY.cast}(str, d["id"]))`];
+  if (!isRoot) entries.push(`parent_id=${pyIdType(root.name)}(${PY.cast}(str, d["parent_id"]))`);
   for (const f of entity.fields) {
     if (rootVersioned && f.name === "version") {
       entries.push("version=version");
@@ -551,7 +489,7 @@ export function entityFromDoc(
     const acc = `d["${snake(c.name)}"]`;
     entries.push(
       containsType(c)
-        ? `${pythonIdent(c.name)}=[${fromDoc}(x) for x in cast(list[object], ${acc})]`
+        ? `${pythonIdent(c.name)}=[${fromDoc}(x) for x in ${PY.cast}(list[object], ${acc})]`
         : c.optional
           ? `${pythonIdent(c.name)}=(None if ${acc} is None else ${fromDoc}(${acc}))`
           : `${pythonIdent(c.name)}=${fromDoc}(${acc})`,
@@ -560,10 +498,10 @@ export function entityFromDoc(
   // The JSONB column types as `object`; cast each access to the doc dict.
   return lines(
     rootVersioned
-      ? `def _${snake(entity.name)}_from_doc(raw: object, version: int) -> ${entity.name}:`
-      : `def _${snake(entity.name)}_from_doc(raw: object) -> ${entity.name}:`,
-    "    d = cast(dict[str, object], raw)",
-    `    return ${entity.name}._rehydrate(${entries.join(", ")})`,
+      ? `def _${snake(entity.name)}_from_doc(raw: object, version: int) -> ${partRef(root, entity.name)}:`
+      : `def _${snake(entity.name)}_from_doc(raw: object) -> ${partRef(root, entity.name)}:`,
+    `    d = ${PY.cast}(dict[str, object], raw)`,
+    `    return ${partRef(root, entity.name)}._rehydrate(${entries.join(", ")})`,
   );
 }
 
@@ -573,7 +511,7 @@ function serialize(t: TypeIR, acc: string, ctx: EnrichedBoundedContextIR): strin
   }
   if (t.kind === "primitive") {
     if (t.name === "money") return `str(${acc})`;
-    if (t.name === "datetime") return `${acc}.isoformat()`;
+    if (t.name === "datetime" || t.name === "date") return `${acc}.isoformat()`;
     return acc;
   }
   if (t.kind === "id") return `str(${acc})`;
@@ -601,25 +539,26 @@ function deserialize(t: TypeIR, acc: string, ctx: EnrichedBoundedContextIR): str
   }
   if (t.kind === "primitive") {
     if (t.name === "money") return numericEncode(PY_NUMERIC, "money", "repo-read", acc);
-    if (t.name === "datetime") return `datetime.fromisoformat(cast(str, ${acc}))`;
+    if (t.name === "datetime") return `${PY.datetime}.fromisoformat(${PY.cast}(str, ${acc}))`;
+    if (t.name === "date") return `${PY_CALENDAR_DATE}.fromisoformat(${PY.cast}(str, ${acc}))`;
     if (t.name === "decimal") return pyDocumentDecimalDecode(acc);
-    return `cast(${primitivePy(t.name)}, ${acc})`;
+    return `${PY.cast}(${primitivePy(t.name)}, ${acc})`;
   }
-  if (t.kind === "id") return `${t.targetName}Id(cast(str, ${acc}))`;
-  if (t.kind === "enum") return `${t.name}(cast(str, ${acc}))`;
+  if (t.kind === "id") return `${pyIdType(t.targetName)}(${PY.cast}(str, ${acc}))`;
+  if (t.kind === "enum") return `${pyVoOrEnum(t.name)}(${PY.cast}(str, ${acc}))`;
   if (t.kind === "valueobject") {
     const vo = findValueObjectInScope(ctx, t.name);
     if (!vo) return acc;
-    const m = `cast(dict[str, object], ${acc})`;
+    const m = `${PY.cast}(dict[str, object], ${acc})`;
     const args = vo.fields
       .map((vf) => deserialize(vf.type, `${m}["${snake(vf.name)}"]`, ctx))
       .join(", ");
-    return `${vo.name}(${args})`;
+    return `${pyVoOrEnum(vo.name)}(${args})`;
   }
   if (t.kind === "array") {
-    const list = `cast(list[object], ${acc})`;
+    const list = `${PY.cast}(list[object], ${acc})`;
     if (t.element.kind === "id")
-      return `[${t.element.targetName}Id(cast(str, x)) for x in ${list}]`;
+      return `[${pyIdType(t.element.targetName)}(${PY.cast}(str, x)) for x in ${list}]`;
     return `[${deserialize(t.element, "x", ctx)} for x in ${list}]`;
   }
   return acc;

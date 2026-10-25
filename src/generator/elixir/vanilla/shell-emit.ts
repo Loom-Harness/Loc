@@ -12,6 +12,7 @@
 // ---------------------------------------------------------------------------
 
 import type { UiIR } from "../../../ir/types/loom-ir.js";
+import { UNSUPPORTED_MEDIA_TYPE_DETAIL } from "../../../ir/util/openapi-errors.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import {
@@ -41,6 +42,7 @@ import {
   renderApplication,
   renderLiveNav,
   renderLogFormatter,
+  renderPostCommit,
   renderRequestContext,
 } from "../shell/runtime.js";
 import { renderLayouts } from "../shell/web.js";
@@ -48,6 +50,7 @@ import { renderTelemetry } from "../telemetry-emit.js";
 import { renderLoomDatetimeModule } from "./datetime-type-emit.js";
 import { renderGuardErrorModule } from "./denial.js";
 import { renderObanConfig } from "./scheduler-emit.js";
+import { renderLoomValueObjectModule } from "./value-object-type-emit.js";
 
 export function emitVanillaShellFiles(
   appName: string,
@@ -100,6 +103,9 @@ export function emitVanillaShellFiles(
    *  `Application.start/2` after the supervision tree is up.  Empty ⇒ no
    *  seeding calls. */
   seedModules: readonly string[] = [],
+  /** The port `mix phx.server` listens on in dev when PORT is unset — the
+   *  deployable's declared port. */
+  devPort = 4000,
 ): void {
   const hasLiveView = liveRoutes.length > 0 || hasSidebar;
   // Either source of translatable strings turns the runtime on.
@@ -177,6 +183,8 @@ export function emitVanillaShellFiles(
   // Ambient execution-context carrier (Logger.metadata) — the Plug is mounted
   // in the endpoint after Plug.RequestId.
   out.set(`lib/${appName}/request_context.ex`, renderRequestContext(appModule));
+  // Post-commit effect buffer a transactional workflow opens (M-T4.3 item 6).
+  out.set(`lib/${appName}/post_commit.ex`, renderPostCommit(appModule));
   // The typed guard denial a pure body (`function` / `domainService` /
   // pure-core op) raises — `<App>.GuardError`, with the rung in its `:kind`
   // field so the controller rescue routes on a FIELD rather than on the
@@ -186,6 +194,9 @@ export function emitVanillaShellFiles(
   // The declared-`datetime` column type — a UTC instant at MILLISECOND
   // precision (RS-38).  Every datetime field of every schema is typed as it.
   out.set(`lib/${appName}/loom_datetime.ex`, renderLoomDatetimeModule());
+  // The single value-object column type + value-object equality — every VO
+  // column is typed as it and every VO `==` calls it.
+  out.set(`lib/${appName}/loom_value_object.ex`, renderLoomValueObjectModule());
   out.set(
     `lib/${appName}_web.ex`,
     // The TEMPLATE-side gate is the ui, not the merged catalog: `pgettext/2` in
@@ -315,7 +326,7 @@ export function emitVanillaShellFiles(
       hasLiveView,
     ),
   );
-  out.set("config/dev.exs", renderVanillaDev(appName, appModule));
+  out.set("config/dev.exs", renderVanillaDev(appName, appModule, devPort));
   out.set("config/prod.exs", renderVanillaProd(appName, appModule));
   out.set("config/runtime.exs", renderVanillaRuntime(appName, appModule));
   out.set("config/test.exs", renderVanillaTest(appName, appModule));
@@ -339,7 +350,7 @@ function renderVanillaMixExs(
   // LiveView dep — only when the deployable mounts a HEEx `ui:`.
   // `phoenix_html` is already in the base set; LiveView adds
   // `phoenix_live_view` (the `~H`/`live` runtime).  Pinned to `~> 1.0`.
-  const liveViewDep = hasLiveView ? `,\n      {:phoenix_live_view, "~> 1.0"}` : "";
+  const liveViewDep = hasLiveView ? `,\n      {:phoenix_live_view, "1.2.13"}` : "";
   // Dev convenience for the pack-emitted assets pipeline: `mix assets.build`
   // compiles assets/ (tailwind + esbuild via npm) into priv/static/assets —
   // the same step the Dockerfile's assets-build stage runs for the image.
@@ -366,7 +377,7 @@ function renderVanillaMixExs(
   // exchange (the authorization-code handshake) still ride the built-in
   // `:httpc` (`:inets`/`:ssl`).  Added only when an `auth { oidc }` block is
   // present.
-  const oidcDep = oidc ? `,\n      {:joken, "~> 2.6"},\n      {:joken_jwks, "~> 1.6"}` : "";
+  const oidcDep = oidc ? `,\n      {:joken, "2.7.0"},\n      {:joken_jwks, "1.7.0"}` : "";
   const oidcApps = oidc ? ", :inets, :ssl" : "";
   return `# Auto-generated.
 defmodule ${appModule}.MixProject do
@@ -396,13 +407,13 @@ defmodule ${appModule}.MixProject do
 
   defp deps do
     [
-      {:phoenix, "~> 1.8"},
-      {:phoenix_ecto, "~> 4.4"},
-      {:ecto_sql, "~> 3.10"},
-      {:postgrex, "~> 0.20"},
-      {:phoenix_html, "~> 4.1"},
-      {:jason, "~> 1.4"},
-      {:uuidv7, "~> 1.0"},
+      {:phoenix, "1.8.16"},
+      {:phoenix_ecto, "4.7.0"},
+      {:ecto_sql, "3.14.0"},
+      {:postgrex, "0.22.4"},
+      {:phoenix_html, "4.3.0"},
+      {:jason, "1.4.5"},
+      {:uuidv7, "1.0.0"},
       # Bandit, not Plug.Cowboy.  Phoenix 1.8's own default adapter, and the
       # reason it is spelled out here: the cowboy chain (plug_cowboy ->
       # cowboy -> cowlib) ends at cowlib, whose latest release IS the one
@@ -410,16 +421,16 @@ defmodule ${appModule}.MixProject do
       # (cookie header injection).  There is nothing to bump to, so every
       # generated Elixir project shipped a flagged transitive dependency it
       # never actually needed.  Bandit is pure Elixir and pulls none of it.
-      {:bandit, "~> 1.12"},
-      {:open_api_spex, "~> 3.0"},
-      {:telemetry_metrics, "~> 1.0"},
-      {:telemetry_metrics_prometheus_core, "~> 1.1"},
+      {:bandit, "1.13.1"},
+      {:open_api_spex, "3.22.4"},
+      {:telemetry_metrics, "1.2.0"},
+      {:telemetry_metrics_prometheus_core, "1.2.1"},
       # OpenTelemetry tracing: the RequestContext plug opens a SERVER
       # span per request; exported via OTLP/HTTP only when a collector endpoint
       # is set (config/runtime.exs).
-      {:opentelemetry_api, "~> 1.4"},
-      {:opentelemetry, "~> 1.5"},
-      {:opentelemetry_exporter, "~> 1.8"}${liveViewDep}${gettextDep}${icuDeps}${extraBlock}${oidcDep}
+      {:opentelemetry_api, "1.5.0"},
+      {:opentelemetry, "1.7.0"},
+      {:opentelemetry_exporter, "1.11.0"}${liveViewDep}${gettextDep}${icuDeps}${extraBlock}${oidcDep}
     ]
   end
 
@@ -985,8 +996,51 @@ defmodule ${appModule}Web.BodyParser do
   @impl true
   def init(opts), do: Plug.Parsers.init(opts)
 
+  # The request-body media-type contract every backend shares (RS-39), on the
+  # API surface (a LiveView form post elsewhere is urlencoded by design):
+  #
+  #   * an EMPTY body with no Content-Type, or a JSON one, is \`{}\` — which is
+  #     what \`Plug.Parsers\` already makes of it, so it passes through;
+  #   * a body under a foreign Content-Type — or content with none — is the
+  #     declared 415.  \`pass: ["*/*"]\` would otherwise hand it to the action
+  #     unparsed, where a parameterless command never looks at it.  An empty
+  #     body does not excuse a foreign media type: the caller declared it.
+  #
+  # Multipart is the file-upload transport and passes through untouched.
+  @body_methods ["POST", "PUT", "PATCH"]
+  @json_media_type ~r/^application\\/([a-z\\-.]+\\+)?json(;\\s*[a-zA-Z0-9\\-]+=([^;]+))*$/i
+
   @impl true
-  def call(conn, opts) do
+  def call(%Plug.Conn{method: method, request_path: "/api/" <> _} = conn, opts)
+      when method in @body_methods do
+    if acceptable_media_type?(conn), do: parse(conn, opts), else: unsupported_media_type(conn)
+  end
+
+  def call(conn, opts), do: parse(conn, opts)
+
+  defp acceptable_media_type?(conn) do
+    case Plug.Conn.get_req_header(conn, "content-type") do
+      [content_type | _] ->
+        Regex.match?(@json_media_type, content_type) or
+          String.starts_with?(String.downcase(content_type), "multipart/")
+
+      [] ->
+        not has_content?(conn)
+    end
+  end
+
+  defp has_content?(conn) do
+    case Plug.Conn.get_req_header(conn, "content-length") do
+      [length | _] -> String.trim(length) != "0"
+      [] -> Plug.Conn.get_req_header(conn, "transfer-encoding") != []
+    end
+  end
+
+  defp unsupported_media_type(conn) do
+    send_problem(conn, 415, ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)})
+  end
+
+  defp parse(conn, opts) do
     Plug.Parsers.call(conn, opts)
   rescue
     e in [
@@ -995,26 +1049,41 @@ defmodule ${appModule}Web.BodyParser do
       Plug.Parsers.RequestTooLargeError
     ] ->
       status = Plug.Exception.status(e)
-      title = Plug.Conn.Status.reason_phrase(status)
 
       # The exception message names the decoder and echoes the raw input, so it
       # is neither safe nor portable as a \`detail\`.  400 gets the one wording
       # every backend sends for this fault; the rest get the reason phrase.
-      detail = if status == 400, do: "Malformed JSON in request body", else: title
+      detail =
+        if status == 400,
+          do: "Malformed JSON in request body",
+          else: Plug.Conn.Status.reason_phrase(status)
 
-      body =
-        Jason.encode!(%{
-          type: "about:blank",
-          title: title,
-          status: status,
-          detail: detail,
-          instance: conn.request_path
-        })
-
+      # \`conn\` here is the one from BEFORE the parser ran: the adapter state
+      # the parser advanced while reading the body was lost with the raise.
+      # Left on a keep-alive connection, the server would then "drain" a body
+      # it already read — consuming the head of the client's NEXT request off
+      # the socket, which then arrives as \`OST /api/…\` and is refused.
+      # Closing the connection after this answer is the only state that is
+      # true whatever the parser had read.
       conn
-      |> Plug.Conn.put_resp_content_type("application/problem+json")
-      |> Plug.Conn.send_resp(status, body)
-      |> Plug.Conn.halt()
+      |> Plug.Conn.put_resp_header("connection", "close")
+      |> send_problem(status, detail)
+  end
+
+  defp send_problem(conn, status, detail) do
+    body =
+      Jason.encode!(%{
+        type: "about:blank",
+        title: Plug.Conn.Status.reason_phrase(status),
+        status: status,
+        detail: detail,
+        instance: conn.request_path
+      })
+
+    conn
+    |> Plug.Conn.put_resp_content_type("application/problem+json")
+    |> Plug.Conn.send_resp(status, body)
+    |> Plug.Conn.halt()
   end
 end
 `;
@@ -1585,7 +1654,7 @@ import_config "#{config_env()}.exs"
 `;
 }
 
-function renderVanillaDev(appName: string, appModule: string): string {
+function renderVanillaDev(appName: string, appModule: string, devPort: number): string {
   return `import Config
 
 # Honor DATABASE_URL when set (containerized dev + e2e harnesses point
@@ -1608,9 +1677,9 @@ else
 end
 
 config :${appName}, ${appModule}Web.Endpoint,
-  # PORT env var overrides the dev default so test harnesses + parallel
-  # dev workflows can avoid port collisions without editing this file.
-  http: [ip: {127, 0, 0, 1}, port: String.to_integer(System.get_env("PORT") || "4000")],
+  # The dev default is the deployable's declared port; PORT overrides it so
+  # test harnesses and parallel dev workflows avoid port collisions.
+  http: [ip: {127, 0, 0, 1}, port: String.to_integer(System.get_env("PORT") || "${devPort}")],
   check_origin: false,
   debug_errors: true,
   secret_key_base: "ZqJBpdEaAxQpgK0d63NydhxsP2VrZLgJ6mhJrShdWf6mYLRVy6Iuc1FdN5lW9bz9"

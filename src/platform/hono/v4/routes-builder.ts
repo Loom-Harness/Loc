@@ -3,7 +3,12 @@ import {
   serverSourcedDefaultFields,
 } from "../../../generator/_frontend/server-default.js";
 import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
-import { LONG_SAFE_MAX, LONG_SAFE_MIN } from "../../../generator/_numeric/codec.js";
+import {
+  INT32_MAX,
+  INT32_MIN,
+  LONG_SAFE_MAX,
+  LONG_SAFE_MIN,
+} from "../../../generator/_numeric/codec.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import { requestComponentNamer } from "../../../generator/_openapi/request-component-names.js";
@@ -97,9 +102,13 @@ import {
   findValidatesRequest,
   isAllFind,
   relativeOpPath,
+  servedOperations,
   staticSubpathMethods,
 } from "../../../ir/util/api-surface.js";
+import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
+import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { partsChildrenFirst } from "../../../ir/util/containment-parent.js";
+import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import {
   callerGates,
   lifecycleGates,
@@ -112,6 +121,7 @@ import {
 import {
   DANGLING_REFERENCE_DETAIL,
   problemTitle,
+  UNIQUE_CONFLICT_DETAIL,
   UNPROCESSABLE_ENTITY,
 } from "../../../ir/util/openapi-errors.js";
 import {
@@ -145,6 +155,8 @@ import {
   resolveErrorStatus,
 } from "../../../util/error-defaults.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import { INTEGER_RANGE_MESSAGE } from "../../../util/numeric-range.js";
+import { escapeTargetMember } from "../../../util/target-identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Hono routes file with OpenAPI annotations.
@@ -284,11 +296,12 @@ function emitHistoryRoute(
     );
   }
   if (find.requires) {
-    // Audit-history's 403 `detail` stays bare `Forbidden` for now: unlike the
-    // plain read gates below, the descriptive backends disagree on its LABEL
-    // (java/python `find history` vs elixir `history <Agg>`), so unifying it is
-    // #2540's audit-history mission, not this read-gate fix.
-    out.push(`    if (!(${renderTsExpr(find.requires)})) throw new ForbiddenError("Forbidden");`);
+    // The history read is the derived find `history`, so its 403 `detail` is
+    // the declared-find spelling `Forbidden: find <name>` — the same sentence
+    // every backend answers for this refusal.
+    out.push(
+      `    if (!(${renderTsExpr(find.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${find.name}`)});`,
+    );
   }
   // (2) above — capability scoping rides the entity read, because the audit
   // table has no tenant column of its own to filter on.
@@ -476,9 +489,9 @@ export function buildRoutesFile(
   // routes; an ES aggregate's create action is `agg.creates?.[0]`.  A named
   // create has no route, so only the route-driving action's flag matters.
   const auditedCreateAction =
-    agg.persistedAs === "eventLog" ? (agg.creates?.[0] ?? null) : (agg.canonicalCreate ?? null);
+    agg.persistedAs === "eventLog" ? (agg.creates?.[0] ?? null) : (canonicalCreate(agg) ?? null);
   const auditCreate = emitAudit && !!auditedCreateAction?.audited;
-  const auditDestroy = emitAudit && !!agg.canonicalDestroy?.audited;
+  const auditDestroy = emitAudit && !!canonicalDestroy(agg)?.audited;
   const fileHasAudit = auditOps.length > 0 || auditCreate || auditDestroy;
   // A provenanced write needs the same save+flush transaction: the
   // operation's `provenance_records` history rows must commit atomically
@@ -601,6 +614,7 @@ export function buildRoutesFile(
     // Needs the schema tables (runtime value), a UUID, and the db/events
     // types for the transactional repo (mirrors the workflow routes' imports).
     lines.push(`import { randomUUID } from "node:crypto";`);
+    if (fileHasAudit) lines.push(`import { auditActor } from "../audit/actor";`);
     if (usingMikro) {
       // MikroORM edition: `db` is the EntityManager and the history rows are
       // its Row entities (`em.insert(<Row>, …)`), so pull the entity classes +
@@ -697,9 +711,11 @@ export function buildRoutesFile(
   // derivation against, and that gate stayed non-tautological until four
   // independent implementations had agreed.  Kept local: schemas, handler
   // bodies, history + prepare (`apiSurfaceCoverage.notLifted`).
-  const derivedOps = deriveAggregateOperations(agg, repo, apiStatusContext(ctx));
+  // `servedOperations`: a slot an explicit `route` claims is served by that
+  // route's handler alone (D-EXPLICIT-ROUTE-WINS), so it is not registered here.
+  const derivedOps = servedOperations(deriveAggregateOperations(agg, repo, apiStatusContext(ctx)));
   const derivedCreate = derivedOps.find((o) => o.kind === "create");
-  const derivedGetById = derivedOps.find((o) => o.kind === "getById")!;
+  const derivedGetById = derivedOps.find((o) => o.kind === "getById");
   const derivedDestroy = derivedOps.find((o) => o.kind === "destroy");
   const derivedFindByIR = new Map(
     derivedOps.filter((o) => o.kind === "find").map((o) => [o.find, o]),
@@ -1016,7 +1032,8 @@ export function buildRoutesFile(
     lines.push(`      operationId: "${camelId(opCreate(agg.name))}",`);
     lines.push(`      request: {`);
     lines.push(
-      `        body: { content: { "application/json": { schema: ${reqNameFor({ kind: "create", aggregate: agg.name })} } } },`,
+      // RS-39 — a create with no input fields has an optional body.
+      `        body: { content: { "application/json": { schema: ${reqNameFor({ kind: "create", aggregate: agg.name })} } }${commandBodyOptional(createInputFields(agg)) ? ", required: false" : ""} },`,
     );
     lines.push(`      },`);
     lines.push(`      responses: {`);
@@ -1050,14 +1067,14 @@ export function buildRoutesFile(
     // the canonical create's `requires` gate, and ONE binding serves both.
     if (
       serverDefaulted.some((f) => !(f.default!.kind === "literal" && f.default!.lit === "now")) ||
-      lifecycleGatesUseCurrentUser(agg.canonicalCreate)
+      lifecycleGatesUseCurrentUser(canonicalCreate(agg))
     ) {
       lines.push(currentUserBindLine("      "));
     }
     // The gate runs BEFORE the factory — a create guard has no `this` to read,
     // and denying after construction would already have run the invariants and
     // (on an audited create) staged a row.
-    lines.push(...lifecycleGateLines(agg.canonicalCreate, "      "));
+    lines.push(...lifecycleGateLines(canonicalCreate(agg), "      "));
     // Wrap each wire-shape field into the typed factory argument (brand
     // ids, instantiate value objects).  Avoids `as never` and lets
     // strict tsc catch shape drift between Zod and the domain class.
@@ -1082,9 +1099,8 @@ export function buildRoutesFile(
       // transaction (mirrors the operation audit path).  Asymmetry: create
       // has no `before` (JSON null on the not-NULL column), `after` is the
       // freshly-created wire snapshot, keyed by the generated id.  Actor =
-      // the inbound claim via the untyped-key bridge (null when no auth).
-      const actorExpr = `(c as unknown as { get(k: "currentUser"): unknown }).get("currentUser") ?? null`;
-      lines.push(`      const actor = ${actorExpr};`);
+      // the principal's declared shape (`auditActor`, null when no auth).
+      lines.push(`      const actor = auditActor();`);
       lines.push(`      const reqCtx = requestContext();`);
       lines.push(`      const __deferred = deferredDispatcher(events);`);
       lines.push(`      await ${txWrapperCall(usingMikro)}`);
@@ -1211,69 +1227,86 @@ export function buildRoutesFile(
   }
 
   // Get by id.
-  lines.push(`  app.openapi(`);
-  lines.push(`    createRoute({`);
-  lines.push(`      method: "${derivedGetById.method}",`);
-  lines.push(`      path: "${honoPath(derivedGetById)}",`);
-  lines.push(`      tags: ["${snake(plural(agg.name))}"],`);
-  lines.push(`      operationId: "${camelId(opGetById(agg.name))}",`);
-  lines.push(`      request: { params: z.object({ id: UuidString }) },`);
-  lines.push(`      responses: {`);
-  lines.push(
-    `        200: { description: "OK", content: { "application/json": { schema: ${agg.name}Response } } },`,
-  );
-  lines.push(...problemResponseLines(derivedGetById, "        "));
-  lines.push(`      },`);
-  lines.push(`    }),`);
-  lines.push(`    async (c) => {`);
-  lines.push(`      const { id } = c.req.valid("param");`);
-  lines.push(`      const found = await repo.findById(Ids.${agg.name}Id(id));`);
-  // RS-27 — the 404-BY-ID `detail` is the sentence `"<Agg> <id> not found"` on
-  // every backend, and this route was the one place Hono answered a machine
-  // token instead.  The cause is structural, not cosmetic: the route reads
-  // through `repo.findById` (returns null) and raises its OWN error, bypassing
-  // `repo.getById`, whose throw already carries exactly this message
-  // (`typescript/repository-builder.ts`).  So the message is spelled to match
-  // what the bypassed producer would have said, which is also what
-  // python/java/elixir/.NET emit.  (An OPTIONAL FIND's 404 keeps the
-  // `"not_found"` token — that class agrees across backends already.)
-  lines.push(
-    `      if (!found) throw new AggregateNotFoundError(\`${agg.name} \${id} not found\`);`,
-  );
-  lines.push(...maskUserBind(agg, "      "));
-  // The ETag half of optimistic concurrency (`versioned`).  The update route
-  // has always READ `If-Match` — but nothing ever SENT an entity-tag, so the
-  // conditional-write path was undiscoverable: a client had no value to echo,
-  // and `expectedVersion` always fell back to the version the SERVER had just
-  // loaded, which defeats the whole point (the race being guarded against is
-  // one that happens across the user's think time, between this read and that
-  // write).  Publishing it here closes the loop: read → hold the tag → send it
-  // back on `If-Match` → get a real 409 if someone else won the race.
-  //
-  // A response header only, deliberately not declared in the `responses`
-  // block: the OpenAPI documents are compared BACKEND-TO-BACKEND by the
-  // conformance spec-diff, so declaring it on node alone would read as a
-  // contract divergence.  Declaring it belongs with emitting it on the other
-  // four backends, in one change.
-  if (aggregateIsVersioned(agg)) {
-    lines.push(`      c.header("etag", versionETag(found.version));`);
-  }
-  if (emitTrace) {
-    // toWire isn't trivial — bind once so it's not run twice between
-    // Object.keys and c.json.
-    lines.push(`      const out = ${wireResp(agg, "repo", "found")};`);
+  if (derivedGetById) {
+    lines.push(`  app.openapi(`);
+    lines.push(`    createRoute({`);
+    lines.push(`      method: "${derivedGetById.method}",`);
+    lines.push(`      path: "${honoPath(derivedGetById)}",`);
+    lines.push(`      tags: ["${snake(plural(agg.name))}"],`);
+    lines.push(`      operationId: "${camelId(opGetById(agg.name))}",`);
+    lines.push(`      request: { params: z.object({ id: UuidString }) },`);
+    lines.push(`      responses: {`);
     lines.push(
-      `      ${renderHonoLogCall("wireOut", "keys: Object.keys(out as Record<string, unknown>)")}`,
+      `        200: { description: "OK", content: { "application/json": { schema: ${agg.name}Response } } },`,
     );
-    lines.push(`      return c.json(out as z.infer<typeof ${agg.name}Response>, 200);`);
-  } else {
+    lines.push(...problemResponseLines(derivedGetById, "        "));
+    lines.push(`      },`);
+    lines.push(`    }),`);
+    lines.push(`    async (c) => {`);
+    lines.push(`      const { id } = c.req.valid("param");`);
+    // M-T3.19 — the author's `find byId(id: T id): T? requires <expr>` gates
+    // this route.  Evaluated BEFORE the load, so a refused caller gets 403 for
+    // an existing and a missing id alike (no existence oracle); same carrier and
+    // `detail` label as the find's own route (`emitFindRoute`).
+    const byIdFind = derivedGetById.find;
+    if (byIdFind?.requires) {
+      if (findGateUsesCurrentUser(byIdFind)) {
+        lines.push(
+          `      const currentUser = (c as unknown as { get(k: "currentUser"): import("../auth/user-types").User }).get("currentUser");`,
+        );
+      }
+      lines.push(
+        `      if (!(${renderTsExpr(byIdFind.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${byIdFind.name}`)});`,
+      );
+    }
+    lines.push(`      const found = await repo.findById(Ids.${agg.name}Id(id));`);
+    // RS-27 — the 404-BY-ID `detail` is the sentence `"<Agg> <id> not found"` on
+    // every backend, and this route was the one place Hono answered a machine
+    // token instead.  The cause is structural, not cosmetic: the route reads
+    // through `repo.findById` (returns null) and raises its OWN error, bypassing
+    // `repo.getById`, whose throw already carries exactly this message
+    // (`typescript/repository-builder.ts`).  So the message is spelled to match
+    // what the bypassed producer would have said, which is also what
+    // python/java/elixir/.NET emit.  (An OPTIONAL FIND's 404 keeps the
+    // `"not_found"` token — that class agrees across backends already.)
     lines.push(
-      `      return c.json(${wireResp(agg, "repo", "found")} as z.infer<typeof ${agg.name}Response>, 200);`,
+      `      if (!found) throw new AggregateNotFoundError(\`${agg.name} \${id} not found\`);`,
     );
+    lines.push(...maskUserBind(agg, "      "));
+    // The ETag half of optimistic concurrency (`versioned`).  The update route
+    // has always READ `If-Match` — but nothing ever SENT an entity-tag, so the
+    // conditional-write path was undiscoverable: a client had no value to echo,
+    // and `expectedVersion` always fell back to the version the SERVER had just
+    // loaded, which defeats the whole point (the race being guarded against is
+    // one that happens across the user's think time, between this read and that
+    // write).  Publishing it here closes the loop: read → hold the tag → send it
+    // back on `If-Match` → get a real 409 if someone else won the race.
+    //
+    // A response header only, deliberately not declared in the `responses`
+    // block: the OpenAPI documents are compared BACKEND-TO-BACKEND by the
+    // conformance spec-diff, so declaring it on node alone would read as a
+    // contract divergence.  Declaring it belongs with emitting it on the other
+    // four backends, in one change.
+    if (aggregateIsVersioned(agg)) {
+      lines.push(`      c.header("etag", versionETag(found.version));`);
+    }
+    if (emitTrace) {
+      // toWire isn't trivial — bind once so it's not run twice between
+      // Object.keys and c.json.
+      lines.push(`      const out = ${wireResp(agg, "repo", "found")};`);
+      lines.push(
+        `      ${renderHonoLogCall("wireOut", "keys: Object.keys(out as Record<string, unknown>)")}`,
+      );
+      lines.push(`      return c.json(out as z.infer<typeof ${agg.name}Response>, 200);`);
+    } else {
+      lines.push(
+        `      return c.json(${wireResp(agg, "repo", "found")} as z.infer<typeof ${agg.name}Response>, 200);`,
+      );
+    }
+    lines.push(`    },`);
+    lines.push(`  );`);
+    lines.push("");
   }
-  lines.push(`    },`);
-  lines.push(`  );`);
-  lines.push("");
 
   // Canonical destroy → DELETE /{id} (hard delete).  Gated on the IR
   // lifecycle: emitted only when the aggregate has an unnamed `destroy`
@@ -1303,7 +1336,7 @@ export function buildRoutesFile(
     lines.push(`    }),`);
     lines.push(`    async (c) => {`);
     lines.push(`      const { id } = c.req.valid("param");`);
-    const destroyGates = lifecycleGates(agg.canonicalDestroy);
+    const destroyGates = lifecycleGates(canonicalDestroy(agg));
     if (destroyGates.length > 0) {
       // GUARDED destroy — the row loads FIRST (a destroy guard may read `this`,
       // and the route loads anyway for the 404 probe), then the gate, then the
@@ -1316,17 +1349,17 @@ export function buildRoutesFile(
       // A principal-only gate reads no field of the row, so the load is not
       // BOUND there — it still runs (it is the 404 probe), it just has no
       // receiver to name.
-      const readsRow = lifecycleGatesReadRow(agg.canonicalDestroy);
+      const readsRow = lifecycleGatesReadRow(canonicalDestroy(agg));
       lines.push(
         readsRow
           ? `      const __loaded = await repo.getById(Ids.${agg.name}Id(id));`
           : `      await repo.getById(Ids.${agg.name}Id(id));`,
       );
-      if (lifecycleGatesUseCurrentUser(agg.canonicalDestroy)) {
+      if (lifecycleGatesUseCurrentUser(canonicalDestroy(agg))) {
         lines.push(currentUserBindLine("      "));
       }
       lines.push(
-        ...lifecycleGateLines(agg.canonicalDestroy, "      ", readsRow ? "__loaded" : undefined),
+        ...lifecycleGateLines(canonicalDestroy(agg), "      ", readsRow ? "__loaded" : undefined),
       );
     } else if (!auditDestroy) {
       // Non-audited: the not-found probe stays OUTSIDE the FK-violation
@@ -1341,10 +1374,8 @@ export function buildRoutesFile(
       // the row + deletion commit or roll back together (a failed delete
       // must not leave a spurious destroy record).  Asymmetry: `before` is
       // the last wire snapshot, `after` is JSON null (hard delete).  Actor
-      // = the inbound claim via the untyped-key bridge (null when no auth).
-      lines.push(
-        `        const actor = (c as unknown as { get(k: "currentUser"): unknown }).get("currentUser") ?? null;`,
-      );
+      // = the principal's declared shape (`auditActor`, null when no auth).
+      lines.push(`        const actor = auditActor();`);
       lines.push(`        const reqCtx = requestContext();`);
       lines.push(`        const __deferred = deferredDispatcher(events);`);
       lines.push(`        await ${txWrapperCall(usingMikro)}`);
@@ -1408,23 +1439,27 @@ export function buildRoutesFile(
 
   // Operations — the derived entries (public, non-canonical, in declaration
   // order), each carrying its path + resolved status set.
-  for (const [op, entry] of derivedOpByIR) {
-    lines.push(
-      ...emitOperationRoute(
-        agg,
-        op!,
-        ctx,
-        entry,
-        reqNameFor({ kind: "operation", aggregate: agg.name, operation: op!.name }),
-        auditOps.includes(op!),
-        provOps.includes(op!),
-        emitTrace,
-        usingMikro,
-      ).map((l) => `  ${l}`),
-    );
+  // Keyed on the operation OR its probe: an explicit route can claim one of the
+  // pair and leave the other to this router.
+  for (const op of new Set([...derivedOpByIR.keys(), ...derivedProbeByIR.keys()])) {
+    const entry = derivedOpByIR.get(op);
+    if (entry)
+      lines.push(
+        ...emitOperationRoute(
+          agg,
+          op!,
+          ctx,
+          entry,
+          reqNameFor({ kind: "operation", aggregate: agg.name, operation: op!.name }),
+          auditOps.includes(op!),
+          provOps.includes(op!),
+          emitTrace,
+          usingMikro,
+        ).map((l) => `  ${l}`),
+      );
     const probe = derivedProbeByIR.get(op);
     if (probe) {
-      lines.push("");
+      if (entry) lines.push("");
       lines.push(...emitCanOpRoute(agg, op!, probe, emitTrace).map((l) => `  ${l}`));
     }
     lines.push("");
@@ -1593,7 +1628,7 @@ export function buildRoutesFile(
     );
     lines.push(`      recordDomainFault("disallowed");`);
     lines.push(
-      `      return problem(${uniquenessStatus}, "Conflict", \`A ${agg.name} with these values already exists.\`);`,
+      `      return problem(${uniquenessStatus}, "Conflict", ${JSON.stringify(UNIQUE_CONFLICT_DETAIL)});`,
     );
     lines.push(`    }`);
   }
@@ -1803,7 +1838,7 @@ function whenGateLine(agg: AggregateIR, op: OperationIR, pad: string): string[] 
   const pred = renderTsExpr(op.when, { thisName: "aggregate" });
   return [
     `${pad}if (!(${pred})) throw new DisallowedError(${JSON.stringify(
-      `operation '${op.name}' is not allowed in the current state of ${agg.name}.`,
+      disallowedDetail(op.name, agg.name, op.whenSource),
     )});`,
   ];
 }
@@ -1870,20 +1905,16 @@ function auditProvTxLines(args: {
   audit: boolean;
   prov: boolean;
   usingMikro: boolean;
-  usesUser: boolean;
   isVersionedUpdate: boolean;
   mutation: (pad: string) => string[];
   capture?: boolean;
 }): string[] {
-  const { agg, op, ctx, audit, prov, usingMikro, usesUser, isVersionedUpdate, mutation } = args;
+  const { agg, op, ctx, audit, prov, usingMikro, isVersionedUpdate, mutation } = args;
   const out: string[] = [];
   if (audit) {
-    // Actor = the typed currentUser if the body already reads it, else
-    // the inbound claim via the untyped-key bridge (null when no auth).
-    const actorExpr = usesUser
-      ? "currentUser"
-      : `(c as unknown as { get(k: "currentUser"): unknown }).get("currentUser") ?? null`;
-    out.push(`    const actor = ${actorExpr};`);
+    // Actor = the principal's declared shape (`auditActor`, null when no
+    // auth) — never the principal object itself, which can carry more.
+    out.push(`    const actor = auditActor();`);
   }
   // The request correlation id + frame scope id stamped onto every audit /
   // provenance row, tying each to the request (and its causality position)
@@ -2017,7 +2048,10 @@ function emitOperationRoute(
   out.push(`    operationId: "${camelId(opOperation(agg.name, op.name))}",`);
   out.push(`    request: {`);
   out.push(`      params: z.object({ id: UuidString }),`);
-  out.push(`      body: { content: { "application/json": { schema: ${reqName} } } },`);
+  // RS-39 — a parameterless command's body is optional (an empty one reads as `{}`).
+  out.push(
+    `      body: { content: { "application/json": { schema: ${reqName} } }${commandBodyOptional(op.params) ? ", required: false" : ""} },`,
+  );
   out.push(`    },`);
   out.push(`    responses: {`);
   out.push(`      204: { description: "No content" },`);
@@ -2079,7 +2113,7 @@ function emitOperationRoute(
   // so the operation method itself runs preconditions → hook → invariants —
   // the route calls it exactly like a non-extern op.
   const mutation = (pad: string): string[] => [
-    `${pad}aggregate.${lowerFirst(op.name)}(${callArgs});`,
+    `${pad}aggregate.${escapeTargetMember("ts", lowerFirst(op.name))}(${callArgs});`,
   ];
 
   if (!audit && !prov) {
@@ -2115,7 +2149,6 @@ function emitOperationRoute(
         audit,
         prov,
         usingMikro,
-        usesUser,
         isVersionedUpdate,
         mutation,
       }),
@@ -2192,7 +2225,10 @@ function emitReturningOperationRoute(
   out.push(`    operationId: "${camelId(opOperation(agg.name, op.name))}",`);
   out.push(`    request: {`);
   out.push(`      params: z.object({ id: UuidString }),`);
-  out.push(`      body: { content: { "application/json": { schema: ${reqName} } } },`);
+  // RS-39 — a parameterless command's body is optional (an empty one reads as `{}`).
+  out.push(
+    `      body: { content: { "application/json": { schema: ${reqName} } }${commandBodyOptional(op.params) ? ", required: false" : ""} },`,
+  );
   out.push(`    },`);
   out.push(`    responses: {`);
   // 200 declares the tagged success arms; the error arms are intercepted
@@ -2238,13 +2274,12 @@ function emitReturningOperationRoute(
         audit,
         prov,
         usingMikro,
-        usesUser,
         // A returning `update` does not take the `If-Match` precondition path —
         // the void handler owns the canonical crudish update; a hand-declared
         // returning op of the same name keeps the write-time CAS fallback.
         isVersionedUpdate: false,
         mutation: (pad) => [
-          `${pad}const __result = aggregate.${lowerFirst(op.name)}(${callArgs});`,
+          `${pad}const __result = aggregate.${escapeTargetMember("ts", lowerFirst(op.name))}(${callArgs});`,
         ],
         capture: true,
       }),
@@ -2255,7 +2290,9 @@ function emitReturningOperationRoute(
     out.push(...whenGateLine(agg, op, "    "));
     // Lifecycle stamps are applied persist-time in the drizzle save()
     // — the handler does not stamp.
-    out.push(`    const result = aggregate.${lowerFirst(op.name)}(${callArgs});`);
+    out.push(
+      `    const result = aggregate.${escapeTargetMember("ts", lowerFirst(op.name))}(${callArgs});`,
+    );
     out.push(`    await repo.save(aggregate);`);
   }
   // Translate each error variant to a ProblemDetails before the success path.
@@ -2577,6 +2614,13 @@ function emitResponseDtoSchema(
 const BODY_DATETIME =
   "z.string().datetime({ offset: true, local: true }).transform((s: string) => new Date(s))";
 
+/** An ISO-8601 calendar DATE (`2026-01-01`) — no time, no offset.  It stays the
+ *  string it arrived as (the domain holds the same text), so no client zone can
+ *  move it.  `.date()` refuses a non-date (`2026-02-30`, `2026-01-01T00:00Z`) as
+ *  the typed 422 rather than letting Postgres answer 500, and publishes
+ *  `format: date`.  The same schema serves a body, query and path value. */
+const BODY_DATE = "z.string().date()";
+
 /** A query-string / path-segment `bool`, parsed from its four legal textual
  *  spellings.
  *
@@ -2591,7 +2635,7 @@ const BODY_DATETIME =
  *  `preprocess` rather than `z.enum([...]).transform(...)` because the
  *  published declaration has to stay `{"type":"boolean"}` — the cross-backend
  *  spec diff compares it against four other backends that declare a boolean
- *  query param as a boolean.  Verified on BOTH pinned majors: zod 3 +
+ *  query param as a boolean.  Verified on both zod majors: zod 3 +
  *  `@hono/zod-openapi@0.19` and zod 4 + `@hono/zod-openapi@1` each publish
  *  `{"type":"boolean"}` for this chain, and `v` infers as `unknown` from
  *  `preprocess`'s own signature under `--strict` on both (and the coercion's spurious
@@ -2652,7 +2696,11 @@ const NO_NUL = '.refine((s: string) => !s.includes("\\u0000"))';
  *  are deliberately not matched here. */
 const PLAIN_STRING_BASE = "z.string()";
 
-const INT32_RANGE = ".min(-2147483648).max(2147483647)";
+/** The bound carries the cross-backend range sentence (RS-42) rather than
+ *  zod's own text, which is both framework-worded and zod-major-specific
+ *  ("Too big: expected number to be <=…" on 4, "Number must be less than or
+ *  equal to …" on 3). */
+const INT32_RANGE = `.min(${INT32_MIN}, ${JSON.stringify(INTEGER_RANGE_MESSAGE)}).max(${INT32_MAX}, ${JSON.stringify(INTEGER_RANGE_MESSAGE)})`;
 /** `long`'s enforced-but-unpublished safe-integer bound — see the block comment
  *  above.  A `.refine` is invisible to the OpenAPI emitter, so the published
  *  shape stays the plain integer every other backend publishes while this
@@ -2674,6 +2722,7 @@ const QUERY_PRIMITIVE: Record<WirePrimitive, string> = {
   string: "z.string()",
   bool: QUERY_BOOL,
   datetime: "z.coerce.date()",
+  date: BODY_DATE,
   guid: "z.string()",
   json: "z.unknown()",
   File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
@@ -2687,6 +2736,7 @@ const BODY_PRIMITIVE: Record<WirePrimitive, string> = {
   string: "z.string()",
   bool: "z.boolean()",
   datetime: BODY_DATETIME,
+  date: BODY_DATE,
   guid: "z.string()",
   json: "z.unknown()",
   File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
@@ -2700,6 +2750,7 @@ const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
   string: "z.string()",
   bool: "z.boolean()",
   datetime: "z.string()",
+  date: "z.string()",
   guid: "z.string()",
   json: "z.unknown()",
   File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
@@ -3029,13 +3080,11 @@ export function emitWireSchema(
       }
     }
     // The NUL guard goes on LAST of the checks, after any declared regex or
-    // length bound.  Under zod 3 — which the `node@v4` lane still pins —
-    // `.refine()` returns a `ZodEffects` WRAPPER that no longer exposes
-    // `.regex`/`.min`/`.max`, so a guard in the BASE would make
-    // `z.string().refine(…).regex(/…/)` a type error in every generated project
-    // on that lane. (zod 4 keeps the `ZodString` type through `.refine`, so on
-    // v5 the position is a no-op — the emitter orders for the stricter of the
-    // two, exactly as `orderSingleFieldPatterns` already does.)
+    // length bound, matching `orderSingleFieldPatterns`.  zod 4 (the Hono
+    // pin) keeps the `ZodString` type through `.refine`, so the position is
+    // free there; under zod 3 `.refine()` returns a `ZodEffects` WRAPPER with
+    // no `.regex`/`.min`/`.max`, and the shared zod-refine helpers still order
+    // for that stricter major.
     if (isPlainString) schema = `${schema}${NO_NUL}`;
     // `.default(...)` / `.optional()` last: each wraps the (now constrained)
     // schema in a ZodDefault / ZodOptional, so any `.min`/`.max` must already

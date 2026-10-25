@@ -46,10 +46,17 @@ import {
   classifyFelizAsyncEffect,
   type FelizAsyncEffectShape,
 } from "../../ir/util/feliz-async-effect.js";
+import {
+  felizFindArgRefResolvable,
+  felizFindParamSupported,
+  felizFindReturnDecodable,
+} from "../../ir/util/feliz-find-read.js";
 import { typeIsFile } from "../../ir/util/file-field.js";
 import { type PageNameCtx, pageEmitName } from "../../ir/util/page-kind.js";
 import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import { projectionReadShape } from "../../ir/util/projection-read.js";
+import { walkExprChildren } from "../../ir/util/walk.js";
+import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
 import { lines } from "../../util/code-builder.js";
@@ -394,6 +401,23 @@ const FIND_UNSUPPORTED_HINT =
  *  something no backend parses. */
 function findParamQueryValue(t: TypeIR, aggregate: string, findName: string, name: string): string {
   const base = t.kind === "optional" ? t.inner : t;
+  // `felizFindParamSupported` is the validator's half of this contract
+  // (`loom.ui-body-feature-unsupported`, feature `find-read-composite-param`);
+  // asking it first means a type the gate admits but the switch below cannot
+  // spell still fails here, loudly, instead of emitting a value no backend parses.
+  const spelling = felizFindParamSupported(t) ? scalarQuerySpelling(base, name) : undefined;
+  if (spelling !== undefined) return spelling;
+  throw new Error(
+    `feliz: repository find '${aggregate}.${findName}' has a parameter '${name}' of an ` +
+      `unsupported type (${base.kind}${base.kind === "primitive" ? ` ${base.name}` : ""}) — ` +
+      `${FIND_UNSUPPORTED_HINT} Give the find a scalar parameter, or drop the read from ` +
+      `the Feliz ui.`,
+  );
+}
+
+/** The F# query-string spelling of a scalar find parameter, or undefined when
+ *  the type has none. */
+function scalarQuerySpelling(base: TypeIR, name: string): string | undefined {
   switch (base.kind) {
     case "primitive":
       switch (base.name) {
@@ -411,6 +435,8 @@ function findParamQueryValue(t: TypeIR, aggregate: string, findName: string, nam
           return `(if ${name} then "true" else "false")`;
         case "datetime":
           return `(${name}.ToString("o"))`;
+        // A `date` is already its `YYYY-MM-DD` wire text on this frontend.
+        case "date":
         case "string":
         case "guid":
         case "json":
@@ -426,12 +452,7 @@ function findParamQueryValue(t: TypeIR, aggregate: string, findName: string, nam
     default:
       break;
   }
-  throw new Error(
-    `feliz: repository find '${aggregate}.${findName}' has a parameter '${name}' of an ` +
-      `unsupported type (${base.kind}${base.kind === "primitive" ? ` ${base.name}` : ""}) — ` +
-      `${FIND_UNSUPPORTED_HINT} Give the find a scalar parameter, or drop the read from ` +
-      `the Feliz ui.`,
-  );
+  return undefined;
 }
 
 /** Build the `FelizRead` for a user-declared repository find of `aggregate`.
@@ -465,8 +486,7 @@ export function felizFindRead(
   // `Doc paged` carries the AGGREGATE as its argument (the envelope supplies the
   // collection), so a paged find is list-shaped whatever `arg` says.
   const listShaped = paged !== null || inner.kind === "array";
-  const elem = inner.kind === "array" ? inner.element : inner;
-  if (elem.kind !== "entity" || upperFirst(elem.name) !== agg) {
+  if (!felizFindReturnDecodable(find, aggregate)) {
     throw new Error(
       `feliz: repository find '${agg}.${find.name}' returns a shape the Feliz frontend ` +
         `cannot decode (${find.returnType.kind}) — ${FIND_UNSUPPORTED_HINT} Declare the ` +
@@ -723,7 +743,14 @@ export function felizDeleteMutation(aggregate: string): FelizMutation {
  *  file is not typeable, so that one cell holds the uploaded `FileRef option`
  *  the multipart `POST /files` returned (the encoder ships the object verbatim,
  *  never a string). */
-export type FelizInputKind = "text" | "number" | "checkbox" | "select" | "idselect" | "file";
+export type FelizInputKind =
+  | "text"
+  | "number"
+  | "checkbox"
+  | "select"
+  | "idselect"
+  | "file"
+  | "date";
 
 /** One field of a create form — an F# form-record field (string-typed, bound to
  *  an `Html.input`), its `Set<Form><Field>` update `Msg`, the Thoth encoder
@@ -1093,7 +1120,9 @@ export function felizAction(aggregate: string, op: OperationIR): FelizAction {
   return {
     aggregate,
     op: op.name,
-    apiFn: `${op.name}${upperFirst(aggregate)}`,
+    // `…Action`: an `OperationForm` over the same op declares
+    // `Api.<op><Agg>` with its own (form-taking) signature.
+    apiFn: `${op.name}${upperFirst(aggregate)}Action`,
     triggerMsg: opCap,
     doneMsg: `${opCap}Done`,
     route: `${API_BASE_PATH}/${snake(plural(aggregate))}`,
@@ -1132,6 +1161,10 @@ function inputKindFor(
         return "number";
       case "bool":
         return "checkbox";
+      // A calendar `date` renders a date picker; its string value is already
+      // the wire's `YYYY-MM-DD`, so the form cell and the encoder stay strings.
+      case "date":
+        return "date";
       // A `File` is not typeable: it renders a file picker whose pick uploads
       // (multipart POST /files) and whose RESULT — the `FileRef` — is what the
       // form submits.  Without this arm the field fell to `text` and encoded
@@ -1632,56 +1665,14 @@ export function idLabelsFrom(aggregates: Iterable<AggregateIR>): Map<string, str
 // Read collection — scan a page body for the `.all` query sites its view issues
 // ---------------------------------------------------------------------------
 
-/** Direct child expressions of `e` (expression positions only — lambda-block
- *  statements are action bodies, never a `QueryView` host, so they're skipped). */
+/** Direct child expressions of `e`, from the shared `never`-checked walker —
+ *  every expression slot, including each `match` arm (where a scaffolded filter
+ *  bar hosts both of its reads).  Lambda-block statements are action bodies,
+ *  never a read or form host, so the statement channel is not followed. */
 function exprChildren(e: ExprIR): ExprIR[] {
-  switch (e.kind) {
-    case "member":
-      return [e.receiver];
-    case "method-call":
-      return [e.receiver, ...e.args];
-    case "call":
-      return e.args;
-    case "lambda":
-      return e.body ? [e.body] : [];
-    case "object":
-    case "new":
-      return e.fields.map((f) => f.value);
-    case "list":
-      return e.elements;
-    case "paren":
-      return [e.inner];
-    case "unary":
-      return [e.operand];
-    case "binary":
-      return [e.left, e.right];
-    case "ternary":
-      return [e.cond, e.then, e.otherwise];
-    case "convert":
-      return [e.value];
-    // A `match` hosts read-bearing children in EVERY arm — which is exactly the
-    // shape a scaffolded filter bar emits: the `QueryView` over the filter find
-    // sits in an arm and the unfiltered `.all` view sits in `otherwise`.  With
-    // no arm here the walk stopped at the `match` node, so BOTH reads were
-    // missed and the emitted view named `model.<Field>`s the Model never
-    // declared, `init` never seeded and no `Cmd` ever filled.
-    case "match":
-      return [
-        ...(e.subject ? [e.subject] : []),
-        ...e.arms.flatMap((a) => [a.cond, a.value]),
-        ...e.variantArms.map((a) => a.value),
-        ...(e.otherwise ? [e.otherwise] : []),
-      ];
-    // Transparent wrappers — descend so a read never hides behind one.
-    case "i18nFormat":
-      return [e.inner];
-    case "duration":
-      return [e.amount];
-    // `literal` / `this` / `id` / `ref` / `action-ref` / `authz-filter` carry no
-    // expression children at all.
-    default:
-      return [];
-  }
+  const out: ExprIR[] = [];
+  walkExprChildren(e, { expr: (c) => out.push(c) });
+  return out;
 }
 
 /** Every READ-BEARING `of:` argument in a page body, in tree order.
@@ -1974,9 +1965,7 @@ function assertFindArgsRenderable(
   const findName = read.find?.name ?? "";
   const walk = (e: ExprIR): void => {
     if (e.kind === "ref") {
-      const resolvable =
-        e.refKind === "store-field" || e.refKind === "enum-value" || stateNames.has(e.name);
-      if (!resolvable) {
+      if (!felizFindArgRefResolvable(e, stateNames)) {
         throw new Error(
           `feliz: the argument '${e.name}' passed to repository find ` +
             `'${upperFirst(aggregate)}.${findName}' is not resolvable where the Feliz ` +
@@ -2183,6 +2172,18 @@ function singleQueryAggregate(ofArg: ExprIR, aggNames: ReadonlySet<string>): str
   return name && aggNames.has(name) ? name : undefined;
 }
 
+/** The aggregate a LIST QueryView reads, from a bare `<handle>.<Agg>.all` /
+ *  `<Agg>.all` chain (the verb is the last member, the aggregate the one before
+ *  it) — the shape `singleQueryAggregate` reads one hop too shallow. */
+function listQueryAggregate(ofArg: ExprIR, aggNames: ReadonlySet<string>): string | undefined {
+  const recv = ofArg.kind === "method-call" ? ofArg.receiver : ofArg;
+  if (recv.kind !== "member") return undefined;
+  const owner = recv.receiver;
+  const name =
+    owner.kind === "member" ? owner.member : owner.kind === "ref" ? owner.name : undefined;
+  return name && aggNames.has(name) ? name : undefined;
+}
+
 /** Collect the one-click actions a page hosts (`Action { <instance>.<op> }`),
  *  deduped by trigger `Msg`.  Resolution is bounded to the shape the walker can
  *  type: an `Action` inside the `data:` lambda of a single-record (byId)
@@ -2198,26 +2199,61 @@ export function collectPageActions(
   if (!page.body) return [];
   const aggNames = new Set(aggregatesByName.keys());
   const out: FelizAction[] = [];
-  // Walk carrying `binding`: single-QueryView data-lambda param → aggregate name
-  // (the render-time `ctx.paramTypes` twin).
-  const walk = (e: ExprIR, binding: ReadonlyMap<string, string>): void => {
+  // Walk carrying `binding`: an in-scope record → its aggregate name — a
+  // single-QueryView data-lambda param (the render-time `ctx.paramTypes` twin)
+  // or the ROW param of a `Table` column / `For` lambda over a list QueryView's
+  // rows (the render-time `ctx.listRowAggregates` twin).  `lists` maps a list
+  // QueryView's data param to the aggregate its rows are.
+  const walk = (
+    e: ExprIR,
+    binding: ReadonlyMap<string, string>,
+    lists: ReadonlyMap<string, string> = new Map(),
+    rowAgg?: string,
+  ): void => {
+    if (e.kind === "lambda" && rowAgg) {
+      if (e.body) walk(e.body, new Map([...binding, [e.param, rowAgg]]), lists);
+      return;
+    }
     if (e.kind === "call" && e.name === "QueryView") {
       const names = e.argNames ?? [];
       const ofArg = names.indexOf("of") >= 0 ? e.args[names.indexOf("of")] : undefined;
       const single = isSingleQueryView(e, shapeCtx);
       const dataArg = names.indexOf("data") >= 0 ? e.args[names.indexOf("data")] : undefined;
-      const agg = single && ofArg ? singleQueryAggregate(ofArg, aggNames) : undefined;
-      // The data lambda's param binds to the queried aggregate; other args walk
-      // under the ambient binding.
+      const queried = ofArg
+        ? (singleQueryAggregate(ofArg, aggNames) ?? listQueryAggregate(ofArg, aggNames))
+        : undefined;
+      // The data lambda's param binds to the queried aggregate (a record), or
+      // names its rows (a list); other args walk under the ambient binding.
       for (let i = 0; i < e.args.length; i++) {
         const arg = e.args[i]!;
-        if (arg === dataArg && arg.kind === "lambda" && arg.body && agg) {
-          walk(arg.body, new Map([...binding, [arg.param, agg]]));
+        if (arg === dataArg && arg.kind === "lambda" && arg.body && queried && single) {
+          walk(arg.body, new Map([...binding, [arg.param, queried]]), lists);
+        } else if (arg === dataArg && arg.kind === "lambda" && arg.body && queried) {
+          walk(arg.body, binding, new Map([...lists, [arg.param, queried]]));
         } else {
-          walk(arg, binding);
+          walk(arg, binding, lists);
         }
       }
       return;
+    }
+    if (e.kind === "call" && (e.name === "Table" || e.name === "For")) {
+      // The row lambdas (a `Column`'s accessor, the `For` item) bind their
+      // param to the aggregate the collection's rows are — `rows` or the
+      // server-paged envelope's `rows.items`.
+      const names = e.argNames ?? [];
+      const collIdx = names.indexOf(e.name === "Table" ? "rows" : "each");
+      const coll = collIdx >= 0 ? e.args[collIdx] : undefined;
+      const collRef =
+        coll?.kind === "ref"
+          ? coll.name
+          : coll?.kind === "member" && coll.member === "items" && coll.receiver.kind === "ref"
+            ? coll.receiver.name
+            : undefined;
+      const rows = collRef ? lists.get(collRef) : undefined;
+      if (rows) {
+        for (const arg of e.args) walk(arg, binding, lists, rows);
+        return;
+      }
     }
     if (e.kind === "call" && e.name === "Action") {
       const opRef = (e.args ?? []).find((a) => !(e.argNames ?? [])[e.args.indexOf(a)]);
@@ -2235,7 +2271,7 @@ export function collectPageActions(
       }
       return;
     }
-    for (const c of exprChildren(e)) walk(c, binding);
+    for (const c of exprChildren(e)) walk(c, binding, lists, rowAgg);
   };
   walk(page.body, new Map());
   return out;
@@ -2560,7 +2596,8 @@ export function collectPageWorkflowForms(
   const seen = new Set<string>();
   for (const wfName of workflowFormRuns(page.body, nameSet)) {
     const wf = workflowsByName.get(wfName);
-    if (!wf) continue;
+    // An event-only saga has no command route (`emitsCommandRoute`) — no api fn.
+    if (!wf || !emitsCommandRoute(wf)) continue;
     const form = felizWorkflowForm(wf, enumsByName, idLabels, vosByName);
     if (seen.has(form.formType)) continue;
     seen.add(form.formType);
@@ -3441,11 +3478,73 @@ function renderMutationFn(m: FelizMutation): (string | undefined)[] {
   ];
 }
 
+/** The `<Form>Server: ServerErrors` Model field holding a form's last rejected
+ *  submit, decoded (`renderServerErrorsModule`). */
+export function formServerField(formField: string): string {
+  return `${formField}Server`;
+}
+
+/** The key a form field's server error is filed under: the dot-path of the JSON
+ *  pointer a 422 names it with (`/price/amount` → `price.amount`). */
+export function formFieldServerKey(fld: FelizFormField): string {
+  return fld.objectKey ? `${fld.objectKey}.${fld.jsonKey}` : fld.jsonKey;
+}
+
+/** The `ServerErrors` type + decoder every submit (create / operation / workflow
+ *  form) fails with.  A non-2xx answer is the backend's RFC 7807 ProblemDetails:
+ *  each `errors[]` entry whose JSON pointer names a field is filed under the
+ *  field's dot-path — the form renders it at that field — and a pointer-less
+ *  entry, or the problem's `detail`/`title` when there is no `errors[]`, is the
+ *  form-level message.  The F# twin of the React projects'
+ *  `apply-server-errors.ts`. */
+export function renderServerErrorsModule(): string {
+  return lines(
+    "/// A rejected submit, decoded from the backend's RFC 7807 ProblemDetails:",
+    "/// field messages keyed by the dot-path of the JSON pointer naming the field,",
+    "/// and the form-level message.",
+    "type ServerErrors = { Fields: Map<string, string>; Form: string option }",
+    "",
+    "module ServerErrors =",
+    "  let empty : ServerErrors = { Fields = Map.empty; Form = None }",
+    "",
+    "  let formLevel (message: string) : ServerErrors = { Fields = Map.empty; Form = Some message }",
+    "",
+    '  /// A JSON pointer (RFC 6901) as a dot-path; "" for the whole document.',
+    "  let pointerToPath (pointer: string) : string =",
+    '    if pointer.StartsWith "/" then',
+    '      pointer.Substring(1).Split([| \'/\' |]) |> Array.map (fun seg -> seg.Replace("~1", "/").Replace("~0", "~")) |> String.concat "."',
+    "    else",
+    "      pointer",
+    "",
+    "  let private entry : Decoder<string * string> =",
+    '    Decode.object (fun get -> (get.Optional.Field "pointer" Decode.string |> Option.defaultValue ""), get.Required.Field "message" Decode.string)',
+    "",
+    "  let private problemMessage : Decoder<string option> =",
+    "    Decode.object (fun get ->",
+    '      match get.Optional.Field "detail" Decode.string with',
+    '      | Some d when d <> "" -> Some d',
+    '      | _ -> get.Optional.Field "title" Decode.string)',
+    "",
+    "  /// Decode a non-2xx response body.",
+    "  let ofResponse (status: int) (body: string) : ServerErrors =",
+    '    match Decode.fromString (Decode.field "errors" (Decode.list entry)) body with',
+    "    | Ok entries when not (List.isEmpty entries) ->",
+    '      let placed = entries |> List.filter (fun (p, _) -> pointerToPath p <> "") |> List.map (fun (p, m) -> pointerToPath p, m)',
+    '      let unplaced = entries |> List.tryFind (fun (p, _) -> pointerToPath p = "") |> Option.map snd',
+    "      { Fields = Map.ofList placed; Form = unplaced }",
+    "    | _ ->",
+    "      match Decode.fromString problemMessage body with",
+    '      | Ok (Some message) when message <> "" -> formLevel message',
+    '      | _ -> formLevel (sprintf "HTTP %d" status)',
+  );
+}
+
 /** One async create function — `POST /api/<agg>` with the Thoth-encoded form
- *  body; a 2xx decodes the created record, anything else is an error. */
+ *  body; a 2xx decodes the created record, anything else is the decoded
+ *  rejection (`ServerErrors`). */
 function renderCreateFn(f: FelizForm): (string | undefined)[] {
   return [
-    `  let ${f.apiFn} (form: ${f.formType}) : Async<Result<${f.resultType}, string>> =`,
+    `  let ${f.apiFn} (form: ${f.formType}) : Async<Result<${f.resultType}, ServerErrors>> =`,
     "    async {",
     `      let body = Encode.toString 0 (Encoders.${f.encoderFn} form)`,
     "      let! response =",
@@ -3457,9 +3556,9 @@ function renderCreateFn(f: FelizForm): (string | undefined)[] {
     "      if response.statusCode = 200 || response.statusCode = 201 then",
     `        match Decode.fromString ${f.decoderExpr} response.responseText with`,
     "        | Ok created -> return Ok created",
-    "        | Error e -> return Error e",
+    "        | Error e -> return Error (ServerErrors.formLevel e)",
     "      else",
-    '        return Error (sprintf "HTTP %d" response.statusCode)',
+    "        return Error (ServerErrors.ofResponse response.statusCode response.responseText)",
     "    }",
   ];
 }
@@ -3481,7 +3580,7 @@ function renderOperationFn(f: FelizOperationForm): (string | undefined)[] {
   // `None` sends no header (the server then guards against its own load).
   const versionParam = f.ifMatch ? " (ifMatch: string option)" : "";
   return [
-    `  let ${f.apiFn} (id: string)${versionParam} ${hasForm ? `(form: ${f.formType})` : "()"} : Async<Result<unit, string>> =`,
+    `  let ${f.apiFn} (id: string)${versionParam} ${hasForm ? `(form: ${f.formType})` : "()"} : Async<Result<unit, ServerErrors>> =`,
     "    async {",
     hasForm
       ? `      let body = Encode.toString 0 (Encoders.${f.encoderFn} form)`
@@ -3498,7 +3597,7 @@ function renderOperationFn(f: FelizOperationForm): (string | undefined)[] {
     "      if response.statusCode = 200 || response.statusCode = 204 then",
     "        return Ok ()",
     "      else",
-    '        return Error (sprintf "HTTP %d" response.statusCode)',
+    "        return Error (ServerErrors.ofResponse response.statusCode response.responseText)",
     "    }",
   ];
 }
@@ -3517,7 +3616,7 @@ export function wfHasForm(f: FelizWorkflowForm): boolean {
 function renderWorkflowFn(f: FelizWorkflowForm): (string | undefined)[] {
   const hasForm = wfHasForm(f);
   return [
-    `  let ${f.apiFn} ${hasForm ? `(form: ${f.formType})` : "()"} : Async<Result<unit, string>> =`,
+    `  let ${f.apiFn} ${hasForm ? `(form: ${f.formType})` : "()"} : Async<Result<unit, ServerErrors>> =`,
     "    async {",
     hasForm
       ? `      let body = Encode.toString 0 (Encoders.${f.encoderFn} form)`
@@ -3531,7 +3630,7 @@ function renderWorkflowFn(f: FelizWorkflowForm): (string | undefined)[] {
     "      if response.statusCode = 200 || response.statusCode = 204 then",
     "        return Ok ()",
     "      else",
-    '        return Error (sprintf "HTTP %d" response.statusCode)',
+    "        return Error (ServerErrors.ofResponse response.statusCode response.responseText)",
     "    }",
   ];
 }
@@ -3963,6 +4062,9 @@ export function renderViewModule(
   hasIdSelect = false,
   hasFieldErrors = false,
   hasChart = false,
+  /** True when the page has a submitting form: its rejected submit's
+   *  `ServerErrors` render through `serverError` / `serverFormError`. */
+  hasServerErrors = false,
 ): string {
   // Which matcher a read needs is a question about its RESULT SHAPE, and
   // `listShaped` is the one field that answers it — `single` cannot, because it
@@ -3982,6 +4084,23 @@ export function renderViewModule(
     // screen reader announces the message with the field (a11y).
     '    | true, Some e -> Html.p [ prop.id fieldId; prop.className "text-error text-sm mt-1"; prop.text e ]',
     "    | _ -> Html.none",
+  ];
+  // A rejected submit's messages (`ServerErrors`): one at the field its JSON
+  // pointer named, the rest above the submit.  Announced as alerts — they
+  // appear after the user acted, not while they type.
+  const serverError = [
+    "  let serverError (errs: ServerErrors) (path: string) (testid: string) : ReactElement =",
+    "    match Map.tryFind path errs.Fields with",
+    '    | Some m -> Html.p [ prop.custom("data-testid", testid); prop.role "alert"; prop.className "text-error text-sm mt-1"; prop.text m ]',
+    "    | None -> Html.none",
+    "",
+    // The form-level slot also takes a field message whose pointer names no
+    // field the form renders (`rendered`), so no rejection goes unseen.
+    "  let serverFormError (errs: ServerErrors) (rendered: string list) (testid: string) : ReactElement =",
+    "    let stray = errs.Fields |> Map.toList |> List.tryFind (fun (k, _) -> not (List.contains k rendered)) |> Option.map snd",
+    "    match (match errs.Form with Some m -> Some m | None -> stray) with",
+    '    | Some m -> Html.div [ prop.custom("data-testid", testid); prop.role "alert"; prop.className "alert alert-error"; prop.text m ]',
+    "    | None -> Html.none",
   ];
   const idOptions = [
     "  let idOptions (r: Remote<'T list>) (idOf: 'T -> string) (labelOf: 'T -> string) : ReactElement list =",
@@ -4073,7 +4192,11 @@ export function renderViewModule(
     ...(hasIdSelect ? idOptions : []),
     (hasList || hasSingle || hasIdSelect) && hasFieldErrors ? "" : undefined,
     ...(hasFieldErrors ? fieldError : []),
-    (hasList || hasSingle || hasIdSelect || hasFieldErrors) && hasChart ? "" : undefined,
+    (hasList || hasSingle || hasIdSelect || hasFieldErrors) && hasServerErrors ? "" : undefined,
+    ...(hasServerErrors ? serverError : []),
+    (hasList || hasSingle || hasIdSelect || hasFieldErrors || hasServerErrors) && hasChart
+      ? ""
+      : undefined,
     ...(hasChart ? chart : []),
   );
 }

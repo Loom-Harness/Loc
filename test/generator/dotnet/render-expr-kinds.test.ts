@@ -179,7 +179,7 @@ describe("dotnet renderCsExpr — member + method-call", () => {
     ).toBe("this.Name.Trim()");
   });
 
-  it("renders the `string.toUpper()` intrinsic as `.ToUpperInvariant()`", () => {
+  it("renders the `string.toUpper()` intrinsic as `.ToUpperInvariant()` completed for ß (RS-44)", () => {
     expect(
       renderCsExpr({
         kind: "method-call",
@@ -189,7 +189,7 @@ describe("dotnet renderCsExpr — member + method-call", () => {
         receiverType: STRING,
         isCollectionOp: false,
       }),
-    ).toBe("this.Name.ToUpperInvariant()");
+    ).toBe('this.Name.ToUpperInvariant().Replace("\\u00DF", "SS", StringComparison.Ordinal)');
   });
 
   it("renders numeric `abs`/`min`/`max` intrinsics via System.Math (A3 batch)", () => {
@@ -301,7 +301,7 @@ describe("dotnet renderCsExpr — member + method-call", () => {
     ).toBe("Math.Ceiling(this.Rate)");
   });
 
-  it("renders 2-arg `string.substring(start, len)` with clamping (JS-slice semantics)", () => {
+  it("renders 2-arg `string.substring(start, len)` over code points, clamping (RS-44)", () => {
     expect(
       renderCsExpr({
         kind: "method-call",
@@ -311,12 +311,10 @@ describe("dotnet renderCsExpr — member + method-call", () => {
         receiverType: STRING,
         isCollectionOp: false,
       }),
-    ).toBe(
-      '(0 >= this.Name.Length ? "" : this.Name.Substring(0, Math.Min(3, this.Name.Length - 0)))',
-    );
+    ).toBe("string.Concat(this.Name.EnumerateRunes().Skip(0).Take(3))");
   });
 
-  it("renders 1-arg `string.substring(start)` with the out-of-range guard", () => {
+  it("renders 1-arg `string.substring(start)` over code points, clamping (RS-44)", () => {
     expect(
       renderCsExpr({
         kind: "method-call",
@@ -326,7 +324,7 @@ describe("dotnet renderCsExpr — member + method-call", () => {
         receiverType: STRING,
         isCollectionOp: false,
       }),
-    ).toBe('(2 >= this.Name.Length ? "" : this.Name.Substring(2))');
+    ).toBe("string.Concat(this.Name.EnumerateRunes().Skip(2))");
   });
 
   it("renders the `string.contains(s)` INTRINSIC ordinally (not the collection op)", () => {
@@ -368,7 +366,7 @@ describe("dotnet renderCsExpr — member + method-call", () => {
     ).toBe('this.Name.Split(",").ToList()');
   });
 
-  it("renders collection-op `count` as `.Count()`", () => {
+  it("renders collection-op `count` as the `.Count` property (CA1829)", () => {
     expect(
       renderCsExpr({
         kind: "method-call",
@@ -378,7 +376,7 @@ describe("dotnet renderCsExpr — member + method-call", () => {
         receiverType: { kind: "array", element: STRING },
         isCollectionOp: true,
       }),
-    ).toBe("(this.Items).Count()");
+    ).toBe("(this.Items).Count");
   });
 
   it("renders collection-op `where(λ)` as `.Where(λ).ToList()`", () => {

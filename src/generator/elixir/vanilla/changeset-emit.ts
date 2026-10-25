@@ -13,7 +13,9 @@
 // ---------------------------------------------------------------------------
 
 import {
+  createInputFields,
   createOmissionValue,
+  declaredCreateParamNames,
   isRequiredCreateInput,
   isRequiredUpdateInput,
 } from "../../../ir/enrich/wire-projection.js";
@@ -23,15 +25,23 @@ import type {
   FieldIR,
   OperationIR,
   SystemIR,
+  TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { outboundReferenceFields } from "../../../ir/util/aggregate-flags.js";
-import { baseOf, ownFieldsOf } from "../../../ir/util/inheritance.js";
+import {
+  baseOf,
+  ownFieldsOf,
+  tableOwnerName,
+  uniqueKeyIndex,
+} from "../../../ir/util/inheritance.js";
+import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import { messageCode } from "../../../util/message-code.js";
 import { elixirString, plural, snake, upperFirst } from "../../../util/naming.js";
 import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
+import { serverSeededFields } from "../../construction-default.js";
 import {
   MONEY_MAX_EXCLUSIVE,
   MONEY_PRECISION,
@@ -39,6 +49,13 @@ import {
   MONEY_WIRE_SCALE,
 } from "../../money-scale.js";
 import { renderExpr as renderElixirExpr } from "../render-expr.js";
+import {
+  decimalIngressPaths,
+  isStringField,
+  renderDecimalIngressHelpers,
+  renderDecimalIngressList,
+  renderRequirePresentHelper,
+} from "./changeset-ingress.js";
 import {
   aggregateHasResidualInvariants,
   messagedRoutesToResidual,
@@ -50,6 +67,7 @@ import {
   voHasConstraints,
 } from "./changeset-validators.js";
 import { INT32_RANGE_MESSAGE } from "./context-emit.js";
+import { normalizeDatetime } from "./datetime-type-emit.js";
 import { isVanillaDocAgg, renderDocChangeset } from "./document-emit.js";
 import { isEventSourced } from "./eventsourced-emit.js";
 import { isAbstractBase } from "./inheritance-emit.js";
@@ -240,6 +258,15 @@ function renderChangeset(
       return value === null ? null : `    |> __default(:${snake(f.name)}, ${value})`;
     })
     .filter((l): l is string => l !== null);
+  // A server-owned field (`openedAt: datetime managed`) is off the create input
+  // and carries no default: it takes the language-defined absent value from the
+  // shared seed table, the value every other backend's create factory names.
+  // Without it the insert put a NULL into its `null: false` column (500).
+  for (const { field, seed } of serverSeededFields(agg)) {
+    defaultLines.push(
+      `    |> __default(:${snake(field.name)}, ${elixirServerInitSeed(seed, field.type)})`,
+    );
+  }
   const defaultBlock = defaultLines.length > 0 ? `\n${defaultLines.join("\n")}` : "";
   const defaultHelper =
     defaultLines.length > 0
@@ -257,6 +284,32 @@ function renderChangeset(
 
   const allCols = allFields.map((f) => `:${snake(f.name)}`).join(", ");
   const requiredCols = requiredFields.map((f) => `:${snake(f.name)}`).join(", ");
+
+  // String columns keep a blank value (`changeset-ingress.ts`): they are cast
+  // separately with `empty_values: []`, and their presence check is nil-only.
+  // An aggregate with no string column keeps the single `cast` and
+  // `validate_required` (byte-identical).
+  const atoms = (fs: readonly AggField[]): string => fs.map((f) => `:${snake(f.name)}`).join(", ");
+  const stringFields = allFields.filter(isStringField);
+  const hasStrings = stringFields.length > 0;
+  const requiredStrings = requiredFields.filter(isStringField);
+  const stringDecls = hasStrings
+    ? `\n  @string_fields [${atoms(stringFields)}]\n  @required_strings [${atoms(requiredStrings)}]`
+    : "";
+  const castLines = (cols: string, strings: string): string =>
+    hasStrings
+      ? `cast(attrs, ${cols} -- ${strings})\n    |> cast(attrs, ${strings}, empty_values: [])`
+      : `cast(attrs, ${cols})`;
+  const requireLines = (req: string, reqStrings: string): string =>
+    hasStrings
+      ? `validate_required(${req} -- ${reqStrings})\n    |> __require_present(${reqStrings})`
+      : `validate_required(${req})`;
+  // Decimal leaves the ingress guard checks on create (top-level money/decimal
+  // columns and value-object leaves).
+  const vosForIngress = [...ctx.valueObjects, ...(ctx.siblingValueObjects ?? [])];
+  const createDecimalPaths = decimalIngressPaths(allFields, vosForIngress);
+  const createIngressLine =
+    createDecimalPaths.length > 0 ? "\n    |> __loom_decimal_ingress(attrs, @decimal_ingress)" : "";
 
   // Per-field constraint validators derived from single-field invariants (the
   // same `singleFieldConstraints` classifier Zod / FluentValidation / the Java
@@ -588,10 +641,14 @@ ${
   // as 409 Conflict (cross-backend parity with the Hono 23505 → 409 mapping).
   // The error attaches to the first column of a composite key (Ecto ties a
   // multi-column `unique_constraint` to the index by `name:`, not by field).
-  const uniqueTable = plural(snake(agg.name));
+  // The table the row actually lives in: a TPH concrete writes the SHARED base
+  // table, so its unique index (inherited from the base) and its FKs are named
+  // for that table, not for the concrete.
+  const uniqueTable = plural(snake(tableOwnerName(agg, ctx.aggregates)));
+  // A key the TPH concrete declares ITSELF is a separate, `kind`-partial index
+  // with a discriminator-scoped name; `uniqueKeyIndex` names both shapes.
   const uniqueLines = (agg.uniqueKeys ?? []).map((uk) => {
-    const cols = uk.columns.map((c) => snake(c));
-    const name = `${uniqueTable}_${cols.join("_")}_uq`;
+    const { name, columns: cols } = uniqueKeyIndex(agg, uk, ctx.aggregates);
     return `    |> unique_constraint(:${cols[0]}, name: ${JSON.stringify(name)})`;
   });
   const uniqueBlock = uniqueLines.length > 0 ? `\n${uniqueLines.join("\n")}` : "";
@@ -658,6 +715,35 @@ ${
         .map((f) => `:${snake(f.name)}`)
         .join(", ")}]`
     : "";
+  // The update seam's string / decimal-ingress lists: the create lists when the
+  // update-editable subset names the same columns, their own lists otherwise.
+  const updateStrings = updateFields.filter(isStringField);
+  const updateReqStrings = updateFields.filter((f) => isRequiredUpdateInput(f) && isStringField(f));
+  const ownUpdateStrings =
+    atoms(updateStrings) !== atoms(stringFields) ||
+    atoms(updateReqStrings) !== atoms(requiredStrings);
+  const updateStringList = ownUpdateStrings ? "@update_string_fields" : "@string_fields";
+  const updateReqStringList = ownUpdateStrings ? "@update_required_strings" : "@required_strings";
+  const updateStringDecls =
+    emitUpdateChangeset && hasStrings && ownUpdateStrings
+      ? `\n  @update_string_fields [${atoms(updateStrings)}]\n  @update_required_strings [${atoms(updateReqStrings)}]`
+      : "";
+  const updateDecimalPaths = decimalIngressPaths(updateFields, vosForIngress);
+  const ownUpdateIngress =
+    renderDecimalIngressList(updateDecimalPaths) !== renderDecimalIngressList(createDecimalPaths);
+  const updateIngressLine =
+    updateDecimalPaths.length > 0
+      ? `\n    |> __loom_decimal_ingress(attrs, ${ownUpdateIngress ? "@update_decimal_ingress" : "@decimal_ingress"})`
+      : "";
+  const ingressDecls = [
+    createDecimalPaths.length > 0
+      ? `\n  @decimal_ingress ${renderDecimalIngressList(createDecimalPaths)}`
+      : "",
+    emitUpdateChangeset && ownUpdateIngress && updateDecimalPaths.length > 0
+      ? `\n  @update_decimal_ingress ${renderDecimalIngressList(updateDecimalPaths)}`
+      : "",
+  ].join("");
+  const ingressHelper = createDecimalPaths.length > 0 ? renderDecimalIngressHelpers() : "";
   const optimisticLine = versioned ? "\n    |> optimistic_lock(:version)" : "";
   const updateVcPrep = valueCollections.length > 0 ? "attrs = prepare_vc_attrs(attrs)\n\n    " : "";
   // RS-26 presence check.  `validate_required/2` alone CANNOT enforce a required
@@ -732,8 +818,8 @@ ${
   def update_changeset(struct, attrs) do
     attrs = __normalize_keys(attrs)
     ${voKeyNormalizeLine}${updateVcPrep}struct
-    |> cast(attrs, ${updateColsList})${presenceLine}${clearAbsentLine}
-    |> validate_required(${updateReqList})${validatorBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}${optimisticLine}
+    |> ${castLines(updateColsList, updateStringList)}${updateIngressLine}${presenceLine}${clearAbsentLine}
+    |> ${requireLines(updateReqList, updateReqStringList)}${validatorBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}${optimisticLine}
   end`
     : "";
 
@@ -764,7 +850,14 @@ ${
   //
   // A single VALUE OBJECT is the one shape neither pass reaches — see
   // `voKeyFields` above.
-  const keyNormalizeHelper = `\n\n${NORMALIZE_KEYS_DEFP}${
+  // A narrowed declared `create(…)`: its parameters are the create input, so
+  // the create seams (repository insert, the context's validate-first clause,
+  // the pure domain core) take ONLY those keys before `base_changeset` casts —
+  // every other field, a `when`-gated `status` included, takes its declared
+  // default.  `base_changeset` itself still casts `@all_fields`, because the
+  // form seed and (absent a dedicated one) the update path share it.
+  const createTakeBlock = createTakeAttrsFn(agg);
+  const keyNormalizeHelper = `${createTakeBlock}\n\n${NORMALIZE_KEYS_DEFP}${
     voKeyFields.length > 0 ? `\n\n${NORMALIZE_VO_KEYS_DEFP}` : ""
   }`;
 
@@ -775,19 +868,38 @@ defmodule ${changesetMod} do
   alias ${aggModule}
 
   @all_fields [${allCols}]
-  @required_fields [${requiredCols}]${updateAttrDecls}${clearAbsentDecl}
+  @required_fields [${requiredCols}]${stringDecls}${updateAttrDecls}${updateStringDecls}${clearAbsentDecl}${ingressDecls}
 
   @doc "Default cast/3 helper applied by every per-action changeset below."
   def base_changeset(struct \\\\ %${aggPascal}{}, attrs) do
     attrs = __normalize_keys(attrs)
     ${voKeyNormalizeLine}${valueCollections.length > 0 ? "attrs = prepare_vc_attrs(attrs)\n\n    " : ""}struct
-    |> cast(attrs, @all_fields)${defaultBlock}
-    |> validate_required(@required_fields)${validatorBlock}${castEmbedBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}
-  end${updateChangesetBlock}${invariantFnBlock}${keyNormalizeHelper}${presenceHelper}${clearAbsentHelper}${defaultHelper}${moneyRangeHelper}${voHelper}${bodyVoHelper}${normalizeHelper}${ordinalHelper}
+    |> ${castLines("@all_fields", "@string_fields")}${createIngressLine}${defaultBlock}
+    |> ${requireLines("@required_fields", "@required_strings")}${validatorBlock}${castEmbedBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}
+  end${updateChangesetBlock}${invariantFnBlock}${keyNormalizeHelper}${presenceHelper}${hasStrings ? renderRequirePresentHelper() : ""}${ingressHelper}${clearAbsentHelper}${defaultHelper}${moneyRangeHelper}${voHelper}${bodyVoHelper}${normalizeHelper}${ordinalHelper}
 
 ${actionHelpers}
 end
 `;
+}
+
+/** The public `take_create_attrs/1` the create seams call on a narrowed
+ *  aggregate; empty otherwise.  Matches both key spellings: wire bodies
+ *  arrive string-keyed (snaked by `__normalize_keys`), in-process callers may
+ *  pass atom keys. */
+function createTakeAttrsFn(agg: AggregateIR): string {
+  if (declaredCreateParamNames(agg) === undefined) return "";
+  const cols = createInputFields(agg).map((f) => `:${snake(f.name)}`);
+  return `
+
+  @create_fields [${cols.join(", ")}]
+
+  @doc "The declared \`create(…)\`'s parameters are the create input: keep only those keys, so every other field takes its declared default."
+  def take_create_attrs(attrs) when is_map(attrs) do
+    attrs
+    |> __normalize_keys()
+    |> Map.take(@create_fields ++ Enum.map(@create_fields, &Atom.to_string/1))
+  end`;
 }
 
 function renderActionHelper(
@@ -841,4 +953,21 @@ function renderActionHelper(
     |> cast(attrs, ${allowList})
     |> validate_required(${allowList})
   end`;
+}
+
+/** The Elixir spelling of a shared server-init seed kind. */
+function elixirServerInitSeed(seed: ServerInitSeed, type: TypeIR): string {
+  switch (seed) {
+    case "now":
+      return normalizeDatetime("DateTime.utc_now()");
+    case "zero":
+      // A `decimal` column holds a `Decimal`, which the serializer reads as one.
+      return type.kind === "primitive" && type.name === "decimal" ? "Decimal.new(0)" : "0";
+    case "false":
+      return "false";
+    case "empty-string":
+      return '""';
+    case "empty-collection":
+      return "[]";
+  }
 }

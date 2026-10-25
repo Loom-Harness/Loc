@@ -31,6 +31,7 @@ import { renderGateExpr } from "../../_frontend/gate-expr.js";
 import { pageEmitPath } from "../../_frontend/page-identity.js";
 import { usesToastEffect } from "../../_frontend/toast-effect.js";
 import type { ImportSpec, LoadedPack } from "../../_packs/loader.js";
+import { chromeMessage, opDialogChrome } from "../../_walker/i18n-chrome.js";
 import { storeHookName, storeMemberLocal } from "../../_walker/js-target-helpers.js";
 import { addImportToMap, I18N_MODULE, needsPackChromeT } from "../../_walker/render-primitive.js";
 import type { ApiHookUse } from "../../_walker/walker-core.js";
@@ -532,6 +533,11 @@ export function renderVuePage(input: VuePageShellInput): string {
         title: state.modalTitle || humanize(state.op.name),
         titleExpr: state.modalTitleExpr ?? JSON.stringify(humanize(state.op.name)),
         submitLabel: humanize(state.op.name),
+        // The close icon's accessible name (shadcnVue's DialogContent) — never
+        // equal to the submit label (`opDialogChrome`).
+        closeLabelExpr:
+          state.closeLabelExpr ??
+          JSON.stringify(chromeMessage(opDialogChrome(humanize(state.op.name)).close)),
         ns,
         fieldsHtml: fields,
       }),
@@ -579,9 +585,18 @@ export function renderVuePage(input: VuePageShellInput): string {
   for (const m of result.actionMutations) {
     if (seenVars.has(m.localVar)) continue;
     seenVars.add(m.localVar);
-    hookLines.push(
-      `const ${m.localVar} = reactive(${m.hookName}(${renderActionMutationArg(m, (id) => `() => ${scriptArgs([id])}`)}));`,
-    );
+    if (m.rowIdHolder) {
+      // A row-scoped Action: one hook for every row, its id read from the
+      // holder the row's click sets (`ActionMutationState.rowIdHolder`).
+      hookLines.push(
+        `const ${m.rowIdHolder} = { current: "" };`,
+        `const ${m.localVar} = reactive(${m.hookName}(() => ${m.rowIdHolder}.current));`,
+      );
+    } else {
+      hookLines.push(
+        `const ${m.localVar} = reactive(${m.hookName}(${renderActionMutationArg(m, (id) => `() => ${scriptArgs([id])}`)}));`,
+      );
+    }
     vueImports.add("reactive");
     const from = `../api/${m.aggCamel}`;
     const names = apiImports.get(from) ?? new Set<string>();
@@ -1227,10 +1242,18 @@ export function renderVueComponentFile(
     // instance id as a getter (`use<Op><Agg>(() => <idExpr>)`), read when the
     // mutation runs rather than once at `setup`.  The raw `idExpr`
     // (`order.id`) is rewritten to `props.order.id` by the `rewriteScript`
-    // map below, since the instance is a component prop.
-    hookLines.push(
-      `const ${m.localVar} = reactive(${m.hookName}(${renderActionMutationArg(m, (id) => `() => ${id}`)}));`,
-    );
+    // map below, since the instance is a component prop.  A row-scoped Action
+    // reads its id from the holder the row's click sets.
+    if (m.rowIdHolder) {
+      hookLines.push(
+        `const ${m.rowIdHolder} = { current: "" };`,
+        `const ${m.localVar} = reactive(${m.hookName}(() => ${m.rowIdHolder}.current));`,
+      );
+    } else {
+      hookLines.push(
+        `const ${m.localVar} = reactive(${m.hookName}(${renderActionMutationArg(m, (id) => `() => ${id}`)}));`,
+      );
+    }
     vueImports.add("reactive");
     const from = `../api/${m.aggCamel}`;
     const names = apiImports.get(from) ?? new Set<string>();
@@ -1357,6 +1380,11 @@ export function renderVueComponentFile(
         title: st.modalTitle || humanize(st.op.name),
         titleExpr: st.modalTitleExpr ?? JSON.stringify(humanize(st.op.name)),
         submitLabel: humanize(st.op.name),
+        // The close icon's accessible name (shadcnVue's DialogContent) — never
+        // equal to the submit label (`opDialogChrome`).
+        closeLabelExpr:
+          st.closeLabelExpr ??
+          JSON.stringify(chromeMessage(opDialogChrome(humanize(st.op.name)).close)),
         ns: st.testidNamespace,
         fieldsHtml: fields,
       }),

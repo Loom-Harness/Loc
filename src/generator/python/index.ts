@@ -21,19 +21,25 @@ import { durableEventTypes, realtimeEventTypes } from "../../ir/util/channels.js
 import { CONSTANT_FORBIDDEN_DETAIL, echoesDenialDetail } from "../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import {
-  foreignEventValueTypes,
+  foreignValueTypeSeeds,
+  foreignValueTypes,
   resolveForeignEvents,
   valueObjectFieldTypes,
   withForeignValueTypes,
 } from "../../ir/util/foreign-event-types.js";
 import {
   foreignIdBrandNames,
+  hostedContextIdTypeSources,
   userClaimIdTypeSources,
-  workflowIdTypeSources,
 } from "../../ir/util/foreign-ids.js";
 import { isTphConcrete } from "../../ir/util/inheritance.js";
 import { mergeContexts } from "../../ir/util/merge-contexts.js";
-import { DANGLING_REFERENCE_DETAIL, problemTitle } from "../../ir/util/openapi-errors.js";
+import {
+  DANGLING_REFERENCE_DETAIL,
+  MISSING_FIELD_MESSAGE,
+  problemTitle,
+  UNSUPPORTED_MEDIA_TYPE_DETAIL,
+} from "../../ir/util/openapi-errors.js";
 import { systemReadsOrgContext } from "../../ir/util/org-context.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import {
@@ -45,7 +51,6 @@ import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
-import { emissionSink } from "../../util/emission-sink.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
 import { plural, snake } from "../../util/naming.js";
 import {
@@ -54,12 +59,15 @@ import {
   TEST_RESET_PATH,
   TEST_RESET_TOKEN_ENV,
 } from "../../util/test-reset.js";
+import { UUID_WIRE_MESSAGE, UUID_WIRE_PATTERN } from "../../util/uuid-wire.js";
 import { devClaimFields } from "../_auth/dev-claims.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { DEBIAN_CERTS_BLOCK, NODE_CERTS_BLOCK, NPM_INSTALL_BLOCK } from "../_docker/node-stage.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
 import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
 import { collectWireValidationMessages } from "../_i18n/validation-catalog.js";
+import { pyModule, pyRef } from "../_imports/python.js";
+import { ref, spellMarkers } from "../_imports/symbol.js";
 import {
   errorArmProblemJsonSchema,
   errorStatusJsonSchema,
@@ -110,6 +118,8 @@ import { buildPyExternHookModule, externHookModulePath } from "./extern-builder.
 import { renderPyFileRefModel, renderPyFilesRoutes } from "./files-routes-builder.js";
 import { PYTHON_PINS } from "./pins.js";
 import { buildPyProjectionsFile } from "./projections-builder.js";
+import { PyOutputMap } from "./py-output.js";
+import { PY } from "./py-symbols.js";
 import { buildPyQueryProjectionsFile } from "./query-projections-builder.js";
 import { buildPyRealtimeFile } from "./realtime-builder.js";
 import { buildPyRepositoryFile } from "./repository-builder.js";
@@ -170,7 +180,7 @@ export interface GeneratePythonArgs {
 }
 
 export function generatePythonForContexts(args: GeneratePythonArgs): Map<string, string> {
-  const out = emissionSink("generator/python/index");
+  const out = new PyOutputMap();
   const slug = pythonProjectName(args.deployable.name);
   const mergedBase = mergeContexts(args.contexts);
   const sourcemap = args.sourcemap;
@@ -218,12 +228,18 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
     knownEventNames,
     args.sys,
   );
-  // The value objects / enums those foreign events reach join too:
-  // `app/domain/events.py` imports them from `app/domain/value_objects.py`,
-  // which must therefore declare them (eval item 11).
-  const foreignValueTypes = foreignEventValueTypes(foreignConsumedEvents, args.sys, mergedPre);
+  // The value objects / enums those foreign events — or the hosted contexts'
+  // own declarations (D15: a sibling-context enum / VO) — reach join too:
+  // `app/domain/events.py` and the aggregate modules import them from
+  // `app/domain/value_objects.py`, which must therefore declare them (eval
+  // item 11).
+  const foreignValues = foreignValueTypes(
+    foreignValueTypeSeeds(foreignConsumedEvents, args.contexts),
+    args.sys,
+    mergedPre,
+  );
   const merged: EnrichedBoundedContextIR = {
-    ...withForeignValueTypes(mergedPre, foreignValueTypes),
+    ...withForeignValueTypes(mergedPre, foreignValues),
     events: [...mergedBase.events, ...foreignConsumedEvents],
   };
   const hasChannels = channelBindings.length > 0;
@@ -328,14 +344,14 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   }
   // PyJWT (with the `crypto` extra for RS256/ES256 JWKS verification) ships
   // in pyproject only under an `auth { oidc }` block.
-  const oidcDeps = args.deployable.auth?.required && args.sys.auth ? ["pyjwt[crypto]>=2.9,<3"] : [];
+  const oidcDeps = args.deployable.auth?.required && args.sys.auth ? ["pyjwt[crypto]==2.15.1"] : [];
   // Durable timer store: procrastinate drives the owned `cron:` timerSources
   // (Postgres-native periodic tasks — store-coordinated single-fire + missed-run
   // catch-up).  psycopg[binary] bundles libpq so the python:3.13-slim image needs
   // no apt libpq (the domain layer's asyncpg driver doesn't ship one).  Both are
   // added ONLY when this deployable owns a cron timer; an every-only (or
   // timer-free) project stays byte-identical.
-  const timerDeps = hasDurableTimers ? ["procrastinate>=3,<4", "psycopg[binary]>=3.2,<4"] : [];
+  const timerDeps = hasDurableTimers ? ["procrastinate==3.10.0", "psycopg[binary]==3.3.6"] : [];
   // Broker transports (M-T4.4 slices 2b + 7a + 8a) — redis-py (MIT, design
   // §6a) speaks RESP to the compose-provisioned Valkey sidecar; aio-pika
   // (Apache-2.0) speaks AMQP 0-9-1 to the rabbitmq sidecar; aiokafka
@@ -351,11 +367,11 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // `file-download.ddd` (M-T6.39), so no python leg had ever booted one.
   // Wiring-gated on the same flag that emits the routes, so a File-free project
   // stays byte-identical.
-  const fileDeps = hasFileRoutes ? ["python-multipart>=0.0.20,<1"] : [];
+  const fileDeps = hasFileRoutes ? ["python-multipart==0.0.32"] : [];
   const channelDeps = [
-    ...(channelBindings.some((b) => b.transport === "redis") ? ["redis>=5.2,<7"] : []),
-    ...(channelBindings.some((b) => b.transport === "rabbitmq") ? ["aio-pika>=9.5,<10"] : []),
-    ...(channelBindings.some((b) => b.transport === "kafka") ? ["aiokafka>=0.12,<0.13"] : []),
+    ...(channelBindings.some((b) => b.transport === "redis") ? ["redis==6.4.0"] : []),
+    ...(channelBindings.some((b) => b.transport === "rabbitmq") ? ["aio-pika==9.6.2"] : []),
+    ...(channelBindings.some((b) => b.transport === "kafka") ? ["aiokafka==0.12.0"] : []),
   ];
   out.set(
     "pyproject.toml",
@@ -372,7 +388,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
         ...timerDeps,
         ...fileDeps,
         ...channelDeps,
-        ...(apiClients ? ["httpx>=0.28,<1"] : []),
+        ...(apiClients ? ["httpx==0.28.1"] : []),
       ],
       [...resources.devDeps],
       channelBindings.some((b) => b.transport === "kafka") ? ["aiokafka"] : [],
@@ -561,8 +577,8 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   );
   const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
     ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
-    ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
-    ...workflowIdTypeSources(merged.workflows),
+    ...valueObjectFieldTypes(foreignValues.valueObjects),
+    ...hostedContextIdTypeSources([merged]),
     ...userClaimIdTypeSources(args.sys.user),
   ]);
   out.set("app/domain/ids.py", renderPyIds(merged, foreignIdNames));
@@ -612,7 +628,11 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // aggregate declares an `audited` op, so non-audit projects stay
   // byte-identical.  The per-op capture + the record_audit helper are wired by
   // routes-builder.ts / repository-builder.ts.
-  emitPyAudit(args.contexts, out);
+  emitPyAudit(
+    args.contexts,
+    out,
+    args.deployable.auth?.required && args.sys.user ? args.sys.user : undefined,
+  );
   if (seedFile != null) out.set("app/db/seed.py", seedFile);
 
   // In-process event dispatch (channels.md): only when a channel routes
@@ -633,6 +653,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
     hasChannels,
     durableBrokerEvents,
     hasRealtime,
+    authRequired,
   );
   const hasDispatch = dispatchFile != null;
   // Broker transport module (M-T4.4 slices 2b + 7a): the redis.asyncio /
@@ -648,6 +669,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
         hasChannelConsumers,
         durableBrokerEvents.size > 0,
         valueObjectPool(merged),
+        authRequired,
       ),
     );
   }
@@ -659,7 +681,12 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
     out.set("app/dispatch.py", dispatchFile);
     if (sourcemap && dispatchOpFragments) {
       for (const frag of dispatchOpFragments) {
-        sourcemap.fragment("app/dispatch.py", dispatchFile, frag.fragmentText, frag.subRegions);
+        sourcemap.fragment(
+          "app/dispatch.py",
+          out.get("app/dispatch.py")!,
+          spellMarkers(frag.fragmentText),
+          frag.subRegions,
+        );
       }
     }
   }
@@ -726,8 +753,8 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       for (const frag of workflowOpFragments) {
         sourcemap.fragment(
           "app/http/workflows_routes.py",
-          workflowsFile,
-          frag.fragmentText,
+          out.get("app/http/workflows_routes.py")!,
+          spellMarkers(frag.fragmentText),
           frag.subRegions,
         );
       }
@@ -764,7 +791,12 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // repository-backed cross-aggregate test module reading LOOM_PG_URL, no HTTP.
   // Python merges the deployable's contexts into one app, so this is one
   // combined module (`merged.tests` carries every context's integration tests).
-  const integrationTests = renderPyContextIntegrationTest(merged);
+  // Its dispatcher is the one `app/dispatch.py` actually defines: that module
+  // exists only under a dispatch condition, and its pure-producer shape has no
+  // `InProcessDispatcher` — so the test reads the class off the emitted file.
+  const integrationTests = renderPyContextIntegrationTest(merged, {
+    inProcessDispatcher: /^class InProcessDispatcher\b/m.test(dispatchFile ?? ""),
+  });
   if (integrationTests) {
     out.set(`tests/test_${snake(merged.name)}_integration.py`, integrationTests);
   }
@@ -782,11 +814,11 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       const baseDomainPath = `app/domain/${snake(base.name)}.py`;
       const baseDomainContent = buildPyBaseUnionFile(base, concretes);
       out.set(baseDomainPath, baseDomainContent);
-      sourcemap?.file(baseDomainPath, baseDomainContent, base.origin, baseConstruct);
+      sourcemap?.file(baseDomainPath, out.get(baseDomainPath)!, base.origin, baseConstruct);
       const baseRepoPath = `app/db/repositories/${snake(base.name)}_repository.py`;
       const baseRepoContent = buildPyBaseReaderFile(base, concretes, ctx);
       out.set(baseRepoPath, baseRepoContent);
-      sourcemap?.file(baseRepoPath, baseRepoContent, base.origin, baseConstruct);
+      sourcemap?.file(baseRepoPath, out.get(baseRepoPath)!, base.origin, baseConstruct);
     }
     for (const agg of ctx.aggregates) {
       if (agg.isAbstract) continue;
@@ -803,13 +835,18 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
         opFragments,
       );
       out.set(domainPath, domainContent);
-      sourcemap?.file(domainPath, domainContent, agg.origin, construct);
+      sourcemap?.file(domainPath, out.get(domainPath)!, agg.origin, construct);
       // Statement-granular sub-regions (source-map) — layered
       // onto the whole-file region just recorded above, anchored by
       // exact-text search against this SAME final content.
       if (sourcemap && opFragments) {
         for (const frag of opFragments) {
-          sourcemap.fragment(domainPath, domainContent, frag.fragmentText, frag.subRegions);
+          sourcemap.fragment(
+            domainPath,
+            out.get(domainPath)!,
+            spellMarkers(frag.fragmentText),
+            frag.subRegions,
+          );
         }
       }
       // Extern (b) (docs/extern.md): the scaffold-once, user-owned hook
@@ -842,7 +879,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
               ? buildPyEmbeddedRepositoryFile(agg, repo, ctx)
               : buildPyRepositoryFile(agg, repo, ctx);
       out.set(repoPath, repoContent);
-      sourcemap?.file(repoPath, repoContent, repo?.origin ?? agg.origin, construct);
+      sourcemap?.file(repoPath, out.get(repoPath)!, repo?.origin ?? agg.origin, construct);
       pyPortSpecs.push({ aggName: agg.name, members: pyPortMembersFromSource(repoContent) });
       const routesPath = `app/http/${snake(agg.name)}_routes.py`;
       // The id-import candidate pool is `ctx.aggregates` + these.  An `X id`
@@ -859,12 +896,12 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
         ...merged.aggregates.map((a) => a.name),
       ]);
       out.set(routesPath, routesContent);
-      sourcemap?.file(routesPath, routesContent, agg.origin, construct);
+      sourcemap?.file(routesPath, out.get(routesPath)!, agg.origin, construct);
       const tests = renderPyTestsFile(agg, ctx);
       if (tests != null) {
         const testsPath = `tests/test_${snake(agg.name)}.py`;
         out.set(testsPath, tests);
-        sourcemap?.file(testsPath, tests, agg.origin, construct);
+        sourcemap?.file(testsPath, out.get(testsPath)!, agg.origin, construct);
       }
     }
   }
@@ -880,7 +917,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // finished map so every module that rendered a `trunc_mod(` call gets the
   // import, whichever emitter produced it.
   wireNumericHelpers(out);
-  return out;
+  return out.assertFinal();
 }
 
 /** PEP 508-safe project name — same camelCase→snake folding the system
@@ -913,6 +950,17 @@ function renderPyproject(
     "dev = [",
     [...PYTHON_PINS.devDependencies, ...extraDevDeps].map(dep),
     "]",
+    "",
+    "# A pip editable install (`pip install -e .`) builds the project, so it",
+    "# needs a backend and the one package to ship: `app`.  Automatic",
+    "# discovery refuses the flat layout, which also holds `migrations/` and",
+    "# `tests/` beside it.",
+    "[build-system]",
+    `requires = ["setuptools==84.2.1"]`,
+    `build-backend = "setuptools.build_meta"`,
+    "",
+    "[tool.setuptools.packages.find]",
+    `include = ["app*"]`,
     "",
     "# Application project, not a distributable package — uv installs the",
     "# dependency set without building/installing the project itself.",
@@ -1027,11 +1075,35 @@ On a success status (< 400) the session is committed before the first
 response byte leaves; on an error status (or an exception) it is rolled
 back.  Repositories/handlers pull this session via \`get_session\`
 (app/db/engine.py) off the \`request_session\` ContextVar.
+
+Events drained during the request are NOT fanned out inside that
+transaction (D-WRITE-TX): \`PostCommitDispatcher\` queues them on the
+request's \`post_commit\` list, which runs only AFTER the commit — still
+before the response starts, so a client reading right after sees the
+reactors' effects — and is dropped on a rollback.  The deferred work runs
+in a fresh transaction on the same session, committed once it is done.
 """
 
+from collections.abc import Awaitable, Callable
+
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.db.engine import request_session, session_factory
+from app.domain.events import post_commit
+
+
+async def _run_post_commit(
+    session: AsyncSession, deferred: list[Callable[[], Awaitable[None]]]
+) -> None:
+    # Closed first: anything this work dispatches in turn runs inline.
+    post_commit.set(None)
+    if not deferred:
+        return
+    for work in deferred:
+        await work()
+    deferred.clear()
+    await session.commit()
 
 
 class TransactionMiddleware:
@@ -1045,6 +1117,8 @@ class TransactionMiddleware:
 
         async with session_factory() as session:
             token = request_session.set(session)
+            deferred: list[Callable[[], Awaitable[None]]] = []
+            deferred_token = post_commit.set(deferred)
             finalized = False
 
             async def send_wrapper(message: Message) -> None:
@@ -1053,7 +1127,9 @@ class TransactionMiddleware:
                     finalized = True
                     if message["status"] < 400:
                         await session.commit()
+                        await _run_post_commit(session, deferred)
                     else:
+                        deferred.clear()
                         await session.rollback()
                 await send(message)
 
@@ -1061,9 +1137,11 @@ class TransactionMiddleware:
                 await self.app(scope, receive, send_wrapper)
             except BaseException:
                 if not finalized:
+                    deferred.clear()
                     await session.rollback()
                 raise
             finally:
+                post_commit.reset(deferred_token)
                 request_session.reset(token)
 `;
 
@@ -1105,8 +1183,8 @@ function staticSubpathGuardLines(statics: Record<string, string[]>): string[] {
     "# Added FIRST => innermost => runs immediately before routing, after auth.",
     '@app.middleware("http")',
     "async def _static_subpath_method_guard(",
-    "    request: Request,",
-    "    call_next: Callable[[Request], Awaitable[Response]],",
+    `    request: ${M.Request},`,
+    `    call_next: ${M.Callable}[[${M.Request}], ${M.Awaitable}[Response]],`,
     ") -> Response:",
     "    allow = _STATIC_SUBPATH_METHODS.get(request.url.path)",
     "    # Defensive: raw Starlette `Route` adds HEAD to any GET route implicitly.",
@@ -1120,7 +1198,7 @@ function staticSubpathGuardLines(statics: Record<string, string[]>): string[] {
     "        # `served` is False only on the `allow is not None` branch, but mypy",
     "        # cannot see through the local, so the list is re-read under a guard.",
     "        methods = allow or []",
-    "        return problem(",
+    `        return ${M.problem}(`,
     "            request,",
     "            405,",
     '            "Method Not Allowed",',
@@ -1132,6 +1210,42 @@ function staticSubpathGuardLines(statics: Record<string, string[]>): string[] {
     "",
   ];
 }
+
+/** The symbols `app/main.py` references only under a feature — written as
+ *  markers so each import is derived from its use. */
+const M = {
+  base64: ref(pyModule("base64")),
+  replace: pyRef("dataclasses", "replace"),
+  FilePath: pyRef("pathlib", "Path", "FilePath"),
+  Awaitable: pyRef("collections.abc", "Awaitable"),
+  Callable: pyRef("collections.abc", "Callable"),
+  Request: pyRef("fastapi", "Request"),
+  FileResponse: pyRef("fastapi.responses", "FileResponse"),
+  AuthMiddleware: pyRef("app.auth.middleware", "AuthMiddleware"),
+  auth_router: pyRef("app.auth.routes", "router", "auth_router"),
+  User: pyRef("app.auth.user", "User"),
+  assert_user_verifier_registered: pyRef("app.auth.verifier", "assert_user_verifier_registered"),
+  register_user_verifier: pyRef("app.auth.verifier", "register_user_verifier"),
+  MalformedDevClaimsError: pyRef("app.auth.verifier", "MalformedDevClaimsError"),
+  register_oidc_verifier: pyRef("app.auth.oidc", "register_oidc_verifier"),
+  auth_oidc_router: pyRef("app.auth.oidc", "router", "auth_oidc_router"),
+  close_channel_transports: pyRef("app.channels", "close_channel_transports"),
+  init_channel_transports: pyRef("app.channels", "init_channel_transports"),
+  start_channel_consumers: pyRef("app.channels", "start_channel_consumers"),
+  run_seeds: pyRef("app.db.seed", "run_seeds"),
+  start_outbox_relay: pyRef("app.dispatch", "start_outbox_relay"),
+  start_timer_scheduler: pyRef("app.scheduling", "start_timer_scheduler"),
+  problem: pyRef("app.http.problem", "problem"),
+  workflows_router: pyRef("app.http.workflows_routes", "router", "workflows_router"),
+  projections_router: pyRef("app.http.projections_routes", "router", "projections_router"),
+  query_projections_router: pyRef(
+    "app.http.query_projections_routes",
+    "router",
+    "query_projections_router",
+  ),
+  realtime_router: pyRef("app.realtime", "realtime_router"),
+  files_router: pyRef("app.http.files_routes", "router", "files_router"),
+} as const;
 
 function renderMain(
   systemName: string,
@@ -1166,7 +1280,6 @@ function renderMain(
   // stack boots out of the box, while permission-guarded surfaces
   // still deny.  REPLACE in production via register_user_verifier.
   const stubKwargs = authUser ? renderPyStubUserKwargs(authUser) : "";
-  const stubIds = [...new Set(stubKwargs.match(/\b\w+Id(?=\()/g) ?? [])].sort();
   // Dev-claims override (x-loom-dev-claims): keyed by the DECLARED field name
   // (e.g. `tenantId`), written onto the User's snake_case attribute
   // (`tenant_id`) — the header contract is the declared name, matching the
@@ -1175,21 +1288,17 @@ function renderMain(
   // entirely when the user declares no carryable field.
   const pyClaimFields = devClaimFields(authUser?.fields);
   const pyDevClaims = authRequired && !oidc && pyClaimFields.length > 0;
-  // Every dev stub decodes a present header (ruling D6, #23) — even one with
-  // no carryable claim — so a malformed header answers 400 rather than
-  // silently running the request as the built-in identity.
-  const pyDevStub = authRequired && !oidc;
   const pyDecodeDevClaims = [
-    "def _decode_dev_claims(injected: str) -> dict[str, Any]:",
+    `def _decode_dev_claims(injected: str) -> dict[str, ${PY.Any}]:`,
     '    """Decode the header as a base64 JSON OBJECT, or raise',
     "    MalformedDevClaimsError (the auth middleware answers it 400).",
     '    """',
     "    try:",
-    "        claims = json.loads(base64.b64decode(injected))",
+    `        claims = ${PY.json}.loads(${M.base64}.b64decode(injected))`,
     "    except ValueError as err:",
-    "        raise MalformedDevClaimsError() from err",
+    `        raise ${M.MalformedDevClaimsError}() from err`,
     "    if not isinstance(claims, dict):",
-    "        raise MalformedDevClaimsError()",
+    `        raise ${M.MalformedDevClaimsError}()`,
     "    return claims",
     "",
     "",
@@ -1200,64 +1309,28 @@ function renderMain(
     "Auto-generated by Loom.  Pin via .loomignore to customise.",
     `"""`,
     "",
-    pyDevStub ? "import base64" : null,
-    pyDevStub ? "import json" : null,
     "import hmac",
     "import os",
     "import sys",
     "from collections.abc import AsyncIterator",
     "from contextlib import asynccontextmanager",
-    pyDevClaims ? "from dataclasses import replace" : null,
-    hasEmbeddedSpa ? "from pathlib import Path as FilePath" : null,
-    stubKwargs.includes("datetime.") ? "from datetime import UTC, datetime" : null,
-    stubKwargs.includes("Decimal(") ? "from decimal import Decimal" : null,
-    pyDevStub ? "from typing import Any" : null,
-    hasStaticSubpathGuard ? "from collections.abc import Awaitable, Callable" : null,
     "",
-    `from fastapi import FastAPI${(authRequired && !oidc) || hasStaticSubpathGuard ? ", Request" : ""}`,
+    "from fastapi import FastAPI",
     "from fastapi import Header, HTTPException",
     "from fastapi import Response",
     "from fastapi.middleware.cors import CORSMiddleware",
-    hasEmbeddedSpa ? "from fastapi.responses import FileResponse" : null,
     "from sqlalchemy import text",
     "",
-    authRequired ? "from app.auth.middleware import AuthMiddleware" : null,
-    authRequired ? "from app.auth.routes import router as auth_router" : null,
-    authRequired && !oidc ? "from app.auth.user import User" : null,
-    authRequired && !oidc
-      ? "from app.auth.verifier import (\n    MalformedDevClaimsError,\n    assert_user_verifier_registered,\n    register_user_verifier,\n)"
-      : null,
-    oidc ? "from app.auth.oidc import register_oidc_verifier" : null,
-    oidc ? "from app.auth.oidc import router as auth_oidc_router" : null,
-    oidc ? "from app.auth.verifier import assert_user_verifier_registered" : null,
-    hasChannels
-      ? `from app.channels import ${[
-          "close_channel_transports",
-          "init_channel_transports",
-          ...(hasChannelConsumers ? ["start_channel_consumers"] : []),
-        ].join(", ")}`
-      : null,
     "from app.db.engine import engine",
     "from app.db.migrate import run_migrations",
     "from app.db.transaction import TransactionMiddleware",
-    hasSeeds ? "from app.db.seed import run_seeds" : null,
-    startsRelay ? "from app.dispatch import start_outbox_relay" : null,
-    stubIds.length > 0 ? `from app.domain.ids import ${stubIds.join(", ")}` : null,
-    hasTimers ? "from app.scheduling import start_timer_scheduler" : null,
     ...routerAggs.map(
       (name) => `from app.http.${snake(name)}_routes import router as ${snake(name)}_router`,
     ),
-    `from app.http.problem import install_error_handlers, install_openapi${hasStaticSubpathGuard ? ", problem" : ""}`,
-    hasWorkflows ? "from app.http.workflows_routes import router as workflows_router" : null,
-    hasProjections ? "from app.http.projections_routes import router as projections_router" : null,
-    hasQueryProjections
-      ? "from app.http.query_projections_routes import router as query_projections_router"
-      : null,
+    `from app.http.problem import JsonBodyMiddleware, install_error_handlers, install_openapi${hasStaticSubpathGuard ? ", problem" : ""}`,
     ...explicitRouteApis.map(
       (name) => `from app.http.${snake(name)}_routes import router as ${snake(name)}_router`,
     ),
-    hasRealtime ? "from app.realtime import realtime_router" : null,
-    hasFileRoutes ? "from app.http.files_routes import router as files_router" : null,
     "from app.obs.log import log",
     "from app.obs.metrics import render_metrics",
     "from app.obs.middleware import ObservabilityMiddleware",
@@ -1268,7 +1341,7 @@ function renderMain(
       ? [
           "# OIDC verifier — validates the IdP's tokens against its",
           "# JWKS and maps the configured claims onto User.  Auto-registered here.",
-          "register_oidc_verifier()",
+          `${M.register_oidc_verifier}()`,
           'log("info", "auth_oidc_verifier_registered")',
           "",
           "",
@@ -1285,13 +1358,13 @@ function renderMain(
                   "# REPLACE for production by calling register_user_verifier(...) with a",
                   "# JWT-decoding implementation, ideally from a non-regenerated module.",
                   ...pyDecodeDevClaims,
-                  "async def _dev_stub_verifier(request: Request) -> User:",
-                  `    user = User(${stubKwargs})`,
+                  `async def _dev_stub_verifier(request: ${M.Request}) -> ${M.User}:`,
+                  `    user = ${M.User}(${stubKwargs})`,
                   '    injected = request.headers.get("x-loom-dev-claims")',
                   "    if not injected:",
                   "        return user",
                   "    claims = _decode_dev_claims(injected)",
-                  "    overrides: dict[str, Any] = {}",
+                  `    overrides: dict[str, ${PY.Any}] = {}`,
                   // Header key = declared field name; attr = its snake_case form.
                   // A list claim is element-checked too: a mixed array would
                   // otherwise land non-str items in a `list[str]` field.
@@ -1308,22 +1381,22 @@ function renderMain(
                           `        overrides["${snake(f.name)}"] = _v`,
                         ],
                   ),
-                  "    return replace(user, **overrides) if overrides else user",
+                  `    return ${M.replace}(user, **overrides) if overrides else user`,
                 ]
               : [
                   "# REPLACE for production by calling register_user_verifier(...) with a",
                   "# JWT-decoding implementation, ideally from a non-regenerated module.",
                   ...pyDecodeDevClaims,
-                  "async def _dev_stub_verifier(request: Request) -> User:",
+                  `async def _dev_stub_verifier(request: ${M.Request}) -> ${M.User}:`,
                   "    # No declared claim is carryable, but a malformed header still refuses.",
                   '    injected = request.headers.get("x-loom-dev-claims")',
                   "    if injected:",
                   "        _decode_dev_claims(injected)",
-                  `    return User(${stubKwargs})`,
+                  `    return ${M.User}(${stubKwargs})`,
                 ]),
             "",
             "",
-            "register_user_verifier(_dev_stub_verifier)",
+            `${M.register_user_verifier}(_dev_stub_verifier)`,
             'log("warn", "auth_dev_stub_registered")',
             "",
             "",
@@ -1337,33 +1410,33 @@ function renderMain(
     '    log("info", "server_starting", port=_PORT)',
     // A missing verifier registration surfaces as a clear boot error
     // instead of a 401 storm on the first request.
-    authRequired ? "    assert_user_verifier_registered()" : null,
+    authRequired ? `    ${M.assert_user_verifier_registered}()` : null,
     "    await run_migrations()",
-    hasSeeds ? "    await run_seeds()" : null,
+    hasSeeds ? `    await ${M.run_seeds}()` : null,
     // Broker transport (channels.md; M-T4.4): one shared redis connection set
     // per LOOM_CHANNEL_*_URL.  The publish tee inside make_dispatcher routes
     // broker-bound events to the broker; the consumer loop feeds received
     // envelopes into the same in-process dispatcher local reactors use.
-    hasChannels ? "    init_channel_transports()" : null,
+    hasChannels ? `    ${M.init_channel_transports}()` : null,
     // Awaited, not fired-and-forgotten: the lifespan reaches `yield` — which is
     // what makes uvicorn start accepting requests — only once every binding is
     // subscribed.  See the note in the channels module.
-    hasChannelConsumers ? "    _channel_consumers = await start_channel_consumers()" : null,
+    hasChannelConsumers ? `    _channel_consumers = await ${M.start_channel_consumers}()` : null,
     // Durable-channel relay: at-least-once redelivery of `__loom_outbox`
     // rows, drained on a background task for the process lifetime.
-    startsRelay ? "    _outbox_relay = start_outbox_relay()" : null,
+    startsRelay ? `    _outbox_relay = ${M.start_outbox_relay}()` : null,
     startsRelay ? '    log("info", "outbox_relay_started")' : null,
     // Timer sources (scheduling.md): infrastructure fires tick events on a
     // wall-clock cadence.  `cron:` timers run as durable procrastinate periodic
     // jobs (store-coordinated single-fire + missed-run catch-up); `every:` timers
     // run in-process, single-fire across replicas via a pg advisory lock.
-    hasTimers ? "    _timer_scheduler = await start_timer_scheduler()" : null,
+    hasTimers ? `    _timer_scheduler = await ${M.start_timer_scheduler}()` : null,
     '    log("info", "server_listening", port=_PORT)',
     "    yield",
     hasTimers ? "    await _timer_scheduler.stop()" : null,
     startsRelay ? "    _outbox_relay.cancel()" : null,
     hasChannelConsumers ? "    _channel_consumers.cancel()" : null,
-    hasChannels ? "    await close_channel_transports()" : null,
+    hasChannels ? `    await ${M.close_channel_transports}()` : null,
     '    log("info", "server_shutdown", signal="SIGTERM")',
     '    log("info", "server_drained")',
     // Flush buffered OTel spans to the collector before exit (no-op when no
@@ -1384,12 +1457,15 @@ function renderMain(
     ")",
     "install_error_handlers(app)",
     "install_openapi(app)",
+    "# Innermost: the request-body media-type contract (RS-39) runs closest to",
+    "# the routes, so every outer middleware still brackets a 415 it answers.",
+    "app.add_middleware(JsonBodyMiddleware)",
     "",
     ...staticSubpathGuard,
     // Starlette runs later-added middleware first, so AuthMiddleware is
     // added BEFORE CORS to keep CORS outermost (auth after CORS — the
     // same ordering the Hono/.NET pipelines mount).
-    authRequired ? "app.add_middleware(AuthMiddleware)" : null,
+    authRequired ? `app.add_middleware(${M.AuthMiddleware})` : null,
     `# ${hasStaticSubpathGuard ? "Just outside the sub-path guard" : "Innermost (added first)"}: owns the per-request DB transaction and commits`,
     "# it BEFORE the response starts, so a client's read-after-create can't race",
     "# the commit (a FastAPI yield-dependency commit runs after the response is",
@@ -1413,23 +1489,23 @@ function renderMain(
     "# every request is bracketed, including 401s from the auth middleware.",
     "app.add_middleware(ObservabilityMiddleware)",
     ...routerAggs.map((name) => `app.include_router(${snake(name)}_router${routerArgs})`),
-    hasWorkflows ? `app.include_router(workflows_router${routerArgs})` : null,
-    hasProjections ? `app.include_router(projections_router${routerArgs})` : null,
-    hasQueryProjections ? `app.include_router(query_projections_router${routerArgs})` : null,
+    hasWorkflows ? `app.include_router(${M.workflows_router}${routerArgs})` : null,
+    hasProjections ? `app.include_router(${M.projections_router}${routerArgs})` : null,
+    hasQueryProjections ? `app.include_router(${M.query_projections_router}${routerArgs})` : null,
     ...explicitRouteApis.map((name) => `app.include_router(${snake(name)}_router${routerArgs})`),
     // Realtime SSE wire (channels.md Part I): GET /api/realtime/events streams
     // broadcast-channel events to connected browsers (mounted under the shared
     // API base so `${API_BASE_URL}/realtime/events` lines up).
-    hasRealtime ? `app.include_router(realtime_router${routerArgs})` : null,
+    hasRealtime ? `app.include_router(${M.realtime_router}${routerArgs})` : null,
     // File upload/download (M-T1.2): mounted at ROOT `/files` (no `/api` prefix)
     // so `${API_BASE_URL}/files` + the `FileRef.url = "/files/<key>"` anchor line
     // up with the Hono backend and the frontend api-client.
-    hasFileRoutes ? "app.include_router(files_router)" : null,
+    hasFileRoutes ? `app.include_router(${M.files_router})` : null,
     // Auth routers mount under the shared API base (`/api/auth`, set by each
     // router's prefix): the frontend guard probes `${API_BASE_URL}/auth/me`
     // and the handshake redirect lands at `/api/auth/callback`.
-    authRequired ? "app.include_router(auth_router)" : null,
-    oidc ? "app.include_router(auth_oidc_router)" : null,
+    authRequired ? `app.include_router(${M.auth_router})` : null,
+    oidc ? `app.include_router(${M.auth_oidc_router})` : null,
     "",
     "",
     `@app.get("/health")`,
@@ -1499,7 +1575,7 @@ function renderMain(
           "        # The truncate took `__loom_seed` with it, so this re-applies",
           "        # the declared seed data: a reset restores the",
           "        # just-migrated-AND-seeded state, not an empty database.",
-          "        await run_seeds()",
+          `        await ${M.run_seeds}()`,
         ]
       : []),
     '        return {"status": "reset", "tables": len(targets)}',
@@ -1516,18 +1592,18 @@ function renderMain(
     ...(hasEmbeddedSpa
       ? [
           "",
-          '_WWWROOT = FilePath(__file__).resolve().parent.parent / "wwwroot"',
+          `_WWWROOT = ${M.FilePath}(__file__).resolve().parent.parent / "wwwroot"`,
           "",
           "",
           "# Embedded SPA (wwwroot/, copied in by the Dockerfile's spa-build",
           "# stage).  Registered last so every API route wins; unknown paths",
           "# fall back to index.html for client-side routing.",
           '@app.get("/{spa_path:path}", include_in_schema=False)',
-          "async def spa(spa_path: str) -> FileResponse:",
+          `async def spa(spa_path: str) -> ${M.FileResponse}:`,
           "    candidate = (_WWWROOT / spa_path).resolve()",
           "    if candidate.is_file() and candidate.is_relative_to(_WWWROOT):",
-          "        return FileResponse(candidate)",
-          '    return FileResponse(_WWWROOT / "index.html")',
+          `        return ${M.FileResponse}(candidate)`,
+          `    return ${M.FileResponse}(_WWWROOT / "index.html")`,
           "",
         ]
       : []),
@@ -1895,11 +1971,11 @@ ${danglingRefArm}${uniqueArm}        log("warn", "disallowed", message=str(err),
         # row's version no longer matched the caller's expected version — a
         # competing write won the race.  Surface a friendly 409 so the client
         # reloads and retries instead of clobbering the newer state.
+        # RS-40: the raise site names the aggregate and the row
+        # ("<Aggregate> <id> was modified by another request") — that is the detail.
         log("warn", "conflict", message=str(err), status=${concurrencyStatus})
         record_domain_fault("conflict")
-        return problem(
-            request, ${concurrencyStatus}, "Conflict", "The resource was modified by another request; reload and retry."
-        )
+        return problem(request, ${concurrencyStatus}, "Conflict", str(err))
 
 `
     : "";
@@ -1955,6 +2031,7 @@ ${danglingRefArm}${uniqueArm}        log("warn", "disallowed", message=str(err),
     : "";
   return `"""RFC 7807 problem responses + exception handlers.  Auto-generated."""
 
+import re
 from http import HTTPStatus
 from typing import Any, cast
 
@@ -1963,7 +2040,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from starlette.exceptions import HTTPException as StarletteHTTPException${integrityImport}
+from starlette.datastructures import Headers
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import ASGIApp, Message, Receive, Scope, Send${integrityImport}
 
 from app.domain.errors import (
     AggregateNotFoundError,
@@ -2078,11 +2157,106 @@ def problem(
     )
 
 
+# The JSON media types a body-carrying route reads — the predicate hono's
+# validator applies: \`application/json\`, \`application/<x>+json\`, with params.
+_JSON_MEDIA_TYPE = re.compile(
+    r"^application/([a-z-.]+\\+)?json(;\\s*[a-zA-Z0-9\\-]+=([^;]+))*$", re.IGNORECASE
+)
+_BODY_METHODS = frozenset({"POST", "PUT", "PATCH"})
+UNSUPPORTED_MEDIA_TYPE = ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)}
+MISSING_FIELD = ${JSON.stringify(MISSING_FIELD_MESSAGE)}
+
+
+class JsonBodyMiddleware:
+    """The request-body media-type contract every backend shares (RS-39).
+
+    - An EMPTY body with no \`Content-Type\` (or a JSON one) is read as \`{}\` —
+      so a parameterless command (\`operation confirm()\`) answers a body-less
+      POST exactly as it answers \`{}\`, and a command WITH required fields
+      earns the same 422 \`errors[]\` a \`{}\` would.
+    - A body under a foreign \`Content-Type\` — or content with none — is
+      refused with the declared 415, not handed to pydantic as a 422.  An
+      empty body does not excuse a foreign media type: the caller declared it.
+
+    Multipart is the file-upload transport and passes through untouched.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if (
+            scope["type"] != "http"
+            or scope["method"] not in _BODY_METHODS
+            or not str(scope["path"]).startswith("/api/")
+        ):
+            await self.app(scope, receive, send)
+            return
+        content_type = Headers(scope=scope).get("content-type")
+        if content_type is not None and content_type.lower().startswith("multipart/"):
+            await self.app(scope, receive, send)
+            return
+        chunks: list[bytes] = []
+        while True:
+            message = await receive()
+            if message["type"] != "http.request":
+                return
+            chunks.append(message.get("body", b""))
+            if not message.get("more_body", False):
+                break
+        body = b"".join(chunks)
+        is_json = content_type is not None and _JSON_MEDIA_TYPE.match(content_type) is not None
+        if (content_type is not None and not is_json) or (content_type is None and body):
+            log("warn", "client_error", error=UNSUPPORTED_MEDIA_TYPE, status=415)
+            response = problem(
+                Request(scope), 415, "Unsupported Media Type", UNSUPPORTED_MEDIA_TYPE
+            )
+            await response(scope, receive, send)
+            return
+        if not body:
+            body = b"{}"
+            headers = [
+                (k, v)
+                for k, v in scope["headers"]
+                if k.lower() not in (b"content-type", b"content-length")
+            ]
+            headers += [(b"content-type", b"application/json"), (b"content-length", b"2")]
+            scope = {**scope, "headers": headers}
+        replayed = False
+
+        async def replay() -> Message:
+            nonlocal replayed
+            if replayed:
+                return await receive()
+            replayed = True
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        await self.app(scope, replay, send)
+
+
 def _pointer(loc: tuple[object, ...]) -> str:
     """RFC 6901 pointer from a validation-error location (the leading
     source segment — body/query/path — is dropped)."""
     segments = [str(p).replace("~", "~0").replace("/", "~1") for p in loc[1:]]
     return "/" + "/".join(segments) if segments else ""
+
+
+_UUID_PATTERN = r"${UUID_WIRE_PATTERN}"
+
+
+def _wire_message(e: dict[str, object]) -> str:
+    """The errors[] message for one validation error.  A value that misses the
+    shared uuid pattern (a path {id}, a body \`X id\` field) answers the same
+    sentence as the other backends rather than pydantic's default, which would
+    put the server's regex on the wire."""
+    ctx = e.get("ctx")
+    if (
+        e.get("type") == "string_pattern_mismatch"
+        and isinstance(ctx, dict)
+        and ctx.get("pattern") == _UUID_PATTERN
+    ):
+        return ${JSON.stringify(UUID_WIRE_MESSAGE)}
+    return str(e.get("msg", ""))
 
 
 def install_error_handlers(app: FastAPI) -> None:
@@ -2134,7 +2308,8 @@ ${voHandler}${integrityHandler}${versionedHandler}    @app.exception_handler(Agg
         for e in err.errors():
             entry: dict[str, str] = {
                 "pointer": _pointer(tuple(e["loc"])),
-                "message": str(e["msg"]),
+                # An absent required field reads the same on every backend (RS-39).
+                "message": MISSING_FIELD if e.get("type") == "missing" else _wire_message(e),
             }
             # A messaged rule raises PydanticCustomError with a "msg.<hash>"
             # type — the stable content-hash wire code (i18n key). A message-less

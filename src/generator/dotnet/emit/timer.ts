@@ -62,6 +62,8 @@ function tickFieldValue(field: FieldIR): string {
     switch (t.name) {
       case "datetime":
         return "DateTime.UtcNow";
+      case "date":
+        return "DateOnly.FromDateTime(DateTime.UtcNow)";
       case "int":
         return "0";
       case "long":

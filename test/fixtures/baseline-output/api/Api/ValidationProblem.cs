@@ -8,6 +8,19 @@ namespace Api.Api;
 public static class ValidationProblem
 {
     /// <summary>
+    /// The message every backend sends for a REQUIRED request field the body
+    /// leaves out (RS-39) — whether System.Text.Json noticed the absence (a
+    /// value-typed member) or DataAnnotations' [Required] did (a reference one).
+    /// </summary>
+    private const string MissingField = "Required";
+
+    /// <summary>[Required]'s own sentence — "The X field is required." —
+    /// recognised so it carries the shared wording instead.</summary>
+    private static bool IsRequiredMessage(string message) =>
+        message.StartsWith("The ", StringComparison.Ordinal)
+        && message.EndsWith(" field is required.", StringComparison.Ordinal);
+
+    /// <summary>
     /// RFC 7807 answer for a request MVC rejected during model binding or
     /// DataAnnotations validation.  Wired in Program.cs via
     /// ApiBehaviorOptions.InvalidModelStateResponseFactory.
@@ -92,7 +105,7 @@ public static class ValidationProblem
                         ? names.Select(name => new Dictionary<string, object>
                         {
                             ["pointer"] = "/" + name,
-                            ["message"] = "The " + name + " field is required.",
+                            ["message"] = MissingField,
                         })
                         : new[] { new Dictionary<string, object>
                         {
@@ -102,6 +115,43 @@ public static class ValidationProblem
                 })
                 .ToArray();
             return new ObjectResult(missingProblem)
+            {
+                StatusCode = 422,
+                ContentTypes = { "application/problem+json" },
+            };
+        }
+        // An int literal past Int32 is a FIELD refusal, not a malformed body
+        // (RS-42): Serialization.Int32RangeJsonConverter throws it with the
+        // range sentence as its message, and the input formatter files that
+        // message under the field's JSON path ("$.n", "$.best.qty").  Answered
+        // like a missing member: only the range errors, never the companion
+        // "The request field is required." the same rejection records against
+        // the action parameter.
+        static bool IsIntegerRange(ModelError error) =>
+            error.ErrorMessage == global::Api.Serialization.Int32RangeJsonConverter.Message
+            || error.Exception?.Message == global::Api.Serialization.Int32RangeJsonConverter.Message;
+        var outOfRange = context.ModelState
+            .Where(entry => entry.Value is not null && entry.Value.Errors.Any(IsIntegerRange))
+            .Select(entry => entry.Key)
+            .ToArray();
+        if (outOfRange.Length > 0)
+        {
+            var rangeProblem = new ProblemDetails
+            {
+                Type = "about:blank",
+                Title = "Validation failed",
+                Status = 422,
+                Detail = "One or more fields are invalid.",
+                Instance = context.HttpContext.Request.Path,
+            };
+            rangeProblem.Extensions["errors"] = outOfRange
+                .Select(key => new Dictionary<string, object>
+                {
+                    ["pointer"] = PointerOf(key.TrimStart('$').TrimStart('.')),
+                    ["message"] = global::Api.Serialization.Int32RangeJsonConverter.Message,
+                })
+                .ToArray();
+            return new ObjectResult(rangeProblem)
             {
                 StatusCode = 422,
                 ContentTypes = { "application/problem+json" },
@@ -139,7 +189,7 @@ public static class ValidationProblem
                 : entry.Value.Errors.Select(error => new Dictionary<string, object>
                 {
                     ["pointer"] = PointerOf(entry.Key),
-                    ["message"] = error.ErrorMessage,
+                    ["message"] = IsRequiredMessage(error.ErrorMessage) ? MissingField : error.ErrorMessage,
                 }))
             .ToArray();
         return new ObjectResult(problem)

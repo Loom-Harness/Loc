@@ -40,6 +40,8 @@ import {
   relativeOpPath,
 } from "../../../ir/util/api-surface.js";
 import { AUDIT_ENTRY_TYPE, auditEntryWireShape } from "../../../ir/util/audit-history.js";
+import { commandBodyOptional } from "../../../ir/util/command-body.js";
+import { foreignValueTypeSeeds, foreignValueTypes } from "../../../ir/util/foreign-event-types.js";
 import {
   errorStatuses,
   type OpErrorKind,
@@ -58,9 +60,12 @@ import {
   opWorkflowInstanceById,
   opWorkflowInstances,
 } from "../../../ir/util/openapi-ids.js";
+import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
+import { API_BASE_PATH } from "../../../util/api-base.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
+import { isReserved } from "../../../util/target-identifiers.js";
 import {
   type RequestComponentOwner,
   requestComponentNamerFor,
@@ -289,6 +294,27 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
     }
   }
 
+  // Sibling-context value objects / enums a hosted declaration references but
+  // no hosted context declares (claims D15): an aggregate in context B typed
+  // `kind: Kind` against `enum Kind` in an unhosted sibling context A.  The
+  // response / request schemas `$ref` them, so the deployable must declare
+  // them — the same shared closure the four typed backends declare foreign
+  // value types through (`src/ir/util/foreign-event-types.ts`).
+  const unhosted = foreignValueTypes(foreignValueTypeSeeds([], contexts), args.sys, {
+    valueObjects: contexts.flatMap((c) => c.valueObjects),
+    enums: contexts.flatMap((c) => c.enums),
+  });
+  for (const vo of unhosted.valueObjects) {
+    if (emittedVOs.has(vo.name)) continue;
+    emittedVOs.add(vo.name);
+    files.set(`${schemaDir}/${snake(vo.name)}.ex`, renderValueObjectSchema(vo, webModule));
+  }
+  for (const en of unhosted.enums) {
+    if (emittedEnums.has(en.name)) continue;
+    emittedEnums.add(en.name);
+    files.set(`${schemaDir}/${snake(en.name)}.ex`, renderEnumSchema(en, webModule));
+  }
+
   // Entity parts (deduplication by name)
   const emittedParts = new Set<string>();
   for (const { agg } of allAggregates) {
@@ -467,7 +493,26 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
     action: ":index",
   });
 
+  for (const [path, content] of files) {
+    const fixed = withoutStructOnReservedKey(content);
+    if (fixed !== content) files.replace(path, fixed);
+  }
   return { files, routes };
+}
+
+/** `OpenApiSpex.schema/1` derives a STRUCT from the schema's property keys and
+ *  binds each key as a variable in its own expansion, so a property named after
+ *  an elixir reserved word (`fn`, `do`, `end`) fails `mix compile` inside the
+ *  macro ("fn is not allowed in matches") — the key itself is a legal atom.
+ *  These modules only describe the published document (no controller casts a
+ *  body into the struct), so such a schema opts out of the struct with
+ *  `struct?: false`.  Every schema without a reserved key keeps the default
+ *  and stays byte-identical. */
+function withoutStructOnReservedKey(content: string): string {
+  if (!content.includes("OpenApiSpex.schema(%{")) return content;
+  const keys = [...content.matchAll(/^ {6}([a-z_][a-zA-Z0-9_]*): /gm)].map((m) => m[1] as string);
+  if (!keys.some((k) => isReserved("elixir", k))) return content;
+  return content.replace(/\n {2}\}\)\nend\n$/, "\n  }, struct?: false)\nend\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -548,19 +593,28 @@ function renderApiSpec(
   for (const { ctx, wf } of allWorkflows) {
     const slug = snake(wf.name);
     const reqMod = `${schemasModule}.${reqNameFor({ kind: "workflow", workflow: wf.name })}`;
+    // `create(…): T` answers 200 with the value (`respond_result`), typed by
+    // the same type→schema map a scalar-returning operation uses.
+    const result = commandCreateResult(wf);
+    const success = result
+      ? `200 => %OpenApiSpex.Response{
+              description: "OK",
+              content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${openApiType(result.type, schemasModule)}}}
+            }`
+      : `204 => %OpenApiSpex.Response{description: "No Content"}`;
     pathEntries.push(`      "/workflows/${slug}" => %OpenApiSpex.PathItem{
         post: %OpenApiSpex.Operation{
           summary: "Run ${wf.name} workflow",
           operationId: "${camelId(opWorkflow(wf.name))}",
           tags: ["workflows"],
           requestBody: %OpenApiSpex.RequestBody{
-            required: true,
+            required: ${!commandBodyOptional(wf.params)},
             content: %{
               "application/json" => %OpenApiSpex.MediaType{schema: ${reqMod}}
             }
           },
           responses: %{
-            204 => %OpenApiSpex.Response{description: "No Content"}${errorResponseEntries(
+            ${success}${errorResponseEntries(
               "workflow",
               schemasModule,
               workflowIsGuarded(wf),
@@ -670,7 +724,7 @@ function renderApiSpec(
           operationId: "${camelId(opCreate(agg.name))}",
           tags: ["${aggSlug}"],
           requestBody: %OpenApiSpex.RequestBody{
-            required: true,
+            required: ${!commandBodyOptional(createInputFields(agg))},
             content: %{
               "application/json" => %OpenApiSpex.MediaType{schema: ${createReqMod}}
             }
@@ -812,7 +866,7 @@ ${pagingQueryParams()}
             %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${idParamSchema(agg.idValueType)}}
           ],
           requestBody: %OpenApiSpex.RequestBody{
-            required: true,
+            required: ${!commandBodyOptional(op.params)},
             content: %{
               "application/json" => %OpenApiSpex.MediaType{schema: ${opReqMod}}
             }
@@ -934,9 +988,17 @@ ${pagingQueryParams()}
     }
   }
 
+  // Every path item is built RELATIVE to the `scope "/api"` the router mounts
+  // it under; the published key carries the base itself (M-T6.70 / L1-E E9).
+  // Elixir used to publish `servers: [%Server{url: "/api"}]` with relative
+  // paths instead — the only backend to, since node/dotnet/java/python all
+  // path-embed `/api` — and a client given an explicit base URL (Schemathesis'
+  // `--url`) REPLACES the server base, path included, so every fuzzed request
+  // lost `/api` and landed on the LiveView/HTML routes.  Prefixing here, at
+  // the one place the entries meet, keeps each builder's path literal readable.
   const pathsBlock =
     pathEntries.length > 0
-      ? pathEntries.join(",\n")
+      ? pathEntries.map((e) => e.replace(/^( {6})"\//, `$1"${API_BASE_PATH}/`)).join(",\n")
       : "      # No paths — no aggregates, workflows, or views";
 
   return `# Auto-generated.
@@ -950,7 +1012,7 @@ defmodule ${specModule} do
   Consumed by OpenapiController to serve GET /openapi.json.
   """
 
-  alias OpenApiSpex.{Info, OpenApi, Server}
+  alias OpenApiSpex.{Info, OpenApi}
 
   @behaviour OpenApi
 
@@ -961,7 +1023,6 @@ defmodule ${specModule} do
         title: "${_appModule}",
         version: "1.0.0"
       },
-      servers: [%Server{url: "/api"}],
       paths: %{
 ${pathsBlock}
       }
@@ -1009,6 +1070,7 @@ const OPENAPI_PRIMITIVE: Record<WirePrimitive, string> = {
   string: "%OpenApiSpex.Schema{type: :string}",
   bool: "%OpenApiSpex.Schema{type: :boolean}",
   datetime: "%OpenApiSpex.Schema{type: :string, format: :'date-time'}",
+  date: "%OpenApiSpex.Schema{type: :string, format: :date}",
   guid: "%OpenApiSpex.Schema{type: :string, format: :uuid}",
   json: "%OpenApiSpex.Schema{type: :object}",
   File: "%OpenApiSpex.Schema{type: :object, properties: %{url: %OpenApiSpex.Schema{type: :string}, key: %OpenApiSpex.Schema{type: :string}, contentType: %OpenApiSpex.Schema{type: :string}, size: %OpenApiSpex.Schema{type: :integer}}, required: [:url, :key, :contentType, :size]}",
@@ -1024,14 +1086,13 @@ const OPENAPI_ID_VALUE: Record<string, string> = {
 };
 
 /** Map a TypeIR to an OpenApiSpex %Schema{} literal snippet.
- *  `schemasModule` is the `<Web>.Api.Schemas` prefix: enum / entity refs
- *  are emitted as the bare schema MODULE atom (not a raw
+ *  `schemasModule` is the `<Web>.Api.Schemas` prefix: enum / entity /
+ *  value-object refs are emitted as the bare schema MODULE atom (not a raw
  *  `%OpenApiSpex.Reference{}`) so OpenApiSpex's `resolve_schema_modules`
- *  pulls them into `components.schemas` — a raw `$ref` string is left
- *  dangling and never registered (the bug that dropped `Visibility` /
- *  `BuildState` / `PipelineResponse` from the Phoenix spec).  Value
- *  objects stay raw refs: Hono/.NET don't publish them as named
- *  components, so registering them would add a Phoenix-only schema. */
+ *  pulls them into `components.schemas`.  A raw `$ref` string is never
+ *  registered by anything: it is left dangling, and a client that resolves
+ *  the document (Schemathesis, any code generator) refuses every operation
+ *  whose body or response reaches it. */
 function openApiType(t: TypeIR, schemasModule: string): string {
   const info = wireTypeInfo(t, "response");
   // Nullable rides on the parent property (`required[]`), not the
@@ -1050,9 +1111,9 @@ function openApiType(t: TypeIR, schemasModule: string): string {
       // resolver registers it in components and rewrites to a `$ref`.
       return `${schemasModule}.${info.base}`;
     case "valueObject":
-      // Raw ref — VOs are not published as named components (parity with
-      // Hono/.NET, which inline them).
-      return `%OpenApiSpex.Reference{"$ref": "#/components/schemas/${info.base}"}`;
+      // Module atom → `renderValueObjectSchema`'s module is registered in
+      // components under the VO's name, so the `$ref` resolves.
+      return `${schemasModule}.${info.base}`;
     case "entity":
       // Containment part → its `<Part>Response`, as a module atom so the
       // part schema is registered in components.

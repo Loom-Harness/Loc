@@ -4,6 +4,7 @@
   "format": "vue",
   "stack": "vue1",
   "seedsOpFormRecord": true,
+  "componentImports": { "tagPrefix": "v-", "from": "vuetify/components" },
   "emits": {
     "primitive-alert": "primitive-alert.hbs",
     "primitive-anchor": "primitive-anchor.hbs",
@@ -60,6 +61,7 @@
     "vite-config": "vite-config.hbs",
     "field-input-array": "field-input-array.hbs",
     "field-input-bool": "field-input-bool.hbs",
+    "field-input-date": "field-input-date.hbs",
     "field-input-datetime": "field-input-datetime.hbs",
     "field-input-decimal": "field-input-decimal.hbs",
     "field-input-enum-select": "field-input-enum-select.hbs",
@@ -80,6 +82,7 @@
     "primitive-file-upload": "primitive-file-upload.hbs"
   },
   "chrome": {
+    "signOut": "Sign out",
     "addItem": "Add {item}",
     "arrayUnsupported": "(arrays not yet supported in forms)",
     "boolFalse": "No",

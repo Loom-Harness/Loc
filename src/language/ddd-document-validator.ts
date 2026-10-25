@@ -46,11 +46,13 @@ import {
 import type { Diagnostic } from "vscode-languageserver-types";
 import { misplacedDeclaration } from "./misplaced-declaration.js";
 import {
+  accessModifierAfterDefault,
   refineParseErrorOffset,
   reservedDeclarationName,
   ruleParserOf,
   sourceTextOf,
 } from "./parse-errors.js";
+import { storageConfigKey } from "./storage-config-key.js";
 
 export class DddDocumentValidator extends DefaultDocumentValidator {
   private readonly coreServices: LangiumCoreServices;
@@ -99,7 +101,9 @@ export class DddDocumentValidator extends DefaultDocumentValidator {
     if (!text) return;
     const refined =
       refineParseErrorOffset(first, text, ruleParserOf(this.coreServices)) ??
+      storageConfigKey(first, text) ??
       reservedDeclarationName(first, text) ??
+      accessModifierAfterDefault(first, text) ??
       misplacedDeclaration(first, text);
     if (!refined) return;
     const start = offsetToPosition(text, refined.offset);

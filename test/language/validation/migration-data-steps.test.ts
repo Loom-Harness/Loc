@@ -20,6 +20,9 @@ system Shop {
         status: OrderStatus
         price: Money
         note: string?
+        placedAt: datetime
+        dueAt: datetime
+        tags: string[]
       }
       aggregate Doc shape: document { body: string }
       repository Orders for Order { }
@@ -67,6 +70,15 @@ describe("migration data steps — AST validation (M-T2.3)", () => {
   it("flags an empty sql step", async () => {
     expect(await astCodes(`migration "x" { sql "  " }`)).toContain("loom.migration-sql-empty");
   });
+
+  it("accepts `sql before` and flags any other placement (B-20)", async () => {
+    expect(await astCodes(`migration "x" { sql before "UPDATE s.t SET a = 1" }`)).not.toContain(
+      "loom.migration-sql-placement",
+    );
+    expect(await astCodes(`migration "x" { sql after "UPDATE s.t SET a = 1" }`)).toContain(
+      "loom.migration-sql-placement",
+    );
+  });
 });
 
 describe("migration data steps — IR validation (M-T2.3)", () => {
@@ -104,6 +116,31 @@ describe("migration data steps — IR validation (M-T2.3)", () => {
     expect(await irCodes(`migration "x" { Order.price = 1 }`)).toContain(
       "loom.backfill-target-invalid",
     );
+  });
+
+  it("admits datetime ± a duration constructor (rendered as a Postgres interval)", async () => {
+    const found = await irCodes(`migration "x" {
+      Order.dueAt = placedAt + hours(24)
+      Order.placedAt = dueAt - days(quantity)
+    }`);
+    expect(found).not.toContain("loom.migration-expr-unsupported");
+    expect(found).not.toContain("loom.backfill-type-mismatch");
+  });
+
+  it("still refuses a duration that is not added to a datetime", async () => {
+    expect(await irCodes(`migration "x" { Order.quantity = quantity + hours(1) }`)).toContain(
+      "loom.migration-expr-unsupported",
+    );
+  });
+
+  it("tells a collection backfill it is unnecessary (the add fills it empty)", async () => {
+    const { model } = await parseString(`${SYS}\nmigration "x" { Order.tags = [] }`, {
+      validate: false,
+    });
+    const d = validateLoomModel(enrichLoomModel(lowerModel(model))).find(
+      (x) => x.code === "loom.backfill-target-invalid",
+    );
+    expect(d?.message).toContain("a collection field needs no backfill");
   });
 
   it("rejects a backfill on a shape: document aggregate", async () => {

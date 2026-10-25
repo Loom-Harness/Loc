@@ -46,6 +46,7 @@ import {
   type StmtIR,
   type WorkflowStmtIR,
 } from "../../src/ir/types/loom-ir.js";
+import { canonicalCreate, canonicalDestroy } from "../../src/ir/util/canonical-lifecycle.js";
 import { lifecycleGates } from "../../src/ir/util/op-gates.js";
 import { walkExprDeep, walkStmtsDeep, walkWorkflowStmtsDeep } from "../../src/ir/util/walk.js";
 import { plural, snake } from "../../src/util/naming.js";
@@ -1008,9 +1009,7 @@ export function scopeFilterSweep(
 export interface GateFact {
   /** Stable key: `<surface> <owner>.<name>`. */
   readonly key: string;
-  /** The 403 detail(s) the gate may render with.  One, except the audit-history
-   *  gate, whose detail the backends spell three ways (a recorded divergence —
-   *  see `HISTORY_DETAILS`). */
+  /** The 403 detail(s) the gate may render with. */
   readonly details: readonly string[];
   /** Tokens, ANY of which the emission's scope/file context must contain
    *  (normalized): the operation name, the lifecycle verb, the find name … */
@@ -1019,16 +1018,6 @@ export interface GateFact {
    *  so `destroy` on `Crate` cannot be satisfied by `destroy` on `Shipment`. */
   readonly owner?: string;
 }
-
-/** The audit-history gate's detail is not uniform (java `find history`, elixir
- *  `history <Agg>`, the rest `find history`/…) — a detail divergence, not an
- *  application one, so the census accepts any of the spellings the backends
- *  ship and leaves the wording to the 403-detail census. */
-const HISTORY_DETAILS = (agg: string): string[] => [
-  "Forbidden: find history",
-  `Forbidden: history ${agg}`,
-  "Forbidden",
-];
 
 function requiresIn(stmts: readonly StmtIR[]): string[] {
   const out: string[] = [];
@@ -1066,7 +1055,7 @@ export function gateFacts(model: LoomModel): GateFact[] {
               });
             }
           }
-          for (const g of lifecycleGates(agg.canonicalCreate)) {
+          for (const g of lifecycleGates(canonicalCreate(agg))) {
             out.push({
               key: `create ${agg.name}`,
               details: [`Forbidden: ${g.source}`],
@@ -1074,7 +1063,7 @@ export function gateFacts(model: LoomModel): GateFact[] {
               owner: agg.name,
             });
           }
-          for (const g of lifecycleGates(agg.canonicalDestroy)) {
+          for (const g of lifecycleGates(canonicalDestroy(agg))) {
             out.push({
               key: `destroy ${agg.name}`,
               details: [`Forbidden: ${g.source}`],
@@ -1096,7 +1085,7 @@ export function gateFacts(model: LoomModel): GateFact[] {
           if (repo.historyFind?.requires) {
             out.push({
               key: `history ${repo.aggregateName}`,
-              details: HISTORY_DETAILS(repo.aggregateName),
+              details: [`Forbidden: find ${repo.historyFind.name}`],
               anchors: ["history"],
               owner: repo.aggregateName,
             });

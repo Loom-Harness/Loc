@@ -98,8 +98,14 @@ export type { NavEntryVM, NavSectionVM } from "./menu-emitter.js";
 export interface AppShellVM {
   /** Humanised system name for the header brand mark. */
   systemNameHuman: string;
-  /** Page-component imports the routes refer to. */
+  /** Eager imports the shell itself needs (the i18n runtime, named-layout
+   *  slot components). */
   imports: ImportVM[];
+  /** Routed page components, each rendered as
+   *  `const <specifier> = React.lazy(() => import("<from>"))` so every page
+   *  lands in its own chunk.  The shell wraps each layout's `<Outlet />` in a
+   *  `Suspense` whose fallback is the pack's loader. */
+  lazyPages: ImportVM[];
   /** Every route the Router renders inside the AppShell chrome, in
    *  source order.  Pages with `layout: none` are routed via
    *  `outOfShellRoutes` instead — they mount at the top of the
@@ -144,6 +150,9 @@ export interface AppShellVM {
    *  other frontends' shells stay on their raw templates until ported. */
   notFoundText?: string;
   skipToContentText?: string;
+  /** `aria-label` attribute fragment (NO leading space) for the route-level
+   *  `Suspense` fallback shown while a lazy page chunk downloads. */
+  routeLoadingAria?: string;
   /** `aria-label` attribute fragment (NO leading space — the template keeps the
    *  surrounding whitespace) for the primary-navigation landmark — the raw
    *  `aria-label="Primary navigation"` when i18n is off (byte-identical), else a

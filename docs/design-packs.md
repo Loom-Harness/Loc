@@ -59,6 +59,22 @@ A pack manifest declares **what to emit** (`emits`, `shellFiles`,
 stack carries React / router / Zod / Vite versions; see [§ 2a Stacks
 and how a pack picks one](#2a-stacks-and-how-a-pack-picks-one) below.
 
+**A custom pack is checked before anything is generated.**  For
+`design: "./my-pack"` (resolved against the directory of the `.ddd` file
+that declares the deployable, not the working directory), `ddd parse` and
+`ddd generate` load the pack and refuse a malformed one with a single
+`loom.design-pack-invalid` error naming the defects: no `pack.json` (or
+not valid JSON), no `emits` map, an `emits` entry whose `.hbs` is missing,
+an unknown `format` or `stack`, a missing required template (§ 3), a
+`chrome` message that is empty, carries a markup-significant character (`<`, `>`, `"`, a backslash, a backtick, `${`) or a stray
+brace, a template naming an undeclared `chrome` role, a HEEx template
+passing ICU hole values to `chrome`, a `shellFiles` key not in `emits`, a
+template that is not valid Handlebars, or a `{{> partial}}` nothing
+provides.  A pack whose `format` is not the framework's is
+`loom.design-pack-format-mismatch`.  The editor (and the playground) cannot
+read the directory, so there the only signal is the
+`loom.design-pack-custom-unchecked` warning.
+
 ### `format`
 
 Optional, defaults to `"tsx"`.  Discriminates the output language the
@@ -199,8 +215,8 @@ Each entry becomes one catalog key:
 pack.<family>.<role>.<hash>
 ```
 
-`<family>` is `name`, not `name@version`: mantine v7 and v9 spell `Remove`
-identically and a translator should translate it once. `<hash>` is a content
+`<family>` is `name`, not `name@version`: two versions of one family that spell
+`Remove` identically share a key, and a translator translates it once. `<hash>` is a content
 hash of the message (D-I18N-KEY), so two versions that *do* diverge get separate
 keys automatically, and **rephrasing a string re-keys it** — `ddd i18n sync`
 then sees a delete-old + add-new rather than silently keeping a translation of
@@ -292,8 +308,7 @@ upgrade pain — the project ships a small set of **stacks** under
 
 | Stack | React | Router | Zod | TypeScript | Vite | Used by |
 |---|---|---|---|---|---|---|
-| `v1` | 18 | `react-router-dom@^6` | 3 | 6 | 8 | pin-only older React packs: `chakra@v2`, `mantine@v7`, `mui@v5`, `shadcn@v3` |
-| `v3` | 19.2 | `react-router@^7` | 4 | 6 | 8 | the bareword-default React packs: `chakra@v3`, `mantine@v9`, `mui@v7`, `shadcn@v4` |
+| `v3` | 19.2 | `react-router@^7` | 4 | 6 | 8 | the React packs: `chakra@v3`, `mantine@v9`, `mui@v7`, `shadcn@v4` |
 | `sv1` | (Svelte 5 / SvelteKit) | SvelteKit routing | 4 | 6 | 8 | the svelte packs (`shadcnSvelte`, `flowbite`) |
 | `vue1` | (Vue 3) | vue-router | 4 | 6 | 8 | the vue packs (`vuetify`, `shadcnVue`) |
 | `ng1` | (Angular 22) | `@angular/router` | 4 | 6 | (Angular build) | the angular pack (`angularMaterial`) |
@@ -322,9 +337,9 @@ in `stack.json`.
    injects the stack's deps/devDeps into the emitted `package.json` —
    the pack's own `package-json.hbs` only lists *pack-specific* deps
    (e.g. `@mantine/core`, not `react`).
-4. The same stack id is forwarded into the React generator so seams
-   that swap by stack (e.g. `react-router-dom` vs `react-router`) pick
-   the right import path.
+4. Router imports the generator emits itself (page bodies, and the
+   `{{routerPackage}}` shell variable) use `react-router`, the Router 7
+   package every React stack ships (`ROUTER_PACKAGE` in `stack-runtime.ts`).
 
 ### Authoring rule
 
@@ -342,8 +357,8 @@ is not cosmetic; it has to match how its callers spell the call, and
 7 of 13 packs shipped
 
 ```json
-    "typescript": "^6.0.0",
-    "vite": "^8.0.0"  }
+    "typescript": "6.0.3",
+    "vite": "8.3.5"  }
 }
 ```
 
@@ -360,7 +375,7 @@ re-serializing every pack's emitted `package.json` and diffing:
 
 ```hbs
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "22.20.5",
 {{> stack-package-devdeps}}  }
 ```
 
@@ -384,7 +399,7 @@ to fulfill the contract.
 | `tsconfig` | `tsconfig.json`.  shadcn adds path mappings for `@/*`. |
 | `vite-config` | `vite.config.ts`.  shadcn adds Vite resolver alias for `@/*`. |
 | `format-helpers` | Per-pack runtime helpers (`IdValue`, `DateTimeValue`, `BoolValue`, `NumberValue`, `EmptyValue`, `KeyValueRow`, and the money helper — see the money-display contract below).  Output written to `src/lib/format.tsx` (`src/lib/format.ts` on Vue/Svelte/Angular). |
-| `app-shell` | App-shell layout: navbar/sidebar/main outlet. |
+| `app-shell` | App-shell layout: navbar/sidebar/main outlet.  Under `auth: ui` (the `authUi` view-model flag) it also renders the **Sign out** control (`data-testid="sign-out"`, label via `{{{chrome "signOut"}}}`) in its header/toolbar — the pack-agnostic `AuthGate` renders none, so it never floats over page content.  Pinned for every pack by `test/generator/_frontend/sign-out-in-shell.test.ts`. |
 | `home` | Home/dashboard page. |
 
 #### The money-display contract (a pack does not own it)
@@ -804,8 +819,8 @@ which one it speaks.
 
 | dialect | packs | gap of `md` | padding of `md` | unit |
 |---|---|---|---|---|
-| mantine | mantine v7/v9 | `gap="md"` | `p="md"` / `padding="md"` | named scale (`md` = 16) |
-| mui | mui v5/v7 | `gap={2}` | `sx={{ p: 2 }}` | **8px** |
+| mantine | mantine v9 | `gap="md"` | `p="md"` / `padding="md"` | named scale (`md` = 16) |
+| mui | mui v7 | `gap={2}` | `sx={{ p: 2 }}` | **8px** |
 | chakra | chakra v2/v3 | `gap={4}` | `p={4}` | **4px** |
 | tailwind | shadcn v3/v4, shadcnVue, shadcnSvelte, flowbite | `gap-4` | `p-4` | **4px** |
 | vuetify | vuetify v3 | `ga-4` | `pa-4` | **4px** |
@@ -907,21 +922,26 @@ version, `family@version` pins explicitly:
 
 ```
 design: mantine                  // → mantine@v9 (current default)
-design: "mantine@v7"             // pinned to v7
+design: "mantine@v9"             // pinned to v9
 design: shadcn                   // → shadcn@v4
-design: "mui@v5"
+design: "mui@v7"
 design: chakra                   // → chakra@v3
 design: coreComponents           // default for phoenixLiveView platform (daisyui also available)
 ```
 
-The shipped families: `mantine` (v7, v9), `shadcn` (v3, v4),
-`mui` (v5, v7), `chakra` (v2, v3), the HEEx packs `coreComponents` (v3) and `daisyui` (v1), the vue
+The shipped families: `mantine` (v9), `shadcn` (v4),
+`mui` (v7), `chakra` (v3), the HEEx packs `coreComponents` (v3) and `daisyui` (v1), the vue
 packs `vuetify` (v3 — tracks Vuetify 3) and `shadcnVue` (v1 — the
 shadcn-vue flavour: reka-ui + Tailwind 4, source-copy distribution),
 the svelte packs `shadcnSvelte` and `flowbite`, and the angular pack
 `angularMaterial`.
 The current bareword defaults live in `BUILTIN_PACK_LATEST` in
 `src/util/builtin-formats.ts`.
+
+The React 18 (stack `v1`) packs `mantine@v7`, `chakra@v2`, `mui@v5` and
+`shadcn@v3` were retired; pinning one is the validation error
+`loom.design-pack-retired`, which names the successor (`RETIRED_PACKS` in the
+same file).
 
 **The two self-hosting frontends take no pack.** Feliz and Flutter render
 procedurally rather than through `.hbs` templates, so neither reads a pack
@@ -1085,8 +1105,7 @@ The cross-cutting framework deps (React, react-router, zod, Vite, TS)
 live in `stacks/<id>/`, not in each pack.  Decide which stack the new
 pack version targets (see [§ 2a](#2a-stacks-and-how-a-pack-picks-one)):
 
-- A pack version that requires **React 19 + RR 7 + zod 4** declares `"stack": "v3"`.
-- A pack version still on **React 18 + RR 6 + zod 3** declares `"stack": "v1"`.
+- A React pack version (**React 19 + RR 7 + zod 4**) declares `"stack": "v3"`.
 - If the framework baseline you need doesn't exist yet, create a new
   stack first (see [§ 2a — Adding a new stack](#adding-a-new-stack)).
 
@@ -1159,7 +1178,7 @@ const PACKS: readonly PackSpec[] = [
 `.github/workflows/generated-react-build.yml`:
 
 ```yaml
-pack: ["mantine@v7", "mantine@v9", "shadcn@v3", "shadcn@v4", ..., "<family>@<vNew>"]
+pack: ["mantine@v9", "shadcn@v4", ..., "<family>@<vNew>"]
 ```
 
 ### Step 7 — Add a pinned storybook example to the playground
@@ -1243,7 +1262,7 @@ In a separate PR after the new version has soaked:
 - `src/generator/_packs/loader-fs.ts` — Node FS adapter
 - `web/src/build/loader-vfs.ts` — playground VFS adapter
 - `src/util/builtin-formats.ts` — built-in pack format map + bareword defaults
-- `stacks/<id>/` — stack definitions (`v1`, `v3`, `sv1`, `vue1`, `ng1`)
+- `stacks/<id>/` — stack definitions (`v3`, `sv1`, `vue1`, `ng1`)
 - `designs/<family>/<version>/` — reference implementations
 - `test/e2e/generated-react-build.test.ts` — the static-validation gate
 - `test/platform/pack-manifest.test.ts` — manifest-shape contract tests

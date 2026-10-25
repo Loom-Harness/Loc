@@ -28,7 +28,7 @@ context Accounts {
     loginCount: int managed
     version: int token
     adminNotes: string internal
-    create(handle: string) { handle := handle }
+    create(handle: string, passwordHash: string, slug: string) { handle := handle }
   }
   repository Accounts for Account { }
 }

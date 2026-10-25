@@ -72,7 +72,7 @@ const MAX_HEADROOM = 2 * BUCKET;
  * fixture or a compile/behavioural cell.
  */
 const CEILINGS: Record<string, number> = {
-  "(cross-target)": 2500,
+  "(cross-target)": 3100,
   _expr: 200,
   _frontend: 400,
   _i18n: 200,
@@ -85,7 +85,7 @@ const CEILINGS: Record<string, number> = {
   _walker: 700,
   _workflow: 200,
   angular: 1000,
-  dotnet: 2300,
+  dotnet: 2500, // 2300 → 2500 (#3249): the EF identity-parity pins assert the emitted C# (tracker fork, 409 path) per leg
   elixir: 3400,
   "elixir-vanilla": 500,
   feliz: 1500,
@@ -93,7 +93,8 @@ const CEILINGS: Record<string, number> = {
   frontend: 200,
   hono: 500,
   i18n: 200,
-  java: 2000,
+  imports: 200,
+  java: 1900,
   python: 1800,
   react: 1600,
   svelte: 600,

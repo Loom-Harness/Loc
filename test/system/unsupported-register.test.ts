@@ -439,8 +439,17 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  UI gate` and a bare stack trace.  Drained by the same work that drains
  *  M-T1.10 — routing the gate through each frontend's own expression emitter
  *  rather than three hand-written subsets — which deletes the row and lowers
- *  this back to 17. */
-const MAX_OPEN_GAPS = 18;
+ *  this back to 17.
+ *
+ *  18 -> 19: `loom.ui-body-feature-unsupported`, the per-target frontend body
+ *  vocabulary (`UI_BODY_FEATURE_RENDERERS`).  The same trade once more: every
+ *  refused cell either crashed `ddd generate system` with an uncoded `Error`
+ *  (the Feliz MVU renderer, the Flutter notifier, the Feliz find-read builder)
+ *  or emitted code that does not compile (`s.matches(…)`, `xs.filter(…)`
+ *  verbatim in F# / Dart).  Drains row by row as an emitter learns a feature —
+ *  the census then asks for the table row to grow — and the row goes when the
+ *  table names every frontend in every row. */
+const MAX_OPEN_GAPS = 19;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live
@@ -644,11 +653,11 @@ describe("`*-unsupported` register (M-T9.27)", () => {
     expect(
       unowned,
       "Gap(s) with no `mission`. Every gap is a commitment under the no-permanent-skips " +
-        "policy — assign it to a mission in docs/new-plan/, minting one if none fits.",
+        "policy — assign it to a GitHub issue (`#NNNN`), filing one if none fits.",
     ).toEqual([]);
   });
 
-  it("resolves every cited mission to exactly one heading in docs/new-plan/", () => {
+  it("resolves every cited legacy mission to exactly one heading in docs/new-plan/", () => {
     // A `mission` pointing at a missing OR duplicated id is worse than none: the
     // first is a dangling reference, the second sends two readers to different
     // work.  T6 carried three duplicate ids when this check was written (two
@@ -670,7 +679,17 @@ describe("`*-unsupported` register (M-T9.27)", () => {
     };
     scan(planDir);
 
-    const cited = [...new Set(UNSUPPORTED_REGISTER.flatMap((e) => (e.mission ? [e.mission] : [])))];
+    // An issue reference (`#NNNN`) lives on GitHub, not in the tree, so only
+    // the legacy `M-Tx.y` ids resolve against headings; anything else is a typo.
+    const owners = [
+      ...new Set(UNSUPPORTED_REGISTER.flatMap((e) => (e.mission ? [e.mission] : []))),
+    ];
+    const malformed = owners.filter((m) => !/^(#\d+|M-T\d+\.\d+)$/.test(m));
+    expect(
+      malformed,
+      "Register `mission` must be an issue ref `#NNNN` or a legacy `M-Tx.y` id.",
+    ).toEqual([]);
+    const cited = owners.filter((m) => m.startsWith("M-T"));
     const missing = cited.filter((m) => !headings.has(m));
     const ambiguous = cited.filter((m) => (headings.get(m) ?? 0) > 1);
 

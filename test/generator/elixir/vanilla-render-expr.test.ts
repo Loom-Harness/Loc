@@ -120,13 +120,14 @@ describe("render-expr vanilla leaves", () => {
     });
     const int = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "int", value: v });
     const str = (v: string): ExprOf<"literal"> => ({ kind: "literal", lit: "string", value: v });
-    // substring(start, len) → String.slice/3 (start + LENGTH, clamping = the
-    // catalogue's JS-slice contract); substring(start) → run-to-end range.
+    // substring(start, len) → a code-point window over the charlist (start +
+    // LENGTH, clamping — the catalogue's contract, RS-44); substring(start)
+    // drops the first `start` code points.
     expect(renderExpr(call("substring", [int("0"), int("4")]), memCtx)).toBe(
-      "String.slice(record.name, 0, 4)",
+      "List.to_string(Enum.slice(String.to_charlist(record.name), 0, 4))",
     );
     expect(renderExpr(call("substring", [int("4")]), memCtx)).toBe(
-      "String.slice(record.name, 4..-1//1)",
+      "List.to_string(Enum.drop(String.to_charlist(record.name), 4))",
     );
     // String-receiver contains is the intrinsic (isCollectionOp keys off the
     // receiver type since the A2 core) — never Enum.member?.

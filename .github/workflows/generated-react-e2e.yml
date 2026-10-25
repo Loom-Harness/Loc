@@ -21,7 +21,7 @@ name: Generated React e2e
 #                    (`_frontend/`, `_walker/`, `_packs/`,
 #                    `frontend-dispatch.ts`); the two packs this matrix
 #                    runs (`designs/mantine`, `designs/shadcn`) and their
-#                    stacks (`stacks/v1`, `stacks/v3`); the TSX host
+#                    stack (`stacks/v3`); the TSX host
 #                    template layer (`vite/`, `api/`, `docker/`); the
 #                    example, the test and this file.  A change confined
 #                    to a non-React backend does not fire it.
@@ -34,21 +34,11 @@ name: Generated React e2e
 # then a `vite build` + Playwright run per pack — 2 jobs.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'designs/**'
-      - 'examples/showcase.ddd'
-      - 'api/**'
-      - 'vite/**'
-      - 'docker/**'
-      - 'stacks/**'
-      - 'test/e2e/generated-react-e2e.test.ts'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'langium-config.json'
-      - '.github/workflows/generated-react-e2e.yml'
+  # Nightly run on main: this leg is not in the merge queue, so the nightly
+  # run is what checks it against the combined tree (docs/ci-gating.md,
+  # "Post-merge net").
+  schedule:
+    - cron: '3 1 * * *'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
@@ -71,6 +61,7 @@ on:
       - 'src/generator/_frontend/**'
       - 'src/generator/_payload/**'
       - 'src/generator/_trace/**'
+      - 'src/generator/_imports/**'
       - 'src/generator/_walker/**'
       - 'src/generator/_packs/**'
       - 'src/platform/frontend-dispatch.ts'
@@ -81,7 +72,6 @@ on:
       - 'api/**'
       - 'vite/**'
       - 'docker/**'
-      - 'stacks/v1/**'
       - 'stacks/v3/**'
       - 'test/e2e/generated-react-e2e.test.ts'
       - 'package.json'
@@ -126,7 +116,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pack: ['mantine@v7', 'shadcn@v4']
+        pack: ['mantine@v9', 'shadcn@v4']
     timeout-minutes: 20
     name: showcase × ${{ matrix.pack }}
     steps:
@@ -138,6 +128,8 @@ jobs:
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
       # Root install runs the `prepare` lifecycle (langium:generate).
       - name: Install Loom toolchain
         run: npm ci

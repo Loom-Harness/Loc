@@ -12,6 +12,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../../ir/util/channels.js";
 import { directParentName } from "../../../ir/util/containment-parent.js";
+import { implicitFindMatches } from "../../../ir/util/implicit-find-filter.js";
 import {
   isTphBase,
   isTphConcrete,
@@ -19,12 +20,12 @@ import {
   tableOwnerName,
   tphConcretesOf,
 } from "../../../ir/util/inheritance.js";
-import { findValueObjectInScope } from "../../../ir/util/reachable-types.js";
+import { enumPool, findValueObjectInScope } from "../../../ir/util/reachable-types.js";
 import type { ResolvedDataSource } from "../../../ir/util/resolve-datasource.js";
 import { effectiveSavingShape } from "../../../ir/util/resolve-datasource.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { lines as joinLines } from "../../../util/code-builder.js";
-import { lowerFirst, plural, snake } from "../../../util/naming.js";
+import { lowerFirst, plural, snake, workflowStateTableName } from "../../../util/naming.js";
 
 /** Per-aggregate dataSource lookup the orchestrator passes in.  Lets
  *  the schema emitter ask "what schema / tablePrefix does THIS
@@ -184,7 +185,11 @@ export function renderSchema(
     }
     const indexed = indexedColumnsFor(agg, ctx);
     tables.push(
-      emitTable(agg.name, agg.fields, undefined, ctx, indexed, agg.idValueType, { schema, prefix }),
+      emitTable(agg.name, agg.fields, undefined, ctx, indexed, agg.idValueType, {
+        schema,
+        prefix,
+        uniqueOf: agg,
+      }),
     );
     for (const part of agg.parts) {
       tables.push(
@@ -306,10 +311,22 @@ export function renderSchema(
   // `text(col, { enum: [...] })` is type-identical to `pgEnum(...)` on the TS
   // side (drizzle infers the same `"Draft" | "Confirmed" | …` union for reads
   // and writes) and emits the TEXT column the migration actually creates.
-  const enumLines = ctx.enums.map(
-    (e) =>
-      `export const ${lowerFirst(e.name)}Values = [${e.values.map((v) => `"${v}"`).join(", ")}] as const;`,
-  );
+  // Own enums always (unchanged output); a SIBLING context's enum only when a
+  // column here actually names its `<enum>Values` const — a deployable that
+  // does not host the declaring context must still declare it (claims D1), but
+  // an unreferenced sibling enum would be a dead export.
+  const tablesText = tables.join("\n\n");
+  const siblingEnumNames = new Set((ctx.siblingEnums ?? []).map((e) => e.name));
+  const enumLines = enumPool(ctx)
+    .filter(
+      (e) =>
+        !siblingEnumNames.has(e.name) ||
+        new RegExp(`\\b${lowerFirst(e.name)}Values\\b`).test(tablesText),
+    )
+    .map(
+      (e) =>
+        `export const ${lowerFirst(e.name)}Values = [${e.values.map((v) => `"${v}"`).join(", ")}] as const;`,
+    );
   // Derive the drizzle-pg-core import list from what the body actually
   // calls — every helper here is invoked as a function (`text(...)`,
   // `jsonb(...)`, etc.), so a `\b<name>\(` scan is exact and keeps the
@@ -325,8 +342,10 @@ export function renderSchema(
     "numeric",
     "boolean",
     "timestamp",
+    "date",
     "uuid",
     "index",
+    "uniqueIndex",
     "primaryKey",
     "jsonb",
   ];
@@ -336,6 +355,7 @@ export function renderSchema(
   return (
     joinLines(
       "// Auto-generated.",
+      ...(/\bsql`/.test(body) ? ['import { sql } from "drizzle-orm";'] : []),
       `import { ${imports} } from "drizzle-orm/pg-core";`,
       "",
       ...(schemaDecls.length > 0 ? [...schemaDecls, ""] : []),
@@ -358,6 +378,10 @@ function emitProjectionTable(proj: ProjectionIR, ctx: BoundedContextIR, schema?:
     if (f.name === proj.correlationField) {
       const corrType = f.type.kind === "id" ? f.type.valueType : "guid";
       lines.push(`  ${f.name}: ${drizzleIdColumn(corrType, snake(f.name))}.primaryKey(),`);
+    } else if (f.type.kind === "array" && f.type.element.kind === "id") {
+      // A reference collection on a state row is one jsonb id-array column
+      // (the shared migration's `JSONB NULL`) — there is no join table.
+      lines.push(`  ${f.name}: jsonb("${snake(f.name)}").$type<string[]>(),`);
     } else {
       // Non-key columns NULLABLE — a fold upserts only the fields its event
       // carries, so a row is partial until every contributing event arrives.
@@ -491,11 +515,8 @@ function indexedColumnsFor(agg: AggregateIR, ctx: BoundedContextIR): Set<string>
     if (find.filter) {
       collectColumnRefs(find.filter, out);
     } else {
-      for (const p of find.params) {
-        const matched = agg.fields.find(
-          (f) => f.name === p.name || `${f.name.replace(/Id$/, "")}Id` === p.name,
-        );
-        if (matched) out.add(matched.name);
+      for (const { field: matched } of implicitFindMatches(find, agg)) {
+        out.add(matched.name);
       }
     }
   }
@@ -613,7 +634,7 @@ function emitEmbeddedTable(
  *  the same way an aggregate's are.  Reuses `drizzleColumnLines`, so column
  *  types stay in lockstep with aggregate tables. */
 function emitWorkflowStateTable(wf: WorkflowIR, ctx: BoundedContextIR, schema?: string): string {
-  const tableName = snake(plural(wf.name));
+  const tableName = workflowStateTableName(wf.name);
   const lines: string[] = [];
   const factory = schema ? `${schemaConstName(schema)}.table` : "pgTable";
   lines.push(`export const ${lowerFirst(plural(wf.name))} = ${factory}("${tableName}", {`);
@@ -621,6 +642,11 @@ function emitWorkflowStateTable(wf: WorkflowIR, ctx: BoundedContextIR, schema?: 
     if (f.name === wf.correlationField) {
       const corrType = f.type.kind === "id" ? f.type.valueType : "guid";
       lines.push(`  ${f.name}: ${drizzleIdColumn(corrType, snake(f.name))}.primaryKey(),`);
+    } else if (f.type.kind === "array" && f.type.element.kind === "id") {
+      // A reference collection on a saga row is one jsonb id-array column
+      // (the shared migration's `JSONB`) — there is no join table.
+      const not = f.optional ? "" : ".notNull()";
+      lines.push(`  ${f.name}: jsonb("${snake(f.name)}").$type<string[]>()${not},`);
     } else {
       lines.push(...drizzleColumnLines(f, ctx).map((s) => `  ${s}`));
     }
@@ -722,7 +748,14 @@ function emitTphTable(
       lines.push(...drizzleColumnLines({ ...f, optional: true }, ctx).map((s) => `  ${s}`));
     }
   }
-  lines.push(`});`);
+  const uniqueEntries = uniqueIndexEntries(base, tableName);
+  if (uniqueEntries.length === 0) {
+    lines.push(`});`);
+  } else {
+    lines.push(`}, (table) => ({`);
+    lines.push(...uniqueEntries);
+    lines.push(`}));`);
+  }
   return lines.join("\n");
 }
 
@@ -779,7 +812,7 @@ function emitTable(
   ctx: BoundedContextIR,
   indexedColumns: Set<string>,
   idType: IdValueType,
-  options: { schema?: string; prefix?: string } = {},
+  options: { schema?: string; prefix?: string; uniqueOf?: AggregateIR } = {},
 ): string {
   const baseTable = snake(plural(name));
   const tableName = options.prefix ? `${options.prefix}${baseTable}` : baseTable;
@@ -831,6 +864,7 @@ function emitTable(
       `    ${lowerFirst(name)}${pascalize(col)}Idx: index("${tableName}_${snake(col)}_idx").on(table.${col}),`,
     );
   }
+  if (options.uniqueOf) indexEntries.push(...uniqueIndexEntries(options.uniqueOf, tableName));
   if (indexEntries.length === 0) {
     lines.push(`});`);
   } else {
@@ -843,6 +877,25 @@ function emitTable(
 
 function pascalize(s: string): string {
   return s.length === 0 ? s : s[0]!.toUpperCase() + s.slice(1);
+}
+
+/** The Drizzle `uniqueIndex(...)` entries for each `unique (...)` key the
+ *  aggregate declares — the same index the migration creates
+ *  (`<table>_<cols>_uq`, partial `WHERE is_deleted = false` under
+ *  `softDeletable`).  The schema object is the DDL wherever a database is
+ *  synthesised from it (the playground's `synthDDL`), and the shape
+ *  `drizzle-kit` diffs against the database everywhere else: without the
+ *  entry, a synthesised database accepts a duplicate with 201, and a diff
+ *  against a migrated one proposes dropping the index. */
+function uniqueIndexEntries(agg: AggregateIR, tableName: string): string[] {
+  const softDeletable = agg.capabilities?.includes("softDeletable") ?? false;
+  return (agg.uniqueKeys ?? []).map((uk) => {
+    const cols = uk.columns.map((c) => snake(c));
+    const key = `${lowerFirst(agg.name)}${uk.columns.map(pascalize).join("")}Uq`;
+    const on = uk.columns.map((c) => `table.${c}`).join(", ");
+    const where = softDeletable ? ".where(sql`is_deleted = false`)" : "";
+    return `    ${key}: uniqueIndex("${tableName}_${cols.join("_")}_uq").on(${on})${where},`;
+  });
 }
 
 /** The Drizzle column factory call for an id-shaped column (aggregate PK,
@@ -916,6 +969,11 @@ function drizzleColumnLinesForName(
           return [`${fieldName}: text("${colName}")${not},`];
         case "bool":
           return [`${fieldName}: boolean("${colName}")${not},`];
+        case "date":
+          // `mode: "string"` keeps the column's `YYYY-MM-DD` text: the default
+          // `Date` mode would build a JS Date at the host's LOCAL midnight, and
+          // a server west of UTC would read the previous day back.
+          return [`${fieldName}: date("${colName}", { mode: "string" })${not},`];
         case "datetime":
           return [`${fieldName}: timestamp("${colName}", { withTimezone: true })${not},`];
         case "guid":

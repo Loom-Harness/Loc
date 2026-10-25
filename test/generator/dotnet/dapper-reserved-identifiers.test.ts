@@ -99,15 +99,20 @@ describe("Dapper quotes reserved-word identifiers", () => {
     expect(src).not.toContain(`@${q}order${q}`);
   });
 
-  it("quotes them in the self-applied DDL, in the VERBATIM spelling", async () => {
-    const src = (await generateSystemFiles(SOURCE("dapper"))).get(SCHEMA)!;
-    // `public const string Sql = @"…"` is a verbatim literal: a quote is `""`
-    // and a backslash is just a backslash.  The DML's `\"` spelling here would
-    // put a literal backslash into the SQL Postgres receives.
-    expect(src).toContain('""order"" integer not null');
-    expect(src).toContain('""group"" text not null');
-    expect(src).toContain('""limit"" integer not null');
-    expect(src).toContain("total numeric not null");
+  it("quotes them in the migration DDL, in the VERBATIM spelling", async () => {
+    // Dapper's DDL is the shared migration chain (M-T2.17): `sql-pg.ts` quotes
+    // every identifier, and each statement sits in a `@"…"` verbatim literal,
+    // where a quote is `""` and a backslash is just a backslash.  The DML's
+    // `\"` spelling here would put a literal backslash into the SQL.
+    const files = await generateSystemFiles(SOURCE("dapper"));
+    const src = [...files.entries()]
+      .filter(([p]) => /\/Migrations\/\d+_.*_Initial\.cs$/.test(p))
+      .map(([, c]) => c)
+      .join("\n");
+    expect(src).toContain('""order"" INTEGER NOT NULL');
+    expect(src).toContain('""group"" TEXT NOT NULL');
+    expect(src).toContain('""limit"" INTEGER NOT NULL');
+    expect(src).toContain('""total"" DECIMAL');
     expect(src).not.toContain('\\"order\\"');
   });
 

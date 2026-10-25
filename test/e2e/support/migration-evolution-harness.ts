@@ -39,6 +39,11 @@ export const repoRoot = path.resolve(here, "..", "..", "..");
 export const cli = path.join(repoRoot, "bin", "cli.js");
 const fixtureDir = path.join(repoRoot, "test", "e2e", "fixtures", "migration-evolution");
 
+/** A non-`.ddd` fixture file, verbatim. */
+export function readFixtureFile(name: string): string {
+  return fs.readFileSync(path.join(fixtureDir, name), "utf8");
+}
+
 export function readFixture(
   name:
     | "base"
@@ -48,7 +53,8 @@ export function readFixture(
     | "field-default-base"
     | "field-default-evolved"
     | "journal-order-base"
-    | "journal-order-evolved",
+    | "journal-order-evolved"
+    | "unique-evo-base",
 ): string {
   return fs.readFileSync(path.join(fixtureDir, `${name}.ddd`), "utf8");
 }
@@ -189,9 +195,9 @@ export function connFor(s: PgServer, db: string): PgConn {
 
 // Migration-runner bookkeeping tables/schemas each backend maintains — excluded
 // from the fingerprint so CHECK 1 compares only the DOMAIN schema.  node:
-// `drizzle.__drizzle_migrations`; python: `__loom_migrations`; dotnet:
-// `__EFMigrationsHistory`; java: `flyway_schema_history`; elixir/Ecto:
-// `schema_migrations`.
+// `drizzle.__drizzle_migrations`; python and .NET Dapper: `__loom_migrations`;
+// .NET EF: `__EFMigrationsHistory`; java: `flyway_schema_history`;
+// elixir/Ecto: `schema_migrations`.
 const TRACKING_SCHEMAS = ["pg_catalog", "information_schema", "drizzle"];
 const TRACKING_TABLES = [
   "__drizzle_migrations",
@@ -273,6 +279,21 @@ SELECT string_agg(line, E'\\n' ORDER BY line) FROM (
 // full Initial(v2) — the fresh-create side of CHECK 1.
 // ---------------------------------------------------------------------------
 
+/** What `__PLATFORM__` expands to for a driver's `platform`.  A driver names
+ *  either a platform (`node`, `dotnet`, …) or a persistence ADAPTER of one:
+ *  `dapper` is the .NET backend on `persistence: dapper` — the realization
+ *  clause the behavioural dapper runner injects the same way
+ *  (`test/behavioral/run-dapper.mjs`).  Resolved HERE, in `generate`, rather
+ *  than in each driver, so every gate in this file — present and future —
+ *  runs on the adapter by passing `driver.platform` through unchanged. */
+const PLATFORM_CLAUSES: Readonly<Record<string, string>> = {
+  dapper: "dotnet { persistence: dapper }",
+};
+
+export function platformClause(platform: string): string {
+  return PLATFORM_CLAUSES[platform] ?? platform;
+}
+
 export function generate(
   source: string,
   platform: string,
@@ -280,7 +301,7 @@ export function generate(
   opts: { allowDestructive?: boolean } = {},
 ): void {
   const dddPath = path.join(outDir, "app.ddd");
-  fs.writeFileSync(dddPath, source.replaceAll("__PLATFORM__", platform));
+  fs.writeFileSync(dddPath, source.replaceAll("__PLATFORM__", platformClause(platform)));
   try {
     const flag = opts.allowDestructive ? " --allow-destructive" : "";
     execSync(`node ${cli} generate system ${dddPath} -o ${outDir}${flag}`, {
@@ -1107,6 +1128,415 @@ export async function runJournalOrderingGate(driver: BackendDriver): Promise<voi
     );
     expect(Number(appliedAfter)).toBeGreaterThan(Number(appliedBefore));
     v2.stop();
+  } finally {
+    for (const b of boots) b.stop();
+    server?.stop();
+    try {
+      fs.rmSync(tree, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// M-T2.17 — the TRANSITION gate for `persistence: dapper`.
+//
+// Before Dapper applied the migration chain, its `DbSchema.EnsureAsync` ran
+// `CREATE TABLE IF NOT EXISTS` in `public` on every boot and kept no history;
+// its output tree carried a module snapshot but no migration files.  This gate
+// rebuilds that world and upgrades it:
+//
+//   1. the old DATABASE — the old bootstrap's DDL, verbatim
+//      (`dapper-legacy-bootstrap.sql`), plus one row;
+//   2. the old TREE — a v1 generate with its `Migrations/` removed (the old
+//      toolchain wrote none; its `DbSchema.cs` is replaced by the regenerate);
+//   3. regenerate v2 with the migration-aware toolchain — the tree is
+//      RE-ROOTED: the v1 Initial is re-emitted from the snapshot, then the
+//      v1 → v2 delta;
+//   4. boot — the runner BASELINES the database (moves `public.products` into
+//      `catalog`, records the Initial as applied without running it) and then
+//      applies the delta on top.
+//
+// The row must come out the other side exactly as CHECK 2 expects, the table
+// must live where the migrations put it, both ids must be in the history, and
+// a second boot must change nothing.  Dapper-only: no other backend ever had a
+// boot-time bootstrap to migrate away from.
+// ---------------------------------------------------------------------------
+
+/** The seeded row's id in the legacy database (inserted by SQL — the old app
+ *  that would have written it through REST is the thing being upgraded). */
+const LEGACY_ROW_ID = "3f0c8a52-5b1e-4c1e-9d55-0a4f2f1b7e11";
+
+export async function runDapperLegacyBaselineGate(driver: BackendDriver): Promise<void> {
+  if (driver.platform !== "dapper") {
+    throw new Error(`legacy-baseline gate is Dapper-only, got driver '${driver.platform}'`);
+  }
+  if (!driver.toolchain.check()) {
+    throw new Error(`legacy-baseline: \`${driver.toolchain.name}\` not on PATH.`);
+  }
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "loom-mev-dapper-legacy-"));
+  const appDir = path.join(tree, "d");
+  const migrationsDir = path.join(appDir, "Migrations");
+  let server: PgServer | undefined;
+  const boots: BootHandle[] = [];
+  const DB = "legacy";
+  const boot = async (pg: PgConn): Promise<BootHandle> => {
+    const port = await freePort();
+    const h = driver.boot(appDir, pg, port);
+    boots.push(h);
+    await waitForReady(h.base, h.bootLog, driver.readyTimeoutMs);
+    return h;
+  };
+  const history = (s: PgServer) =>
+    psql(s, DB, "SELECT string_agg(tag, ',' ORDER BY tag) FROM public.__loom_migrations");
+
+  try {
+    server = await startPgServer();
+    resetDatabase(server, DB);
+    const pg = connFor(server, DB);
+
+    // 1. The database the old bootstrap provisioned, holding one v1 row.
+    psql(server, DB, readFixtureFile("dapper-legacy-bootstrap.sql"));
+    psql(
+      server,
+      DB,
+      `INSERT INTO products (id, name, price, status, version) ` +
+        `VALUES ('${LEGACY_ROW_ID}', '${SEED.name}', ${SEED.price}, '${SEED.status}', 1)`,
+    );
+    expect(
+      psql(server, DB, "SELECT to_regclass('public.__loom_migrations') IS NULL"),
+      "a pre-migration database has no history table",
+    ).toBe("t");
+
+    // 2. The tree the old toolchain left: snapshot + history, no migration files.
+    generate(readFixture("base"), driver.platform, tree);
+    fs.rmSync(migrationsDir, { recursive: true, force: true });
+
+    // 3. The migration-aware regenerate re-roots the module.
+    generate(readFixture("evolved"), driver.platform, tree);
+    const files = fs.readdirSync(migrationsDir).sort();
+    expect(files.length, `re-rooted tree: ${files.join(", ")}`).toBe(2);
+    expect(files[0], "the re-emitted v1 Initial comes first").toMatch(/_Initial\.cs$/);
+    const ids = files.map((f) => f.replace(/\.cs$/, ""));
+    driver.install(appDir);
+
+    // 4. First migration-aware boot: baseline, then the delta.
+    const v2 = await boot(pg);
+    await assertForwardMigrated(v2.base, LEGACY_ROW_ID);
+    expect(
+      psql(
+        server,
+        DB,
+        "SELECT to_regclass('public.products') IS NULL AND to_regclass('catalog.products') IS NOT NULL",
+      ),
+      "the legacy table moved into the schema the migrations own",
+    ).toBe("t");
+    expect(history(server), "the Initial is baselined and the delta applied").toBe(ids.join(","));
+    v2.stop();
+    await settle();
+
+    // Idempotent: a second boot applies nothing and changes nothing.
+    const again = await boot(pg);
+    await assertForwardMigrated(again.base, LEGACY_ROW_ID);
+    expect(history(server), "a reboot records nothing new").toBe(ids.join(","));
+    again.stop();
+  } finally {
+    for (const b of boots) b.stop();
+    server?.stop();
+    try {
+      fs.rmSync(tree, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Unique-index evolution gate (#3229) — `unique (…)` keys that the per-table
+// derivation has to carry across a capability flip and across inheritance.
+// One tree, one database, three generations (fixture: unique-evo-base.ddd):
+//
+//   v1  Account `unique (number)` is a FULL index → a duplicate is a 409.
+//       TPC: Party's `unique (email)` lands on BOTH concrete tables — a
+//       duplicate within one subtype is a 409, the same email in the sibling
+//       table is allowed (the documented `loom.unique-tpc-not-hierarchy-wide`
+//       limit).  TPH: Machine's `unique (serial)` is ONE index on the shared
+//       table — a duplicate through either CONCRETE's route is a 409 (it was a
+//       500: the concrete's write surface did not know the key existed).
+//       TPH, the CONCRETE's own key: Lathe's `unique (model)` lands on the
+//       shared table as `machines_lathe_model_uq … WHERE kind = 'Lathe'` (it
+//       reached no index at all).  A duplicate Lathe model is a 409; a Press
+//       — which shares the `model` column but declared no key — may reuse a
+//       Lathe's model (201): the key constrains exactly the rows it was
+//       declared on.
+//   v2  Account gains `softDeletable` → the migration REBUILDS the index as the
+//       partial `WHERE is_deleted = false` (it used to keep the full one, the
+//       diff pairing indexes by name only).  A soft-deleted row's key can be
+//       reused (201); a live duplicate is still a 409.
+//       The generation carries NO backfill block and NO flag: the capability's
+//       `is_deleted NOT NULL` is added WITH `DEFAULT false` (then the default
+//       is dropped), so the populated table migrates and the v1 row still
+//       reads 200, flagged `false`.  (It used to refuse without
+//       `--allow-destructive`.)
+//       DELETE semantics: `crudish`'s `DELETE /{id}` on the softDeletable
+//       aggregate stays a HARD delete — documented (`loom.crudish-hard-delete`
+//       advises), so the row is physically gone, not flagged.
+//   v3  Account drops `softDeletable` again → the index is rebuilt FULL.  That
+//       tightens over rows that now collide, so the generation carries the
+//       `sql before` dedupe `loom.migration-unique-on-existing-table` asks for;
+//       the migration applies and a duplicate is a 409 again.
+// ---------------------------------------------------------------------------
+
+const ACCOUNT_V1 = "aggregate Account with crudish {";
+
+/** Remove one column from the committed baseline snapshot under `tree` — the
+ *  "this database predates the column" half of a catch-up scenario (the other
+ *  half is dropping it from the database itself). */
+function dropBaselineColumn(tree: string, table: string, column: string): void {
+  const snapDir = path.join(tree, ".loom", "snapshots");
+  let dropped = 0;
+  for (const f of fs.readdirSync(snapDir).filter((n) => n.endsWith(".snapshot.json"))) {
+    const p = path.join(snapDir, f);
+    const snap = JSON.parse(fs.readFileSync(p, "utf8")) as {
+      tables?: { name: string; columns?: { name: string }[] }[];
+    };
+    for (const t of snap.tables ?? []) {
+      if (t.name !== table || !t.columns) continue;
+      const before = t.columns.length;
+      t.columns = t.columns.filter((c) => c.name !== column);
+      dropped += before - t.columns.length;
+    }
+    fs.writeFileSync(p, JSON.stringify(snap, null, 2));
+  }
+  if (dropped !== 1) {
+    throw new Error(`expected one ${table}.${column} in the baseline snapshot, dropped ${dropped}`);
+  }
+}
+const ACCOUNT_SOFT = "aggregate Account with softDeletable, crudish {";
+
+export async function runUniqueIndexEvolutionGate(driver: BackendDriver): Promise<void> {
+  if (!driver.toolchain.check()) {
+    throw new Error(
+      `unique-index evolution ${driver.platform}: \`${driver.toolchain.name}\` not on PATH.`,
+    );
+  }
+  const v1Src = readFixture("unique-evo-base");
+  expect(v1Src, "fixture carries the v1 Account header").toContain(ACCOUNT_V1);
+  // No `migration { Account.isDeleted = false }` block: the capability's own
+  // column backfills itself.
+  const v2Src = v1Src.replace(ACCOUNT_V1, ACCOUNT_SOFT);
+  const v3Src = `${v1Src}
+migration "harden" { sql before "DELETE FROM ledger.accounts WHERE is_deleted = true" }
+`;
+
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), `loom-uqevo-${driver.platform}-`));
+  const appDir = path.join(tree, "d");
+  let server: PgServer | undefined;
+  const boots: BootHandle[] = [];
+  const boot = async (pg: PgConn): Promise<BootHandle> => {
+    driver.migrate?.(appDir, pg);
+    const port = await freePort();
+    const h = driver.boot(appDir, pg, port);
+    boots.push(h);
+    await waitForReady(h.base, h.bootLog, driver.readyTimeoutMs);
+    return h;
+  };
+  const postFor = async (
+    base: string,
+    resource: string,
+    body: object,
+  ): Promise<{ status: number; id?: string }> => {
+    const r = await fetch(`${base}/api/${resource}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const text = await r.text();
+    let id: string | undefined;
+    try {
+      id = (JSON.parse(text) as { id?: string }).id;
+    } catch {
+      /* a problem body or an empty one */
+    }
+    return { status: r.status, id };
+  };
+  const post = async (base: string, resource: string, body: object): Promise<number> =>
+    (await postFor(base, resource, body)).status;
+  const DB = "uniqevo";
+  const indexDef = (s: PgServer, name: string): string =>
+    psql(s, DB, `SELECT indexdef FROM pg_indexes WHERE indexname = '${name}'`);
+
+  try {
+    server = await startPgServer();
+    resetDatabase(server, DB);
+    const pg = connFor(server, DB);
+
+    // --- v1 ---------------------------------------------------------------
+    generate(v1Src, driver.platform, tree);
+    driver.install(appDir);
+    const v1 = await boot(pg);
+    expect(indexDef(server, "accounts_number_uq"), "v1: full unique").toMatch(/\(number\)$/);
+    const alice = await postFor(v1.base, "accounts", { number: "ACC-1", owner: "alice" });
+    expect(alice.status).toBe(201);
+    expect(alice.id, "v1: the create answers the new row's id").toBeTruthy();
+    expect(await post(v1.base, "accounts", { number: "ACC-1", owner: "bob" }), "v1 dup").toBe(409);
+
+    // TPC: a per-concrete index on each table, none for the abstract base.
+    expect(indexDef(server, "customers_email_uq"), "TPC: customers index").toMatch(/\(email\)/);
+    expect(indexDef(server, "suppliers_email_uq"), "TPC: suppliers index").toMatch(/\(email\)/);
+    expect(indexDef(server, "parties_email_uq"), "TPC: the base owns no table").toBe("");
+    const party = { name: "Acme", email: "a@x.com" };
+    expect(await post(v1.base, "customers", { ...party, creditLimit: 10 })).toBe(201);
+    expect(
+      await post(v1.base, "customers", { ...party, creditLimit: 20 }),
+      "TPC: duplicate within Customer",
+    ).toBe(409);
+    expect(
+      await post(v1.base, "suppliers", { ...party, rating: 3 }),
+      "TPC: the sibling table may share the email (not hierarchy-wide)",
+    ).toBe(201);
+    expect(
+      await post(v1.base, "suppliers", { ...party, rating: 4 }),
+      "TPC: duplicate within Supplier",
+    ).toBe(409);
+
+    // TPH: one index on the shared table, mapped to 409 on every concrete route.
+    expect(indexDef(server, "machines_serial_uq"), "TPH: shared-table index").toMatch(/\(serial\)/);
+    const lathe = await postFor(v1.base, "lathes", { serial: "S-1", spindles: 2, model: "L-1" });
+    expect(lathe.status).toBe(201);
+    expect(
+      await post(v1.base, "lathes", { serial: "S-1", spindles: 3, model: "L-2" }),
+      "TPH: duplicate through the same concrete",
+    ).toBe(409);
+    expect(
+      await post(v1.base, "presses", { serial: "S-1", tonnage: 50, model: "P-1" }),
+      "TPH: duplicate through a sibling concrete (one table, hierarchy-wide)",
+    ).toBe(409);
+
+    // TPH, the CONCRETE's own key: Lathe `unique (model)`.  Written first, so a
+    // missing index shows up as the 201 it used to answer.
+    expect(
+      await post(v1.base, "lathes", { serial: "S-2", spindles: 1, model: "L-1" }),
+      "TPH concrete key: a duplicate Lathe model",
+    ).toBe(409);
+    expect(
+      await post(v1.base, "presses", { serial: "S-3", tonnage: 10, model: "L-1" }),
+      "TPH concrete key: a Press shares the model column, not Lathe's key",
+    ).toBe(201);
+    expect(
+      indexDef(server, "machines_lathe_model_uq"),
+      "TPH concrete key: partial on kind",
+    ).toMatch(/\(model\) WHERE \(kind = 'Lathe'::text\)$/);
+    v1.stop();
+    await settle();
+
+    // --- between v1 and v2: a POPULATED TPH table from before `versioned` --
+    // Every aggregate is versioned by default (M-T3.4), so no `.ddd` can spell
+    // "v1 without `versioned`" any more — but a database created before that
+    // has a populated TPH shared table with no `version` column, and the next
+    // generation must add it.  Recreate exactly that state, the way the
+    // money-bounds catch-up gate recreates a pre-#2575 one: drop the column
+    // from the database AND from the committed baseline snapshot.  The v2
+    // diff then adds `version` to a table holding rows.  It applies with no
+    // flag, and the column must end `NOT NULL DEFAULT 1` like every other
+    // versioned table.  The TPH shared table used to miss that default (the
+    // add then went through the field-default backfill path, which drops the
+    // default again), so a migrated TPH table disagreed with a plain one.
+    psql(server, DB, `ALTER TABLE ledger.machines DROP COLUMN version`);
+    dropBaselineColumn(tree, "machines", "version");
+
+    // --- v2: + softDeletable → partial ------------------------------------
+    generate(v2Src, driver.platform, tree);
+    driver.rebuild?.(appDir);
+    const v2 = await boot(pg);
+    // `versioned` re-added to the populated TPH table: applied with no flag,
+    // every pre-existing row seeded at version 1, and the row still reads 200.
+    expect(
+      psql(
+        server,
+        DB,
+        `SELECT coalesce(column_default, '<none>') || ' ' || is_nullable FROM information_schema.columns
+          WHERE table_schema = 'ledger' AND table_name = 'machines' AND column_name = 'version'`,
+      ),
+      "v2: the TPH shared table's version column is NOT NULL DEFAULT 1",
+    ).toBe("1 NO");
+    expect(
+      psql(server, DB, `SELECT string_agg(DISTINCT version::text, ',') FROM ledger.machines`),
+      "v2: every pre-existing TPH row is at version 1",
+    ).toBe("1");
+    const latheRead = await fetch(`${v2.base}/api/lathes/${lathe.id}`);
+    expect(latheRead.status, `v2: the v1 Lathe survives: ${await latheRead.clone().text()}`).toBe(
+      200,
+    );
+    await latheRead.text();
+    expect(indexDef(server, "accounts_number_uq"), "v2: rebuilt partial").toMatch(
+      /WHERE \(?is_deleted = false\)?$/,
+    );
+    // The capability column backfilled itself: the v1 row is still readable
+    // (the `!isDeleted` read filter admits it) and holds `false`, and the
+    // transient DEFAULT is gone again (the column matches a fresh CREATE).
+    const aliceRead = await fetch(`${v2.base}/api/accounts/${alice.id}`);
+    expect(aliceRead.status, `v2: the v1 row survives: ${await aliceRead.clone().text()}`).toBe(
+      200,
+    );
+    expect(((await aliceRead.json()) as { owner: string }).owner).toBe("alice");
+    expect(
+      psql(server, DB, `SELECT is_deleted FROM ledger.accounts WHERE number = 'ACC-1'`),
+      "v2: the existing row is backfilled not-deleted",
+    ).toBe("f");
+    expect(
+      psql(
+        server,
+        DB,
+        `SELECT coalesce(column_default, '<none>') || ' ' || is_nullable FROM information_schema.columns
+          WHERE table_name = 'accounts' AND column_name = 'is_deleted'`,
+      ),
+      "v2: is_deleted ends NOT NULL with no lingering default",
+    ).toBe("<none> NO");
+
+    // crudish's DELETE on a softDeletable aggregate: a HARD delete (documented).
+    const doomed = await postFor(v2.base, "accounts", { number: "ACC-DEL", owner: "zed" });
+    expect(doomed.status).toBe(201);
+    const del = await fetch(`${v2.base}/api/accounts/${doomed.id}`, { method: "DELETE" });
+    await del.text();
+    expect(del.status, "v2: crudish DELETE answers 204").toBe(204);
+    expect(
+      psql(server, DB, `SELECT count(*) FROM ledger.accounts WHERE number = 'ACC-DEL'`),
+      "v2: crudish DELETE removed the row (hard delete), it did not flag it",
+    ).toBe("0");
+
+    // Soft-delete alice's row the way the capability does (flag, not DELETE).
+    psql(server, DB, `UPDATE ledger.accounts SET is_deleted = true WHERE number = 'ACC-1'`);
+    expect(
+      await post(v2.base, "accounts", { number: "ACC-1", owner: "carol" }),
+      "v2: a live row reuses a soft-deleted row's key",
+    ).toBe(201);
+    expect(
+      await post(v2.base, "accounts", { number: "ACC-1", owner: "dave" }),
+      "v2: a duplicate of a LIVE row is still refused",
+    ).toBe(409);
+    expect(
+      psql(server, DB, `SELECT count(*) FROM ledger.accounts WHERE number = 'ACC-1'`),
+      "v2: the soft-deleted row and the live one coexist",
+    ).toBe("2");
+    v2.stop();
+    await settle();
+
+    // --- v3: − softDeletable → full again (dedupe first) --------------------
+    generate(v3Src, driver.platform, tree, { allowDestructive: true });
+    driver.rebuild?.(appDir);
+    const v3 = await boot(pg);
+    expect(indexDef(server, "accounts_number_uq"), "v3: rebuilt full").toMatch(/\(number\)$/);
+    expect(
+      psql(server, DB, `SELECT owner FROM ledger.accounts WHERE number = 'ACC-1'`),
+      "v3: the `sql before` dedupe removed the soft-deleted row ahead of the index",
+    ).toBe("carol");
+    expect(
+      await post(v3.base, "accounts", { number: "ACC-1", owner: "erin" }),
+      "v3: duplicate refused by the full index",
+    ).toBe(409);
+    v3.stop();
   } finally {
     for (const b of boots) b.stop();
     server?.stop();

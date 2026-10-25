@@ -1,10 +1,13 @@
 import { emitsRestCreate } from "../../../ir/enrich/wire-projection.js";
 import type { AggregateIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
 import { type ApiOperationIR, relativeOpPath } from "../../../ir/util/api-surface.js";
+import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import {
+  CONCURRENCY_CONFLICT_SUFFIX,
   DANGLING_REFERENCE_DETAIL,
   errorStatuses,
+  MISSING_FIELD_MESSAGE,
   type OpErrorKind,
   problemTitle,
 } from "../../../ir/util/openapi-errors.js";
@@ -299,7 +302,12 @@ export function renderController(
     }),
   );
 
+  // A slot an explicit `route` claims is served by that route's controller
+  // alone (D-EXPLICIT-ROUTE-WINS): the derived action is not rendered, while the
+  // request DTO / command / query it would dispatch stay emitted for the
+  // explicit handler and the rest of the service.
   const findBlocks = shape.finds.flatMap((f) => {
+    if (f.apiOp.claimedByExplicitRoute) return [];
     // The action's own locals yield to a same-named find param (CS0136): a
     // `find one(result: string)` binds `result` as a query parameter.
     const L = csLocalNamer(f.paramNames, ["result", "problem"]);
@@ -375,7 +383,7 @@ export function renderController(
   // aggregate emits none, so `using …Commands;` would reference a namespace
   // that does not exist (CS0234 under `/warnaserror`).  (Queries/Requests/
   // Responses always have at least the auto findAll + Response DTO.)
-  const hasCommands = emitsRestCreate(agg) || !!agg.canonicalDestroy || agg.operations.length > 0;
+  const hasCommands = emitsRestCreate(agg) || !!canonicalDestroy(agg) || agg.operations.length > 0;
   return (
     lines(
       "// Auto-generated.",
@@ -422,7 +430,7 @@ export function renderController(
       // `createAction` and the derived create op are the same predicate
       // (`emitsRestCreate` on both sides), so the `!` is a type-level
       // formality, not a runtime bet.
-      ...(shape.createAction !== false
+      ...(shape.createAction !== false && !shape.createApiOp?.claimedByExplicitRoute
         ? [
             `    [HttpPost${routeTemplate(shape.createApiOp!)}]`,
             `    [ProducesResponseType(typeof(Create${agg.name}Response), 201)]`,
@@ -448,31 +456,39 @@ export function renderController(
               { name: "id", valueExpr: "id.Value" },
             ])}`,
             `        HttpMetrics.RecordDomainOperation("${agg.name}", "create");`,
-            `        return CreatedAtAction(nameof(${actionName(opGetById(agg.name))}), new { id = id.Value }, new Create${agg.name}Response(id.Value));`,
+            // Location points at the read; when an explicit route serves that
+            // slot there is no derived action to name, so the path is spelled.
+            shape.getByIdApiOp.claimedByExplicitRoute
+              ? `        return Created($"${shape.getByIdApiOp.path.replace("{id}", "{id.Value}")}", new Create${agg.name}Response(id.Value));`
+              : `        return CreatedAtAction(nameof(${actionName(opGetById(agg.name))}), new { id = id.Value }, new Create${agg.name}Response(id.Value));`,
             "    }",
             "",
           ]
         : []),
-      `    [HttpGet${routeTemplate(shape.getByIdApiOp)}]`,
-      `    [ProducesResponseType(typeof(${agg.name}Response), 200)]`,
-      ...derivedProblemDecls(shape.getByIdApiOp),
-      `    public async Task<ActionResult<${agg.name}Response>> ${actionName(opGetById(agg.name))}([FromRoute] ${shape.idClrType} id)`,
-      "    {",
-      `        var response = await _mediator.Send(new Get${agg.name}ByIdQuery(new ${idClass}(id)));`,
-      // RS-27 — `NotFound()` produced ASP.NET's OWN bare 404, bypassing
-      // `DomainExceptionFilter`'s `AggregateNotFoundException` arm that every
-      // OTHER .NET 404 goes through (the operation commands, the Can<Op> probe,
-      // the history read all `?? throw new AggregateNotFoundException($"…")`).
-      // That made this ONE route answer a different problem body than the rest
-      // of the same service.  Throwing routes it back through the shared filter,
-      // which renders `detail` from the message — the same sentence the other
-      // four backends emit.  `id` is the raw route value; the id record's
-      // `ToString()` is overridden to the raw value, so both spellings of this
-      // message interpolate identically.
-      `        if (response is null) throw new global::${ns}.Domain.Common.AggregateNotFoundException($"${agg.name} {id} not found");`,
-      "        return Ok(response);",
-      "    }",
-      "",
+      ...(shape.getByIdApiOp.claimedByExplicitRoute
+        ? []
+        : [
+            `    [HttpGet${routeTemplate(shape.getByIdApiOp)}]`,
+            `    [ProducesResponseType(typeof(${agg.name}Response), 200)]`,
+            ...derivedProblemDecls(shape.getByIdApiOp),
+            `    public async Task<ActionResult<${agg.name}Response>> ${actionName(opGetById(agg.name))}([FromRoute] ${shape.idClrType} id)`,
+            "    {",
+            `        var response = await _mediator.Send(new Get${agg.name}ByIdQuery(new ${idClass}(id)));`,
+            // RS-27 — `NotFound()` produced ASP.NET's OWN bare 404, bypassing
+            // `DomainExceptionFilter`'s `AggregateNotFoundException` arm that every
+            // OTHER .NET 404 goes through (the operation commands, the Can<Op> probe,
+            // the history read all `?? throw new AggregateNotFoundException($"…")`).
+            // That made this ONE route answer a different problem body than the rest
+            // of the same service.  Throwing routes it back through the shared filter,
+            // which renders `detail` from the message — the same sentence the other
+            // four backends emit.  `id` is the raw route value; the id record's
+            // `ToString()` is overridden to the raw value, so both spellings of this
+            // message interpolate identically.
+            `        if (response is null) throw new global::${ns}.Domain.Common.AggregateNotFoundException($"${agg.name} {id} not found");`,
+            "        return Ok(response);",
+            "    }",
+            "",
+          ]),
       // Entity history — GET /{id}/history (docs/audit.md).  Emitted off the
       // enrichment-derived `historyFind`, so it sits beside the declared finds
       // rather than inside their loop.  The three guards (inherited read gate →
@@ -497,7 +513,7 @@ export function renderController(
       // Canonical destroy → DELETE /{id} (hard delete).  Gated; reuses the
       // getById error shape (404).  crudish's destroy is empty-bodied, so
       // the command carries only the id.
-      ...(shape.destroyAction
+      ...(shape.destroyAction && !shape.destroyApiOp?.claimedByExplicitRoute
         ? [
             `    [HttpDelete${routeTemplate(shape.destroyApiOp!)}]`,
             "    [ProducesResponseType(204)]",
@@ -656,19 +672,21 @@ export function renderOperationActionBlock(
   // The side-effect-free can_<op> companion (criterion.md use site 2):
   // GET → loads the aggregate, evaluates the `when` predicate, returns
   // `{ allowed }` so a UI can enable/disable the action without invoking it.
-  const canBlock = op.whenGated
-    ? [
-        `    [HttpGet${routeTemplate(op.probeOp!)}]`,
-        `    [ProducesResponseType(typeof(CanResponse), 200)]`,
-        ...derivedProblemDecls(op.probeOp!),
-        `    public async Task<ActionResult<CanResponse>> ${actionName(opOperation(agg.name, `can_${op.name}`))}([FromRoute] ${shape.idClrType} id)`,
-        "    {",
-        `        var result = await _mediator.Send(new Can${upperFirst(op.name)}Query(new ${idClass}(id)));`,
-        "        return Ok(result);",
-        "    }",
-        "",
-      ]
-    : [];
+  const canBlock =
+    op.whenGated && !op.probeOp?.claimedByExplicitRoute
+      ? [
+          `    [HttpGet${routeTemplate(op.probeOp!)}]`,
+          `    [ProducesResponseType(typeof(CanResponse), 200)]`,
+          ...derivedProblemDecls(op.probeOp!),
+          `    public async Task<ActionResult<CanResponse>> ${actionName(opOperation(agg.name, `can_${op.name}`))}([FromRoute] ${shape.idClrType} id)`,
+          "    {",
+          `        var result = await _mediator.Send(new Can${upperFirst(op.name)}Query(new ${idClass}(id)));`,
+          "        return Ok(result);",
+          "    }",
+          "",
+        ]
+      : [];
+  if (op.apiOp.claimedByExplicitRoute) return canBlock;
   return [
     ...canBlock,
     `    [HttpPost${routeTemplate(op.apiOp)}]`,
@@ -1028,19 +1046,38 @@ export function renderExceptionFilter(
   const concurrencyExceptionType = usingDapper
     ? "ConcurrencyConflictException"
     : "Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException";
+  // RS-40 (M-T6.91) — the detail is node's sentence, `<Aggregate> <id> was
+  // modified by another request`.  Dapper's `ConcurrencyConflictException` and
+  // the EF event-store's wrapped 23505 carry it as their message (built where
+  // the aggregate is in scope).  EF's NATIVE concurrency-token failure carries
+  // EF's own wording, so the sentence is derived from the entry the guarded
+  // UPDATE missed — its CLR type name and primary-key value (a strongly-typed
+  // id prints its `Value`).  A `shape: document` aggregate persists through its
+  // `<Agg>Document` POCO (document.ts), whose suffix is dropped so the sentence
+  // names the aggregate, not the persistence record.
+  const efEntryDetail = usingDapper
+    ? ""
+    : `
+            if (context.Exception is Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException { Entries.Count: > 0 } __dbx)
+            {
+                var __entry = __dbx.Entries[0];
+                var __type = __entry.Metadata.ClrType;
+                var __name = __type.Namespace?.EndsWith(".Infrastructure.Persistence.Documents") == true && __type.Name.EndsWith("Document") ? __type.Name[..^"Document".Length] : __type.Name;
+                var __key = __entry.Metadata.FindPrimaryKey();
+                var __idVal = __key is { Properties.Count: > 0 } ? __entry.Property(__key.Properties[0].Name).CurrentValue : null;
+                __conflictDetail = $"{__name} {__idVal} ${CONCURRENCY_CONFLICT_SUFFIX}";
+            }`;
   const concurrencyConflictArm = hasVersioned
     ? `
         if (context.Exception is ${concurrencyExceptionType})
         {
+            var __conflictDetail = context.Exception.Message;${efEntryDetail}
             ${renderDotnetLogCall("conflict", [
-              {
-                name: "message",
-                valueExpr: `"The resource was modified by another request; reload and retry."`,
-              },
+              { name: "message", valueExpr: "__conflictDetail" },
               { name: "status", valueExpr: `${concurrencyStatus}` },
             ])}
             global::${ns}.Observability.HttpMetrics.RecordDomainFault("conflict");
-            context.Result = Problem(context, ${concurrencyStatus}, "Conflict", "The resource was modified by another request; reload and retry.", trace_id);
+            context.Result = Problem(context, ${concurrencyStatus}, "Conflict", __conflictDetail, trace_id);
             context.ExceptionHandled = true;
             return;
         }`
@@ -1379,6 +1416,19 @@ namespace ${ns}.Api;
 public static class ValidationProblem
 {
     /// <summary>
+    /// The message every backend sends for a REQUIRED request field the body
+    /// leaves out (RS-39) — whether System.Text.Json noticed the absence (a
+    /// value-typed member) or DataAnnotations' [Required] did (a reference one).
+    /// </summary>
+    private const string MissingField = ${JSON.stringify(MISSING_FIELD_MESSAGE)};
+
+    /// <summary>[Required]'s own sentence — "The X field is required." —
+    /// recognised so it carries the shared wording instead.</summary>
+    private static bool IsRequiredMessage(string message) =>
+        message.StartsWith("The ", StringComparison.Ordinal)
+        && message.EndsWith(" field is required.", StringComparison.Ordinal);
+
+    /// <summary>
     /// RFC 7807 answer for a request MVC rejected during model binding or
     /// DataAnnotations validation.  Wired in Program.cs via
     /// ApiBehaviorOptions.InvalidModelStateResponseFactory.
@@ -1463,7 +1513,7 @@ public static class ValidationProblem
                         ? names.Select(name => new Dictionary<string, object>
                         {
                             ["pointer"] = "/" + name,
-                            ["message"] = "The " + name + " field is required.",
+                            ["message"] = MissingField,
                         })
                         : new[] { new Dictionary<string, object>
                         {
@@ -1473,6 +1523,43 @@ public static class ValidationProblem
                 })
                 .ToArray();
             return new ObjectResult(missingProblem)
+            {
+                StatusCode = 422,
+                ContentTypes = { "application/problem+json" },
+            };
+        }
+        // An int literal past Int32 is a FIELD refusal, not a malformed body
+        // (RS-42): Serialization.Int32RangeJsonConverter throws it with the
+        // range sentence as its message, and the input formatter files that
+        // message under the field's JSON path ("$.n", "$.best.qty").  Answered
+        // like a missing member: only the range errors, never the companion
+        // "The request field is required." the same rejection records against
+        // the action parameter.
+        static bool IsIntegerRange(ModelError error) =>
+            error.ErrorMessage == global::${ns}.Serialization.Int32RangeJsonConverter.Message
+            || error.Exception?.Message == global::${ns}.Serialization.Int32RangeJsonConverter.Message;
+        var outOfRange = context.ModelState
+            .Where(entry => entry.Value is not null && entry.Value.Errors.Any(IsIntegerRange))
+            .Select(entry => entry.Key)
+            .ToArray();
+        if (outOfRange.Length > 0)
+        {
+            var rangeProblem = new ProblemDetails
+            {
+                Type = "about:blank",
+                Title = "Validation failed",
+                Status = 422,
+                Detail = "One or more fields are invalid.",
+                Instance = context.HttpContext.Request.Path,
+            };
+            rangeProblem.Extensions["errors"] = outOfRange
+                .Select(key => new Dictionary<string, object>
+                {
+                    ["pointer"] = PointerOf(key.TrimStart('$').TrimStart('.')),
+                    ["message"] = global::${ns}.Serialization.Int32RangeJsonConverter.Message,
+                })
+                .ToArray();
+            return new ObjectResult(rangeProblem)
             {
                 StatusCode = 422,
                 ContentTypes = { "application/problem+json" },
@@ -1510,7 +1597,7 @@ public static class ValidationProblem
                 : entry.Value.Errors.Select(error => new Dictionary<string, object>
                 {
                     ["pointer"] = PointerOf(entry.Key),
-                    ["message"] = error.ErrorMessage,
+                    ["message"] = IsRequiredMessage(error.ErrorMessage) ? MissingField : error.ErrorMessage,
                 }))
             .ToArray();
         return new ObjectResult(problem)

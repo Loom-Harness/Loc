@@ -58,11 +58,12 @@ describe("java money ingress (M-T6.48)", () => {
   it("carries the field's own pointer — including the operation param and the VO", async () => {
     const { service } = await filesFor();
     expect(service).toContain('WireFormatException.money(request.newPrice(), "/newPrice")');
-    // The value-object mapper converts its own fields, so a nested money field
-    // reports its own name rather than the document root.
+    // The value-object mapper converts its own fields under the path it is
+    // called at, so a nested money field reports its WHOLE path (RS-33).
     expect(service).toMatch(
-      /new Offer\(WireFormatException\.money\(request\.price\(\), "\/price"\)/,
+      /new Offer\(WireFormatException\.money\(request\.price\(\), at \+ "\/price"\)/,
     );
+    expect(service).toMatch(/toOffer\(request\.best\(\), "\/best"\)/);
   });
 
   it("declares node's grammar and node's message, character for character", async () => {

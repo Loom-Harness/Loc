@@ -28,6 +28,7 @@
 // systems that appear in a shared behavioural system.
 
 import { describe, expect, it } from "vitest";
+import { messageCode } from "../../src/util/message-code.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 /** One aggregate with BOTH guard kinds on one operation, so a single emission
@@ -48,7 +49,7 @@ system Denials {
         }
 
         // The third rung: a when STATE GATE.  Rejected -> 409, and its detail
-        // must name the operation and aggregate (RS-17).
+        // must name the operation, the aggregate and the predicate (RS-17).
         operation reopen() when status != "open" {
           status := "open"
         }
@@ -98,10 +99,13 @@ const FORBIDDEN_DETAIL = "Forbidden: currentUser.level > 2";
  *  could not carry an authored message at all; it is pinned by its own
  *  `describe` at the bottom of this file (M-T6.20 path 2). */
 const AUTHORED_DETAIL = "Repricing needs a positive amount";
-/** RS-17 — the 409 rung.  Elixir used to answer a fixed sentence with title
- *  "Conflict"; the denial reason is now a tuple carrying this message, and the
- *  title is the ERROR NAME (`errorTitle` humanises `Disallowed`) on all five. */
-const DISALLOWED_DETAIL = "operation 'reopen' is not allowed in the current state of Order.";
+/** RS-17 — the 409 rung.  The detail names the operation, the aggregate AND
+ *  the failed `when` predicate's source, and the title is the ERROR NAME
+ *  (`errorTitle` humanises `Disallowed`) on all five.  This predicate DOES
+ *  carry a string literal, on purpose: all five embed the detail with the same
+ *  JSON-style `\"` escaping, so the expectation is that escaped form. */
+const DISALLOWED_DETAIL = `operation 'reopen' is not allowed in the current state of Order (when status != "open").`;
+const DISALLOWED_DETAIL_EMBEDDED = JSON.stringify(DISALLOWED_DETAIL).slice(1, -1);
 
 async function emit(platform: string): Promise<string> {
   const files = await generateSystemFiles(SOURCE(platform));
@@ -128,7 +132,7 @@ describe("RS-15 — domain-floor denials are 422 with an occurrence-specific det
 
     it(`${platform}: a refused when-gate names the operation it refused`, async () => {
       const out = await emit(platform);
-      expect(out).toContain(DISALLOWED_DETAIL);
+      expect(out).toContain(DISALLOWED_DETAIL_EMBEDDED);
       // …and the state-gate arm's 7807 title is the ERROR NAME, not the 409
       // reason phrase.  Asserted POSITIVELY: "Conflict" is a legitimate title
       // on the sibling 409 rungs (UniquenessConflict / ConcurrencyConflict), so
@@ -218,6 +222,101 @@ describe("RS-15 — the raise path carries the authored message too (M-T6.20 pat
       expect(out).toContain(FUNCTION_AUTHORED_DETAIL);
       expect(out, "derived detail emitted despite an authored message").not.toContain(
         "Precondition failed: amount > 0",
+      );
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// The ORCHESTRATION path — a `precondition … message "…"` inside a workflow
+// `create` body and a `commandHandler` body (banking eval B-02).
+//
+// The workflow lowering dropped the clause (the IR slot existed, the lowerer
+// never filled it), so every backend answered the derived
+// `"Precondition failed: fromOrder != toOrder"` — leaking the predicate source
+// and losing the author's text.  The authored message must now be the detail,
+// carry the same `msg.<hash>` code an operation precondition carries through
+// its throw (M-T1.11 (c)), and get its backend catalog entry.
+//
+// The fixture has NO messaged aggregate rule on purpose: the backend-wide
+// domain-floor code carriage (the coded error constructor, elixir's map arm on
+// `problem_response/4`) is gated on `hasDomainFloorMessages`, which therefore
+// has to see a workflow / handler precondition — otherwise the coded throw
+// below would call a constructor that does not exist.
+// ---------------------------------------------------------------------------
+
+const ORCHESTRATION_SOURCE = (platform: string) => `
+system Denials3 {
+  subdomain Sales {
+    context Sales {
+      aggregate Order with crudish {
+        total: int
+        operation bump() { total := total + 1 }
+      }
+      repository Orders for Order { }
+
+      workflow move {
+        create(fromOrder: Order id, toOrder: Order id) {
+          precondition fromOrder != toOrder message "Cannot move to the same order"
+          let a = Orders.getById(fromOrder)
+          a.bump()
+        }
+      }
+
+      commandHandler Echo(text: string): string {
+        precondition text != "" message "Echo needs some text"
+        return text
+      }
+    }
+  }
+  api SalesApi from Sales
+  storage primary { type: postgres }
+  resource salesState { for: Sales, kind: state, use: primary }
+  deployable api {
+    platform: ${platform}
+    contexts: [Sales]
+    dataSources: [salesState]
+    serves: SalesApi
+    port: 8080
+  }
+}
+`;
+
+/** The coded domain-error surface each backend emits only when the
+ *  domain-floor gate is on. */
+const CODED_ERROR_SURFACE: Record<string, string> = {
+  node: "constructor(message: string, kind?: DomainErrorKind, code?: string, pointer?: string)",
+  dotnet: "public string? RuleCode { get; }",
+  java: "public DomainException(String message, Kind kind, String ruleCode, String pointer)",
+  python: "        code: str | None = None,",
+  elixir:
+    "def problem_response(conn, _status, _title, %{detail: detail, code: code, pointer: pointer})",
+};
+
+describe("B-02 — a workflow / commandHandler precondition keeps its authored message", () => {
+  const cases = [
+    { text: "Cannot move to the same order", derived: "Precondition failed: fromOrder != toOrder" },
+    { text: "Echo needs some text", derived: "Precondition failed: text != " },
+  ];
+  for (const platform of ["node", "dotnet", "java", "python", "elixir"]) {
+    it(`${platform}: authored detail + msg code at the throw, and a catalog entry`, async () => {
+      const files = await generateSystemFiles(ORCHESTRATION_SOURCE(platform));
+      const out = [...files.values()].join("\n");
+      const catalog = [...files.entries()].find(([p]) => p.endsWith(".loom/messages.en.json"));
+      expect(catalog, "no .loom/messages.en.json emitted").toBeDefined();
+      for (const c of cases) {
+        const code = messageCode(c.text);
+        expect(out, "derived detail emitted despite an authored message").not.toContain(c.derived);
+        const throwSite = out
+          .split("\n")
+          .filter((l) => l.includes(JSON.stringify(c.text)) && l.includes(JSON.stringify(code)));
+        expect(throwSite.length, `no throw site carries "${c.text}" with ${code}`).toBeGreaterThan(
+          0,
+        );
+        expect(catalog?.[1], `catalog lacks ${code}`).toContain(code);
+      }
+      expect(out, "the coded domain-error surface is not emitted").toContain(
+        CODED_ERROR_SURFACE[platform],
       );
     });
   }

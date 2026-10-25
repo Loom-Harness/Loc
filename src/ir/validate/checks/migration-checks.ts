@@ -55,13 +55,23 @@ export function validateMigrationDataSteps(loom: EnrichedLoomModel, diags: LoomD
     // Unknown field is the AST-level `loom.backfill-unknown-field`.
     if (!field) continue;
     if (!isScalarColumnType(field.type)) {
+      // An inline value collection is one Postgres array column, and the
+      // migration builder already fills it with the empty collection when it
+      // is added NOT NULL to a populated table — so the step is unnecessary,
+      // and the message says that rather than "cannot be backfilled".
+      const inlineCollection = isInlineCollectionType(field.type);
       diags.push({
         severity: "error",
         code: "loom.backfill-target-invalid",
-        message: diagMessage("loom.backfill-target-invalid#backfill-the-field-is-not", {
-          aggregate: intent.aggregate,
-          field: intent.field,
-        }),
+        message: inlineCollection
+          ? diagMessage("loom.backfill-target-invalid#backfill-collection-needs-none", {
+              aggregate: intent.aggregate,
+              field: intent.field,
+            })
+          : diagMessage("loom.backfill-target-invalid#backfill-the-field-is-not", {
+              aggregate: intent.aggregate,
+              field: intent.field,
+            }),
         source,
       });
       continue;
@@ -114,6 +124,14 @@ function isScalarColumnType(t: TypeIR): boolean {
     default:
       return false;
   }
+}
+
+/** A collection of primitives or enum values — stored inline as one Postgres
+ *  array column on every backend (value-object, entity and `X id` collections
+ *  live in child or join tables instead). */
+function isInlineCollectionType(t: TypeIR): boolean {
+  if (t.kind === "optional") return isInlineCollectionType(t.inner);
+  return t.kind === "array" && (t.element.kind === "primitive" || t.element.kind === "enum");
 }
 
 /** Best-effort inferred "SQL family" of a backfill expression — one of the
@@ -187,48 +205,48 @@ function sqlExprFamily(e: ExprIR): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
-// Migration chain vs. persistence adapter (the SELF-PROVISIONING adapters).
+// Migration chain vs. persistence adapter (the SELF-PROVISIONING adapter).
 //
-// Two adapters opt OUT of the phase-⑨ `MigrationsIR` chain entirely and
-// provision their schema themselves at boot:
+// One adapter opts OUT of the phase-⑨ `MigrationsIR` chain and provisions its
+// schema itself at boot:
 //
-//   - `persistence: dapper`   — `hasMigrations = !usingDapper`
-//     (`src/generator/dotnet/index.ts`); schema comes from the
-//     `CREATE TABLE IF NOT EXISTS` block `DbSchema.EnsureAsync` runs.
 //   - `persistence: mikroorm` — `hasMigrations = !usingMikro`
 //     (`src/platform/hono/v4/emit.ts`, shared by v5); schema comes from
 //     `orm.schema.updateSchema()`.
 //
-// Both are fine for a FIRST boot.  Neither can carry a declared `migration`
-// block, and the failure is SILENT in the worst way:
+// (`persistence: dapper` was the other one until D-DAPPER-ALTER / M-T2.17: it
+// now applies the same versioned chain as EF — `dapper-migrations.ts` — so a
+// declared `migration` block reaches it like any other step.)
 //
-//   - dapper: `CREATE TABLE IF NOT EXISTS` sees the table already there and
-//     does nothing, so a declared `rename` / backfill / raw `sql` step never
-//     runs.  The column keeps its old name and the app 500s on a column that
-//     "should" exist — or worse, quietly reads a NULL the backfill was meant
-//     to populate.
-//   - mikroorm: `updateSchema()` has no rename intent to consult, so it sees
-//     a dropped column and an added one — it DROPS the old column and ADDS
-//     the new one, i.e. it deletes the very data the rename existed to keep.
+// That is fine for a FIRST boot.  It cannot carry a declared `migration`
+// block, and the failure is SILENT in the worst way: `updateSchema()` has no
+// rename intent to consult, so it sees a dropped column and an added one — it
+// DROPS the old column and ADDS the new one, i.e. it deletes the very data the
+// rename existed to keep.
 //
 // The declared intents are exactly the migration surface that lives on the IR
 // at phase ⑦ (`renameIntents` / `tableRenameIntents` / `backfillIntents` /
 // `sqlMigrationSteps`) — the derived `MigrationsIR` itself only exists in
 // phase ⑨.  So the gate is here, and it makes the gap HONEST: a declared
-// migration on a self-provisioning adapter is now a compile error naming the
-// adapter to switch to, instead of a silent no-op (dapper) or silent data loss
-// (mikroorm).
+// migration on the self-provisioning adapter is a compile error naming the
+// adapter to switch to, instead of silent data loss.
 // ---------------------------------------------------------------------------
 
-/** The self-provisioning persistence adapters.  Both consequences of "I run
- *  `CREATE TABLE IF NOT EXISTS` at boot instead of applying a chain" are gated
- *  against this one set: no migration steps (below) and no schema qualifier
- *  (`validateSelfProvisioningSchemaSupport`, further down).
+/** The adapters whose tables are NOT placed by the migration chain alone.
+ *  mikroorm self-provisions at boot (no chain, unqualified tables); dapper
+ *  applies the chain but its repositories name every table UNQUALIFIED and rely
+ *  on the connection `search_path` — which places a SCHEMA but cannot apply a
+ *  `tablePrefix:` (`validateSelfProvisioningSchemaSupport`, further down).
+ *  Only mikroorm is refused declared migration steps (`MIGRATION_LESS_ADAPTERS`).
  *
  *  The message KEYS stay as string literals at the `diagMessage(...)` call
  *  sites — `diagnostic-catalog.test.ts` reads them syntactically, so a key
  *  routed through a lookup table reads as an orphan entry. */
 const SELF_PROVISIONING_ADAPTERS = new Set(["dapper", "mikroorm"]);
+
+/** The adapters with no migration chain at all — a declared `migration` step
+ *  can never run on them. */
+const MIGRATION_LESS_ADAPTERS = new Set(["mikroorm"]);
 
 export function validateMigrationAdapterSupport(
   loom: EnrichedLoomModel,
@@ -257,7 +275,7 @@ export function validateMigrationAdapterSupport(
 
   for (const sys of loom.systems) {
     for (const dep of sys.deployables) {
-      if (!dep.persistence || !SELF_PROVISIONING_ADAPTERS.has(dep.persistence)) continue;
+      if (!dep.persistence || !MIGRATION_LESS_ADAPTERS.has(dep.persistence)) continue;
       const hits = [...dep.contextNames.flatMap((c) => byContext.get(c) ?? []), ...sqlSteps];
       if (hits.length === 0) continue;
       // One diagnostic per deployable, naming the first offending step — the
@@ -271,21 +289,12 @@ export function validateMigrationAdapterSupport(
         count: hits.length,
       };
       const source = `${sys.name}/${dep.name}`;
-      if (dep.persistence === "dapper") {
-        diags.push({
-          severity: "error",
-          code: "loom.dapper-unsupported",
-          message: diagMessage("loom.dapper-unsupported#migrations", params),
-          source,
-        });
-      } else {
-        diags.push({
-          severity: "error",
-          code: "loom.mikroorm-unsupported",
-          message: diagMessage("loom.mikroorm-unsupported#migrations", params),
-          source,
-        });
-      }
+      diags.push({
+        severity: "error",
+        code: "loom.mikroorm-unsupported",
+        message: diagMessage("loom.mikroorm-unsupported#migrations", params),
+        source,
+      });
     }
   }
 }
@@ -293,9 +302,12 @@ export function validateMigrationAdapterSupport(
 // ---------------------------------------------------------------------------
 // The OTHER consequence of self-provisioning: no schema concept (F2-ADP-3).
 //
-// A self-provisioning adapter emits its DDL as `CREATE TABLE IF NOT EXISTS` at
-// boot and names every table UNQUALIFIED — dapper's `DbSchema.EnsureAsync`
-// (`CREATE TABLE IF NOT EXISTS "as"`), mikroorm's `@Entity({ tableName: "as" })`.
+// The self-provisioning adapter syncs its schema at boot and names every table
+// UNQUALIFIED — mikroorm's `@Entity({ tableName: "as" })`.  (Dapper did too,
+// with `CREATE TABLE IF NOT EXISTS "as"`, until it applied the migration chain
+// — M-T2.17.  Its tables now land in the binding's schema like EF's; its SQL
+// stays unqualified and reaches them through the connection's `search_path`,
+// so it only refuses a `tablePrefix:`, which a search path cannot apply.)
 // Every migration-chain adapter instead routes the table into the binding's
 // Postgres schema, which `resolveDataSourceConfig` DEFAULTS to
 // `snake(<context>)` when the DSL omits `schema:` — so EF Core emits
@@ -382,8 +394,10 @@ export function validateSelfProvisioningSchemaSupport(
         (d) => d.persistence && SELF_PROVISIONING_ADAPTERS.has(d.persistence),
       );
       if (selfProv.length === 0) continue;
+      // Hosts whose tables land in the binding's schema — every adapter but
+      // the migration-less one (dapper included: its chain qualifies them).
       const qualifying = hosts.filter(
-        (d) => !d.persistence || !SELF_PROVISIONING_ADAPTERS.has(d.persistence),
+        (d) => !d.persistence || !MIGRATION_LESS_ADAPTERS.has(d.persistence),
       );
 
       for (const dep of selfProv) {
@@ -401,8 +415,12 @@ export function validateSelfProvisioningSchemaSupport(
         const converges = wired.every(
           (d) => d.schema === UNQUALIFIED_SCHEMA && d.tablePrefix === undefined,
         );
-        // (1) split-brain — a sibling adapter qualifies the same context.
-        if (qualifying.length > 0 && !converges) {
+        // (1) split-brain — a sibling adapter qualifies the same context.  Not
+        // on dapper: it creates its tables through the same migration chain, in
+        // the same schema, as the sibling does — the two share one table.  (A
+        // `tablePrefix:` it cannot honour is refused by arm (2) whatever the
+        // siblings are.)
+        if (qualifying.length > 0 && !converges && !isDapper) {
           const params = {
             name: dep.name,
             adapter: dep.persistence,
@@ -410,36 +428,27 @@ export function validateSelfProvisioningSchemaSupport(
             other: qualifying[0]!.name,
             otherAdapter: qualifying[0]!.persistence ?? qualifying[0]!.platform,
           };
-          // One push per adapter, each with a STRING-LITERAL `code:` — a
-          // computed `loom.${…}-unsupported` is invisible to the catalog
-          // ratchet (`diagnostic-catalog.test.ts`), which is the whole reason
-          // the sibling migration gate above spells both arms out too.
-          if (isDapper) {
-            diags.push({
-              severity: "error",
-              code: "loom.dapper-unsupported",
-              message: diagMessage("loom.dapper-unsupported#schema-split", params),
-              source,
-            });
-          } else {
-            diags.push({
-              severity: "error",
-              code: "loom.mikroorm-unsupported",
-              message: diagMessage("loom.mikroorm-unsupported#schema-split", params),
-              source,
-            });
-          }
+          diags.push({
+            severity: "error",
+            code: "loom.mikroorm-unsupported",
+            message: diagMessage("loom.mikroorm-unsupported#schema-split", params),
+            source,
+          });
           continue;
         }
         // (2) no sibling, but the binding ASKS for a placement this adapter
         // cannot honour.  Only an EXPLICIT `schema:` / `tablePrefix:` is a
         // request — the `snake(ctx)` default is what a lone self-provisioning
         // deployable already lives with consistently.
+        // Dapper places a `schema:` (its migrations create the tables there and
+        // its connection's `search_path` names it), so only a `tablePrefix:` —
+        // a RENAME its unqualified repository SQL never applies — is a request
+        // it drops.
         const asking = tableBindings.find(
           (d) =>
             d.contextName === ctxName &&
             dep.dataSourceNames.includes(d.name) &&
-            asksUnhonourablePlacement(d),
+            (isDapper ? d.tablePrefix !== undefined : asksUnhonourablePlacement(d)),
         );
         if (!asking) continue;
         const params = {
@@ -451,7 +460,7 @@ export function validateSelfProvisioningSchemaSupport(
           // is satisfied (see the exemption above), so quoting it here would
           // point the author at the one clause they may keep.
           asked:
-            asking.schema !== undefined && asking.schema !== UNQUALIFIED_SCHEMA
+            !isDapper && asking.schema !== undefined && asking.schema !== UNQUALIFIED_SCHEMA
               ? `schema: "${asking.schema}"`
               : `tablePrefix: "${asking.tablePrefix}"`,
         };

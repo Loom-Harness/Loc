@@ -62,11 +62,15 @@ interface Pin {
 
 // key = "<file>:<identifier>"
 const PINNED: Record<string, Pin> = {
+  "src/language/storage-config-key.ts:clauses": {
+    discipline: "build-once-cache",
+    reason:
+      "Memoised clause names of the grammar's `Storage` rule — built once from the static grammar, never mutated.",
+  },
   "src/generator/_payload/provenanced-wire.ts:provNamesCache": {
     discipline: "keyed-cache",
     reason: "WeakMap keyed by the aggregate map it derives from; dies with that map.",
   },
-
   "src/ir/lower/lower-expr.ts:ambientEnumIndex": {
     discipline: "per-run-reset",
     reason: "`lowerModel` calls `setAmbientEnumIndex` before lowering any body (lower.ts:271).",

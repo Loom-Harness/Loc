@@ -17,7 +17,7 @@
 //   - a `DapperUnitOfWork` (the ambient Npgsql transaction the repositories
 //     enlist in — dapper-session.ts),
 //   - an Npgsql-querying outbox dispatcher + relay BackgroundService,
-//   - the saga / projection / outbox table DDL (rendered into `DbSchema.cs`),
+//   - (the saga / projection / outbox tables come from the shared migration chain),
 //
 // while keeping the EF output byte-identical when `persistence: efcore`
 // (everything here is gated on the dapper branch in index.ts / program.ts).
@@ -46,6 +46,7 @@ import {
 import { type DapperColumn, fieldColumn, sqlIdent } from "./dapper.js";
 import { dapperAmbientTxClassFq, dapperOpenConn } from "./dapper-session.js";
 import { eventRecordClass, renderEventRecordPoco } from "./event-store.js";
+import { outboxOriginFrame, outboxPayloadExpr } from "./outbox.js";
 
 /** A projection that persists a KEYED read-model row (the IReadModelStore /
  *  DbSchema-table users) — materialized + keyed.  Query-time / singleton
@@ -115,65 +116,6 @@ function projectionColumns(proj: ProjectionIR, accBase = "s"): DapperColumn[] {
       f.type.kind === "optional" ? f.type : { kind: "optional", inner: f.type };
     return fieldColumn({ ...f, type: optionalType }, accBase);
   });
-}
-
-/** `CREATE TABLE IF NOT EXISTS` for a keyed saga / projection row: `pkCol` is
- *  the primary key column, the rest carry ` not null` unless nullable. */
-function keyedTableDdl(table: string, pkCol: string, cols: DapperColumn[]): string {
-  const body = cols.map((c) => {
-    if (c.col === pkCol) return `    ${sqlIdent(c.col)} ${c.sql} primary key`;
-    return `    ${sqlIdent(c.col)} ${c.sql}${c.nullable ? "" : " not null"}`;
-  });
-  return `CREATE TABLE IF NOT EXISTS ${table} (\n${body.join(",\n")}\n);`;
-}
-
-/** The transactional-outbox table DDL (dispatch-delivery-semantics.md), the
- *  raw-Npgsql mirror of `outboxTableShape`. */
-export function dapperOutboxTableDdl(): string {
-  return [
-    "CREATE TABLE IF NOT EXISTS __loom_outbox (",
-    "    id uuid primary key default gen_random_uuid(),",
-    "    occurred_at timestamptz not null default now(),",
-    "    type text not null,",
-    "    payload jsonb not null,",
-    "    dispatched_at timestamptz,",
-    "    attempts int not null default 0",
-    ");",
-  ].join("\n");
-}
-
-/** Every extra `CREATE TABLE` the Dapper workflow surface needs, spliced into
- *  `DbSchema.cs` alongside the aggregate / event-log / provenance tables.  The
- *  `<ctx>_events` log itself is already emitted by `renderDapperSchema` (its
- *  `eventLogContexts` cover event-sourced workflows). */
-export function dapperWorkflowTables(
-  workflows: readonly WorkflowIR[],
-  projections: readonly ProjectionIR[],
-  durable: boolean,
-  hasOutbox: boolean,
-): string[] {
-  const out: string[] = [];
-  for (const wf of correlationWorkflows(workflows)) {
-    out.push(
-      keyedTableDdl(
-        workflowStateTable(wf),
-        snake(wf.correlationField as string),
-        stateColumns(wf, durable),
-      ),
-    );
-  }
-  for (const proj of projections) {
-    if (!projectionNeedsRowStore(proj)) continue;
-    out.push(
-      keyedTableDdl(
-        projectionRowTable(proj),
-        snake(proj.correlationField as string),
-        projectionColumns(proj),
-      ),
-    );
-  }
-  if (hasOutbox) out.push(dapperOutboxTableDdl());
-  return out;
 }
 
 /** A private `Row` DTO + a `Map` builder producing the closed row/POCO type
@@ -481,8 +423,11 @@ export function renderDapperOutboxDispatcher(
   ns: string,
   durableTypes: readonly string[],
   inner = "InProcessDomainEventDispatcher",
+  /** The deployable carries auth: the row records the EVENT ORIGIN (D1). */
+  carriesOrigin = false,
 ): string {
   const set = durableTypes.map((t) => `"${t}"`).join(", ");
+  const payload = outboxPayloadExpr(ns, carriesOrigin);
   return `// Auto-generated.
 using System.Collections.Generic;
 using System.Text.Json;
@@ -520,7 +465,7 @@ public sealed class OutboxDomainEventDispatcher : IDomainEventDispatcher
             await using var conn = await _db.OpenConnectionAsync(cancellationToken);
             await conn.ExecuteAsync(new CommandDefinition(
                 "INSERT INTO __loom_outbox (type, payload) VALUES (@type, @payload::jsonb)",
-                new { type, payload = JsonSerializer.Serialize((object)ev) }, cancellationToken: cancellationToken));
+                new { type, payload = ${payload} }, cancellationToken: cancellationToken));
             return; // the relay delivers
         }
         await _inner.DispatchAsync(ev, cancellationToken);
@@ -552,7 +497,7 @@ public sealed class OutboxDomainEventDispatcher : IDomainEventDispatcher
                 {
                     await txConn.ExecuteAsync(new CommandDefinition(
                         "INSERT INTO __loom_outbox (type, payload) VALUES (@type, @payload::jsonb)",
-                        new { type = ev.GetType().Name, payload = JsonSerializer.Serialize((object)ev) },
+                        new { type = ev.GetType().Name, payload = ${payload} },
                         transaction: transaction, cancellationToken: cancellationToken));
                 }
             }
@@ -563,7 +508,7 @@ public sealed class OutboxDomainEventDispatcher : IDomainEventDispatcher
                 {
                     await conn.ExecuteAsync(new CommandDefinition(
                         "INSERT INTO __loom_outbox (type, payload) VALUES (@type, @payload::jsonb)",
-                        new { type = ev.GetType().Name, payload = JsonSerializer.Serialize((object)ev) },
+                        new { type = ev.GetType().Name, payload = ${payload} },
                         cancellationToken: cancellationToken));
                 }
             }
@@ -586,11 +531,12 @@ public sealed class OutboxDomainEventDispatcher : IDomainEventDispatcher
 export function renderDapperOutboxRelay(
   ns: string,
   durableTypes: readonly string[],
-  opts: { durableBroker: boolean; hasSubscriptions: boolean } = {
+  opts: { durableBroker: boolean; hasSubscriptions: boolean; carriesOrigin?: boolean } = {
     durableBroker: false,
     hasSubscriptions: true,
   },
 ): string {
+  const originFrame = outboxOriginFrame(ns, opts.carriesOrigin ?? false, "row.payload");
   const arms = durableTypes
     .map((t) => `            "${t}" => (IDomainEvent?)JsonSerializer.Deserialize<${t}>(payload),`)
     .join("\n");
@@ -710,7 +656,7 @@ public sealed class OutboxRelayService : BackgroundService
             await using var scope = _scopes.CreateAsyncScope();${innerResolve}
             try
             {
-                var ev = Deserialize(row.type, row.payload);
+                var ev = Deserialize(row.type, row.payload);${originFrame}
                 ${dispatchBlock}
                 await using var mark = await _db.OpenConnectionAsync(cancellationToken);
                 await mark.ExecuteAsync(new CommandDefinition(

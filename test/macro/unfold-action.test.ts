@@ -295,6 +295,27 @@ context Sales {
     expect(reparse.diagnostics.filter((d) => d.severity === 1)).toEqual([]);
   });
 
+  it("refuses to unfold a capability that an `ignoring` clause names (the tag would be lost)", async () => {
+    const source = `
+context Sales {
+  aggregate Order with softDeletable {
+    subject: string
+  }
+  repository Orders for Order {
+    find bySubject(s: string): Order[] where this.subject == s ignoring softDeletable
+  }
+}
+`;
+    await expect(unfold(source, "softDeletable", "Unfold capability")).rejects.toThrow(
+      /no unfold action/,
+    );
+    // The same capability with no `ignoring` reference still unfolds.
+    const plain = source.replace(" ignoring softDeletable", "");
+    await expect(unfold(plain, "softDeletable", "Unfold capability")).resolves.toMatch(
+      /filter !this\.isDeleted/,
+    );
+  });
+
   it("a user-declared capability wins over the built-in in capability unfold", async () => {
     // The declaration sits AFTER the usage so the marker search lands on the
     // `with` clause's MacroCall (positionOf finds the first occurrence).
@@ -310,6 +331,25 @@ capability tenantOwned { archived: bool }
     const unfolded = await unfold(source, "tenantOwned", "Unfold capability");
     expect(unfolded).toMatch(/archived: bool/);
     expect(unfolded).not.toMatch(/tenantId/);
+  });
+
+  it("unfolds `scaffoldPaged(of: <retrieval>, requires: <Policy>)` into the gated handler", async () => {
+    const source = `
+context Sales with scaffoldPaged(of: TopInRegion, requires: Staff) {
+  aggregate Order { region: string  rank: int }
+  repository Orders for Order { }
+  policy Staff(): bool = true
+  criterion InRegion(rgn: string) of Order = region == rgn
+  retrieval TopInRegion(rgn: string) of Order { where: InRegion(rgn)  sort: [rank desc] }
+}
+`;
+    const unfolded = await unfold(source, "scaffoldPaged");
+    expect(unfolded).not.toContain("scaffoldPaged");
+    expect(unfolded).toMatch(
+      /queryHandler ListOrderByTopInRegion\(rgn: string\): Order paged \{\s*requires Staff\(\)\s*let r = Orders\.run\(TopInRegion\(rgn\)\)\s*return r\s*\}/,
+    );
+    const reparse = await validate(unfolded);
+    expect(reparse.diagnostics.filter((d) => d.severity === 1)).toEqual([]);
   });
 
   it("does not offer unfold when cursor isn't on a macro call", async () => {

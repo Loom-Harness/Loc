@@ -975,12 +975,14 @@ describe("validation", () => {
       expect(errors).toEqual([]);
       expect(
         warnings.some((w) =>
-          /Custom design pack '\.\/my-custom-pack'.*not checked at parse time/.test(w),
+          /Custom design pack '\.\/my-custom-pack'.*checked only when the CLI loads the pack/.test(
+            w,
+          ),
         ),
       ).toBe(true);
     });
 
-    it('accepts a pinned built-in version (`design: "mantine@v7"`)', async () => {
+    it('accepts a pinned built-in version (`design: "mantine@v9"`)', async () => {
       // Pack versioning: explicit pin works alongside
       // the bareword form.  Validates `parseBuiltinDesignRef` is
       // wired into Rule 14 — pinned form resolves to the same
@@ -995,12 +997,42 @@ describe("validation", () => {
             targets: api
             ui: WebApp
             port: 3001
-            design: "mantine@v7"
+            design: "mantine@v9"
           }
         }
       `);
       expect(errors).toEqual([]);
     });
+
+    // The React stack-v1 (React 18) packs were removed; a pin to one names
+    // its stack-v3 successor instead of the generic "no such version" list.
+    for (const [retired, successor] of [
+      ["mantine@v7", "mantine@v9"],
+      ["chakra@v2", "chakra@v3"],
+      ["mui@v5", "mui@v7"],
+      ["shadcn@v3", "shadcn@v4"],
+    ] as const) {
+      it(`rejects the retired pack '${retired}' and names '${successor}'`, async () => {
+        const { errors } = await parse(`
+          system S {
+            subdomain M { context T { } }
+            ui WebApp { }
+            deployable api { platform: node, contexts: [T], port: 3000 }
+            deployable web {
+              platform: react
+              targets: api
+              ui: WebApp
+              port: 3001
+              design: "${retired}"
+            }
+          }
+        `);
+        expect(errors).toHaveLength(1);
+        expect(errors[0]).toContain(`Design pack '${retired}' on deployable 'web'`);
+        expect(errors[0]).toContain("was retired");
+        expect(errors[0]).toContain(`use '${successor}'`);
+      });
+    }
 
     it("rejects an unknown version of a known built-in family", async () => {
       // `mantine@v999` is a registered family but not a registered
@@ -1025,7 +1057,7 @@ describe("validation", () => {
         errors.some(
           (e) =>
             /no version 'v999' of pack family 'mantine'/.test(e) &&
-            /Available: 'mantine@v7'/.test(e),
+            /Available: 'mantine@v9'/.test(e),
         ),
       ).toBe(true);
     });
@@ -1090,7 +1122,7 @@ describe("validation", () => {
       // Not just the wrong-format names: Flutter's slot is inert for EVERY pack
       // family, so a tsx pack that a react deployable accepts is still a no-op
       // here.  Pins the arm as "no menu", not "wrong menu entry".
-      const { errors, warnings } = await parse(flutterSource('design: "mantine@v7"'));
+      const { errors, warnings } = await parse(flutterSource('design: "mantine@v9"'));
       expect(errors).toEqual([]);
       expect(warnings.some((w) => /Flutter deployable 'mobile' has no effect/.test(w))).toBe(true);
     });

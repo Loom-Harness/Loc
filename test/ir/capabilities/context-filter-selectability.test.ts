@@ -89,4 +89,79 @@ describe("filter-capability selectability validation", () => {
     expect(diags.length).toBe(1);
     expect(diags[0]).toContain("unknown field");
   });
+
+  // A PRINCIPAL TERM — a column-free `==` / `!=` over `currentUser.<claim>`
+  // and a literal / enum value / claim — is admitted in a capability filter
+  // only (`principalTerm`); every backend decides it against the request
+  // principal.  It is what lets one row filter say "agents see every row,
+  // customers see their own", which also covers the synthesised by-id read.
+  const ROLE_USER = `user { id: string  role: string  tier: Tier?  age: int  customerId: Customer id? }`;
+  const roleModel = (filter: string) => `
+    system Demo {
+      ${ROLE_USER}
+      subdomain M { context C {
+        enum Tier { Gold, Basic }
+        aggregate Customer { name: string }
+        aggregate Ticket {
+          subject: string
+          customer: Customer id
+          ${filter}
+        }
+      }}
+    }
+  `;
+
+  it('accepts a role-branching principal term (`currentUser.role == "agent" || <column test>`)', async () => {
+    const diags = await filterDiags(
+      roleModel(`filter currentUser.role == "agent" || this.customer == currentUser.customerId`),
+    );
+    expect(diags).toEqual([]);
+  });
+
+  it("accepts principal terms against an enum value and against null", async () => {
+    const diags = await filterDiags(
+      roleModel(
+        `filter currentUser.tier != Gold && (currentUser.customerId == null || this.customer == currentUser.customerId)`,
+      ),
+    );
+    expect(diags).toEqual([]);
+  });
+
+  it("still refuses a column-free ORDERING over the principal, naming the admitted shape", async () => {
+    const diags = await filterDiags(
+      roleModel(`filter currentUser.age > 17 || this.subject == "x"`),
+    );
+    expect(diags.length).toBe(1);
+    expect(diags[0]).toContain("no column on either side ('>')");
+    expect(diags[0]).toContain("the one column-free comparison a capability filter admits");
+  });
+
+  it("still refuses a column-free comparison with no principal in it (`1 == 1`)", async () => {
+    const diags = await filterDiags(roleModel(`filter 1 == 1`));
+    expect(diags.length).toBe(1);
+    expect(diags[0]).toContain("no column on either side");
+  });
+
+  it("does not admit a principal term in a find `where` (that is what `requires` is for)", async () => {
+    const { model } = await parseString(
+      `
+      system Demo {
+        ${ROLE_USER}
+        subdomain M { context C {
+          enum Tier { Gold, Basic }
+          aggregate Customer { name: string }
+          aggregate Ticket { subject: string  customer: Customer id }
+          repository Tickets for Ticket {
+            find mine(): Ticket[] where currentUser.role == "agent" || customer == currentUser.customerId
+          }
+        }}
+      }
+    `,
+      { validate: false },
+    );
+    const codes = validateLoomModel(enrichLoomModel(lowerModel(model)))
+      .filter((d) => d.severity === "error")
+      .map((d) => d.code);
+    expect(codes).toContain("loom.find-where-not-queryable");
+  });
 });

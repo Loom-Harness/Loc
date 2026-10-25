@@ -82,6 +82,15 @@ export const PROBLEM_SCHEMA = "ProblemDetails";
  *  found from this table by grep. */
 export const UNSUPPORTED_MEDIA_TYPE = 415;
 
+/** The `detail` every backend sends with that 415 (RS-39) — one sentence, so
+ *  the refusal reads the same whichever framework layer raised it. */
+export const UNSUPPORTED_MEDIA_TYPE_DETAIL = "Content-Type must be application/json";
+
+/** The `errors[].message` every backend sends for a REQUIRED request field the
+ *  body leaves out (RS-39) — one word, so the 422 for an absent field reads the
+ *  same whichever framework noticed the absence. */
+export const MISSING_FIELD_MESSAGE = "Required";
+
 /** The wire-validation tier every route that PARSES a request part answers on
  *  a parse failure — a malformed `{id}`, an out-of-range `?page=`, a body field
  *  of the wrong type.  Named for the same reason `UNSUPPORTED_MEDIA_TYPE` is:
@@ -204,8 +213,15 @@ export function errorStatuses(
     // here rather than per-backend: `getById` is also what the history read and
     // the workflow-instance-by-id read declare against, and all three validate
     // the same `{id}`.
+    //
+    // A `find byId(id: T id): T? requires <expr>` gates it (M-T3.19,
+    // `byIdReadGate` in `read-gates.ts`): the gate runs BEFORE the load, so a
+    // denied caller answers 403 whether or not the id exists — the by-id read
+    // is not an existence oracle for a caller the gate refuses.
     case "getById":
-      return set(notFound, UNPROCESSABLE_ENTITY);
+      return guarded
+        ? set(forbidden, notFound, UNPROCESSABLE_ENTITY)
+        : set(notFound, UNPROCESSABLE_ENTITY);
     // destroy (DELETE /<aggs>/{id}) → 404 (not found) + 409 (still
     // referenced: cross-aggregate `X id` FK is ON DELETE RESTRICT — the
     // `ReferencedInUse` structural conflict, remappable via `httpStatus`).
@@ -279,6 +295,22 @@ export function errorStatuses(
  *  migration emitter declares, and out of a `detail` line whose wording follows
  *  the server's `lc_messages`. */
 export const DANGLING_REFERENCE_DETAIL = "The request references a record that does not exist.";
+
+/** The one detail string every backend serves when a write breaches a
+ *  `unique (...)` key — Postgres refused it with a `unique_violation` (SQLSTATE
+ *  23505) and the backend answers 409.  Shared for the same reason as
+ *  {@link DANGLING_REFERENCE_DETAIL}: the wire golden compares the 409 body
+ *  across every leg.  Names neither the aggregate nor the key — the backends
+ *  that map the breach in one app-wide handler cannot know either. */
+export const UNIQUE_CONFLICT_DETAIL = "A resource with these values already exists.";
+
+/** RS-40 — the optimistic-concurrency 409 `detail` is the sentence
+ *  `"<Aggregate> <id> was modified by another request"` on every backend (node's
+ *  wording, M-T6.91).  Each backend interpolates the aggregate's PascalCase name
+ *  and the conflicting row's id in front of this suffix at the point where both
+ *  are known; the suffix is shared so the five spellings cannot drift apart
+ *  again. */
+export const CONCURRENCY_CONFLICT_SUFFIX = "was modified by another request";
 
 export function problemTitle(status: number): string {
   switch (status) {

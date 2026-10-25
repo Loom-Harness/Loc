@@ -39,6 +39,7 @@
 
 import type { PageIR, UiIR } from "../../ir/types/loom-ir.js";
 import { areaQualifiedName, classifyPage, type PageNameCtx } from "../../ir/util/page-kind.js";
+import { menuLinkPage, menuMetaString as readMenuMetaString } from "../../ir/util/page-menu.js";
 import { plural, snake } from "../../util/naming.js";
 import { messageKey } from "../_walker/i18n-extract.js";
 import { renderGateExpr } from "./gate-expr.js";
@@ -192,8 +193,9 @@ export function deriveSidebarFromUi(
     if (readMenuMetaBool(p, "hidden")) return false;
     return p.menuMeta ? true : isNavigable(p);
   });
+  const defaults = adoptPageMenuMeta(defaultSections, ui);
   if (eligible.length === 0) {
-    const defaultsOnly = mergeNavSections(defaultSections, []);
+    const defaultsOnly = mergeNavSections(defaults, []);
     return defaultsOnly.length > 0 ? defaultsOnly : undefined;
   }
   // Group pages by section name (the unsectioned bucket if none declared).
@@ -253,8 +255,49 @@ export function deriveSidebarFromUi(
       }),
     });
   }
-  const merged = mergeNavSections(defaultSections, sections);
+  const merged = mergeNavSections(defaults, sections);
   return merged.length > 0 ? merged : undefined;
+}
+
+/** Key a caller's DEFAULT sections against the `menu { section, label }`
+ *  metadata of the pages they link to.  A scaffold page carries that metadata
+ *  (`section: "Aggregates", label: "Products"`) and the extraction pass
+ *  catalogues it, while the default sidebar is built from the aggregates /
+ *  routed pages — so without this step it renders the same words raw.
+ *
+ *  - An entry whose page's metadata `label` IS the entry's label takes that
+ *    label's catalog key.
+ *  - An entry whose page names a metadata `section` other than the one it sits
+ *    in moves to that section (merged into a same-labelled one, else appended
+ *    after the defaults): the one-link-per-page defaults (angular, phoenix)
+ *    have a single section, and the page metadata is the grouping.
+ *  - A section whose label is the metadata `section` of a page it links takes
+ *    that page's section key.
+ *  Entries keep their order within a section; empty sections are dropped. */
+function adoptPageMenuMeta(defaults: readonly NavSectionVM[], ui: UiIR): NavSectionVM[] {
+  const out: NavSectionVM[] = defaults.map((s) => ({ ...s, entries: [] }));
+  for (const [i, section] of defaults.entries()) {
+    for (const entry of section.entries) {
+      const page = entry.external ? undefined : ui.pages.find((p) => p.route === entry.to);
+      const metaLabel = page && readMenuMetaString(page, "label");
+      const metaSection = page && readMenuMetaString(page, "section");
+      const keyed: NavEntryVM =
+        page && metaLabel !== undefined && entry.label === metaLabel && !entry.labelKey
+          ? { ...entry, labelKey: messageKey(`page.${page.name}`, "menu.label", metaLabel) }
+          : entry;
+      let target = out[i]!;
+      if (metaSection && metaSection !== section.label) {
+        const existing = out.find((s) => s.label === metaSection);
+        target = existing ?? { label: metaSection, entries: [] };
+        if (!existing) out.push(target);
+      }
+      target.entries.push(keyed);
+      if (page && metaSection && target.label === metaSection && !target.labelKey) {
+        target.labelKey = messageKey(`page.${page.name}`, "menu.section", metaSection);
+      }
+    }
+  }
+  return out.filter((s) => s.entries.length > 0);
 }
 
 function navEntryForLink(
@@ -277,13 +320,9 @@ function navEntryForLink(
       activeArgs: `""`,
     };
   }
-  // `link Page { label: "...", order: N }` — page reference.  Match on the
-  // resolved route first (unique) so a qualified `link Orders.List` targets the
-  // exact page; role-named pages (`List`) share `pageName` across aggregates.
-  // Fall back to name for unqualified links to unique pages.
-  const page =
-    (link.route !== undefined && ui.pages.find((p) => p.route === link.route)) ||
-    ui.pages.find((p) => p.name === link.pageName);
+  // `link Page { label: "...", order: N }` — page reference (resolved on its
+  // route: role-named pages such as `List` share a name across aggregates).
+  const page = menuLinkPage(link, ui);
   if (!page) return undefined;
   // Allow per-link `label:` override; otherwise fall back to the
   // page's menuMeta `label` and finally to the page name.
@@ -372,15 +411,6 @@ function testIdAndActive(
       };
     }
   }
-}
-
-function readMenuMetaString(page: PageIR, key: string): string | undefined {
-  const meta = page.menuMeta;
-  if (!meta) return undefined;
-  const entry = meta.entries.find((e) => e.name === key);
-  if (!entry) return undefined;
-  if (entry.value.kind !== "literal" || entry.value.lit !== "string") return undefined;
-  return entry.value.value;
 }
 
 function readMenuMetaNumber(page: PageIR, key: string): number | undefined {

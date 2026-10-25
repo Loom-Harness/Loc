@@ -77,7 +77,6 @@ import {
   type IsolationLevel,
   type OperationIR,
   operationUsesCurrentUser,
-  type StmtIR,
   type SystemIR,
   type WorkflowIR,
   type WorkflowStmtIR,
@@ -85,6 +84,7 @@ import {
   workflowUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../../ir/types/origin.js";
+import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
 import { classifyDomainServiceTier } from "../../../ir/util/domain-service-tier.js";
 import { resolveWorkflowIsolation } from "../../../ir/util/resolve-datasource.js";
 import {
@@ -92,7 +92,8 @@ import {
   walkWorkflowStmtChildren,
   walkWorkflowStmtsDeep,
 } from "../../../ir/util/walk.js";
-import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
+import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { lineCount, type SourceMapRecorder } from "../../_trace/sourcemap.js";
 import {
@@ -104,14 +105,16 @@ import type { ApiRoute } from "../api-emit.js";
 import { inlineMutatingServiceCall } from "../domain-service-emit.js";
 import { internalCreateFn, internalDeleteFn } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
-import { stateDefault } from "../state-default.js";
+import { stateDefault, stateDefaultDecls } from "../state-default.js";
 import {
   contextsHaveWireDenials,
   denialOverrides,
-  denialTerm,
   respondErrorTail,
+  workflowDenialTerm,
 } from "./denial.js";
 import { renderFunctionBodyLines } from "./function-emit.js";
+import { renderRequiredParamsPlug, requiredWireParams } from "./problem-details-emit.js";
+import { stampUsesPrincipal } from "./stamp-emit.js";
 
 /** The aggregate a workflow step targets, for the lifecycle-seam decision (which
  *  context function an IN-PROCESS caller may use).  `undefined` when the step
@@ -119,6 +122,30 @@ import { renderFunctionBodyLines } from "./function-emit.js";
  *  name, which is what a cross-context create already emits today. */
 function aggOf(ctx: BoundedContextIR | undefined, aggName: string): AggregateIR | undefined {
   return ctx?.aggregates.find((a) => a.name === aggName);
+}
+
+/** True when a workflow `factory-let` creating `aggName` must hand the
+ *  principal to the create seam: the aggregate's lifecycle stamps read
+ *  `currentUser` (`auditable`'s `createdBy`/`updatedBy`, a `tenantOwned`
+ *  `tenantId`), so the repository insert writes them from the threaded
+ *  `current_user` exactly as the REST controller's create does.  Without it the
+ *  stamped columns persist nil and a NOT NULL audit column rejects the insert. */
+function factoryStampsActor(ctx: BoundedContextIR | undefined, aggName: string): boolean {
+  const agg = aggOf(ctx, aggName);
+  return !!agg && stampUsesPrincipal(agg);
+}
+
+/** A workflow `factory-let` as its context create call — the in-process
+ *  (`internalCreateFn`) entry, carrying the workflow's `current_user` when the
+ *  aggregate stamps the principal.  `fields` is the rendered `key: value` list. */
+function factoryCreateCall(
+  aggName: string,
+  fields: string,
+  contextModule: string,
+  ctx: BoundedContextIR | undefined,
+): string {
+  const actor = factoryStampsActor(ctx, aggName) ? ", current_user" : "";
+  return `${contextModule}.${internalCreateFn(aggName, aggOf(ctx, aggName))}(%{${fields}}${actor})`;
 }
 
 export interface VanillaWorkflowExecResult {
@@ -278,6 +305,8 @@ interface ReadScope {
    *  Defaults to `false`, so every call path that has not reasoned about the
    *  result slot (nested loop bodies, legacy callers) keeps today's real name. */
   discardableBind?: boolean;
+  /** See `LowerBodyOptions.rebindOpTargets`. */
+  rebindOpTargets?: boolean;
 }
 
 const NO_READS: ReadScope = {};
@@ -293,6 +322,13 @@ export interface LowerBodyOptions {
    *  `commandHandler` / `queryHandler` path sets this: `assembleHandlerBody`
    *  closes with `{:ok, <return expr>}`, never with the last bound name. */
   ownResult?: boolean;
+  /** `true` on the workflow `create(…): T` path: an `op-call` whose target a
+   *  LATER read needs (a following statement or the declared result) rebinds
+   *  the updated aggregate — `{:ok, account} <- Context.deposit_account(…)` —
+   *  so `return account.balance` reads the post-operation value the other four
+   *  backends' in-place mutation returns, not the struct as loaded.  Opt-in so
+   *  every existing workflow / handler body stays byte-identical. */
+  rebindOpTargets?: boolean;
 }
 
 export function lowerStatements(
@@ -302,7 +338,7 @@ export function lowerStatements(
   ctx?: BoundedContextIR,
   opts: LowerBodyOptions = {},
 ): BodyLine[] {
-  const { trailing = [], ownResult = false } = opts;
+  const { trailing = [], ownResult = false, rebindOpTargets = false } = opts;
   const lines: BodyLine[] = [];
   // M-T6.21 — the LAST statement that definitely binds fills the with-chain's
   // `{:ok, <result>}` slot (`assembleBody`), so its name is read by
@@ -319,6 +355,7 @@ export function lowerStatements(
     for (const line of lowerStatement(st, contextModule, renderCtx, ctx, stmts.slice(i + 1), {
       trailing,
       discardableBind: i !== resultSlot,
+      ...(rebindOpTargets ? { rebindOpTargets } : {}),
     })) {
       lines.push({ ...line, origin: st.origin });
     }
@@ -341,8 +378,7 @@ function lowerStatement(
       const fields = st.fields
         .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
         .join(", ");
-      const action = `create_${snake(st.aggName)}`;
-      const call = `${contextModule}.${action}(%{${fields}})`;
+      const call = factoryCreateCall(st.aggName, fields, contextModule, ctx);
       // M-T6.21 — `{:ok, _order} <- …` when nothing downstream reads the new
       // aggregate and it is not the workflow's return; the `:ok` match still
       // gates the chain, so a failed create still rolls back.
@@ -362,11 +398,24 @@ function lowerStatement(
       // A `currentUser`-gated op takes a trailing `current_user` arg —
       // `opCallSource` threads the in-scope binding when `ctx` resolves it.
       const call = opCallSource(st, renderCtx, contextModule, ctx);
+      // M-T6.98 — the call PERSISTS (each context op is its own save on
+      // elixir, where the other four save a handle once at the end), so the
+      // handle is rebound to what it returns: the saved record, carrying the
+      // version (or folded stream version) the write moved it to.  Discarding
+      // it left the handle at its LOADED version, so a second op on the same
+      // handle was a stale save — a self-inflicted concurrency conflict — and,
+      // on an event-sourced aggregate, a decision taken on a stale fold.
+      // Only a void op returns the record; a returning op's `{:ok, value}` is
+      // its result, so that handle is left as it is.  Unread later → `_`.
+      const op = ctx ? lookupOp(ctx, st.aggName, st.op) : undefined;
+      const rebind =
+        op !== undefined && !op.returnType && bindUsedLater(st.target, rest, reads.trailing);
+      const handle = escapeElixirIdent(snake(st.target));
       return [
         {
           kind: "with-clause",
-          text: `{:ok, _} <- ${call}`,
-          bindName: undefined,
+          text: `{:ok, ${rebind ? handle : "_"}} <- ${call}`,
+          bindName: rebind ? handle : undefined,
         },
       ];
     }
@@ -380,7 +429,7 @@ function lowerStatement(
       return [
         {
           kind: "with-clause",
-          text: `:ok <- (if ${cond}, do: :ok, else: {:error, ${denialTerm(st)}})`,
+          text: `:ok <- (if ${cond}, do: :ok, else: {:error, ${workflowDenialTerm(st)}})`,
           bindName: undefined,
         },
       ];
@@ -394,7 +443,7 @@ function lowerStatement(
       return [
         {
           kind: "with-clause",
-          text: `:ok <- (if ${cond}, do: :ok, else: {:error, ${denialTerm(st)}})`,
+          text: `:ok <- (if ${cond}, do: :ok, else: {:error, ${workflowDenialTerm(st)}})`,
           bindName: undefined,
         },
       ];
@@ -496,9 +545,9 @@ function lowerStatement(
       // Renders INSIDE the with-chain's `do`-branch (`BodyLine.kind = "emit"`)
       // so a failed precondition / op short-circuits the chain and the
       // broadcast is skipped — listeners only see events for successful
-      // workflows.  Inside `Repo.transaction(fn -> ...)` the broadcast
-      // fires before commit; that matches the standard Phoenix pattern
-      // (there is no separate "after-commit" hook).
+      // workflows.  Inside a transactional workflow's `Repo.transaction` it
+      // routes through `<App>.PostCommit`, which holds it until the commit and
+      // drops it on a rollback (M-T4.3 item 6, D-WRITE-TX).
       const fields = st.fields
         .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
         .join(", ");
@@ -507,7 +556,7 @@ function lowerStatement(
       return [
         {
           kind: "emit",
-          text: `Phoenix.PubSub.broadcast(${appModule}.PubSub, "events", ${struct})`,
+          text: `${appModule}.PostCommit.broadcast(${struct})`,
         },
       ];
     }
@@ -668,8 +717,18 @@ function lowerStatement(
       // head-or-nil, then `if` over the two branches.  Each branch ends in
       // `{:ok, _}` so the enclosing `{:ok, _} <-` clause threads through the
       // with-chain (a raised create/op rolls the transaction back).
-      const action = `run_${snake(st.retrievalName)}_${snake(st.aggName)}`;
-      const runArgs = [...st.retrievalArgs.map((a) => renderExpr(a, renderCtx)), "limit: 1"];
+      // A declared optional find (`findMethod`) calls the context's per-find
+      // delegate, which answers `{:ok, row | nil}` — the same head-or-nil
+      // `case` reads it.
+      const lookup = st.findMethod
+        ? {
+            call: `${contextModule}.${snake(st.findMethod)}_${snake(st.aggName)}(${st.retrievalArgs.map((a) => renderExpr(a, renderCtx)).join(", ")})`,
+            hit: "{:ok, hit}",
+          }
+        : {
+            call: `${contextModule}.run_${snake(st.retrievalName)}_${snake(st.aggName)}(${[...st.retrievalArgs.map((a) => renderExpr(a, renderCtx)), "limit: 1"].join(", ")})`,
+            hit: "{:ok, [hit | _]}",
+          };
       const v = escapeElixirIdent(snake(st.var));
       const renderBranch = (body: WorkflowStmtIR[], present: string): string[] => {
         // A branch needs a `with`-chain when it holds a fallible statement that
@@ -687,40 +746,67 @@ function lowerStatement(
           for (let i = 0; i < body.length; i++) {
             const inner = body[i]!;
             const rest = body.slice(i + 1);
-            if (inner.kind === "precondition") {
-              clauses.push(
-                `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${denialTerm(inner)}})`,
-              );
-            } else if (inner.kind === "requires") {
-              clauses.push(
-                `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${denialTerm(inner)}})`,
-              );
-            } else if (inner.kind === "op-call") {
-              clauses.push(`{:ok, _} <- ${opCallSource(inner, renderCtx, contextModule, ctx)}`);
-            } else if (inner.kind === "factory-let") {
-              const fields = inner.fields
-                .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
-                .join(", ");
-              const bind = bindUsedLater(inner.name, rest)
-                ? escapeElixirIdent(snake(inner.name))
-                : "_";
-              clauses.push(
-                `{:ok, ${bind}} <- ${contextModule}.${internalCreateFn(inner.aggName, aggOf(ctx, inner.aggName))}(%{${fields}})`,
-              );
-            } else if (inner.kind === "expr-let") {
-              const bind = bindUsedLater(inner.name, rest)
-                ? escapeElixirIdent(snake(inner.name))
-                : "_";
-              clauses.push(`${bind} <- (${renderExpr(inner.expr, renderCtx)})`);
-            } else if (NESTED_FLOW_KINDS.has(inner.kind)) {
-              // Nested loop / if-let / repo bind — reuse `lowerStatement` so it
-              // lowers to a `<-` clause that threads {:error, _} up this branch.
-              // The branch's own result is `{:ok, <present>}`, so a nested bind
-              // nothing later reads is `_`-discardable (M-T6.21).
-              pushNestedFlow(inner, contextModule, renderCtx, clauses, tail, ctx, rest, true);
-            } else {
-              // emit / resource-call — pure side-effects, run in the do-branch.
-              tail.push(...renderBranchStmt(inner, renderCtx, contextModule, [], ctx));
+            switch (inner.kind) {
+              case "precondition":
+              case "requires":
+                clauses.push(
+                  `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner)}})`,
+                );
+                break;
+              case "op-call":
+                clauses.push(`{:ok, _} <- ${opCallSource(inner, renderCtx, contextModule, ctx)}`);
+                break;
+              case "factory-let": {
+                const fields = inner.fields
+                  .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
+                  .join(", ");
+                const bind = bindUsedLater(inner.name, rest)
+                  ? escapeElixirIdent(snake(inner.name))
+                  : "_";
+                clauses.push(
+                  `{:ok, ${bind}} <- ${factoryCreateCall(inner.aggName, fields, contextModule, ctx)}`,
+                );
+                break;
+              }
+              case "expr-let": {
+                const bind = bindUsedLater(inner.name, rest)
+                  ? escapeElixirIdent(snake(inner.name))
+                  : "_";
+                clauses.push(`${bind} <- (${renderExpr(inner.expr, renderCtx)})`);
+                break;
+              }
+              case "domain-service-call": {
+                // A `mutating` service call is fallible persistence, exactly
+                // like an op-call: its inlined context mutating-fn clauses
+                // join this branch's with-chain IN ORDER (the loop body does
+                // the same), so a later op-call sees the service's writes and
+                // a failed save threads `{:error, _}` up instead of raising.
+                const inlined = resolveInlinedServiceClauses(inner, renderCtx, contextModule, ctx);
+                if (inlined.length > 0) for (const c of inlined) clauses.push(c.text);
+                else tail.push(`_ = ${renderExpr(inner.call, renderCtx)}`);
+                break;
+              }
+              case "for-each":
+              case "if-let":
+              case "repo-run":
+              case "repo-let":
+              case "repo-delete":
+                // Nested loop / if-let / repo bind — reuse `lowerStatement` so it
+                // lowers to a `<-` clause that threads {:error, _} up this branch.
+                // The branch's own result is `{:ok, <present>}`, so a nested bind
+                // nothing later reads is `_`-discardable (M-T6.21).
+                pushNestedFlow(inner, contextModule, renderCtx, clauses, tail, ctx, rest, true);
+                break;
+              case "emit":
+              case "resource-call":
+              case "assign":
+                // Pure side-effects / own-state rebinds — run in the do-branch.
+                tail.push(...renderBranchStmt(inner, renderCtx, contextModule, [], ctx));
+                break;
+              default: {
+                const _exhaustive: never = inner;
+                void _exhaustive;
+              }
             }
           }
           return [
@@ -739,8 +825,8 @@ function lowerStatement(
       };
       const lines = [
         `{:ok, _} <- (`,
-        `           ${v} = case ${contextModule}.${action}(${runArgs.join(", ")}) do`,
-        `             {:ok, [hit | _]} -> hit`,
+        `           ${v} = case ${lookup.call} do`,
+        `             ${lookup.hit} -> hit`,
         `             _ -> nil`,
         `           end`,
         `           if ${v} != nil do`,
@@ -790,7 +876,7 @@ function opCallSource(
  *  param-op calls into context mutating-fn with-clauses.  Returns `[]` when
  *  `ctx` is absent (legacy/test path) or the op isn't resolvable/mutating — the
  *  caller then keeps the sound side-effect fallback. */
-function resolveInlinedServiceClauses(
+export function resolveInlinedServiceClauses(
   st: Extract<WorkflowStmtIR, { kind: "domain-service-call" }>,
   renderCtx: RenderCtx,
   contextModule: string,
@@ -869,22 +955,20 @@ function opCallThreadsUser(
 }
 
 /** True when the workflow body itself names `currentUser`, OR it calls a
- *  `currentUser`-gated operation (whose context fn takes the trailing actor).
- *  Either way the workflow function must thread `current_user \\ nil` so the
- *  binding is in scope for the rendered guard / op-call.  Recurses into
- *  `for-each` / `if-let` bodies. */
+ *  `currentUser`-gated operation (whose context fn takes the trailing actor),
+ *  OR it creates an aggregate whose lifecycle stamps read the principal.  Any
+ *  of these means the workflow function threads `current_user \\ nil` so the
+ *  binding is in scope for the rendered guard / op-call / create call, at any
+ *  nesting depth (`for-each` / `if-let` / `variant-match` bodies). */
 function workflowNeedsCurrentUser(wf: WorkflowIR, ctx: BoundedContextIR): boolean {
-  return workflowUsesCurrentUser(wf) || stmtsCallUserGatedOp(wf.statements, ctx);
-}
-
-function stmtsCallUserGatedOp(sts: WorkflowStmtIR[], ctx: BoundedContextIR): boolean {
-  return sts.some((s) => {
-    if (s.kind === "op-call") return opCallThreadsUser(s, ctx);
-    if (s.kind === "for-each") return stmtsCallUserGatedOp(s.body, ctx);
-    if (s.kind === "if-let")
-      return stmtsCallUserGatedOp(s.thenBody, ctx) || stmtsCallUserGatedOp(s.elseBody ?? [], ctx);
-    return false;
-  });
+  if (workflowUsesCurrentUser(wf)) return true;
+  let needs = false;
+  for (const st of wf.statements)
+    walkWorkflowStmtsDeep(st, (n) => {
+      if (n.kind === "op-call" && opCallThreadsUser(n, ctx)) needs = true;
+      if (n.kind === "factory-let" && factoryStampsActor(ctx, n.aggName)) needs = true;
+    });
+  return needs;
 }
 
 /** Statement kinds that are themselves fallible control flow / repo binds —
@@ -989,19 +1073,19 @@ function renderLoopBody(
         lastBind = escapeElixirIdent(snake(inner.name));
         const bind = bindUsedLater(inner.name, rest) ? lastBind : "_";
         clauses.push(
-          `{:ok, ${bind}} <- ${contextModule}.${internalCreateFn(inner.aggName, aggOf(ctx, inner.aggName))}(%{${fields}})`,
+          `{:ok, ${bind}} <- ${factoryCreateCall(inner.aggName, fields, contextModule, ctx)}`,
         );
         if (bind === "_") lastBind = "nil";
         break;
       }
       case "precondition":
         clauses.push(
-          `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${denialTerm(inner)}})`,
+          `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner)}})`,
         );
         break;
       case "requires":
         clauses.push(
-          `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${denialTerm(inner)}})`,
+          `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner)}})`,
         );
         break;
       case "expr-let": {
@@ -1015,7 +1099,7 @@ function renderLoopBody(
           .join(", ");
         const appModule = contextModule.split(".")[0]!;
         doLines.push(
-          `Phoenix.PubSub.broadcast(${appModule}.PubSub, "events", %${contextModule}.Events.${upperFirst(inner.eventName)}{${fields}})`,
+          `${appModule}.PostCommit.broadcast(%${contextModule}.Events.${upperFirst(inner.eventName)}{${fields}})`,
         );
         break;
       }
@@ -1186,9 +1270,7 @@ function renderBranchStmt(
         .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)
         .join(", ");
       const bind = bindUsedLater(st.name, rest) ? escapeElixirIdent(snake(st.name)) : "_";
-      return [
-        `{:ok, ${bind}} = ${contextModule}.${internalCreateFn(st.aggName, aggOf(ctx, st.aggName))}(%{${fields}})`,
-      ];
+      return [`{:ok, ${bind}} = ${factoryCreateCall(st.aggName, fields, contextModule, ctx)}`];
     }
     case "emit": {
       const fields = st.fields
@@ -1196,7 +1278,7 @@ function renderBranchStmt(
         .join(", ");
       const appModule = contextModule.split(".")[0]!;
       return [
-        `Phoenix.PubSub.broadcast(${appModule}.PubSub, "events", %${contextModule}.Events.${upperFirst(st.eventName)}{${fields}})`,
+        `${appModule}.PostCommit.broadcast(%${contextModule}.Events.${upperFirst(st.eventName)}{${fields}})`,
       ];
     }
     case "expr-let": {
@@ -1253,91 +1335,15 @@ function renderBranchStmt(
 // destructured off the `run/1` map.
 // ---------------------------------------------------------------------------
 
-/** Add every `refKind: "param"` name reachable from `e` into `acc`.
- *  Exhaustive over the child-bearing `ExprIR` kinds (a stricter superset
- *  of the validate-layer `walkExpr` — it also descends `list` / `convert`
- *  / `match`, which can appear in a workflow create-body). */
+/** Add every `refKind: "param"` name reachable from `e` into `acc` — at any
+ *  depth, through every child slot `walk.ts` knows (a `match` subject, a
+ *  `duration` amount, an `i18nFormat` hole, a block-bodied lambda's
+ *  statements).  A param read only in one of those slots and not destructured
+ *  off `run/1` is an undefined variable in the emitted Elixir. */
 export function collectParamRefs(e: ExprIR | undefined, acc: Set<string>): void {
-  if (!e) return;
-  switch (e.kind) {
-    case "ref":
-      if (e.refKind === "param") acc.add(e.name);
-      return;
-    case "member":
-      collectParamRefs(e.receiver, acc);
-      return;
-    case "method-call":
-      collectParamRefs(e.receiver, acc);
-      for (const a of e.args) collectParamRefs(a, acc);
-      return;
-    case "call":
-      for (const a of e.args) collectParamRefs(a, acc);
-      return;
-    case "lambda":
-      collectParamRefs(e.body, acc);
-      if (e.block) for (const s of e.block) collectParamRefsInStmt(s, acc);
-      return;
-    case "new":
-    case "object":
-      for (const f of e.fields) collectParamRefs(f.value, acc);
-      return;
-    case "list":
-      for (const el of e.elements) collectParamRefs(el, acc);
-      return;
-    case "paren":
-      collectParamRefs(e.inner, acc);
-      return;
-    case "unary":
-      collectParamRefs(e.operand, acc);
-      return;
-    case "binary":
-      collectParamRefs(e.left, acc);
-      collectParamRefs(e.right, acc);
-      return;
-    case "ternary":
-      collectParamRefs(e.cond, acc);
-      collectParamRefs(e.then, acc);
-      collectParamRefs(e.otherwise, acc);
-      return;
-    case "convert":
-      collectParamRefs(e.value, acc);
-      return;
-    case "match":
-      for (const arm of e.arms) {
-        collectParamRefs(arm.cond, acc);
-        collectParamRefs(arm.value, acc);
-      }
-      collectParamRefs(e.otherwise, acc);
-      return;
-    default:
-      // Leaf kinds (`literal` / `this` / `id`) bind no params.
-      return;
-  }
-}
-
-/** A `StmtIR` (lambda block body) — only the expression-bearing arms can
- *  carry a param reference; collect from each. */
-function collectParamRefsInStmt(s: StmtIR, acc: Set<string>): void {
-  switch (s.kind) {
-    case "precondition":
-    case "requires":
-    case "let":
-    case "expression":
-      collectParamRefs(s.expr, acc);
-      return;
-    case "assign":
-    case "add":
-    case "remove":
-    case "return":
-      collectParamRefs(s.value, acc);
-      return;
-    case "emit":
-      for (const f of s.fields) collectParamRefs(f.value, acc);
-      return;
-    case "call":
-      for (const a of s.args) collectParamRefs(a, acc);
-      return;
-  }
+  walkExprDeep(e, (sub) => {
+    if (sub.kind === "ref" && sub.refKind === "param") acc.add(sub.name);
+  });
 }
 
 /** Collect referenced create-params from EVERY lowered statement kind: each
@@ -1371,6 +1377,8 @@ export function collectWorkflowStmtParamRefs(st: WorkflowStmtIR, acc: Set<string
 function referencedParams(wf: WorkflowIR): string[] {
   const refs = new Set<string>();
   for (const st of wf.statements ?? []) collectWorkflowStmtParamRefs(st, refs);
+  // A `create(…): T` result may read a param the body never does.
+  collectParamRefs(commandCreateResult(wf)?.value, refs);
   return (wf.params ?? []).map((p) => p.name).filter((n) => refs.has(n));
 }
 
@@ -1397,13 +1405,22 @@ function assembleBody(
    *  before `workflow_completed`, so a short-circuited `{:error, _}` leaves the
    *  row as it was.  Empty for stateless / key-less workflows. */
   persistLines: string[] = [],
+  /** `create(…): T { … return <expr> }` — the rendered return value.  When
+   *  set it IS the success result (`{:ok, <expr>}`, which the controller
+   *  answers as a 200 body) in every arm, instead of the last-bind default. */
+  declaredResult?: string,
 ): string {
   const withClauses = lines.filter((l) => l.kind === "with-clause");
   const emitLines = lines.filter((l) => l.kind === "emit");
   const stmtLines = lines.filter((l) => l.kind === "stmt");
   const lastBind = [...withClauses].reverse().find((l) => l.bindName)?.bindName;
 
-  const resultExpr = lastBind ? `{:ok, ${lastBind}}` : "{:ok, params}";
+  const resultExpr =
+    declaredResult !== undefined
+      ? `{:ok, ${declaredResult}}`
+      : lastBind
+        ? `{:ok, ${lastBind}}`
+        : "{:ok, params}";
   // The `do`-branch body: emits first (only run on with-chain success),
   // then `workflow_completed` (the success tail), then the success result.
   // Indented to match the `with ... do ... end` shape — 6 spaces under
@@ -1419,7 +1436,11 @@ function assembleBody(
 
   if (stmtLines.length === 0 && withClauses.length === 0 && emitLines.length === 0) {
     // Empty body — keep the stub semantics; still announce completion.
-    return [...at(4, persistLines), `    ${completedCall}`, "    {:ok, params}"].join("\n");
+    return [
+      ...at(4, persistLines),
+      `    ${completedCall}`,
+      declaredResult !== undefined ? `    ${resultExpr}` : "    {:ok, params}",
+    ].join("\n");
   }
 
   if (stmtLines.length === 0 && withClauses.length === 0 && emitLines.length > 0) {
@@ -1429,7 +1450,7 @@ function assembleBody(
       ...emitLines.map((l) => `    ${l.text}`),
       ...at(4, persistLines),
       `    ${completedCall}`,
-      "    {:ok, :emitted}",
+      declaredResult !== undefined ? `    ${resultExpr}` : "    {:ok, :emitted}",
     ].join("\n");
   }
 
@@ -1563,7 +1584,7 @@ function renderWorkflowModule(
   // pure block form (domain-services.md rev. 4) render via `renderFunctionBodyLines`.
   const helperDefs = (wf.functions ?? [])
     .map((fn) => {
-      const params = fn.params.map((p) => escapeElixirIdent(snake(p.name))).join(", ");
+      const params = fn.params.map((p) => elixirLocal(p.name)).join(", ");
       const bodyLines = renderFunctionBodyLines(fn.body, renderCtx).join("\n");
       return `\n  defp ${snake(fn.name)}(${params}) do\n${bodyLines}\n  end`;
     })
@@ -1602,7 +1623,17 @@ function renderWorkflowModule(
   end
 
   def report_result(result), do: result`;
-  const lines = lowerStatements(wf.statements ?? [], contextModuleFq, renderCtx, ctx);
+  // `create(…): T { … return <expr> }` — the declared result closes the chain
+  // (`ownResult`), and its refs count as reads so the binds it names keep their
+  // real names (`trailing`) — the explicit-handler path's exact contract.
+  const result = commandCreateResult(wf);
+  const lines = lowerStatements(
+    wf.statements ?? [],
+    contextModuleFq,
+    renderCtx,
+    ctx,
+    result ? { trailing: [result.value], ownResult: true, rebindOpTargets: true } : {},
+  );
   // Load-or-allocate + persist, mirroring `renderPersistedBody`'s create arm.
   // `loom_state` keeps the row AS LOADED so the trailing changeset carries the
   // body's writes as real CHANGES — Elixir rebinds `state` in place
@@ -1615,7 +1646,9 @@ function renderWorkflowModule(
         `${snake(wf.correlationField as string)}: key`,
         ...(wf.stateFields ?? [])
           .filter((f) => f.name !== wf.correlationField && !f.optional)
-          .map((f) => `${snake(f.name)}: ${stateDefault(f.type, ctx)}`),
+          .map(
+            (f) => `${snake(f.name)}: ${stateDefault(f.type, ctx ? stateDefaultDecls(ctx) : {})}`,
+          ),
       ]
     : [];
   const statePrelude = corrParam
@@ -1643,9 +1676,15 @@ function renderWorkflowModule(
           `Repo.update!(Ecto.Changeset.change(loom_state, Map.take(state, [${mutableStateFields.join(", ")}])))`,
         ]
       : [];
-  const body = assembleBody(lines, completedCall, persistLines);
+  const body = assembleBody(
+    lines,
+    completedCall,
+    persistLines,
+    result ? renderExpr(result.value, renderCtx) : undefined,
+  );
   // A workflow that names `currentUser` in a guard/body — or calls a
-  // `currentUser`-gated op — threads `current_user \\ nil` into `run/1`
+  // `currentUser`-gated op, or creates a principal-stamped aggregate — threads
+  // `current_user \\ nil` into `run/1`
   // (and `run_inner` on the transactional path) so the rendered bare token
   // `current_user` (and the trailing op-call actor) bind.  The
   // `WorkflowsController` passes `conn.assigns[:current_user]`.  A workflow
@@ -1702,6 +1741,60 @@ function renderWorkflowModule(
     );
     return [`    ${v} = if is_map(${v}), do: %{${entries.join(", ")}}, else: ${v}\n`];
   });
+  // A payload's MONEY fields are wire strings the body hands on unparsed, so a
+  // malformed one ("1.2.3") reached the aggregate's changeset and came back
+  // Ecto's "is invalid" at the AGGREGATE's field (`/amount`).  Every other
+  // backend refuses it at the wire, as node's `Invalid decimal: "1.2.3"` at the
+  // field's whole path (`/c/amount`, RS-33).  Each such field is checked against
+  // node's money grammar before the body runs; a refusal is a changeset error on
+  // the PARAM carrying the field on `loom_path`, which the shared renderer turns
+  // into exactly that pointer.
+  const moneyChecks = params.flatMap((n) => {
+    const t = (wf.params ?? []).find((p) => p.name === n)?.type;
+    const inner = t?.kind === "optional" ? t.inner : t;
+    const payload =
+      inner?.kind === "entity"
+        ? ctx?.payloads.find((pl) => pl.name === inner.name && !pl.variants)
+        : undefined;
+    if (!payload || inner?.kind !== t?.kind) return [];
+    return payload.fields
+      .filter((f) => {
+        const ft = f.type.kind === "optional" ? f.type.inner : f.type;
+        return ft.kind === "primitive" && ft.name === "money";
+      })
+      .map((f) => `{:${snake(n)}, :${snake(f.name)}, ${snake(n)}.${snake(f.name)}}`);
+  });
+  const moneyGuardOpen =
+    moneyChecks.length > 0
+      ? `    case __loom_payload_money([${moneyChecks.join(", ")}]) do
+      :ok ->
+`
+      : "";
+  const moneyGuardClose =
+    moneyChecks.length > 0
+      ? `
+      {:error, _} = loom_payload_refusal -> loom_payload_refusal
+    end`
+      : "";
+  const moneyGuardHelper =
+    moneyChecks.length > 0
+      ? `
+
+  # node's money grammar, character for character — the payload twin of the
+  # context's operation-param guard.
+  defp __loom_payload_money(checks) do
+    Enum.find_value(checks, :ok, fn {param, field, value} ->
+      if is_nil(value) or (is_binary(value) and Regex.match?(~r/^-?\\d+(\\.\\d+)?$/, value)) do
+        nil
+      else
+        {:error,
+         {%{}, %{param => :map}}
+         |> Ecto.Changeset.change(%{})
+         |> Ecto.Changeset.add_error(param, "Invalid decimal: " <> Jason.encode!(value), loom_path: [field])}
+      end
+    end)
+  end`
+      : "";
   const paramDestructure =
     params.length > 0
       ? `    %{${params.map((n) => `${JSON.stringify(n)} => ${escapeElixirIdent(snake(n))}`).join(", ")}} = params\n${payloadRebinds.join("")}`
@@ -1750,7 +1843,13 @@ function renderWorkflowModule(
       : "";
   // `workflow_started` runs first thing in the body (before the destructure +
   // the with-chain), so it fires at run/1 entry on every invocation.
-  const finalBody = `    ${startedCall}\n` + paramDestructure + statePrelude + aliasedBody;
+  const finalBody =
+    `    ${startedCall}\n` +
+    paramDestructure +
+    moneyGuardOpen +
+    statePrelude +
+    aliasedBody +
+    moneyGuardClose;
 
   const transactionalDoc = transactional
     ? "\n\n  Marked `transactional` — the body runs inside `Repo.transaction/1`;\n  a rejection result rolls the transaction back."
@@ -1782,8 +1881,14 @@ ${defaultsHeader}  def run(params${clauseUserParam}) when is_map(params)${requir
     # A workflow is a per-dispatch boundary: run it in a child execution frame
     # (parent_id <- the request's root scope) so its audit / provenance rows
     # record their call-structure position.
+    #
+    # \`PostCommit.transaction\` holds every event this body announces — the
+    # reactor fan-out and the PubSub broadcast — until the
+    # transaction commits, and drops them on a rollback (M-T4.3 item 6).
     ${appModule}.RequestContext.with_child_frame(fn ->
-      Repo.transaction(fn ->${txnBody}end)
+      ${appModule}.PostCommit.transaction(fn ->
+        Repo.transaction(fn ->${txnBody}end)
+      end)
     end)
     |> report_result()
   end
@@ -1798,7 +1903,7 @@ ${missingParamsClause}${failureReporter}
 
   defp run_inner(${innerParam}) when is_map(params) do
 ${finalBody}
-  end${helperDefs}
+  end${helperDefs}${moneyGuardHelper}
 end
 `;
     return { content, statementRegions };
@@ -1822,7 +1927,7 @@ ${finalBody}
     end)
     |> report_result()
   end
-${missingParamsClause}${failureReporter}${helperDefs}
+${missingParamsClause}${failureReporter}${helperDefs}${moneyGuardHelper}
 end
 `;
   return { content, statementRegions };
@@ -1866,20 +1971,42 @@ function renderWorkflowsController(appModule: string, groups: WorkflowController
         // calls a `currentUser`-gated op), bind it off `conn.assigns` and pass it
         // through — mirrors the per-op controller action (api-emit.ts).
         const needsUser = workflowNeedsCurrentUser(wf, g.ctx);
+        // `create(…): T` answers 200 with the value (`respond_result`); a
+        // result-less workflow keeps the shared 204 `respond`.
+        const responder = commandCreateResult(wf) ? "respond_result" : "respond";
         if (needsUser) {
           return `  def ${wfSnake}(conn, params) do
     current_user = Map.get(conn.assigns, :current_user)
-    respond(conn, ${wfMod}.run(params, current_user))
+    ${responder}(conn, ${wfMod}.run(params, current_user))
   end`;
         }
         return `  def ${wfSnake}(conn, params) do
-    respond(conn, ${wfMod}.run(params))
+    ${responder}(conn, ${wfMod}.run(params))
   end`;
       });
     })
     .join("\n\n");
 
   const ctxList = groups.map((g) => upperFirst(g.ctx.name)).join(", ");
+  // `create(…): T` — the value crosses the wire UNWRAPPED (an id is its uuid
+  // string), the same JSON token the other four backends answer.  Every other
+  // result falls through to the shared `respond` (its error arms).  Emitted
+  // only when some workflow declares a result, so the controller is
+  // byte-identical otherwise.
+  const resultResponder = groups.some((g) => g.workflows.some((wf) => commandCreateResult(wf)))
+    ? `
+  # A workflow that declares a result (\`create(…): T { … return x }\`) answers
+  # 200 with that value as the JSON body.  Public, like \`respond\`, so Elixir
+  # 1.18's type checker keeps both clauses at their full domain.
+  def respond_result(conn, {:ok, result}) do
+    conn
+    |> put_status(200)
+    |> json(result)
+  end
+
+  def respond_result(conn, other), do: respond(conn, other)
+`
+    : "";
 
   return `# Auto-generated.
 defmodule ${webModule}.WorkflowsController do
@@ -1890,7 +2017,7 @@ defmodule ${webModule}.WorkflowsController do
   HTTP entry points for command-triggered workflows
   (${ctxList}).
   """
-
+${renderRequiredParamsPlug(new Map(groups.flatMap((g) => g.workflows.map((wf) => [snake(wf.name), requiredWireParams(wf.params)] as const))))}
 ${actions}
 
   # Shared result handler.  Each workflow's run/1 result flows through
@@ -1922,7 +2049,8 @@ ${respondErrorTail(
   contextsHaveWireDenials(groups.map((g) => g.ctx)),
   true,
   groups.some((g) => g.workflows.some(workflowLoadsById)),
-)}
+  groups.some((g) => aggregatesNeedConcurrency(g.ctx.aggregates)),
+)}${resultResponder}
 end
 `;
 }

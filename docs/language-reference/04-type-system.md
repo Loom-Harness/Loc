@@ -1,6 +1,6 @@
 # 4. The type system
 
-Every type position in the language: the ten primitive scalars (plus the expression-only `duration`), the distinct `money` type that is precise in the column and a fixed-scale string on the wire, `X id` cross-aggregate references, collections and options, and the closed set of postfix generic carriers `paged` / `envelope` / `option`. Reach for it when you need to know what column a field becomes, why `money` serializes differently than `decimal`, or how a carrier projects onto each backend.
+Every type position in the language: the eleven primitive scalars (plus the expression-only `duration`), the distinct `money` type that is precise in the column and a fixed-scale string on the wire, `X id` cross-aggregate references, collections and options, and the closed set of postfix generic carriers `paged` / `envelope` / `option`. Reach for it when you need to know what column a field becomes, why `money` serializes differently than `decimal`, or how a carrier projects onto each backend.
 
 > **Grammar:** `TypeRef`, `TypeAtom`, `BaseType`, `PrimitiveType`, `IdType`, `NamedType`, `GenericCtor`, `DURATION` (the `timerSource` literal) · **Validators:** type-system checks in `src/language/type-system.ts`; `loom.bare-aggregate-in-type`, `loom.generic-position`, `loom.generic-arg-not-carrier`, `loom.union-*`, `loom.intrinsic-nullable-receiver`, `loom.duration-arity` / `loom.duration-arg-type`, `loom.file-field-needs-object-storage`, `loom.token-nullable`, `loom.repository-find-deprecated` · **Docs:** [`../payloads.md`](../payloads.md), [`../conformance-semantics.md`](../conformance-semantics.md) (RS-12 / RS-24 — the numeric wire rules), [`../resources.md`](../resources.md) (`File` storage)
 
@@ -8,9 +8,9 @@ A `TypeRef` is one `BaseType` head atom, followed by zero or more postfix carrie
 
 ## Primitive scalars
 
-Ten primitives: `int`, `long`, `decimal`, `money`, `string`, `bool`, `datetime`, `guid`, `json`, `File`. Each maps to a host-language type, a wire (DTO) type, and a SQL column per backend. (`duration` is a type in the expression language — the result of `days(3)` or `datetime - datetime` — but not a declarable field type; see [`duration`](#duration--expression-only).)
+Eleven primitives: `int`, `long`, `decimal`, `money`, `string`, `bool`, `date`, `datetime`, `guid`, `json`, `File`. Each maps to a host-language type, a wire (DTO) type, and a SQL column per backend. (`duration` is a type in the expression language — the result of `days(3)` or `datetime - datetime` — but not a declarable field type; see [`duration`](#duration--expression-only).) `date` is a calendar day and `datetime` an instant — see [`date`](#date--a-calendar-day).
 
-> **Known omission — there is no `date` (or `time`) scalar.** A calendar field (a start date, a due date, a date of birth) has to be declared `datetime`, which carries a time and an offset it does not have: `2026-01-01T00:00:00Z` is *December 31* for every principal west of UTC. Use `datetime` and normalise at the boundary until [`M-T5.39`](../new-plan/T5-language-core.md#m-t539--there-is-no-date-or-time-scalar-so-every-calendar-field-is-a-datetime--open--l--p1--five-backend-wire-contract-change) lands.
+> **Declined — there is no `time` (time-of-day) scalar.** A time without a date has no defined ordering across a daylight-saving change, so `time` is refused with that reason (`Unknown type 'time'. Loom has no time-of-day type …`) rather than offered as a near miss. Use `datetime` for an instant, or `date` for a calendar day.
 
 ```ddd
 aggregate Order {
@@ -272,6 +272,94 @@ On the frontends a money value is displayed **verbatim from the wire** (`moneyTe
 
 Both halves are normative conformance rules, not emitter happenstance: money's fixed scale is [RS-12](../conformance-semantics.md#rs-12--money-wire-scale-is-consistent-across-backends), and "a plain `decimal` is a JSON number, and the *same* number every other backend sends" is [RS-24](../conformance-semantics.md#rs-24--a-plain-decimal-is-a-json-number-only-money-is-a-string) — which also records why the **request** direction deliberately stays on the wide type (a `double` request field turns an out-of-range 400 into a conversion 500). [Payloads](../payloads.md#numeric-wire-forms--money-is-a-string-decimal-is-a-number) frames the same split as the choice it is when you are declaring a payload field.
 
+## `date` — a calendar day
+
+`date` is a CALENDAR date — year, month, day; no time-of-day and no offset. Use it for a birth date, a due date, a policy's start: a value that is "January 1" for every reader. A `datetime` written `2026-01-01T00:00:00Z` is *December 31* for every principal west of UTC, and every backend, the wire and the column agree with each other about that — which is why it cannot be caught by comparing backends; `date` removes the instant entirely.
+
+| | |
+|---|---|
+| Wire | ISO-8601 calendar date string, `"2026-01-01"` (OpenAPI `format: date`). A request value that is not exactly a calendar date (`"2026-02-30"`, `"2026-01-01T00:00Z"`) is a 422. |
+| Column | Postgres `DATE` on every backend. |
+| Domain | node `string` (the ISO text — orders correctly as a string) · dotnet `DateOnly` · java `java.time.LocalDate` · python `datetime.date` (imported as `CalendarDate`, so a field named `date` cannot shadow it) · elixir `%Date{}` (`:date`). |
+| Frontends | the ISO text; the form field is a date picker (`<input type="date">`, Flutter's `showDatePicker`), never a datetime one. |
+
+The operators are the comparisons (`==`, `<`, `>=`, …) between two dates. There is no date arithmetic and no `date`/`datetime` mixing — the v1 intrinsic set is deliberately small:
+
+| Expression | Type | Meaning |
+|---|---|---|
+| `d.year()` / `d.month()` / `d.day()` | `int` | the components (month and day are 1-based) |
+| `a.daysUntil(b)` | `int` | signed whole days from `a` to `b` (`b - a`; negative when `b` is earlier) |
+| `t.toDate()` | `date` | the **UTC** calendar date of a `datetime` |
+| `today()` | `date` | the temporal prelude's `now().toDate()` — today in UTC |
+| `string(d)` | `string` | the ISO `YYYY-MM-DD` text |
+
+None is queryable — a `find … where` compares a date column with a date parameter (`this.birthDate < cutoff`), which needs no intrinsic. A UI message formats one with the existing ICU spec, `"Born {p.birthDate, date, ::yMMMd}"`; the runtime renders it at local midnight of that day, so the day shown is the day stored in every zone.
+
+```ddd
+aggregate Patient {
+  birthDate: date
+  nextVisit: date?
+  derived birthYear: int = birthDate.year()
+  derived daysToVisit: int = birthDate.daysUntil(nextVisit ?? birthDate)
+  operation book(visit: date) {
+    precondition birthDate <= today() message "A birth date cannot be in the future"
+    nextVisit := visit
+  }
+}
+repository Patients for Patient {
+  find bornBefore(cutoff: date): Patient[] where this.birthDate < cutoff
+}
+```
+
+```sql
+"birth_date" DATE NOT NULL,
+"next_visit" DATE,
+```
+
+::: tabs backend
+== node
+```ts
+// db/schema.ts — `mode: "string"`: the default Date mode would build a JS Date at LOCAL midnight
+birthDate: date("birth_date", { mode: "string" }).notNull(),
+// http/patient.routes.ts — the request schema refuses a non-date as a 422
+birthDate: z.string().date(),
+// domain/patient.ts
+get birthYear(): number { return Number((this._birthDate).slice(0, 4)); }
+get daysToVisit(): number { return Math.round((Date.parse(this._nextVisit === null ? this._birthDate : this._nextVisit) - Date.parse(this._birthDate)) / 86400000); }
+```
+== dotnet
+```csharp
+// Domain/Patients/Patient.cs — the wire DTO is the ISO string; the domain is DateOnly
+public DateOnly BirthDate { get; private set; } = default!;
+public int BirthYear => this.BirthDate.Year;
+public int DaysToVisit => ((this.NextVisit == null ? this.BirthDate : this.NextVisit.Value).DayNumber - (this.BirthDate).DayNumber);
+```
+== java
+```java
+// features/patients/PatientService.java — a non-date is a pointed 422
+var birthDate = WireFormatException.date(request.birthDate(), "/birthDate");
+// features/patients/PatientResponse.java — LocalDate.toString() is ISO yyyy-MM-dd
+value.birthDate().toString()
+```
+== python
+```python
+# app/domain/patient.py
+from datetime import date as CalendarDate
+def days_to_visit(self) -> int:
+    return (((self._birth_date if self._next_visit is None else self._next_visit)) - (self._birth_date)).days
+```
+== elixir
+```elixir
+# lib/d/clinic/patient.ex — %Date{} structs compare through Date.compare/2
+field :birth_date, :date
+def days_to_visit(%__MODULE__{} = record), do: Date.diff((if is_nil(record.next_visit), do: record.birth_date, else: record.next_visit), record.birth_date)
+```
+::: end
+
+**Migrating a `datetime` field to `date`** is a column type change (`ALTER COLUMN … TYPE DATE USING col::DATE`): it drops the time-of-day, and the cast reads each instant in the database session's zone. Like every type change it is destructive, so `generate system` refuses it without `--allow-destructive`.
+
+The corpus fixture `test/fixtures/corpus/date-scalar.ddd` drives create / update / an operation parameter / a SQL comparison and the intrinsics on all five backends, asserting each date read back as the exact string written.
+
 ## `duration` — expression-only
 
 `duration` is the type of a temporal span. It has no field syntax (`d: duration` does not resolve) and no column; it exists so `datetime` arithmetic type-checks. It is produced by the intrinsics `days(n)` / `hours(n)` / `minutes(n)` (an `int` amount — `days(1.5)` is `loom.duration-arg-type`: *Fractional spans are written in the finer unit ('hours(36)', not 'days(1.5)')*; the wrong arity is `loom.duration-arity`) and by `datetime - datetime`. The closed rules (`temporalArithmetic` in `type-system.ts`): `datetime ± duration → datetime`, `datetime - datetime → duration`, `duration ± duration → duration`, `duration × int → duration`; everything else is rejected. Calendar-relative units (`months`, `years`) are deliberately absent — every unit is absolute. (The `DURATION` *token* — `15s`, `5m`, `1h` — is a separate literal admitted only in a `timerSource`'s `every:` clause; [Channels](14-apis-storage-resources-channels.md).)
@@ -470,6 +558,37 @@ field :tags, {:array, :string}        # migration: add :tags, {:array, :text}, n
 ::: end
 
 An array of **references** — `X id[]` — is different: enrichment derives a join-table association for it rather than an inline array column. See [`../payloads.md`](../payloads.md) and the association derivation in enrichment (phase ⑥). A `contains … : Part[]` is a child table, not an array ([Domain modeling](03-domain-modeling.md#entity-parts--contains)).
+
+### Where a collection of references or value objects can live
+
+A collection of references (`X id[]`) or of value objects (`Money[]`) needs a table of its own, so it is accepted only where the schema gives it one:
+
+| Position | `X id[]` | `<VO>[]` |
+|---|---|---|
+| aggregate root field | join table | id-less child table |
+| entity part field | — refused (except under `persistence: mikroorm`, which folds it into jsonb) | id-less child table |
+| projection / workflow state field | one `jsonb` id-array column | — refused |
+| inside a persisted value object | — refused | — refused |
+
+`X id[]?` is refused everywhere: a reference collection is a set, and the empty set already means "none". Each refusal is `loom.collection-field-unpersisted`:
+
+```ddd
+aggregate Order {
+  tags: Tag id[]?          // error: drop the '?'
+  contains lines: Line[]
+  entity Line { refs: Tag id[] }   // error: no join table for a part
+}
+```
+
+```text
+loom.collection-field-unpersisted: aggregate 'Order' field 'tags' is an OPTIONAL reference collection ('X id[]?'). …
+```
+
+A projection or workflow state field `refs: Order id[]` is stored as one `jsonb` array of the ids:
+
+```sql
+"refs" JSONB NULL,
+```
 
 ## Options — `T?`
 

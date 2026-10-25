@@ -309,11 +309,17 @@ describe("react generator", () => {
       const { files } = generateSystems(model);
       const app = files.get("web_app/src/App.tsx")!;
       // Section headers (the one cross-pack section-label style).
-      expect(app).toMatch(/<div className="loom-nav-section">Aggregates<\/div>/);
-      expect(app).toMatch(/<div className="loom-nav-section">Workflows<\/div>/);
+      // Headings and labels the scaffold's page `menu:` metadata authors read
+      // through their catalog keys (acme is i18n-enabled).
+      expect(app).toMatch(
+        /<div className="loom-nav-section">\{t\("page\.List\.menu\.section\.\w+", "Aggregates"\)\}<\/div>/,
+      );
+      expect(app).toMatch(
+        /<div className="loom-nav-section">\{t\("page\.\w+\.menu\.section\.\w+", "Workflows"\)\}<\/div>/,
+      );
       // Per-aggregate NavLink with active prop wired through useLocation.
       expect(app).toMatch(
-        /<NavLink component=\{RouterLink\} to="\/orders" label="Orders" active=\{isActive\("\/orders"\)\}/,
+        /<NavLink component=\{RouterLink\} to="\/orders" label=\{t\("page\.List\.menu\.label\.\w+", "Orders"\)\} active=\{isActive\("\/orders"\)\}/,
       );
       // Index-page NavLinks use exact-match so /workflows doesn't
       // shadow /workflows/<slug>.
@@ -350,7 +356,9 @@ describe("react generator", () => {
       );
       const { files } = generateSystems(doc.parseResult.value as Model);
       const app = files.get("web/src/App.tsx")!;
-      expect(app).toMatch(/<div className="loom-nav-section">Aggregates</);
+      expect(app).toMatch(
+        /<div className="loom-nav-section">\{t\("page\.List\.menu\.section\.\w+", "Aggregates"\)\}</,
+      );
       // No workflows section emitted.
       expect(app).not.toMatch(/label="Workflows"/);
       expect(app).not.toMatch(/data-testid="nav-workflows"/);
@@ -418,7 +426,10 @@ describe("react generator", () => {
       expect(app).toBeDefined();
       // Layout route extracted; Outlet is the slot.
       expect(app).toMatch(/function AppShellLayout\(\)/);
-      expect(app).toMatch(/<AppErrorBoundary>\s*<Outlet \/>\s*<\/AppErrorBoundary>/);
+      // The outlet's lazy page renders behind a Suspense inside the boundary.
+      expect(app).toMatch(
+        /<AppErrorBoundary>\s*<React\.Suspense fallback=\{<RouteLoading \/>\}>\s*<Outlet \/>\s*<\/React\.Suspense>\s*<\/AppErrorBoundary>/,
+      );
       // The `layout: none` page mounts as a sibling of the
       // <Route element={<AppShellLayout />}> wrapper — not nested
       // inside it.
@@ -652,8 +663,12 @@ describe("react generator", () => {
       const { files } = generateSystems(model);
       const app = files.get("web_app/src/App.tsx")!;
       // Index + per-workflow imports.
-      expect(app).toMatch(/import WorkflowsIndex from "\.\/pages\/workflows\/index"/);
-      expect(app).toMatch(/import PlaceOrderWorkflowPage from "\.\/pages\/workflows\/place_order"/);
+      expect(app).toMatch(
+        /const WorkflowsIndex = React\.lazy\(\(\) => import\("\.\/pages\/workflows\/index"\)\)/,
+      );
+      expect(app).toMatch(
+        /const PlaceOrderWorkflowPage = React\.lazy\(\(\) => import\("\.\/pages\/workflows\/place_order"\)\)/,
+      );
       // Routes — index + per-workflow.
       expect(app).toMatch(/<Route path="\/workflows" element=\{<WorkflowsIndex \/>\} \/>/);
       expect(app).toMatch(
@@ -665,7 +680,7 @@ describe("react generator", () => {
         /<NavLink component=\{RouterLink\} to="\/workflows" label="All workflows"[\s\S]*?data-testid="nav-workflows"/,
       );
       expect(app).toMatch(
-        /<NavLink component=\{RouterLink\} to="\/workflows\/place_order" label="Place Order"[\s\S]*?data-testid="nav-workflow-place_order"/,
+        /<NavLink component=\{RouterLink\} to="\/workflows\/place_order" label=\{t\("page\.\w+\.menu\.label\.\w+", "Place Order"\)\}[\s\S]*?data-testid="nav-workflow-place_order"/,
       );
     });
   });

@@ -1,5 +1,6 @@
 import type { TypeIR } from "../../../ir/types/loom-ir.js";
 import { numericEncode } from "../../_numeric/target.js";
+import { J } from "../java-symbols.js";
 import { JAVA_NUMERIC } from "../numeric-codec.js";
 import { javaValueTypeForId } from "../render-expr.js";
 import { JAVA_PROVENANCED_RECORD } from "./provenance.js";
@@ -71,6 +72,13 @@ export function bearsNestedRecord(t: TypeIR): boolean {
   }
 }
 
+/** `javaValueTypeForId`, with the `UUID` spelling written as its import
+ *  marker (M-T9.86) so a unit naming it derives `import java.util.UUID;`. */
+export function javaIdValueType(idValueType: string): string {
+  const v = javaValueTypeForId(idValueType);
+  return v === "UUID" ? J.UUID : v;
+}
+
 /** The Java type a domain type takes inside a request/response record. */
 export function wireJavaType(t: TypeIR, dir: WireDir, boxed = false): string {
   switch (t.kind) {
@@ -100,16 +108,17 @@ export function wireJavaType(t: TypeIR, dir: WireDir, boxed = false): string {
           // gives a 400.  A client may send more precision than it reads back,
           // which is already true of every other backend.
           if (dir === "Response") return boxed ? "Double" : "double";
-          return "BigDecimal";
+          return J.BigDecimal;
         case "money":
+        case "date":
         case "datetime":
           return "String";
         case "string":
           return "String";
         case "guid":
-          return "UUID";
+          return J.UUID;
         case "json":
-          return "JsonNode";
+          return J.JsonNode;
         case "File":
           // Passive wire-only leaf — the shared FileRef record is both the
           // domain and the wire shape, so no conversion.
@@ -117,7 +126,7 @@ export function wireJavaType(t: TypeIR, dir: WireDir, boxed = false): string {
       }
       return "Object";
     case "id":
-      return javaValueTypeForId(t.valueType);
+      return javaIdValueType(t.valueType);
     case "enum":
       return t.name;
     case "valueobject":
@@ -126,7 +135,7 @@ export function wireJavaType(t: TypeIR, dir: WireDir, boxed = false): string {
       // Containments carry the part's response record.
       return `${t.name}Response`;
     case "array":
-      return `List<${wireJavaType(t.element, dir, true)}>`;
+      return `${J.List}<${wireJavaType(t.element, dir, true)}>`;
     case "optional":
       return wireJavaType(t.inner, dir, true);
     case "genericInstance":
@@ -140,38 +149,6 @@ export function wireJavaType(t: TypeIR, dir: WireDir, boxed = false): string {
       return "Object";
     default:
       return "Object";
-  }
-}
-
-/** Imports the wire type needs (java.* only; generated records are
- *  package-local or wildcard-imported).
- *
- *  Direction-aware for the same reason `wireJavaType` is: a RESPONSE `decimal`
- *  is a `double`/`Double`, so the record must not import a `BigDecimal` it no
- *  longer names (javac warns on nothing, but an unused import is noise the
- *  emitter has never shipped elsewhere).  A REQUEST `decimal` still needs it. */
-export function collectWireImports(t: TypeIR, into: Set<string>, dir: WireDir): Set<string> {
-  switch (t.kind) {
-    case "primitive":
-      if (t.name === "decimal" && dir === "Request") into.add("java.math.BigDecimal");
-      if (t.name === "guid") into.add("java.util.UUID");
-      if (t.name === "json") into.add("tools.jackson.databind.JsonNode");
-      return into;
-    case "id":
-      if (t.valueType === "guid") into.add("java.util.UUID");
-      return into;
-    case "array":
-      into.add("java.util.List");
-      return collectWireImports(t.element, into, dir);
-    case "optional":
-      return collectWireImports(t.inner, into, dir);
-    case "genericInstance":
-      // The carrier itself is a generated `domain.common` record — imported by
-      // the DTO emitter, which knows the base package.  Only its ARGUMENT can
-      // pull in a java.* import.
-      return collectWireImports(t.arg, into, dir);
-    default:
-      return into;
   }
 }
 
@@ -198,6 +175,8 @@ export function domainToWire(t: TypeIR, expr: string): string {
       // byte-consistent with the other backends.
       if (t.name === "money") return numericEncode(JAVA_NUMERIC, "money", "dto-map", expr);
       if (t.name === "datetime") return javaInstantWire(expr);
+      // `LocalDate.toString()` is ISO `yyyy-MM-dd` — the calendar-date wire form.
+      if (t.name === "date") return `${expr}.toString()`;
       // decimal → the response's `double` component (RS-24).  The
       // narrowing is the wire boundary's job, exactly as on .NET: the
       // DOMAIN value keeps every digit `MathContext.DECIMAL128` produced.
@@ -230,6 +209,7 @@ function elementMapper(element: TypeIR): string | null {
       if (element.name === "money")
         return `__x -> ${numericEncode(JAVA_NUMERIC, "money", "dto-map", "__x")}`;
       if (element.name === "datetime") return `__x -> ${javaInstantWire("__x")}`;
+      if (element.name === "date") return "__x -> __x.toString()";
       // `decimal[]` → `List<Double>` (RS-24): the element narrows on
       // the response exactly as a scalar decimal component does.
       if (element.name === "decimal")
@@ -268,34 +248,41 @@ export function wireToDomain(
    *  be built from the wire record before the body's `c.<field>` reads are
    *  domain-typed.  Omitted everywhere a payload cannot appear. */
   payloads?: ReadonlySet<string>,
+  /** A Java String EXPRESSION prefixed to `pointer` — set inside a nested
+   *  record's `to<Vo>` / `to<Payload>` mapper, whose fields sit under whatever
+   *  path the caller reached the record by (`at`).  Without it a refusal inside
+   *  `c: FileClaim` pointed at `/amount` rather than `/c/amount` (RS-33). */
+  base?: string,
 ): string {
+  const at = (p: string): string => (base ? `${base} + ${JSON.stringify(p)}` : JSON.stringify(p));
   switch (t.kind) {
     case "primitive":
       // Total, and pointed: `new BigDecimal("12,50")` threw
       // `NumberFormatException` out of the service and answered 500.
-      if (t.name === "money")
-        return `WireFormatException.money(${expr}, ${JSON.stringify(pointer)})`;
+      if (t.name === "money") return `WireFormatException.money(${expr}, ${at(pointer)})`;
       // Guarded for the same reason and in the same shape as `money` above:
       // an unguarded `Instant.parse("")` / `Instant.parse("not-a-date")` throws
       // `DateTimeParseException` out of the service, which no advice arm
       // matches, so the caller would get 500 for input the server itself
       // refuses (a schemathesis-found shape).
-      if (t.name === "datetime")
-        return `WireFormatException.instant(${expr}, ${JSON.stringify(pointer)})`;
+      if (t.name === "datetime") return `WireFormatException.instant(${expr}, ${at(pointer)})`;
+      if (t.name === "date") return `WireFormatException.date(${expr}, ${at(pointer)})`;
       return expr;
     case "id":
       return `new ${t.targetName}Id(${expr})`;
     case "valueobject":
-      return `to${t.name}(${expr})`;
+      // The nested record's mapper takes the path it sits at, so its own
+      // fields' refusals point through it.
+      return `to${t.name}(${expr}, ${at(pointer)})`;
     case "entity":
       // Only a declared record payload converts; every other `entity` is a
       // containment part, which keeps the pass-through the default arm gives.
-      return payloads?.has(t.name) ? `to${t.name}(${expr})` : expr;
+      return payloads?.has(t.name) ? `to${t.name}(${expr}, ${at(pointer)})` : expr;
     case "array": {
       const el = t.element;
       // The element pointer keeps the RFC 6901 index wildcard shape the
       // nested-errors contract uses for collections.
-      const mapped = wireToDomain(el, "__x", `${pointer}/0`, payloads);
+      const mapped = wireToDomain(el, "__x", `${pointer}/0`, payloads, base);
       if (mapped === "__x") return expr;
       // MUTABLE copy, not `Stream.toList()`.  This value is assigned straight
       // onto a domain field, and on a value-object collection that field is a
@@ -310,7 +297,7 @@ export function wireToDomain(
       return `new java.util.ArrayList<>(${expr}.stream().map(__x -> ${mapped}).toList())`;
     }
     case "optional": {
-      const inner = wireToDomain(t.inner, expr, pointer, payloads);
+      const inner = wireToDomain(t.inner, expr, pointer, payloads, base);
       if (inner === expr) return expr;
       return `${expr} == null ? null : ${inner}`;
     }
@@ -327,7 +314,7 @@ export function wireToDomain(
 export function wireToDomainGuards(t: TypeIR): boolean {
   switch (t.kind) {
     case "primitive":
-      return t.name === "money" || t.name === "datetime";
+      return t.name === "money" || t.name === "datetime" || t.name === "date";
     case "array":
       return wireToDomainGuards(t.element);
     case "optional":
@@ -337,7 +324,8 @@ export function wireToDomainGuards(t: TypeIR): boolean {
   }
 }
 
-/** Imports the inbound conversion needs. */
+/** The `WireFormatException` import the inbound conversion's guarded parse
+ *  needs (its `java.*` types derive from the renderers' markers, M-T9.86). */
 export function collectWireToDomainImports(
   t: TypeIR,
   into: Set<string>,
@@ -346,7 +334,6 @@ export function collectWireToDomainImports(
   switch (t.kind) {
     case "primitive":
       if (t.name === "money") {
-        into.add("java.math.BigDecimal");
         // The guarded parse `wireToDomain` emits.  REQUIRED, and
         // `basePkg` is required with it: emitting the call without the import
         // is a `cannot find symbol` that no string-level test sees — only the
@@ -354,12 +341,13 @@ export function collectWireToDomainImports(
         into.add(`${basePkg}.domain.common.WireFormatException`);
       }
       if (t.name === "datetime") {
-        into.add("java.time.Instant");
         // Same reason as `money`: the guarded parse names a type this file has
         // to import, and a missing import is a `cannot find symbol` no
         // string-level test sees — only the generated-java compile does.
         into.add(`${basePkg}.domain.common.WireFormatException`);
       }
+      // `LocalDate` is spelled fully qualified, so only the guard's type.
+      if (t.name === "date") into.add(`${basePkg}.domain.common.WireFormatException`);
       return into;
     case "array":
       return collectWireToDomainImports(t.element, into, basePkg);

@@ -67,15 +67,30 @@ describe("python project shell", () => {
     const pyproject = files.get("api/pyproject.toml")!;
     expect(pyproject).toContain('name = "api"');
     expect(pyproject).toContain('requires-python = ">=3.13"');
-    expect(pyproject).toContain('"fastapi>=');
-    expect(pyproject).toContain('"sqlalchemy[asyncio]>=');
-    expect(pyproject).toContain('"asyncpg>=');
-    expect(pyproject).toContain('"mypy>=');
-    expect(pyproject).toContain('"ruff>=');
+    expect(pyproject).toContain('"fastapi==');
+    expect(pyproject).toContain('"sqlalchemy[asyncio]==');
+    expect(pyproject).toContain('"asyncpg==');
+    expect(pyproject).toContain('"mypy==');
+    expect(pyproject).toContain('"ruff==');
     expect(pyproject).toContain("[tool.mypy]");
     expect(pyproject).toContain("strict = true");
     // App, not a distributable package.
     expect(pyproject).toContain("package = false");
+  });
+
+  it("pyproject builds under a pip editable install: a backend + the `app` package only", async () => {
+    // Without [build-system], pip falls back to setuptools' automatic
+    // discovery, which refuses the flat layout (`app/`, `migrations/`,
+    // `tests/` side by side) and `pip install -e .` fails before installing
+    // anything.  Pinning discovery to `app` is what makes it build.
+    const files = await build();
+    const pyproject = files.get("api/pyproject.toml")!;
+    expect(pyproject).toMatch(
+      /\[build-system\]\nrequires = \["setuptools==\d+\.\d+\.\d+"\]\nbuild-backend = "setuptools\.build_meta"\n/,
+    );
+    expect(pyproject).toContain('[tool.setuptools.packages.find]\ninclude = ["app*"]\n');
+    // The include names the package the app actually ships.
+    expect(files.has("api/app/main.py")).toBe(true);
   });
 
   it("main.py exposes the app with /health and a DB-aware /ready", async () => {

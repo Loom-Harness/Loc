@@ -69,7 +69,6 @@ import type {
   RouteIR,
   TypeIR,
   ValueObjectIR,
-  WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import {
@@ -77,9 +76,17 @@ import {
   aggregatesNeedConcurrency,
 } from "../../../ir/util/aggregate-flags.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../../ir/util/handler-contracts.js";
-import { problemTitle } from "../../../ir/util/openapi-errors.js";
+import { problemTitle, UNIQUE_CONFLICT_DETAIL } from "../../../ir/util/openapi-errors.js";
+import {
+  pagedRunFindName,
+  pagedRunGates,
+  pagedRunGatesUseCurrentUser,
+  pagedRunSortDefault,
+  requirePagedRunStmt,
+} from "../../../ir/util/paged-run.js";
 import {
   collectReachableTypes,
+  enumPool,
   orderValueObjectsByDependency,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
@@ -203,17 +210,7 @@ function emitPagedRunHandler(
   // (synthCriterion) statement — the shape enrich synthesized the paged FIND
   // for.  Locate it to recover the repo/aggregate + the paged find method name
   // (`retrievalName` = `findAllBy<Criterion>`) + the criterion args.
-  const retName = h.returnValue?.kind === "ref" ? h.returnValue.name : undefined;
-  const run = h.statements.find(
-    (s): s is Extract<WorkflowStmtIR, { kind: "repo-run" }> =>
-      s.kind === "repo-run" && !!s.synthCriterion && s.name === retName,
-  );
-  if (!run) {
-    throw new Error(
-      `internal: paged queryHandler '${h.name}' in '${ctx.name}' does not match the ` +
-        "supported `let r = Repo.run(<Criterion>(args)); return r` shape. Please file a bug.",
-    );
-  }
+  const run = requirePagedRunStmt(h, ctx.name);
   // Path-bound params (`{token}`) stay path params; the rest ride the query
   // string (a paged read is a GET — no body), joined by the pagination controls.
   const pathParams = h.params.filter((p) => pathNames.has(p.name));
@@ -237,7 +234,7 @@ function emitPagedRunHandler(
     // routes-builder.ts (schemathesis F4).
     `page: z.coerce.number().int().min(1).max(${PAGED_MAX_PAGE}).default(${PAGED_DEFAULT_PAGE})`,
     `pageSize: z.coerce.number().int().min(1).max(${PAGED_MAX_PAGE_SIZE}).default(${PAGED_DEFAULT_PAGE_SIZE})`,
-    `sort: z.string().default("id")`,
+    `sort: z.string().default(${JSON.stringify(pagedRunSortDefault(h, ctx))})`,
     `dir: z.string().default("asc")`,
   ];
   reqParts.push(`query: z.object({ ${queryFields.join(", ")} })`);
@@ -272,6 +269,21 @@ function emitPagedRunHandler(
     );
     paramExprs.set(p.name, escapeTsIdent(p.name));
   }
+  // The handler's `requires` gates (`scaffoldPaged(requires:)` splices one) —
+  // a 403 before the read, rendered through the shared workflow stmt target.
+  const gates = pagedRunGates(h);
+  if (pagedRunGatesUseCurrentUser(h)) {
+    out.push(
+      `    const currentUser = (httpCtx as unknown as { get(k: "currentUser"): import("../auth/user-types").User }).get("currentUser");`,
+    );
+  }
+  out.push(
+    ...renderWorkflowStmtChunks(
+      gates,
+      honoWorkflowStmtTarget(ctx, paramExprs, "this"),
+      "    ",
+    ).flat(),
+  );
   const repoVar = lowerFirst(run.repoName);
   out.push(`    const ${repoVar} = new ${run.aggName}Repository(db, events);`);
   // Criterion args (handler params passed to the criterion) + the pagination
@@ -280,7 +292,7 @@ function emitPagedRunHandler(
   const callArgs = [...critArgs, "query.page", "query.pageSize", "query.sort", "query.dir"].join(
     ", ",
   );
-  out.push(`    const result = await ${repoVar}.${run.retrievalName}(${callArgs});`);
+  out.push(`    const result = await ${repoVar}.${pagedRunFindName(run)}(${callArgs});`);
   const runMasked = !!ctx.aggregates.find((a) => a.name === run.aggName && aggHasFieldMask(a));
   out.push(...maskBind(runMasked, "    "));
   out.push(
@@ -750,7 +762,7 @@ export function buildExplicitRoutesFile(
       // PG unique_violation — drizzle wraps the driver error, so the SQLSTATE
       // rides `err.cause` under v5 and `err` under older drizzle; read both, as
       // the aggregate router does.
-      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505")) return problem(${exUniquenessStatus}, "Conflict", "A record with these values already exists.");`,
+      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505")) return problem(${exUniquenessStatus}, "Conflict", ${JSON.stringify(UNIQUE_CONFLICT_DETAIL)});`,
     );
   }
   if (exNeedsConcurrency) {
@@ -915,7 +927,7 @@ function renderExternHandlerImpl(h: Handler, ctx: EnrichedBoundedContextIR): str
     .filter(refersTo)
     .sort();
   const voEnumNames = [
-    ...new Set([...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]),
+    ...new Set([...valueObjectPool(ctx).map((v) => v.name), ...enumPool(ctx).map((e) => e.name)]),
   ]
     .filter(refersTo)
     .sort();

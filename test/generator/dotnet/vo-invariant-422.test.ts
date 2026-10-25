@@ -54,7 +54,9 @@ describe("dotnet — VO invariant → 422 at the wire", () => {
     const v = find(await files(), "Application/Items/Requests/ItemRequestValidators.cs");
     // Single-field int `value > 0` → the sound inclusive `.GreaterThanOrEqualTo(1)`.
     expect(v).toContain("class QuantityRequestValidator : AbstractValidator<QuantityRequest>");
-    expect(v).toContain("RuleFor(x => x.Value).GreaterThanOrEqualTo(1);");
+    expect(v).toContain(
+      'RuleFor(x => x.Value).GreaterThanOrEqualTo(1)\n            .WithMessage("Value must be at least 1");',
+    );
     // Two length invariants merge into one chain.  A LENGTH bound is a
     // code-point `.Must`, not FluentValidation's code-unit `.MinimumLength`
     // (RS-31).

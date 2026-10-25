@@ -1,6 +1,6 @@
 import type { TypeIR, WorkflowIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
-import { plural, snake, upperFirst } from "../../util/naming.js";
+import { plural, snake, upperFirst, workflowStateTableName } from "../../util/naming.js";
 import { renderCsType } from "./render-expr.js";
 
 // ---------------------------------------------------------------------------
@@ -16,7 +16,7 @@ import { renderCsType } from "./render-expr.js";
 // CREATE TABLE migration is already derived platform-neutrally
 // (`workflowStateTableShape` in src/system/migrations-builder.ts).
 //
-// The table name (`plural(snake(wf.name))`, e.g. `order_fulfillments`) matches
+// The table name (`workflowStateTableName(wf.name)`, e.g. `order_fulfillments`) matches
 // the migration's, so EF's runtime model and the canonical migration agree.
 // ---------------------------------------------------------------------------
 
@@ -31,7 +31,7 @@ export function correlationWorkflows(workflows: readonly WorkflowIR[]): Workflow
 /** The EF table name for a workflow's state row — matches
  *  `workflowStateTableShape` in the migrations builder. */
 export function workflowStateTable(wf: WorkflowIR): string {
-  return plural(snake(wf.name));
+  return workflowStateTableName(wf.name);
 }
 
 /** The DbSet property name (`OrderFulfillments`) the handlers load/save through. */
@@ -186,6 +186,8 @@ export function csStateDefault(t: TypeIR): string {
         return "false";
       case "datetime":
         return "DateTime.UtcNow";
+      case "date":
+        return "DateOnly.FromDateTime(DateTime.UtcNow)";
       default:
         return '""';
     }

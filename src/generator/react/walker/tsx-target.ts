@@ -93,6 +93,16 @@ export const tsxTarget: WalkerTarget = {
     return `${setter}(${value})`;
   },
 
+  /** `currentUser.<claim>` reads the verified session user the page /
+   *  component shell binds (`const currentUser = useSession().user as
+   *  Record<string, any>`).  The walker sets `usesCurrentUser` on entering
+   *  this seam, which is what makes the shell emit that binding; an `auth: ui`
+   *  deployable mounts every page under the AuthGate, so the user is present
+   *  by the time the body renders. */
+  renderCurrentUserAccess(field: string): string {
+    return `currentUser.${field}`;
+  },
+
   // --- Interactive-table seam (M-T1.1) ------------------------------------
 
   /** A clickable header that drives client-side sort: clicking an

@@ -15,6 +15,8 @@ import type {
   TestStmtIR,
   WorkflowIR,
 } from "../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../ir/util/canonical-lifecycle.js";
+import { readE2eCallOptions } from "../ir/util/e2e-call-options.js";
 import {
   E2E_WORKFLOW_VERBS,
   findWorkflowBySlug,
@@ -29,7 +31,7 @@ import {
   routedHandlerNeedsUnsendableBody,
 } from "../ir/util/routed-handler.js";
 import { walkExprDeep } from "../ir/util/walk.js";
-import { emitsCommandRoute } from "../ir/util/workflow-command-route.js";
+import { commandCreateResult, emitsCommandRoute } from "../ir/util/workflow-command-route.js";
 import { emitsInstanceRoutes } from "../ir/util/workflow-instances.js";
 import { platformFor } from "../platform/registry.js";
 import { API_BASE_PATH } from "../util/api-base.js";
@@ -70,7 +72,7 @@ import { renderExpectStmt } from "./expect-stmt.js";
 // `GET /orders/all`, a path no backend registers — so the delete and list
 // routes of every generated system were untestable from the DSL.  The two
 // arms below are the exact inverse of the two special cases in the derivation
-// (`if (agg.canonicalDestroy) … DELETE /{id}` and `if (find.name === "all") …
+// (`if (canonicalDestroy(agg)) … DELETE /{id}` and `if (find.name === "all") …
 // at the bare base`), which is why they are written against the SAME
 // predicates rather than against the method name alone.
 //
@@ -120,6 +122,11 @@ interface RenderCtx {
   apis: ApiIR[];
   /** Locals introduced by `let`. */
   locals: Set<string>;
+  /** `let`s bound to a VALUE, not a `{ id, … }` record — today the result of
+   *  `api.<wf>.run(…)` on a workflow whose create declares one
+   *  (`create(…): Account id`).  Such a local already IS the id, so
+   *  `renderIdArg` passes it through instead of appending `.id`. */
+  valueLocals: Set<string>;
   /** `let` names that are actually referenced later in the test body.
    *  A `let` whose binding is unused emits as a bare expression so the
    *  generated test doesn't carry a dead `const` (Biome's noUnusedVariables). */
@@ -141,9 +148,18 @@ function apiBasePath(_platform: string): string {
   return API_BASE_PATH;
 }
 
+/** The bundled dev IdP's password-grant endpoint, as the host-side suite
+ *  reaches it.  Present only when the compose stack bundles a realm AND some
+ *  backend requires auth; the suite then mints its own bearer token. */
+export interface DevIdpTokenSource {
+  tokenUrl: string;
+  clientId: string;
+}
+
 export function renderE2EFile(
   sys: SystemIR,
   modulesByName: Map<string, SubdomainIR>,
+  devIdp?: DevIdpTokenSource,
 ): string | null {
   // UI tests go to a separate Playwright spec via the
   // ui-e2e-render path; the vitest api file only carries api tests.
@@ -195,6 +211,7 @@ export function renderE2EFile(
         contexts,
         apis: apisServedBy(d, sys.apis),
         locals: new Set(),
+        valueLocals: new Set(),
         usedLetNames: collectUsedLetNames(t.statements),
         apiBasePath: apiBasePath(d.platform),
       };
@@ -203,7 +220,9 @@ export function renderE2EFile(
       // backend by name (`my test against dotnetApi`).  Single-
       // backend systems still gain the suffix — small fixture
       // churn but consistent semantics.
-      testLines.push(...renderTest(t, ctx, ` against ${serviceSlug(d.name)}`).map((l) => `  ${l}`));
+      testLines.push(
+        ...renderTest(t, ctx, ` against ${serviceSlug(d.name)}`, !!devIdp).map((l) => `  ${l}`),
+      );
       testLines.push("");
     }
   }
@@ -215,7 +234,16 @@ export function renderE2EFile(
     lines.push(h.src);
     lines.push("");
   }
-  lines.push(E2E_HELPERS.trim());
+  if (devIdp) {
+    lines.push(renderDevIdpBearer(devIdp));
+    lines.push("");
+  }
+  lines.push(
+    (devIdp
+      ? E2E_HELPERS.replace(BEARER_FROM_ENV, BEARER_FROM_ENV_OR_DEV_IDP)
+      : E2E_HELPERS
+    ).trim(),
+  );
   lines.push("");
   lines.push(body);
   return lines.join("\n") + "\n";
@@ -233,10 +261,14 @@ function collectContextsFor(
   return out;
 }
 
-function renderTest(t: TestE2EIR, ctx: RenderCtx, nameSuffix = ""): string[] {
+function renderTest(t: TestE2EIR, ctx: RenderCtx, nameSuffix = "", mintsBearer = false): string[] {
   const out: string[] = [];
   out.push(`it(${JSON.stringify(t.name + nameSuffix)}, async () => {`);
   out.push(`  const base = ENDPOINTS.${serviceSlug(ctx.deployable.name)};`);
+  // Inside the `it()` for the same reason as the reset below: the harnesses
+  // that evaluate this file shim only `describe`/`it`/`expect`, so a
+  // `beforeAll` would not run there.  The first call mints; the rest return.
+  if (mintsBearer) out.push(`  await __ensureBearer();`);
   // Emitted in EVERY test body, though by default it only fires for the first
   // one: `__resetState` owns the per-file / per-test choice (see its note), so
   // the mode is one runtime switch rather than two emission shapes.
@@ -460,6 +492,7 @@ function renderE2EStmt(s: TestStmtIR, ctx: RenderCtx): string {
   }
   if (s.kind === "let") {
     ctx.locals.add(s.name);
+    if (isWorkflowResultCall(s.expr, ctx)) ctx.valueLocals.add(s.name);
     // Drop the `const <name> =` binding when nothing in the test body
     // references it — `Sales.Order.create({...})` as a bare seed line
     // shouldn't leave a dead local in the emitted test.
@@ -846,12 +879,12 @@ function renderApiCall(call: ApiCallShape, ctx: RenderCtx): string {
   // Canonical destroy → `DELETE /api/<aggs>/{id}`.  Resolved HERE, before the
   // operation lookup, for two reasons: the canonical destroy is not in
   // `agg.operations` at all (lowering keeps lifecycle actions in `agg.destroys`
-  // / `agg.canonicalDestroy`), and the derivation routes it to DELETE rather
-  // than to `POST /{id}/<op>`.  Gated on `agg.canonicalDestroy` — the exact
+  // / `canonicalDestroy(agg)`), and the derivation routes it to DELETE rather
+  // than to `POST /{id}/<op>`.  Gated on `canonicalDestroy(agg)` — the exact
   // predicate `deriveAggregateOperations` gates the DELETE route on — so a
   // NAMED destroy (`destroy archive { }`, no route of its own) and an operation
   // whose name merely starts with "destroy" keep their ordinary handling.
-  if (call.method === "destroy" && agg.canonicalDestroy) {
+  if (call.method === "destroy" && canonicalDestroy(agg)) {
     if (args.length < 1) {
       throw new Error(`e2e: api.${call.aggregateSlug}.destroy(id) requires an id argument`);
     }
@@ -882,7 +915,7 @@ function renderApiCall(call: ApiCallShape, ctx: RenderCtx): string {
     .find((r) => r.aggregateName === agg.name)?.historyFind
     ? ["history"]
     : [];
-  const destroyMethod = agg.canonicalDestroy ? ["destroy"] : [];
+  const destroyMethod = canonicalDestroy(agg) ? ["destroy"] : [];
   const known = ["create", "getById", ...destroyMethod, ...historyMethod, ...ops, ...finds].join(
     ", ",
   );
@@ -981,7 +1014,18 @@ function renderOperationCall(
   const body = args.length >= 2 ? renderE2EExpr(args[1], ctx) : "{}";
   const opSnake = snake(op.name);
   const prefix = ctx.apiBasePath;
-  return `await __post(\`\${base}${prefix}/${slug}/\${${idExpr}}/${opSnake}\`, ${body})`;
+  const url = `\`\${base}${prefix}/${slug}/\${${idExpr}}/${opSnake}\``;
+  // The optional third argument (validated as `loom.e2e-call-options`).
+  const options = readE2eCallOptions(args[2]);
+  if (options === "malformed") {
+    throw new Error(
+      `e2e: api.${slug}.${op.name}(id, body, options) — options must be { ifMatch: <version> }`,
+    );
+  }
+  if (options) {
+    return `await __postIfMatch(${url}, ${body}, ${renderE2EExpr(options.ifMatch, ctx)})`;
+  }
+  return `await __post(${url}, ${body})`;
 }
 
 function renderFindCall(find: FindIR, slug: string, args: ExprIR[], ctx: RenderCtx): string {
@@ -1012,10 +1056,20 @@ function renderIdArg(arg: ExprIR, ctx: RenderCtx): string {
   // If the argument is a let-bound name, the user probably bound the
   // result of `api.x.create(...)` which returns `{ id }` — append `.id`.
   const rendered = renderE2EExpr(arg, ctx);
-  if (arg.kind === "ref" && ctx.locals.has(arg.name)) {
+  if (arg.kind === "ref" && ctx.locals.has(arg.name) && !ctx.valueLocals.has(arg.name)) {
     return `${rendered}.id`;
   }
   return rendered;
+}
+
+/** `api.<wf>.run(…)` on a workflow whose create declares a result — the call
+ *  answers the bare value (`create(…): T`), not a record. */
+function isWorkflowResultCall(e: ExprIR, ctx: RenderCtx): boolean {
+  const call = matchApiCall(e);
+  if (call?.method !== "run") return false;
+  if (findAggregateBySlug(call.aggregateSlug, ctx.contexts)) return false;
+  const wf = findWorkflowBySlug(call.aggregateSlug, ctx.contexts);
+  return !!wf && !!commandCreateResult(wf);
 }
 
 /**
@@ -1032,7 +1086,9 @@ function renderIdArg(arg: ExprIR, ctx: RenderCtx): string {
  * so this arm adds no wire surface, it only lets a `test e2e` body reach one.
  *
  * `.run()` answers 204 with an empty body, which `__post` already returns as
- * `{}`; the instance reads answer the persisted correlation row's
+ * `{}` — or, for a `create(…): T`, 200 with the bare declared value (a `let`
+ * bound to it is a `valueLocals` entry, so it is never `.id`-unwrapped); the
+ * instance reads answer the persisted correlation row's
  * `instanceWireShape`, which is what makes a folded saga's scalars assertable
  * (the verb M-T9.12's follow-up said the DSL did not have).
  *
@@ -1148,6 +1204,28 @@ function serviceSlug(name: string): string {
  *  need: they are lexicographically ordered by construction, so `<` is already
  *  correct for them and coercing would produce NaN. */
 const E2E_WIRE_HELPERS: ReadonlyArray<{ name: string; src: string }> = [
+  {
+    // `api.<aggs>.update(id, body, { ifMatch: v })` (e2e-call-options.ts) — the
+    // operation POST with the optimistic-concurrency precondition.  The version
+    // is sent as a quoted entity-tag, the form every backend's If-Match parser
+    // accepts (it is what the API's own ETag hands a client).  On demand, so a
+    // suite without the option carries no dead helper.
+    name: "__postIfMatch",
+    src: `async function __postIfMatch(url: string, body: unknown, version: unknown): Promise<__WireBody> {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", "if-match": \`"\${String(version)}"\`, ...__authHeaders() },
+    body: JSON.stringify(body ?? {}),
+  });
+  const text = await r.text();
+  if (!r.ok) throw new Error(\`POST \${url} → \${r.status} \${r.statusText}\${text ? ": " + text : ""}\`);
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(\`POST \${url} → \${r.status}: expected JSON, got \${JSON.stringify(text.slice(0, 200))}\`);
+  }
+}`,
+  },
   {
     name: "__cmpKey",
     src: `// Ordering key for a wire value — see \`sortBy\`/\`min\`/\`max\` below.  Money and
@@ -1291,6 +1369,71 @@ function __qs(url: string, params: Record<string, unknown>): string {
 }`,
   },
 ];
+
+const BEARER_FROM_ENV = "const token = process.env.E2E_BEARER_TOKEN;";
+const BEARER_FROM_ENV_OR_DEV_IDP = "const token = process.env.E2E_BEARER_TOKEN || __devIdpBearer;";
+
+/** The suite's own bearer token, minted from the compose stack's bundled dev
+ *  IdP by password grant (the realm's seeded `demo`/`demo` user), so the suite
+ *  runs against `docker compose up` with nothing exported first.
+ *
+ *  It stands aside whenever the caller chose a principal: an explicit
+ *  `E2E_BEARER_TOKEN` wins, `E2E_DEV_CLAIMS` means a dev-stub target (the
+ *  playground preview), and `E2E_DEV_IDP=off` opts out outright.  A realm that
+ *  is still importing answers 404/connection-refused for a few seconds after
+ *  `up`, hence the short retry; the failure names the remedies. */
+function renderDevIdpBearer(src: DevIdpTokenSource): string {
+  return `// Bearer token minted from the bundled dev IdP (docker-compose \`keycloak\`).
+const __DEV_IDP_TOKEN_URL = process.env.E2E_OIDC_TOKEN_URL ?? ${JSON.stringify(src.tokenUrl)};
+const __DEV_IDP_CLIENT_ID = process.env.E2E_OIDC_CLIENT_ID ?? ${JSON.stringify(src.clientId)};
+let __devIdpBearer = "";
+
+async function __ensureBearer(): Promise<void> {
+  if (__devIdpBearer !== "") return;
+  if (process.env.E2E_BEARER_TOKEN || process.env.E2E_DEV_CLAIMS) return;
+  if (process.env.E2E_DEV_IDP === "off") return;
+  const body = new URLSearchParams({
+    grant_type: "password",
+    client_id: __DEV_IDP_CLIENT_ID,
+    username: process.env.E2E_OIDC_USERNAME ?? "demo",
+    password: process.env.E2E_OIDC_PASSWORD ?? "demo",
+    scope: "openid",
+  });
+  let last = "";
+  for (let attempt = 0; attempt < 8; attempt++) {
+    try {
+      const r = await fetch(__DEV_IDP_TOKEN_URL, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body,
+      });
+      const text = await r.text();
+      if (r.ok) {
+        const token = (JSON.parse(text) as { access_token?: string }).access_token;
+        if (token) {
+          __devIdpBearer = token;
+          return;
+        }
+        last = "the token response carried no access_token";
+        break;
+      }
+      last = \`\${r.status} \${text.slice(0, 200)}\`;
+      // A 4xx other than 404 is a wrong client/user, not a realm still loading.
+      if (r.status !== 404 && r.status < 500) break;
+    } catch (err) {
+      last = err instanceof Error ? err.message : String(err);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(
+    [
+      \`Could not mint a bearer token from the dev IdP at \${__DEV_IDP_TOKEN_URL}: \${last}\`,
+      "Start the stack first (docker compose up -d) and give Keycloak a few seconds to",
+      "import its realm, or pass a token yourself with E2E_BEARER_TOKEN=<jwt>.",
+    ].join("\\n"),
+  );
+}`;
+}
 
 const E2E_HELPERS = `
 // The parsed JSON body of one generated call.  A generated assertion reads

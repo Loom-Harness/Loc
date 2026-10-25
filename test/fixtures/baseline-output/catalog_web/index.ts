@@ -65,6 +65,23 @@ function bootDbUnreachableReason(err: unknown): string | undefined {
   }
   return undefined;
 }
+// Every link of the error chain, with the Postgres fields the driver
+// carries (`code`, `detail`, `constraint`).  drizzle's own message is just
+// `Failed query: <sql>`; the reason — e.g. `Key (number)=(T-1) is
+// duplicated` on a unique index over existing rows — lives on the wrapped
+// driver error, so the migration_failed line must walk to it.
+function bootMigrationError(err: unknown): string {
+  const parts: string[] = [];
+  for (let e: unknown = err; e instanceof Error; e = e.cause) {
+    const pg = e as { code?: unknown; detail?: unknown; constraint?: unknown };
+    let part = e.message;
+    if (typeof pg.code === "string") part += ` [${pg.code}]`;
+    if (typeof pg.detail === "string") part += ` detail: ${pg.detail}`;
+    if (typeof pg.constraint === "string") part += ` constraint: ${pg.constraint}`;
+    parts.push(part);
+  }
+  return parts.length > 0 ? parts.join(" | caused by: ") : String(err);
+}
 baseLogger.info({ event: "migrations_starting" });
 for (let attempt = 1, maxAttempts = 10; ; attempt++) {
   try {
@@ -72,7 +89,6 @@ for (let attempt = 1, maxAttempts = 10; ; attempt++) {
     baseLogger.info({ event: "migrations_complete" });
     break;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
     const reason = bootDbUnreachableReason(err);
     if (attempt < maxAttempts && reason !== undefined) {
       const delay_ms = Math.min(500 * 2 ** (attempt - 1), 10000);
@@ -80,7 +96,7 @@ for (let attempt = 1, maxAttempts = 10; ; attempt++) {
       await new Promise((resolve) => setTimeout(resolve, delay_ms));
       continue;
     }
-    baseLogger.error({ event: "migration_failed", error: message });
+    baseLogger.error({ event: "migration_failed", error: bootMigrationError(err) });
     throw err;
   }
 }

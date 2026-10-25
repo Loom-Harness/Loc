@@ -70,6 +70,9 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.a11y-missing-alt": (p: { type: unknown }) =>
     `'${p.type}' renders an image but has no text alternative. Add 'alt: "…"' describing it, or 'decorative: true' if it conveys nothing (renders alt=""). Alt text is human content Loom can't derive — a missing alt fails WCAG 1.1.1.`,
   "loom.a11y-icon-only-no-name": `Icon-only 'Button' has no accessible name — a screen reader announces the meaningless default "Button". Add visible text ('Button { "Delete", icon: "trash" }') or an accessible name ('label: "Delete"', emitted as aria-label). A control without a name fails WCAG 4.1.2.`,
+  // M-T5.42, V8 — the button emitter renders NO glyph on a registry miss.
+  "loom.button-icon-unknown": (p: { name: unknown; known: unknown }) =>
+    `'Button { icon: "${p.name}" }' names no builtin icon, so the button renders with no glyph at all. The builtin names are: ${p.known}. Pick one of those, or pass your own SVG with 'iconSvg: "<svg …/>"'.`,
   "loom.a11y-theme-contrast": (p: {
     name: unknown;
     hex: unknown;
@@ -224,10 +227,48 @@ export const DIAGNOSTIC_MESSAGES = {
     label: unknown;
   }) =>
     `'${p.feature}' is not allowed on ${p.label}. A page or component 'action' runs in the browser, where the server-side modifiers mean nothing and nothing is enforceable. A page's own gate is the 'requires' page property; authorize the operation the action calls.`,
+  // A default on a site whose lowerer drops it (`defaults: false`) — refused
+  // rather than silently discarded (M-T5.42, V2).
+  "loom.param-default-unsupported": (p: { name: unknown; label: unknown }) =>
+    `Parameter '${p.name}' declares a default, but ${p.label} does not support parameter defaults: the default would be dropped and every generated signature would still require the argument. Remove '= …' and pass the value at each call site (an aggregate operation, create or destroy, or a workflow create, does honour a default).`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/channel.ts
   // ----------------------------------------------------------------------
+  "loom.collection-field-unpersisted#optional-reference": (p: {
+    owner: unknown;
+    ownerName: unknown;
+    field: unknown;
+  }) =>
+    `${p.owner} '${p.ownerName}' field '${p.field}' is an OPTIONAL reference collection ('X id[]?'). ` +
+    `A reference collection is a set and the empty set already means "none", so the schema has ` +
+    `no optional form of it.  Drop the '?' (declare '${p.field}: X id[]').`,
+  "loom.collection-field-unpersisted#part-reference": (p: { ownerName: unknown; field: unknown }) =>
+    `entity part '${p.ownerName}' field '${p.field}' is a reference collection ('X id[]'), but a ` +
+    `join table is derived only for an aggregate root's own 'X id[]' fields, so no backend would ` +
+    `store these ids.  Move '${p.field}' onto the aggregate root, or make the part hold a single ` +
+    `'X id' and contain one part per referenced id.`,
+  "loom.collection-field-unpersisted#state-value-collection": (p: {
+    owner: unknown;
+    ownerName: unknown;
+    field: unknown;
+  }) =>
+    `${p.owner} '${p.ownerName}' state field '${p.field}' is a value-object collection ('<VO>[]'), ` +
+    `but a ${p.owner} state row is one table row with no child tables, so no backend would store ` +
+    `it.  Keep the collection on an aggregate (where it gets its own child table), or store ` +
+    `scalar collections ('string[]', 'X id[]') on the state row instead.`,
+  "loom.collection-field-unpersisted#nested-in-value-object": (p: {
+    owner: unknown;
+    ownerName: unknown;
+    field: unknown;
+    voName: unknown;
+    path: unknown;
+  }) =>
+    `${p.owner} '${p.ownerName}' field '${p.field}' persists value object '${p.voName}', which holds ` +
+    `a collection of references or value objects ('${p.path}').  A persisted value object ` +
+    `flattens into scalar '<field>_<sub>' columns, and such a collection has no column shape, so ` +
+    `no backend would store it.  Declare the collection directly on the aggregate (or entity ` +
+    `part) instead of inside '${p.voName}'.`,
   "loom.channel-key-missing-field": (p: { name: unknown; key: unknown; evName: unknown }) =>
     `channel '${p.name}' key '${p.key}' is not a field of carried event '${p.evName}'.`,
   "loom.channelsource-transport-invalid": (p: {
@@ -313,7 +354,7 @@ export const DIAGNOSTIC_MESSAGES = {
     reason: unknown;
     plural: unknown;
   }) =>
-    `aggregate '${p.agg}': the \`${p.label}\` body's \`${p.kind}\` is not emitted on a state-based aggregate, so ${p.reason}. The body is lowered into the IR but no backend renders it (an event-sourced \`create\` is the exception — that path does run). Move the logic to a named \`operation\`, which emits its guards and statements on every backend, or drop the clause.`,
+    `aggregate '${p.agg}': the \`${p.label}\` body's \`${p.kind}\` is not emitted on a state-based aggregate, so ${p.reason}. A \`create\` body renders only its \`requires\`, \`precondition\`, \`emit\` and \`let\` statements, a \`destroy\` body only its \`requires\` (an event-sourced \`create\` runs its whole body). Move the logic to a named \`operation\`, which emits its guards and statements on every backend, or drop the clause.`,
   // The sibling of the above, one level up: the whole ACTION is dropped, not
   // just its body.  Kept separate because the remedy differs — the canonical
   // case keeps its route and loses the braces, this one has no route to keep.
@@ -460,7 +501,7 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.targets-misplaced": (p: { frontends: unknown }) =>
     `'targets:' is only valid on a frontend deployable (${p.frontends}).`,
   "loom.platform-unknown": (p: { raw: unknown; name: unknown; menu: unknown }) =>
-    `Unknown platform '${p.raw}' on deployable '${p.name}'. Valid: ${p.menu} (backends also accept a pinned form, e.g. 'node@v4').`,
+    `Unknown platform '${p.raw}' on deployable '${p.name}'. Valid: ${p.menu} (backends also accept a pinned form, e.g. 'node@v5').`,
   "loom.platform-version-unknown": (p: {
     raw: unknown;
     name: unknown;
@@ -469,6 +510,14 @@ export const DIAGNOSTIC_MESSAGES = {
     available: unknown;
   }) =>
     `Platform '${p.raw}' on deployable '${p.name}' — no version '${p.version}' of backend '${p.family}'. Available: ${p.available}.`,
+  // Same code: the pin names a version that existed and was removed, so the
+  // message names its replacement rather than only listing what exists.
+  "loom.platform-version-unknown#retired": (p: {
+    raw: unknown;
+    name: unknown;
+    successor: unknown;
+  }) =>
+    `Platform '${p.raw}' on deployable '${p.name}' was retired. Pin '${p.successor}' or use the bareword family name.`,
   "loom.design-pack-ignored": (p: { design: unknown; name: unknown; platform: unknown }) =>
     `Design pack '${p.design}' set on deployable '${p.name}' (platform '${p.platform}' has no UI mount) — value is ignored at generation.`,
   // Same code, different reason.  The bare entry above is the no-UI-mount case;
@@ -502,7 +551,15 @@ export const DIAGNOSTIC_MESSAGES = {
     framework: unknown;
     expectedFormat: unknown;
   }) =>
-    `Custom design pack '${p.design}' on deployable '${p.name}' — format compatibility with framework '${p.framework}' is not checked at parse time; ensure its pack.json declares format '${p.expectedFormat}'.`,
+    `Custom design pack '${p.design}' on deployable '${p.name}' — the language validator cannot read it, so its format (framework '${p.framework}' needs '${p.expectedFormat}') and contents are checked only when the CLI loads the pack (\`ddd parse\` / \`ddd generate\`).`,
+  "loom.design-pack-invalid": (p: { design: unknown; name: unknown; defects: unknown }) =>
+    `Custom design pack '${p.design}' on deployable '${p.name}' cannot be rendered: ${p.defects}. ` +
+    `See docs/design-packs.md for the pack.json manifest and the required templates.`,
+  "loom.design-pack-invalid#load": (p: { pack: unknown; defects: unknown }) =>
+    `Design pack '${p.pack}' cannot be rendered: ${p.defects}. ` +
+    `See docs/design-packs.md for the pack.json manifest and the required templates.`,
+  "loom.design-pack-retired": (p: { design: unknown; name: unknown; successor: unknown }) =>
+    `Design pack '${p.design}' on deployable '${p.name}' (React 18, stack v1) was retired; use '${p.successor}' (or the bareword family name, which resolves to it).`,
   "loom.design-pack-version-unknown": (p: {
     design: unknown;
     name: unknown;
@@ -727,6 +784,8 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.rename-duplicate-target#two-renames-target-a-column": (p: { targetKey: unknown }) =>
     `Two renames target '${p.targetKey}' — a column can be renamed TO only once (ambiguous destination).`,
   "loom.migration-sql-empty": "Empty sql step — a raw migration statement must not be blank.",
+  "loom.migration-sql-placement": (p: { placement: unknown }) =>
+    `Unknown sql step placement '${p.placement}' — the only placement is \`before\` (\`sql before "…"\` runs ahead of the generation's structural DDL); omit it to run after.`,
   "loom.backfill-unknown-field": (p: { field: unknown; agg: unknown }) =>
     `'${p.field}' is not a field of aggregate '${p.agg}' — a backfill targets a live field (it names the newly-added column).`,
   "loom.backfill-duplicate": (p: { key: unknown }) =>
@@ -795,10 +854,12 @@ export const DIAGNOSTIC_MESSAGES = {
   // src/language/validators/repository.ts
   // ----------------------------------------------------------------------
   "loom.repository-find-deprecated": (p: { name: unknown }) =>
-    `repository find '${p.name}' is a wire-shaped list query — pass a criterion to ` +
-    `'run' (Repo.run(<Criterion>(args))) or name a 'retrieval' instead of accreting a ` +
-    `bespoke list finder on the repository. (A unique-key reconstitution find returning a ` +
-    `single 'T' / 'T?' stays fine.)`,
+    `repository find '${p.name}' is a wire-shaped list query — declare a 'criterion' ` +
+    `(run it with Repo.run(<Criterion>(args))) or a 'retrieval' instead of accreting a ` +
+    `bespoke list finder on the repository, and put it on the wire with ` +
+    `'scaffoldPaged(of: <it>)' on the context plus 'scaffoldPagedApi(of: <it>)' on the api ` +
+    `when a client must call it. (A unique-key reconstitution find returning a single ` +
+    `'T' / 'T?' stays fine.)`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/seed.ts
@@ -880,8 +941,7 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.e2e-throw-kind-invalid": (p: { kind: unknown }) =>
     `'toThrow(${p.kind})' pins WHICH domain rung rejected the call, and that is only ` +
     "observable IN-PROCESS: the generated domain layer raises a typed error carrying the " +
-    "rung (elixir a structural `kind:` on `GuardError`, the other four a stable " +
-    '"Precondition failed: " / "Invariant violated: " message prefix). Over HTTP both ' +
+    "rung as a structural `kind` field, whatever the rule's message says. Over HTTP both " +
     "rungs answer 422, and their only discriminator is the RFC 7807 `detail` sentence — " +
     'which an authored `message "..."` on the rule overwrites. Pin the wire fact here ' +
     "instead — `toThrow(<status>)`, e.g. `toThrow(422)` — and move the rung assertion to " +
@@ -898,28 +958,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `\`.${p.member}(...)\`, which would drop it. If you meant the domain rule, a ` +
     "`precondition` is a statement in an operation body and an `invariant` is an aggregate " +
     "member — neither is an expression.",
-  // `toThrow(<kind>)` against a rule carrying an authored `message "..."`.  The
-  // clause that makes a rule legible to a human is the clause that makes it
-  // illegible to this matcher on four of the five backends — say exactly that,
-  // and name the rule, or the refusal reads as arbitrary.
-  "loom.throw-kind-custom-message": (p: {
-    kind: unknown;
-    rule: unknown;
-    message: unknown;
-    subject: unknown;
-  }) =>
-    `'toThrow(${p.kind})' cannot read the rung off '${p.subject}': its ${p.kind} ` +
-    `\`${p.rule}\` carries \`message "${p.message}"\`, and an authored message REPLACES the ` +
-    `"${p.kind === "invariant" ? "Invariant violated" : "Precondition failed"}: " prefix ` +
-    "that the node / python / java / .NET domain layers discriminate on — so on four of the " +
-    "five backends there is nothing left to match. (Elixir alone is structural: `GuardError` " +
-    "carries a `kind:` field.) Either drop the `message` clause from that rule and let the " +
-    "derived text stand, or assert the bare `toThrow()` here and pin the wording with a " +
-    "`test e2e` block, where the message is the RFC 7807 `detail`.",
   // `toThrow(<kind>)` in a CONTEXT-INTEGRATION test.  Third tier, third reason:
-  // not the wire flattening the rung (that is the e2e message above) and not a
-  // messaged rule erasing the prefix — simply that this tier renders through a
-  // different emitter which does not carry the rung, and would drop the word.
+  // not the wire flattening the rung (that is the e2e message above) — simply
+  // that this tier renders through a different emitter which does not carry
+  // the rung, and would drop the word.
   "loom.throw-kind-integration-unsupported": (p: {
     kind: unknown;
     name: unknown;
@@ -1124,6 +1166,14 @@ export const DIAGNOSTIC_MESSAGES = {
     `Break the loop: drop this containment, or reference the other aggregate's root with '<Aggregate> id' instead of containing '${p.target}'.`,
   "loom.cross-aggregate-entity-part": (p: { name: unknown; ownerName: unknown }) =>
     `Entity part '${p.name}' belongs to aggregate '${p.ownerName}'; cross-aggregate references must go through the root: use '${p.ownerName} id'.`,
+  "loom.cross-aggregate-entity-part#construct": (p: {
+    where: unknown;
+    name: unknown;
+    ownerName: unknown;
+  }) =>
+    `${p.where} constructs '${p.name} { … }', an entity part of aggregate '${p.ownerName}'. ` +
+    `An entity part is built only inside the aggregate that owns it — outside it there is nothing to hold it: ` +
+    `call an operation on '${p.ownerName}' that adds the part, passing its fields as plain parameters.`,
   "loom.ambiguous-part-ref": (p: { name: unknown; list: unknown; names: unknown }) =>
     `Ambiguous entity-part reference '${p.name} id' — '${p.name}' is declared in ${p.list}. ` +
     `Entity parts are aggregate-local; reference the owning aggregate's root instead (e.g. '${p.names} id'), ` +
@@ -1134,6 +1184,45 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.transactional-with-continuations": (p: { name: unknown }) =>
     `Workflow '${p.name}' is 'transactional' but declares a continuation handler. ` +
     `A reactor / handle runs in its own transaction — drop 'transactional', or remove the continuation.`,
+  // `create(…): T { … return <expr> }` — a command starter's result (B-03).
+  "loom.workflow-return-no-caller": (p: { workflow: unknown; create: unknown }) =>
+    `Workflow '${p.workflow}': '${p.create}' is event-triggered ('by …'), so nothing calls it and ` +
+    `there is no one to receive a result. Drop the ': T' and the 'return' — only a command-triggered ` +
+    `'create(…)' answers its caller.`,
+  "loom.workflow-return-no-caller#unrouted": (p: { workflow: unknown; create: unknown }) =>
+    `Workflow '${p.workflow}': 'create ${p.create}(…)' declares a result, but it is not the create ` +
+    `the workflow's POST route serves (that is the unnamed command-triggered 'create(…)'), so no ` +
+    `caller receives it. Move the ': T' and 'return' to the unnamed create, or drop them.`,
+  "loom.workflow-return-not-last": (p: { workflow: unknown; create: unknown }) =>
+    `Workflow '${p.workflow}': 'return' in '${p.create}' must be the last top-level statement of the ` +
+    `body. The result is answered after every step (and the transaction) completes, so an earlier or ` +
+    `nested 'return' would not stop the steps after it.`,
+  "loom.workflow-return-untyped": (p: { workflow: unknown; create: unknown }) =>
+    `Workflow '${p.workflow}': '${p.create}' ends in 'return' but declares no result type. ` +
+    `Annotate it — 'create(…): T { … return <expr> }' — so the route publishes what it answers.`,
+  "loom.workflow-return-missing": (p: { workflow: unknown; create: unknown }) =>
+    `Workflow '${p.workflow}': '${p.create}' declares a result type but its body does not end in ` +
+    `'return <expr>'. Add the return, or drop the ': T' to keep the 204 No Content answer.`,
+  "loom.workflow-return-type-mismatch": (p: {
+    workflow: unknown;
+    create: unknown;
+    actual: unknown;
+    declared: unknown;
+  }) =>
+    `Workflow '${p.workflow}': '${p.create}' returns '${p.actual}' but is declared to return '${p.declared}'.`,
+  "loom.workflow-return-type-unsupported": (p: {
+    workflow: unknown;
+    create: unknown;
+    declared: unknown;
+  }) =>
+    `Workflow '${p.workflow}': '${p.create}' declares result type '${p.declared}', which a workflow ` +
+    `route cannot answer yet. Supported: an 'X id', 'string', 'int', 'long' or 'bool'. Return the ` +
+    `new aggregate's id and read it back through its own GET route, or use a 'commandHandler', ` +
+    `whose result projects through the aggregate's wire shape.`,
+  "loom.workflow-return-event-sourced": (p: { workflow: unknown; create: unknown }) =>
+    `Workflow '${p.workflow}' is 'eventSourced', so '${p.create}' may only emit events and cannot ` +
+    `declare a result. Drop the ': T' and the 'return', or read the outcome back through the ` +
+    `workflow's instance endpoint.`,
   "loom.workflow-applier-on-non-event-sourced": (p: { name: unknown }) =>
     `Workflow '${p.name}' declares apply(...) but is not event-sourced. ` +
     `Add 'eventSourced' to the workflow header, or remove the applier.`,
@@ -1285,9 +1374,29 @@ export const DIAGNOSTIC_MESSAGES = {
     `\`unique\` column '${p.col}' on aggregate '${p.name}' is a value object, which ` +
     `stores as several columns — a uniqueness key must list single-column ` +
     `(scalar / enum / id) fields.`,
+  "loom.unique-tpc-not-hierarchy-wide": (p: {
+    name: unknown;
+    columns: unknown;
+    concretes: unknown;
+  }) =>
+    `\`unique (${p.columns})\` on abstract aggregate '${p.name}' (inheritanceUsing: ownTable) is ` +
+    `enforced per concrete table (${p.concretes}) — each subtype rejects its own duplicates, but ` +
+    `the same value can still exist once in EACH sibling table.  If the key must be unique ` +
+    `across the whole hierarchy, map it to one shared table: \`inheritanceUsing: sharedTable\`.`,
   "loom.find-reserved-name": (p: { name: unknown; findName: unknown }) =>
     `repository '${p.name}' find '${p.findName}': name collides with the auto-emitted repository method '${p.findName}(...)'. ` +
     `Choose a different find name (e.g. 'persist', 'fetchById').`,
+  "loom.find-param-unbound": (p: {
+    name: unknown;
+    findName: unknown;
+    param: unknown;
+    aggName: unknown;
+  }) =>
+    `repository '${p.name}' find '${p.findName}' declares no 'where', so each parameter ` +
+    `filters on the field of '${p.aggName}' it names — but '${p.param}' names no field ` +
+    `(nor a '<field>Id' spelling of one). The find would ignore it and answer with an ` +
+    `arbitrary row. Rename the parameter to the field it should match, or add a ` +
+    `'where' clause that uses it.`,
   "loom.duplicate-find": (p: { name: unknown; findName: unknown }) =>
     `repository '${p.name}' declares find '${p.findName}' more than once.`,
   "loom.paged-param-reserved#find": (p: {
@@ -1391,16 +1500,27 @@ export const DIAGNOSTIC_MESSAGES = {
     `aggregate '${p.name}' ${p.label} emits '${p.eventName}' but no applier folds it. ` +
     `Every emitted event needs a matching apply(${p.eventName}: ${p.eventName}) on the aggregate, ` +
     `or the event is recorded but never reflected in state.`,
-  "loom.applier-emits": (p: { name: unknown; event: unknown }) =>
-    `aggregate '${p.name}' apply(${p.event}) emits an event. ` +
+  "loom.applier-emits": (p: { owner: unknown; event: unknown }) =>
+    `${p.owner} apply(${p.event}) emits an event. ` +
     `An applier reacts to an event by folding it into state — it must not emit. ` +
     `Move the 'emit' to the command body that decides it.`,
-  "loom.applier-impure-call": (p: { name: unknown; event: unknown; stmtName: unknown }) =>
-    `aggregate '${p.name}' apply(${p.event}) calls '${p.stmtName}'. ` +
+  "loom.applier-impure-call": (p: { owner: unknown; event: unknown; stmtName: unknown }) =>
+    `${p.owner} apply(${p.event}) calls '${p.stmtName}'. ` +
     `Applier bodies must be deterministic, replayable folds — assignments and 'let' only, no side-effecting calls.`,
-  "loom.applier-guard": (p: { name: unknown; event: unknown; kind: unknown }) =>
-    `aggregate '${p.name}' apply(${p.event}) contains a '${p.kind}' statement. ` +
+  "loom.applier-guard": (p: { owner: unknown; event: unknown; kind: unknown }) =>
+    `${p.owner} apply(${p.event}) contains a '${p.kind}' statement. ` +
     `Guards belong in the command that decides the event; by the time it is applied the decision is already made.`,
+  // The statement vocabulary of a body position (`body-stmt-vocabulary.ts`).
+  "loom.applier-stmt-invalid": (p: {
+    owner: unknown;
+    event: unknown;
+    kind: unknown;
+    allowed: unknown;
+  }) =>
+    `${p.owner} apply(${p.event}) contains a ${p.kind} statement. ` +
+    `An applier is a pure fold of the event into state — it yields no value and calls nothing for its effect — ` +
+    `so its body holds ${p.allowed} statements only. ` +
+    `Compute a value with 'let', or move the statement to the command body that decides the event.`,
   "loom.ambiguous-enum-value": (p: { value: unknown; enums: unknown; qualified: unknown }) =>
     `bare enum value '${p.value}' is declared by more than one enum in scope ('${p.enums}'), ` +
     `and this use has no expected type to choose between them. ` +
@@ -1685,6 +1805,14 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.member}' over a collection needs a lambda — write '<collection>.${p.member}(x => …)'. A bare '.${p.member}' has no renderable form.`,
   "loom.unknown-member": (p: { member: unknown; record: unknown }) =>
     `'${p.member}' is not a member of '${p.record}'.`,
+  // A value-object / part FUNCTION called in a ui body.  The function exists
+  // in the domain, but a frontend holds the record's WIRE shape — fields only —
+  // so every frontend would emit a call to a method its record type lacks.
+  "loom.unknown-member#ui-record-function": (p: { member: unknown; record: unknown }) =>
+    `'${p.member}' is a function of '${p.record}', but a page, component or store holds ` +
+    `'${p.record}' as its wire record, which carries fields only — no frontend can call ` +
+    `'${p.member}()' on it.  Expose the value as a \`derived\` field (derived fields ship on ` +
+    `the wire), or compute it in the ui from the record's fields.`,
   "loom.rule-expr-impure#unaddressable": (p: { where: unknown; name: unknown; kind: unknown }) =>
     `This ${p.where} references '${p.name}', which is a ${p.kind} — not something a rule expression can reach. ` +
     `An invariant / check / derived is a PURE predicate over the instance: it runs in the per-instance floor with only 'this' in scope, ` +
@@ -1839,8 +1967,14 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   "loom.union-position":
     `An inline 'or' union is a transport shape — it may only appear as a repository find ` +
-    `return type, a payload field, or an operation return, not in this position. Name it ` +
+    `return type or an operation return, not in this position. Name it ` +
     `with 'payload X = A | B' to use it elsewhere.`,
+  "loom.union-position#payload-field":
+    `An inline 'or' union cannot be a payload field: the tagged union wire is emitted only ` +
+    `at the top of an operation or find return, and no backend renders one nested inside a ` +
+    `record (an error payload, a command or workflow input).  Return the union from the ` +
+    `operation itself ('operation x(): A or B'), or give the payload one field per variant ` +
+    `('circle: Circle?', 'square: Square?').`,
   "loom.union-variant-not-carrier": `'slot' is a UI-only marker, not a union variant — every variant must be a carrier type.`,
   "loom.union-duplicate-variant":
     `Duplicate union variant — each variant must be a distinct type so the wire ` +
@@ -2013,6 +2147,12 @@ export const DIAGNOSTIC_MESSAGES = {
         : ` 'create' still accepts it too, so a client can start an instance in any state; give it a default and mark it 'managed' if the initial state must not be client-chosen.`),
 
   // ----------------------------------------------------------------------
+  // src/ir/validate/checks/crudish-hard-delete-checks.ts
+  // ----------------------------------------------------------------------
+  "loom.crudish-hard-delete": (p: { name: unknown }) =>
+    `'${p.name}' is 'softDeletable', but the 'destroy' that 'crudish' emits is a HARD delete: 'DELETE /{id}' removes the row, it does not set 'isDeleted'. To make soft delete the only way out, write 'with crudish(updateOnly: true), softDeletable, softDelete' (and declare the 'create' you still want) — the soft delete is then 'POST /{id}/soft_delete'. Keep 'crudish' as it is if a physical delete (an admin purge, an erasure request) is what you mean.`,
+
+  // ----------------------------------------------------------------------
   // src/ir/validate/checks/migration-checks.ts
   // ----------------------------------------------------------------------
   "loom.backfill-target-invalid#backfill-a-aggregate-stores": (p: {
@@ -2028,6 +2168,11 @@ export const DIAGNOSTIC_MESSAGES = {
     field: unknown;
   }) =>
     `backfill '${p.aggregate}.${p.field}': the field is not a single scalar column (value-object, collection and entity fields cannot be backfilled — Phoenix stores a value object as one map column, so a leaf UPDATE would not be portable).`,
+  "loom.backfill-target-invalid#backfill-collection-needs-none": (p: {
+    aggregate: unknown;
+    field: unknown;
+  }) =>
+    `backfill '${p.aggregate}.${p.field}': a collection field needs no backfill — adding it to a populated table fills every existing row with an empty collection. Remove this step.`,
   "loom.migration-expr-unsupported": (p: { aggregate: unknown; field: unknown; reason: unknown }) =>
     `backfill '${p.aggregate}.${p.field}': ${p.reason}.`,
   "loom.backfill-type-mismatch": (p: {
@@ -2068,10 +2213,41 @@ export const DIAGNOSTIC_MESSAGES = {
    *  ANNOUNCES itself: a warning (never an error — an error would break every
    *  model relying on the collapse) so the one case it gets wrong is a line on
    *  stderr instead of a silently misattributed column. */
+  "loom.migration-block-applied": (p: { block: unknown }) =>
+    `migration "${p.block}" is fully applied: every step is already recorded in the schema snapshot (its renames and backfills are reflected in the schema, its sql steps are in the applied ledger), so it has no further effect. You may remove it from the source; the migration files already emitted keep its SQL.`,
   "loom.migration-rename-inferred": (p: { module: unknown; from: unknown; to: unknown }) =>
     `migration for module "${p.module}": inferred a RENAME of ${p.from} -> ${p.to} (one dropped column, one added column, same type and nullability, no backfill and no default). If these are unrelated columns, the old column's data will land under the new name. Declare the intent either way:\n` +
     `    migration "rename-…" { <Aggregate>.<oldField> -> <newField> }   // yes, a rename\n` +
     `    migration "backfill-…" { <Aggregate>.<newField> = <value> }     // no — a new column, and this is what its existing rows get`,
+  /** One line of `loom.migration-destructive` for a NOT NULL column a built-in
+   *  CAPABILITY adds to an existing table, when Loom cannot know what the rows
+   *  already there should hold (`tenantOwned`'s tenant, `auditable`'s
+   *  creation stamps).  The author never spelled the column, so the line names
+   *  the capability and the field and says why there is no automatic backfill
+   *  (`softDeletable`'s flag has one and never reaches this). */
+  "loom.migration-destructive#capability-column": (p: {
+    column: unknown;
+    capability: unknown;
+    why: unknown;
+  }) =>
+    `ADD COLUMN ${p.column} NOT NULL (no default) — contributed by \`with ${p.capability}\`. ${p.why} Declare what the existing rows hold in a migration block (\`migration "…" { <Agg>.<field> = <value> }\`), or add the capability before the table holds data.`,
+  "loom.migration-destructive#capability-tenant-owned":
+    "Loom cannot infer which tenant owns a row written before tenancy, and a wrong guess hands it to another tenant, so there is no automatic backfill.",
+  "loom.migration-destructive#capability-auditable":
+    "The real creation time and author of a row written before auditing are unknown, so there is no automatic backfill.",
+  /** B-20b — a `unique (…)` index added to a table the baseline already has.
+   *  Rows may already violate it, which fails the migration at boot and
+   *  queues every later generation behind it.  Silenced by declaring a
+   *  `sql before` step for the module in the same generation. */
+  "loom.migration-unique-on-existing-table": (p: {
+    module: unknown;
+    table: unknown;
+    columns: unknown;
+    index: unknown;
+    partial: unknown;
+  }) =>
+    `migration for module "${p.module}": adds unique index ${p.index} on existing table ${p.table} (${p.columns})${p.partial}. Rows already stored may violate it — a duplicate fails CREATE UNIQUE INDEX at boot, the migration rolls back, and later generations queue behind it. If the table can hold duplicates, dedupe them AHEAD of the index in this same generation (declaring one silences this warning):\n` +
+    `    migration "dedupe-…" { sql before "UPDATE <schema>.<table> SET … WHERE …" }`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/projection-checks.ts
@@ -2166,6 +2342,23 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.op}(…)' produces '${p.result}'. The DECLARED type is what the response ` +
     `schema and every backend's numeric coercion are built from, so the mismatch ` +
     `would silently re-code the value. Declare '${p.field}: ${p.result}'${p.hint}.`,
+  "loom.projection-select-duration": (p: { name: unknown; field: unknown }) =>
+    `projection '${p.name}' select '${p.field}' is a 'duration' (a 'datetime - datetime' ` +
+    `span), and a duration is expression-only: it has no column and no wire form on any ` +
+    `backend.  Select the two datetimes instead and compute the span where it is read.`,
+  "loom.projection-aggregate-arity#count": (p: { name: unknown; field: unknown }) =>
+    `projection '${p.name}': 'select ${p.field} = count(…)' passes a column to 'count', which ` +
+    `takes none — 'count()' counts the rows (per group under 'group by'), never the values of ` +
+    `a column. To count only the rows where a condition holds, narrow them with the ` +
+    `projection's 'where' (in a projection of its own), or keep an int 0/1 column and 'sum' it.`,
+  "loom.projection-aggregate-arity#column": (p: {
+    name: unknown;
+    field: unknown;
+    op: unknown;
+    argCount: unknown;
+  }) =>
+    `projection '${p.name}': 'select ${p.field} = ${p.op}(…)' passes ${p.argCount} argument(s), ` +
+    `but '${p.op}' aggregates exactly one source column — write '${p.op}(<alias>.<field>)'.`,
   "loom.projection-select-unresolved": (p: {
     name: unknown;
     field: unknown;
@@ -2520,6 +2713,68 @@ export const DIAGNOSTIC_MESSAGES = {
     `conditional VALUE (a ternary, or \`match { cond => …, else => … }\`) and let the ` +
     `backend operation own the \`precondition\` / \`requires\` / \`return\` — or host this ` +
     `ui on Phoenix LiveView, whose handler renderer is the one that has arms for all three.`,
+  // ----------------------------------------------------------------------
+  // src/ir/validate/checks/ui-body-vocabulary-checks.ts — the frontend body
+  // vocabulary.  The first three are modelling errors no frontend can render;
+  // the fourth is the per-target table (`UI_BODY_FEATURE_RENDERERS`).
+  // ----------------------------------------------------------------------
+  "loom.ui-assign-not-state": (p: {
+    where: unknown;
+    uiName: unknown;
+    op: unknown;
+    target: unknown;
+    root: unknown;
+    host: unknown;
+    known: unknown;
+  }) =>
+    `\`${p.target} ${p.op} …\` in ${p.where} on ui '${p.uiName}' writes '${p.root}', which is ` +
+    `not a \`state\` field of this ${p.host}${p.known}.  An action mutates only its own ` +
+    `${p.host}'s declared state — a \`let\`, a param, a \`derived\` and another host's ` +
+    `fields are read-only here, and every frontend renders the write as a state setter.  ` +
+    `Declare '${p.root}' in \`state { … }\`, or call the owning store's action ` +
+    `(\`Cart.set(…)\`) to change a store field.`,
+  "loom.ui-find-call-arity": (p: {
+    where: unknown;
+    uiName: unknown;
+    read: unknown;
+    got: unknown;
+    expected: unknown;
+    params: unknown;
+  }) =>
+    `${p.where} on ui '${p.uiName}' reads \`${p.read}\` with ${p.got} argument(s), but the ` +
+    `find declares ${p.expected} parameter(s)${p.params}.  Every frontend generates the read's ` +
+    `request from the declaration, so a missing or extra argument has nowhere to go — the ` +
+    `JS clients fail their own typecheck and Feliz cannot build the query.  Pass one ` +
+    `argument per declared parameter, in order.`,
+  "loom.ui-body-feature-unsupported": (p: {
+    where: unknown;
+    uiName: unknown;
+    feature: unknown;
+    fw: unknown;
+    dName: unknown;
+    why: unknown;
+    renderedBy: unknown;
+    hint: unknown;
+  }) =>
+    `${p.where} on ui '${p.uiName}' uses ${p.feature}, which the ${p.fw} frontend does not ` +
+    `render (deployable '${p.dName}') — ${p.why}.  ${p.renderedBy}${p.hint}`,
+  "loom.ui-body-statement-kind#liveview-store": (p: {
+    where: unknown;
+    uiName: unknown;
+    keyword: unknown;
+    dName: unknown;
+  }) =>
+    `A \`${p.keyword}\` statement is used in ${p.where} on ui '${p.uiName}', which the ` +
+    `phoenixLiveView frontend cannot render in a store (deployable '${p.dName}'). On ` +
+    `LiveView a store is a pure per-process module: each action takes the store struct ` +
+    `and returns the next one, with no socket to flash or halt on, no value sink and no ` +
+    `remote-call seam. Keep the store action to state writes, \`let\`s and sibling-action ` +
+    `calls, and move the \`${p.keyword}\` into the page or component action that calls it.`,
+  "loom.ui-this-unbound": (p: { where: unknown; uiName: unknown; fw: unknown; dName: unknown }) =>
+    `\`this\` is used in ${p.where} on ui '${p.uiName}', which the ${p.fw} frontend cannot ` +
+    `render (deployable '${p.dName}'): a page, component or store has no aggregate ` +
+    `instance in scope. Bind the record through a page param, \`state\`, or a QueryView ` +
+    `\`data:\` lambda, and read its fields off that name.`,
   "loom.ui-gate-expr-unsupported": (p: {
     where: unknown;
     kind: unknown;
@@ -2622,7 +2877,13 @@ export const DIAGNOSTIC_MESSAGES = {
     `that will not compile. Spell the destination as a path instead ` +
     `(\`navigate("/products/" + id)\`), or navigate from a body slot that binds the id.`,
   "loom.paged-query-handler-shape": (p: { name: unknown; hint: unknown }) =>
-    `queryHandler '${p.name}' returns a \`paged\` envelope, but its body is not the supported paged shape \`let r = Repo.run(<Criterion>(args)); return r\`, so no backend can generate it. ${p.hint}`,
+    `queryHandler '${p.name}' returns a \`paged\` envelope, but its body is not the supported paged shape \`let r = Repo.run(<Criterion | Retrieval>(args)); return r\`, so no backend can generate it. ${p.hint}`,
+  "loom.paged-query-handler-shape#sorted-retrieval-shape": (p: {
+    name: unknown;
+    retrieval: unknown;
+    aggName: unknown;
+  }) =>
+    `queryHandler '${p.name}' pages retrieval '${p.retrieval}', whose \`sort:\` is the page's default order — but '${p.aggName}' is not a single-table relational aggregate, and its paged read is taken in memory without that order. Drop the retrieval's \`sort:\` (the client orders through the route's \`sort\`/\`dir\`), or page a criterion instead.`,
   "loom.datagrid-unsupported-target": (p: { what: unknown; dName: unknown; fw: unknown }) =>
     `${p.what} uses 'DataGrid', which deployable '${p.dName}' can't render ` +
     `(frontend '${p.fw}'). DataGrid is a TanStack row model, so it ships wherever ` +
@@ -2805,6 +3066,21 @@ export const DIAGNOSTIC_MESSAGES = {
     `'scaffold(subdomains: …)' or remove the pages reading it; or host those pages in a ` +
     `separate ui on a frontend deployable whose 'targets:' serves '${p.ctx}'. One frontend ` +
     `reading several backends is not supported yet (M-T1.35).`,
+  "loom.ui-aggregate-unserved#self-hosted": (p: {
+    uiName: unknown;
+    dName: unknown;
+    subdomain: unknown;
+    ctx: unknown;
+    aggregates: unknown;
+    sites: unknown;
+    served: unknown;
+  }) =>
+    `ui '${p.uiName}' reads ${p.aggregates} from subdomain '${p.subdomain}' (context ` +
+    `'${p.ctx}') in ${p.sites}, but deployable '${p.dName}' mounts that ui itself and hosts ` +
+    `only [${p.served}], so those pages have no context function or api client to call. ` +
+    `Fix one of: add '${p.ctx}' to '${p.dName}' (its 'contexts:' and a served api); remove ` +
+    `the pages reading it; or host those pages in a separate ui on a deployable that serves ` +
+    `'${p.ctx}'.`,
   "loom.current-user-needs-auth-ui": (p: { what: unknown; uiName: unknown; dName: unknown }) =>
     `${p.what} on ui '${p.uiName}' reads 'currentUser', but deployable '${p.dName}' binds no verified session user, so the read emits a dangling reference (react 'undefined.<claim>', invalid Dart on flutter, an unbound match on feliz). Add the auth guard: 'auth: ui' on a frontend deployable, or 'auth: required' on a fullstack deployable that mounts the ui itself.`,
   "loom.auth-ui-unsupported-framework": (p: {
@@ -2896,31 +3172,36 @@ export const DIAGNOSTIC_MESSAGES = {
     findName: unknown;
   }) =>
     `denyByDefault: find '${p.name}.${p.findName}' is reachable on an 'auth: required' deployable but declares no \`requires\` gate. Add a \`requires <expr>\` (use \`requires true\` to allow anonymous access).`,
-  // The SYNTHESISED by-id read (F-009 / M-T3.19).  A WARNING with its own code
-  // rather than an arm of `loom.default-deny-ungated`, because it is the one
-  // ungated read the author cannot currently gate — see the long-form reason
-  // at the call site in `default-deny-checks.ts`.
+  // The SYNTHESISED by-id read (F-009 / M-T3.19).  Since M-T3.19 the route is
+  // REFUSED AT RUNTIME (403) under denyByDefault unless the author declares
+  // `find byId(id: T id): T? requires <expr>`.  A WARNING for one release
+  // (owner decision 2026-10-11) so existing models keep building; promoted to
+  // an error in a later release.
   "loom.default-deny-by-id-ungated": (p: { name: unknown; path: unknown }) =>
-    `denyByDefault: the synthesised by-id read '${p.path}' on aggregate '${p.name}' serves to ` +
-    `ANY authenticated caller — it is compiler-generated and has no author surface to attach a ` +
-    `\`requires\` gate to, so gating '${p.name}' elsewhere (an admin-only \`find all\`, gated ` +
-    `operations) does NOT cover reading a single record by id. Under a \`tenancy by\` system the ` +
-    `tenant filter still applies (a foreign tenant gets 404); what is NOT enforced is role ` +
-    `separation within a tenant. Until the by-id gate surface lands (mission M-T3.19), keep ` +
-    `role-sensitive fields off '${p.name}' (\`mask unless\`), or host it on a deployable whose ` +
-    `whole api is restricted.`,
-  // The aggregate LIST read under denyByDefault (eval item 22, ruling D5).  A
-  // WARNING with its own code, the same tier as the by-id read above — but
-  // this one HAS recourse, so the message names the exact line to write.
-  "loom.default-deny-list-ungated": (p: { name: unknown; path: unknown; repo: unknown }) =>
+    `denyByDefault: the by-id read '${p.path}' on aggregate '${p.name}' has no \`requires\` gate, ` +
+    `so it is now REFUSED AT RUNTIME (403) for every caller. To serve it, declare the by-id read in ` +
+    `'${p.name}'s repository with a gate: \`find byId(id: ${p.name} id): ${p.name}? requires <expr>\` ` +
+    `(use \`requires true\` to make it intentionally public), or set \`enforcement: opt\`. A gate ` +
+    `elsewhere (an admin-only \`find all\`, gated operations) does not cover it. This warning ` +
+    `becomes an error in a later release.`,
+  // The aggregate LIST read under denyByDefault (eval item 22, ruling D5;
+  // runtime gate M-T3.19).  Same tier and same promotion plan as the by-id
+  // read above.
+  "loom.default-deny-list-ungated": (p: {
+    name: unknown;
+    path: unknown;
+    repo: unknown;
+    listType: unknown;
+  }) =>
     `denyByDefault: the list read 'GET ${p.path}' on aggregate '${p.name}' declares no ` +
-    `\`requires\` gate, so it serves every row to ANY authenticated caller. Gate it by ` +
-    `declaring the list find yourself — \`repository ${p.repo} for ${p.name} { find all(): ` +
-    `${p.name}[] requires <expr> }\` — which replaces the compiler-injected one and is ` +
-    `enforced on all five backends (use \`requires true\` to mark it intentionally public).`,
+    `\`requires\` gate, so it is now REFUSED AT RUNTIME (403) for every caller. To serve it, ` +
+    `declare the list find yourself — \`repository ${p.repo} for ${p.name} { find all(): ` +
+    `${p.listType} requires <expr> }\` — which replaces the compiler-injected one (use ` +
+    `\`requires true\` to mark it intentionally public), or set \`enforcement: opt\`. This ` +
+    `warning becomes an error in a later release.`,
   // An event-sourced `create` under denyByDefault.  A WARNING with its own code,
-  // for the same RECOURSE reason as the by-id read above: the author cannot gate
-  // this one either — a body `requires` here is refused outright by
+  // for RECOURSE (the reason the by-id read was a warning until M-T3.19 gave it
+  // a surface): the author cannot gate this one — a body `requires` here is refused outright by
   // `loom.lifecycle-guard-event-sourced`, so demanding one would be an
   // unsatisfiable error.  See the long-form reason at the call site in
   // `default-deny-checks.ts`.
@@ -2964,8 +3245,9 @@ export const DIAGNOSTIC_MESSAGES = {
     aggregateName: unknown;
     aggregateName2: unknown;
     name: unknown;
+    listType: unknown;
   }) =>
-    `denyByDefault: '${p.aggregateName}' is \`audited\`, so it serves \`GET /${p.aggregateName2}/{id}/history\`, but its list read declares no \`requires\` gate — the change history is reachable by any authenticated caller. Declare \`find all(): ${p.aggregateName}[] requires <expr>\` on '${p.name}'; history inherits that gate (use \`requires true\` to allow anonymous access).`,
+    `denyByDefault: '${p.aggregateName}' is \`audited\`, so it serves \`GET /${p.aggregateName2}/{id}/history\`, but its list read declares no \`requires\` gate — the change history is reachable by any authenticated caller. Declare \`find all(): ${p.listType} requires <expr>\` on '${p.name}'; history inherits that gate (use \`requires true\` to allow anonymous access).`,
   "loom.ui-id-ref-unknown-aggregate": (p: {
     deployableName: unknown;
     source: unknown;
@@ -3045,14 +3327,42 @@ export const DIAGNOSTIC_MESSAGES = {
     `The factory input is the field-derived create-input contract, not the keys the call happens to pass: ` +
     `${p.input}.  A field is omittable only when it is optional, carries an \`= default\`, or has a ` +
     `language-defined implicit default (a bare \`bool\`). Supply it, give it a default, or make it optional.`,
-  "loom.create-params-not-wire": (p: { agg: unknown; missing: unknown; also: unknown }) =>
-    `Aggregate '${p.agg}': the canonical \`create\`'s parameter list is not the ` +
-    `request contract.  \`POST /<plural>\` takes the FIELD-DERIVED create input, ` +
-    `so ${p.missing} is REQUIRED on the wire even though the declared \`create\` ` +
-    `does not accept it — a client (or a \`test\` block) written from the ` +
-    `declaration gets a 422 naming a field the create never mentions.${p.also}  ` +
-    `List every create-input field, or empty the parameter list (\`create() { … }\` ` +
-    `— the parens stay, unlike \`destroy\`): a narrowed one shapes nothing.`,
+  "loom.create-call-field-not-in-create": (p: { agg: unknown; fields: unknown; params: unknown }) =>
+    `\`${p.agg}.create({ … })\` passes ${p.fields}, which the declared \`create(…)\` does not ` +
+    `list.  Its parameters (${p.params}) are the factory input; every other field takes its ` +
+    `declared default.  Drop the key, or add the field to the \`create\` parameters.`,
+  // A declared `create(…)`'s parameter list is the create input, so each
+  // param must BE a client-suppliable field.
+  "loom.create-param-not-a-field": (p: { agg: unknown; param: unknown; fields: unknown }) =>
+    `Aggregate '${p.agg}': \`create\` parameter '${p.param}' names no field.  A declared ` +
+    `\`create(…)\`'s parameters ARE the \`POST /<plural>\` request contract — each one is ` +
+    `the wire slot of the same-named field, so a free-standing parameter has nowhere to ` +
+    `land.  Rename it to one of ${p.fields}, or declare the field.`,
+  "loom.create-param-not-a-field#server-owned": (p: {
+    agg: unknown;
+    param: unknown;
+    access: unknown;
+  }) =>
+    `Aggregate '${p.agg}': \`create\` parameter '${p.param}' names a \`${p.access}\` field, ` +
+    `which the server owns — a client cannot supply it at creation.  Drop it from the ` +
+    `parameter list (its declared default initialises it), or remove the \`${p.access}\` modifier.`,
+  "loom.create-param-not-a-field#type": (p: { agg: unknown; param: unknown }) =>
+    `Aggregate '${p.agg}': \`create\` parameter '${p.param}' does not have the type of the ` +
+    `field '${p.param}' (including its \`?\`).  The parameter is that field's wire slot, so ` +
+    `declare it with the field's exact type.`,
+  // A field a narrowed `create(…)` leaves out must be one the factory can
+  // initialise on its own.
+  "loom.create-param-required-omitted": (p: { agg: unknown; field: unknown }) =>
+    `Aggregate '${p.agg}': the declared \`create(…)\` leaves out '${p.field}', which is ` +
+    `required — non-nullable, with no default.  A declared parameter list IS the request ` +
+    `contract, so nothing would give '${p.field}' a value at creation.  Add it to the ` +
+    `parameters, give the field an \`= <default>\`, or make it optional (\`${p.field}: T?\`).`,
+  "loom.create-param-required-omitted#default": (p: { agg: unknown; field: unknown }) =>
+    `Aggregate '${p.agg}': the declared \`create(…)\` leaves out '${p.field}', whose default ` +
+    `is not a compile-time constant (a literal or an enum member).  A field outside the ` +
+    `parameter list is initialised by the domain factory, which has no clock, principal or ` +
+    `constructor context to evaluate that default in.  Add '${p.field}' to the parameters, ` +
+    `or give it a constant default.`,
   "loom.datasource-binding-missing": (p: {
     name: unknown;
     ctxName: unknown;
@@ -3280,6 +3590,18 @@ export const DIAGNOSTIC_MESSAGES = {
     `no request-scoped ${p.principalNoun} to evaluate it against, so the gate is emitted as an ` +
     `unbound identifier and the generated project does not compile. Add 'auth: required' (and a ` +
     `system 'user {}' block), or drop the principal reference from the gate.`,
+  "loom.field-mask-principal-without-auth": (p: {
+    dep: unknown;
+    family: unknown;
+    ctxName: unknown;
+    field: unknown;
+    principalNoun: unknown;
+  }) =>
+    `Deployable '${p.dep}' (platform ${p.family}) hosts field '${p.ctxName}.${p.field}' with a ` +
+    `\`mask unless\` predicate that references currentUser, but the deployable has no auth — ` +
+    `there is no request-scoped ${p.principalNoun} to evaluate it against, so the field could ` +
+    `only ever read as null and the emitted redaction does not compile or boot. Add ` +
+    `'auth: required' (and a system 'user {}' block), or drop the mask.`,
   "loom.stamp-principal-without-auth": (p: {
     dep: unknown;
     family: unknown;
@@ -3302,29 +3624,31 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.ctxName}.${p.name}' with a lifecycle stamp — stamps mutate state fields, but an ` +
     `event-sourced aggregate's state is folded from its event stream. ` +
     `Record the timestamp in an event instead, or drop persistedAs: eventLog.`,
+  "loom.stamp-reads-aggregate-unsupported": (p: {
+    dep: unknown;
+    family: unknown;
+    ctxName: unknown;
+    name: unknown;
+    field: unknown;
+  }) =>
+    `Deployable '${p.dep}' (platform ${p.family}) hosts document-shaped aggregate ` +
+    `'${p.ctxName}.${p.name}' whose lifecycle stamp of '${p.field}' reads the aggregate itself ` +
+    `(a field, derived value or function of '${p.name}'). This backend merges a document ` +
+    `aggregate's stamps into the request attributes before any record exists, so there is ` +
+    `nothing to evaluate the value against. Compute the value in the create/operation body ` +
+    `instead, keep the stamp to values that do not read the aggregate (now(), currentUser, ` +
+    `literals), or store the aggregate relationally.`,
   "loom.dapper-unsupported": (p: { name: unknown; subject: unknown; reason: unknown }) =>
     `Deployable '${p.name}' selects 'persistence: dapper', but ${p.subject} ${p.reason}. ` +
     `The Dapper adapter is at full parity with EF Core; the only shapes it now ` +
     `rejects have no relational persistence mapping at all (efcore included) — restructure ` +
     `the model as the message suggests.`,
-  // The self-provisioning-adapter migration gate.  Neither blanket message
-  // above fits: this is not "no relational mapping anywhere" — the sibling
-  // adapter (efcore / drizzle) applies the very same migration chain fine.
-  // What these two lack is a migration chain AT ALL: they provision the schema
-  // themselves at boot, so a declared `migration` block silently does nothing
-  // (dapper) or is "resolved" as a drop+add (mikroorm), which deletes data.
-  "loom.dapper-unsupported#migrations": (p: {
-    name: unknown;
-    migration: unknown;
-    step: unknown;
-    count: unknown;
-  }) =>
-    `Deployable '${p.name}' selects 'persistence: dapper', but the model declares ` +
-    `${p.count} migration step(s) it can never apply (first: '${p.step}' in migration ` +
-    `'${p.migration}'). The Dapper adapter emits no migration chain — it provisions its ` +
-    `schema with 'CREATE TABLE IF NOT EXISTS' at boot, which does nothing to an existing ` +
-    `table, so the rename/backfill/sql step would silently never run. Use ` +
-    `'persistence: efcore' on this deployable, or host these contexts elsewhere.`,
+  // The self-provisioning-adapter migration gate.  Not the blanket message
+  // above: this is not "no relational mapping anywhere" — the sibling adapter
+  // (drizzle) applies the very same migration chain fine.  What mikroorm lacks
+  // is a migration chain AT ALL: it syncs the schema itself at boot, so a
+  // declared `migration` block is "resolved" as a drop+add, which deletes
+  // data.  (Dapper had a twin until it gained the chain — D-DAPPER-ALTER.)
   "loom.mikroorm-unsupported#migrations": (p: {
     name: unknown;
     migration: unknown;
@@ -3345,20 +3669,6 @@ export const DIAGNOSTIC_MESSAGES = {
   // deployables, no error: the split-brain gets its own wording because "no
   // relational mapping anywhere" is the opposite of true here (the sibling
   // adapter maps it fine; that is exactly why they disagree).
-  "loom.dapper-unsupported#schema-split": (p: {
-    name: unknown;
-    ctxName: unknown;
-    other: unknown;
-    otherAdapter: unknown;
-  }) =>
-    `Deployable '${p.name}' selects 'persistence: dapper' and hosts context ` +
-    `'${p.ctxName}', which deployable '${p.other}' (${p.otherAdapter}) also hosts. ` +
-    `The Dapper adapter provisions its tables with 'CREATE TABLE IF NOT EXISTS' at boot ` +
-    `and names them UNQUALIFIED (public), while '${p.other}' routes the same tables into ` +
-    `the dataSource's Postgres schema (default: the snake-cased context name). Both ` +
-    `deployables would start against DIFFERENT physical tables and each would see an ` +
-    `empty database. Use 'persistence: efcore' on '${p.name}' so both share one schema, ` +
-    `or give the two deployables separate contexts.`,
   "loom.mikroorm-unsupported#schema-split": (p: {
     name: unknown;
     ctxName: unknown;
@@ -3373,16 +3683,18 @@ export const DIAGNOSTIC_MESSAGES = {
     `DIFFERENT physical tables and each would see an empty database. Use ` +
     `'persistence: drizzle' on '${p.name}' so both share one schema, or give the two ` +
     `deployables separate contexts.`,
+  // Dapper honours a `schema:` (its migrations create the tables there and its
+  // connection's `search_path` names the schema), so its only dropped request
+  // is a `tablePrefix:` — a rename its unqualified repository SQL never applies.
   "loom.dapper-unsupported#schema-ignored": (p: {
     name: unknown;
     binding: unknown;
     asked: unknown;
   }) =>
     `Deployable '${p.name}' selects 'persistence: dapper', but its dataSource binding ` +
-    `'${p.binding}' declares '${p.asked}'. The Dapper adapter names every table ` +
-    `UNQUALIFIED in the DDL it provisions at boot and in every statement it issues, so ` +
-    `the placement you asked for is silently dropped and the tables land in 'public'. ` +
-    `Use 'persistence: efcore' on this deployable, or drop the clause.`,
+    `'${p.binding}' declares '${p.asked}'. The Dapper repositories name every table ` +
+    `UNQUALIFIED and unprefixed, so the migrations would create prefixed tables that no ` +
+    `statement ever reads. Use 'persistence: efcore' on this deployable, or drop the clause.`,
   "loom.mikroorm-unsupported#schema-ignored": (p: {
     name: unknown;
     binding: unknown;
@@ -3513,6 +3825,13 @@ export const DIAGNOSTIC_MESSAGES = {
     `aggregate '${p.name}' has 'audited' ${p.kind}(s) ${p.names}, but no backend deployable ` +
     `hosts this context, so no audit record is emitted for them. Host the context on a backend ` +
     `deployable, or drop the 'audited' modifier. Tracked in audit-and-logging.md.`,
+  // M-T5.42, V9 — a storage type the sourceType registry binds to no kind.
+  "loom.storage-type-unbound": (p: { name: unknown; type: unknown }) =>
+    `storage '${p.name}' has 'type: ${p.type}', which binds to no kind today — no dataSource, ` +
+    `channelSource or resource can use it, and no backend emits anything for it.  The declaration ` +
+    `is a no-op.  Use a supported type (postgres / inMemory for state, redis for a cache, ` +
+    `rabbitmq / kafka for queues and channels, s3 / localDisk for objects, restApi, smtp / ses / ` +
+    `sendgrid), or drop the declaration.`,
   "loom.datasource-knob-unwired": (p: { name: unknown; property: unknown; description: unknown }) =>
     `resource '${p.name}' sets '${p.property}', but ${p.description}.  ` +
     `The value is accepted by validation and persisted in the IR but no current ` +
@@ -3539,6 +3858,33 @@ export const DIAGNOSTIC_MESSAGES = {
     `not served at all.`,
   "loom.user-duplicate-field": (p: { name: unknown; fName: unknown }) =>
     `system '${p.name}': user block declares field '${p.fName}' more than once.`,
+  // src/ir/validate/checks/reactor-principal-checks.ts (ruling D1)
+  "loom.reactor-gate-unsatisfiable": (p: {
+    reactor: unknown;
+    event: unknown;
+    where: unknown;
+    gate: unknown;
+  }) =>
+    `reactor '${p.reactor}' runs as the system principal (no request user: every claim is empty, ` +
+    `\`currentUser.isSystem\` is true), but ${p.where} is gated by \`requires ${p.gate}\`, which reads ` +
+    `\`currentUser\` and never admits the system principal — so every '${p.event}' this reactor ` +
+    `handles will be refused with 403.  If the reactor is allowed to do this, say so in the gate: ` +
+    `\`requires currentUser.isSystem || ${p.gate}\`; otherwise call an ungated operation, or move the ` +
+    `check onto the command that emits '${p.event}'.`,
+  "loom.timer-tenant-read": (p: {
+    reactor: unknown;
+    timer: unknown;
+    agg: unknown;
+    read: unknown;
+  }) =>
+    `reactor '${p.reactor}' runs on timer '${p.timer}', which has no tenant, but reads the ` +
+    `tenant-owned aggregate '${p.agg}' through \`${p.read}\`.  The read's tenant filter would match ` +
+    `nothing.  Make the cross-tenant read explicit: declare it as a \`find\` (or an inline ` +
+    `\`Repo.run\`) with \`ignoring tenantOwned\`.`,
+  "loom.user-reserved-field": (p: { name: unknown; fName: unknown }) =>
+    `system '${p.name}': user block declares field '${p.fName}', but that name is reserved for the ` +
+    `built-in system principal (\`currentUser.isSystem\`, and \`causedBy\` — the originating user an ` +
+    `event reactor records for audit).  Rename the claim.`,
   "loom.auth-no-user-block": (p: { name: unknown; sysName: unknown }) =>
     `deployable '${p.name}' has 'auth: required' but system '${p.sysName}' declares no 'user { ... }' block. ` +
     `Add a system-level user block describing the JWT claim shape (e.g. 'user { id: string, role: string }').`,
@@ -3590,6 +3936,19 @@ export const DIAGNOSTIC_MESSAGES = {
     `not assignable to type 'ReactNode'\`), and the other frontends have the same hole in their ` +
     `own wording.  \`${p.primitive}\` walks a nested primitive in that slot, so wrap it in ` +
     `place: \`Money { ${p.path} }\`.  That is also what renders the amount WITH its currency.`,
+  // The value-object sibling of `loom.money-in-text-slot` (M-T5.42, V7).
+  "loom.valueobject-in-text-slot": (p: {
+    primitive: unknown;
+    path: unknown;
+    aggregate: unknown;
+    valueObject: unknown;
+  }) =>
+    `\`${p.primitive}\` renders \`${p.path}\` — a \`${p.valueObject}\` value object ` +
+    `(\`${p.aggregate}.${String(p.path).split(".").pop()}\`) — as TEXT.  A value object crosses ` +
+    `the wire as a JSON OBJECT, which is not a renderable node: the generated frontend fails to ` +
+    `TYPECHECK (\`TS2322: Type '${p.valueObject}' is not assignable to type 'ReactNode'\`), and ` +
+    `the other frontends have the same hole in their own wording.  Render one of its fields ` +
+    `(\`${p.path}.<field>\`), or add a \`derived\` string member that formats it.`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/ui-gate-checks.ts
@@ -3784,6 +4143,19 @@ export const DIAGNOSTIC_MESSAGES = {
     `clients import a hook that was never emitted (a build error), while Phoenix LiveView ` +
     `substitutes the UNFILTERED \`list_<agg>s()\` and renders every row of the table with no ` +
     `error at all.  Declare the find on the repository, or name one that exists.`,
+  "loom.ui-read-unresolved#unrouted": (p: {
+    aggregate: unknown;
+    operation: unknown;
+    framework: unknown;
+    deployable: unknown;
+  }) =>
+    `reads \`${p.aggregate}.${p.operation}\`, the paged find a paged \`queryHandler\` runs — ` +
+    `but deployable '${p.deployable}' renders this page with ${p.framework}, which reaches the ` +
+    `read over HTTP, and its backend serves no \`GET\` route for that handler.  The find has ` +
+    `no derived \`/<plural>/<find>\` route of its own, so the client would call a path that ` +
+    `404s.  Expose it: add \`scaffoldPagedApi(of: <read>)\` (or a \`route GET … -> <handler>\` ` +
+    `with no path tokens) to an api the backend \`serves:\`.  (Feliz and Flutter do not ` +
+    `reach these reads yet; read the aggregate's \`all\` or a declared \`find\` there.)`,
   "loom.ui-read-unresolved#unbound": (p: {
     primitive: unknown;
     spelling: unknown;
@@ -3808,7 +4180,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `the scaffolded list filter bar has no input for \`${p.param}: ${p.type}\`, ` +
     `so repository find '${p.find}' is omitted from it entirely and '${p.aggregate}' cannot be ` +
     `filtered by that column from this page.  The bar renders \`string\`, \`guid\`, ` +
-    `\`datetime\`, \`int\`, \`long\`, \`bool\` and \`<X> id\` params.  Two kinds are still held ` +
+    `\`date\`, \`datetime\`, \`int\`, \`long\`, \`bool\` and \`<X> id\` params.  Two kinds are still held ` +
     `back, each for a reason outside the scaffold macro: \`decimal\`/\`money\` have no ` +
     `zero-sentinel that type-checks on Feliz (\`decimal <> 0\` is \`decimal <> int\`), and an ` +
     `\`enum\` state field is typed as bare \`string\` by every frontend while the query param ` +
@@ -4217,21 +4589,6 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.tenancy-stance-unmarked": (p: { name: unknown }) =>
     `aggregate '${p.name}' declares no tenancy stance; add ` +
     `\`with tenantOwned\` (tenant data) or \`crossTenant\` (shared data).`,
-  // Same rule, different remedy — the author DID write the marker, on the
-  // abstract base.  The generic message above told them to add something they
-  // had already added, and its other suggestion (`crossTenant`) walks straight
-  // into `loom.tenancy-inherited-stance-conflict`.
-  "loom.tenancy-stance-unmarked#inherited": (p: {
-    name: unknown;
-    base: unknown;
-    marker: unknown;
-  }) =>
-    `aggregate '${p.name}' declares no tenancy stance. Its abstract base ` +
-    `'${p.base}' declares \`${p.marker}\`, but a stance does NOT propagate through ` +
-    `\`extends\`: only the base's FIELDS are inherited, so '${p.name}' has the tenant ` +
-    `column without the stamp that fills it or the filter that scopes reads by it. ` +
-    `Repeat \`${p.marker}\` on '${p.name}' — \`crossTenant\` would contradict the base ` +
-    `and is rejected.`,
   "loom.tenancy-inherited-stance-conflict": (p: {
     name: unknown;
     base: unknown;
@@ -4240,12 +4597,9 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `aggregate '${p.name}' declares \`${p.own}\` but its abstract base '${p.base}' ` +
     `declares \`${p.baseMarker}\` — a subtype cannot take the opposite tenancy stance ` +
-    `from the base it inherits its columns from. The base's capability contributes the ` +
-    `\`tenant_id\` column (NOT NULL) to the row either way, while the subtype's stance ` +
-    `decides whether anything stamps or filters it: the two halves disagree at runtime, ` +
-    `so every write either persists an empty tenant with no isolation or fails the NOT ` +
-    `NULL constraint. Declare \`${p.baseMarker}\` on '${p.name}' too, or move the ` +
-    `capability off the base and onto the subtypes that want it.`,
+    `from its base. A base's stance and capabilities apply to every subtype, so ` +
+    `'${p.name}' would be both tenant data and shared data. Drop \`${p.own}\` from ` +
+    `'${p.name}', or move \`${p.baseMarker}\` off the base and onto the subtypes that want it.`,
   "loom.unique-missing-tenant-scope": (p: { source: unknown; name: unknown; columns: unknown }) =>
     `\`${p.source}\` on tenant-owned aggregate '${p.name}' omits the tenant ` +
     `discriminator — this is a GLOBAL unique across all tenants. Did you mean ` +
@@ -4336,6 +4690,18 @@ export const DIAGNOSTIC_MESSAGES = {
     `action, so no backend mounts 'POST /api/${p.slug}' and the generated suite would call a ` +
     `route this same compilation did not emit (405). Add 'with crudish' to '${p.aggregate}', ` +
     `or give it an explicit 'create(...) { … }'.`,
+  "loom.e2e-call-options#shape": (p: { slug: unknown; verb: unknown }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(id, body, options)' — the optional third argument must be ` +
+    `exactly '{ ifMatch: <version> }', which sends the 'If-Match' precondition header. No other ` +
+    `key and no fourth argument is read, so anything else would be silently dropped.`,
+  "loom.e2e-call-options#if-match-scope": (p: {
+    slug: unknown;
+    verb: unknown;
+    aggregate: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(…, { ifMatch: … })' — only the 'update' operation of a ` +
+    `'versioned' aggregate reads 'If-Match' on every backend, and '${p.aggregate}.${p.verb}' is ` +
+    `not one. Drop the third argument, or drive the precondition through '${p.slug}.update'.`,
   "loom.e2e-unrouted-verb#destroy": (p: { slug: unknown; aggregate: unknown }) =>
     `e2e: 'api.${p.slug}.destroy(…)' has no route — '${p.aggregate}' declares no canonical ` +
     `'destroy { }', so no backend mounts 'DELETE /api/${p.slug}/{id}'. Add 'with crudish' to ` +
@@ -4554,6 +4920,26 @@ export const DIAGNOSTIC_MESSAGES = {
     `context '${p.name}': workflow '${p.wfName}' is declared more than once.`,
   "loom.workflow-name-collision": (p: { name: unknown; wfName: unknown; clash: unknown }) =>
     `context '${p.name}': workflow '${p.wfName}' collides with the ${p.clash} of the same name.`,
+  "loom.single-row-find-not-unique": (p: {
+    repo: unknown;
+    find: unknown;
+    agg: unknown;
+    cols: unknown;
+  }) =>
+    `repository '${p.repo}': find '${p.find}' returns a single '${p.agg}' by (${p.cols}), but no ` +
+    `'unique (${p.cols})' makes that a natural key — when two rows share it, every backend ` +
+    `returns whichever row the database yields first. Declare 'unique (${p.cols})' on '${p.agg}' ` +
+    `(it also derives the DB unique index and the 409 on a duplicate), or return a list.`,
+  "loom.persisted-table-collision": (p: {
+    ctx: unknown;
+    first: unknown;
+    second: unknown;
+    table: unknown;
+  }) =>
+    `context '${p.ctx}': ${p.first} and ${p.second} both persist to table '${p.table}' — ` +
+    `table names are derived from declared names (snake case, pluralised), so the migration ` +
+    `would create '${p.table}' twice and every backend would bind two models to one relation. ` +
+    `Rename one of them.`,
   "loom.workflow-function-uses-state": (p: { ctxName: unknown; name: unknown; fnName: unknown }) =>
     `context '${p.ctxName}': workflow '${p.name}' function '${p.fnName}' reads the workflow's state (\`this\`). A workflow function is a pure helper over its parameters — pass the value in as an argument instead.`,
   "loom.canonical-create-duplicate-workflow": (p: { name: unknown; length: unknown }) =>
@@ -4566,14 +4952,26 @@ export const DIAGNOSTIC_MESSAGES = {
     `workflow '${p.name}' declares ${p.count} event-triggered 'create' starters on event ` +
     `'${p.event}'; an event may start at most one create per workflow (the runtime can't ` +
     `choose which instance to allocate).`,
-  "loom.workflow-correlation-required": (p: { name: unknown }) =>
-    `workflow '${p.name}' has event consumers (reactors / event-triggered creates) but no ` +
-    `correlation field. Declare one id-shaped state field (e.g. 'orderId: Order id') for the ` +
-    `runtime to route inbound events to.`,
-  "loom.correlation-field-ambiguous": (p: { name: unknown; length: unknown; idFields: unknown }) =>
+  "loom.workflow-correlation-required": (p: { name: unknown; why?: unknown }) =>
+    p.why === "stream"
+      ? `event-sourced workflow '${p.name}' has no correlation field, so its event stream has ` +
+        `no key and no instance can be stored or read back. Declare one id-shaped state field ` +
+        `(e.g. 'orderId: Order id') to key the stream, or drop 'eventSourced' (and its ` +
+        `'apply' blocks) if the workflow keeps no state.`
+      : `workflow '${p.name}' has event consumers (reactors / event-triggered creates) but no ` +
+        `correlation field. Declare one id-shaped state field (e.g. 'orderId: Order id') for the ` +
+        `runtime to route inbound events to.`,
+  "loom.correlation-field-ambiguous": (p: {
+    name: unknown;
+    length: unknown;
+    idFields: unknown;
+    why?: unknown;
+  }) =>
     `workflow '${p.name}' has ${p.length} id-shaped state fields ` +
     `(${p.idFields}); the correlation field can't be inferred. ` +
-    `A workflow with event consumers must declare exactly one id-shaped field.`,
+    (p.why === "stream"
+      ? `An event-sourced workflow keys its event stream by it, so it must declare exactly one id-shaped field.`
+      : `A workflow with event consumers must declare exactly one id-shaped field.`),
   "loom.correlation-type-mismatch": (p: {
     name: unknown;
     label: unknown;
@@ -4639,6 +5037,19 @@ export const DIAGNOSTIC_MESSAGES = {
     `Multi-command sagas via 'handle' are deferred, not shipped.`,
   "loom.workflow-unknown-name": (p: { name: unknown; kind: unknown; exprName: unknown }) =>
     `workflow '${p.name}': ${p.kind} references unknown name '${p.exprName}'.`,
+  "loom.workflow-unknown-name#projection-receiver": (p: {
+    name: unknown;
+    where: unknown;
+    kind: unknown;
+    projection: unknown;
+  }) =>
+    `workflow '${p.name}' ${p.where}: ${p.kind} reads projection '${p.projection}', but a workflow ` +
+    `can only load data through its own context's repositories — a projection is a read model ` +
+    `with no repository, so every backend would emit an unbound '${p.projection}' receiver. ` +
+    `Read the projection through its GET endpoint or a page instead.  To use that data inside ` +
+    `the workflow, keep a local replica aggregate (fed by a correlated ` +
+    `'create(e: <Event>) by …' starter) and read it with a let-bound repository call ` +
+    `('let r = <Replicas>.find(<Criterion>)').`,
   "loom.workflow-inline-repository-call": (p: {
     where: unknown;
     repoName: unknown;
@@ -4713,14 +5124,14 @@ export const DIAGNOSTIC_MESSAGES = {
     repoName: unknown;
     method: unknown;
   }) =>
-    `workflow '${p.name}': '${p.repoName}.${p.method}(...)' returns a nullable; v1 supports only single non-nullable aggregates.  Use getById (throws → 404) instead — or, to branch on the absent row, declare the find '… option' (or '… or NotFound') and read it through a variant 'match'.`,
+    `workflow '${p.name}': '${p.repoName}.${p.method}(...)' returns a nullable; a 'let' binds only single non-nullable aggregates.  Use getById (throws → 404) instead — or, to branch on the absent row, bind it with 'if let x = ${p.repoName}.${p.method}(...) { … } else { … }', or declare the find '… option' (or '… or NotFound') and read it through a variant 'match'.`,
   "loom.handler-load-nullable-unsupported": (p: {
     kind: unknown;
     name: unknown;
     repoName: unknown;
     method: unknown;
   }) =>
-    `${p.kind} '${p.name}': '${p.repoName}.${p.method}(...)' returns a nullable; a handler body has no null-handling vocabulary, so the binding is dereferenced unguarded (TS18047 on node, CS8602 on .NET).  Use getById (throws → 404), or declare the find non-optional.`,
+    `${p.kind} '${p.name}': '${p.repoName}.${p.method}(...)' returns a nullable, so a 'let' binding is dereferenced unguarded (TS18047 on node, CS8602 on .NET).  Branch on the absent row with 'if let x = ${p.repoName}.${p.method}(...) { … } else { … }', use getById (throws → 404), or declare the find non-optional.`,
   "loom.handler-load-nullable-unsupported#domain-service": (p: {
     name: unknown;
     repoName: unknown;
@@ -4792,7 +5203,9 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `workflow '${p.name}': in 'if let ${p.var}', '${p.target}.${p.op}(...)' references unknown binding '${p.target}'.`,
   "loom.iflet-bad-source": (p: { name: unknown; var: unknown }) =>
-    `workflow '${p.name}': 'if let ${p.var} = ...' must bind 'Repo.find(<Criterion>)' — the only optional source in v1.`,
+    `workflow '${p.name}': 'if let ${p.var} = ...' must bind 'Repo.find(<Criterion>)' or a declared optional find 'Repo.<find>(args)' (one returning 'T?').`,
+  "loom.iflet-bad-source#handler": (p: { kind: unknown; name: unknown; var: unknown }) =>
+    `${p.kind} '${p.name}': 'if let ${p.var} = ...' must bind 'Repo.find(<Criterion>)' or a declared optional find 'Repo.<find>(args)' (one returning 'T?').`,
   "loom.workflow-unknown-binding": (p: { name: unknown; target: unknown; op: unknown }) =>
     `workflow '${p.name}': '${p.target}.${p.op}(...)' references unknown let-binding '${p.target}', or '${p.target}' isn't bound to an aggregate.`,
   "loom.workflow-unknown-operation": (p: {
@@ -4821,6 +5234,13 @@ export const DIAGNOSTIC_MESSAGES = {
     resourceKind2: unknown;
   }) =>
     `workflow '${p.name}': '${p.resourceName}.${p.verb}(...)' — '${p.verb}' is not a valid verb for a ${p.resourceKind} resource.  Available: ${p.resourceKind2}.`,
+  "loom.resource-verb-invalid#api-bound": (p: {
+    location: unknown;
+    resourceName: unknown;
+    verb: unknown;
+    apiName: unknown;
+  }) =>
+    `${p.location}: '${p.resourceName}.${p.verb}(...)' — '${p.resourceName}' is bound to the in-system api '${p.apiName}', so its client is derived from that api's operations and has no raw '${p.verb}' verb.  Call one of the operations of '${p.apiName}' by its id instead (e.g. '${p.resourceName}.<operationId>(...)'), or bind the resource to a 'storage' (an external HTTP endpoint) to call it by raw verb.`,
   "loom.resource-op-in-transaction": (p: { name: unknown; resourceName: unknown; verb: unknown }) =>
     `workflow '${p.name}': resource operation '${p.resourceName}.${p.verb}(...)' cannot run inside a transactional workflow — external effects don't roll back with the database transaction.  Move it out of the transactional span, or publish through an outbox.`,
   "loom.resource-op-outside-workflow": (p: {
@@ -4828,7 +5248,7 @@ export const DIAGNOSTIC_MESSAGES = {
     resourceName: unknown;
     verb: unknown;
   }) =>
-    `resource operation '${p.resourceName}.${p.verb}(...)' is only available inside a workflow or a command/query handler — no backend has the resource client in scope anywhere else, a domainService included (.NET/Java/Phoenix fail codegen outright; TS/Python emit an unimported helper call). Found in ${p.location}; move the call into a workflow and have this member work on the value it produces.`,
+    `resource operation '${p.resourceName}.${p.verb}(...)' is only available inside a workflow body or a command/query handler body — no backend has the resource client in scope anywhere else, a domainService or a workflow 'function' included (.NET/Java/Phoenix fail codegen outright; TS/Python emit an unimported helper call). Found in ${p.location}; move the call into a workflow and have this member work on the value it produces.`,
 
   // ----------------------------------------------------------------------
   // src/language/ddd-validator.ts
@@ -5028,12 +5448,30 @@ export const DIAGNOSTIC_MESSAGES = {
   // reading of a file whose braces are fine.  Say where the declaration
   // belongs and how to move it there; the valid scopes are derived from the
   // grammar (`src/language/misplaced-declaration.ts`).
+  // A vendor setting written beside `type:` in a `storage` block.  The block
+  // takes a fixed clause set and every vendor parameter is a `config` entry,
+  // so the remedy is to move the key — not to rename it (which is what the
+  // reserved-name text would say for `from`), and not to balance a brace
+  // (which is what chevrotain's "Expecting '}'" suggests for `bucket`).
+  "loom.parse-error#storage-config-key": (p: {
+    key: unknown;
+    storage: unknown;
+    clauses: unknown;
+  }) =>
+    `'${p.key}' is not a clause of \`storage ${p.storage}\` (it takes ${p.clauses}) — ` +
+    `vendor settings go inside its config map: \`config: { ${p.key}: … }\`.`,
   "loom.parse-error#misplaced-declaration": (p: {
     keyword: unknown;
     where: unknown;
     notHere: unknown;
     remedy: unknown;
   }) => `'${p.keyword}' declarations belong ${p.where}${p.notHere} — ${p.remedy}.`,
+  // An access modifier after the field's default — `status: S = Draft
+  // managed`.  The property ends at the default and the modifier is read as
+  // the next field's NAME, so chevrotain reports "Expecting ':'" on the line
+  // below.  Say the order (`src/language/parse-errors.ts`).
+  "loom.parse-error#access-modifier-after-default": (p: { modifier: unknown; fixed: unknown }) =>
+    `The access modifier '${p.modifier}' goes before the default: \`${p.fixed}\`.`,
 } satisfies Record<string, MessageEntry>;
 
 type Catalog = typeof DIAGNOSTIC_MESSAGES;

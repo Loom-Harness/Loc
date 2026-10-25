@@ -8,6 +8,7 @@ import { NodeFileSystem } from "langium/node";
 import { generate as generateModel, LOOM_VERSION, validate } from "../api/index.js";
 import { translateBreakpoint } from "../dap/index.js";
 import { isAdvisoryCode } from "../diagnostics/advisory.js";
+import { fsDesignPackInspector } from "../generator/_packs/loader-fs.js";
 import { generateDotnet } from "../generator/dotnet/index.js";
 import { enrichLoomModel } from "../ir/enrich/enrichments.js";
 import { lowerModel, lowerProject } from "../ir/lower/lower.js";
@@ -27,7 +28,7 @@ import { generateTypeScript } from "../platform/hono/v4/emit.js";
 // Legacy single-context `generate ts` targets the default Hono
 // backend; the CLI (an entrypoint) supplies that package's pins to
 // the version-agnostic shared emitter.
-import { BACKEND_PINS as HONO_V4_PINS } from "../platform/hono/v4/pins.js";
+import { BACKEND_PINS as HONO_PINS } from "../platform/hono/v5/pins.js";
 import { type GiveUpReport, partitionGiveUps } from "../system/give-up-report.js";
 import { generateSystemsFromLoom, serviceSlug } from "../system/index.js";
 import { captureSnapshots } from "../system/loomsnap.js";
@@ -60,6 +61,7 @@ import {
 } from "../system/migrations-builder.js";
 import { fsSnapshotStore, SnapshotReadError } from "../system/snapshot.js";
 import { annotateTrace, type SourceMap, traceCoverage } from "../trace/index.js";
+import type { DesignPackInspector } from "../util/design-pack-defects.js";
 import { isScaffoldOnce } from "../util/scaffold-once.js";
 import {
   describeMissingCause,
@@ -100,6 +102,7 @@ import {
   type StarterTemplate,
 } from "./new-templates.js";
 import { escapesOutDir } from "./output-containment.js";
+import { warningLines } from "./warning-lines.js";
 
 interface ParseResult {
   model: Model;
@@ -140,6 +143,16 @@ async function parseFile(file: string): Promise<ParseResult> {
     warningCount,
     sourceTexts: new Map([[doc.uri.path, doc.textDocument.getText()]]),
   };
+}
+
+/** What the CLI host offers phase ⑦ beyond the model: a disk-backed reader
+ *  for custom `design:` packs, so a malformed pack is a
+ *  `loom.design-pack-invalid` diagnostic on `parse` rather than a crash on
+ *  `generate`.  A relative `design:` path resolves against the declaring
+ *  `.ddd` file's directory; `file`'s directory covers a model parsed in
+ *  memory (the `--json` toolkit path), which carries no file location. */
+function hostValidateOptions(file: string): { designPacks: DesignPackInspector } {
+  return { designPacks: fsDesignPackInspector(path.dirname(path.resolve(file))) };
 }
 
 interface ProjectParseResult {
@@ -348,6 +361,7 @@ function irDiagnosticLocator(
 function printIrDiagnostics(
   diagnostics: readonly LoomDiagnostic[],
   sourceTexts?: ReadonlyMap<string, string>,
+  opts: { allWarnings?: boolean } = {},
 ): {
   errors: LoomDiagnostic[];
   warnings: LoomDiagnostic[];
@@ -365,7 +379,7 @@ function printIrDiagnostics(
   // here: with a literal, the second advisory code to arrive silently came out
   // labelled `warning` and inflated the count.)
   const warnings = diagnostics.filter((d) => d.severity === "warning" && !isAdvisoryCode(d.code));
-  for (const d of warnings) console.error(`${at(d)}${d.code} ${d.source} warning: ${d.message}`);
+  for (const line of warningLines(warnings, at, opts.allWarnings ?? false)) console.error(line);
 
   // Advisory only — the index-suggestion lint (uniqueness-and-indexes.md §11)
   // and the update-gate lint (audit D3) keep their own footer and never fail
@@ -396,7 +410,7 @@ function printIrDiagnostics(
  * A `.ddd` fragment meant to be imported by an entry file still fails here, on
  * its AST errors.
  */
-async function runParse(file: string) {
+async function runParse(file: string, opts: { allWarnings?: boolean } = {}) {
   // The project loader, matching `generate system` — a multi-file entry
   // resolves its import graph instead of reporting its siblings' declarations
   // as unresolved.
@@ -414,7 +428,7 @@ async function runParse(file: string) {
   // result has already printed), but a DIAGNOSTIC is no longer discarded.
   let irDiagnostics: ReturnType<typeof validateLoomModel> = [];
   try {
-    irDiagnostics = validateLoomModel(result.loom);
+    irDiagnostics = validateLoomModel(result.loom, hostValidateOptions(file));
   } catch {
     // Lowering/enrichment threw — nothing further to report at IR level.
   }
@@ -427,6 +441,7 @@ async function runParse(file: string) {
   const { errors: irErrors, warnings: irWarnings } = printIrDiagnostics(
     irDiagnostics,
     result.sourceTexts,
+    opts,
   );
   // Both phases have run — ONE footer, counting both.  It has to come after
   // the IR phase, or it is a verdict on half the file (M-T9.60).
@@ -530,7 +545,9 @@ async function withJsonStdout<T>(work: () => Promise<T>): Promise<T> {
  */
 async function runParseJson(file: string): Promise<void> {
   const { absolute, source } = readSource(file);
-  const report = await withJsonStdout(() => validate(source, { path: absolute }));
+  const report = await withJsonStdout(() =>
+    validate(source, { path: absolute, ...hostValidateOptions(absolute) }),
+  );
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   if (!report.ok) process.exit(1);
 }
@@ -543,7 +560,9 @@ async function runParseJson(file: string): Promise<void> {
  */
 async function runGenerateJson(file: string): Promise<void> {
   const { absolute, source } = readSource(file);
-  const report = await withJsonStdout(() => generateModel(source, { path: absolute }));
+  const report = await withJsonStdout(() =>
+    generateModel(source, { path: absolute, ...hostValidateOptions(absolute) }),
+  );
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   if (!report.ok) process.exit(1);
 }
@@ -564,6 +583,9 @@ function loadLoomIgnore(outDir: string): ignore.Ignore {
 
 interface RunOptions {
   dryRun?: boolean;
+  /** `--all-warnings` — print every phase-⑦ warning instead of collapsing a
+   *  repeated code to its first occurrence plus a summary line. */
+  allWarnings?: boolean;
   /** When true, errors are reported but `runGenerate` returns instead
    * of calling `process.exit`.  Used by watch mode so a typo in the
    * `.ddd` source doesn't tear down the watcher. */
@@ -717,8 +739,12 @@ async function runGenerate(
   // the real warnings under one count — `parse` reports those separately, and
   // never as warnings — so the two commands' footers didn't even add up to the
   // same number for the same file.
-  const loomDiags = validateLoomModel(loom);
-  const { errors: loomErrors, warnings: loomWarnings } = printIrDiagnostics(loomDiags, sourceTexts);
+  const loomDiags = validateLoomModel(loom, hostValidateOptions(file));
+  const { errors: loomErrors, warnings: loomWarnings } = printIrDiagnostics(
+    loomDiags,
+    sourceTexts,
+    { allWarnings: options.allWarnings },
+  );
   // ONE footer, after both phases — the same call `parse` makes at the same
   // point, which is what keeps the two commands' stderr byte-identical
   // (`generate-diagnostic-parity.test.ts`).
@@ -827,15 +853,22 @@ async function runGenerate(
       if (!options.continueOnError) process.exit(1);
       return { hadError: true };
     }
-    for (const w of migrationWarnings) {
+    // Suggestions (a spent `migration` block) are advisories, not defects:
+    // printed with their own label and left out of the warning count.
+    const migrationSuggestions = migrationWarnings.filter((w) => w.severity === "suggestion");
+    const migrationRealWarnings = migrationWarnings.filter((w) => w.severity !== "suggestion");
+    for (const w of migrationRealWarnings) {
       console.error(`${w.code} warning: ${w.message}`);
     }
-    if (migrationWarnings.length > 0) {
+    for (const w of migrationSuggestions) {
+      console.error(`${w.code} suggestion: ${w.message}`);
+    }
+    if (migrationRealWarnings.length > 0) {
       // Its own footer, for the same reason the give-ups have one: the
       // `N error(s), N warning(s).` line above is the phase-④/⑦ verdict and was
       // already printed before generation ran, so without this the run reports
       // `0 warning(s)` and then prints a warning.
-      console.error(`${migrationWarnings.length} warning(s) in derived migrations.`);
+      console.error(`${migrationRealWarnings.length} warning(s) in derived migrations.`);
     }
     // Lift the walkers' give-ups.  They were already in the output, named by
     // code, three characters from the defect — this is the only place with both
@@ -857,7 +890,7 @@ async function runGenerate(
       return { hadError: true };
     }
   } else if (target === "ts") {
-    files = generateTypeScript(model!, HONO_V4_PINS, { emitTrace: options.emitTrace });
+    files = generateTypeScript(model!, HONO_PINS, { emitTrace: options.emitTrace });
   } else {
     files = generateDotnet(model!, { emitTrace: options.emitTrace });
   }
@@ -1217,7 +1250,7 @@ async function runSnapshot(
     process.exit(1);
   }
   const loom = result.loom;
-  const loomDiags = validateLoomModel(loom);
+  const loomDiags = validateLoomModel(loom, hostValidateOptions(file));
   const loomErrors = loomDiags.filter((d) => d.severity === "error");
   if (loomErrors.length > 0) {
     for (const d of loomDiags) console.error(`${d.source} ${d.severity}: ${d.message}`);
@@ -1499,7 +1532,7 @@ async function runVerify(
     process.exit(2);
   }
   const loom = result.loom;
-  const loomDiags = validateLoomModel(loom);
+  const loomDiags = validateLoomModel(loom, hostValidateOptions(file));
   const loomErrors = loomDiags.filter((d) => d.severity === "error");
   if (loomErrors.length > 0) {
     for (const d of loomErrors) console.error(`${d.source} error: ${d.message}`);
@@ -1818,6 +1851,10 @@ async function runBreakpoints(file: string, options: BreakpointOptions): Promise
   }
 }
 
+const ALL_WARNINGS_FLAG = "--all-warnings";
+const ALL_WARNINGS_HELP =
+  "print every repeated warning in full (by default a warning code that fires more than 3 times prints once plus a summary line naming the rest)";
+
 const program = new Command();
 program.name("ddd").description("DDD DSL CLI").version(LOOM_VERSION);
 
@@ -1828,9 +1865,10 @@ program
     "--json",
     "emit structured diagnostics + outline as JSON (also runs IR validation); see docs/api-toolkit.md",
   )
-  .action(async (file: string, options: { json?: boolean }) => {
+  .option(ALL_WARNINGS_FLAG, ALL_WARNINGS_HELP)
+  .action(async (file: string, options: { json?: boolean; allWarnings?: boolean }) => {
     if (options.json) await runParseJson(file);
-    else await runParse(file);
+    else await runParse(file, { allWarnings: options.allWarnings });
   });
 
 program
@@ -1930,6 +1968,7 @@ generate
     "--inline-sources",
     "with --sourcemap, inline each .ddd's full text into every Source Map v3 sidecar. Off by default — the sidecars name the .ddd by absolute path and a debugger reads it from there, so inlining it once per generated file costs ~4x the map bytes for nothing. Turn it on when the maps will be read where the .ddd files are not.",
   )
+  .option(ALL_WARNINGS_FLAG, ALL_WARNINGS_HELP)
   .option(
     "--locales <dir>",
     "translator tree root to read locale catalogs from (default: <.ddd file's dir>/locales — the same resolution as `ddd i18n --dir`). Each locale found is emitted into every frontend with a translation runtime and registered in its i18n shim.",
@@ -1949,6 +1988,7 @@ generate
         sourcemap?: boolean;
         inlineSources?: boolean;
         locales?: string;
+        allWarnings?: boolean;
       },
     ) => {
       if (options.json) {
@@ -1968,6 +2008,7 @@ generate
         sourcemap: !!options.sourcemap,
         inlineSources: !!options.inlineSources,
         localesDir: options.locales,
+        allWarnings: options.allWarnings,
       };
       await runGenerate("system", file, options.out, runOpts);
       if (options.watch) {

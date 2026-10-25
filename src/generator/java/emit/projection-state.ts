@@ -8,13 +8,9 @@ import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { jid } from "../java-ident.js";
-import { collectJavaTypeImports, renderJavaType } from "../render-expr.js";
+import { renderJavaType } from "../render-expr.js";
 import { hbIdent } from "../sql-ident.js";
-import {
-  jpaClassAnnotations,
-  jpaFieldAnnotations,
-  needsHibernateTypes,
-} from "./jpa-annotations.js";
+import { jpaClassAnnotations, jpaFieldAnnotations } from "./jpa-annotations.js";
 import { setterName } from "./workflow-state.js";
 
 // ---------------------------------------------------------------------------
@@ -94,14 +90,13 @@ export function renderProjectionRowEntity(
     .filter((f) => f.name !== corr)
     .map((f) => ({ ...f, optional: true }) as FieldIR);
   const voLookup = valueObjectFieldLookup(ctx);
-  // A projection row has no reference/value collections, so jpaFieldAnnotations
-  // never touches `associations` — a bare owner satisfies the type.
+  // A projection row is one table row: `stateRow` maps a reference collection
+  // onto its jsonb column (no association needed), and a value-object
+  // collection here is refused by `loom.collection-field-unpersisted`, so
+  // jpaFieldAnnotations never reads the owner's associations / fields.
   const owner = { name: proj.name, associations: [] } as unknown as EnrichedAggregateIR;
   const cls = projectionRowClass(proj);
   const idClass = projectionCorrIdClass(proj);
-
-  const javaImports = new Set<string>();
-  for (const f of proj.stateFields) collectJavaTypeImports(f.type, javaImports);
 
   const fieldLines: string[] = [
     `    @EmbeddedId`,
@@ -109,7 +104,7 @@ export function renderProjectionRowEntity(
     `    ${idClass} ${jid(corr)};`,
   ];
   for (const f of stateOnly) {
-    fieldLines.push(...jpaFieldAnnotations(f, owner, { voLookup }));
+    fieldLines.push(...jpaFieldAnnotations(f, owner, { voLookup, stateRow: true }));
     fieldLines.push(`    ${renderJavaType(f.type)} ${jid(f.name)};`);
   }
 
@@ -150,14 +145,9 @@ export function renderProjectionRowEntity(
     ]),
   ];
 
-  const usesHibernateTypes = needsHibernateTypes(stateOnly);
   return lines(
     `package ${pkg};`,
     ``,
-    ...[...javaImports].sort().map((i) => `import ${i};`),
-    javaImports.size > 0 ? `` : null,
-    usesHibernateTypes ? `import org.hibernate.annotations.JdbcTypeCode;` : null,
-    usesHibernateTypes ? `import org.hibernate.type.SqlTypes;` : null,
     `import jakarta.persistence.*;`,
     ``,
     `import ${basePkg}.domain.enums.*;`,

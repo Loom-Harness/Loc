@@ -6,10 +6,11 @@
 // at generation time.
 import { Component, inject } from "@angular/core";
 import { ToolbarModule } from "primeng/toolbar";
-import { RouterLink,{{#if hasNav}} RouterLinkActive,{{/if}} RouterOutlet } from "@angular/router";
+{{#if authUi}}import { ButtonModule } from "primeng/button";
+{{/if}}import { RouterLink,{{#if hasNav}} RouterLinkActive,{{/if}} RouterOutlet } from "@angular/router";
 import { LoomErrorHandler } from "./error-handler";
 {{#if authUi}}import { AuthGateComponent } from "./auth/auth-gate.component";
-{{/if}}{{#if navUsesSession}}import { SessionService } from "./auth/session.service";
+{{/if}}{{#if shellUsesSession}}import { SessionService } from "./auth/session.service";
 {{/if}}{{#if hasRealtimeHandlers}}import { RealtimeHandlersComponent } from "./realtime-handlers.component";
 {{/if}}{{#if i18nEnabled}}import { t } from "../lib/i18n";
 {{/if}}
@@ -20,7 +21,8 @@ import { LoomErrorHandler } from "./error-handler";
     RouterLink,
 {{#if hasNav}}    RouterLinkActive,
 {{/if}}    ToolbarModule,
-{{#if authUi}}    AuthGateComponent,
+{{#if authUi}}    ButtonModule,
+    AuthGateComponent,
 {{/if}}{{#if hasRealtimeHandlers}}    RealtimeHandlersComponent,
 {{/if}}  ],
   template: `
@@ -30,7 +32,12 @@ import { LoomErrorHandler } from "./error-handler";
       <ng-template pTemplate="start">
         <a routerLink="/" class="loom-brand">{{systemNameHuman}}</a>
       </ng-template>
-    </p-toolbar>
+{{#if authUi}}      <ng-template pTemplate="end">
+        @if (session.snapshot().kind === "authed") {
+          <button pButton type="button" [text]="true" data-testid="sign-out" (click)="session.signOut()">{{{chrome "signOut"}}}</button>
+        }
+      </ng-template>
+{{/if}}    </p-toolbar>
     <div class="loom-shell">
       <aside class="loom-sidebar" data-testid="nav-sidebar">
         <nav class="loom-nav" {{{primaryNavAria}}}>

@@ -696,10 +696,13 @@ export interface WalkerTarget {
 
   /** Render a `currentUser.<claim>` access in a body expression (D-AUTH-OIDC,
    *  the read-side of the auth gate) — the whole member access, since the
-   *  session user may be loosely / optionally bound.  Optional: a target that
-   *  leaves it undefined falls through to the plain member emit (the JSX
-   *  frontends today, whose session user is a shell-bound `currentUser` local —
-   *  handled there rather than here).  Feliz binds the decoded claims on the
+   *  session user may be loosely / optionally bound.  Entering the seam sets
+   *  `usesCurrentUser`, which is what makes the page / component shell bind the
+   *  session user; a target that leaves it undefined falls through to the
+   *  plain member emit, whose `current-user` receiver renders as the
+   *  `unresolved` sentinel.  The JSX frontends read the shell-bound
+   *  `currentUser` local (Angular: the `this.currentUser` getter over the
+   *  injected `SessionService`).  Feliz binds the decoded claims on the
    *  Model (`model.CurrentUser : CurrentUser option`), so it renders an
    *  option-match against the pascal-cased record field.  `memberType` is the
    *  claim's declared type (for the None-branch zero value). */
@@ -1720,6 +1723,24 @@ export interface WalkerTarget {
    *  it partially, and a target that omits it keeps today's behaviour
    *  byte-for-byte. */
   exprTemporalBinary?(
+    left: string,
+    right: string,
+    e: Extract<ExprIR, { kind: "binary" }>,
+  ): string | null;
+
+  /** VALUE-OBJECT `==` / `!=` (`a == b`, and `a.equals(b)`, which lowers to
+   *  the same node) — the frontend twin of each backend's value-equality leaf.
+   *  A value object compares by its fields; where the host's `==` on the
+   *  page-side representation compares REFERENCES (a plain JSON object on the
+   *  JS frontends, a model class with no `operator ==` on Flutter) the target
+   *  renders a structural comparison instead.
+   *
+   *  Consulted by `emitExpr` FIRST in the binary arm, and only for a node
+   *  `isValueObjectEquality` (`_frontend/value-equals.ts`) accepts — so every
+   *  scalar comparison is untouched.  Return `null` to fall through to the
+   *  other binary seams and `exprBinary`; a target that omits the seam keeps
+   *  its host operator. */
+  exprValueEquality?(
     left: string,
     right: string,
     e: Extract<ExprIR, { kind: "binary" }>,

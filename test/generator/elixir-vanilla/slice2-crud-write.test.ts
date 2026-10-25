@@ -41,7 +41,7 @@ system Tasks {
 `;
 
 describe("vanilla — Slice 2 CRUD write path + Changeset", () => {
-  it("emits a per-aggregate Changeset module with cast/3 + validate_required", async () => {
+  it("emits a per-aggregate Changeset module with cast/3 + a presence check", async () => {
     const files = await generateSystemFiles(VANILLA_SOURCE);
     const csKey = [...files.keys()].find((k) => k.endsWith("/tracker/task_changeset.ex"));
     expect(csKey).toBeDefined();
@@ -55,8 +55,13 @@ describe("vanilla — Slice 2 CRUD write path + Changeset", () => {
     // backends) and are supplied by `__default/3` instead.
     expect(cs).toContain("@required_fields [:title]");
     expect(cs).toContain("def base_changeset");
-    expect(cs).toContain("|> cast(attrs, @all_fields)");
-    expect(cs).toContain("|> validate_required(@required_fields)");
+    // `title` is a string: it is cast with `empty_values: []` and checked for
+    // nil-only presence, so a blank title reaches the rule that owns it.
+    expect(cs).toContain("@string_fields [:title]");
+    expect(cs).toContain("|> cast(attrs, @all_fields -- @string_fields)");
+    expect(cs).toContain("|> cast(attrs, @string_fields, empty_values: [])");
+    expect(cs).toContain("|> validate_required(@required_fields -- @required_strings)");
+    expect(cs).toContain("|> __require_present(@required_strings)");
     expect(cs).not.toContain("Ash.Changeset");
   });
 

@@ -79,10 +79,15 @@ describe("pack-declared chrome — key shape (D-I18N-KEY)", () => {
     expect(packChromeKey("mui", "removeItem", "Remove")).not.toBe(
       packChromeKey("mui", "removeItem", "Delete"),
     );
-    // mantine v7 and v9 spell "Remove" identically — one key, one translation.
-    const v7 = packChromeCatalog(loadPack(resolvePackDir("mantine@v7")).manifest);
-    const v9 = packChromeCatalog(loadPack(resolvePackDir("mantine@v9")).manifest);
-    expect(Object.keys(v7)).toEqual(Object.keys(v9));
+    // A next major that spells "Remove" identically keeps one key, one
+    // translation: the key names the family and hashes the wording, never the
+    // version.
+    const keys = Object.keys(packChromeCatalog(loadPack(resolvePackDir("mantine@v9")).manifest));
+    expect(keys.length).toBeGreaterThan(0);
+    for (const k of keys) {
+      expect(k.startsWith("pack.mantine."), k).toBe(true);
+      expect(k, k).not.toContain("v9");
+    }
   });
 
   it("keeps two packs that genuinely WORD a string differently on separate keys", () => {

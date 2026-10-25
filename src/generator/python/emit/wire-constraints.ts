@@ -21,8 +21,20 @@ import {
 import { lines } from "../../../util/code-builder.js";
 import { messageCode } from "../../../util/message-code.js";
 import { pythonWireIdent, pythonWireNeedsAlias } from "../../../util/naming.js";
+import { pyRef } from "../../_imports/python.js";
 import { singleFieldMessage } from "../../zod-refine.js";
 import { renderPyExpr, renderPyNegatedGuard } from "../render-expr.js";
+
+// The pydantic carriers, written as `ref()` markers — the importing module's
+// block derives from whichever survive into its text.
+const FIELD = pyRef("pydantic", "Field");
+const FIELD_VALIDATOR = pyRef("pydantic", "field_validator");
+const MODEL_VALIDATOR = pyRef("pydantic", "model_validator");
+const VALIDATION_ERROR = pyRef("pydantic", "ValidationError");
+const VALIDATION_INFO = pyRef("pydantic", "ValidationInfo");
+const WRAP_HANDLER = pyRef("pydantic", "ValidatorFunctionWrapHandler");
+const INIT_ERROR_DETAILS = pyRef("pydantic_core", "InitErrorDetails");
+const PYDANTIC_CUSTOM_ERROR = pyRef("pydantic_core", "PydanticCustomError");
 
 /** One `Field(...)` kwarg plus the wire message its violation answers — the
  *  one node sends for the rule that produced it. */
@@ -41,7 +53,7 @@ export function createFieldConstraints(
 ): Map<string, string> {
   const out = new Map<string, string>();
   for (const [field, kwargs] of fieldKwargs(invariants, available)) {
-    out.set(field, `Field(${kwargs.map((k) => k.kw).join(", ")})`);
+    out.set(field, `${FIELD}(${kwargs.map((k) => k.kw).join(", ")})`);
   }
   return out;
 }
@@ -97,21 +109,21 @@ export function createFieldMessageValidator(
   const fields = [...table.keys()].map((f) => JSON.stringify(pythonWireIdent(f))).join(", ");
   return lines(
     "",
-    `    @field_validator(${fields}, mode="wrap")`,
+    `    @${FIELD_VALIDATOR}(${fields}, mode="wrap")`,
     "    @classmethod",
     "    def _wire_messages(",
-    "        cls, value: object, handler: ValidatorFunctionWrapHandler, info: ValidationInfo",
+    `        cls, value: object, handler: ${WRAP_HANDLER}, info: ${VALIDATION_INFO}`,
     "    ) -> object:",
     "        try:",
     "            return handler(value)",
-    "        except ValidationError as err:",
+    `        except ${VALIDATION_ERROR} as err:`,
     "            messages: dict[tuple[str, str], str] = {",
     ...entries,
     "            }",
     "            for e in err.errors():",
     '                hit = messages.get((info.field_name or "", e["type"]))',
     '                if hit is not None and not e["loc"]:',
-    '                    raise PydanticCustomError(e["type"], hit) from None',
+    `                    raise ${PYDANTIC_CUSTOM_ERROR}(e["type"], hit) from None`,
     "            raise",
   );
 }
@@ -216,16 +228,16 @@ export function withFieldConstraint(
   const alias = pythonWireNeedsAlias(name) ? `alias=${JSON.stringify(name)}` : null;
   const expr = alias
     ? fieldExpr
-      ? `Field(${fieldExpr.slice("Field(".length, -1)}, ${alias})`
-      : `Field(${alias})`
+      ? `${FIELD}(${fieldExpr.slice(`${FIELD}(`.length, -1)}, ${alias})`
+      : `${FIELD}(${alias})`
     : fieldExpr;
   if (!expr) return `    ${attr}: ${decl}`;
   const eq = decl.indexOf(" = ");
   if (eq === -1) return `    ${attr}: ${decl} = ${expr}`;
   const type = decl.slice(0, eq);
   const dflt = decl.slice(eq + 3);
-  const inner = expr.slice("Field(".length, -1);
-  return `    ${attr}: ${type} = Field(default=${dflt}, ${inner})`;
+  const inner = expr.slice(`${FIELD}(`.length, -1);
+  return `    ${attr}: ${type} = ${FIELD}(default=${dflt}, ${inner})`;
 }
 
 /** A Pydantic `@model_validator(mode="after")` enforcing the wire-scoped
@@ -255,36 +267,40 @@ export function createModelValidator(
     const fails = inv.guard
       ? `not (${renderPyNegatedGuard(inv.guard, { thisName: "self", wireField: true })} or (${pred}))`
       : renderPyNegatedGuard(inv.expr, { thisName: "self", wireField: true });
-    // A messaged rule raises PydanticCustomError so the wire error carries a
-    // stable content-hash `type` (surfaced as `errors[].code`, the i18n key) —
-    // and cleanly drops the "Value error, " prefix a bare ValueError adds. A
-    // message-less rule keeps `raise ValueError(...)`, byte-identical.
+    // Every rule raises a PydanticCustomError, never a bare ValueError: a
+    // ValueError's wire message is prefixed "Value error, " — on a body node
+    // answers with the rule's own sentence.  A MESSAGED rule's error `type` is
+    // its stable content-hash code (surfaced as `errors[].code`, the i18n key);
+    // a message-LESS one is `invariant`, which carries no code — the handler
+    // surfaces only `msg.` types — and node's refine default text
+    // (`Invariant violated: <src>`, D-MESSAGELESS-RULE-WIRE-MESSAGE).
     //
     // The FIELD the error points at is the other half of that contract, and an
     // error raised from a `model_validator` carries NO `loc` — so `errors[]`
     // answered `pointer: ""` where Hono's refine (which passes `path`) answered
     // `/amount`. `ValidationError.from_exception_data` is the one Pydantic API
-    // that lets a raise name its own `loc`, so a single-field messaged rule now
-    // points at its field on python too. A rule with no derivable field (a
-    // genuine cross-field comparison) keeps the bare raise, which is also what
-    // Hono does — it omits `path` in exactly the same case.
-    const path = inv.message ? pickErrorPath(inv) : null;
+    // that lets a raise name its own `loc`, so a rule with a derivable field
+    // points at it on python too, messaged or not. A rule with no derivable
+    // field (a genuine cross-field comparison) keeps the bare raise, which is
+    // also what Hono does — it omits `path` in exactly the same case.
+    const path = pickErrorPath(inv);
     // `input` is a REQUIRED key of the `InitErrorDetails` TypedDict (mypy
     // --strict says so), and the offending value is the honest thing to put
     // there — it never reaches the wire (the 422 handler projects only
     // pointer/message/code), but it is what shows up in a raw pydantic error in
     // the logs.  `None` when the path isn't a field this request body carries.
     const input = path && available.has(path) ? `self.${path}` : "None";
-    const raise = inv.message
-      ? path
-        ? `raise ValidationError.from_exception_data(\n                ${JSON.stringify(cls)},\n                [\n                    InitErrorDetails(\n                        type=PydanticCustomError(${JSON.stringify(messageCode(inv.message.text))}, ${JSON.stringify(inv.message.text)}),\n                        loc=(${JSON.stringify(path)},),\n                        input=${input},\n                    )\n                ],\n            )`
-        : `raise PydanticCustomError(${JSON.stringify(messageCode(inv.message.text))}, ${JSON.stringify(inv.message.text)})`
-      : `raise ValueError(${JSON.stringify(`Invariant violated: ${inv.source}`)})`;
+    const text = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
+    const errorType = inv.message ? messageCode(inv.message.text) : "invariant";
+    const custom = `${PYDANTIC_CUSTOM_ERROR}(${JSON.stringify(errorType)}, ${JSON.stringify(text)})`;
+    const raise = path
+      ? `raise ${VALIDATION_ERROR}.from_exception_data(\n                ${JSON.stringify(cls)},\n                [\n                    ${INIT_ERROR_DETAILS}(\n                        type=${custom},\n                        loc=(${JSON.stringify(path)},),\n                        input=${input},\n                    )\n                ],\n            )`
+      : `raise ${custom}`;
     return lines(`        if ${fails}:`, `            ${raise}`);
   });
   return lines(
     "",
-    '    @model_validator(mode="after")',
+    `    @${MODEL_VALIDATOR}(mode="after")`,
     `    def _check_invariants(self) -> "${cls}":`,
     ...checks,
     "        return self",

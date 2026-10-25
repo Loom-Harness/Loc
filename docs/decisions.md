@@ -176,7 +176,7 @@ primary form).
 
 ## D-ENV-SWAP — per-environment storage swap mechanism
 
-**Status:** OPEN (deferred — out of scope for F1).
+**Status:** DECIDED (owner ruling 2026-10-21) — option ①, no new grammar; option ② is declined.
 
 **Context.** Storage proposal §2.1 invariant 5: *"Storage is
 swappable per deployable."* The test deployable swaps Postgres for
@@ -191,14 +191,11 @@ in-memory without the domain noticing. Two shapes were considered:
   inMemory } }` block (existing storage proposal §3.8). Terse;
   preserves one dataSource set across environments.
 
-**Decision (deferred).** Option ① is the implicit fallback for
-v1 — it works with no new grammar beyond what D-STORAGE-SPLIT lands.
-Option ② is the cleaner long-term shape but not in scope for the
-initial F1 grammar; revisit after F1 lands and we have empirical
-pressure on the verbosity.
+**Decision.** Option ①: a per-environment deployable lists its own
+alternate dataSources, with no new grammar beyond what D-STORAGE-SPLIT
+landed. Option ② (`overrides { storage … }`) is declined.
 
-**Affects.** Storage proposal §3.8 (`overrides`) does not land in
-the F1 micro-plan PRs; reopens after F1.
+**Affects.** Storage proposal §3.8 (`overrides`) does not land.
 
 ---
 
@@ -372,6 +369,13 @@ re-pin shared core to one framework version (blocking `hono@v5`) and is
 forbidden by the live invariant. The *direction* that survives is
 per-`<family>/v<N>/` homes that map 1:1 to packages; the existing hono
 hoist is correct, not to be reversed.
+
+**Note (2026-10).** `node@v4` was retired (see #3687): `packages/backend-hono-v4/`
+and its pins are gone, `node@v5` is the only registered Hono version, and a
+`node@v4` pin fails with `loom.platform-version-unknown` naming `node@v5`
+(`RETIRED_BACKEND_VERSIONS` in `src/platform/metadata.ts`).
+`src/platform/hono/v4/` remains only as the shared Hono emitter +
+`makeHonoPlatform` factory that v5 calls.
 
 **Mechanism / sequencing.**
 
@@ -1343,7 +1347,8 @@ as unknown platforms. All in-tree sources, fixtures and docs were migrated to
 `platform: node`. The Hono web framework keeps its name only as the `transport:`
 value on `platform: node` (and as the `src/platform/hono/` / `@loom/backend-hono-v4`
 package directory). The historical body below is preserved as the original
-rationale for the rename.
+rationale for the rename. (2026-10: `node@v4` itself was later retired, see
+#3687 — `@loom/backend-hono-v5` is now the only Hono package.)
 
 **Problem.** `platform: hono` conflates the **JS runtime** (Node) with the **web
 framework** (Hono) in one token — the same conflation just resolved for
@@ -2163,7 +2168,7 @@ moves are an offline migration).
 
 ## D-TENANCY-DEFAULT — no silent default; an explicit-stance lint
 
-**Status:** PINNED (lint **severity** OPEN — recommended `error`).
+**Status:** PINNED (the lint is an `error`: `loom.tenancy-stance-unmarked`).
 
 **Problem.** A fail-closed *silent* default ("unmarked ⇒ `tenantOwned`") would
 have Loom implicitly attach the `tenantOwned` capability, injecting
@@ -2175,7 +2180,7 @@ system is **unscoped**; a **lint** flags it and suggests the explicit marker
 unfoldable capability. The lint's **severity is the fail-open/fail-closed knob**:
 **error** (recommended — the common case is tenant data, so the unmarked fallback
 is the dangerous one) gives fail-closed without magic; **warning** is fail-open.
-Severity is the one OPEN sub-decision.
+Shipped as **error** (`loom.tenancy-stance-unmarked`, `tenancy-checks.ts`).
 
 **Affects.** `multi-tenancy-design-note.md` R3 (supersedes original decision #2's
 silent-default *mechanism*; the fail-closed *goal* survives via the lint).
@@ -4466,8 +4471,8 @@ is what `gap` means.
 
 ## D-WIRESHAPE-KEEP — the derived wire shape stays the source of truth; the declared response record is the thing that must be made to agree with it
 
-**Status:** proposed (default applies 48 h after merge unless overridden).
-Raised and measured by wave C4 packet 4e, which was sent to build slice 1 of
+**Status:** interim — the derived shape stays for now; the goal is to retire
+it (owner ruling on #3383). Raised and measured by wave C4 packet 4e, which was sent to build slice 1 of
 the `wireShape` retirement or decline with the measurement. It declines.
 
 **Question.** `docs/old/proposals/unfoldable-api-derivation.md` steps 6–8 retire
@@ -4604,9 +4609,58 @@ only a `loc`, and one field name can carry different bounds on two models.
 
 **Consequences.** Pinned by `test/generator/python/message-less-wire-message.test.ts`
 (derives node's message set and requires each in python's tables) and by the
-`validation-messages` wire golden (seq 14/15). .NET, Java and Elixir still send
-their own text — mission M-T6.86, held by four waivers in
-`test/_helpers/wire-waivers.ts`.
+`validation-messages` wire golden (seq 14/15). .NET, Java and Elixir send the
+same sentence since [D-MESSAGELESS-DEFAULT](#d-messageless-default--every-message-less-wire-rule-answers-nodes-sentence-on-every-backend),
+which extends this ruling to every backend and every message-less rule.
+
+## D-MESSAGELESS-DEFAULT — every message-less wire rule answers node's sentence, on every backend
+
+**Status:** proposed (default applies 48 h after merge unless overridden).
+Taken as the owner default recorded for wave C3F ("node's sentence is
+canonical", `docs/new-plan/waves/wave-c3f.md`) and built by its packet F4.
+
+**Question.** A rule with no `message "…"` clause still refuses a request, and
+the refusal is one `errors[].message` wire field. Before this ruling it had a
+value per framework: FluentValidation's `'Amount' must be greater than or
+equal to '1'.`, java's generic `Invariant violated: amount >= 1` for a shape it
+had classified as single-field, elixir's domain-floor `Precondition failed: …`
+(no `errors[]` at all), and python's `Value error, Invariant violated: …` at an
+empty pointer. `D-MESSAGELESS-RULE-WIRE-MESSAGE` had settled python's
+single-field case only (M-T6.86 held the rest behind four waivers). Which
+sentence does the wire carry, for which rules?
+
+**Decision.** The one node sends, for every message-less rule the wire
+validator carries, on every backend:
+
+- a single-field shape → `singleFieldMessage(field, pattern)`
+  (`src/generator/zod-refine.ts`);
+- any other shape → node's refine default `Invariant violated: <source>`, at
+  the pointer `pickErrorPath` derives (node's refine `path`);
+- no `errors[].code` — the code is the i18n key of AUTHORED text.
+
+`D-MESSAGELESS-RULE-WIRE-MESSAGE` stands; this extends it from python to .NET,
+Dapper, java and elixir, and from the single-field shape to every
+message-less rule.
+
+**Not covered.** A MISSING required member is not a rule, and its sentence is
+still each framework's (node's zod text is itself zod-major-specific:
+`Invalid input: expected string, received undefined` on zod 4, `Required` on
+3). Whether to adopt a zod text as the cross-backend contract or mint a
+Loom-owned sentence is its own question — mission M-T6.93. Elixir's
+create/update CHANGESET still renders a message-less single-field rule
+through Ecto's own validators and text — mission M-T6.96 (that seam is wave
+C3F packet F1's tree); its operation rung follows this ruling.
+
+**Consequences.** .NET appends `.WithMessage(<node sentence>)` to each
+native FluentValidation arm (`dotnet/validator-emit.ts`); java passes the
+sentence to `patternCheck` (`java/emit/validator.ts`); elixir lifts every
+wire-translatable precondition — messaged or not — to the `{:validation_failed,
+errors}` rung, the message-less entry carrying no `code`
+(`elixir/vanilla/denial.ts`); python raises a `PydanticCustomError` of type
+`invariant` through `ValidationError.from_exception_data`, so the entry has the
+field's `loc` and no "Value error, " prefix (`python/emit/wire-constraints.ts`).
+Pinned by RS-43 and the `validation-messages` / `intrinsics` wire goldens; the
+four `M-T6.86` waivers are deleted.
 
 ## D-FORBIDDEN-DETAIL-DEV-ECHO — a 403 names its gate only under the dev stub; a malformed dev-claims header is a 400
 
@@ -4689,6 +4743,16 @@ collisions (`_events`, `pull_events`, `create`, `inspect` against a member of
 that name) are recorded in `docs/generators.md` § "Names that are Python
 keywords" as follow-ups — they fail loudly (a syntax/compile error), not
 silently.
+
+**Follow-up (2026-10-12).** The per-backend keyword sets became ONE
+table with ONE escaping path, `src/util/target-identifiers.ts`
+(`escapeTargetIdent` / `isReserved`, plus `escapeTargetMember` for names a
+target reserves as a class member), and the ratchet widened from python to
+every target: `test/fixtures/corpus/target-reserved-words.ddd` names a field,
+an enum value, an operation and its parameter after every table word the
+grammar admits, on all five compile legs.  The ruling is unchanged — escape,
+never refuse.  See `generators.md` § "The per-target reserved-identifier
+table".
 
 **Sources.** `docs/audits/2026-09-28-eval-closure-review/` item 6;
 [`generators.md`](generators.md) § "Names that are Python keywords" and
@@ -4774,3 +4838,220 @@ them.
 **Affects.** `src/language/validators/template.ts`; `src/diagnostics/messages.ts`;
 `src/diagnostics/code-docs.ts`; `docs/language.md`;
 `docs/language-reference/05-expressions.md`.
+
+## D-REACTOR-SYSTEM-PRINCIPAL — event reactors run as a tenant-scoped system principal
+
+**Status:** PINNED (owner ruling D1, 2026-09-29 —
+`docs/audits/2026-09-28-eval-closure-review/VERIFIED-AND-WAVES.md` § Rulings).
+
+**Question.** A reactor — a workflow's event-triggered `create(e) by …`
+starter or `on(e)` subscription, including one driven by a `timerSource`
+tick or a broker-consumed event — has no request, so it has no request
+principal. What does a gated operation it calls do? Before this ruling the
+answer was five different defects (eval item 3): node, .NET and java emitted a
+`currentUser` nothing declared (TS2304 / CS0103 / javac), python dropped the
+operation's gate entirely (fail-open), elixir passed `nil` and crashed on
+`nil.permissions`.
+
+**Decision.** Reactors run as a **system principal**, tenant-scoped, and gates
+are **evaluated against it** — never skipped.
+
+- **The principal.** `{ isSystem: true, tenant: the triggering event's tenant,
+  causedBy: the originating user's id }`. Every declared claim is EMPTY (the
+  zero of its type — never the dev stub's `"admin"`), so no claims gate passes
+  by accident. `causedBy` is for audit and logs only: it is not a language
+  member and no gate can read it.
+- **Language surface.** `currentUser.isSystem` (bool). A gate that admits a
+  reactor says so: `requires currentUser.isSystem || …`. `isSystem` and
+  `causedBy` are reserved claim names (`loom.user-reserved-field`).
+- **Gates.** Evaluated normally. A reactor that reaches a gate the system
+  principal can never satisfy — one that reads `currentUser` and never
+  mentions `currentUser.isSystem` — gets a compile-time **warning**,
+  `loom.reactor-gate-unsatisfiable`.
+- **Tenancy.** Filters and stamps use the event's tenant. In-process, that is
+  the tenant of the request that raised the event (the system principal copies
+  the dispatching principal's tenancy claim and `orgPath`).
+- **Timers.** A tick has no tenant, so a tenant-owned read from a timer-driven
+  reactor must be explicitly cross-tenant: a `find` / inline `Repo.run` with
+  `ignoring tenantOwned` (the language's existing cross-tenant read clause —
+  `crossTenant` itself is an aggregate stance, not a read clause). Otherwise
+  **error** `loom.timer-tenant-read`.
+
+**Emission (all five backends).** The request principal is unchanged on the
+wire (`/auth/me` projects the declared claims): node `User.isSystem?` /
+`causedBy?` + `systemPrincipal()` in `auth/middleware.ts`; .NET init-only
+`IsSystem` / `CausedBy` (serializer-skipped at default) +
+`User.SystemPrincipal(origin)`; java trailing record components with a
+claims-only constructor + `User.systemPrincipal(origin)`; python defaulted
+dataclass fields + `system_principal()`; elixir `system_principal/0` in the
+web `Auth` module, reading the origin the auth plug stashes in the process
+dictionary. A reactor binds it only when its body — or an operation it calls,
+hoisted gate included — reads `currentUser`
+(`src/ir/util/system-principal.ts` `reactorNeedsPrincipal`).
+
+**The event origin crosses the outbox and the broker (item 3 d).** In-process
+the reactor's tenant is read off the dispatching request, but the outbox relay
+and a broker consumer run long after that request is gone. So every backend
+snapshots the raising frame's **event origin** — `{tenant, orgPath, causedBy}`
+— where the event leaves it:
+
+- **Outbox row:** under the reserved payload key `__loomOrigin`
+  (`LOOM_OUTBOX_ORIGIN_KEY`, `src/util/channels.ts`) — inside the existing JSON
+  `payload`, so the `__loom_outbox` schema does not change; every relay strips
+  it before decoding the event.
+- **Envelope:** the CloudEvents extension attributes `tenantid` (already in
+  the optional set), `loomorgpath` and `loomcausedby` — each omitted when
+  absent.
+- **Delivery:** the relay (per drained row) and the channel consumer (per
+  received envelope) open an ambient frame whose principal IS the system
+  principal of that origin, so the reactor's gates, tenant filters and stamps —
+  everything reading the ambient principal — see the event's tenant. No origin
+  (an auth-less producer, a timer-raised event) ⇒ the frame is not opened and
+  the reactor runs tenant-less, exactly as before (fail-closed).
+
+A system principal propagates its own origin, so an event a reactor raises
+keeps the FIRST user as `causedBy` through any number of hops. Per backend:
+node `currentEventOrigin` / `systemPrincipalFor` / `runAsEventOrigin`
+(`auth/middleware.ts`); .NET `User.CurrentEventOrigin` / `SystemPrincipalFor` /
+`EnterEventOrigin` + `Auth/EventOrigin.cs` (and `RequestContext.ActorId`
+answers a system principal's `CausedBy`); java `User.currentEventOrigin` /
+`systemPrincipalFor`, `CurrentUserAccessor.runAsEventOrigin`,
+`auth/EventOrigin.java`; python `current_event_origin` /
+`system_principal_for` / `event_origin_frame` (`app/auth/user.py`); elixir
+`current_event_origin/0` / `system_principal_for/1` / `with_event_origin/2`
+(web `Auth`). Emitted only on a deployable with `auth: required`; an auth-less
+one keeps the bare row and envelope byte-for-byte.
+
+**Trust.** `tenantid` on the wire selects the tenant a consuming reactor runs
+in. That is the same trust the broker already carries for the event itself: a
+party that can publish onto a Loom channel can already forge any event; broker
+auth (`channels.md` § Broker auth) is the boundary, not the attribute.
+
+**Affects.** `docs/language-reference/17-auth.md` § Reactors; `docs/auth.md`;
+`docs/tenancy.md`; `docs/workflow.md`; `docs/channels.md`;
+`src/ir/validate/checks/reactor-principal-checks.ts`.
+
+## D-EXPLICIT-ROUTE-WINS — an explicit `route` owns its slot; the auto-derived REST surface yields it
+
+**Status:** DECIDED (orchestrator ruling, accepted by the owner, 2026-10-11).
+
+**Question.** An api's explicit `route <METHOD> <PATH> -> <Ctx>.<Handler>` can
+land on the same router slot (method + shape-normalised path) as a route of the
+always-on auto-derived REST surface. `with scaffoldHandlers` + `with
+scaffoldApi` does it for every create / operation / find / get-by-id / destroy;
+a hand-written route that shadows `GET /orders/{id}` does it once. Two
+registrations on one slot break differently per framework: elixir fails `mix
+compile --warnings-as-errors`, .NET and java throw ambiguity errors at request
+time, node and python silently serve whichever mounted first (the explicit
+handler was dead code there, and python minted each operationId twice). Which
+layer owns the slot?
+
+**Decision.** **The explicit layer wins.** An explicit route is declared
+intent; the derived surface is a default. `enrichLoomModel` records the slots
+each subdomain's explicit routes occupy (`BoundedContextIR.explicitRouteSlots`,
+keyed by the subdomain of the route's TARGET context), the shared derivation
+(`deriveAggregateOperations`) flags a matching operation
+`claimedByExplicitRoute`, and all five route emitters skip a flagged operation
+(`servedOperations`). Every explicit route mounts under `API_BASE_PATH` — the
+root-mount stop-gap that kept a colliding route out of `/api` is gone.
+
+- The flagged operation stays in the derived list. The slot is still served
+  (by the explicit handler), so the typed api-clients keep calling it, and the
+  commands, queries, DTOs and service methods behind it are still emitted.
+- Where an OpenAPI document is built from the routes themselves (node, python),
+  the explicit route's entry is the slot's single operation. Where it is built
+  from the derived list (elixir's `OpenApiSpex` spec, java's customizer), the
+  derived entry keeps documenting the slot, since those documents do not list
+  explicit routes. Either way one operationId per slot.
+- Phoenix matches in registration order, so an explicit route that takes over
+  a derived slot is spliced where the derived route would have gone — after
+  the derived static finds — instead of `first`.
+- Models with no explicit route claiming a derived slot generate byte-identical
+  output.
+
+**Consequences.** `scaffoldApi`'s routes are real, reachable code that `unfold`
+ejects and the user can customise. The generated-name uniqueness census
+(`test/system/generated-name-uniqueness.test.ts`) is the ratchet: it carries no
+waiver for the scaffold shape and fails if a derived route and an explicit one
+share a slot again. Not covered: the two aggregate-scoped routes the derivation
+does not lift (`GET <base>/{id}/history`, `GET <base>/prepare`) — an explicit
+route on one of those slots still double-registers.
+
+---
+
+## D-EXACT-PINS — generated project manifests pin every dependency to one exact version
+
+**Status:** DECIDED (owner ruling 2026-10-21, M-T7.11); implemented by #3886.
+
+**Problem.** A range in a generated manifest (`^4.12.0`, `>=0.115,<1`, `~> 1.8`,
+postgrex `>= 0.0.0`) resolves at install time. No lockfile is emitted, so a
+project that built yesterday could fail today when a dependency released inside
+its range — `@hono/zod-openapi` 1.5.2 broke every cross-field invariant's types
+that way, and npm packuments cached before a newer matching version existed
+died with `ETARGET`.
+
+**Decision.** Every dependency in every generated manifest — `package.json`
+(all four JS stacks, every design pack, the Hono backend and its optional
+adapters, the Feliz and e2e projects), `pyproject.toml` (including the
+`[build-system]` requirement), `mix.exs`, `pubspec.yaml`, and the already-exact
+`*.csproj`/`*.fsproj`/`build.gradle.kts` — names one exact version. No lockfile
+is generated; transitive dependencies still float. Environment constraints
+(`engines`, `requires-python`, the Dart/Flutter `sdk` range, the .NET
+`TargetFramework`) are not dependencies and stay ranges.
+
+- **A bump edits the literal**, then re-resolves the whole set. The pins in one
+  manifest are checked together, not one by one: `@opentelemetry/api` had to
+  sit at 1.9.1 because `sdk-trace-base` 2.12 peers `<1.10`, and `ex_aws` at
+  2.6.1 because 2.7 needs `hackney ~> 4` while the adapter pins hackney 1.x.
+  Resolve with `npm install --package-lock-only`, `pip install --dry-run`, and
+  `mix deps.get` before landing (see the `dependency-upgrade` skill).
+- **Waived: Flutter `intl` and `web`.** The SDK pins them (`flutter_localizations`,
+  `flutter_web_plugins`) and the generated image tracks `flutter:stable`, so an
+  exact value is only knowable once the SDK is pinned.
+- **Gate:** `test/system/generated-manifest-pins.test.ts` generates the whole
+  tracked `.ddd` corpus on all five backends plus every built-in design pack and
+  fails on any range specifier; its waivers ratchet.
+
+**Consequences.** Security fixes inside a range no longer arrive on their own;
+they ride the currency sweeps (#3685). The pinned set is the one the
+`generated-*-build` and `test:tsc` gates exercise.
+
+---
+
+## D-INHERITED-CAPABILITIES — a capability on an abstract base applies to every subtype
+
+**Status:** PINNED (owner ruling 2026-10-25, epic #3954).
+
+**Question.** `abstract aggregate Vehicle with softDeletable` + `aggregate Car
+extends Vehicle`. Does `Car` hide soft-deleted rows, and may a `Car` read say
+`ignoring softDeletable`? Before this ruling the base's fields reached the
+subtype but its capability identity did not: the subtype carried `is_deleted`
+and nothing filtered it (node, Python, Java, Elixir, .NET Dapper, .NET EF
+TPC), and `ignoring softDeletable` on the subtype was refused as an unknown
+capability. Tenancy only held because `loom.tenancy-stance-unmarked` forced the
+author to repeat `with tenantOwned` on every concrete.
+
+**Decision.** A `Car` is a `Vehicle`, so everything a capability on the base
+contributes applies to every concrete that `extends` it, transitively: its
+filters and bare `filter` declarations, its stamps, its capability tags and its
+`crossTenant` stance.
+
+- **Where.** Once, in phase ⑥ (`src/ir/enrich/inherited-capabilities.ts`).
+  Every backend reads the merged `contextFilters` / `contextFilterOrigins` /
+  `contextStamps` / `capabilities` and carries no inheritance logic, and the
+  `ignoring` and tenancy validators resolve against the same set.
+- **Order.** Ancestors' filters first (root-most first), then the concrete's
+  own; `inheritedFilterCount` (`src/ir/util/inheritance.ts`) reads that prefix.
+- **Repeats.** A subtype re-applying its base's capability gets that filter once
+  (the inherited entry wins); a stamp assignment the base already makes on the
+  same event is dropped from the subtype's own rules.
+- **.NET EF TPH.** The root config registers the root's filters once,
+  unguarded; a subtype neither re-registers them nor prefixes their names, so
+  `ignoring <rootCap>` on a subtype lifts the root's filter.
+- **Tenancy.** An unmarked subtype of a `tenantOwned` (or `crossTenant`) base
+  has that stance. A subtype declaring the opposite one is
+  `loom.tenancy-inherited-stance-conflict`.
+
+Gate: `test/generator/inherited-capability-filter.test.ts` — one case per
+backend × TPH/TPC; a Truck read carries the base's `is_deleted` filter and
+`ignoring softDeletable` on Truck drops it.

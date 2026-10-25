@@ -26,6 +26,7 @@
       "body": [
         {
           "attempts": 0,
+          "credit": "9.5000",
           "orderId": "<volatile:key>",
           "retries": 1,
           "status": "Pending"
@@ -39,6 +40,7 @@
       "status": 200,
       "body": {
         "attempts": 0,
+        "credit": "9.5000",
         "orderId": "<volatile:key>",
         "retries": 1,
         "status": "Pending"
@@ -58,6 +60,7 @@
       "status": 200,
       "body": {
         "attempts": 1,
+        "credit": "7.0000",
         "orderId": "<volatile:key>",
         "retries": 2,
         "status": "Shipped"
@@ -89,6 +92,7 @@
       "status": 200,
       "body": {
         "attempts": 1,
+        "credit": "7.0000",
         "orderId": "<volatile:key>",
         "retries": 2,
         "status": "Shipped"
@@ -167,6 +171,7 @@
       "body": [
         {
           "attempts": 1,
+          "credit": "7.0000",
           "orderId": "<volatile:key>",
           "retries": 2,
           "status": "Shipped"
@@ -235,6 +240,45 @@
         "instance": "/api/workflows/escalation/instances/{id}",
         "status": 404,
         "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 21,
+      "method": "POST",
+      "path": "/api/orders/{id}/ship",
+      "status": 404,
+      "body": {
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}/ship",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 22,
+      "method": "POST",
+      "path": "/api/orders/{id}/ship",
+      "status": 404,
+      "body": {
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}/ship",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 23,
+      "method": "POST",
+      "path": "/api/orders/{id}/ship",
+      "status": 415,
+      "body": {
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/orders/{id}/ship",
+        "status": 415,
+        "title": "Unsupported Media Type",
         "type": "about:blank"
       }
     }

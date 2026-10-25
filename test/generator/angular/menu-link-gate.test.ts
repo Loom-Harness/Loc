@@ -59,7 +59,7 @@ describe("angular menu-link gate", () => {
     expect(shell).toContain('import { SessionService } from "./auth/session.service";');
     expect(shell).toContain("readonly session = inject(SessionService);");
     expect(shell).toContain(
-      "get currentUser(): Record<string, unknown> { return this.session.user() ?? {}; }",
+      "get currentUser(): Record<string, any> { return this.session.user() ?? {}; }",
     );
     // Secret (gated) link is wrapped; Public (ungated) link is not.
     expect(shell).toContain('@if (currentUser.role === "manager") { <a mat-list-item');
@@ -88,7 +88,9 @@ describe("angular menu-link gate", () => {
       await generateSystemFiles(SYS({ authUi: true, gate: "" })),
       "web/src/app/app.component.ts",
     );
-    expect(shell).not.toContain("SessionService");
+    // The session is still injected — the toolbar's Sign out control reads
+    // it — but no nav gate binds `currentUser`.
+    expect(shell).toContain("readonly session = inject(SessionService);");
     expect(shell).not.toContain("currentUser");
     // No NAV gate.  (A bare `not.toContain("@if")` would now also forbid the
     // root error-handler banner, which every shell carries — M-T1.8.)

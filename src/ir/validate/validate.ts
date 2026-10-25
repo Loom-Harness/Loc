@@ -1,3 +1,4 @@
+import type { DesignPackInspector } from "../../util/design-pack-defects.js";
 import type { EnrichedLoomModel } from "../types/loom-ir.js";
 import { allContexts } from "../types/loom-ir.js";
 import { validateAggregateConstructible } from "./checks/aggregate-constructible-checks.js";
@@ -6,12 +7,20 @@ import {
   validateRoutes,
   validateUnservedApis,
 } from "./checks/api-checks.js";
+import {
+  validateApplierBodies,
+  validatePartConstructionOwner,
+} from "./checks/body-stmt-vocabulary.js";
 import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
 import { validateServerInitialisedFields } from "./checks/constructibility-checks.js";
 import { validateCreateCallSites } from "./checks/create-call-checks.js";
+import { validateDeclaredCreateParams } from "./checks/create-params-checks.js";
+import { validateCrudishHardDelete } from "./checks/crudish-hard-delete-checks.js";
+import { validateCustomDesignPacks } from "./checks/design-pack-checks.js";
 import type { LoomDiagnostic } from "./checks/diagnostic.js";
 import { validateDomainServices } from "./checks/domain-service-checks.js";
 import { validateEntityPartParams } from "./checks/entity-part-param-checks.js";
+import { validateSingleRowFindUniqueness } from "./checks/find-uniqueness-checks.js";
 import { validateIfStatementPlacement } from "./checks/if-stmt-checks.js";
 import { validateIndexSuggestions } from "./checks/index-suggestion-checks.js";
 import { validateMemberResolution } from "./checks/member-resolution-checks.js";
@@ -21,6 +30,10 @@ import {
   validateSelfProvisioningSchemaSupport,
 } from "./checks/migration-checks.js";
 import { validatePagedParamNames } from "./checks/paged-param-checks.js";
+import {
+  mikroOrmOnlyContexts,
+  validatePersistedCollectionPositions,
+} from "./checks/persisted-collection-checks.js";
 import { validateProjections } from "./checks/projection-checks.js";
 import {
   validateFindGates,
@@ -30,9 +43,14 @@ import {
   validateRetrievals,
   validateWorkflowInstanceReadGates,
 } from "./checks/query-checks.js";
+import {
+  validateReactorGates,
+  validateTimerTenantReads,
+} from "./checks/reactor-principal-checks.js";
 import { validateMemberRepositoryAccess } from "./checks/repo-access-checks.js";
 import { validateReservedFieldNames } from "./checks/reserved-field-name-checks.js";
 import { validateReservedSurfaces } from "./checks/reserved-surfaces.js";
+import { validateResourceOpPlacement } from "./checks/resource-op-positions.js";
 import { validateSensitiveWireSupport } from "./checks/sensitivity-checks.js";
 import { validateStores } from "./checks/store-checks.js";
 import {
@@ -44,15 +62,16 @@ import {
   validateExternOperations,
   validateFieldDefaults,
   validateFindNameCollisions,
+  validateFindParamBindings,
   validateFunctionBlockBodies,
   validateLifecycleBodyDropped,
   validateNamedLifecycleDropped,
   validatePermissionRefs,
   validateReservedStructuralErrorNames,
-  validateResourceOpPlacement,
   validateUiPermissionRefs,
   validateUnionFindShapes,
   validateUniqueColumns,
+  validateUniqueTpcBase,
   validateUnmappedErrorStatuses,
   validateVariantMatch,
   validateWorkspaceUniqueness,
@@ -101,14 +120,17 @@ import {
   validateResourceConfig,
   validateSavingShapeSupport,
   validateStampSupport,
+  validateStorageTypeBinding,
   validateSystem,
   validateTenancyFilterBypass,
   validateTphFilterExpressibility,
   validateUiBodyStatementKinds,
   validateUiProjectionReadFramework,
   validateUiRealtimeSupport,
+  validateUiThisUnbound,
   validateVanillaDocumentScope,
 } from "./checks/system-checks.js";
+import { validatePersistedTableCollisions } from "./checks/table-name-checks.js";
 import { validateTenancy } from "./checks/tenancy-checks.js";
 import {
   validateAggregateTestBodies,
@@ -120,6 +142,10 @@ import {
   validateUiBackendBindings,
   validateUiReadsServed,
 } from "./checks/ui-backend-binding-checks.js";
+import {
+  validateUiBodyRules,
+  validateUiBodyVocabulary,
+} from "./checks/ui-body-vocabulary-checks.js";
 import { validateUiBodies, validateUiPageIdentity } from "./checks/ui-checks.js";
 import { validatePageGates } from "./checks/ui-gate-checks.js";
 import { validateUnionReads } from "./checks/union-read-checks.js";
@@ -161,7 +187,20 @@ export { firstNonQueryableNode } from "./checks/shared.js";
 //     defensive try/catch + descriptive-error logic.
 // ---------------------------------------------------------------------------
 
-export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
+/** What the HOST can offer phase ⑦ beyond the model itself.  Every field is
+ *  optional, and a check that needs one skips when it is absent — so the
+ *  browser playground and the in-memory `src/api/` toolkit validate the same
+ *  model the CLI does, minus only what they cannot see. */
+export interface ValidateLoomModelOptions {
+  /** Reads a custom `design:` pack (the CLI passes the fs-backed
+   *  `fsDesignPackInspector`).  Absent ⇒ custom packs are not inspected. */
+  designPacks?: DesignPackInspector;
+}
+
+export function validateLoomModel(
+  loom: EnrichedLoomModel,
+  options: ValidateLoomModelOptions = {},
+): LoomDiagnostic[] {
   const diags: LoomDiagnostic[] = [];
   // Workspace-scope uniqueness checks — only meaningful once a
   // project may span multiple `.ddd` files (Stage A multi-file).
@@ -170,6 +209,8 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
   validateWorkspaceUniqueness(loom, diags);
   // `unique (...)` value-object column rejection (needs the resolved IR type).
   validateUniqueColumns(loom, diags);
+  // TPC base `unique (...)`: per-table, not hierarchy-wide (warning).
+  validateUniqueTpcBase(loom, diags);
   // System-wide: warn when a workflow event consumer subscribes to an event no
   // channel carries (it can't be dispatched in-process).  Needs every
   // context's channels, so it runs once over the whole model, not per-context.
@@ -180,6 +221,9 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
   for (const sys of loom.systems) {
     validateSystem(sys, diags);
     validateUnservedApis(sys, diags);
+    // A custom `design:` pack is loaded and checked here, when the host can
+    // read it — the loader would otherwise be the first to find its defects.
+    validateCustomDesignPacks(sys, options.designPacks, diags);
     // Page gates and bodies name permissions too, and `validatePermissionRefs`
     // walks only CONTEXT bodies — so an unresolvable `permissions.<name>` in a
     // `ui` lowered to the sentinel and rendered as a literal no principal can
@@ -209,6 +253,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateResourceConfig(sys, diags);
     validateApiResourceBindings(sys, diags);
     validateDataSourceUnwiredKnobs(sys, diags);
+    validateStorageTypeBinding(sys, diags);
     validateReservedSurfaces(sys, diags);
     validateReactIdReferences(sys, diags);
     validateAuthUiFramework(sys, diags);
@@ -227,6 +272,9 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateFrontendPropTypes(sys, diags);
     validateFlutterActionBodies(sys, diags);
     validateUiBodyStatementKinds(sys, diags);
+    validateUiBodyRules(sys, diags);
+    validateUiBodyVocabulary(sys, diags);
+    validateUiThisUnbound(sys, diags);
     validatePageGateExprs(sys, diags);
     validateFormLocalCollisions(sys, diags);
     validateComponentChildrenSupport(sys, diags);
@@ -251,6 +299,9 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // infra-emitted tick-event shape, single-fire state requirement, and the
     // dead-config unbound warning.
     validateTimerSources(sys, diags);
+    // Reactors run as the tenant-scoped system principal (ruling D1): a timer
+    // tick has no tenant, so its tenant-owned reads must opt out explicitly.
+    validateTimerTenantReads(sys, diags);
     // Advisory index-suggestion lint (uniqueness-and-indexes.md §11,
     // D-INDEX-SUGGEST) — WARNING-severity `loom.index-suggestion` for a
     // query-filtered column with no covering index.  Never auto-derives; rides
@@ -264,6 +315,10 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // through `update`.  Points at `immutable` (and `managed` for the create
     // half), which leave the operation free to assign it.
     validateUpdateGateSuggestions(sys, diags);
+    // Advisory `loom.crudish-hard-delete`: a `softDeletable` aggregate whose
+    // `crudish`-synthesised `destroy` is a hard DELETE (documented; the remedy
+    // is `crudish(updateOnly: true)` + `softDelete`).  Same advisory channel.
+    validateCrudishHardDelete(sys, diags);
     // Scaffold expansion now runs at the AST level
     // (`src/language/ddd-scaffold-ast-expander.ts`).  Duplicate-page
     // detection happens through Langium's standard scope-walking
@@ -279,6 +334,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
   // Which backend (needsDb) platforms host each context — drives the TPH
   // storage gate (sharedTable is implemented for Hono only, v1).
   const backendPlatformsByContext = backendPlatformsHostingEachContext(loom);
+  const mikroOnly = mikroOrmOnlyContexts(loom);
   // Per-context checks apply uniformly whether the context is
   // bundled in a system's modules or sits at the top level.
   for (const c of allContexts(loom)) {
@@ -289,7 +345,10 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateRetrievals(c, diags);
     validateRawSeedColumns(c, diags);
     validateFindNameCollisions(c, diags);
+    validateFindParamBindings(c, diags);
     validatePagedParamNames(c, diags);
+    validatePersistedTableCollisions(c, diags);
+    validateSingleRowFindUniqueness(c, diags);
     validateEntityPartParams(c, diags);
     validateAggregateTestBodies(c, diags);
     validateTestStatementVocabulary(c, diags);
@@ -306,7 +365,10 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateExternOperations(c, diags);
     validateStampReadsBeforeFlush(c, diags);
     validateServerInitialisedFields(c, diags);
+    validateDeclaredCreateParams(c, diags);
     validateEventSourcedDiscipline(c, diags);
+    validateApplierBodies(c, diags);
+    validatePartConstructionOwner(c, diags);
     validateProjections(c, diags);
     validateAggregateConstructible(c, diags);
     validateWorkflowUnusedParams(c, diags);
@@ -317,10 +379,14 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
       // The cross-context-repository gate needs the sibling contexts, like
       // `validateDomainServices` above.
       [...allContexts(loom)],
+      [...loom.rootValueObjects, ...loom.rootEnums, ...loom.rootPayloads].map((d) => d.name),
     );
     // Explicit application-layer handlers (unfoldable-api-derivation.md, Layer 3):
     // queryHandler-read-only + commandHandler-single-aggregate layering contracts.
     validateApplicationHandlers(c, diags);
+    // Ruling D1: a reactor's gates are evaluated against the system principal;
+    // warn on one it can never satisfy.
+    validateReactorGates(c, diags);
     validateCurrentUserScope(c, diags);
     validateFieldDefaults(c, diags);
     validateContainmentCycles(c, diags);
@@ -331,6 +397,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateNamedLifecycleDropped(c, diags);
     validateUnmappedErrorStatuses(c, diags);
     validateReservedStructuralErrorNames(c, diags);
+    validatePersistedCollectionPositions(c, diags, mikroOnly.has(c.name));
     validateInheritanceStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateEventSourcedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateProvenancedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());

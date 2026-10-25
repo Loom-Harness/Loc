@@ -11,7 +11,9 @@ import type {
   RepositoryIR,
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
+import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
@@ -31,7 +33,12 @@ import { hydrateRootExpr } from "../repository-find-builder.js";
 import { repoPortImportLine, repoPortName } from "../repository-port-builder.js";
 import { projectFieldEntries } from "../repository-save-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "../repository-wire-builder.js";
-import { aggregateIsAudited } from "./audit-stamp.js";
+import {
+  aggregateIsAudited,
+  stampImportLine,
+  stampInsertCall,
+  stampUpdateCall,
+} from "./audit-stamp.js";
 import { mikroSaveTxLines } from "./mikroorm-config.js";
 import { rowClassOf } from "./mikroorm-entities.js";
 import {
@@ -133,7 +140,7 @@ export function renderMikroEmbeddedRepository(
 
   const audited = aggregateIsAudited(agg);
   const upsertCall = audited
-    ? `    await em.upsert(${row}, stampInsert(rootRow));`
+    ? `    await em.upsert(${row}, ${stampInsertCall(agg, "rootRow")});`
     : `    await em.upsert(${row}, rootRow);`;
 
   // Versioned optimistic-concurrency save (M-T3.4, default-on via `crudish`) —
@@ -146,8 +153,8 @@ export function renderMikroEmbeddedRepository(
   const rootEntriesNoVersion = rootEntries.filter((e) => !e.startsWith("version:"));
   const rootRowInsert = `{ ${rootEntriesNoVersion.join(", ")}, version: 1 }`;
   const rootRowUpdate = `{ ${rootEntriesNoVersion.join(", ")}, version: expected + 1 }`;
-  const insertValues = audited ? `stampInsert(${rootRowInsert})` : rootRowInsert;
-  const updateSet = audited ? `stampUpdate(${rootRowUpdate})` : rootRowUpdate;
+  const insertValues = audited ? stampInsertCall(agg, rootRowInsert) : rootRowInsert;
+  const updateSet = audited ? stampUpdateCall(agg, rootRowUpdate) : rootRowUpdate;
   const versionedSaveLines = [
     `    const expected = expectedVersion ?? aggregate.version;`,
     `    const existing = await em.findOne(${row}, { id: aggregate.id as string });`,
@@ -184,13 +191,11 @@ export function renderMikroEmbeddedRepository(
       // The find's OWN predicate reads the declared `currentUser` parameter;
       // the capability filters (`caps`) keep the ambient accessor, because they
       // ride reads that have no such parameter.
+      // A clause-less find still filters — by its implicit key match.
+      const own = effectiveFindFilter(f, agg);
       filter = withContextFilters(
-        f.filter
-          ? whereToMikroFilter(
-              f.filter,
-              usesUser ? "currentUser" : AMBIENT_PRINCIPAL,
-              agg.associations,
-            )
+        own
+          ? whereToMikroFilter(own, usesUser ? "currentUser" : AMBIENT_PRINCIPAL, agg.associations)
           : "{}",
         caps,
       );
@@ -260,7 +265,7 @@ export function renderMikroEmbeddedRepository(
     );
   });
 
-  const deleteMethod = agg.canonicalDestroy
+  const deleteMethod = canonicalDestroy(agg)
     ? lines(
         `  async delete(id: ${idVar}): Promise<void> {`,
         `    await this.em.fork({ keepTransactionContext: true }).nativeDelete(${row}, ${withContextFilters("{ id: id as string }", [])});`,
@@ -345,7 +350,10 @@ export function renderMikroEmbeddedRepository(
     .replace(/"(?:\\.|[^"\\])*"/g, '""')
     .replace(/'(?:\\.|[^'\\])*'/g, "''")
     .replace(/`(?:\\.|[^`\\])*`/g, "``");
-  const candidates = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)];
+  const candidates = [
+    ...valueObjectPool(ctx).map((v) => v.name),
+    ...enumPool(ctx).map((e) => e.name),
+  ];
   const referenced = candidates.filter((n) => new RegExp(`\\b${n}\\b`).test(bodyScan));
   const isValueUsed = (n: string): boolean =>
     new RegExp(`new\\s+${n}\\(|\\b${n}\\.\\w`).test(bodyScan);
@@ -370,7 +378,7 @@ export function renderMikroEmbeddedRepository(
       `import { EntityManager } from "@mikro-orm/postgresql";`,
       `import { ${row} } from "../entities";`,
       maskUserImport(agg, repo),
-      audited && `import { stampInsert${versioned ? ", stampUpdate" : ""} } from "../audit-stamp";`,
+      audited && stampImportLine(agg, { update: versioned }),
       `import { ${[agg.name, ...agg.parts.map((p) => p.name)].join(", ")} } from "../../domain/${lowerFirst(agg.name)}";`,
       voImportLine,
       `import * as Ids from "../../domain/ids";`,

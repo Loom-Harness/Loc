@@ -1,23 +1,27 @@
-import { createInputFields } from "../../../ir/enrich/wire-projection.js";
+import { createInputFields, createOmissionValue } from "../../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
   DomainServiceIR,
   ExprIR,
+  FieldIR,
   TestIR,
   TestStmtIR,
   TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import { enumPool } from "../../../ir/util/reachable-types.js";
+import { hasValueObjectInvariants } from "../../../ir/util/value-object-invariants.js";
 import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { escapeCsharpIdent, upperFirst } from "../../../util/naming.js";
+import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import {
   coerceMatcherExpected,
   coerceTestLiteral,
   type TestLiteralTarget,
 } from "../../_test/arg-coercion.js";
-import { THROW_KIND_PREFIX } from "../../_test/throw-kind.js";
+import { csThrowKind } from "../../_test/throw-kind.js";
 import { renderCsExpr } from "../render-expr.js";
 
 /** C# leaves for the shared test-literal coercion rule
@@ -30,6 +34,8 @@ const CS_TEST_LITERAL: TestLiteralTarget = {
       : `new ${targetName}Id(${rendered})`,
   datetime: (rendered) =>
     `DateTime.Parse(${rendered}, null, System.Globalization.DateTimeStyles.RoundtripKind)`,
+  date: (rendered) =>
+    `DateOnly.ParseExact(${rendered}, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)`,
 };
 
 // A currentUser-gated operation's method signature picks up a trailing
@@ -51,8 +57,10 @@ const TEST_ACTOR = 'new User(System.Guid.Empty, "admin", new List<string> { "*" 
 //   expect(x).not.toBeLessThanOrEqual(0)  → x.Should().NotBeLessThanOrEqualTo(0);
 //
 // Every `expect` carries a matcher (no bare-boolean fallback);
-// `expect(call).toThrow()` emits `Assert.Throws<DomainException>` (xUnit +
-// AwesomeAssertions coexist).
+// `expect(call).toThrow()` emits `Assert.Throws<DomainException>` for a create
+// (a value-object construction: `Assert.Throws<ValueObjectInvariantException>`),
+// and an assertion over the domain-rejection family (`csBareToThrow`) for an
+// operation call (xUnit + AwesomeAssertions coexist).
 // ---------------------------------------------------------------------------
 
 export function renderTestsFile(
@@ -142,7 +150,13 @@ function renderSubjectTestsFile(
   // surfaced by the Phase-2 VO/service tests, which a project may have without
   // any enum.)
   if (ctx.valueObjects.length > 0) lines.push(`using ${ns}.Domain.ValueObjects;`);
-  if (ctx.enums.length > 0) lines.push(`using ${ns}.Domain.Enums;`);
+  // Gated on the bodies actually spelling an enum from the context's POOL: a
+  // sibling-context enum lives in the same project-wide `Domain.Enums`
+  // namespace, so a body naming one needs the using even when this context
+  // declares no enum of its own (claims D1).  C# can't reach an enum type
+  // without spelling its name, so the scan is exact.
+  if (enumPool(ctx).some((e) => new RegExp(`\\b${e.name}\\b`).test(bodyText)))
+    lines.push(`using ${ns}.Domain.Enums;`);
   if (ctx.aggregates.length > 0) lines.push(`using ${ns}.Domain.Ids;`);
   if (usesActor) lines.push(`using ${ns}.Auth;`);
   lines.push("");
@@ -178,21 +192,6 @@ function renderTest(t: TestIR, ctx: BoundedContextIR): string[] {
   return out;
 }
 
-/** Render an aggregate `Agg.create({...})` factory call as a named-arg
- *  `Agg.Create(...)` — the same shape the workflow `factory-let` emitter
- *  produces.  Emits exactly the inputs the test author named.
- *
- *  The factory's OMITTABLE parameters carry `= null` and materialize their
- *  declared default in the body (`csFactoryDefault` in emit/entity.ts), so
- *  naming a subset compiles.  Filling each omission instead would make
- *  `test "an omitted default is applied at construction"` assert a value the
- *  emitter just passed in.  Named args keep the source field order free of the
- *  CS1737 required-before-optional reordering.
- *
- *  Returns `null` when the expression isn't an aggregate create call, so
- *  the caller falls back to the generic expression renderer (a bare
- *  `object` literal would otherwise render as a C# `new { … }`, which is
- *  not a valid argument to `Create(...)`). */
 /** Coerce a raw test literal to a strongly-typed C# factory / operation
  *  parameter.  The domain surface takes strong types (`CustomerId` — a
  *  `record struct CustomerId(Guid Value)` — / `DateTime` / …) where the test
@@ -204,6 +203,31 @@ function coerceLiteralToCsType(type: TypeIR | undefined, v: ExprIR, rendered: st
   return coerceTestLiteral(type, v, rendered, CS_TEST_LITERAL);
 }
 
+/** Render an aggregate `Agg.create({...})` factory call as a named-arg
+ *  `Agg.Create(...)` — the same shape the workflow `factory-let` emitter
+ *  produces.  Emits the inputs the test author named, plus an explicit value
+ *  for each omitted input the factory has NO C# default for.
+ *
+ *  The factory's DEFAULTABLE parameters (a declared `= default`, a bare
+ *  `bool`, a non-nullable collection) carry `= null` and materialize their
+ *  value in the body (`csFactoryDefault` in emit/entity.ts), so those stay
+ *  omitted.  Filling them would make
+ *  `test "an omitted default is applied at construction"` assert a value the
+ *  emitter just passed in.  Named args keep the source field order free of the
+ *  CS1737 required-before-optional reordering.
+ *
+ *  Two kinds of omission have no factory default and must be spelled out,
+ *  or the call is CS7036:
+ *    - a PLAIN optional (`note: string?`) is a required `string? note`
+ *      parameter, so it gets `null`, which is what omitting it means;
+ *    - a SERVER-sourced default (`now()`, `currentUser.*`) is coalesced per
+ *      request rather than by the factory, so it gets its rendered expression.
+ *  The Java test emitter (`java/emit/tests.ts`) uses the same rule, positionally.
+ *
+ *  Returns `null` when the expression isn't an aggregate create call, so
+ *  the caller falls back to the generic expression renderer (a bare
+ *  `object` literal would otherwise render as a C# `new { … }`, which is
+ *  not a valid argument to `Create(...)`). */
 export function renderCreateCall(e: ExprIR, ctx: BoundedContextIR): string | null {
   if (e.kind !== "method-call" || e.member !== "create" || e.args.length !== 1) return null;
   const objArg = e.args[0];
@@ -217,14 +241,33 @@ export function renderCreateCall(e: ExprIR, ctx: BoundedContextIR): string | nul
     const rendered = renderCsExpr(f.value);
     return `${escapeCsharpIdent(f.name)}: ${t ? coerceLiteralToCsType(t, f.value, rendered) : rendered}`;
   });
-  // Emit EXACTLY what the test author wrote.  Appending every omitted create
-  // input from `createOmissionValue` makes the assertion vacuous:
-  // `test "an omitted default is applied at construction"` writes
-  // `Item.Create(name: "N")` and checks `Qty == 1`, and the fill would emit
-  // `Item.Create(name: "N", qty: 1, …)`, passing the value it then asserts.
-  // The factory defaults omittable inputs itself (`csFactoryDefault` in
-  // emit/entity.ts), so the omission compiles AND exercises the domain rule.
-  return `${agg.name}.Create(${provided.join(", ")})`;
+  // Do NOT append every omitted create input from `createOmissionValue`: that
+  // makes the assertion vacuous.  `test "an omitted default is applied at
+  // construction"` writes `Item.Create(name: "N")` and checks `Qty == 1`, and
+  // a full fill would emit `Item.Create(name: "N", qty: 1, …)`, passing the
+  // value it then asserts.  Fill only the omissions the factory cannot default.
+  const named = new Set(objArg.fields.map((f) => f.name));
+  const omitted = createInputFields(agg)
+    .filter((f) => !named.has(f.name))
+    .flatMap((f) => {
+      const v = csUndefaultedOmission(f);
+      return v === undefined ? [] : [`${escapeCsharpIdent(f.name)}: ${v}`];
+    });
+  return `${agg.name}.Create(${[...provided, ...omitted].join(", ")})`;
+}
+
+/** The value a unit test passes for an omitted create input that the domain
+ *  factory has NO C# parameter default for, or `undefined` when the factory
+ *  defaults it itself, in which case the argument stays omitted.  These are
+ *  the undefaulted arms of `csFactoryDefault` (emit/entity.ts): a plain
+ *  optional (`null` omission) and a server-sourced default. */
+function csUndefaultedOmission(f: FieldIR): string | undefined {
+  const omission = createOmissionValue(f);
+  if (omission.kind === "null") return "null";
+  if (omission.kind === "default" && isServerSourcedDefault(omission.expr)) {
+    return renderCsExpr(omission.expr);
+  }
+  return undefined;
 }
 
 /** Lower an explicit intrinsic value-matcher (`expect(x).toBe(y)`,
@@ -282,6 +325,51 @@ export function renderExplicitMatcherToAwesome(expr: ExprIR): string | null {
   return `${actual}.Should().${method}(${arg});`;
 }
 
+/** The exception types a BARE `toThrow()` accepts on .NET: every way the
+ *  in-process domain floor refuses a call.  xUnit's `Assert.Throws<T>` matches
+ *  the EXACT type, and these are siblings, not one hierarchy:
+ *
+ *    DomainException               — a `precondition`, an aggregate / part invariant;
+ *    DisallowedException           — an operation's `when` state gate (409);
+ *    ForbiddenException            — a `requires` left in the operation body;
+ *    ValueObjectInvariantException — a value object refused inside the body,
+ *                                    emitted only when the context declares
+ *                                    such an invariant.
+ *
+ *  Not `Exception`: a NullReferenceException out of broken generated code must
+ *  FAIL a negative test, not pass it. */
+function csDomainRejections(ctx: BoundedContextIR): string[] {
+  const out = ["DomainException", "DisallowedException", "ForbiddenException"];
+  if (hasValueObjectInvariants(ctx)) out.push("ValueObjectInvariantException");
+  return out;
+}
+
+/** The bare `expect(<expr>).toThrow()` assertion over the domain-rejection
+ *  family (claims D17), or `null` to keep the exact single-type
+ *  `Assert.Throws<…>`: a `create(...)` or a value-object construction can only
+ *  be refused by an invariant.  Anything else, an operation call above all,
+ *  may be refused by a `when` gate or a `requires` as well.  `body` is the
+ *  lambda body (`t.Close();`); `isAsync` renders the integration-test form. */
+export function csBareToThrow(
+  e: ExprIR,
+  body: string,
+  local: string,
+  indent: string,
+  ctx: BoundedContextIR,
+  isAsync = false,
+): string | null {
+  if (e.kind === "method-call" && e.member === "create") return null;
+  if (e.kind === "call" && e.callKind === "value-object-ctor") return null;
+  const caught = isAsync
+    ? `await Assert.ThrowsAnyAsync<Exception>(async () => { ${body} await Task.CompletedTask; })`
+    : `Assert.ThrowsAny<Exception>(() => { ${body} })`;
+  return [
+    `${indent}var ${local} = ${caught};`,
+    `${indent}Assert.True(${local} is ${csDomainRejections(ctx).join(" or ")},`,
+    `${indent}    $"expected the domain to reject this call, but it threw: {${local}}");`,
+  ].join("\n");
+}
+
 function renderTestStmt(
   s: TestStmtIR,
   ctx: BoundedContextIR,
@@ -307,21 +395,34 @@ function renderTestStmt(
     // binding a void call to `var` is a CS0815 error, so never do it for calls.
     const isInvocation = s.expr.kind === "method-call" || s.expr.kind === "call";
     const body = isInvocation ? `${expr};` : `var __ = ${expr};`;
-    const thrown = `Assert.Throws<DomainException>(() => { ${body} })`;
-    // `toThrow(<kind>)` — pin WHICH rung rejected.  `Assert.Throws` returns the
-    // caught exception, so the rung is one local plus `Assert.StartsWith` over
-    // the derived message prefix.  The local carries the statement index so
-    // two throw assertions in one `[Fact]` don't collide.
-    if (s.throwKind) {
+    // `Assert.Throws<T>` matches the EXACT type, and a value object's invariant
+    // throws its own `ValueObjectInvariantException` (enums-vos.ts), a sibling
+    // of `DomainException` rather than a subclass.  Asserting `DomainException`
+    // for `expect(Money { amount: -1 … }).toThrow()` compiles, and then fails at
+    // run time even though the invariant fired.
+    // A `toThrow(precondition)` over one keeps `DomainException`, so it FAILS
+    // at run time as it does on every other backend: a value object declares
+    // invariants only, so no precondition can be what refused it.
+    const voCtor =
+      s.expr.kind === "call" &&
+      s.expr.callKind === "value-object-ctor" &&
+      s.throwKind !== "precondition";
+    const exceptionType = voCtor ? "ValueObjectInvariantException" : "DomainException";
+    const thrown = `Assert.Throws<${exceptionType}>(() => { ${body} })`;
+    // `toThrow(<kind>)` — pin WHICH rung rejected by the exception's structural
+    // `Kind`, never its message, which an authored `message "..."` replaces.
+    // `Assert.Throws` returns the caught exception, so the rung is one local
+    // plus `Assert.Equal`; the local carries the statement index so two throw
+    // assertions in one `[Fact]` don't collide.  A value object's invariant is
+    // its own exception TYPE, so there the type already is the rung.
+    if (s.throwKind && !voCtor) {
       const local = `__thrown${index}`;
       return [
         `    var ${local} = ${thrown};`,
-        `    Assert.StartsWith(${JSON.stringify(
-          THROW_KIND_PREFIX[s.throwKind],
-        )}, ${local}.Message);`,
+        `    Assert.Equal(${csThrowKind(s.throwKind)}, ${local}.Kind);`,
       ].join("\n");
     }
-    return `    ${thrown};`;
+    return csBareToThrow(s.expr, body, `__thrown${index}`, "    ", ctx) ?? `    ${thrown};`;
   }
   if (s.kind === "let") {
     const expr = renderTestExpr(s.expr, ctx);

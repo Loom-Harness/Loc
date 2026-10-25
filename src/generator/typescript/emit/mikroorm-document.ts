@@ -13,7 +13,8 @@ import {
   aggregateUsesPrincipalContextFilter,
   findUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
@@ -31,7 +32,7 @@ import {
 } from "../repository-document-builder.js";
 import { repoPortImportLine, repoPortName } from "../repository-port-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "../repository-wire-builder.js";
-import { aggregateIsAudited } from "./audit-stamp.js";
+import { aggregateIsAudited, stampImportLine, stampInsertCall } from "./audit-stamp.js";
 import { mikroSaveTxLines } from "./mikroorm-config.js";
 import { rowClassOf } from "./mikroorm-entities.js";
 import { mikroBlobGetByIdLines } from "./mikroorm-filter.js";
@@ -57,7 +58,7 @@ export function renderMikroDocumentRepository(
   const row = rowClassOf(agg.name);
   const idVar = `Ids.${agg.name}Id`;
   const versioned = aggregateIsVersioned(agg);
-  const emitsDelete = !!agg.canonicalDestroy;
+  const emitsDelete = !!canonicalDestroy(agg);
   // Root rehydrate — a versioned root takes the authoritative `version` COLUMN
   // (the blob copy lags a write), matching the drizzle document path.
   const fromDocOf = (rowVar: string): string =>
@@ -181,7 +182,7 @@ export function renderMikroDocumentRepository(
   // failed while drizzle passed.
   // Property SHORTHAND when unaudited (`data`, not `data: data`) so an
   // aggregate with no lifecycle stamps emits byte-identically to before.
-  const docData = docAudited ? "data: stampInsert(data)" : "data";
+  const docData = docAudited ? `data: ${stampInsertCall(agg, "data")}` : "data";
   const saveLines = versioned
     ? [
         `    const expected = expectedVersion ?? aggregate.version;`,
@@ -287,7 +288,10 @@ export function renderMikroDocumentRepository(
     .replace(/"(?:\\.|[^"\\])*"/g, '""')
     .replace(/'(?:\\.|[^'\\])*'/g, "''")
     .replace(/`(?:\\.|[^`\\])*`/g, "``");
-  const candidates = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)];
+  const candidates = [
+    ...valueObjectPool(ctx).map((v) => v.name),
+    ...enumPool(ctx).map((e) => e.name),
+  ];
   const referenced = candidates.filter((n) => new RegExp(`\\b${n}\\b`).test(bodyScan));
   const isValueUsed = (n: string): boolean =>
     new RegExp(`new\\s+${n}\\(|\\b${n}\\.\\w`).test(bodyScan);
@@ -319,7 +323,7 @@ export function renderMikroDocumentRepository(
         ? `import { AggregateNotFoundError, ConcurrencyError } from "../../domain/errors";`
         : `import { AggregateNotFoundError } from "../../domain/errors";`,
       `import type { DomainEventDispatcher } from "../../domain/events";`,
-      docAudited && `import { stampInsert } from "../audit-stamp";`,
+      docAudited && stampImportLine(agg, { update: false }),
       `import { requestLog } from "../../obs/als";`,
       "",
       body,

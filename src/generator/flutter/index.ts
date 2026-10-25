@@ -41,6 +41,7 @@ import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, upperFirst } from "../../util/naming.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
+import { usesValueEquals } from "../_frontend/value-equals.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import type { ApiCallSite } from "../_walker/target.js";
@@ -73,6 +74,7 @@ import {
 } from "./forms-emit.js";
 import { flutterI18nEnabled, renderFlutterI18nModule } from "./i18n.js";
 import { collectBoundInputFields, uiUsesFileUpload } from "./inputs-emit.js";
+import { FLUTTER_NAV_MENU_WIDGET, renderFlutterNavMenu } from "./menu-emit.js";
 import { renderFlutterModalRuntime } from "./modal-runtime.js";
 import { renderFlutterMoneyRuntime, usesMoney } from "./money-runtime.js";
 import { FLUTTER_NAV_MARKER, renderFlutterNavRuntime } from "./nav-runtime.js";
@@ -102,6 +104,7 @@ import {
   usesUrlStores,
 } from "./store-persist.js";
 import { FLUTTER_TOAST_MARKER, renderFlutterToastRuntime } from "./toast-runtime.js";
+import { renderFlutterValueEqualsRuntime } from "./value-equals-runtime.js";
 
 export interface GenerateFlutterOptions {
   apiBaseUrl?: string;
@@ -304,6 +307,9 @@ export function generateFlutterForContexts(
   const pageRoutes = new Map<string, string>(
     pages.map((p) => [p.name, p.route ?? `/${pageFileBase(p, nameCtx)}`]),
   );
+  // The explicit `menu { }` — one shared widget every page's app bar mounts.
+  const navMenuSource = renderFlutterNavMenu(ui, nameCtx, authUi, i18nEnabled);
+  if (navMenuSource) out.set("lib/nav_menu.dart", navMenuSource);
   const usedComponents = new Set<string>();
   const rendered = pages.map((page) => {
     const r = renderPage(page, ui as UiIR, contexts, aggregatesByName, bcByAggregate, {
@@ -316,6 +322,7 @@ export function generateFlutterForContexts(
       nameCtx,
       pageRoutes,
       credentialed,
+      navMenu: navMenuSource !== "",
     });
     for (const name of r.usedComponents) usedComponents.add(name);
     return { page, ...r };
@@ -433,6 +440,7 @@ export function generateFlutterForContexts(
     scaffoldMessengerKey:
       rendered.some((r) => r.source.includes(FLUTTER_TOAST_MARKER)) ||
       [...out.values()].some((c) => c.includes(FLUTTER_TOAST_MARKER)),
+    i18n: i18nEnabled,
   };
   if (rendered.length > 0) {
     for (const r of rendered) {
@@ -506,6 +514,11 @@ export function generateFlutterForContexts(
   if ([...out.values()].some((content) => usesMoney(content))) {
     out.set("lib/money.dart", renderFlutterMoneyRuntime());
   }
+  // The value-object equality helper — same use-driven, scan-last rule: a
+  // `loomValueEquals(` lands in pages, `components.dart` and `stores.dart`.
+  if ([...out.values()].some((content) => usesValueEquals(content))) {
+    out.set("lib/value_equals.dart", renderFlutterValueEqualsRuntime());
+  }
 
   // The out-of-tree navigation bridge — same use-driven
   // rule and same last-position scan as the money runtime above, and for the
@@ -577,37 +590,22 @@ function derivedResolvableOnPage(
   paramNames: ReadonlySet<string>,
   locals: ReadonlySet<string>,
 ): boolean {
-  if (e.kind === "id") return false; // route id — bound only when a read keys on it
-  if (e.kind === "ref") {
-    if (e.refKind === "lambda" || e.refKind === "enum-value" || e.refKind === "match-binding") {
-      return true;
-    }
-    // A store read hoists its own `ref.watch` local — see the doc comment.
-    if (e.refKind === "store-field" && e.storeName) return true;
-    return locals.has(e.name) || stateNames.has(e.name) || paramNames.has(e.name);
-  }
-  for (const v of Object.values(e)) {
-    if (Array.isArray(v)) {
-      for (const c of v) {
-        if (
-          c &&
-          typeof c === "object" &&
-          "kind" in c &&
-          !derivedResolvableOnPage(c as ExprIR, stateNames, paramNames, locals)
-        ) {
-          return false;
-        }
+  let resolvable = true;
+  walkExprDeep(e, (n) => {
+    if (n.kind === "id") {
+      resolvable = false; // route id — bound only when a read keys on it
+    } else if (n.kind === "ref") {
+      if (n.refKind === "lambda" || n.refKind === "enum-value" || n.refKind === "match-binding") {
+        return;
       }
-    } else if (
-      v &&
-      typeof v === "object" &&
-      "kind" in v &&
-      !derivedResolvableOnPage(v as ExprIR, stateNames, paramNames, locals)
-    ) {
-      return false;
+      // A store read hoists its own `ref.watch` local — see the doc comment.
+      if (n.refKind === "store-field" && n.storeName) return;
+      if (!(locals.has(n.name) || stateNames.has(n.name) || paramNames.has(n.name))) {
+        resolvable = false;
+      }
     }
-  }
-  return true;
+  });
+  return resolvable;
 }
 
 /** One candidate `final <name> = <dart>;` per page `derived` binding, in
@@ -744,6 +742,9 @@ function renderPage(
      *  — the page shell then imports the credentialed `api_client.dart` drop-in
      *  instead of `package:http/http.dart`. */
     credentialed: boolean;
+    /** True when the ui declares an explicit `menu { }` — every page's app bar
+     *  then mounts it (`lib/nav_menu.dart`). */
+    navMenu: boolean;
   },
 ): Omit<RenderedPage, "page"> {
   const {
@@ -756,6 +757,7 @@ function renderPage(
     nameCtx,
     pageRoutes,
     credentialed,
+    navMenu,
   } = workflows;
   // Identity comes from the page's EMIT NAME, never its bare `page.name`.  The
   // scaffold names aggregate pages by ROLE (`List` inside `area Products`), so
@@ -888,6 +890,7 @@ function renderPage(
           derivedLines,
           pageGate,
           credentialed,
+          navMenu,
         },
         bodyWidget,
         contexts,
@@ -902,6 +905,7 @@ function renderPage(
         usesComponent,
         derivedLines,
         credentialed,
+        navMenu,
       });
 
   return { fileBase, className, routePath, source, usedComponents };
@@ -963,6 +967,8 @@ interface ConsumerBindings {
    *  `package:http/http.dart` (D-FLUTTER-BEARER).  False keeps the emitted
    *  bytes identical. */
   credentialed: boolean;
+  /** True when the ui has an explicit `menu { }`: the app bar mounts it. */
+  navMenu: boolean;
 }
 
 /** Bind one local per used store member, matching the body's use site
@@ -1031,9 +1037,12 @@ function renderStatelessPage(
      *  FileUpload carry the credential (D-FLUTTER-BEARER).  False keeps the
      *  emitted bytes identical. */
     credentialed: boolean;
+    /** True when the ui has an explicit `menu { }`: the app bar mounts it. */
+    navMenu: boolean;
   },
 ): string {
   const imports = ["import 'package:flutter/material.dart';"];
+  if (opts.navMenu) imports.push("import '../nav_menu.dart';");
   // A `when`-gated op trigger watches its `can_<op>` probe through a `Consumer`
   // (this page has no `ref` of its own).
   if (bodyWidget.includes("Consumer(builder:")) {
@@ -1048,6 +1057,7 @@ function renderStatelessPage(
   if (bodyWidget.includes("LoomChart(")) imports.push("import '../chart.dart';");
   if (bodyWidget.includes(FLUTTER_REF_LABEL_MARKER)) imports.push("import '../ref_label.dart';");
   if (usesMoney(bodyWidget)) imports.push("import '../money.dart';");
+  if (usesValueEquals(bodyWidget)) imports.push("import '../value_equals.dart';");
   if (opts.usesComponent) imports.push("import '../components.dart';");
   // An `Action(<instance>.<op>)` button POSTs inline via `apiUri(` — the only
   // page-body reference to it — so import http + the base-URL helper on demand.
@@ -1078,7 +1088,7 @@ function renderStatelessPage(
     // and before the tree that reads them — Dart locals are not hoisted.
     ...opts.derivedLines,
     "    return Scaffold(",
-    `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')),`,
+    `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')${opts.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
     "      body: SingleChildScrollView(",
     `        child: ${indentContinuation(bodyWidget, 8)},`,
     "      ),",
@@ -1224,6 +1234,7 @@ function renderConsumerPage(
     "import 'package:flutter_riverpod/flutter_riverpod.dart';",
   ];
   if (b.pageGate) imports.push("import '../auth.dart';");
+  if (b.navMenu) imports.push("import '../nav_menu.dart';");
   if (b.usedApiHooks.size > 0) imports.push("import '../reads.dart';");
   if (b.hostsForm) imports.push("import '../forms.dart';");
   if (usesGateProbe(bodyWidget)) imports.push("import '../gates.dart';");
@@ -1246,6 +1257,7 @@ function renderConsumerPage(
   // The money runtime rides the SAME scan: an `action` body doing
   // money arithmetic lands in the Notifier (projSource), not in the markup.
   if (usesMoney(scan)) imports.push("import '../money.dart';");
+  if (usesValueEquals(scan)) imports.push("import '../value_equals.dart';");
   if (scan.includes("jsonDecode") || scan.includes("jsonEncode")) {
     imports.push("import 'dart:convert';");
   }
@@ -1293,7 +1305,7 @@ function renderConsumerPage(
     "  Widget build(BuildContext context, WidgetRef ref) {",
     bindings,
     "    return Scaffold(",
-    `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')),`,
+    `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')${b.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
     "      body: SingleChildScrollView(",
     `        child: ${guarded},`,
     "      ),",
@@ -1325,6 +1337,9 @@ interface AppBoot {
    *  component action — `toast(…)`, `lib/toast.dart`), so `MaterialApp` has to
    *  carry the `scaffoldMessengerKey` that bridge shows through. */
   scaffoldMessengerKey: boolean;
+  /** The app ships `lib/i18n.dart`, so the root error view reads its title
+   *  through `t()` like every other piece of chrome. */
+  i18n: boolean;
 }
 
 const NO_BOOT: AppBoot = {
@@ -1334,6 +1349,7 @@ const NO_BOOT: AppBoot = {
   realtime: false,
   navigatorKey: false,
   scaffoldMessengerKey: false,
+  i18n: false,
 };
 
 /** Global error boundary + failure sink, the flutter arm.  Built on
@@ -1357,31 +1373,44 @@ const NO_BOOT: AppBoot = {
  *  All three log through `debugPrint` — the same sink the framework's own
  *  default error reporting uses, so output still reaches `flutter run`'s
  *  console and CI's captured stdout with no new dependency. */
-const FLUTTER_ERROR_BOUNDARY_SETUP: readonly string[] = [
-  "  ErrorWidget.builder = (FlutterErrorDetails details) {",
-  "    debugPrint('Uncaught render error: ${details.exception}');",
-  "    return Material(",
-  "      child: Padding(",
-  "        padding: const EdgeInsets.all(16),",
-  "        child: Column(",
-  "          mainAxisSize: MainAxisSize.min,",
-  "          crossAxisAlignment: CrossAxisAlignment.start,",
-  "          children: [",
-  "            const Text(",
-  "              'Something went wrong.',",
-  "              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),",
-  "            ),",
-  "            Text('${details.exception}', style: const TextStyle(color: Colors.red)),",
-  "          ],",
-  "        ),",
-  "      ),",
-  "    );",
-  "  };",
-  "  FlutterError.onError = (FlutterErrorDetails details) {",
-  "    FlutterError.presentError(details);",
-  "    debugPrint('Uncaught framework error: ${details.exceptionAsString()}');",
-  "  };",
-];
+function errorBoundarySetup(i18n: boolean): string[] {
+  // The title is the shared `chrome.rootErrorTitle` message — through `t()`
+  // when the app ships a catalog, else the English (a `const` widget).
+  const title = i18n
+    ? [
+        "            Text(",
+        "              t('chrome.rootErrorTitle', 'Something went wrong.'),",
+        "              style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),",
+      ]
+    : [
+        "            const Text(",
+        "              'Something went wrong.',",
+        "              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),",
+      ];
+  return [
+    "  ErrorWidget.builder = (FlutterErrorDetails details) {",
+    "    debugPrint('Uncaught render error: ${details.exception}');",
+    "    return Material(",
+    "      child: Padding(",
+    "        padding: const EdgeInsets.all(16),",
+    "        child: Column(",
+    "          mainAxisSize: MainAxisSize.min,",
+    "          crossAxisAlignment: CrossAxisAlignment.start,",
+    "          children: [",
+    ...title,
+    "            ),",
+    "            Text('${details.exception}', style: const TextStyle(color: Colors.red)),",
+    "          ],",
+    "        ),",
+    "      ),",
+    "    );",
+    "  };",
+    "  FlutterError.onError = (FlutterErrorDetails details) {",
+    "    FlutterError.presentError(details);",
+    "    debugPrint('Uncaught framework error: ${details.exceptionAsString()}');",
+    "  };",
+  ];
+}
 
 /** `main()` for a `persist:`-bearing app — the web-storage tier has to finish
  *  loading before the first widget builds. */
@@ -1389,7 +1418,7 @@ function mainFn(boot: AppBoot): string[] {
   if (!boot.initPrefs) {
     return [
       "void main() {",
-      ...FLUTTER_ERROR_BOUNDARY_SETUP,
+      ...errorBoundarySetup(boot.i18n),
       "  runZonedGuarded(() {",
       "    runApp(const App());",
       "  }, (Object error, StackTrace stack) {",
@@ -1400,7 +1429,7 @@ function mainFn(boot: AppBoot): string[] {
   }
   return [
     "void main() {",
-    ...FLUTTER_ERROR_BOUNDARY_SETUP,
+    ...errorBoundarySetup(boot.i18n),
     "  runZonedGuarded(() async {",
     "    // The stored blobs must be in memory before the first Notifier `build()`,",
     "    // which seeds its cells synchronously (`store_persist.dart`).",
@@ -1476,6 +1505,7 @@ function renderMainWithRoutes(
     pages.map((p) => `import 'pages/${p.fileBase}.dart';`),
     boot.navigatorKey ? ["import 'nav.dart';"] : [],
     boot.scaffoldMessengerKey ? ["import 'toast.dart';"] : [],
+    boot.i18n ? ["import 'i18n.dart';"] : [],
     persistMainImports(boot),
     "",
     mainFn(boot),
@@ -1591,14 +1621,14 @@ function renderPubspec(
 ): string {
   // `file_picker` is only pulled when a FileUpload primitive is present, so a
   // File-free app's pubspec stays byte-identical.
-  const filePicker = usesFileUpload ? "\n  file_picker: ^8.1.2" : "";
+  const filePicker = usesFileUpload ? "\n  file_picker: 8.3.7" : "";
   // `shared_preferences` backs `persist: local|session`; the `url` tier needs no
   // package (`Uri.base` + `SystemNavigator` are core).
-  const prefs = usesPrefs ? "\n  shared_preferences: ^2.3.2" : "";
+  const prefs = usesPrefs ? "\n  shared_preferences: 2.5.6" : "";
   // `url_launcher` backs the `auth: ui` sign-in / sign-out REDIRECT — Dart's
   // core SDK cannot navigate to an external URL.  Same use-driven rule as
   // `file_picker`: an unauthenticated app's pubspec stays byte-identical.
-  const launcher = usesAuth ? "\n  url_launcher: ^6.3.1" : "";
+  const launcher = usesAuth ? "\n  url_launcher: 6.3.3" : "";
   // `package:web` backs the WEB half of the SSE transport (the browser's own
   // `EventSource`); the native half rides `package:http`, already present.
   // `^1.0.0`, not `^1.1.0`: `flutter_web_plugins` pins `web` from the SDK, so a
@@ -1617,14 +1647,14 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  http: ^1.2.0
-  flutter_riverpod: ^2.5.1
+  http: 1.6.0
+  flutter_riverpod: 2.6.1
   intl: ^0.19.0${filePicker}${prefs}${launcher}${webPkg}
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^4.0.0
+  flutter_lints: 4.0.0
 
 flutter:
   uses-material-design: true
@@ -1909,6 +1939,7 @@ function renderMain(title: string, boot: AppBoot = NO_BOOT): string {
     "import 'package:flutter_riverpod/flutter_riverpod.dart';",
     "",
     "import 'pages/home_page.dart';",
+    boot.i18n ? ["import 'i18n.dart';"] : [],
     persistMainImports(boot),
     "",
     mainFn(boot),

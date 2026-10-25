@@ -17,6 +17,7 @@ import type {
   UiIR,
 } from "../../types/loom-ir.js";
 import { exprUsesCurrentUser, stmtUsesCurrentUser } from "../../types/loom-ir.js";
+import type { OriginRef } from "../../types/origin.js";
 import { bodyUsesChart } from "../../util/chart.js";
 import { componentChildrenHosts } from "../../util/component-children.js";
 import { dataGridHosts } from "../../util/data-grid.js";
@@ -28,7 +29,12 @@ import {
 import { heexComponentHostStateUses } from "../../util/heex-component-host-state.js";
 import { liveViewHandlerCollisions, liveViewStatefulReuse } from "../../util/liveview-hoisting.js";
 import { readableProjectionNames } from "../../util/projection-read.js";
-import { walkExprDeep, walkExprStmtsDeep, walkStmtDeep } from "../../util/walk.js";
+import {
+  walkExprDeep,
+  walkExprStmtsDeep,
+  walkStmtDeep,
+  walkStmtExprsDeep,
+} from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { walkExpr } from "./shared.js";
 
@@ -239,7 +245,7 @@ export function validateLiveViewHoisting(sys: SystemIR, diags: LoomDiagnostic[])
  *  the FIRST hosted ui only.  Same idiom as `validateUiRealtimeSupport` /
  *  `validateFlutterPrimitiveSupport`. */
 
-function mountedUis(sys: SystemIR, d: DeployableIR): { ui: UiIR; fw: string }[] {
+export function mountedUis(sys: SystemIR, d: DeployableIR): { ui: UiIR; fw: string }[] {
   const uiNames = d.hostedUiNames.length > 0 ? d.hostedUiNames : d.uiName ? [d.uiName] : [];
   const out: { ui: UiIR; fw: string }[] = [];
   for (const uiName of uiNames) {
@@ -298,11 +304,15 @@ export function validateChartSupport(sys: SystemIR, diags: LoomDiagnostic[]): vo
       if (CHART_FRAMEWORKS.has(fw)) continue;
       // Components render into pages, so a chart moved into one must not slip
       // the gate — same body coverage as `validateUiProjectionReadFramework`.
-      const bodies: Array<{ what: string; body: ExprIR | undefined }> = [
-        ...ui.pages.map((p) => ({ what: `page '${p.name}'`, body: p.body })),
-        ...ui.components.map((c) => ({ what: `component '${c.name}'`, body: c.body })),
+      const bodies: Array<{ what: string; body: ExprIR | undefined; origin?: OriginRef }> = [
+        ...ui.pages.map((p) => ({ what: `page '${p.name}'`, body: p.body, origin: p.origin })),
+        ...ui.components.map((c) => ({
+          what: `component '${c.name}'`,
+          body: c.body,
+          origin: c.origin,
+        })),
       ];
-      for (const { what, body } of bodies) {
+      for (const { what, body, origin } of bodies) {
         if (!bodyUsesChart(body)) continue;
         diags.push({
           severity: "error",
@@ -313,6 +323,7 @@ export function validateChartSupport(sys: SystemIR, diags: LoomDiagnostic[]): vo
             uiFramework: fw || "unknown",
           }),
           source: `${ui.name}/${what}`,
+          origin,
         });
       }
     }
@@ -366,11 +377,15 @@ export function validateUiProjectionReadFramework(sys: SystemIR, diags: LoomDiag
       const handles = new Set(ui.apiParams.map((p) => p.name));
       // Components read projections too — F3 walks their bodies, so this half
       // must as well or a read simply moved into a component slips the gate.
-      const bodies: Array<{ what: string; body: ExprIR | undefined }> = [
-        ...ui.pages.map((p) => ({ what: `page '${p.name}'`, body: p.body })),
-        ...ui.components.map((c) => ({ what: `component '${c.name}'`, body: c.body })),
+      const bodies: Array<{ what: string; body: ExprIR | undefined; origin?: OriginRef }> = [
+        ...ui.pages.map((p) => ({ what: `page '${p.name}'`, body: p.body, origin: p.origin })),
+        ...ui.components.map((c) => ({
+          what: `component '${c.name}'`,
+          body: c.body,
+          origin: c.origin,
+        })),
       ];
-      for (const { what, body } of bodies) {
+      for (const { what, body, origin } of bodies) {
         for (const name of projectionReads(body, handles, readable)) {
           diags.push({
             severity: "error",
@@ -385,6 +400,7 @@ export function validateUiProjectionReadFramework(sys: SystemIR, diags: LoomDiag
               frameworks: [...PROJECTION_READ_FRAMEWORKS].sort().join(", "),
             }),
             source: `${ui.name}/${what}`,
+            origin,
           });
         }
       }
@@ -472,6 +488,7 @@ export function validateCurrentUserNeedsAuthUi(sys: SystemIR, diags: LoomDiagnos
             dName: d.name,
           }),
           source: `${ui.name}/${what}`,
+          origin: host.origin,
         });
       }
     }
@@ -495,6 +512,7 @@ interface UiRenderHost {
   state: { init?: ExprIR }[];
   derived: { expr: ExprIR }[];
   actions: { body: StmtIR[] }[];
+  origin?: OriginRef;
 }
 
 function hostReadsCurrentUser(host: UiRenderHost): boolean {
@@ -936,9 +954,119 @@ function backendBodyKinds(stmts: readonly StmtIR[]): string[] {
   return [...found].sort();
 }
 
+// -------------------------------------------------------------------------
+// `loom.ui-this-unbound` — `this` in a ui body on a walker frontend.
+//
+// A page / component / store has no aggregate instance in scope: it binds its
+// data through params, `state` and api reads.  The shared JS walker
+// (`_walker/walker-core.ts`) and Feliz's update renderer (`feliz/fs-expr.ts`)
+// both THROW on a `this` node, so `action a() { label := string(this) }`
+// reported `0 error(s), 0 warning(s)` and then aborted `ddd generate system`
+// with a raw `Error:` on all six of them.  Phoenix LiveView is exempt: its
+// HEEx renderer binds `this` to the page's `@record` assign.
+// -------------------------------------------------------------------------
+
+/** Every `this` node in an expression tree, block-bodied lambdas included. */
+function usesThis(e: ExprIR | undefined): boolean {
+  let found = false;
+  walkExprDeep(e, (n) => {
+    if (n.kind === "this") found = true;
+  });
+  return found;
+}
+
+function stmtsUseThis(stmts: readonly StmtIR[]): boolean {
+  let found = false;
+  for (const s of stmts) {
+    walkStmtExprsDeep(s, (n) => {
+      if (n.kind === "this") found = true;
+    });
+  }
+  return found;
+}
+
+export function validateUiThisUnbound(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  for (const d of sys.deployables) {
+    for (const { ui, fw } of mountedUis(sys, d)) {
+      if (fw === "phoenixLiveView") continue;
+      const flag = (where: string, hit: boolean): void => {
+        if (!hit) return;
+        diags.push({
+          severity: "error",
+          code: "loom.ui-this-unbound",
+          message: diagMessage("loom.ui-this-unbound", {
+            where,
+            uiName: ui.name,
+            fw: fw || "unknown",
+            dName: d.name,
+          }),
+          source: `${ui.name}/${where}`,
+        });
+      };
+      const hosts = [
+        ...ui.pages.map((p) => ({ label: `page '${p.name}'`, h: p })),
+        ...ui.components.map((c) => ({ label: `component '${c.name}'`, h: c })),
+      ];
+      for (const { label, h } of hosts) {
+        flag(`${label} body`, usesThis(h.body));
+        for (const a of h.actions) flag(`${label} action '${a.name}'`, stmtsUseThis(a.body));
+        for (const dv of h.derived) flag(`${label} derived '${dv.name}'`, usesThis(dv.expr));
+        for (const f of h.state) flag(`${label} state '${f.name}'`, usesThis(f.init));
+      }
+      for (const p of ui.pages) flag(`page '${p.name}' title`, usesThis(p.title));
+      for (const st of ui.stores) {
+        for (const a of st.actions) {
+          flag(`store '${st.name}' action '${a.name}'`, stmtsUseThis(a.body));
+        }
+        for (const f of st.state) flag(`store '${st.name}' state '${f.name}'`, usesThis(f.init));
+      }
+    }
+  }
+}
+
+/** Statement kinds a Phoenix LiveView STORE action cannot hold, → keyword.  The
+ *  LiveView handler renderer has arms for the first three, but a store is not a
+ *  handler: `store-emit.ts` renders each action as a pure struct → struct
+ *  function, with no socket to flash or halt on, no value sink and no
+ *  remote-call seam, so these four have nowhere to go there. */
+const LIVEVIEW_STORE_REFUSED_KINDS: Readonly<Record<string, string>> = {
+  ...BACKEND_BODY_UI_STMT_KINDS,
+  "variant-match": "match await",
+};
+
+function liveViewStoreRefusedKinds(stmts: readonly StmtIR[]): string[] {
+  const found = new Set<string>();
+  for (const s of stmts) {
+    walkStmtDeep(s, (n) => {
+      if (n.kind in LIVEVIEW_STORE_REFUSED_KINDS) found.add(n.kind);
+    });
+  }
+  return [...found].sort();
+}
+
 export function validateUiBodyStatementKinds(sys: SystemIR, diags: LoomDiagnostic[]): void {
   for (const d of sys.deployables) {
     for (const { ui, fw } of mountedUis(sys, d)) {
+      if (fw === "phoenixLiveView") {
+        for (const st of ui.stores) {
+          for (const a of st.actions) {
+            const where = `store '${st.name}' action '${a.name}'`;
+            for (const kind of liveViewStoreRefusedKinds(a.body)) {
+              diags.push({
+                severity: "error",
+                code: "loom.ui-body-statement-kind",
+                message: diagMessage("loom.ui-body-statement-kind#liveview-store", {
+                  where,
+                  uiName: ui.name,
+                  keyword: LIVEVIEW_STORE_REFUSED_KINDS[kind],
+                  dName: d.name,
+                }),
+                source: `${ui.name}/${where}`,
+              });
+            }
+          }
+        }
+      }
       if (BACKEND_BODY_STMT_FRAMEWORKS.has(fw)) continue;
       const flag = (where: string, stmts: readonly StmtIR[]): void => {
         for (const kind of backendBodyKinds(stmts)) {

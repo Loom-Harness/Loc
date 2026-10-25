@@ -153,6 +153,24 @@ function normalizeHead(line) {
     .slice(0, 200);
 }
 
+/** The base URL to hand schemathesis's `--url` for this spec.
+ *
+ *  `--url` REPLACES the document's server URL, path included.  A spec that
+ *  publishes its operations RELATIVE to a server path (`servers: [{url: "/api"}]`
+ *  with `paths: {"/customers": …}`) would then be fuzzed at `<origin>/customers`
+ *  — a different route, and on Phoenix a LiveView HTML page that answers 200
+ *  `text/html` to every operation.  So the server's PATH is carried onto the
+ *  booted origin: a relative server URL resolves against it, an absolute one
+ *  keeps only its path (the host it names is the deploy target, not this
+ *  boot), and no `servers` at all leaves the origin as it is. */
+export function specServerBase(spec, base) {
+  const url = spec?.servers?.[0]?.url;
+  if (typeof url !== "string" || url === "") return base;
+  const origin = new URL(base).origin;
+  const path = new URL(url, `${origin}/`).pathname.replace(/\/+$/, "");
+  return `${origin}${path}`;
+}
+
 /** Run schemathesis against the booted server + the spec it published, and
  *  return the failing (operation, check) keys with one example request each.
  *
@@ -210,7 +228,7 @@ export async function runSchemathesis({ workDir, base }) {
       rej(
         new Error(
           `could not run \`${BIN}\`: ${err.message}\n` +
-            "Install it with `uv tool install schemathesis` (or `pipx install schemathesis`).",
+            "Install it with `uv tool install schemathesis==4.24.3 --with jsonschema-rs==0.49.1` (the pins schemathesis.yml uses).",
         ),
       ),
     );
@@ -234,7 +252,15 @@ export async function runSchemathesis({ workDir, base }) {
  *  schemathesis reports plus the check that failed.  Deliberately coarse: a
  *  finding is a PROPERTY of an operation, not of one generated body, so the key
  *  stays stable across seeds and shrinking while a root-cause fix still clears
- *  every operation it touches at once. */
+ *  every operation it touches at once.
+ *
+ *  An operation schemathesis could not TEST is a finding too, keyed
+ *  `<METHOD> <PATH-TEMPLATE>::error:<type>`.  Its `NonFatalError` events are not
+ *  check results, so a reader of check results alone counts the operation clean
+ *  — which is how an unresolvable `$ref` in the published document (a schema
+ *  error) and a fuzzer-internal crash (a runtime error, e.g. an unpinned
+ *  `jsonschema-rs` the generator calls a removed method on) both passed as
+ *  "0 findings" while the operation was never sent a single request. */
 export function parseFindings(ndjsonPath) {
   const findings = new Map();
   for (const line of readFileSync(ndjsonPath, "utf8").split("\n")) {
@@ -243,6 +269,23 @@ export function parseFindings(ndjsonPath) {
     try {
       event = JSON.parse(line);
     } catch {
+      continue;
+    }
+    const err = event.NonFatalError ?? event.FatalError;
+    if (err) {
+      const type = err.value?.type ?? err.value?.exception ?? "Error";
+      const label = err.label ?? "(run)";
+      const key = `${label}::error:${type}`;
+      if (!findings.has(key)) {
+        const [method, uri] = label.split(" ");
+        findings.set(key, {
+          label,
+          check: `error:${type}`,
+          message: String(err.value?.message ?? "").split("\n")[0],
+          request: { method, uri: uri ?? "", body: null },
+          status: null,
+        });
+      }
       continue;
     }
     const sf = event.ScenarioFinished;
@@ -394,10 +437,12 @@ export async function fuzzLeg({ backend, cases, work, boot, argv = process.argv.
         (n, v) => n + Object.keys(v).length,
         0,
       );
+      const fuzzBase = specServerBase(spec, booted.base);
       process.stdout.write(
-        `  booted at ${booted.base} — ${opCount} operations in the emitted spec\n`,
+        `  booted at ${booted.base} — ${opCount} operations in the emitted spec` +
+          (fuzzBase === booted.base ? "\n" : ` (served under ${fuzzBase})\n`),
       );
-      findings = await runSchemathesis({ workDir: booted.workDir, base: booted.base });
+      findings = await runSchemathesis({ workDir: booted.workDir, base: fuzzBase });
     } catch (err) {
       process.stdout.write(`  ERROR: ${err?.message ?? err}\n`);
       bad++;

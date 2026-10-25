@@ -44,20 +44,41 @@ import type {
   OperationIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
+import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { renderableHere } from "../../../ir/util/changeset-invariant-carrier.js";
+import { byIdRouteFind, listReadFind } from "../../../ir/util/read-gates.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { messageCode } from "../../../util/message-code.js";
-import { elixirString, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import {
+  elixirLocal,
+  elixirOpAction,
+  elixirString,
+  escapeElixirIdent,
+  snake,
+  upperFirst,
+} from "../../../util/naming.js";
 import { domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js";
 import { contextHasDispatcher } from "../dispatch-emit.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
-import { denialOverrides, denialResponse, denialTerm, disallowedTerm } from "./denial.js";
+import {
+  contextAliasLine,
+  contextCallRef,
+  denialOverrides,
+  denialResponse,
+  denialTerm,
+  disallowedTerm,
+} from "./denial.js";
 import { renderFindActions } from "./find-controller.js";
 import { foldStmtsUseParam, renderFoldStatement } from "./fold-stmt-emit.js";
+import { effectiveGate, renderGateCondition } from "./gate.js";
 import { renderProblemVariantHelper } from "./operation-returns-emit.js";
-import { renderPathIdCastPlug } from "./problem-details-emit.js";
+import {
+  renderPathIdCastPlug,
+  renderRequiredParamsPlug,
+  requiredWireParams,
+} from "./problem-details-emit.js";
 import { renderWireSerialize } from "./wire-serialize.js";
 
 /** Truth-kind predicate — an aggregate whose persistence is its event log. */
@@ -238,7 +259,7 @@ function renderStructModule(
   return `# Auto-generated.
 defmodule ${moduleName} do
   @moduledoc "Event-sourced aggregate — in-memory state folded from its event stream (no state table)."
-  defstruct [${fields.map((f) => `:${f}`).join(", ")}]
+  defstruct [${[...fields.map((f) => `:${f}`), "__stream_version__: 0"].join(", ")}]
   @type t :: %__MODULE__{}
 ${pureCoreBlock}end
 `;
@@ -319,7 +340,10 @@ defmodule ${aggModule}Fold do
 
   @spec from_events(binary(), [struct()]) :: ${aggModule}.t()
   def from_events(id, events) do
-    Enum.reduce(events, %${aggModule}{id: id}, fn ev, acc -> apply_event(acc, ev) end)
+    folded = Enum.reduce(events, %${aggModule}{id: id}, fn ev, acc -> apply_event(acc, ev) end)
+    # A stream is gap-free from 1, so the folded count IS its head version: the
+    # expected version of this handle's next append (M-T6.98).
+    %{folded | __stream_version__: length(events)}
   end
 
 ${clauses.join("\n\n")}
@@ -436,20 +460,17 @@ defmodule ${repoMod} do
     end
   end
 
-  @doc "Append gap-free event versions to the aggregate's stream."
-  @spec append(binary(), [struct()]) :: :ok | {:error, term()}
-  def append(_id, []), do: :ok
+  @doc """
+  Append \`events\` to the aggregate's stream after \`expected_version\` — the
+  version the caller's handle was folded to (M-T6.98).  A handle some other
+  append has moved past re-inserts a version that exists and loses on the
+  (stream_type, stream_id, version) key: \`{:error, :conflict}\`, the RS-40 409.
+  """
+  @spec append(binary(), non_neg_integer(), [struct()]) :: :ok | {:error, term()}
+  def append(_id, _expected_version, []), do: :ok
 
-  def append(id, events) when is_binary(id) and is_list(events) do
+  def append(id, prior, events) when is_binary(id) and is_integer(prior) and is_list(events) do
     Repo.transaction(fn ->
-      prior =
-        Repo.one(
-          from(r in ${logShort},
-            where: r.stream_type == ^${streamType} and r.stream_id == ^id,
-            select: max(r.version)
-          )
-        ) || 0
-
       events
       |> Enum.with_index(prior + 1)
       |> Enum.each(fn {ev, version} ->
@@ -471,8 +492,8 @@ defmodule ${repoMod} do
     end
   rescue
     e in Postgrex.Error ->
-      # The (stream_id, version) PK rejected a duplicate append: a competing write
-      # won the version race (unique_violation, SQLSTATE 23505).  That IS the event
+      # The (stream_id, version) PK rejected a duplicate append: the handle was
+      # folded before another append landed (unique_violation, SQLSTATE 23505).  That IS the event
       # stream's optimistic-concurrency control — surface it as {:error, :conflict}
       # → HTTP 409 (parity with the \`versioned\` guarded write's stale-write).
       case e do
@@ -503,7 +524,7 @@ end
  *  silent degradation. */
 function renderEsFind(f: FindIR, agg: AggregateIR, aggModule: string): string {
   const fnName = snake(f.name);
-  const argNames = f.params.map((p) => escapeElixirIdent(snake(p.name)));
+  const argNames = f.params.map((p) => elixirLocal(p.name));
   const single = isSingleReturn(f.returnType);
   const ctx: RenderCtx = { thisName: "a", contextModule: aggModule };
   const pred = f.filter
@@ -511,6 +532,11 @@ function renderEsFind(f: FindIR, agg: AggregateIR, aggModule: string): string {
     : f.params
         .map((p) => `a.${snake(p.name)} == ${escapeElixirIdent(snake(p.name))}`)
         .join(" and ");
+  // A filterless, param-less find (`find pick(): X`) has no predicate at all:
+  // match every folded row rather than emitting `fn a ->  end` (a syntax
+  // error) or `fn a -> true end` (an unused-variable warning, fatal under
+  // `--warnings-as-errors`).
+  const filterAll = pred ? `Enum.filter(all, fn a -> ${pred} end)` : "all";
   if (pagedReturn(f.returnType)) {
     // Same whitelist the relational/document builders order by; the folded
     // aggregate is a struct, so a whitelisted property reads off it directly
@@ -528,7 +554,7 @@ function renderEsFind(f: FindIR, agg: AggregateIR, aggModule: string): string {
     ].join(", ");
     return `  def ${fnName}(${argList}) do
     {:ok, all} = list()
-    matched = Enum.filter(all, fn a -> ${pred} end)
+    matched = ${filterAll}
 
     total = length(matched)
     offset = (page - 1) * page_size
@@ -555,8 +581,10 @@ ${sortArms}${sortArms ? "\n" : ""}            _ -> a.id
   end`;
   }
   const reduce = single
-    ? `{:ok, Enum.find(all, fn a -> ${pred} end)}`
-    : `{:ok, Enum.filter(all, fn a -> ${pred} end)}`;
+    ? pred
+      ? `{:ok, Enum.find(all, fn a -> ${pred} end)}`
+      : "{:ok, List.first(all)}"
+    : `{:ok, ${filterAll}}`;
   return `  def ${fnName}(${argNames.join(", ")}) do
     {:ok, all} = list()
     ${reduce}
@@ -642,9 +670,7 @@ export function renderEsContextBlock(
             `dir \\\\ "asc"`,
           ]
         : [];
-      const args = [...f.params.map((p) => escapeElixirIdent(snake(p.name))), ...pageArgs].join(
-        ", ",
-      );
+      const args = [...f.params.map((p) => elixirLocal(p.name)), ...pageArgs].join(", ");
       return `  defdelegate ${findSnake}_${aggSnake}(${args}), to: ${repoMod}, as: :${findSnake}`;
     });
 
@@ -664,15 +690,42 @@ ${findLines.length > 0 ? `${findLines.join("\n")}\n` : ""}${opFns.length > 0 ? `
 
 export function renderEsController(
   appModule: string,
-  ctxModule: string,
+  ctxName: string,
   agg: AggregateIR,
   ctx: BoundedContextIR,
 ): string {
   const aggPascal = upperFirst(agg.name);
   const aggSnake = snake(agg.name);
-  const facadeMod = `${appModule}.${ctxModule}`;
+  const facadeMod = `${appModule}.${ctxName}`;
+  // Fully qualified when `alias <App>.<Ctx>` would shadow the app module.
+  const ctxModule = contextCallRef(appModule, ctxName);
   // `GET /<plural>/<find>` actions — event-sourced finds run load-all + filter.
   const findActions = renderFindActions(appModule, ctxModule, agg, ctx);
+  // The list and by-id reads' authorization gates — the author's
+  // `find all(): T[] requires …` / `find byId(id: T id): T? requires …`
+  // (M-T3.19, `read-gates.ts`).  403 BEFORE the load, with the same carrier +
+  // `detail` label the relational controller (`api-emit.ts`) renders.  This
+  // controller used to emit both actions without consulting either gate.
+  const repo = (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name);
+  const gatedReadAction = (head: string, body: string, find: FindIR | undefined): string => {
+    const gate = effectiveGate(find?.requires);
+    if (!gate) return `${head}\n${body}\n  end`;
+    const cuBind = exprUsesCurrentUser(gate)
+      ? "    current_user = Map.get(conn.assigns, :current_user)\n"
+      : "";
+    return `${head}
+${cuBind}    if not (${renderGateCondition(gate, (g) => renderExpr(g, { thisName: "record", contextModule: facadeMod }))}) do
+      ${denialResponse(
+        "forbidden",
+        JSON.stringify(`Forbidden: find ${find!.name}`),
+        denialOverrides(ctx),
+        `${appModule}Web.ProblemDetails`,
+      )}
+    else
+${body}
+    end
+  end`;
+  };
 
   // RS-13 — the 201 body is the ID ENVELOPE, not the serialized aggregate; see
   // the matching note in api-emit.ts.  The event-sourced controller shares the
@@ -720,7 +773,7 @@ ${esCreateActor ? "    current_user = Map.get(conn.assigns, :current_user)\n" : 
       const esCuBind = esOpActor ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
       const esCallActor = esOpActor ? ", current_user" : "";
       return `
-  def ${opSnake}(conn, %{"id" => id} = params) do
+  def ${elixirOpAction(op.name)}(conn, %{"id" => id} = params) do
 ${esCuBind}    attrs = Map.drop(params, ["id"])
 
     with {:ok, record} <- ${ctxModule}.get_${aggSnake}(id) do
@@ -772,7 +825,7 @@ ${disallowedClause}  defp command_error(conn, {:forbidden, detail}) do
   # rescued to {:error, :conflict}.  Map to the distinct 409 conflict responder
   # (parity with the \`versioned\` capability's stale-write → 409).
   defp command_error(conn, :conflict) do
-    ProblemDetails.conflict_response(conn)
+    ProblemDetails.conflict_response(conn, "${agg.name}", conn.path_params["id"])
   end
 
   defp command_error(conn, _reason) do
@@ -827,26 +880,29 @@ ${disallowedClause}  defp command_error(conn, {:forbidden, detail}) do
   return `# Auto-generated.
 defmodule ${appModule}Web.${aggPascal}Controller do
   use ${appModule}Web, :controller
-  alias ${facadeMod}
-  alias ${appModule}Web.ProblemDetails
+${contextAliasLine(appModule, ctxName)}  alias ${appModule}Web.ProblemDetails
 
 ${renderPathIdCastPlug()}
-
-  def index(conn, _params) do
-    with {:ok, records} <- ${ctxModule}.list_${aggSnake}s() do
+${renderRequiredParamsPlug(new Map(publicOps.map((op) => [snake(op.name), requiredWireParams(op.params)])))}
+${gatedReadAction(
+  `  def index(conn, _params) do`,
+  `    with {:ok, records} <- ${ctxModule}.list_${aggSnake}s() do
       json(conn, Enum.map(records, &serialize/1))
-    end
-  end
+    end`,
+  listReadFind(repo),
+)}
 
-  def show(conn, %{"id" => id}) do
-    case ${ctxModule}.get_${aggSnake}(id) do
+${gatedReadAction(
+  `  def show(conn, %{"id" => id}) do`,
+  `    case ${ctxModule}.get_${aggSnake}(id) do
       {:ok, record} ->
         json(conn, serialize(record))
 
       {:error, :not_found} ->
         ProblemDetails.not_found_response(conn, "${aggPascal}", id)
-    end
-  end
+    end`,
+  byIdRouteFind(repo, agg.idValueType),
+)}
 ${findActions}
 ${create}${opActions}
 ${commandError}${problemVariant}
@@ -888,7 +944,7 @@ function renderCommandRunner(c: CommandCtx): string {
   // by DSL convention, matching the cross-backend wire); the Elixir local is
   // its snake form.
   const paramReads = c.op.params.map(
-    (p) => `    ${escapeElixirIdent(snake(p.name))} = Map.get(attrs, ${JSON.stringify(p.name)})`,
+    (p) => `    ${elixirLocal(p.name)} = Map.get(attrs, ${JSON.stringify(p.name)})`,
   );
   if (c.kind === "create") paramReads.push("    id = UUIDv7.generate()");
 
@@ -901,7 +957,7 @@ function renderCommandRunner(c: CommandCtx): string {
   // Only an operation carries `when` (a create has no prior state to gate on).
   if (c.kind === "operation" && c.op.when) {
     clauses.push(
-      `:ok <- ensure(${renderExpr(c.op.when, exprCtx)}, ${disallowedTerm(c.aggName, c.op.name)})`,
+      `:ok <- ensure(${renderExpr(c.op.when, exprCtx)}, ${disallowedTerm(c.aggName, c.op)})`,
     );
   }
   const lets: string[] = [];
@@ -943,10 +999,18 @@ function renderCommandRunner(c: CommandCtx): string {
 
   clauses.push(`events = [${eventStructs.join(", ")}]`);
 
+  // The returned state carries the stream version the append moves it to, so
+  // the same handle can be saved again (an operation's fold starts from the
+  // handle's own version; a create's `from_events` counts its events).
   const fold =
     c.kind === "create"
       ? `${c.foldMod}.from_events(id, events)`
-      : `Enum.reduce(events, state, fn ev, acc -> ${c.foldMod}.apply_event(acc, ev) end)`;
+      : `Enum.reduce(events, %{state | __stream_version__: state.__stream_version__ + length(events)}, fn ev, acc -> ${c.foldMod}.apply_event(acc, ev) end)`;
+  // Expected-version append (M-T6.98): the version THIS handle was folded to —
+  // 0 for a fresh stream — not a `max(version)` re-read at append time, which
+  // let a handle loaded before another append keep a decision taken on its
+  // stale fold.
+  const expectedVersion = c.kind === "create" ? "0" : "state.__stream_version__";
   // The aggregate's invariants are asserted on the FOLDED state, before the
   // append: a command whose events would leave the aggregate invalid is refused
   // and nothing reaches the log.  With no invariant the fold stays after the
@@ -958,7 +1022,7 @@ function renderCommandRunner(c: CommandCtx): string {
     for (const inv of invariants) clauses.push(`:ok <- ensure(${inv.predicate}, ${inv.term})`);
     newState = "folded";
   }
-  clauses.push(`:ok <- ${c.repoMod}.append(${idExpr}, events)`);
+  clauses.push(`:ok <- ${c.repoMod}.append(${idExpr}, ${expectedVersion}, events)`);
 
   // `attrs` is only read when the command has params (via `Map.get(attrs, …)`);
   // a param-less command (e.g. `create open()` / `operation close()`) leaves it

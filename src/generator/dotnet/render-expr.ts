@@ -14,7 +14,7 @@ import { walkExprDeep } from "../../ir/util/walk.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import { escapeCsharpIdent, upperFirst } from "../../util/naming.js";
-import { csCodePointLength } from "../_expr/code-point.js";
+import { csCodePointLength, csCodePointSubstring } from "../_expr/code-point.js";
 import { csSubtreeLikePattern } from "../_expr/subtree-like.js";
 import {
   type BinaryExpr,
@@ -39,6 +39,7 @@ import {
 } from "./bcl-collision.js";
 import { joinDbSetName, joinFkPropName } from "./emit/join-entities.js";
 import { csStateHolderOf } from "./emit/state-holder.js";
+import { csReadOwnParams } from "./local-names.js";
 
 // ---------------------------------------------------------------------------
 // Expression renderer for the .NET / C# backend.
@@ -117,6 +118,12 @@ export interface CsRenderContext {
    *  everywhere else (a `repo-read` reaching a non-service context is a
    *  validator-caught bug). */
   repoReadHandle?: (repo: string) => string;
+  /** The declared parameter names of the context retrieval `name` — a
+   *  criterion read renders against `Run<Name>Async`, whose own trailing
+   *  `cancellationToken` yields to a same-named retrieval param
+   *  (`csReadOwnParams`), so the named token argument must use that name.  Set
+   *  alongside `repoReadHandle`. */
+  retrievalParamNames?: (name: string) => readonly string[];
   /** Injected-service call resolver for a `reading`-tier domain-service call
    *  (domain-services.md rev. 4).  On .NET a `reading` service is a
    *  DI'd `sealed class`, so the orchestrating workflow injects it (`_registration`)
@@ -746,7 +753,8 @@ function nullableValueOperand(e: Extract<ExprIR, { kind: "convert" }>): boolean 
     e.from !== "money" &&
     e.from !== "int" &&
     e.from !== "long" &&
-    e.from !== "datetime"
+    e.from !== "datetime" &&
+    e.from !== "date"
   ) {
     return false;
   }
@@ -779,6 +787,9 @@ function renderCsConvert(
       // ISO 8601 round-trip — "O" is the only format that preserves DateTime
       // precision losslessly, and IFormatProvider keeps the literal stable.
       return `${v}.ToString("O", ${sys}.Globalization.CultureInfo.InvariantCulture)`;
+    }
+    if (from === "date") {
+      return `${v}.ToString("yyyy'-'MM'-'dd", System.Globalization.CultureInfo.InvariantCulture)`;
     }
     return `${v}.ToString()`;
   }
@@ -845,7 +856,7 @@ function renderRef(e: RefExpr, ctx: CsRenderContext): string {
       // shared `<Wf>Functions` class.
       return `${csWorkflowFunctions(e.wfScope!, ctx)}.${upperFirst(e.name)}`;
     case "enum-value":
-      return `${e.enumName}.${e.name}`;
+      return `${e.enumName}.${escapeCsharpIdent(e.name)}`;
     case "current-user":
       // Magic identifier for the system's `user { ... }` shape.  The
       // emitter for each per-request context (operation, workflow)
@@ -955,16 +966,20 @@ export const CS_INTRINSIC_RENDERERS: Record<string, CsIntrinsicRenderer> = {
   // check below says no and the call silently becomes culture-sensitive.
   // `unwrapGuardedIntrinsicReceiver` in `src/ir/lower/lower-expr.ts` unwraps
   // it, so both forms land here.
-  "string.toUpper": (recv) => `${recv}.ToUpperInvariant()`,
+  //
+  // `ToUpperInvariant` is a SIMPLE (one char to one char) mapping, so it keeps
+  // `ß`, where node, java, python and elixir apply the full Unicode mapping and
+  // answer "SS" ("straße" → "STRASSE").  The ordinal replace completes it for
+  // the one full-mapping expansion that is not a ligature or polytonic Greek
+  // (see the catalogue contract in `src/util/intrinsics.ts`).
+  "string.toUpper": (recv, _args, q = bareCsBcl) =>
+    `${recv}.ToUpperInvariant().Replace("\\u00DF", "SS", ${q("StringComparison")}.Ordinal)`,
   "string.toLower": (recv) => `${recv}.ToLowerInvariant()`,
-  // 0-based CLAMPING semantics (JS `slice` — see the catalogue contract):
-  // .NET's Substring throws on out-of-range, so guard + ${q("Math")}.Min.  Receiver /
-  // arg duplication is safe — Loom expressions are pure.  StringComparison
-  // and Math live in `System`, covered by the SDK's <ImplicitUsings>.
-  "string.substring": (recv, args, q = bareCsBcl) =>
-    args.length > 1
-      ? `(${args[0]} >= ${recv}.Length ? "" : ${recv}.Substring(${args[0]}, ${q("Math")}.Min(${args[1]}, ${recv}.Length - ${args[0]})))`
-      : `(${args[0]} >= ${recv}.Length ? "" : ${recv}.Substring(${args[0]}))`,
+  // 0-based, CLAMPING, counted in CODE POINTS like `.length` (the catalogue
+  // contract; `_expr/code-point.ts`) — `Substring` counts UTF-16 units and
+  // throws out of range, so neither half of it fits.  The LINQ it rides is in
+  // the SDK's <ImplicitUsings>.
+  "string.substring": (recv, args) => csCodePointSubstring(recv, args[0]!, args[1]),
   // A ONE-character literal argument takes the `char` overload instead: Roslyn's
   // CA1865 rejects `StartsWith("x", StringComparison.Ordinal)` under the
   // generated project's /warnaserror, and `StartsWith(char)` IS an ordinal
@@ -1034,6 +1049,14 @@ export const CS_INTRINSIC_RENDERERS: Record<string, CsIntrinsicRenderer> = {
   // Core translates the `DateTime.Date` member to SQL `date_trunc('day', …)`
   // — the query position rides the same LINQ path (hence no SQL-table row).
   "datetime.startOfDay": (recv) => `${recv}.Date`,
+  // Every DateTime here is UTC (above), so its calendar date IS the UTC date.
+  "datetime.toDate": (recv) => `DateOnly.FromDateTime(${recv})`,
+  // ---- date — a `DateOnly`; `DayNumber` is the proleptic day count, so the
+  // difference is exact whole days with no zone in play.
+  "date.year": (recv) => `${recv}.Year`,
+  "date.month": (recv) => `${recv}.Month`,
+  "date.day": (recv) => `${recv}.Day`,
+  "date.daysUntil": (recv, args) => `((${args[0]}).DayNumber - (${recv}).DayNumber)`,
 };
 
 // EF-query-position overrides (sparse).  EF Core translates ONLY the
@@ -1146,7 +1169,12 @@ export const CS_COLLECTION_RENDERERS: Record<
   string,
   (recv: string, args: string[], e?: Extract<ExprIR, { kind: "method-call" }>) => string
 > = {
-  count: (recv) => `${recv}.Count()`,
+  // Every collection-typed C# value (`List<T>`, `IReadOnlyList<T>`, an EF
+  // owned/primitive collection) has a `Count` property, and LINQ's `Count()`
+  // over one is CA1829 — an error under `/warnaserror`.  EF translates the
+  // property in a query position too.  (`min`/`max` below read `.Count` for
+  // the same receivers.)
+  count: (recv) => `${recv}.Count`,
   sum: (recv, args) => (args.length === 1 ? `${recv}.Sum(${args[0]})` : `${recv}.Sum()`),
   all: (recv, args) => `${recv}.All(${args[0] ?? "_ => true"})`,
   any: (recv, args) => `${recv}.Any(${args[0] ?? "_ => true"})`,
@@ -1313,15 +1341,22 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
         // one the workflow `repo-run` uses — so the criterion actually filters
         // the query instead of dropping to the whole-table `All()`.  The token
         // is passed NAMED (an optional `page` sits ahead of it), and a
-        // single-result `find` takes `.FirstOrDefault()`.
+        // single-result `find` takes the first row or null.  The run method
+        // returns an `IReadOnlyList<T>`, where LINQ's `FirstOrDefault()` is
+        // CA1826 (an error under `/warnaserror`), so the first row is read by
+        // a list pattern — its variable is scoped to its own arm, so two finds
+        // in one expression cannot collide.
         if (read.readKind !== "named" && read.retrievalName) {
           const method = `Run${upperFirst(read.retrievalName)}Async`;
+          const { ct } = csReadOwnParams(ctx.retrievalParamNames?.(read.retrievalName) ?? []);
           const callArgs =
             argList.length > 0
-              ? `${argList}, cancellationToken: cancellationToken`
-              : "cancellationToken: cancellationToken";
+              ? `${argList}, ${ct}: cancellationToken`
+              : `${ct}: cancellationToken`;
           const call = `${handle}.${method}(${callArgs})`;
-          return read.readKind === "find" ? `(await ${call}).FirstOrDefault()` : `(await ${call})`;
+          return read.readKind === "find"
+            ? `((await ${call}) switch { [var __first, ..] => __first, _ => null })`
+            : `(await ${call})`;
         }
         const method = csRepoReadMethod(read.method, read.readKind);
         const ctArg = argList.length > 0 ? `${argList}, cancellationToken` : "cancellationToken";
@@ -1426,6 +1461,8 @@ const CS_TYPE_TARGET: TypeTarget = {
         return "bool";
       case "datetime":
         return "DateTime";
+      case "date":
+        return "DateOnly";
       case "guid":
         return "Guid";
       case "json":

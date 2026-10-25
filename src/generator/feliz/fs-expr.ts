@@ -21,6 +21,7 @@ import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { upperFirst } from "../../util/naming.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
 import { isIntDivWidenedToDecimal } from "../_expr/target.js";
+import { isValueObjectEquality } from "../_frontend/value-equals.js";
 import { fsIdent } from "./fs-ident.js";
 
 /** F# spelling of a Loom binary operator. */
@@ -251,6 +252,28 @@ export function fsTemporalBinary(
   return null;
 }
 
+/** Value-object `==` / `!=`, or `null` to fall through to the plain operator
+ *  leaf.  An F# record's `=` is already STRUCTURAL, so a VO pair of the same
+ *  shape needs nothing.  What F# does not do is compare an `Address option`
+ *  with an `Address` — a type error where Loom's `alt == shipTo` simply asks
+ *  "is the optional one present and equal?".  The plain side is lifted into
+ *  `Some`, which is exactly that question.
+ *
+ *  Shared by both feliz paths: the view walker reaches it through
+ *  `felizTarget.exprValueEquality`, the MVU update path through
+ *  `renderFsExpr`'s binary arm. */
+export function fsValueEquality(
+  left: string,
+  right: string,
+  e: Extract<ExprIR, { kind: "binary" }>,
+): string | null {
+  if (!isValueObjectEquality(e) || !e.leftType || !e.rightType) return null;
+  const lOpt = e.leftType.kind === "optional";
+  const rOpt = e.rightType.kind === "optional";
+  if (lOpt === rOpt) return null;
+  return FS_LEAVES.binary(rOpt ? `(Some ${left})` : left, lOpt ? `(Some ${right})` : right, e.op);
+}
+
 /** The numeric binary-operand arms, or `null` to fall through to the plain
  *  operator leaf.  F# performs NO implicit numeric conversion, but Loom's type
  *  system widens along `int → long → decimal` — three cases diverge:
@@ -388,6 +411,17 @@ export const FS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   // `getUTC*` readers instead of `setHours`.
   "datetime.startOfDay": (recv) =>
     `(let d = (${recv}).ToUniversalTime() in System.DateTime(d.Year, d.Month, d.Day, 0, 0, 0, System.DateTimeKind.Utc))`,
+  "datetime.toDate": (recv) => `((${recv}).ToUniversalTime().ToString("yyyy-MM-dd"))`,
+  // ---- date ---------------------------------------------------------------
+  // A `date` is its ISO `YYYY-MM-DD` text on this frontend (the wire form,
+  // decoded by `Decode.string`), so the components are fixed-position slices.
+  // The day distance parses both ends the same way and ROUNDS: a local-time
+  // parse straddling a DST change is 23 or 25 hours, never a fractional day.
+  "date.year": (recv) => `(int ((${recv}).Substring(0, 4)))`,
+  "date.month": (recv) => `(int ((${recv}).Substring(5, 2)))`,
+  "date.day": (recv) => `(int ((${recv}).Substring(8, 2)))`,
+  "date.daysUntil": (recv, args) =>
+    `(int (System.Math.Round((System.DateTime.Parse(${args[0]}) - System.DateTime.Parse(${recv})).TotalDays)))`,
 };
 
 /**
@@ -582,6 +616,7 @@ export function renderFsExpr(e: ExprIR, ctx: FsExprCtx): string {
       // integer `/` that widened to `decimal` needs both operands converted —
       // the same two seams the view path consults through `felizTarget`.
       return (
+        fsValueEquality(left, right, e) ??
         fsTemporalBinary(left, right, e) ??
         fsNumericBinary(left, right, e) ??
         FS_LEAVES.binary(left, right, e.op)
@@ -694,22 +729,29 @@ export function renderFsExpr(e: ExprIR, ctx: FsExprCtx): string {
       return FS_LEAVES.lambda(e.param, e.body ? r(e.body) : undefined);
     case "paren":
       return `(${r(e.inner)})`;
-    default:
-      // Fail fast rather than silently substituting `(* unsupported *) ()`.
-      // Three kinds reach here, none of them authored in a page body:
-      // `this` (a domain-body receiver — a page has no aggregate instance),
-      // `action-ref` (a handler reference the view walker binds as a dispatch
-      // wrapper, never a value in an update arm), and `authz-filter` (a
-      // synthesized query-filter sentinel that lives only on an aggregate's
-      // `contextFilters`).  So this is a defensive fail-fast on an IR shape the
-      // frontend pipeline does not produce — NOT a claim that every expression
-      // a user can write is covered.  If it fires on real `.ddd`, the arm is
-      // missing: add it here rather than widening the throw.
+    case "action-ref":
+      // An action named as a VALUE in an update arm (`let f = save`) is its
+      // Elmish `Msg` case — the F# value that stands for "this action" (a
+      // case with a payload is its constructor function).  The view path
+      // binds the same reference as a dispatch wrapper instead.
+      return e.storeName ? storeMsgCase(e.storeName, e.actionName) : upperFirst(e.actionName);
+    case "this":
+      // A page has no aggregate instance: `loom.ui-this-unbound` refuses a
+      // `this` in any ui body on this frontend at phase ⑦.
       throw new Error(
-        `feliz: unsupported expression '${e.kind}' in an F# action/update body — ` +
-          `no arm renders it on the MVU update path. If a valid page body reaches ` +
-          `this, implement the '${e.kind}' arm in fs-expr.ts (the view path's ` +
-          `treatment of the same kind is in _walker/walker-core.ts).`,
+        "internal: `this` reached the F# update renderer; loom.ui-this-unbound refuses it " +
+          "at validation. Please file a bug.",
       );
+    case "authz-filter":
+      // A read-path policy sentinel planted only on an aggregate's
+      // `contextFilters` — never in a ui body.
+      throw new Error(
+        `internal: an authorization filter for '${e.aggregate}' reached the F# update renderer. ` +
+          "Please file a bug.",
+      );
+    default: {
+      const _exhaustive: never = e;
+      return _exhaustive;
+    }
   }
 }

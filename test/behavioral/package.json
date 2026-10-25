@@ -9,6 +9,7 @@
     "behavioral:ui-flutter": "node run-ui-flutter.mjs",
     "behavioral:ui-auth": "node run-ui-auth.mjs",
     "behavioral:pagination": "node pagination.mjs",
+    "behavioral:create-contract": "node create-contract.mjs",
     "behavioral:paged-ui": "node paged-ui.mjs"
   },
   "dependencies": {

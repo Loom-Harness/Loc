@@ -1,6 +1,8 @@
 import type { ExprIR } from "../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { humanize, lowerFirst, plural, snake } from "../../util/naming.js";
 import { giveUp } from "../_walker/give-up.js";
+import { localizedPageChromeText, localizedPageChromeValue } from "../_walker/i18n-emit.js";
 import { emitActionThen } from "../_walker/primitives/controls.js";
 import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
 import type { WalkContext } from "../_walker/walker-core.js";
@@ -68,7 +70,7 @@ export function renderAngularDestroyForm(
       `DestroyForm(of: ${ofArg.name}): aggregate not found`,
     );
   }
-  if (!agg.canonicalDestroy) {
+  if (!canonicalDestroy(agg)) {
     return giveUp(
       ctx.target,
       "loom.page-ref-unreachable",
@@ -97,7 +99,15 @@ export function renderAngularDestroyForm(
     thenJs = `this.router.navigateByUrl(${JSON.stringify(`/${snake(plural(agg.name))}`)})`;
   }
 
-  const confirmMsg = JSON.stringify(`Delete this ${humanize(agg.name).toLowerCase()}?`);
+  // The prompt and the button label are emitter-built chrome: `chrome.*` keys
+  // with the entity name as an ICU hole, as on every frontend.  The method body
+  // reads the module-level `t` import the page shell already carries.
+  const confirmMsg = localizedPageChromeValue(ctx, "deleteConfirm", [
+    { name: "entity", expr: JSON.stringify(humanize(agg.name).toLowerCase()) },
+  ]);
+  const label = localizedPageChromeText(ctx, "deleteEntity", [
+    { name: "entity", expr: JSON.stringify(humanize(agg.name)) },
+  ]);
   const ns = stringNamed(call, "testid") ?? `${snake(plural(agg.name))}-destroy`;
   ctx.collectedTestids.add(ns);
 
@@ -121,5 +131,5 @@ export function renderAngularDestroyForm(
       : style === "primeng"
         ? 'pButton severity="danger"'
         : 'class="loom-button loom-button-warn"';
-  return `<button ${btnAttr} (click)="${methodName}()" [disabled]="${localVar}.isPending()" data-testid="${ns}">Delete ${humanize(agg.name)}</button>`;
+  return `<button ${btnAttr} (click)="${methodName}()" [disabled]="${localVar}.isPending()" data-testid="${ns}">${label}</button>`;
 }

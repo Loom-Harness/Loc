@@ -29,6 +29,7 @@ import {
 import {
   ORG_CONTEXT_ACCESSOR,
   ORG_CONTEXT_ORG_PATH,
+  PRINCIPAL_IS_SYSTEM,
   PRINCIPAL_ORG_CONTEXT_PATH,
   PRINCIPAL_ORG_PATH,
   PRINCIPAL_ROOT_ORG,
@@ -322,8 +323,18 @@ export class Elaborator {
     const data = lv.call ? segs.slice(0, -1) : segs;
     const out: Ty[] = [self];
     let cur = self;
+    // A BARE assignment head that names a member of the enclosing aggregate is
+    // that member, even when a parameter / `let` of the same name is in scope
+    // (M-T5.42, V4): every backend emits an assignment as a write to the
+    // member (`this._name = …`), so typing `name := name` against the
+    // shadowing parameter accepted a write its own target language rejects
+    // (TS2322 / CS0029).  An explicit `this.` already skips the lexical scope.
+    const owner = scope.frame.owner;
+    const headIsMember =
+      !lv.call && owner !== undefined && isAggregate(owner) && declaresDataMember(owner, lv.head);
     data.forEach((seg, i) => {
-      cur = i === 0 && !lv.thisRef ? this.synthName(seg, scope, lv) : step(cur, seg);
+      cur =
+        i === 0 && !lv.thisRef && !headIsMember ? this.synthName(seg, scope, lv) : step(cur, seg);
       out.push(cur);
     });
     return out;
@@ -1442,6 +1453,8 @@ export class Elaborator {
         ) {
           return Ty.prim("string");
         }
+        // `currentUser.isSystem` — the built-in system-principal flag (ruling D1).
+        if (name === PRINCIPAL_IS_SYSTEM) return Ty.prim("bool");
         const f = shape.ref?.fields.find((x) => x.name === name);
         return f ? this.resolveType(f.type, scope) : Ty.unknown("unresolved-member");
       }
@@ -1685,6 +1698,16 @@ function ownerChain(
     out.push(cur);
   }
   return out;
+}
+
+/** True when `agg` (or a base it extends) declares a property, containment
+ *  or derived member named `name`. */
+function declaresDataMember(agg: Aggregate, name: string): boolean {
+  return ownerChain(agg).some((o) =>
+    (o.members as AstNode[]).some(
+      (m) => (isProperty(m) || isContainment(m) || isDerivedProp(m)) && m.name === name,
+    ),
+  );
 }
 
 function elementOf(t: Ty): Ty | undefined {

@@ -6,7 +6,7 @@
 // `with scaffold` synthesises.  The result was a confidently wrong suggestion
 // pointing at something that can never stand in a type position:
 //
-//   aggregate A with crudish { occurredOn: date }
+//   aggregate A with crudish { occurredOn: moment }
 //     → Unknown type 'date'. Did you mean 'update'?     (a crudish operation)
 //   … plus a scaffolded `ui`
 //     → Unknown type 'date'. Did you mean 'data'?       (a page state variable)
@@ -26,7 +26,7 @@ describe("unknown-type hint candidates are declared types, not every named node"
   it("does not suggest a macro-synthesised operation (`with crudish` → 'update')", async () => {
     const { errors } = await parseString(`
       context C {
-        aggregate A with crudish { occurredOn: date }
+        aggregate A with crudish { occurredOn: moment }
         repository As for A { }
       }
     `);
@@ -41,7 +41,7 @@ describe("unknown-type hint candidates are declared types, not every named node"
     const { errors } = await parseString(`
       system S {
         context C {
-          aggregate A with crudish { occurredOn: date  name: string }
+          aggregate A with crudish { occurredOn: moment  name: string }
           repository As for A { }
         }
         ui U with scaffold(contexts: [C]) { }

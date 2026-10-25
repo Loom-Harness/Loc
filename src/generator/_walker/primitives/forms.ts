@@ -8,6 +8,8 @@
 
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type { AggregateIR, BoundedContextIR, ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
+import { emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
 import {
   escapeTsIdent,
   humanize,
@@ -27,15 +29,18 @@ import { frontendRequestNames } from "../../_frontend/request-names.js";
 import { serverSourcedDefaultFields } from "../../_frontend/server-default.js";
 import { prepareFormFieldVM } from "../form-fields-vm.js";
 import { GIVE_UP_SENTINEL, giveUp } from "../give-up.js";
+import { opDialogChrome } from "../i18n-chrome.js";
 import {
   localizedNamedAttr,
   localizedNamedText,
   localizedNamedValue,
   localizedPageChromeText,
   localizedPageChromeValue,
+  localizedPageChromeValueUnbound,
   localizedText,
+  registerI18nImport,
 } from "../i18n-emit.js";
-import { opGateFor } from "../op-gate.js";
+import { opGateFor, opRequiresClientGate } from "../op-gate.js";
 import { renderFormField } from "../render-form-field.js";
 import {
   addImport,
@@ -162,7 +167,7 @@ export function emitDestroyForm(
       `DestroyForm(of: ${ofArg.name}): aggregate not found`,
     );
   }
-  if (!agg.canonicalDestroy) {
+  if (!canonicalDestroy(agg)) {
     return giveUp(
       ctx.target,
       "loom.page-ref-unreachable",
@@ -227,11 +232,23 @@ export function emitWorkflowForm(
   ctx: WalkContext,
   depth: number,
 ): string {
+  const runsArg = namedArgValue(call, "runs");
+  // An event-only saga (`create(e: Event) by …`) has no command route on any
+  // backend (`emitsCommandRoute`), so there is no `POST /workflows/<wf>` for a
+  // form to submit to and no `use<Wf>Workflow` call helper to bind — give up
+  // honestly, on every walker target, before a target fork could wire one.
+  const runsWf = runsArg?.kind === "ref" ? ctx.workflowsByName.get(runsArg.name) : undefined;
+  if (runsWf && !emitsCommandRoute(runsWf)) {
+    return giveUp(
+      ctx.target,
+      "loom.page-ref-unreachable",
+      `WorkflowForm(runs: ${runsWf.name}): an event-triggered workflow has no command route to submit to`,
+    );
+  }
   // A target may fork the whole primitive (Angular emits a typed Reactive Form
   // posting the workflow command, instead of the shared react-hook-form path).
   const override = ctx.target.renderWorkflowForm?.(call, ctx, depth);
   if (override != null) return override;
-  const runsArg = namedArgValue(call, "runs");
   if (!runsArg) {
     return giveUp(
       ctx.target,
@@ -258,6 +275,20 @@ export function emitWorkflowForm(
  *  idempotent when a Modal registers it too. */
 function registerOperationFormChrome(ctx: WalkContext): void {
   addImportsForPrimitive(ctx, "primitive-modal");
+}
+
+/** The op dialog's dismiss-button label (markup text) and close-icon name
+ *  (a value expression), both derived from the submit label by the one rule
+ *  in `opDialogChrome`. */
+function opDialogChromeLabels(
+  ctx: WalkContext,
+  submitLabel: string,
+): { cancelLabel: string; closeLabelExpr: string } {
+  const chrome = opDialogChrome(submitLabel);
+  return {
+    cancelLabel: localizedPageChromeText(ctx, chrome.dismiss),
+    closeLabelExpr: localizedPageChromeValue(ctx, chrome.close),
+  };
 }
 
 /** The id an op form mutates when there is no in-scope record to read it off:
@@ -362,7 +393,7 @@ function emitFormOfOperationByName(
     // Pack chrome the op-module TEMPLATE bakes in — resolved HERE because this
     // is where a WalkContext exists (the page-shell that renders the template
     // has only the state + pack).
-    cancelLabel: localizedPageChromeText(ctx, "cancel"),
+    ...opDialogChromeLabels(ctx, humanize(op.name)),
     agg,
     op,
     bc,
@@ -887,7 +918,7 @@ function emitFormOfOperation(
     // Pack chrome the op-module TEMPLATE bakes in — resolved HERE because this
     // is where a WalkContext exists (the page-shell that renders the template
     // has only the state + pack).
-    cancelLabel: localizedPageChromeText(ctx, "cancel"),
+    ...opDialogChromeLabels(ctx, humanize(op.name)),
     agg,
     op,
     bc,
@@ -1007,7 +1038,11 @@ function emitControlledModal(
   // container that hardcoded the JSX assumption.
   const children = positionalArgs(call).map((c) => walk(c, ctx, depth + 1, "children"));
   const childrenJsx = children.join(`${ctx.target.interChildSeparator ?? ""}\n${indent}`);
-  return renderPrimitive(ctx, "primitive-modal-controlled", {
+  // The close icon's accessible name (on the packs whose dialog has one).  No
+  // submit button here, so nothing to collide with — always `chrome.close`.
+  const closeLabelExpr = localizedPageChromeValueUnbound(ctx, "close");
+  const out = renderPrimitive(ctx, "primitive-modal-controlled", {
+    closeLabelExpr,
     opened: stateName,
     setter,
     hasTitle,
@@ -1027,6 +1062,8 @@ function emitControlledModal(
     closeIndent,
     testidAttr: testidAttr(call, ctx),
   });
+  if (ctx.i18nPrefix && out.includes(closeLabelExpr)) registerI18nImport(ctx);
+  return out;
 }
 
 export function emitModal(
@@ -1117,6 +1154,7 @@ export function emitModal(
   // their module component (shadcn/mui/chakra) can render it.
   let recordVar: string | undefined;
   let gate: OpGateState | undefined;
+  let clientGate: string | null = null;
   for (let i = ctx.formOfs.length - 1; i >= 0; i--) {
     const st = ctx.formOfs[i]!;
     if (st.kind === "operation" && st.op.name === opName) {
@@ -1133,10 +1171,11 @@ export function emitModal(
       // in-scope instance var the trigger must pass as the `record` prop.
       recordVar = st.recordVar;
       gate = st.gate;
+      clientGate = opRequiresClientGate(st.op, ctx);
       break;
     }
   }
-  return renderPrimitive(ctx, "primitive-modal", {
+  const modal = renderPrimitive(ctx, "primitive-modal", {
     label,
     emphasisPrimary: triggerPrimary,
     opPascal: upperFirst(opName),
@@ -1148,4 +1187,10 @@ export function emitModal(
     gateDisabled: gate?.disabledExpr,
     gateReason: gate?.reasonExpr,
   });
+  // The `when` gate above DISABLES the trigger (the state may change); a
+  // currentUser-only `requires` HIDES it (this principal can never run the op),
+  // exactly as an `Action` button is hidden.
+  return clientGate === null
+    ? modal
+    : ctx.target.renderConditionalChild(clientGate, modal, "null", depth);
 }

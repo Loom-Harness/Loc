@@ -10,6 +10,7 @@ import {
   PAGED_MAX_PAGE,
   PAGED_MAX_PAGE_SIZE,
 } from "../../../ir/stdlib/generics.js";
+import { CONCURRENCY_CONFLICT_SUFFIX } from "../../../ir/util/openapi-errors.js";
 import { renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
 
 export function renderCommon(
@@ -27,9 +28,23 @@ export function renderCommon(
   // `msg.<hash>` code and RFC 6901 pointer along with the text, so
   // DomainExceptionFilter answers the same `errors[]` entry the wire rung
   // carries.  Byte-identical without a messaged aggregate rule.
-  const domainException = opts.domainFloorCodes
-    ? `public sealed class DomainException : Exception
+  // Every DomainException carries the refusing rung as `Kind`, apart from the
+  // message an authored `message "..."` replaces.
+  const domainErrorKind = `/// <summary>Which rung of the domain floor refused a call — carried apart
+/// from the message, which an authored <c>message "..."</c> replaces.</summary>
+public enum DomainErrorKind
 {
+    Precondition,
+    Invariant,
+}
+
+`;
+  const domainException = opts.domainFloorCodes
+    ? `${domainErrorKind}public sealed class DomainException : Exception
+{
+    /// <summary>The rung that refused; null outside the precondition /
+    /// invariant floor.</summary>
+    public DomainErrorKind? Kind { get; }
     /// <summary>A messaged rule's <c>msg.&lt;hash&gt;</c> code (the same one the
     /// wire rung carries) and the RFC 6901 pointer its domain-floor
     /// <c>errors[]</c> entry names (M-T1.11 (c)).  Null for a message-less
@@ -40,16 +55,23 @@ export function renderCommon(
     /// with /warnaserror — the same trap WireFormatException.FieldPointer
     /// sidesteps below.
     public string? RulePointer { get; }
-    public DomainException(string message, string? ruleCode = null, string? rulePointer = null) : base(message)
+    public DomainException(string message, DomainErrorKind? kind = null, string? ruleCode = null, string? rulePointer = null) : base(message)
     {
+        Kind = kind;
         RuleCode = ruleCode;
         RulePointer = rulePointer;
     }
 }
 `
-    : `public sealed class DomainException : Exception
+    : `${domainErrorKind}public sealed class DomainException : Exception
 {
-    public DomainException(string message) : base(message) { }
+    /// <summary>The rung that refused; null outside the precondition /
+    /// invariant floor.</summary>
+    public DomainErrorKind? Kind { get; }
+    public DomainException(string message, DomainErrorKind? kind = null) : base(message)
+    {
+        Kind = kind;
+    }
 }
 `;
   // A value object's invariant refused a value a domain BODY built (M-T5.1).
@@ -108,7 +130,8 @@ public sealed record FileRef(string Url, string Key, string ContentType, long Si
 /// <c>DbUpdateConcurrencyException</c>.</summary>
 public sealed class ConcurrencyConflictException : Exception
 {
-    public ConcurrencyConflictException(string message) : base(message) { }
+    // RS-40: the message IS the 409 detail ("<Aggregate> <id> ${CONCURRENCY_CONFLICT_SUFFIX}").
+    public ConcurrencyConflictException(string aggregate, object id) : base($"{aggregate} {id} ${CONCURRENCY_CONFLICT_SUFFIX}") { }
 }
 
 `
@@ -168,6 +191,29 @@ public sealed class WireFormatException : Exception
     public string FieldPointer { get; }
     public WireFormatException(string fieldPointer, string message)
         : base(message) => FieldPointer = fieldPointer;
+
+    /// <summary>node's money grammar, character for character:
+    /// <c>^-?[0-9]+(\\.[0-9]+)?$</c> — ASCII digits only, no exponent, no
+    /// leading '+', no surrounding whitespace and no GROUPING.  It gates the
+    /// parse because no NumberStyles combination states it:
+    /// <c>NumberStyles.Number</c> takes "12,50" as 1250 (the invariant
+    /// thousands separator), and even AllowLeadingSign | AllowDecimalPoint
+    /// still takes "+5", ".5" and "5.".  A hand loop rather than a Regex, so
+    /// nothing depends on .NET's Unicode <c>\\d</c> or its <c>$</c> that also
+    /// matches before a trailing newline.</summary>
+    public static bool IsMoneyGrammar(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return false;
+        var i = value[0] == '-' ? 1 : 0;
+        var start = i;
+        while (i < value.Length && value[i] >= '0' && value[i] <= '9') i++;
+        if (i == start) return false;
+        if (i == value.Length) return true;
+        if (value[i] != '.') return false;
+        var fraction = ++i;
+        while (i < value.Length && value[i] >= '0' && value[i] <= '9') i++;
+        return i > fraction && i == value.Length;
+    }
 }
 
 /// <summary>
@@ -580,9 +626,14 @@ export function dotnetNotFoundThrow(ns: string, resource: string, keyExpr: strin
  * answer) AND by Swashbuckle, which publishes `minimum`/`maximum`.  The
  * attribute is fully qualified so no `using` is added under /warnaserror.
  */
-export const CS_PAGED_QUERY_PARAMS: readonly string[] = [
-  `[FromQuery] [System.ComponentModel.DataAnnotations.Range(1, ${PAGED_MAX_PAGE})] int page = ${PAGED_DEFAULT_PAGE}`,
-  `[FromQuery] [System.ComponentModel.DataAnnotations.Range(1, ${PAGED_MAX_PAGE_SIZE})] int pageSize = ${PAGED_DEFAULT_PAGE_SIZE}`,
-  '[FromQuery] string sort = "id"',
-  '[FromQuery] string dir = "asc"',
-];
+export function csPagedQueryParams(sortDefault = "id"): readonly string[] {
+  return [
+    `[FromQuery] [System.ComponentModel.DataAnnotations.Range(1, ${PAGED_MAX_PAGE})] int page = ${PAGED_DEFAULT_PAGE}`,
+    `[FromQuery] [System.ComponentModel.DataAnnotations.Range(1, ${PAGED_MAX_PAGE_SIZE})] int pageSize = ${PAGED_DEFAULT_PAGE_SIZE}`,
+    `[FromQuery] string sort = ${JSON.stringify(sortDefault)}`,
+    '[FromQuery] string dir = "asc"',
+  ];
+}
+
+/** The paged controls with the shared `id` sort default. */
+export const CS_PAGED_QUERY_PARAMS: readonly string[] = csPagedQueryParams();

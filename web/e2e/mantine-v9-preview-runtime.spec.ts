@@ -48,10 +48,7 @@ test("mantine@v9 preview boots without runtime errors", async ({ page }) => {
   await page.goto("/");
   await waitForPlaygroundReady(page);
 
-  // Pick the pinned mantine@v9 storybook.  This is the only example
-  // that exercises stack v2; the bareword Mantine entry still maps
-  // to stack v1 (mantine@v7) until `BUILTIN_PACK_LATEST.mantine`
-  // flips in a follow-up PR.
+  // Pick the pinned mantine@v9 storybook.
   await page.getByTestId("workspace-new").click();
   await page.getByRole("textbox", { name: /Choose example/i }).click();
   await page.getByRole("option", { name: /Mantine 9 · pinned storybook/ }).click();

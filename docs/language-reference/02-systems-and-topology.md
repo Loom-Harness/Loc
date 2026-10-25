@@ -69,7 +69,7 @@ Deployable:
   '}'
 ```
 
-A `deployable` is one shippable project. `platform:` is the lead clause (and the only required one); every other clause is **order-independent**. A backend deployable lists the `contexts:` it hosts, the `dataSources:` binding those contexts to physical storage (plus `channels:` for broker-transported events — [Channels](14-apis-storage-resources-channels.md#channel--channelsource)), and the `serves:` api contracts it exposes. A frontend deployable `targets:` a backend (inheriting its module set), mounts a `ui:`, and picks a `design:` pack. `port:` is the *host* port published in compose; the container's internal port is the platform default. `auth: required` (backend) / `auth: ui` (frontend) opts into the OIDC layer ([Auth](17-auth.md)); `favicon:` copies an icon into the frontend bundle.
+A `deployable` is one shippable project. `platform:` is the lead clause (and the only required one); every other clause is **order-independent**. A backend deployable lists the `contexts:` it hosts, the `dataSources:` binding those contexts to physical storage (plus `channels:` for broker-transported events — [Channels](14-apis-storage-resources-channels.md#channel--channelsource)), and the `serves:` api contracts it exposes. A frontend deployable `targets:` a backend (inheriting its module set), mounts a `ui:`, and picks a `design:` pack. `port:` is the *host* port published in compose; the container's internal port is the platform default. A project run natively — `npm run dev`, `dotnet run`, `gradle bootRun`, `mix phx.server`, `ng serve` — listens on its `port:` too (a `PORT` env overrides it on the node, vite and Phoenix projects), and a frontend's dev server proxies `/api` to its target backend's `port:`. `auth: required` (backend) / `auth: ui` (frontend) opts into the OIDC layer ([Auth](17-auth.md)); `favicon:` copies an icon into the frontend bundle.
 
 ```ddd
 deployable apiNode {
@@ -388,7 +388,7 @@ The backend families and what they generate (registered in `src/platform/registr
 | `python` | FastAPI + SQLAlchemy 2 (async) | 8000 | postgres | embeds a SPA |
 | `elixir` | Phoenix + Ecto, LiveView when a `ui:` is mounted — fullstack | 4000 | postgres | LiveView or a SPA |
 
-These are the only spellings — the legacy aliases (`hono` → `node`, `fastapi` → `python`, `phoenix`/`phoenixLiveView` → `elixir`) were **retired**; writing them now fails validation as an unknown platform. A backend may pin a `family@version` via the `STRING` alternative — `platform: "node@v4"` selects the zod-3 / TS-5 Hono package (`platform: node` resolves to the default `v5`). `elixir` is dual-natured: it owns a database **and** mounts a `ui:` (Phoenix LiveView), so it is the one *fullstack* platform; `dotnet`, `java` and `python` are backend-only until the deployable declares `ui:`, at which point they embed the referenced SPA bundle under their served static root.
+These are the only spellings — the legacy aliases (`hono` → `node`, `fastapi` → `python`, `phoenix`/`phoenixLiveView` → `elixir`) were **retired**; writing them now fails validation as an unknown platform. A backend may pin a `family@version` via the `STRING` alternative — `platform: "node@v5"` selects the zod-4 / TS-6 Hono package, which is also what bareword `platform: node` resolves to. `node@v4` (zod 3 / TS 5) was retired; pinning it is a validation error naming `node@v5`. `elixir` is dual-natured: it owns a database **and** mounts a `ui:` (Phoenix LiveView), so it is the one *fullstack* platform; `dotnet`, `java` and `python` are backend-only until the deployable declares `ui:`, at which point they embed the referenced SPA bundle under their served static root.
 
 Per-platform output for the same `aggregate Order` is the subject of [Aggregates & domain model](03-domain-modeling.md); here the platform choice is what selects the *whole project shape* shown above.
 
@@ -449,11 +449,11 @@ DesignPack: 'mantine' | 'shadcn' | 'mui' | 'chakra' | 'coreComponents' | 'daisyu
           | 'angularMaterial' | 'primeng' | 'spartanNg' | STRING;
 ```
 
-`design:` picks the template pack the UI generator renders pages against — only meaningful on a deployable that mounts a UI (ignored otherwise). Each pack is keyed to a frontend *format*; the validator cross-checks the pack against the framework the deployable renders (Rule 14 in `deployable.ts`), so `platform: react … design: vuetify` is an error ("Design pack 'vuetify' is a vue pack but framework 'react' renders tsx. Use one of: mantine, chakra, mui, shadcn."). Bareword names resolve to the current major (`BUILTIN_PACK_LATEST` in `src/util/builtin-formats.ts`); pin an older one with `design: "mantine@v7"`.
+`design:` picks the template pack the UI generator renders pages against — only meaningful on a deployable that mounts a UI (ignored otherwise). Each pack is keyed to a frontend *format*; the validator cross-checks the pack against the framework the deployable renders (Rule 14 in `deployable.ts`), so `platform: react … design: vuetify` is an error ("Design pack 'vuetify' is a vue pack but framework 'react' renders tsx. Use one of: mantine, chakra, mui, shadcn."). Bareword names resolve to the current major (`BUILTIN_PACK_LATEST` in `src/util/builtin-formats.ts`); pin one explicitly with `family@version` (`design: "mantine@v9"`). The React 18 packs `mantine@v7`, `chakra@v2`, `mui@v5` and `shadcn@v3` were retired: pinning one is `loom.design-pack-retired`, which names the successor.
 
 | Framework (format) | Packs (bareword → version) | Default when `design:` is omitted |
 |---|---|---|
-| `react` / `static` (tsx) | `mantine` (v9; v7 pinnable), `shadcn` (v4; v3), `mui` (v7; v5), `chakra` (v3; v2) | `mantine` |
+| `react` / `static` (tsx) | `mantine` (v9), `shadcn` (v4), `mui` (v7), `chakra` (v3) | `mantine` |
 | `vue` | `vuetify` (v3), `shadcnVue` (v1) | `vuetify` |
 | `svelte` | `shadcnSvelte` (v1), `flowbite` (v1) | `shadcnSvelte` |
 | `angular` | `angularMaterial` (v1), `primeng` (v1), `spartanNg` (v1) | `angularMaterial` |
@@ -461,7 +461,7 @@ DesignPack: 'mantine' | 'shadcn' | 'mui' | 'chakra' | 'coreComponents' | 'daisyu
 | `feliz` | no pack menu — `design:` names a daisyUI *theme* (`design: dracula`), default `corporate` | — |
 | `flutter` | no pack — Material widgets rendered procedurally | — |
 
-A `STRING` value points at a **custom pack** — a directory with a `pack.json`, resolved relative to the `.ddd` file (format-checked only by a warning, since the validator cannot read its manifest). The body walker dispatches each page primitive through the active pack's templates under `designs/`; see [`../design-packs.md`](../design-packs.md) for the authoring contract.
+A `STRING` value points at a **custom pack** — a directory with a `pack.json`, resolved relative to the `.ddd` file that declares the deployable. `ddd parse` / `ddd generate` load it and refuse a malformed one with `loom.design-pack-invalid` (or `loom.design-pack-format-mismatch` for the wrong format); the editor cannot read the directory and only warns (`loom.design-pack-custom-unchecked`). The body walker dispatches each page primitive through the active pack's templates under `designs/`; see [`../design-packs.md`](../design-packs.md) for the authoring contract.
 
 ## Realization axes
 

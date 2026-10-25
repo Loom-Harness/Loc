@@ -31,14 +31,16 @@ import {
   deriveAggregateOperations,
   isAllFind,
   relativeOpPath,
+  servedOperations,
 } from "../../../ir/util/api-surface.js";
-import { lifecycleGates } from "../../../ir/util/op-gates.js";
+import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
+import { createBodyStatements, lifecycleGates } from "../../../ir/util/op-gates.js";
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
 import { requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
-import { listReadFind } from "../../../ir/util/read-gates.js";
+import { byIdRouteFind, listReadFind } from "../../../ir/util/read-gates.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
-import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { elixirOpAction, plural, snake, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { renderPhoenixDomainOperation, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
@@ -52,9 +54,12 @@ import {
   renderVanillaHistoryMapper,
   vanillaHistoryFind,
 } from "./audit-history-emit.js";
+import { type BaseReaderShape, baseReaderShape } from "./base-reader.js";
 import { aggregateUsesPrincipalContextFilter, listUsesPrincipal } from "./capability-filter.js";
 import { CRUD_RESERVED_NAMES } from "./context-emit.js";
 import {
+  contextAliasLine,
+  contextCallRef,
   denialOverrides,
   denialResponse,
   opHasWireDenial,
@@ -63,7 +68,7 @@ import {
 import { isVanillaDocAgg } from "./document-emit.js";
 import { isEventSourced, renderEsController } from "./eventsourced-emit.js";
 import { findRoutes, renderFindActions } from "./find-controller.js";
-import { effectiveGate } from "./gate.js";
+import { effectiveGate, renderGateCondition } from "./gate.js";
 import { isAbstractBase } from "./inheritance-emit.js";
 import {
   guardRescue,
@@ -74,7 +79,11 @@ import {
   renderReturningOpControllerAction,
 } from "./operation-returns-emit.js";
 import { PAGE_CALL_ARGS, PAGE_WITH_CLAUSES, pagingElseArm } from "./page-param.js";
-import { renderPathIdCastPlug } from "./problem-details-emit.js";
+import {
+  renderPathIdCastPlug,
+  renderRequiredParamsPlug,
+  requiredWireParams,
+} from "./problem-details-emit.js";
 import { hasRefColls } from "./ref-collection-emit.js";
 import { emitsRestDelete } from "./rest-surface.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
@@ -161,7 +170,7 @@ export function servesHistory(ctx: BoundedContextIR, agg: AggregateIR): boolean 
  * documented but left unrouted).
  *
  * Matches the node/dotnet/python/java backends, which gate the REST create
- * on an EXPLICIT canonical `create` (`agg.canonicalCreate != null` — written
+ * on an EXPLICIT canonical `create` (`canonicalCreate(agg) != null` — written
  * by hand or synthesised by `with crudish`), symmetric with how DELETE gates
  * on a canonical `destroy`.  Merely being constructible (`isConstructible`)
  * does NOT expose a POST — that predicate gates only the DOMAIN factory
@@ -203,13 +212,17 @@ export function emitVanillaApiControllers(
     // cannot diverge.  An abstract
     // base derives nothing (the derivation's aggregate skip): its read-only
     // index/show below stay an elixir-local extra, like the history route.
-    const derivedOps = isAbstractBase(agg)
+    const allOps = isAbstractBase(agg)
       ? []
       : deriveAggregateOperations(
           agg,
           ctx.repositories.find((r) => r.aggregateName === agg.name),
           apiStatusContext(ctx),
         );
+    // A slot an explicit `route` claims is served by that route's controller
+    // alone (D-EXPLICIT-ROUTE-WINS) — the controller action stays, the router
+    // line does not.
+    const derivedOps = servedOperations(allOps);
     const abstract = isAbstractBase(agg);
     const routeOf = (o: ApiOperationIR, action: string): ApiRoute => ({
       method: o.method,
@@ -229,6 +242,7 @@ export function emitVanillaApiControllers(
           ctx,
           isVanillaDocAgg(agg, ctx, sys),
           isAbstractBase(agg),
+          isAbstractBase(agg) ? baseReaderShape(agg, ctx, sys) : undefined,
         );
     out.set(controllerPath, controllerContent);
     sourcemap?.file(controllerPath, controllerContent, agg.origin, `${ctx.name}.${agg.name}`);
@@ -248,7 +262,7 @@ export function emitVanillaApiControllers(
         action: ":index",
       });
     }
-    routes.push(...findRoutes(agg, ctx, derivedOps));
+    routes.push(...findRoutes(agg, ctx, allOps));
     const getByIdEntry = derivedOps.find((o) => o.kind === "getById");
     if (getByIdEntry) routes.push(routeOf(getByIdEntry, ":show"));
     else if (abstract) {
@@ -293,16 +307,19 @@ export function emitVanillaApiControllers(
     // public non-CRUD operation, matching the node/dotnet/python/java
     // backends.  The URL segment uses
     // `routeSlug` (D-URLSTYLE) while the action atom stays the op verb.
-    const served = servedOperationEntries(agg, derivedOps);
+    // Over the FULL list: an explicit route can claim an operation and leave its
+    // `can_<op>` probe to this router, or the other way round.
+    const served = servedOperationEntries(agg, allOps);
     for (const entry of served.opEntries) {
       const op = entry.operation!;
-      routes.push(routeOf(entry, `:${snake(op.name)}`));
+      if (!entry.claimedByExplicitRoute) routes.push(routeOf(entry, `:${elixirOpAction(op.name)}`));
       // The side-effect-free `GET /<plural>/:id/can_<op>` companion of a
       // `when`-gated op (criterion.md, use site 2).  It was once DECLARED in
       // this backend's own OpenAPI and never mounted (the published probe
       // 404'd) — served and documented off the same derived entry now.
       const probe = served.probeByOp.get(op);
-      if (probe) routes.push(routeOf(probe, `:can_${snake(op.name)}`));
+      if (probe && !probe.claimedByExplicitRoute)
+        routes.push(routeOf(probe, `:can_${snake(op.name)}`));
     }
   }
 
@@ -311,7 +328,7 @@ export function emitVanillaApiControllers(
 
 function renderController(
   appModule: string,
-  ctxModule: string,
+  ctxName: string,
   agg: AggregateIR,
   aggSnake: string,
   memberOps: readonly OperationIR[],
@@ -322,9 +339,14 @@ function renderController(
    *  delete actions, which would call write-seam context fns the read-only base
    *  context never defines). */
   readOnly = false,
+  /** Abstract base only: the shape of its polymorphic reader. */
+  baseReader?: BaseReaderShape,
 ): string {
   const aggPascal = upperFirst(agg.name);
-  const facadeMod = `${appModule}.${ctxModule}`;
+  const facadeMod = `${appModule}.${ctxName}`;
+  // The facade's call receiver — fully qualified when `alias <App>.<Ctx>` would
+  // shadow the app module (context named like the app).
+  const ctxModule = contextCallRef(appModule, ctxName);
 
   // A `mask unless` aggregate emits a redacting `serialize/1` (responses) plus an
   // unmasked `serialize_unmasked/1`; audit before/after snapshots must record the
@@ -350,7 +372,7 @@ function renderController(
   // controller pulls `current_user` off `conn.assigns` (set by the Auth plug,
   // which the validator requires when a principal filter is present) and threads
   // it into the context reads.  Non-principal aggregates stay byte-identical.
-  const principal = aggregateUsesPrincipalContextFilter(agg);
+  const principal = readOnly ? !!baseReader?.principal : aggregateUsesPrincipalContextFilter(agg);
   const cuBind = principal ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
   const getActor = principal ? ", current_user" : "";
   // The auto-`findAll` is paged-by-default (M-T2.6): the `index` action parses
@@ -365,7 +387,7 @@ function renderController(
   // The LIST read threads the actor when its predicate reads the principal — a
   // principal capability filter, or a declared `find all(): X[] where <pred>`
   // reading `currentUser` (`listUsesPrincipal`, shared with the repo + context).
-  const listPrincipal = listUsesPrincipal(agg, listAllFind);
+  const listPrincipal = readOnly ? principal : listUsesPrincipal(agg, listAllFind);
   const listArg = listPrincipal ? "current_user" : "";
   // The paging controls are bound by the `with` clauses `PAGE_WITH_CLAUSES`
   // prepends (page-param.ts), so an out-of-range window 422s before the read
@@ -398,7 +420,7 @@ ${pagingElseArm(`${appModule}Web.ProblemDetails`, "    ")}
   const indexParamArg = indexPaged ? "params" : "_params";
   const indexAction = indexGate
     ? `  def index(conn, ${indexParamArg}) do
-${cuBind}${indexCuBind}    if not (${renderElixirExpr(indexGate, { thisName: "record", contextModule: facadeMod })}) do
+${cuBind}${indexCuBind}    if not (${renderGateCondition(indexGate, (g) => renderElixirExpr(g, { thisName: "record", contextModule: facadeMod }))}) do
       ${denialResponse(
         "forbidden",
         JSON.stringify(`Forbidden: find ${listAllFind!.name}`),
@@ -411,6 +433,43 @@ ${indexBody}
   end`
     : `  def index(conn, ${indexParamArg}) do
 ${cuBind}${indexCuBind}${indexBody}
+  end`;
+  // The BY-ID read's authorization gate (M-T3.19) — the author's
+  // `find byId(id: T id): T? requires <expr>`.  403 BEFORE the load, so a
+  // refused caller cannot tell an existing id from a missing one; same
+  // denial carrier + `detail` label as the list gate above and the find's own
+  // `by_id` action (`renderFindActions`).
+  const byIdFind = byIdRouteFind(
+    (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name),
+    agg.idValueType,
+  );
+  const showGate = effectiveGate(byIdFind?.requires);
+  const showCuBind =
+    showGate && exprUsesCurrentUser(showGate) && !principal
+      ? "    current_user = Map.get(conn.assigns, :current_user)\n"
+      : "";
+  const showBody = `    case ${ctxModule}.get_${aggSnake}(id${getActor}) do
+      {:ok, record} ->
+        json(conn, serialize(record))
+
+      {:error, :not_found} ->
+        ProblemDetails.not_found_response(conn, "${aggPascal}", id)
+    end`;
+  const showAction = showGate
+    ? `  def show(conn, %{"id" => id}) do
+${cuBind}${showCuBind}    if not (${renderGateCondition(showGate, (g) => renderElixirExpr(g, { thisName: "record", contextModule: facadeMod }))}) do
+      ${denialResponse(
+        "forbidden",
+        JSON.stringify(`Forbidden: find ${byIdFind!.name}`),
+        denialOverrides(ctx),
+        `${appModule}Web.ProblemDetails`,
+      )}
+    else
+${showBody}
+    end
+  end`
+    : `  def show(conn, %{"id" => id}) do
+${cuBind}${showBody}
   end`;
   // Command-load context fn a MUTATION action loads through (authorization.md):
   // `get_<agg>_for_write` when the aggregate's write scope is
@@ -460,8 +519,9 @@ ${cuBind}${indexCuBind}${indexBody}
   // Without the arm the tuple falls through the `case` and raises, turning the
   // refusal back into the 500 it exists to replace.
   const createGated =
-    lifecycleGates(agg.canonicalCreate).length > 0 || requiredClaimStamps(agg, "create").length > 0;
-  const destroyGated = lifecycleGates(agg.canonicalDestroy).length > 0;
+    lifecycleGates(canonicalCreate(agg)).length > 0 ||
+    requiredClaimStamps(agg, "create").length > 0;
+  const destroyGated = lifecycleGates(canonicalDestroy(agg)).length > 0;
   const createCuBind =
     stampPrincipal || defaultUsesPrincipal || createGated
       ? `    current_user = Map.get(conn.assigns, :current_user)\n${createParamDefaults}`
@@ -477,6 +537,21 @@ ${cuBind}${indexCuBind}${indexBody}
   // the same 403 ProblemDetails clause the operation paths answer with, built
   // from the shared denial ladder so a `httpStatus Forbidden -> …` override
   // moves all of them together.
+  // A create body `precondition` short-circuits `create_<agg>` to
+  // `{:error, {:precondition_failed, detail}}` (the domain-floor 422, as an
+  // operation's does) — mapped here, and only when one exists, so no
+  // unreachable clause reaches `--warnings-as-errors`.
+  const createPrecondition = createBodyStatements(agg).some((st) => st.kind === "precondition");
+  const createDenialArms = (indent: string): string =>
+    `${createGated ? forbiddenArm(indent) : ""}${
+      createPrecondition
+        ? `\n\n${indent}{:error, {:precondition_failed, detail}} ->\n${indent}  ${denialResponse(
+            "precondition",
+            "detail",
+            denialOverrides(ctx),
+          )}`
+        : ""
+    }`;
   const forbiddenArm = (indent: string): string =>
     `\n\n${indent}{:error, {:forbidden, detail}} ->\n${indent}  ${denialResponse(
       "forbidden",
@@ -557,10 +632,10 @@ ${cuBind}${indexCuBind}${indexBody}
         ? `
 
       {:error, :conflict} ->
-        ProblemDetails.conflict_response(conn)`
+        ProblemDetails.conflict_response(conn, "${aggPascal}", id)`
         : "";
       return `
-  def ${opSnake}(conn, %{"id" => id} = params) do
+  def ${elixirOpAction(op.name)}(conn, %{"id" => id} = params) do
     attrs = Map.drop(params, ["id"])
 ${opCuBind}    ${renderPhoenixLogCall("operationInvoked", [
         { name: "aggregate", valueExpr: `"${aggPascal}"` },
@@ -661,6 +736,13 @@ ${auditRecordCall({
           {:error, {:forbidden, detail}} ->
             ${appModule}.Repo.rollback({:forbidden, detail})`
                 : ""
+            }${
+              createPrecondition
+                ? `
+
+          {:error, {:precondition_failed, detail}} ->
+            ${appModule}.Repo.rollback({:precondition_failed, detail})`
+                : ""
             }
         end
       end)
@@ -678,7 +760,7 @@ ${auditRecordCall({
         |> json(%{"id" => record.id})
 
       {:error, %Ecto.Changeset{} = changeset} ->
-        ProblemDetails.validation_error_response(conn, changeset)${createGated ? forbiddenArm("      ") : ""}
+        ProblemDetails.validation_error_response(conn, changeset)${createDenialArms("      ")}
     end
   end`
       : `  def create(conn, params) do
@@ -695,7 +777,7 @@ ${createCuBind}    case ${ctxModule}.create_${aggSnake}(params${createActor}) do
         |> json(%{"id" => record.id})
 
       {:error, %Ecto.Changeset{} = changeset} ->
-        ProblemDetails.validation_error_response(conn, changeset)${createGated ? forbiddenArm("      ") : ""}
+        ProblemDetails.validation_error_response(conn, changeset)${createDenialArms("      ")}
     end
   end`;
 
@@ -799,7 +881,7 @@ ${cuBind}${destroyCuBind}    with {:ok, record} <- ${ctxModule}.${cmdGet}(id${ge
     ? `
 
       {:error, :conflict} ->
-        ProblemDetails.conflict_response(conn)`
+        ProblemDetails.conflict_response(conn, "${aggPascal}", id)`
     : "";
   // Private helper — parse the client's expected `version` from the `if-match`
   // request header (bare int or a quoted ETag).  Absent/unparseable → nil, which
@@ -894,22 +976,13 @@ ${cuBind}${updateCuBind}${versionBind}
 defmodule ${appModule}Web.${aggPascal}Controller do
   use ${appModule}Web, :controller
   require Logger
-  alias ${facadeMod}
-  alias ${appModule}Web.ProblemDetails
+${contextAliasLine(appModule, ctxName)}  alias ${appModule}Web.ProblemDetails
 
 ${renderPathIdCastPlug()}
-
+${renderRequiredParamsPlug(new Map([...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), requiredWireParams(op.params)])))}
 ${indexAction}
 
-  def show(conn, %{"id" => id}) do
-${cuBind}    case ${ctxModule}.get_${aggSnake}(id${getActor}) do
-      {:ok, record} ->
-        json(conn, serialize(record))
-
-      {:error, :not_found} ->
-        ProblemDetails.not_found_response(conn, "${aggPascal}", id)
-    end
-  end${historyAction}
+${showAction}${historyAction}
 
 ${writeActions}
 ${findActions}
@@ -935,7 +1008,17 @@ ${((): string => {
       })
     : renderWireSerialize(agg, ctx, { contextModule: facadeMod });
   const nested = helpers.length > 0 ? `\n\n${helpers.join("\n\n")}` : "";
-  return `${serialize}${nested}${refIdsHelper}`;
+  // A `shape: document` concrete keeps its fields in the `data` embed, so the
+  // base serializer (which reads columns) first flattens that row.
+  const docRows = (baseReader?.concretes ?? [])
+    .filter((c) => c.doc)
+    .map(
+      (c) =>
+        `  defp serialize(%${facadeMod}.${upperFirst(c.agg.name)}{} = row),
+    do: serialize(Map.merge(Map.from_struct(row.data), %{id: row.id, version: row.version}))\n\n`,
+    )
+    .join("");
+  return `${docRows}${serialize}${nested}${refIdsHelper}`;
 })()}${historyMapper}
 end
 `;
