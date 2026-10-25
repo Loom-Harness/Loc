@@ -15,6 +15,7 @@ import type {
   TestStmtIR,
   WorkflowIR,
 } from "../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../ir/util/canonical-lifecycle.js";
 import { readE2eCallOptions } from "../ir/util/e2e-call-options.js";
 import {
   E2E_WORKFLOW_VERBS,
@@ -71,7 +72,7 @@ import { renderExpectStmt } from "./expect-stmt.js";
 // `GET /orders/all`, a path no backend registers — so the delete and list
 // routes of every generated system were untestable from the DSL.  The two
 // arms below are the exact inverse of the two special cases in the derivation
-// (`if (agg.canonicalDestroy) … DELETE /{id}` and `if (find.name === "all") …
+// (`if (canonicalDestroy(agg)) … DELETE /{id}` and `if (find.name === "all") …
 // at the bare base`), which is why they are written against the SAME
 // predicates rather than against the method name alone.
 //
@@ -878,12 +879,12 @@ function renderApiCall(call: ApiCallShape, ctx: RenderCtx): string {
   // Canonical destroy → `DELETE /api/<aggs>/{id}`.  Resolved HERE, before the
   // operation lookup, for two reasons: the canonical destroy is not in
   // `agg.operations` at all (lowering keeps lifecycle actions in `agg.destroys`
-  // / `agg.canonicalDestroy`), and the derivation routes it to DELETE rather
-  // than to `POST /{id}/<op>`.  Gated on `agg.canonicalDestroy` — the exact
+  // / `canonicalDestroy(agg)`), and the derivation routes it to DELETE rather
+  // than to `POST /{id}/<op>`.  Gated on `canonicalDestroy(agg)` — the exact
   // predicate `deriveAggregateOperations` gates the DELETE route on — so a
   // NAMED destroy (`destroy archive { }`, no route of its own) and an operation
   // whose name merely starts with "destroy" keep their ordinary handling.
-  if (call.method === "destroy" && agg.canonicalDestroy) {
+  if (call.method === "destroy" && canonicalDestroy(agg)) {
     if (args.length < 1) {
       throw new Error(`e2e: api.${call.aggregateSlug}.destroy(id) requires an id argument`);
     }
@@ -914,7 +915,7 @@ function renderApiCall(call: ApiCallShape, ctx: RenderCtx): string {
     .find((r) => r.aggregateName === agg.name)?.historyFind
     ? ["history"]
     : [];
-  const destroyMethod = agg.canonicalDestroy ? ["destroy"] : [];
+  const destroyMethod = canonicalDestroy(agg) ? ["destroy"] : [];
   const known = ["create", "getById", ...destroyMethod, ...historyMethod, ...ops, ...finds].join(
     ", ",
   );

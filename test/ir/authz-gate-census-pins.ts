@@ -104,14 +104,8 @@
 //     for it.  Recorded rather than silently dropped — a fixture that later
 //     gains `auth: required` plus a gate becomes a real candidate.
 //
-//  7. HANDED OFF, both outside this packet's tree:
-//     (a) `examples/sales-ui.ddd` DOES NOT PARSE on this head — 7 syntax errors
-//         from line 133 (the `Dashboard(items: [ … ])` page body) and 12 link /
-//         walker-stdlib / i18n errors behind them.  Nothing gates it:
-//         `generated-react-build.yml` iterates `examples/acme.ddd` and
-//         `web/src/examples/**`, never the rest of `examples/`.
-//         `NON_PARSING_SOURCES` below is the ratchet that makes it loud.
-//     (b) `web/src/examples/auth-capabilities.ddd` carries two `requires` gates
+//  7. HANDED OFF, outside this packet's tree:
+//     (a) `web/src/examples/auth-capabilities.ddd` carries two `requires` gates
 //         and no runner boots it, so it sits outside the census population
 //         entirely (see the note at `loadPopulation`) — an authorization surface
 //         with no runtime caller of either polarity.
@@ -445,16 +439,7 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
  * gate.  Ratchets both ways: a repaired source drops out (and joins the census
  * with its own pins), a newly-broken one fails here first.
  */
-export const NON_PARSING_SOURCES: readonly string[] = [
-  // 7 syntax errors from `examples/sales-ui.ddd:133` (the `Dashboard(items:
-  // [ … ])` page body — `Expecting token of type ')' but found ':'`), then 12
-  // link / walker-stdlib / i18n errors behind them (`MasterDetail`, `List` and
-  // `Detail` are not walker primitives; the `scaffold` macro args name a
-  // `Catalog` subdomain and `Customer` / `Product` aggregates the file does not
-  // declare).  HANDED OFF — the repair is a page-DSL question outside this
-  // packet's tree.
-  "examples/sales-ui",
-];
+export const NON_PARSING_SOURCES: readonly string[] = [];
 
 /**
  * How many pins each reason class carries.  Recomputed from the pins by the

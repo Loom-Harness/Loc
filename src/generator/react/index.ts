@@ -10,6 +10,7 @@ import {
   type UiIR,
   uiUsesMoney,
 } from "../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
@@ -297,7 +298,7 @@ export function generateReactForContexts(
   // `api.delete` helper only when some served aggregate has a canonical
   // destroy (declared or via `crudish`) — keeps the shared client
   // byte-identical for projects without any hard-delete.
-  const hasDelete = aggregates.some((a) => !!a.agg.canonicalDestroy);
+  const hasDelete = aggregates.some((a) => !!canonicalDestroy(a.agg));
   // `authUi` computed above (before page emission, which consumes it for the
   // `page { requires … }` gate).  Drives the session client + route guard emits.
   out.set(

@@ -62,6 +62,7 @@ import {
   validateExternOperations,
   validateFieldDefaults,
   validateFindNameCollisions,
+  validateFindParamBindings,
   validateFunctionBlockBodies,
   validateLifecycleBodyDropped,
   validateNamedLifecycleDropped,
@@ -344,6 +345,7 @@ export function validateLoomModel(
     validateRetrievals(c, diags);
     validateRawSeedColumns(c, diags);
     validateFindNameCollisions(c, diags);
+    validateFindParamBindings(c, diags);
     validatePagedParamNames(c, diags);
     validatePersistedTableCollisions(c, diags);
     validateSingleRowFindUniqueness(c, diags);

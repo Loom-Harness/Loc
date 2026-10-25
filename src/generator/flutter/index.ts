@@ -1585,14 +1585,14 @@ function renderPubspec(
 ): string {
   // `file_picker` is only pulled when a FileUpload primitive is present, so a
   // File-free app's pubspec stays byte-identical.
-  const filePicker = usesFileUpload ? "\n  file_picker: ^8.1.2" : "";
+  const filePicker = usesFileUpload ? "\n  file_picker: 8.3.7" : "";
   // `shared_preferences` backs `persist: local|session`; the `url` tier needs no
   // package (`Uri.base` + `SystemNavigator` are core).
-  const prefs = usesPrefs ? "\n  shared_preferences: ^2.3.2" : "";
+  const prefs = usesPrefs ? "\n  shared_preferences: 2.5.6" : "";
   // `url_launcher` backs the `auth: ui` sign-in / sign-out REDIRECT — Dart's
   // core SDK cannot navigate to an external URL.  Same use-driven rule as
   // `file_picker`: an unauthenticated app's pubspec stays byte-identical.
-  const launcher = usesAuth ? "\n  url_launcher: ^6.3.1" : "";
+  const launcher = usesAuth ? "\n  url_launcher: 6.3.3" : "";
   // `package:web` backs the WEB half of the SSE transport (the browser's own
   // `EventSource`); the native half rides `package:http`, already present.
   // `^1.0.0`, not `^1.1.0`: `flutter_web_plugins` pins `web` from the SDK, so a
@@ -1611,14 +1611,14 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  http: ^1.2.0
-  flutter_riverpod: ^2.5.1
+  http: 1.6.0
+  flutter_riverpod: 2.6.1
   intl: ^0.19.0${filePicker}${prefs}${launcher}${webPkg}
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^4.0.0
+  flutter_lints: 4.0.0
 
 flutter:
   uses-material-design: true

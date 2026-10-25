@@ -590,11 +590,6 @@ export interface AggregateIR {
   /** `kind: "destroy"` lifecycle terminator actions.  Populated by
    * lowering; empty array when none. */
   destroys?: OperationIR[];
-  /** The single unnamed canonical `create`, if declared, else null.
-   * Convenience accessor over `creates`. */
-  canonicalCreate?: OperationIR | null;
-  /** The single unnamed canonical `destroy`, if declared, else null. */
-  canonicalDestroy?: OperationIR | null;
   parts: EntityPartIR[];
   tests: TestIR[];
   /** Reified create-input contract — the client-suppliable field set with
@@ -904,6 +899,12 @@ export interface PayloadIR {
   generic?: { ctor: GenericCtorName; arg: TypeIR };
 }
 
+/** One clause-less find parameter and the aggregate field it equals. */
+export interface FindParamBindingIR {
+  param: string;
+  field: string;
+}
+
 export interface FindIR {
   name: string;
   params: ParamIR[];
@@ -920,6 +921,15 @@ export interface FindIR {
   requires?: ExprIR;
   /** Optional `where ...` filter expression in IR form. */
   filter?: ExprIR;
+  /** A clause-less find's parameters, each paired with the aggregate field it
+   *  filters on (`find byReference(reference: string)` → `reference ==
+   *  this.reference`).  Resolved once in enrichment, after the inheritance
+   *  field merge, by `bindFindParams`; backends read it through
+   *  `implicitFindMatches` / `effectiveFindFilter` and never match names
+   *  themselves.  In parameter order; a parameter that names no field has no
+   *  entry (and is refused, `loom.find-param-unbound`).  Absent when the find
+   *  has a `where` (it replaces the convention) or no parameters. */
+  paramBindings?: FindParamBindingIR[];
   /** Set when the `where` filter is *exactly* one named `criterion`
    *  reference — its name + lowered args, for backends that consume the
    *  reified `Criterion`.  `filter` still carries the inlined predicate, so

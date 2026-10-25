@@ -33,6 +33,7 @@ import {
   relativeOpPath,
   servedOperations,
 } from "../../../ir/util/api-surface.js";
+import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { createBodyStatements, lifecycleGates } from "../../../ir/util/op-gates.js";
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
 import { requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
@@ -169,7 +170,7 @@ export function servesHistory(ctx: BoundedContextIR, agg: AggregateIR): boolean 
  * documented but left unrouted).
  *
  * Matches the node/dotnet/python/java backends, which gate the REST create
- * on an EXPLICIT canonical `create` (`agg.canonicalCreate != null` — written
+ * on an EXPLICIT canonical `create` (`canonicalCreate(agg) != null` — written
  * by hand or synthesised by `with crudish`), symmetric with how DELETE gates
  * on a canonical `destroy`.  Merely being constructible (`isConstructible`)
  * does NOT expose a POST — that predicate gates only the DOMAIN factory
@@ -518,8 +519,9 @@ ${cuBind}${showBody}
   // Without the arm the tuple falls through the `case` and raises, turning the
   // refusal back into the 500 it exists to replace.
   const createGated =
-    lifecycleGates(agg.canonicalCreate).length > 0 || requiredClaimStamps(agg, "create").length > 0;
-  const destroyGated = lifecycleGates(agg.canonicalDestroy).length > 0;
+    lifecycleGates(canonicalCreate(agg)).length > 0 ||
+    requiredClaimStamps(agg, "create").length > 0;
+  const destroyGated = lifecycleGates(canonicalDestroy(agg)).length > 0;
   const createCuBind =
     stampPrincipal || defaultUsesPrincipal || createGated
       ? `    current_user = Map.get(conn.assigns, :current_user)\n${createParamDefaults}`

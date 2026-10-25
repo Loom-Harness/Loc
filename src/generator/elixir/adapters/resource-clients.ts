@@ -46,7 +46,7 @@ export function resourceModuleName(appModule: string, sourceType: string): strin
 
 const s3PhoenixAdapter: PhoenixResourceAdapter = {
   name: "s3",
-  hexDeps: () => ({ ex_aws: '"~> 2.5"', ex_aws_s3: '"~> 2.5"', hackney: '"~> 1.20"' }),
+  hexDeps: () => ({ ex_aws: '"2.6.1"', ex_aws_s3: '"2.5.9"', hackney: '"1.25.0"' }),
   emitClientModule(resources, stores, appModule): string {
     const lines: string[] = [
       "# Auto-generated.",
@@ -124,7 +124,7 @@ const s3PhoenixAdapter: PhoenixResourceAdapter = {
 
 const rabbitmqPhoenixAdapter: PhoenixResourceAdapter = {
   name: "rabbitmq",
-  hexDeps: () => ({ amqp: '"~> 4.0"' }),
+  hexDeps: () => ({ amqp: '"4.3.0"' }),
   emitClientModule(resources, _stores, appModule): string {
     const lines: string[] = [
       "# Auto-generated.",
@@ -166,7 +166,7 @@ const rabbitmqPhoenixAdapter: PhoenixResourceAdapter = {
 
 const restApiPhoenixAdapter: PhoenixResourceAdapter = {
   name: "restApi",
-  hexDeps: () => ({ req: '"~> 0.5"' }),
+  hexDeps: () => ({ req: '"0.7.5"' }),
   emitClientModule(resources, stores, appModule): string {
     const lines: string[] = [
       "# Auto-generated.",
@@ -231,7 +231,7 @@ function mailerEmailBuilders(
 
 const smtpPhoenixAdapter: PhoenixResourceAdapter = {
   name: "smtp",
-  hexDeps: () => ({ swoosh: '"~> 1.17"', gen_smtp: '"~> 1.2"' }),
+  hexDeps: () => ({ swoosh: '"1.29.0"', gen_smtp: '"1.3.0"' }),
   emitClientModule(resources, stores, appModule): string {
     const lines: string[] = [
       "# Auto-generated.",
@@ -285,7 +285,7 @@ const smtpPhoenixAdapter: PhoenixResourceAdapter = {
 
 const sesPhoenixAdapter: PhoenixResourceAdapter = {
   name: "ses",
-  hexDeps: () => ({ swoosh: '"~> 1.17"', hackney: '"~> 1.20"' }),
+  hexDeps: () => ({ swoosh: '"1.29.0"', hackney: '"1.25.0"' }),
   emitClientModule(resources, stores, appModule): string {
     const lines: string[] = [
       "# Auto-generated.",
@@ -319,7 +319,7 @@ const sesPhoenixAdapter: PhoenixResourceAdapter = {
 
 const sendgridPhoenixAdapter: PhoenixResourceAdapter = {
   name: "sendgrid",
-  hexDeps: () => ({ swoosh: '"~> 1.17"', hackney: '"~> 1.20"' }),
+  hexDeps: () => ({ swoosh: '"1.29.0"', hackney: '"1.25.0"' }),
   emitClientModule(resources, stores, appModule): string {
     const lines: string[] = [
       "# Auto-generated.",

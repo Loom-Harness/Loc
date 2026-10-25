@@ -1,4 +1,5 @@
 import type { ExprIR } from "../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { humanize, lowerFirst, plural, snake } from "../../util/naming.js";
 import { giveUp } from "../_walker/give-up.js";
 import { emitActionThen } from "../_walker/primitives/controls.js";
@@ -68,7 +69,7 @@ export function renderAngularDestroyForm(
       `DestroyForm(of: ${ofArg.name}): aggregate not found`,
     );
   }
-  if (!agg.canonicalDestroy) {
+  if (!canonicalDestroy(agg)) {
     return giveUp(
       ctx.target,
       "loom.page-ref-unreachable",

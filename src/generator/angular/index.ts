@@ -12,6 +12,7 @@ import type {
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { contextUsesMoney } from "../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { type PageNameCtx, pageConstructId } from "../../ir/util/page-kind.js";
@@ -168,7 +169,7 @@ export function generateAngularForContexts(
   for (const ctx of contexts) {
     for (const repo of ctx.repositories) repoByAggregate.set(repo.aggregateName, repo);
   }
-  const hasDelete = aggregates.some((a) => !!a.agg.canonicalDestroy);
+  const hasDelete = aggregates.some((a) => !!canonicalDestroy(a.agg));
   const usesMoney = contexts.some(contextUsesMoney);
   const authUi = !!(deployable.auth?.ui && target?.auth?.required && sys.user);
   // Hoisted above the project shell: the shell's package.json / angular.json /

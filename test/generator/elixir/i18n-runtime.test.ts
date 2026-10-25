@@ -101,7 +101,7 @@ describe("Phoenix HEEx i18n runtime", () => {
 
   it("wires the dep and the html_helpers import so pgettext resolves in ~H", async () => {
     const files = await generateSystemFiles(SYSTEM(`Heading { "Storefront" }`));
-    expect(fileEndingWith(files, "mix.exs")).toContain('{:gettext, "~> 0.26"}');
+    expect(fileEndingWith(files, "mix.exs")).toContain('{:gettext, "0.26.2"}');
     // `use Gettext, backend: …` in `html_helpers`, so every LiveView + component
     // template has `pgettext/2` in scope unqualified.  Gettext >= 0.26 SPLIT the
     // backend from the macros: an `import` of the backend module brings in
@@ -318,7 +318,7 @@ describe("Phoenix HEEx i18n — ICU interpolation", () => {
       'page Home(code: string) {\n      route: "/:code"',
     );
     const files = await generateSystemFiles(src);
-    expect(fileEndingWith(files, "mix.exs")).toContain('{:ex_cldr_messages, "~> 1.0"}');
+    expect(fileEndingWith(files, "mix.exs")).toContain('{:ex_cldr_messages, "1.0.4"}');
     const cldr = fileEndingWith(files, "lib/app/cldr.ex");
     expect(cldr).toContain("use Cldr,");
     expect(cldr).toContain("providers: [Cldr.Number, Cldr.Message]");
@@ -342,7 +342,7 @@ describe("Phoenix HEEx i18n — ICU interpolation", () => {
     // its file set and its bytes are exactly what they were before this slice.
     const files = await generateSystemFiles(SYSTEM(`Heading { "Orders" }`));
     expect(fileEndingWith(files, "priv/gettext/en/LC_MESSAGES/default.po")).toBeDefined();
-    expect(fileEndingWith(files, "mix.exs")).toContain('{:gettext, "~> 0.26"}');
+    expect(fileEndingWith(files, "mix.exs")).toContain('{:gettext, "0.26.2"}');
     expect(fileEndingWith(files, "mix.exs")).not.toContain("ex_cldr");
     expect(fileEndingWith(files, "lib/app/cldr.ex")).toBeUndefined();
     expect(fileEndingWith(files, "lib/app_web/i18n.ex")).toBeUndefined();
