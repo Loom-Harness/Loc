@@ -293,14 +293,6 @@ export const BEHAVIOURAL_XFAIL = {
     }),
   },
   elixir: {
-    // The TPH base controller calls `list_vehicles(current_user)` against a
-    // `list_vehicles/0` delegate: the arity half of the #3955 base-reader leak.
-    "inheritance-read-restrictions": {
-      issue: "#3955",
-      expect: "error",
-      match: "mix compile --warnings-as-errors",
-      reason: "the principal-filtered TPH base controller calls the context's base readers with an arity they do not have",
-    },
     "workflow-two-handles-containment": {
       issue: "#4081",
       expect: "fail",

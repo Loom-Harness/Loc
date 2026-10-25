@@ -55,19 +55,15 @@ const IN_APP_DOCUMENT_FILTER: readonly Backend[] = ALL;
  *  key returns the day that gate closes. */
 const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotnet");
 
-/** `inheritance-read-restrictions` — the #3954 answer key — minus the two
- *  backends that cannot even build it today.  Each still boots the case on its
+/** `inheritance-read-restrictions` — the #3954 answer key — minus the one
+ *  backend that cannot build it today.  It still boots the case on its
  *  behavioural leg as a tracked expected failure, so its key returns here with
  *  the fix that turns that leg red:
  *
  *  - `dotnet` (EF): refused at validation by `loom.tph-filter-unsupported`
  *    (the `TPH_CAPABILITY_FILTER` exclusion); #3960 lifts it.  The Dapper
- *    adapter passes the case and is armed by `ADAPTER_ONLY_CASES`.
- *  - `vanilla` (elixir): `mix compile --warnings-as-errors` fails — the TPH
- *    base controller calls `Fleet.list_vehicles(current_user)` against a
- *    `list_vehicles/0` delegate, the arity half of #3955 (which is also the
- *    only thing keeping that unfiltered base read from shipping). */
-const INHERITANCE_READ_RESTRICTIONS: readonly Backend[] = TPH_CAPABILITY_FILTER.filter((b) => b !== "vanilla");
+ *    adapter passes the case and is armed by `ADAPTER_ONLY_CASES`. */
+const INHERITANCE_READ_RESTRICTIONS: readonly Backend[] = TPH_CAPABILITY_FILTER;
 
 /** The backends whose transactional workflow dispatches an aggregate event only
  *  AFTER its transaction commits — the one runtime-distinguishable half of
