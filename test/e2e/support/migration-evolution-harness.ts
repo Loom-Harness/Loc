@@ -53,7 +53,8 @@ export function readFixture(
     | "field-default-base"
     | "field-default-evolved"
     | "journal-order-base"
-    | "journal-order-evolved",
+    | "journal-order-evolved"
+    | "unique-evo-base",
 ): string {
   return fs.readFileSync(path.join(fixtureDir, `${name}.ddd`), "utf8");
 }
@@ -1240,6 +1241,166 @@ export async function runDapperLegacyBaselineGate(driver: BackendDriver): Promis
     await assertForwardMigrated(again.base, LEGACY_ROW_ID);
     expect(history(server), "a reboot records nothing new").toBe(ids.join(","));
     again.stop();
+  } finally {
+    for (const b of boots) b.stop();
+    server?.stop();
+    try {
+      fs.rmSync(tree, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Unique-index evolution gate (#3229) — `unique (…)` keys that the per-table
+// derivation has to carry across a capability flip and across inheritance.
+// One tree, one database, three generations (fixture: unique-evo-base.ddd):
+//
+//   v1  Account `unique (number)` is a FULL index → a duplicate is a 409.
+//       TPC: Party's `unique (email)` lands on BOTH concrete tables — a
+//       duplicate within one subtype is a 409, the same email in the sibling
+//       table is allowed (the documented `loom.unique-tpc-not-hierarchy-wide`
+//       limit).  TPH: Machine's `unique (serial)` is ONE index on the shared
+//       table — a duplicate through either CONCRETE's route is a 409 (it was a
+//       500: the concrete's write surface did not know the key existed).
+//   v2  Account gains `softDeletable` → the migration REBUILDS the index as the
+//       partial `WHERE is_deleted = false` (it used to keep the full one, the
+//       diff pairing indexes by name only).  A soft-deleted row's key can be
+//       reused (201); a live duplicate is still a 409.
+//   v3  Account drops `softDeletable` again → the index is rebuilt FULL.  That
+//       tightens over rows that now collide, so the generation carries the
+//       `sql before` dedupe `loom.migration-unique-on-existing-table` asks for;
+//       the migration applies and a duplicate is a 409 again.
+// ---------------------------------------------------------------------------
+
+const ACCOUNT_V1 = "aggregate Account with crudish {";
+const ACCOUNT_SOFT = "aggregate Account with softDeletable, crudish {";
+
+export async function runUniqueIndexEvolutionGate(driver: BackendDriver): Promise<void> {
+  if (!driver.toolchain.check()) {
+    throw new Error(
+      `unique-index evolution ${driver.platform}: \`${driver.toolchain.name}\` not on PATH.`,
+    );
+  }
+  const v1Src = readFixture("unique-evo-base");
+  expect(v1Src, "fixture carries the v1 Account header").toContain(ACCOUNT_V1);
+  const v2Src = `${v1Src.replace(ACCOUNT_V1, ACCOUNT_SOFT)}
+migration "soft-delete" { Account.isDeleted = false }
+`;
+  const v3Src = `${v1Src}
+migration "harden" { sql before "DELETE FROM ledger.accounts WHERE is_deleted = true" }
+`;
+
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), `loom-uqevo-${driver.platform}-`));
+  const appDir = path.join(tree, "d");
+  let server: PgServer | undefined;
+  const boots: BootHandle[] = [];
+  const boot = async (pg: PgConn): Promise<BootHandle> => {
+    driver.migrate?.(appDir, pg);
+    const port = await freePort();
+    const h = driver.boot(appDir, pg, port);
+    boots.push(h);
+    await waitForReady(h.base, h.bootLog, driver.readyTimeoutMs);
+    return h;
+  };
+  const post = async (base: string, resource: string, body: object): Promise<number> => {
+    const r = await fetch(`${base}/api/${resource}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    await r.text();
+    return r.status;
+  };
+  const DB = "uniqevo";
+  const indexDef = (s: PgServer, name: string): string =>
+    psql(s, DB, `SELECT indexdef FROM pg_indexes WHERE indexname = '${name}'`);
+
+  try {
+    server = await startPgServer();
+    resetDatabase(server, DB);
+    const pg = connFor(server, DB);
+
+    // --- v1 ---------------------------------------------------------------
+    generate(v1Src, driver.platform, tree);
+    driver.install(appDir);
+    const v1 = await boot(pg);
+    expect(indexDef(server, "accounts_number_uq"), "v1: full unique").toMatch(/\(number\)$/);
+    expect(await post(v1.base, "accounts", { number: "ACC-1", owner: "alice" })).toBe(201);
+    expect(await post(v1.base, "accounts", { number: "ACC-1", owner: "bob" }), "v1 dup").toBe(409);
+
+    // TPC: a per-concrete index on each table, none for the abstract base.
+    expect(indexDef(server, "customers_email_uq"), "TPC: customers index").toMatch(/\(email\)/);
+    expect(indexDef(server, "suppliers_email_uq"), "TPC: suppliers index").toMatch(/\(email\)/);
+    expect(indexDef(server, "parties_email_uq"), "TPC: the base owns no table").toBe("");
+    const party = { name: "Acme", email: "a@x.com" };
+    expect(await post(v1.base, "customers", { ...party, creditLimit: 10 })).toBe(201);
+    expect(
+      await post(v1.base, "customers", { ...party, creditLimit: 20 }),
+      "TPC: duplicate within Customer",
+    ).toBe(409);
+    expect(
+      await post(v1.base, "suppliers", { ...party, rating: 3 }),
+      "TPC: the sibling table may share the email (not hierarchy-wide)",
+    ).toBe(201);
+    expect(
+      await post(v1.base, "suppliers", { ...party, rating: 4 }),
+      "TPC: duplicate within Supplier",
+    ).toBe(409);
+
+    // TPH: one index on the shared table, mapped to 409 on every concrete route.
+    expect(indexDef(server, "machines_serial_uq"), "TPH: shared-table index").toMatch(/\(serial\)/);
+    expect(await post(v1.base, "lathes", { serial: "S-1", spindles: 2 })).toBe(201);
+    expect(
+      await post(v1.base, "lathes", { serial: "S-1", spindles: 3 }),
+      "TPH: duplicate through the same concrete",
+    ).toBe(409);
+    expect(
+      await post(v1.base, "presses", { serial: "S-1", tonnage: 50 }),
+      "TPH: duplicate through a sibling concrete (one table, hierarchy-wide)",
+    ).toBe(409);
+    v1.stop();
+    await settle();
+
+    // --- v2: + softDeletable → partial ------------------------------------
+    generate(v2Src, driver.platform, tree);
+    driver.rebuild?.(appDir);
+    const v2 = await boot(pg);
+    expect(indexDef(server, "accounts_number_uq"), "v2: rebuilt partial").toMatch(
+      /WHERE \(?is_deleted = false\)?$/,
+    );
+    // Soft-delete alice's row the way the capability does (flag, not DELETE).
+    psql(server, DB, `UPDATE ledger.accounts SET is_deleted = true WHERE number = 'ACC-1'`);
+    expect(
+      await post(v2.base, "accounts", { number: "ACC-1", owner: "carol" }),
+      "v2: a live row reuses a soft-deleted row's key",
+    ).toBe(201);
+    expect(
+      await post(v2.base, "accounts", { number: "ACC-1", owner: "dave" }),
+      "v2: a duplicate of a LIVE row is still refused",
+    ).toBe(409);
+    expect(
+      psql(server, DB, `SELECT count(*) FROM ledger.accounts WHERE number = 'ACC-1'`),
+      "v2: the soft-deleted row and the live one coexist",
+    ).toBe("2");
+    v2.stop();
+    await settle();
+
+    // --- v3: − softDeletable → full again (dedupe first) --------------------
+    generate(v3Src, driver.platform, tree, { allowDestructive: true });
+    driver.rebuild?.(appDir);
+    const v3 = await boot(pg);
+    expect(indexDef(server, "accounts_number_uq"), "v3: rebuilt full").toMatch(/\(number\)$/);
+    expect(
+      psql(server, DB, `SELECT owner FROM ledger.accounts WHERE number = 'ACC-1'`),
+      "v3: the `sql before` dedupe removed the soft-deleted row ahead of the index",
+    ).toBe("carol");
+    expect(
+      await post(v3.base, "accounts", { number: "ACC-1", owner: "erin" }),
+      "v3: duplicate refused by the full index",
+    ).toBe(409);
+    v3.stop();
   } finally {
     for (const b of boots) b.stop();
     server?.stop();
