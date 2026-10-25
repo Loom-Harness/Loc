@@ -1328,7 +1328,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     tier: "behavioral",
   },
   {
-    id: "RS-40",
+    id: "RS-39",
     title:
       "An empty request body is `{}` — a parameterless command accepts a body-less call; a foreign media type is 415",
     trigger:
