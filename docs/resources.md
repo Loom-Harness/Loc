@@ -184,14 +184,23 @@ resource jobs  { for: Sales, kind: queue,       use: rabbit }
 resource rates { for: Sales, kind: api,         use: fxApi }
 resource mail  { for: Sales, kind: mailer,      use: mailServer }
 
-workflow ArchiveOrder(order: Order id) {
-  let prev = files.get("orders/" + order.id)        // objectStore
-  files.put("orders/" + order.id, { id: order.id }) // json payload
-  jobs.enqueue({ event: "archived", id: order.id }) // queue
-  let fx = rates.get("/rate/usd")                    // api
-  mail.send(order.email, "Archived", "Order " + order.id) // mailer
+// inside `context Sales { … }` — a workflow's body lives in a member
+workflow archiveOrder {
+  create(orderId: Order id) {
+    let order = Orders.getById(orderId)
+    let prev = files.get("orders/" + order.id)        // objectStore
+    files.put("orders/" + order.id, { id: order.id }) // json payload
+    jobs.enqueue({ event: "archived", id: order.id }) // queue
+    let fx = rates.get("/rate/usd")                    // api
+    mail.send(order.email, "Archived", "Order " + order.id) // mailer
+  }
 }
 ```
+
+Each resource `use:`s a `storage` whose connection settings sit under
+`config: { … }` — `storage mailServer { type: smtp, config: { from:
+"no-reply@shop.test" } }` — and the hosting deployable lists the resources in
+`dataSources:`.
 
 ### Verb vocabulary
 

@@ -26,7 +26,7 @@ import { desugarAuthzFilterInApp } from "../_expr/authz-filter-inapp.js";
 import { numericEncode } from "../_numeric/target.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import { drizzleImportLine } from "./drizzle-imports.js";
-import { aggregateIsAudited } from "./emit/audit-stamp.js";
+import { aggregateIsAudited, stampImportLine, stampInsertCall } from "./emit/audit-stamp.js";
 import { TS_NUMERIC } from "./numeric-codec.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "./paged-locals.js";
 import { synthProjectionFinds } from "./projection-finds.js";
@@ -182,7 +182,7 @@ export function buildDocumentRepositoryFile(
     // tenant and was invisible to every principal INCLUDING ITS CREATOR — the
     // read filter is correct, and `"" === currentUser.tenantId` is false, so a
     // 201 create was followed by a 404 on every read, update and destroy.
-    `      await this.db.insert(schema.${tableName}).values({ id: aggregate.id as string, ${audited ? "data: stampInsert(data)" : "data"}, version: 1 });`,
+    `      await this.db.insert(schema.${tableName}).values({ id: aggregate.id as string, ${audited ? `data: ${stampInsertCall(agg, "data")}` : "data"}, version: 1 });`,
     `    } else {`,
     ...(versioned
       ? [
@@ -283,7 +283,7 @@ export function buildDocumentRepositoryFile(
     // `getById` command load, so key off the emitted body too (F2-ADP-5).
     (usesPrincipalFilter || /\brequireCurrentUser\(/.test(bodyScan)) &&
       `import { requireCurrentUser } from "../../auth/middleware";`,
-    audited && `import { stampInsert } from "../audit-stamp";`,
+    audited && stampImportLine(agg, { update: false }),
     `import { requestLog } from "../../obs/als";`,
     "",
     `type Db = NodePgDatabase<typeof schema>;`,

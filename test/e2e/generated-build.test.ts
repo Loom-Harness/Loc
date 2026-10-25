@@ -271,15 +271,15 @@ describe.skipIf(!ENABLED)(
           "_stampOnCreate",
         );
         // Default-on versioning (M-T3.4) turns the audited save into the guarded
-        // write: the create branch stamps via `stampInsert({... version: 1})` and
-        // the version-CAS update branch via `stampUpdate({... version: expected + 1})`.
+        // write: the create branch stamps via `stampInsertOrder({... version: 1})` and
+        // the version-CAS update branch via `stampUpdateOrder({... version: expected + 1})`.
         {
           const repoSrc = fs.readFileSync(
             path.join(proj, "db", "repositories", "order-repository.ts"),
             "utf8",
           );
-          expect(repoSrc).toContain("stampInsert({");
-          expect(repoSrc).toContain("stampUpdate({");
+          expect(repoSrc).toContain("stampInsertOrder({");
+          expect(repoSrc).toContain("stampUpdateOrder({");
         }
         installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 120_000 });

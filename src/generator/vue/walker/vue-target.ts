@@ -126,6 +126,15 @@ export const vueTarget: WalkerTarget = {
     return `${segments.join(".")} = ${valueJs}`;
   },
 
+  /** `currentUser.<claim>` reads the verified session user the SFC shell
+   *  binds in `<script setup>` (`const currentUser = (useSession().user.value
+   *  ?? {}) as Record<string, any>`), which the template sees as a top-level
+   *  binding.  The walker sets `usesCurrentUser` on entering this seam, which
+   *  is what makes the shell emit that binding. */
+  renderCurrentUserAccess(field: string): string {
+    return `currentUser.${field}`;
+  },
+
   // --- Interactive-table seam (M-T1.1) ------------------------------------
 
   /** A `@click` header driving client-side sort.  Vue writes state

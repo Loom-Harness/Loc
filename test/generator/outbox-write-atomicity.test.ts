@@ -173,12 +173,14 @@ describe("outbox write atomicity — .NET (EF Core)", () => {
     const record = save.indexOf(
       "var __deferred = await _events.RecordDurableAsync(__pending, null, cancellationToken);",
     );
-    const saveChanges = save.indexOf("await _db.SaveChangesAsync(cancellationToken);");
+    const saveChanges = save.indexOf("await _db.SaveChangesWithAsync(__db, cancellationToken);");
     expect(record, "durable capture is emitted").toBeGreaterThan(-1);
     // THE PROPERTY: one SaveChangesAsync, and the outbox rows are already on
     // the change tracker when it runs — so they commit in that same round trip.
     expect(record, "capture precedes the commit").toBeLessThan(saveChanges);
-    expect(save.split("SaveChangesAsync(cancellationToken)").length - 1).toBe(1);
+    // (`SaveChangesWithAsync` is that one save — it commits a forked second
+    // handle, M-T6.90, together with the rows staged here.)
+    expect(save.split(/SaveChanges\w*Async\(/).length - 1).toBe(1);
     expect(save).toContain("foreach (var ev in __deferred)");
   });
 

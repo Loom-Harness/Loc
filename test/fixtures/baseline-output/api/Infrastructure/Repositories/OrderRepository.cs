@@ -28,7 +28,8 @@ public sealed class OrderRepository : IOrderRepository
 
     public async Task<Order?> GetByIdAsync(OrderId id, CancellationToken cancellationToken = default)
     {
-        var found = await _db.Orders.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        var __db = _db.Orders.Local.Any(x => x.Id == id) ? _db.Fork() : _db;
+        var found = await __db.Orders.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         _log.LogDebug("{Event} aggregate={Aggregate} id={Id} found={Found}", "aggregate_loaded", "Order", id.Value, found != null);
         return found;
     }
@@ -41,7 +42,8 @@ public sealed class OrderRepository : IOrderRepository
 
     public async Task SaveAsync(Order aggregate, CancellationToken cancellationToken = default)
     {
-        var entry = _db.Entry(aggregate);
+        var __db = _db.TrackerOf(aggregate);
+        var entry = __db.Entry(aggregate);
         if (entry.State == EntityState.Detached)
         {
             _db.Orders.Add(aggregate);
@@ -55,7 +57,7 @@ public sealed class OrderRepository : IOrderRepository
         }
         var __pending = aggregate.PullEvents();
         var __deferred = await _events.RecordDurableAsync(__pending, null, cancellationToken);
-        await _db.SaveChangesAsync(cancellationToken);
+        await _db.SaveChangesWithAsync(__db, cancellationToken);
         _log.LogDebug("{Event} aggregate={Aggregate} id={Id}", "repository_save", "Order", aggregate.Id.Value);
         foreach (var ev in __deferred)
         {
@@ -66,8 +68,9 @@ public sealed class OrderRepository : IOrderRepository
 
     public async Task DeleteAsync(Order aggregate, CancellationToken cancellationToken = default)
     {
-        _db.Orders.Remove(aggregate);
-        await _db.SaveChangesAsync(cancellationToken);
+        var __db = _db.TrackerOf(aggregate);
+        __db.Orders.Remove(aggregate);
+        await _db.SaveChangesWithAsync(__db, cancellationToken);
     }
     public async Task<Paged<Order>> All(int page, int pageSize, string sort, string dir, CancellationToken cancellationToken = default)
     {

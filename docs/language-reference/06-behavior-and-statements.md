@@ -50,7 +50,7 @@ private recompute(): void {
   this._assertInvariants();
 }
 public confirm(): void {
-  if (!(this._status === Status.Draft)) throw new DisallowedError("operation 'confirm' is not allowed in the current state of Order.");
+  if (!(this._status === Status.Draft)) throw new DisallowedError("operation 'confirm' is not allowed in the current state of Order (when status == Status.Draft).");
   if (!(this.isMutable())) throw new DomainError("Precondition failed: isMutable()");
   this.recompute();
   if (!(this._lines.length > 0)) throw new DomainError("Precondition failed: lines.count > 0");
@@ -64,7 +64,7 @@ public confirm(): void {
 // Domain/Orders/Order.cs
 public void Confirm()
 {
-    if (!(this.Status == Status.Draft)) throw new DisallowedException("operation 'confirm' is not allowed in the current state of Order.");
+    if (!(this.Status == Status.Draft)) throw new DisallowedException("operation 'confirm' is not allowed in the current state of Order (when status == Status.Draft).");
     if (!(this.IsMutable())) throw new DomainException("Precondition failed: isMutable()");
     this.Recompute();
     if (!(this.Lines.Count > 0)) throw new DomainException("Precondition failed: lines.count > 0");
@@ -77,7 +77,7 @@ public void Confirm()
 ```java
 // features/orders/Order.java
 public void confirm() {
-    if (!(this.status == Status.Draft)) throw new DisallowedException("operation 'confirm' is not allowed in the current state of Order.");
+    if (!(this.status == Status.Draft)) throw new DisallowedException("operation 'confirm' is not allowed in the current state of Order (when status == Status.Draft).");
     if (!(this.isMutable())) throw new DomainException("Precondition failed: isMutable()");
     this.recompute();
     if (!(this.lines.size() > 0)) throw new DomainException("Precondition failed: lines.count > 0");
@@ -91,7 +91,7 @@ public void confirm() {
 # app/domain/order.py
 def confirm(self) -> None:
     if not (self._status == Status.Draft):
-        raise DisallowedError("operation 'confirm' is not allowed in the current state of Order.")
+        raise DisallowedError("operation 'confirm' is not allowed in the current state of Order (when status == Status.Draft).")
     if not (self._is_mutable()):
         raise DomainError("Precondition failed: isMutable()")
     self._recompute()
@@ -107,7 +107,7 @@ def confirm(self) -> None:
 # assignments rebuild the struct, the persist goes through a forced changeset,
 # and the event is broadcast over Phoenix.PubSub after the save.
 def confirm_order(%ExApi.Orders.Order{} = record, params) when is_map(params) do
-  with :ok <- ensure(record.status == :Draft, {:disallowed, "operation 'confirm' is not allowed in the current state of Order."}),
+  with :ok <- ensure(record.status == :Draft, {:disallowed, "operation 'confirm' is not allowed in the current state of Order (when status == Status.Draft)."}),
        :ok <- ensure(is_mutable(record), {:precondition_failed, "Precondition failed: isMutable()"}),
        :ok <- ensure(Enum.count(record.lines) > 0, {:precondition_failed, "Precondition failed: lines.count > 0"}) do
     record = __op_recompute(record)  # the private op as a module-local pure transform
@@ -172,7 +172,7 @@ aggregate Order {
 }
 ```
 
-`requires` may be written on the header (`operation addLine(...) requires isStaff { … }`) or as the first statement(s) of the body — the header form lowers to a synthetic leading `requires` statement, so the two are indistinguishable after phase ⑤. A `precondition` may carry `message "…"` to replace the derived `Precondition failed: <source>` text. Evaluation order at the call site is **requires → when → body**, so a 403 wins over a 409 wins over a 422.
+`requires` may be written on the header (`operation addLine(...) requires isStaff { … }`) or as the first statement(s) of the body — the header form lowers to a synthetic leading `requires` statement, so the two are indistinguishable after phase ⑤. A `precondition` may carry `message "…"` to replace the derived `Precondition failed: <source>` text. A refused `when` names its predicate the same way — `operation 'confirm' is not allowed in the current state of Order (when status == Status.Draft).` — identically on all five backends. Evaluation order at the call site is **requires → when → body**, so a 403 wins over a 409 wins over a 422.
 
 **Where each gate runs.** `when` is a property of the **domain method**: every backend emits the predicate as the first line of the generated operation, so every caller evaluates it (the route, a workflow step, a handler). The **leading run of `requires`** is deliberately *hoisted* out of the entity to the calling handler (`src/ir/util/op-gates.ts`), because authorization needs a principal the domain layer does not carry; a `requires` further down the body stays where it is. The hoisted gate, one level up on each backend:
 
