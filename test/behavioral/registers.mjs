@@ -146,6 +146,10 @@ export const ADAPTER_ONLY_CASES = {
       "#3960 — EF refuses the TPH subtype-only-column filter (`loom.tph-filter-unsupported`); the Dapper adapter passes it",
     "inheritance-read-restrictions":
       "#3960 — EF refuses the TPH subtype-only-column filter (`loom.tph-filter-unsupported`); the Dapper adapter passes it",
+    // EF loses the re-hosted nested parts (#4136); Dapper's explicit SQL
+    // deletes and re-inserts them and passes.
+    "contained-part-rebuild":
+      "#4136 — EF loses a rebuilt part's nested owned children (M-T6.96); the Dapper adapter passes it",
   },
 };
 
@@ -254,6 +258,13 @@ export const BEHAVIOURAL_XFAIL = {
     "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
   },
   dotnet: {
+    "contained-part-rebuild": {
+      issue: "#4136",
+      expect: "fail",
+      tests: { "a nested child removed by rebuilding its parent is gone": "expected 0 to be 1" },
+      reason:
+        "M-T6.96 — an EF owned entity cannot move between owners, so deleting the old line deletes the notes the rebuilt line holds",
+    },
     "inheritance-read-restrictions": TPH_FILTER_REFUSED,
     "tph-crossings": TPH_FILTER_REFUSED,
     // EF hosts the base's filter on the TPH root entity, so it reaches every
