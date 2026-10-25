@@ -103,7 +103,11 @@ export const OTHER_LANGUAGE_TYPE_ALIASES: Readonly<Record<string, readonly strin
   text: ["string"],
   varchar: ["string"],
   uuid: ["guid"],
-  date: ["datetime"],
+  // `Date` / `LocalDate` (Java, C#'s `DateOnly`) are the calendar day.
+  date: ["date"],
+  localdate: ["date"],
+  dateonly: ["date"],
+  // `time` is DECLINED — the linker answers it with the reason, not an alias.
   time: ["datetime"],
   timestamp: ["datetime"],
   instant: ["datetime"],

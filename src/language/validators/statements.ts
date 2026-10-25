@@ -929,12 +929,14 @@ type ArgAdmit = (arg: Expression, expected: DddType) => boolean;
 
 /** The language-side mirror of `decideLiteralCoercion`
  *  (`src/generator/_test/arg-coercion.ts` — not importable here, layering): a
- *  bare STRING literal in an `X id` / `datetime` position, optional or not, is
+ *  bare STRING literal in an `X id` / `datetime` / `date` position, optional or not, is
  *  coerced by every backend's test emitter, so it type-checks in a test body. */
 const admitTestLiteral: ArgAdmit = (arg, expected) => {
   if (!isStringLit(arg)) return false;
   const t = expected.kind === "optional" ? expected.inner : expected;
-  return t.kind === "id" || (t.kind === "primitive" && t.name === "datetime");
+  return (
+    t.kind === "id" || (t.kind === "primitive" && (t.name === "datetime" || t.name === "date"))
+  );
 };
 
 /** Per-argument type check (positional, over the overlap of params/args), shared

@@ -1019,6 +1019,9 @@ function groupKeyCoerce(t: TypeIR, read: string, basePkg: string, viaFunction = 
         // A File column is jsonb holding the FileRef record — the domain
         // and the wire shape are the same record.
         return `(${javaRef(`${basePkg}.domain.common`, "FileRef")}) ${read}`;
+      case "date":
+        // A `LocalDate` column → its ISO `yyyy-MM-dd` wire text.
+        return `((${J.LocalDate}) ${read}).toString()`;
     }
   }
   throw new Error(
