@@ -3,7 +3,9 @@
 // `find all`) served every row to any authenticated caller with no diagnostic:
 // an admin-gated create + operation and no explicit `find all` validated with
 // only the by-id warning.  Now `loom.default-deny-list-ungated` (a WARNING, the
-// by-id read's tier) names the route and the line that gates it.
+// by-id read's tier) names the route and the line that gates it — and since
+// M-T3.19 the ungated list read is REFUSED at runtime (403): enrichment stamps
+// the deny gate on it.  Warning for one release, then an error.
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
@@ -54,6 +56,23 @@ describe("loom.default-deny-list-ungated — the ungated list read is reported",
     expect(list[0]!.message).toContain("find all(): Secret paged requires <expr>");
     expect(list[0]!.message).not.toContain("Secret[]");
     expect(list[0]!.message).toContain("repository Secrets for Secret");
+    expect(list[0]!.message).toContain("REFUSED AT RUNTIME (403)");
+    expect(list[0]!.message).toContain("enforcement: opt");
+    expect(list[0]!.message).toContain("becomes an error in a later release");
+  });
+
+  it("stamps the synthesised DENY gate on the ungated list read (runtime 403)", async () => {
+    const { model } = await parseString(vault({ enforcement: "denyByDefault" }), {
+      validate: false,
+    });
+    const repo = enrichLoomModel(
+      lowerModel(model),
+    ).systems[0]!.subdomains[0]!.contexts[0]!.repositories.find(
+      (r) => r.aggregateName === "Secret",
+    );
+    const all = repo?.finds.find((f) => f.name === "all");
+    expect(all?.defaultDenied).toBe(true);
+    expect(all?.requires).toEqual({ kind: "literal", lit: "bool", value: "false" });
   });
 
   it("fires under the DEFAULT enforcement (an auth block with no `enforcement:`)", async () => {

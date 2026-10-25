@@ -178,6 +178,9 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/java/emit/openapi-customizer.ts#buildJavaOpenApiContract": ALL_CONTEXTS,
   "src/generator/dotnet/adapters/efcore-persistence.ts#emitDbContext": ALL_CONTEXTS,
   "src/generator/elixir/vanilla/openapi-emit.ts#emitOpenApiSpec": ALL_CONTEXTS,
+  // D15: the HOSTED set that shadows `foreignValueTypes`' unhosted-sibling
+  // closure — its own declarations are exactly the ones not to re-emit.
+  "src/generator/elixir/vanilla/openapi-emit.ts#emitOpenApiSpec$2": ALL_CONTEXTS,
   "src/platform/hono/v4/adapters/drizzle-persistence.ts#emitDrizzleSchema": ALL_CONTEXTS,
   "src/platform/hono/v4/explicit-handlers-builder.ts#buildExplicitRoutesFile": ALL_CONTEXTS,
   "src/platform/hono/v4/explicit-handlers-builder.ts#buildExplicitRoutesFile$2": ALL_CONTEXTS,
