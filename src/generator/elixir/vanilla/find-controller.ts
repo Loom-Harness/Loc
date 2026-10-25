@@ -123,7 +123,7 @@ export function findRoutes(
  *  query-string form is already right (string / guid / enum / id). */
 function findParamCoercion(
   t: TypeIR | undefined,
-): "int" | "decimal" | "bool" | "datetime" | undefined {
+): "int" | "decimal" | "bool" | "datetime" | "date" | undefined {
   const inner = t?.kind === "optional" ? t.inner : t;
   if (inner?.kind !== "primitive") return undefined;
   switch (inner.name) {
@@ -137,6 +137,8 @@ function findParamCoercion(
       return "bool";
     case "datetime":
       return "datetime";
+    case "date":
+      return "date";
     default:
       return undefined;
   }
@@ -182,6 +184,8 @@ export function findParamRead(p: { name: string; type?: TypeIR }): string {
       return `__find_bool(${raw})`;
     case "datetime":
       return `__find_datetime(${raw})`;
+    case "date":
+      return `__find_date(${raw})`;
     default:
       return raw;
   }
@@ -484,7 +488,7 @@ ${absentArm}
     httpFindsOf(ctx, agg)
       .flatMap((f) => f.params)
       .map((p) => findParamCoercion(p.type))
-      .filter((k): k is "int" | "decimal" | "bool" | "datetime" => k !== undefined),
+      .filter((k): k is "int" | "decimal" | "bool" | "datetime" | "date" => k !== undefined),
   );
   const checks = httpFindsOf(ctx, agg).flatMap((f) =>
     f.params.map((p) => findParamCheck(p.type, ctx)),
@@ -547,6 +551,21 @@ ${absentArm}
   end
 
   defp __find_datetime(v), do: v`
+      : "",
+    neededCoercions.has("date")
+      ? `
+  # A declared find's \`date\` query param — Postgrex encodes a \`date\`
+  # parameter only from a \`%Date{}\`, so the ISO text is parsed here.
+  defp __find_date(%Date{} = v), do: v
+
+  defp __find_date(v) when is_binary(v) do
+    case Date.from_iso8601(v) do
+      {:ok, d} -> d
+      _ -> v
+    end
+  end
+
+  defp __find_date(v), do: v`
       : "",
   ].join("");
 

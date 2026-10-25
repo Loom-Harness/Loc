@@ -128,6 +128,8 @@ function toDataExpr(access: string, t: TypeIR, vo?: JavaVoEncode): string {
       return `encode${inner.name}(${access})`;
     }
     if (inner.kind === "primitive" && inner.name === "datetime") return javaInstantWire(access);
+    // `LocalDate.toString()` is ISO `yyyy-MM-dd` — the calendar-date wire form.
+    if (inner.kind === "primitive" && inner.name === "date") return `${access}.toString()`;
     // money pins the FIXED wire scale (RS-12) — a bare `toPlainString()` echoes
     // whatever scale the domain `BigDecimal` happens to carry (the write scale,
     // an arithmetic result's scale), which need not be 4dp: the SAME class of
@@ -200,6 +202,7 @@ function javaWireDecode(idValueTypeOf: (target: string) => string): WireDecodeTa
       decimal: (e) => numericEncode(JAVA_NUMERIC, "decimal", "find-param", e),
       money: (e) => numericEncode(JAVA_NUMERIC, "money", "find-param", `(String) ${e}`),
       datetime: (e) => `${J.Instant}.parse((String) ${e})`,
+      date: (e) => `${J.LocalDate}.parse((String) ${e})`,
       string: asString,
       guid: asString,
       json: asString,

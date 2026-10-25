@@ -3961,7 +3961,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `the scaffolded list filter bar has no input for \`${p.param}: ${p.type}\`, ` +
     `so repository find '${p.find}' is omitted from it entirely and '${p.aggregate}' cannot be ` +
     `filtered by that column from this page.  The bar renders \`string\`, \`guid\`, ` +
-    `\`datetime\`, \`int\`, \`long\`, \`bool\` and \`<X> id\` params.  Two kinds are still held ` +
+    `\`date\`, \`datetime\`, \`int\`, \`long\`, \`bool\` and \`<X> id\` params.  Two kinds are still held ` +
     `back, each for a reason outside the scaffold macro: \`decimal\`/\`money\` have no ` +
     `zero-sentinel that type-checks on Feliz (\`decimal <> 0\` is \`decimal <> int\`), and an ` +
     `\`enum\` state field is typed as bare \`string\` by every frontend while the query param ` +

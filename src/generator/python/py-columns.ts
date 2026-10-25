@@ -1,6 +1,7 @@
 import type { AssociationIR, BoundedContextIR, FieldIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { escapePythonIdent, snake, upperFirst } from "../../util/naming.js";
+import { PY_CALENDAR_DATE_NAME } from "./emit/calendar-date.js";
 
 // ---------------------------------------------------------------------------
 // Column mapping shared by the SQLAlchemy schema emitter and the
@@ -163,6 +164,8 @@ export function columnsFor(
           return [{ attr, pyType: "bool", saType: "Boolean", optional: opt }];
         case "datetime":
           return [{ attr, pyType: "datetime", saType: "DateTime(timezone=True)", optional: opt }];
+        case "date":
+          return [{ attr, pyType: PY_CALENDAR_DATE_NAME, saType: "Date", optional: opt }];
         case "guid":
           return [{ attr, pyType: "str", saType: "Uuid(as_uuid=False)", optional: opt }];
         case "json":

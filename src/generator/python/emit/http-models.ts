@@ -12,6 +12,7 @@ import {
   MONEY_WIRE_SCALE,
 } from "../../money-scale.js";
 import { PY, pyVoOrEnum } from "../py-symbols.js";
+import { PY_CALENDAR_DATE } from "./calendar-date.js";
 import {
   createFieldConstraints,
   createFieldMessageValidator,
@@ -353,6 +354,10 @@ function wireFieldType(
           return "bool";
         case "datetime":
           return inbound ? PY.datetime : "str";
+        // Inbound, pydantic parses the ISO `YYYY-MM-DD` text into a date and
+        // refuses anything else as a 422; outbound it is that text again.
+        case "date":
+          return inbound ? PY_CALENDAR_DATE : "str";
         case "json":
           return "object";
         case "File":

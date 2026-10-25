@@ -772,6 +772,8 @@ function jsonbLeafCast(t: TypeIR | undefined): string | undefined {
       return "bigint";
     case "datetime":
       return "timestamptz";
+    case "date":
+      return "date";
     default:
       return undefined;
   }

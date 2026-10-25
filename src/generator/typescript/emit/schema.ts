@@ -342,6 +342,7 @@ export function renderSchema(
     "numeric",
     "boolean",
     "timestamp",
+    "date",
     "uuid",
     "index",
     "uniqueIndex",
@@ -959,6 +960,11 @@ function drizzleColumnLinesForName(
           return [`${fieldName}: text("${colName}")${not},`];
         case "bool":
           return [`${fieldName}: boolean("${colName}")${not},`];
+        case "date":
+          // `mode: "string"` keeps the column's `YYYY-MM-DD` text: the default
+          // `Date` mode would build a JS Date at the host's LOCAL midnight, and
+          // a server west of UTC would read the previous day back.
+          return [`${fieldName}: date("${colName}", { mode: "string" })${not},`];
         case "datetime":
           return [`${fieldName}: timestamp("${colName}", { withTimezone: true })${not},`];
         case "guid":

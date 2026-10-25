@@ -16,7 +16,14 @@
 // docs/old/plans/stdlib.md.
 
 /** Scalar receiver types an intrinsic can be declared on. */
-export type IntrinsicReceiver = "string" | "int" | "long" | "decimal" | "money" | "datetime";
+export type IntrinsicReceiver =
+  | "string"
+  | "int"
+  | "long"
+  | "decimal"
+  | "money"
+  | "date"
+  | "datetime";
 
 /** Parameter type of an intrinsic — primitive names only (no lambdas here;
  *  lambda-taking ops stay in `collection-ops.ts`). A trailing `?` marks the
@@ -28,6 +35,7 @@ export type IntrinsicParam =
   | "decimal"
   | "money"
   | "bool"
+  | "date"
   | "string?"
   | "int?";
 
@@ -42,6 +50,7 @@ export type IntrinsicReturn =
   | "decimal"
   | "money"
   | "bool"
+  | "date"
   | "datetime"
   | "receiver"
   | "string[]";
@@ -121,7 +130,7 @@ export interface IntrinsicSignature {
 //     aggregate min/max).  A column-typed `other` is allowed in queryable
 //     position (`LEAST(col_a, col_b)` is legitimate SQL).
 //   - `startOfDay()` — truncates a `datetime` to MIDNIGHT UTC, staying a
-//     `datetime` (there is no `date` primitive).  The day boundary is UTC on
+//     `datetime` (the calendar-date form is `toDate()`).  The day boundary is UTC on
 //     every backend, in memory as well as in SQL — timestamps are stored in
 //     UTC, so `date_trunc('day', …)` and the in-memory arms agree.  The
 //     grouping bucket for a daily series (`group by o.placedAt.startOfDay()`).
@@ -249,7 +258,7 @@ export const INTRINSIC_SIGNATURES: ReadonlyArray<IntrinsicSignature> = [
   // ---- datetime ------------------------------------------------------------
   // Truncates a timestamp to MIDNIGHT UTC — the grouping bucket for a daily
   // series (`group by o.placedAt.startOfDay()`).  The result is still a
-  // `datetime` (no `date` primitive exists); every SQL backend renders it as
+  // `datetime` (`toDate()` is the calendar-date form); every SQL backend renders it as
   // `date_trunc('day', …)`, so the bucket boundary is UTC on every target.
   {
     receiver: "datetime",
@@ -258,6 +267,41 @@ export const INTRINSIC_SIGNATURES: ReadonlyArray<IntrinsicSignature> = [
     returns: "datetime",
     queryable: true,
     signature: "(): datetime",
+  },
+  // The calendar date of an instant, read in UTC — the one explicit
+  // datetime → date conversion.  `today()` (the temporal prelude) is
+  // `now().toDate()`.  Domain-expression only: no SQL arm.
+  {
+    receiver: "datetime",
+    name: "toDate",
+    params: [],
+    returns: "date",
+    queryable: false,
+    signature: "(): date",
+  },
+  // ---- date ----------------------------------------------------------------
+  // A calendar date's components (1-based month and day) and the signed
+  // whole-day distance to another date (`a.daysUntil(b)` is `b - a` in days,
+  // negative when `b` is earlier).  The set is deliberately small: comparison
+  // (`<`, `==`, …) is the operator surface, and there is no date arithmetic.
+  // Domain-expression only: no SQL arm.
+  ...(["year", "month", "day"] as const).map(
+    (name): IntrinsicSignature => ({
+      receiver: "date",
+      name,
+      params: [],
+      returns: "int",
+      queryable: false,
+      signature: "(): int",
+    }),
+  ),
+  {
+    receiver: "date",
+    name: "daysUntil",
+    params: ["date"],
+    returns: "int",
+    queryable: false,
+    signature: "(other: date): int",
   },
   ...(["decimal", "money"] as const).flatMap((receiver): IntrinsicSignature[] => [
     {
