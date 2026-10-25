@@ -38,7 +38,7 @@ system S {
         find byMinBalance(min: int): Account[] where this.balance >= min
         find bySeq(lowest: long): Account[] where this.seq >= lowest
         find byRate(floor: decimal): Account[] where this.rate >= floor
-        find byHolder(who: string): Account?
+        find byHolder(who: string): Account? where this.holder == who
       }
 
       // The SECOND emitter that annotates a route signature. It reads the same

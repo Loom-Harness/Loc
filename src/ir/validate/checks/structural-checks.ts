@@ -270,14 +270,16 @@ function unionReservedFindNames(): Set<string> {
 
 /** A clause-less find filters on the fields its parameters name
  *  (`FindIR.paramBindings`); a parameter that names no field would be
- *  dropped from the query, so it is refused. */
+ *  dropped from the query, so it is refused.  `id` names the aggregate's own
+ *  key, which is not a declared field: `find byId(id: X id)` is the by-id read
+ *  form the read-gate surface recognises, so it is not refused here. */
 export function validateFindParamBindings(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
   for (const repo of ctx.repositories) {
     for (const find of repo.finds) {
       if (find.filter || find.synthesized || find.auditHistory) continue;
       const bound = new Set((find.paramBindings ?? []).map((b) => b.param));
       for (const p of find.params) {
-        if (bound.has(p.name)) continue;
+        if (bound.has(p.name) || p.name === "id") continue;
         diags.push({
           severity: "error",
           code: "loom.find-param-unbound",

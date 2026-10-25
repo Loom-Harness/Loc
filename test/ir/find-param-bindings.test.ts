@@ -57,6 +57,11 @@ describe("find parameter → field binding", () => {
     expect(unbound[0]!.message).toContain("'s' names no field");
   });
 
+  it("does not refuse `id` — it names the aggregate key, not a declared field", async () => {
+    const { unbound } = await build("find byId(id: Product id): Product?");
+    expect(unbound).toEqual([]);
+  });
+
   it("binds a parameter naming a field the concrete inherits from its base", async () => {
     const loom = await buildLoomModelUnchecked(
       `
