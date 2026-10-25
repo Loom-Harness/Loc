@@ -209,7 +209,7 @@ export function emitLiveViewPages(args: {
   // `change_<agg>(%PhoenixApp.Sales.Customer{})` create-form changeset.
   const contextModuleByAggName = new Map<string, string>();
   /** Aggregate → the rendered list-read authorization gate, for aggregates
-   *  whose repository declares `find all(...) requires <expr>`. */
+   *  with a `policy { read X requires <expr> }` gate. */
   const listReadGateByAggName = new Map<string, ListReadGate>();
   // Workspace-wide enum registry — threaded into the walker so
   // `CreateForm(of: Agg)` with enum-typed fields renders `<.input

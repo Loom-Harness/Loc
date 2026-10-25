@@ -359,9 +359,9 @@ export function defaultNavSections(
   hasWorkflowsIndex: boolean,
   /** The ui's pages, so a DEFAULT entry inherits the `requires` gate of the
    *  page it links to (resolved by route, which is what the entry carries).
-   *  A scaffolded List page CLONES the `find all … requires` gate guarding the
-   *  very read it makes, so "scaffold pages carry no `requires`" was false and
-   *  the default sidebar advertised routes the backend refuses (M-T3.15-C3). */
+   *  A scaffolded List page CLONES the `policy { read X requires … }` gate
+   *  guarding the very read it makes, so the default sidebar must not
+   *  advertise a route the backend refuses. */
   uiPages: readonly PageIR[] = [],
   /** `auth: ui` — without a client-side session user there is nothing to test,
    *  so every entry stays ungated and the output is byte-identical. */

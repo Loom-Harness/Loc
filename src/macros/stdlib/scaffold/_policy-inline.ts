@@ -1,7 +1,7 @@
 // Inline named `policy` references in a gate the scaffold COPIES onto a page.
 //
 // A workflow header (`workflow w requires CanManageStaff() { … }`) or a
-// `find all(): T[] requires IsStaff()` gate is propagated onto the scaffolded
+// `policy { read T requires IsStaff() }` gate is propagated onto the scaffolded
 // instance / List pages so the nav entry matches the route it reads.  On the
 // server the reference is inlined at the gate (`inlinePolicyFn`,
 // `src/ir/lower/lower-expr.ts`) — but a page lives in a `ui`, outside every

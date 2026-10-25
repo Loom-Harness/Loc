@@ -249,7 +249,8 @@ export function renderFindActions(
     const call = `${ctxModule}.${findSnake}_${aggSnake}(${argReads})`;
 
     // Assemble the action from its inner body — wrapping it in an `if not (gate)
-    // do <403> else … end` guard when the find declares a `requires` clause.
+    // do <403> else … end` guard when the find carries a read gate (the
+    // aggregate's `policy { read X requires … }`).
     // Ungated finds stay byte-identical (no gate, original shape).
     const wrap = (innerBody: string): string => {
       if (!requiresGate) {

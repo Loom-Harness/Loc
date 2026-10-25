@@ -16,18 +16,16 @@
 // paged-by-default auto-`findAll` (M-T2.6) and WRONG the moment the author
 // declares the read explicitly:
 //
-//     repository Docs for Doc { find all(): Doc[] requires <expr> }
+//     repository Docs for Doc { find all(): Doc[] }
 //
-// — the only documented way to put an authorization gate on a list route
-// (`docs/auth.md`).  Declaring it keeps the wire contract the signature asks
+// Declaring it keeps the wire contract the signature asks
 // for (a bare `Doc[]`), so `.items` is `undefined` there.  On a typed client
 // that is `Property 'items' does not exist on type …` plus an implicit-`any`
 // on the map callback, and the generated frontend does not build.  Where
 // inference is weaker, `(x.data?.items ?? [])` quietly evaluates to `[]` and
 // the picker renders ZERO OPTIONS with nothing, anywhere, reporting a problem.
 //
-// So: the gate or a working frontend, not both — until this answered the
-// question in one place.
+// So the paged-or-not question is answered in one place.
 //
 // Lives at the IR layer for the same reason `projection-read.ts` and
 // `repo-read.ts` do: the fact is an IR fact (a declared find's return type),

@@ -964,7 +964,7 @@ function renderQueryProjectionAction(
   const webModule = `${appModule}Web`;
   // Read-side `requires` authorization gate (default-deny): a 403 returned
   // before the query runs when the `currentUser`-only predicate fails — the
-  // read-side analogue of a repository `find … requires <gate>` (mirrors
+  // read-side analogue of the aggregate read gate on a find (mirrors
   // `renderFindActions`).  Ungated projections stay byte-identical.
   const projGate = effectiveGate(proj.query?.requires);
   const gate = projGate

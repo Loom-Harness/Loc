@@ -48,29 +48,20 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
 - **workflows** — every command-triggered `create … {}` starter and named
   `handle …(){}` continuation (event-triggered creates and `on(...)`
   reactors are not client-reachable, so they are excluded);
-- **repository `find`s** — the same optional `requires` gate (see
-  [Find gates](#find-requires-gates) below).
-- **the two compiler-derived aggregate reads** (M-T3.19, Commons F-006, ruling
-  D5) — the list read `GET /api/<plural>` and the single-record read
-  `GET /api/<plural>/{id}`.  Each is served on all five backends whether or
-  not the author declares anything, so each is gated by declaring it on the
-  repository with a `requires`, named at the declaration (no inherited
-  aggregate-level default):
+- **every read of an aggregate** — the list read `GET /api/<plural>`, the
+  single-record read `GET /api/<plural>/{id}`, each repository `find`'s route,
+  and the audit history read — gated by ONE line in the context's `policy`
+  block (see [Read gates](#read-gates)):
 
   ```ddd
-  repository Secrets for Secret {
-    find all(): Secret[] requires currentUser.role == "admin"
-    find byId(id: Secret id): Secret? requires currentUser.role == "admin"
-  }
+  repository Secrets for Secret {}
+  policy { read Secret requires currentUser.role == "admin" }
   ```
 
-  The by-id read is recognised by name AND shape — `byId`, one `<T> id`
-  parameter, returning `<T>?`; a filterless one reads THE row (`where this.id
-  == id` is supplied).  A declared `find all` replaces the compiler-injected
-  one.  Every backend evaluates the gate **before** the load, so a refused
-  caller gets 403 (on `/{id}`, for an existing and a missing id alike — no
-  existence oracle); the routes' OpenAPI responses gain 403.  All five
-  backends resolve both reads through one shared derivation
+  Every backend evaluates the gate **before** the load, so a refused caller
+  gets 403 (on `/{id}`, for an existing and a missing id alike — no existence
+  oracle); the routes' OpenAPI responses gain 403.  All five backends resolve
+  the list and by-id reads through one shared derivation
   (`src/ir/util/read-gates.ts`).  `requires true` is the explicit public
   escape; the tenancy filter and `mask unless` still apply on top of the gate.
   See [Migration: the synthesised reads fail closed](#migration-the-synthesised-reads-fail-closed-m-t319)
@@ -97,7 +88,7 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   on the projection HEADER (`projection X keyed by k requires <expr> { … }`,
   after `keyed by`, like every other gate in the language), evaluated against
   `currentUser` before the read; failure → 403.  It is the projection twin of
-  the find gate, currentUser-only (a source-row reference is rejected by
+  the policy read gate, currentUser-only (a source-row reference is rejected by
   `loom.projection-gate-not-current-user`), and it enforces on all five
   backends:
   - a **query-time** projection gates its comprehension route
@@ -155,32 +146,61 @@ java/python/elixir defect that a node-only probe could not have seen.  See
 
 ### Migration: the synthesised reads fail closed (M-T3.19)
 
-Before M-T3.19, under `denyByDefault` the two compiler-derived reads of every
-aggregate — the list `GET /api/<plural>` and the by-id `GET /api/<plural>/{id}`
-— served **any** authenticated caller unless the author had declared a gated
-`find all`; the by-id read could not be gated at all.  Now, on all five
-backends, a read whose repository does not declare a gate for it is **refused
-at runtime with 403** (evaluated before the load — no existence oracle).  To
-keep serving it, declare it with a gate (`requires true` for intentionally
-public):
+Under `denyByDefault`, the two compiler-derived reads of every aggregate — the
+list `GET /api/<plural>` and the by-id `GET /api/<plural>/{id}` — are **refused
+at runtime with 403** on all five backends (evaluated before the load — no
+existence oracle) unless the aggregate has a read gate.  To keep serving them,
+write the gate (`requires true` for intentionally public):
 
 ```ddd
-repository Orders for Order {
-  find all(): Order[] requires currentUser.role == "clerk"
-  find byId(id: Order id): Order? requires currentUser.role == "clerk"
-}
+policy { read Order requires currentUser.role == "clerk" }
 ```
 
 …or set `enforcement: opt` on the `auth` block to keep the pre-flip posture
 (nothing is denied by default, so the reads serve as before).
 
-**The build does not break for one release.**  Each undeclared read raises a
-**warning** that names the line to write — `loom.default-deny-list-ungated`
-for the list read and `loom.default-deny-by-id-ungated` for the by-id read.
-Both warnings become **errors** in a later release (tracked under M-T3.19 in
-`docs/new-plan/T3-security-governance.md`, target ~2026-11-01), so treat them
-as a to-do list now.  A *declared* `find byId` with no `requires` is an
-ordinary ungated find and is already an error (`loom.default-deny-ungated`).
+**The build does not break for one release.**  Each ungated read raises a
+**warning** that names the policy line to write —
+`loom.default-deny-list-ungated` for the list read and
+`loom.default-deny-by-id-ungated` for the by-id read.  Both warnings become
+**errors** in a later release (target ~2026-11-01), so treat them as a to-do
+list now.  A *declared* find of an aggregate with no read gate is already an
+error (`loom.default-deny-ungated`).
+
+### Migration: `find … requires` moved to the policy block
+
+A repository `find` no longer carries a `requires` clause — `find … requires`
+does not parse.  Who may read an aggregate is an access fact, not a property of
+one collection query, so it lives beside the `allow` / `deny` ladder and covers
+every read at once ([D-READ-GATE-IN-POLICY](decisions.md)).  The codemod moves
+each gate:
+
+```bash
+node scripts/codemod-find-gate-to-policy.mjs <dir-or-file>...   # --check / --list write nothing; --embedded also rewrites .ts/.md/.yml
+```
+
+```ddd
+// before
+repository Orders for Order {
+  find all(): Order paged requires currentUser.role == "clerk"
+  find byId(id: Order id): Order? requires currentUser.role == "clerk"
+}
+
+// after
+repository Orders for Order {
+  find byId(id: Order id): Order?
+}
+policy { read Order requires currentUser.role == "clerk" }
+```
+
+It deletes a find left identical to the one the compiler injects
+(`find all(): T paged`) and keeps every other find, so the wire surface is
+unchanged.  Where one repository's finds carried **different** gates, there is
+no one-to-one translation — the gate is per aggregate now; the codemod keeps the
+list read's gate, writes a review comment naming the dropped ones, and reports
+the file.  Two reads of one aggregate that must answer to different principals
+belong on different aggregates (or behind an exposure gate:
+`scaffoldPaged(requires:)`, a route / handler `requires`).
 
 What's intentionally **not** here yet:
 
@@ -472,7 +492,7 @@ warning says so for the `when`/`precondition` shapes.
 #### Header `requires` clause (authorization.md §11.3)
 
 The gate can also ride the **declaration header** — the write-side twin of the
-find `requires` gate.  It relocates the authorization decision out of the
+policy `read X requires` gate.  It relocates the authorization decision out of the
 body onto the signature, and is exactly equivalent to a first-body `requires`
 statement (same 403, same pre-body evaluation, same scope):
 
@@ -990,37 +1010,55 @@ gate field writes with `operation update(…) requires <field> == this.<field> |
 | `loom.field-mask-projection-source` | a masked aggregate is a query-time `projection` source — projection responses aren't read-masked yet, so it would leak |
 | *(AST)* `'mask unless' … must be of type 'bool'` | the predicate is not a bool |
 
-### Find `requires` gates
+### Read gates
 
-A repository `find` accepts the same optional `requires <expr>` clause,
-**before** its `where` filter — the read-side analogue of an operation gate:
+Who may read an aggregate is one line in its context's `policy` block, beside
+the `allow` / `deny` ladder:
 
 ```ddd
 repository Tickets for Ticket {
-  find openOnes(): Ticket[] requires currentUser.role == "agent" where open == true
-  find mine(): Ticket[]     requires true where open == true   // intentionally public
+  find openOnes(): Ticket[] where open == true
+}
+policy {
+  read Ticket requires currentUser.role == "agent"
+  read Product requires true          // intentionally public
 }
 ```
 
-The gate emits an in-handler **403** at the top of the find's route, evaluated
+The gate covers **every read** of the aggregate: the list `GET /<plural>`, the
+by-id `GET /<plural>/{id}`, each declared find's route
+(`GET /<plural>/open_ones`), the audit history read
+(`GET /<plural>/{id}/history`), and the scaffolded List page (client-side, so
+its nav entry hides for a refused principal).  An exposure-level gate — a
+`scaffoldPaged(requires:)`, a route / handler `requires` — still ANDs on top.
+
+It emits an in-handler **403** at the top of each of those routes, evaluated
 against the request's `currentUser` before the query runs.  It is
-**`currentUser`-only** (plus constants) — no source row exists yet,
-so referencing an aggregate field is a compile error
-(`loom.find-gate-not-current-user`).  Like every `requires` clause it must
-**type to `bool`** (a non-bool gate — `requires 42` — is rejected, so it can't
-lower to an always-truthy no-op).  Use `where` to scope *which rows* come
-back, `requires` to decide *who* may run the find.  `requires true` is the
-intentionally-public escape that also satisfies default-deny.
+**`currentUser`-only** (plus constants) — no source row exists yet, so
+referencing an aggregate field is a compile error
+(`loom.policy-read-gate-not-current-user`).  Like every `requires` clause it
+must **type to `bool`** (a non-bool gate — `requires 42` — is rejected, so it
+can't lower to an always-truthy no-op).  Use a `where` / capability `filter` to
+scope *which rows* come back, the read gate to decide *who* may read at all.
+`requires true` is the intentionally-public escape that also satisfies
+default-deny.  One rule per aggregate (`loom.policy-duplicate-target`), and the
+aggregate must be declared in the same context (`loom.policy-unknown-aggregate`).
+`read` is not a keyword: it heads a rule only inside `policy { }` and stays an
+ordinary identifier (a permission, an operation, `let read = …`) everywhere
+else; any other word there is `loom.policy-unknown-rule`.
 
 The generated handler throws `ForbiddenError`/`ForbiddenException` (→ RFC-7807
 403) on all five backends before touching the repository:
 
 ```ts
-// generated Hono route for `find openOnes ... requires currentUser.role == "agent"`
+// generated Hono route for `GET /orders/{id}` under
+// `policy { read Order requires currentUser.role == "agent" }`
 const currentUser = c.get("currentUser");
-if (!(currentUser.role === "agent")) throw new ForbiddenError("Forbidden");
-const result = await repo.openOnes();
+if (!(currentUser.role === "agent")) throw new ForbiddenError("Forbidden: find byId");
 ```
+
+The `detail` names the read the gate refused (`find all`, `find byId`,
+`find history`, `find <name>`), identically on every backend.
 
 ### UI gate — `page { requires <expr> }`
 
@@ -1054,8 +1092,8 @@ action-button gating on React / Vue / Svelte — only Angular still lacks an aut
 UI gate.  The client guard is **defence-in-depth** — the authoritative check is
 always the backend 403.
 
-**Scaffolded pages inherit the gate their route is guarded by.**  A `find all(…)
-requires` puts its gate on the scaffolded List page, and a `workflow … requires`
+**Scaffolded pages inherit the gate their route is guarded by.**  A
+`policy { read X requires … }` puts its gate on the scaffolded List page, and a `workflow … requires`
 header gate puts its gate on both instance pages — so the no-code path guards
 itself instead of firing a read that 403s.  Sound because both are
 `currentUser`-only by validation, which is exactly what a page gate can evaluate
@@ -1078,6 +1116,7 @@ request**:
 | Workflow body | ✅ |
 | Aggregate-level `test` body | ✅ |
 | Repository `find` `where` clause | ✅ (slice 1C) |
+| `policy { read X requires … }` gate | ✅ (`currentUser` + constants only) |
 | Aggregate / part / value-object invariant | ❌ |
 | Derived property | ❌ |
 | `function` body | ❌ |

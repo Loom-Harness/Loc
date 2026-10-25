@@ -351,6 +351,7 @@ order:
 | `test "name" for <Aggregate\|ValueObject\|DomainService\|Context> { … }` | A unit test hoisted beside its subject (`for` names the home; a test nested inside its subject needs no `for` — `loom.test-redundant-for` / `loom.test-needs-target`). |
 | `policy [Name] { allow [write] local\|deep\|global on Aggregate … }` | Read/write-scope ladder for `tenantOwned` aggregates under a tenant hierarchy — widens the tenant floor to the caller's org subtree (`deep`) or root-org subtree (`global`); the optional `write` verb gates instance mutations. The name is optional; one rule per aggregate. See [tenancy.md](tenancy.md) → "The `policy {}` read ladder". |
 | `policy [Name] { deny [write] on Aggregate … }` | **Deny-wins carve-out** (Phase 4): removes access to an aggregate. `deny on X` denies READ (X becomes invisible → empty / 404; writes fail too since the write load reuses the read filter); `deny write on X` denies WRITE only (reads stay, mutations 404). All-or-nothing at the aggregate (no level word); applied after the `allow` passes, so deny wins. Not restricted to `tenantOwned`. Diagnostics: `loom.policy-deny-unknown-aggregate`, `loom.policy-deny-duplicate`, `loom.policy-deny-shadows-allow` (warning). See [auth.md](auth.md) → "Deny carve-outs". |
+| `policy [Name] { read Aggregate requires Expr … }` | **Read gate**: who may read the aggregate at all — every read of it (list, by-id, each find's route, audit history, the scaffolded List page) answers 403 before the load unless `Expr` holds. `currentUser` and constants only. Diagnostics: `loom.policy-read-gate-not-current-user`, `loom.policy-duplicate-target`, `loom.policy-unknown-aggregate`. See [auth.md](auth.md) → "Read gates". |
 | `policy Name(params): bool ( = Expr \| { Expr } )` | **Named policy function** (P3.2): a reusable boolean authorization predicate (sees `currentUser` + its own parameters).  It is **context-level**, not ambient: a policy declared in one context does not resolve from another (a call there reports `loom.policy-out-of-scope`: *policy X is declared in context A; policies are context-local — redeclare it in B*), so a gate shared across contexts is declared in each, referenced from a `requires PolicyName(args)` gate and inlined there like a `criterion … of bool`. Parentheses are required (they distinguish it from the `policy {}` block form). See [auth.md](auth.md) → "Named policy functions". |
 
 ### Identity and `X id`
@@ -1354,7 +1355,7 @@ decimal`.
 | Form | Purpose |
 | --- | --- |
 | `precondition Expression [message "…"]` | Runtime check; failure throws a domain error (HTTP 422 — RS-15).  The optional `message` is the user-facing text. |
-| `requires Expression` | Authorization gate (HTTP 403) — `currentUser` / `permissions.<x>` predicate; distinct from `precondition` (validity) and the header `when` (state, 409).  Also a header clause on `operation` / `handle` / `find` / `projection`.  **Not as a header clause on `create` / `destroy`** — the grammar parses one there, but the validator refuses it (`'requires' is not allowed on a create`: there is no loaded instance for a header gate to read).  Gate a hand-written `create` with a leading body statement `requires <expr>` instead (emitted as a 403 on all five backends — pinned by `test/generator/lifecycle-forbidden-remap.test.ts`), with `with crudish(requires: <Policy>)`, or by gating the `workflow` that constructs the aggregate.  See [`auth.md`](auth.md). |
+| `requires Expression` | Authorization gate (HTTP 403) — `currentUser` / `permissions.<x>` predicate; distinct from `precondition` (validity) and the header `when` (state, 409).  Also a header clause on `operation` / `handle` / `projection`, and the gate of a `policy { read X requires … }` rule (who may read aggregate X).  **Not as a header clause on `create` / `destroy`** — the grammar parses one there, but the validator refuses it (`'requires' is not allowed on a create`: there is no loaded instance for a header gate to read).  Gate a hand-written `create` with a leading body statement `requires <expr>` instead (emitted as a 403 on all five backends — pinned by `test/generator/lifecycle-forbidden-remap.test.ts`), with `with crudish(requires: <Policy>)`, or by gating the `workflow` that constructs the aggregate.  See [`auth.md`](auth.md). |
 | `lhs := Expression` | Assignment to a property reachable from `this`, optionally spelled with an explicit `this.` prefix (`this.name := name`), which is what makes the assignment type-check against the field rather than against a same-named parameter — see [Behavior & statements](language-reference/06-behavior-and-statements.md#assignment-----).  Derived properties are not assignable; under `persistedAs: eventLog` assignments live only in `apply` bodies. |
 | `coll += value` | Append to a contained collection (or an `X id[]` reference collection). |
 | `coll -= value` | Remove from a contained collection. |
@@ -1912,9 +1913,10 @@ repository Orders for Order {
 }
 ```
 
-The full form is `find name(params): T | T? | T or NotFound | T option | T[] | T paged [requires Expr]
-[where Expr] [ignoring Cap, … | ignoring *]` — `requires` is the read-side
-authorization gate, `ignoring` bypasses a capability's contributed query
+The full form is `find name(params): T | T? | T or NotFound | T option | T[] | T paged
+[where Expr] [ignoring Cap, … | ignoring *]` — a find carries no authorization
+gate (who may read the aggregate is `policy { read X requires Expr }`, which
+covers every find), and `ignoring` bypasses a capability's contributed query
 filter (e.g. `softDeletable`).  Each `find` declaration becomes a method
 on the generated repository plus a Mediator query in the .NET backend.
 

@@ -100,12 +100,12 @@ export function pagesForAggregate(agg: Aggregate, ui: Ui): Page[] {
   const labelPlural = humanize(plural(aggName));
   const apiHandle = firstApiHandle(ui);
   const filters = filterFindsForAggregate(agg);
-  // The `find all(): T[] requires …` gate guards `GET /<aggs>` — the very read
-  // this List page makes.  Same reasoning as the workflow-instance pages: the
-  // nav link's visibility is rendered from the PAGE's gate, so without this the
-  // entry shows for a principal the backend refuses.  A find gate is
-  // `currentUser`-only by validation (`loom.find-gate-not-current-user`), so it
-  // ports to the client unchanged.
+  // The `policy { read T requires … }` gate guards `GET /<aggs>` — the very
+  // read this List page makes.  Same reasoning as the workflow-instance pages:
+  // the nav link's visibility is rendered from the PAGE's gate, so without this
+  // the entry shows for a principal the backend refuses.  A read gate is
+  // `currentUser`-only by validation (`loom.policy-read-gate-not-current-user`),
+  // so it ports to the client unchanged.
   const listGate = listReadGateForAggregate(agg);
   return [
     page({

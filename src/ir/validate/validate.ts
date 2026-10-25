@@ -24,7 +24,7 @@ import {
 import { validatePagedParamNames } from "./checks/paged-param-checks.js";
 import { validateProjections } from "./checks/projection-checks.js";
 import {
-  validateFindGates,
+  validatePolicyReadGates,
   validateProjectionGates,
   validateQueryableWheres,
   validateRawSeedColumns,
@@ -295,7 +295,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
   // bundled in a system's modules or sits at the top level.
   for (const c of allContexts(loom)) {
     validateQueryableWheres(c, diags);
-    validateFindGates(c, diags);
+    validatePolicyReadGates(c, diags);
     validateProjectionGates(c, diags);
     validateWorkflowInstanceReadGates(c, diags);
     validateRetrievals(c, diags);

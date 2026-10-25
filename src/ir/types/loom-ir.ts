@@ -904,9 +904,10 @@ export interface FindIR {
   name: string;
   params: ParamIR[];
   returnType: TypeIR;
-  /** Authorization gate (D-AUTH-OIDC / default-deny).  An optional
-   *  `requires <expr>` clause — a boolean evaluated against `currentUser`
-   *  *before* the query runs; failure → 403.  Distinct from `filter`: the
+  /** Authorization gate (D-AUTH-OIDC / default-deny) — the aggregate's
+   *  `policy { read X requires <expr> }` gate, put on the find by enrichment
+   *  (`applyPolicyReadGates`); a find declares no gate of its own.  A boolean
+   *  evaluated against `currentUser` *before* the query runs; failure → 403.  Distinct from `filter`: the
    *  filter scopes which rows come back (queryable, pushed to SQL), the gate
    *  decides whether the caller may hit the endpoint at all.  Lowered in the
    *  bare context scope (currentUser only, no aggregate row / params), so it
@@ -990,7 +991,7 @@ export interface RepositoryIR {
   /** Set by enrichment (M-T3.19) when the aggregate is served by an
    *  `auth: required` backend under `enforcement: denyByDefault`: its two
    *  compiler-derived reads (list, by-id) fail CLOSED unless the author
-   *  declares a gated `find all` / `find byId`.  A system-composition fact the
+   *  declares `policy { read X requires <expr> }`.  A system-composition fact the
    *  per-context backends cannot re-derive (they never see the deployables),
    *  hence stored.  Consumed through `read-gates.ts`. */
   readsDefaultDenied?: boolean;
@@ -1237,6 +1238,31 @@ export interface BoundedContextIR {
    *  write) with `buildDenyFilter`.  Undefined / empty when the context declares
    *  no `deny` rule. */
   policyDenies?: PolicyDenyIR[];
+  /** Per-aggregate READ gates declared by `policy { read X requires <expr> }`
+   *  in this context — who may read the aggregate at all.  Consumed by
+   *  enrichment (`applyPolicyReadGates`), which puts the gate on every
+   *  author-declared find of X and on the compiler-injected list read `all`;
+   *  the by-id route and the audit history read take it from `all`
+   *  (`read-gates.ts`, `ensureHistoryFind`).  Undefined / empty when the
+   *  context declares no read gate. */
+  policyReadGates?: PolicyReadGateIR[];
+}
+
+/** One `read <Aggregate> requires <expr>` rule lowered from a `policy {}`
+ *  block.  The gate is lowered in the bare context scope (no row, no params),
+ *  exactly like a projection gate, so it can reference `currentUser` and
+ *  constants only — anything else is `loom.policy-read-gate-not-current-user`
+ *  in phase ⑦. */
+export interface PolicyReadGateIR {
+  /** The aggregate the gate applies to (by name, in this context).  Resolution
+   *  is validated in phase ⑦ (`loom.policy-unknown-aggregate`). */
+  aggregate: string;
+  /** The gate, evaluated before the load; failure → 403. */
+  gate: ExprIR;
+  /** Source span text for diagnostics (`read Order requires …`). */
+  source: string;
+  /** Provenance of the rule, for diagnostic locations. */
+  origin?: OriginRef;
 }
 
 /** One `allow <level> on <Aggregate>` rule lowered from a `policy {}` block —

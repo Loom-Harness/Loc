@@ -505,10 +505,10 @@ export function renderJavaController(
       ? [
           `    @GetMapping("${relativeOpPath(getByIdEntry)}")`,
           `    public ResponseEntity<${agg.name}Response> get${agg.name}ById(@PathVariable ${idJava} id) {`,
-          // M-T3.19 — the author's `find byId(id: T id): T? requires <expr>` gates
-          // this read, BEFORE the load (403 for an existing and a missing id alike).
-          // That find is a declared find, so it is already in `gatedFinds` — its
-          // imports and the principal accessor are wired above.
+          // The aggregate's read gate (`policy { read T requires <expr> }`) gates
+          // this read, BEFORE the load (403 for an existing and a missing id
+          // alike).  The same gate sits on the list read `all`, so its imports
+          // and the principal accessor are wired above.
           ...(getByIdEntry.find?.requires ? findGateLines(getByIdEntry.find) : []),
           // RS-27 — the service THROWS AggregateNotFoundException on a miss (it
           // never returns null), so the `@RestControllerAdvice` renders the RFC-9457
