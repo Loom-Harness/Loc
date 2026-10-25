@@ -34,6 +34,7 @@ import {
   PRINCIPAL_ORG_PATH,
   PRINCIPAL_ROOT_ORG,
 } from "../../util/principal.js";
+import { repositoryVerb } from "../../util/repository-contract.js";
 import { findVerb } from "../../util/resource-verbs.js";
 import { durationUnitOf } from "../../util/temporal.js";
 import { isValueObjectEqualsIntrinsic } from "../../util/value-object-intrinsics.js";
@@ -1275,9 +1276,11 @@ export class Elaborator {
     return false;
   }
 
-  /** The value a repository read yields — ONE rule for every container
-   *  (the IR's `repoReadResultType`: union-aware declared finds, `getById` is
-   *  the row, `findById`/`find` are optional, `findAll`/`all`/`run` are lists). */
+  /** The value a repository read yields — ONE rule for every container, read
+   *  off the declared repository contract (`util/repository-contract.ts`), the
+   *  same table the IR's `repoReadResultType` reads: a declared find is its own
+   *  declared type, otherwise the verb's result shape (the row, an optional
+   *  row, or a list).  A write verb yields no value. */
   private repoReadType(
     repo: import("../generated/ast.js").Repository,
     agg: Aggregate,
@@ -1287,17 +1290,15 @@ export class Elaborator {
     const row = Ty.record({ of: "aggregate", ref: agg });
     const declared = repo.finds.find((f) => f.name === ms.member);
     if (declared) return this.resolveType(declared.returnType, scope);
-    switch (ms.member) {
-      case "getById":
+    switch (repositoryVerb(String(ms.member))?.result) {
+      case "row":
         return row;
-      case "findById":
-      case "find":
+      case "optional-row":
         return Ty.opt(row);
-      case "findAll":
-      case "all":
-      case "run":
+      case "rows":
         return Ty.array(row);
-      default:
+      case "none":
+      case undefined:
         return Ty.unknown("unresolved-member");
     }
   }

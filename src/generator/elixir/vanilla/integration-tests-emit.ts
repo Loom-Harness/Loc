@@ -23,10 +23,10 @@ import type {
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { elixirString, plural, snake, upperFirst } from "../../../util/naming.js";
+import { repoVerbOpAt } from "../../../util/repository-contract.js";
+import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { internalCreateFn } from "../lifecycle-seam.js";
 import { type Env, renderExpect, vtExpr } from "./tests-emit.js";
-
-const BUILTIN_READS = new Set(["findById", "getById", "findAll"]);
 
 /** A `<Agg>.create(...)` / named create-action call → the owning aggregate;
  *  undefined when the call is not a create. */
@@ -67,16 +67,17 @@ function findBinding(
     .filter((r) => r.aggregateName === aggName)
     .flatMap((r) => r.finds)
     .find((f) => f.name === e.member);
-  if (!BUILTIN_READS.has(e.member) && !custom) return undefined;
+  const op = repoVerbOpAt(e.member, "integration-test");
+  if (!op && !custom) return undefined;
   const args = e.args.map((a) => vtExpr(a, env)).join(", ");
-  if (e.member === "findAll") {
+  if (op === "select-many") {
     return `{:ok, %{items: ${name}}} = ${ctxMod}.list_${snake(plural(agg.name))}()`;
   }
-  if (e.member === "findById" || e.member === "getById") {
+  if (op === "load" || op === "load-optional") {
     return `{:ok, ${name}} = ${ctxMod}.get_${snake(agg.name)}(${args})`;
   }
   // A custom find is re-exported on the context module under its own name.
-  return `{:ok, ${name}} = ${ctxMod}.${snake(e.member)}(${args})`;
+  return `{:ok, ${name}} = ${ctxMod}.${elixirFindFacadeFn(e.member, agg.name)}(${args})`;
 }
 
 /** Render an object-literal create/op argument to an Ecto attrs map. */

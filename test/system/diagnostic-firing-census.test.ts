@@ -28,7 +28,7 @@ import { COVERED_ELSEWHERE, UNCOVERED } from "./diagnostic-firing-census.data.js
 //
 // WHY THIS SHAPE, AND NOT A GREP.  Both static censuses were measured against
 // the dynamic one on 2026-08-13 and both are wrong, in both directions
-// (`docs/audits/test-coverage-audit-2026-08-13.md` §3.1):
+// (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/test-coverage-audit-2026-08-13.md` §3.1):
 //
 //   code named nowhere under test/                         131 "uncovered"
 //   …and no ≥14-char fragment of its message either        111 "uncovered"
@@ -625,6 +625,30 @@ system TpcUnique {
       }`),
   // Ruling D1 — an event starter reaches a claims gate with no `isSystem`
   // disjunct: the system principal it runs as can never pass it.
+  // The policy read gate runs before the load, so it may read only
+  // `currentUser` and constants — a row field there is refused.
+  "loom.policy-read-gate-not-current-user": `
+system S {
+  user { id: guid  role: string }
+  subdomain D { context Vault {
+    aggregate Secret { body: string  open: bool }
+    repository Secrets for Secret { }
+    policy { read Secret requires open == true }
+  } }
+}`,
+
+  // `read` heads the gate rule as an identifier, not a keyword, so any word
+  // parses there — and every word but `read` is refused by name.
+  "loom.policy-unknown-rule": `
+system S {
+  user { id: guid  role: string }
+  subdomain D { context Vault {
+    aggregate Secret { body: string }
+    repository Secrets for Secret { }
+    policy { view Secret requires true }
+  } }
+}`,
+
   "loom.reactor-gate-unsatisfiable": `
 system ReactorGate {
   user { id: guid  permissions: string[] }
@@ -1174,6 +1198,11 @@ system S {
       operation touch() { if let c = code { code := c } }
     }
     repository Orders for Order { }`),
+
+  "loom.criterion-retrieval-name-clash": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing { }
+    criterion Named(n: string) of Thing = this.name == n
+    retrieval Named(n: string) of Thing { where: this.name == n  sort: [name asc] }`),
 
   // A clause-less find whose parameter names no field: dropped from the query,
   // the lookup answered with an arbitrary row.
@@ -1877,6 +1906,29 @@ system P {
       orderId: Order id
       status: string
       create(oid: Order id) { status := "Pending" }
+    }`),
+  // A state write on a workflow with no id-shaped state field: no instance row
+  // is kept, so the write is unaddressable.
+  "loom.workflow-uncorrelated-state-write":
+    repoOnly(`    aggregate Order with crudish { name: string }
+    repository Orders for Order { }
+    workflow Tally {
+      total: int
+      create(n: int) { total := n }
+    }`),
+  // An explicit persistence statement in a workflow body: the body persists at
+  // its exit, so `Orders.save(o)` is refused rather than reinterpreted.
+  "loom.workflow-explicit-save": repoOnly(`    aggregate Order with crudish {
+      name: string
+      operation rename(n: string) { name := n }
+    }
+    repository Orders for Order { }
+    workflow W {
+      create(oid: Order id) {
+        let o = Orders.getById(oid)
+        o.rename("x")
+        Orders.save(o)
+      }
     }`),
   // A repository reached INLINE, inside a `precondition` expression, instead of
   // bound to its own `let`.  The let-bound sibling read (`Things.getById`) in
@@ -3589,9 +3641,7 @@ system S {
   auth { enforcement: denyByDefault  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
   subdomain D { context Vault {
     aggregate Secret { body: string  create() { requires currentUser.role == "admin" } }
-    repository Secrets for Secret {
-      find all(): Secret[] requires currentUser.role == "admin"
-    }
+    repository Secrets for Secret { }
   } }
   api Api from D
   storage pg { type: postgres }
@@ -3619,8 +3669,9 @@ system S {
       apply(e: Opened) { owner := e.owner }
     }
     repository Accounts for Account {
-      find all(): Account[] requires currentUser.role == "admin"
+      find all(): Account[]
     }
+    policy { read Account requires currentUser.role == "admin" }
   } }
   api Api from D
   storage pg { type: postgres }
@@ -3827,7 +3878,7 @@ const UNREACHABLE_PINS: Record<string, string> = {
     "put in a child slot has an explicit arm above it, so the default is the exhaustiveness " +
     "backstop, not an authorable condition.  Re-test when the walker grows a new " +
     "child-position arm; see M-T9.55's hand-off H3 " +
-    "(docs/new-plan/waves/handoffs/wave-c1-1d-giveup-drain.md).",
+    "(https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-c1-1d-giveup-drain.md).",
   // (The backend-capability gates whose SUPPORTED set listed all five backend
   // families — query-time / paged / aggregation / group-by / workflow-source /
   // projection-source projections, unions, generic carriers, `when`, union

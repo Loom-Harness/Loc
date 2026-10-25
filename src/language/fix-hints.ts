@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Fix-hint providers — turn a diagnostic into an applyable model patch
-// (docs/old/proposals/ai-diagnostics-contract.md §3.3).  This is what closes the
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/ai-diagnostics-contract.md §3.3).  This is what closes the
 // validate→repair loop into a *self-suggesting* one: a diagnostic carries a
 // `fixHint` whose `patch` the agent (or a human) hands straight to
 // `applyPatches`, never reading generated code.

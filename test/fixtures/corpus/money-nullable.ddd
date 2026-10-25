@@ -23,6 +23,20 @@
 // The `test` block is the in-memory proof (`10` vs `10.00` before any storage
 // normalises the scale); the `test e2e` block is the wire proof and carries this
 // fixture's golden.
+//
+// #3227's follow-ups (#3263) ride the same fixture:
+//
+//   `Quote`   an ORDERING against an ABSENT `money?` / `decimal?` answers FALSE
+//             (SQL's UNKNOWN, .NET's lifted operators — the rule `docs/language.md`
+//             § Null narrowing states).  Before: node `(fee)!.gt(…)` threw,
+//             java `fee.compareTo(…)` NPE'd, python `None > Decimal` raised
+//             `TypeError`, elixir `nil` sorted below every struct (`absent < x`
+//             held).  A nullable INTEGRAL against a `decimal` (`qty > rate`,
+//             `qty == rate`) is the java `BigDecimal.valueOf(null)` NPE.
+//   `Ledger`  a `shape: document` aggregate: elixir's in-memory document path
+//             compared and added its `%Decimal{}` money with NATIVE operators
+//             (Erlang term order; `+` raised `ArithmeticError`), and bound a
+//             money op param as the raw JSON string.
 system MoneyNullable {
   subdomain Billing {
     context Billing {
@@ -83,6 +97,88 @@ system MoneyNullable {
         }
       }
       repository Invoices for Invoice { }
+
+      aggregate Quote {
+        fee: money?
+        qty: int?
+        rate: decimal
+        cap: decimal?
+
+        // An ordering with an absent side is false, whichever side it is on.
+        derived feeOverFive: bool = fee > money("5")
+        derived feeAtMostFive: bool = fee <= money("5")
+        derived fiveUnderFee: bool = money("5") < fee
+        derived capAtLeastRate: bool = cap >= rate
+        // A nullable INTEGRAL against a `decimal`.
+        derived qtyOverRate: bool = qty > rate
+        derived qtyIsRate: bool = qty == rate
+
+        create(fee: money?, qty: int?, rate: decimal, cap: decimal?) {
+          fee := fee
+          qty := qty
+          rate := rate
+          cap := cap
+        }
+
+        // An UNGUARDED ordering over a `money?` parameter: an absent bid is
+        // refused (the precondition answers false), not a crash.
+        operation bid(x: money?) {
+          precondition x > money("0")
+          fee := x
+        }
+
+        test "an ordering against an absent money? / decimal? is false" {
+          let full = Quote.create({ fee: money("10.00"), qty: 3, rate: 3.0, cap: 4.5 })
+          expect(full.feeOverFive).toBe(true)
+          expect(full.feeAtMostFive).toBe(false)
+          expect(full.fiveUnderFee).toBe(true)
+          expect(full.capAtLeastRate).toBe(true)
+          expect(full.qtyOverRate).toBe(false)
+          expect(full.qtyIsRate).toBe(true)
+
+          let empty = Quote.create({ fee: null, qty: null, rate: 2.5, cap: null })
+          expect(empty.feeOverFive).toBe(false)
+          expect(empty.feeAtMostFive).toBe(false)
+          expect(empty.fiveUnderFee).toBe(false)
+          expect(empty.capAtLeastRate).toBe(false)
+          expect(empty.qtyOverRate).toBe(false)
+          expect(empty.qtyIsRate).toBe(false)
+
+          expect(empty.bid(null)).toThrow()
+          expect(empty.bid(money("-1"))).toThrow()
+          empty.bid(money("7"))
+          expect(empty.feeOverFive).toBe(true)
+        }
+      }
+      repository Quotes for Quote { }
+
+      aggregate Ledger shape: document {
+        balance: money
+        limit: money?
+
+        create(balance: money, limit: money?) {
+          balance := balance
+          limit := limit
+        }
+
+        // Money arithmetic + ordering in the in-memory document op body.
+        operation spend(amount: money) {
+          precondition amount > money("0")
+          precondition limit == null || balance + amount <= limit
+          balance := balance + amount
+        }
+
+        // `money?` equality by value, and an ordering with an absent side.
+        operation setLimit(x: money?) {
+          precondition x != limit
+          precondition x >= balance
+          limit := x
+        }
+      }
+      repository Ledgers for Ledger {
+        // An in-memory document find over money.
+        find over(min: money): Ledger[] where this.balance > min
+      }
     }
   }
 
@@ -131,5 +227,61 @@ system MoneyNullable {
 
     let all = api.invoices.all()
     expect(all.items.length).toBe(2)
+  }
+
+  test e2e "an ordering against an absent money? / decimal? is false on the wire" against d {
+    let full = api.quotes.create({ fee: money("10.00"), qty: 3, rate: 3.0, cap: 4.5 })
+    let readFull = api.quotes.getById(full)
+    expect(readFull.feeOverFive).toBe(true)
+    expect(readFull.feeAtMostFive).toBe(false)
+    expect(readFull.fiveUnderFee).toBe(true)
+    expect(readFull.capAtLeastRate).toBe(true)
+    expect(readFull.qtyOverRate).toBe(false)
+    expect(readFull.qtyIsRate).toBe(true)
+
+    let empty = api.quotes.create({ rate: 2.5 })
+    let readEmpty = api.quotes.getById(empty)
+    expect(readEmpty.feeOverFive).toBe(false)
+    expect(readEmpty.feeAtMostFive).toBe(false)
+    expect(readEmpty.fiveUnderFee).toBe(false)
+    expect(readEmpty.capAtLeastRate).toBe(false)
+    expect(readEmpty.qtyOverRate).toBe(false)
+    expect(readEmpty.qtyIsRate).toBe(false)
+
+    // An absent bid is refused by the precondition, not a 500.
+    expect(api.quotes.bid(empty, { x: null })).toThrow(422)
+    expect(api.quotes.bid(empty, { x: money("-1") })).toThrow(422)
+    api.quotes.bid(empty, { x: money("7") })
+    let bid = api.quotes.getById(empty)
+    expect(bid.feeOverFive).toBe(true)
+    let quotes = api.quotes.all()
+    expect(quotes.items.length).toBe(2)
+  }
+
+  test e2e "a document aggregate compares and adds money by value" against d {
+    let l = api.ledgers.create({ balance: money("10"), limit: money("20.00") })
+    // 10 + 10.00 <= 20: admitted.
+    api.ledgers.spend(l, { amount: money("10.00") })
+    // 20 + 0.01 > 20: refused by value.
+    expect(api.ledgers.spend(l, { amount: money("0.01") })).toThrow(422)
+    // A negative amount is refused by value, not by term order.
+    expect(api.ledgers.spend(l, { amount: money("-5") })).toThrow(422)
+    // `x != limit` with `20.0` against `20.00`: equal by value, so refused.
+    expect(api.ledgers.setLimit(l, { x: money("20.0") })).toThrow(422)
+    // `x >= balance` with an absent `x`: false, so refused.
+    expect(api.ledgers.setLimit(l, { x: null })).toThrow(422)
+    api.ledgers.setLimit(l, { x: money("25") })
+    // The new limit is stored as money, not as the raw request text: the read
+    // (and this fixture's wire golden) sees the canonical scale.
+    let limited = api.ledgers.getById(l)
+    expect(limited.version).toBe(3)
+    // The in-memory find orders by value: 20 > 9.5 (term order on the
+    // `%Decimal{}` structs said no).
+    let over = api.ledgers.over({ min: money("9.5") })
+    expect(over.length).toBe(1)
+    let none = api.ledgers.over({ min: money("100") })
+    expect(none.length).toBe(0)
+    let ledgers = api.ledgers.all()
+    expect(ledgers.length).toBe(1)
   }
 }

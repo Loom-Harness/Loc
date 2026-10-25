@@ -30,7 +30,7 @@ import { generateTypeScript } from "../platform/hono/v4/emit.js";
 // the version-agnostic shared emitter.
 import { BACKEND_PINS as HONO_PINS } from "../platform/hono/v5/pins.js";
 import { type GiveUpReport, partitionGiveUps } from "../system/give-up-report.js";
-import { generateSystemsFromLoom, serviceSlug } from "../system/index.js";
+import { generateSystemsFromLoom, pendingMigrations, serviceSlug } from "../system/index.js";
 import { captureSnapshots } from "../system/loomsnap.js";
 import {
   buildManifest,
@@ -43,15 +43,11 @@ import {
   planPrune,
   serializeManifest,
 } from "../system/manifest.js";
-import { fsMigrationArtifactIndex, MigrationBaselineError } from "../system/migration-artifacts.js";
 import {
-  ledgerRelPath,
-  type MigrationHistoryLedger,
-  MigrationLedgerReadError,
-  migrationLedgerPath,
-  readMigrationLedger,
-  writeMigrationLedger,
-} from "../system/migration-ledger.js";
+  MigrationChainError,
+  MigrationDriftError,
+  recordGeneration,
+} from "../system/migration-chain.js";
 import {
   MigrationBackfillDiscardedError,
   MigrationDestructiveError,
@@ -59,7 +55,6 @@ import {
   MigrationSqlScopeError,
   type MigrationWarning,
 } from "../system/migrations-builder.js";
-import { fsSnapshotStore, SnapshotReadError } from "../system/snapshot.js";
 import { annotateTrace, type SourceMap, traceCoverage } from "../trace/index.js";
 import type { DesignPackInspector } from "../util/design-pack-defects.js";
 import { isScaffoldOnce } from "../util/scaffold-once.js";
@@ -86,6 +81,12 @@ import {
   runI18nStatus,
   runI18nSync,
 } from "./i18n/index.js";
+import {
+  readMigrationChain,
+  readMigrationChainOrEmpty,
+  utcVersionNow,
+  writeChainEntries,
+} from "./migrate.js";
 import {
   cliInvocation,
   DESIGN_PACKS,
@@ -209,7 +210,7 @@ async function parseProject(entryFile: string): Promise<ProjectParseResult> {
   // `lowerProject` composes the whole import graph as one project — the
   // lone `system { }` block plus top-level `subdomain` / `context`
   // declarations from any file fold into a single system (see
-  // docs/old/proposals/implicit-system-composition.md).
+  // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/implicit-system-composition.md).
   //
   // LAZY, and only ever forced after the caller has checked `errorCount`.  A
   // document with a parse error carries a RECOVERED AST — a required cross-ref
@@ -453,7 +454,7 @@ async function runParse(file: string, opts: { allWarnings?: boolean } = {}) {
 
 /**
  * `ddd patch <file> --patches <json>` — apply node-addressed model patches
- * (docs/old/proposals/ai-authoring-loop.md §4).  Default output is the patched
+ * (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/ai-authoring-loop.md §4).  Default output is the patched
  * source on stdout (so it composes: `ddd patch m.ddd --patches p.json > m2.ddd`);
  * `--json` emits the structured PatchResult.  Exits 1 if any patch fails.
  */
@@ -540,7 +541,7 @@ async function withJsonStdout<T>(work: () => Promise<T>): Promise<T> {
 
 /**
  * `ddd parse --json` — the structured-diagnostics contract
- * (docs/old/proposals/ai-diagnostics-contract.md).  Thin wrapper over the toolkit
+ * (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/ai-diagnostics-contract.md).  Thin wrapper over the toolkit
  * `validate()`: prints the `ValidateReport` to stdout, exits 1 when not `ok`.
  */
 async function runParseJson(file: string): Promise<void> {
@@ -594,29 +595,18 @@ interface RunOptions {
    * trace-level domain instrumentation (`value_computed`,
    * `precondition_evaluated`, etc., via `requestLog().trace(...)`).  Off
    * by default keeps the artefact lean and the domain layer pure; on
-   * regenerate to diagnose.  See docs/old/proposals/observability.md. */
+   * regenerate to diagnose.  See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/observability.md. */
   emitTrace?: boolean;
   /** `--k8s` switch — when true, `generate system` additionally emits a Helm
    * chart (`helm/`) and the raw manifests it renders to (`k8s/`) alongside
    * `docker-compose.yml`.  See docs/kubernetes.md. */
   emitKubernetes?: boolean;
-  /** `--allow-destructive` switch — permit destructive delta migrations
-   * (column/table drops, NOT-NULL adds without a default on an existing
-   * table).  Off by default: a destructive delta aborts the run with a
-   * `loom.migration-destructive` error.  See docs/migrations.md. */
-  allowDestructive?: boolean;
-  /** `--allow-rebaseline` switch — override the M-T2.2 baseline guard that
-   * refuses to re-emit an "Initial" migration when the snapshot is missing
-   * but migration files already exist.  Off by default: the run aborts with
-   * a `MigrationBaselineError` so a lost snapshot doesn't silently reset the
-   * migration history.  See docs/migrations.md. */
-  allowRebaseline?: boolean;
   /** `--sourcemap` switch — when true, `generate system` additionally emits
    * `.loom/sourcemap.json` mapping generated file regions back to `.ddd`
    * spans / macro-call sites.  Off by default (byte-identical output).
    * System target only — the legacy single-project `generate ts` /
    * `generate dotnet` paths don't accept this flag.
-   * See docs/old/plans/source-map-debug-kickoff.md. */
+   * See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/source-map-debug-kickoff.md. */
   sourcemap?: boolean;
   /** `--inline-sources` switch — inline each `.ddd`'s full text into every
    * Source Map v3 sidecar.  Off by default: the sidecars name the `.ddd` by
@@ -659,15 +649,88 @@ interface RunResult {
 
 type GenerateTarget = "ts" | "dotnet" | "system";
 
-/** The ledger path to NAME in a guard refusal.  Relative to the cwd when that
- *  is actually shorter and readable, absolute otherwise: a source tree beside
- *  (or above) the cwd otherwise yields a `../../../..` chain the operator has
- *  to decode before they can go look at the file the message blames. */
-function displayLedgerPath(sourceDir: string, sourceFile: string): string {
-  const abs = migrationLedgerPath(sourceDir, sourceFile);
-  const rel = path.relative(process.cwd(), abs);
-  if (!rel) return ledgerRelPath(sourceFile);
-  return rel.startsWith("..") || path.isAbsolute(rel) ? abs : rel;
+/** The migration failures that are an operator's to fix — reported as a clean
+ *  CLI failure with the error's own recovery hint, never as a crash. */
+function isMigrationRefusal(err: unknown): err is Error {
+  return (
+    err instanceof MigrationChainError ||
+    err instanceof MigrationDriftError ||
+    err instanceof MigrationDestructiveError ||
+    err instanceof MigrationBackfillDiscardedError ||
+    err instanceof MigrationShapeChangeError ||
+    err instanceof MigrationSqlScopeError
+  );
+}
+
+/** Print phase-⑨ advisories: warnings counted under their own footer,
+ *  suggestions (a spent `migration` block) labelled and left out of it. */
+function printMigrationWarnings(migrationWarnings: readonly MigrationWarning[]): void {
+  const suggestions = migrationWarnings.filter((w) => w.severity === "suggestion");
+  const warnings = migrationWarnings.filter((w) => w.severity !== "suggestion");
+  for (const w of warnings) console.error(`${w.code} warning: ${w.message}`);
+  for (const w of suggestions) console.error(`${w.code} suggestion: ${w.message}`);
+  if (warnings.length > 0) {
+    console.error(`${warnings.length} warning(s) in derived migrations.`);
+  }
+}
+
+/** `ddd migrate add` — diff the model against the chain's head and append
+ *  the result.  Returns false on any error (already printed). */
+async function runMigrateAdd(
+  name: string,
+  file: string,
+  options: { allowDestructive?: boolean; allWarnings?: boolean },
+): Promise<boolean> {
+  let projectResult: ProjectParseResult;
+  try {
+    projectResult = await parseProject(file);
+  } catch (err) {
+    console.error(`${file}: ${err instanceof Error ? err.message : String(err)}`);
+    return false;
+  }
+  const ast = printAstDiagnostics(projectResult);
+  if (projectResult.errorCount > 0) {
+    printSummary(ast);
+    return false;
+  }
+  const loom = projectResult.loom;
+  const { errors, warnings } = printIrDiagnostics(
+    validateLoomModel(loom),
+    projectResult.sourceTexts,
+    {
+      allWarnings: options.allWarnings,
+    },
+  );
+  printSummary(ast, { errors: errors.length, warnings: warnings.length });
+  if (errors.length > 0) return false;
+  const migrationWarnings: MigrationWarning[] = [];
+  try {
+    const chain = readMigrationChainOrEmpty(file);
+    const deltas = pendingMigrations(loom, chain, {
+      allowDestructive: options.allowDestructive,
+      warnings: migrationWarnings,
+    });
+    const entries = recordGeneration(chain, deltas, {
+      name,
+      now: utcVersionNow(),
+      allowDestructive: options.allowDestructive,
+    });
+    printMigrationWarnings(migrationWarnings);
+    if (entries.length === 0) {
+      console.log("No schema changes since the last recorded migration.");
+      return true;
+    }
+    for (const written of writeChainEntries(file, entries)) {
+      console.log(`  recorded  ${path.relative(process.cwd(), written) || written}`);
+    }
+    return true;
+  } catch (err) {
+    if (isMigrationRefusal(err)) {
+      console.error(`${file}: ${err.message}`);
+      return false;
+    }
+    throw err;
+  }
 }
 
 async function runGenerate(
@@ -772,36 +835,16 @@ async function runGenerate(
    *  beside the give-ups below — same shape of problem: a fact known inside a
    *  pure pass with no console, which used to reach nobody. */
   let migrationWarnings: MigrationWarning[] = [];
-  // The migration-history ledger lives beside the `.ddd` SOURCE, not under
-  // `-o`: it is the only record of "this module already has migrations" that
-  // survives being read in an output tree that carries none of them (F-029).
-  // Written back after a successful non-dry run, below.
-  const sourceDir = path.dirname(path.resolve(file));
-  let ledgerToWrite: MigrationHistoryLedger | null = null;
   if (target === "system") {
-    // Diff each subdomain's current schema against the snapshot the
-    // LAST regen wrote into `.loom/snapshots/` (under `outDir`).
-    // Fresh output dirs ⇒ `fsSnapshotStore.read` returns null ⇒ initial
-    // migration; existing snapshots ⇒ delta migration when the source
-    // moves.  See `src/system/migrations-builder.ts` for the diff
-    // builder + `docs/generators.md` § Migrations for the pipeline.
+    // Every backend's migration files are rendered from the committed chain
+    // beside the source (`migrations/`), so `-o` holds no migration state of
+    // its own.  No chain yet ⇒ each module's initial migration, derived from
+    // the model.  See docs/migrations.md.
     try {
       const emission = generateSystemsFromLoom(loom, {
         emitTrace: options.emitTrace,
         emitKubernetes: options.emitKubernetes,
-        snapshots: fsSnapshotStore(outDir),
-        allowDestructive: options.allowDestructive,
-        // M-T2.2: inventory the migration files already in the output tree so
-        // the baseline guards can refuse a silent re-baseline / verify the
-        // snapshot history / reject version reuse.  fs-backed; only the CLI
-        // scans a real tree.
-        existingMigrations: fsMigrationArtifactIndex(outDir, loom),
-        allowRebaseline: options.allowRebaseline,
-        // F-029: the output-tree guards are blind to a generate into a CLEAN
-        // directory (no snapshot AND no files reads as a first run). The
-        // ledger beside the source is the fact they are missing.
-        recordedHistory: readMigrationLedger(sourceDir, file),
-        ledgerPath: displayLedgerPath(sourceDir, file),
+        migrationChain: readMigrationChain(file),
         sourcemap: options.sourcemap,
         inlineSources: options.inlineSources,
         // Locale catalogs from the translator tree (`ddd i18n init/sync`).
@@ -814,7 +857,6 @@ async function runGenerate(
       });
       files = emission.files;
       giveUps = emission.giveUps;
-      ledgerToWrite = emission.migrationLedger;
       // Phase-⑨ advisories (F-3).  The only one today announces the drop+add →
       // RENAME inference the migration builder makes deliberately: it fired,
       // and before this the run said `0 error(s), 0 warning(s)` about it, so
@@ -824,22 +866,11 @@ async function runGenerate(
       // migration IS written.
       migrationWarnings = emission.migrationWarnings;
     } catch (err) {
-      // A corrupted/truncated migration snapshot, a destructive delta
-      // without --allow-destructive, or a baseline-safety violation (missing
-      // snapshot over existing files / history drift / version reuse) is a
-      // recoverable operator problem, not a compiler crash — report it as a
-      // clean CLI failure (with the recovery hint from the error message),
-      // matching how the other fatal generation errors above surface.
-      // Re-throw anything else for the top-level handler to print.
-      if (
-        err instanceof SnapshotReadError ||
-        err instanceof MigrationDestructiveError ||
-        err instanceof MigrationBackfillDiscardedError ||
-        err instanceof MigrationShapeChangeError ||
-        err instanceof MigrationSqlScopeError ||
-        err instanceof MigrationBaselineError ||
-        err instanceof MigrationLedgerReadError
-      ) {
+      // An unreadable chain, an unrecorded model change, or a migration the
+      // derivation refuses is a recoverable operator problem, not a compiler
+      // crash — report it as a clean CLI failure (with the recovery hint from
+      // the error message).  Re-throw anything else for the top-level handler.
+      if (isMigrationRefusal(err)) {
         console.error(`${file}: ${err.message}`);
         if (!options.continueOnError) process.exit(1);
         return { hadError: true };
@@ -853,23 +884,10 @@ async function runGenerate(
       if (!options.continueOnError) process.exit(1);
       return { hadError: true };
     }
-    // Suggestions (a spent `migration` block) are advisories, not defects:
-    // printed with their own label and left out of the warning count.
-    const migrationSuggestions = migrationWarnings.filter((w) => w.severity === "suggestion");
-    const migrationRealWarnings = migrationWarnings.filter((w) => w.severity !== "suggestion");
-    for (const w of migrationRealWarnings) {
-      console.error(`${w.code} warning: ${w.message}`);
-    }
-    for (const w of migrationSuggestions) {
-      console.error(`${w.code} suggestion: ${w.message}`);
-    }
-    if (migrationRealWarnings.length > 0) {
-      // Its own footer, for the same reason the give-ups have one: the
-      // `N error(s), N warning(s).` line above is the phase-④/⑦ verdict and was
-      // already printed before generation ran, so without this the run reports
-      // `0 warning(s)` and then prints a warning.
-      console.error(`${migrationRealWarnings.length} warning(s) in derived migrations.`);
-    }
+    // Its own footer, for the same reason the give-ups have one: the
+    // `N error(s), N warning(s).` line above is the phase-④/⑦ verdict and was
+    // already printed before generation ran.
+    printMigrationWarnings(migrationWarnings);
     // Lift the walkers' give-ups.  They were already in the output, named by
     // code, three characters from the defect — this is the only place with both
     // the emitted text and a console to report against.
@@ -1080,27 +1098,6 @@ async function runGenerate(
     pruneEmptyDirs(resolvedOut, path.dirname(full));
   }
 
-  // Record the migration history this run's tree now has, beside the SOURCE.
-  // After the write loop and only on a real run: a `--dry-run` generated
-  // nothing, so the ledger must keep describing the tree as it stands (a dry
-  // run that recorded the delta it only previewed would arm guard (e) against
-  // the very next real generate).
-  if (ledgerToWrite && !options.dryRun) {
-    const { error } = writeMigrationLedger(sourceDir, file, ledgerToWrite);
-    if (error) {
-      // Non-fatal: a read-only source checkout is a real setup, and losing
-      // the detector must not fail a generate that otherwise succeeded. But
-      // it must not be SILENT either — without it the next generate into a
-      // clean directory is unguarded again.
-      console.error(
-        `Warning: could not record the migration history at ` +
-          `${migrationLedgerPath(sourceDir, file)} (${error.message}). The next ` +
-          `\`generate system\` into a clean output directory will not be able to tell a ` +
-          `re-baseline from a first run.`,
-      );
-    }
-  }
-
   const verb = options.dryRun ? "Would write" : "Wrote";
   const parts: string[] = [`${verb} ${written} file(s) in ${outDir}`];
   if (locallyModifiedPaths.length > 0) {
@@ -1301,7 +1298,7 @@ interface NewOptions {
 
 /**
  * `ddd new <name>` — scaffold a small, provably-valid starter project
- * (docs/old/proposals/quickstart-and-day-one-batteries.md §3.1).  Picks the
+ * (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/quickstart-and-day-one-batteries.md §3.1).  Picks the
  * backend platform (`--platform`) and frontend (`--design`: a React pack, or
  * `coreComponents` for a Phoenix LiveView fullstack), renders a `main.ddd` +
  * `README.md` + `.loomignore` + `LICENSE` (the MIT grant over the generated
@@ -1953,14 +1950,6 @@ generate
     "also emit a Helm chart (helm/) and raw manifests (k8s/) alongside docker-compose.yml; see docs/kubernetes.md",
   )
   .option(
-    "--allow-destructive",
-    "permit destructive delta migrations (column/table drops, NOT-NULL adds without a default on an existing table); off by default a destructive delta aborts. See docs/migrations.md.",
-  )
-  .option(
-    "--allow-rebaseline",
-    "permit re-emitting an 'Initial' migration when the snapshot is missing but migration files already exist; off by default the run aborts so a lost snapshot doesn't silently reset the migration history. See docs/migrations.md.",
-  )
-  .option(
     "--sourcemap",
     "emit .loom/sourcemap.json mapping generated code back to .ddd spans; off by default. See docs/debugging.md.",
   )
@@ -1983,8 +1972,6 @@ generate
         json?: boolean;
         trace?: boolean;
         k8s?: boolean;
-        allowDestructive?: boolean;
-        allowRebaseline?: boolean;
         sourcemap?: boolean;
         inlineSources?: boolean;
         locales?: string;
@@ -2003,8 +1990,6 @@ generate
         dryRun: options.dryRun,
         emitTrace: !!options.trace,
         emitKubernetes: !!options.k8s,
-        allowDestructive: !!options.allowDestructive,
-        allowRebaseline: !!options.allowRebaseline,
         sourcemap: !!options.sourcemap,
         inlineSources: !!options.inlineSources,
         localesDir: options.locales,
@@ -2014,6 +1999,29 @@ generate
       if (options.watch) {
         await watchAndRegenerate("system", file, options.out, runOpts);
       }
+    },
+  );
+
+const migrate = program
+  .command("migrate")
+  .description("Record schema changes in the migration chain (migrations/ beside the .ddd)");
+migrate
+  .command("add <name> <file>")
+  .description(
+    "Record the model's schema changes since the chain's head as a new migration named <name> (kebab-case). See docs/migrations.md.",
+  )
+  .option(
+    "--allow-destructive",
+    "permit destructive steps (column/table drops, NOT-NULL adds without a default on a populated table, reshapes); recorded in the migration. Off by default a destructive change aborts.",
+  )
+  .option(ALL_WARNINGS_FLAG, ALL_WARNINGS_HELP)
+  .action(
+    async (
+      name: string,
+      file: string,
+      options: { allowDestructive?: boolean; allWarnings?: boolean },
+    ) => {
+      process.exit((await runMigrateAdd(name, file, options)) ? 0 : 1);
     },
   );
 

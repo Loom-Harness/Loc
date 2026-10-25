@@ -1,5 +1,5 @@
 // `ddd generate system` preserves scaffold-once files on regen
-// (docs/old/proposals/extern-domain-extension-point.md, Slice 1 — the
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/extern-domain-extension-point.md, Slice 1 — the
 // regeneration-preservation mechanic slices 2–5 reuse).
 //
 // The Elixir `extern` impl module (`<Agg>ExternImpl`) is scaffolded ONCE, then

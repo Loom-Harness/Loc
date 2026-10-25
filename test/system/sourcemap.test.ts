@@ -5,8 +5,8 @@ import { toOriginRef, type WireOriginRef, type WireSourceRef } from "../../src/t
 import { parseString, parseValid } from "../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
-// Round-trip test for the `--sourcemap` artifact (docs/old/plans/
-// source-map-debug-kickoff.md §5/§6).  All five backends carry the emit
+// Round-trip test for the `--sourcemap` artifact (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/source-map-debug-kickoff.md
+// §5/§6).  All five backends carry the emit
 // bracket, so each must map at least one file per aggregate.
 // ---------------------------------------------------------------------------
 

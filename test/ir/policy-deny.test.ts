@@ -1,5 +1,5 @@
 // `policy { deny [write] on <Aggregate> }` — the DENY-WINS carve-out
-// (authorization Phase 4, docs/old/plans/authorization-phase4-deny.md).  Covers
+// (authorization Phase 4, https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/authorization-phase4-deny.md).  Covers
 // parsing (the `effect` discriminator), lowering (`BoundedContextIR.policyDenies`),
 // the enrichment composition (deny read → always-false term appended to the read
 // `contextFilters`; deny write → `writeScopeFilter` set to the sentinel), the

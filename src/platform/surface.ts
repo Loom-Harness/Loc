@@ -173,15 +173,6 @@ export interface PlatformDescriptor {
    * `Framework` grammar strings (today `react` | `phoenixLiveView`,
    * plus `static` as React's alias). */
   readonly hostableFrameworks: ReadonlySet<string>;
-  /** Repository method names this platform auto-emits for every
-   * aggregate.  A user-declared find with one of these names would
-   * collide with the auto-emitted method (TS: duplicate function
-   * implementation; .NET: same).  Used by the IR validator to
-   * surface the collision as a parse-time diagnostic instead of a
-   * downstream tsc/csc error.  Names are case-sensitive and use
-   * the DSL's casing (lowerCamelCase) — the validator compares
-   * against `find.name` directly. */
-  readonly reservedRepositoryFindNames: ReadonlySet<string>;
 }
 
 /** The full platform surface — its data descriptor plus the
@@ -233,7 +224,7 @@ export interface PlatformSurface extends PlatformDescriptor {
     styleAdapter?: StyleAdapter;
     layoutAdapter?: LayoutAdapter;
     /** Generate-time source-map recorder (`--sourcemap`, off by default —
-     *  see docs/old/plans/source-map-debug-kickoff.md).  Platforms that
+     *  see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/source-map-debug-kickoff.md).  Platforms that
      *  implement the emit bracket record whole-file construct regions
      *  into it as they place each per-aggregate/-operation artifact;
      *  absent means "record nothing" — every platform without a bracket
@@ -288,7 +279,7 @@ export interface PlatformSurface extends PlatformDescriptor {
    *  `serviceSlug(deployable.name)`, passed in so the surface doesn't
    *  re-derive it.  Implemented by node (hono), dotnet, and java — the
    *  three backends with a native step-through debugger the emitted
-   *  source-map substrate targets (see docs/old/plans/dap-node-debug.md).
+   *  source-map substrate targets (see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md).
    *  python, elixir, and every frontend platform omit this method
    *  entirely (optional — no method is equivalent to always returning
    *  `undefined`). */

@@ -36,7 +36,7 @@ import {
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // `operation schedule` on `WorkOrder` + `workflow scheduleWorkOrder`: the
-// F-026 reproduction, verbatim from `eval-fieldops/repro/f026/`.
+// F-026 reproduction, verbatim from https://github.com/Loom-Harness/Loc/tree/cadbe3ba12fb833565704cb9d628c8f41b2090a8/eval-fieldops/repro/f026.
 const COLLIDING_SRC = `system Probe {
   subdomain Ops {
     context Work {

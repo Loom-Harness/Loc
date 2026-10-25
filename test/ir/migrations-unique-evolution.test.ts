@@ -68,7 +68,8 @@ async function evolve(
     allowDestructive,
     warnings,
   })[0]!;
-  return { mig, warnings };
+  // A generation's version is the chain's to assign; any one will do here.
+  return { mig: { ...mig, version: "20260102000000" }, warnings };
 }
 
 const at = (steps: readonly MigrationStep[], pred: (s: MigrationStep) => boolean): number =>

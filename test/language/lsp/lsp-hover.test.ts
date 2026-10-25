@@ -158,7 +158,7 @@ describe("DddHoverProvider", () => {
   });
 
   it("hovers a slot-typed component param and shows the slot type", async () => {
-    // Without `DddType.slot` the hover would fall back to "unknown".
+    // Without the `slot` type kind the hover would fall back to "unknown".
     // The variant makes it carry through `resolveTypeRef` → `typeToString`
     // and render correctly in the bubble.
     await expectHoverFor({

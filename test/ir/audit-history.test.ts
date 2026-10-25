@@ -143,8 +143,13 @@ describe("entity history — inherited read gate", () => {
       `find all(): Employee[] ${clause}\n        find byName(name: string): Employee? where this.name == name`,
     );
 
-  it("copies the list read's `requires` gate", async () => {
-    const ctx = await contextOf(gated('requires currentUser.role == "hr"'));
+  it("copies the list read's gate — the policy `read Employee requires …`", async () => {
+    const ctx = await contextOf(
+      SRC.replace(
+        "find byName(name: string): Employee? where this.name == name",
+        'find byName(name: string): Employee? where this.name == name\n      }\n      policy { read Employee requires currentUser.role == "hr"',
+      ),
+    );
     const history = repoFor(ctx, "Employee").historyFind;
     // History replays the same rows the list read covers, so it must be no
     // easier to reach.  One place an author writes the gate; history is
@@ -187,7 +192,7 @@ describe("entity history — denyByDefault", () => {
   it("clears once the list read is gated — history inherits it", async () => {
     const gated = withEnforcement(SRC).replace(
       "find byName(name: string): Employee? where this.name == name",
-      'find all(): Employee[] requires currentUser.role == "hr"\n        find byName(name: string): Employee? requires currentUser.role == "hr" where this.name == name',
+      'find byName(name: string): Employee? where this.name == name\n      }\n      policy { read Employee requires currentUser.role == "hr"',
     );
     expect(await codesFor(gated)).not.toContain("loom.audit-history-ungated");
   });

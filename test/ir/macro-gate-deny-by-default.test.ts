@@ -45,7 +45,8 @@ system Demo {
       aggregate Project ${opts.crudish} {
         name: string
       }
-      repository Projects for Project { find all(): Project[] requires true  find byId(id: Project id): Project? requires true }
+      repository Projects for Project { find all(): Project[]  find byId(id: Project id): Project? }
+      policy { read Project requires true }
     }
   }
 
@@ -208,7 +209,8 @@ system Demo {
       aggregate Project ${withClause} {
         name: string
       }
-      repository Projects for Project { find all(): Project[] requires true  find byId(id: Project id): Project? requires true }
+      repository Projects for Project { find all(): Project[]  find byId(id: Project id): Project? }
+      policy { read Project requires true }
     }
   }
 
@@ -252,8 +254,10 @@ system Demo {
       ${MANAGER}
       aggregate Project { name: string }
       aggregate Note { text: string }
-      repository Projects for Project { find all(): Project[] requires true  find byId(id: Project id): Project? requires true }
-      repository Notes for Note { find all(): Note[] requires true  find byId(id: Note id): Note? requires true }
+      repository Projects for Project { find all(): Project[]  find byId(id: Project id): Project? }
+      policy { read Project requires true }
+      repository Notes for Note { find all(): Note[]  find byId(id: Note id): Note? }
+      policy { read Note requires true }
     }
   }
 

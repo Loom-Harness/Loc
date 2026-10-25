@@ -36,16 +36,6 @@ const pythonPlatform: PlatformSurface = {
   // Static-asset host (FastAPI StaticFiles): can serve any
   // static-bundle framework.  D-PHOENIX-SURFACE.
   hostableFrameworks: EMBEDDABLE_FRAMEWORKS,
-  // The Python repository auto-emits these per aggregate (snake_cased
-  // on the Python side: `save`, `find_by_id`, `get_by_id`, `delete`).
-  // The validator compares DSL-cased find names (and unions the
-  // reserved sets across ALL platforms), so this set deliberately
-  // matches Hono's: anything broader would outlaw today-legal finds
-  // (e.g. a user-declared `all`) on every backend.  The Python
-  // emitter sidesteps the remaining names itself (wire projection is
-  // `_to_wire`; a user find named `all` merges with the auto reader
-  // the same way Hono's does).
-  reservedRepositoryFindNames: new Set(["save", "findById", "getById", "delete"]),
   emitProject({
     contexts,
     deployable,

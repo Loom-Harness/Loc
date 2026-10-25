@@ -84,6 +84,7 @@ import { applyDefaultDenyReads } from "./default-deny-reads.js";
 import { applyDemoTenantSeed } from "./demo-tenant.js";
 import { bindFindParams } from "./find-param-bindings.js";
 import { inheritBaseCapabilities } from "./inherited-capabilities.js";
+import { applyPolicyReadGates } from "./policy-read-gates.js";
 import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
 
 // ---------------------------------------------------------------------------
@@ -661,7 +662,7 @@ function applyPolicyReadLevels(m: EnrichedSubdomainIR, sys: SystemIR): EnrichedS
 
 // ---------------------------------------------------------------------------
 // `policy { allow write <level> on X }` — the WRITE ladder
-// (docs/old/plans/authorization-phase3.md).  Derives each tenant-owned
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/authorization-phase3.md).  Derives each tenant-owned
 // aggregate's `writeScopeFilter`: the predicate an INSTANCE mutation's command
 // load must satisfy, set ONLY when the write scope is strictly narrower than
 // the read scope (so the mutation load — which reuses the read filter on every
@@ -727,7 +728,7 @@ function applyPolicyWriteLevels(m: EnrichedSubdomainIR, sys: SystemIR): Enriched
 
 // ---------------------------------------------------------------------------
 // `policy { deny [write] on X }` — the DENY-WINS carve-out
-// (docs/old/plans/authorization-phase4-deny.md).  For each denied aggregate:
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/authorization-phase4-deny.md).  For each denied aggregate:
 //   - deny READ  → append the always-false `buildDenyFilter` sentinel to the
 //     aggregate's read `contextFilters` (every backend ANDs these into every
 //     read, so the read set is empty → findAll `[]`, findById 404; and because
@@ -984,7 +985,13 @@ export function enrichContext(
     synthesizePagedQueryHandlerFinds(
       // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
       // find's gate + `ignoring` stance, so the implicit `all` must exist first.
-      ensureHistoryFind(aggregates, ensureFindAll(aggregates, ctx.repositories)),
+      // `applyPolicyReadGates` sits between them: it puts the
+      // `policy { read X requires … }` gate on the injected `all` (and every
+      // declared find), which history then copies.
+      ensureHistoryFind(
+        aggregates,
+        applyPolicyReadGates(ensureFindAll(aggregates, ctx.repositories), ctx.policyReadGates),
+      ),
       ctx.queryHandlers,
       ctx.criteria,
       ctx.retrievals,

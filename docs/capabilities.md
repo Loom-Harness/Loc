@@ -5,8 +5,8 @@ bundle of **fields + `filter` + `stamp`** that an aggregate opts into
 with `with <Cap>` / `implements <Cap>`.  It is the typed successor to the
 stringly-typed surface (`implements "X"` / `filter for "X"` /
 `stamp for "X"`), which was **removed** — see
-[`proposals/typed-capabilities.md`](old/proposals/typed-capabilities.md) and
-[`plans/typed-capabilities-implementation.md`](old/plans/typed-capabilities-implementation.md).
+[`proposals/typed-capabilities.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/typed-capabilities.md) and
+[`plans/typed-capabilities-implementation.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/typed-capabilities-implementation.md).
 
 ```ddd
 capability softDeletable {
@@ -426,6 +426,21 @@ concrete inherits the base's filters (ancestors' first, then its own), stamps,
 capability tags and `crossTenant` stance, so `ignoring <baseCap>` is valid on a
 subtype read. A subtype repeating a capability its base applies gets that
 filter once. See [`inheritance.md`](inheritance.md#capabilities-and-inheritance--a-bases-capabilities-apply-to-every-subtype).
+
+### The read-scope fact
+
+What a read of an aggregate applies is one derived IR fact,
+`readScopeFor(agg, pool, { ignoring })` (`src/ir/enrich/read-scope.ts`). It
+lists, in order: the TPH `kind` discriminator, then every filter — inherited
+first, then the aggregate's own. Each filter is tagged with its kind
+(`tenancy` / `capability` / `deny` / bare `filter`), the capability that
+contributed it, whether `ignoring` can drop it, where it is declared, and, for
+`tenancy`, its stance (`tenant` / `deep` / `global` / `self`). For a TPH root, the
+fact also gives each concrete's own filters in root-hosted form, guarded by the
+discriminator (`kind <> 'Car' OR <pred>`). A read that declares no order is ordered
+by `id` (`readOrderFor`). Today the node/drizzle read paths take their
+restrictions and their default order from this fact. The other backends still
+derive them from the IR arrays.
 
 ## Relationship to macros
 

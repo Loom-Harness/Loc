@@ -41,27 +41,16 @@ rg -n "three (DB )?backends|four (backends|frontends|targets)|the React frontend
 
 Note CLAUDE.md itself opens with the correct count ("Five backends … and four
 frontends … are supported") — so it's a good cross-check, but don't assume every doc
-inherited that fix. The proposals corpus is where the freeze lingers.
+inherited that fix.
 
 ## 2. Status tags
 
-**Authoritative location:** the grammar + IR + emitter for the feature. The README
-legend defines the contract:
-
-| Tag | Means | How to verify |
-|---|---|---|
-| **SHIPPED** | Lives on `origin/main` | The grammar rule + IR node + at least the primary emitter exist and are wired. |
-| **PARTIAL** | Some phases shipped | The shipped phases emit; the remaining ones are named in the doc and absent from code. |
-| **PROPOSED** | No code yet | No grammar/IR/emit artifact — grep finds only the proposal doc. |
-
-The drift direction is almost always **a status that's behind the code** — a header
-saying "PROPOSED" or "not yet started" while the emitter already exists. The plan
-doc's maintenance rule calls this out by name: "A status header that says 'not yet
-started' while the emitter exists costs the next agent hours." To check a "PROPOSED"
-claim, grep the grammar and IR for the feature's keyword; if it's there, the tag is
-stale. The README table rows carry inline `(#1388, 2026-06-20 audit)` style
-provenance — a row with no recent audit annotation against a feature that's clearly
-landed is a refresh target.
+Status (shipped / partial / proposed, open / done) lives on GitHub issues, not in
+the tree. A reference doc that still carries a status tag, a "not yet started"
+header or a backlog table is drift by construction — the direction is almost always
+**a status that's behind the code**. Check the claim against the grammar, IR and
+emitter (grep the feature's keyword); then remove the tag and describe what ships,
+pointing at the owning issue for what does not.
 
 ## 3. Per-feature target lists
 
@@ -137,13 +126,12 @@ This is the exact case where prose and the cited line disagree and the code wins
 
 ### Stale version audit — `stack v2` / mantine@v9 / "defer net8"
 
-`docs/audits/stack-versions-audit.md` still references a **`stack v2` (mantine@v9)**
+A since-retired stack-versions audit referenced a **`stack v2` (mantine@v9)**
 that does not exist on disk — `ls stacks/` returns only `v1`, `v3`, `sv1`, `vue1`,
 `ng1`. The same doc lists .NET as "**defer until 2026-11** (.NET 8 is LTS)" and Spring
 Boot at 3.5, while the emitters are already on `net10.0` and Spring Boot `4.1.0`.
-**Classification: stale.** Fix to the on-disk reality (and note this overlaps with
-`dependency-upgrade`'s update step — that skill bumps and updates the audit; a refresh
-catches the audit that a past bump left stale).
+**Classification: stale.** The same shape recurs in any doc that pins versions: fix
+it to the on-disk reality.
 
 ### Stale `computeExports` comment after the Langium 4 rename
 

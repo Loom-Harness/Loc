@@ -36,7 +36,7 @@
 // two places a non-optional read happens without one — a non-optional `find`
 // route, and a workflow body that loads.  Both answered an undeclared 404 for
 // as long as this table keyed the rung on shape alone (F10 + F13 in
-// docs/audits/schemathesis-findings-2026-08.md); `findSingle` therefore
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md); `findSingle` therefore
 // declares it like `findOptional` does, and `workflow` declares it under the
 // body predicate `workflowCanAnswerNotFound` (loom-ir.ts) that the five
 // backends thread in as `opts.readsAggregate`.
@@ -50,7 +50,7 @@
 // read/delete route carries no body, so it declares none.
 //
 // 422 (Unprocessable Entity) is the validation-failure code declared per
-// docs/old/proposals/validation-error-extension.md —.  Body carries the
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md —.  Body carries the
 // §3.2 `errors[]` extension array (per-field `{ pointer, message }`)
 // consumed by the frontend ACL's `applyServerErrors` (#769).  500 is the
 // universal fallback every route can produce; like most specs we don't
@@ -214,8 +214,8 @@ export function errorStatuses(
     // the workflow-instance-by-id read declare against, and all three validate
     // the same `{id}`.
     //
-    // A `find byId(id: T id): T? requires <expr>` gates it (M-T3.19,
-    // `byIdReadGate` in `read-gates.ts`): the gate runs BEFORE the load, so a
+    // The aggregate's `policy { read T requires <expr> }` gates it
+    // (`byIdRouteFind` in `read-gates.ts`): the gate runs BEFORE the load, so a
     // denied caller answers 403 whether or not the id exists — the by-id read
     // is not an existence oracle for a caller the gate refuses.
     case "getById":
@@ -270,7 +270,7 @@ export function errorStatuses(
     // backend's emitted repository method THROWS the shared not-found carrier
     // and the aggregate router renders it as `notFound`.  Same status, same
     // ProblemDetails body, and until this arm it was published by exactly one
-    // of the two (F13 in docs/audits/schemathesis-findings-2026-08.md).
+    // of the two (F13 in https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md).
     case "findSingle":
       return guarded ? set(forbidden, notFound) : [notFound];
     // `list` is the auto-`findAll`, which carries no `requires` of its own.

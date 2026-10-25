@@ -16,7 +16,7 @@ import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
 // Mailer (smtp) runtime e2e — HONO/node.  The mocked-SMTP-server test the
-// M-T4.6 plan asked for (docs/old/proposals/email-resource-kind.md §6 "TODO —
+// M-T4.6 plan asked for (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/email-resource-kind.md §6 "TODO —
 // runtime e2e with a mocked SMTP server").  Generates the Hono backend from
 // `mailer-e2e.ddd`, boots it against a throwaway postgres (migrations apply)
 // and a **Mailpit** sidecar (real SMTP endpoint + queryable REST inbox),

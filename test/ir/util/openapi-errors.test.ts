@@ -3,7 +3,7 @@
 // `operation`, `workflow`, and the READ kinds; every backend reads this same
 // matrix so the conformance error-response dimension stays in lockstep.
 //
-// Phase D of docs/old/proposals/validation-error-extension.md added 422
+// Phase D of https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md added 422
 // (Unprocessable Entity) to every body-bearing kind — `create`,
 // `operation`, `workflow` — for the per-field validation envelope
 // consumed by the frontend ACL's `applyServerErrors`.

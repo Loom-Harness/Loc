@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // CALLABLE_SITES — the declared legality table for the callable surface
-// (M-T5.21, `docs/new-plan/missions/M-T5.21-callable-unification-design.md`).
+// (M-T5.21, `#3379`).
 //
 // Fifteen grammar rules in `ddd.langium` mean "a named body of statements runs
 // here", and each one used to pick its OWN arbitrary subset of the modifier /

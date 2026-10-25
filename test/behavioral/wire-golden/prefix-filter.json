@@ -223,6 +223,12 @@
       "body": [
         {
           "id": "<volatile:key>",
+          "path": "root",
+          "title": "renamed root",
+          "version": 2
+        },
+        {
+          "id": "<volatile:key>",
           "path": "root.a",
           "title": "child a",
           "version": 1
@@ -238,12 +244,6 @@
           "path": "root%pct",
           "title": "wildcard trap",
           "version": 1
-        },
-        {
-          "id": "<volatile:key>",
-          "path": "root",
-          "title": "renamed root",
-          "version": 2
         }
       ]
     },

@@ -39,7 +39,6 @@ import {
 import {
   findSurface,
   opSurface,
-  setFindGate,
   setFindIgnoring,
   setOpGate,
   setOpReturnType,
@@ -317,8 +316,7 @@ describe("find inspector — the ignoring text→spec mapping", () => {
   };
   const surface = (src: string) => findSurface(parse(src), "Orders", "byStatus");
 
-  it("starts with neither clause", () => {
-    expect(surface(SRC)?.requires).toBeNull();
+  it("starts with no ignoring clause", () => {
     expect(surface(SRC)?.ignoring).toBeNull();
     expect(surface(SRC)?.where).toBe("status == s");
   });
@@ -344,11 +342,5 @@ describe("find inspector — the ignoring text→spec mapping", () => {
     expect(surface(cleared)?.ignoring).toBeNull();
     expect(surface(cleared)?.where).toBe("status == s");
     expect(cleared).toBe(SRC);
-  });
-
-  it("the requires gate slots in before the where filter", () => {
-    const next = setFindGate(SRC, "Orders", "byStatus", "isOwner") as string;
-    expect(surface(next)?.requires).toBe("isOwner");
-    expect(surface(next)?.where).toBe("status == s");
   });
 });

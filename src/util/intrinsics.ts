@@ -13,7 +13,7 @@
 // every catalogue row has a snippet on every backend (in-memory and — for
 // `queryable` rows — in each backend's find-predicate renderer), so adding
 // a row here fails CI until every target is filled.  See
-// docs/old/plans/stdlib.md.
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md.
 
 /** Scalar receiver types an intrinsic can be declared on. */
 export type IntrinsicReceiver =
@@ -93,7 +93,7 @@ export interface IntrinsicSignature {
 //     receiver type, so the two never collide.
 //     `startsWith` is the one of the three that is also QUERYABLE — the
 //     prefix-match filter operator of
-//     `docs/old/proposals/tenancy-authorization-final-surface.md` decision 2
+//     `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/tenancy-authorization-final-surface.md` decision 2
 //     (the tenancy subtree ladder's `dataKey` reachability predicate is a
 //     prefix match, and nothing else in the language expresses one).  Every
 //     SQL path renders it as position-anchored search rather than `LIKE

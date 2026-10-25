@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Java backend — persistence emission (slice S4 of
-// docs/old/plans/java-backend-implementation.md): JPA annotations bound to the
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/java-backend-implementation.md): JPA annotations bound to the
 // MigrationsIR-derived schema, the repository triple (domain port /
 // Spring Data interface with @Query JPQL / impl), Flyway migration files,
 // and the single-containment fail-fast gate.
@@ -167,7 +167,8 @@ describe("java generator — repository triple (S4)", () => {
     // getById now captures the optional (to log aggregate_loaded) then throws
     // on the miss.
     expect(impl).toContain("var found = jpa.findById(id);");
-    expect(impl).toContain("return found.orElseThrow(() ->");
+    // (versioned → the miss throws off `handle`, then M-T6.93's repeat-load swap)
+    expect(impl).toContain("var handle = found.orElseThrow(() ->");
     expect(impl).toContain('new AggregateNotFoundException("Order " + id + " not found"));');
   });
 });

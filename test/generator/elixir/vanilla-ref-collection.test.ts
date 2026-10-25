@@ -104,7 +104,7 @@ describe("vanilla `X id[]` reference collections", () => {
     expect(repo).toContain("where: join_row.id == ^pokemon");
   });
 
-  // Regression (docs/audits/repo-code-review-2026-07.md E2): a `contains` over a
+  // Regression (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/repo-code-review-2026-07.md E2): a `contains` over a
   // reference collection in an OPERATION BODY (a precondition) must render the
   // in-memory membership form `Enum.member?(__ref_id_list(record.<field>), x)`,
   // NOT the removed Ash `exists(<field>_through, id == ^arg(:x))` filter, which

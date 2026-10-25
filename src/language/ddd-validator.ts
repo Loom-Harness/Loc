@@ -98,6 +98,7 @@ import {
   checkUnknownMemberAccess,
   checkUnknownNameRefs,
   checkUserVisibleConcat,
+  checkWorkflowExplicitSave,
 } from "./validators/index.js";
 
 /** Collapse whitespace/newlines so an error message stays one line
@@ -202,6 +203,9 @@ export class DddValidator {
     // backends and the other two lower to a `<unknown>` call sentinel — both
     // after `0 error(s)`.
     guard("stmt-placement", model, () => checkStatementPlacement(model, accept));
+    // A workflow / handler body persists at its exit, so an explicit
+    // `Repo.save(x)` statement is refused rather than reinterpreted.
+    guard("workflow-explicit-save", model, () => checkWorkflowExplicitSave(model, accept));
     // Match expressions: warn on a missing `else` arm.
     // Type-checking arm conditions is best-effort here (the lowering's
     // type system is the source of truth); structural checks run
@@ -265,7 +269,7 @@ export class DddValidator {
     // Project composition: a top-level `subdomain` (declared outside any
     // `system { }`) folds into the project's single system — enforce that
     // exactly one system exists across the import graph.  See
-    // docs/old/proposals/implicit-system-composition.md.
+    // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/implicit-system-composition.md.
     guard("top-level-domain-composition", model, () =>
       checkTopLevelDomainComposition(model, accept, this.services),
     );

@@ -20,7 +20,8 @@ system Cu {
   user { id: string  role: string }
   subdomain S { context C {
     aggregate Note with crudish { body: string }
-    repository Notes for Note { find all(): Note paged requires true }
+    repository Notes for Note {}
+    policy { read Note requires true }
   } }
   ui Web {
     component Greeting(label: string) {

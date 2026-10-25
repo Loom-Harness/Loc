@@ -249,6 +249,18 @@ function boxIntegralForBigDecimal(rendered: string, t: TypeIR | undefined): stri
     : rendered;
 }
 
+/** `boxIntegralForBigDecimal`, null-safe for a NULLABLE integral: an `int?`
+ *  is a boxed `Integer`, and `BigDecimal.valueOf(Integer)` unboxes it — an
+ *  NPE when absent.  The optional maps through `Optional` (one evaluation of
+ *  the operand) and stays null when absent; a non-nullable operand is boxed
+ *  exactly as before. */
+function boxNullableIntegralForBigDecimal(rendered: string, t: TypeIR | undefined): string {
+  if (t?.kind === "optional" && isIntegralPrimitive(t.inner)) {
+    return `java.util.Optional.ofNullable(${rendered}).map(loomV -> java.math.BigDecimal.valueOf(loomV.longValue())).orElse(null)`;
+  }
+  return boxIntegralForBigDecimal(rendered, t);
+}
+
 /** Reference types whose `==` must be `Objects.equals` in Java.  Enum
  *  constants keep native `==` (identity equality is the Java idiom and
  *  is null-safe); primitives (int/long/bool) keep native operators.
@@ -757,9 +769,9 @@ function renderCall(args: string[], e: CallExpr, ctx: JavaRenderContext): string
       // `findAll`.  A single-result `find` takes the first row.
       const read = e.repoRead!;
       const field = javaRepoField(read.aggregate);
-      if (read.readKind !== "named" && read.retrievalName) {
+      if (read.retrievalName) {
         const call = `${field}.run${upperFirst(read.retrievalName)}(${argList})`;
-        return read.readKind === "find" ? `${call}.stream().findFirst().orElse(null)` : call;
+        return read.op === "select-one" ? `${call}.stream().findFirst().orElse(null)` : call;
       }
       return `${field}.${read.method}(${argList})`;
     }
@@ -824,8 +836,22 @@ function renderBinary(l: string, r: string, e: BinaryExpr): string {
   ) {
     if (comparesNullLiteral(e)) return `${l} ${e.op} ${r}`;
     if (e.leftType?.kind === "optional" || e.rightType?.kind === "optional") {
-      return `java.util.Comparator.nullsFirst(java.util.Comparator.<java.math.BigDecimal>naturalOrder()).compare(${boxIntegralForBigDecimal(l, e.leftType)}, ${boxIntegralForBigDecimal(r, e.rightType)}) ${e.op} 0`;
+      return `java.util.Comparator.nullsFirst(java.util.Comparator.<java.math.BigDecimal>naturalOrder()).compare(${boxNullableIntegralForBigDecimal(l, e.leftType)}, ${boxNullableIntegralForBigDecimal(r, e.rightType)}) ${e.op} 0`;
     }
+  }
+  // An ORDERING with a nullable `money?`/`decimal?` side — or a nullable
+  // integral against one — answers false when either side is absent (SQL's
+  // UNKNOWN, .NET's lifted operators).  `compareTo` throws an NPE on a null
+  // receiver or argument, so the operands go through a two-argument lambda:
+  // each is evaluated once, and the null test runs before `compareTo`.
+  if (
+    (e.op === "<" || e.op === "<=" || e.op === ">" || e.op === ">=") &&
+    (e.leftType?.kind === "optional" || e.rightType?.kind === "optional") &&
+    (isMoneyLike(lt) || isMoneyLike(unwrapOptional(e.rightType))) &&
+    (isMoneyLike(lt) || isIntegralPrimitive(lt)) &&
+    (isMoneyLike(unwrapOptional(e.rightType)) || isIntegralPrimitive(unwrapOptional(e.rightType)))
+  ) {
+    return `((java.util.function.BiPredicate<java.math.BigDecimal, java.math.BigDecimal>) (loomL, loomR) -> loomL != null && loomR != null && loomL.compareTo(loomR) ${e.op} 0).test(${boxNullableIntegralForBigDecimal(l, e.leftType)}, ${boxNullableIntegralForBigDecimal(r, e.rightType)})`;
   }
   // BigDecimal has no operators — arithmetic + comparisons dispatch
   // through methods.  `equals` is scale-sensitive (1.0 ≠ 1.00), so

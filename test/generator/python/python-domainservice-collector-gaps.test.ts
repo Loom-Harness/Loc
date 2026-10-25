@@ -1,5 +1,5 @@
 // M-T6.50 — Python saga / workflow emission holes: three collector gaps that
-// shipped `F821` into the generated app (docs/new-plan/T6-backend-parity.md
+// shipped `F821` into the generated app (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T6-backend-parity.md
 // § M-T6.50).  One class of bug, three sites:
 //
 //   (a) `dispatch-builder.ts` (the saga-handler file, `app/dispatch.py`)
@@ -7,8 +7,8 @@
 //       handler calling a domain service emitted a BARE function name with
 //       no import (ruff F821 / NameError at first delivery).
 //   (b) An own-state assign (`field := value`) in an UNCORRELATED command
-//       workflow rendered `self._x` inside a MODULE-LEVEL `async def` —
-//       there is no `self` there (F821).
+//       workflow has no instance row to land in; it is refused at phase ⑦
+//       (`loom.workflow-uncorrelated-state-write`).
 //   (c) `collectStmtExprImports` (emit/domain-service.ts) hand-enumerated 10
 //       of the 11 `StmtIR` kinds, missing `variant-match`.  The collector is
 //       gone (M-T9.84 — imports derive from the rendered text); (c) now pins
@@ -16,7 +16,8 @@
 import { describe, expect, it } from "vitest";
 import { renderPyStatements } from "../../../src/generator/python/render-stmt.js";
 import type { ExprIR, StmtIR } from "../../../src/ir/types/loom-ir.js";
-import { generateSystemFiles } from "../../_helpers/index.js";
+import { validateLoomModel } from "../../../src/ir/validate/validate.js";
+import { buildLoomModelUnchecked, generateSystemFiles } from "../../_helpers/index.js";
 import { pyDerivedImports } from "../../_helpers/py-imports.js";
 
 const fileEndingWith = (files: Map<string, string>, suffix: string): string => {
@@ -78,18 +79,15 @@ const UNCORRELATED_OWN_STATE_SRC = `system PyUncorrelatedOwnState {
   deployable d { platform: python  contexts: [C]  dataSources: [st]  serves: A  port: 4000 }
 }`;
 
-describe("M-T6.50 (b) — uncorrelated command-workflow own-state assign is a real local, not a bare `self`", () => {
-  it("seeds a local SimpleNamespace instead of referencing an undefined module-level self", async () => {
-    const wf = fileEndingWith(
-      await generateSystemFiles(UNCORRELATED_OWN_STATE_SRC),
-      "app/http/workflows_routes.py",
+describe("M-T6.50 (b) — uncorrelated command-workflow own-state", () => {
+  it("an own-state WRITE is refused: there is no instance row to keep it", async () => {
+    const loom = await buildLoomModelUnchecked(
+      UNCORRELATED_OWN_STATE_SRC,
+      "the subject is the phase-7 refusal of this shape",
     );
-    expect(wf).toContain("from types import SimpleNamespace");
-    expect(wf).toContain("self = SimpleNamespace(_total=0)");
-    expect(wf).toContain("self._total = quote(base)");
-    // `Tally` has no id-shaped state field, so it never gets a correlationField
-    // and its own-state write must NOT go through the persisted-saga-row path.
-    expect(wf).not.toContain("state._total");
+    expect(validateLoomModel(loom).map((d) => d.code)).toContain(
+      "loom.workflow-uncorrelated-state-write",
+    );
   });
 
   it("declares no dead SimpleNamespace when the create body never touches own state", async () => {

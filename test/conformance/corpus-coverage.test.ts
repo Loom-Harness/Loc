@@ -7,7 +7,7 @@ import { corpusProjectDirs, generateCorpusCase } from "../fixtures/corpus/harnes
 import { CORPUS } from "../fixtures/corpus/manifest.js";
 
 // ---------------------------------------------------------------------------
-// Corpus coverage gate (Phase 0/1 of docs/old/plans/global-test-coverage-plan.md).
+// Corpus coverage gate (Phase 0/1 of https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/global-test-coverage-plan.md).
 //
 // The shared fixture corpus declares, per feature, which backends it generates
 // on (`manifest.ts`).  This gate enforces that matrix WITHOUT docker: every

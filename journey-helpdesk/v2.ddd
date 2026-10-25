@@ -195,24 +195,31 @@ system Helpdesk {
       }
 
       repository Customers for Customer {
-        find all(): Customer[] requires currentUser.role == "agent"
+        find all(): Customer[]
       }
+      policy { read Customer requires currentUser.role == "agent" }
       repository Agents for Agent {
-        find all(): Agent[] requires currentUser.role == "agent"
+        find all(): Agent[]
       }
+      policy { read Agent requires currentUser.role == "agent" }
       repository SlaSweeps for SlaSweep {
-        find all(): SlaSweep[] requires currentUser.role == "agent"
+        find all(): SlaSweep[]
       }
+      policy { read SlaSweep requires currentUser.role == "agent" }
       repository Tickets for Ticket {
-        find byNumber(number: string): Ticket? requires currentUser.role == "agent"
-        find all(): Ticket[] requires currentUser.role == "agent"
-        find myQueue(): Ticket[] requires currentUser.role == "agent"
+        find byNumber(number: string): Ticket?
+        find all(): Ticket[]
+        find myQueue(): Ticket[]
           where assignee == currentUser.agentId && status != Resolved && status != Closed
-        find unassigned(): Ticket[] requires currentUser.role == "agent"
+        find unassigned(): Ticket[]
           where assignee == null && status == Open
-        find mine(): Ticket[] requires currentUser.customerId != null
+        find mine(): Ticket[]
           where customer == currentUser.customerId
       }
+      // One read gate per aggregate: `mine` is agent-gated like every other Ticket
+      // read. A customer's own-ticket view needs its own exposure (a queryHandler
+      // with `requires currentUser.customerId != null` over a criterion).
+      policy { read Ticket requires currentUser.role == "agent" }
     }
   }
 

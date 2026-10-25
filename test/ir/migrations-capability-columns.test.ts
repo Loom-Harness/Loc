@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { MigrationStep, SchemaSnapshot } from "../../src/ir/types/migrations-ir.js";
 import { buildMigrations, MigrationDestructiveError } from "../../src/system/migrations-builder.js";
-import { memorySnapshotStore, serializeSnapshot } from "../../src/system/snapshot.js";
+import { canonicalSnapshot, memorySnapshotStore } from "../../src/system/snapshot.js";
 import { buildLoomModel, generateSystemFiles } from "../_helpers/index.js";
 
 // #3229 follow-ups, on the migration builder:
@@ -91,7 +91,7 @@ describe("a capability added to a populated table", () => {
     const col = accounts.columns.find((c) => c.name === "is_deleted")!;
     expect(col.capability).toBe("softDeletable");
     expect(col.default).toBeUndefined();
-    const json = serializeSnapshot(snap);
+    const json = JSON.stringify(canonicalSnapshot(snap));
     expect(json).not.toContain('"capability"');
     expect(json).not.toContain('"addColumnDefault"');
   });

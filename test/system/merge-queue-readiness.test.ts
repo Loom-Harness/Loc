@@ -19,7 +19,7 @@
 // `merge-queue-required-checks.ts`, and this test proves the workflows still
 // honour it. Drift becomes a red fast-suite run today, instead of a surprise
 // on flip day — the same audit→gate ratchet the repo applies everywhere else
-// (docs/audits/quality-audit-2026-08.md §6 R1/R2).
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/quality-audit-2026-08.md §6 R1/R2).
 //
 // It intentionally does NOT check the live repo settings (a test cannot see
 // them). The settings flip stays a documented runbook in docs/ci-gating.md;

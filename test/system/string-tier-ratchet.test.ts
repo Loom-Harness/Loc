@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 //
 // THE RULE IS BUMP-TO-GROW, NOT ONLY-FALLS.  A hard "may only fall" ceiling
 // was rejected on evidence: of the 42 scenarios duplicated across target dirs,
-// 39 have no corpus fixture (docs/audits/verification-architecture-2026-08-31.md
+// 39 have no corpus fixture (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/verification-architecture-2026-08-31.md
 // §5), so their string tests are the ONLY gate they have.  A ceiling that
 // forces a deletion per addition would delete those — the tier shrinks and the
 // coverage goes with it.  The tier is reduced by PROMOTION instead (a corpus
@@ -72,6 +72,9 @@ const MAX_HEADROOM = 2 * BUCKET;
  * fixture or a compile/behavioural cell.
  */
 const CEILINGS: Record<string, number> = {
+  // 2900 → 3100 (#3263): the money-comparison pins (money-compare-leftovers.test.ts)
+  // assert each emitter's spelling across 5 backends + 6 frontends; the runtime proof
+  // is the money-nullable corpus fixture and money-compare-ui.
   "(cross-target)": 3100,
   _expr: 200,
   _frontend: 400,

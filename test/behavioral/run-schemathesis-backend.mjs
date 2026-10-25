@@ -42,7 +42,7 @@
 // run them sequentially or point each at its own database.
 //
 // Exit code is non-zero on any unwaived finding, any stale waiver, or a boot
-// error.  Findings register: docs/audits/schemathesis-findings-2026-08.md.
+// error.  Findings register: https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md.
 
 import { execFileSync, spawn } from "node:child_process";
 import {

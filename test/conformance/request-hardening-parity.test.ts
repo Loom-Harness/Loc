@@ -1,5 +1,5 @@
 // Cross-backend REQUEST-side hardening parity — schemathesis F2 / F3 / F4
-// (docs/audits/schemathesis-findings-2026-08.md).
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md).
 //
 // Three findings, one shape: the published contract said less than the
 // database demanded, so a request that OBEYED the spec reached Postgres and

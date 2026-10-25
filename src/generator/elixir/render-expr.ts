@@ -27,6 +27,7 @@ import {
   snake,
   upperFirst,
 } from "../../util/naming.js";
+import type { RepoOp } from "../../util/repository-contract.js";
 import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
 import { elixirCodePointLength, elixirCodePointSubstring } from "../_expr/code-point.js";
 import { renderPrincipalTest } from "../_expr/principal-term.js";
@@ -43,6 +44,7 @@ import {
   renderExprWith,
   type UnaryExpr,
 } from "../_expr/target.js";
+import { elixirFindFacadeFn } from "./find-facade-name.js";
 import { isValueObjectType, renderValueObjectEquality } from "./vanilla/value-object-type-emit.js";
 
 // ---------------------------------------------------------------------------
@@ -213,6 +215,14 @@ function decimalStructOperand(t: TypeIR | undefined): "" | "?" | null {
   return null;
 }
 
+/** `""` for an `int`/`long` stamp, `"?"` for its nullable form, null for
+ *  anything else. */
+function integralOperand(t: TypeIR | undefined): "" | "?" | null {
+  const inner = t?.kind === "optional" ? t.inner : t;
+  if (inner?.kind !== "primitive" || (inner.name !== "int" && inner.name !== "long")) return null;
+  return t?.kind === "optional" ? "?" : "";
+}
+
 const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
   // The one backend whose double-quoted string literal interpolates (`#{…}`)
   // — `elixirString` neutralizes that in addition to JSON's `"`/`\`/control-
@@ -321,15 +331,19 @@ const ELIXIR_FILTER_TARGET: ExprTarget<RenderCtx> = {
 };
 
 // Document-shape STRUCT rendering target (`docStruct` — Route A).
-// Shares the FILTER target's native-value leaves (the jsonb blob keeps enums
-// as strings and money/decimal as native JSON numbers), but its predicates
-// run IN-MEMORY (`Enum.filter` over rehydrated `%<Agg>.Data{}` embeds), so
-// temporal arithmetic must take the in-memory `DateTime.add/diff` arms — an
-// Ecto `fragment(...)` would be invalid outside a query.  Before A5 the two
-// paths shared one table; the duration/temporal split is the only divergence.
+// Its predicates and op bodies run IN-MEMORY (`Enum.filter` / the op fn over the
+// rehydrated `%<Agg>.Data{}` embed), and the embed declares money/decimal as
+// `field :x, :decimal` — so a money value is a `%Decimal{}` struct here exactly
+// as on the relational op-body path, and takes the SAME `Decimal.*` leaves
+// (`Decimal.compare`/`Decimal.add`, `Decimal.new` literals, `Decimal.negate`).
+// The native-operator FILTER leaves it used to borrow compared the structs by
+// Erlang TERM order (`-5 > 0` held) and raised `ArithmeticError` on `+`.
+// Enums stay their stored strings (the `docStruct` flag on the ctx selects
+// that in the enum arm), and temporal arithmetic takes the in-memory
+// `DateTime.add/diff` arms — an Ecto `fragment(...)` would be invalid outside a
+// query.
 const ELIXIR_DOC_TARGET: ExprTarget<RenderCtx> = {
-  ...ELIXIR_FILTER_TARGET,
-  binary: (l, r, e) => renderBinary(l, r, e, /* inFilter */ true, /* ectoQuery */ false),
+  ...ELIXIR_TARGET,
   duration: renderDurationInMemory,
 };
 
@@ -392,8 +406,8 @@ export function renderExpr(e: ExprIR, ctx: RenderCtx = DEFAULT): string {
  *  `<method>_<agg>` defdelegate.  Both are emitted by `context-emit.ts`, so a
  *  reading service rendered as a context fn (which has the ambient `Repo`)
  *  resolves them as bare same-module calls. */
-export function contextFindFnFor(method: string, aggregate: string): string {
-  return method === "getById" ? `get_${snake(aggregate)}` : `${snake(method)}_${snake(aggregate)}`;
+export function contextFindFnFor(op: RepoOp, method: string, aggregate: string): string {
+  return op === "load" ? `get_${snake(aggregate)}` : elixirFindFacadeFn(method, aggregate);
 }
 
 /**
@@ -1217,14 +1231,14 @@ function renderCall(args: string[], e: CallExpr, ctx: RenderCtx): string {
       // actually filters the query instead of dropping to the whole-table find.
       // `findAll`/`run` unwrap to the list; a single-result `find` takes the head.
       const read = e.repoRead!;
-      if (read.readKind !== "named" && read.retrievalName) {
+      if (read.retrievalName) {
         const fn = `run_${snake(read.retrievalName)}_${snake(read.aggregate)}`;
         const call = `${fn}(${args.join(", ")})`;
-        return read.readKind === "find"
+        return read.op === "select-one"
           ? `(case ${call} do\n      {:ok, [value | _]} -> value\n      _ -> nil\n    end)`
           : `(case ${call} do\n      {:ok, value} -> value\n      _ -> []\n    end)`;
       }
-      const fn = contextFindFnFor(read.method, read.aggregate);
+      const fn = contextFindFnFor(read.op, read.method, read.aggregate);
       const call = `${fn}(${args.join(", ")})`;
       // `getById` is contractually NON-NULL — it throws rather than returning
       // absent ("Use getById (throws → 404)", the remedy
@@ -1241,7 +1255,7 @@ function renderCall(args: string[], e: CallExpr, ctx: RenderCtx): string {
       // through (`Ecto.NoResultsError` -> 404, `vanilla/shell-emit.ts`), so
       // "throws → 404" holds here too.  A declared find keeps the
       // value-or-nil unwrap and stays byte-identical.
-      if (read.method === "getById") {
+      if (read.op === "load") {
         return `(case ${call} do\n      {:ok, value} -> value\n      _ -> raise Ecto.NoResultsError, queryable: ${ctx.contextModule}.${upperFirst(read.aggregate)}\n    end)`;
       }
       return `(case ${call} do\n      {:ok, value} -> value\n      _ -> nil\n    end)`;
@@ -1521,25 +1535,37 @@ function renderBinary(
   // order over the struct maps), and a nullable RIGHT reached
   // `Decimal.compare(x, nil)`, which raises.  Equality is nil-safe — both
   // absent → equal, one absent → unequal, both present → `Decimal.equal?`;
-  // ordering dispatches through `Decimal.compare` (a guarded
-  // `x == null || x > …` never reaches it absent).
+  // ordering dispatches through `Decimal.compare` and answers false when
+  // either side is absent (SQL's UNKNOWN, .NET's lifted operators).
   if (!inFilter) {
     const lt = decimalStructOperand(e.leftType);
     const rt = decimalStructOperand(e.rightType);
-    if (lt !== null && rt !== null && (lt === "?" || rt === "?")) {
+    const isOrdering = e.op === "<" || e.op === "<=" || e.op === ">" || e.op === ">=";
+    // A nullable INTEGRAL against a decimal struct (`qty > rate`, `qty: int?`)
+    // orders through `Decimal.compare` too — it coerces the integer — and the
+    // absent side must answer false, not Erlang term order (`nil < %Decimal{}`).
+    const li = lt ?? (rt !== null ? integralOperand(e.leftType) : null);
+    const ri = rt ?? (lt !== null ? integralOperand(e.rightType) : null);
+    if (isOrdering && li !== null && ri !== null && (li === "?" || ri === "?")) {
+      // Only the nullable side gets a `nil` clause (no statically unreachable
+      // clause for Elixir 1.18's type checker to warn about).
+      const nilClauses = [
+        ...(li === "?" ? ["{nil, _} -> false"] : []),
+        ...(ri === "?" ? ["{_, nil} -> false"] : []),
+      ];
+      return `(case {${l}, ${r}} do ${[...nilClauses, `{loom_l, loom_r} -> ${renderDecimalBinary(e.op, "loom_l", "loom_r")}`].join("; ")} end)`;
+    }
+    if (li !== null && ri !== null && (li === "?" || ri === "?")) {
       if (e.op === "==" || e.op === "!=") {
         // Only the nullable side gets a `nil` clause, so no clause is
         // statically unreachable (Elixir 1.18's type checker would warn).
         const nilClauses = [
-          ...(lt === "?" && rt === "?" ? ["{nil, nil} -> true"] : []),
-          ...(lt === "?" ? ["{nil, _} -> false"] : []),
-          ...(rt === "?" ? ["{_, nil} -> false"] : []),
+          ...(li === "?" && ri === "?" ? ["{nil, nil} -> true"] : []),
+          ...(li === "?" ? ["{nil, _} -> false"] : []),
+          ...(ri === "?" ? ["{_, nil} -> false"] : []),
         ];
         const eq = `(case {${l}, ${r}} do ${[...nilClauses, "{loom_l, loom_r} -> Decimal.equal?(loom_l, loom_r)"].join("; ")} end)`;
         return e.op === "==" ? eq : `not ${eq}`;
-      }
-      if (e.op === "<" || e.op === "<=" || e.op === ">" || e.op === ">=") {
-        return renderDecimalBinary(e.op, l, r);
       }
     }
   }

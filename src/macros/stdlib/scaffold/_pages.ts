@@ -44,7 +44,7 @@ function firstApiHandle(ui: Ui): string | undefined {
  *  scoped to the area, and the `area` is authoritative for `emitPath`
  *  (`src/pages/orders/list.tsx`).  The emitted component / module identifiers
  *  are the aggregate-qualified `OrderList` form via `pageEmitName`.  See
- *  docs/old/proposals/unfoldable-page-scaffolding.md. */
+ *  https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/unfoldable-page-scaffolding.md. */
 export function areaForAggregate(agg: Aggregate, ui: Ui): Area {
   return area(plural(agg.name), pagesForAggregate(agg, ui));
 }
@@ -101,12 +101,12 @@ export function pagesForAggregate(agg: Aggregate, ui: Ui): Page[] {
   const labelPlural = humanize(plural(aggName));
   const apiHandle = firstApiHandle(ui);
   const filters = filterFindsForAggregate(agg);
-  // The `find all(): T[] requires …` gate guards `GET /<aggs>` — the very read
-  // this List page makes.  Same reasoning as the workflow-instance pages: the
-  // nav link's visibility is rendered from the PAGE's gate, so without this the
-  // entry shows for a principal the backend refuses.  A find gate is
-  // `currentUser`-only by validation (`loom.find-gate-not-current-user`), so it
-  // ports to the client unchanged.
+  // The `policy { read T requires … }` gate guards `GET /<aggs>` — the very
+  // read this List page makes.  Same reasoning as the workflow-instance pages:
+  // the nav link's visibility is rendered from the PAGE's gate, so without this
+  // the entry shows for a principal the backend refuses.  A read gate is
+  // `currentUser`-only by validation (`loom.policy-read-gate-not-current-user`),
+  // so it ports to the client unchanged.
   const listGate = listReadGateForAggregate(agg);
   const list = listShapeForAggregate(agg);
   return [

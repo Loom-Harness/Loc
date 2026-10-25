@@ -9,7 +9,7 @@ place instead of being inlined and duplicated across `where` clauses and
 guards.
 
 > **Status.** This ships the *core* of
-> [`docs/old/proposals/criterion.md`](old/proposals/criterion.md): the
+> [`docs/old/proposals/criterion.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/criterion.md): the
 > `criterion` declaration, body validation, and **inline use** in every
 > existing boolean-expression position. A criterion referenced by a
 > [`retrieval`](#reification-retrieval-and-find-criteria)'s or a `find`'s
@@ -26,9 +26,9 @@ guards.
 > (read-path-architecture.md, "`run` takes a criterion") — `Repo.run(<Criterion>)`
 > / `Repo.run(<Criterion>(args), page?)` is first-class alongside
 > `Repo.run(<Retrieval>)`, riding the identical `findAllBy<Criterion>` desugar as
-> `findAll`.  A declared `retrieval` keeps precedence: a name that is *both* a
-> criterion and a retrieval stays a retrieval, so existing `run(<Retrieval>)`
-> call sites are unchanged.  Ordering / fetch-shaping is expressed by an
+> `findAll`.  A criterion and a retrieval may not share a name in one context
+> (`loom.criterion-retrieval-name-clash`, an error), so `run(<Name>)` always
+> means exactly one of them.  Ordering / fetch-shaping is expressed by an
 > **anonymous retrieval** — `Repo.run(retrieval { where: <Criterion> sort: […]
 > loads: […] }, page?)` — the call-site twin of a declared `retrieval`; `findAll`
 > and bare-criterion `run` stay the un-shaped spellings, shaping lives on the
@@ -38,7 +38,9 @@ guards.
 > `T paged` is a bespoke list finder — pass a criterion to `run`
 > (`Repo.run(<Criterion>(args))`) or name a `retrieval` instead of accreting a
 > method per query, and expose it with `scaffoldPaged(of: …)` +
-> `scaffoldPagedApi(of: …)` when a client must call it.  A **unique-key reconstitution** find (returning a single
+> `scaffoldPagedApi(of: …)` when a client must call it.
+> `node scripts/codemod-list-find-to-criterion.mjs <path>` rewrites the old form
+> (see [D-LIST-FIND-REMOVED](decisions.md)).  A **unique-key reconstitution** find (returning a single
 > `T` / `T?` by identity) is *not* a list query and stays legal.  The
 > single-result `Repo.find(<Criterion>)` is **shipped on every backend** as the
 > source of an `if let` workflow statement — `if let x = Repo.find(<Criterion>)
@@ -144,7 +146,7 @@ involved; criteria ride the existing `where`→SQL path on every backend.
 ## Reification (retrieval and find criteria)
 
 There are positions where a criterion is **not** dissolved into its host:
-when a [`retrieval`](old/proposals/retrieval.md)'s `where`, or a repository
+when a [`retrieval`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/retrieval.md)'s `where`, or a repository
 `find`'s `where`, is *exactly* a named criterion reference. There the
 criterion **reifies** — the backend emits a named, constructed predicate
 object (the Specification pattern made real in generated code) that the
@@ -180,7 +182,7 @@ that is exactly one named criterion reifies; a *composed* one
 (`Active && InRegion(r)`) or an anonymous boolean expression (most
 invariants, preconditions, capability filters) has nothing to reify and
 stays inline. See
-[`docs/old/proposals/reified-criteria.md`](old/proposals/reified-criteria.md) for
+[`docs/old/proposals/reified-criteria.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/reified-criteria.md) for
 the full design and the remaining-work register (the anonymous `filter`
 capability predicates and the principal/tenancy factory are the parts
 that still inline).
@@ -193,6 +195,7 @@ that still inline).
 | `loom.criterion-impure` | The body calls a mutating `operation`. Criteria are pure — call a pure `function` instead. |
 | `loom.criterion-cycle` | A criterion (transitively) references itself. |
 | `loom.criterion-arity` | A criterion call supplies the wrong number of arguments. |
+| `loom.criterion-retrieval-name-clash` | A `retrieval` has the same name as a `criterion` in its context — `run(<Name>)`, `scaffoldPaged(of: <Name>)` and `where: <Name>` would each have to pick one silently. Rename one. |
 | `loom.call-arg-type` | A criterion call supplies an argument whose type isn't assignable to the declared parameter (the shared call-argument type check; arity stays `loom.criterion-arity`). Checked at the env-bearing call sites (body `precondition` / `requires`, `derived`, …). |
 
 The body is an ordinary expression, so mutation (`:=`, `+=`), `emit`,
@@ -218,9 +221,9 @@ before it becomes a slow query in production.
 
 ## See also
 
-- [`docs/old/proposals/criterion.md`](old/proposals/criterion.md) — the full
+- [`docs/old/proposals/criterion.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/criterion.md) — the full
   design, including the deferred `findAll` / `when` / `from` surfaces.
-- [`docs/old/proposals/reified-criteria.md`](old/proposals/reified-criteria.md) —
+- [`docs/old/proposals/reified-criteria.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/reified-criteria.md) —
   the Specification-reification design (shipped for retrieval criteria;
   the remaining-work register for `find` / capability-filter reification).
 - [`docs/workflow.md`](workflow.md) — repository finds.

@@ -32,13 +32,10 @@ export function emitDotnetMigrations(
 ): void {
   for (const m of migrations) {
     if (m.steps.length === 0) continue;
-    // Qualify the migration identity with the module.  A backend that
-    // hosts several modules gets one MigrationsIR per module, and every
-    // module's *initial* migration shares `version` (BASE_TIMESTAMP) and
-    // `name` ("Initial") — so without the module the filename, class
-    // name, and `[Migration(id)]` all collide and only the last module's
-    // tables survive (the rest of that backend's database is empty →
-    // `relation "<schema>.<table>" does not exist` at runtime).
+    // Qualify the migration identity with the module.  The version alone
+    // is already unique across modules, but every module's first
+    // generation is named "Initial", and the module keeps the filename and
+    // class name saying which module the migration belongs to.
     const slug = `${m.version}_${upperFirst(m.module)}_${upperFirst(m.name)}`;
     const className = `M${slug}`;
     const sql = m.steps.map(renderPgStep).join("\n\n");
@@ -48,8 +45,8 @@ export function emitDotnetMigrations(
 
 // Provenance / per-operation audit DDL is NOT part of the platform-neutral
 // MigrationsIR (it is feature-local, mirroring the Hono Drizzle schema), so the
-// .NET backend emits it as one extra migration that sorts AFTER every module's
-// initial migration (BASE_TIMESTAMP "2026…").  By then every aggregate table
+// .NET backend emits it as one extra migration that sorts AFTER every
+// migration-chain generation.  By then every aggregate table
 // exists, so the co-located `<field>_provenance` column ALTERs apply cleanly.
 // EF runs the raw SQL via `migrationBuilder.Sql(...)` (no model diff), so the
 // DbContext model + this DDL only need to be runtime-consistent.

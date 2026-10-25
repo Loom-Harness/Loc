@@ -9,7 +9,7 @@ import { installGeneratedProject } from "./support/npm-install.js";
 import { limiter, PARALLELISM, sh } from "./support/parallel.js";
 
 // ---------------------------------------------------------------------------
-// Slice 6 of docs/old/plans/vanilla-foundation-tdd-plan.md — CI gate for
+// Slice 6 of https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/vanilla-foundation-tdd-plan.md — CI gate for
 // the vanilla emit subtree.  Parallel to test/e2e/generated-elixir-ash-
 // build.test.ts but exercises `foundation: vanilla` deployables and
 // expects no Ash deps in the generated mix.exs.

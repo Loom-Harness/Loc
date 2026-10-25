@@ -909,10 +909,10 @@ function allRoute(
 }
 
 function byIdRoute(agg: EnrichedAggregateIR, apiOp: ApiOperationIR): string {
-  // M-T3.19 — the author's `find byId(id: T id): T? requires <expr>` gates this
-  // read, BEFORE the load (403 for an existing and a missing id alike).  That
-  // find is emittable, so its `User` / `ForbiddenError` imports are already in
-  // (`findRoute` renders the same gate on its own `/by_id` route).
+  // The aggregate's read gate (`policy { read T requires <expr> }`) gates this
+  // read, BEFORE the load (403 for an existing and a missing id alike).  The
+  // same gate sits on the list read `all`, so its `User` / `ForbiddenError`
+  // imports are already in.
   const byIdFind = apiOp.find;
   const gate = byIdFind?.requires;
   const gateUsesUser = !!gate && exprUsesCurrentUser(gate);

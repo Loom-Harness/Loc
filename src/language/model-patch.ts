@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Model-patch applier — node-addressed edits over `.ddd` source
-// (docs/old/proposals/ai-authoring-loop.md §4).
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/ai-authoring-loop.md §4).
 //
 // The AI authoring loop edits *named model nodes*, not byte ranges: a patch
 // addresses a node by its canonical address (`<keyword> <Context>.<Decl>[.…]`,

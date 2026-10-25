@@ -15,7 +15,7 @@ import {
 //
 // Deployable contract mirrors `react`: `targets:` a backend, inherits
 // its contexts via enrichment, owns no database.
-// See docs/old/plans/svelte-frontend-plan.md.
+// See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/svelte-frontend-plan.md.
 // ---------------------------------------------------------------------------
 
 const sveltePlatform: PlatformSurface = {
@@ -30,7 +30,6 @@ const sveltePlatform: PlatformSurface = {
   hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
   // Svelte generator only emits API call factories — no per-aggregate
   // repository class.  No find-name collisions are possible.
-  reservedRepositoryFindNames: new Set(),
   emitProject({
     contexts,
     sys,

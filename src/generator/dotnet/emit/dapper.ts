@@ -63,6 +63,7 @@ import { refuseOutOfVocabulary } from "../../_expr/target.js";
 import { isReservedIdent } from "../../sql-reserved.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { domainFindShape } from "../find-emit.js";
+import { csFindMethodName } from "../find-method-name.js";
 import { csLocalNamer, csReadOwnParams } from "../local-names.js";
 import {
   AMBIENT_CURRENT_USER,
@@ -1738,7 +1739,7 @@ export function renderDapperRepository(
   //     join tables before the root.  Autocommitting those separately means a
   //     crash mid-delete leaves the root alive with its children already gone —
   //     the same data-loss class `SaveAsync` was made transactional for
-  //     (docs/audits/repo-code-review-2026-07.md T3), which fixed the save path
+  //     (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/repo-code-review-2026-07.md T3), which fixed the save path
   //     and left the delete path behind.
   //   - audited: the handler stages the audit row before calling in, and it has
   //     to commit with the delete or roll back with it.
@@ -2461,7 +2462,7 @@ export function renderDapperDocumentRepository(
       }).join("\n");
     }
     return lines(
-      `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParams(f.params, [], usesUser)})`,
+      `    public async Task<${renderCsType(f.returnType)}> ${csFindMethodName(f.name)}(${renderParams(f.params, [], usesUser)})`,
       "    {",
       ...loadAllLines.map((l) => `        ${l}`),
       `        return __all${filter}${projection};`,
@@ -2674,7 +2675,7 @@ export function renderDapperEventSourcedRepository(
       });
     }
     return [
-      `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParams(f.params, [], findUsesCurrentUser(f))})`,
+      `    public async Task<${renderCsType(f.returnType)}> ${csFindMethodName(f.name)}(${renderParams(f.params, [], findUsesCurrentUser(f))})`,
       "    {",
       `        var __all = await _LoadAllAsync(${ct});`,
       `        return __all${filter}${projection};`,

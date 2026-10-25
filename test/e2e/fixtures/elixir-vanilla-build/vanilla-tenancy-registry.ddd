@@ -35,17 +35,17 @@ system TenancyRegistryShop {
         name: string
       }
       repository Organizations for Organization {
-        find all(): Organization paged requires true
-        find byId(id: Organization id): Organization? requires true
+        find byId(id: Organization id): Organization?
       }
+      policy { read Organization requires true }
 
       aggregate Account with tenantOwned {
         balance: int
       }
       repository Accounts for Account {
-        find all(): Account paged requires true
-        find byId(id: Account id): Account? requires true
+        find byId(id: Account id): Account?
       }
+      policy { read Account requires true }
     }
   }
 

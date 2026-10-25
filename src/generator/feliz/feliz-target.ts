@@ -30,6 +30,7 @@ import {
   FELIZ_DISPATCH_PARAM,
   FELIZ_MODEL_PARAM,
   FS_LEAVES,
+  fsMoneyBinary,
   fsNumericBinary,
   fsString,
   fsTemporalBinary,
@@ -1294,7 +1295,7 @@ export const felizTarget: WalkerTarget = {
   /** Case-insensitive substring filter.  The JSX targets search `Object.values
    *  (row)`; Fable has no reliable runtime value enumeration for an F# record,
    *  so this searches the fields the table DISPLAYS — narrower than every row
-   *  value, and named as such in `docs/new-plan/T1-ui-frontend.md` rather than
+   *  value, and named as such in `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T1-ui-frontend.md` rather than
    *  left to be discovered. */
   renderFilteredRows({ rowsExpr, filter, columns }) {
     const q = `model.${upperFirst(filter.name)}`;
@@ -1348,6 +1349,9 @@ export const felizTarget: WalkerTarget = {
   // `qty * price`).  The seam converts the operands; it forwards to the SAME
   // shared function the MVU update path uses, so a numeric op cannot mean one
   // thing in a page body and another in an action body.
+  // A `money?` side: lift it (`decimal option` vs `decimal` is an F# type
+  // error, and option ORDER puts `None` below every value) — `fsMoneyBinary`.
+  exprMoneyBinary: (left, right, e) => fsMoneyBinary(left, right, e),
   exprNumericBinary: (left, right, e) => fsNumericBinary(left, right, e),
 
   // Scalar intrinsics — the SAME F# table the MVU update path uses

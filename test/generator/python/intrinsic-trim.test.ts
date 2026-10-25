@@ -1,4 +1,4 @@
-// A1 pilot for the scalar-intrinsic catalogue (docs/old/plans/stdlib.md):
+// A1 pilot for the scalar-intrinsic catalogue (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md):
 // `string.trim()` end-to-end on the Python backend — in-memory rendering in
 // domain bodies (`.strip()`, NOT the snake-cased fallthrough `.trim()`) AND
 // SQL rendering in a queryable `find … where` position (`func.trim(col)`).

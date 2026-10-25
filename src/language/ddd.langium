@@ -1218,7 +1218,8 @@ StampEvent returns string:
 // `tenantOwned` capability filter (its `contextFilters` entry) — so it rides
 // the exact per-backend query-filter seams the tenant floor already uses.
 //
-// This surface is the read ladder only.  The full policy DSL
+// Beside the ladder, `read <Aggregate> requires <expr>` gates who may read the
+// aggregate at all (see `PolicyReadRule`).  The rest of the policy DSL
 // (operation/view/workflow gates, field masking, `function`/`let` helpers)
 // is later work and is deliberately NOT in this grammar.
 //
@@ -1253,10 +1254,11 @@ PolicyDecl:
 // write scope.  `write global` PARSES but is an IR validator error
 // (`loom.policy-write-global-invalid`) — root-subtree-wide mutation is a
 // footgun; only `write local` (the default floor) and `write deep` are
-// offered.  There is deliberately NO `read` verb synonym: `read` is far too
-// common a user identifier (`let read = …`) to promote to a keyword, so the
-// read form stays bare.  The rule name stays `PolicyReadRule` (both verbs are
-// policy rules structurally); the IR splits them by verb.
+// offered.  There is deliberately NO `read` verb synonym on the ladder: bare
+// already means read, and `read` heads the gate rule below (as an identifier,
+// not a keyword).  The rule name stays
+// `PolicyReadRule` (every form is a policy rule structurally); the IR splits
+// them by effect and verb.
 //
 // `deny [write] on <Aggregate>` — the DENY-WINS carve-out.  `effect`
 // discriminates the two forms: `allow` carries a widening `level`
@@ -1267,9 +1269,28 @@ PolicyDecl:
 // which reuses the read filter — fails too), `deny write on X` denies only
 // WRITE (reads stay, mutations 404).  Deny wins over allow, resolved in
 // enrichment.  Only new keyword is `deny` (`read` is still not one).
+//
+// `read <Aggregate> requires <expr>` — WHO MAY READ the aggregate at all.  The
+// gate covers every read of it the compiler derives or the author declares:
+// the list `GET /<aggs>`, the by-id `GET /<aggs>/{id}`, each repository find's
+// route, the audit history read, and the scaffolded List page.  It is evaluated
+// BEFORE the load (403, no existence oracle), so it may reference only
+// `currentUser` and constants.  An exposure-level gate (`scaffoldPaged(requires:)`,
+// a route / handler `requires`) still ANDs on top.  `read` is NOT a keyword —
+// it is far too common an identifier (a permission, an operation, `let read`)
+// to reserve — so the rule head is an `ID` the validator pins to `read`
+// (`loom.policy-unknown-rule`); the third alternative is the only one that
+// starts with an identifier, so it never competes with `allow` / `deny`.
+// `effect` stays the discriminator — this rule is a gate, not a ladder rung,
+// so it takes no level.
 PolicyReadRule:
       effect='allow' (verb=PolicyVerb)? level=ReadLevel 'on' target=ID
-    | effect='deny' (verb=PolicyVerb)? 'on' target=ID;
+    | effect='deny' (verb=PolicyVerb)? 'on' target=ID
+    | effect=PolicyGateVerb target=ID 'requires' gate=Expression;
+
+// The head of a gate rule: `read` (pinned by the validator, see above).
+PolicyGateVerb returns string:
+    ID;
 
 // The optional policy verb.  Absent = read.  `write` is the only new keyword —
 // see the note above on why `read` is not one.
@@ -1335,7 +1356,7 @@ CapabilityMember:
 // rules (`for` required when hoisted, forbidden when nested) are enforced by
 // the validator (`loom.test-needs-target` / `loom.test-redundant-for`), not the
 // grammar, so a misplaced test surfaces a themed diagnostic rather than a parse
-// error.  See `docs/old/proposals/test-placement.md`.
+// error.  See `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/test-placement.md`.
 // The subjects a unit `test` may anchor to via `for` (test-placement.md).  A
 // declared union so one `[TestSubject:ID]` cross-reference resolves an aggregate
 // (Phase 1), a value object / domain service (Phase 2), or a bounded context
@@ -1443,9 +1464,10 @@ Repository:
         finds+=FindDecl*
     '}';
 
+// A find carries no authorization gate: who may read the aggregate is
+// `policy { read <Aggregate> requires <expr> }`, which covers every find.
 FindDecl:
     'find' name=ID '(' (params+=Parameter (',' params+=Parameter)*)? ')' ':' returnType=TypeRef
-        ('requires' gate=Expression)?
         ('where' filter=Expression)?
         IgnoringClause?;
 
@@ -1470,8 +1492,7 @@ Workflow:
     'workflow' name=ID (eventSourced?='eventSourced')?
         (transactional?='transactional' ('(' isolation=IsolationLevel ')')?)?
     // The instance-READ gate, on the declaration header like every other gate
-    // in the language (`operation … requires`, `find … requires`, `projection
-    // … requires`).  It guards `GET /workflows/<wf>/instances` and
+    // in the language (`operation … requires`, `projection … requires`).  It guards `GET /workflows/<wf>/instances` and
     // `.../instances/{id}` — the compiler-derived reads that publish every
     // instance's correlation id and state, and which had no author surface to
     // gate until this clause existed.
@@ -1582,7 +1603,7 @@ Projection:
     ('keyed' 'by' key=LooseName)?
     // The authorization gate rides the DECLARATION HEADER, like every other
     // gate in the language (`operation … requires`, `create … requires`,
-    // `handle … requires`, `find … requires`) — not inside the body among the
+    // `handle … requires`) — not inside the body among the
     // query clauses.  It used to sit in `ProjectionQueryClauses`, which made it
     // unspellable on a FOLDED projection (no `from`, so no query-clause tail to
     // hold it); a validator then rejected the folded case as if that were a

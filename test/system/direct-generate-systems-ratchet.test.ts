@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Direct-caller ratchet (minted by M-T9.35, now done; the drain of `PINNED`
-// below is owned by M-T9.75 — docs/new-plan/T9-toolchain-health.md).
+// below is owned by M-T9.75 — https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T9-toolchain-health.md).
 //
 // `test/_helpers/generate.ts` is where a fixture is checked before anything
 // asserts on what it emits — phase ① (syntax), ④ (AST validation) and ⑦
@@ -240,7 +240,6 @@ const PINNED: readonly string[] = [
   "test/system/keycloak-compose.test.ts",
   "test/system/kubernetes-helm.test.ts",
   "test/system/launch-config.test.ts",
-  "test/system/migration-artifacts.test.ts",
   "test/system/multifile-regression.test.ts",
   "test/system/node-debug.test.ts",
   "test/system/playground-feature-examples.test.ts",

@@ -4,8 +4,8 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 // ---------------------------------------------------------------------------
-// Wave 2 packet 2.3 — "no hand-rolled IR walks" (docs/new-plan/improvement-
-// waves-2026-09.md §Wave 2 item 2.3).
+// "No hand-rolled IR walks" (Wave 2 packet 2.3 of
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/improvement-waves-2026-09.md).
 //
 // The defect class this closes (#2720, #2705, M-T6.50): a collector or
 // emitter hand-rolls a `switch (e.kind)` / `switch (s.kind)` over
@@ -321,7 +321,7 @@ type Waiver = { standing: string } | { deferred: string; reviewUntil: string; bl
 // ---------------------------------------------------------------------------
 // THE WAIVER SHAPE — and why a waiver can now EXPIRE.
 //
-// Wave CR1 packet CR1-d (docs/audits/code-review-2026-09-13.md row P0-1).  The
+// Wave CR1 packet CR1-d (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/code-review-2026-09-13.md row P0-1).  The
 // register below carried 23 entries whose stated reason was a PROCESS FENCE
 // that had already lifted: twelve said "in-flight fence — PR #2736/#2729/#2742
 // owns this file this wave", and eleven deferred to "the 2.6 hotspot-split".
@@ -681,7 +681,7 @@ const WAIVERS: Record<string, Waiver> = {
   // (measured), while node emits `const o = await orders.getById(pr.order)`.
   "src/generator/elixir/vanilla/workflow-eventsourced-emit.ts#renderEsWorkflowHandler": {
     deferred:
-      "MISFILED by the old bucket, and PROVEN silent: `default: break` drops the statement. Measured — a `repo-let` in an eventSourced workflow's `on(...)` handler is ABSENT from the emitted Elixir on a `0 error(s), 0 warning(s)` model, while node emits it. Both a silent drop AND parity debt; hand-off row in docs/new-plan/waves/handoffs/wave-cr1-f.md",
+      "MISFILED by the old bucket, and PROVEN silent: `default: break` drops the statement. Measured — a `repo-let` in an eventSourced workflow's `on(...)` handler is ABSENT from the emitted Elixir on a `0 error(s), 0 warning(s)` model, while node emits it. Both a silent drop AND parity debt; hand-off row in https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-cr1-f.md",
     reviewUntil: "2026-12-31",
   },
 

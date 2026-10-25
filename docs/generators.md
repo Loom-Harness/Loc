@@ -61,9 +61,9 @@ validator gate sets in `src/ir/validate/checks/` and frozen against drift by
 [`test/platform/backend-parity-gates.test.ts`](../test/platform/backend-parity-gates.test.ts)
 (a backend can't be silently *ungated-and-unemitting* — the F1 class of bug).
 The dated baseline write-up is
-[`audits/backend-feature-parity-2026-06.md`](audits/backend-feature-parity-2026-06.md);
+[`audits/backend-feature-parity-2026-06.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/backend-feature-parity-2026-06.md);
 remaining gaps + sequencing are in
-[`plans/backend-parity-plan.md`](old/plans/backend-parity-plan.md).
+[`plans/backend-parity-plan.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/backend-parity-plan.md).
 
 | Feature | node | dotnet | java | python | elixir | Gate |
 | --- | :-: | :-: | :-: | :-: | :-: | --- |
@@ -107,7 +107,7 @@ and `test/platform/backend-parity-gates.test.ts` pins the emission per backend. 
 former open gaps (principal Python filters W1b, per-op/lifecycle `audited`
 beyond node/dotnet W3, event-sourced workflow on Elixir W4) are **closed**. The
 gaps that remain are language-level rather than per-backend — see
-[`audits/language-gaps-2026-08.md`](audits/language-gaps-2026-08.md).
+[`audits/language-gaps-2026-08.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/language-gaps-2026-08.md).
 
 | Construct | TypeScript (Hono + Drizzle) | .NET (ASP.NET + EF + Mediator) | React (Vite + RQ + Mantine) |
 | --- | --- | --- | --- |
@@ -834,7 +834,7 @@ markup walker (`src/generator/_walker/`) through `vueTarget` and the
 SAME `_frontend/` api/workflows module builders (only the
 TanStack Query import specifier differs).  Design packs: `vuetify`
 (default) and `shadcnVue` (reka-ui + Tailwind 4, source-copy).  See
-[D-VUE-FRONTEND](decisions.md) and `docs/old/plans/vue-frontend-plan.md`.
+[D-VUE-FRONTEND](decisions.md) and `[docs/old/plans/vue-frontend-plan.md](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/vue-frontend-plan.md)`.
 
 ### File map (deltas vs the React project)
 
@@ -912,7 +912,7 @@ Angular 22 SPA** per angular deployable — `bootstrapApplication` + `appConfig`
 the same `vite preview`-style way as the other SPAs in docker.  Pages flow
 through the **same shared markup walker** the React / Vue / Svelte generators use
 (`src/generator/_walker/walker-core.ts`) with `angularTarget` + the
-`angularMaterial` design pack.  See `docs/old/plans/angular-frontend-plan.md`.
+`angularMaterial` design pack.  See [`docs/old/plans/angular-frontend-plan.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/angular-frontend-plan.md).
 
 Angular renders **idiomatic Angular**, not a transliterated React app: standalone
 `@Component`s, signals/`computed` for view state, typed Reactive Forms, and —
@@ -946,7 +946,7 @@ The fifth frontend generator (`src/generator/feliz/`).  Emits a **Feliz
 the one frontend whose embedded language is **F#, not JS**, so instead of
 consuming the wire shape only, it supplies its own F# expression leaves
 (`src/generator/feliz/fs-expr.ts`, the `FS_LEAVES` table) through the shared
-`emitExpr` dispatcher.  See `docs/old/plans/feliz-frontend-build.md`.
+`emitExpr` dispatcher.  See [`docs/old/plans/feliz-frontend-build.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/feliz-frontend-build.md).
 
 | Concern | Emission |
 |---|---|
@@ -988,7 +988,7 @@ seam because Dart list literals are comma-separated.
 | Data / reads | `QueryView` resolves to a Riverpod `FutureProvider` (`reads-emit.ts`) that `GET`s the collection (unwrapping the paged `{items}` envelope) or a `FutureProvider.family` for byId; the widget renders `AsyncValue.when(loading/error/data)` with `empty:` folded in.  `For` lowers to `.map(...).toList()`. |
 | Forms | `CreateForm`/`OperationForm`/`DestroyForm` render self-contained `StatefulWidget`s in `lib/forms.dart` (`forms-emit.ts`) — typed field widgets by wire type (`TextFormField`/`SwitchListTile`/`DropdownButtonFormField`/`showDatePicker`, value objects flattened), a foreign-key `X id` becomes a runtime-loaded dropdown (`initState` GETs `/<target-collection>`, options labelled by the target's derived `display`), `GlobalKey<FormState>` validation, `http` POST/PUT/DELETE via `apiUri`, pop-on-success. |
 | Design | The procedural **flutterMaterial** pack (`src/generator/flutter/pack.ts`, Feliz-`pack.ts` model — emits Material widget trees, no `.hbs`). |
-| CI | `generated-flutter-build.yml` — real `flutter analyze` + `flutter build web` on an interactive showcase (state + reads + forms + routing). **Web only** — no gate compiles the native `apk`/`ipa` surface, so native-only regressions aren't caught per-PR (tracked in `docs/new-plan/T1-…` / the Flutter parity proposal). |
+| CI | `generated-flutter-build.yml` — real `flutter analyze` + `flutter build web` on an interactive showcase (state + reads + forms + routing). **Web only** — no gate compiles the native `apk`/`ipa` surface, so native-only regressions aren't caught per-PR (tracked in GitHub issues, `area:frontend`). |
 
 `Modal { trigger: Button(…), OperationForm(of:, op:) }` renders as a trigger `ElevatedButton` whose `onPressed` opens an `AlertDialog` wrapping the op-form widget (`showDialog`); the op-form pops its own route on success, dismissing the dialog.  `WorkflowForm(runs: <wf>)` renders as a `StatefulWidget` (like `CreateForm`) that POSTs the workflow params to the command route `/workflows/<wf>`.
 
@@ -1010,7 +1010,7 @@ A user `component Foo(params) { body }` emits a Dart widget into `lib/components
 
 An array-of-value-object form field (`lines: LineItem[]`) renders each row as a group of `TextFormField`s over the VO's scalar sub-fields (a `List<List<TextEditingController>>` in state), submitting a `{sub: value, …}` map per row — when every sub-field is text/numeric (a bool/enum/datetime/nested sub-field defers the whole array).
 
-Known frontier: VO-array fields with non-scalar sub-fields, and the remaining user-component variants (extern / derived / stateful-plus-read / byId-read / store-read / async-effect actions), are deferred (fall back to a diagnostic comment — never broken Dart).  Inline `:=` state writes in render-tree lambdas are rejected upstream (`loom.effect-in-lambda`); named-action writes emit through the Riverpod Notifier — a nested target (`draft.address.zip := v`) folds into an immutable `copyWith` chain (`state.draft.copyWith(address: state.draft.address.copyWith(zip: v))`), so every wire model carries a `copyWith`.  (End-to-end record-typed page state additionally needs the `VO.create({…})` state initializer, a separate universal gap — see `docs/old/proposals/nested-state-writes-copywith-frontends.md`.)  See `docs/old/plans/flutter-mobile-implementation.md`.
+Known frontier: VO-array fields with non-scalar sub-fields, and the remaining user-component variants (extern / derived / stateful-plus-read / byId-read / store-read / async-effect actions), are deferred (fall back to a diagnostic comment — never broken Dart).  Inline `:=` state writes in render-tree lambdas are rejected upstream (`loom.effect-in-lambda`); named-action writes emit through the Riverpod Notifier — a nested target (`draft.address.zip := v`) folds into an immutable `copyWith` chain (`state.draft.copyWith(address: state.draft.address.copyWith(zip: v))`), so every wire model carries a `copyWith`.  (End-to-end record-typed page state additionally needs the `VO.create({…})` state initializer, a separate universal gap — see [`docs/old/proposals/nested-state-writes-copywith-frontends.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/nested-state-writes-copywith-frontends.md).)  See [`docs/old/plans/flutter-mobile-implementation.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/flutter-mobile-implementation.md).
 
 ## Phoenix LiveView fullstack (`platform: elixir`)
 
@@ -1091,14 +1091,14 @@ Aggregate IR maps onto Ecto/Phoenix:
 | `repository finds: find byCustomer(...) where ...` | a context query function `def by_customer(customer_id) = Repo.all(from … where: …)` |
 | `workflow placeOrder(...) { ... }` | a context function wrapping `Repo.transaction(fn -> with … end)` |
 | `emit OrderConfirmed { … }` | `Phoenix.PubSub.broadcast(<App>.PubSub, "events", %Events.OrderConfirmed{…})`; inside an in-process dispatch handler, `emit` re-enters `<Ctx>.Dispatcher.dispatch(%Events.OrderConfirmed{…})` so choreography chains run. |
-| `on(e: Event)` reactor / event-triggered `create(e: Event) by …` (channel-carried) | one `<Ctx>.Workflows.<Wf>.On<Event>` / `.Start<Event>` module with `handle(event)`, routed by a per-context `<Ctx>.Dispatcher` that pattern-matches each event struct. Correlation persists through a `<Wf>State` `Ecto.Schema` keyed by the correlation field (`create` loads-or-allocates, `on` routes-or-drops + logs `event_unrouted`). An event-triggered-only workflow emits no `run/2` / HTTP route / UI form page. See [`workflow.md`](workflow.md) §Triggers and [`channels.md`](old/proposals/channels.md). |
+| `on(e: Event)` reactor / event-triggered `create(e: Event) by …` (channel-carried) | one `<Ctx>.Workflows.<Wf>.On<Event>` / `.Start<Event>` module with `handle(event)`, routed by a per-context `<Ctx>.Dispatcher` that pattern-matches each event struct. Correlation persists through a `<Wf>State` `Ecto.Schema` keyed by the correlation field (`create` loads-or-allocates, `on` routes-or-drops + logs `event_unrouted`). An event-triggered-only workflow emits no `run/2` / HTTP route / UI form page. See [`workflow.md`](workflow.md) §Triggers and [`channels.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/channels.md). |
 | `channel X { delivery: broadcast }` (realtime SSE, for an SPA frontend) | `<App>Web.RealtimeController` — a chunked `text/event-stream` response at `GET /api/realtime/events`, subscribed to the SAME `"events"` PubSub topic every `emit` above already broadcasts on (so no dispatcher decorator is needed, unlike Hono's `realtimeTee`). One `frame/1` clause per carried event → `event: <Type>` + camelCase JSON `data:` carrying `type`; a 15s `event: ping` keep-alive. Routed through its own `:sse` router pipeline — the `:api` pipeline's `plug :accepts, ["json"]` would 406 an `EventSource`. A tenant-scoped event degrades to a refetch ticket (`type` + `<Agg> id` refs only). `queue`-only ⇒ nothing emitted (`vanilla/realtime-emit.ts`). |
 | `abstract aggregate Party` + `extends` (TPC) | base emits no schema; each concrete is a standalone `Ecto.Schema` on its own table; the context module gains `list_parties/0` (the union of the concrete `list_<concrete>/0` reads). |
-| `abstract aggregate Party` + `inheritanceUsing: sharedTable` (TPH) | the concretes share one table: each concrete `Ecto.Schema` declares `schema "<base_plural>"`, a `:kind` string field defaulted to its own name, and every read self-filters on `where: c.kind == "<Concrete>"` so it reads/writes only its rows. The base owns no schema; the context module gains the same polymorphic `list_parties/0` union reader. See [`phoenix-tph-emission.md`](old/proposals/phoenix-tph-emission.md). |
+| `abstract aggregate Party` + `inheritanceUsing: sharedTable` (TPH) | the concretes share one table: each concrete `Ecto.Schema` declares `schema "<base_plural>"`, a `:kind` string field defaulted to its own name, and every read self-filters on `where: c.kind == "<Concrete>"` so it reads/writes only its rows. The base owns no schema; the context module gains the same polymorphic `list_parties/0` union reader. See [`phoenix-tph-emission.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/phoenix-tph-emission.md). |
 | `persistedAs: eventLog` + `apply(...)` (event sourcing) | **Supported** (`src/generator/elixir/vanilla/eventsourced-emit.ts`): an append-only `<agg>_events` stream + `apply` fold + rehydrator, the elixir sibling of the node/.NET/python/java event stores. |
 | `shape: document` persistence | **Supported (CRUD + finds/ops — DEBT-07; Route A)** — `src/generator/elixir/vanilla/document-emit.ts`: the whole aggregate persists as one jsonb blob in an `(id, data, version)` table, where `data` is a **typed `embeds_one :data, <Agg>.Data` embed** cast via `cast_embed` (the same `validate_required` / invariant validators the relational `base_changeset` runs); reads merge `data` back over the id. **Custom finds** filter in memory (`Repo.all |> Enum.filter`), **named operations** run their body, pure **`function`s** compile, and **returning ops** (`: A or B`) emit the tagged tuple — all in **struct mode** over the loaded `row.data` struct (Route A slices 1–2 deleted the old string-keyed `docMap` fork), incl. value-object-subfield reads. The residual (audited/provenanced ops, collection mutation, derived / dereferenced-entity / collection-method reads, paged/union finds) stays gated (`loom.vanilla-document-unsupported`). `shape: embedded` (DEBT-32, `src/generator/elixir/vanilla/schema-emit.ts`): each entity part is an Ecto `embedded_schema` module the root `embeds_many`s (a value-object field is a `Loom.ValueObject` jsonb value, cast and loaded in the constructor's atom-keyed shape), stored inline in the parent's jsonb column — a containment-mutating op (`lines += Line{…}`) appends the struct + `put_embed`s. `contains` on a *relational*-shape aggregate persists as child TABLES (§11c): each part is a table-backed schema the owner `has_many`s + `cast_assoc`s + preloads, INCLUDING **deep part-in-part** (M-T6.2 Drain C — a part's own `contains` becomes a `has_many` on its grandchild table, FK'd to the direct parent; the migration emitter's part tier now emits grandchild tables and the read/update preload nests `[lines: :tags]`; boot-verified). The `loom.vanilla-containment-unsupported` gate is **fully retired**. |
-| `test "…" { … }` | **ExUnit** → `test/<ctx>/<agg>_test.exs` (`use ExUnit.Case, async: true`) + a once-per-project `test/test_helper.exs`. (`src/generator/elixir/vanilla/tests-emit.ts`) ports the full Loom idiom onto a **pure domain core** emitted on the aggregate module (`domain-core-emit.ts`): `def create(attrs) = base_changeset \|> Ecto.Changeset.apply_action(:insert)` and `def <op>(record, params)` = precondition + in-memory mutation — both Repo-free. So `Agg.create({…})` → `{:ok, p} = Agg.create(%{…})`, `expect(create({bad})).toThrow()` → `assert {:error, _} = …`, `o.op(x)` → `o = Agg.op(o, %{…})`, precondition `toThrow` → `assert_raise`, field reads → `assert ==` (money/decimal via `Decimal`). Verified green under `mix test` with no DB. A **value-object construction invariant** (`expect(Money{…}).toThrow()`) lowers to the VO's validating constructor — `assert {:error, _} = Money.new(%{…})` (F5; `valueobject-emit.ts` emits `<VO>.new/1`, and the aggregate `base_changeset` runs it via `validate_vo` so the invariant is enforced at the real create/update path, not just in tests). A `config/test.exs` is emitted so `mix test` can load (never copied into the prod image). See [`docs/audits/test-parity-generated-backends.md`](audits/test-parity-generated-backends.md). |
-| `seed [name] [raw] { … }` | **Supported** (`src/generator/elixir/vanilla/seed-emit.ts`, M-T6.37) — one `<Ctx>.Seeds` module per context that declares a `seed` block, run at boot after migrating and also reachable manually via the emitted `priv/repo/seeds.exs` (`mix run priv/repo/seeds.exs`). Domain-path rows go through `<Agg>Repository.insert(%{…})` so the aggregate's `base_changeset` invariants run (a bad seed fails at boot rather than writing a corrupt row); `raw` rows bypass the domain and emit the shared cross-backend INSERT via `renderSeedRowInsert`, **schema-qualified** because Phoenix aggregates live in per-context Postgres schemas. Idempotent per D-SEED-IDEMPOTENCY: a `__loom_seed` marker table records each applied dataset (ship-once), `default` always runs and other datasets opt in via the `LOOM_SEED` env var. Closes [B19](audits/behavioral-parity-bugs-2026-07.md#b19--elixir--seed-datasets-emit-no-seeder-at-all-silently-dropped) — the last silent gap in this table (verified 2026-08-23). |
+| `test "…" { … }` | **ExUnit** → `test/<ctx>/<agg>_test.exs` (`use ExUnit.Case, async: true`) + a once-per-project `test/test_helper.exs`. (`src/generator/elixir/vanilla/tests-emit.ts`) ports the full Loom idiom onto a **pure domain core** emitted on the aggregate module (`domain-core-emit.ts`): `def create(attrs) = base_changeset \|> Ecto.Changeset.apply_action(:insert)` and `def <op>(record, params)` = precondition + in-memory mutation — both Repo-free. So `Agg.create({…})` → `{:ok, p} = Agg.create(%{…})`, `expect(create({bad})).toThrow()` → `assert {:error, _} = …`, `o.op(x)` → `o = Agg.op(o, %{…})`, precondition `toThrow` → `assert_raise`, field reads → `assert ==` (money/decimal via `Decimal`). Verified green under `mix test` with no DB. A **value-object construction invariant** (`expect(Money{…}).toThrow()`) lowers to the VO's validating constructor — `assert {:error, _} = Money.new(%{…})` (F5; `valueobject-emit.ts` emits `<VO>.new/1`, and the aggregate `base_changeset` runs it via `validate_vo` so the invariant is enforced at the real create/update path, not just in tests). A `config/test.exs` is emitted so `mix test` can load (never copied into the prod image). See [`docs/audits/test-parity-generated-backends.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/test-parity-generated-backends.md). |
+| `seed [name] [raw] { … }` | **Supported** (`src/generator/elixir/vanilla/seed-emit.ts`, M-T6.37) — one `<Ctx>.Seeds` module per context that declares a `seed` block, run at boot after migrating and also reachable manually via the emitted `priv/repo/seeds.exs` (`mix run priv/repo/seeds.exs`). Domain-path rows go through `<Agg>Repository.insert(%{…})` so the aggregate's `base_changeset` invariants run (a bad seed fails at boot rather than writing a corrupt row); `raw` rows bypass the domain and emit the shared cross-backend INSERT via `renderSeedRowInsert`, **schema-qualified** because Phoenix aggregates live in per-context Postgres schemas. Idempotent per D-SEED-IDEMPOTENCY: a `__loom_seed` marker table records each applied dataset (ship-once), `default` always runs and other datasets opt in via the `LOOM_SEED` env var. Closes [B19](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/behavioral-parity-bugs-2026-07.md#b19--elixir--seed-datasets-emit-no-seeder-at-all-silently-dropped) — the last silent gap in this table (verified 2026-08-23). |
 
 ### Per-page detail
 
@@ -1182,7 +1182,7 @@ capability filter on a non-relational aggregate**
 (`loom.context-filter-no-principal` — each half ships alone; only the
 actor + jsonb intersection is deferred), and provenance/audited (gated —
 no runtime emitted; the node and .NET backends do implement these).  See
-`docs/old/plans/java-backend-implementation.md` for the execution record.
+[`docs/old/plans/java-backend-implementation.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/java-backend-implementation.md) for the execution record.
 
 **Value-object read-model fields ARE implemented.** A VO-typed
 workflow-instance field or projection row field emits
@@ -1451,15 +1451,15 @@ exist`).
 ### Migrations
 
 Schema changes flow through a platform-neutral **MigrationsIR**
-([`src/ir/types/migrations-ir.ts`](../src/ir/types/migrations-ir.ts))
-built by diffing the current source against a checked-in snapshot at
-`.loom/snapshots/<Subdomain>.snapshot.json`.  The builder
+([`src/ir/types/migrations-ir.ts`](../src/ir/types/migrations-ir.ts)),
+one per entry of the committed migration chain (`migrations/` beside
+the `.ddd`, recorded by `ddd migrate add`).  The builder
 ([`src/system/migrations-builder.ts`](../src/system/migrations-builder.ts))
-computes one `MigrationsIR` per `(subdomain, storage)` pair owned by a
-deployable (`migrationsOwner` enrichment in
-`src/ir/enrich/enrichments.ts`).  Backends only translate steps to
-their syntax via the per-platform emitters listed below — they never
-recompute the schema themselves.  Shared SQL rendering for the two
+derives each module's delta against the chain's head for every
+`(subdomain, storage)` pair owned by a deployable (`migrationsOwner`
+enrichment in `src/ir/enrich/enrichments.ts`).  Backends only translate
+steps to their syntax via the per-platform emitters listed below — they
+never recompute the schema themselves.  Shared SQL rendering for the
 Postgres-backed emitters lives in
 [`src/generator/sql-pg.ts`](../src/generator/sql-pg.ts).
 
@@ -1472,17 +1472,15 @@ Postgres-backed emitters lives in
 Phoenix stays in Ecto DSL because its output is Elixir.  Hono and
 .NET share `src/generator/sql-pg.ts` for bit-identical Postgres DDL.
 
-Initial regen of an output tree emits one "Initial" migration per
-subdomain per backend.  Subsequent regens diff against the snapshot and
-emit one new dated file per backend covering just the delta — adding
-a property produces a single `ALTER TABLE … ADD COLUMN …` per
-backend, with the snapshot's `lastVersion` bumped so the next run's
-filename sorts after.
+Every `generate system` renders the whole chain: one file per backend
+per recorded generation, the first of each subdomain its "Initial".
+Recording a new property with `migrate add` adds a single
+`ALTER TABLE … ADD COLUMN …` per backend.  A source with no chain yet
+renders each subdomain's "Initial" derived from the model.
 
-Regenerating against an unchanged tree is a no-op: the diff is empty
-and the emitters skip.  Column renames are not detected (drop+add);
-operators wanting a real rename use `.loomignore` to hand-edit the
-emitted file or fold the rename into the next migration.
+Regenerating is deterministic: the same source and chain render the
+same files into any output tree.  Renames are declared in a `migration`
+block (see [`migrations.md`](migrations.md)).
 
 ### `test e2e` lowering
 

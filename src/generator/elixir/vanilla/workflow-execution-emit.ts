@@ -103,6 +103,7 @@ import {
 } from "../../_workflow/create-state.js";
 import type { ApiRoute } from "../api-emit.js";
 import { inlineMutatingServiceCall } from "../domain-service-emit.js";
+import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { internalCreateFn, internalDeleteFn } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { stateDefault, stateDefaultDecls } from "../state-default.js";
@@ -500,16 +501,14 @@ function lowerStatement(
       //   `let c = Customers.byEmail(needle)` (custom find) →
       //     `{:ok, c} <- Context.by_email_customer(needle)`
       //
-      // The `getById` finder maps to the context's `get_<agg>/1` (find_by_id)
+      // The by-id `load` maps to the context's `get_<agg>/1` (find_by_id)
       // facade.  Custom finds map to the per-find defdelegate emitted by
       // `context-emit.ts` (see `customFindsOf`), which routes to the
       // matching `def <find>` in the repository module.
       const argList = st.args.map((a) => renderExpr(a, renderCtx)).join(", ");
       const action =
-        st.method === "getById"
-          ? `get_${snake(st.aggName)}`
-          : `${snake(st.method)}_${snake(st.aggName)}`;
-      // M-T5.1 A4 — a `getById` miss is the not-found-on-load policy: the
+        st.op === "load" ? `get_${snake(st.aggName)}` : elixirFindFacadeFn(st.method, st.aggName);
+      // A `load` miss is the not-found-on-load policy: the
       // declared 404, whose detail names the row ("Order <id> not found") on
       // the other four backends and on this one's own GET-by-id route.  The
       // context facade answers a bare `{:error, :not_found}`, which the
@@ -520,7 +519,7 @@ function lowerStatement(
       // domain-service paths share this lowering, and their dispatchers know
       // only the bare term.
       const call =
-        st.method === "getById" && renderCtx.tagGetByIdMiss
+        st.op === "load" && renderCtx.tagGetByIdMiss
           ? `(case ${contextModule}.${action}(${argList}) do
            {:error, :not_found} -> {:error, {:not_found, "${upperFirst(st.aggName)} #{${argList}} not found"}}
            found -> found
@@ -722,7 +721,7 @@ function lowerStatement(
       // `case` reads it.
       const lookup = st.findMethod
         ? {
-            call: `${contextModule}.${snake(st.findMethod)}_${snake(st.aggName)}(${st.retrievalArgs.map((a) => renderExpr(a, renderCtx)).join(", ")})`,
+            call: `${contextModule}.${elixirFindFacadeFn(st.findMethod, st.aggName)}(${st.retrievalArgs.map((a) => renderExpr(a, renderCtx)).join(", ")})`,
             hit: "{:ok, hit}",
           }
         : {
@@ -1705,7 +1704,7 @@ function renderWorkflowModule(
   // M13 — one `fragment()` anchor per statement, independent of position
   // (assembleBody's with-clause/emit bucketing REORDERS statements relative
   // to source order, so a single cursor-walked fragment can't be used — see
-  // docs/old/plans/source-map-and-debugging.md).  Each line's own text is put
+  // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/source-map-and-debugging.md).  Each line's own text is put
   // through the SAME `Context`-alias rewrite `aliasedBody` got, so the
   // anchor matches the final content verbatim.
   const statementRegions: { text: string; origin: OriginRef | undefined }[] = wantRegions
@@ -1946,7 +1945,7 @@ function workflowLoadsById(wf: WorkflowIR): boolean {
   for (const list of lists) {
     for (const top of list) {
       walkWorkflowStmtsDeep(top, (s) => {
-        if (s.kind === "repo-let" && s.method === "getById") found = true;
+        if (s.kind === "repo-let" && s.op === "load") found = true;
       });
     }
   }

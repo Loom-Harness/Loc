@@ -213,7 +213,7 @@ function validatePolicyReadLevels(sys: SystemIR, diags: LoomDiagnostic[]): void 
 }
 
 /** Validate `policy { allow write <level> on <Aggregate> }` rules
- *  (`docs/old/plans/authorization-phase3.md`).  Fail-closed:
+ *  (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/authorization-phase3.md`).  Fail-closed:
  *
  *   - the shared target checks (`loom.policy-unknown-aggregate`,
  *     `loom.policy-target-not-tenant-owned`, `loom.policy-duplicate-target`) —
@@ -338,7 +338,7 @@ function validatePolicyWriteLevels(sys: SystemIR, diags: LoomDiagnostic[]): void
 }
 
 /** Validate `policy { deny [write] on <Aggregate> }` carve-outs (deny-wins —
- *  docs/old/plans/authorization-phase4-deny.md):
+ *  https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/authorization-phase4-deny.md):
  *
  *   - `loom.policy-deny-unknown-aggregate` — the target names no aggregate in the
  *     policy's own context (a carve-out scopes a concrete local aggregate).

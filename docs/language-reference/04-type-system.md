@@ -120,7 +120,7 @@ field :meta,        :map
 
 ### Numeric representation rules
 
-The four numeric types follow one cross-cutting contract (`docs/conformance-semantics.md` RS-12 / RS-24; audited in [`numeric-types-audit-2026-08-23`](../audits/numeric-types-audit-2026-08-23.md)):
+The four numeric types follow one cross-cutting contract (`docs/conformance-semantics.md` RS-12 / RS-24; audited in [`numeric-types-audit-2026-08-23`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/numeric-types-audit-2026-08-23.md)):
 
 | Type | Column | JSON wire | Domain representation — node / dotnet / java / python / elixir |
 |---|---|---|---|
@@ -356,7 +356,7 @@ def days_to_visit(%__MODULE__{} = record), do: Date.diff((if is_nil(record.next_
 ```
 ::: end
 
-**Migrating a `datetime` field to `date`** is a column type change (`ALTER COLUMN … TYPE DATE USING col::DATE`): it drops the time-of-day, and the cast reads each instant in the database session's zone. Like every type change it is destructive, so `generate system` refuses it without `--allow-destructive`.
+**Migrating a `datetime` field to `date`** is a column type change (`ALTER COLUMN … TYPE DATE USING col::DATE`): it drops the time-of-day, and the cast reads each instant in the database session's zone. Like every type change it is destructive, so `ddd migrate add` refuses it without `--allow-destructive`.
 
 The corpus fixture `test/fixtures/corpus/date-scalar.ddd` drives create / update / an operation parameter / a SQL comparison and the intrinsics on all five backends, asserting each date read back as the exact string written.
 

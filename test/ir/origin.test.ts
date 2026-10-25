@@ -1,4 +1,4 @@
-// Origin spine — Phase 0 of docs/old/plans/source-map-debug-kickoff.md.  Asserts
+// Origin spine — Phase 0 of https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/source-map-debug-kickoff.md.  Asserts
 // every listed structural IR node carries a real `.ddd` source span at
 // lowering, that scaffolded (macro-synthesized) pages carry a macro chain
 // pointing at the `with scaffold(...)` call site, that the origin survives

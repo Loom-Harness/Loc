@@ -44,8 +44,9 @@ system Shop {
         }
       }
       workflow assignInIfLet {
+        orderId: Order id
         seen: int
-        create(d: bool) {
+        create(orderId: Order id, d: bool) {
           if let o = Orders.find(Pending(d)) {
             seen := 1
             o.confirm()

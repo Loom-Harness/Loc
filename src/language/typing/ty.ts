@@ -1,5 +1,5 @@
 // The single typing pass's type representation (M-T5.47, design:
-// docs/new-plan/missions/M-T5.47-single-typing-pass-design.md §D2–D3).
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/missions/M-T5.47-single-typing-pass-design.md §D2–D3).
 //
 // `Ty` is AST-anchored, because the validators, the LSP, go-to-definition and
 // sensitivity all need the declaration rather than its name. It carries

@@ -3,9 +3,9 @@
 // `find all`) served every row to any authenticated caller with no diagnostic:
 // an admin-gated create + operation and no explicit `find all` validated with
 // only the by-id warning.  Now `loom.default-deny-list-ungated` (a WARNING, the
-// by-id read's tier) names the route and the line that gates it — and since
-// M-T3.19 the ungated list read is REFUSED at runtime (403): enrichment stamps
-// the deny gate on it.  Warning for one release, then an error.
+// by-id read's tier) names the route and the policy line that gates it, and
+// the ungated list read is REFUSED at runtime (403): enrichment stamps the
+// deny gate on it.  Warning for one release, then an error.
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
@@ -53,9 +53,7 @@ describe("loom.default-deny-list-ungated — the ungated list read is reported",
     // the shape the injected read already answers, so following the advice
     // does not swap the `Paged<T>` envelope for a bare array.
     expect(list[0]!.message).toContain("GET /api/secrets");
-    expect(list[0]!.message).toContain("find all(): Secret paged requires <expr>");
-    expect(list[0]!.message).not.toContain("Secret[]");
-    expect(list[0]!.message).toContain("repository Secrets for Secret");
+    expect(list[0]!.message).toContain("policy { read Secret requires <expr> }");
     expect(list[0]!.message).toContain("REFUSED AT RUNTIME (403)");
     expect(list[0]!.message).toContain("enforcement: opt");
     expect(list[0]!.message).toContain("becomes an error in a later release");
@@ -89,41 +87,16 @@ describe("loom.default-deny-list-ungated — the ungated list read is reported",
     );
     const list = diags.filter((d) => d.code === CODE);
     expect(list).toHaveLength(1);
-    expect(list[0]!.message).toContain("repository Vaulted for Secret");
-    // A declared bare-array read keeps the type its author wrote.
-    expect(list[0]!.message).toContain("find all(): Secret[] requires <expr>");
+    expect(list[0]!.message).toContain("policy { read Secret requires <expr> }");
   });
 
-  it("the suggested line keeps the list read's response shape", async () => {
-    const shapeOfAll = async (repo?: string) => {
-      const { model } = await parseString(vault({ enforcement: "denyByDefault", repo }), {
-        validate: false,
-      });
-      const enriched = enrichLoomModel(lowerModel(model));
-      const ctx = enriched.systems[0]!.subdomains.flatMap((sd) => sd.contexts).find(
-        (c) => c.name === "Vault",
-      )!;
-      return ctx.repositories
-        .find((r) => r.aggregateName === "Secret")!
-        .finds.find((f) => f.name === "all")!.returnType;
-    };
-    const injected = await shapeOfAll();
-    const [advice] = (await diagnose(vault({ enforcement: "denyByDefault" }))).filter(
-      (d) => d.code === CODE,
-    );
-    const line = /find all\(\): ([^`]*?) requires <expr>/.exec(advice!.message)![1];
-    const followed = await shapeOfAll(
-      `repository Secrets for Secret { find all(): ${line} requires true }`,
-    );
-    expect(followed).toEqual(injected);
-  });
-
-  it("is silenced by a gated explicit `find all`, or `requires true`", async () => {
+  it("is silenced by the policy read gate, or `requires true`", async () => {
     for (const gate of ['currentUser.role == "admin"', "true"]) {
       const diags = await diagnose(
         vault({
           enforcement: "denyByDefault",
-          repo: `repository Secrets for Secret { find all(): Secret[] requires ${gate} }`,
+          repo: `repository Secrets for Secret { }
+          policy { read Secret requires ${gate} }`,
         }),
       );
       expect(diags.filter((d) => d.code === CODE)).toEqual([]);

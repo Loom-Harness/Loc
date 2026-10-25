@@ -1,6 +1,6 @@
 // Phase 1 of the sensitivity feature — grammar slot, type-system
 // propagation, isAssignable narrowing, and FieldIR capture.  See
-// `docs/old/proposals/sensitivity-and-compliance.md`.
+// `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/sensitivity-and-compliance.md`.
 
 import { AstUtils, EmptyFileSystem, URI } from "langium";
 import { beforeAll, describe, expect, it } from "vitest";

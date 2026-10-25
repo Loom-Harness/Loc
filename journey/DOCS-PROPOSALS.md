@@ -1,7 +1,7 @@
 # Docs updates & fixes — harvested from the build journey
 
 Everything below is grounded in the five-stage journey (`journey/*.ddd`,
-`FINDINGS.md`): the places a real user *got lost*, and the good features that
+[`FINDINGS.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/journey/FINDINGS.md)): the places a real user *got lost*, and the good features that
 work today but aren't taught where you'd look for them. Each item says what's
 wrong or missing, where it lives, the fix, and status.
 
@@ -122,7 +122,7 @@ evaluating.
 **Fix:** a new short guide (e.g. `docs/customization-gradient.md`, linked from
 `docs/README.md` and `docs/page-metamodel.md`) that walks the four rungs with a
 running example, and states the "compile the emitted target is the real gate"
-discipline. The journey files + `FINDINGS.md` are a ready-made worked example to
+discipline. The journey files + the build journal are a ready-made worked example to
 link as the long-form companion.
 
 ---

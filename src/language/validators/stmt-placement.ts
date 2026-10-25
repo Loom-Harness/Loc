@@ -26,7 +26,7 @@
 // the answer, so the check needs nothing the IR would add.
 //
 // TWO PERMANENT REFUSALS AND ONE HONEST GAP (ruling D-FOR-IN-DOMAIN,
-// `docs/new-plan/completion-waves-2026-09.md` §5 #3):
+// `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/completion-waves-2026-09.md` §5 #3):
 //
 //   - `variant-match` outside a ui action  — permanent.  The effect form of
 //     `match` IS the frontend action vocabulary (`async-actions-and-effects.md`
@@ -82,12 +82,12 @@ import {
  *  `unknown` — no classifying ancestor (only reachable from a detached node);
  *  no rule fires, so a future body owner degrades to silence-as-today rather
  *  than to a false refusal. */
-type Zone = "frontend" | "workflow" | "domain" | "unknown";
+export type Zone = "frontend" | "workflow" | "domain" | "unknown";
 
 /** Walk outwards to the first node that decides the zone.  The nesting
  *  statements (`if` / `for` / `if let` / `match` arms) and `Lambda` are
  *  transparent: they inherit the zone of whatever body they sit in. */
-function zoneOf(node: AstNode): Zone {
+export function zoneOf(node: AstNode): Zone {
   for (let c: AstNode | undefined = node.$container; c; c = c.$container) {
     if (isActionDecl(c) || isPage(c) || isComponent(c) || isStore(c) || isUi(c)) return "frontend";
     if (
@@ -116,7 +116,7 @@ function zoneOf(node: AstNode): Zone {
 
 /** A lowercase noun phrase naming the body the offending statement sits in,
  *  for the message's second half ("… but this one is in <owner>"). */
-function describeOwner(node: AstNode): string {
+export function describeOwner(node: AstNode): string {
   for (let c: AstNode | undefined = node.$container; c; c = c.$container) {
     if (isActionDecl(c)) return `action '${c.name}'`;
     if (isOperation(c)) return `operation '${c.name}'`;

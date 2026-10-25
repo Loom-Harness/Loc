@@ -1,5 +1,5 @@
 // An `X id` on a HOSTED declaration whose target aggregate lives in a sibling
-// context the deployable does NOT host (D18 of `eval-claims/FIX-PLAN.md`).
+// context the deployable does NOT host.
 //
 // A cross-context id reference is legal and resolves at lowering, so
 // `desk` below — hosting `Claims`, not `Policies` — names `PolId` from its

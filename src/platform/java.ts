@@ -17,7 +17,7 @@ import {
 // turns the deployable into a fullstack host serving an embedded React
 // SPA from Spring's static resources.  All project emission lives under
 // `../generator/java/`; this module is the thin `PlatformSurface` wiring.
-// See docs/old/plans/java-backend-implementation.md for the slice plan.
+// See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/java-backend-implementation.md for the slice plan.
 // ---------------------------------------------------------------------------
 
 const javaPlatform: PlatformSurface = {
@@ -39,12 +39,6 @@ const javaPlatform: PlatformSurface = {
   // dotnet-fable stage for Feliz) into the serving dir.  EMBEDDABLE_FRAMEWORKS,
   // not static-only.
   hostableFrameworks: EMBEDDABLE_FRAMEWORKS,
-  // The java repository auto-emits `save`, `findById`, `getById`,
-  // `delete`, and `findAll` (Spring Data conventions).  All but
-  // `findAll` are already reserved by the Hono surface; the union
-  // across platforms (see `validateFindNameCollisions`) picks up the
-  // difference.
-  reservedRepositoryFindNames: new Set(["save", "findById", "getById", "delete", "findAll"]),
   emitProject({
     contexts,
     deployable,

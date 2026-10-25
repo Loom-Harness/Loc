@@ -23,7 +23,7 @@ import { generateSystemFiles } from "../../_helpers/index.js";
  *  separator `__`, suffix `.sql`). */
 const FLYWAY_VERSIONED = /^V(\d+(?:[._]\d+)*)__([^/]+)\.sql$/;
 
-const SNAP: SchemaSnapshot = { schemaVersion: 1, lastVersion: "20260101000000", tables: [] };
+const SNAP: SchemaSnapshot = { schemaVersion: 1, tables: [] };
 
 const CREATE_ORDERS: MigrationsIR["steps"][number] = {
   op: "createTable",

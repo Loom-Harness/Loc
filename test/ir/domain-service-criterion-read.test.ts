@@ -63,7 +63,7 @@ describe("B10 — domain-service criterion read carries the criterion", () => {
     );
     const call = repoReadCall(opBody(m));
     expect(call.callKind).toBe("repo-read");
-    expect(call.repoRead?.readKind).toBe("findAll");
+    expect(call.repoRead?.op).toBe("select-many");
     expect(call.repoRead?.synthCriterion).toEqual({ name: "Rich" });
     expect(call.repoRead?.retrievalName).toBe("findAllByRich");
     expect(call.repoRead?.aggregate).toBe("Account");
@@ -96,7 +96,7 @@ describe("B10 — domain-service criterion read carries the criterion", () => {
       `retrieval Recent of Account = Rich`,
     );
     const call = repoReadCall(opBody(m));
-    expect(call.repoRead?.readKind).toBe("run");
+    expect(call.repoRead?.op).toBe("select-many");
     expect(call.repoRead?.retrievalName).toBe("Recent");
   });
 

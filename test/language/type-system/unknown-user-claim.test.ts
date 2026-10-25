@@ -1,7 +1,7 @@
 // `loom.unknown-user-claim` — `currentUser.<field>` where the field is NOT
 // declared in the system's `user { … }` block.
 //
-// The defect this closes (audit `docs/audits/2026-09-10-claimshub-dev-experience.md`
+// The defect this closes (audit `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-10-claimshub-dev-experience.md`
 // §D2): both member-typing sites — `type-system.ts`'s `lookupUserMember` and the
 // IR layer's `memberType` — fail OPEN on the principal, resolving an unknown
 // claim to `string`.  So `requires currentUser.totallyBogusField == "x"` parsed,
@@ -73,8 +73,9 @@ describe("loom.unknown-user-claim — undeclared principal claim", () => {
   it("flags an undeclared claim in a repository `find` gate", async () => {
     const e = await errs(`aggregate Ticket with crudish { status: string }`, {
       extra: `repository Tickets for Ticket {
-        find secure(): Ticket[] requires currentUser.nickname == "x" where status == "open"
-      }`,
+        find secure(): Ticket[] where status == "open"
+      }
+      policy { read Ticket requires currentUser.nickname == "x" }`,
     });
     expect(claimErrs(e), e.join("\n")).toHaveLength(1);
     expect(e.join("\n")).toMatch(/'nickname' is not a claim on the principal/);

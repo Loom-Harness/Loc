@@ -45,7 +45,7 @@ export class CustomerRepository implements CustomerRepositoryPort {
 
   async findManyByIds(ids: Ids.CustomerId[]): Promise<Customer[]> {
     if (ids.length === 0) return [];
-    const rootRows = await this.db.select().from(schema.customers).where(inArray(schema.customers.id, ids));
+    const rootRows = await this.db.select().from(schema.customers).where(inArray(schema.customers.id, ids)).orderBy(asc(schema.customers.id));
     if (rootRows.length === 0) return [];
     return rootRows.map((root) => Customer._rehydrate({ id: Ids.CustomerId(root.id), username: root.username, email: root.email, age: root.age, version: root.version }));
   }
@@ -95,7 +95,7 @@ export class CustomerRepository implements CustomerRepositoryPort {
   }
 
   async byEmail(email: string): Promise<Customer | null> {
-    const rootRows = await this.db.select().from(schema.customers).where(eq(schema.customers.email, email)).limit(1);
+    const rootRows = await this.db.select().from(schema.customers).where(eq(schema.customers.email, email)).orderBy(asc(schema.customers.id)).limit(1);
     if (rootRows.length === 0) {
       requestLog().debug({ event: "find_executed", aggregate: "Customer", find: "byEmail", rows: 0 });
       return null;

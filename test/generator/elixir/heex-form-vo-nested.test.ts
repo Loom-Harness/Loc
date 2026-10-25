@@ -1,7 +1,7 @@
 // HEEx form — value-object field renders as <.inputs_for :let={…}> nested form.
 //
 // Phase D Slice D from
-// `docs/old/plans/platform-expansion-roadmap.md`.  Closes the VO half
+// `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/platform-expansion-roadmap.md`.  Closes the VO half
 // of the "expand types beyond text input" gap; arrays remain as
 // future work (need event-handler scaffolding for add/remove).
 //

@@ -41,9 +41,9 @@ import { computeThrowSites, repoRoot, type ThrowSite } from "./generator-throw-s
 //       from our own code, or a shipped pack asset that failed to load. The
 //       reason names what guarantees that.
 //
-//   { deferred: "<what valid input reaches it>", mission: "M-…", reviewUntil }
+//   { deferred: "<what valid input reaches it>", mission: "#NNNN", reviewUntil }
 //       A LIVE DEFECT: a model `ddd parse` accepts crashes here. It has to
-//       name the mission that owns it (in docs/new-plan/) and a review date.
+//       name the GitHub issue or PR that owns it and a review date.
 //       Like the ir-walk census, a deferral EXPIRES: a past date, or one
 //       parked more than MAX_DEFERRAL_DAYS out, fails the census.
 //
@@ -174,11 +174,6 @@ describe("generator throw census — every codegen crash site names what keeps v
 
   it("a deferred site is a live defect with an owner and an expiry", () => {
     const now = Date.now();
-    const plan = fs
-      .readdirSync(path.join(repoRoot, "docs/new-plan"))
-      .filter((f) => f.endsWith(".md"))
-      .map((f) => fs.readFileSync(path.join(repoRoot, "docs/new-plan", f), "utf8"))
-      .join("\n");
     const bad: string[] = [];
     for (const [id, c] of Object.entries(CLASSIFICATIONS)) {
       if (!("deferred" in c)) continue;
@@ -189,10 +184,8 @@ describe("generator throw census — every codegen crash site names what keeps v
       else if (due - now > MAX_DEFERRAL_DAYS * 86_400_000) {
         bad.push(`${id}: reviewUntil ${c.reviewUntil} is more than ${MAX_DEFERRAL_DAYS} days out`);
       }
-      if (!/^M-[A-Z0-9]+\.\d+$/.test(c.mission))
-        bad.push(`${id}: mission '${c.mission}' is not an M-… id`);
-      else if (!plan.includes(c.mission))
-        bad.push(`${id}: mission ${c.mission} is not in docs/new-plan/`);
+      if (!/^#\d+$/.test(c.mission))
+        bad.push(`${id}: mission '${c.mission}' is not a GitHub issue/PR ref (#NNNN)`);
     }
     expect(bad).toEqual([]);
   });

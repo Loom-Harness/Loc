@@ -21,7 +21,7 @@ workflow fulfillment {
 }
 ```
 
-A workflow with event consumers but no id-shaped state field is `loom.workflow-correlation-required`; two id-shaped fields is `loom.correlation-field-ambiguous`. An `eventSourced` workflow needs exactly one even with no event consumers (only a command `create`), because the correlation field is its event stream's key — both codes apply to it the same way. The correlation field surfaces a read model — each backend emits `GET /api/workflows/<wf>/instances` + `/{id}` returning the instance state (`FulfillmentInstanceResponse { orderId, attempts }`), which clients read to inspect in-flight instances.
+A workflow with no id-shaped state field keeps no instance row, so a command `create` that assigns its state (`workflow Tally { total: int  create(n: int) { total := n } }`) is `loom.workflow-uncorrelated-state-write` — declare a correlation field and pass it to the create, or drop the state. A workflow with event consumers but no id-shaped state field is `loom.workflow-correlation-required`; two id-shaped fields is `loom.correlation-field-ambiguous`. An `eventSourced` workflow needs exactly one even with no event consumers (only a command `create`), because the correlation field is its event stream's key — both codes apply to it the same way. The correlation field surfaces a read model — each backend emits `GET /api/workflows/<wf>/instances` + `/{id}` returning the instance state (`FulfillmentInstanceResponse { orderId, attempts }`), which clients read to inspect in-flight instances.
 
 ### `requires` on the header — the instance-read gate
 
@@ -319,6 +319,22 @@ The workflow body draws from a narrowed statement set — distinct from an aggre
 | `emit Event { … }` | Workflow-level event; drains after all saves (after commit when `transactional`). |
 
 A loaded aggregate is saved **only if** an operation was invoked on it inside the body; fresh `Agg.create` results always save. See [`../workflow.md`](../workflow.md) §"Save + event drain semantics".
+
+There is no save statement: `Repo.save(x)` (or `insert` / `update` / `add` / `commit`) in a workflow or handler body is `loom.workflow-explicit-save`. `Repo.delete(x)` / `Repo.remove(x)` is the one repository write a body states.
+
+```ddd
+// rejected — the exit save already writes `i`
+let i = Items.getById(id)
+i.bump()
+Items.save(i)
+```
+
+```ts
+// node, generated for the accepted body (the same without the last line)
+const i = await items.getById(id);
+i.bump();
+await items.save(i);
+```
 
 Every `Repo` above is a repository of the workflow's **own context**. Naming another context's repository is `loom.workflow-cross-context-repository` — lowering resolves reads against the enclosing context alone, so the name never becomes a load and every backend renders a dangling receiver. Cross at the other context's public surface instead (a `resource { kind: api }` call, or a local projection folded over its published events); see [`../workflow.md`](../workflow.md#repositories-are-context-local--loomworkflow-cross-context-repository).
 
@@ -621,7 +637,7 @@ export async function settlementOnPaymentReceived(db, events, pr): Promise<void>
 ```
 ::: end
 
-A full multi-backend `eventSourced` workflow lives in [`test/fixtures/corpus/eventsourced-workflow.ddd`](../../test/fixtures/corpus/eventsourced-workflow.ddd); the appliers compile on every backend's build gate. See [`../workflow.md`](../workflow.md) and [`proposals/workflow-and-applier.md`](../old/proposals/workflow-and-applier.md).
+A full multi-backend `eventSourced` workflow lives in [`test/fixtures/corpus/eventsourced-workflow.ddd`](../../test/fixtures/corpus/eventsourced-workflow.ddd); the appliers compile on every backend's build gate. See [`../workflow.md`](../workflow.md) and [`proposals/workflow-and-applier.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/workflow-and-applier.md).
 
 ## `transactional` & isolation
 

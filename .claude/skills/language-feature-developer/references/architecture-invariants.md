@@ -93,6 +93,22 @@ renderer or a pinned reason (`heex-parity`); a new IR diagnostic needs a stable
 forgot to update the other half" into a CI failure instead of a silently
 degraded target.
 
+## Surface-stability lens (design review, before the paper simulation)
+
+Check a proposed surface for seven anti-patterns:
+
+1. **Magic names / strings** — behaviour hinging on a blessed string instead of a
+   visible declarative shape.
+2. **Redundancy** — two spellings of one thing.
+3. **Keyword overload / soft-keyword sprawl** — a common word forced into the
+   identifier unions in `ddd.langium`.
+4. **Silent no-ops** — surface that parses and validates but emits nothing on
+   some backend.
+5. **Footguns in tenancy / auth / concurrency / persistence** — e.g. moving a
+   tenant filter from an unforgeable claim to a caller-submitted value.
+6. **Derive-don't-stamp violations.**
+7. **Cross-proposal conflicts** — one concept specified two incompatible ways.
+
 ## Reviewer's compatibility questions
 When reviewing a proposal against the above, answer concretely:
 1. **Does it fit the pipeline direction**, or does it ask an earlier phase to

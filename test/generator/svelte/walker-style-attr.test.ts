@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { svelteTarget } from "../../../src/generator/svelte/walker/svelte-target.js";
 
-// Regression (docs/audits/repo-code-review-2026-07.md F2): the Svelte
+// Regression (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/repo-code-review-2026-07.md F2): the Svelte
 // `renderStyleAttr` seam interpolated a DYNAMIC value inside a quoted
 // `style="…"` and then entity-escaped every `"` in the whole string.  A dynamic
 // value is `JSON.stringify`-rendered, so it carries double quotes

@@ -1,5 +1,5 @@
 // The `startsWith` PREFIX-MATCH filter operator, per backend
-// (`docs/old/proposals/tenancy-authorization-final-surface.md` decision 2 — the
+// (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/tenancy-authorization-final-surface.md` decision 2 — the
 // one genuinely-new operator the reconciled tenancy surface asks for; catalogue
 // row in `src/util/intrinsics.ts`).
 //

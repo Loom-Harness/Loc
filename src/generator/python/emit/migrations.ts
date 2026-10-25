@@ -31,9 +31,9 @@ import {
 
 const STATEMENT_BREAKPOINT = "--> statement-breakpoint";
 
-/** Same module-qualified tag the Hono emitter uses — modules sharing a
- *  deployable all emit an "Initial" at the same base version, so the
- *  module keeps the filenames distinct. */
+/** Same module-qualified tag the Hono emitter uses — every module's first
+ *  generation is named "Initial", and the module keeps the filename saying
+ *  which one it is. */
 function migrationTag(version: string, module: string, name: string): string {
   return `${version}_${snake(module)}_${snake(name)}`;
 }

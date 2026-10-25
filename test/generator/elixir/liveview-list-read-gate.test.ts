@@ -1,7 +1,7 @@
-// The LIST read's `requires` gate on the LiveView seam.
+// The LIST read's gate (`policy { read X requires … }`) on the LiveView seam.
 //
-// #2523 gave `find all(...) requires <expr>` an emitted gate on all five
-// backends — but on Elixir it landed only in `api-emit.ts`'s `index` action.
+// The list read's gate is emitted on all five backends — but on Elixir it
+// once landed only in `api-emit.ts`'s `index` action.
 // A `platform: elixir` deployable that also mounts a `ui` serves the SAME read
 // twice: over HTTP through the controller, and in-process through the LiveView,
 // which calls the context facade (`list_<agg>s/…`).  That facade is a bare
@@ -28,8 +28,9 @@ system Shop {
         derived display: string = code
       }
       repository Orders for Order {
-        find all(): Order[]${gate}
+        find all(): Order[]
       }
+      ${gate ? `policy { read Order${gate} }` : ""}
     }
   }
   api SalesApi from Sales

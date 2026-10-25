@@ -41,7 +41,7 @@ function system(opts: {
   policies?: string;
   findAllGate?: string;
 }): string {
-  const findAll = opts.findAllGate ? `find all(): Item[] requires ${opts.findAllGate}` : "";
+  const readGate = opts.findAllGate ? `policy { read Item requires ${opts.findAllGate} }` : "";
   const wfGate = opts.workflowGate ? `requires ${opts.workflowGate} ` : "";
   const page = opts.pageGate
     ? `
@@ -64,7 +64,8 @@ system Shop {
         active: bool
         operation activate() { active := true  emit ItemActivated { item: id } }
       }
-      repository Items for Item { ${findAll} }
+      repository Items for Item { }
+      ${readGate}
       workflow Restock ${wfGate}{
         itemId: Item id
         create(ev: ItemActivated) by ev.item { itemId := ev.item }

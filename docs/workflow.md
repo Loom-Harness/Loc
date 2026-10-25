@@ -383,6 +383,16 @@ has) — return the id and read the record back, or use a `commandHandler`.
   exit, in declaration order.
 - **Loaded aggregates** (`Repo.getById` etc.) are saved only if at
   least one operation was invoked on them inside the workflow body.
+- **There is no save statement.**  An explicit `Repo.save(x)` (or
+  `insert` / `update` / `add` / `commit`) in a workflow or handler body
+  is an error, `loom.workflow-explicit-save`: the exit save above is the
+  one way a body persists.  `Repo.delete(x)` / `Repo.remove(x)` is the
+  one repository write a body states, and the removed aggregate is not
+  saved again on the way out.
+- **State needs a key.**  A command `create` that assigns workflow state
+  on a workflow with no id-shaped state field is an error,
+  `loom.workflow-uncorrelated-state-write`: without a correlation key no
+  instance row is kept, so no later step could read the write.
 - **Aggregate-level events** (raised inside an operation via `emit`)
   drain through the aggregate's repository save.  In a
   non-transactional workflow each save commits on its own, so its
@@ -413,7 +423,7 @@ has) — return the id and read the record back, or use a `commandHandler`.
 > Phoenix PubSub / LiveView, realtime push, mail — escapes before
 > commit.  **java** does not publish workflow-raised events at all
 > (neither aggregate-level nor workflow-level).  Tracked in
-> `docs/new-plan/T4-eventing-temporal.md` (M-T4.3 item 6).
+> [`docs/new-plan/T4-eventing-temporal.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T4-eventing-temporal.md) (M-T4.3 item 6).
 
 ## Transactional vs non-transactional
 
@@ -711,7 +721,7 @@ elsewhere a bare event/payload name stays unresolved.  See the
 >
 > Still deferred: external brokers (redis / kafka / nats via
 > `channelSource`).  See
-> [`channels.md`](old/proposals/channels.md) and
-> [`workflow-and-applier.md`](old/proposals/workflow-and-applier.md).
+> [`channels.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/channels.md) and
+> [`workflow-and-applier.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/workflow-and-applier.md).
 
 Not sure whether a use-case is a `workflow`, a `commandHandler`, an aggregate `operation` or a `domainService`? See [Choosing a callable kind](language-reference/06-behavior-and-statements.md#choosing-a-callable-kind) — one table, with what each may mutate, call and emit.

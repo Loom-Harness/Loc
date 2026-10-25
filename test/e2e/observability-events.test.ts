@@ -14,7 +14,7 @@ import { installGeneratedProject } from "./support/npm-install.js";
 // never touches the DB), then asserts the structured pino lines we
 // expect appear in stdout with the catalog envelope.  Sister suite to
 // generated-build.test.ts — same shape, same heavy install cost, same
-// opt-in gate.  See docs/old/proposals/observability.md.
+// opt-in gate.  See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/observability.md.
 //
 // Slow (~60–90s with cached node_modules) and requires a free local
 // port + outbound npm registry, so it stays opt-in via

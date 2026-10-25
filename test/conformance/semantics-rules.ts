@@ -1273,7 +1273,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // in doubles — also handed off.
     conforms: ["node", "dotnet", "java", "python", "elixir"],
     provenance: [
-      "ruled as D-DECIMAL-EXACT-MOMENT (docs/decisions.md; the owner's ruling 2026-09-07); raised by the numeric-types audit F11 (docs/audits/numeric-types-audit-2026-08-23.md); built as mission M-T5.22, wave C5 moment 5a",
+      "ruled as D-DECIMAL-EXACT-MOMENT (docs/decisions.md; the owner's ruling 2026-09-07); raised by the numeric-types audit F11 (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/numeric-types-audit-2026-08-23.md); built as mission M-T5.22, wave C5 moment 5a",
       "the witness is test/fixtures/corpus/decimal-exact.ddd — a unit `test` block (all five unit tiers) and a `test e2e` block whose golden is test/behavioral/wire-golden/decimal-exact.json; proven RED on node and python before the fix (`expected 0.30000000000000004 to be 0.3`, api and unit tiers) and green on every leg after",
       "numbered RS-37 rather than the RS-38 D-DECIMAL-EXACT-MOMENT's text names: this moment landed before the datetime wire rule D-ABSENT-JOIN-DATETIME-WIRE had reserved RS-37 for, and the registry's gap-free gate refuses RS-38 without an RS-37 — the datetime rule takes the next free number when it lands",
     ],
@@ -1395,7 +1395,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // event-sourced CREATE arm, whose conflict has no id in the path.
     conforms: ["node", "dotnet", "java", "python", "elixir"],
     provenance: [
-      "M-T6.91 (docs/new-plan/T6-backend-parity.md), found by #3224's `transactional-workflow-event-rollback` golden",
+      "M-T6.91 (#3858), found by #3224's `transactional-workflow-event-rollback` golden",
       "the witness is test/fixtures/corpus/concurrency-conflict.ddd, whose golden is test/behavioral/wire-golden/concurrency-conflict.json — a stale `If-Match` driven through the e2e call's `{ ifMatch: v }` third argument (loom.e2e-call-options)",
     ],
     tier: "behavioral",
@@ -1423,7 +1423,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     conforms: ["node", "dotnet", "java", "python"],
     targets: ["elixir"],
     provenance: [
-      "M-T6.95 + M-T6.98 (docs/new-plan/archive/T6-done.md), #3285",
+      "M-T6.95 + M-T6.98, #3285",
       "the witness is test/fixtures/corpus/workflow-two-handles-document-eventlog.ddd, whose golden is test/behavioral/wire-golden/workflow-two-handles-document-eventlog.json",
     ],
     tier: "behavioral",
@@ -1507,7 +1507,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // `actor/0` over the principal the Auth plug stashes.
     conforms: ["node", "dotnet", "java", "python", "elixir"],
     provenance: [
-      "wave C3 packet 3d hand-off D1 (docs/new-plan/waves/handoffs/wave-c3-3d-promote.md); fixed in wave C3F packet F5",
+      "wave C3 packet 3d hand-off D1; fixed in wave C3F packet F5",
       "the witness is test/fixtures/corpus/field-mask.ddd, whose golden test/behavioral/wire-golden/field-mask.json records the three history entries and their actors; the auth-less null actor is test/behavioral/wire-golden/audit-history.json",
     ],
     // BEHAVIORAL: the stored actor is only observable through a booted

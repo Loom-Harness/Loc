@@ -3,7 +3,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // S5a — Phoenix domain-event delivery: persist-then-dispatch
-// (docs/old/plans/phoenix-event-delivery-s5a.md, audit §S5).
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/phoenix-event-delivery-s5a.md, audit §S5).
 //
 // A state-persisted operation body that `emit`s a domain event used to
 // broadcast BEFORE `persist_change` (phantom events on failed writes) into a

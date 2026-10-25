@@ -15,7 +15,7 @@
 //
 // They used to carry a parallel copy each (four, back when a second model pane
 // still shipped), and the copies drifted: v2 shipped without rail 2 entirely
-// (`docs/audits/playground-file-mgmt-review-2026-07.md` defect #6), which
+// (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/playground-file-mgmt-review-2026-07.md` defect #6), which
 // #2287 then had to fix twice.  One implementation, every consumer — mission
 // M-T8.13 phase 1.  (Phases 2–4 then retired the v1 model pane into v2, so
 // there are three consumers and one fewer copy to drift; the completeness pin

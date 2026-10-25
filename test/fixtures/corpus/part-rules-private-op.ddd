@@ -49,7 +49,7 @@ system PartRulesPrivateOp {
       // project ("incompatible types: List<LineResponse> cannot be converted to
       // List<Line>").  It reproduces on a four-line aggregate with none of the
       // three rules below, so it is a separate, older gap — handed off with its
-      // own repro in `docs/new-plan/waves/handoffs/wave-c1-1f-validator-drops.md`
+      // own repro in `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-c1-1f-validator-drops.md`
       // rather than pinned as a compile skip here, which would have credited it
       // to this fixture.  The explicit `create` gives the domain `test` block
       // below its factory; nothing else here needs a CRUD route.

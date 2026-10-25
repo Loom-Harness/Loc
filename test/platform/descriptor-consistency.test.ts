@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Platform } from "../../src/ir/types/loom-ir.js";
-import { allPlatformDescriptors, descriptorFor } from "../../src/platform/metadata.js";
-import { allPlatforms, platformFor } from "../../src/platform/registry.js";
+import { descriptorFor } from "../../src/platform/metadata.js";
+import { platformFor } from "../../src/platform/registry.js";
 
 // ---------------------------------------------------------------------------
 // The client-safe descriptor table (`platform/metadata.ts`) is a hand-written
@@ -34,18 +34,5 @@ describe("descriptor table pinned to the live surfaces", () => {
     expect(d.mountsUi).toBe(surface.mountsUi);
     expect(d.isFrontend).toBe(surface.isFrontend);
     expect([...d.hostableFrameworks].sort()).toEqual([...surface.hostableFrameworks].sort());
-    expect([...d.reservedRepositoryFindNames].sort()).toEqual(
-      [...surface.reservedRepositoryFindNames].sort(),
-    );
-  });
-
-  it("allPlatformDescriptors yields the same reserved-find-name union as allPlatforms", () => {
-    const fromSurfaces = new Set<string>();
-    for (const p of allPlatforms())
-      for (const n of p.reservedRepositoryFindNames) fromSurfaces.add(n);
-    const fromDescriptors = new Set<string>();
-    for (const d of allPlatformDescriptors())
-      for (const n of d.reservedRepositoryFindNames) fromDescriptors.add(n);
-    expect([...fromDescriptors].sort()).toEqual([...fromSurfaces].sort());
   });
 });

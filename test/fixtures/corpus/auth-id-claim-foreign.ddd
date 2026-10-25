@@ -1,5 +1,4 @@
-// An id-typed user claim whose aggregate the deployable does NOT host (D6 of
-// `eval-claims/FIX-PLAN.md`).
+// An id-typed user claim whose aggregate the deployable does NOT host.
 //
 // The `user { … }` block is system-wide, so EVERY `auth: required` deployable
 // emits the same `User` shape — including `agentId: AgentId | null`.  But the

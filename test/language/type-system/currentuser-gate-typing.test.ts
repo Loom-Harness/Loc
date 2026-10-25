@@ -50,8 +50,9 @@ describe("currentUser gate typing — bare boolean claim gates type-check", () =
     const e = await errs(
       `aggregate Ticket with crudish { status: string }`,
       `repository Tickets for Ticket {
-        find secure(): Ticket[] requires currentUser.permissions.contains(permissions.manage) where status == "open"
-      }`,
+        find secure(): Ticket[] where status == "open"
+      }
+      policy { read Ticket requires currentUser.permissions.contains(permissions.manage) }`,
     );
     expect(e.filter((s) => /requires/.test(s)).join("\n")).toBe("");
   });
@@ -68,8 +69,9 @@ describe("currentUser gate typing — bare boolean claim gates type-check", () =
     const e = await errs(
       `aggregate Ticket with crudish { status: string }`,
       `repository Tickets for Ticket {
-        find secure(): Ticket[] requires 42 where status == "open"
-      }`,
+        find secure(): Ticket[] where status == "open"
+      }
+      policy { read Ticket requires 42 }`,
     );
     expect(e.some((s) => /'requires' must be of type 'bool', got 'int'/.test(s))).toBe(true);
   });
@@ -77,7 +79,7 @@ describe("currentUser gate typing — bare boolean claim gates type-check", () =
   it("rejects an unknown claim (`loom.unknown-user-claim`), not the gate's type", async () => {
     // REVERSED, deliberately.  This case used to assert the fail-open posture
     // ("no new error") that mirrored the IR layer's string fallback — which
-    // audit D2 (`docs/audits/2026-09-10-claimshub-dev-experience.md`) showed
+    // audit D2 (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-10-claimshub-dev-experience.md`) showed
     // was the bug: the undeclared claim rode through to the generated
     // backend and broke its own compile.  `loom.unknown-user-claim` now
     // reports it.  What still holds is the part this file is about: the GATE

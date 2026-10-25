@@ -41,6 +41,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { judgeMoneyCompare, MONEY_COMPARE_ROUTE } from "./money-compare-ui.mjs";
 import { NUMERIC_FIELDS, numericSeedBody } from "./numeric-ui-contract.mjs";
 import {
   buildFrontend,
@@ -198,17 +199,65 @@ async function numericListProbe(origin, cfg) {
   return { tier: "ui-probe", name, status: why.length ? "fail" : "pass", error: why.join("; ") };
 }
 
+/**
+ * The MONEY-COMPARISON probe (#3263), for a case that declares
+ * `"textProbe": "money-compare"` in corpus.json.  `money-compare-ui.ddd` renders
+ * one `<name>=yes|no` token per comparison on `/money-compare`; this opens that
+ * route on the BUILT app and requires every right answer and no wrong one
+ * (`money-compare-ui.mjs`).  The page computes from its own `state`, so no seed
+ * and no backend read is involved — what is on trial is how the frontend's
+ * emitted expression compares money (a decimal.js `Decimal` by reference / by
+ * `valueOf()` string, an F# `decimal option` against a `decimal`).
+ */
+async function moneyCompareProbe(origin) {
+  const name = `money comparison probe: ${MONEY_COMPARE_ROUTE} compares money by value and an absent money? as false`;
+  execFileSync(npx, ["playwright", "install", "--with-deps", "chromium"], {
+    cwd: HERE,
+    stdio: "pipe",
+  });
+  const { chromium } = await import("playwright");
+  const browser = await chromium.launch();
+  const why = [];
+  try {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+    await page.goto(`${origin}${MONEY_COMPARE_ROUTE}`);
+    // Every token carries `=`; wait until the last comparison has rendered.
+    let text = "";
+    for (let i = 0; i < 60; i++) {
+      text = await page.locator("body").innerText().catch(() => "");
+      if (/money-both-absent=(yes|no)/.test(text)) break;
+      await page.waitForTimeout(500);
+    }
+    why.push(...judgeMoneyCompare(text));
+    if (why.length) why.push(`page text: ${JSON.stringify(text.slice(0, 600))}`);
+    if (errors.length) why.push(errors.slice(0, 3).join(" | "));
+  } finally {
+    await browser.close().catch(() => {});
+  }
+  return { tier: "ui-probe", name, status: why.length ? "fail" : "pass", error: why.join("; ") };
+}
+
 async function runCase(c) {
   const genDir = mkdtempSync(join(tmpdir(), `loom-bhui-${c.name}-`));
   const workDir = join(WORK, c.name);
   mkdirSync(workDir, { recursive: true });
   let server;
   try {
-    execFileSync(
-      "node",
-      [join(REPO, "bin/cli.js"), "generate", "system", join(REPO, c.ddd), "-o", genDir],
-      { stdio: "pipe" },
-    );
+    // A `frontend` case is one fixture built once per frontend: its
+    // `__FRONTEND__` placeholder names the `platform:` of the ui deployable.
+    let dddPath = join(REPO, c.ddd);
+    if (c.frontend) {
+      dddPath = join(workDir, "case.ddd");
+      writeFileSync(
+        dddPath,
+        readFileSync(join(REPO, c.ddd), "utf8").replaceAll("__FRONTEND__", c.frontend),
+      );
+    }
+    execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", dddPath, "-o", genDir], {
+      stdio: "pipe",
+    });
     const frontendDir = findFrontendDeployable(genDir);
     // Mutation-proof seam (CLAUDE.md → "Mutation-prove a new gate"): a module
     // named by LOOM_UI_MUTATE receives the GENERATED tree before anything is
@@ -221,7 +270,9 @@ async function runCase(c) {
     }
     const e2eDir = join(frontendDir, "e2e");
     const uiSpecs = walk(e2eDir, (p) => p.endsWith(".ui.spec.ts"));
-    if (uiSpecs.length === 0) return { skipped: "no .ui.spec.ts emitted" };
+    // A probe-only case (no `test e2e … against <frontend>`) still boots: its
+    // probe IS the assertion.
+    if (uiSpecs.length === 0 && !c.textProbe) return { skipped: "no .ui.spec.ts emitted" };
     const deplDir = findNodeDeployable(genDir);
 
     // 1. Build the generated frontend via ITS OWN build script (react/vue →
@@ -239,6 +290,21 @@ async function runCase(c) {
     const { startServer } = await buildServerModule(deplDir, workDir);
     server = await startServer({ distDir });
     process.stdout.write(`    stack on :${server.port}\n`);
+
+    if (uiSpecs.length === 0) {
+      const results = [];
+      if (c.textProbe === "money-compare") {
+        results.push(
+          await moneyCompareProbe(`http://127.0.0.1:${server.port}`).catch((err) => ({
+            tier: "ui-probe",
+            name: "money comparison probe",
+            status: "fail",
+            error: String(err?.message ?? err),
+          })),
+        );
+      }
+      return { results, verification: null };
+    }
 
     // 3. Install the e2e deps + Chromium, then run the emitted UI spec.
     //    ASYNC spawn — `spawnSync` would block the event loop and freeze

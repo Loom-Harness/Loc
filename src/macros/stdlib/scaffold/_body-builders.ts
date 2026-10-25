@@ -3,7 +3,7 @@
 // Each scaffolder builds a page body as Langium AST, so its output prints to
 // literal `.ddd` source and unfolds like any other macro.  `scaffoldList`
 // scaffolds a list; `scaffoldNewForm` scaffolds a new-form — the name is the
-// spec.  See `docs/old/proposals/unfoldable-page-scaffolding.md`.
+// spec.  See `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/unfoldable-page-scaffolding.md`.
 //
 // Status: this is the ONLY scaffold body path.  The scaffold macro family
 // (`_pages.ts`) returns these full AST trees directly as page bodies — `unfold`
@@ -1211,7 +1211,7 @@ function kindForType(type: TypeRef, voAsText: boolean): ColumnKind | null {
     // principal has no `aggregate User`, so no `/users` route is ever
     // registered and `auditable`'s `createdBy`/`updatedBy` link straight into
     // the router's catch-all.  (Live today on a checked-in model:
-    // `docs/audits/models/claimshub-v3.ddd` emits eight `/users/${…}` links
+    // `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/models/claimshub-v3.ddd` emits eight `/users/${…}` links
     // across its list and detail pages.)  Render it for what it is instead —
     // a managed, read-only stamped identity — as plain text.
     //
@@ -1346,21 +1346,20 @@ export interface FilterFind {
  *  Filters the aggregate's repository finds to the bar-eligible ones — the repository
  *  is a sibling `ContextMember`, so it's reachable from the aggregate's AST
  *  without lowering. */
-/** The `requires` gate on an aggregate's author-declared `find all`, if it has
- *  one — the gate guarding `GET /<aggs>`, which is exactly what the scaffolded
- *  List page reads.
+/** The aggregate's `policy { read X requires <expr> }` gate, if its context
+ *  declares one — the gate guarding `GET /<aggs>`, which is exactly what the
+ *  scaffolded List page reads.
  *
  *  Returns the AUTHOR's node; the caller must `cloneExpr` it before attaching
- *  it anywhere (an AST node has one `$container`).  There is nothing to find
- *  when the aggregate relies on the enrichment-injected `all`: that one is
- *  synthesised in phase ⑥, long after macros run, and carries no gate.
+ *  it anywhere (an AST node has one `$container`).  The policy block is a
+ *  sibling `ContextMember`, so it is reachable from the aggregate's AST
+ *  without lowering.
  */
 export function listReadGateForAggregate(agg: Aggregate): Expression | undefined {
   for (const m of agg.$container.members) {
-    if (m.$type !== "Repository") continue;
-    if (m.aggregate.ref?.name !== agg.name && m.aggregate.$refText !== agg.name) continue;
-    for (const f of m.finds) {
-      if (f.name === "all" && f.gate) return f.gate;
+    if (m.$type !== "PolicyDecl") continue;
+    for (const r of m.rules) {
+      if (r.effect === "read" && r.target === agg.name && r.gate) return r.gate;
     }
   }
   return undefined;
@@ -1368,7 +1367,8 @@ export function listReadGateForAggregate(agg: Aggregate): Expression | undefined
 
 /** A parameterless list `find` the scaffold gives a page of its own — the
  *  author's named view over the aggregate (`find mine(): Ticket[]`).  `gate` is
- *  the find's own `requires` (the AUTHOR's node: clone before attaching). */
+ *  the aggregate's policy read gate, which guards every read of it, the find's
+ *  route included (the AUTHOR's node: clone before attaching). */
 export interface ViewFind {
   name: string;
   gate?: Expression;
@@ -1379,9 +1379,9 @@ export interface ViewFind {
  *  is a filter-bar arm on the List page instead), and not the `all` the List
  *  page already reads.
  *
- *  The page copies the find's gate as its own `requires`, so the nav entry
+ *  The page copies the aggregate's read gate as its own `requires`, so the nav entry
  *  shows exactly for the principals the route admits — which needs a gate the
- *  browser can evaluate ({@link isClientEvaluableGate}).  A find whose gate is
+ *  browser can evaluate ({@link isClientEvaluableGate}).  An aggregate whose gate is
  *  outside that subset gets no page rather than one the page-gate check
  *  (`loom.ui-gate-expr-unsupported` / `loom.page-gate-not-client-evaluable`)
  *  refuses. */
@@ -1389,6 +1389,8 @@ export function viewFindsForAggregate(agg: Aggregate): ViewFind[] {
   const policies = new Set(
     agg.$container.members.filter((m) => m.$type === "PolicyDecl").map((m) => String(m.name)),
   );
+  const gate = listReadGateForAggregate(agg);
+  if (gate && !isClientEvaluableGate(gate, policies)) return [];
   const out: ViewFind[] = [];
   for (const m of agg.$container.members) {
     if (m.$type !== "Repository") continue;
@@ -1401,8 +1403,7 @@ export function viewFindsForAggregate(agg: Aggregate): ViewFind[] {
       if (rt.base.$type !== "NamedType") continue;
       const target = rt.base.target.ref?.name ?? rt.base.target.$refText;
       if (target !== agg.name) continue;
-      if (f.gate && !isClientEvaluableGate(f.gate, policies)) continue;
-      out.push({ name: String(f.name), gate: f.gate });
+      out.push({ name: String(f.name), gate });
     }
   }
   return out;

@@ -14,9 +14,9 @@ existing surface — `on(e: Event)` reactors and event-triggered
 `create(e: Event) by` workflow starters — and event references resolve
 system-wide, so the consuming deployable need not host the producing context.
 
-Design record: [`old/proposals/channels.md`](old/proposals/channels.md) Part I;
+Design record: [`old/proposals/channels.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/channels.md) Part I;
 signed-off broker design:
-[`new-plan/archive/missions/M-T4.4-broker-eventing-design.md`](new-plan/archive/missions/M-T4.4-broker-eventing-design.md).
+[`new-plan/archive/missions/M-T4.4-broker-eventing-design.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/archive/missions/M-T4.4-broker-eventing-design.md).
 
 ```ddd
 system Acme {

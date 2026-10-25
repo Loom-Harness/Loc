@@ -5,7 +5,7 @@
 //
 // One fixture, the cross-backend contract in a single file — mirrors
 // `money-emission.test.ts`.  See
-// docs/old/proposals/document-and-json-hierarchies.md (Option 1,
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/document-and-json-hierarchies.md (Option 1,
 // D-DOCUMENT-AXIS).
 
 import * as fs from "node:fs";

@@ -103,9 +103,9 @@ orchestrator dispatches against.
 Beyond *which* backend, a deployable can pick *how* that backend
 realises the code, via an optional block on `platform:` — the
 **realization axes** (full design in
-[`proposals/platform-realization-axes.md`](old/proposals/platform-realization-axes.md);
+[`proposals/platform-realization-axes.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/platform-realization-axes.md);
 in-flight tracker in
-[`plans/realization-axes-rollout.md`](old/plans/realization-axes-rollout.md)):
+[`plans/realization-axes-rollout.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/realization-axes-rollout.md)):
 
 ```ddd
 deployable api { platform: dotnet { persistence: dapper }                  ... }
@@ -264,7 +264,6 @@ Every surface implements:
 | `defaultPort` | Used when the deployable doesn't specify one. |
 | `needsDb` | Drives `db-init` script + `depends_on: db` wiring. |
 | `mountsUi` | Drives validator acceptance of `ui:` on this platform. |
-| `reservedRepositoryFindNames` | Names a user-declared `find` would collide with (e.g. an auto-emitted `findAll`).  IR validator surfaces collisions at parse time. |
 | `emitProject({ contexts, deployable, sys, migrations, emitTrace })` | Returns `Map<path, content>` for the deployable's project tree. |
 | `composeService({ deployable, sys, slug })` | Returns the docker-compose stanza (env, healthcheck path, internal port). |
 
@@ -308,6 +307,6 @@ deployable serving 404s for every page.
   design pack + stack.
 - [`technical.md`](technical.md) — pipeline phases, including how
   phase ⑨ dispatches over the platform registry.
-- [`plans/backend-packages.md`](old/plans/backend-packages.md) — the
+- [`plans/backend-packages.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/backend-packages.md) — the
   in-flight design for distributing backends as installable npm
   packages.

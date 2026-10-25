@@ -27,7 +27,7 @@ name: Pairwise combination corpus
 # silently forfeits: the first re-run after three weeks of `main` found FOUR
 # stale waivers — F1 fixed by #2527, F2 + F5 by #2528 — so `main` had been red
 # on this leg since those PRs landed and nothing said so.  A ratchet nothing
-# runs is a comment.  See docs/audits/pairwise-corpus-findings-2026-08.md
+# runs is a comment.  See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/pairwise-corpus-findings-2026-08.md
 # ("Re-run on `main` @ 3a7199c7").
 #
 # TIERS, and why they differ.  The three legs have genuinely different costs:
@@ -79,7 +79,7 @@ name: Pairwise combination corpus
 #
 # Local: `npm run test:pairwise-corpus` / `-tsc` / `-schema-load` /
 # `-python` / `-dotnet` / `-java` / `-elixir`.
-# Findings register: docs/audits/pairwise-corpus-findings-2026-08.md.
+# Findings register: https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/pairwise-corpus-findings-2026-08.md.
 # Waiver registers: test/pairwise/waivers{,-compile,-schema}.ts — all ratchet.
 
 on:

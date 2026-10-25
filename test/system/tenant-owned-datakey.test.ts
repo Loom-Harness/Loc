@@ -1,5 +1,5 @@
 // The `tenantOwned` capability's `dataKey` column (multi-tenancy Phase 2, plan
-// P2.3 — docs/old/plans/multi-tenancy-phase2.md).  Extends the Phase 1a `tenantId`
+// P2.3 — https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-tenancy-phase2.md).  Extends the Phase 1a `tenantId`
 // shape with a second managed column: the materialized DataKey path, stamped
 // from `currentUser.orgPath` on create.  Unlike the `tenantRegistry`
 // capability's OWN `dataKey` (test/system/tenant-registry-tree.test.ts —

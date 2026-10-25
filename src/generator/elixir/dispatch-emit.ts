@@ -33,6 +33,7 @@ import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
 import { buildPhoenixResourceModules } from "./adapters/resource-clients.js";
 import type { ElixirChannelsCfg } from "./channels-emit.js";
+import { elixirFindFacadeFn } from "./find-facade-name.js";
 import { internalCreateFn, internalDeleteFn } from "./lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "./render-expr.js";
 import { type StateDefaultDecls, stateDefault, stateDefaultDecls } from "./state-default.js";
@@ -1123,9 +1124,7 @@ function renderStmt(
     case "repo-let": {
       const argList = st.args.map((a) => renderExpr(a, renderCtx)).join(", ");
       const action =
-        st.method === "getById"
-          ? `get_${snake(st.aggName)}`
-          : `${snake(st.method)}_${snake(st.aggName)}`;
+        st.op === "load" ? `get_${snake(st.aggName)}` : elixirFindFacadeFn(st.method, st.aggName);
       const call = argList
         ? `${contextModule}.${action}(${argList})`
         : `${contextModule}.${action}()`;

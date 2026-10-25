@@ -153,13 +153,10 @@ describe("generate system — regeneration prunes stale output", () => {
     const pinned = "api/Dockerfile";
     fs.writeFileSync(path.join(out, ".loomignore"), `${pinned}\n`);
     fs.writeFileSync(path.join(out, pinned), "# hand-tuned\n");
-    //  (c) migration files: the first run's migration is not re-emitted by the
-    //      second, so only the protection keeps it.
+    //  (c) migration files: re-emitted by every run (from the model here, it
+    //      has no recorded chain), so the prune never sees them as stale.
     const migrations = before.filter((p) => /\/migrations?\//i.test(p) && !p.endsWith(".gitkeep"));
     expect(migrations.length, `no migration files in:\n${before.join("\n")}`).toBeGreaterThan(0);
-    //  (d) the migration snapshot baseline.
-    const snapshots = before.filter((p) => p.startsWith(".loom/snapshots/"));
-    expect(snapshots.length).toBeGreaterThan(0);
 
     // The rename.
     fs.writeFileSync(dddPath, source({ operation: "addComment", page: "Backlog" }));
@@ -183,9 +180,6 @@ describe("generate system — regeneration prunes stale output", () => {
     expect(fs.readFileSync(path.join(out, pinned), "utf8")).toBe("# hand-tuned\n");
     for (const m of migrations) {
       expect(fs.existsSync(path.join(out, m)), `pruned a migration file: ${m}`).toBe(true);
-    }
-    for (const s of snapshots) {
-      expect(fs.existsSync(path.join(out, s)), `pruned a snapshot: ${s}`).toBe(true);
     }
   });
 
@@ -253,29 +247,24 @@ system S {
   });
 });
 
-describe("migration drift — the refusal names its escape hatch", () => {
-  it("names --allow-rebaseline and the snapshot to delete, and the recovery works", () => {
-    const tmp = mkTmp("loom-regen-rebaseline-");
+describe("the output tree holds no migration state", () => {
+  it("regenerates a deleted deployable subtree, migrations included", () => {
+    const tmp = mkTmp("loom-regen-disposable-");
     const dddPath = path.join(tmp, "main.ddd");
     const out = path.join(tmp, "out");
 
     fs.writeFileSync(dddPath, source({ operation: "comment", page: "Board" }));
+    expect(runCli(["migrate", "add", "initial", dddPath]).status).toBe(0);
     expect(runCli(["generate", "system", dddPath, "-o", out]).status).toBe(0);
+    const before = listFiles(out).filter((p) => /\/migrations?\//i.test(p));
+    expect(before.length).toBeGreaterThan(0);
 
-    // What an operator did when regeneration would not prune: delete the
-    // deployable subtree by hand.  The snapshot under `.loom/` survives, so
-    // the recorded history now points at files that are gone.
+    // What an operator does when regeneration would not prune: delete the
+    // deployable subtree by hand.  The chain beside the source is untouched,
+    // so the regenerate brings every migration file back.
     fs.rmSync(path.join(out, "api"), { recursive: true, force: true });
-    const refused = runCli(["generate", "system", dddPath, "-o", out]);
-    expect(refused.status).toBe(1);
-    const message = refused.stderr + refused.stdout;
-    expect(message).toContain("--allow-rebaseline");
-    expect(message).toContain(".loom/snapshots/M.snapshot.json");
-
-    // And the recovery the message prescribes actually recovers.
-    fs.rmSync(path.join(out, ".loom", "snapshots", "M.snapshot.json"));
-    const recovered = runCli(["generate", "system", dddPath, "-o", out, "--allow-rebaseline"]);
-    expect(recovered.status, recovered.stderr).toBe(0);
-    expect(listFiles(out).some((p) => /\/migrations?\//i.test(p))).toBe(true);
+    const regen = runCli(["generate", "system", dddPath, "-o", out]);
+    expect(regen.status, regen.stderr).toBe(0);
+    expect(listFiles(out).filter((p) => /\/migrations?\//i.test(p))).toEqual(before);
   });
 });

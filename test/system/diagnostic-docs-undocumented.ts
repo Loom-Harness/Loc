@@ -1,6 +1,6 @@
 // The `loom.*` codes with NO language-reference anchor yet (minted by M-T8.18,
 // now done; the drain of this list is owned by M-T8.26 —
-// docs/new-plan/T8-dx-tooling-ai.md).
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T8-dx-tooling-ai.md).
 //
 // A RATCHET, pinned by `test/system/diagnostic-docs-anchors.test.ts`: the
 // list may only shrink.  Documenting a code means adding it to
@@ -124,7 +124,6 @@ export const UNDOCUMENTED_CODES: readonly string[] = [
   "loom.file-upload-not-file-field",
   "loom.filter-bypass-no-filter",
   "loom.filter-bypass-unknown-capability",
-  "loom.find-gate-not-current-user",
   "loom.find-reserved-name",
   "loom.findall-criterion-arity",
   "loom.findall-criterion-mismatch",

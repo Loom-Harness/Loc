@@ -101,6 +101,12 @@ under the macro. Once a page is source, edit it like any hand-written page.
 **Reach for this rung when** the default is close and you want to adjust it —
 the reverse of rung 1's "replace wholesale".
 
+There is deliberately no rung between "the generated page" and "the unfolded
+page": named override slots that fill one region of a still-generated page were
+designed and declined (owner call, 2026-07-19). Unfold the page, then edit it.
+A region slot comes back only for a concrete case that "unfold, then edit"
+cannot serve.
+
 ## Rung 3 — fully hand-written, and multi-framework
 
 Drop `with scaffold` entirely and write every page from the closed page-primitive
@@ -144,7 +150,7 @@ customization you did.
 
 The [`journey/`](../journey/) folder builds one app across five stages — simple
 todo → fully custom multi-context system — with a running journal
-([`journey/FINDINGS.md`](../journey/FINDINGS.md)) of what was easy, what was
+([`journey/FINDINGS.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/journey/FINDINGS.md)) of what was easy, what was
 missing, and what only surfaced when the emitted target was actually compiled.
 It's the long-form companion to this guide.
 

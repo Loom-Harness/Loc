@@ -868,7 +868,7 @@ function renderFormOpWiring(
       parts.push("handleSubmit");
       // setError is required by the catch-block `applyServerErrors` call
       // emitted by the pack's form-op-module template (see
-      // docs/old/proposals/frontend-acl.md).  Always included.
+      // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/frontend-acl.md).  Always included.
       parts.push("setError");
       if (useController) parts.push("control");
       if (usesErrors) parts.push("formState: { errors }");
@@ -1550,7 +1550,9 @@ function stateTypeAsTsString(type: TypeIR): string {
   }
   if (type.kind === "id" || type.kind === "enum") return "string";
   if (type.kind === "optional") {
-    return `${stateTypeAsTsString(type.inner)} | undefined`;
+    // `| null` too: an optional cell initialised `= null` (the absent value a
+    // `.ddd` author writes) holds `null`, not `undefined`.
+    return `${stateTypeAsTsString(type.inner)} | null | undefined`;
   }
   // `string[]` / `int[]` state — without this arm an array-typed field widened
   // to `any`, which silently disables type-checking on every read of it (the

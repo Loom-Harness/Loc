@@ -29,6 +29,7 @@
 // `ir/types` → `ir/util`; the reverse edge (walk.ts → loom-ir.ts) is `import
 // type` only (erased at emit), so no runtime cycle forms.
 import type { ThrowKindName } from "../../util/intrinsic-matchers.js";
+import type { RepoOp } from "../../util/repository-contract.js";
 import type { DurationUnit } from "../../util/temporal.js";
 import {
   walkExprDeep,
@@ -56,7 +57,7 @@ export type PrimitiveName =
   /** Opaque JSON blob — interior is not modelled by Loom.  Maps to
    *  JSONB / jsonb / `Map` per backend; a leaf in `wireShape` (never
    *  expanded or structurally diffed).  See
-   *  `docs/old/proposals/document-and-json-hierarchies.md` (Option 1,
+   *  `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/document-and-json-hierarchies.md` (Option 1,
    *  D-DOCUMENT-AXIS). */
   | "json"
   /** A file attachment — a leaf primitive (like `json`), passive/wire-only:
@@ -69,7 +70,7 @@ export type PrimitiveName =
    *  the reference.  A File-bearing aggregate requires its host deployable to
    *  bind an `objectStore` (`loom.file-field-needs-object-storage`). */
   | "File"
-  /** An ABSOLUTE span of time (A5 temporal, docs/old/plans/stdlib.md) — fixed
+  /** An ABSOLUTE span of time (A5 temporal, https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md) — fixed
    *  millisecond width per unit, so it renders uniformly on every backend.
    *  EXPRESSION-ONLY: not in the grammar's `PrimitiveType`
    *  rule, so it can never appear in field / param / wire position — it only
@@ -105,7 +106,7 @@ export const PRIMITIVES: readonly PrimitiveName[] = [
 ] as const;
 
 /** Information-flow sensitivity tags carried by a value's type.  See
- * `docs/old/proposals/sensitivity-and-compliance.md`.  Mirror of
+ * `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/sensitivity-and-compliance.md`.  Mirror of
  * `SensitivityTags` in `src/language/type-system.ts`; kept as a sorted,
  * unique `readonly string[]` so the IR remains JSON-serialisable for
  * `.loom/wire-spec.json`. */
@@ -234,7 +235,7 @@ export interface FieldIR {
    * `sensitive(<tag>, ...)`.  Sorted + deduped; omitted when the field
    * declared no tags.  Captured at the declaration site only — neither the
    * wire-shape, the DTO emitters, nor sink type-checking read it yet.  See
-   * `docs/old/proposals/sensitivity-and-compliance.md`. */
+   * `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/sensitivity-and-compliance.md`. */
   sensitivity?: SensitivityTags;
   /** Resolved access role.  Populated by `enrichLoomModel`; lowering
    * leaves this undefined when the source declared no modifier so
@@ -477,7 +478,7 @@ export interface OperationIR {
    * backend only — hosting an `audited` operation on another backend is
    * rejected at validate time (`loom.audited-backend-unsupported`,
    * `validateAuditedOperationSupport`) rather than silently recording
-   * nothing.  See `docs/old/proposals/audit-and-logging.md`. */
+   * nothing.  See `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/audit-and-logging.md`. */
   audited: boolean;
   /** The `when Expr` canCommand state gate (criterion.md, use site 2):
    * a pure predicate over the aggregate's own state, evaluated against
@@ -508,7 +509,7 @@ export interface OperationIR {
  * `validateEventSourcedDiscipline` in phase ⑦); no `emit`, no
  * side-effecting calls.  Not yet consumed by backends (emission is the
  * deferred; the event-store/fold/projection layer).  See
- * docs/old/proposals/workflow-and-applier.md. */
+ * https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/workflow-and-applier.md. */
 export interface ApplyIR {
   /** The event type this applier folds, by name (resolved to a context
    * `EventDecl`).  One applier per event type per aggregate. */
@@ -630,7 +631,7 @@ export interface AggregateIR {
    * additive — no consumer until the bypass surface lands, so byte-neutral. */
   contextFilterOrigins?: (string | undefined)[];
   /** The WRITE-scope predicate an INSTANCE mutation's command load must satisfy
-   *  (`docs/old/plans/authorization-phase3.md`).  Derived in enrichment from the aggregate's `policy` read + write levels,
+   *  (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/authorization-phase3.md`).  Derived in enrichment from the aggregate's `policy` read + write levels,
    *  and set **only when the write scope is strictly narrower than the read
    *  scope** — i.e. when the mutation load (which reuses the read filter on
    *  every backend) must be tightened below what a read can see.  Two shapes:
@@ -658,7 +659,7 @@ export interface AggregateIR {
    * application has already spliced the fields/filter/stamp by this point — this
    * is the surviving identity record, consumed by capability-aware emission
    * (marker interfaces `I<Cap>` and the stamp-interceptor dedup —
-   * docs/old/proposals/capability-emission-dedup.md) and by tooling
+   * https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/capability-emission-dedup.md) and by tooling
    * (find-implementors). */
   capabilities?: readonly string[];
   /** Pointer to the `derived display: string` field, if the
@@ -909,9 +910,10 @@ export interface FindIR {
   name: string;
   params: ParamIR[];
   returnType: TypeIR;
-  /** Authorization gate (D-AUTH-OIDC / default-deny).  An optional
-   *  `requires <expr>` clause — a boolean evaluated against `currentUser`
-   *  *before* the query runs; failure → 403.  Distinct from `filter`: the
+  /** Authorization gate (D-AUTH-OIDC / default-deny) — the aggregate's
+   *  `policy { read X requires <expr> }` gate, put on the find by enrichment
+   *  (`applyPolicyReadGates`); a find declares no gate of its own.  A boolean
+   *  evaluated against `currentUser` *before* the query runs; failure → 403.  Distinct from `filter`: the
    *  filter scopes which rows come back (queryable, pushed to SQL), the gate
    *  decides whether the caller may hit the endpoint at all.  Lowered in the
    *  bare context scope (currentUser only, no aggregate row / params), so it
@@ -1004,7 +1006,7 @@ export interface RepositoryIR {
   /** Set by enrichment (M-T3.19) when the aggregate is served by an
    *  `auth: required` backend under `enforcement: denyByDefault`: its two
    *  compiler-derived reads (list, by-id) fail CLOSED unless the author
-   *  declares a gated `find all` / `find byId`.  A system-composition fact the
+   *  declares `policy { read X requires <expr> }`.  A system-composition fact the
    *  per-context backends cannot re-derive (they never see the deployables),
    *  hence stored.  Consumed through `read-gates.ts`. */
   readsDefaultDenied?: boolean;
@@ -1235,7 +1237,7 @@ export interface BoundedContextIR {
   policyReadLevels?: PolicyReadLevelIR[];
   /** Per-aggregate WRITE reachability levels declared by `policy { allow write
    *  <level> on X }` blocks in this context
-   *  (`docs/old/plans/authorization-phase3.md`).  A write level gates INSTANCE
+   *  (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/authorization-phase3.md`).  A write level gates INSTANCE
    *  mutations (update-style ops, destroy, applier dispatch) on the target
    *  row's write scope; `local` is the flat `tenantId ==` floor (the default),
    *  `deep` the caller's org + descendants.  Consumed by `enrichLoomModel`,
@@ -1245,7 +1247,7 @@ export interface BoundedContextIR {
   policyWriteLevels?: PolicyWriteLevelIR[];
   /** Per-aggregate DENY carve-outs declared by `policy { deny [write] on X }`
    *  blocks in this context
-   *  (docs/old/plans/authorization-phase4-deny.md).  Each entry names an aggregate
+   *  (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/authorization-phase4-deny.md).  Each entry names an aggregate
    *  and the access it denies (`read` = total carve-out, the aggregate becomes
    *  invisible; `write` = read-only carve-out).  Consumed by `enrichLoomModel`
    *  (`applyPolicyDenies`), which — AFTER the allow read/write-level passes, so
@@ -1254,6 +1256,31 @@ export interface BoundedContextIR {
    *  write) with `buildDenyFilter`.  Undefined / empty when the context declares
    *  no `deny` rule. */
   policyDenies?: PolicyDenyIR[];
+  /** Per-aggregate READ gates declared by `policy { read X requires <expr> }`
+   *  in this context — who may read the aggregate at all.  Consumed by
+   *  enrichment (`applyPolicyReadGates`), which puts the gate on every
+   *  author-declared find of X and on the compiler-injected list read `all`;
+   *  the by-id route and the audit history read take it from `all`
+   *  (`read-gates.ts`, `ensureHistoryFind`).  Undefined / empty when the
+   *  context declares no read gate. */
+  policyReadGates?: PolicyReadGateIR[];
+}
+
+/** One `read <Aggregate> requires <expr>` rule lowered from a `policy {}`
+ *  block.  The gate is lowered in the bare context scope (no row, no params),
+ *  exactly like a projection gate, so it can reference `currentUser` and
+ *  constants only — anything else is `loom.policy-read-gate-not-current-user`
+ *  in phase ⑦. */
+export interface PolicyReadGateIR {
+  /** The aggregate the gate applies to (by name, in this context).  Resolution
+   *  is validated in phase ⑦ (`loom.policy-unknown-aggregate`). */
+  aggregate: string;
+  /** The gate, evaluated before the load; failure → 403. */
+  gate: ExprIR;
+  /** Source span text for diagnostics (`read Order requires …`). */
+  source: string;
+  /** Provenance of the rule, for diagnostic locations. */
+  origin?: OriginRef;
 }
 
 /** One `allow <level> on <Aggregate>` rule lowered from a `policy {}` block —
@@ -1289,7 +1316,7 @@ export interface PolicyWriteLevelIR {
 }
 
 /** One `deny [write] on <Aggregate>` carve-out lowered from a `policy {}` block
- *  (deny-wins — docs/old/plans/authorization-phase4-deny.md).
+ *  (deny-wins — https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/authorization-phase4-deny.md).
  *  Deny is all-or-nothing at the aggregate (no level word).  `read` denies reads
  *  (the aggregate becomes invisible; because the write command load reuses the
  *  read filter, writes fail too); `write` denies only mutations (reads stay).
@@ -1807,6 +1834,9 @@ export type WorkflowStmtIR =
       name: string;
       repoName: string;
       aggName: string;
+      /** What the call does (`util/repository-contract.ts`).  Emitters
+       *  dispatch on it; `method` is kept for a declared find's own name. */
+      op: RepoOp;
       method: string;
       args: ExprIR[];
       returnType: TypeIR;
@@ -1828,6 +1858,8 @@ export type WorkflowStmtIR =
       name: string;
       repoName: string;
       aggName: string;
+      /** Always `select-many`: a run binds the matching rows. */
+      op: Extract<RepoOp, "select-many">;
       retrievalName: string;
       retrievalArgs: ExprIR[];
       page?: { offset?: ExprIR; limit?: ExprIR };
@@ -1879,6 +1911,8 @@ export type WorkflowStmtIR =
       // the removed entity must NOT be re-saved at handler exit (`computeSaves`
       // never registers a `repo-delete` as a mutation target).
       kind: "repo-delete";
+      /** Always `remove`. */
+      op: Extract<RepoOp, "remove">;
       repoName: string;
       aggName: string;
       entity: ExprIR;
@@ -1950,6 +1984,9 @@ export type WorkflowStmtIR =
       // no retrieval is synthesised.
       kind: "if-let";
       var: string;
+      /** `select-one` for a criterion source, `declared-find` for a declared
+       *  optional find (`findMethod` names it). */
+      op: Extract<RepoOp, "select-one" | "declared-find">;
       repoName: string;
       aggName: string;
       /** Name of the shared synthetic retrieval (`findAllBy<Criterion>`);
@@ -3819,28 +3856,32 @@ export type ExprIR =
        *  operation body (`Accounts.byHolder(h)` / `Repo.find/findAll/run`).
        *  Fully resolved at lowering time: `repo` is the repository name,
        *  `aggregate` its target aggregate, `method` the find / retrieval method
-       *  to render against the generated repository, and `readKind` the recognised
-       *  shape (`named` declared find / `getById`, vs the criterion `find`/`findAll`
-       *  vs retrieval `run`).  Backends render a real call into the generated
-       *  repository without re-recognising the AST.  No backend emits from it
-       *  yet — this is the IR foundation. */
+       *  to render against the generated repository, and `op` what the read
+       *  does.  Backends render a real call into the generated repository
+       *  without re-recognising the AST. */
       repoRead?: {
         repo: string;
         aggregate: string;
         method: string;
-        readKind: "named" | "find" | "findAll" | "run";
+        /** What the read does (`util/repository-contract.ts`): `load` /
+         *  `load-optional` by id, `select-one` / `select-many` over a criterion
+         *  or retrieval (or the whole collection), or a `declared-find`.
+         *  Backends dispatch on it, never on `method`. */
+        op: Exclude<RepoOp, "remove">;
         /** The retrieval a criterion / retrieval read runs against — mirrors the
          *  workflow `repo-run` path.  For `find`/`findAll` it is the synthesized
          *  `findAllBy<Criterion>` (materialised by `synthesizeFindAllRetrievals`
          *  from the criterion); for `run` it is the referenced retrieval name.
-         *  Absent for `named` reads (a declared `find`/`getById`).  Backends
+         *  Absent for a read called by name (a declared find, a by-id load,
+         *  the whole collection).  Backends
          *  render their retrieval-method name (`run<Name>`) from it so the
          *  emitted call hits a real method that APPLIES the criterion, rather
          *  than dropping it and calling the whole-table `findAll`/`all`. */
         retrievalName?: string;
         /** The criterion a `find`/`findAll` read filters by — drives the enrich
          *  pass's synthesis of the `retrievalName` retrieval (same criterion the
-         *  workflow `synthCriterion` names).  Absent for `run`/`named`. */
+         *  workflow `synthCriterion` names).  Absent for a retrieval run and a
+         *  read called by name. */
         synthCriterion?: { name: string };
       };
       /** Populated when `callKind === "store-action"` (Stage 5) — the resolved
@@ -4020,7 +4061,7 @@ export type ExprIR =
       origin?: OriginRef;
     }
   /**
-   * Duration constructor (A5 temporal, docs/old/plans/stdlib.md) —
+   * Duration constructor (A5 temporal, https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md) —
    * `days(n)` / `hours(n)` / `minutes(n)`.  Parsed as an ordinary free
    * call; lowered to this node ONLY when the name did not resolve to any
    * user declaration (a user `function days(...)` shadows the builtin and
@@ -4253,8 +4294,9 @@ export function workflowCanAnswerNotFound(
    *  evidence that it throws — a repository/method that does not exist is a
    *  phase-⑦ error (`loom.workflow-unknown-repository{,-method}`), so the
    *  declared set for a model that does not compile is moot either way. */
-  const readThrows = (repoName: string, method: string): boolean => {
-    if (method === "getById") return true;
+  const readThrows = (repoName: string, op: RepoOp, method: string): boolean => {
+    if (op === "load") return true;
+    if (op !== "declared-find") return false;
     const find = repositories
       .find((r) => r.name === repoName)
       ?.finds.find((f) => f.name === method);
@@ -4276,8 +4318,8 @@ export function workflowCanAnswerNotFound(
     walkWorkflowStmtExprsDeep(top, (e) => {
       if (e.kind !== "call" || e.callKind !== "repo-read") return;
       const read = e.repoRead;
-      if (read?.readKind !== "named") return;
-      if (readThrows(read.repo, read.method)) canNotFound = true;
+      if (!read) return;
+      if (readThrows(read.repo, read.op, read.method)) canNotFound = true;
     });
   }
   return canNotFound;

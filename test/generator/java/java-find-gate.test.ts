@@ -1,5 +1,5 @@
-// Find `requires` gate on Java/Spring (D-AUTH-OIDC / default-deny).  A
-// `find f(): T[] requires <expr> where <pred>` emits a 403 gate at the top of
+// The policy read gate on a find route, Java/Spring (D-AUTH-OIDC / default-deny).  A
+// `policy { read T requires <expr> }` over a `find f(): T[] where <pred>` emits a 403 gate at the top of
 // the find's controller action — the read-side twin of the view gate —
 // evaluated against the request's currentUser before delegating to the service.
 // ForbiddenException maps to 403 via the controller advice.  Ungated → no gate.
@@ -10,7 +10,7 @@ function src(findClause: string): string {
   return `system S { user { id: string  role: string } subdomain Sales { context Tickets {
     aggregate Ticket { subject: string  open: bool }
     repository Tickets for Ticket {
-      find openOnes(): Ticket[] ${findClause}where open == true
+      find openOnes(): Ticket[] where open == true${findClause ? `\n}\npolicy { read Ticket ${findClause}` : ""}
     }
   } } api A from Sales storage pg { type: postgres }
   resource ticketsState { for: Tickets, kind: state, use: pg }

@@ -24,7 +24,8 @@ system W {
       implements auditable
       create(subject: string, priority: Priority) { requires true }
     }
-    repository Tickets for Ticket { find all(): Ticket paged requires true }
+    repository Tickets for Ticket {}
+    policy { read Ticket requires true }
     aggregate Tag {
       label: string
       createdAt: datetime managed

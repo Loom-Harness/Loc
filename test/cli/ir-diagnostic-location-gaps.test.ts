@@ -67,10 +67,10 @@ describe("IR diagnostics point at the node they are about", () => {
     expect(at("loom.default-deny-by-id-ungated", "'Agent'"), "by-id Agent").toBe(
       line("aggregate Agent"),
     );
-    // List read: the repository, where the silencing `find all … requires`
-    // goes; an aggregate with no repository points at itself.
+    // List read: the aggregate itself — the silencing gate is a
+    // `policy { read X requires … }` line about it, not a repository member.
     expect(at("loom.default-deny-list-ungated", "'Ticket'"), "list Ticket").toBe(
-      line("repository Tickets"),
+      line("aggregate Ticket"),
     );
     expect(at("loom.default-deny-list-ungated", "'Agent'"), "list Agent").toBe(
       line("aggregate Agent"),

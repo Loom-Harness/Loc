@@ -1,4 +1,4 @@
-// B15 (docs/audits/behavioral-parity-bugs-2026-07.md): a find with an ID-typed
+// B15 (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/behavioral-parity-bugs-2026-07.md): a find with an ID-typed
 // query param (`find byOrder(order: Order id)`) must bind the RAW underlying
 // type on the controller (`@RequestParam UUID order`) and wrap it into the id
 // class at the service call (`new OrderId(order)`) — Spring has no

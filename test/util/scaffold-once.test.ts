@@ -1,5 +1,5 @@
 // The scaffold-once regeneration-preservation marker
-// (docs/old/proposals/extern-domain-extension-point.md, Slice 1).
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/extern-domain-extension-point.md, Slice 1).
 
 import { describe, expect, it } from "vitest";
 import { isScaffoldOnce, SCAFFOLD_ONCE_MARKER } from "../../src/util/scaffold-once.js";

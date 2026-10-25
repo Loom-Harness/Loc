@@ -12,8 +12,8 @@ report — see [`ignoring` and the tenant filter](#ignoring-and-the-tenant-filte
 below).  It is not silent: every read that drops a tenancy filter raises
 `loom.tenancy-filter-bypass`, in every `auth { enforcement: }` mode.
 
-Design record: [`proposals/multi-tenancy-design-note.md`](old/proposals/multi-tenancy-design-note.md)
-(R1–R5); implementation plan: [`plans/multi-tenancy-implementation.md`](old/plans/multi-tenancy-implementation.md).
+Design record: [`proposals/multi-tenancy-design-note.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/multi-tenancy-design-note.md)
+(R1–R5); implementation plan: [`plans/multi-tenancy-implementation.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-tenancy-implementation.md).
 
 ## Surface
 
@@ -425,7 +425,7 @@ five backends**, each through its own request-scoped principal seam:
 
 A `policy {}` context member selects a per-aggregate **read reachability level**
 for tenant-owned aggregates — the directional ladder from
-[`proposals/authorization.md`](old/proposals/authorization.md) §3 (`Self` /
+[`proposals/authorization.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/authorization.md) §3 (`Self` /
 `Descendants` / `All` ≈ `local` / `deep` / `global`). It is the read side of the
 hierarchy: P2.1–P2.3 wrote `dataKey`; P2.4 reads by it.
 
@@ -516,7 +516,7 @@ Generated `deep` filter, one line per backend (for `allow deep on Account`):
 levels lower to an `authz-filter { kind: "scope" }` node that each backend
 renders natively — see `buildDeepScopeFilter` / `buildGlobalScopeFilter` in
 [`src/ir/util/tenant-stance.ts`](../src/ir/util/tenant-stance.ts). The reconciled
-surface ([tenancy-authorization-final-surface](old/proposals/tenancy-authorization-final-surface.md)
+surface ([tenancy-authorization-final-surface](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/tenancy-authorization-final-surface.md)
 decision 2) retires that sentinel in favour of an ordinary `filter` written in
 the language, and its **prefix operator now ships**: `startsWith` is queryable
 on every backend ([`stdlib.md`](stdlib.md) → `string`), lowering to an anchored
@@ -543,9 +543,9 @@ through `currentUser.orgPath` — their own org. `organizationContext` is the
 **operating scope**: the org this request acts *in*. The two coincide unless the
 request asks to operate in a descendant org, by sending an `x-org-context`
 header carrying that org's materialized path. Design record:
-[organization-context](old/proposals/organization-context.md); reconciled
+[organization-context](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/organization-context.md); reconciled
 surface decisions 3–5 of
-[tenancy-authorization-final-surface](old/proposals/tenancy-authorization-final-surface.md).
+[tenancy-authorization-final-surface](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/tenancy-authorization-final-surface.md).
 
 It has exactly one member, `organizationContext.orgPath`, and its first use is
 the tenant **write** stamp — an admin at `org_a` creating a row that belongs to

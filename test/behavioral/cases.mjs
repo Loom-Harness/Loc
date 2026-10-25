@@ -306,9 +306,9 @@ export const AUTHZ_LADDERS = {
    *  which shipped ungated on some subset of backends while every compile tier
    *  stayed green — the exact #2446 shape, on reads instead of writes:
    *
-   *    1. `find all(): T[] requires` — java/python/elixir each special-case
-   *       `all` out of the per-find route loop and emitted the bespoke list
-   *       route without reading its `requires`.
+   *    1. the list read's gate (`policy { read X requires … }`) —
+   *       java/python/elixir each special-case `all` out of the per-find route
+   *       loop, so the bespoke list route must read the gate itself.
    *    2. a FOLDED projection's gate — it had no surface to be spelled on at
    *       all until the gate moved to the projection declaration header.
    *    3. a QUERY-TIME projection's gate.
@@ -333,8 +333,8 @@ export const AUTHZ_LADDERS = {
       { label: "folded projection", method: "GET", path: "/api/projections/order_book" },
       { label: "folded projection by key", method: "GET", path: "/api/projections/order_book/{id}" },
       { label: "query-time projection", method: "GET", path: "/api/projections/open_orders" },
-      // M-T3.19 — the compiler-derived by-id read, gated by the fixture's
-      // `find byId(id: Order id): Order? requires …`.
+      // The compiler-derived by-id read, gated by the fixture's
+      // `policy { read Order requires … }`.
       { label: "gated by-id read", method: "GET", path: "/api/orders/{id}" },
       // …and the same declared find's own route, under the same gate.
       { label: "gated byId find route", method: "GET", path: "/api/orders/by_id?id={id}" },
