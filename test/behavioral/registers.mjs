@@ -258,17 +258,17 @@ export const BEHAVIOURAL_XFAIL = {
     "tph-crossings": TPH_FILTER_REFUSED,
     // EF hosts the base's filter on the TPH root entity, so it reaches every
     // concrete there — the one path #3956's audit found correct.
-    "inheritance-base-reads": baseReads({ passes: ["tphBaseCap"] }),
+    "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
     // EF maps the VO as a scalar onto a column the migration never creates; the
     // emitted project does not build.
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
   },
   dapper: {
-    "inheritance-base-reads": baseReads(),
+    "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
   },
   java: {
-    "inheritance-base-reads": baseReads(),
+    "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
     "workflow-two-handles-containment": {
       issue: "#4022",
       expect: "fail",
@@ -317,12 +317,14 @@ export const BEHAVIOURAL_XFAIL = {
       reason:
         "the workflow 409 `detail` names no aggregate or id, and per-call persistence bumps the document `version` twice",
     },
-    // Elixir is the one leg that ROUTES the TPH base by-id read — and it serves
-    // an archived subtype row through it: the unfiltered `Repo.get(<Base>, id)`
-    // of #3955, observed on the wire.
-    "inheritance-base-reads": baseReads({
-      pins: { polymorphic: "expected the call to reject, but it resolved" },
-    }),
+    // Elixir passes every block, the routed TPH base by-id read included; the
+    // case has no wire golden until the node oracle routes that read too.
+    "inheritance-base-reads": {
+      issue: "#3959",
+      expect: "wire",
+      reason:
+        "every block passes on elixir; the case has no golden until the node oracle passes the polymorphic base read (#3959)",
+    },
   },
 };
 
