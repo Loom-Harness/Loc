@@ -10,6 +10,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, findUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
@@ -76,7 +77,7 @@ export function buildPyDocumentRepositoryFile(
   // relational builder + routes-builder use — the destroy route calls
   // `repo.delete(id)` regardless of saving shape.  No cascade rows: contained
   // parts / references live inside the jsonb document, so one row is deleted.
-  const emitsDelete = !!agg.canonicalDestroy;
+  const emitsDelete = !!canonicalDestroy(agg);
   // Capability `filter` on a document aggregate (DEBT-02 tail): the jsonb blob
   // isn't per-field queryable, so the predicate is evaluated IN-APP over the
   // rehydrated instance, mirroring node's `documentCapabilityBody` `.filter`.

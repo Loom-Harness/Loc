@@ -1742,8 +1742,6 @@ function lowerAggregate(
     for (const c of creates) c.audited = true;
     for (const d of destroys) d.audited = true;
   }
-  const canonicalCreate = creates.find((c) => c.canonical) ?? null;
-  const canonicalDestroy = destroys.find((d) => d.canonical) ?? null;
   const appliers = (agg.members.filter(isApply) as Apply[]).map((a) => lowerApply(a, inner));
   const tests = collectSubjectTests(agg.members.filter(isTestBlock), agg, inner);
   // Capability source nodes — read structurally from agg.members,
@@ -1765,8 +1763,6 @@ function lowerAggregate(
     operations,
     creates,
     destroys,
-    canonicalCreate,
-    canonicalDestroy,
     parts,
     tests,
     contextFilters: filters.length > 0 ? filters.map((f) => f.predicate) : undefined,

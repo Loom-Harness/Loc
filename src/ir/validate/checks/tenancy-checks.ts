@@ -1,6 +1,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { platformFamily } from "../../../language/validators/data/platform-rules.js";
 import type { AggregateIR, SystemIR, TypeIR } from "../../types/loom-ir.js";
+import { canonicalCreate } from "../../util/canonical-lifecycle.js";
 import { contextReadsOrgContext } from "../../util/org-context.js";
 import {
   classifyTenantStance,
@@ -785,7 +786,7 @@ export function validateRegistryConstructible(sys: SystemIR, diags: LoomDiagnost
     for (const ctx of mod.contexts) {
       const registry = ctx.aggregates.find((a) => a.name === tenancy.registryName);
       if (!registry || registry.isAbstract) continue;
-      if (registry.canonicalCreate || (registry.creates ?? []).length > 0) return;
+      if (canonicalCreate(registry) || (registry.creates ?? []).length > 0) return;
       // The construction-path question is the same one
       // `loom.aggregate-not-constructible` asks of every aggregate, so it is
       // answered in one place (`aggregate-constructible-checks.ts`): a

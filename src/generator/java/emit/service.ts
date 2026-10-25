@@ -13,6 +13,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, operationUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { maskedHistoryFields } from "../../../ir/util/audit-history.js";
+import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import {
   callerGates,
   lifecycleGates,
@@ -201,14 +202,14 @@ export function renderJavaService(
   // canonical destroy stage an audit_records row in the SAME @Transactional
   // method as the save / delete.  The route-driving create is the ES `create`
   // for an event-sourced aggregate, else the canonical create.
-  const createAction = agg.persistedAs === "eventLog" ? agg.creates?.[0] : agg.canonicalCreate;
+  const createAction = agg.persistedAs === "eventLog" ? agg.creates?.[0] : canonicalCreate(agg);
   // See the call site below: document roots stamp explicitly.
   const docClaimCreateStamps =
     agg.savingShape === "document" &&
     agg.persistedAs !== "eventLog" &&
     claimStampsFor(agg, "create").length > 0;
   const auditCreate = !!createAction?.audited;
-  const auditDestroy = !!agg.canonicalDestroy?.audited;
+  const auditDestroy = !!canonicalDestroy(agg)?.audited;
   // create: before is JSON null (NullNode → the `null` token, satisfying the
   // NOT NULL jsonb column), after is the freshly-created wire snapshot, keyed by
   // the generated id; actor + correlation/scope/parent ids from RequestContext.
@@ -237,8 +238,8 @@ export function renderJavaService(
   // (op-gates.ts): the create gate belongs beside the factory call, and the
   // destroy gate needs the aggregate the service loads.  The controller is a
   // thin dispatch that holds neither.
-  const createGates = lifecycleGates(agg.canonicalCreate);
-  const destroyGates = lifecycleGates(agg.canonicalDestroy);
+  const createGates = lifecycleGates(canonicalCreate(agg));
+  const destroyGates = lifecycleGates(canonicalDestroy(agg));
   const forbidden = javaRef(`${ctx.basePkg}.domain.common`, "ForbiddenException");
   /** One line per lifecycle `requires`.  `thisName` is undefined for a create
    *  (no instance exists yet — the guard reads the principal only) and the
@@ -267,7 +268,7 @@ export function renderJavaService(
   const createLines = emitsRestCreate(agg)
     ? [
         `    public ${idClass} create${agg.name}(Create${agg.name}Request request) {`,
-        createDefaultUsesUser || lifecycleGatesUseCurrentUser(agg.canonicalCreate)
+        createDefaultUsesUser || lifecycleGatesUseCurrentUser(canonicalCreate(agg))
           ? `        var currentUser = currentUserAccessor.user();`
           : null,
         // BEFORE the factory: a denied create constructs nothing, saves
@@ -464,8 +465,8 @@ export function renderJavaService(
     // A canonical create/destroy gate reading `currentUser` binds it off the
     // accessor, so the accessor must be injected — otherwise the emitted method
     // references an uninjected field.
-    lifecycleGatesUseCurrentUser(agg.canonicalCreate) ||
-    lifecycleGatesUseCurrentUser(agg.canonicalDestroy);
+    lifecycleGatesUseCurrentUser(canonicalCreate(agg)) ||
+    lifecycleGatesUseCurrentUser(canonicalDestroy(agg));
   // Optimistic concurrency (`versioned`): every public mutation threads the
   // client's expected version from the `If-Match` request header (think-time
   // CAS).  When supplied and it disagrees with the freshly-loaded aggregate's
@@ -604,7 +605,7 @@ export function renderJavaService(
           // AFTER the load (the gate may read the row) and BEFORE the audit row
           // is staged, so a denied delete records nothing.  `aggregate` is bound
           // regardless of whether the gate reads it — the delete needs it.
-          ...(lifecycleGatesUseCurrentUser(agg.canonicalDestroy)
+          ...(lifecycleGatesUseCurrentUser(canonicalDestroy(agg))
             ? [`        var currentUser = currentUserAccessor.user();`]
             : []),
           ...lifecycleGateLines(destroyGates, "aggregate"),

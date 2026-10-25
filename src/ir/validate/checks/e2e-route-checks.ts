@@ -63,6 +63,7 @@ import {
   apiStatusContext,
   deriveAggregateOperations,
 } from "../../util/api-surface.js";
+import { canonicalDestroy } from "../../util/canonical-lifecycle.js";
 import { findWorkflowBySlug } from "../../util/e2e-workflow-accessor.js";
 import {
   apisServedBy,
@@ -539,7 +540,7 @@ function apiRouteExists(
   if (verb === "history") return repo?.historyFind != null;
   // The canonical destroy only: a NAMED `destroy archive { }` has no DELETE
   // route, and the renderer lets it fall through to the operation arm.
-  if (verb === "destroy" && agg.canonicalDestroy) return ops.some((o) => o.kind === "destroy");
+  if (verb === "destroy" && canonicalDestroy(agg)) return ops.some((o) => o.kind === "destroy");
   if (ops.some((o) => o.kind === "operation" && o.operation?.name === verb)) return true;
   // A find must be one the derivation LISTS.  `findRepoQuery` in the renderer
   // matches any `repo.finds` entry by name, including a `synthesized: true`
@@ -604,7 +605,7 @@ function routedVerbs(
   const out: string[] = [];
   if (ops.some((o) => o.kind === "create")) out.push("create");
   if (ops.some((o) => o.kind === "getById")) out.push("getById");
-  if (agg.canonicalDestroy && ops.some((o) => o.kind === "destroy")) out.push("destroy");
+  if (canonicalDestroy(agg) && ops.some((o) => o.kind === "destroy")) out.push("destroy");
   if (repo?.historyFind) out.push("history");
   for (const o of ops) if (o.kind === "operation" && o.operation) out.push(o.operation.name);
   for (const o of ops) if (o.kind === "find" && o.find) out.push(o.find.name);

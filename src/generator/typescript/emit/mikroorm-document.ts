@@ -13,6 +13,7 @@ import {
   aggregateUsesPrincipalContextFilter,
   findUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
@@ -57,7 +58,7 @@ export function renderMikroDocumentRepository(
   const row = rowClassOf(agg.name);
   const idVar = `Ids.${agg.name}Id`;
   const versioned = aggregateIsVersioned(agg);
-  const emitsDelete = !!agg.canonicalDestroy;
+  const emitsDelete = !!canonicalDestroy(agg);
   // Root rehydrate — a versioned root takes the authoritative `version` COLUMN
   // (the blob copy lags a write), matching the drizzle document path.
   const fromDocOf = (rowVar: string): string =>

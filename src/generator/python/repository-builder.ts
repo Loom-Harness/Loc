@@ -38,6 +38,7 @@ export interface AggregateReadShape {
 }
 
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { directParentName } from "../../ir/util/containment-parent.js";
 import {
   baseOf,
@@ -428,7 +429,7 @@ export function buildPyRepositoryFile(
     ]),
     "",
     saveMethod(agg, ctx, aggVar),
-    agg.canonicalDestroy ? ["", deleteMethod(agg, ctx)] : null,
+    canonicalDestroy(agg) ? ["", deleteMethod(agg, ctx)] : null,
     "",
     hydrateMethod(agg, ctx),
     hasChildCollections(agg) ? ["", hydrateManyMethod(agg, ctx)] : null,

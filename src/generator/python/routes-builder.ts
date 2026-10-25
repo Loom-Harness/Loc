@@ -36,6 +36,7 @@ import {
   relativeOpPath,
   servedOperations,
 } from "../../ir/util/api-surface.js";
+import { canonicalCreate, canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
 import {
   lifecycleGates,
@@ -781,7 +782,7 @@ function createRoute(
   ctx: EnrichedBoundedContextIR,
   apiOp: ApiOperationIR,
 ): string {
-  const createAction = agg.persistedAs === "eventLog" ? agg.creates?.[0] : agg.canonicalCreate;
+  const createAction = agg.persistedAs === "eventLog" ? agg.creates?.[0] : canonicalCreate(agg);
   const auditCreate = !!createAction?.audited;
   const esCreate = agg.persistedAs === "eventLog" ? agg.creates?.[0] : undefined;
   if (esCreate) {
@@ -833,7 +834,7 @@ function createRoute(
   // principal the stamps and `currentUser.*` defaults do — one binding serves
   // all three (a second `current_user: User = …` would be a redefinition ruff
   // flags).
-  const gateUsesPrincipal = lifecycleGatesUseCurrentUser(agg.canonicalCreate);
+  const gateUsesPrincipal = lifecycleGatesUseCurrentUser(canonicalCreate(agg));
   const bindPrincipal = stampUsesPrincipal || gateUsesPrincipal;
   const sig = [
     pyCommandBodyParam(`Create${agg.name}Request`, createInputFields(agg)),
@@ -846,7 +847,7 @@ function createRoute(
     bindPrincipal ? PY_USER_BIND : null,
     // BEFORE the factory: a denied create must construct nothing (and, when
     // audited, stage nothing).
-    ...lifecycleGate(agg.canonicalCreate),
+    ...lifecycleGate(canonicalCreate(agg)),
     `    created = ${aggClassRef(agg.name)}.create(${args})`,
     hasStamp(agg, "create") ? stampCall(agg, "create", "created") : null,
     auditCreate ? "    repo = _repo(session)" : null,
@@ -998,7 +999,7 @@ function destroyRoute(
   // the repo (same session → commits with the delete), THEN hard-delete.
   // Asymmetry: `before` is the last snapshot, `after` is JSON null (JSON.NULL →
   // the `null` literal, satisfying the NOT NULL jsonb column).
-  const auditDestroy = !!agg.canonicalDestroy?.audited;
+  const auditDestroy = !!canonicalDestroy(agg)?.audited;
   const destroyAuditCall = auditDestroy
     ? [
         "    await repo.record_audit(",
@@ -1015,8 +1016,8 @@ function destroyRoute(
   // the row) and BEFORE the audit row is staged, so a denied delete records
   // nothing.  A principal-only gate reads no field, so it needs no receiver —
   // the load still runs as the 404 probe but is not bound (ruff F841).
-  const destroyGateReadsRow = lifecycleGatesReadRow(agg.canonicalDestroy);
-  const destroyGateUsesUser = lifecycleGatesUseCurrentUser(agg.canonicalDestroy);
+  const destroyGateReadsRow = lifecycleGatesReadRow(canonicalDestroy(agg));
+  const destroyGateUsesUser = lifecycleGatesUseCurrentUser(canonicalDestroy(agg));
   const bindLoaded = auditDestroy || destroyGateReadsRow;
   return lines(
     `@router.delete("${relativeOpPath(apiOp)}", status_code=204, operation_id="${camelId(opDestroy(agg.name))}"${derivedResponsesKwarg(apiOp)})`,
@@ -1026,7 +1027,7 @@ function destroyRoute(
       ? `    __loaded = await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`
       : `    await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`,
     destroyGateUsesUser ? PY_USER_BIND : null,
-    ...lifecycleGate(agg.canonicalDestroy, destroyGateReadsRow ? "__loaded" : undefined),
+    ...lifecycleGate(canonicalDestroy(agg), destroyGateReadsRow ? "__loaded" : undefined),
     auditDestroy ? "    __before = repo.to_wire(__loaded)" : null,
     ...destroyAuditCall,
     "    try:",

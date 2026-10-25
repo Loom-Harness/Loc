@@ -35,6 +35,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
+import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import { refCollectionFieldName } from "../../../ir/util/ref-collection.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
@@ -2033,7 +2034,7 @@ export function renderDapperRepository(
     );
   });
 
-  const deleteMethod = agg.canonicalDestroy
+  const deleteMethod = canonicalDestroy(agg)
     ? lines(
         `    public async ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
         `    {`,
@@ -2414,7 +2415,7 @@ export function renderDapperDocumentRepository(
     );
   });
 
-  const deleteMethod = agg.canonicalDestroy
+  const deleteMethod = canonicalDestroy(agg)
     ? lines(
         `    public async ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
         "    {",

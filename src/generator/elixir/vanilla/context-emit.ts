@@ -28,6 +28,7 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { stmtUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import {
   createBodyParams,
   createBodyStatements,
@@ -627,14 +628,14 @@ function renderContextModule(
       contextModule: facadeMod,
       agg: agg as EnrichedAggregateIR,
     };
-    const destroyClauses = lifecycleEnsureClauses(agg.canonicalDestroy, destroyGateRc);
+    const destroyClauses = lifecycleEnsureClauses(canonicalDestroy(agg), destroyGateRc);
     // `destroy_<agg>!` takes the principal when the gate reads it.  On a
     // principal (tenancy-filtered) aggregate the getter already carries one, and
     // that same binding feeds the gate — no second parameter.
     const destroyBangArgs =
       destroyClauses.length === 0 || principal
         ? getArgs
-        : `id, ${principalParam(lifecycleGatesUseCurrentUser(agg.canonicalDestroy))}`;
+        : `id, ${principalParam(lifecycleGatesUseCurrentUser(canonicalDestroy(agg)))}`;
     const destroyBangBody =
       destroyClauses.length === 0
         ? `      {:ok, record} -> ${appModule}.Repo.delete!(record)`
@@ -750,7 +751,7 @@ ${body}
     // then delegates — so EVERY caller (REST controller, LiveView form,
     // DestroyForm) passes the gate, not just the ones that go through a
     // controller.  Ungated aggregates keep the delegate byte-identical.
-    const createClauses = lifecycleEnsureClauses(agg.canonicalCreate, {
+    const createClauses = lifecycleEnsureClauses(canonicalCreate(agg), {
       thisName: "record",
       contextModule: facadeMod,
       agg: agg as EnrichedAggregateIR,
@@ -806,7 +807,7 @@ ${body}
       }),
     ];
     const bodyEmits = body.some((st) => st.kind === "emit");
-    const emitAction = { ...agg.canonicalCreate!, statements: body };
+    const emitAction = { ...canonicalCreate(agg)!, statements: body };
     const createHasDispatcher = contextHasDispatcher(
       ctx as EnrichedBoundedContextIR,
       extraChannels,
@@ -888,7 +889,7 @@ ${createDo}
         ? bodyEntry(`create_${aggSnake}`)
         : `  @doc "Create a ${aggPascal} — the request is validated FIRST (the same 422 the other backends' request validator answers), then the canonical \`create\`'s \`requires\` gate runs HERE, so the REST and LiveView callers are gated alike."
   def create_${aggSnake}(attrs, ${principalParam(
-    lifecycleGatesUseCurrentUser(agg.canonicalCreate) || createStampsActor,
+    lifecycleGatesUseCurrentUser(canonicalCreate(agg)) || createStampsActor,
   )}) do
     with ${[createValidateClause, ...createClauses].join(",\n         ")} do
       ${unguardedName("create", agg.name)}(attrs${createStampsActor ? ", current_user" : ""})
@@ -897,7 +898,7 @@ ${createDo}
 
   @doc "Create a ${aggPascal} with NO authorization gate — the in-process entry (workflow step, event dispatch, emitted integration test), which carries no request principal.  Request-side callers use \`create_${aggSnake}/2\`."
 ${bodyEntry(unguardedName("create", agg.name))}`;
-    const deleteClauses = lifecycleEnsureClauses(agg.canonicalDestroy, destroyGateRc);
+    const deleteClauses = lifecycleEnsureClauses(canonicalDestroy(agg), destroyGateRc);
     const deleteDelegate = !emitsRestDelete(agg)
       ? ""
       : deleteClauses.length === 0
@@ -905,7 +906,7 @@ ${bodyEntry(unguardedName("create", agg.name))}`;
         : `\n
   @doc "Delete a ${aggPascal} — the canonical \`destroy\`'s \`requires\` gate runs HERE, against the loaded row."
   def delete_${aggSnake}(record, ${principalParam(
-    lifecycleGatesUseCurrentUser(agg.canonicalDestroy),
+    lifecycleGatesUseCurrentUser(canonicalDestroy(agg)),
   )}) do
     with ${deleteClauses.join(",\n         ")} do
       ${unguardedName("delete", agg.name)}(record)
@@ -1061,8 +1062,8 @@ function contextNeedsGuardEnsure(ctx: BoundedContextIR): boolean {
     // exactly the shape that would otherwise emit `ensure(...)` calls with no
     // `ensure/2` defined (undefined function, not a warning).
     if (
-      lifecycleGates(agg.canonicalCreate).length > 0 ||
-      lifecycleGates(agg.canonicalDestroy).length > 0 ||
+      lifecycleGates(canonicalCreate(agg)).length > 0 ||
+      lifecycleGates(canonicalDestroy(agg)).length > 0 ||
       createBodyStatements(agg).some((st) => st.kind === "precondition")
     ) {
       return true;

@@ -122,8 +122,6 @@ export const SITES = {
     "ActionIR.body",
     "ActionIR.params",
     "AggregateIR.appliers",
-    "AggregateIR.canonicalCreate",
-    "AggregateIR.canonicalDestroy",
     "AggregateIR.contextFilterRefs",
     "AggregateIR.contextFilters",
     "AggregateIR.contextStamps",
@@ -465,8 +463,6 @@ function visitAggregate(a: AggregateIR, src: string, v: ExprVisitor) {
   for (const op of a.operations) visitOperation(op, s, v);
   for (const op of a.creates ?? []) visitOperation(op, s, v);
   for (const op of a.destroys ?? []) visitOperation(op, s, v);
-  if (a.canonicalCreate) visitOperation(a.canonicalCreate, s, v);
-  if (a.canonicalDestroy) visitOperation(a.canonicalDestroy, s, v);
   for (const ap of a.appliers ?? []) {
     stmts(ap.statements, `${s}/apply(${ap.event})`, "ApplyIR.statements", v, walkStmtExprsDeep);
   }

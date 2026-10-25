@@ -1,6 +1,7 @@
 import { emitsRestCreate } from "../../../ir/enrich/wire-projection.js";
 import type { AggregateIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
 import { type ApiOperationIR, relativeOpPath } from "../../../ir/util/api-surface.js";
+import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import {
   DANGLING_REFERENCE_DETAIL,
@@ -381,7 +382,7 @@ export function renderController(
   // aggregate emits none, so `using …Commands;` would reference a namespace
   // that does not exist (CS0234 under `/warnaserror`).  (Queries/Requests/
   // Responses always have at least the auto findAll + Response DTO.)
-  const hasCommands = emitsRestCreate(agg) || !!agg.canonicalDestroy || agg.operations.length > 0;
+  const hasCommands = emitsRestCreate(agg) || !!canonicalDestroy(agg) || agg.operations.length > 0;
   return (
     lines(
       "// Auto-generated.",
