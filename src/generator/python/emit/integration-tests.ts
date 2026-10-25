@@ -26,6 +26,7 @@ import type {
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { snake } from "../../../util/naming.js";
+import { type RepoOp, repoVerbOpAt } from "../../../util/repository-contract.js";
 import { pyRef } from "../../_imports/python.js";
 import { renderPyExpr } from "../render-expr.js";
 import { renderCreateInput, renderExplicitMatcher, renderTestExpr, testFnName } from "./tests.js";
@@ -55,15 +56,12 @@ function createCallOf(
   return undefined;
 }
 
-// Built-in repository reads every aggregate's repo emits (find_by_id / get_by_id
-// / all), in addition to the context's declared custom finds.
-const BUILTIN_READS = new Set(["findById", "getById", "findAll"]);
-
-// DSL/node read name → the Python repository method that serves it.
-const BUILTIN_METHOD: Record<string, string> = {
-  findById: "find_by_id",
-  getById: "get_by_id",
-  findAll: "all",
+// The built-in reads a context integration test accepts → the Python
+// repository method that serves each, beside the context's declared finds.
+const BUILTIN_METHOD: Partial<Record<RepoOp, string>> = {
+  "load-optional": "find_by_id",
+  load: "get_by_id",
+  "select-many": "all",
 };
 
 /** A `<Agg>.<find>(...)` repository read → the aggregate + method + args, whether
@@ -80,10 +78,11 @@ function findCallOf(
   const hasRepo = ctx.repositories.some((r) => r.aggregateName === aggName);
   if (!hasRepo) return undefined;
   const custom = findRepoQuery(e.member, aggName, ctx);
-  if (!BUILTIN_READS.has(e.member) && !custom) return undefined;
-  const method = BUILTIN_METHOD[e.member] ?? snake(e.member);
+  const op = repoVerbOpAt(e.member, "integration-test");
+  if (!op && !custom) return undefined;
+  const method = (op && BUILTIN_METHOD[op]) ?? snake(e.member);
   const nullable =
-    e.member === "findById" ||
+    op === "load-optional" ||
     custom?.returnType.kind === "optional" ||
     custom?.returnType.kind === "union";
   return { aggName, method, args: e.args, nullable };

@@ -383,6 +383,8 @@ function markSortableColumns(table: BuilderCall): void {
   }
 }
 
+const OPERATION_WRAPPERS: ReadonlySet<string> = new Set(["Action", "OperationForm", "DestroyForm"]);
+
 /** The field name an accessor lambda reads off its row param, for the two
  *  shapes that name exactly one column: `o => o.name` and `o => X { o.name }`.
  *  Anything else (a concat, a ternary, a nested chain) yields undefined. */
@@ -401,6 +403,9 @@ function simpleMemberRead(l: Lambda): string | undefined {
   // `o => Text { o.name }` — a single-child display primitive wrapping the read.
   if (isBuilderCall(body as never)) {
     const call = body as unknown as BuilderCall;
+    // These wrappers' member names an OPERATION, not a field; the server's sort
+    // whitelist is per field, so a header over one would never sort anything.
+    if (OPERATION_WRAPPERS.has(call.type)) return undefined;
     const positional = call.entries.filter((c) => !c.name);
     if (positional.length === 1) return direct(positional[0]!.value);
   }

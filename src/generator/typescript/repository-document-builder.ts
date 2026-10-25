@@ -12,7 +12,6 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import {
   aggregateUsesMoneyDeep,
-  aggregateUsesPrincipalContextFilter,
   exprUsesCurrentUser,
   findUsesCurrentUser,
 } from "../../ir/types/loom-ir.js";
@@ -33,7 +32,11 @@ import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "./page
 import { synthProjectionFinds } from "./projection-finds.js";
 import { renderTsExpr } from "./render-expr.js";
 import type { FilterBypass } from "./repository-find-predicate.js";
-import { allContextFilterEntries } from "./repository-find-predicate.js";
+import {
+  allContextFilterEntries,
+  drizzleOrderBy,
+  readScopeUsesPrincipal,
+} from "./repository-find-predicate.js";
 import { collectEnums, collectValueObjects } from "./repository-imports-builder.js";
 import { repoPortImportLine, repoPortName } from "./repository-port-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "./repository-wire-builder.js";
@@ -73,7 +76,7 @@ export function buildDocumentRepositoryFile(
   // actor IN-APP over the rehydrated document: each read binds
   // `requireCurrentUser()` so the in-app predicate (`currentUser.tenantId`) can
   // read it.  Fail-closed — the accessor throws when unauthenticated.
-  const usesPrincipalFilter = aggregateUsesPrincipalContextFilter(agg);
+  const usesPrincipalFilter = readScopeUsesPrincipal(agg, ctx);
   const principalBind = usesPrincipalFilter
     ? `    const currentUser = requireCurrentUser();`
     : null;
@@ -111,8 +114,8 @@ export function buildDocumentRepositoryFile(
   // Capability filter (e.g. soft-delete / tenancy) applied in-app on the by-id
   // reads so a hidden / cross-tenant record reads as not-found, matching the
   // find paths above.
-  const capRec = documentCapabilityBody(agg, "rec");
-  const capX = documentCapabilityBody(agg, "x");
+  const capRec = documentCapabilityBody(agg, ctx, "rec");
+  const capX = documentCapabilityBody(agg, ctx, "x");
 
   const bodyStr = lines(
     `export class ${agg.name}Repository implements ${repoPortName(agg.name)} {`,
@@ -150,7 +153,7 @@ export function buildDocumentRepositoryFile(
     `  async findManyByIds(ids: ${idVar}[]): Promise<${agg.name}[]> {`,
     `    if (ids.length === 0) return [];`,
     ...(principalBind && capX ? [principalBind] : []),
-    `    const rows = await this.db.select().from(schema.${tableName}).where(inArray(schema.${tableName}.id, ids));`,
+    `    const rows = await this.db.select().from(schema.${tableName}).where(inArray(schema.${tableName}.id, ids)).orderBy(${drizzleOrderBy(tableName)});`,
     `    return rows.map((r) => ${fromDocOf("r")})${capX ? `.filter((x) => ${capX})` : ""};`,
     `  }`,
     "",
@@ -323,10 +326,11 @@ export function buildDocumentRepositoryFile(
  *  three adapters answer `ignoring` from one rule. */
 export function documentCapabilityBody(
   agg: EnrichedAggregateIR,
+  ctx: EnrichedBoundedContextIR,
   varName: string,
   bypass?: FilterBypass,
 ): string | null {
-  const preds = allContextFilterEntries(agg, bypass).map(
+  const preds = allContextFilterEntries(agg, ctx, bypass).map(
     (e) =>
       `(${renderTsExpr(desugarAuthzFilterInApp(e.predicate, agg.name), { thisName: varName })})`,
   );
@@ -493,7 +497,7 @@ function documentFindMethod(
   // here could not see `bypassAll` / `bypassCaps` at all (M-T6.51).  The
   // synthesised query-time-projection reads carry the projection's own bypass
   // on their `FindIR` (`projection-finds.ts`), so they inherit this correctly.
-  const cap = documentCapabilityBody(agg, "x", {
+  const cap = documentCapabilityBody(agg, ctx, "x", {
     bypassAll: find.bypassAll,
     bypassCaps: find.bypassCaps,
   });
@@ -509,7 +513,7 @@ function documentFindMethod(
   // A principal capability filter needs `currentUser` in scope.  A find that
   // already takes a `currentUser: User` param (findUsesCurrentUser) reuses it;
   // otherwise bind the ambient accessor (fail-closed).
-  const needsPrincipalBind = aggregateUsesPrincipalContextFilter(agg) && !usesUser;
+  const needsPrincipalBind = readScopeUsesPrincipal(agg, ctx) && !usesUser;
   const loadLines = [
     ...(needsPrincipalBind ? [`    const currentUser = requireCurrentUser();`] : []),
     // ORDER BY id — a document aggregate's whole-table read is the root LIST

@@ -647,9 +647,9 @@ function renderCall(args: string[], e: CallExpr, ctx: PyRenderContext): string {
       // first row.
       const read = e.repoRead!;
       const handle = snake(read.repo);
-      if (read.readKind !== "named" && read.retrievalName) {
+      if (read.retrievalName) {
         const call = `${handle}.run_${snake(read.retrievalName)}(${argList})`;
-        return read.readKind === "find"
+        return read.op === "select-one"
           ? `((lambda __r: __r[0] if __r else None)(await ${call}))`
           : `(await ${call})`;
       }

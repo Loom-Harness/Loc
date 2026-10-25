@@ -194,8 +194,9 @@ describe("python workflow service imports — an `assign` RHS is a call site too
         operation quote(base: int): int { return base + 1 }
       }
       workflow Tally {
+        orderId: Order id
         total: int
-        create(base: int) {
+        create(orderId: Order id, base: int) {
           total := Fee.quote(base)
         }
       }

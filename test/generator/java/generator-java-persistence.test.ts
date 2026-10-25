@@ -167,7 +167,8 @@ describe("java generator — repository triple (S4)", () => {
     // getById now captures the optional (to log aggregate_loaded) then throws
     // on the miss.
     expect(impl).toContain("var found = jpa.findById(id);");
-    expect(impl).toContain("return found.orElseThrow(() ->");
+    // (versioned → the miss throws off `handle`, then M-T6.93's repeat-load swap)
+    expect(impl).toContain("var handle = found.orElseThrow(() ->");
     expect(impl).toContain('new AggregateNotFoundException("Order " + id + " not found"));');
   });
 });

@@ -82,12 +82,12 @@ import {
  *  `unknown` — no classifying ancestor (only reachable from a detached node);
  *  no rule fires, so a future body owner degrades to silence-as-today rather
  *  than to a false refusal. */
-type Zone = "frontend" | "workflow" | "domain" | "unknown";
+export type Zone = "frontend" | "workflow" | "domain" | "unknown";
 
 /** Walk outwards to the first node that decides the zone.  The nesting
  *  statements (`if` / `for` / `if let` / `match` arms) and `Lambda` are
  *  transparent: they inherit the zone of whatever body they sit in. */
-function zoneOf(node: AstNode): Zone {
+export function zoneOf(node: AstNode): Zone {
   for (let c: AstNode | undefined = node.$container; c; c = c.$container) {
     if (isActionDecl(c) || isPage(c) || isComponent(c) || isStore(c) || isUi(c)) return "frontend";
     if (
@@ -116,7 +116,7 @@ function zoneOf(node: AstNode): Zone {
 
 /** A lowercase noun phrase naming the body the offending statement sits in,
  *  for the message's second half ("… but this one is in <owner>"). */
-function describeOwner(node: AstNode): string {
+export function describeOwner(node: AstNode): string {
   for (let c: AstNode | undefined = node.$container; c; c = c.$container) {
     if (isActionDecl(c)) return `action '${c.name}'`;
     if (isOperation(c)) return `operation '${c.name}'`;
