@@ -1,0 +1,220 @@
+{
+  "case": "workflow-two-handles-containment",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/carts",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/carts/{id}/add_line",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/workflows/add_via_second",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/carts/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "lines": [
+          {
+            "id": "<volatile:key>",
+            "qty": 2,
+            "sku": "S1"
+          },
+          {
+            "id": "<volatile:key>",
+            "qty": 1,
+            "sku": "S2"
+          }
+        ],
+        "name": "c",
+        "version": 3
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/workflows/drop_via_second",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/carts/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "lines": [
+          {
+            "id": "<volatile:key>",
+            "qty": 1,
+            "sku": "S2"
+          }
+        ],
+        "name": "c",
+        "version": 4
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/workflows/add_twice",
+      "status": 409,
+      "body": {
+        "detail": "Cart {id} was modified by another request",
+        "instance": "/api/workflows/add_twice",
+        "status": 409,
+        "title": "Conflict",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/carts/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "lines": [
+          {
+            "id": "<volatile:key>",
+            "qty": 1,
+            "sku": "S2"
+          }
+        ],
+        "name": "c",
+        "version": 4
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/carts/{id}/drop",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/carts/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/carts",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "lines": [],
+            "name": "renamed",
+            "version": 6
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 11,
+      "method": "DELETE",
+      "path": "/api/carts/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/carts",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 13,
+      "method": "PATCH",
+      "path": "/api/carts",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/carts",
+        "instance": "/api/carts",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/carts",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/carts",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "POST",
+      "path": "/api/carts/{id}/drop",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/sku"
+          }
+        ],
+        "instance": "/api/carts/{id}/drop",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    }
+  ]
+}
