@@ -1,7 +1,5 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { validate } from "../../src/api/index.js";
-import { REPO_ROOT } from "../_helpers/ddd-corpus.js";
 
 // `loom.member-unresolved` — the IR backstop for an invented member the
 // language layer never typed (`src/ir/validate/checks/member-resolution-checks.ts`).
@@ -95,10 +93,32 @@ describe("loom.member-unresolved", () => {
     ).toBe(true);
   });
 
-  it("refuses F-041: the error-quality corpus's typo'd page-body field (b09)", async () => {
+  it("refuses a typo'd page-body field read off a QueryView row", async () => {
     // `data: o => … o.totl` in a QueryView over `Order`: AST-clean (the lambda
     // param is untyped in the language layer), refused here.
-    const src = readFileSync(`${REPO_ROOT}/eval/repro/broken/b09-page-wrong-aggregate.ddd`, "utf8");
+    const src = `
+system X {
+  subdomain S { context C {
+    aggregate Order with crudish { total: int  derived display: string = "x" }
+    repository Orders for Order { }
+  } }
+  api OrderApi from S
+  ui Web with scaffold(subdomains: [S]) {
+    framework: react
+    api S: OrderApi
+    page Bad(id: Order id) {
+      route: "/bad/:id"
+      body: QueryView { of: S.Order.byId(id), single: true,
+        loading: Loader { }, empty: Empty { "none" },
+        data: o => Stack { KeyValueRow { "Total", o.totl } } }
+    }
+  }
+  storage p { type: postgres }
+  resource r { for: C, kind: state, use: p }
+  deployable api { platform: node, contexts: [C], dataSources: [r], serves: OrderApi, port: 3000 }
+  deployable web { platform: react, targets: api, ui: Web { S: api }, port: 3001 }
+}
+`;
     const errs = await codes(src);
     expect(errs.map((e) => e.code)).toContain("loom.member-unresolved");
     expect(errs.find((e) => e.code === "loom.member-unresolved")?.message).toContain("'totl'");

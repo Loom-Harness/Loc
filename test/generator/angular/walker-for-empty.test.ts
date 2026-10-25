@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
-// Regression (docs/audits/repo-code-review-2026-07.md F6): the Angular
+// Regression (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/repo-code-review-2026-07.md F6): the Angular
 // `renderForEach` seam dropped the optional `empty:` arm — its signature omitted
 // the `emptyBody` param the contract carries (and `emitFor` passes), so a
 // `For { empty: … }` silently rendered nothing when the collection was empty,

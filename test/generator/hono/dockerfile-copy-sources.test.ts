@@ -8,7 +8,7 @@
 // — but MikroORM applies its schema with `orm.schema.updateSchema()` and emits
 // no `db/migrations`, so every mikroorm image failed to build:
 //   "/app/db/migrations": not found
-// (docs/audits/2026-10-04-tested-vs-shipped.md, D-1).
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-10-04-tested-vs-shipped.md, D-1).
 //
 // The invariant, for every node persistence adapter: each runtime-stage
 // `COPY --from=build /app/<p>` names either a build OUTPUT (`dist`,

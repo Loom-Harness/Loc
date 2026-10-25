@@ -13,7 +13,7 @@ import {
 // pinning: guid → uuid-format string, int/long → integer, string → plain
 // string, derived ONCE so the parity gate's path-param dimension agrees by
 // construction rather than by five emitters happening to choose alike
-// (docs/old/plans/non-guid-id-http-params.md).  A wrong answer here is a schema
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/non-guid-id-http-params.md).  A wrong answer here is a schema
 // that rejects a legal id, or accepts an illegal one, identically on all five.
 
 const idType = (valueType: string, targetName = "Order") =>

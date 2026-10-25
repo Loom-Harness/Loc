@@ -14,7 +14,7 @@ import { diagText } from "../_helpers/diagnostics.js";
 // `OperationIR` with a `kind` tag into the new `creates` / `destroys`
 // arrays (mutate-kind `operation` stays in `operations`), and the
 // name-uniqueness + `this.id`-in-create validator rules fire.
-// See docs/old/proposals/lifecycle-operations.md.
+// See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/lifecycle-operations.md.
 // ---------------------------------------------------------------------------
 
 const services = createDddServices(NodeFileSystem);

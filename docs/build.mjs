@@ -1,34 +1,21 @@
 #!/usr/bin/env node
 // Render docs/*.md → docs/_site/*.html using a template that matches
-// the landing page styling. Recurses into plans/ and audits/ subdirs
-// so cross-doc links into the historical material still resolve on the
-// deployed site, and emits an index.html for each rendered subdir so
-// the README's directory links resolve (GitHub Pages does not
-// auto-index).  Copies docs/index.html with .md→.html link rewrites,
-// and copies the shared stylesheet.
+// the landing page styling. Recurses into the RENDERED_SUBDIRS and
+// emits an index.html for each so the README's directory links
+// resolve (GitHub Pages does not auto-index).  Copies docs/index.html
+// with .md→.html link rewrites, and copies the shared stylesheet.
 
 import { readFile, writeFile, readdir, mkdir, copyFile, rm, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, basename, relative, posix, sep } from 'node:path';
+import { dirname, join, basename, relative } from 'node:path';
 import { marked } from 'marked';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT  = join(HERE, '_site');
 
-// Subdirs whose .md content is also rendered so links from reference
-// docs into the plan/audit corpus don't 404.  Nested paths are
-// supported (depth derived from the path).  `old/**` is deliberately absent —
-// see UNPUBLISHED below.
-export const RENDERED_SUBDIRS = [
-  'new-plan',
-  'new-plan/missions',
-  'new-plan/waves',
-  'new-plan/waves/handoffs',
-  'new-plan/archive',
-  'new-plan/archive/missions',
-  'audits',
-  'language-reference',
-];
+// Subdirs whose .md content is also rendered.  Nested paths are
+// supported (depth derived from the path).
+export const RENDERED_SUBDIRS = ['language-reference'];
 
 // Nav surfaces the top-level reading order — keep in sync with
 // docs/README.md's "Start here" table and docs/index.html's footer.
@@ -44,45 +31,14 @@ const NAV = [
 ];
 
 // rewrite ./foo.md, ../foo.md, foo.md or sub/foo.md (with optional #anchor) → .html.
-// The basename may contain dots (`M-T5.21-callable-unification-design.md`,
-// `….waves.md`) — every mission file is named that way, and a dot-free class
-// left those links pointing at a `.md` the site never publishes.
+// The basename may contain dots (`foo.v2.md`); a dot-free class would leave
+// those links pointing at a `.md` the site never publishes.
 const MD_LINK = /^((?:\.\.?\/)*(?:[a-zA-Z0-9_\-]+\/)*[a-zA-Z0-9_\-][a-zA-Z0-9_.\-]*)\.md(#.*)?$/;
-
-// The archived design record is NOT published.  On the site a frozen proposal
-// looked exactly as current as `language.md`, and a banner did not stop readers
-// (or agents) from taking its status tables as what ships.  It stays in git as
-// the design record, and every link into it — live docs cite it for grammar
-// sketches and rationale — points at the GitHub source instead of a page.
-export const UNPUBLISHED = 'old';
-const SOURCE_BASE = 'https://github.com/Loom-Harness/Loc';
-
-/** The GitHub source URL for a link from docs-relative page `fromRel` whose
- *  target resolves into the unpublished corpus, else null. */
-export function unpublishedSourceUrl(fromRel, href) {
-  if (/^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('#') || href.startsWith('/')) return null;
-  const hash = href.indexOf('#');
-  const target = hash === -1 ? href : href.slice(0, hash);
-  const frag = hash === -1 ? '' : href.slice(hash);
-  const resolved = posix.normalize(posix.join(posix.dirname(fromRel), target)).replace(/\/$/, '');
-  if (resolved !== UNPUBLISHED && !resolved.startsWith(`${UNPUBLISHED}/`)) return null;
-  const kind = /\.[a-z0-9]+$/i.test(resolved) ? 'blob' : 'tree';
-  return `${SOURCE_BASE}/${kind}/main/docs/${resolved}${frag}`;
-}
-
-// Docs-relative (POSIX) path of the page `marked` is rendering, read by the
-// link rewrite below — `walkTokens` has no per-call context of its own.
-let renderingRel = '';
 
 marked.use({
   gfm: true,
   walkTokens(token) {
     if (token.type === 'link' && typeof token.href === 'string') {
-      const source = unpublishedSourceUrl(renderingRel, token.href);
-      if (source) {
-        token.href = source;
-        return;
-      }
       const m = token.href.match(MD_LINK);
       if (m) token.href = `${m[1]}.html${m[2] ?? ''}`;
     }
@@ -225,12 +181,6 @@ const TAB_STYLE = `<style>
 .lt-panel.active{display:block}
 .lt-panel pre{margin:.75rem 0}
 </style>`;
-const ARCHIVED_STYLE = `<style>
-.archived-notice{margin:0 0 1.5rem;padding:.85rem 1.1rem;border:1px solid rgba(255,185,138,.35);border-left:3px solid #ffb98a;border-radius:8px;background:rgba(255,185,138,.06);color:#cdd6e3;font-size:.9rem;line-height:1.55}
-.archived-notice strong{color:#ffb98a;letter-spacing:.02em}
-.archived-notice p{margin:.35rem 0 0}
-.archived-notice a{color:#6fd1ff}
-</style>`;
 
 const TAB_SCRIPT = `<script>
 (function(){
@@ -269,7 +219,6 @@ const page = ({ title, body, currentHref, depth, styleHref }) => `<!doctype html
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css">
 <link rel="stylesheet" href="${styleHref}">
 ${TAB_STYLE}
-${ARCHIVED_STYLE}
 </head>
 <body>
 ${header(currentHref, depth)}
@@ -285,45 +234,12 @@ ${TAB_SCRIPT}
 </html>
 `;
 
-// Archived corpora that still render.  They are NOT a description of what
-// ships: `audits/**` are snapshot-in-time findings true only as of the commit
-// each one names, and `new-plan/archive/**` is closed work.  CLAUDE.md fences
-// agents off this material; a web reader has no such fence, so the page
-// carries one.  (`old/**` is not rendered at all — see UNPUBLISHED.)  Keep in
-// sync with test/system/archived-docs-fence.test.ts.
-export const ARCHIVED = [
-  {
-    prefix: 'new-plan/archive/',
-    label: 'Completed missions',
-    note: 'Closed missions and superseded plan notes, moved out of the live track files on 2026-09-02. Kept for the PR/evidence trail; nothing here is open work.',
-  },
-  {
-    prefix: 'audits/',
-    label: 'Snapshot audit',
-    note: 'Point-in-time findings, true as of the commit this document names. Later work may have drained, changed or invalidated them.',
-  },
-];
-
-/** Banner HTML for a rendered path under an archived corpus, else ''.
- *  `rel` is the docs-relative source path (POSIX separators). */
-export function archivedNotice(rel, depth) {
-  const hit = ARCHIVED.find((a) => rel.startsWith(a.prefix));
-  if (!hit) return '';
-  const up = '../'.repeat(depth);
-  return `<aside class="archived-notice">
-<strong>${escapeHtml(hit.label)}</strong>
-<p>${escapeHtml(hit.note)}</p>
-<p>For what ships today see <a href="${up}README.html">the docs index</a>; for what is planned see <a href="${up}new-plan/README.html">the live roadmap</a>.</p>
-</aside>
-`;
-}
 
 async function renderMdFile(srcPath, depth) {
   const src = await readFile(srcPath, 'utf8');
   const rel = relative(HERE, srcPath);
   const title = extractTitle(src, basename(srcPath, '.md'));
-  renderingRel = rel.split(sep).join('/');
-  const body = archivedNotice(rel, depth) + marked.parse(src);
+  const body = marked.parse(src);
   const outRel = rel.replace(/\.md$/, '.html');
   const outPath = join(OUT, outRel);
   await mkdir(dirname(outPath), { recursive: true });
@@ -335,7 +251,8 @@ async function renderMdFile(srcPath, depth) {
 
 // Build an index.html for a rendered subdir.  GitHub Pages serves
 // `dir/` as `dir/index.html`, so generating these makes README's
-// `[plans/](plans/)` etc. resolve to a real listing instead of a 404.
+// `[language-reference/](language-reference/)` resolve to a real
+// listing instead of a 404.
 // Entries are alphabetised by title; one bullet per file, linking to
 // the rendered .html with the page's `# H1` as link text.
 function buildIndexBody(subdir, entries) {
@@ -354,7 +271,7 @@ ${items.join('\n')}
 async function writeSubdirIndex(subdir, entries) {
   if (entries.length === 0) return;
   const depth = subdir.split('/').length;
-  const body = archivedNotice(`${subdir}/`, depth) + buildIndexBody(subdir, entries);
+  const body = buildIndexBody(subdir, entries);
   const outPath = join(OUT, subdir, 'index.html');
   const styleHref = `${'../'.repeat(depth)}style.css`;
   await writeFile(
@@ -415,8 +332,8 @@ async function main() {
   console.log('copied    style.css');
 }
 
-// Run only when invoked directly (`node docs/build.mjs`), so the pure
-// helpers above stay importable from test/system/archived-docs-fence.test.ts.
+// Run only when invoked directly (`node docs/build.mjs`), so the module
+// stays importable without side effects.
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   main().catch((err) => {
     console.error(err);

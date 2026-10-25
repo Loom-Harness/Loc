@@ -94,7 +94,7 @@ npm run test:schema-load           # LOOM_SCHEMA_LOAD=1 (docker sidecar, or LOOM
 # port and feeds it its OWN emitted /openapi.json to Schemathesis: never a 500, responses conform to
 # the declared schema, declared required/format/enum/bounds honored.  Known findings are ratcheting
 # ROOT-CAUSE rules in test/behavioral/schemathesis-waivers.json (unattributed finding fails the run;
-# a rule that stops reproducing fails it too), documented in docs/audits/schemathesis-findings-2026-08.md.
+# a rule that stops reproducing fails it too); each rule carries its own `reason`.
 # Needs `uv tool install schemathesis==4.24.3 --with jsonschema-rs==0.49.1` + `cd test/behavioral && npm ci`.  ~1 min; nightly in CI.
 npm run test:schemathesis          # LOOM_SCHEMATHESIS=1 (node/Hono leg)
 npm run test:schemathesis-{python,java,dotnet,elixir}   # booted legs; all five bind

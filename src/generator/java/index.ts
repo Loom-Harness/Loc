@@ -281,7 +281,7 @@ import { javaRequestComponentOwners } from "./request-component-owners.js";
 // `<base>` is `com.loom.<deployable>` (see naming.ts).  Per-aggregate file
 // placement routes through the deployable's resolved layout adapter
 // (byFeature default / byLayer), which owns BOTH the package and the path
-// so they can't drift.  See docs/old/plans/java-backend-implementation.md.
+// so they can't drift.  See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/java-backend-implementation.md.
 // ---------------------------------------------------------------------------
 
 interface SystemArgs {

@@ -12,7 +12,7 @@ import { MONEY_WIRE_SCALE } from "../money-scale.js";
 // expression the call site already built (`domainExpr`, `${read}!.Value`,
 // `(${read} ?? 0m)`, …) — the null-guard / receiver-shaping stays exactly as
 // each boundary had it, so moving the literal in is a byte-identical
-// extraction (see docs/new-plan/waves/handoffs/wave-2-numeric-codec.md).
+// extraction (see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-2-numeric-codec.md).
 // ---------------------------------------------------------------------------
 
 /** `System.Decimal` → the `double` a declared `decimal` crosses the wire as

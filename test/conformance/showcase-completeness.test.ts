@@ -105,7 +105,7 @@ const ALLOWLIST = new Set<string>([
   // Tenancy is covered by its dedicated corpus fixtures
   // (test/fixtures/corpus/tenancy-owned.ddd + tenancy-filter.ddd) instead.
   // Tenancy-izing the showcase is a deliberate follow-up, not a drive-by
-  // (docs/old/plans/multi-tenancy-implementation.md).
+  // (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-tenancy-implementation.md).
   "TenancyDecl",
   // Folded projections (materialized read models folded from events) now emit
   // on ALL FIVE backends — read-model row schema, migration, pure `on(e){…}`

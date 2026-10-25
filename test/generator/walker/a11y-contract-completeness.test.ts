@@ -1,5 +1,5 @@
 // Completeness gate for the per-primitive accessibility contract
-// (docs/old/proposals/accessibility.md, Phase 1).
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/accessibility.md, Phase 1).
 //
 // The `a11y` field on `PrimitiveDef` is REQUIRED, so the compiler already
 // forces every WALKER_PRIMITIVES entry to declare a contract — adding a

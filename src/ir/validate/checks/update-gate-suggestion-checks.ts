@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
-// Update-gate bypass lint (audit D3, `docs/audits/2026-09-10-claimshub-dev-
-// experience.md`; helpdesk eval H-01 for the `when` / `precondition` gates).
+// Update-gate bypass lint (audit D3,
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-10-claimshub-dev-experience.md; helpdesk eval H-01 for the `when` / `precondition` gates).
 //
 // THE SHAPE.  `crudish` synthesises a generic `update(...)` that assigns every
 // writable update field.  When the author then grows a guarded state-machine

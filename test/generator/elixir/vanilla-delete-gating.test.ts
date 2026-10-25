@@ -4,7 +4,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // ---------------------------------------------------------------------------
 // The CRUD `delete` seam is gated on a reachable `destroy` operation.
 //
-// Audit `docs/audits/generated-code-ddd-review-2026-07.md`: a `softDeletable`
+// Audit `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/generated-code-ddd-review-2026-07.md`: a `softDeletable`
 // aggregate with no `destroy` op still shipped a hard-`Repo.delete(record)` on
 // its repository (plus a `delete_<agg>` context defdelegate and a controller
 // `delete` action) even though the ROUTER — correctly — never routed a DELETE to

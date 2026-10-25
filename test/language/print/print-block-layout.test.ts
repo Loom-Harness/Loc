@@ -4,7 +4,7 @@
 // The corpus round-trip gates (`print-roundtrip` / `print-structural-roundtrip`)
 // only cover constructs the examples happen to contain, so three layout bugs
 // survived in the constructs that dominate UI page bodies (2026-07 unfold
-// review, `docs/audits/unfold-printer-layout-review-2026-07.md`):
+// review, `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/unfold-printer-layout-review-2026-07.md`):
 //
 //   1. a multi-statement `match` arm printed with `;` separators the statement
 //      grammar has no token for — the ejected source did not re-parse;

@@ -16,7 +16,7 @@ import { parseDdd } from "./parse";
 // source they never typed — and, worse, one the builders then refuse to open.
 // `ifParses` is the shared gate: candidate text is re-parsed and only returned
 // when it still parses, so a bad write becomes a visible no-op instead of a
-// corrupted file.  See `docs/audits/playground-file-mgmt-review-2026-07.md` #12.
+// corrupted file.  See `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/playground-file-mgmt-review-2026-07.md` #12.
 // ---------------------------------------------------------------------------
 
 export interface TextEdit {

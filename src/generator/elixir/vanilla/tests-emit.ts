@@ -154,7 +154,6 @@ function skipBody(reason: string): string[] {
   return [
     "  # Skipped on vanilla Elixir: this emitter can't lower the test to the pure",
     `  # domain core.  Reason: ${reason}`,
-    "  # See docs/audits/test-parity-generated-backends.md.",
     "  :ok",
   ];
 }

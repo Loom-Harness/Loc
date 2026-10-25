@@ -33,7 +33,7 @@ in-process — no docker, no separate Postgres) and runs the suites Loom
   Its own `behavioral-e2e-python.yml` workflow (a `services: postgres`
   sidecar) — the A6.2 second backend for the runtime-semantics RS-rules (see
   `docs/conformance-semantics.md` and
-  `docs/old/plans/a6.2-behavioral-tier-second-backend.md`). Needs `uv` + a
+  [`docs/old/plans/a6.2-behavioral-tier-second-backend.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/a6.2-behavioral-tier-second-backend.md)). Needs `uv` + a
   reachable `DATABASE_URL`; run: `node run-python.mjs`. `LOOM_BH_PY_BASE`
   dispatches the api tier at an already-running server (and skips `uv sync`,
   so the unit tier is skipped too).
@@ -45,7 +45,7 @@ in-process — no docker, no separate Postgres) and runs the suites Loom
   backend-agnostic api suite at it. Its own `behavioral-e2e-dotnet.yml`
   workflow (a `services: postgres` sidecar) — the RST-2 third backend for the
   runtime-semantics RS-rules (see
-  `docs/old/plans/runtime-semantics-tier-followups.md`). Needs the .NET SDK
+  [`docs/old/plans/runtime-semantics-tier-followups.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/runtime-semantics-tier-followups.md)). Needs the .NET SDK
   (`dotnet`) + a reachable `ConnectionStrings__Default`; run:
   `node run-dotnet.mjs`. `LOOM_BH_DOTNET_BASE` dispatches at an
   already-running server (skips the boot).
@@ -70,7 +70,7 @@ in-process — no docker, no separate Postgres) and runs the suites Loom
   real DB, re-pointing the backend-agnostic api suite at it. Its own
   `behavioral-e2e-java.yml` workflow (a `services: postgres` sidecar) — the
   RST-3 fourth backend for the runtime-semantics RS-rules (see
-  `docs/old/plans/runtime-semantics-tier-followups.md`). Needs JDK 21 + Gradle
+  [`docs/old/plans/runtime-semantics-tier-followups.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/runtime-semantics-tier-followups.md)). Needs JDK 21 + Gradle
   (`gradle`) + a reachable `SPRING_DATASOURCE_URL`; run: `node run-java.mjs`.
   `LOOM_BH_JAVA_BASE` dispatches at an already-running server (skips the boot).
 - **elixir** — the SAME emitted api e2e, run against a booted **generated
@@ -81,7 +81,7 @@ in-process — no docker, no separate Postgres) and runs the suites Loom
   against a real DB and re-points the backend-agnostic api suite at it. Its own
   `behavioral-e2e-elixir.yml` workflow (a `services: postgres` sidecar) — the
   M-T9.3 FIFTH and final backend on the behavioral tier (see
-  `docs/new-plan/T9-toolchain-health.md`). Needs Erlang/OTP + Elixir (`mix`) +
+  [`docs/new-plan/T9-toolchain-health.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T9-toolchain-health.md)). Needs Erlang/OTP + Elixir (`mix`) +
   a reachable `DATABASE_URL` (ecto:// form); run: `node run-elixir.mjs`.
   `LOOM_BH_ELIXIR_BASE` dispatches at an already-running server (skips the
   boot). Behind a TLS-fingerprint-allowlisting egress proxy, `mix deps.get`
@@ -232,7 +232,7 @@ LOOM_SCHEMATHESIS=1 node run-schemathesis.mjs storefront-system   # one case
 
 Known findings are **ratcheting root-cause rules** in
 `schemathesis-waivers.json`, explained in
-[`docs/audits/schemathesis-findings-2026-08.md`](../../docs/audits/schemathesis-findings-2026-08.md):
+[`docs/audits/schemathesis-findings-2026-08.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md):
 a finding no rule matches fails the run, and a rule that stops reproducing
 fails it too, so a fix deletes its rule in the same PR. Nightly in CI
 (`schemathesis.yml`), or on demand via the `run-schemathesis` label.

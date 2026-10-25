@@ -2,7 +2,7 @@
 // `.vscode/launch.json` — system-root VS Code debug configuration wrapping
 // each debuggable deployable's own `PlatformSurface.debugLaunch()` fragment
 // (Node debug wiring; M26 extends the seam to .NET
-// `coreclr` and Java `java` configs). See docs/old/plans/dap-node-debug.md.
+// `coreclr` and Java `java` configs). See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md.
 //
 // Emitted ONLY under `--sourcemap` (a `SourceMapRecorder` is present) —
 // additive, sits alongside `docker-compose.yml` at the system output root.

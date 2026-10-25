@@ -7,7 +7,7 @@ import { MONEY_WIRE_SCALE } from "../money-scale.js";
 // Five PRs in four days (#2545, #2560, #2575 ×3, #2631) fixed the SAME defect
 // at five different read paths: the number wire contract is one cross-cutting
 // decision, implemented as many scattered per-backend, per-read-path
-// coercions (docs/audits/numeric-types-audit-2026-08-23.md).  This module is
+// coercions (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/numeric-types-audit-2026-08-23.md).  This module is
 // the single statement of that decision — every backend's read-boundary
 // emitter asks THIS, once, instead of re-deriving "is this money? then
 // format 4dp" locally.

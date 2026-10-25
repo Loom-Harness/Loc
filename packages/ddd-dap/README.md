@@ -48,7 +48,7 @@ It does **not** yet delegate to a running target debugger. Live stepping
 backend) requires spawning and proxying the target's own debugger
 (`js-debug` / `coreclr` / JDWP) and remapping only line/scope on top — the
 documented, editor-verified frontier (see
-[`docs/old/proposals/source-map-and-debugging.md`](../../docs/old/proposals/source-map-and-debugging.md)
+[`docs/old/proposals/source-map-and-debugging.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/source-map-and-debugging.md)
 §6E).
 
 **For live stepping today**, use the native editor path: `ddd generate

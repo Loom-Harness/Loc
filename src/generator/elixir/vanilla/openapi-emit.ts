@@ -240,7 +240,7 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
   // declaration.  So a deployable declared with `contexts:` alone falls back to
   // the app name and still publishes the same route-derived document the other
   // four backends publish either way (F15,
-  // `docs/audits/schemathesis-findings-2026-08.md`).  Without the fallback such
+  // `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md`).  Without the fallback such
   // a deployable emits no spec module, no OpenapiController and no
   // `/openapi.json` route at all.
   const servedApi = deployable.serves?.[0];

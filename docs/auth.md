@@ -1114,7 +1114,7 @@ block.  The DEFAULT sidebar is built from the aggregate/workflow lists rather
 than from the pages, so it stays visible even when the page behind it is gated:
 a denied principal sees the link, clicks it, and gets `<Forbidden/>`.  Write a
 `menu { … }` block if the link itself must disappear.  Tracked as **C3** in
-`docs/new-plan/missions/M-T3.15-read-surface-and-system-reads-plan.md`.
+[`#3347`](https://github.com/Loom-Harness/Loc/issues/3347).
 
 `currentUser` is in scope wherever an expression evaluates **per
 request**:

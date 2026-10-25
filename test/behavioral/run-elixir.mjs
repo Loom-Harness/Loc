@@ -7,7 +7,7 @@
 // it — the emitted suite is written against the HTTP contract, so it is
 // backend-agnostic (matched on pathname). Sibling of run-java.mjs; this is the
 // FIFTH and final backend on the behavioral tier. See
-// docs/new-plan/T9-toolchain-health.md (M-T9.3).
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T9-toolchain-health.md (M-T9.3).
 //
 // This gates the *behavioral* runtime-semantics RS-rules (conformance-
 // semantics.md) on a FIFTH backend per-PR: camelCase keys both directions

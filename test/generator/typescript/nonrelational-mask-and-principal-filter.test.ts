@@ -1,7 +1,7 @@
 // The NON-RELATIONAL node repository builders were cloned from the relational
 // one, and each dropped a piece the original carries.  Two pairwise-corpus
 // findings, same shape one level apart (register:
-// `docs/audits/pairwise-corpus-findings-2026-08.md`, F2 + F5):
+// `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/pairwise-corpus-findings-2026-08.md`, F2 + F5):
 //
 //   F2  `mask unless` × `shape: document` / `shape: embedded` /
 //       `persistedAs: eventLog` (drizzle).  The route builder calls

@@ -2,7 +2,7 @@
 // must both target the FLATTENED leaf columns, not a `row.<field>` /
 // `aggregate.<field>` that does not exist / may be null.
 //
-// From `docs/audits/repo-code-review-2026-07.md` C1: an optional VO field
+// From `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/repo-code-review-2026-07.md` C1: an optional VO field
 // (`billing: Address?`) was broken end-to-end on the Hono backend —
 //   • save projected `aggregate.billing.street` with NO guard on the parent, so
 //     persisting an aggregate whose optional VO is null threw a TypeError; and
@@ -13,7 +13,7 @@
 // No example exercised an optional singular VO, so the compile gates never saw
 // it.  This pins the guarded, correct-column output on both paths.
 //
-// ── Second pass: `docs/audits/2026-09-10-eshop-dev-experience.md` D5/P3 ──────
+// ── Second pass: `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-10-eshop-dev-experience.md` D5/P3 ──────
 // The guards above were placed correctly but NARROWED nothing beyond the one
 // expression they mention, and both halves broke one level past what the first
 // pass measured:

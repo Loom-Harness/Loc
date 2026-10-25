@@ -7,7 +7,7 @@
 //     user { id: string  role: string  customerId: Customer id? }
 //
 // broke four of five backends, and the missing IMPORT was half of it (D6/P2 of
-// `docs/audits/2026-09-10-eshop-dev-experience.md`).  The strong-id class the
+// `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-10-eshop-dev-experience.md`).  The strong-id class the
 // claim's type names is emitted into the DOMAIN tree — `domain/ids.ts`,
 // `<basePkg>.domain.ids`, `app/domain/ids` — while the `User` shape is emitted
 // into the AUTH tree, so naming it without an import is a hard compile error on

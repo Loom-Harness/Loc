@@ -1,5 +1,0 @@
-context C {
-  aggregate B { name: string  derived display: string = name }
-  aggregate A { other: B }
-  repository As for A { }  repository Bs for B { }
-}

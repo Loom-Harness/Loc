@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
-// B14 (docs/audits/behavioral-parity-bugs-2026-07.md) — an OPTIONAL single
+// B14 (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/behavioral-parity-bugs-2026-07.md) — an OPTIONAL single
 // containment (`contains note: Memo?`) on a `shape: embedded` vanilla (plain
 // Ecto) aggregate.  The vanilla backend is already null-safe here (unlike node /
 // dotnet, which needed fixes): the containment folds into an `embeds_one`, and

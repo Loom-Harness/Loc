@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { CORPUS } from "../fixtures/corpus/manifest.js";
 
 // ---------------------------------------------------------------------------
-// Feature-doc coverage gate (Phase 2 of docs/old/plans/global-test-coverage-plan.md).
+// Feature-doc coverage gate (Phase 2 of https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/global-test-coverage-plan.md).
 //
 // `corpus-coverage.test.ts` already enforces the FORWARD direction: every
 // manifest row's `doc:` citation resolves to a real `docs/<doc>.md`.  This gate

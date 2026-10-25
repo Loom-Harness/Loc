@@ -2,7 +2,7 @@
 // Per-primitive accessibility contract — the single source of truth for the
 // WCAG 2.2 AA semantics each walker primitive must emit.
 //
-// See docs/old/proposals/accessibility.md.  The thesis: the page DSL is a closed,
+// See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/accessibility.md.  The thesis: the page DSL is a closed,
 // semantically-named primitive library, so every fact a correct a11y
 // implementation needs (role, accessible name, keyboard pattern, heading
 // level, landmark, live-region politeness) is derivable from the IR.  This

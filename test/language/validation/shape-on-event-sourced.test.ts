@@ -8,7 +8,7 @@
 // generated output, and `ddd parse --json` reported `errors: 0, warnings: 0`.
 //
 // Snapshot rehydration in a document/embedded shape is a deferred feature
-// (docs/new-plan/T2-data-evolution.md) — but a deferral that ACCEPTS the syntax
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T2-data-evolution.md) — but a deferral that ACCEPTS the syntax
 // and silently persists the OTHER shape is a silent gap, which is exactly what
 // the sibling `loom.unique-on-event-sourced` gate already refuses.
 
