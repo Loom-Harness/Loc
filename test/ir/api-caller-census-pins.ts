@@ -617,6 +617,10 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.memos.history (no derived operation)",
     "api.orders.history (no derived operation)",
   ],
+  // The same entity-history read class: `field-mask` reads its audited
+  // aggregate's trail as the unprivileged principal (the masked-field DROP and
+  // the RS-45 `actor`).
+  "corpus/field-mask": ["api.employees.history (no derived operation)"],
   "corpus/audit-history-guarded": [
     "api.employees.history (no derived operation)",
     "api.payslips.history (no derived operation)",
@@ -740,6 +744,12 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.review.instances (no such aggregate)",
   ],
   "corpus/workflow-command-payload": ["api.claimHandling.run (no such aggregate)"],
+  // The two `transactional` workflows the domain-service tiers orchestrate —
+  // the same not-lifted workflow-run class as the entries above.
+  "corpus/domain-services": [
+    "api.moveMoney.run (no such aggregate)",
+    "api.registerAccount.run (no such aggregate)",
+  ],
   "corpus/projection-implicit-sub": [
     "api.fulfilment.instance (no such aggregate)",
     "api.fulfilment.instances (no such aggregate)",

@@ -3,7 +3,12 @@ import {
   serverSourcedDefaultFields,
 } from "../../../generator/_frontend/server-default.js";
 import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
-import { LONG_SAFE_MAX, LONG_SAFE_MIN } from "../../../generator/_numeric/codec.js";
+import {
+  INT32_MAX,
+  INT32_MIN,
+  LONG_SAFE_MAX,
+  LONG_SAFE_MIN,
+} from "../../../generator/_numeric/codec.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import { requestComponentNamer } from "../../../generator/_openapi/request-component-names.js";
@@ -116,6 +121,7 @@ import {
 import {
   DANGLING_REFERENCE_DETAIL,
   problemTitle,
+  UNIQUE_CONFLICT_DETAIL,
   UNPROCESSABLE_ENTITY,
 } from "../../../ir/util/openapi-errors.js";
 import {
@@ -149,6 +155,7 @@ import {
   resolveErrorStatus,
 } from "../../../util/error-defaults.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import { INTEGER_RANGE_MESSAGE } from "../../../util/numeric-range.js";
 import { escapeTargetMember } from "../../../util/target-identifiers.js";
 
 // ---------------------------------------------------------------------------
@@ -289,10 +296,9 @@ function emitHistoryRoute(
     );
   }
   if (find.requires) {
-    // The history read is a find like any other, so its 403 `detail` carries
-    // the same source label every read gate does (`Forbidden: find <name>`) —
-    // the five backends agree on it, pinned by the `audit-history-guarded`
-    // wire golden.
+    // The history read is the derived find `history`, so its 403 `detail` is
+    // the declared-find spelling `Forbidden: find <name>` — the same sentence
+    // every backend answers for this refusal.
     out.push(
       `    if (!(${renderTsExpr(find.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${find.name}`)});`,
     );
@@ -608,6 +614,7 @@ export function buildRoutesFile(
     // Needs the schema tables (runtime value), a UUID, and the db/events
     // types for the transactional repo (mirrors the workflow routes' imports).
     lines.push(`import { randomUUID } from "node:crypto";`);
+    if (fileHasAudit) lines.push(`import { auditActor } from "../audit/actor";`);
     if (usingMikro) {
       // MikroORM edition: `db` is the EntityManager and the history rows are
       // its Row entities (`em.insert(<Row>, …)`), so pull the entity classes +
@@ -1092,9 +1099,8 @@ export function buildRoutesFile(
       // transaction (mirrors the operation audit path).  Asymmetry: create
       // has no `before` (JSON null on the not-NULL column), `after` is the
       // freshly-created wire snapshot, keyed by the generated id.  Actor =
-      // the inbound claim via the untyped-key bridge (null when no auth).
-      const actorExpr = `(c as unknown as { get(k: "currentUser"): unknown }).get("currentUser") ?? null`;
-      lines.push(`      const actor = ${actorExpr};`);
+      // the principal's declared shape (`auditActor`, null when no auth).
+      lines.push(`      const actor = auditActor();`);
       lines.push(`      const reqCtx = requestContext();`);
       lines.push(`      const __deferred = deferredDispatcher(events);`);
       lines.push(`      await ${txWrapperCall(usingMikro)}`);
@@ -1368,10 +1374,8 @@ export function buildRoutesFile(
       // the row + deletion commit or roll back together (a failed delete
       // must not leave a spurious destroy record).  Asymmetry: `before` is
       // the last wire snapshot, `after` is JSON null (hard delete).  Actor
-      // = the inbound claim via the untyped-key bridge (null when no auth).
-      lines.push(
-        `        const actor = (c as unknown as { get(k: "currentUser"): unknown }).get("currentUser") ?? null;`,
-      );
+      // = the principal's declared shape (`auditActor`, null when no auth).
+      lines.push(`        const actor = auditActor();`);
       lines.push(`        const reqCtx = requestContext();`);
       lines.push(`        const __deferred = deferredDispatcher(events);`);
       lines.push(`        await ${txWrapperCall(usingMikro)}`);
@@ -1624,7 +1628,7 @@ export function buildRoutesFile(
     );
     lines.push(`      recordDomainFault("disallowed");`);
     lines.push(
-      `      return problem(${uniquenessStatus}, "Conflict", \`A ${agg.name} with these values already exists.\`);`,
+      `      return problem(${uniquenessStatus}, "Conflict", ${JSON.stringify(UNIQUE_CONFLICT_DETAIL)});`,
     );
     lines.push(`    }`);
   }
@@ -1901,20 +1905,16 @@ function auditProvTxLines(args: {
   audit: boolean;
   prov: boolean;
   usingMikro: boolean;
-  usesUser: boolean;
   isVersionedUpdate: boolean;
   mutation: (pad: string) => string[];
   capture?: boolean;
 }): string[] {
-  const { agg, op, ctx, audit, prov, usingMikro, usesUser, isVersionedUpdate, mutation } = args;
+  const { agg, op, ctx, audit, prov, usingMikro, isVersionedUpdate, mutation } = args;
   const out: string[] = [];
   if (audit) {
-    // Actor = the typed currentUser if the body already reads it, else
-    // the inbound claim via the untyped-key bridge (null when no auth).
-    const actorExpr = usesUser
-      ? "currentUser"
-      : `(c as unknown as { get(k: "currentUser"): unknown }).get("currentUser") ?? null`;
-    out.push(`    const actor = ${actorExpr};`);
+    // Actor = the principal's declared shape (`auditActor`, null when no
+    // auth) — never the principal object itself, which can carry more.
+    out.push(`    const actor = auditActor();`);
   }
   // The request correlation id + frame scope id stamped onto every audit /
   // provenance row, tying each to the request (and its causality position)
@@ -2149,7 +2149,6 @@ function emitOperationRoute(
         audit,
         prov,
         usingMikro,
-        usesUser,
         isVersionedUpdate,
         mutation,
       }),
@@ -2275,7 +2274,6 @@ function emitReturningOperationRoute(
         audit,
         prov,
         usingMikro,
-        usesUser,
         // A returning `update` does not take the `If-Match` precondition path —
         // the void handler owns the canonical crudish update; a hand-declared
         // returning op of the same name keeps the write-time CAS fallback.
@@ -2698,7 +2696,11 @@ const NO_NUL = '.refine((s: string) => !s.includes("\\u0000"))';
  *  are deliberately not matched here. */
 const PLAIN_STRING_BASE = "z.string()";
 
-const INT32_RANGE = ".min(-2147483648).max(2147483647)";
+/** The bound carries the cross-backend range sentence (RS-42) rather than
+ *  zod's own text, which is both framework-worded and zod-major-specific
+ *  ("Too big: expected number to be <=…" on 4, "Number must be less than or
+ *  equal to …" on 3). */
+const INT32_RANGE = `.min(${INT32_MIN}, ${JSON.stringify(INTEGER_RANGE_MESSAGE)}).max(${INT32_MAX}, ${JSON.stringify(INTEGER_RANGE_MESSAGE)})`;
 /** `long`'s enforced-but-unpublished safe-integer bound — see the block comment
  *  above.  A `.refine` is invisible to the OpenAPI emitter, so the published
  *  shape stays the plain integer every other backend publishes while this

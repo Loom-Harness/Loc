@@ -73,7 +73,7 @@ import { denialOverrides, denialResponse } from "./denial.js";
 import { docFilterLambdaArg, docPredReadsRecord, isVanillaDocAgg } from "./document-emit.js";
 import { findParamRead } from "./find-controller.js";
 import { effectiveGate } from "./gate.js";
-import { ELIXIR_NUMERIC, elixirMoneyRoundHelper } from "./numeric-codec.js";
+import { ELIXIR_NUMERIC, elixirDecimalNumHelper, elixirMoneyRoundHelper } from "./numeric-codec.js";
 import { hasRefColls, preloadSuffix } from "./ref-collection-emit.js";
 import { renderWireSerialize } from "./wire-serialize.js";
 
@@ -518,6 +518,11 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
   // (`--warnings-as-errors` turns an undefined private fn into a failure), so
   // the flag and the emission stay adjacent.
   let usesMoneyRound = false;
+  // The plain-`decimal` twin: Jason encodes a selected `%Decimal{}` as a JSON
+  // STRING, so a joined `fee` read `"2.5"` where every other backend (and the
+  // aggregate's own read) answers the NUMBER 2.5 (RS-24).  Gates
+  // `__decimal_num/1` the same way.
+  let usesDecimalNum = false;
   if (isShorthand && sourceAgg) {
     lines.push(`    Enum.map(rows, &serialize/1)`);
     // A DOCUMENT row's wire fields live on the `:data` embed while `id` /
@@ -553,10 +558,10 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
     // same column — invisible to a status-code assertion, and invisible to the
     // wire-golden differential until this fixture has a golden.
     const rowFieldType = new Map(proj.stateFields.map((f) => [f.name, f.type] as const));
-    const isMoney = (t: TypeIR | undefined): boolean => {
+    const isPrimitive = (t: TypeIR | undefined, name: "money" | "decimal"): boolean => {
       if (!t) return false;
       const inner = t.kind === "optional" ? t.inner : t;
-      return inner.kind === "primitive" && inner.name === "money";
+      return inner.kind === "primitive" && inner.name === name;
     };
     // Over a document source the projected values read the rehydrated embed
     // (`record = row.data`), with a root `id`/`version` lifted back to the row —
@@ -565,8 +570,14 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
       const tail = i === selects.length - 1 ? "" : ",";
       const base = renderSelectEcto(s.expr, aliasMap, isDocSource ? docRenderCtx : renderCtx);
       const rendered = isDocSource ? liftDocRootId(base, "row") : base;
-      const ve = isMoney(rowFieldType.get(s.field)) ? `__money_round(${rendered})` : rendered;
-      if (ve !== rendered) usesMoneyRound = true;
+      const rowType = rowFieldType.get(s.field);
+      const ve = isPrimitive(rowType, "money")
+        ? `__money_round(${rendered})`
+        : isPrimitive(rowType, "decimal")
+          ? `__decimal_num(${rendered})`
+          : rendered;
+      if (isPrimitive(rowType, "money")) usesMoneyRound = true;
+      if (isPrimitive(rowType, "decimal")) usesDecimalNum = true;
       return `        ${s.field}: ${ve}${tail}`;
     });
     if (isDocSource) {
@@ -620,7 +631,7 @@ ${ectoQueryImport}${ectoQueryRequire}  alias ${appModule}.Repo
 ${body}
   end${projectionHelpers}${denyHelper}${
     usesMoneyRound ? `\n\n${elixirMoneyRoundHelper()}` : ""
-  }${joinedHelper(body)}
+  }${usesDecimalNum ? `\n\n${elixirDecimalNumHelper()}` : ""}${joinedHelper(body)}
 end
 `;
 }

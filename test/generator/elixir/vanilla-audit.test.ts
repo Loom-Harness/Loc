@@ -438,7 +438,10 @@ describe("vanilla audit snapshot shape — Audit.Wire", () => {
     );
     expect(audit).toContain("defp serialize_unmasked_orders_order(record) do");
     expect(audit).not.toContain("defp serialize_orders_order(record) do");
-    expect(audit).not.toContain("Process.get(:loom_current_user)");
+    // The snapshot projector never reads the principal (the sink's `actor/0`
+    // does, for the row's actor — RS-45 — which is not a snapshot).
+    const wire = audit.slice(audit.indexOf("defmodule Api.Audit.Wire"));
+    expect(wire).not.toContain("Process.get(:loom_current_user)");
     expect(audit).toContain('"secretNote" => record.secret_note');
   });
 });

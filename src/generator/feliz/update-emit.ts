@@ -40,6 +40,7 @@ import {
   formFileSelectMsg,
   formFileUploadedMsg,
   formHasFieldErrors,
+  formServerField,
   formTouchedField,
   formTouchMsg,
   ifMatchVersionExpr,
@@ -272,6 +273,9 @@ export function renderModel(
       // The set of field names the user has blurred — gates each inline error so
       // an untouched field stays quiet (react-hook-form's onTouched behaviour).
       ...(formHasFieldErrors(f) ? [`    ${formTouchedField(f.formField)}: Set<string>`] : []),
+      // The form's last rejected submit, decoded — rendered at the fields its
+      // JSON pointers name, the rest above the submit.
+      `    ${formServerField(f.formField)}: ServerErrors`,
     ]),
   ];
   if (fields.length === 0) return "type Model = { Unit: unit }";
@@ -396,6 +400,7 @@ export function renderInit(
     ...forms.flatMap((f) => [
       `      ${f.formField} = ${f.emptyBinding}`,
       ...(formHasFieldErrors(f) ? [`      ${formTouchedField(f.formField)} = Set.empty`] : []),
+      `      ${formServerField(f.formField)} = ServerErrors.empty`,
     ]),
   ];
   // List reads fire eagerly; byId reads fire on page entry via `pageCmd page`.
@@ -493,7 +498,7 @@ export function renderMsg(
       ...(formHasFieldErrors(f) ? [`  | ${formTouchMsg(f.formType)} of string`] : []),
       ...fieldArrayMsgs(f),
       `  | ${f.submitMsg}`,
-      `  | ${f.resultMsg} of Result<${f.resultType}, string>`,
+      `  | ${f.resultMsg} of Result<${f.resultType}, ServerErrors>`,
     ]),
     // An operation form: `Set` per param + a `Submit … of string` (carries the
     // route id) + a `Done` result (the op returns 204 → `unit`).
@@ -502,7 +507,7 @@ export function renderMsg(
       ...(formHasFieldErrors(f) ? [`  | ${formTouchMsg(f.formType)} of string`] : []),
       ...fieldArrayMsgs(f),
       `  | ${f.submitMsg} of string`,
-      `  | ${f.doneMsg} of Result<unit, string>`,
+      `  | ${f.doneMsg} of Result<unit, ServerErrors>`,
     ]),
     // A workflow form: `Set` per param + a PARAMLESS `Submit` + a `Done` result.
     ...workflowForms.flatMap((f) => [
@@ -510,7 +515,7 @@ export function renderMsg(
       ...(formHasFieldErrors(f) ? [`  | ${formTouchMsg(f.formType)} of string`] : []),
       ...fieldArrayMsgs(f),
       `  | ${f.submitMsg}`,
-      `  | ${f.doneMsg} of Result<unit, string>`,
+      `  | ${f.doneMsg} of Result<unit, ServerErrors>`,
     ]),
     // An async effect (`match await`): a trigger carrying the route id (+ any op
     // args) + a result carrying the decoded `<outcome> option` (a matched variant
@@ -919,6 +924,10 @@ export function renderUpdate(
           )} = Set.add field model.${formTouchedField(f.formField)} }, Cmd.none`,
         ]
       : [];
+  // A submit clears the form's previous rejection; a failed one files the
+  // decoded `ServerErrors` on the Model for the view to render.
+  const clearServer = (f: FormRecord): string =>
+    `${formServerField(f.formField)} = ServerErrors.empty`;
   // A create form: per-field setters (functional record update), a submit that
   // fires the POST `Cmd`, and a `Created` result that resets the form + navigates.
   const formArms = forms.map((f) => {
@@ -934,9 +943,9 @@ export function renderUpdate(
       ...setters,
       ...touchArm(f),
       ...fieldArrayUpdateArms(f),
-      `  | ${f.submitMsg} -> model, Cmd.OfAsync.perform Api.${f.apiFn} model.${f.formField} ${f.resultMsg}`,
+      `  | ${f.submitMsg} -> { model with ${clearServer(f)} }, Cmd.OfAsync.perform Api.${f.apiFn} model.${f.formField} ${f.resultMsg}`,
       `  | ${f.resultMsg} (Ok created) -> { model with ${f.formField} = ${f.emptyBinding} }, ${nav}`,
-      `  | ${f.resultMsg} (Error _) -> model, Cmd.none`,
+      `  | ${f.resultMsg} (Error e) -> { model with ${formServerField(f.formField)} = e }, Cmd.none`,
     ].join("\n");
   });
   // An operation form: per-field setters, a submit that fires the id-qualified
@@ -967,9 +976,9 @@ export function renderUpdate(
       ...setters,
       ...touchArm(f),
       ...fieldArrayUpdateArms(f),
-      `  | ${f.submitMsg} id -> model, Cmd.OfAsync.perform (Api.${f.apiFn} id${ifMatchArg(f)}) model.${f.formField} ${f.doneMsg}`,
+      `  | ${f.submitMsg} id -> { model with ${clearServer(f)} }, Cmd.OfAsync.perform (Api.${f.apiFn} id${ifMatchArg(f)}) model.${f.formField} ${f.doneMsg}`,
       `  | ${f.doneMsg} (Ok ()) -> { model with ${f.formField} = ${f.emptyBinding} }, ${nav}`,
-      `  | ${f.doneMsg} (Error _) -> model, Cmd.none`,
+      `  | ${f.doneMsg} (Error e) -> { model with ${formServerField(f.formField)} = e }, Cmd.none`,
     ].join("\n");
   });
   // A workflow form: per-field setters, a PARAMLESS submit firing the POST
@@ -990,9 +999,9 @@ export function renderUpdate(
       ...setters,
       ...touchArm(f),
       ...fieldArrayUpdateArms(f),
-      `  | ${f.submitMsg} -> model, Cmd.OfAsync.perform Api.${f.apiFn} model.${f.formField} ${f.doneMsg}`,
+      `  | ${f.submitMsg} -> { model with ${clearServer(f)} }, Cmd.OfAsync.perform Api.${f.apiFn} model.${f.formField} ${f.doneMsg}`,
       `  | ${f.doneMsg} (Ok ()) -> { model with ${f.formField} = ${f.emptyBinding} }, ${nav}`,
-      `  | ${f.doneMsg} (Error _) -> model, Cmd.none`,
+      `  | ${f.doneMsg} (Error e) -> { model with ${formServerField(f.formField)} = e }, Cmd.none`,
     ].join("\n");
   });
   // An async effect (`match await`) projects to four arms: the trigger fires the
@@ -1043,11 +1052,27 @@ export function renderUpdate(
     return arms;
   });
   // A one-click action: the trigger fires the id-qualified POST `Cmd`; on
-  // success it refetches the detail read (`pageCmd` when byId reads exist, so the
-  // UI reflects the mutation — the MVU twin of React's query invalidation), on
-  // error it stays put.
+  // success it refetches the detail read (`pageCmd` when byId reads exist) and
+  // the page's list reads of the same aggregate (a row-scoped action mutates a
+  // row of one), so the UI reflects the mutation — the MVU twin of React's
+  // query invalidation.  On error it stays put.
   const opActionArms = opActions.map((a) => {
-    const refetch = hasPageCmd ? "pageCmd model.CurrentPage" : "Cmd.none";
+    const refetches = [
+      ...(hasPageCmd ? ["pageCmd model.CurrentPage"] : []),
+      ...reads
+        .filter((r) => !r.single && !r.find && r.aggregate === a.aggregate)
+        .map((r) =>
+          r.paging?.controls
+            ? pagedReadCmd(r, "model")
+            : `Cmd.OfAsync.perform Api.${r.apiFn} () ${r.msgCase}`,
+        ),
+    ];
+    const refetch =
+      refetches.length === 0
+        ? "Cmd.none"
+        : refetches.length === 1
+          ? refetches[0]!
+          : `Cmd.batch [ ${refetches.join("; ")} ]`;
     const plain =
       `  | ${a.triggerMsg} id -> model, Cmd.OfAsync.perform Api.${a.apiFn} id ${a.doneMsg}\n` +
       `  | ${a.doneMsg} (Ok ()) -> model, ${refetch}\n` +

@@ -521,9 +521,13 @@ export function wireToCommandArgument(
         );
       }
       if (info.primitive === "money") {
-        // Wire string → System.Decimal.  InvariantCulture so a locale's
-        // comma-vs-dot doesn't flip the parse — and TryParse so `"12,50"`
-        // answers 422 like node's `moneySchema` instead of 500.
+        // Wire string → System.Decimal, gated by node's money GRAMMAR
+        // (`WireFormatException.IsMoneyGrammar`) before the parse: the parse
+        // style alone cannot say it — `NumberStyles.Number` reads `"12,50"`
+        // as 1250 through the invariant thousands separator.  The style below
+        // is then only what the grammar already admits (a leading `-`, one
+        // `.`), and InvariantCulture keeps a locale's comma-vs-dot out of it.
+        // TryParse, so a refusal is node's 422, not a 500.
         // The second guard is RANGE, not format: a value can parse as a
         // `decimal` and still not fit NUMERIC(MONEY_PRECISION, MONEY_WIRE_SCALE),
         // in which case it would reach the DATABASE and come back a 500 for a
@@ -535,8 +539,9 @@ export function wireToCommandArgument(
           site,
           "decimal",
           (out) =>
-            `decimal.TryParse(${expr}, NumberStyles.Number, CultureInfo.InvariantCulture, ` +
-            `out var ${out})`,
+            `global::${site.ns}.Domain.Common.WireFormatException.IsMoneyGrammar(${expr}) && ` +
+            `decimal.TryParse(${expr}, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, ` +
+            `CultureInfo.InvariantCulture, out var ${out})`,
           {
             predicate: (out) => `System.Math.Abs(${out}) < ${MONEY_MAX_EXCLUSIVE}m`,
             message: MONEY_RANGE_MESSAGE,

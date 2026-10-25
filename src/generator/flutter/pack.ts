@@ -552,8 +552,8 @@ function primitiveAvatar(c: Ctx): string {
   const inner = c.hasSrc
     ? `CircleAvatar(radius: 20, backgroundImage: NetworkImage(${String(c.src)}))`
     : "const CircleAvatar(radius: 20)";
-  if (!c.hasSrc || !c.hasAlt) return inner;
-  if (String(c.alt) === '""') return `ExcludeSemantics(child: ${inner})`;
+  if (!c.hasAlt) return inner;
+  if (String(c.alt) === '""') return c.hasSrc ? `ExcludeSemantics(child: ${inner})` : inner;
   return `Semantics(label: ${String(c.alt)}, image: true, child: ${inner})`;
 }
 

@@ -16,6 +16,7 @@ import {
   aggregatesNeedConcurrency,
 } from "../../../ir/util/aggregate-flags.js";
 import { apiResourceBindings } from "../../../ir/util/api-resource-binding.js";
+import { contextHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { durableEventTypes } from "../../../ir/util/channels.js";
 import { echoesDenialDetail } from "../../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
@@ -75,6 +76,7 @@ import { emitVanillaEventSourcedFiles } from "./eventsourced-emit.js";
 import { emitExplicitHandlers, emitExplicitRoutesController } from "./explicit-handlers-emit.js";
 import { emitVanillaExternModules } from "./extern-emit.js";
 import { emitVanillaFilesController } from "./files-controller-emit.js";
+import { contextsHaveCheckedFindParams } from "./find-controller.js";
 import { emitOpenApiSpec } from "./openapi-emit.js";
 import { contextsHavePagedReads } from "./page-param.js";
 import { renderVanillaProblemDetailsModule } from "./problem-details-emit.js";
@@ -174,12 +176,14 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // …OR a paged read: an out-of-range `page`/`pageSize` now answers the same
   // `errors[]` 422 rather than being clamped past the bounds this app's own
   // OpenAPI document publishes (page-param.ts), and it sends through the same
-  // responder.  An app with neither stays byte-identical.
+  // responder.  So does a find whose declared query params fail their
+  // published type (find-controller.ts).  An app with none stays byte-identical.
   const hasWireDenials =
     contexts.some((c) =>
       c.aggregates.some((agg) => (agg.operations ?? []).some((op) => opHasWireDenial(op))),
     ) ||
     contextsHavePagedReads(contexts) ||
+    contextsHaveCheckedFindParams(contexts) ||
     // …OR a command workflow with params: a request omitting one answers the
     // same `errors[]` 422 (one pointer per missing param, L1-E / E7).
     contexts.some((c) =>
@@ -682,9 +686,11 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     appName,
     appModule,
     // A hosted `mask unless` aggregate needs the principal in the process
-    // dictionary (the REST `serialize/1` reads it to redact fail-closed).
-    hasFieldMask: contexts.some((c) =>
-      c.aggregates.some((a) => a.fields.some((f) => f.maskUnless)),
+    // dictionary (the REST `serialize/1` reads it to redact fail-closed), and
+    // so does an audited one: `Audit.record/2` reads it for the row's `actor`.
+    hasFieldMask: contexts.some(
+      (c) =>
+        contextHasAuditedTarget(c) || c.aggregates.some((a) => a.fields.some((f) => f.maskUnless)),
     ),
   });
   for (const [path, content] of authFiles) {

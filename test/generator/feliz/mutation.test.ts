@@ -83,11 +83,13 @@ describe("feliz delete mutations", () => {
 
   it("the DestroyForm renders a button that dispatches Delete<Agg> id", async () => {
     const app = await appFs(DELETE);
+    // Confirmed first, like every frontend's delete; the label and the prompt
+    // are the shared `chrome.delete*` messages.
     expect(app).toContain(
-      'Html.button [ prop.className "btn btn-error"; prop.onClick (fun _ -> dispatch (DeleteProduct id)); prop.text "Delete Product" ]',
+      'Html.button [ prop.className "btn btn-error"; prop.onClick (fun _ -> if Browser.Dom.window.confirm ((I18n.tf "chrome.deleteConfirm" "Delete this {entity}?" [ "entity", box ("product") ])) then dispatch (DeleteProduct id)); prop.text (I18n.tf "chrome.deleteEntity" "Delete {entity}" [ "entity", box ("Product") ]) ]',
     );
     // No React/RHF sentinel leaked from the shared DestroyForm default path.
-    expect(app).not.toContain("window.confirm");
+    expect(app).not.toContain("window.confirm(");
     expect(app).not.toContain("mutateAsync");
   });
 

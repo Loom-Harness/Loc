@@ -58,10 +58,10 @@ describe("java generator — value-object collections arrive mutable", () => {
     expect(update, "no update(...) method emitted").toBeTruthy();
     // The required shape, on both the mandatory and the optional collection.
     expect(update).toContain(
-      "var lineItems = new java.util.ArrayList<>(request.lineItems().stream().map(__x -> toMoney(__x)).toList());",
+      'var lineItems = new java.util.ArrayList<>(request.lineItems().stream().map(__x -> toMoney(__x, "/lineItems/0")).toList());',
     );
     expect(update).toContain(
-      "var surcharges = request.surcharges() == null ? null : new java.util.ArrayList<>(request.surcharges().stream().map(__x -> toMoney(__x)).toList());",
+      'var surcharges = request.surcharges() == null ? null : new java.util.ArrayList<>(request.surcharges().stream().map(__x -> toMoney(__x, "/surcharges/0")).toList());',
     );
     // …and the defect shape must be gone: a bare `.toList()` assigned straight
     // to a local that is then passed into the aggregate.
@@ -72,7 +72,7 @@ describe("java generator — value-object collections arrive mutable", () => {
     const service = (await generateSystemFiles(SRC)).get(SERVICE)!;
     const create = service.slice(0, service.indexOf("public void update("));
     expect(create).toContain(
-      "new java.util.ArrayList<>(request.lineItems().stream().map(__x -> toMoney(__x)).toList())",
+      'new java.util.ArrayList<>(request.lineItems().stream().map(__x -> toMoney(__x, "/lineItems/0")).toList())',
     );
   });
 

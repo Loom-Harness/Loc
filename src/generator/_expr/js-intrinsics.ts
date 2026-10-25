@@ -26,15 +26,14 @@
 
 import { type TypeIR, typeUsesMoney } from "../../ir/types/loom-ir.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
+import { tsCodePointSubstring } from "./code-point.js";
 export const JS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[]) => string> = {
   "string.trim": (recv) => `${recv}.trim()`,
   "string.toUpper": (recv) => `${recv}.toUpperCase()`,
   "string.toLower": (recv) => `${recv}.toLowerCase()`,
-  // 0-based clamping semantics = JS slice (see the catalogue contract).
-  "string.substring": (recv, args) =>
-    args.length > 1
-      ? `${recv}.slice(${args[0]}, (${args[0]}) + (${args[1]}))`
-      : `${recv}.slice(${args[0]})`,
+  // 0-based, clamping, counted in CODE POINTS like `.length` (the catalogue
+  // contract; `_expr/code-point.ts`).
+  "string.substring": (recv, args) => tsCodePointSubstring(recv, args[0]!, args[1]),
   "string.startsWith": (recv, args) => `${recv}.startsWith(${args[0]})`,
   "string.endsWith": (recv, args) => `${recv}.endsWith(${args[0]})`,
   "string.contains": (recv, args) => `${recv}.includes(${args[0]})`,

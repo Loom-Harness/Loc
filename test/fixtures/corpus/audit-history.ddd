@@ -44,9 +44,20 @@
 // deployable without `auth` fails to compile on .NET and java and to boot on
 // python, so they cannot ride this auth-less fixture.
 system AuditHistorySystem {
+  // A lifecycle-stamp capability on the audited `Order`: the stamp columns
+  // are written by the save, after the command's own state change, so they
+  // must stay OUT of every trail entry's `changes` — and the audited create
+  // must still answer 201 when the instance it snapshots has not been stamped
+  // in memory yet.
+  capability timestamped {
+    createdAt: datetime, updatedAt: datetime
+    stamp onCreate { createdAt := now() }
+    stamp onUpdate { updatedAt := now() }
+  }
   subdomain Ordering {
     context Ordering {
       aggregate Order audited with versioned {
+        implements timestamped
         reference: string
         quantity: int
         // `status` defaults on the FIELD, not in the create body: a create-body

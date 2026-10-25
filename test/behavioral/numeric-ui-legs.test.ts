@@ -38,7 +38,7 @@
 // proven the same way (file copy, restored, md5-verified):
 //   - deleting `barcode: long` from the vue fixture fails the vue declaration
 //     row naming barcode/long;
-//   - changing the fixture's `toHaveText("98.76")` to "98.7600" fails "the vue
+//   - changing the fixture's `toHaveText("98.7600")` to "98.76" fails "the vue
 //     UI round-trip reads every numeric field back" naming listPrice;
 //   - replacing `f[cfg.render]` in run-ui.mjs's list probe with `f.vue` fails
 //     "the vue cell is wired".

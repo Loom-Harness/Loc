@@ -17,13 +17,20 @@
 // emitted record with `WireNumberStrictness` imported:
 //
 //   probe                          node    dotnet  java    python  elixir
-//   money "12,50"                  4xx     4xx     4xx     4xx     4xx
+//   money "12,50"                  4xx     4xx*    4xx     4xx     4xx
 //   int 1.5                        4xx     4xx     4xx     4xx     4xx
 //   int "5"    (stringified)       4xx     4xx     4xx     ACCEPT  ACCEPT
 //   money 12.5 (JSON number)       4xx     4xx     4xx     4xx     ACCEPT
 //   money 40 digits                4xx     4xx     4xx     4xx     4xx
 //                                  ^ was "accept" on four until the range guard
 //   long 2^53  (past the ceiling)  4xx     accept  accept  accept  accept
+//   int 3000000000 (past int32)    422     422     422     422     422
+//                                  ^ java and .NET answered 400 until RS-42
+//
+//   * the 2026-09-08 measurement was wrong for .NET: `NumberStyles.Number`
+//     carries AllowThousands, so "12,50" PARSED (as 1250) and was accepted —
+//     the row was read off the TryParse's presence, not run.  Booted, wave C3
+//     (D22) found it; RS-42 gates the grammar ahead of the parse.
 //
 // ## The `long` row (added 2026-09-13, M-T5.23 / `D-LONG-AVG-DEFAULTS`)
 //
@@ -135,10 +142,17 @@ const BAD_MONEY_STRING: Record<Platform, Seam[]> = {
     // TryParse, not decimal.Parse: the whole point is that a malformed value is
     // a value, not an exception.
     {
-      why: "TryParse guard at the controller boundary",
+      why: "TryParse guard at the controller boundary, gated by node's grammar",
       shape:
-        /decimal\.TryParse\(request\.Price, NumberStyles\.Number, CultureInfo\.InvariantCulture/,
+        /WireFormatException\.IsMoneyGrammar\(request\.Price\) && decimal\.TryParse\(request\.Price, NumberStyles\.AllowLeadingSign \| NumberStyles\.AllowDecimalPoint, CultureInfo\.InvariantCulture/,
       file: /Controller\.cs$/,
+    },
+    // The grammar itself: a parse style cannot state it (`Number` admits the
+    // thousands separator, `AllowDecimalPoint` still admits "5." and ".5").
+    {
+      why: "money grammar gate",
+      shape: /public static bool IsMoneyGrammar\(string\? value\)/,
+      file: /DomainException\.cs$/,
     },
     {
       why: "typed WireFormatException with a JSON pointer",
@@ -180,7 +194,7 @@ const BAD_MONEY_STRING: Record<Platform, Seam[]> = {
     },
     {
       why: "value-object money goes through it",
-      shape: /new Offer\(WireFormatException\.money\(request\.price\(\), "\/price"\)/,
+      shape: /new Offer\(WireFormatException\.money\(request\.price\(\), at \+ "\/price"\)/,
     },
     { why: "@ExceptionHandler arm", shape: /@ExceptionHandler\(WireFormatException\.class\)/ },
   ],
@@ -411,6 +425,79 @@ const MONEY_OUT_OF_RANGE: Record<Platform, Seam[]> = {
   ],
 };
 
+/** Probe 6 — an `int` literal past int32 (3000000000).  RS-42: a 422 at the
+ *  field with the one Loom-owned sentence, `Integer out of range`.  Pre-fix
+ *  node and python sent their frameworks' texts and java / .NET answered 400
+ *  "Malformed JSON" — Jackson and System.Text.Json fail the whole body on an
+ *  integer they cannot hold.  Each seam is anchored on the SENTENCE or on the
+ *  arm that routes the overflow to the field, never on the integrality check
+ *  probe 2 pins. */
+const INT32_OVERFLOW: Record<Platform, Seam[]> = {
+  node: [
+    {
+      why: "the int32 pair carries the range sentence",
+      shape:
+        /qty: z\.number\(\)\.int\(\)\.min\(-2147483648, "Integer out of range"\)\.max\(2147483647, "Integer out of range"\)/,
+      file: /\.routes\.ts$/,
+    },
+  ],
+  dotnet: [
+    {
+      why: "the converter names an int32 overflow",
+      shape:
+        /public const string Message = "Integer out of range";[\s\S]*throw new JsonException\(Message\)/,
+      file: /Int32RangeJsonConverter\.cs$/,
+    },
+    {
+      why: "the converter is registered on the controllers",
+      shape: /new Api1\.Serialization\.Int32RangeJsonConverter\(\)/,
+      file: /Program\.cs$/,
+    },
+    {
+      why: "ValidationProblem answers it at the field, before the malformed-body 400",
+      shape: /if \(outOfRange\.Length > 0\)[\s\S]*Status = 422[\s\S]*var malformed = /,
+      file: /ValidationProblem\.cs$/,
+    },
+  ],
+  java: [
+    {
+      why: "the unreadable-body arm lifts Jackson's coercion failure to the field",
+      shape:
+        /var overflow = integerOverflowPointer\(e\);\s+if \(overflow != null\) \{\s+return onWireFormat\(new WireFormatException\(overflow, "Integer out of range"\), request\);/,
+    },
+    {
+      why: "only an InputCoercionException with a path qualifies",
+      shape: /instanceof tools\.jackson\.core\.exc\.InputCoercionException/,
+    },
+  ],
+  python: [
+    {
+      why: "Int32's bound raises the range sentence",
+      shape: /raise PydanticCustomError\("int_range", "Integer out of range"\)/,
+    },
+    {
+      why: "Int32 carries the check",
+      shape: /Int32 = Annotated\[\s*int,[\s\S]*?AfterValidator\(_int32\)/,
+    },
+    {
+      why: "the query twin carries it too",
+      shape: /Int32Param = Annotated\[\s*int,\s*AfterValidator\(_int32\)/,
+    },
+  ],
+  elixir: [
+    {
+      why: "the op-param guard sends the sentence bare",
+      shape:
+        /defp __loom_int32_param\(record, field, value\) when is_integer\(value\),\s+do: \{:error, Ecto\.Changeset\.add_error\(Ecto\.Changeset\.change\(record, %\{\}\), field, "Integer out of range"\)\}/,
+    },
+    {
+      why: "the changeset path sends it too",
+      shape:
+        /validate_number\(:qty, greater_than_or_equal_to: -2147483648, less_than_or_equal_to: 2147483647, message: "Integer out of range"\)/,
+    },
+  ],
+};
+
 async function emit(platform: string): Promise<Map<string, string>> {
   return await generateSystemFiles(SOURCE(platform));
 }
@@ -445,6 +532,10 @@ describe("M-T6.48 — malformed numeric input answers a typed 4xx (all five back
 
     it(`${platform}: a money value too large for NUMERIC(19,4) is refused`, async () => {
       assertSeams(await emit(platform), platform, MONEY_OUT_OF_RANGE[platform], "money 40 digits");
+    });
+
+    it(`${platform}: an int past int32 is refused at its field with the range sentence (RS-42)`, async () => {
+      assertSeams(await emit(platform), platform, INT32_OVERFLOW[platform], "int 3000000000");
     });
   }
 

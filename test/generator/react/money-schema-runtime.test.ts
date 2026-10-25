@@ -18,13 +18,26 @@ import { z } from "zod";
 import { REACT_LIB_SCHEMAS_MONEY_TS } from "../../../src/generator/react/emit-templates.js";
 import { SVELTE_LIB_SCHEMAS_MONEY } from "../../../src/generator/svelte/emit-templates.js";
 
-/** Stand-in for decimal.js (not a dependency of the toolchain repo) —
- *  the schema only constructs and instanceof-checks it. */
+/** Stand-in for decimal.js (not a dependency of the toolchain repo).  It
+ *  reproduces the two behaviours the schema depends on: `toString` NORMALISES
+ *  trailing zeros away (decimal.js prints `new Decimal("98.7600")` as
+ *  "98.76"), and `toFixed(n)` pads to exactly n fraction digits. */
 class FakeDecimal {
   readonly value: string;
   constructor(s: string) {
     if (!/^-?\d+(\.\d+)?$/.test(s)) throw new Error(`bad decimal ${s}`);
     this.value = s;
+  }
+  toString(): string {
+    return this.value.includes(".") ? this.value.replace(/\.?0+$/, "") : this.value;
+  }
+  toJSON(): string {
+    return this.toString();
+  }
+  toFixed(n: number): string {
+    // Like decimal.js, formats from the digits, never through `toString`.
+    const [int, frac = ""] = this.value.split(".");
+    return n === 0 ? int! : `${int}.${frac.padEnd(n, "0").slice(0, n)}`;
   }
 }
 
@@ -71,6 +84,21 @@ for (const [label, template] of [
     it("rejects a malformed string with a typed issue, not a throw", () => {
       const r = schema.safeParse("not-a-number");
       expect(r.success).toBe(false);
+    });
+
+    // decimal.js drops trailing zeros; the wire's fixed scale (RS-12) keeps
+    // them, and the verbatim money display prints whatever the value
+    // stringifies to — so the parsed value must stringify to the WIRE digits.
+    it("a parsed wire value renders the wire's own digits (scale kept)", () => {
+      const out = schema.parse("98.7600");
+      expect(String(out)).toBe("98.7600");
+      expect(JSON.stringify({ v: out })).toBe('{"v":"98.7600"}');
+      expect(String(schema.parse("12"))).toBe("12");
+      expect(String(schema.parse("-0.5000"))).toBe("-0.5000");
+    });
+
+    it("a form-built Decimal keeps decimal.js's own rendering", () => {
+      expect(String(schema.parse(new FakeDecimal("42.10")))).toBe("42.1");
     });
 
     it("rejects non-string non-Decimal input", () => {

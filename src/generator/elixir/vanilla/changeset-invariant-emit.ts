@@ -204,7 +204,10 @@ export function renderInvariantValidatorFn(
   const checks = residuals.map((inv) => {
     const pred = renderExpr(inv.expr, rc);
     const field = snake(pickErrorPath(inv) ?? fallbackField);
-    const msg = inv.message ? inv.message.text : `must satisfy: ${inv.source}`;
+    // A message-less rule answers node's refine default (RS-43,
+    // D-MESSAGELESS-DEFAULT), the cross-backend sentence every wire validator
+    // sends for it.
+    const msg = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;
     // A messaged rule attaches the stable content-hash wire `code` (the i18n
     // key) as `add_error` metadata (`loom_code:`), surfaced by the 422 handler;
     // a message-less rule adds no metadata (byte-identical).
@@ -215,7 +218,7 @@ export function renderInvariantValidatorFn(
       ? `, loom_code: ${JSON.stringify(messageCode(inv.message.text))}, loom_pointer: ${JSON.stringify(domainFloorPointer(inv))}`
       : "";
     // The message goes through the shared escaping funnel: a raw `#{` in the
-    // author's `message "…"` (or in the derived `must satisfy: <source>`) would
+    // author's `message "…"` (or in the derived `Invariant violated: <source>`) would
     // interpolate when the changeset runs, not read as text.
     const violate = `add_error(changeset, :${field}, ${elixirString(msg)}${codeOpt})`;
     for (const c of referencedContainments(inv, collectionFields)) normalised.add(c);

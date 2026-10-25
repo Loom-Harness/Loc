@@ -23,6 +23,7 @@ import { messageCode } from "../../../util/message-code.js";
 import { upperFirst } from "../../../util/naming.js";
 import { javaCodePointLength } from "../../_expr/code-point.js";
 import { javaRef } from "../../_imports/java.js";
+import { singleFieldMessage } from "../../zod-refine.js";
 import { javaLocals, jid, localOf } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { collectJavaRegexLiterals, renderJavaExpr } from "../render-expr.js";
@@ -437,7 +438,10 @@ function buildChecks(spec: CommandSpec, regexFields: Map<string, string>): strin
           single.pattern,
           typeOf(single.field),
           nullableOf(single.field),
-          message,
+          // A message-less single-field rule answers node's synthesized
+          // sentence, not the generic refine default every other shape uses
+          // (D-MESSAGELESS-RULE-WIRE-MESSAGE).
+          inv.message ? message : singleFieldMessage(single.field, single.pattern),
           code,
           regexFields,
           localOf(validatorLocals(spec), single.field),
