@@ -16,6 +16,7 @@
     "field-input-decimal": "field-input-decimal.hbs",
     "field-input-money": "field-input-money.hbs",
     "field-input-bool": "field-input-bool.hbs",
+    "field-input-date": "field-input-date.hbs",
     "field-input-datetime": "field-input-datetime.hbs",
     "field-input-id-select": "field-input-id-select.hbs",
     "field-input-id-text": "field-input-id-text.hbs",
@@ -359,6 +360,12 @@
       {
         "from": "@chakra-ui/react",
         "named": ["Field", "Switch"]
+      }
+    ],
+    "field-input-date": [
+      {
+        "from": "@chakra-ui/react",
+        "named": ["Field", "Input"]
       }
     ],
     "field-input-datetime": [

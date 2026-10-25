@@ -2756,6 +2756,8 @@ export function defaultInitFor(t: TypeIR): string {
           return `""`;
         case "datetime":
           return "DateTime.utc_now()";
+        case "date":
+          return "Date.utc_today()";
         default:
           return "nil";
       }

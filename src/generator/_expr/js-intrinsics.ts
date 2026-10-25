@@ -79,6 +79,19 @@ export const JS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   // `recv` three times is safe.
   "datetime.startOfDay": (recv) =>
     `new Date(Date.UTC((${recv}).getUTCFullYear(), (${recv}).getUTCMonth(), (${recv}).getUTCDate()))`,
+  // The UTC calendar date of an instant.  `new Date(…)` accepts both a `Date`
+  // (the backend) and the ISO text a datetime is after crossing the wire (the
+  // frontends), so one arm serves both surfaces.
+  "datetime.toDate": (recv) => `new Date(${recv}).toISOString().slice(0, 10)`,
+  // ---- date ----------------------------------------------------------------
+  // A `date` is its ISO `YYYY-MM-DD` text on every JS surface, so the
+  // components are fixed-position slices and `Date.parse` of that form is UTC
+  // midnight by spec — the day distance never follows the host's zone.
+  "date.year": (recv) => `Number((${recv}).slice(0, 4))`,
+  "date.month": (recv) => `Number((${recv}).slice(5, 7))`,
+  "date.day": (recv) => `Number((${recv}).slice(8, 10))`,
+  "date.daysUntil": (recv, args) =>
+    `Math.round((Date.parse(${args[0]}) - Date.parse(${recv})) / 86400000)`,
 };
 
 /**

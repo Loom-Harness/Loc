@@ -3704,6 +3704,10 @@ function primitiveColumnType(name: string): ColumnType {
       return { kind: "text" };
     case "bool":
       return { kind: "bool" };
+    case "date":
+      // A calendar date — Postgres `date`, which round-trips the wire's
+      // `YYYY-MM-DD` exactly (no zone, no time-of-day).
+      return { kind: "date" };
     case "datetime":
       return { kind: "datetime" };
     case "guid":

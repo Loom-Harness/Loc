@@ -1480,10 +1480,11 @@ function filterParamKind(type: TypeRef): FilterParamKind | null {
   if (type.base.$type !== "PrimitiveType") return null;
   switch (type.base.name) {
     case "string":
-    // `guid` and `datetime` are string-shaped on the wire (`z.string()`) and
+    // `guid`, `date` and `datetime` are string-shaped on the wire (`z.string()`) and
     // string-typed in every frontend's state emitter, so a text box over them
     // binds and calls with the types agreeing — same arm as a plain `string`.
     case "guid":
+    case "date":
     case "datetime":
       return "string";
     case "int":

@@ -636,6 +636,9 @@ function htmlInputTypeForIRType(t: TypeIR): string {
       return "checkbox";
     case "datetime":
       return "datetime-local";
+    // A date picker; its value is the `YYYY-MM-DD` text the `:date` field casts.
+    case "date":
+      return "date";
     default:
       return "text";
   }

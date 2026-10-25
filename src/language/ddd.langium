@@ -2093,7 +2093,7 @@ CommonSoftKeywords returns string:
       | 'channels' | 'channelSource' | 'check' | 'claims' | 'clickhouse' | 'clientId' | 'clientSecret'
       | 'command' | 'commandHandler' | 'component' | 'config' | 'connection' | 'context' | 'contexts'
       | 'cookie' | 'coreComponents' | 'covers' | 'criterion' | 'cron' | 'crossTenant' | 'daisyui'
-      | 'dataSources' | 'deep' | 'delivery' | 'deny' | 'denyByDefault' | 'deployable' | 'desc' | 'description'
+      | 'dataSources' | 'date' | 'deep' | 'delivery' | 'deny' | 'denyByDefault' | 'deployable' | 'desc' | 'description'
       | 'design' | 'directoryLayout' | 'document' | 'domainService' | 'dotnet' | 'e2e' | 'elastic' | 'elixir'
       | 'embedded' | 'enforcement' | 'entitles' | 'env' | 'envelope' | 'ephemeral' | 'error' | 'event'
       | 'eventLog' | 'eventSourced' | 'every' | 'extern' | 'favicon' | 'feliz' | 'filter' | 'flowbite'
@@ -2180,7 +2180,7 @@ BaseType:
     PrimitiveType | SlotType | ActionType | SelfType | IdType | NamedType;
 
 PrimitiveType:
-    name=('int' | 'long' | 'decimal' | 'money' | 'string' | 'bool' | 'datetime' | 'guid' | 'json' | 'File');
+    name=('int' | 'long' | 'decimal' | 'money' | 'string' | 'bool' | 'date' | 'datetime' | 'guid' | 'json' | 'File');
 
 // Element-shaped param type for component slot injection.  Valid only on a
 // `component`'s parameter list; values flow as JSX (`React.ReactNode`-ish in
