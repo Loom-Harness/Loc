@@ -47,6 +47,10 @@ export type PrimitiveName =
   | "money"
   | "string"
   | "bool"
+  /** A CALENDAR date — year, month, day; no time-of-day, no offset.  Wire
+   *  form is the ISO-8601 calendar date `"2026-01-01"`; Postgres `date`.
+   *  Distinct from `datetime` so a value west of UTC never shifts a day. */
+  | "date"
   | "datetime"
   | "guid"
   /** Opaque JSON blob — interior is not modelled by Loom.  Maps to
@@ -93,6 +97,7 @@ export const PRIMITIVES: readonly PrimitiveName[] = [
   "decimal",
   "money",
   "bool",
+  "date",
   "datetime",
   "guid",
   "json",
@@ -1513,6 +1518,17 @@ export interface CreateIR {
   /** Event-triggered only: the bound event-param name and its event type. */
   eventBinding?: string;
   eventRef?: string;
+  /** The declared `: T` result of a command-triggered starter (`create(…): T
+   *  { … return <expr> }`) — the commandHandler twin.  When set, the command
+   *  route answers 200 with `returnValue` as its JSON body instead of 204.
+   *  Read through `commandCreateResult` (src/ir/util/workflow-command-route.ts),
+   *  which also decides that this create is the one the route serves. */
+  returnType?: TypeIR;
+  /** The lowered terminal `return <expr>`, held apart from `statements` (the
+   *  shared workflow statement vocabulary has no `return` arm — see
+   *  `CommandHandlerIR.returnValue`).  Lowered whenever the body ends in a
+   *  return, annotated or not, so the validator can refuse the unannotated one. */
+  returnValue?: ExprIR;
 }
 
 /** A `on(e: Event) [by <expr>] { … }` reactor on a workflow — an extrinsic

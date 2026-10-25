@@ -50,7 +50,9 @@ expression keywords (`context`, `aggregate`, `entity`, `event`, `repository`,
 `return`, `for`, `in`, `if`, `match`, `else`, `expect`, `test`, `when`,
 `extends`, `abstract`, `private`, `extern`, `audited`, `mask`, `unless`,
 `true`, `false`, `null`, `this`, `now`, `id`, `Self`, and the primitive
-type names `int long decimal money string bool datetime guid json File`,
+type names `int long decimal money string bool datetime guid json File`
+(`date` is a primitive type name too, but a SOFT one — a field may still be
+named `date`),
 plus the system-level heads — `system`, `subdomain`, `deployable`,
 `storage`, `api`, `ui`, `component`, `theme`, `user`,
 `auth`, `policy`, `projection`, `workflow`, `capability`, `seed`,
@@ -340,7 +342,7 @@ order:
 | `repository Name for Aggregate { find … }` | Repository declaration with optional find queries (see [Repositories](#repositories)). |
 | `criterion Name(params) of Aggregate = Expr` / `retrieval Name of Aggregate { where: Expr sort: [field desc, other asc] }` | Reusable, SQL-inlinable predicate specifications and the named list-read shapes `Repo.run(...)` consumes.  A retrieval also has a one-line form, `retrieval Name of Aggregate = Expr`.  **The block's clauses are NOT comma-separated** — `where:` / `sort:` follow one another directly (a newline between them is the readable spelling); only the items *inside* `sort: [...]` take commas.  The grammar also admits a `loads: [path, …]` clause, but declaring one is rejected today (`loom.retrieval-loads-unsupported` — a retrieval loads the whole aggregate).  See [`criterion.md`](criterion.md). |
 | `projection Name[(params)] [keyed by <field>] [requires Expr] { <fields> from <Source> [as x] [where …] [ignoring …] [join Agg as a on …] [group by …] select f = …, … }` / `projection Name keyed by k { <fields> on(e: Event) [by e.key] { … } }` | A read model: **query-time** (a `select` over an aggregate / projection / workflow source — optional `where`, `join`, `group by`, whole-table aggregation, paged reads) or **folded** (`on(e: Event)` arms folding a stream into a keyed row).  Exposed as `GET /projections/<name>` and readable from pages.  ~50 `loom.projection-*` gates; see [`language-reference/10-repositories-and-queries.md`](language-reference/10-repositories-and-queries.md) and [`scaffold-macros.md`](scaffold-macros.md) (`scaffoldDashboard`). |
-| `workflow Name { create(...) …, handle …, on(e: Event) …, function … }` | Context-level orchestration across aggregates, with `create` / `handle` / `on` reactors and workflow-local state.  See [`workflow.md`](workflow.md). |
+| `workflow Name { create(...)[: T] …, handle …, on(e: Event) …, function … }` | Context-level orchestration across aggregates, with `create` / `handle` / `on` reactors and workflow-local state.  A command-triggered `create(…): T { … return <expr> }` answers its `POST` with 200 + the value (an `X id` / `string` / `int` / `long` / `bool`); without `: T` it stays 204.  See [`workflow.md`](workflow.md#returning-a-result--createt). |
 | `[extern] commandHandler Name(cmd: Cmd)[: Response] { … }` / `[extern] queryHandler Name(q: Query): Response { … }` | Application-layer handlers — a single-aggregate `handle` lifted out of a workflow (load → mutate → save → `return`), routable from an `api { … }` body.  `queryHandler` must not save (`loom.query-handler-saves`); `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`).  An `extern` handler is bodyless (`;`) — see [`extern.md`](extern.md). |
 | `domainService Name { operation calc(...): T { … } }` | A stateless, pure cross-aggregate calculator.  See [`domain-services.md`](domain-services.md). |
 | `channel Name { carries: EventA, EventB, delivery: broadcast\|queue, retention: ephemeral\|log\|work, key: field }` | Publisher-side contract for how a context's events are transported (paired with a system `channelSource`).  **`carries:` takes a bare comma-separated event list — no `[ ]`** (unlike `contexts:` / `dataSources:` on a deployable, which do take brackets).  See [`channels.md`](channels.md). |
@@ -881,7 +883,7 @@ BaseType      = PrimitiveType | SlotType | ActionType | SelfType | IdType | Name
 IdType        = Identifier 'id'                // cross-aggregate FK
 NamedType     = Identifier                     // bare name
 SelfType      = 'Self'                         // the host aggregate, inside a capability
-PrimitiveType = 'int' | 'long' | 'decimal' | 'money' | 'string' | 'bool' | 'datetime' | 'guid' | 'json' | 'File'
+PrimitiveType = 'int' | 'long' | 'decimal' | 'money' | 'string' | 'bool' | 'date' | 'datetime' | 'guid' | 'json' | 'File'
 SlotType      = 'slot'                         // element-shaped param marker — UI-only
 ActionType    = 'action' ('(' TypeRef ')')?    // callback-shaped param marker — UI-only
 // `money("10.50")` — the precise-decimal literal — has no rule of its own: it
@@ -1188,7 +1190,8 @@ get label(): string { return "Order #" + String(this._quantity) + " for " + this
   `{at, date}` / `{at, time}`, `{n, plural, one {# item} other {# items}}`,
   `{n, selectordinal, …}`, `{kind, select, a {…} other {…}}`.  An unknown
   format is `loom.interp-format-unknown`; a format that doesn't fit the hole's
-  type (a `date` on a non-`datetime`, a `number` on a non-numeric, a `select`
+  type (a `date` on anything but a `datetime` or `date`, a `time` on a
+  non-`datetime`, a `number` on a non-numeric, a `select`
   on a non-string/enum) is `loom.interp-hole-type`.  These drive the i18n
   string catalog — see [`new-plan/archive/T1-done.md`](new-plan/archive/T1-done.md) § M-T1.11.
   **Formats only render in a `ui` page slot** (on the JS/TS frontends; LiveView
@@ -1271,6 +1274,13 @@ width per unit — no calendar-relative `months` / `years`):
 - everything else (`duration ÷ x`, `datetime × …`, mixing with a
   non-`int` numeric) is rejected.
 
+A calendar `date` stays outside this algebra: two dates compare, and
+`a.daysUntil(b)` / `.year()` / `.month()` / `.day()` / `datetime.toDate()` /
+`today()` cover the rest — see
+[the type-system chapter](language-reference/04-type-system.md#date--a-calendar-day).
+There is no `time` (time-of-day) type, by decision: without a date it has no
+ordering across a daylight-saving change.
+
 ```ddd
 aggregate Invoice {
   issuedAt: datetime
@@ -1351,7 +1361,7 @@ decimal`.
 | `emit EventName { field: expr, … }` | Raise a domain event; drained by the repository on `save`. |
 | `let name = Expression` | Local binding for the rest of the body. |
 | `helperName(args)` / `this.op(args)` | Call a helper `function` or `private operation` of the same aggregate (`loom.call-arg-count` / `loom.call-arg-type`). |
-| `return Expression` | The designed-in outcome of an operation / handler declared with an `or`-union return type — an `error` variant maps to a ProblemDetails status, a success variant to 200.  See [`payloads.md`](payloads.md). |
+| `return Expression` | The designed-in outcome of an operation / handler declared with an `or`-union return type — an `error` variant maps to a ProblemDetails status, a success variant to 200.  See [`payloads.md`](payloads.md).  Also the result of a workflow `create(…): T` — last top-level statement only, answered as the `POST`'s 200 body (`loom.workflow-return-*`; [`workflow.md`](workflow.md#returning-a-result--createt)). |
 | `match subject { Variant [b] => { … }, else => { … } }` | Statement-form variant match — arms run statements (state writes, `navigate(...)`) rather than yield a value.  In a page `action`, `match await Agg.op(...) { Ok r => …, Err e => … }` is how a remote command is awaited and its Result handled — a remote mutating call *without* the marker is `loom.missing-effect-marker`; `loom.match-await*` gates the awaited call's shape ([`actions.md`](actions.md)). |
 | `for x in Repo.run(R(args)) { … }` | **Workflow / handler bodies only** — iterate an aggregate array, saving each element's mutations per iteration ([`workflow.md`](workflow.md)). |
 | `if let x = Repo.find(C(args)) { … } else { … }` | **Workflow / handler bodies only** — bind an optional repository result and branch on presence. |

@@ -304,6 +304,7 @@ function zodForRequest(t: TypeIR): string {
           return "z.string()";
         case "bool":
           return "z.boolean()";
+        case "date":
         case "datetime":
           return "z.string()";
         case "json":

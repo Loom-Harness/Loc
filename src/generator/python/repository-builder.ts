@@ -1812,6 +1812,9 @@ export function wireValue(
   if (t.kind === "primitive" && t.name === "datetime") {
     return optional ? `(None if ${expr} is None else ${R.iso}(${expr}))` : `${R.iso}(${expr})`;
   }
+  if (t.kind === "primitive" && t.name === "date") {
+    return optional ? `(None if ${expr} is None else ${expr}.isoformat())` : `${expr}.isoformat()`;
+  }
   if (t.kind === "primitive" && t.name === "money") {
     // Money crosses the wire as its canonical decimal STRING via the shared
     // `money_str` helper — the single python money→wire formatter (scalar op

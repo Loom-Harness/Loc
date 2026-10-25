@@ -37,6 +37,9 @@ function tickFieldValue(field: FieldIR): string {
     switch (t.name) {
       case "datetime":
         return "new Date()";
+      case "date":
+        // The fire time's UTC calendar date — `datetime.toDate()`'s rule.
+        return "new Date().toISOString().slice(0, 10)";
       case "int":
       case "long":
       case "decimal":

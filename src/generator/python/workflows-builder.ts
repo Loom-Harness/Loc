@@ -24,12 +24,13 @@ import {
 } from "../../ir/util/openapi-ids.js";
 import { resolveWorkflowIsolation } from "../../ir/util/resolve-datasource.js";
 import {
+  walkExprDeep,
   walkWorkflowStmtChildren,
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
   workflowEmits,
 } from "../../ir/util/walk.js";
-import { commandWorkflowsOf } from "../../ir/util/workflow-command-route.js";
+import { commandCreateResult, commandWorkflowsOf } from "../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
@@ -583,8 +584,12 @@ function workflowRoute(
     ...(usesUser ? [PY_REQUEST_PARAM] : []),
     "session: SessionDep",
   ].join(", ");
+  // `create(…): T { … return <expr> }` — 200 with the value; FastAPI publishes
+  // the 200 schema from the return annotation (the response-direction wire type
+  // the aggregate DTOs use: an id is its `str`).  No result keeps the 204.
+  const result = commandCreateResult(wf);
   const out: string[] = [
-    `@router.post("/${snake(wf.name)}", status_code=204, operation_id="${camelId(opWorkflow(wf.name))}"${errorResponsesKwarg(
+    `@router.post("/${snake(wf.name)}", status_code=${result ? 200 : 204}, operation_id="${camelId(opWorkflow(wf.name))}"${errorResponsesKwarg(
       "workflow",
       workflowIsGuarded(wf),
       [],
@@ -596,7 +601,7 @@ function workflowRoute(
     // A route-invoked workflow runs in a child frame under the request root, so
     // its audit / provenance rows are distinguishable from a direct operation's.
     `@${IN_CHILD_CONTEXT}`,
-    `async def ${snake(wf.name)}_workflow(${sig}) -> ${H.Response}:`,
+    `async def ${snake(wf.name)}_workflow(${sig}) -> ${result ? responsePyType(result.type, ctx) : H.Response}:`,
     ...(usesUser ? [PY_USER_BIND] : []),
     // Workflow narrative — `workflow_started` at the route entry; shared catalog
     // identity (field `workflow`) across every backend.
@@ -631,6 +636,11 @@ function workflowRoute(
   const readParams = new Set<string>();
   for (const st of wf.statements) {
     walkWorkflowStmtExprsDeep(st, (e) => {
+      if (e.kind === "ref" && e.refKind === "param") readParams.add(e.name);
+    });
+  }
+  if (result) {
+    walkExprDeep(result.value, (e) => {
       if (e.kind === "ref" && e.refKind === "param") readParams.add(e.name);
     });
   }
@@ -741,6 +751,11 @@ function workflowRoute(
   // Persist the saga row (a fresh allocation, or a `this.<stateField>` write) so
   // a later `on` reactor for the same key routes instead of dropping the event.
   if (corrParam) out.push("        await session.flush()");
+  if (result) {
+    out.push(
+      `        workflow_result = ${renderPyExpr(result.value, { thisName: corrParam ? "state" : "self", readPortArgs: pyReadPortResolver(ctx) })}`,
+    );
+  }
   if (hasEmit) {
     out.push(`        dispatcher = ${dispatcherExpr}`);
     out.push("        for ev in workflow_events:");
@@ -751,7 +766,9 @@ function workflowRoute(
   out.push(
     `        ${PY.log}("${LogEvents.workflowCompleted.level}", "${LogEvents.workflowCompleted.event}", workflow=${JSON.stringify(wf.name)})`,
   );
-  out.push(`        return ${H.Response}(status_code=204)`);
+  out.push(
+    result ? "        return workflow_result" : `        return ${H.Response}(status_code=204)`,
+  );
   // `raise` re-raises the ORIGINAL exception with its traceback intact, so the
   // status FastAPI's handler picks is exactly what it was before.
   out.push("    except Exception as exc:");
@@ -890,6 +907,11 @@ export function instanceFieldValue(rowVar: string, f: WireField): string {
     return f.optional || f.type.kind === "optional"
       ? `(None if ${attr} is None else ${H.iso}(${attr}))`
       : `${H.iso}(${attr})`;
+  }
+  if (t.kind === "primitive" && t.name === "date") {
+    return f.optional || f.type.kind === "optional"
+      ? `(None if ${attr} is None else ${attr}.isoformat())`
+      : `${attr}.isoformat()`;
   }
   if (t.kind === "primitive" && t.name === "money") {
     // Precise-decimal string on the wire (parity with the other backends).
