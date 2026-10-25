@@ -38,7 +38,7 @@ system S {
         find byMinBalance(min: int): Account[] where this.balance >= min
         find bySeq(lowest: long): Account[] where this.seq >= lowest
         find byRate(floor: decimal): Account[] where this.rate >= floor
-        find byHolder(who: string): Account?
+        find byHolder(who: string): Account? where this.holder == who
       }
 
       // The SECOND emitter that annotates a route signature. It reads the same
@@ -99,7 +99,7 @@ describe("a numeric path/query parameter is not guarded as if it were JSON", () 
     const at = wire.indexOf("Int32Param = Annotated[");
     expect(at, "Int32Param not defined").toBeGreaterThan(-1);
     const block = wire.slice(at, wire.indexOf("]", at) + 1);
-    expect(block).toContain("Field(ge=-2147483648, le=2147483647)");
+    expect(block).toContain("AfterValidator(_int32)");
     expect(block).toContain('WithJsonSchema({"type": "integer", "format": "int32"})');
     expect(block).not.toContain("BeforeValidator");
   });

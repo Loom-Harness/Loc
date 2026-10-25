@@ -34,7 +34,7 @@ system P {
       }
       repository Orders for Order {
         find byCode(code: string): Order option
-        find byRef(ref: string): Order or Missing
+        find byRef(ref: string): Order or Missing where this.code == ref
       }
       policy { read Order requires currentUser.role == "admin" }
     }

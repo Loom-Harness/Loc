@@ -15,7 +15,7 @@ import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import { escapeCsharpIdent, upperFirst } from "../../util/naming.js";
 import type { RepoOp } from "../../util/repository-contract.js";
-import { csCodePointLength } from "../_expr/code-point.js";
+import { csCodePointLength, csCodePointSubstring } from "../_expr/code-point.js";
 import { csSubtreeLikePattern } from "../_expr/subtree-like.js";
 import {
   type BinaryExpr,
@@ -968,16 +968,20 @@ export const CS_INTRINSIC_RENDERERS: Record<string, CsIntrinsicRenderer> = {
   // check below says no and the call silently becomes culture-sensitive.
   // `unwrapGuardedIntrinsicReceiver` in `src/ir/lower/lower-expr.ts` unwraps
   // it, so both forms land here.
-  "string.toUpper": (recv) => `${recv}.ToUpperInvariant()`,
+  //
+  // `ToUpperInvariant` is a SIMPLE (one char to one char) mapping, so it keeps
+  // `ß`, where node, java, python and elixir apply the full Unicode mapping and
+  // answer "SS" ("straße" → "STRASSE").  The ordinal replace completes it for
+  // the one full-mapping expansion that is not a ligature or polytonic Greek
+  // (see the catalogue contract in `src/util/intrinsics.ts`).
+  "string.toUpper": (recv, _args, q = bareCsBcl) =>
+    `${recv}.ToUpperInvariant().Replace("\\u00DF", "SS", ${q("StringComparison")}.Ordinal)`,
   "string.toLower": (recv) => `${recv}.ToLowerInvariant()`,
-  // 0-based CLAMPING semantics (JS `slice` — see the catalogue contract):
-  // .NET's Substring throws on out-of-range, so guard + ${q("Math")}.Min.  Receiver /
-  // arg duplication is safe — Loom expressions are pure.  StringComparison
-  // and Math live in `System`, covered by the SDK's <ImplicitUsings>.
-  "string.substring": (recv, args, q = bareCsBcl) =>
-    args.length > 1
-      ? `(${args[0]} >= ${recv}.Length ? "" : ${recv}.Substring(${args[0]}, ${q("Math")}.Min(${args[1]}, ${recv}.Length - ${args[0]})))`
-      : `(${args[0]} >= ${recv}.Length ? "" : ${recv}.Substring(${args[0]}))`,
+  // 0-based, CLAMPING, counted in CODE POINTS like `.length` (the catalogue
+  // contract; `_expr/code-point.ts`) — `Substring` counts UTF-16 units and
+  // throws out of range, so neither half of it fits.  The LINQ it rides is in
+  // the SDK's <ImplicitUsings>.
+  "string.substring": (recv, args) => csCodePointSubstring(recv, args[0]!, args[1]),
   // A ONE-character literal argument takes the `char` overload instead: Roslyn's
   // CA1865 rejects `StartsWith("x", StringComparison.Ordinal)` under the
   // generated project's /warnaserror, and `StartsWith(char)` IS an ordinal

@@ -1204,6 +1204,13 @@ system S {
     criterion Named(n: string) of Thing = this.name == n
     retrieval Named(n: string) of Thing { where: this.name == n  sort: [name asc] }`),
 
+  // A clause-less find whose parameter names no field: dropped from the query,
+  // the lookup answered with an arbitrary row.
+  "loom.find-param-unbound": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing {
+      find byName(n: string): Thing?
+    }`),
+
   "loom.duplicate-find": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing {
       find byName(n: string): Thing[] where this.name == n
@@ -1344,6 +1351,11 @@ system S {
   "loom.guard-principal-without-auth": deployed(`      aggregate Order {
         code: string
         create(code: string) { requires currentUser.role == "admin"  code := code }
+      }`),
+  "loom.field-mask-principal-without-auth": deployed(`      aggregate Order {
+        code: string
+        total: decimal mask unless currentUser.role == "admin"
+        create(code: string, total: decimal) { code := code  total := total }
       }`),
   "loom.named-lifecycle-dropped": deployed(`      aggregate Order {
         code: string

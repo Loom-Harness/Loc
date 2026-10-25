@@ -26,10 +26,9 @@
 //
 // Per frontend, the assertion surface differs the way run-ui-flutter.mjs
 // already established: Feliz renders DOM (roles and text), Flutter renders to a
-// canvas and is read through its semantics tree (accessible text).  Flutter
-// also emits NO navigation from a `menu { }` block, so its menu-link gate site
-// does not exist to test — recorded in the hand-off, and the leg asserts the
-// three sites Flutter does render (session, page guard, action).
+// canvas and is read through its semantics tree (accessible text).  Both render
+// the fixture's `menu { }` with its per-link gates, so all four sites (session,
+// page guard, action, menu) are asserted on both.
 //
 // Usage:  npm ci (in this dir, once) ; node run-ui-auth.mjs [feliz] [flutter]
 //         (default: both)  FLUTTER=/path/to/flutter — SDK override
@@ -170,7 +169,6 @@ function probes(fw, jobId) {
       ? ["the session gate fell back to the sign-in prompt for an authenticated principal"]
       : []),
   ];
-  const menu = fw === "feliz";
   const list = [
     {
       name: "session gate: an anonymous visitor gets the sign-in prompt, not the app",
@@ -238,9 +236,6 @@ function probes(fw, jobId) {
         ...(/Approve/.test(v.text) ? ["Approve shown to a viewer"] : []),
       ],
     },
-  ];
-  if (menu) {
-    list.push(
       {
         name: "menu gate: admin sees the Admin link and not the Super link",
         principal: PRINCIPAL.admin,
@@ -266,8 +261,7 @@ function probes(fw, jobId) {
           ...(v.links.includes("Admin") ? ["Admin link shown to superadmin"] : []),
         ],
       },
-    );
-  }
+  ];
   return list;
 }
 
@@ -348,7 +342,13 @@ async function runFrontend(fw) {
           v.text = await pageText(v.page, fw, () => true, { enable: false });
         }
         if (p.links) {
-          v.links = (await v.page.getByRole("link").allInnerTexts()).map((t) => t.trim());
+          // Feliz: DOM anchors.  Flutter: semantics nodes the engine marks as
+          // links, whose name may ride `aria-label` rather than inner text.
+          v.links = await v.page.evaluate(() =>
+            [...document.querySelectorAll("a, [role=link]")].map((e) =>
+              (e.getAttribute("aria-label") || e.textContent || "").trim(),
+            ),
+          );
         }
         const why = [...p.check(v), ...v.errors.slice(0, 3)];
         results.push({
@@ -408,20 +408,12 @@ async function runFrontend(fw) {
 }
 
 /** Probes that FAIL today because the generated app is wrong, keyed by frontend
- *  and exact probe name, each with the defect it shows.  C3 is a test-only wave,
- *  so a defect the leg finds is registered here and handed off rather than
- *  fixed; the entry RATCHETS — a registered probe that passes, or that no longer
- *  runs, fails the leg, so the fix deletes its entry in the same change. */
-const KNOWN_DEFECTS = {
-  flutter: {
-    "action gate: admin's Approve click reaches the backend and approves the job":
-      "(wave C3 3b, D-3b-2): the Flutter `Action` button posts a param-less " +
-      "operation with no body and no `Content-Type: application/json` " +
-      "(src/generator/flutter/flutter-target.ts:674), so the Hono backend answers " +
-      "415 and the button silently does nothing — its snackbar only shows on 2xx. " +
-      "The OperationForm path (riverpod-emit.ts:401) sends both.",
-  },
-};
+ *  and exact probe name, each with the defect it shows.  A defect the leg finds
+ *  and cannot fix in the same change is registered here with its hand-off; the
+ *  entry RATCHETS — a registered probe that passes, or that no longer runs,
+ *  fails the leg, so the fix deletes its entry in the same change.  Empty: every
+ *  probe passes on both frontends. */
+const KNOWN_DEFECTS = {};
 
 const asked = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 const frontends = asked.length ? asked : ["feliz", "flutter"];

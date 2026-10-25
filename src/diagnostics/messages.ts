@@ -1390,6 +1390,17 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.find-reserved-name": (p: { name: unknown; findName: unknown }) =>
     `repository '${p.name}' find '${p.findName}': '${p.findName}' is a built-in repository verb of the Loom language, ` +
     `so '${p.name}.${p.findName}(...)' would already mean the built-in. Choose a different find name (e.g. 'byRef', 'lookup').`,
+  "loom.find-param-unbound": (p: {
+    name: unknown;
+    findName: unknown;
+    param: unknown;
+    aggName: unknown;
+  }) =>
+    `repository '${p.name}' find '${p.findName}' declares no 'where', so each parameter ` +
+    `filters on the field of '${p.aggName}' it names — but '${p.param}' names no field ` +
+    `(nor a '<field>Id' spelling of one). The find would ignore it and answer with an ` +
+    `arbitrary row. Rename the parameter to the field it should match, or add a ` +
+    `'where' clause that uses it.`,
   "loom.duplicate-find": (p: { name: unknown; findName: unknown }) =>
     `repository '${p.name}' declares find '${p.findName}' more than once.`,
   "loom.paged-param-reserved#find": (p: {
@@ -3570,6 +3581,18 @@ export const DIAGNOSTIC_MESSAGES = {
     `no request-scoped ${p.principalNoun} to evaluate it against, so the gate is emitted as an ` +
     `unbound identifier and the generated project does not compile. Add 'auth: required' (and a ` +
     `system 'user {}' block), or drop the principal reference from the gate.`,
+  "loom.field-mask-principal-without-auth": (p: {
+    dep: unknown;
+    family: unknown;
+    ctxName: unknown;
+    field: unknown;
+    principalNoun: unknown;
+  }) =>
+    `Deployable '${p.dep}' (platform ${p.family}) hosts field '${p.ctxName}.${p.field}' with a ` +
+    `\`mask unless\` predicate that references currentUser, but the deployable has no auth — ` +
+    `there is no request-scoped ${p.principalNoun} to evaluate it against, so the field could ` +
+    `only ever read as null and the emitted redaction does not compile or boot. Add ` +
+    `'auth: required' (and a system 'user {}' block), or drop the mask.`,
   "loom.stamp-principal-without-auth": (p: {
     dep: unknown;
     family: unknown;

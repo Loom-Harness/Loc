@@ -129,7 +129,9 @@ describe("flowbite (svelte) pack — the shell contract a rendered page depends 
     const shell = (await files()).get("web_app/src/routes/(app)/+layout.svelte") ?? "";
     // The raw declaration identifier is what the sidebar used to print.
     expect(shell).not.toContain(">closeProject<");
-    expect(shell).toContain(">Close Project<");
-    expect(shell).toContain(">Projects<");
+    // The labels the scaffold's page `menu:` metadata authors read through
+    // their catalog keys.
+    expect(shell).toMatch(/>\{t\("page\.\w+\.menu\.label\.\w+", "Close Project"\)\}</);
+    expect(shell).toMatch(/>\{t\("page\.\w+\.menu\.label\.\w+", "Projects"\)\}</);
   });
 });

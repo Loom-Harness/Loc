@@ -35,11 +35,16 @@
 import type { StmtIR, WorkflowStmtIR } from "../../../ir/types/loom-ir.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
-import { classifyForWire, pickErrorPath } from "../../../ir/validate/invariant-classify.js";
+import {
+  classifyForWire,
+  pickErrorPath,
+  singleFieldShape,
+} from "../../../ir/validate/invariant-classify.js";
 import { errorTitle, resolveErrorStatus } from "../../../util/error-defaults.js";
 import { messageCode } from "../../../util/message-code.js";
 import { elixirString } from "../../../util/naming.js";
 import { domainFloorPointer } from "../../_i18n/domain-floor.js";
+import { singleFieldMessage } from "../../zod-refine.js";
 
 type GuardStmt = Extract<StmtIR | WorkflowStmtIR, { kind: "requires" | "precondition" }>;
 
@@ -311,50 +316,55 @@ function codedPreconditionTerm(s: GuardStmt, text: string): string {
 // and a frontend ACL's `applyServerErrors` would bind nothing on this backend
 // (the `corpus/validation-messages` wire-golden pins the agreement).
 //
-// SCOPE — a MESSAGED precondition whose predicate `classifyForWire` admits
-// against the operation's params.  Two halves to that gate:
+// SCOPE — a precondition whose predicate `classifyForWire` admits against the
+// operation's params.  The `available` set is the op's params, exactly what
+// `routes-builder.ts` / `validation-catalog.ts` classify against, so a
+// precondition reading `this.<state>` (e.g. `wire-contract`'s
+// `availability != Availability.Discontinued`) is NOT wire-translatable on any
+// backend and rightly stays on the domain floor here too.
 //
-//   * the `available` set is the op's params, exactly what
-//     `routes-builder.ts` / `validation-catalog.ts` classify against, so a
-//     precondition reading `this.<state>` (e.g. `wire-contract`'s
-//     `availability != Availability.Discontinued`) is NOT wire-translatable on
-//     any backend and rightly stays on the domain floor here too;
-//   * MESSAGED, because the authored text and its content-hash `code` are
-//     precisely what the `errors[]` entry carries.  A message-LESS rule has no
-//     code and derives its wire text from each backend's NATIVE validator chain
-//     (zod's "Too small: …", not Loom's "Precondition failed: …"), so lifting it
-//     here would trade one divergence for another with no oracle to check it
-//     against — it keeps the domain-floor rung.
+// A MESSAGED precondition carries its authored text and content-hash `code`.
+// A message-LESS one carries the sentence node's validator chain sends for the
+// same rule (D-MESSAGELESS-RULE-WIRE-MESSAGE): `singleFieldMessage` for a
+// single-field shape ("Amount must be at least 1"), the refine default
+// `Invariant violated: <src>` for any other — and no `code`, which is the i18n
+// key of AUTHORED text only.
 // ---------------------------------------------------------------------------
 
-/** True when this guard is a messaged, wire-translatable `precondition` — the
- *  one denial shape that must answer the wire-validation 422 rather than the
- *  domain floor.  `available` is the operation's param names; `undefined` (every
+/** True when this guard is a wire-translatable `precondition` — the one denial
+ *  shape that must answer the wire-validation 422 rather than the domain floor.
+ *  `available` is the operation's param names; `undefined` (every
  *  non-operation call site: lifecycle gates, workflows, dispatch handlers) means
  *  "no request body to point into", so the answer is always false and those
  *  paths stay byte-identical. */
 export function deniesAtWire(s: GuardStmt, available: ReadonlySet<string> | undefined): boolean {
   if (available === undefined) return false;
-  if (s.kind !== "precondition" || s.message == null) return false;
+  if (s.kind !== "precondition") return false;
   return classifyForWire({ expr: s.expr, source: s.source, message: s.message }, { available });
 }
 
 /** `{:validation_failed, [%{pointer: "/amount", message: "…", code: "msg.…"}]}`
- *  — the reason term a wire-translatable messaged precondition short-circuits
- *  to.  One entry, because one precondition denies at a time (the `with` chain
+ *  — the reason term a wire-translatable precondition short-circuits to.  One
+ *  entry, because one precondition denies at a time (the `with` chain
  *  short-circuits); the list shape matches the `errors[]` extension the
  *  changeset path already produces so the controller can render both through
  *  one responder. */
 export function wireValidationTerm(s: GuardStmt): string {
   const path = pickErrorPath({ expr: s.expr, source: s.source });
   const pointer = path === null ? "" : `/${rfc6901(path)}`;
-  const text = denialMessage(s);
+  const authored = s.kind === "precondition" ? s.message : undefined;
+  const single = authored ? null : singleFieldShape({ expr: s.expr, source: s.source });
+  const text = authored
+    ? denialMessage(s)
+    : single
+      ? singleFieldMessage(single.field, single.pattern)
+      : `Invariant violated: ${s.source}`;
   const entry = [
     `pointer: ${JSON.stringify(pointer)}`,
     // The author's `message "…"` goes through the shared escaping funnel — a
     // raw `#{` here would interpolate into the 422 body at request time.
     `message: ${elixirString(text)}`,
-    `code: ${JSON.stringify(messageCode(text))}`,
+    ...(authored ? [`code: ${JSON.stringify(messageCode(text))}`] : []),
   ].join(", ");
   return `{:validation_failed, [%{${entry}}]}`;
 }

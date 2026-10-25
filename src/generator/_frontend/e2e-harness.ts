@@ -123,9 +123,9 @@ export const E2E_PACKAGE_JSON =
         "test:install": "playwright install --with-deps chromium",
       },
       devDependencies: {
-        "@playwright/test": "^1.49.0",
-        "@types/node": "^22.0.0",
-        typescript: "^6.0.0",
+        "@playwright/test": "1.64.1",
+        "@types/node": "22.20.5",
+        typescript: "6.0.3",
       },
     },
     null,

@@ -61,7 +61,7 @@ describe("vue pack format groundwork", () => {
     const pack = loadPack(dir, { validateRequired: false });
     const rendered = pack.render("package-json", {});
     expect(rendered).toContain('"@tanstack/vue-query"');
-    expect(rendered).toContain('"vue": "^3.5.0"');
+    expect(rendered).toContain('"vue": "3.5.44"');
     expect(rendered).toContain('"vue-router"');
     expect(rendered).toContain('"@vitejs/plugin-vue"');
     expect(rendered).toContain('"vue-tsc"');

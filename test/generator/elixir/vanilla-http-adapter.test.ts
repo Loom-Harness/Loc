@@ -52,7 +52,7 @@ describe("the generated Phoenix app serves on Bandit", () => {
   });
 
   it("declares bandit and not plug_cowboy", () => {
-    expect(mix).toContain('{:bandit, "~> 1.12"},');
+    expect(mix).toContain('{:bandit, "1.13.1"},');
     // The whole point: the cowboy chain must not be reachable from the
     // dependency list at all.  `plug_cowboy` is the only edge into it.
     expect(mix).not.toContain(":plug_cowboy,");

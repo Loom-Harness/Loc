@@ -26,6 +26,7 @@ import type {
   UiIR,
 } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
+import { canonicalCreate, canonicalDestroy } from "../../util/canonical-lifecycle.js";
 import {
   ancestorUniqueKeySet,
   isTpcBase,
@@ -309,6 +310,35 @@ export function validateUniqueTpcBase(loom: EnrichedLoomModel, diags: LoomDiagno
 function isLanguageReservedFindName(name: string): boolean {
   if (name === "all" || name === "find") return false;
   return repositoryVerb(name) !== undefined || isRepoWriteName(name);
+}
+
+/** A clause-less find filters on the fields its parameters name
+ *  (`FindIR.paramBindings`); a parameter that names no field would be
+ *  dropped from the query, so it is refused.  `id` names the aggregate's own
+ *  key, which is not a declared field: `find byId(id: X id)` is the by-id read
+ *  form the read-gate surface recognises, so it is not refused here. */
+export function validateFindParamBindings(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
+  for (const repo of ctx.repositories) {
+    for (const find of repo.finds) {
+      if (find.filter || find.synthesized || find.auditHistory) continue;
+      const bound = new Set((find.paramBindings ?? []).map((b) => b.param));
+      for (const p of find.params) {
+        if (bound.has(p.name) || p.name === "id") continue;
+        diags.push({
+          severity: "error",
+          code: "loom.find-param-unbound",
+          message: diagMessage("loom.find-param-unbound", {
+            name: repo.name,
+            findName: find.name,
+            param: p.name,
+            aggName: repo.aggregateName,
+          }),
+          source: `${ctx.name}/${repo.name}.${find.name}`,
+          origin: repo.origin,
+        });
+      }
+    }
+  }
 }
 
 export function validateFindNameCollisions(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
@@ -1651,7 +1681,7 @@ export function validateLifecycleBodyDropped(
       // EVERY create, not just the canonical one.  An event-sourced create is
       // rendered BY INDEX (`agg.creates[0]`), so a NAMED `create open(...)` on
       // an event stream IS the emitted one — and reading only
-      // `agg.canonicalCreate` here let its guard through untouched: it rendered
+      // `canonicalCreate(agg)` here let its guard through untouched: it rendered
       // into the domain `_init` as a free `currentUser`, so `ddd parse` said
       // `0 error(s)` and the generated project then failed to COMPILE (measured
       // on node: `acct.ts(68,11): error TS2304: Cannot find name 'currentUser'`;
@@ -1683,8 +1713,8 @@ export function validateLifecycleBodyDropped(
     }
 
     for (const [label, action] of [
-      ["create", agg.canonicalCreate],
-      ["destroy", agg.canonicalDestroy],
+      ["create", canonicalCreate(agg)],
+      ["destroy", canonicalDestroy(agg)],
     ] as const) {
       // ── the guard's READABLE SURFACE ────────────────────────────────────
       // Runs for EVERY lifecycle guard, event-sourced included — deliberately
@@ -1818,11 +1848,11 @@ export function validateNamedLifecycleDropped(
     // stream is emitted and must not be flagged.
     const renderedCreate = aggregateIsEventSourced(agg)
       ? (agg.creates?.[0] ?? null)
-      : (agg.canonicalCreate ?? null);
+      : (canonicalCreate(agg) ?? null);
 
     for (const [label, actions, rendered] of [
       ["create", agg.creates ?? [], renderedCreate],
-      ["destroy", agg.destroys ?? [], agg.canonicalDestroy ?? null],
+      ["destroy", agg.destroys ?? [], canonicalDestroy(agg) ?? null],
     ] as const) {
       for (const action of actions) {
         if (action === rendered) continue;

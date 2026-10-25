@@ -4,17 +4,18 @@
 // `find byReference(reference: string): WorkOrder?` declares no `where`, yet it
 // is a key lookup, not a scan: each parameter pairs with the aggregate field it
 // names, and the find answers only the rows where every paired field equals its
-// argument.  The pairing is by name — the field of the same name, or the field
-// whose `<field>Id` spelling the parameter is (`siteId` → field `site`).  A
-// parameter that names no field contributes no conjunct.
+// argument.  The pairing is resolved once in enrichment and stored on
+// `FindIR.paramBindings` (`src/ir/enrich/find-param-bindings.ts`); an unpaired
+// parameter is refused (`loom.find-param-unbound`).
 //
-// ONE derivation, because every backend has to agree about it and a backend
-// that forgets it is silent: the query validates, compiles and passes its unit
-// tests, then a lookup for a missing key answers 200 with some other row (or a
-// non-unique-result 500 once two rows exist).  Backends that compose SQL from
-// the pairs read `implicitFindMatches`; backends whose find path renders an
-// `ExprIR` filter read `implicitFindFilter`, which spells the same pairs as the
-// `this.<field> == <param>` conjunction an author would have written.
+// ONE reading of that binding, because every backend has to agree about it and
+// a backend that forgets it is silent: the query validates, compiles and passes
+// its unit tests, then a lookup for a missing key answers 200 with some other
+// row (or a non-unique-result 500 once two rows exist).  Backends that compose
+// SQL from the pairs read `implicitFindMatches`; backends whose find path
+// renders an `ExprIR` filter read `effectiveFindFilter`, which spells the same
+// pairs as the `this.<field> == <param>` conjunction an author would have
+// written.
 // ---------------------------------------------------------------------------
 
 import type { AggregateIR, ExprIR, FieldIR, FindIR, ParamIR, TypeIR } from "../types/loom-ir.js";
@@ -24,19 +25,19 @@ export interface ImplicitFindMatch {
   field: FieldIR;
 }
 
-/** The (param, field) pairs a clause-less find filters on, in parameter order.
- *  Meaningful only when `find.filter` is absent — an explicit `where` replaces
- *  the convention entirely. */
+/** The (param, field) pairs a clause-less find filters on, in parameter order,
+ *  read from the binding enrichment stored on the find.  Meaningful only when
+ *  `find.filter` is absent — an explicit `where` replaces the convention
+ *  entirely. */
 export function implicitFindMatches(
-  find: Pick<FindIR, "params">,
+  find: Pick<FindIR, "params" | "paramBindings">,
   agg: Pick<AggregateIR, "fields">,
 ): ImplicitFindMatch[] {
   const out: ImplicitFindMatch[] = [];
-  for (const param of find.params) {
-    const field = agg.fields.find(
-      (f) => f.name === param.name || `${f.name.replace(/Id$/, "")}Id` === param.name,
-    );
-    if (field) out.push({ param, field });
+  for (const b of find.paramBindings ?? []) {
+    const param = find.params.find((p) => p.name === b.param);
+    const field = agg.fields.find((f) => f.name === b.field);
+    if (param && field) out.push({ param, field });
   }
   return out;
 }
@@ -48,7 +49,7 @@ const BOOL: TypeIR = { kind: "primitive", name: "bool" };
  *  its convention pairs.  `undefined` when the find filters nothing (no `where`
  *  and no parameter naming a field — e.g. `find all()`). */
 export function effectiveFindFilter(
-  find: Pick<FindIR, "params" | "filter">,
+  find: Pick<FindIR, "params" | "paramBindings" | "filter">,
   agg: Pick<AggregateIR, "fields">,
 ): ExprIR | undefined {
   if (find.filter) return find.filter;

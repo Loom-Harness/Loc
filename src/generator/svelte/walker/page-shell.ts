@@ -122,10 +122,13 @@ function renderActionMutations(actionMutations: readonly ActionMutationState[]):
   const imports = [...importsByModule.entries()]
     .map(([mod, names]) => `  import { ${[...names].sort().join(", ")} } from "${mod}";\n`)
     .join("");
+  // A row-scoped Action's hook reads its id from a holder the row's click sets
+  // (see `ActionMutationState.rowIdHolder`).
   const decls = actionMutations
-    .map(
-      (m) =>
-        `  const ${m.localVar} = ${m.hookName}(${renderActionMutationArg(m, (id) => `() => ${id}`)});\n`,
+    .map((m) =>
+      m.rowIdHolder
+        ? `  const ${m.rowIdHolder} = { current: "" };\n  const ${m.localVar} = ${m.hookName}(() => ${m.rowIdHolder}.current);\n`
+        : `  const ${m.localVar} = ${m.hookName}(${renderActionMutationArg(m, (id) => `() => ${id}`)});\n`,
     )
     .join("");
   return { imports, decls };

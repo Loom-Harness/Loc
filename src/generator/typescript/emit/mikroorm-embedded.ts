@@ -11,6 +11,7 @@ import type {
   RepositoryIR,
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
@@ -264,7 +265,7 @@ export function renderMikroEmbeddedRepository(
     );
   });
 
-  const deleteMethod = agg.canonicalDestroy
+  const deleteMethod = canonicalDestroy(agg)
     ? lines(
         `  async delete(id: ${idVar}): Promise<void> {`,
         `    await this.em.fork({ keepTransactionContext: true }).nativeDelete(${row}, ${withContextFilters("{ id: id as string }", [])});`,

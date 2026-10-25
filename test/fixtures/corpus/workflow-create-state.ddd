@@ -68,24 +68,25 @@ system WorkflowCreateState {
         orderId: Order id
         status: string
         attempts: int
-        // A COMPOUND own-state write (`+=`), in the create AND in the reactor:
-        // a read-modify-write of the saga row that each backend spells
-        // differently (an EF property, an Ecto changeset, a JPA setter over an
-        // accessor).  The folded values in the e2e below are the claim (M-T9.42
-        // promotion of the int arms of the `*-workflow-own-state-assign.test.ts`
-        // string copies).  The MONEY arm (`credit -= money(…)`) is not carried
-        // here: promoting it found that the node oracle reloads a saga's money
-        // column as a string and 500s on `.minus` in the reactor, and that
-        // MikroORM serializes a saga money field without its scale ("9.5"
-        // where every other leg answers "9.5000") — both handed off,
-        // wave-c3-3d-promote D20/D21.
+        // A COMPOUND own-state write (`+=` / `-=`), in the create AND in the
+        // reactor: a read-modify-write of the saga row that each backend
+        // spells differently (an EF property, an Ecto changeset, a JPA setter
+        // over an accessor).  The folded values in the e2e below are the claim
+        // (M-T9.42 promotion of the `*-workflow-own-state-assign.test.ts`
+        // string copies).  The MONEY arm is the one with a value to lose: the
+        // reactor runs on a RELOADED row, so `credit -= …` only works if the
+        // column comes back as a decimal (not the string the driver hands
+        // back), and the instance read only matches if it keeps its scale.
         retries: int
+        credit: money
 
         create(orderId: Order id) {
           status := "Pending"
           attempts := 0
           retries := 0
           retries += 1
+          credit := money("10.00")
+          credit -= money("0.50")
         }
 
         // Routes by name-match onto the row the create above persisted.
@@ -93,6 +94,7 @@ system WorkflowCreateState {
           status := "Shipped"
           attempts := attempts + 1
           retries += 1
+          credit -= money("2.50")
         }
       }
 
@@ -160,6 +162,7 @@ system WorkflowCreateState {
     expect(started.status).toBe("Pending")
     expect(started.attempts).toBe(0)
     expect(started.retries).toBe(1)
+    expect(decimal(started.credit)).toBe(9.5)
 
     // ④ The event. `ship()` flips the aggregate and emits OrderShipped, which
     // the in-process dispatcher routes to `on(e: OrderShipped)` — the reactor
@@ -169,6 +172,7 @@ system WorkflowCreateState {
     expect(shipped.status).toBe("Shipped")
     expect(shipped.attempts).toBe(1)
     expect(shipped.retries).toBe(2)
+    expect(decimal(shipped.credit)).toBe(7)
     let order = api.orders.getById(ord)
     expect(order.status).toBe("Shipped")
 

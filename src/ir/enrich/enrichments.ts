@@ -82,6 +82,7 @@ import {
 import { walkExprDeep, walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "../util/walk.js";
 import { applyDefaultDenyReads } from "./default-deny-reads.js";
 import { applyDemoTenantSeed } from "./demo-tenant.js";
+import { bindFindParams } from "./find-param-bindings.js";
 import { inheritBaseCapabilities } from "./inherited-capabilities.js";
 import { applyPolicyReadGates } from "./policy-read-gates.js";
 import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
@@ -980,19 +981,22 @@ export function enrichContext(
   // on top of the auto-`findAll` repositories; the synthesized find is flagged
   // so the aggregate router does NOT auto-expose it (the queryHandler's own
   // route is the exposure).
-  const repositories = synthesizePagedQueryHandlerFinds(
-    // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
-    // find's gate + `ignoring` stance, so the implicit `all` must exist first.
-    // `applyPolicyReadGates` sits between them: it puts the
-    // `policy { read X requires … }` gate on the injected `all` (and every
-    // declared find), which history then copies.
-    ensureHistoryFind(
-      aggregates,
-      applyPolicyReadGates(ensureFindAll(aggregates, ctx.repositories), ctx.policyReadGates),
+  const repositories = bindFindParams(
+    synthesizePagedQueryHandlerFinds(
+      // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
+      // find's gate + `ignoring` stance, so the implicit `all` must exist first.
+      // `applyPolicyReadGates` sits between them: it puts the
+      // `policy { read X requires … }` gate on the injected `all` (and every
+      // declared find), which history then copies.
+      ensureHistoryFind(
+        aggregates,
+        applyPolicyReadGates(ensureFindAll(aggregates, ctx.repositories), ctx.policyReadGates),
+      ),
+      ctx.queryHandlers,
+      ctx.criteria,
+      ctx.retrievals,
     ),
-    ctx.queryHandlers,
-    ctx.criteria,
-    ctx.retrievals,
+    aggregates,
   );
   // P2 (payload-transport-layer.md): give every concrete aggregate's wire
   // shape a named, referenceable `<Agg>Wire` payload.  Purely additive IR
@@ -1751,8 +1755,7 @@ function enrichAggregate(
   // wire shape is NOT stamped — every consumer recomputes it on demand via
   // `wireFieldsForAggregate` (see CLAUDE.md "Derive, don't stamp").
   // Stamp routeSlug on every lifecycle action.  New objects (don't
-  // mutate shared refs); canonicalCreate/Destroy are re-pointed at the
-  // freshly-stamped array entries.
+  // mutate shared refs).
   const stamp = (o: OperationIR): OperationIR => ({ ...o, routeSlug: routeSlugFor(o, urlStyle) });
   const operations = agg.operations.map(stamp);
   const creates = agg.creates?.map(stamp);
@@ -1763,8 +1766,6 @@ function enrichAggregate(
     operations,
     creates,
     destroys,
-    canonicalCreate: creates?.find((c) => c.canonical) ?? null,
-    canonicalDestroy: destroys?.find((d) => d.canonical) ?? null,
     parts,
     associations: associationsForAggregate(resolved),
     createInput: buildCreateInput(resolved),

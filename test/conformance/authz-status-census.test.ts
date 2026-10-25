@@ -38,21 +38,19 @@
 //     "Forbidden: find <name>".  node's find-guard emitter (routes-builder.ts:
 //     1820) hardcodes the bare string while its OPERATION-guard emitter threads
 //     the predicate — the exact intra-backend split this mission exists to name.
-//     Unifying the detail convention across every guard site (finds, projections,
-//     audit-history — where even the descriptive backends disagree: java "find
-//     history" vs elixir "history Item") is mission-sized, so this is a reasoned
-//     ratchet + a filed finding, not a one-line fix that would only trade node's
-//     outlier for a fresh intra-node split (WAIVER_FIND_DETAIL below).
+//     The audit-history read is the derived find `history`, so it carries the
+//     same declared-find detail, "Forbidden: find history", on all five.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { gateSites, type VariantId } from "../ir/authz-emitted-census.js";
 
-/** One aggregate with BOTH an operation `requires` gate and a declared-find
- *  `requires` gate, under `auth: required`, so all three authz arms are emitted:
+/** One aggregate with BOTH an operation `requires` gate and a policy read gate
+ *  (`policy { read Item requires … }`) on a declared find, under
+ *  `auth: required`, so all three authz arms are emitted:
  *
  *    operation bump() requires …  → the 403 arm on a WRITE  (detail agrees)
- *    find openOnes() requires …   → the 403 arm on a READ   (detail diverges)
+ *    find openOnes() (read gate)  → the 403 arm on a READ   (detail diverges)
  *    auth: required               → the 401 arm on every route (no envelope)
  *
  *  The context is fixed to `S` so elixir's domain module is a stable `s.ex`.

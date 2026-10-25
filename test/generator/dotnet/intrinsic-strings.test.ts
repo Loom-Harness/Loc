@@ -2,7 +2,7 @@
 // end-to-end on the .NET backend: toUpper/toLower/substring/startsWith/
 // endsWith/contains/replace/split from `.ddd` source through generateDotnet.
 // Semantics contract (src/util/intrinsics.ts): substring is 0-based CLAMPING
-// (JS-slice), startsWith/endsWith/contains are ordinal, replace hits all
+// (JS-slice) over CODE POINTS, startsWith/endsWith/contains are ordinal, replace hits all
 // occurrences literally, split keeps empty segments.  Only toUpper/toLower
 // are queryable — they reach EF via the same renderCsExpr LINQ lambda path
 // as trim (no separate SQL table on .NET).
@@ -46,11 +46,11 @@ describe("dotnet generator — string intrinsics (stdlib A2 batch)", () => {
     // A ONE-character literal takes the char overload (CA1865 under /warnaserror).
     expect(domain).toContain(".EndsWith('!')");
     expect(domain).toContain('.Contains("-", StringComparison.Ordinal)');
-    // substring — clamping guard, 2-arg arity (invariant)
+    // substring — code points, clamping, 2-arg arity (invariant)
     expect(domain).toContain(
-      // The trailing `.length` is the DSL's, so it is a CODE-POINT count
-      // (RS-31); the clamping guard's own `.Length` is C#'s, unchanged.
-      '(0 >= this.Name.Length ? "" : this.Name.Substring(0, Math.Min(3, this.Name.Length - 0))).EnumerateRunes().Count() <= 3',
+      // Both the window and the trailing `.length` count CODE POINTS (RS-31,
+      // RS-44); Skip/Take clamp.
+      "string.Concat(this.Name.EnumerateRunes().Skip(0).Take(3)).EnumerateRunes().Count() <= 3",
     );
   });
 
@@ -72,7 +72,7 @@ describe("dotnet generator — string intrinsics (stdlib A2 batch)", () => {
     `;
     const model = await parseValid(src);
     const domain = generateDotnet(model).get("Domain/Docs/Doc.cs")!;
-    expect(domain).toContain('(5 >= this.Body.Length ? "" : this.Body.Substring(5))');
+    expect(domain).toContain("string.Concat(this.Body.EnumerateRunes().Skip(5))");
     expect(domain).toContain('.Split("\\n").ToList()');
   });
 });

@@ -114,7 +114,7 @@ const CASES: readonly { site: string; src: string; code: string }[] = [
     src: onePage(
       "feliz",
       `body: ${QV('C.Thing.byNames(["a"])')}`,
-      "find byNames(names: string[]): Thing[]",
+      'find byNames(names: string[]): Thing[] where this.name != ""',
     ),
     code: "loom.ui-body-feature-unsupported",
   },

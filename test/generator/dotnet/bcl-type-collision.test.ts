@@ -219,3 +219,40 @@ describe("dotnet — BCL type-name collision (#3024)", () => {
     expect(db).not.toMatch(/using Order = /);
   });
 });
+
+// ---------------------------------------------------------------------------
+// An id type that collides with an IMPLICIT SDK `global using`.
+//
+// The main project is `Microsoft.NET.Sdk.Web`, whose implicit usings import
+// `Microsoft.Extensions.Logging` — home of `struct EventId`.  `aggregate Event`
+// emits `<ns>.Domain.Ids.EventId`, and every file that also imports
+// `<ns>.Domain.Ids` failed `dotnet build /warnaserror` with 13 × CS0104
+// (EF and Dapper alike).  The id file opens with a global alias that outranks
+// the namespace import; with that compiling, CA1716 (`Event` is a Visual Basic
+// keyword) is the next error, so the csproj suppresses it beside CA1711.
+// ---------------------------------------------------------------------------
+
+describe("dotnet — id type colliding with an implicit SDK using", () => {
+  const ALIAS = "global using EventId = Api.Domain.Ids.EventId;";
+
+  for (const [adapter, src] of [
+    ["efcore", sys("Event")],
+    ["dapper", dapperSys("Event")],
+  ] as const) {
+    it(`aliases EventId globally in the id file (${adapter})`, async () => {
+      const files = await filesOf(src);
+      const id = pick(files, "Domain/Ids/EventId.cs");
+      expect(id).toContain(ALIAS);
+      // A `global using` must precede every namespace declaration.
+      expect(id.indexOf(ALIAS)).toBeLessThan(id.indexOf("namespace Api.Domain.Ids;"));
+      expect(id).toContain("public readonly record struct EventId(");
+      // The alias closes CS0104; CA1716 on `class Event` is what is left.
+      expect(pick(files, ".csproj")).toMatch(/<NoWarn>[^<]*\bCA1716\b/);
+    });
+  }
+
+  it("leaves an ordinary id file without the alias", async () => {
+    const files = await filesOf(sys("Meetup"));
+    expect(pick(files, "Domain/Ids/MeetupId.cs")).not.toContain("global using");
+  });
+});

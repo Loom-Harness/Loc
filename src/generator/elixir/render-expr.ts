@@ -29,7 +29,7 @@ import {
 } from "../../util/naming.js";
 import type { RepoOp } from "../../util/repository-contract.js";
 import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
-import { elixirCodePointLength } from "../_expr/code-point.js";
+import { elixirCodePointLength, elixirCodePointSubstring } from "../_expr/code-point.js";
 import { renderPrincipalTest } from "../_expr/principal-term.js";
 import { exSubtreeLikePattern } from "../_expr/subtree-like.js";
 import {
@@ -694,16 +694,10 @@ export const ELIXIR_INTRINSIC_RENDERERS: Record<string, (recv: string, args: str
     "string.trim": (recv) => `String.trim(${recv})`,
     "string.toUpper": (recv) => `String.upcase(${recv})`,
     "string.toLower": (recv) => `String.downcase(${recv})`,
-    // 0-based clamping semantics = JS slice (the catalogue contract):
-    // `String.slice/3` takes start + LENGTH and clamps at both ends; the
-    // omitted-len arity runs to the end via the stepped range (`..-1//1`
-    // keeps an out-of-range start yielding "" instead of wrapping).
-    // Grapheme-vs-codeunit divergence is accepted and documented in the
-    // catalogue.
-    "string.substring": (recv, args) =>
-      args.length > 1
-        ? `String.slice(${recv}, ${args[0]}, ${args[1]})`
-        : `String.slice(${recv}, ${args[0]}..-1//1)`,
+    // 0-based, CLAMPING, counted in CODE POINTS like `.length` (the
+    // catalogue contract; `_expr/code-point.ts`) — `String.slice/3` would
+    // count graphemes.
+    "string.substring": (recv, args) => elixirCodePointSubstring(recv, args[0]!, args[1]),
     "string.startsWith": (recv, args) => `String.starts_with?(${recv}, ${args[0]})`,
     "string.endsWith": (recv, args) => `String.ends_with?(${recv}, ${args[0]})`,
     // String-receiver `contains` is the intrinsic (lowering keys

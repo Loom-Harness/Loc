@@ -18,6 +18,7 @@
 
 import type { PageIR, UiIR } from "../../ir/types/loom-ir.js";
 import type { PageNameCtx } from "../../ir/util/page-kind.js";
+import { menuMetaString } from "../../ir/util/page-menu.js";
 import { tryRenderGate } from "../_frontend/gate-expr.js";
 import type { NavSectionVM } from "../_frontend/menu-emitter.js";
 import { deriveSidebarFromUi } from "../_frontend/menu-emitter.js";
@@ -91,11 +92,12 @@ export function renderSidebarComponent(args: RenderSidebarComponentArgs): string
   // ungated — the sidebar has no record context to evaluate it against.
   const gateByRoute = authEnabled ? buildGatesByRoute(ui, appModule) : new Map<string, string>();
 
-  // Section h3 wrappers only appear when there is more than one labelled
-  // section — a single (or unlabelled) section renders its entries directly.
+  // Section h3 wrappers appear when there is more than one labelled section,
+  // or when the heading is AUTHORED (a `menu { section "…" }` — it carries a
+  // catalog key): a lone derived section renders its entries directly.
   const multi = navSections.length > 1;
   const sections = navSections.map((section) => ({
-    labelled: multi && !!section.label,
+    labelled: !!section.label && (multi || !!section.labelKey),
     label: navLabel(section.label, section.labelKey),
     entries: section.entries.map((entry): SidebarEntryVM => {
       // Every VM key is always present (empty string when inapplicable) —
@@ -170,7 +172,10 @@ function buildDefaultSections(ui: UiIR): NavSectionVM[] {
     .filter((p) => p.route && !p.route.includes(":"))
     .map((p) => ({
       to: p.route ?? "/",
-      label: p.name,
+      // A page's own `menu { label: … }` (a scaffold List page's "Products")
+      // names its link; `deriveSidebarFromUi` keys it and groups it under the
+      // page's `menu { section: … }`.
+      label: menuMetaString(p, "label") ?? p.name,
       testId: `nav-${p.name.toLowerCase()}`,
       activeArgs: JSON.stringify(p.route ?? "/"),
     }));

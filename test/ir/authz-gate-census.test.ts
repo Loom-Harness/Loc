@@ -101,6 +101,7 @@ import {
   type WorkflowIR,
 } from "../../src/ir/types/loom-ir.js";
 import { aggregateSegment, deriveContextOperations } from "../../src/ir/util/api-surface.js";
+import { canonicalCreate, canonicalDestroy } from "../../src/ir/util/canonical-lifecycle.js";
 import { lifecycleGates, operationGates } from "../../src/ir/util/op-gates.js";
 import { platformFor } from "../../src/platform/registry.js";
 import { API_BASE_PATH } from "../../src/util/api-base.js";
@@ -364,8 +365,8 @@ function surfacesOf(model: LoomModel): Surfaces {
         const hasRequires =
           (op.operation !== undefined && operationGates(op.operation).length > 0) ||
           op.find?.requires !== undefined ||
-          (op.kind === "create" && lifecycleGates(agg?.canonicalCreate).length > 0) ||
-          (op.kind === "destroy" && lifecycleGates(agg?.canonicalDestroy).length > 0);
+          (op.kind === "create" && lifecycleGates(canonicalCreate(agg)).length > 0) ||
+          (op.kind === "destroy" && lifecycleGates(canonicalDestroy(agg)).length > 0);
         if (hasRequires) gates.push("requires");
         add(op.kind, op.method.toUpperCase(), op.path, gates);
       }

@@ -116,6 +116,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "07-invariants-derived-functions.md#when--a-conditional-invariant",
   "loom.mask-unless-not-bool":
     "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
+  "loom.field-mask-principal-without-auth":
+    "07-invariants-derived-functions.md#mask-unless--field-read-redaction",
   "loom.derived-type-mismatch":
     "07-invariants-derived-functions.md#derived--a-computed-read-only-field",
   "loom.property-default-type-mismatch": "03-domain-modeling.md#fields-property",
@@ -157,6 +159,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.bare-statement-invalid": "06-behavior-and-statements.md#assignment-----",
   "loom.retrieval-where-not-criterion": "10-repositories-and-queries.md#retrieval",
   "loom.paged-param-reserved": "10-repositories-and-queries.md#return-shapes",
+  "loom.find-param-unbound":
+    "10-repositories-and-queries.md#a-find-without-where--key-lookup-by-parameter-name",
   "loom.paged-query-handler-shape":
     "10-repositories-and-queries.md#reporun--the-paged-queryhandler",
   "loom.function-return-type-mismatch":
