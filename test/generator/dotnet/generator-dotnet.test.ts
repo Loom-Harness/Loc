@@ -327,12 +327,15 @@ describe(".NET generator", () => {
     );
   });
 
-  it("EF configuration emits HasIndex for find-referenced columns", async () => {
+  it("EF configuration emits HasIndex for exactly the migration's FK indexes", async () => {
+    // `customerId` is an `X id` column — the migration creates its FK covering
+    // index.  `status` is only find-filtered: no migration indexes it
+    // (D-INDEX-SUGGEST), so the EF model must not either.
     const model = await buildModel("examples/sales.ddd");
     const files = generateDotnet(model);
     const cfg = files.get("Infrastructure/Persistence/Configurations/OrderConfiguration.cs")!;
     expect(cfg).toMatch(/builder\.HasIndex\(x => x\.CustomerId\)/);
-    expect(cfg).toMatch(/builder\.HasIndex\(x => x\.Status\)/);
+    expect(cfg).not.toMatch(/builder\.HasIndex\(x => x\.Status\)/);
   });
 
   it("re-homes an extern operation to a domain partial-method hook + scaffold-once impl", async () => {
