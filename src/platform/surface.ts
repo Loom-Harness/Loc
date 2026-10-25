@@ -111,36 +111,6 @@ export interface ComposeServiceShape {
    *  frontend's env so the proxy reaches it; the bundle stays same-origin
    *  (no CORS, no separate API host). */
   injectsApiProxyTarget?: boolean;
-  // -------------------------------------------------------------------------
-  // Reserved slots for future cross-cutting concerns (of the
-  // proposal corpus).  Currently undefined on every backend; the
-  // orchestrator emits nothing when absent.  Wiring lands per concern.
-  // -------------------------------------------------------------------------
-  /** Audit sidecar — a separate container for the audit subsystem
-   *  (e.g. a log aggregator that drains audit-record events).
-   *  Filled by backends that implement `emitAuditInit`. */
-  auditSidecar?: ComposeSidecar;
-  /** Policy initialisation command — an entrypoint wrapper that runs
-   *  before the main service to load / verify compliance policies
-   *  (sensitivity-and-compliance / authorization phases). */
-  policyInitCmd?: string[];
-  /** Mount path inside the container for the i18n catalog directory.
-   *  Filled by backends that implement `emitI18nAdapter`. */
-  i18nCatalogDir?: string;
-}
-
-/** Sidecar container shape — minimal subset of the compose service
- *  attributes a sidecar needs.  Used by `ComposeServiceShape.auditSidecar`
- *  (and any future sidecar reservations).  Intentionally smaller than the
- *  full service shape because sidecars don't expose a public health path. */
-export interface ComposeSidecar {
-  /** Docker image reference (e.g. `vector:0.39`). */
-  image: string;
-  /** Environment variables — ordered tuples for stable yaml output. */
-  env: Array<[string, string]>;
-  /** Optional internal port if the sidecar exposes one (typically
-   *  scraped by an observability backend). */
-  internalPort?: number;
 }
 
 /** The pure-data half of a platform surface — the static descriptor
