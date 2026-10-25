@@ -139,7 +139,7 @@ system MaskedAudit {
     // update (aggregate-wide `audited` covers it).  A masked field's change is
     // DROPPED, not redacted (docs/audit.md): the update moved `name`, `salary`
     // and `nationalId`, and this caller sees only `name`.  Each entry's `actor`
-    // is the principal's declared `user` shape (RS-44) — the recorded body is
+    // is the principal's declared `user` shape (RS-45) — the recorded body is
     // where the wire golden pins it.
     let trail = api.employees.history(e)
     expect(trail.count).toBe(3)

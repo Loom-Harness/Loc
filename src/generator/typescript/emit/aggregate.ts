@@ -1004,6 +1004,22 @@ function renderEntity(
   // The audit FIELDS + getters (createdAt/createdBy/updatedAt/updatedBy) are
   // still emitted.
 
+  // The stream version this instance was folded to (M-T6.98) — the EXPECTED
+  // version of its next append.  `_fromEvents` sets it to the folded count (a
+  // stream is gap-free from 1), a fresh instance starts at 0, and the
+  // repository's `save` appends the versions after it and then advances it.
+  // A second handle loaded at the same version therefore appends a version the
+  // first already wrote and loses the `(stream_type, stream_id, version)` key —
+  // the RS-40 409 — instead of committing a decision taken on a stale fold.
+  const streamVersionField =
+    e.isRoot && e.eventSourced
+      ? [
+          "  /** @internal Stream version this instance was folded to; the expected version of its next append. */",
+          "  _streamVersion = 0;",
+          "",
+        ]
+      : [];
+
   // Event-sourcing fold (appliers A2): one `_apply<Event>` method per
   // applier (body rendered at the natural method-body depth), a `_apply`
   // dispatcher that switches on `ev.type`, and a `_fromEvents` rehydrator
@@ -1044,6 +1060,7 @@ function renderEntity(
             ? `    const inst = new this({ id } as unknown as ${stateLiteral}, true);`
             : `    const inst = ${e.name}._rehydrate({ id } as unknown as ${stateLiteral});`,
           "    for (const ev of events) inst._apply(ev);",
+          "    inst._streamVersion = events.length;",
           "    return inst;",
           "  }",
           "",
@@ -1063,6 +1080,7 @@ function renderEntity(
     ...ops,
     ...provDrain,
     ...pullEvents,
+    ...streamVersionField,
     ...appliersBlock,
     // Under --trace, the helper takes an `__op` string param threaded by
     // each call site (ctor → "<init>", per-op → op name, extern public

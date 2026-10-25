@@ -1174,7 +1174,7 @@ export function renderApiExceptionAdvice(
     // does not fit.  Jackson refuses it while binding, as an
     // InputCoercionException carrying the field's path, so it surfaces here
     // rather than at Bean Validation — and the answer is the wire-validation
-    // 422 at that field with the cross-backend range sentence (RS-41), the
+    // 422 at that field with the cross-backend range sentence (RS-42), the
     // same body node, python, .NET and elixir send.  Every other unreadable
     // body stays the 400.
     `    @ExceptionHandler(HttpMessageNotReadableException.class)`,

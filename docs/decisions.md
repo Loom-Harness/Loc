@@ -4659,7 +4659,7 @@ errors}` rung, the message-less entry carrying no `code`
 (`elixir/vanilla/denial.ts`); python raises a `PydanticCustomError` of type
 `invariant` through `ValidationError.from_exception_data`, so the entry has the
 field's `loc` and no "Value error, " prefix (`python/emit/wire-constraints.ts`).
-Pinned by RS-42 and the `validation-messages` / `intrinsics` wire goldens; the
+Pinned by RS-43 and the `validation-messages` / `intrinsics` wire goldens; the
 four `M-T6.86` waivers are deleted.
 
 ## D-FORBIDDEN-DETAIL-DEV-ECHO — a 403 names its gate only under the dev stub; a malformed dev-claims header is a 400
@@ -4976,3 +4976,41 @@ waiver for the scaffold shape and fails if a derived route and an explicit one
 share a slot again. Not covered: the two aggregate-scoped routes the derivation
 does not lift (`GET <base>/{id}/history`, `GET <base>/prepare`) — an explicit
 route on one of those slots still double-registers.
+
+## D-INHERITED-CAPABILITIES — a capability on an abstract base applies to every subtype
+
+**Status:** PINNED (owner ruling 2026-10-25, epic #3954).
+
+**Question.** `abstract aggregate Vehicle with softDeletable` + `aggregate Car
+extends Vehicle`. Does `Car` hide soft-deleted rows, and may a `Car` read say
+`ignoring softDeletable`? Before this ruling the base's fields reached the
+subtype but its capability identity did not: the subtype carried `is_deleted`
+and nothing filtered it (node, Python, Java, Elixir, .NET Dapper, .NET EF
+TPC), and `ignoring softDeletable` on the subtype was refused as an unknown
+capability. Tenancy only held because `loom.tenancy-stance-unmarked` forced the
+author to repeat `with tenantOwned` on every concrete.
+
+**Decision.** A `Car` is a `Vehicle`, so everything a capability on the base
+contributes applies to every concrete that `extends` it, transitively: its
+filters and bare `filter` declarations, its stamps, its capability tags and its
+`crossTenant` stance.
+
+- **Where.** Once, in phase ⑥ (`src/ir/enrich/inherited-capabilities.ts`).
+  Every backend reads the merged `contextFilters` / `contextFilterOrigins` /
+  `contextStamps` / `capabilities` and carries no inheritance logic, and the
+  `ignoring` and tenancy validators resolve against the same set.
+- **Order.** Ancestors' filters first (root-most first), then the concrete's
+  own; `inheritedFilterCount` (`src/ir/util/inheritance.ts`) reads that prefix.
+- **Repeats.** A subtype re-applying its base's capability gets that filter once
+  (the inherited entry wins); a stamp assignment the base already makes on the
+  same event is dropped from the subtype's own rules.
+- **.NET EF TPH.** The root config registers the root's filters once,
+  unguarded; a subtype neither re-registers them nor prefixes their names, so
+  `ignoring <rootCap>` on a subtype lifts the root's filter.
+- **Tenancy.** An unmarked subtype of a `tenantOwned` (or `crossTenant`) base
+  has that stance. A subtype declaring the opposite one is
+  `loom.tenancy-inherited-stance-conflict`.
+
+Gate: `test/generator/inherited-capability-filter.test.ts` — one case per
+backend × TPH/TPC; a Truck read carries the base's `is_deleted` filter and
+`ignoring softDeletable` on Truck drops it.

@@ -56,7 +56,7 @@ describe("vanilla — T2.c returning-op body statements", () => {
   it("hoists precondition/requires into a `with ensure(...)` denial chain (NOT a raise)", async () => {
     const ctx = get(await files(), "lib/api/stock.ex");
     // A param-only `precondition` denies on the wire-validation 422
-    // (`:validation_failed`, node's refine default — RS-42); `requires` denies
+    // (`:validation_failed`, node's refine default — RS-43); `requires` denies
     // 403 (`:forbidden`).  The guards run BEFORE the mutation/persist.
     expect(ctx).toContain(
       'with :ok <- ensure(delta != 0, {:validation_failed, [%{pointer: "/delta", message: "Invariant violated: delta != 0"}]})',

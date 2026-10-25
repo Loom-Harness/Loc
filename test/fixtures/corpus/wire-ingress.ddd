@@ -16,7 +16,7 @@
 // "is invalid" and the value-object leaf was stored verbatim.
 //
 // A decimal COMMA and an int past int32 are refused at the field too, with one
-// message on every backend (RS-41) — the first was ACCEPTED as 1250 on .NET and
+// message on every backend (RS-42) — the first was ACCEPTED as 1250 on .NET and
 // Dapper (`NumberStyles.Number` allows the thousands separator), the second
 // had no contract (two frameworks' texts at 422, a 400 on java and .NET).
 //
@@ -59,7 +59,7 @@ system WireIngress {
     // A decimal COMMA is not the money grammar — never a thousands separator.
     expect(api.products.reprice(p, { newPrice: "12,50" })).toThrow(422)
     // An int past int32 is refused at the field, with the one range sentence
-    // every backend sends (RS-41), on both sides of the range.
+    // every backend sends (RS-42), on both sides of the range.
     expect(api.products.restock(p, { n: 3000000000 })).toThrow(422)
     expect(api.products.restock(p, { n: -3000000000 })).toThrow(422)
 

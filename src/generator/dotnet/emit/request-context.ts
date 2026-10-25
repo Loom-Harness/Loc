@@ -28,7 +28,7 @@ export function renderRequestContext(
     actorIdProp?: string;
     hasVersioned?: boolean;
     /** Declared `user { … }` field names, in declaration order — the shape
-     *  the audit `actor` records (RS-44), the same one `/auth/me` answers. */
+     *  the audit `actor` records (RS-45), the same one `/auth/me` answers. */
     userFields?: readonly string[];
   },
 ): string {
@@ -81,7 +81,7 @@ export function renderRequestContext(
   // `PrincipalJson()` without referencing the auth-only CurrentUser slice or
   // the Auth namespace — when there is no principal slice it is simply null.
   //
-  // The actor is the DECLARED `user { … }` shape, by declared name (RS-44) —
+  // The actor is the DECLARED `user { … }` shape, by declared name (RS-45) —
   // the `/auth/me` projection.  Serialising the `User` record itself wrote
   // PascalCase property names plus its derived tenancy members; a dictionary
   // keeps the declared key spelling verbatim.

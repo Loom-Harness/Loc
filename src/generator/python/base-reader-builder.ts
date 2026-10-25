@@ -93,14 +93,18 @@ function tphReader(base: EnrichedAggregateIR, concretes: EnrichedAggregateIR[]):
     "",
     `    async def all(self) -> list[${aggRef(base)}]:`,
     `        rows = (await self._session.execute(${R.select}(${row}))).scalars().all()`,
-    "        return [await self._dispatch(row) for row in rows]",
+    "        found = [await self._dispatch(row) for row in rows]",
+    "        return [item for item in found if item is not None]",
     "",
     // Dispatch on the kind discriminator, delegating to the concrete
-    // repository so contained parts / join tables hydrate fully.
-    `    async def _dispatch(self, row: ${row}) -> ${aggRef(base)}:`,
+    // repository so contained parts / join tables hydrate fully.  The concrete
+    // `find_by_id` applies that subtype's read filters and answers None for a
+    // row they exclude (soft-deleted, other tenant) — `get_by_id` would raise
+    // and take the whole listing down with it.
+    `    async def _dispatch(self, row: ${row}) -> ${aggRef(base)} | None:`,
     ...concretes.flatMap((c, i) => [
       `        ${i === 0 ? "if" : "elif"} row.kind == "${c.name}":`,
-      `            return await ${repoRef(c.name)}(self._session, self._events).get_by_id(${pyIdType(c.name)}(row.id))`,
+      `            return await ${repoRef(c.name)}(self._session, self._events).find_by_id(${pyIdType(c.name)}(row.id))`,
     ]),
     `        raise ValueError(f"unknown ${base.name} kind: {row.kind}")`,
   );

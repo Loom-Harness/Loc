@@ -583,6 +583,15 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.debitOnce.run (no such aggregate)",
     "api.debitTwice.run (no such aggregate)",
   ],
+  // Workflow runs (M-T6.98) — not a lifted route class.
+  "corpus/workflow-two-handles-document-eventlog": [
+    "api.hitSameTwice.run (no such aggregate)",
+    "api.hitTwice.run (no such aggregate)",
+    "api.hitViaSecond.run (no such aggregate)",
+    "api.withdrawSameTwice.run (no such aggregate)",
+    "api.withdrawTwice.run (no such aggregate)",
+    "api.withdrawViaSecond.run (no such aggregate)",
+  ],
   // Workflow runs (M-T6.90) — not a lifted route class, same as above.
   "corpus/workflow-two-handles-containment": [
     "api.addTwice.run (no such aggregate)",
@@ -610,7 +619,7 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   ],
   // The same entity-history read class: `field-mask` reads its audited
   // aggregate's trail as the unprivileged principal (the masked-field DROP and
-  // the RS-44 `actor`).
+  // the RS-45 `actor`).
   "corpus/field-mask": ["api.employees.history (no derived operation)"],
   "corpus/audit-history-guarded": [
     "api.employees.history (no derived operation)",

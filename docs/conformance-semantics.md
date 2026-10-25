@@ -1634,7 +1634,7 @@ nothing and the test passes vacuously.
   When this clause was written the registry stopped at RS-31 — RS-32..RS-34 had
   merged as prose only, which made any new rule unlandable under the registry's
   gap-free assertion. That has since been closed: the registry was backfilled
-  (it now holds RS-1 … RS-44, contiguous), and `semantics-rules.test.ts` gained
+  (it now holds RS-1 … RS-45, contiguous), and `semantics-rules.test.ts` gained
   the prose-vs-registry parity assertion this finding asked for ("the prose and
   the registry describe the SAME set of rules", plus a per-rule title check), so
   a prose-only rule now fails CI instead of slipping past it.
@@ -1957,7 +1957,47 @@ nothing and the test passes vacuously.
   wire-gated leg; the `$.detail` waiver on `transactional-workflow-event-rollback`
   is deleted.
 
-### RS-41 · A numeric wire value outside its type is refused AT ITS FIELD: one grammar, one range sentence
+### RS-41 · A save is checked against the version its handle was loaded at — a `shape: document` row and a `persistedAs: eventLog` stream included
+- **Guarantee.** Every save of a `versioned` aggregate is checked against the
+  version the saving handle was loaded at, whatever the saving shape. A
+  `shape: document` upsert is guarded on that version; an event-sourced
+  (`persistedAs: eventLog`) handle remembers the stream version it was folded
+  to and its save appends the versions after it, so a stream some other append
+  has moved past rejects the first re-used version on the `(stream_type,
+  stream_id, version)` key. The losing save answers the RS-40 409 and keeps
+  nothing. One handle changed twice is never a conflict with itself.
+- **Trigger.** `workflow-two-handles-document-eventlog.ddd`: inside a
+  `transactional` workflow, load one document row twice and change both
+  handles; load one stream twice and withdraw through both. Both answer 409
+  and persist neither. The controls — only the second handle changed, one
+  handle changed twice — commit.
+- **The ruling (M-T6.98): expected-version appends.** Before it, all seven
+  event stores (node drizzle + MikroORM, python, java, .NET EF + Dapper,
+  elixir) read `max(version)` at append time, so two loads of one stream both
+  appended: two withdrawals that each passed `balance >= amount` against the
+  same balance both landed, and the account overdrew past its precondition.
+  The key caught only two appends racing between their read and their insert.
+  The stream is an event-sourced aggregate's own concurrency control — the
+  reason `versioned` is not spliced onto it — so it is checked against what the
+  handle saw, as a state row is. (java and .NET also assert invariants when
+  folding a stream, so an overdrawn stream would have become unloadable.)
+- **Per-backend shape.** The folded version lives on the ES root
+  (`_streamVersion` node/java, `_stream_version` python, `_StreamVersion` .NET,
+  `__stream_version__` elixir), set by the fold to the folded count and
+  advanced after the append. Document saves: java's upsert gained `where
+  <t>.version = ?` + `returning version` (M-T6.95); EF sets the concurrency
+  token's *original* value to the handle's version (or `If-Match`) instead of
+  bumping the re-read row.
+- **Not part of the guarantee (named).** Elixir: its store refuses both writes,
+  but a stale save inside a workflow answers 500 until M-T6.92 (#3247) adds the
+  `{:error, :conflict}` arm, and it persists each op call, so one handle changed
+  twice bumps `version` twice (M-T6.99). Elixir is a *target*, not conforming.
+- **Conforms.** node (+ MikroORM), dotnet (EF + Dapper), java, python. Target:
+  elixir.
+- **Provenance.** M-T6.95 + M-T6.98 (#3285). Tier: **behavioral** —
+  `test/behavioral/wire-golden/workflow-two-handles-document-eventlog.json`.
+
+### RS-42 · A numeric wire value outside its type is refused AT ITS FIELD: one grammar, one range sentence
 - **Guarantee.** A request number that does not fit its declared type is a
   **422** wire-validation refusal (RS-29's `Validation failed` rung) with one
   `errors[]` entry at the field's full pointer (RS-33), and the same message on
@@ -2009,7 +2049,7 @@ nothing and the test passes vacuously.
   grammar gate) and `test/conformance/numeric-ingress-parity.test.ts` (the
   range seam per backend).
 
-### RS-42 · A message-less rule's 422 carries node's sentence on every backend
+### RS-43 · A message-less rule's 422 carries node's sentence on every backend
 - **Guarantee.** A rule with no `message "…"` that rides the wire validator —
   an `invariant` over request fields, an operation `precondition` over its
   params — refuses with the sentence node's zod chain sends for it, at the
@@ -2048,7 +2088,7 @@ nothing and the test passes vacuously.
   `test/_helpers/wire-waivers.ts` deleted). Tier: **behavioral** —
   `wire-golden/validation-messages.json` and `wire-golden/intrinsics.json`.
 
-### RS-43 · A string intrinsic counts and cases the same on every backend
+### RS-44 · A string intrinsic counts and cases the same on every backend
 - **Guarantee.** `s.substring(start, len?)` counts **code points**, the unit of
   `s.length` (RS-31): `"a😀bc".substring(1, 2)` is `"😀b"` and
   `"a😀bc".substring(2)` is `"bc"` everywhere. `s.toUpper()` applies the Unicode
@@ -2076,7 +2116,7 @@ nothing and the test passes vacuously.
 - **Provenance.** Wave C3F packet F4. Tier: **unit** (the value table runs each
   backend's real renderer) plus **behavioral** (`wire-golden/intrinsics.json`).
 
-### RS-44 · An audit entry's `actor` is the principal's declared `user` shape — by declared name, nothing else — or null
+### RS-45 · An audit entry's `actor` is the principal's declared `user` shape — by declared name, nothing else — or null
 - **Guarantee.** The `actor` an `audited` command records — and its entity
   history (`GET /<aggregates>/{id}/history`) serves — is the request principal
   projected onto the system's declared `user { … }` fields, keyed by the

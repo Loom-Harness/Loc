@@ -160,7 +160,7 @@ builder.Services.AddControllers(opts =>
         new Api.Serialization.CanonicalInstantJsonConverter());
     opts.JsonSerializerOptions.Converters.Add(
         new Api.Serialization.CanonicalInstantOffsetJsonConverter());
-    // An int literal past Int32 names itself (RS-41), so ValidationProblem
+    // An int literal past Int32 names itself (RS-42), so ValidationProblem
     // answers it as a 422 at the field instead of a 400 for the body.
     opts.JsonSerializerOptions.Converters.Add(
         new Api.Serialization.Int32RangeJsonConverter());

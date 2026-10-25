@@ -204,7 +204,7 @@ export function renderInvariantValidatorFn(
   const checks = residuals.map((inv) => {
     const pred = renderExpr(inv.expr, rc);
     const field = snake(pickErrorPath(inv) ?? fallbackField);
-    // A message-less rule answers node's refine default (RS-42,
+    // A message-less rule answers node's refine default (RS-43,
     // D-MESSAGELESS-DEFAULT), the cross-backend sentence every wire validator
     // sends for it.
     const msg = inv.message ? inv.message.text : `Invariant violated: ${inv.source}`;

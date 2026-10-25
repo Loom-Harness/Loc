@@ -9,7 +9,7 @@ namespace Api.Serialization;
 
 /// <summary>Reads a request <see cref="int"/> like the default converter,
 /// except that an integer literal outside the Int32 range is refused with the
-/// cross-backend range sentence (RS-41) instead of the reader's generic
+/// cross-backend range sentence (RS-42) instead of the reader's generic
 /// FormatException — the one signal <c>ValidationProblem</c> needs to answer
 /// it as a 422 at the field rather than a 400 for the whole body.</summary>
 public sealed class Int32RangeJsonConverter : JsonConverter<int>

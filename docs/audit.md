@@ -52,7 +52,7 @@ together. The table (`audit_records`, one per module, derived from
 | `operation_id` | Stable id of the command that ran |
 | `action` | The command's name |
 | `target_type` / `target_id` | The aggregate and row it changed |
-| `actor` | The principal in its declared `user { … }` shape, by declared name — the `/api/auth/me` body (RS-44); null without auth |
+| `actor` | The principal in its declared `user { … }` shape, by declared name — the `/api/auth/me` body (RS-45); null without auth |
 | `before` / `after` | Full wire-DTO snapshots (`repoTx.toWire`), nullable |
 | `at` | When |
 | `status` | Always `"ok"` — see below |
@@ -140,7 +140,7 @@ the backend serves it from `audit_records`.
     "at": "2026-08-03T05:19:50.554Z",
     "action": "cancel",
     "operationId": "cancelOrder",
-    "actor": { "id": "u-17", "role": "clerk" },  // the declared user shape at command time (RS-44)
+    "actor": { "id": "u-17", "role": "clerk" },  // the declared user shape at command time (RS-45)
     "correlationId": "…",
     "changes": [
       { "field": "status", "before": 0, "after": 7 }

@@ -104,7 +104,7 @@ export interface ServiceCtx {
   /** auth: required + system user block — gates currentUser threading. */
   authed?: boolean;
   /** Declared `user { … }` field names, in declaration order — the shape the
-   *  audit `actor` records (RS-44).  Empty without auth. */
+   *  audit `actor` records (RS-45).  Empty without auth. */
   userFields?: readonly string[];
   /** The enclosing context — resolves exception-less return unions. */
   boundedContext: EnrichedBoundedContextIR;
@@ -469,7 +469,7 @@ export function renderJavaService(
   const anyOpAudited = agg.operations.some((op) => op.visibility === "public" && op.audited);
   const anyLifecycleAudited = auditCreate || auditDestroy;
   const anyAudited = anyOpAudited || anyLifecycleAudited;
-  // The audit row's `actor` (RS-44): the principal's DECLARED `user { … }`
+  // The audit row's `actor` (RS-45): the principal's DECLARED `user { … }`
   // shape by declared name — the `/auth/me` projection — or null.  Handing
   // Jackson the `User` record instead let its introspection decide the keys.
   const auditActorLines =

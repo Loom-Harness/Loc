@@ -100,7 +100,9 @@ system KwSys {
     route POST "/shift" -> Hostile.DoShift
     route GET "/span/{end}/{after}" -> Hostile.Span
   }
-  ui WebApp with scaffold(subdomains: [Words]) {
+  // Scaffold only what 'api' hosts: a page over Caller's Note would read an
+  // aggregate this self-hosting deployable cannot serve (loom.ui-aggregate-unserved).
+  ui WebApp with scaffold(contexts: [Hostile]) {
     api Words: HostileApi
     store Box {
       state {

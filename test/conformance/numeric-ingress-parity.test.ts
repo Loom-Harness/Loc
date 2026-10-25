@@ -25,12 +25,12 @@
 //                                  ^ was "accept" on four until the range guard
 //   long 2^53  (past the ceiling)  4xx     accept  accept  accept  accept
 //   int 3000000000 (past int32)    422     422     422     422     422
-//                                  ^ java and .NET answered 400 until RS-41
+//                                  ^ java and .NET answered 400 until RS-42
 //
 //   * the 2026-09-08 measurement was wrong for .NET: `NumberStyles.Number`
 //     carries AllowThousands, so "12,50" PARSED (as 1250) and was accepted —
 //     the row was read off the TryParse's presence, not run.  Booted, wave C3
-//     (D22) found it; RS-41 gates the grammar ahead of the parse.
+//     (D22) found it; RS-42 gates the grammar ahead of the parse.
 //
 // ## The `long` row (added 2026-09-13, M-T5.23 / `D-LONG-AVG-DEFAULTS`)
 //
@@ -425,7 +425,7 @@ const MONEY_OUT_OF_RANGE: Record<Platform, Seam[]> = {
   ],
 };
 
-/** Probe 6 — an `int` literal past int32 (3000000000).  RS-41: a 422 at the
+/** Probe 6 — an `int` literal past int32 (3000000000).  RS-42: a 422 at the
  *  field with the one Loom-owned sentence, `Integer out of range`.  Pre-fix
  *  node and python sent their frameworks' texts and java / .NET answered 400
  *  "Malformed JSON" — Jackson and System.Text.Json fail the whole body on an
@@ -534,7 +534,7 @@ describe("M-T6.48 — malformed numeric input answers a typed 4xx (all five back
       assertSeams(await emit(platform), platform, MONEY_OUT_OF_RANGE[platform], "money 40 digits");
     });
 
-    it(`${platform}: an int past int32 is refused at its field with the range sentence (RS-41)`, async () => {
+    it(`${platform}: an int past int32 is refused at its field with the range sentence (RS-42)`, async () => {
       assertSeams(await emit(platform), platform, INT32_OVERFLOW[platform], "int 3000000000");
     });
   }

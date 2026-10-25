@@ -138,7 +138,7 @@ describe("vanilla — guarded NAMED op denies 403/422 (not raise → 500)", () =
     const body = ctx.slice(ctx.indexOf("def withdraw_account(%"));
     const fn = body.slice(0, body.indexOf("\n  end"));
     // `requires` → 403 (`:forbidden`); a param-only `precondition` → the
-    // wire-validation 422 (`:validation_failed`, node's sentence — RS-42).
+    // wire-validation 422 (`:validation_failed`, node's sentence — RS-43).
     // The chain now OPENS with the wire-format guard for the `int` param
     // (M-T6.48) and the domain guards follow. That order is deliberate and
     // matches the other four backends, where zod / the DTO binder / pydantic

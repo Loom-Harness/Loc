@@ -419,7 +419,7 @@ export function buildPyRepositoryFile(
     `        rows = (await self._session.execute(${R.select}(${root})${rootWhere(
       { expr: `${root}.id.in_(list(ids))`, ops: new Set() },
       root,
-      undefined,
+      kind,
       filterPred,
     )})).scalars().all()`,
     `        return ${hydrateListExpr(agg)}`,
@@ -1744,7 +1744,7 @@ export function recordAuditMethod(): string {
     '        status: str = "ok",',
     "    ) -> None:",
     // The actor is the ambient principal's declared shape, read here rather
-    // than threaded through every call site (RS-44).
+    // than threaded through every call site (RS-45).
     `        actor = ${R.audit_actor}()`,
     "        self._session.add(",
     `            ${R.AuditRecordRow}(`,

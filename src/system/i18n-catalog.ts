@@ -46,7 +46,10 @@ function packChromeForUi(sys: EnrichedSystemIR, ui: UiIR): Record<string, string
     // frontend default — names chrome no view of theirs can read.
     if (dep.platform === "feliz" || dep.platform === "flutter") continue;
     if (packFormatForBuiltin(design) === undefined) continue;
-    Object.assign(out, packChromeCatalog(loadPack(resolvePackDir(design)).manifest));
+    Object.assign(
+      out,
+      packChromeCatalog(loadPack(resolvePackDir(design, dep.designBaseDir)).manifest),
+    );
   }
   return out;
 }

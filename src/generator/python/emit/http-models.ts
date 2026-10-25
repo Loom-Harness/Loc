@@ -195,7 +195,7 @@ export const PY_INT32 = "Int32";
  *  every other bad field gets), `WithJsonSchema` supplies the published
  *  SCHEMA, so the spec reads `{"type": "integer", "format": "int32"}` exactly
  *  as .NET's and java's do.  A `PydanticCustomError`, not `Field(ge=…, le=…)`:
- *  the refusal's MESSAGE is the cross-backend `INTEGER_RANGE_MESSAGE` (RS-41),
+ *  the refusal's MESSAGE is the cross-backend `INTEGER_RANGE_MESSAGE` (RS-42),
  *  and `Field`'s would be pydantic's own "Input should be less than or equal
  *  to 2147483647".  It runs AFTER the int coercion and any declared bound, so
  *  a field whose rule states a tighter range answers that rule's sentence

@@ -786,6 +786,26 @@
     },
     {
       "id": "RS-41",
+      "title": "A save is checked against the version its handle was loaded at — a `shape: document` row and a `persistedAs: eventLog` stream included",
+      "trigger": "`workflow-two-handles-document-eventlog.ddd`: two `getById` loads of one document row (and of one event stream) inside a `transactional` workflow, both changed",
+      "observable": "the second save answers the RS-40 409 and the workflow persists neither change; a document upsert is guarded on the handle's loaded `version`, an event append writes the versions after the one the handle folded (so a stream another append moved past rejects it on the `(stream_type, stream_id, version)` key); one handle changed twice, or only the second handle changed, is not a conflict.",
+      "conforms": [
+        "node",
+        "dotnet",
+        "java",
+        "python"
+      ],
+      "targets": [
+        "elixir"
+      ],
+      "provenance": [
+        "M-T6.95 + M-T6.98 (docs/new-plan/archive/T6-done.md), #3285",
+        "the witness is test/fixtures/corpus/workflow-two-handles-document-eventlog.ddd, whose golden is test/behavioral/wire-golden/workflow-two-handles-document-eventlog.json"
+      ],
+      "tier": "behavioral"
+    },
+    {
+      "id": "RS-42",
       "title": "A numeric wire value outside its type is refused AT ITS FIELD: one grammar, one range sentence",
       "trigger": "`wire-ingress.ddd`: `reprice` with `\"1.2.3\"`, `\"twelve\"` and `\"12,50\"`; `restock` with ±3000000000",
       "observable": "a 422 `Validation failed` with ONE `errors[]` entry at the field's full pointer: `Invalid decimal: \"12,50\"` for a money outside node's grammar `^-?[0-9]+(\\.[0-9]+)?$` (never accepted as 1250), `Integer out of range` for an int past int32 — never a framework's own text, never a 400 for the whole body",
@@ -803,7 +823,7 @@
       "tier": "behavioral"
     },
     {
-      "id": "RS-42",
+      "id": "RS-43",
       "title": "A message-less rule's 422 carries node's sentence on every backend",
       "trigger": "`validation-messages.ddd` seq 14/15 (`ship(amount: 0)` against `precondition amount >= 1`, `retag(code: \"abc\")` against a regex precondition) and `intrinsics.ddd`'s blank-name create against `invariant name.trim().length > 0`",
       "observable": "the wire `errors[].message` is node's: `singleFieldMessage` for a single-field shape (\"Amount must be at least 1\", \"Code is not in the expected format\"), `Invariant violated: <source>` at the `pickErrorPath` pointer otherwise; no `errors[].code`",
@@ -823,7 +843,7 @@
       "tier": "behavioral"
     },
     {
-      "id": "RS-43",
+      "id": "RS-44",
       "title": "A string intrinsic counts and cases the same on every backend",
       "trigger": "`s.substring(start, len?)` and `s.toUpper()` over an astral character and a `ß` — `intrinsics.ddd`'s derived `middle` / `shout` fields over `\"a😀bc\"` and `\"straße\"`",
       "observable": "`\"a😀bc\".substring(1, 2)` is `\"😀b\"` and `.substring(2)` is `\"bc\"` (code points, the unit of `.length`); `\"straße\".toUpper()` is `\"STRASSE\"`",
@@ -841,7 +861,7 @@
       "tier": "static"
     },
     {
-      "id": "RS-44",
+      "id": "RS-45",
       "title": "An audit entry's `actor` is the principal's declared `user` shape — by declared name, nothing else — or null",
       "trigger": "`field-mask.ddd` (`auth: required`, `user { id, role, permissions }`, an aggregate-wide `audited` aggregate): create, an audited operation and the crudish update, then `GET /api/employees/{id}/history` as the dev-stub principal whose claims carry two undeclared keys (`tenantId`, `orgId`)",
       "observable": "every trail entry's `actor` is `{ id, role, permissions }` with the principal's values — the same body `/api/auth/me` answers — never an undeclared claim, a derived tenancy member (`orgPath` / `rootOrg`), a PascalCase key, a bare `{ id }`, or null under auth; with no auth (`audit-history.ddd`) it is null",

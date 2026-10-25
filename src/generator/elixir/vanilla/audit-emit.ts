@@ -80,7 +80,7 @@ function renderAuditModule(
   contexts: BoundedContextIR[],
   sys?: SystemIR,
 ): string {
-  // RS-44: the actor is the declared `user { … }` shape by declared name — the
+  // RS-45: the actor is the declared `user { … }` shape by declared name — the
   // projection `/auth/me` answers — read off the principal the Auth plug
   // stashes in the process dictionary.  No `user {}` ⇒ there is never one.
   const actorBody = sys?.user

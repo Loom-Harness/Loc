@@ -149,7 +149,14 @@ describe(".NET event-sourcing emission (persistedAs: eventLog)", () => {
     expect(repo).toContain("var __pending = aggregate.PullEvents();");
     // Append to the shared per-context log, stamped + scoped by stream_type
     // (the correctness trap — a sibling stream sharing the table must never fold in).
-    expect(repo).toContain("_db.AccountsEvents.Add(new AccountsEventRecord");
+    expect(repo).toContain("var __rec = new AccountsEventRecord");
+    expect(repo).toContain("_db.AccountsEvents.Add(__rec);");
+    // Expected-version append (M-T6.98): continue from the folded version, and
+    // detach the written rows so a stale handle's same-key append reaches the
+    // database key (409) instead of failing in EF's identity map (500).
+    expect(repo).toContain("var __version = aggregate._StreamVersion;");
+    expect(repo).toContain("aggregate._StreamVersion = __version;");
+    expect(repo).toContain("_db.Entry(__rec).State = EntityState.Detached;");
     expect(repo).toContain('StreamType = "Account",');
     expect(repo).toContain('e.StreamType == "Account"');
     expect(repo).toContain('"Opened" => System.Text.Json.JsonSerializer.Deserialize<Opened>');

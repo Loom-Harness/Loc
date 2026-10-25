@@ -97,7 +97,7 @@ describe("python VO invariant → 422 at the wire", () => {
     // is emitted into every wire_models.py exactly as `UuidStr` is.
     expect(wm).toContain(
       // `AfterValidator` is in the unconditional set: the always-emitted
-      // `WireStr` alias and `Int32`'s range check use it (F20, RS-42).
+      // `WireStr` alias and `Int32`'s range check use it (F20, RS-43).
       // `BeforeValidator` joins it for the same reason — the always-emitted
       // `WireNum`/`WireInt` aliases and `Int32` all carry the F17 numeric-type
       // guard.  `Field` is not: nothing always-emitted needs it any more.
