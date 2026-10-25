@@ -63,7 +63,7 @@ describe("python generator — versioned optimistic-concurrency", () => {
     expect(repo).toContain("where=CustomerRow.version == _expected");
     expect(repo).toContain(".returning(CustomerRow.id)");
     expect(repo).toContain(
-      'raise ConcurrencyError(f"Customer {aggregate.id} was modified concurrently")',
+      'raise ConcurrencyError(f"Customer {aggregate.id} was modified by another request")',
     );
   });
 
@@ -121,7 +121,7 @@ describe("python generator — versioned optimistic-concurrency", () => {
     );
     expect(repo).toContain("where=CustomerRow.version == _expected");
     expect(repo).toContain(
-      'raise ConcurrencyError(f"Customer {aggregate.id} was modified concurrently")',
+      'raise ConcurrencyError(f"Customer {aggregate.id} was modified by another request")',
     );
     expect(problem).toContain("@app.exception_handler(ConcurrencyError)");
     expect(problem).toContain('log("warn", "conflict", message=str(err), status=409)');

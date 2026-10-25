@@ -26,7 +26,13 @@ import type {
   UiIR,
 } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
-import { isTphBase, isTphConcrete } from "../../util/inheritance.js";
+import {
+  ancestorUniqueKeySet,
+  isTpcBase,
+  isTphBase,
+  isTphConcrete,
+  tpcConcretesOf,
+} from "../../util/inheritance.js";
 import { esCreateGateUnsupportedOn } from "../../util/op-gates.js";
 import { aggregateIsEventSourced, resolveDataSourceConfig } from "../../util/resolve-datasource.js";
 import {
@@ -220,7 +226,11 @@ export function validateUniqueColumns(loom: EnrichedLoomModel, diags: LoomDiagno
     for (const agg of ctx.aggregates) {
       if (!agg.uniqueKeys || agg.uniqueKeys.length === 0) continue;
       const byName = new Map(agg.fields.map((f) => [f.name, f]));
+      // A TPC concrete carries copies of its ancestors' keys (enrichment);
+      // the declaring base reports those, so one declaration reports once.
+      const inherited = ancestorUniqueKeySet(agg, ctx.aggregates);
       for (const uk of agg.uniqueKeys) {
+        if (inherited.has(uk.columns.join(","))) continue;
         for (const col of uk.columns) {
           const field = byName.get(col);
           if (!field) continue; // unknown-field already reported at AST level
@@ -235,6 +245,38 @@ export function validateUniqueColumns(loom: EnrichedLoomModel, diags: LoomDiagno
             });
           }
         }
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// `unique (...)` on an abstract TPC (`ownTable`) base: enrichment copies the
+// key onto every concrete, so each concrete TABLE carries its own unique index
+// — but nothing spans the sibling tables, so the same value can exist once per
+// subtype.  Say so on the declaring base, and point at TPH (one shared table,
+// one index) for a hierarchy-wide key.  Raised only when there are at least
+// two concretes: with one, per-table IS hierarchy-wide.
+// ---------------------------------------------------------------------------
+
+export function validateUniqueTpcBase(loom: EnrichedLoomModel, diags: LoomDiagnostic[]): void {
+  for (const ctx of allContexts(loom)) {
+    for (const agg of ctx.aggregates) {
+      if (!isTpcBase(agg, ctx.aggregates)) continue;
+      const concretes = tpcConcretesOf(agg, ctx.aggregates);
+      if (concretes.length < 2) continue;
+      for (const uk of agg.uniqueKeys ?? []) {
+        diags.push({
+          severity: "warning",
+          code: "loom.unique-tpc-not-hierarchy-wide",
+          source: `${ctx.name}/${agg.name}`,
+          origin: agg.origin,
+          message: diagMessage("loom.unique-tpc-not-hierarchy-wide", {
+            name: agg.name,
+            columns: uk.columns.join(", "),
+            concretes: concretes.map((c) => plural(snake(c.name))).join(", "),
+          }),
+        });
       }
     }
   }

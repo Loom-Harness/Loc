@@ -109,6 +109,7 @@ import type {
   UiApiParamIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
+import { walkExprDeep } from "../../ir/util/walk.js";
 import { upperFirst } from "../../util/naming.js";
 import { walkBody } from "../_walker/walker-core.js";
 import { felizTarget } from "./feliz-target.js";
@@ -176,18 +177,11 @@ function propType(p: ParamIR, emittedRecords: ReadonlySet<string>): string | und
  *  (bound by the page gate).  `renderFsExpr` would render those as `""` / a
  *  stray identifier, so the component defers instead. */
 function derivedNeedsPageScope(e: ExprIR): boolean {
-  if (e.kind === "id") return true;
-  if (e.kind === "ref" && e.refKind === "current-user") return true;
-  for (const v of Object.values(e)) {
-    if (Array.isArray(v)) {
-      for (const c of v) {
-        if (c && typeof c === "object" && "kind" in c && derivedNeedsPageScope(c)) return true;
-      }
-    } else if (v && typeof v === "object" && "kind" in v && derivedNeedsPageScope(v as ExprIR)) {
-      return true;
-    }
-  }
-  return false;
+  let needs = false;
+  walkExprDeep(e, (n) => {
+    if (n.kind === "id" || (n.kind === "ref" && n.refKind === "current-user")) needs = true;
+  });
+  return needs;
 }
 
 /** True when an action awaits a remote effect (`match await` → a `variant-match`

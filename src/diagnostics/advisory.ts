@@ -27,6 +27,10 @@ export const ADVISORY_CODES: ReadonlySet<string> = new Set([
   // A query-filtered column with no covering leading-column index
   // (`src/ir/validate/checks/index-suggestion-checks.ts`).
   "loom.index-suggestion",
+  // A `softDeletable` aggregate whose `crudish` destroy is a hard DELETE —
+  // documented, but rarely what the author meant
+  // (`src/ir/validate/checks/crudish-hard-delete-checks.ts`).
+  "loom.crudish-hard-delete",
   // An aggregate no code path can construct — legal, sometimes deliberate
   // (a read-only table fed out of band, or a fixture that only pins emission)
   // and worth saying out loud either way

@@ -560,6 +560,19 @@ system SpanSelect {
     }
   } }
 }`,
+  // A `unique (…)` on an abstract TPC base lands on each concrete TABLE, so it
+  // cannot stop the same value existing once per sibling subtype.
+  "loom.unique-tpc-not-hierarchy-wide": `
+system TpcUnique {
+  subdomain S { context Parties {
+    abstract aggregate Party inheritanceUsing: ownTable {
+      email: string
+      unique (email)
+    }
+    aggregate Customer extends Party inheritanceUsing: ownTable { creditLimit: decimal }
+    aggregate Supplier extends Party inheritanceUsing: ownTable { rating: int }
+  } }
+}`,
   // `create(…): T` — a result needs a caller.  An event-triggered starter has
   // none (the in-process dispatcher drops whatever it would return).
   "loom.workflow-return-no-caller": workflowResult(`
@@ -970,6 +983,19 @@ system UpdateGate {
   storage pg { type: postgres }
   resource st { for: Billing, kind: state, use: pg }
   deployable d { platform: node, contexts: [Billing], dataSources: [st], serves: BillingApi, port: 3000, auth: required }
+}`,
+  // A `softDeletable` aggregate that keeps `crudish`'s canonical destroy —
+  // `DELETE /{id}` is a hard delete, documented but rarely what was meant.
+  "loom.crudish-hard-delete": `
+system HardDelete {
+  subdomain Core { context Ledger {
+    aggregate Account with softDeletable, crudish { number: string }
+    repository Accounts for Account { }
+  } }
+  api LedgerApi from Core
+  storage pg { type: postgres }
+  resource st { for: Ledger, kind: state, use: pg }
+  deployable d { platform: node, contexts: [Ledger], dataSources: [st], serves: LedgerApi, port: 3000 }
 }`,
   // --- phase ④ AST validate -----------------------------------------------
   // Two complete `system { }` blocks and NO top-level members — the shape that
@@ -2745,6 +2771,25 @@ system S {
   }
 }`,
 
+  // An e2e operation call's optional THIRD argument in a shape the renderer
+  // does not read — it used to be dropped silently, so a test that MEANT to
+  // send a stale `If-Match` sent none (M-T6.91).  `{ version: 1 }` is the
+  // natural misspelling of `{ ifMatch: 1 }`.
+  "loom.e2e-call-options": `
+system S {
+  subdomain D { context C {
+    aggregate Note with versioned, crudish { text: string }
+    repository Notes for Note { }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4100 }
+  test e2e "t" against d {
+    let n = api.notes.create({ text: "a" })
+    api.notes.update(n, { text: "b" }, { version: 1 })
+  }
+}`,
+
   // An explicit `route … -> <Ctx>.<Handler>` binding called with the WRONG
   // ARGUMENT COUNT.  `Sum` declares two params and the body passes one — and
   // because a routed handler's arguments bind POSITIONALLY, the miscount does
@@ -4004,6 +4049,11 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // file drives the warning, its `sql before` silencing, and the rebuild /
   // new-table / first-generation exemptions.
   "loom.migration-unique-on-existing-table": "test/ir/migrations-sql-before.test.ts",
+  // Phase ⑨, same reason: the destructive-change gate needs a BASELINE.  Its
+  // catalog entries are the capability-column lines (a `tenantOwned` /
+  // `auditable` column added to a populated table); the pointed-at file drives
+  // both refusals and asserts the code and the wording.
+  "loom.migration-destructive": "test/ir/migrations-capability-columns.test.ts",
   // B-20: the AST validator rejects any `sql <placement>` other than `before`.
   "loom.migration-sql-placement": "test/language/validation/migration-data-steps.test.ts",
   "loom.page-primitive-target-gap": "test/generator/elixir/heex-unsupported-primitive.test.ts",

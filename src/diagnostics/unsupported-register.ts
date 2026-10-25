@@ -800,7 +800,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.union-find-shape-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/structural-checks.ts:363",
+    site: "src/ir/validate/checks/structural-checks.ts:429",
     what: "repository finds returning a union — v1 shape only",
     mission: "M-T5.3",
     verified: true,

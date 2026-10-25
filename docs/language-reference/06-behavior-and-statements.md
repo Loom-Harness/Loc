@@ -901,6 +901,90 @@ The two codes say different things on purpose. `loom.if-let-placement` is a **pe
 
 Before the gates landed, `operation touch() { for n in notes { owner := n } }` validated clean (`0 error(s), 0 warning(s)`) and every backend emitted a call to a method that does not exist — `this.<unknown>()` (node/.NET/Java), `self._<unknown>()` (Python), `_ = <unknown>(record)` (Elixir).
 
+## Choosing a callable kind
+
+Pick by *what the body must be allowed to touch*, not by what feels natural to write. Each row is a different capability set; the validators below enforce the "no" cells.
+
+| Kind | Purpose | May mutate? | Transaction scope | Routed (HTTP)? | May call resources? | Emits events? | Minimal example |
+|---|---|---|---|---|---|---|---|
+| aggregate `operation` | A state change on one aggregate | `this` only | One aggregate save (its own request) | `POST /api/<aggs>/{id}/<op>`; none when `private` | No (`loom.resource-op-outside-workflow`) | Yes (`emit`) | `operation place() { status := Status.Placed }` |
+| aggregate `create` / `destroy` | Factory / terminator of the root | `create`: the new instance; `destroy`: nothing | One aggregate save | `POST /api/<aggs>` / `DELETE /api/<aggs>/{id}` | No | `create`: yes; `destroy`: no (body is `requires` only) | `create(total: int) { emit OrderPlaced { order: id } }` |
+| aggregate `apply` (`persistedAs: eventLog` only) | Pure fold of one emitted event into state | `this`; assignments and `let` only | None — runs when events are appended and replayed | No | No | No | `apply(e: OrderPlaced) { status := Status.Placed }` |
+| `function` (aggregate / entity / workflow / value object) | Reusable pure calculation | No | None | No | No | No | `function isDraft(): bool = status == Status.Draft` |
+| `domainService` `operation` | Cross-aggregate calculation or decision | Only the aggregates passed in, and only in the `mutating` tier | None — the calling orchestrator owns the commit | No | No | No | `operation withTax(base: int): int { return base + base / 5 }` |
+| workflow `create` / `handle` | Use-case that spans aggregates | Via aggregate operations (`:=` is rejected in the body) | Per save; one DB transaction with `transactional` | `POST /api/workflows/<wf>…` | Yes — not inside a `transactional` span | Yes (orchestration-level `emit`) | `create(target: Order id) by target { … }` |
+| workflow `on(e: Event)` | React to an event (saga step) | As `handle` | As `handle` | No — driven by the event | As `handle` | Yes | `on(paid: PaymentReceived) by paid.order { … }` |
+| `commandHandler` | One-aggregate use-case without a workflow | One aggregate (`loom.command-handler-multi-aggregate`); save is implied | The one aggregate save | Only through an explicit `api { route … -> Ctx.Name }` | Yes | Yes | `commandHandler PlaceOrder(orderId: Order id): Order { … }` |
+| `queryHandler` | One-aggregate read with a typed result | No (`loom.query-handler-saves`) | None | Only through an explicit `route` | Yes | No | `queryHandler GetOrder(orderId: Order id): Order { … }` |
+| page / component `action` | Client-side event handler | Page `state` / `store` only | None — it runs in the browser | No (it *calls* routes, via `match await`) | No | No (UI effects such as `navigate` / `toast`) | `action bump() { count += 1 }` |
+
+Rules of thumb: a rule about one aggregate's own state belongs in its `operation`; a calculation that reads two aggregates but writes none is a `domainService`; the moment a use-case needs a second aggregate, a resource, an inbound event or an explicit transaction it is a `workflow`; a single-aggregate endpoint that needs a custom route or a resource is a `commandHandler` / `queryHandler`. Everything the table calls pure can be called from anywhere; everything that mutates is reachable only from the kinds that may mutate. All the kinds below parse and validate together:
+
+```ddd
+system Shop {
+  subdomain Sales {
+    context Orders {
+      enum Status { Draft, Placed }
+      event OrderPlaced { order: Order id }
+
+      aggregate Order {
+        total: int
+        status: Status = Draft
+
+        function isDraft(): bool = status == Status.Draft
+        create(total: int) { emit OrderPlaced { order: id } }
+        operation place() when status == Status.Draft {
+          status := Status.Placed
+          emit OrderPlaced { order: id }
+        }
+        destroy() { }
+      }
+      repository Orders for Order { }
+
+      domainService Pricing {
+        operation withTax(base: int): int { return base + base / 5 }
+      }
+
+      workflow checkout transactional {
+        orderId: Order id
+        create(target: Order id) by target {
+          let o = Orders.getById(target)
+          o.place()
+        }
+      }
+
+      commandHandler PlaceOrder(orderId: Order id): Order {
+        let o = Orders.getById(orderId)
+        o.place()
+        return o
+      }
+      queryHandler GetOrder(orderId: Order id): Order {
+        let o = Orders.getById(orderId)
+        return o
+      }
+    }
+  }
+  api ShopApi from Sales {
+    route POST "/orders/{orderId}/place" -> Orders.PlaceOrder
+  }
+  storage pg { type: postgres }
+  resource ordersState { for: Orders, kind: state, use: pg }
+  ui Web {
+    api Shop: ShopApi
+    page Home {
+      route: "/"
+      state { count: int = 0 }
+      action bump() { count += 1 }
+      body: Button { "+", onClick: bump }
+    }
+  }
+  deployable api { platform: node contexts: [Orders] dataSources: [ordersState] serves: ShopApi port: 3000 }
+  deployable web { platform: react targets: api ui: Web { Shop: api } port: 3001 }
+}
+```
+
+The modifiers each kind accepts (`private`, `extern`, `audited`, `requires`, `when`) are in [the callable modifier surface](#the-callable-modifier-surface) below; the per-kind detail lives in [Workflows](13-workflows.md), [Domain services & seeds](23-domain-services-and-seeds.md), [Handler bodies](#handler-bodies--commandhandler--queryhandler) and [Actions](../actions.md).
+
 ## The callable modifier surface
 
 Fifteen grammar rules mean *"a named body of statements runs here"* — `operation`, `create`, `destroy`, `apply`, `function`, `commandHandler`, `queryHandler`, a `domainService` `operation`, a workflow's `create` / `handle` / `on`, a page `action` — and each one used to hard-code its own subset of the modifier and clause surface. Writing `audited` on a `domainService` operation was a bare parse error with nothing to say why.

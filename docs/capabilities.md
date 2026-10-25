@@ -22,7 +22,11 @@ aggregate Order with softDeletable { subject: string }   // gains the field + fi
 (the toolchain prelude, `src/macros/prelude.ts`) — available by name with nothing
 declared. The `softDelete()`/`restore()` operations stay in the `softDelete`
 macro (operations aren't part of a pure-mixin capability): `with softDeletable,
-softDelete`. `tenantOwned` (tenant column + claim stamp + tenant read filter)
+softDelete`. Because the capability adds no operation, it does not change
+`crudish`'s `destroy` either: on `with softDeletable, crudish`, `DELETE /{id}`
+stays a hard delete (the advisory `loom.crudish-hard-delete` says so; see
+[`scaffold-macros.md`](scaffold-macros.md#crudish-delete-under-softdeletable--loomcrudish-hard-delete)).
+`tenantOwned` (tenant column + claim stamp + tenant read filter)
 additionally requires a system-level `tenancy by` declaration — see
 [`tenancy.md`](tenancy.md).
 

@@ -6,6 +6,7 @@ import type {
   RepositoryIR,
 } from "../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
+import { CONCURRENCY_CONFLICT_SUFFIX } from "../../ir/util/openapi-errors.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
@@ -268,7 +269,7 @@ function saveMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
       `            .returning(${row}.id)`,
       "        )",
       "        if _guarded.first() is None:",
-      `            raise ${R.ConcurrencyError}(f"${agg.name} {aggregate.id} was modified concurrently")`,
+      `            raise ${R.ConcurrencyError}(f"${agg.name} {aggregate.id} ${CONCURRENCY_CONFLICT_SUFFIX}")`,
     );
   } else {
     out.push(

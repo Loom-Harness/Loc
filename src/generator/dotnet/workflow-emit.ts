@@ -43,7 +43,7 @@ import {
   walkWorkflowStmtExprsDeep,
   walkWorkflowStmtsDeep,
 } from "../../ir/util/walk.js";
-import { commandCreateResult } from "../../ir/util/workflow-command-route.js";
+import { commandCreateResult, emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
@@ -372,16 +372,6 @@ ${noNulCharUsing(ns, recs)}
 namespace ${ns}.Application.Workflows;
 
 ${recs}`;
-}
-
-/** A workflow exposes an HTTP command POST when its facade (the primary
- *  unnamed create) is command-triggered.  A workflow whose only create is
- *  event-triggered (`create(e: Event)`) — i.e. a reactor / saga started by an
- *  event, never by an HTTP call — has no command surface. */
-function emitsCommandRoute(wf: WorkflowIR): boolean {
-  const facade =
-    wf.creates.find((c) => c.name === null && c.triggerKind === "command") ?? wf.creates[0];
-  return !facade || facade.triggerKind === "command";
 }
 
 // ---------------------------------------------------------------------------
