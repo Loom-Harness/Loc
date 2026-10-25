@@ -225,8 +225,8 @@ describe("deriveSidebarFromUi — explicit `menu { … }` block", () => {
     // Pinned as ACTUAL behaviour, and it is the intended one: under an explicit
     // menu block, membership is by INCLUSION — the author lists what the
     // sidebar shows, so omitting a link is how a page is hidden
-    // (`examples/sales-ui.ddd` § 8: "Same effect as `menu { hidden: true }`,
-    // applied via omission rather than declaration").  The `hidden` filter is
+    // (`examples/sales-ui.ddd`'s explicit `menu` block lists only the pages it
+    // wants in the sidebar).  The `hidden` filter is
     // therefore scoped to the fallback driver alone (menu-emitter.ts:130-133),
     // where nothing else expresses the author's intent.
     const ui = await loadUi(EXPLICIT);

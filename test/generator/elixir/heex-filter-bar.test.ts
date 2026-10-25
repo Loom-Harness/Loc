@@ -57,7 +57,7 @@ system FilterBar {
         name: string
       }
       repository Items for Item {
-        find byName(n: string): Item[]
+        find byName(n: string): Item[] where this.name == n
       }
     }
   }

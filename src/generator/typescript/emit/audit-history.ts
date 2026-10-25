@@ -28,7 +28,7 @@
 // number.  Fail-closed on a null principal, exactly like `toWireMasked`.
 // ---------------------------------------------------------------------------
 
-import type { EnrichedAggregateIR } from "../../../ir/types/loom-ir.js";
+import type { EnrichedAggregateIR, UserIR } from "../../../ir/types/loom-ir.js";
 import {
   historyDiffFields,
   maskedHistoryFields,
@@ -43,6 +43,35 @@ import { canonicalIsoExpr } from "../repository-wire-builder.js";
  *  file. */
 export function historyMapperName(agg: EnrichedAggregateIR): string {
   return `${lowerFirst(agg.name)}AuditEntry`;
+}
+
+/** The per-project `audit/actor.ts` module: the audit row's `actor` (RS-45).
+ *
+ *  The actor is the request principal in its DECLARED `user { … }` shape, by
+ *  declared name and nothing else — the same projection `/api/auth/me` answers
+ *  — or null when no principal is bound.  Storing the principal object as-is
+ *  recorded whatever the verifier carried: every claim the dev stub was handed,
+ *  and under tenancy the derived `orgPath` / `rootOrg` scoping members.  `user`
+ *  is undefined on a deployable with no auth, where there is never an actor. */
+export function renderAuditActorModule(user: UserIR | undefined): string {
+  const body = user
+    ? [
+        "  const user = requestContext()?.currentUser as Record<string, unknown> | null | undefined;",
+        "  if (user == null) return null;",
+        "  return {",
+        ...user.fields.map((f) => `    ${f.name}: user.${f.name} ?? null,`),
+        "  };",
+      ]
+    : ["  return null;"];
+  return lines(
+    "// Auto-generated.  Do not edit by hand.",
+    ...(user ? ['import { requestContext } from "../obs/als";', ""] : []),
+    "/** The audit row's `actor`: the request principal in its declared `user`",
+    " *  shape (the `/api/auth/me` body), or null when no principal is bound. */",
+    "export function auditActor(): Record<string, unknown> | null {",
+    ...body,
+    "}",
+  );
 }
 
 /** The per-project `audit/history.ts` module: wire types, Zod response schemas

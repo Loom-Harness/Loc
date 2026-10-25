@@ -102,7 +102,7 @@ describe("isConstructible", () => {
     expect(
       isConstructible(
         agg({
-          canonicalCreate: {} as OperationIR,
+          creates: [{ canonical: true } as OperationIR],
           fields: [],
           invariants: [inv(ref("this-derived", "x"))],
         }),
@@ -112,9 +112,7 @@ describe("isConstructible", () => {
 
   it("no create + no invariants → constructible (vacuous)", () => {
     expect(
-      isConstructible(
-        agg({ canonicalCreate: null, fields: [field("name", STRING)], invariants: [] }),
-      ),
+      isConstructible(agg({ creates: [], fields: [field("name", STRING)], invariants: [] })),
     ).toBe(true);
   });
 
@@ -122,7 +120,7 @@ describe("isConstructible", () => {
     expect(
       isConstructible(
         agg({
-          canonicalCreate: null,
+          creates: [],
           fields: [field("qty", INT)],
           invariants: [inv(bin(">=", ref("this-prop", "qty"), lit("int", "1")))],
         }),
@@ -134,7 +132,7 @@ describe("isConstructible", () => {
     expect(
       isConstructible(
         agg({
-          canonicalCreate: null,
+          creates: [],
           fields: [field("balance", INT, "managed")],
           invariants: [inv(bin(">=", ref("this-prop", "balance"), lit("int", "0")))],
         }),

@@ -461,7 +461,7 @@ DesignPack: 'mantine' | 'shadcn' | 'mui' | 'chakra' | 'coreComponents' | 'daisyu
 | `feliz` | no pack menu — `design:` names a daisyUI *theme* (`design: dracula`), default `corporate` | — |
 | `flutter` | no pack — Material widgets rendered procedurally | — |
 
-A `STRING` value points at a **custom pack** — a directory with a `pack.json`, resolved relative to the `.ddd` file (format-checked only by a warning, since the validator cannot read its manifest). The body walker dispatches each page primitive through the active pack's templates under `designs/`; see [`../design-packs.md`](../design-packs.md) for the authoring contract.
+A `STRING` value points at a **custom pack** — a directory with a `pack.json`, resolved relative to the `.ddd` file that declares the deployable. `ddd parse` / `ddd generate` load it and refuse a malformed one with `loom.design-pack-invalid` (or `loom.design-pack-format-mismatch` for the wrong format); the editor cannot read the directory and only warns (`loom.design-pack-custom-unchecked`). The body walker dispatches each page primitive through the active pack's templates under `designs/`; see [`../design-packs.md`](../design-packs.md) for the authoring contract.
 
 ## Realization axes
 

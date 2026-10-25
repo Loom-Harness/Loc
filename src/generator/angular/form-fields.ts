@@ -301,8 +301,8 @@ export function controlInit(t: TypeIR): string {
 //     itself, bound to exactly the condition the visible message is gated on.
 // ---------------------------------------------------------------------------
 
-/** The two ARIA bindings a RAW form control carries when its field has a
- *  client-side constraint.  Both are `[attr.…]` bindings evaluating to `null`
+/** The two ARIA bindings a RAW form control of a form carries (a client
+ *  constraint or a server 422 can invalidate any of them).  Both are `[attr.…]` bindings evaluating to `null`
  *  while the field is valid or untouched, so each attribute is absent from the
  *  DOM exactly when the visible message is — one condition, both channels. */
 export interface AngularFieldAria {
@@ -312,27 +312,37 @@ export interface AngularFieldAria {
   describedBy: string;
 }
 
-/** The ARIA bindings as an attribute fragment — empty for a field with no
- *  constraint, which is what keeps a validator-free form byte-identical. */
+/** The ARIA bindings as an attribute fragment — empty for a control outside a
+ *  form and on the material pack, whose `MatInput` binds both itself. */
 function fieldAriaAttrs(a: AngularFieldAria | undefined): string {
   if (!a) return "";
   return ` [attr.aria-invalid]="${a.invalid}" [attr.aria-describedby]="${a.describedBy}"`;
 }
 
-/** The id of a constrained field's inline message, and the `aria-describedby`
+/** The id of a form field's inline message, and the `aria-describedby`
  *  target that points at it.  ONE definition, so the two halves cannot drift
  *  into a dangling reference. */
 export function fieldErrorId(ns: string, name: string): string {
   return `${ns}-error-${name}`;
 }
 
-/** The `@if` condition a constrained field's message is gated on — and, on the
+/** The `@if` condition a form field's message is gated on — and, on the
  *  raw packs, the expression both ARIA bindings evaluate. */
 function fieldErrorWhen(formVar: string, name: string): string {
   return `${formVar}.controls.${name}.invalid && ${formVar}.controls.${name}.touched`;
 }
 
-/** The ARIA bindings for one constrained flat field of `formVar`'s group. */
+/** A field message slot's content: the server's message for the field when a
+ *  rejected submit set one (`errors.server`), else the client constraint's
+ *  sentence — or nothing, for a field with no client constraint (it can only
+ *  be invalid through the server). */
+function serverErrorText(formVar: string, name: string, clientText: string | undefined): string {
+  const server = `${formVar}.controls.${name}.errors?.['server']`;
+  if (clientText === undefined) return `{{ ${server} }}`;
+  return `@if (${server}; as serverError) { {{ serverError }} } @else { ${clientText} }`;
+}
+
+/** The ARIA bindings for one flat field of `formVar`'s group. */
 export function fieldAriaFor(formVar: string, ns: string, name: string): AngularFieldAria {
   const when = fieldErrorWhen(formVar, name);
   return {
@@ -780,8 +790,8 @@ export function partitionAngularFields(
   ctx: WalkContext,
   formVar?: string,
   /** Flat field names carrying a client-side constraint (from
-   *  `angularValidatorMap`).  Each gets the two ARIA bindings that announce its
-   *  error state; every other field is byte-identical to before. */
+   *  `angularValidatorMap`): their message slot falls back to the client
+   *  sentence when no server message is set. */
   errorFields?: ReadonlySet<string>,
 ): {
   flatControls: AngularFormControlSpec[];
@@ -854,19 +864,29 @@ export function partitionAngularFields(
     // material placement can be inside the form field) and, on a raw pack,
     // carries the matching ARIA.  A field with no constraint passes `undefined`
     // for both and is byte-identical to before.
+    // Every field of a form carries its message slot: a server 422 can name any
+    // of them (`src/lib/server-errors.ts` sets `errors.server` + touched), and a
+    // client-side constraint shows its own sentence when no server one is set.
     flatMarkup: flat.map((f) => {
       const constrained = formVar !== undefined && (errorFields?.has(f.name) ?? false);
       const style = formStyle(ctx);
       const aria =
-        constrained && style !== "material" ? fieldAriaFor(formVar!, ns, f.name) : undefined;
-      const error = constrained
-        ? {
-            id: fieldErrorId(ns, f.name),
-            testid: `${ns}-error-${f.name}`,
-            when: fieldErrorWhen(formVar!, f.name),
-            text: `${humanize(f.name)} is invalid`,
-          }
-        : undefined;
+        formVar !== undefined && style !== "material"
+          ? fieldAriaFor(formVar, ns, f.name)
+          : undefined;
+      const error =
+        formVar !== undefined
+          ? {
+              id: fieldErrorId(ns, f.name),
+              testid: `${ns}-error-${f.name}`,
+              when: fieldErrorWhen(formVar, f.name),
+              text: serverErrorText(
+                formVar,
+                f.name,
+                constrained ? `${humanize(f.name)} is invalid` : undefined,
+              ),
+            }
+          : undefined;
       return withFieldError(
         fieldInput(f.name, f.type, bc, ns, ctx, undefined, formVar, aria),
         style,

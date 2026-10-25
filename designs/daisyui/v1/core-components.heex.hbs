@@ -346,9 +346,9 @@ defmodule {{webModule}}.CoreComponents do
         disabled={@page <= 1}
         class="btn btn-outline btn-xs"
       >
-        Previous
+        {{{sharedChrome "prev"}}}
       </button>
-      <span aria-live="polite">Page {@page} of {max(@total_pages, 1)}</span>
+      <span aria-live="polite">{{{sharedChrome "pageOf" page="@page" pages="max(@total_pages, 1)"}}}</span>
       <button
         type="button"
         phx-click="loom-page"
@@ -356,7 +356,7 @@ defmodule {{webModule}}.CoreComponents do
         disabled={@page >= @total_pages}
         class="btn btn-outline btn-xs"
       >
-        Next
+        {{{sharedChrome "next"}}}
       </button>
     </nav>
     """

@@ -683,12 +683,30 @@ export const mikroWorkflowRowClass = (wf: WorkflowIR): string => `${upperFirst(w
  *  string PK (an id column), every other declared saga state field maps through
  *  the shared `fieldColumns` — mirroring the drizzle `emitWorkflowStateTable`. */
 
+/** A state row's (workflow / projection) columns for one non-key field.  A
+ *  reference collection is one jsonb id-string array column — the shared
+ *  migration's `JSONB` (a state row has no pivot table); everything else
+ *  maps through the shared `fieldColumns`. */
+function stateFieldColumns(f: FieldIR, ctx: EnrichedBoundedContextIR): MikroColumn[] {
+  if (!isRefCollection(f.type)) return fieldColumns(f, ctx);
+  return [
+    {
+      prop: f.name,
+      mikroType: "json",
+      tsType: "string[]",
+      nullable: f.optional ?? false,
+      primary: false,
+      columnType: "jsonb",
+    },
+  ];
+}
+
 function workflowStateColumns(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): MikroColumn[] {
   const corr = wf.correlationField;
   const cols: MikroColumn[] = (wf.stateFields ?? []).flatMap((f) =>
     f.name === corr
       ? [{ prop: f.name, mikroType: "string", tsType: "string", nullable: false, primary: true }]
-      : fieldColumns(f, ctx),
+      : stateFieldColumns(f, ctx),
   );
   // Idempotent-consumer marker (dispatch-delivery-semantics.md §3) — the twin
   // of the drizzle `emitWorkflowStateTable`'s `last_event_id`.  Under a durable
@@ -716,8 +734,33 @@ function projectionStateColumns(proj: ProjectionIR, ctx: EnrichedBoundedContextI
   return proj.stateFields.flatMap((f): MikroColumn[] =>
     f.name === corr
       ? [{ prop: f.name, mikroType: "string", tsType: "string", nullable: false, primary: true }]
-      : fieldColumns(f, ctx).map((c) => ({ ...c, nullable: true })),
+      : stateFieldColumns(f, ctx).map((c) => ({ ...c, nullable: true })),
   );
+}
+
+/** The `uniques:` block for each `unique (...)` key the aggregate declares —
+ *  the index the migration creates (`<table>_<cols>_uq`).  This adapter's
+ *  schema comes from `orm.schema.updateSchema()` over the entity metadata, not
+ *  from the migration files, so a key absent here has NO index at run time and
+ *  a duplicate write commits.  A `softDeletable` key is partial (`WHERE
+ *  is_deleted = false`, so a soft-deleted row frees its key), which MikroORM
+ *  only expresses as the index's full DDL. */
+function mikroUniquesLines(agg: EnrichedAggregateIR): string[] {
+  const keys = agg.uniqueKeys ?? [];
+  if (keys.length === 0) return [];
+  const table = tableOf(agg.name);
+  const softDeletable = agg.capabilities?.includes("softDeletable") ?? false;
+  const entries = keys.map((uk) => {
+    const cols = uk.columns.map((c) => snake(c));
+    const name = `${table}_${cols.join("_")}_uq`;
+    if (softDeletable) {
+      const ddl = `create unique index "${name}" on "${table}" (${cols.map((c) => `"${c}"`).join(", ")}) where is_deleted = false`;
+      return `    { name: "${name}", expression: ${JSON.stringify(ddl)} },`;
+    }
+    const props = uk.columns.map((c) => JSON.stringify(c)).join(", ");
+    return `    { name: "${name}", properties: [${props}] },`;
+  });
+  return [`  uniques: [`, ...entries, `  ],`];
 }
 
 export function renderMikroEntities(
@@ -795,6 +838,7 @@ export function renderMikroEntities(
         `  properties: {`,
         ...propLines,
         `  },`,
+        ...mikroUniquesLines(agg),
         `});`,
         "",
       ),

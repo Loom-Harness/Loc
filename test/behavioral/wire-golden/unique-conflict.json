@@ -1,0 +1,337 @@
+{
+  "case": "unique-conflict",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/members",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/members",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/members",
+      "status": 409,
+      "body": {
+        "detail": "A resource with these values already exists.",
+        "instance": "/api/members",
+        "status": 409,
+        "title": "Conflict",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/members",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "email": "ada@example.com",
+            "id": "<volatile:key>",
+            "name": "Ada",
+            "version": 1
+          },
+          {
+            "email": "bob@example.com",
+            "id": "<volatile:key>",
+            "name": "Bob",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/members/{id}/update",
+      "status": 409,
+      "body": {
+        "detail": "A resource with these values already exists.",
+        "instance": "/api/members/{id}/update",
+        "status": 409,
+        "title": "Conflict",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/members/{id}",
+      "status": 200,
+      "body": {
+        "email": "bob@example.com",
+        "id": "<volatile:key>",
+        "name": "Bob",
+        "version": 1
+      }
+    },
+    {
+      "seq": 6,
+      "method": "DELETE",
+      "path": "/api/members/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/members",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/members/{id}",
+      "status": 200,
+      "body": {
+        "email": "ada@example.com",
+        "id": "<volatile:key>",
+        "name": "Ada again",
+        "version": 1
+      }
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/listings",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/listings",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/listings",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/listings",
+      "status": 409,
+      "body": {
+        "detail": "A resource with these values already exists.",
+        "instance": "/api/listings",
+        "status": 409,
+        "title": "Conflict",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/listings",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "region": "eu",
+            "sku": "A-1",
+            "title": "Lamp",
+            "version": 1
+          },
+          {
+            "id": "<volatile:key>",
+            "region": "us",
+            "sku": "A-1",
+            "title": "Lamp",
+            "version": 1
+          },
+          {
+            "id": "<volatile:key>",
+            "region": "eu",
+            "sku": "B-2",
+            "title": "Desk",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 3,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/listings/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "region": "eu",
+        "sku": "A-1",
+        "title": "Lamp",
+        "version": 1
+      }
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/api/listings/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "region": "us",
+        "sku": "A-1",
+        "title": "Lamp",
+        "version": 1
+      }
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/listings/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "region": "eu",
+        "sku": "B-2",
+        "title": "Desk",
+        "version": 1
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/listings/{id}/update",
+      "status": 409,
+      "body": {
+        "detail": "A resource with these values already exists.",
+        "instance": "/api/listings/{id}/update",
+        "status": 409,
+        "title": "Conflict",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/listings/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 19,
+      "method": "GET",
+      "path": "/api/listings/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "region": "apac",
+        "sku": "A-1",
+        "title": "Desk",
+        "version": 2
+      }
+    },
+    {
+      "seq": 20,
+      "method": "DELETE",
+      "path": "/api/listings/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 21,
+      "method": "GET",
+      "path": "/api/listings",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "region": "eu",
+            "sku": "A-1",
+            "title": "Lamp",
+            "version": 1
+          },
+          {
+            "id": "<volatile:key>",
+            "region": "apac",
+            "sku": "A-1",
+            "title": "Desk",
+            "version": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 22,
+      "method": "PATCH",
+      "path": "/api/members",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/members",
+        "instance": "/api/members",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 23,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 24,
+      "method": "POST",
+      "path": "/api/members",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/members",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

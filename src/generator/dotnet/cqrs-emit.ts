@@ -5,6 +5,7 @@ import type {
   EnrichedBoundedContextIR,
   RepositoryIR,
 } from "../../ir/types/loom-ir.js";
+import { canonicalCreate, canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { tableOwnerName } from "../../ir/util/inheritance.js";
 import { plural } from "../../util/naming.js";
 import {
@@ -93,9 +94,9 @@ export function emitCqrs(
   // transaction.  Excluding Dapper here silently dropped create/destroy audit
   // rows while the OPERATION handlers kept staging them — the two halves
   // disagreed, and the operation half didn't even compile.
-  const auditedCreateAction = esCreate ?? agg.canonicalCreate ?? null;
+  const auditedCreateAction = esCreate ?? canonicalCreate(agg) ?? null;
   const auditCreate = !!auditedCreateAction?.audited;
-  const auditDestroy = !!agg.canonicalDestroy?.audited;
+  const auditDestroy = !!canonicalDestroy(agg)?.audited;
   if (aggHasCreate) {
     emitCreateCommandAndHandler(agg, requiredFields, ns, aggFolder, out, {
       emitValidator: !esCreate,
@@ -105,7 +106,7 @@ export function emitCqrs(
   }
   // Canonical destroy → Delete command + handler (gated on the IR
   // lifecycle, so plain aggregates emit no extra CQRS files).
-  if (agg.canonicalDestroy)
+  if (canonicalDestroy(agg))
     emitDestroyCommandAndHandler(agg, ns, aggFolder, out, idClass, auditDestroy ? ctx : undefined);
   emitOperationCommandsAndHandlers(agg, ctx, ns, aggFolder, out, idClass);
   emitGetByIdQueryAndHandler(agg, ctx, ns, aggFolder, out, idClass);

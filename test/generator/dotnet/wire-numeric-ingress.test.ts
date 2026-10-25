@@ -87,11 +87,39 @@ describe(".NET wire ingress — a malformed money/datetime is 422, not 500", () 
     const files = await generateSystemFiles(SRC);
     const ctrl = bySuffix(files, "Api/OrdersController.cs");
     expect(ctrl).toContain(
-      "decimal.TryParse(request.Price, NumberStyles.Number, CultureInfo.InvariantCulture, out var __wp_request_Price)",
+      "global::D.Domain.Common.WireFormatException.IsMoneyGrammar(request.Price) && " +
+        "decimal.TryParse(request.Price, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint, " +
+        "CultureInfo.InvariantCulture, out var __wp_request_Price)",
     );
     expect(ctrl).toContain(
       `: throw new global::D.Domain.Common.WireFormatException("/price", $"Invalid decimal: \\"{request.Price}\\"")`,
     );
+  });
+
+  it("the money parse admits node's grammar only — never a thousands separator", async () => {
+    // `NumberStyles.Number` (and `Any`, `Currency`) carry AllowThousands, so
+    // "12,50" parsed as 1250 and was ACCEPTED where every other backend
+    // answers 422.  The style is not enough on its own — AllowDecimalPoint
+    // still takes "5." and ".5" — so the grammar gate in front of it is what
+    // states node's `^-?\d+(\.\d+)?$`.
+    const files = await generateSystemFiles(SRC);
+    let parses = 0;
+    for (const [path, content] of files) {
+      if (!path.endsWith(".cs")) continue;
+      for (const m of content.matchAll(/decimal\.TryParse\(([^,]+), ([^,]+), CultureInfo/g)) {
+        parses++;
+        expect(m[2], `${path}: ${m[0]}`).not.toMatch(
+          /AllowThousands|NumberStyles\.(Number|Any|Currency)\b/,
+        );
+        expect(content, `${path}: an ungated money parse`).toContain(
+          `WireFormatException.IsMoneyGrammar(${m[1]}) && ${m[0]}`,
+        );
+      }
+    }
+    // create + update price, the VO offer on both, the workflow amount.
+    expect(parses).toBeGreaterThanOrEqual(5);
+    const common = bySuffix(files, "Domain/Common/DomainException.cs");
+    expect(common).toContain("public static bool IsMoneyGrammar(string? value)");
   });
 
   it("a datetime field is guarded the same way", async () => {

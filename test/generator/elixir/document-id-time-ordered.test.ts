@@ -19,7 +19,7 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 // with a byte-identical emitter.
 //
 // The relational schemas (`schema-emit.ts`) have used the `UUIDv7` type since they
-// were written, and `{:uuidv7, "~> 1.0"}` is already a dependency of every
+// were written, and `{:uuidv7, "1.0.0"}` is already a dependency of every
 // generated project.  The document schema was simply never switched over.
 //
 // THE TWO HALVES ARE PINNED TOGETHER ON PURPOSE.  An ordered read over a random
@@ -112,6 +112,6 @@ describe("elixir document aggregate — a time-ordered id, and a read that order
   it("uuidv7 is a declared dependency of the generated project", async () => {
     // The type is referenced as a bare `UUIDv7` module with no alias, so it
     // resolves only because the hex package supplies it.
-    expect(await file("mix.exs")).toContain('{:uuidv7, "~> 1.0"}');
+    expect(await file("mix.exs")).toContain('{:uuidv7, "1.0.0"}');
   });
 });

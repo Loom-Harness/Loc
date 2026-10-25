@@ -6,6 +6,7 @@ import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
   EventIR,
+  FieldIR,
   IdValueType,
   ProjectionIR,
   RepositoryIR,
@@ -952,6 +953,26 @@ function emitProjectFromContexts(
     // 1): a correlation-bearing workflow gets a JPA `@Entity` bound to the
     // Flyway-owned saga table + a Spring Data repository over it — the
     // foundation the in-process dispatcher and instance reads build on.
+    // A state row's reference collection (`refs: Order id[]`) is one jsonb
+    // id-array column mapped through the same per-target converter as a
+    // `shape: embedded` aggregate's (identical content dedups in `out`).
+    const placeStateRefConverters = (
+      fields: readonly FieldIR[],
+      origin: OriginRef | undefined,
+      construct: string,
+    ): void => {
+      for (const f of fields) {
+        if (f.type.kind !== "array" || f.type.element.kind !== "id") continue;
+        place(
+          `${f.type.element.targetName}IdJsonListConverter.java`,
+          "id",
+          renderJavaIdListConverter(f.type.element.targetName, f.type.element.valueType, basePkg),
+          undefined,
+          origin,
+          construct,
+        );
+      }
+    };
     for (const wf of correlationWorkflows(ctx.workflows)) {
       // An `eventSourced` workflow persists as an append-only `<wf>_events`
       // stream (the saga analogue of a `persistedAs: eventLog` aggregate), not a
@@ -968,6 +989,7 @@ function emitProjectFromContexts(
         wf.origin,
         wfConstruct,
       );
+      placeStateRefConverters(wf.stateFields ?? [], wf.origin, wfConstruct);
       place(
         `${workflowStateClass(wf)}Repository.java`,
         "spring-data-repository",
@@ -1007,6 +1029,7 @@ function emitProjectFromContexts(
         proj.origin,
         projConstruct,
       );
+      placeStateRefConverters(proj.stateFields, proj.origin, projConstruct);
       place(
         `${projectionRowClass(proj)}Repository.java`,
         "spring-data-repository",
@@ -1045,6 +1068,7 @@ function emitProjectFromContexts(
         extraChannels: hasChannels ? wiredForeignChannels : undefined,
         brokerEvents: hasChannels ? brokerEvents : undefined,
         localDurableEvents: standaloneOutbox ? hostedDurable : undefined,
+        resources: { classes: resourceEmission.classes, pkg: pkgFor("resource-client") },
       },
       dispatcherOpFragments,
     );
@@ -1993,6 +2017,7 @@ function emitAggregate(
       entityPkg: pkgFor("entity", agg.name),
       domainRepoPkg: pkgFor("repository-interface", agg.name),
       authed: authRequired,
+      userFields: authRequired ? (sys?.user?.fields ?? []).map((f) => f.name) : [],
       boundedContext: ctx,
       idClass,
       esCreateParams,

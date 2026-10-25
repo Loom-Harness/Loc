@@ -74,7 +74,7 @@ describe("redis broker transport — elixir leg (M-T4.4 slice 6c)", () => {
       // (M-T9.36 seam; a bare `Decimal.to_string(event.total)` here is the
       // un-fixed shape).
       expect(channels).toContain('"total" => ev.total |> Decimal.round(4) |> to_string()');
-      expect(files.get(`${dep}/mix.exs`)).toContain('{:redix, "~> 1.5"}');
+      expect(files.get(`${dep}/mix.exs`)).toContain('{:redix, "1.10.0"}');
       expect(files.get(`${dep}/lib/${dep}/application.ex`)).toContain(
         'System.fetch_env!("LOOM_CHANNEL_LIFECYCLE_BUS_URL")',
       );

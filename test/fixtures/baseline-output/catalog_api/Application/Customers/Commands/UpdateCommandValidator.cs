@@ -12,8 +12,9 @@ public sealed class UpdateCommandValidator : AbstractValidator<UpdateCommand>
     public UpdateCommandValidator()
     {
         RuleFor(x => x.Username).Must(v => v == null || v.EnumerateRunes().Count() >= 3 && v.EnumerateRunes().Count() <= 32)
-            .WithMessage("'{PropertyName}' must be between 3 and 32 characters.");
-        RuleFor(x => x.Age).InclusiveBetween(18, 150);
+            .WithMessage("Username must be 3 to 32 characters");
+        RuleFor(x => x.Age).InclusiveBetween(18, 150)
+            .WithMessage("Age must be between 18 and 150");
         RuleFor(x => x).Must(x => x.Username != x.Email)
             .WithName("Username")
             .WithMessage("Invariant violated: username != email");

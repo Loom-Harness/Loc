@@ -82,7 +82,7 @@ describe("a sibling-context enum / VO the deployable does not host is declared (
     const files = await generateSystemFiles(src("elixir"));
     const resp = bySuffix(files, "api/schemas/clm_response.ex") ?? "";
     expect(resp).toContain("Schemas.Kind");
-    expect(resp).toContain("#/components/schemas/Addr");
+    expect(resp).toContain("Schemas.Addr");
     expect(bySuffix(files, "api/schemas/kind.ex")).toMatch(/defmodule \S+\.Schemas\.Kind\b/);
     expect(bySuffix(files, "api/schemas/addr.ex")).toMatch(/defmodule \S+\.Schemas\.Addr\b/);
     expect(bySuffix(files, "api/schemas/unused.ex")).toBeUndefined();

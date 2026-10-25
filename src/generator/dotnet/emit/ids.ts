@@ -1,3 +1,4 @@
+import { implicitUsingIdAlias } from "../bcl-collision.js";
 import { csNewIdValue, csValueTypeForId } from "../render-expr.js";
 
 // Per-aggregate / per-part identity record-struct.  `valueType` and
@@ -42,8 +43,11 @@ global using ${name}Id = ${ns}.Domain.Ids.${rootName}Id;
 export function renderId(name: string, idValueType: string, ns: string): string {
   const valueType = csValueTypeForId(idValueType);
   const newExpr = csNewIdValue(idValueType);
+  // `EventId` and its kin also arrive through an implicit SDK `global using`;
+  // the alias makes the bare name mean this record everywhere (bcl-collision.ts).
+  const alias = implicitUsingIdAlias(`${name}Id`, ns);
   return `// Auto-generated.
-namespace ${ns}.Domain.Ids;
+${alias ? `${alias}\n\n` : ""}namespace ${ns}.Domain.Ids;
 
 public readonly record struct ${name}Id(${valueType} Value)
 {

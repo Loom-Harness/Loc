@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { ExprIR, WorkflowStmtIR } from "../../src/ir/types/loom-ir.js";
+import { canonicalCreate } from "../../src/ir/util/canonical-lifecycle.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { parseString } from "../_helpers/parse.js";
 
@@ -65,7 +66,7 @@ describe("params and lets shadow resource handles (D7)", () => {
     const ship = m.systems[0]!.subdomains[0]!.contexts[0]!.aggregates.find(
       (a) => a.name === "Ship",
     )!;
-    const stAssign = (ship.canonicalCreate?.statements ?? []).find(
+    const stAssign = (canonicalCreate(ship)?.statements ?? []).find(
       (s) => s.kind === "assign" && s.target.segments.join(".") === "st",
     );
     expect(stAssign).toBeDefined();

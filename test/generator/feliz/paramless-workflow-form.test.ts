@@ -71,7 +71,7 @@ describe("feliz param-less workflow forms", () => {
   it("wires a paramless Submit + Done Msg but NO form record / setters", async () => {
     const app = await appFs();
     expect(app).toContain("| SubmitCloseBooksWorkflowForm\n"); // paramless (no `of`)
-    expect(app).toContain("| CloseBooksWorkflowDone of Result<unit, string>");
+    expect(app).toContain("| CloseBooksWorkflowDone of Result<unit, ServerErrors>");
     expect(app).not.toContain("type CloseBooksWorkflowForm =");
     expect(app).not.toContain("CloseBooksWorkflowForm: CloseBooksWorkflowForm");
     expect(app).not.toContain("SetCloseBooksWorkflowForm");
@@ -79,7 +79,7 @@ describe("feliz param-less workflow forms", () => {
 
   it("emits an Api fn that POSTs an empty `{}` body to /api/workflows/<wf>", async () => {
     const app = await appFs();
-    expect(app).toContain("let runCloseBooksWorkflow () : Async<Result<unit, string>> =");
+    expect(app).toContain("let runCloseBooksWorkflow () : Async<Result<unit, ServerErrors>> =");
     expect(app).toContain('let body = "{}"');
     expect(app).toContain('Http.request "/api/workflows/close_books"');
   });

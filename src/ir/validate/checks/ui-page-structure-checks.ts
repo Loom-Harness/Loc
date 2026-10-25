@@ -24,6 +24,7 @@ import type {
   StmtIR,
   TypeIR,
 } from "../../types/loom-ir.js";
+import { canonicalDestroy } from "../../util/canonical-lifecycle.js";
 import { readableOperations, resolveAggregateRead } from "../../util/page-read.js";
 import type { PagedFindRoutes } from "../../util/paged-find-routes.js";
 import { typeLabel } from "../../util/type-label.js";
@@ -475,7 +476,7 @@ export function checkDestroyFormOf(
         });
         return;
       }
-      if (!agg.canonicalDestroy) {
+      if (!canonicalDestroy(agg)) {
         push(`no-destroy:${agg.name}`, {
           severity: "error",
           code: "loom.destroy-form-of-unresolved",
@@ -868,7 +869,7 @@ export function pageWhere(p: PageIR): string {
  *  wrote an `unresolved` marker plus `undefined` into the page and still exited
  *  0.  `checkOfReadBinds` below is that missing gate. */
 
-function resolveOfRead(
+export function resolveOfRead(
   of: ExprIR,
   apiParamNames: ReadonlySet<string>,
   aggNames: ReadonlySet<string>,

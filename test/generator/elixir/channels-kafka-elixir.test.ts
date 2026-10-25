@@ -181,7 +181,7 @@ describe("kafka log transport — elixir leg (M-T4.4 slice 8d)", () => {
     const files = await generateSystemFiles(FIXTURE);
     for (const dep of ["sales_api", "ship_api"]) {
       const mix = files.get(`${dep}/mix.exs`) ?? "";
-      expect(mix).toContain('{:brod, "~> 4.4"}');
+      expect(mix).toContain('{:brod, "4.7.0"}');
       expect(mix).not.toContain(":redix");
       expect(mix).not.toContain(":amqp");
       // brod pulls crc32cer — a C NIF whose build needs cmake on top of
@@ -221,7 +221,7 @@ describe("kafka log transport — elixir leg (M-T4.4 slice 8d)", () => {
     expect(files.has("sales_api/lib/sales_api/kafka_broker.ex")).toBe(false);
     expect(files.has("ship_api/lib/ship_api/kafka_consumer.ex")).toBe(false);
     const mix = files.get("sales_api/mix.exs") ?? "";
-    expect(mix).toContain('{:amqp, "~> 4.0"}');
+    expect(mix).toContain('{:amqp, "4.3.0"}');
     expect(mix).not.toContain(":brod");
     const dockerfile = files.get("sales_api/Dockerfile") ?? "";
     expect(dockerfile).toContain("build-essential git ca-certificates");
