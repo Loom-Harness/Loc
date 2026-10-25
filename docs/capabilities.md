@@ -427,6 +427,21 @@ capability tags and `crossTenant` stance, so `ignoring <baseCap>` is valid on a
 subtype read. A subtype repeating a capability its base applies gets that
 filter once. See [`inheritance.md`](inheritance.md#capabilities-and-inheritance--a-bases-capabilities-apply-to-every-subtype).
 
+### The read-scope fact
+
+What a read of an aggregate applies is one derived IR fact,
+`readScopeFor(agg, pool, { ignoring })` (`src/ir/enrich/read-scope.ts`). It
+lists, in order: the TPH `kind` discriminator, then every filter — inherited
+first, then the aggregate's own. Each filter is tagged with its kind
+(`tenancy` / `capability` / `deny` / bare `filter`), the capability that
+contributed it, whether `ignoring` can drop it, where it is declared, and, for
+`tenancy`, its stance (`tenant` / `deep` / `global` / `self`). For a TPH root, the
+fact also gives each concrete's own filters in root-hosted form, guarded by the
+discriminator (`kind <> 'Car' OR <pred>`). A read that declares no order is ordered
+by `id` (`readOrderFor`). Today the node/drizzle read paths take their
+restrictions and their default order from this fact. The other backends still
+derive them from the IR arrays.
+
 ## Relationship to macros
 
 A `capability` subsumes the field/filter/stamp macros: `auditable` and

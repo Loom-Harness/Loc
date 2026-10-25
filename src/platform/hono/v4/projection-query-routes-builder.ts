@@ -12,6 +12,7 @@ import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
 import {
   allContextFilterEntries,
   DRIZZLE_INTRINSIC_SQL,
+  drizzleDiscriminatorEq,
   type FilterBypass,
   lowerToDrizzle,
 } from "../../../generator/typescript/repository-find-predicate.js";
@@ -19,6 +20,7 @@ import {
   canonicalIsoExpr,
   wireProjectionValue,
 } from "../../../generator/typescript/repository-wire-builder.js";
+import { readDiscriminator, readScopeFor } from "../../../ir/enrich/read-scope.js";
 import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
@@ -210,7 +212,7 @@ export function buildQueryProjectionsFile(
     // A TPH (`sharedTable`) concrete shares its root's table: scope the read to
     // this concrete's rows, or every sibling's rows enter the aggregate.
     if (kind) {
-      parts.push(`eq(schema.${table}.kind, ${JSON.stringify(kind)})`);
+      parts.push(drizzleDiscriminatorEq(table, kind));
       rawDrizzleOps.add("eq");
     }
     if (p.query.filter) {
@@ -873,7 +875,11 @@ function directSourceTable(
   const sourceKind = p.query?.sourceKind;
   if (sourceKind === "workflow" || sourceKind === "projection")
     return { table: lowerFirst(plural(source)) };
-  const { tableOwner, kind } = projectionSourceTable(source, ctx.aggregates);
+  const { tableOwner } = projectionSourceTable(source, ctx.aggregates);
+  // The `kind` scope is the read-scope discriminator, the one every repository
+  // read of the same aggregate is scoped by.
+  const agg = projectionSourceAggregate(p, ctx);
+  const kind = agg ? readDiscriminator(readScopeFor(agg, ctx.aggregates)) : undefined;
   return { table: lowerFirst(plural(tableOwner)), kind };
 }
 
@@ -945,7 +951,7 @@ function drizzleCapabilityPredicates(
   const agg = projectionSourceAggregate(p, ctx);
   if (!agg) return [];
   const out: string[] = [];
-  for (const e of allContextFilterEntries(agg, projectionBypass(p))) {
+  for (const e of allContextFilterEntries(agg, ctx, projectionBypass(p))) {
     const l = lowerToDrizzle(e.predicate, table, ctx, {
       principalAccessor: "requireCurrentUser()",
     });
@@ -966,7 +972,7 @@ function drizzleCapabilityPredicates(
 function mikroCapabilityFilters(p: ProjectionIR, ctx: EnrichedBoundedContextIR): string[] {
   const agg = projectionSourceAggregate(p, ctx);
   if (!agg) return [];
-  return allContextFilterEntries(agg, projectionBypass(p)).map((e) =>
+  return allContextFilterEntries(agg, ctx, projectionBypass(p)).map((e) =>
     whereToMikroFilter(e.predicate, undefined, agg.associations),
   );
 }

@@ -74,18 +74,18 @@
       "status": 200,
       "body": [
         {
-          "code": "O-2",
-          "customerName": "Globex",
-          "customerTier": "silver",
-          "orderId": "<volatile:key>",
-          "total": "20.0000"
-        },
-        {
           "code": "O-1",
           "customerName": "Globex",
           "customerTier": "silver",
           "orderId": "<volatile:key>",
           "total": "10.0000"
+        },
+        {
+          "code": "O-2",
+          "customerName": "Globex",
+          "customerTier": "silver",
+          "orderId": "<volatile:key>",
+          "total": "20.0000"
         }
       ]
     },
