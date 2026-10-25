@@ -89,7 +89,7 @@ export interface ColumnShape {
    *  a *backfill* but not here — Postgres forbids a column default that
    *  references another column — and `now()` is a function call, not a literal.
    *
-   *  Deliberately NOT persisted: `serializeSnapshot` strips it, because a
+   *  Deliberately NOT persisted: `canonicalSnapshot` strips it, because a
    *  snapshot records the schema as it existed last time we generated and this
    *  describes the SOURCE — the column it is attached to provably has no
    *  default.  Every generation re-derives it, so nothing reads a baseline's
@@ -103,7 +103,7 @@ export interface ColumnShape {
    *  destructive-change gate explains what the capability needs instead of
    *  naming a column the source does not spell.  Derivation-only, exactly like
    *  `addColumnDefault`: no renderer reads it, the diff never compares it, and
-   *  `serializeSnapshot` strips it. */
+   *  `canonicalSnapshot` strips it. */
   capability?: string;
 }
 

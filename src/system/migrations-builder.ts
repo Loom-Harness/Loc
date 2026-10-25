@@ -741,9 +741,8 @@ function eventLogTableForStream(snakeCtxName: string, ownerModule: string): Tabl
 /** Match prev/next tables by schema-qualified key, with a graceful fallback
  *  for OLD snapshots whose tables were written before schema-qualification:
  *  a prev table with no `schema` matches a single same-bare-name next table,
- *  so an existing `.loom` snapshot reads as "same table, now qualified"
- *  instead of drop+recreate.  A corrupt file still errors upstream
- *  (`fsSnapshotStore.read`); this only reconciles a legitimate format bump. */
+ *  so such a baseline reads as "same table, now qualified" instead of
+ *  drop+recreate. */
 interface TableMatch {
   pairs: [TableShape, TableShape][];
   dropped: TableShape[];
