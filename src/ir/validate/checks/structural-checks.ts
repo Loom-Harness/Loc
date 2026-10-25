@@ -9,6 +9,7 @@ import { diagMessage } from "../../../diagnostics/messages.js";
 import { isStdlibError, STRUCTURAL_CONFLICT_ERRORS } from "../../../util/error-defaults.js";
 import { bodyTypeOf } from "../../../util/expr-body-type.js";
 import { plural, snake } from "../../../util/naming.js";
+import { isRepoWriteName, repositoryVerb } from "../../../util/repository-contract.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -35,7 +36,6 @@ import {
   tpcConcretesOf,
 } from "../../util/inheritance.js";
 import { esCreateGateUnsupportedOn } from "../../util/op-gates.js";
-import { isRepoWriteName, repositoryVerb } from "../../../util/repository-contract.js";
 import { aggregateIsEventSourced, resolveDataSourceConfig } from "../../util/resolve-datasource.js";
 import {
   walkExprDeep,
