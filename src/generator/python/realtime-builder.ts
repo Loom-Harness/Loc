@@ -42,7 +42,8 @@ function pyWireValue(access: string, t: TypeIR): string {
   const inner = t.kind === "optional" ? t.inner : t;
   const opt = t.kind === "optional";
   let base = access;
-  if (inner.kind === "primitive" && inner.name === "datetime") base = `${access}.isoformat()`;
+  if (inner.kind === "primitive" && (inner.name === "datetime" || inner.name === "date"))
+    base = `${access}.isoformat()`;
   else if (inner.kind === "primitive" && inner.name === "money") base = `str(${access})`;
   if (opt && base !== access) return `(None if ${access} is None else ${base})`;
   return base;

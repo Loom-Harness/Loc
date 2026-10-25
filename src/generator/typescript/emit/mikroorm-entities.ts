@@ -105,6 +105,9 @@ function primTypes(name: string): { mikro: string; ts: string; columnType?: stri
       return { mikro: "decimal", ts: "string", columnType: "numeric(19,4)" };
     case "bool":
       return { mikro: "boolean", ts: "boolean" };
+    case "date":
+      // MikroORM's `date` type hydrates the column as its `YYYY-MM-DD` text.
+      return { mikro: "date", ts: "string" };
     case "datetime":
       return { mikro: "datetime", ts: "Date" };
     case "guid":
@@ -394,6 +397,8 @@ function mikroArrayColumnType(elementMikroType: string): string {
       return `${elementMikroType}[]`;
     case "datetime":
       return "timestamptz[]";
+    case "date":
+      return "date[]";
     default:
       return "text[]";
   }
