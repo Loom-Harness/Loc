@@ -91,15 +91,12 @@ const INHERITANCE_READ_RESTRICTIONS: readonly Backend[] = TPH_CAPABILITY_FILTER;
  *    workflows controller's `respond/2` had no `{:error, :conflict}` arm, so
  *    the rescued `Ecto.StaleEntryError` fell to the sanitized catch-all.
  *    Same 409 `detail` waiver (M-T6.91).
- *  - java: FAILS on `debitTwice`, for the reason EF had before M-T6.90 — JPA's
- *    persistence context hands both `getById` loads the SAME managed entity,
- *    so the second save is never stale and the double debit commits (booted:
- *    `expected the call to reject, but it resolved`; java's half of M-T6.90).
- *    Its dispatch half is FIXED (M-T4.3 item 6 — the workflow route now
- *    publishes, after the commit) and gated by
- *    `transactional-workflow-post-commit-dispatch`, which runs on every
- *    backend. */
-const POST_COMMIT_WORKFLOW_DISPATCH: readonly Backend[] = ["node", "python", "dotnet", "vanilla"];
+ *  - java: passes since M-T6.93 — each `getById` load is its own detached
+ *    handle, so the second save of `debitTwice` is stale and the workflow
+ *    rolls back.  Its dispatch half (the workflow route publishes after the
+ *    commit) is gated by `transactional-workflow-post-commit-dispatch`, which
+ *    runs on every backend. */
+const POST_COMMIT_WORKFLOW_DISPATCH: readonly Backend[] = ["node", "python", "dotnet", "vanilla", "java"];
 
 /** The backends where two `getById` loads of one row inside a workflow are two
  *  independent handles over a contained collection

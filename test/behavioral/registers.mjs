@@ -280,20 +280,6 @@ export const BEHAVIOURAL_XFAIL = {
   },
   java: {
     "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
-    "workflow-two-handles-containment": {
-      issue: "#4022",
-      expect: "fail",
-      tests: { "two handles on one row keep their own child graph": "expected the call to reject, but it resolved" },
-      reason:
-        "M-T6.93 — JPA's persistence context hands both `getById` loads one managed entity, so two handles adding a child never conflict",
-    },
-    "transactional-workflow-event-rollback": {
-      issue: "#4022",
-      expect: "fail",
-      tests: { "a rolled-back transactional workflow": "expected the call to reject, but it resolved" },
-      reason:
-        "M-T6.93 — JPA's persistence context hands both `getById` loads one managed entity, so the second save is never stale",
-    },
   },
   python: {
     "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
@@ -305,10 +291,9 @@ export const BEHAVIOURAL_XFAIL = {
   },
   elixir: {
     "workflow-two-handles-containment": {
-      issue: "#4081",
-      expect: "fail",
-      tests: { "two handles on one row keep their own child graph": "expected 2 to be 1" },
-      reason: "M-T6.94 — removing a contained part (`lines -= …`) in an operation does not persist",
+      issue: "#3838",
+      expect: "wire",
+      reason: "the workflow 409 `detail` names no aggregate or id (M-T6.94's removal half is fixed)",
     },
     // Every test passes; the recording diverges from the golden in five
     // values — the 409 `detail` names no aggregate/id (#3838), and each op call
