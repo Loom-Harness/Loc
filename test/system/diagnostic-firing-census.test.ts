@@ -506,6 +506,19 @@ system S {
 }`;
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // A `unique (…)` on an abstract TPC base lands on each concrete TABLE, so it
+  // cannot stop the same value existing once per sibling subtype.
+  "loom.unique-tpc-not-hierarchy-wide": `
+system TpcUnique {
+  subdomain S { context Parties {
+    abstract aggregate Party inheritanceUsing: ownTable {
+      email: string
+      unique (email)
+    }
+    aggregate Customer extends Party inheritanceUsing: ownTable { creditLimit: decimal }
+    aggregate Supplier extends Party inheritanceUsing: ownTable { rating: int }
+  } }
+}`,
   // `create(…): T` — a result needs a caller.  An event-triggered starter has
   // none (the in-process dispatcher drops whatever it would return).
   "loom.workflow-return-no-caller": workflowResult(`
@@ -2616,6 +2629,25 @@ system S {
   test e2e "t" against d {
     let p = api.products.create({ sku: "W-1" })
     expect(p.sku).toBe("W-1")
+  }
+}`,
+
+  // An e2e operation call's optional THIRD argument in a shape the renderer
+  // does not read — it used to be dropped silently, so a test that MEANT to
+  // send a stale `If-Match` sent none (M-T6.91).  `{ version: 1 }` is the
+  // natural misspelling of `{ ifMatch: 1 }`.
+  "loom.e2e-call-options": `
+system S {
+  subdomain D { context C {
+    aggregate Note with versioned, crudish { text: string }
+    repository Notes for Note { }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node, contexts: [C], dataSources: [st], port: 4100 }
+  test e2e "t" against d {
+    let n = api.notes.create({ text: "a" })
+    api.notes.update(n, { text: "b" }, { version: 1 })
   }
 }`,
 

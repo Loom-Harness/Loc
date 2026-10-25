@@ -37,6 +37,7 @@ import {
 } from "../py-columns.js";
 import { PY, pyVoOrEnum } from "../py-symbols.js";
 import { hydrateField, persistFieldValue } from "../repository-builder.js";
+import { PY_CALENDAR_DATE, PY_CALENDAR_DATE_NAME } from "./calendar-date.js";
 import { provColumn } from "./provenance.js";
 
 // ---------------------------------------------------------------------------
@@ -239,6 +240,7 @@ const sa = (name: string): string => pyRef("sqlalchemy", name);
 const SA = {
   BigInteger: sa("BigInteger"),
   Boolean: sa("Boolean"),
+  Date: sa("Date"),
   DateTime: sa("DateTime"),
   Identity: sa("Identity"),
   Index: sa("Index"),
@@ -264,6 +266,7 @@ const TYPE_NAMES: Record<string, string> = {
   ...PG,
   Decimal: PY.Decimal,
   datetime: PY.datetime,
+  [PY_CALENDAR_DATE_NAME]: PY_CALENDAR_DATE,
   FileRef: PY.FileRef,
 };
 

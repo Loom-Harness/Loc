@@ -30,6 +30,7 @@
     "field-input-decimal": "field-input-decimal.hbs",
     "field-input-money": "field-input-money.hbs",
     "field-input-bool": "field-input-bool.hbs",
+    "field-input-date": "field-input-date.hbs",
     "field-input-datetime": "field-input-datetime.hbs",
     "field-input-id-select": "field-input-id-select.hbs",
     "field-input-id-text": "field-input-id-text.hbs",
@@ -292,6 +293,12 @@
       {
         "from": "@/components/ui/switch",
         "named": ["Switch"]
+      }
+    ],
+    "field-input-date": [
+      {
+        "from": "@/components/ui/input",
+        "named": ["Input"]
       }
     ],
     "field-input-datetime": [

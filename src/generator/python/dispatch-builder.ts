@@ -26,6 +26,7 @@ import { numericEncode } from "../_numeric/target.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import type { OpFragment } from "./emit/aggregate.js";
+import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
 import { PY_NUMERIC, pyEventSourcedDecimalDecode } from "./numeric-codec.js";
 import { PY, pyIdType, pyVoOrEnum } from "./py-symbols.js";
 import { renderPyExpr } from "./render-expr.js";
@@ -688,6 +689,8 @@ export function zeroFor(
         return "False";
       case "datetime":
         return `${PY.datetime}.now(${PY.UTC})`;
+      case "date":
+        return `${PY.datetime}.now(${PY.UTC}).date()`;
       default:
         return '""';
     }
@@ -1302,6 +1305,7 @@ export function toPayload(expr: string, t: TypeIR, vos: PyVoFields = new Map()):
 
 function toPayloadValue(expr: string, t: TypeIR, vos: PyVoFields): string {
   if (t.kind === "primitive" && t.name === "datetime") return `${expr}.isoformat()`;
+  if (t.kind === "primitive" && t.name === "date") return `${expr}.isoformat()`;
   if (t.kind === "primitive" && t.name === "money") return `str(${expr})`;
   const fields = t.kind === "valueobject" ? vos.get(t.name) : undefined;
   if (t.kind === "valueobject" && fields) {
@@ -1336,6 +1340,7 @@ const PY_WIRE_DECODE: WireDecodeTarget = {
     money: (e) => markNumeric(numericEncode(PY_NUMERIC, "money", "repo-read", e)),
     bool: (e) => `${PY.cast}(bool, ${e})`,
     datetime: (e) => `${PY.datetime}.fromisoformat(${PY.cast}(str, ${e}))`,
+    date: (e) => `${PY_CALENDAR_DATE}.fromisoformat(${PY.cast}(str, ${e}))`,
     string: (e) => `${PY.cast}(str, ${e})`,
     guid: (e) => `${PY.cast}(str, ${e})`,
     json: (e) => `${PY.cast}(str, ${e})`,

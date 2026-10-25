@@ -66,8 +66,8 @@ const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotne
  *    reactor's Audit row.  Discriminates.
  *  - python: passes.  Its reactor runs inside the open transaction (same
  *    session), so the dispatch half has no discriminating power there; armed
- *    because it honestly passes.  Its 409 `detail` sentence differs from
- *    node's (wire waiver, M-T6.91).
+ *    because it honestly passes.  Its 409 `detail` is node's sentence since
+ *    M-T6.91 (RS-40), so no wire waiver.
  *  - .NET (the `dotnet` key — both persistence adapters, since the Dapper
  *    leg reads the same key): EF discriminates M-T6.90 — two `getById` loads of
  *    one row were ONE tracked entity, so `debitTwice` never conflicted and the
@@ -75,7 +75,7 @@ const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotne
  *    the second handle now loads into a forked change tracker and its stale
  *    save 409s.  Dapper discriminates #3224's atomicity fix: pre-fix the saves
  *    committed on their own connections (`expected 80 to be 90`).  Same 409
- *    `detail` waiver.
+ *    `detail` (RS-40).
  *  - elixir (`vanilla`): passes since M-T6.92.  Pre-fix the stale save inside
  *    the workflow's `Repo.transaction` rolled back but answered 500: the
  *    workflows controller's `respond/2` had no `{:error, :conflict}` arm, so
@@ -666,6 +666,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: ALL,
   },
   {
+    id: "concurrency-conflict",
+    title:
+      "optimistic concurrency — a stale `If-Match` on a `versioned` aggregate's update answers the named 409 (RS-40)",
+    doc: "capabilities",
+    backends: ALL,
+    note: "Minted by M-T6.91: the concurrency 409 `detail` was node's `<Aggregate> <id> was modified by another request` on node and a fixed `The resource was modified by another request; reload and retry.` on the other four, and the one golden that recorded the 409 (`transactional-workflow-event-rollback`) ran on three legs.  This case drives the route every backend shares — a stale `If-Match` on the versioned `update`, via the e2e call's `{ ifMatch: v }` third argument — so the golden diff pins the sentence on every wire-gated leg.",
+  },
+  {
     id: "audit-history",
     title: "entity history — the derived `GET /<agg>/{id}/history` read over audit_records",
     doc: "audit",
@@ -804,6 +812,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "language",
     backends: ALL,
     note: "ledger F2-W-06 / D-ABSENT-JOIN-DATETIME-WIRE.  Every value is asserted as a STRING because the spelling is the contract: node trimmed `.120` to `.12Z`, python printed `.120000Z`, elixir stored the column at SECOND precision and lost the fraction, and the differential tier collapsed all four spellings to one `<timestamp>` token.  The `.9996Z` input separates truncation from rounding (rounding carries into the next second); the soft-deleted join target is RS-34's value-typed arm.",
+  },
+  {
+    id: "date-scalar",
+    title:
+      "the `date` scalar — a calendar date crosses the wire (`YYYY-MM-DD`) and the `date` column as the day it was written, through create / update / an op param / a SQL `find` comparison, with the `year`/`month`/`day`/`daysUntil` intrinsics and `today()`",
+    doc: "language",
+    backends: ALL,
+    note: "M-T5.39.  Every read-back is asserted as the exact STRING written: a backend that round-trips a date through an instant (a JS `Date` at local midnight, a `timestamptz`) answers the previous day west of UTC and fails it, which a column-type assertion would not.",
   },
   {
     id: "stamps-principal",

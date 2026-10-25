@@ -68,6 +68,8 @@ function tickFieldValue(field: FieldIR): { text: string; typeIgnore?: boolean } 
     switch (t.name) {
       case "datetime":
         return { text: `${PY.datetime}.now(${PY.UTC})` };
+      case "date":
+        return { text: `${PY.datetime}.now(${PY.UTC}).date()` };
       case "int":
       case "long":
         return { text: "0" };

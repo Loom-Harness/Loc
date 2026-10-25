@@ -110,6 +110,7 @@ export function wireJavaType(t: TypeIR, dir: WireDir, boxed = false): string {
           if (dir === "Response") return boxed ? "Double" : "double";
           return J.BigDecimal;
         case "money":
+        case "date":
         case "datetime":
           return "String";
         case "string":
@@ -174,6 +175,8 @@ export function domainToWire(t: TypeIR, expr: string): string {
       // byte-consistent with the other backends.
       if (t.name === "money") return numericEncode(JAVA_NUMERIC, "money", "dto-map", expr);
       if (t.name === "datetime") return javaInstantWire(expr);
+      // `LocalDate.toString()` is ISO `yyyy-MM-dd` — the calendar-date wire form.
+      if (t.name === "date") return `${expr}.toString()`;
       // decimal → the response's `double` component (RS-24).  The
       // narrowing is the wire boundary's job, exactly as on .NET: the
       // DOMAIN value keeps every digit `MathContext.DECIMAL128` produced.
@@ -206,6 +209,7 @@ function elementMapper(element: TypeIR): string | null {
       if (element.name === "money")
         return `__x -> ${numericEncode(JAVA_NUMERIC, "money", "dto-map", "__x")}`;
       if (element.name === "datetime") return `__x -> ${javaInstantWire("__x")}`;
+      if (element.name === "date") return "__x -> __x.toString()";
       // `decimal[]` → `List<Double>` (RS-24): the element narrows on
       // the response exactly as a scalar decimal component does.
       if (element.name === "decimal")
@@ -258,6 +262,7 @@ export function wireToDomain(
       // refuses (a schemathesis-found shape).
       if (t.name === "datetime")
         return `WireFormatException.instant(${expr}, ${JSON.stringify(pointer)})`;
+      if (t.name === "date") return `WireFormatException.date(${expr}, ${JSON.stringify(pointer)})`;
       return expr;
     case "id":
       return `new ${t.targetName}Id(${expr})`;
@@ -303,7 +308,7 @@ export function wireToDomain(
 export function wireToDomainGuards(t: TypeIR): boolean {
   switch (t.kind) {
     case "primitive":
-      return t.name === "money" || t.name === "datetime";
+      return t.name === "money" || t.name === "datetime" || t.name === "date";
     case "array":
       return wireToDomainGuards(t.element);
     case "optional":
@@ -335,6 +340,8 @@ export function collectWireToDomainImports(
         // string-level test sees — only the generated-java compile does.
         into.add(`${basePkg}.domain.common.WireFormatException`);
       }
+      // `LocalDate` is spelled fully qualified, so only the guard's type.
+      if (t.name === "date") into.add(`${basePkg}.domain.common.WireFormatException`);
       return into;
     case "array":
       return collectWireToDomainImports(t.element, into, basePkg);

@@ -29,6 +29,7 @@ import type { ExprIR, IdValueType, TypeIR } from "../../ir/types/loom-ir.js";
 export type LiteralCoercion =
   | { kind: "id"; targetName: string; valueType: IdValueType }
   | { kind: "datetime" }
+  | { kind: "date" }
   | { kind: "none" };
 
 /** Decide the coercion for `value` written in a position declared `type`.
@@ -52,6 +53,7 @@ export function decideLiteralCoercion(type: TypeIR | undefined, value: ExprIR): 
     return { kind: "id", targetName: t.targetName, valueType: t.valueType };
   }
   if (t?.kind === "primitive" && t.name === "datetime") return { kind: "datetime" };
+  if (t?.kind === "primitive" && t.name === "date") return { kind: "date" };
   return { kind: "none" };
 }
 
@@ -63,6 +65,8 @@ export interface TestLiteralTarget {
   id(rendered: string, targetName: string, valueType: IdValueType): string;
   /** `"…"` (ISO-8601) in a `datetime` position → the backend's date type. */
   datetime(rendered: string): string;
+  /** `"…"` (ISO `YYYY-MM-DD`) in a `date` position → the backend's calendar-date type. */
+  date(rendered: string): string;
 }
 
 /** Apply the decided coercion through a backend's leaf table.  Returns
@@ -76,6 +80,7 @@ export function coerceTestLiteral(
   const c = decideLiteralCoercion(type, value);
   if (c.kind === "id") return target.id(rendered, c.targetName, c.valueType);
   if (c.kind === "datetime") return target.datetime(rendered);
+  if (c.kind === "date") return target.date(rendered);
   return rendered;
 }
 
@@ -107,7 +112,7 @@ export function matcherSubjectType(expr: ExprIR & { kind: "method-call" }): Type
  *  string would equal it — hiding exactly the defect such an assertion exists
  *  to catch.
  *
- *  Equality only, and `datetime` only: an ordering matcher over a date has no
+ *  Equality only, and `datetime` / `date` only: an ordering matcher over a date has no
  *  uniform operator spelling across the backends (Elixir's `<` is term order
  *  on a struct), and an `<Agg> id` subject already compares equal to its raw
  *  string on the backends whose tests assert ids.  Returns the coerced
@@ -121,5 +126,7 @@ export function coerceMatcherExpected(
   const arg = expr.args[0];
   if (expr.member !== "toBe" || !arg) return undefined;
   const c = decideLiteralCoercion(matcherSubjectType(expr), arg);
-  return c.kind === "datetime" ? target.datetime(rendered) : undefined;
+  if (c.kind === "datetime") return target.datetime(rendered);
+  if (c.kind === "date") return target.date(rendered);
+  return undefined;
 }

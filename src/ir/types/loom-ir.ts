@@ -47,6 +47,10 @@ export type PrimitiveName =
   | "money"
   | "string"
   | "bool"
+  /** A CALENDAR date — year, month, day; no time-of-day, no offset.  Wire
+   *  form is the ISO-8601 calendar date `"2026-01-01"`; Postgres `date`.
+   *  Distinct from `datetime` so a value west of UTC never shifts a day. */
+  | "date"
   | "datetime"
   | "guid"
   /** Opaque JSON blob — interior is not modelled by Loom.  Maps to
@@ -93,6 +97,7 @@ export const PRIMITIVES: readonly PrimitiveName[] = [
   "decimal",
   "money",
   "bool",
+  "date",
   "datetime",
   "guid",
   "json",
