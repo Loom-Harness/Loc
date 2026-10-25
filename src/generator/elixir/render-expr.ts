@@ -3,6 +3,7 @@ import type {
   DerivedIR,
   EnrichedAggregateIR,
   ExprIR,
+  LiteralKind,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { type PrincipalTerm, principalTerm } from "../../ir/util/principal-term.js";
@@ -34,6 +35,8 @@ import { exSubtreeLikePattern } from "../_expr/subtree-like.js";
 import {
   type BinaryExpr,
   type CallExpr,
+  type ConvertExpr,
+  type ExprCtxBase,
   type ExprTarget,
   isIntDivWidenedToDecimal,
   type MemberExpr,
@@ -293,6 +296,21 @@ const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
   // Elixir-list emit so unexpected uses still compile.
   list: (elements) => `[${elements.join(", ")}]`,
 };
+
+/** The `ELIXIR_TARGET` leaves that read nothing from the Elixir domain context
+ *  (`RenderCtx`) — literal spelling, `convert`, absolute durations, the inert
+ *  i18n wrapper, list literals.  The HEEx page walker's target reuses them so
+ *  a page body and a domain expression agree on these forms by construction;
+ *  it diverges only on the context-dependent leaves (refs, members, calls,
+ *  operators over template assigns). */
+export const ELIXIR_CTX_FREE_LEAVES = {
+  escapeStringLiteral: ELIXIR_TARGET.escapeStringLiteral,
+  literal: (lit: LiteralKind, value: string) => renderLiteral(lit, value),
+  convert: (value: string, e: ConvertExpr) => renderElixirConvert(e.target, e.from, value),
+  duration: renderDurationInMemory,
+  i18nFormat: ELIXIR_TARGET.i18nFormat,
+  list: ELIXIR_TARGET.list,
+} satisfies Partial<ExprTarget<ExprCtxBase>>;
 
 // Query-filter rendering target — for predicates rendered inside an Ecto
 // `from ... where: ...` fragment (`filterArgs: true`).  Inside a query fragment
