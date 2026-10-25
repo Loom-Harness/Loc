@@ -166,6 +166,9 @@ export function renderJsIntrinsic(
 export function coerceMoneyStateInit(type: TypeIR, rendered: string): string {
   if (!typeUsesMoney(type)) return rendered;
   if (usesDecimalBinding(rendered)) return rendered;
+  // An absent `money?` (`= null`) stays absent — `new Decimal(null)` throws
+  // `[DecimalError] Invalid argument: null` at first render (and is TS2345).
+  if (/^(null|undefined)$/.test(rendered.trim())) return rendered;
   const exact = /^-?\d+(\.\d+)?$/.test(rendered.trim())
     ? JSON.stringify(rendered.trim())
     : rendered;

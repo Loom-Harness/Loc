@@ -663,10 +663,9 @@ function renderTemporalEquality(
  *    keeps no trailing zeros, so equal values print equal (`10.00` → `"10"`).
  *    Both absent → equal, one absent → unequal, both present → same value —
  *    the datetime arm's (B-13) null semantics.
- *  - `<` / `<=` / `>` / `>=` with a `money?` side asserts presence (`!`) and
- *    dispatches through the Decimal method (native `>` on a Decimal compares
- *    `valueOf()` STRINGS — `"10" > "9"` is false); a guarded
- *    `x == null || x > …` never reaches it absent. */
+ *  - `<` / `<=` / `>` / `>=` with a `money?` side dispatches through the
+ *    Decimal method (native `>` on a Decimal compares `valueOf()` STRINGS —
+ *    `"10" > "9"` is false) and answers false when either side is absent. */
 function renderNullableMoneyComparison(
   left: string,
   right: string,
@@ -683,9 +682,45 @@ function renderNullableMoneyComparison(
     return `(${left})${lt}.toString() ${opPrint} (${right})${rt}.toString()`;
   }
   const method = RELATIONAL_MONEY_METHOD[e.op];
-  if (method === undefined || lt === null || rt === null || (lt === "" && rt === "")) return null;
-  const present = (text: string, t: "" | "?") => (t === "?" ? `(${text})!` : text);
-  return `${present(left, lt)}.${method}(${present(right, rt)})`;
+  if (method === undefined) return null;
+  if (lt === null || rt === null || (lt === "" && rt === "")) {
+    return renderNullableDecimalOrdering(left, right, e);
+  }
+  // An ordering against an ABSENT side answers false (SQL's UNKNOWN, .NET's
+  // lifted operators): an absent receiver short-circuits `?.` to `?? false`,
+  // an absent argument becomes `NaN`, which decimal.js orders against nothing
+  // (`cmp` → NaN, so `gt`/`gte`/`lt`/`lte` are all false).  One evaluation of
+  // each operand.
+  const arg = rt === "?" ? `(${right}) ?? NaN` : right;
+  return lt === "?" ? `((${left})?.${method}(${arg}) ?? false)` : `${left}.${method}(${arg})`;
+}
+
+/** An ordering over a nullable `decimal` (a JS `number` on this backend) or a
+ *  nullable integral against a `decimal`: an absent side answers false, like
+ *  the money arm above.  Native `<` coerces `null` to `0` (`null >= 0` holds,
+ *  `null > -1` holds), so the absent side becomes `NaN`, which orders against
+ *  nothing.  Null for every other pair. */
+function renderNullableDecimalOrdering(
+  left: string,
+  right: string,
+  e: Extract<ExprIR, { kind: "binary" }>,
+): string | null {
+  const numeric = (t: TypeIR | undefined): "" | "?" | null => {
+    const inner = t?.kind === "optional" ? t.inner : t;
+    if (inner?.kind !== "primitive") return null;
+    if (inner.name !== "decimal" && inner.name !== "int" && inner.name !== "long") return null;
+    return t?.kind === "optional" ? "?" : "";
+  };
+  const isDecimal = (t: TypeIR | undefined): boolean => {
+    const inner = t?.kind === "optional" ? t.inner : t;
+    return inner?.kind === "primitive" && inner.name === "decimal";
+  };
+  const lt = numeric(e.leftType);
+  const rt = numeric(e.rightType);
+  if (lt === null || rt === null || (lt === "" && rt === "")) return null;
+  if (!isDecimal(e.leftType) && !isDecimal(e.rightType)) return null;
+  const side = (text: string, t: "" | "?") => (t === "?" ? `((${text}) ?? NaN)` : text);
+  return `${side(left, lt)} ${e.op} ${side(right, rt)}`;
 }
 
 const RELATIONAL_MONEY_METHOD: Record<string, string | undefined> = {
