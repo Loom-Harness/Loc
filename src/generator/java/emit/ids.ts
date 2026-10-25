@@ -6,20 +6,20 @@
 // column.  Serializable because JPA requires it of id classes.
 
 import { lines } from "../../../util/code-builder.js";
+import { javaRef } from "../../_imports/java.js";
+import { J } from "../java-symbols.js";
 import { javaNewIdValue, javaValueTypeForId } from "../render-expr.js";
 
+const GENERATORS = javaRef("com.fasterxml.uuid", "Generators");
+
 export function renderJavaId(name: string, idValueType: string, basePkg: string): string {
-  const valueType = javaValueTypeForId(idValueType);
-  const newExpr = javaNewIdValue(idValueType);
-  const needsUuid = valueType === "UUID" || newExpr.includes("UUID");
-  const needsGenerators = newExpr.includes("Generators.");
+  const plainValueType = javaValueTypeForId(idValueType);
+  const valueType = plainValueType === "UUID" ? J.UUID : plainValueType;
+  const newExpr = javaNewIdValue(idValueType).replace(/^Generators\./, `${GENERATORS}.`);
   return lines(
     `package ${basePkg}.domain.ids;`,
     ``,
     `import java.io.Serializable;`,
-    needsUuid ? `import java.util.UUID;` : null,
-    needsGenerators ? `import com.fasterxml.uuid.Generators;` : null,
-    ``,
     `import jakarta.persistence.Embeddable;`,
     ``,
     `@Embeddable`,
@@ -49,7 +49,7 @@ function parseIdValueExpr(idValueType: string, varName: string): string {
     case "string":
       return varName;
     default:
-      return `UUID.fromString(${varName})`;
+      return `${J.UUID}.fromString(${varName})`;
   }
 }
 
@@ -75,13 +75,11 @@ export function renderJavaIdListConverter(
   basePkg: string,
 ): string {
   const idClass = `${targetAgg}Id`;
-  const needsUuid = idValueType !== "int" && idValueType !== "long" && idValueType !== "string";
   return lines(
     `package ${basePkg}.domain.ids;`,
     ``,
     `import java.util.ArrayList;`,
     `import java.util.List;`,
-    needsUuid ? `import java.util.UUID;` : null,
     ``,
     `import jakarta.persistence.AttributeConverter;`,
     `import jakarta.persistence.Converter;`,

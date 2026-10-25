@@ -39,6 +39,11 @@ export const repoRoot = path.resolve(here, "..", "..", "..");
 export const cli = path.join(repoRoot, "bin", "cli.js");
 const fixtureDir = path.join(repoRoot, "test", "e2e", "fixtures", "migration-evolution");
 
+/** A non-`.ddd` fixture file, verbatim. */
+export function readFixtureFile(name: string): string {
+  return fs.readFileSync(path.join(fixtureDir, name), "utf8");
+}
+
 export function readFixture(
   name:
     | "base"
@@ -189,9 +194,9 @@ export function connFor(s: PgServer, db: string): PgConn {
 
 // Migration-runner bookkeeping tables/schemas each backend maintains — excluded
 // from the fingerprint so CHECK 1 compares only the DOMAIN schema.  node:
-// `drizzle.__drizzle_migrations`; python: `__loom_migrations`; dotnet:
-// `__EFMigrationsHistory`; java: `flyway_schema_history`; elixir/Ecto:
-// `schema_migrations`.
+// `drizzle.__drizzle_migrations`; python and .NET Dapper: `__loom_migrations`;
+// .NET EF: `__EFMigrationsHistory`; java: `flyway_schema_history`;
+// elixir/Ecto: `schema_migrations`.
 const TRACKING_SCHEMAS = ["pg_catalog", "information_schema", "drizzle"];
 const TRACKING_TABLES = [
   "__drizzle_migrations",
@@ -273,6 +278,21 @@ SELECT string_agg(line, E'\\n' ORDER BY line) FROM (
 // full Initial(v2) — the fresh-create side of CHECK 1.
 // ---------------------------------------------------------------------------
 
+/** What `__PLATFORM__` expands to for a driver's `platform`.  A driver names
+ *  either a platform (`node`, `dotnet`, …) or a persistence ADAPTER of one:
+ *  `dapper` is the .NET backend on `persistence: dapper` — the realization
+ *  clause the behavioural dapper runner injects the same way
+ *  (`test/behavioral/run-dapper.mjs`).  Resolved HERE, in `generate`, rather
+ *  than in each driver, so every gate in this file — present and future —
+ *  runs on the adapter by passing `driver.platform` through unchanged. */
+const PLATFORM_CLAUSES: Readonly<Record<string, string>> = {
+  dapper: "dotnet { persistence: dapper }",
+};
+
+export function platformClause(platform: string): string {
+  return PLATFORM_CLAUSES[platform] ?? platform;
+}
+
 export function generate(
   source: string,
   platform: string,
@@ -280,7 +300,7 @@ export function generate(
   opts: { allowDestructive?: boolean } = {},
 ): void {
   const dddPath = path.join(outDir, "app.ddd");
-  fs.writeFileSync(dddPath, source.replaceAll("__PLATFORM__", platform));
+  fs.writeFileSync(dddPath, source.replaceAll("__PLATFORM__", platformClause(platform)));
   try {
     const flag = opts.allowDestructive ? " --allow-destructive" : "";
     execSync(`node ${cli} generate system ${dddPath} -o ${outDir}${flag}`, {
@@ -1107,6 +1127,119 @@ export async function runJournalOrderingGate(driver: BackendDriver): Promise<voi
     );
     expect(Number(appliedAfter)).toBeGreaterThan(Number(appliedBefore));
     v2.stop();
+  } finally {
+    for (const b of boots) b.stop();
+    server?.stop();
+    try {
+      fs.rmSync(tree, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// M-T2.17 — the TRANSITION gate for `persistence: dapper`.
+//
+// Before Dapper applied the migration chain, its `DbSchema.EnsureAsync` ran
+// `CREATE TABLE IF NOT EXISTS` in `public` on every boot and kept no history;
+// its output tree carried a module snapshot but no migration files.  This gate
+// rebuilds that world and upgrades it:
+//
+//   1. the old DATABASE — the old bootstrap's DDL, verbatim
+//      (`dapper-legacy-bootstrap.sql`), plus one row;
+//   2. the old TREE — a v1 generate with its `Migrations/` removed (the old
+//      toolchain wrote none; its `DbSchema.cs` is replaced by the regenerate);
+//   3. regenerate v2 with the migration-aware toolchain — the tree is
+//      RE-ROOTED: the v1 Initial is re-emitted from the snapshot, then the
+//      v1 → v2 delta;
+//   4. boot — the runner BASELINES the database (moves `public.products` into
+//      `catalog`, records the Initial as applied without running it) and then
+//      applies the delta on top.
+//
+// The row must come out the other side exactly as CHECK 2 expects, the table
+// must live where the migrations put it, both ids must be in the history, and
+// a second boot must change nothing.  Dapper-only: no other backend ever had a
+// boot-time bootstrap to migrate away from.
+// ---------------------------------------------------------------------------
+
+/** The seeded row's id in the legacy database (inserted by SQL — the old app
+ *  that would have written it through REST is the thing being upgraded). */
+const LEGACY_ROW_ID = "3f0c8a52-5b1e-4c1e-9d55-0a4f2f1b7e11";
+
+export async function runDapperLegacyBaselineGate(driver: BackendDriver): Promise<void> {
+  if (driver.platform !== "dapper") {
+    throw new Error(`legacy-baseline gate is Dapper-only, got driver '${driver.platform}'`);
+  }
+  if (!driver.toolchain.check()) {
+    throw new Error(`legacy-baseline: \`${driver.toolchain.name}\` not on PATH.`);
+  }
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "loom-mev-dapper-legacy-"));
+  const appDir = path.join(tree, "d");
+  const migrationsDir = path.join(appDir, "Migrations");
+  let server: PgServer | undefined;
+  const boots: BootHandle[] = [];
+  const DB = "legacy";
+  const boot = async (pg: PgConn): Promise<BootHandle> => {
+    const port = await freePort();
+    const h = driver.boot(appDir, pg, port);
+    boots.push(h);
+    await waitForReady(h.base, h.bootLog, driver.readyTimeoutMs);
+    return h;
+  };
+  const history = (s: PgServer) =>
+    psql(s, DB, "SELECT string_agg(tag, ',' ORDER BY tag) FROM public.__loom_migrations");
+
+  try {
+    server = await startPgServer();
+    resetDatabase(server, DB);
+    const pg = connFor(server, DB);
+
+    // 1. The database the old bootstrap provisioned, holding one v1 row.
+    psql(server, DB, readFixtureFile("dapper-legacy-bootstrap.sql"));
+    psql(
+      server,
+      DB,
+      `INSERT INTO products (id, name, price, status, version) ` +
+        `VALUES ('${LEGACY_ROW_ID}', '${SEED.name}', ${SEED.price}, '${SEED.status}', 1)`,
+    );
+    expect(
+      psql(server, DB, "SELECT to_regclass('public.__loom_migrations') IS NULL"),
+      "a pre-migration database has no history table",
+    ).toBe("t");
+
+    // 2. The tree the old toolchain left: snapshot + history, no migration files.
+    generate(readFixture("base"), driver.platform, tree);
+    fs.rmSync(migrationsDir, { recursive: true, force: true });
+
+    // 3. The migration-aware regenerate re-roots the module.
+    generate(readFixture("evolved"), driver.platform, tree);
+    const files = fs.readdirSync(migrationsDir).sort();
+    expect(files.length, `re-rooted tree: ${files.join(", ")}`).toBe(2);
+    expect(files[0], "the re-emitted v1 Initial comes first").toMatch(/_Initial\.cs$/);
+    const ids = files.map((f) => f.replace(/\.cs$/, ""));
+    driver.install(appDir);
+
+    // 4. First migration-aware boot: baseline, then the delta.
+    const v2 = await boot(pg);
+    await assertForwardMigrated(v2.base, LEGACY_ROW_ID);
+    expect(
+      psql(
+        server,
+        DB,
+        "SELECT to_regclass('public.products') IS NULL AND to_regclass('catalog.products') IS NOT NULL",
+      ),
+      "the legacy table moved into the schema the migrations own",
+    ).toBe("t");
+    expect(history(server), "the Initial is baselined and the delta applied").toBe(ids.join(","));
+    v2.stop();
+    await settle();
+
+    // Idempotent: a second boot applies nothing and changes nothing.
+    const again = await boot(pg);
+    await assertForwardMigrated(again.base, LEGACY_ROW_ID);
+    expect(history(server), "a reboot records nothing new").toBe(ids.join(","));
+    again.stop();
   } finally {
     for (const b of boots) b.stop();
     server?.stop();

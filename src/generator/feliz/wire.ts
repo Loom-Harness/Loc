@@ -50,6 +50,8 @@ import { typeIsFile } from "../../ir/util/file-field.js";
 import { type PageNameCtx, pageEmitName } from "../../ir/util/page-kind.js";
 import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import { projectionReadShape } from "../../ir/util/projection-read.js";
+import { walkExprChildren } from "../../ir/util/walk.js";
+import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
 import { lines } from "../../util/code-builder.js";
@@ -1632,56 +1634,14 @@ export function idLabelsFrom(aggregates: Iterable<AggregateIR>): Map<string, str
 // Read collection — scan a page body for the `.all` query sites its view issues
 // ---------------------------------------------------------------------------
 
-/** Direct child expressions of `e` (expression positions only — lambda-block
- *  statements are action bodies, never a `QueryView` host, so they're skipped). */
+/** Direct child expressions of `e`, from the shared `never`-checked walker —
+ *  every expression slot, including each `match` arm (where a scaffolded filter
+ *  bar hosts both of its reads).  Lambda-block statements are action bodies,
+ *  never a read or form host, so the statement channel is not followed. */
 function exprChildren(e: ExprIR): ExprIR[] {
-  switch (e.kind) {
-    case "member":
-      return [e.receiver];
-    case "method-call":
-      return [e.receiver, ...e.args];
-    case "call":
-      return e.args;
-    case "lambda":
-      return e.body ? [e.body] : [];
-    case "object":
-    case "new":
-      return e.fields.map((f) => f.value);
-    case "list":
-      return e.elements;
-    case "paren":
-      return [e.inner];
-    case "unary":
-      return [e.operand];
-    case "binary":
-      return [e.left, e.right];
-    case "ternary":
-      return [e.cond, e.then, e.otherwise];
-    case "convert":
-      return [e.value];
-    // A `match` hosts read-bearing children in EVERY arm — which is exactly the
-    // shape a scaffolded filter bar emits: the `QueryView` over the filter find
-    // sits in an arm and the unfiltered `.all` view sits in `otherwise`.  With
-    // no arm here the walk stopped at the `match` node, so BOTH reads were
-    // missed and the emitted view named `model.<Field>`s the Model never
-    // declared, `init` never seeded and no `Cmd` ever filled.
-    case "match":
-      return [
-        ...(e.subject ? [e.subject] : []),
-        ...e.arms.flatMap((a) => [a.cond, a.value]),
-        ...e.variantArms.map((a) => a.value),
-        ...(e.otherwise ? [e.otherwise] : []),
-      ];
-    // Transparent wrappers — descend so a read never hides behind one.
-    case "i18nFormat":
-      return [e.inner];
-    case "duration":
-      return [e.amount];
-    // `literal` / `this` / `id` / `ref` / `action-ref` / `authz-filter` carry no
-    // expression children at all.
-    default:
-      return [];
-  }
+  const out: ExprIR[] = [];
+  walkExprChildren(e, { expr: (c) => out.push(c) });
+  return out;
 }
 
 /** Every READ-BEARING `of:` argument in a page body, in tree order.
@@ -2560,7 +2520,8 @@ export function collectPageWorkflowForms(
   const seen = new Set<string>();
   for (const wfName of workflowFormRuns(page.body, nameSet)) {
     const wf = workflowsByName.get(wfName);
-    if (!wf) continue;
+    // An event-only saga has no command route (`emitsCommandRoute`) — no api fn.
+    if (!wf || !emitsCommandRoute(wf)) continue;
     const form = felizWorkflowForm(wf, enumsByName, idLabels, vosByName);
     if (seen.has(form.formType)) continue;
     seen.add(form.formType);

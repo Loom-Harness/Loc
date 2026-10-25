@@ -44,6 +44,7 @@ import {
   pageEmitName,
 } from "../../ir/util/page-kind.js";
 import { isFrontendReadableProjection } from "../../ir/util/projection-read.js";
+import { enumPool } from "../../ir/util/reachable-types.js";
 import { listReadGate } from "../../ir/util/read-gates.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { elixirString, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
@@ -80,6 +81,7 @@ import {
   vanillaHistoryMapperName,
   vanillaHistoryMapperTakesPrincipal,
 } from "./vanilla/audit-history-emit.js";
+import { renderGateCondition } from "./vanilla/gate.js";
 import { isRelationalRowAgg, servesRefLabel, servesRefLabels } from "./vanilla/ref-label.js";
 
 /** One router entry the orchestrator splices into router.ex. */
@@ -277,10 +279,11 @@ export function emitLiveViewPages(args: {
       );
       if (listGate) {
         listReadGateByAggName.set(agg.name, {
-          expr: renderDomainExpr(listGate, {
-            thisName: "record",
-            contextModule: ctxModule,
-          }),
+          // The synthesised denyByDefault gate (M-T3.19) must not render as
+          // the literal `false` — see `renderGateCondition`.
+          expr: renderGateCondition(listGate, (g) =>
+            renderDomainExpr(g, { thisName: "record", contextModule: ctxModule }),
+          ),
           usesUser: exprUsesCurrentUser(listGate),
         });
       }
@@ -313,7 +316,7 @@ export function emitLiveViewPages(args: {
         });
       }
     }
-    for (const en of ctx.enums) enumsByName.set(en.name, en);
+    for (const en of enumPool(ctx)) enumsByName.set(en.name, en);
     for (const vo of ctx.valueObjects) valueObjectsByName.set(vo.name, vo);
   }
 
@@ -1580,7 +1583,8 @@ ${opAssigns.map((a) => `  ${a}`).join("\n")}`
     // none — but a SINGLE-shaped custom find (`find byName(n: string): Item?`)
     // carries its own argument, and reaching for the route id instead both
     // dropped the filter and read an assign such a page never binds.
-    const singleArgs = qb.listArgs?.length ? qb.listArgs.join(", ") : "socket.assigns.id";
+    const readKeyArgs = qb.listArgs?.length ? qb.listArgs : ["socket.assigns.id"];
+    const singleArgs = [...readKeyArgs, ...(qb.actorArgs ?? [])].join(", ");
     // A single-shaped custom FIND wraps `Repo.one/1`, so absence is `{:ok, nil}`
     // — not the `{:error, :not_found}` the by-id fetch returns.  Without this
     // arm a miss falls into `{:ok, record}` and the page renders its DATA slot
@@ -1590,11 +1594,26 @@ ${opAssigns.map((a) => `  ${a}`).join("\n")}`
       readFn === `get_${aggSnake}`
         ? ""
         : `        {:ok, nil} -> assign(socket, :${qb.assign}, :not_found)\n`;
-    return `    socket =
-      case ${ctxModule}.${readFn}(${singleArgs}) do
+    const read = `      case ${ctxModule}.${readFn}(${singleArgs}) do
 ${nilArm}${okArm}
         {:error, :not_found} -> assign(socket, :${qb.assign}, :not_found)
         _ -> assign(socket, :${qb.assign}, :error)
+      end`;
+    // The by-id fetch is `Repo.get/2` over a `:binary_id` key, which RAISES
+    // `Ecto.Query.CastError` on a malformed id — a hand-typed `/orders/abc`
+    // crashed the LiveView into a 500 (M-T6.71).  The JSON controller refuses it
+    // at the edge (`__cast_path_id`); a page has no 422 to answer, so a
+    // malformed id is what it is to a reader: no such record, the `:not_found`
+    // arm.  A custom single find takes its own typed argument, not an id, and
+    // keeps its plain read.
+    if (readFn !== `get_${aggSnake}`) return `    socket =\n${read}`;
+    return `    socket =
+      case Ecto.UUID.cast(${readKeyArgs.join(", ")}) do
+        :error ->
+          assign(socket, :${qb.assign}, :not_found)
+
+        {:ok, _} ->
+${read.replace(/^/gm, "    ")}
       end`;
   }
   // List read.  A bare `list_<agg>s()` returns `{:ok, list}` (the repo wraps
@@ -1605,7 +1624,7 @@ ${nilArm}${okArm}
   // query instead of silently falling back to the repository defaults.  The
   // `{:error, _}` arm maps to the `:error` sentinel the list `cond` renders as
   // the error slot.
-  const listArgs = (qb.listArgs ?? []).join(", ");
+  const listArgs = [...(qb.listArgs ?? []), ...(qb.actorArgs ?? [])].join(", ");
   const read = `      case ${ctxModule}.${readFn}(${listArgs}) do
         {:ok, items} -> assign(socket, :${qb.assign}, items)
         _ -> assign(socket, :${qb.assign}, :error)
@@ -1781,11 +1800,13 @@ function renderHistoryLoaders(
     const mapper = read.mapperTakesPrincipal
       ? `fn row -> ${read.mapperName}(row, current_user) end`
       : `&${read.mapperName}/1`;
-    const inner = `    case ${read.ctxModule}.${read.getFn}(${getArgs}) do
-      {:ok, _record} ->
-        ${read.historyModule}.for_target(${read.repoModule}, ${JSON.stringify(read.targetType)}, id)
-        |> Enum.map(${mapper})
-
+    // `Ecto.UUID.cast/1` first: `get_<agg>` is `Repo.get/2`, which raises on a
+    // malformed `:binary_id` (M-T6.71) — a miss, not a crash.
+    const inner = `    with {:ok, _} <- Ecto.UUID.cast(id),
+         {:ok, _record} <- ${read.ctxModule}.${read.getFn}(${getArgs}) do
+      ${read.historyModule}.for_target(${read.repoModule}, ${JSON.stringify(read.targetType)}, id)
+      |> Enum.map(${mapper})
+    else
       _ ->
         :error
     end`;
@@ -2146,6 +2167,9 @@ function renderWorkflowEventClauses(
         {:noreply, assign(socket, :form, to_form(changeset))}
 
       {:error, {_kind, detail}} when is_binary(detail) ->
+        {:noreply, put_flash(socket, :error, detail)}
+
+      {:error, {_kind, %{detail: detail}}} when is_binary(detail) ->
         {:noreply, put_flash(socket, :error, detail)}
 
       {:error, reason} ->

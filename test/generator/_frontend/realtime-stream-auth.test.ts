@@ -45,7 +45,10 @@ system RealtimeAuth {
   subdomain Shipping {
   context Fulfillment {
     aggregate Order { customerId: string  status: string }
-    repository Orders for Order { }
+    repository Orders for Order {
+      find all(): Order paged requires true
+      find byId(id: Order id): Order? requires true
+    }
     event OrderPlaced { order: Order id, at: datetime }
     channel Lifecycle {
       carries: OrderPlaced

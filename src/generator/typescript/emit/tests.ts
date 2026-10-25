@@ -1,4 +1,4 @@
-import { forCreateInput } from "../../../ir/enrich/wire-projection.js";
+import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -11,7 +11,12 @@ import type {
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
-import { findValueObjectInScope, valueObjectPool } from "../../../ir/util/reachable-types.js";
+import {
+  enumPool,
+  findValueObjectInScope,
+  valueObjectPool,
+} from "../../../ir/util/reachable-types.js";
+import { bodyTypeOf } from "../../../util/expr-body-type.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import {
   coerceMatcherExpected,
@@ -19,7 +24,7 @@ import {
   coerceTestLiteral,
   type TestLiteralTarget,
 } from "../../_test/arg-coercion.js";
-import { DOMAIN_REJECTION_ERRORS, throwKindPatternSource } from "../../_test/throw-kind.js";
+import { DOMAIN_REJECTION_ERRORS } from "../../_test/throw-kind.js";
 import { renderTsExpr } from "../render-expr.js";
 
 /** TypeScript leaves for the shared test-literal coercion rule
@@ -52,6 +57,10 @@ const TEST_ACTOR =
 //                              rejection (`DOMAIN_REJECTION_ERRORS`) and
 //                              rethrows anything else (a ReferenceError from
 //                              broken code fails the test, it does not pass it)
+//   expect(call).toThrow(precondition)
+//                           → `expectDomainRejection(() => { <call>; }, "precondition")`
+//                              — the same helper, additionally requiring a
+//                              `DomainError` whose structural `kind` is that rung
 //
 // The container is a plain test file colocated next to the domain class;
 // it imports the aggregate / parts / value objects directly.
@@ -80,6 +89,38 @@ export function renderServiceTestsFile(svc: DomainServiceIR, ctx: BoundedContext
     symbols: [svc.name],
     modulePath: "./services",
   });
+}
+
+/** The non-aggregate domain imports a rendered test body needs, derived from
+ *  the names that body actually spells: the value objects and enums it
+ *  constructs or names (both live in `value-objects`), the `Ids` brand
+ *  namespace, and `decimal.js` for a money literal (rendered `new Decimal("…")`).
+ *  Shared by the aggregate-level unit tests and the context-level integration
+ *  tests so the two cannot drift — a body is a body, wherever it is declared.
+ *  `domainDir` is the relative path from the test file to `domain/`.  Narrowed
+ *  to referenced names per the generated-code Biome gate (no unused imports). */
+export function testBodyValueImports(
+  bodyStr: string,
+  ctx: BoundedContextIR,
+  domainDir: string,
+): { decimal: string[]; domain: string[] } {
+  const refs = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(bodyStr);
+  const voNames = valueObjectPool(ctx)
+    .map((v) => v.name)
+    .filter(refs);
+  const enumNames = enumPool(ctx)
+    .map((e) => e.name)
+    .filter(refs);
+  const domain: string[] = [];
+  if (voNames.length > 0) {
+    domain.push(`import { ${voNames.join(", ")} } from "${domainDir}/value-objects";`);
+  }
+  if (enumNames.length > 0) {
+    domain.push(`import { ${enumNames.join(", ")} } from "${domainDir}/value-objects";`);
+  }
+  if (/\bIds\.\w/.test(bodyStr)) domain.push(`import * as Ids from "${domainDir}/ids";`);
+  const decimal = /\bnew Decimal\(/.test(bodyStr) ? [`import Decimal from "decimal.js";`] : [];
+  return { decimal, domain };
 }
 
 /** Shared unit-test-file renderer for any test subject.  `subjectImport` names
@@ -119,34 +160,18 @@ function renderTestsCore(
     .filter((a) => a.name !== describeName && refs(a.name))
     .map((a) => a.name)
     .sort();
-  const voNames = valueObjectPool(ctx)
-    .map((v) => v.name)
-    .filter(refs);
-  const enumNames = ctx.enums.map((e) => e.name).filter(refs);
-  const usesIds = /\bIds\.\w/.test(bodyStr);
-  // A money literal / money expression in a test body renders as
-  // `new Decimal("…")` / `.eq(...)` receivers (M-T6.44's fixture was the first
-  // test block to reference the money PRIMITIVE directly — every earlier
-  // fixture asserted a VO's scalar `amount`, so the import was never needed).
-  const usesDecimal = /\bnew Decimal\(/.test(bodyStr);
-
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
   lines.push(`import { describe, it, expect } from "vitest";`);
-  if (usesDecimal) lines.push(`import Decimal from "decimal.js";`);
+  const value = testBodyValueImports(bodyStr, ctx, ".");
+  lines.push(...value.decimal);
   if (subjectImport && subjectNames.length > 0) {
     lines.push(`import { ${subjectNames.join(", ")} } from "${subjectImport.modulePath}";`);
   }
   for (const name of siblingAggs) {
     lines.push(`import { ${name} } from "./${lowerFirst(name)}";`);
   }
-  if (voNames.length > 0) {
-    lines.push(`import { ${voNames.join(", ")} } from "./value-objects";`);
-  }
-  if (enumNames.length > 0) {
-    lines.push(`import { ${enumNames.join(", ")} } from "./value-objects";`);
-  }
-  if (usesIds) lines.push(`import * as Ids from "./ids";`);
+  lines.push(...value.domain);
   const rejection = /\bexpectDomainRejection\(/.test(bodyStr);
   if (rejection) lines.push(`import { ${DOMAIN_REJECTION_ERRORS.join(", ")} } from "./errors";`);
   lines.push("");
@@ -155,22 +180,29 @@ function renderTestsCore(
   return lines.join("\n") + "\n";
 }
 
-/** The file-local helper a bare `expect(<call>).toThrow()` lowers to.  vitest's
- *  `toThrow(Class)` takes ONE class and the domain floor refuses through three
- *  sibling classes (`DOMAIN_REJECTION_ERRORS`), so the union is an `instanceof`
- *  chain.  A non-domain error is RETHROWN rather than reported, so the test
- *  fails with the real `ReferenceError` / `TypeError` and its stack. */
+/** The file-local helper `expect(<call>).toThrow()` / `.toThrow(<kind>)`
+ *  lowers to.  vitest's `toThrow(Class)` takes ONE class and the domain floor
+ *  refuses through three sibling classes (`DOMAIN_REJECTION_ERRORS`), so the
+ *  union is an `instanceof` chain; a rung narrows it to a `DomainError` whose
+ *  structural `kind` names that rung (never its message, which an authored
+ *  `message "..."` replaces).  A non-domain error is RETHROWN rather than
+ *  reported, so the test fails with the real `ReferenceError` / `TypeError`
+ *  and its stack. */
 function domainRejectionHelper(): string[] {
   const isDomain = DOMAIN_REJECTION_ERRORS.map((n) => `err instanceof ${n}`).join(" || ");
   return [
-    "/** A bare `toThrow()`: the call must be REFUSED by the domain floor (a precondition,",
-    " *  an invariant, a `when` state gate or a `requires`).  Any other error is a defect in",
-    " *  the code under test, not a rejection, and is rethrown. */",
-    "function expectDomainRejection(call: () => unknown): void {",
+    "/** The call must be REFUSED by the domain floor (a precondition, an invariant, a",
+    " *  `when` state gate or a `requires`) — by the named rung when `kind` is given.  Any",
+    " *  other error is a defect in the code under test, not a rejection, and is rethrown. */",
+    'function expectDomainRejection(call: () => unknown, kind?: "precondition" | "invariant"): void {',
     "  try {",
     "    call();",
     "  } catch (err) {",
-    `    if (${isDomain}) return;`,
+    "    if (kind !== undefined && err instanceof DomainError) {",
+    "      if (err.kind === kind) return;",
+    '      expect.fail(`expected the ${kind} rung to reject the call, but the ${err.kind ?? "unclassified"} rung did: ${err.message}`);',
+    "    }",
+    `    if (kind === undefined && (${isDomain})) return;`,
     "    throw err;",
     "  }",
     '  expect.fail("expected the call to be rejected by the domain, but it returned");',
@@ -281,7 +313,7 @@ export function renderCreateInput(
   agg: AggregateIR,
   ctx: BoundedContextIR,
 ): string {
-  const declared = new Map(forCreateInput(agg.fields).map((f) => [f.name, f.type] as const));
+  const declared = new Map(createInputFields(agg).map((f) => [f.name, f.type] as const));
   // Emit EXACTLY the fields the test author wrote.
   //
   // Filling each omission from `createOmissionValue` makes the assertion
@@ -354,7 +386,87 @@ export function renderExplicitMatcher(expr: ExprIR, ctx: BoundedContextIR): stri
   const dt = coerceMatcherExpected(expr, args, TS_TEST_LITERAL);
   if (dt !== undefined) return `  expect(${actual}).${negate ? "not." : ""}toEqual(${dt});`;
   const tail = negate ? `not.${expr.member}` : expr.member;
+  // The asserted subject's resolved type, `.not.` peeled (the negated form's
+  // receiver is the synthetic `.not` member).
+  const subjectType =
+    expr.receiver.kind === "member" && expr.receiver.member === "not"
+      ? expr.receiver.receiverType
+      : expr.receiverType;
+  const typed = renderTypedValueMatcher(
+    expr.member,
+    tail,
+    subjectType,
+    inner,
+    expr.args[0],
+    actual,
+    args,
+  );
+  if (typed !== null) return typed;
   return `  expect(${actual}).${tail}(${args});`;
+}
+
+const ORDERING_MATCHERS = new Set([
+  "toBeGreaterThan",
+  "toBeGreaterThanOrEqual",
+  "toBeLessThan",
+  "toBeLessThanOrEqual",
+]);
+
+/** The subject-type-aware lowering of a value matcher (banking eval B-01), or
+ *  null for the native 1:1 spelling.  On this backend `money` is a decimal.js
+ *  `Decimal` and `datetime` a JS `Date` — both OBJECTS — so vitest's `toBe`
+ *  (`Object.is`) is reference equality and always failed
+ *  (`expect(Decimal).toBe(new Decimal("15"))`), and the ordering matchers
+ *  reject anything but `number | bigint`.  Java routes the same matchers
+ *  through `compareTo`; python's `Decimal`/`datetime` already compare by value.
+ *
+ *    money    toBe   → canonical decimal strings (`"15"` both for `15.00`)
+ *             order  → `new Decimal(a).comparedTo(e)` against `0`
+ *    datetime toBe / order → epoch milliseconds (`getTime()`)
+ *
+ *  The subject type is the matcher's resolved `receiverType`, then the
+ *  actual's own node type (`bodyTypeOf`), then the expected argument's. */
+function renderTypedValueMatcher(
+  member: string,
+  tail: string,
+  subjectType: TypeIR,
+  inner: ExprIR,
+  expectedExpr: ExprIR | undefined,
+  actual: string,
+  expected: string,
+): string | null {
+  if (member !== "toBe" && !ORDERING_MATCHERS.has(member)) return null;
+  // `toBe(null)` stays the native null check.
+  if (
+    expectedExpr === undefined ||
+    (expectedExpr.kind === "literal" && expectedExpr.lit === "null")
+  ) {
+    return null;
+  }
+  const kind =
+    temporalOrMoney(subjectType) ?? matcherSubjectKind(inner) ?? matcherSubjectKind(expectedExpr);
+  if (kind === "money") {
+    if (member === "toBe") {
+      return `  expect(String(${actual})).${tail}(new Decimal(${expected}).toString());`;
+    }
+    return `  expect(new Decimal(${actual}).comparedTo(${expected})).${tail}(0);`;
+  }
+  if (kind === "datetime") {
+    return `  expect((${actual})?.getTime()).${tail}(new Date(${expected}).getTime());`;
+  }
+  return null;
+}
+
+function matcherSubjectKind(e: ExprIR): "money" | "datetime" | null {
+  if (e.kind === "literal" && e.lit === "now") return "datetime";
+  return temporalOrMoney(bodyTypeOf(e));
+}
+
+function temporalOrMoney(type: TypeIR | undefined): "money" | "datetime" | null {
+  let t = type;
+  if (t?.kind === "optional") t = t.inner;
+  if (t?.kind !== "primitive") return null;
+  return t.name === "money" ? "money" : t.name === "datetime" ? "datetime" : null;
 }
 
 function renderTestStmt(s: TestStmtIR, ctx: BoundedContextIR): string {
@@ -375,11 +487,11 @@ function renderTestStmt(s: TestStmtIR, ctx: BoundedContextIR): string {
   if (s.kind === "expect-throws") {
     const call = `() => { ${renderTestExpr(s.expr, ctx)}; }`;
     // `toThrow(<kind>)` — pin WHICH rung rejected, not merely that something
-    // did.  vitest's `toThrow` takes a RegExp, so the rung's derived message
-    // prefix becomes an anchored pattern; without it a deleted `precondition`
-    // reads as green the moment an `invariant` throws in its place (F11).
+    // did: the helper reads the error's structural `kind`, so a deleted
+    // `precondition` fails the test the moment an `invariant` throws in its
+    // place, whatever either rule's message says.
     if (s.throwKind) {
-      return `  expect(${call}).toThrow(/${throwKindPatternSource(s.throwKind)}/);`;
+      return `  expectDomainRejection(${call}, ${JSON.stringify(s.throwKind)});`;
     }
     return `  expectDomainRejection(${call});`;
   }

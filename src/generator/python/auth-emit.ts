@@ -4,21 +4,17 @@ import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
-import { claimIdTargets, claimPathFor } from "../_auth/claim-types.js";
+import { claimShapes, UUID_PATTERN } from "../_auth/claim-decode.js";
 import { DEV_CLAIMS_HEADER, MALFORMED_DEV_CLAIMS_DETAIL } from "../_auth/dev-claims.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
+import { claimFromOriginString } from "../_auth/origin-claim.js";
+import { pyRef } from "../_imports/python.js";
 import { LogEvents } from "../_obs/log-events.js";
+import { PY, pyIdType } from "./py-symbols.js";
 import { renderPyType } from "./render-expr.js";
 
-/** The branded id NewTypes an auth module must import from `app.domain.ids`
- *  because the claim shape names them (`customerId: Customer id?` annotates
- *  as `CustomerId | None`).  Both the `User` dataclass and the OIDC verifier
- *  name them — and the verifier's annotation sits INSIDE `cast(...)` in a
- *  function body, so a missing import there is not a lint nit but a
- *  `NameError` raised on every token verification (D6/P2). */
-function pyIdClaimImports(user: UserIR): string[] {
-  return claimIdTargets(user.fields).map((t) => `${t}Id`);
-}
+const TEXT = pyRef("sqlalchemy", "text");
+const SESSION_FACTORY = pyRef("app.db.engine", "session_factory");
 
 // ---------------------------------------------------------------------------
 // Python-side auth scaffolding emitted per deployable when
@@ -89,9 +85,6 @@ function pyAuthValue(v: AuthValueIR | undefined, fallback = '""'): string {
   return `os.environ.get(${JSON.stringify(v.env)}, "")`;
 }
 
-/** The IdP claim path projected onto a user field — explicit `claims:` wins;
- *  else `id` → `sub`, every other field reads its own snake name.  Mirrors the
- *  Hono / .NET / Phoenix `claimPathFor`. */
 /** Python kwargs for the dev-stub User — same defaults as Hono's
  *  `renderStubUserLiteral` (string claims "admin", arrays EMPTY — so
  *  permission-guarded surfaces deny by default — optionals None). */
@@ -116,11 +109,11 @@ function stubValueForType(t: TypeIR): string {
         case "decimal":
           return "0.0";
         case "money":
-          return 'Decimal("0")';
+          return `${PY.Decimal}("0")`;
         case "bool":
           return "False";
         case "datetime":
-          return "datetime.fromtimestamp(0, tz=UTC)";
+          return `${PY.datetime}.fromtimestamp(0, tz=${PY.UTC})`;
         case "guid":
           return '"00000000-0000-0000-0000-000000000000"';
         default:
@@ -129,8 +122,10 @@ function stubValueForType(t: TypeIR): string {
     // Already constructed through the NewType factory — the only one of the
     // five stub tables that did.  Routed through the shared arm so it stays
     // that way (and widens with the id's value type).
+    // The leading `<T>Id` is written as the id-type marker so its import is
+    // derived from use.
     case "id":
-      return devStubIdExpr(t, "python");
+      return pyIdType(t.targetName) + devStubIdExpr(t, "python").slice(`${t.targetName}Id`.length);
     case "array":
       return "[]";
     default:
@@ -234,8 +229,6 @@ function renderUserModule(
     "        except ValueError:",
     "            return None",
   ];
-  // Id-typed claims (`Customer id?`) reference the branded NewTypes.
-  const idNames = pyIdClaimImports(user);
   return lines(
     '"""User-claim shape decoded from the inbound JWT.  Auto-generated.',
     "",
@@ -253,15 +246,24 @@ function renderUserModule(
     '"""',
     "",
     "import uuid",
+    "from collections.abc import Iterator, Mapping",
+    "from contextlib import contextmanager",
     "from contextvars import ContextVar",
     "from dataclasses import dataclass",
     "",
-    idNames.length > 0 ? `from app.domain.ids import ${idNames.join(", ")}` : null,
-    idNames.length > 0 ? "" : null,
     "",
     "@dataclass(frozen=True)",
     "class User:",
     ...fields,
+    // The system principal's two slots (ruling D1).  Defaulted, so every
+    // verifier keeps building a request principal unchanged; `/auth/me`
+    // projects the DECLARED claims only, so neither reaches the wire.
+    "    # `currentUser.isSystem` — True only on the system principal an event",
+    "    # reactor runs as (`system_principal()` below).",
+    "    is_system: bool = False",
+    "    # The originating user's id on the system principal — audit and logs",
+    "    # only, never read by a gate.",
+    "    caused_by: str | None = None",
     ...orgPathProp,
     ...rootOrgProp,
     ...guidClaimMethod,
@@ -288,8 +290,122 @@ function renderUserModule(
     "    if user is None:",
     '        raise PermissionError("unauthorized")',
     "    return user",
+    ...renderPySystemPrincipal(user, orgPathClaim, orgPathReadsRegistry, orgContext),
     "",
   );
+}
+
+/** `system_principal()` — the principal an event reactor runs as (ruling D1,
+ *  `docs/decisions.md` D-REACTOR-SYSTEM-PRINCIPAL).  Every claim EMPTY (never
+ *  the dev stub's `"admin"`), `is_system=True`, the tenancy claim (and, under
+ *  hierarchy, the resolved `org_path`) taken from the EVENT ORIGIN — the
+ *  ambient principal's `{tenant, orgPath, causedBy}` snapshot, which in-process
+ *  is the request that raised the event, and on the outbox relay / a channel
+ *  consumer the origin the row / envelope carried (`event_origin_frame`).
+ *  No origin (a timer tick) ⇒ an empty tenant, which matches no tenant-owned
+ *  row. */
+function renderPySystemPrincipal(
+  user: UserIR,
+  tenantClaim: string | undefined,
+  readsRegistry: boolean,
+  orgContext: boolean,
+): string[] {
+  const idField = user.fields.find((f) => f.name === "id") ?? user.fields[0];
+  const empty = (f: FieldIR): string => {
+    if (f.optional) return "None";
+    if (f.type.kind === "primitive" && f.type.name === "string") return '""';
+    return stubValueForType(f.type);
+  };
+  // `tenant` is bound only when something reads it — an auth-less-tenancy
+  // principal never does, and ruff's F841 rejects an unused local.
+  let kwargsReadTenant = false;
+  const kwargs = user.fields.map((f) => {
+    if (f.name !== tenantClaim) return `        ${snake(f.name)}=${empty(f)},`;
+    const rebuilt = claimFromOriginString(f.type, "tenant", "python");
+    if (rebuilt !== null) kwargsReadTenant = true;
+    return rebuilt === null
+      ? `        ${snake(f.name)}=${empty(f)},`
+      : `        ${snake(f.name)}=${empty(f)} if tenant is None else ${rebuilt},`;
+  });
+  const claim = tenantClaim ? snake(tenantClaim) : undefined;
+  const hierarchy = tenantClaim && readsRegistry;
+  return [
+    "",
+    "",
+    "def current_event_origin() -> dict[str, str | None] | None:",
+    '    """Where an event came from (ruling D1): the ambient principal\'s tenant',
+    "    claim and materialized path, and the originating user id (`causedBy`,",
+    "    audit only).  Captured onto the outbox row and the channel envelope so",
+    "    a reactor that runs after the request is gone still runs as the system",
+    "    principal OF THAT TENANT.  A system principal propagates its own origin;",
+    '    None outside any principal (a timer tick, boot)."""',
+    "    user = current_user_var.get()",
+    "    if user is None:",
+    "        return None",
+    "    return {",
+    claim
+      ? `        "tenant": None if user.${claim} is None or str(user.${claim}) == "" else str(user.${claim}),`
+      : '        "tenant": None,',
+    claim ? '        "orgPath": user.org_path or None,' : '        "orgPath": None,',
+    idField
+      ? `        "causedBy": user.caused_by if user.is_system else str(user.${snake(idField.name)}),`
+      : '        "causedBy": user.caused_by,',
+    "    }",
+    "",
+    "",
+    "def system_principal_for(origin: Mapping[str, object] | None) -> User:",
+    '    """The system principal of an event origin: no claims, `is_system`, the',
+    "    origin's tenant, `caused_by` for audit.  Gates are evaluated against it",
+    '    normally — one that admits it says `currentUser.isSystem || …`."""',
+    ...(kwargsReadTenant || hierarchy
+      ? [
+          '    raw_tenant = None if origin is None else origin.get("tenant")',
+          "    tenant = raw_tenant if isinstance(raw_tenant, str) else None",
+        ]
+      : []),
+    '    raw_caused_by = None if origin is None else origin.get("causedBy")',
+    ...(hierarchy
+      ? [
+          '    raw_org_path = None if origin is None else origin.get("orgPath")',
+          '    org_path = raw_org_path if isinstance(raw_org_path, str) else (tenant or "")',
+        ]
+      : []),
+    `    ${hierarchy ? "user =" : "return"} User(`,
+    ...kwargs,
+    "        is_system=True,",
+    "        caused_by=raw_caused_by if isinstance(raw_caused_by, str) else None,",
+    "    )",
+    ...(hierarchy
+      ? [
+          '    object.__setattr__(user, "org_path", org_path)',
+          ...(orgContext ? ['    object.__setattr__(user, "org_context_path", org_path)'] : []),
+          "    return user",
+        ]
+      : []),
+    "",
+    "",
+    "def system_principal() -> User:",
+    '    """The principal an event reactor binds `current_user` to — the system',
+    '    principal of the dispatching frame\'s event origin."""',
+    "    return system_principal_for(current_event_origin())",
+    "",
+    "",
+    "@contextmanager",
+    "def event_origin_frame(origin: object) -> Iterator[None]:",
+    '    """Make the system principal of `origin` the ambient principal for the',
+    "    block — the outbox relay and the channel consumer open one per delivered",
+    "    event, so the reactor (and every ambient-principal reader under it) sees",
+    "    the triggering event's tenant.  No origin ⇒ the block runs as before",
+    '    (no principal, tenant-less, fail-closed)."""',
+    "    if not isinstance(origin, Mapping):",
+    "        yield",
+    "        return",
+    "    token = current_user_var.set(system_principal_for(origin))",
+    "    try:",
+    "        yield",
+    "    finally:",
+    "        current_user_var.reset(token)",
+  ];
 }
 
 const VERIFIER_PY = `"""User-verifier registry.  Auto-generated.
@@ -408,9 +524,9 @@ function renderAuthMiddleware(
         "    if not claim:",
         "        return claim",
         "    try:",
-        "        async with session_factory() as session:",
+        `        async with ${SESSION_FACTORY}() as session:`,
         "            result = await session.execute(",
-        `                text("SELECT data_key FROM ${orgPathRegistryTable} WHERE id = :claim LIMIT 1"),`,
+        `                ${TEXT}("SELECT data_key FROM ${orgPathRegistryTable} WHERE id = :claim LIMIT 1"),`,
         '                {"claim": claim},',
         "            )",
         "            data_key = result.scalar_one_or_none()",
@@ -431,15 +547,11 @@ function renderAuthMiddleware(
     "",
     "from fastapi import Request, Response",
     "from fastapi.responses import JSONResponse",
-    hierarchy ? "from sqlalchemy import text" : null,
     "from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint",
     "",
     "from app.auth.user import current_user_var",
     "from app.auth.verifier import MalformedDevClaimsError, verify_user_or_throw",
-    hierarchy ? "from app.db.engine import session_factory" : null,
-    orgContext
-      ? "from app.obs.log import log, set_actor_id"
-      : "from app.obs.log import set_actor_id",
+    "from app.obs.log import set_actor_id",
     "",
     `BYPASS_PREFIXES = ${bypass}`,
     ...resolver,
@@ -509,7 +621,7 @@ function renderAuthMiddleware(
           "                requested_org_context == scope",
           '                or requested_org_context.startswith(scope + ".")',
           "            ):",
-          "                log(",
+          `                ${PY.log}(`,
           `                    "${LogEvents.orgContextDenied.level}",`,
           `                    "${LogEvents.orgContextDenied.event}",`,
           "                    org_context=requested_org_context,",
@@ -614,20 +726,79 @@ __PROJECTION__
 // https requirement, so a plain-http dev issuer (the bundled Keycloak) works.
 // ---------------------------------------------------------------------------
 
+/** One `field=cast(T, <read>),` kwarg per user field.  An identifier claim
+ *  (`claimShapes`) is read through `_claim_as` / `_claim_list`, so a malformed
+ *  value is None (a list drops it) rather than a non-None string that would
+ *  pass `currentUser.x != None`. */
 function renderBuildUserKwargs(user: UserIR, auth: AuthIR): string {
-  return user.fields
-    .map((f) => {
+  return claimShapes(user.fields, auth)
+    .map(({ field: f, path, optional, list, format }) => {
       const key = snake(f.name);
       const pyType = renderPyType(f.optional ? { kind: "optional", inner: f.type } : f.type);
-      const path = claimPathFor(f.name, auth);
-      const isArray =
-        f.type.kind === "array" || (f.type.kind === "optional" && f.type.inner.kind === "array");
-      const read = isArray
-        ? `_claim(payload, ${JSON.stringify(path)}) or []`
-        : `_claim(payload, ${JSON.stringify(path)})`;
+      const raw = `_claim(payload, ${JSON.stringify(path)})`;
+      let read: string;
+      if (format !== null && list) {
+        const decoded = `_claim_list(${raw}, ${JSON.stringify(format)})`;
+        read = optional ? `None if ${raw} is None else ${decoded}` : decoded;
+      } else if (format !== null) {
+        read = `_claim_as(${raw}, ${JSON.stringify(format)})`;
+      } else {
+        read = list ? `${raw} or []` : raw;
+      }
       return `        ${key}=cast(${pyType}, ${read}),`;
     })
     .join("\n");
+}
+
+/** `_REQUIRED_CLAIMS` + the format helpers.  A required scalar claim that is
+ *  absent or malformed rejects the token (→ 401); a required list is exempt
+ *  (an IdP omits an empty list, read as `[]`). */
+function renderClaimChecks(user: UserIR, auth: AuthIR): { defs: string; check: string } {
+  const shapes = claimShapes(user.fields, auth);
+  const formatted = shapes.some((s) => s.format !== null);
+  const required = shapes
+    .filter((s) => !s.optional && !s.list)
+    .map(
+      (s) =>
+        `(${JSON.stringify(s.path)}, ${s.format === null ? "None" : JSON.stringify(s.format)})`,
+    );
+  const helpers = formatted
+    ? `
+
+_CLAIM_FORMATS: dict[str, ${PY.re}.Pattern[str]] = {
+    "uuid": ${PY.re}.compile(r"${UUID_PATTERN}"),
+}
+
+
+def _claim_as(value: Any, fmt: str) -> str | None:
+    """A claim value in its declared wire format (a UUID for a guid id), or
+    None when it is absent or malformed."""
+    if isinstance(value, str) and _CLAIM_FORMATS[fmt].fullmatch(value):
+        return value
+    return None
+
+
+def _claim_list(value: Any, fmt: str) -> list[str]:
+    """A list claim with its malformed elements dropped; not a list → empty."""
+    if not isinstance(value, list):
+        return []
+    return [v for v in (_claim_as(e, fmt) for e in value) if v is not None]`
+    : "";
+  const read = formatted
+    ? "_claim(payload, path) if fmt is None else _claim_as(_claim(payload, path), fmt)"
+    : "_claim(payload, path)";
+  const defs = `
+
+# Every REQUIRED scalar claim, with its wire format for an identifier claim.  A
+# verified token where one is absent or malformed does not describe a principal
+# the model declares, so it is rejected (→ 401).
+_REQUIRED_CLAIMS: list[tuple[str, str | None]] = [${required.join(", ")}]${helpers}`;
+  const check = `    for path, fmt in _REQUIRED_CLAIMS:
+        if (${read}) is None:
+            ${PY.log}("debug", "auth_token_rejected", reason=f"claim {path} absent or malformed")
+            return None
+`;
+  return { defs, check };
 }
 
 function renderOidcModule(user: UserIR, auth: AuthIR): string {
@@ -653,13 +824,8 @@ function renderOidcModule(user: UserIR, auth: AuthIR): string {
   if (!scopeList.includes("offline_access")) scopeList.push("offline_access");
   const scopes = scopeList.join(" ");
   const buildUser = renderBuildUserKwargs(user, auth);
-  // `_build_user` annotates each id-typed claim inside `cast(...)`, which
-  // Python EVALUATES on every call — so this import is load-bearing at
-  // runtime, not just for the type checker (D6/P2).
-  const oidcIds = pyIdClaimImports(user);
-  const oidcIdImport =
-    oidcIds.length > 0 ? `from app.domain.ids import ${oidcIds.join(", ")}\n` : "";
-  return `"""Generated OIDC verifier + redirect handshake.  Auto-generated.
+  const claimChecks = renderClaimChecks(user, auth);
+  const moduleText = `"""Generated OIDC verifier + redirect handshake.  Auto-generated.
 
 Validates the inbound JWT against the issuer's JWKS and maps the configured
 claims onto User; the handshake router runs the authorization-code flow and
@@ -682,7 +848,6 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from app.auth.user import User
 from app.auth.verifier import register_user_verifier
-${oidcIdImport}from app.obs.log import log
 
 _SCOPES = ${JSON.stringify(scopes)}
 # An EMPTY audience (OIDC_AUDIENCE unset or "") means "no aud check" — the
@@ -737,7 +902,7 @@ def _claim(payload: dict[str, Any], path: str) -> Any:
             current = current[segment]
         else:
             return None
-    return current
+    return current${claimChecks.defs}
 
 
 def _token_from(request: Request) -> str | None:
@@ -765,9 +930,9 @@ async def _oidc_verifier(request: Request) -> User | None:
     except Exception as err:
         # A rejected token is a 401, never a 500 — but say WHY at debug, so a
         # misconfigured issuer / audience is diagnosable from the log stream.
-        log("debug", "auth_token_rejected", reason=str(err))
+        ${PY.log}("debug", "auth_token_rejected", reason=str(err))
         return None
-    return User(
+${claimChecks.check}    return User(
 ${buildUser}
     )
 
@@ -906,4 +1071,5 @@ def _exchange_refresh(refresh_token: str) -> dict[str, Any] | None:
         }
     )
 `;
+  return moduleText;
 }

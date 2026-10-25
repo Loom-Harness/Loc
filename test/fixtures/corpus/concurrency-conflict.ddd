@@ -1,4 +1,4 @@
-// The optimistic-concurrency 409 (RS-39, M-T6.91) — one sentence, every backend.
+// The optimistic-concurrency 409 (RS-40, M-T6.91) — one sentence, every backend.
 //
 // A `versioned` aggregate's `update` reads the client's expected version off an
 // `If-Match` header.  A write whose expectation is stale — another request
@@ -49,7 +49,7 @@ system ConcurrencyConflictSystem {
     expect(moved.version).toBe(read.version + 1)
 
     // The same — now stale — version is refused.  The 409's body is what the
-    // wire golden pins (RS-39); the row is untouched.
+    // wire golden pins (RS-40); the row is untouched.
     expect(api.notes.update(n, { text: "lost" }, { ifMatch: read.version })).toThrow(409)
     let kept = api.notes.getById(n)
     expect(kept.text).toBe("second")

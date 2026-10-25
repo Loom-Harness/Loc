@@ -1,0 +1,29 @@
+name: Restore the last Loom toolchain build
+description: >-
+  Restores `out/` and `tsconfig.tsbuildinfo` from the nearest earlier build, so
+  the `npm ci` that follows (its `prepare` lifecycle runs `tsc -b`) compiles
+  only what changed instead of the whole toolchain.  Use it right before the
+  root `npm ci`, after checkout.
+
+# A cold `tsc -b` of src/ is ~20-25 s and every CI job paid it; restored, the
+# same build is incremental (well under 5 s for a typical diff).  Correctness
+# does not rest on the cache: tsc -b re-checks every source against the hashes
+# in tsconfig.tsbuildinfo and rebuilds what differs.  The one thing it never
+# does is delete the output of a source that no longer exists, so the prune
+# step below does — a stale `out/x.js` for a deleted `src/x.ts` would otherwise
+# stay importable.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@v5
+      with:
+        path: |
+          out
+          tsconfig.tsbuildinfo
+        key: loom-build-${{ runner.os }}-${{ hashFiles('src/**', 'tsconfig.json', 'package-lock.json') }}
+        restore-keys: loom-build-${{ runner.os }}-
+
+    - name: Drop restored output whose source is gone
+      shell: bash
+      run: node .github/actions/restore-loom-build/prune-stale-out.mjs

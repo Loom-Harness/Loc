@@ -9,6 +9,7 @@ import type {
   TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
+import { walkExprDeep, walkStmtExprsDeep, walkStmtsDeep } from "../../../ir/util/walk.js";
 import type { ThrowKindName } from "../../../util/intrinsic-matchers.js";
 import { elixirString, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { elixirCodePointLength } from "../../_expr/code-point.js";
@@ -21,6 +22,7 @@ import {
 import { opUsesCurrentUser } from "../domain/predicates.js";
 import { appModuleOf, guardErrorModule } from "./denial.js";
 import { pureDerivedAccessorNames } from "./domain-core-emit.js";
+import { isValueObjectType, renderValueObjectEquality } from "./value-object-type-emit.js";
 
 /** Elixir leaves for the shared test-literal coercion rule
  *  (`_test/arg-coercion.ts`).
@@ -349,9 +351,23 @@ export function renderExpect(expr: ExprIR, env: Env): string {
   const dt = coerceMatcherExpected(expr, expected, EX_TEST_LITERAL);
   if (dt !== undefined) return verb(`DateTime.compare(${actual}, ${dt}) == :eq`);
 
-  if (isMoneyLike(inner, arg)) {
+  // `toBe(nil)`-shaped asserts keep the native operator.
+  const nullArg = arg?.kind === "literal" && arg.lit === "null";
+  const subject = unwrapOptionalType(matcherSubjectType(expr));
+  const subjectPrim = subject.kind === "primitive" ? subject.name : null;
+  if (
+    !nullArg &&
+    (isMoneyLike(inner, arg) || subjectPrim === "money" || subjectPrim === "decimal")
+  ) {
     if (expr.member === "toBe") return verb(`Decimal.equal?(${actual}, ${expected})`);
     return verb(`Decimal.compare(${actual}, ${expected}) ${MONEY_CMP[expr.member]}`);
+  }
+  // A `%DateTime{}` is a struct: `<`/`>` on it is STRUCTURAL term ordering
+  // (field by field, not chronological), and `==` is sensitive to the
+  // microsecond precision tuple.  Compare instants (banking eval B-01).
+  if (!nullArg && (subjectPrim === "datetime" || (arg?.kind === "literal" && arg.lit === "now"))) {
+    const tail = expr.member === "toBe" ? "== :eq" : MONEY_CMP[expr.member];
+    return verb(`DateTime.compare(${actual}, ${expected}) ${tail}`);
   }
   return verb(`${actual} ${op} ${expected}`);
 }
@@ -414,11 +430,25 @@ function renderThrows(expr: ExprIR, env: Env, kind?: ThrowKindName, index = 0): 
           "(`validate_invariants/1`), which no in-memory op call reaches",
       );
     }
+    if (kind === undefined && !opMayRaiseGuard(findOp(inner.member, env), env)) {
+      // A BARE `toThrow()` over an op with no guard anywhere on its path can
+      // only mean an INVARIANT rejection (L1-E / E8) — and that is the rung the
+      // pure core does not run (above).  `assert_raise GuardError` there could
+      // never fire, so the test failed on a correct app; degrade honestly, the
+      // same as the explicit `toThrow(invariant)`.
+      throw new UnsupportedTestShapeError(
+        "bare toThrow() over an aggregate operation with no precondition/requires: the " +
+          "rejection can only be an invariant, which the vanilla pure op core does not run",
+      );
+    }
     if (kind === "precondition") {
       // THE structural form, and the reason this backend needs no message
       // prefix: `GuardError` is `defexception [:message, :kind]`, so the rung
       // is a field rather than a substring an authored `message` could erase.
-      const bound = `__thrown${index}`;
+      // The binding is READ on the next line, so it carries no leading
+      // underscore: Elixir warns on a used `_`-prefixed variable, and the
+      // emitted suite runs under `mix test --warnings-as-errors`.
+      const bound = `rejected${index}`;
       return [`${bound} = ${raises}`, `assert ${bound}.kind == :${kind}`];
     }
     return [raises];
@@ -544,6 +574,16 @@ export function vtExpr(e: ExprIR, env: Env): string {
       return `-${vtExpr(e.operand, env)}`;
     }
     case "binary":
+      // Value-object `==` / `!=` (and `.equals`, which lowers to it) is VALUE
+      // equality across the shapes a VO takes — the same leaf the domain
+      // renderer uses (`render-expr.ts`).
+      if (
+        (e.op === "==" || e.op === "!=") &&
+        (isValueObjectType(e.leftType) || isValueObjectType(e.rightType))
+      ) {
+        const eq = renderValueObjectEquality(e.op, vtExpr(e.left, env), vtExpr(e.right, env));
+        return e.op === "==" ? eq : `(${eq})`;
+      }
       return `${vtExpr(e.left, env)} ${binOp(e.op)} ${vtExpr(e.right, env)}`;
     default:
       throw new UnsupportedTestShapeError(
@@ -566,6 +606,10 @@ function renderLiteral(lit: string, value: string): string {
       return value;
     case "null":
       return "nil";
+    // `now()` — the domain renderer's spelling (render-expr.ts); verbatim it
+    // was a bare `now`, an undefined variable in the generated `.exs`.
+    case "now":
+      return "DateTime.utc_now()";
     default:
       // int / long — emit verbatim.
       return value;
@@ -668,6 +712,40 @@ function findOp(member: string, env: Env): OperationIR | undefined {
   return env.agg?.operations.find((o) => o.name === member);
 }
 
+/** Can the pure core of `op` raise `<App>.GuardError`?  True when a
+ *  `precondition` / `requires` statement (an op's `requires` clause lowers to
+ *  one) is reachable from its body — directly, nested, or through a sibling
+ *  operation it calls, as a statement or an expression (the pure core runs the
+ *  callee's guards inside `__op_<name>`).  Conservative on an unresolvable private
+ *  call: it answers true, keeping the `assert_raise` that was emitted before. */
+function opMayRaiseGuard(
+  op: OperationIR | undefined,
+  env: Env,
+  seen: Set<string> = new Set(),
+): boolean {
+  if (!op || seen.has(op.name)) return false;
+  seen.add(op.name);
+  // A `when` state gate raises `GuardError :disallowed` from the pure op core
+  // (claims D17), so an op carrying one can reject without any precondition.
+  if (op.when !== undefined) return true;
+  let found = false;
+  for (const top of op.statements) {
+    walkStmtsDeep(top, (s) => {
+      if (s.kind === "precondition" || s.kind === "requires") found = true;
+      if (s.kind === "call" && s.target === "private-operation") {
+        const callee = findOp(s.name, env);
+        if (!callee || opMayRaiseGuard(callee, env, seen)) found = true;
+      }
+      walkStmtExprsDeep(s, (e) => {
+        if (e.kind !== "call" || e.callKind !== "private-operation") return;
+        const callee = findOp(e.name, env);
+        if (!callee || opMayRaiseGuard(callee, env, seen)) found = true;
+      });
+    });
+  }
+  return found;
+}
+
 function isCreate(e: ExprIR): boolean {
   return e.kind === "method-call" && e.member === "create" && !e.isIntrinsicMatcher;
 }
@@ -696,12 +774,12 @@ function isMoneyLike(inner: ExprIR, arg: ExprIR | undefined): boolean {
 
 function usedRefNames(statements: readonly TestStmtIR[]): Set<string> {
   const used = new Set<string>();
-  const collect = (e: ExprIR): void => {
-    if (e.kind === "ref") used.add(e.name);
-    for (const c of childExprs(e)) collect(c);
-  };
   for (const s of statements) {
-    for (const e of stmtExprs(s)) collect(e);
+    for (const e of stmtExprs(s)) {
+      walkExprDeep(e, (n) => {
+        if (n.kind === "ref") used.add(n.name);
+      });
+    }
   }
   return used;
 }
@@ -711,32 +789,4 @@ function stmtExprs(s: TestStmtIR): ExprIR[] {
   if (s.kind === "expression") return [s.expr];
   if (s.kind === "call") return s.args;
   return [];
-}
-
-function childExprs(e: ExprIR): ExprIR[] {
-  switch (e.kind) {
-    case "member":
-      return [e.receiver];
-    case "method-call":
-      return [e.receiver, ...e.args];
-    case "call":
-      return e.args;
-    case "new":
-    case "object":
-      return e.fields.map((f) => f.value);
-    case "paren":
-      return [e.inner];
-    case "unary":
-      return [e.operand];
-    case "binary":
-      return [e.left, e.right];
-    case "ternary":
-      return [e.cond, e.then, e.otherwise];
-    case "convert":
-      return [e.value];
-    case "list":
-      return e.elements;
-    default:
-      return [];
-  }
 }

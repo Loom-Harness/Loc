@@ -3,7 +3,7 @@
 //
 // Before this, a third argument parsed, validated and was silently DROPPED by
 // the renderer, so a test that meant to send a stale precondition sent none.
-// The runtime half (the stale write really answers RS-39's 409 on every
+// The runtime half (the stale write really answers RS-40's 409 on every
 // backend) is the `concurrency-conflict` corpus case; this file pins the
 // compile-time contract: the accepted shape renders the header, every other
 // shape is refused rather than dropped.

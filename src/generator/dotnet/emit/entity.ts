@@ -1,6 +1,7 @@
 import type { SourceMapSubRegion } from "../../../generator/_trace/sourcemap.js";
 import { offsetToLineCol } from "../../../generator/_trace/sourcemap.js";
 import {
+  createInputFields,
   createOmissionValue,
   forCreateInput,
   hasCreate,
@@ -19,13 +20,19 @@ import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../../ir/types/origin.js";
 import { resolveToSource } from "../../../ir/types/origin.js";
 import { typeIsFile } from "../../../ir/util/file-field.js";
-import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import {
+  createBodyParams,
+  createBodyStatements,
+  operationBody,
+  operationBodyUsesCurrentUser,
+} from "../../../ir/util/op-gates.js";
+import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
-import { constructionSeededFields } from "../../construction-default.js";
+import { constructionSeededFields, serverSeededFields } from "../../construction-default.js";
 import { csMemberScope, csParamIdent, csProjectType, typeMemberNames } from "../bcl-collision.js";
 import { collectCsExprUsings, csNewIdValue, renderCsExpr, renderCsType } from "../render-expr.js";
 import {
@@ -318,7 +325,7 @@ export function renderEntity(
   // call order + wire DTO, so `Agg.Create(cmd.Field, ...)` binds
   // positionally.  Every constructible aggregate's create is parameterized
   // by this set; there is no parameterless form.
-  const createInputFieldList = isAgg(entity) ? forCreateInput(entity.fields) : [];
+  const createInputFieldList = isAgg(entity) ? createInputFields(entity) : [];
   // Event sourcing (appliers A2.2b): an event-sourced aggregate folds
   // events into state via appliers, is rehydrated by `_FromEvents`, and is
   // constructed by its single `create` action's emit-only body (not a
@@ -714,7 +721,7 @@ export function renderEntity(
     // version of its next append.  The event store continues from it and then
     // advances it, so a second handle loaded at the same version re-inserts a
     // version the first already wrote and loses the (stream_type, stream_id,
-    // version) key — the RS-39 409 — instead of keeping a decision taken on a
+    // version) key — the RS-40 409 — instead of keeping a decision taken on a
     // stale fold.  Never on the wire.
     applierLines.push(
       "    /// <summary>Internal: the stream version this instance was folded to; the expected version of its next append.</summary>",
@@ -789,8 +796,8 @@ export function renderEntity(
       inv.message ? inv.message.text : `Invariant violated: ${inv.source}`,
     );
     const thrown = code
-      ? `throw new DomainException(${text}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))})`
-      : `throw new DomainException(${text})`;
+      ? `throw new DomainException(${text}, DomainErrorKind.Invariant, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))})`
+      : `throw new DomainException(${text}, DomainErrorKind.Invariant)`;
     if (!emitTrace) {
       const check = inv.guard
         ? `if ((${renderCsExpr(inv.guard, renderCtx)}) && !(${renderCsExpr(inv.expr, renderCtx)}))`
@@ -927,10 +934,35 @@ export function renderEntity(
   // not a record-parameter default, so `renderCsExpr`'s `2.50m` is legal here
   // (CS1736 constrains the wire DTO, not this).
   const createDefaultSeeds = isAgg(entity)
-    ? constructionSeededFields(entity.fields).map(
-        (f) => `        e.${upperFirst(f.name)} = ${renderCsExpr(f.default, renderCtx)};`,
-      )
+    ? [
+        ...constructionSeededFields(
+          entity.fields,
+          new Set(createInputFieldList.map((f) => f.name)),
+        ).map((f) => `        e.${upperFirst(f.name)} = ${renderCsExpr(f.default, renderCtx)};`),
+        // A server-owned field with no default (`openedAt: datetime managed`)
+        // takes the shared language-defined seed — the value node and python
+        // name too.  Left to the CLR default it read back as 0001-01-01, and a
+        // `string` / list one went in as NULL (500).
+        ...serverSeededFields(entity).map(
+          ({ field, seed }) =>
+            `        e.${upperFirst(field.name)} = ${csServerInitSeed(seed, field.type)};`,
+        ),
+      ]
     : [];
+  // A field a narrowed `create(…)` leaves out with no declared default is a
+  // bare `bool` or a collection (`loom.create-param-required-omitted` refuses
+  // the rest); the CLR leaves a `List<T>` null, so seed its omission value.
+  const createInputNames = new Set(createInputFieldList.map((f) => f.name));
+  const createNarrowedSeeds = isAgg(entity)
+    ? forCreateInput(entity.fields)
+        .filter((f) => !createInputNames.has(f.name) && f.default === undefined)
+        .flatMap((f) => {
+          const v = csFactoryDefault(f);
+          return v === undefined ? [] : [`        e.${upperFirst(f.name)} = ${v};`];
+        })
+    : [];
+  const createBody = isAgg(entity) ? createBodyStatements(entity) : [];
+  const createParams = isAgg(entity) ? createBodyParams(entity) : [];
   const createPublicLines =
     isRoot && isAgg(entity) && hasCreate(entity) && !eventSourced
       ? [
@@ -958,10 +990,36 @@ export function renderEntity(
           `        e.Id = new ${idClass}(${csNewIdValue(effIdValueType, renderCtx.memberScope)});`,
           ...createAssignments,
           ...createDefaultSeeds,
+          ...createNarrowedSeeds,
           // Public Create factory — same "<init>" label as the hydration path.
           emitTrace ? `        e.${assertName}("<init>");` : `        e.${assertName}();`,
+          // The create body (`createBodyStatements`) runs against the
+          // constructed instance, exactly like an operation body: params as
+          // locals, unlisted fields already at their declared defaults.
+          ...(createBody.length > 0
+            ? [
+                `        e._CreateBody(${createParams.map((p) => escapeCsharpIdent(p.name)).join(", ")});`,
+              ]
+            : []),
           "        return e;",
           "    }",
+          ...(createBody.length > 0
+            ? [
+                "",
+                `    private void _CreateBody(${createParams
+                  .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
+                  .join(", ")})`,
+                "    {",
+                renderCsStatements(createBody, renderCtx, {
+                  emitTrace,
+                  aggregate: entity.name,
+                  op: "create",
+                  eventSourced,
+                  domainFloorCodes: true,
+                }),
+                "    }",
+              ]
+            : []),
         ]
       : [];
 
@@ -1204,4 +1262,22 @@ export function renderAbstractBaseEntity(
       "}",
     ) + "\n"
   );
+}
+
+/** The C# spelling of a shared server-init seed kind
+ *  (`src/ir/util/server-init-seed.ts`) for a field of type `t`. */
+function csServerInitSeed(seed: ServerInitSeed, t: TypeIR): string {
+  const name = t.kind === "primitive" ? t.name : "";
+  switch (seed) {
+    case "now":
+      return "DateTime.UtcNow";
+    case "zero":
+      return name === "decimal" ? "0m" : name === "long" ? "0L" : "0";
+    case "false":
+      return "false";
+    case "empty-string":
+      return '""';
+    case "empty-collection":
+      return "new()";
+  }
 }

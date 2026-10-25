@@ -1,8 +1,8 @@
 import { unionMembers } from "../../../generator/_payload/union-wire.js";
 import type { SourceMapSubRegion } from "../../../generator/_trace/sourcemap.js";
 import {
+  createInputFields,
   createOmissionValue,
-  forCreateInput,
   hasCreate,
   isRequiredCreateInput,
 } from "../../../ir/enrich/wire-projection.js";
@@ -17,16 +17,24 @@ import type {
   FunctionIR,
   InvariantIR,
   OperationIR,
+  ParamIR,
+  StmtIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { aggregateUsesMoney } from "../../../ir/types/loom-ir.js";
 import { directParentName } from "../../../ir/util/containment-parent.js";
-import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import {
+  createBodyParams,
+  createBodyStatements,
+  operationBody,
+  operationBodyUsesCurrentUser,
+} from "../../../ir/util/op-gates.js";
 import { stmtHasProv } from "../../../ir/util/prov-id.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { serverInitSeed } from "../../../ir/util/server-init-seed.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
+import { escapeTargetMember } from "../../../util/target-identifiers.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { constructionSeededFields } from "../../construction-default.js";
@@ -74,6 +82,15 @@ interface EntityShape {
    *  Shipment); equals `rootName` for root-level parts (byte-identical). */
   parentName?: string;
   fields: FieldIR[];
+  /** The create factory's input fields — the aggregate's create-input
+   *  contract (`createInputFields`); empty for an entity part. */
+  createInputs: FieldIR[];
+  /** The canonical create's body statements the factory runs after
+   *  construction (`createBodyStatements`) and the params they read
+   *  (`createBodyParams`); empty for an entity part and for a create with
+   *  nothing to render. */
+  createParams: ParamIR[];
+  createBody: StmtIR[];
   contains: ContainmentIR[];
   derived: DerivedIR[];
   invariants: InvariantIR[];
@@ -101,7 +118,7 @@ export function renderAggregate(
   opFragments?: OpFragment[],
 ): string {
   const valueObjectAliases = valueObjectPool(ctx).map((v) => v.name);
-  const enumAliases = ctx.enums.map((e) => e.name);
+  const enumAliases = enumPool(ctx).map((e) => e.name);
   const hasProv =
     emitProvenance &&
     (agg.operations.some((op) => op.statements.some(stmtHasProv)) ||
@@ -151,14 +168,6 @@ export function renderAggregate(
   // gate, landing the refused write silently.  So the import follows any
   // `when`-carrying operation.
   const usesDisallowed = agg.operations.some((op) => !!op.when);
-  const errorsImportList = [
-    usesDisallowed && "DisallowedError",
-    usesDomain && "DomainError",
-    usesForbidden && "ForbiddenError",
-  ]
-    .filter(Boolean)
-    .join(", ");
-
   // Render the body up front so the value-object import can be narrowed
   // to `import type` when no operation constructs a VO (`new Money(...)`),
   // and dropped entirely when no VO appears in any type position either.
@@ -175,6 +184,19 @@ export function renderAggregate(
   // uses `new <Vo>(` (value-object construction) or `<Name>.<member>` (enum
   // value access). Type-only positions (annotation, `as <Name>`) qualify
   // for `type <Name>` inline. Symbols never referenced are dropped.
+  // Each declarative flag above is OR-ed with a reference scan of the rendered
+  // body: a raise site the flags do not enumerate (an event-sourced `create`'s
+  // `precondition`, which renders into `_init`, not an operation) still pulls
+  // its import — otherwise the class throws an undeclared `DomainError`
+  // (TS2304).  Same body-scan the python twin uses.
+  const throwsError = (n: string): boolean => new RegExp(`\\bnew\\s+${n}\\(`).test(body);
+  const errorsImportList = [
+    (usesDisallowed || throwsError("DisallowedError")) && "DisallowedError",
+    (usesDomain || throwsError("DomainError")) && "DomainError",
+    (usesForbidden || throwsError("ForbiddenError")) && "ForbiddenError",
+  ]
+    .filter(Boolean)
+    .join(", ");
   const isValueUsed = (n: string): boolean => new RegExp(`new\\s+${n}\\(|\\b${n}\\.\\w`).test(body);
   const usedVoOrEnum = [...valueObjectAliases, ...enumAliases].filter((n) =>
     new RegExp(`\\b${n}\\b`).test(body),
@@ -249,6 +271,9 @@ function rootShape(a: AggregateIR): EntityShape {
     isRoot: true,
     hasCreate: hasCreate(a),
     fields: a.fields,
+    createInputs: createInputFields(a),
+    createParams: createBodyParams(a),
+    createBody: createBodyStatements(a),
     contains: a.contains,
     derived: a.derived,
     invariants: a.invariants,
@@ -268,6 +293,9 @@ function partShape(p: EntityPartIR, root: AggregateIR): EntityShape {
     rootName: root.name,
     parentName: directParentName(root, p.name, root.name),
     fields: p.fields,
+    createInputs: [],
+    createParams: [],
+    createBody: [],
     contains: p.contains,
     derived: p.derived,
     invariants: p.invariants,
@@ -309,8 +337,16 @@ function serverInitSeedExpr(t: TypeIR): string {
     case "empty-collection":
       return "[]";
     default:
-      return "null";
+      // A `guid` has no language-defined seed (the gate refuses an unwritten
+      // one), but a lifecycle stamp may write it later (`createdBy`), so the
+      // factory still needs a string-typed placeholder for the state literal.
+      return isGuid(t) ? '""' : "null";
   }
+}
+
+function isGuid(t: TypeIR): boolean {
+  const base = t.kind === "optional" ? t.inner : t;
+  return base.kind === "primitive" && base.name === "guid";
 }
 
 export function renderOperationReturnType(returnType: TypeIR, ctx: BoundedContextIR): string {
@@ -541,7 +577,7 @@ function renderEntity(
     // (`precondition t.hasSkill(…)`).  Emitted `private`, every one of those
     // was a TS2341 on a model that validated `0 error(s)`.  The generator's
     // own `.loom/domain.mmd` has always rendered the member as `+<fn>()`.
-    const head = `  public ${lowerFirst(fn.name)}(${params}): ${renderTsType(fn.returnType)}`;
+    const head = `  public ${escapeTargetMember("ts", lowerFirst(fn.name))}(${params}): ${renderTsType(fn.returnType)}`;
     // Expression form stays the single-line `{ return expr; }` (byte-identical);
     // block form (domain-services.md rev. 4) emits its lowered statements.
     if ("expr" in fn.body) {
@@ -623,7 +659,9 @@ function renderEntity(
       ops.push("  }");
       ops.push("");
       // The operation method — state gate → preconditions → hook → invariants.
-      ops.push(`  public ${lowerFirst(op.name)}(${params}): ${retType} {`);
+      ops.push(
+        `  public ${escapeTargetMember("ts", lowerFirst(op.name))}(${params}): ${retType} {`,
+      );
       const externGate = whenGate(op);
       if (externGate) ops.push(externGate);
       ops.push(`    this.${checkName}(${callArgs});`);
@@ -653,7 +691,9 @@ function renderEntity(
     // `void` signature and asserts invariants on the way out; a returning one
     // ends in `return`, so the trailing assert would be unreachable — skip it.
     const retType = op.returnType ? renderOperationReturnType(op.returnType, ctx) : "void";
-    ops.push(`  ${visibility} ${lowerFirst(op.name)}(${params}): ${retType} {`);
+    ops.push(
+      `  ${visibility} ${escapeTargetMember("ts", lowerFirst(op.name))}(${params}): ${retType} {`,
+    );
     const gate = whenGate(op);
     if (gate) ops.push(gate);
     // Chunked (one string per statement) rather than the pre-joined
@@ -713,8 +753,8 @@ function renderEntity(
     // `errors[]` entry the wire rung carries for the rule.
     const code = domainFloorCode(inv.message);
     const exprSrc = code
-      ? `${text}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}`
-      : text;
+      ? `${text}, "invariant", ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}`
+      : `${text}, "invariant"`;
     if (!emitTrace) {
       const check = inv.guard
         ? `if ((${renderTsExpr(inv.guard)}) && !(${renderTsExpr(inv.expr)}))`
@@ -739,10 +779,11 @@ function renderEntity(
     ].join("\n");
   });
 
-  // Create-factory input — the create-input set (`forCreateInput`, incl.
-  // optionals) matching the wire DTO.  Every constructible aggregate's
-  // create is parameterized by this set; there is no parameterless form.
-  const createInputs = forCreateInput(e.fields);
+  // Create-factory input — the create-input contract (`createInputFields`,
+  // incl. optionals; narrowed to a declared `create(…)`'s params) matching the
+  // wire DTO.  Every constructible aggregate's create is parameterized by this
+  // set; there is no parameterless form.
+  const createInputs = e.createInputs;
   const createInputNames = new Set(createInputs.map((f) => f.name));
   // A declared default is a CONSTRUCTION rule, so the factory — not the wire —
   // materializes it.  Returns the TS expression for "what this field becomes
@@ -775,7 +816,10 @@ function renderEntity(
   // closes the node gap and the shared predicate closes the `money` half on
   // all four.
   const defaultSeeds = new Map(
-    constructionSeededFields(e.fields).map((f) => [f.name, renderTsExpr(f.default)]),
+    constructionSeededFields(e.fields, createInputNames).map((f) => [
+      f.name,
+      renderTsExpr(f.default),
+    ]),
   );
   const fieldInit = (f: FieldIR): string => {
     if (createInputNames.has(f.name)) {
@@ -865,6 +909,15 @@ function renderEntity(
   // non-constructible aggregate exposes no factory; it is reconstructed
   // only via `_create` (repository hydration).  Suppressed for event-sourced
   // aggregates, which use the event-sourced factory above.
+  // The private method the factory runs the create body through — named clear
+  // of every `_<field>` backing slot, like the invariant helper.
+  const createBodyName = (() => {
+    if (e.createBody.length === 0) return undefined;
+    const taken = new Set(e.fields.map((f) => `_${f.name}`));
+    let name = "_createBody";
+    while (taken.has(name)) name += "_";
+    return name;
+  })();
   const createFactory =
     e.isRoot && e.hasCreate && !e.eventSourced
       ? [
@@ -883,13 +936,38 @@ function renderEntity(
               .join("; ")} }`,
             e.name,
           ),
-          `    return ${newSelfCallee}({`,
+          `    ${createBodyName ? "const inst = " : "return "}${newSelfCallee}({`,
           `      id: Ids.new${e.name}Id(),`,
           ...e.fields.map((f) => `      ${f.name}: ${fieldInit(f)},`),
           ...provFields.map((f) => `      ${f.name}_provenance: null,`),
           ...e.contains.map((c) => `      ${c.name}: ${c.collection ? "[]" : "null"},`),
           "    });",
+          // The create body (`createBodyStatements`) runs against the
+          // constructed instance, exactly like an operation body: params as
+          // locals, unlisted fields already at their declared defaults.
+          ...(createBodyName
+            ? [
+                `    inst.${createBodyName}(${e.createParams.map((p) => `input.${p.name}`).join(", ")});`,
+                "    return inst;",
+              ]
+            : []),
           "  }",
+          ...(createBodyName
+            ? [
+                "",
+                `  private ${createBodyName}(${e.createParams
+                  .map((p) => `${p.name}: ${renderTsType(p.type)}`)
+                  .join(", ")}): void {`,
+                renderTsStatements(e.createBody, emitProvenance, {
+                  emitTrace,
+                  aggregate: e.name,
+                  op: "create",
+                  eventSourced: false,
+                  domainFloorCodes: true,
+                }),
+                "  }",
+              ]
+            : []),
         ]
       : [];
 
@@ -931,7 +1009,7 @@ function renderEntity(
   // repository's `save` appends the versions after it and then advances it.
   // A second handle loaded at the same version therefore appends a version the
   // first already wrote and loses the `(stream_type, stream_id, version)` key —
-  // the RS-39 409 — instead of committing a decision taken on a stale fold.
+  // the RS-40 409 — instead of committing a decision taken on a stale fold.
   const streamVersionField =
     e.isRoot && e.eventSourced
       ? [

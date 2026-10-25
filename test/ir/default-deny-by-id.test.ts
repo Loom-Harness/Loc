@@ -4,15 +4,19 @@
 // "0 error(s), 0 warning(s)": the LIST of secrets was admin-only and an
 // INDIVIDUAL secret was readable by anyone holding (or guessing) an id.
 //
-// The by-id read has no author surface to attach a `requires` to (mission
-// M-T3.19 designs one), so this is a WARNING — an unsatisfiable error is the
-// reason the sibling `loom.default-deny-ungated` EXEMPTS the other
-// surface-less reads instead of reporting them.  See the call-site comment in
+// M-T3.19 gave the by-id read a surface — `find byId(id: T id): T? requires
+// <expr>` in the repository, the same spelling the list read's `find all` gate
+// uses — and made the UNDECLARED one fail closed at runtime (403 on every
+// backend, via the deny gate enrichment synthesises).  The diagnostic stays a
+// WARNING for one release (owner decision 2026-10-11) so existing models keep
+// building; promotion to error is the tracked T3 follow-up.  A declared gate
+// silences it.  See the call-site comment in
 // `src/ir/validate/checks/default-deny-checks.ts`.
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
+import { deriveContextOperations } from "../../src/ir/util/api-surface.js";
 import { type LoomDiagnostic, validateLoomModel } from "../../src/ir/validate/validate.js";
 import { parseString } from "../_helpers/parse.js";
 
@@ -25,7 +29,7 @@ async function diagnose(source: string): Promise<LoomDiagnostic[]> {
 
 /** The repro: every command AND the list read gated admin-only, so the only
  *  ungated surface left is the by-id read. */
-function vault(opts: { enforcement: string; authRequired?: boolean }): string {
+function vault(opts: { enforcement: string; authRequired?: boolean; byId?: string }): string {
   return `
 system S {
   user { id: guid  role: string }
@@ -36,7 +40,7 @@ system S {
       create() { requires currentUser.role == "admin" }
     }
     repository Secrets for Secret {
-      find all(): Secret[] requires currentUser.role == "admin"
+      find all(): Secret[] requires currentUser.role == "admin"${opts.byId ? `\n      ${opts.byId}` : ""}
     }
   } }
   api Api from D
@@ -46,13 +50,19 @@ system S {
 }`;
 }
 
-describe("loom.default-deny-by-id-ungated — the ungated by-id read is honest now", () => {
+describe("loom.default-deny-by-id-ungated — the ungated by-id read warns (and 403s at runtime)", () => {
   it("fires under denyByDefault on an aggregate whose every other surface IS gated", async () => {
     const diags = await diagnose(vault({ enforcement: "denyByDefault" }));
+    // Non-breaking for one release: NOTHING is an error.
     expect(diags.filter((d) => d.severity === "error")).toEqual([]);
     const byId = diags.filter((d) => d.code === CODE);
     expect(byId).toHaveLength(1);
     expect(byId[0]!.severity).toBe("warning");
+    // Says plainly what happens now, what fixes it, and what happens later.
+    expect(byId[0]!.message).toContain("REFUSED AT RUNTIME (403)");
+    expect(byId[0]!.message).toContain("find byId(id: Secret id): Secret? requires <expr>");
+    expect(byId[0]!.message).toContain("enforcement: opt");
+    expect(byId[0]!.message).toContain("becomes an error in a later release");
     // Names the aggregate AND the exact route, so the reader can check it.
     expect(byId[0]!.message).toContain("Secret");
     expect(byId[0]!.message).toContain("/api/secrets/{id}");
@@ -77,6 +87,68 @@ system S {
 }`);
     const named = diags.filter((d) => d.code === CODE).map((d) => d.source);
     expect(named.sort()).toEqual(["Vehicles/Car", "Vehicles/Van"]);
+  });
+
+  it("is satisfied by a gated `find byId` — the M-T3.19 surface", async () => {
+    const diags = await diagnose(
+      vault({
+        enforcement: "denyByDefault",
+        byId: 'find byId(id: Secret id): Secret? requires currentUser.role == "admin"',
+      }),
+    );
+    expect(diags.filter((d) => d.severity === "error")).toEqual([]);
+    expect(diags.filter((d) => d.code === CODE)).toEqual([]);
+  });
+
+  it("is satisfied by `requires true` — the explicit public escape", async () => {
+    const diags = await diagnose(
+      vault({
+        enforcement: "denyByDefault",
+        byId: "find byId(id: Secret id): Secret? requires true",
+      }),
+    );
+    expect(diags.filter((d) => d.severity === "error")).toEqual([]);
+  });
+
+  it("the undeclared by-id read carries the synthesised DENY gate (runtime 403)", async () => {
+    const { model } = await parseString(vault({ enforcement: "denyByDefault" }), {
+      validate: false,
+    });
+    const loom = enrichLoomModel(lowerModel(model));
+    const ctx = loom.systems[0]!.subdomains[0]!.contexts[0]!;
+    const repo = ctx.repositories.find((r) => r.aggregateName === "Secret");
+    expect(repo?.readsDefaultDenied).toBe(true);
+    const op = deriveContextOperations(ctx).find((o) => o.kind === "getById");
+    expect(op?.find?.defaultDenied).toBe(true);
+    expect(op?.find?.requires).toEqual({ kind: "literal", lit: "bool", value: "false" });
+    // …and an `enforcement: opt` model serves it ungated, as before.
+    const { model: optModel } = await parseString(vault({ enforcement: "opt" }), {
+      validate: false,
+    });
+    const optCtx = enrichLoomModel(lowerModel(optModel)).systems[0]!.subdomains[0]!.contexts[0]!;
+    expect(deriveContextOperations(optCtx).find((o) => o.kind === "getById")?.find).toBeUndefined();
+  });
+
+  it("a declared but UNGATED `find byId` is still refused (once, as a find)", async () => {
+    const diags = await diagnose(
+      vault({ enforcement: "denyByDefault", byId: "find byId(id: Secret id): Secret?" }),
+    );
+    const errors = diags.filter((d) => d.severity === "error");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.code).toBe("loom.default-deny-ungated");
+    expect(errors[0]!.message).toContain("Secrets.byId");
+  });
+
+  it("a `find byId` of a different SHAPE is not the by-id read", async () => {
+    // Recognition is by name AND shape — `byId` returning a list is an
+    // ordinary find and does not gate `GET /secrets/{id}`.
+    const diags = await diagnose(
+      vault({
+        enforcement: "denyByDefault",
+        byId: "find byId(id: Secret id): Secret[] requires true where this.id == id",
+      }),
+    );
+    expect(diags.filter((d) => d.code === CODE)).toHaveLength(1);
   });
 
   // --- non-vacuity ---------------------------------------------------------

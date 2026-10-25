@@ -206,6 +206,25 @@
         "title": "Bad Request",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/wishlists/{id}/add_item",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/sku"
+          }
+        ],
+        "instance": "/api/wishlists/{id}/add_item",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
     }
   ]
 }

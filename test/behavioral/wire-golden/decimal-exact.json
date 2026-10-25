@@ -159,6 +159,25 @@
         "title": "Bad Request",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/samples/{id}/accumulate",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/x"
+          }
+        ],
+        "instance": "/api/samples/{id}/accumulate",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
     }
   ]
 }

@@ -65,8 +65,14 @@ export type ParamType =
   | { kind: "string"; default?: string }
   | { kind: "bool"; default?: boolean }
   | { kind: "int"; default?: number }
-  | { kind: "ref"; of: NamedDeclKind; optional?: true }
-  | { kind: "refList"; of: NamedDeclKind; default?: [] };
+  | { kind: "ref"; of: RefKinds; optional?: true }
+  | { kind: "refList"; of: RefKinds; default?: [] };
+
+/** The declaration kind(s) a ref argument resolves against — one kind, or a
+ *  list for a POLYMORPHIC argument (`scaffoldPaged(of: <Criterion |
+ *  Retrieval>)`): the first kind holding the name wins, and the macro reads
+ *  the resolved node's `$type` to tell them apart. */
+export type RefKinds = NamedDeclKind | readonly NamedDeclKind[];
 
 /** Named-decl kinds that a macro arg can cross-reference.  Limited
  * to the set actually useful at expansion time — extend when a new
@@ -84,6 +90,7 @@ export type NamedDeclKind =
   | "ValueObject"
   | "EnumDecl"
   | "Criterion"
+  | "Retrieval"
   | "Policy";
 
 /** A declared parameter list: name -> spec. */

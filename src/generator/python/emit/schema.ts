@@ -3,6 +3,7 @@ import type {
   AssociationIR,
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
+  FieldIR,
   ProjectionIR,
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
@@ -20,7 +21,8 @@ import type { ResolvedDataSource } from "../../../ir/util/resolve-datasource.js"
 import { effectiveSavingShape } from "../../../ir/util/resolve-datasource.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
-import { plural, snake } from "../../../util/naming.js";
+import { plural, pythonIdent, snake, workflowStateTableName } from "../../../util/naming.js";
+import { pyRef } from "../../_imports/python.js";
 import {
   columnsForFields,
   contextEventRowClassName,
@@ -33,6 +35,8 @@ import {
   valueCollectionChildColumns,
   valueCollectionRowClassName,
 } from "../py-columns.js";
+import { PY, pyVoOrEnum } from "../py-symbols.js";
+import { hydrateField, persistFieldValue } from "../repository-builder.js";
 import { provColumn } from "./provenance.js";
 
 // ---------------------------------------------------------------------------
@@ -216,45 +220,10 @@ export function renderPySchema(
   // `__loom_outbox` table when any channel asks for durability.
   if (durable) models.push(renderOutboxModel());
   const body = models.join("\n\n\n");
-
-  // Import narrowing — every SQLAlchemy helper is referenced by name, so a
-  // word-boundary scan is exact (same trick as the other emitters) for the
-  // CLASS names: they are capitalized, and a Loom field lowers to a snake_case
-  // attribute, so `\bInteger\b` can never match a column.
-  //
-  // `text` is the exception and the only lowercase entry: an aggregate with a
-  // field NAMED `text` emits `text: Mapped[str] = mapped_column(Text)`, which
-  // `\btext\b` matches — so the import was added, nothing invoked it, and ruff
-  // failed the whole python build on `F401 imported but unused`.  It is always
-  // invoked as a CALL (`text("now()")`), so match that form instead.
-  const uses = (n: string): boolean =>
-    new RegExp(n === "text" ? "\\btext\\(" : `\\b${n}\\b`).test(body);
-  const saNames = [
-    "BigInteger",
-    "Boolean",
-    "DateTime",
-    "Identity",
-    "Index",
-    "Integer",
-    "Numeric",
-    "PrimaryKeyConstraint",
-    "Text",
-    "text",
-    "Uuid",
-  ].filter(uses);
-  const pgNames = ["ARRAY", "JSONB"].filter(uses);
-
   return lines(
     `"""SQLAlchemy persistence model.  Auto-generated."""`,
     "",
-    uses("datetime") ? "from datetime import datetime" : null,
-    uses("Decimal") ? "from decimal import Decimal" : null,
-    uses("datetime") || uses("Decimal") ? "" : null,
-    saNames.length > 0 ? `from sqlalchemy import ${saNames.join(", ")}` : null,
-    pgNames.length > 0 ? `from sqlalchemy.dialects.postgresql import ${pgNames.join(", ")}` : null,
     "from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column",
-    uses("FileRef") ? "" : null,
-    uses("FileRef") ? "from app.domain.file_ref import FileRef" : null,
     "",
     "",
     "class Base(DeclarativeBase):",
@@ -263,6 +232,44 @@ export function renderPySchema(
     "",
     body,
     "",
+  );
+}
+
+const sa = (name: string): string => pyRef("sqlalchemy", name);
+const SA = {
+  BigInteger: sa("BigInteger"),
+  Boolean: sa("Boolean"),
+  DateTime: sa("DateTime"),
+  Identity: sa("Identity"),
+  Index: sa("Index"),
+  Integer: sa("Integer"),
+  Numeric: sa("Numeric"),
+  PrimaryKeyConstraint: sa("PrimaryKeyConstraint"),
+  Text: sa("Text"),
+  text: sa("text"),
+  Uuid: sa("Uuid"),
+} as const;
+const PG = {
+  ARRAY: pyRef("sqlalchemy.dialects.postgresql", "ARRAY"),
+  JSONB: pyRef("sqlalchemy.dialects.postgresql", "JSONB"),
+} as const;
+
+/** The importable names a `PyColumn` type expression may carry — its python
+ *  annotation (`Decimal`, `datetime`, `FileRef`) and its SQLAlchemy column
+ *  type (`Numeric(19, 4)`, `ARRAY(Text)`, …) — keyed by spelling.  Column
+ *  descriptors are plain data shared with the repository emitters, so the
+ *  closed vocabulary is marked here, where the column is rendered. */
+const TYPE_NAMES: Record<string, string> = {
+  ...SA,
+  ...PG,
+  Decimal: PY.Decimal,
+  datetime: PY.datetime,
+  FileRef: PY.FileRef,
+};
+
+function markTypeNames(typeExpr: string): string {
+  return typeExpr.replace(/\b[A-Za-z_]\w*\b/g, (n) =>
+    n !== "text" && Object.hasOwn(TYPE_NAMES, n) ? TYPE_NAMES[n]! : n,
   );
 }
 
@@ -303,7 +310,9 @@ function renderModel(
     ...(parentName
       ? // Index name keys off the real FK column (`<parent>_id`), matching the
         // shared migration's `CREATE INDEX <table>_<parent>_id_idx`.
-        [`        Index("${tableName}_${snake(parentName)}_id_idx", "${snake(parentName)}_id"),`]
+        [
+          `        ${SA.Index}("${tableName}_${snake(parentName)}_id_idx", "${snake(parentName)}_id"),`,
+        ]
       : []),
     ...(schema ? [`        {"schema": "${schema}"},`] : []),
   ];
@@ -330,7 +339,8 @@ function provenanceColumns(fields: AggregateIR["fields"]): PyColumn[] {
 }
 
 function renderColumn(c: PyColumn): string {
-  const annotation = c.optional ? `${c.pyType} | None` : c.pyType;
+  const pyType = markTypeNames(c.pyType);
+  const annotation = c.optional ? `${pyType} | None` : pyType;
   // A column whose snake name is a python keyword (`def`) is mapped under the
   // escaped attribute (`def_`) with the SQL name spelled explicitly, so the
   // table keeps the column every other backend and the migration use
@@ -339,7 +349,7 @@ function renderColumn(c: PyColumn): string {
   const sqlName = c.sqlName ?? (attr !== c.attr ? c.attr : undefined);
   const args = [
     sqlName ? `"${sqlName}"` : null,
-    c.saType,
+    markTypeNames(c.saType),
     c.primaryKey ? "primary_key=True" : null,
   ].filter((a): a is string => a != null);
   return `    ${attr}: Mapped[${annotation}] = mapped_column(${args.join(", ")})`;
@@ -355,9 +365,9 @@ function renderDocumentModel(agg: AggregateIR, schema?: string, prefix?: string)
     `    __tablename__ = "${tableName}"`,
     ...(schema ? [`    __table_args__ = ({"schema": "${schema}"},)`] : []),
     "",
-    "    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True)",
-    "    data: Mapped[object] = mapped_column(JSONB)",
-    "    version: Mapped[int] = mapped_column(Integer)",
+    `    id: Mapped[str] = mapped_column(${SA.Uuid}(as_uuid=False), primary_key=True)`,
+    `    data: Mapped[object] = mapped_column(${PG.JSONB})`,
+    `    version: Mapped[int] = mapped_column(${SA.Integer})`,
   );
 }
 
@@ -411,20 +421,20 @@ function renderEventLogModel(ctxName: string, schema?: string, prefix?: string):
     `class ${contextEventRowClassName(ctxName)}(Base):`,
     `    __tablename__ = "${tableName}"`,
     "    __table_args__ = (",
-    `        PrimaryKeyConstraint("stream_type", "stream_id", "version"),`,
+    `        ${SA.PrimaryKeyConstraint}("stream_type", "stream_id", "version"),`,
     ...(schema ? [`        {"schema": "${schema}"},`] : []),
     "    )",
     "",
     // `seq` — context-global monotonic cursor (bigserial); DB-assigned, so
     // `Identity()` marks it server-generated (inserts omit it).
-    "    seq: Mapped[int] = mapped_column(BigInteger, Identity(), unique=True)",
-    "    stream_type: Mapped[str] = mapped_column(Text)",
+    `    seq: Mapped[int] = mapped_column(${SA.BigInteger}, ${SA.Identity}(), unique=True)`,
+    `    stream_type: Mapped[str] = mapped_column(${SA.Text})`,
     // The shared DDL types stream_id TEXT (Drizzle parity), not UUID.
-    "    stream_id: Mapped[str] = mapped_column(Text)",
-    "    version: Mapped[int] = mapped_column(Integer)",
-    "    type: Mapped[str] = mapped_column(Text)",
-    "    data: Mapped[object] = mapped_column(JSONB)",
-    "    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))",
+    `    stream_id: Mapped[str] = mapped_column(${SA.Text})`,
+    `    version: Mapped[int] = mapped_column(${SA.Integer})`,
+    `    type: Mapped[str] = mapped_column(${SA.Text})`,
+    `    data: Mapped[object] = mapped_column(${PG.JSONB})`,
+    `    occurred_at: Mapped[${PY.datetime}] = mapped_column(${SA.DateTime}(timezone=True))`,
   );
 }
 
@@ -437,7 +447,7 @@ function renderWorkflowStateModel(
   durable = false,
   schema?: string,
 ): string {
-  const tableName = plural(snake(wf.name));
+  const tableName = workflowStateTableName(wf.name);
   const corr = wf.correlationField as string;
   const cols: PyColumn[] = [];
   for (const f of wf.stateFields ?? []) {
@@ -473,7 +483,41 @@ function renderWorkflowStateModel(
     schema ? `    __table_args__ = ({"schema": "${schema}"},)` : null,
     "",
     cols.map(renderColumn),
+    ...(wf.stateFields ?? [])
+      .filter((f) => f.name !== corr)
+      .flatMap((f) => valueObjectStateProperty(f, ctx)),
   );
+}
+
+/** A value-object state field is FLATTENED to its leaf columns
+ *  (`total_amount` / `total_currency`, the shared migration's shape), but the
+ *  workflow handlers and the instance routes read and write it whole
+ *  (`state.total = Money(…)`, `row.total`).  A property pair over the leaf
+ *  columns gives the row that attribute: the getter rebuilds the value object
+ *  exactly as a repository hydrates one (`hydrateField`), the setter writes
+ *  the leaves exactly as a repository persists one (`persistFieldValue`).
+ *  Before it, `row.total` named no column — an AttributeError-free silent
+ *  instance attribute that never reached the table, while the NOT NULL leaf
+ *  columns stayed unset (eval B-A3a, python's #14a).  Empty for any other
+ *  field type. */
+function valueObjectStateProperty(f: FieldIR, ctx: EnrichedBoundedContextIR): string[] {
+  const inner = f.type.kind === "optional" ? f.type.inner : f.type;
+  if (inner.kind !== "valueobject") return [];
+  if (!ctx.valueObjects.some((v) => v.name === inner.name)) return [];
+  const opt = f.optional || f.type.kind === "optional";
+  const attr = pythonIdent(f.name);
+  const voType = pyVoOrEnum(inner.name);
+  const ty = opt ? `${voType} | None` : voType;
+  return [
+    "",
+    "    @property",
+    `    def ${attr}(self) -> ${ty}:`,
+    `        return ${hydrateField("self", f, ctx)}`,
+    "",
+    `    @${attr}.setter`,
+    `    def ${attr}(self, value: ${ty}) -> None:`,
+    ...persistFieldValue("value", f, ctx).map(([col, val]) => `        self.${col} = ${val}`),
+  ];
 }
 
 /** Projection read-model row (mirrors `renderWorkflowStateModel`): PK is the
@@ -526,15 +570,15 @@ function renderOutboxModel(): string {
     `    __tablename__ = "__loom_outbox"`,
     "",
     "    id: Mapped[str] = mapped_column(",
-    `        Uuid(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()")`,
+    `        ${SA.Uuid}(as_uuid=False), primary_key=True, server_default=${SA.text}("gen_random_uuid()")`,
     "    )",
-    "    occurred_at: Mapped[datetime] = mapped_column(",
-    `        DateTime(timezone=True), server_default=text("now()")`,
+    `    occurred_at: Mapped[${PY.datetime}] = mapped_column(`,
+    `        ${SA.DateTime}(timezone=True), server_default=${SA.text}("now()")`,
     "    )",
-    "    type: Mapped[str] = mapped_column(Text)",
-    "    payload: Mapped[object] = mapped_column(JSONB)",
-    "    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))",
-    `    attempts: Mapped[int] = mapped_column(Integer, server_default=text("0"))`,
+    `    type: Mapped[str] = mapped_column(${SA.Text})`,
+    `    payload: Mapped[object] = mapped_column(${PG.JSONB})`,
+    `    dispatched_at: Mapped[${PY.datetime} | None] = mapped_column(${SA.DateTime}(timezone=True))`,
+    `    attempts: Mapped[int] = mapped_column(${SA.Integer}, server_default=${SA.text}("0"))`,
   );
 }
 
@@ -631,8 +675,8 @@ function renderValueCollectionModel(
     `class ${valueCollectionRowClassName(vc.childTable)}(Base):`,
     `    __tablename__ = "${tableName}"`,
     "    __table_args__ = (",
-    `        PrimaryKeyConstraint("${vc.parentFk}", "ordinal"),`,
-    `        Index("${tableName}_${vc.parentFk}_idx", "${vc.parentFk}"),`,
+    `        ${SA.PrimaryKeyConstraint}("${vc.parentFk}", "ordinal"),`,
+    `        ${SA.Index}("${tableName}_${vc.parentFk}_idx", "${vc.parentFk}"),`,
     ...(schema ? [`        {"schema": "${schema}"},`] : []),
     "    )",
     "",
@@ -651,12 +695,12 @@ function renderJoinModel(assoc: AssociationIR, schema?: string, prefix?: string)
     `class ${joinRowClassName(assoc)}(Base):`,
     `    __tablename__ = "${tableName}"`,
     "    __table_args__ = (",
-    `        PrimaryKeyConstraint("${assoc.ownerFk}", "${assoc.targetFk}"),`,
-    `        Index("${assoc.joinTable}_${assoc.targetFk}_idx", "${assoc.targetFk}"),`,
+    `        ${SA.PrimaryKeyConstraint}("${assoc.ownerFk}", "${assoc.targetFk}"),`,
+    `        ${SA.Index}("${assoc.joinTable}_${assoc.targetFk}_idx", "${assoc.targetFk}"),`,
     ...(schema ? [`        {"schema": "${schema}"},`] : []),
     "    )",
     "",
-    `    ${assoc.ownerFk}: Mapped[str] = mapped_column(Uuid(as_uuid=False))`,
-    `    ${assoc.targetFk}: Mapped[str] = mapped_column(Uuid(as_uuid=False))`,
+    `    ${assoc.ownerFk}: Mapped[str] = mapped_column(${SA.Uuid}(as_uuid=False))`,
+    `    ${assoc.targetFk}: Mapped[str] = mapped_column(${SA.Uuid}(as_uuid=False))`,
   );
 }

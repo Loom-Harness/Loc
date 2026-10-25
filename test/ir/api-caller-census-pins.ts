@@ -536,6 +536,9 @@ export const UNCALLED_PINS: Record<string, Record<string, string>> = {
   "corpus/state-gate": {
     canCancelOrder: R.gateProbe,
   },
+  "corpus/create-contract": {
+    canConfirmAppointment: R.gateProbe,
+  },
   // ── The ROUTED-HANDLER fixture's two id-taking aggregate routes ──────────
   // `handler-triad`'s whole api is explicit `route … -> Sales.<Handler>`
   // bindings, and all five are now driven (`api.sales.echo(…)` &c) along with
@@ -588,6 +591,12 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.withdrawSameTwice.run (no such aggregate)",
     "api.withdrawTwice.run (no such aggregate)",
     "api.withdrawViaSecond.run (no such aggregate)",
+  ],
+  // M-T4.3 item 6 — the same two shapes, the rollback one forced by a failed
+  // precondition after an `if let` branch saved.
+  "corpus/transactional-workflow-post-commit-dispatch": [
+    "api.debitOnce.run (no such aggregate)",
+    "api.debitThenOverdraw.run (no such aggregate)",
   ],
   // `api.orders.history(...)` reads the entity-history endpoint over
   // `audit_records` (#2378) — a machinery read `deriveContextOperations` does
@@ -812,6 +821,18 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // wire golden with no new content — a `using` alias is not observable on the
   // wire.  Signed with its reason in gate-ledger's BEHAVIOURAL_ABSENT.
   "dotnet-bcl-type-collision",
+  // The defect is an elixir COMPILE failure (`alias Claims.Claims` shadowing the
+  // app module in every controller, so `Claims.GuardError` was undefined); the
+  // fix only changes how the controller spells the facade, which is not
+  // observable on the wire.  `corpus-elixir-build` is its oracle.  Signed with
+  // its reason in gate-ledger's BEHAVIOURAL_ABSENT.
+  "context-named-like-app",
+  // The adversarial identifier-legality fixture: every target's reserved
+  // words as fields / enum values / operations / params.  Its defect is a
+  // COMPILE failure on the backend that cannot spell a name, so the five corpus
+  // compile legs are its oracle; the escape is invisible on the wire by ruling
+  // D-TARGET-RESERVED-NAMES.  Signed in gate-ledger's BEHAVIOURAL_ABSENT.
+  "target-reserved-words",
   // COMPILE-TIER WITNESS (dev-experience audit D6/P2) — an id-typed `user { … }`
   // claim (`customerId: Customer id?`), which broke four of five backends two
   // ways at once (the optional marker emitted twice; the strong-id class never
@@ -857,6 +878,13 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // the existence of a declaration, which the compile tier reads directly; no
   // route of the fixture reads the claim.  Reasoned permanent entry.
   "auth-id-claim-foreign",
+  // COMPILE-TIER WITNESS (claims eval D18) — an `X id` on hosted declarations
+  // whose target aggregate is in a sibling context the deployable does not
+  // host: the brand was referenced and declared nowhere.  The defect is a
+  // missing DECLARATION, which the compile tier reads directly; the CRUD routes
+  // the fixture exposes are the ones `core-domain` already boots.  Reasoned
+  // permanent entry.
+  "foreign-id-field",
   // COMPILE-TIER WITNESS (audit F57 / M-T6.57) — the `envelope` carrier, which
   // NO `.ddd` in the repo instantiated before this fixture, so every compile
   // gate was blind to it and java/dotnet emitted output that did not build.
@@ -1235,7 +1263,7 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
 export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   tenantRegistryRow: 20,
   seededListReadUnwritten: 2,
-  gateProbe: 1,
+  gateProbe: 2,
   clockDependentFind: 1,
   // +2 — `corpus/handler-triad` joined the census when the routed-handler call
   // form made its api addressable, and brought its aggregate's two id-taking

@@ -10,7 +10,7 @@
 // ---------------------------------------------------------------------------
 
 import { deriveEventSubscriptions } from "../../../ir/enrich/enrichments.js";
-import type { ChannelIR } from "../../../ir/types/loom-ir.js";
+import { type ChannelIR, workflowEmitsCommandRoute } from "../../../ir/types/loom-ir.js";
 import {
   aggregatesHaveUniqueKeys,
   aggregatesNeedConcurrency,
@@ -178,7 +178,13 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   const hasWireDenials =
     contexts.some((c) =>
       c.aggregates.some((agg) => (agg.operations ?? []).some((op) => opHasWireDenial(op))),
-    ) || contextsHavePagedReads(contexts);
+    ) ||
+    contextsHavePagedReads(contexts) ||
+    // …OR a command workflow with params: a request omitting one answers the
+    // same `errors[]` 422 (one pointer per missing param, L1-E / E7).
+    contexts.some((c) =>
+      c.workflows.some((w) => workflowEmitsCommandRoute(w) && (w.params ?? []).length > 0),
+    );
   out.set(
     `lib/${appName}_web/problem_details.ex`,
     renderVanillaProblemDetailsModule(
@@ -749,7 +755,10 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       channelBindings,
       carriedEventIrs,
       [...routeMap.values()],
-      { durableBroker: durableBrokerEvents.size > 0 },
+      {
+        durableBroker: durableBrokerEvents.size > 0,
+        carriesOrigin: deployable.auth?.required === true && !!sys.user,
+      },
     );
     for (const [path, content] of emission.files) out.set(path, content);
     channelChildren = emission.children;
@@ -770,6 +779,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       appModule,
       durableEventIrs,
       hostedDispatchers,
+      deployable.auth?.required === true && !!sys.user,
     );
     for (const [path, content] of emission.files) out.set(path, content);
     channelChildren = emission.children;
@@ -863,6 +873,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     // called from `Application.start/2` once the Repo is supervised (and from
     // the `priv/repo/seeds.exs` manual entry the shell emits alongside).
     seedModules,
+    deployable.port,
   );
 
   // Deployment + boot machinery — the Elixir release, Dockerfile, and Ecto

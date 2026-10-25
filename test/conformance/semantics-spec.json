@@ -750,6 +750,24 @@
     },
     {
       "id": "RS-39",
+      "title": "An empty request body is `{}` — a parameterless command accepts a body-less call; a foreign media type is 415",
+      "trigger": "`operation confirm() when status == Requested { … }` → `POST /api/<aggs>/{id}/confirm`, and a workflow started with no input (`create() { … }` → `POST /api/workflows/<wf>`), each called with NO body and no Content-Type, with `Content-Type: application/json` and zero bytes, with `{}`, with malformed JSON, and with `{}` under `text/plain`",
+      "observable": "no body / zero JSON bytes / `{}` all answer exactly as `{}` does (2xx for the parameterless command; on a command WITH required fields, the 422 `errors[]` a `{}` earns); malformed JSON is 400 `Malformed JSON in request body`; any body under a foreign Content-Type — `text/plain`, `application/x-www-form-urlencoded` — and content with no Content-Type is 415 `Content-Type must be application/json`, even when the body is empty. A REQUIRED parameter left out (by an empty body or by `{}`) is 422 with one `errors[]` entry per absent key, `{ pointer: \"/<key>\", message: \"Required\" }`, answered before the row is loaded — on operations, workflows and `route`d handlers alike. The OpenAPI `requestBody` of a parameterless command, and of a `create` with no input fields, is not `required`.",
+      "conforms": [
+        "node",
+        "dotnet",
+        "java",
+        "python",
+        "elixir"
+      ],
+      "provenance": [
+        "the booking DX trial: `curl -X POST …/appointments/{id}/confirm` answered 415 on node, and 400 with `Content-Type: application/json`; only `-d '{}'` worked",
+        "test/generator/empty-command-body.test.ts pins each backend's seam; the wire-golden `__emptyCommandBodyProbes` (test/behavioral/wire-differential.mjs) replays the first instance command each case POSTs `{}` to, against an absent id, three ways (404 / 404 / 415), and re-sends `{}` to the first instance command the tier sent a one-key body to (422 `Required`), on all seven wire-gated legs"
+      ],
+      "tier": "behavioral"
+    },
+    {
+      "id": "RS-40",
       "title": "An optimistic-concurrency 409 carries the sentence `\"<Aggregate> <id> was modified by another request\"`",
       "trigger": "`concurrency-conflict.ddd`: a `versioned` aggregate's `update` sent with a stale `If-Match` (the version the row had before an accepted update)",
       "observable": "the write is refused with 409, `title` \"Conflict\", and the RFC 9457 `detail` is the sentence `\"<Aggregate> <id> was modified by another request\"` — the aggregate's PascalCase name, the conflicting row's id, no trailing punctuation — on every backend; the row keeps the accepted write.",
@@ -767,10 +785,10 @@
       "tier": "behavioral"
     },
     {
-      "id": "RS-40",
+      "id": "RS-41",
       "title": "A save is checked against the version its handle was loaded at — a `shape: document` row and a `persistedAs: eventLog` stream included",
       "trigger": "`workflow-two-handles-document-eventlog.ddd`: two `getById` loads of one document row (and of one event stream) inside a `transactional` workflow, both changed",
-      "observable": "the second save answers the RS-39 409 and the workflow persists neither change; a document upsert is guarded on the handle's loaded `version`, an event append writes the versions after the one the handle folded (so a stream another append moved past rejects it on the `(stream_type, stream_id, version)` key); one handle changed twice, or only the second handle changed, is not a conflict.",
+      "observable": "the second save answers the RS-40 409 and the workflow persists neither change; a document upsert is guarded on the handle's loaded `version`, an event append writes the versions after the one the handle folded (so a stream another append moved past rejects it on the `(stream_type, stream_id, version)` key); one handle changed twice, or only the second handle changed, is not a conflict.",
       "conforms": [
         "node",
         "dotnet",

@@ -12,6 +12,7 @@ import {
   guidFromStringTenancyClaim,
 } from "../../../ir/util/tenant-stance.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
+import { LOOM_OUTBOX_ORIGIN_KEY } from "../../../util/channels.js";
 import { lines } from "../../../util/code-builder.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
@@ -23,8 +24,13 @@ import {
   MALFORMED_DEV_CLAIMS_DETAIL,
 } from "../../_auth/dev-claims.js";
 import { devStubIdExpr } from "../../_auth/dev-stub-id.js";
+import { claimFromOriginString } from "../../_auth/origin-claim.js";
+import { JAVA_IMPORTS } from "../../_imports/java.js";
+import { numericEncode } from "../../_numeric/target.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { jid } from "../java-ident.js";
+import { J } from "../java-symbols.js";
+import { JAVA_NUMERIC } from "../numeric-codec.js";
 import { renderJavaType } from "../render-expr.js";
 
 /** The tenant registry (`implements tenantRegistry`) facts the
@@ -86,12 +92,7 @@ export function renderAuthFiles(
   // project fails with `cannot find symbol` (D6/P2).  The wildcard matches
   // every other java emitter that names an id (`emit/dto.ts`, `emit/api.ts`, …).
   if (claimsReferenceIds(fields)) imports.add(`${basePkg}.domain.ids.*`);
-  const components = fields
-    .map((f) => {
-      collectAuthImports(f.type, imports);
-      return `${renderJavaType(f.type)} ${f.name}`;
-    })
-    .join(", ");
+  const components = fields.map((f) => `${renderJavaType(f.type)} ${f.name}`).join(", ");
   // Derived `currentUser.orgPath` — the caller's tenant materialized path
   // (multi-tenancy).  An extra record accessor (not a component), so
   // every `new User(...)` site is untouched; stringified null-safely.
@@ -187,16 +188,19 @@ export function renderAuthFiles(
         `    }`,
       ]
     : [];
+  out.set("EventOrigin.java", renderJavaEventOrigin(pkg));
   out.set(
     "User.java",
     lines(
       `package ${pkg};`,
       ``,
+      JAVA_IMPORTS,
       ...[...imports].sort().map((i) => `import ${i};`),
       imports.size > 0 ? `` : null,
       `/** Strongly-typed claim shape from the system's user block —`,
       ` *  \`currentUser\` references resolve against this. */`,
-      `public record User(${components}) {`,
+      `public record User(${components}${fields.length > 0 ? ", " : ""}boolean isSystem, String causedBy) {`,
+      ...systemPrincipalMembers(fields, orgPathClaim, actorIdField?.name),
       ...orgPathAccessor,
       ...rootOrgAccessor,
       ...orgContextAccessor,
@@ -229,7 +233,6 @@ export function renderAuthFiles(
   // principal a null one, so this verifier names the id class and needs the
   // same `<basePkg>.domain.ids.*` import `User` already carries.
   if (claimsReferenceIds(fields)) stubImports.add(`${basePkg}.domain.ids.*`);
-  for (const f of fields) collectAuthImports(f.type, stubImports);
   const stubArgs = fields.map((f) => stubValue(f.type)).join(", ");
   // Dev-claims override carries the shapes the shared classifier admits —
   // `String` and `List<String>`; every other component keeps its built-in
@@ -382,6 +385,36 @@ export function renderAuthFiles(
       ``,
       `    void set(User user) {`,
       `        HOLDER.set(user);`,
+      `    }`,
+      ``,
+      `    /** Run \`body\` with the system principal of \`origin\` as the ambient`,
+      `     *  principal (ruling D1) — the outbox relay and the channel consumer open`,
+      `     *  one per delivered event, so the reactor (and every ambient-principal`,
+      `     *  reader under it) sees the triggering event's tenant.  No origin ⇒`,
+      `     *  \`body\` runs as before (tenant-less, fail-closed). */`,
+      `    public static <T> T callAsEventOrigin(EventOrigin origin, java.util.function.Supplier<T> body) {`,
+      `        if (origin == null) {`,
+      `            return body.get();`,
+      `        }`,
+      `        var prev = HOLDER.get();`,
+      `        HOLDER.set(User.systemPrincipalFor(origin));`,
+      `        try {`,
+      `            return body.get();`,
+      `        } finally {`,
+      `            if (prev == null) {`,
+      `                HOLDER.remove();`,
+      `            } else {`,
+      `                HOLDER.set(prev);`,
+      `            }`,
+      `        }`,
+      `    }`,
+      ``,
+      `    /** {@link #callAsEventOrigin} for a body with no result. */`,
+      `    public static void runAsEventOrigin(EventOrigin origin, Runnable body) {`,
+      `        callAsEventOrigin(origin, () -> {`,
+      `            body.run();`,
+      `            return null;`,
+      `        });`,
       `    }`,
       ``,
       `    void clear() {`,
@@ -800,45 +833,207 @@ function envOr(envVar: string, v: AuthValueIR | undefined): string {
   return `(System.getenv(${JSON.stringify(envVar)}) != null ? System.getenv(${JSON.stringify(envVar)}) : ${javaAuthValue(v)})`;
 }
 
-/** The IdP claim path projected onto a given user field — explicit `claims:`
- *  mapping wins; `id` defaults to `sub`, others read their own name. */
-/** The User-constructor argument reading a field off the verified payload.
- *  string / string[] are mapped (dotted paths supported); other field types
- *  fall back to the dev-stub default (a documented limitation — OIDC claims
- *  map cleanly onto string / string[] user fields). */
-function javaClaimRead(f: FieldIR, auth: AuthIR): string {
-  const path = JSON.stringify(claimPathFor(f.name, auth));
+/** The java element decoder (a static helper in CLAIM_DECODE_HELPERS) and the
+ *  boxed java type it yields, per scalar claim type. */
+const JAVA_SCALAR_DECODERS: Readonly<Partial<Record<string, { fn: string; boxed: string }>>> = {
+  guid: { fn: "asUuid", boxed: "UUID" },
+  int: { fn: "asInt", boxed: "Integer" },
+  long: { fn: "asLong", boxed: "Long" },
+  bool: { fn: "asBool", boxed: "Boolean" },
+  datetime: { fn: "asInstant", boxed: "Instant" },
+  decimal: { fn: "asDecimal", boxed: "BigDecimal" },
+  string: { fn: "asString", boxed: "String" },
+};
+
+/** A `Function<Object, T>` decoding one claim value to a non-string claim
+ *  type (null when wrongly shaped / unparseable), or `undefined` when the
+ *  type has no claim decoding (value objects, enums, money, json keep the
+ *  stub value).  An `X id` claim decodes its id's VALUE type and is then
+ *  constructed through the emitted strong-id record — the value
+ *  node/python/elixir carry as the raw claim. */
+function javaClaimDecoder(t: TypeIR): { decode: string; boxed: string } | undefined {
+  if (t.kind === "primitive" && t.name !== "string") {
+    const d = JAVA_SCALAR_DECODERS[t.name];
+    return d ? { decode: `OidcUserVerifier::${d.fn}`, boxed: d.boxed } : undefined;
+  }
+  if (t.kind === "id") {
+    const d = JAVA_SCALAR_DECODERS[t.valueType];
+    const cls = renderJavaType(t);
+    return d ? { decode: `v -> mapOrNull(${d.fn}(v), ${cls}::new)`, boxed: cls } : undefined;
+  }
+  return undefined;
+}
+
+/** One User-constructor argument reading a field off the verified payload,
+ *  plus the guard statements that run before the constructor: a REQUIRED
+ *  typed claim that is absent or undecodable rejects the token (→ 401) — it
+ *  does not describe a principal (node's `REQUIRED_CLAIMS`). */
+interface JavaClaimRead {
+  readonly pre: readonly string[];
+  readonly arg: string;
+  /** True when the read uses the typed decoder helpers. */
+  readonly typed: boolean;
+}
+
+function javaClaimRead(f: FieldIR, auth: AuthIR): JavaClaimRead {
+  const rawPath = claimPathFor(f.name, auth);
+  const path = JSON.stringify(rawPath);
   // An optional field's `type` carries the `optional` wrapper, so the string
   // test below must see the inner type — read off the bare `f.type`, every
   // optional `string?` claim fell through to `stubValue` (`null`) and was null
   // for every token, the claim never read.
   const optional = f.optional || f.type.kind === "optional";
   const t = f.type.kind === "optional" ? f.type.inner : f.type;
+  const plain = (arg: string): JavaClaimRead => ({ pre: [], arg, typed: false });
   if (t.kind === "array" && t.element.kind === "primitive" && t.element.name === "string") {
-    return `claimStringList(payload, ${path})`;
+    return plain(`claimStringList(payload, ${path})`);
   }
+  const rejectUnless = (boxed: string, read: string, typed: boolean): JavaClaimRead => {
+    const local = `claim${f.name.charAt(0).toUpperCase()}${f.name.slice(1)}`;
+    const reason = JSON.stringify(`required claim '${rawPath}' is absent or malformed`);
+    return {
+      pre: [
+        `${boxed} ${local} = ${read};`,
+        `if (${local} == null) {`,
+        `    CatalogLog.event(${javaLogEvent("authTokenRejected")}, "reason", ${reason});`,
+        `    return null;`,
+        `}`,
+      ],
+      arg: local,
+      typed,
+    };
+  };
   if (t.kind === "primitive" && t.name === "string") {
-    return optional ? `claimString(payload, ${path})` : `claimStringOrEmpty(payload, ${path})`;
+    // A REQUIRED string claim absent from the token rejects it, exactly like a
+    // required typed claim below (node's `REQUIRED_CLAIMS`).  It used to read
+    // `claimStringOrEmpty`, so a token without `team` authenticated as a
+    // principal whose team was "" — a value no IdP ever minted.
+    const read = `claimString(payload, ${path})`;
+    return optional ? plain(read) : rejectUnless("String", read, false);
+  }
+  // D16: every other declared claim type used to be the stub value — an id /
+  // guid / int / bool / datetime claim was null (or the zero id) for EVERY
+  // token, so `requires assignedTo == currentUser.agentId` was always false
+  // on java while node/python/elixir read the claim.  Decode it instead.
+  const elem = t.kind === "array" ? t.element : undefined;
+  const dec = javaClaimDecoder(elem ?? t);
+  if (dec && elem) {
+    // Absent list claim: the EMPTY list when declared required, null when
+    // optional.  Undecodable elements are dropped.
+    const read = `claimList(payload, ${path}, ${dec.decode})`;
+    return { pre: [], arg: optional ? read : `orEmpty(${read})`, typed: true };
+  }
+  if (dec) {
+    const read = `claimAs(payload, ${path}, ${dec.decode})`;
+    // An absent OPTIONAL claim is null — never the stub default: the zero id
+    // is non-null, and `requires currentUser.x != null` would pass for every
+    // token.
+    if (optional) return { pre: [], arg: read, typed: true };
+    return rejectUnless(dec.boxed, read, true);
   }
   // An unmapped OPTIONAL claim is null — never the stub default: the zero id
   // or `"admin"` is non-null, and `requires currentUser.x != null` would pass
   // for every token.
-  return optional ? "null" : stubValue(t);
+  return plain(optional ? "null" : stubValue(t));
 }
+
+/** The typed claim-decoding helpers (D16) — emitted only when a declared
+ *  claim needs them.  Lenient on wire shape: a numeric claim may arrive as a
+ *  JSON number or a numeric string, a datetime as an ISO-8601 string or a JWT
+ *  NumericDate (epoch seconds). */
+const JAVA_TYPED_CLAIM_HELPERS: readonly string[] = [
+  ``,
+  `    private static <T> T claimAs(Map<String, Object> payload, String path, ${J.Function}<Object, T> decode) {`,
+  `        Object value = navigate(payload, path);`,
+  `        return value == null ? null : decode.apply(value);`,
+  `    }`,
+  ``,
+  `    private static <T> List<T> claimList(Map<String, Object> payload, String path, ${J.Function}<Object, T> decode) {`,
+  `        Object value = navigate(payload, path);`,
+  `        if (value == null) {`,
+  `            return null;`,
+  `        }`,
+  `        List<T> out = new ArrayList<>();`,
+  `        if (value instanceof List<?> list) {`,
+  `            for (Object item : list) {`,
+  `                T decoded = item == null ? null : decode.apply(item);`,
+  `                if (decoded != null) {`,
+  `                    out.add(decoded);`,
+  `                }`,
+  `            }`,
+  `        }`,
+  `        return out;`,
+  `    }`,
+  ``,
+  `    private static <T> List<T> orEmpty(List<T> list) {`,
+  `        return list == null ? List.of() : list;`,
+  `    }`,
+  ``,
+  `    private static <A, B> B mapOrNull(A value, ${J.Function}<A, B> wrap) {`,
+  `        return value == null ? null : wrap.apply(value);`,
+  `    }`,
+  ``,
+  `    private static String asString(Object v) {`,
+  `        return v instanceof String || v instanceof Number ? String.valueOf(v) : null;`,
+  `    }`,
+  ``,
+  `    private static ${J.UUID} asUuid(Object v) {`,
+  `        try {`,
+  `            return v instanceof String s ? ${J.UUID}.fromString(s) : null;`,
+  `        } catch (IllegalArgumentException e) {`,
+  `            return null;`,
+  `        }`,
+  `    }`,
+  ``,
+  `    private static Long asLong(Object v) {`,
+  `        try {`,
+  `            if (v instanceof Integer || v instanceof Long || v instanceof Short || v instanceof Byte) {`,
+  // Numeric coercions route through the java numeric codec seam (M-T9.36).
+  `                return ${numericEncode(JAVA_NUMERIC, "long", "find-param", "v")};`,
+  `            }`,
+  `            return v instanceof String s ? Long.valueOf(s.trim()) : null;`,
+  `        } catch (NumberFormatException e) {`,
+  `            return null;`,
+  `        }`,
+  `    }`,
+  ``,
+  `    private static Integer asInt(Object v) {`,
+  `        Long n = asLong(v);`,
+  `        return n == null || n < Integer.MIN_VALUE || n > Integer.MAX_VALUE ? null : n.intValue();`,
+  `    }`,
+  ``,
+  `    private static ${J.BigDecimal} asDecimal(Object v) {`,
+  `        try {`,
+  `            return v instanceof Number || v instanceof String ? ${numericEncode(JAVA_NUMERIC, "decimal", "find-param", "v")} : null;`,
+  `        } catch (NumberFormatException e) {`,
+  `            return null;`,
+  `        }`,
+  `    }`,
+  ``,
+  `    private static Boolean asBool(Object v) {`,
+  `        if (v instanceof Boolean b) {`,
+  `            return b;`,
+  `        }`,
+  `        if (v instanceof String s && (s.equalsIgnoreCase("true") || s.equalsIgnoreCase("false"))) {`,
+  `            return Boolean.valueOf(s);`,
+  `        }`,
+  `        return null;`,
+  `    }`,
+  ``,
+  `    private static ${J.Instant} asInstant(Object v) {`,
+  `        try {`,
+  `            if (v instanceof Number n) {`,
+  `                return ${J.Instant}.ofEpochSecond(n.longValue());`,
+  `            }`,
+  `            return v instanceof String s ? java.time.OffsetDateTime.parse(s).toInstant() : null;`,
+  `        } catch (java.time.format.DateTimeParseException e) {`,
+  `            return null;`,
+  `        }`,
+  `    }`,
+];
 
 function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, basePkg: string): string {
   const pkg = `${basePkg}.auth`;
-  // Imports for any stub-fallback field type (guid/datetime/etc.) plus the
-  // List the string[] reader returns.
-  const imports = new Set<string>(["java.util.List"]);
-  for (const f of fields) {
-    const mappableString =
-      (f.type.kind === "primitive" && f.type.name === "string") ||
-      (f.type.kind === "array" &&
-        f.type.element.kind === "primitive" &&
-        f.type.element.name === "string");
-    if (!mappableString) collectAuthImports(f.type, imports);
-  }
   // Env override first (12-factor): the generated compose repoints
   // OIDC_ISSUER at the bundled dev Keycloak, so a literal issuer must not
   // be baked un-overridably — with it baked, every token from the bundled
@@ -847,7 +1042,10 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, basePkg: string): s
   const audienceExpr = auth.oidc.audience
     ? envOr("OIDC_AUDIENCE", auth.oidc.audience)
     : `System.getenv("OIDC_AUDIENCE")`;
-  const args = fields.map((f) => `                ${javaClaimRead(f, auth)}`).join(",\n");
+  const reads = fields.map((f) => javaClaimRead(f, auth));
+  const args = reads.map((r) => `                ${r.arg}`).join(",\n");
+  const guards = reads.flatMap((r) => r.pre).map((l) => `            ${l}`);
+  const typed = reads.some((r) => r.typed);
   return lines(
     `package ${pkg};`,
     ``,
@@ -857,8 +1055,11 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, basePkg: string): s
     `import java.net.http.HttpResponse;`,
     `import java.util.ArrayList;`,
     `import java.util.Map;`,
+    `import java.util.List;`,
     `import java.util.Set;`,
-    ...[...imports].sort().map((i) => `import ${i};`),
+    JAVA_IMPORTS,
+    // A decoded `X id` claim constructs the strong id (`<basePkg>.domain.ids`).
+    claimsReferenceIds(fields) ? `import ${basePkg}.domain.ids.*;` : null,
     ``,
     `import tools.jackson.databind.JsonNode;`,
     `import tools.jackson.databind.ObjectMapper;`,
@@ -905,6 +1106,7 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, basePkg: string): s
     `        try {`,
     `            JWTClaimsSet claims = processor().process(token, null);`,
     `            Map<String, Object> payload = claims.toJSONObject();`,
+    ...guards,
     `            return new User(`,
     args,
     `            );`,
@@ -1007,11 +1209,6 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, basePkg: string): s
     `        return value == null ? null : String.valueOf(value);`,
     `    }`,
     ``,
-    `    private static String claimStringOrEmpty(Map<String, Object> payload, String path) {`,
-    `        String value = claimString(payload, path);`,
-    `        return value == null ? "" : value;`,
-    `    }`,
-    ``,
     `    private static List<String> claimStringList(Map<String, Object> payload, String path) {`,
     `        List<String> out = new ArrayList<>();`,
     `        Object value = navigate(payload, path);`,
@@ -1024,6 +1221,7 @@ function renderOidcVerifier(fields: FieldIR[], auth: AuthIR, basePkg: string): s
     `        }`,
     `        return out;`,
     `    }`,
+    ...(typed ? JAVA_TYPED_CLAIM_HELPERS : []),
     `}`,
     ``,
   );
@@ -1140,13 +1338,31 @@ import org.springframework.http.ResponseEntity;`,
     // tenancy members (`orgPath()` / `rootOrg()`) are per-request scoping
     // state, not part of the declared principal, so they stay off the wire.
     `        var body = new java.util.LinkedHashMap<String, Object>();`,
-    ...userFields.map((f) => `        body.put("${f.name}", user.${jid(f.name)}());`),
+    ...userFields.map((f) => `        body.put("${f.name}", ${meClaimValue(f)});`),
     `        return ResponseEntity.ok(body);`,
     `    }`,
     ...handshake,
     `}`,
     ``,
   );
+}
+
+/** One `/auth/me` value: the declared claim, with an `X id` (or `X id[]`)
+ *  claim projected onto its raw value.  The strong-id record has no Jackson
+ *  `@JsonValue` (the wire DTOs carry the raw `UUID`), so serialising it
+ *  shipped `{"value": "…"}` where node / python / elixir answer the bare id
+ *  string the token carried.  Lambdas, not `AgentId::value`, so the
+ *  controller needs no domain-ids import. */
+function meClaimValue(f: FieldIR): string {
+  const access = `user.${jid(f.name)}()`;
+  const optional = f.optional || f.type.kind === "optional";
+  const t = f.type.kind === "optional" ? f.type.inner : f.type;
+  if (t.kind === "id") return `${access} == null ? null : ${access}.value()`;
+  if (t.kind === "array" && t.element.kind === "id") {
+    const mapped = `${access}.stream().map(v -> v.value()).toList()`;
+    return optional ? `${access} == null ? null : ${mapped}` : mapped;
+  }
+  return access;
 }
 
 function renderHandshakeMethods(auth: AuthIR): string[] {
@@ -1353,16 +1569,151 @@ function renderHandshakeMethods(auth: AuthIR): string[] {
   ];
 }
 
-function collectAuthImports(t: TypeIR, into: Set<string>): void {
-  if (t.kind === "primitive" && t.name === "guid") into.add("java.util.UUID");
-  if (t.kind === "primitive" && t.name === "datetime") into.add("java.time.Instant");
-  if (t.kind === "primitive" && (t.name === "decimal" || t.name === "money"))
-    into.add("java.math.BigDecimal");
-  if (t.kind === "array") {
-    into.add("java.util.List");
-    collectAuthImports(t.element, into);
-  }
-  if (t.kind === "optional") collectAuthImports(t.inner, into);
+/** The system principal's members on the `User` record (ruling D1,
+ *  `docs/decisions.md` D-REACTOR-SYSTEM-PRINCIPAL).  `isSystem` / `causedBy`
+ *  are trailing record components (the accessors `isSystem()` / `causedBy()`
+ *  are what `currentUser.isSystem` renders to), and a constructor at the
+ *  CLAIMS-ONLY arity keeps every `new User(<claims>)` site — the dev stub, the
+ *  OIDC verifier, the generated tests — building a request principal
+ *  (`isSystem = false`) unchanged.  `systemPrincipal(origin)` is the principal
+ *  an event reactor runs as: every claim EMPTY (never the dev stub's
+ *  `"admin"`), the tenancy claim copied from the dispatching principal, and
+ *  `causedBy` its id (or its own `causedBy` when it is itself a reactor). */
+function systemPrincipalMembers(
+  fields: FieldIR[],
+  tenantClaim: string | undefined,
+  idField: string | undefined,
+): string[] {
+  const names = fields.map((f) => f.name);
+  const empty = (f: FieldIR): string => {
+    if (f.optional) return "null";
+    if (f.type.kind === "primitive" && f.type.name === "string") return '""';
+    return stubValue(f.type);
+  };
+  const tenantField = tenantClaim ? fields.find((f) => f.name === tenantClaim) : undefined;
+  const args = fields.map((f) => {
+    if (f !== tenantField) return empty(f);
+    const rebuilt = claimFromOriginString(f.type, "t", "java");
+    return rebuilt === null ? empty(f) : `t == null ? ${empty(f)} : ${rebuilt}`;
+  });
+  // A claim as the origin's string — a strong id is its wrapped value (the
+  // record's own toString is `XId[value=…]`, not the id).
+  const asString = (f: FieldIR): string => {
+    const v = f.type.kind === "id" ? `user.${f.name}().value()` : `user.${f.name}()`;
+    return f.type.kind === "id"
+      ? `user.${f.name}() == null ? null : String.valueOf(${v})`
+      : `user.${f.name}() == null ? null : String.valueOf(${v})`;
+  };
+  const tenantOf = tenantField ? `nullIfEmpty(${asString(tenantField)})` : "null";
+  const orgPathOf = tenantClaim ? "nullIfEmpty(user.orgPath())" : "null";
+  const idF = idField ? fields.find((f) => f.name === idField) : undefined;
+  const causedByOf = idF
+    ? `user.isSystem() ? user.causedBy() : ${asString(idF)}`
+    : "user.causedBy()";
+  return [
+    ``,
+    `    /** A REQUEST principal — every verifier builds one of these. */`,
+    `    public User(${fields.map((f) => `${renderJavaType(f.type)} ${f.name}`).join(", ")}) {`,
+    `        this(${[...names, "false", "null"].join(", ")});`,
+    `    }`,
+    ``,
+    `    /** The event origin of a principal (ruling D1): its tenant claim,`,
+    `     *  materialized path, and originating user id.  A system principal`,
+    `     *  propagates its own origin, so an event a reactor raises keeps the first`,
+    `     *  user as \`causedBy\`. */`,
+    `    public static EventOrigin originOf(User user) {`,
+    `        if (user == null) {`,
+    `            return null;`,
+    `        }`,
+    `        return new EventOrigin(${tenantOf}, ${orgPathOf},`,
+    `                ${causedByOf});`,
+    `    }`,
+    ``,
+    `    /** The ambient principal's event origin — captured onto the outbox row`,
+    `     *  and the channel envelope.  Null outside any principal (a timer tick). */`,
+    `    public static EventOrigin currentEventOrigin() {`,
+    `        return originOf(CurrentUserAccessor.currentOrNull());`,
+    `    }`,
+    ``,
+    `    /** The principal an event reactor runs as: no claims, \`isSystem\`, the`,
+    `     *  dispatching principal's tenant, \`causedBy\` for audit.  Gates are`,
+    `     *  evaluated against it normally — one that admits it says`,
+    `     *  \`currentUser.isSystem || …\`. */`,
+    `    public static User systemPrincipal(User origin) {`,
+    `        return systemPrincipalFor(originOf(origin));`,
+    `    }`,
+    ``,
+    `    /** The system principal of an event origin.  No origin (a timer tick) ⇒`,
+    `     *  an empty tenant, which matches no tenant-owned row. */`,
+    `    public static User systemPrincipalFor(EventOrigin origin) {`,
+    `        String t = origin == null || origin.tenant() == null || origin.tenant().isEmpty()`,
+    `                ? null : origin.tenant();`,
+    `        return new User(${[...args, "true", "origin == null ? null : origin.causedBy()"].join(", ")});`,
+    `    }`,
+    ``,
+    `    private static String nullIfEmpty(String s) {`,
+    `        return s == null || s.isEmpty() ? null : s;`,
+    `    }`,
+  ];
+}
+
+/** `EventOrigin.java` — where an event came from (ruling D1), plus the outbox
+ *  payload codec carrying it under the reserved key. */
+function renderJavaEventOrigin(pkg: string): string {
+  return lines(
+    `package ${pkg};`,
+    ``,
+    `import java.util.LinkedHashMap;`,
+    `import java.util.Map;`,
+    ``,
+    `/** Where an event came from (ruling D1): the raising principal's tenant`,
+    ` *  claim and materialized path, and the originating user id (audit only).`,
+    ` *  Captured onto the outbox row and the channel envelope (\`tenantid\` /`,
+    ` *  \`loomorgpath\` / \`loomcausedby\`) so a reactor that runs after the`,
+    ` *  request is gone still runs as the system principal OF THAT TENANT. */`,
+    `public record EventOrigin(String tenant, String orgPath, String causedBy) {`,
+    `    /** The reserved outbox-payload key the origin rides under. */`,
+    `    public static final String KEY = "${LOOM_OUTBOX_ORIGIN_KEY}";`,
+    ``,
+    `    /** The outbox row payload: the event's data plus the ambient origin. */`,
+    `    public static Map<String, Object> capture(Map<String, Object> data) {`,
+    `        var origin = User.currentEventOrigin();`,
+    `        if (origin == null) {`,
+    `            return data;`,
+    `        }`,
+    `        var out = new LinkedHashMap<String, Object>(data);`,
+    `        var m = new LinkedHashMap<String, Object>();`,
+    `        m.put("tenant", origin.tenant());`,
+    `        m.put("orgPath", origin.orgPath());`,
+    `        m.put("causedBy", origin.causedBy());`,
+    `        out.put(KEY, m);`,
+    `        return out;`,
+    `    }`,
+    ``,
+    `    /** The origin a drained row's payload carries, or null. */`,
+    `    public static EventOrigin of(Map<String, Object> payload) {`,
+    `        if (!(payload.get(KEY) instanceof Map<?, ?> m)) {`,
+    `            return null;`,
+    `        }`,
+    `        return new EventOrigin(str(m.get("tenant")), str(m.get("orgPath")), str(m.get("causedBy")));`,
+    `    }`,
+    ``,
+    `    /** The payload without the origin — the event's own data. */`,
+    `    public static Map<String, Object> strip(Map<String, Object> payload) {`,
+    `        if (!payload.containsKey(KEY)) {`,
+    `            return payload;`,
+    `        }`,
+    `        var out = new LinkedHashMap<String, Object>(payload);`,
+    `        out.remove(KEY);`,
+    `        return out;`,
+    `    }`,
+    ``,
+    `    private static String str(Object o) {`,
+    `        return o instanceof String s ? s : null;`,
+    `    }`,
+    `}`,
+    ``,
+  );
 }
 
 /** Dev-stub claim values — mirrors the .NET DevStubUserVerifier:
@@ -1376,7 +1727,7 @@ function stubValue(t: TypeIR): string {
   if (t.kind === "primitive") {
     switch (t.name) {
       case "guid":
-        return "new UUID(0L, 0L)";
+        return `new ${J.UUID}(0L, 0L)`;
       case "string":
         return '"admin"';
       case "int":
@@ -1385,7 +1736,7 @@ function stubValue(t: TypeIR): string {
       case "bool":
         return "false";
       case "datetime":
-        return "Instant.EPOCH";
+        return `${J.Instant}.EPOCH`;
       case "decimal":
       case "money":
         return "java.math.BigDecimal.ZERO";
@@ -1393,7 +1744,7 @@ function stubValue(t: TypeIR): string {
         return "null";
     }
   }
-  if (t.kind === "array") return "List.of()";
+  if (t.kind === "array") return `${J.List}.of()`;
   // A NON-optional `X id` claim: java compiled either way (a record component
   // takes null), but `null` handed every `currentUser.customerId` read a null
   // strong id where the other four backends carry the zero id — the same

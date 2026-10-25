@@ -6,7 +6,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
 import { generateTypeScript } from "../../../src/platform/hono/v4/emit.js";
-import { BACKEND_PINS as HONO_V4_PINS } from "../../../src/platform/hono/v4/pins.js";
+import { BACKEND_PINS as HONO_PINS } from "../../../src/platform/hono/v5/pins.js";
 import { dddSourceOf } from "../../_helpers/ddd-corpus.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
 import { parseValid } from "../../_helpers/parse.js";
@@ -38,7 +38,7 @@ async function buildModel(file: string): Promise<Model> {
 describe("Hono/Drizzle document-persistence emission (normalised(false))", () => {
   let files: Map<string, string>;
   beforeAll(async () => {
-    files = generateTypeScript(await buildModel("examples/document.ddd"), HONO_V4_PINS);
+    files = generateTypeScript(await buildModel("examples/document.ddd"), HONO_PINS);
   });
 
   it("emits a single jsonb document table (no part/join tables) for the document aggregate", () => {
@@ -159,7 +159,7 @@ describe("Hono/Drizzle document — optional single containment is null-safe", (
 
   it("guards the optional containment in the Doc type + toDoc + fromDoc", async () => {
     const model = await parseValid(SRC);
-    const files = generateTypeScript(model, HONO_V4_PINS);
+    const files = generateTypeScript(model, HONO_PINS);
     const repo = files.get("db/repositories/cart-repository.ts")!;
     expect(repo, "cart-repository.ts generated").toBeDefined();
     // Type alias: nullable single containment is `PartDoc | null`.
@@ -203,7 +203,7 @@ describe("document save() applies the onCreate stamps", () => {
    *  `files` is scoped to it. */
   let unstamped: Map<string, string>;
   beforeAll(async () => {
-    unstamped = generateTypeScript(await buildModel("examples/document.ddd"), HONO_V4_PINS);
+    unstamped = generateTypeScript(await buildModel("examples/document.ddd"), HONO_PINS);
     // The corpus fixture is a `__PLATFORM__`-tokenized TEMPLATE, not a source —
     // `dddSourceOf` substitutes a backend the way every census and runner does.
     // It is a multi-context SYSTEM, so it goes through the system generator

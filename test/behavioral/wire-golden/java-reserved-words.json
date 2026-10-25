@@ -193,6 +193,25 @@
         "title": "Bad Request",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/tickets/{id}/bump",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/boolean"
+          }
+        ],
+        "instance": "/api/tickets/{id}/bump",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
     }
   ]
 }

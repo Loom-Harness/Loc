@@ -152,7 +152,7 @@ system WireAudit {
         commitSha: string
         buildState: string
         operation cancel() audited { buildState := "cancelled" }
-        create(commitSha: string) audited { commitSha := commitSha }
+        create(commitSha: string, buildState: string) audited { commitSha := commitSha }
       }
       repository Orders for Order { }
     }

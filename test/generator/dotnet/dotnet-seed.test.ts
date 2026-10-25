@@ -187,14 +187,13 @@ describe("dotnet seeding — raw explicit-id path", () => {
     expect(find(files, /CustomerConfiguration\.cs$/)).toContain('ToTable("customers", "sales")');
   });
 
-  // …and the SAME model on the Dapper adapter (F2-ADP-2).  `persistence: dapper`
-  // is SELF-PROVISIONING: no migration chain, its DDL is `DbSchema.EnsureAsync`,
-  // and every Dapper statement names tables UNQUALIFIED.  Qualifying the raw
-  // seed off the per-context dataSource schema therefore inserted into a schema
-  // nothing ever created — `RunSeeds` threw `3F000 schema "sales" does not
-  // exist` on first boot, invisible to the .NET compile gate (it is a C# string
-  // literal) and to schema-load (which loads the migration chain this adapter
-  // does not use).
+  // …and the SAME model on the Dapper adapter (F2-ADP-2).  Every Dapper
+  // statement names tables UNQUALIFIED.  Under the old self-provisioned
+  // `DbSchema`, qualifying the raw seed off the dataSource schema inserted into
+  // a schema nothing ever created (`3F000 schema "sales" does not exist`).
+  // Dapper now applies the migration chain (M-T2.17), which DOES create
+  // `sales.customers`; the seed stays unqualified like every other Dapper
+  // statement and reaches the table through the connection's `search_path`.
   const RAW_DAPPER = RAW_WITH_SCHEMA.replace(
     "platform: dotnet ",
     "platform: dotnet { persistence: dapper } ",
@@ -211,16 +210,31 @@ describe("dotnet seeding — raw explicit-id path", () => {
   it("dapper: every raw seed INSERT targets a table the emitted DDL creates", async () => {
     const files = await build(RAW_DAPPER);
     const seed = find(files, /Seed\.cs$/);
+    const migrations = [...files.entries()]
+      .filter(([p]) => /\/Migrations\/\d+_.*\.cs$/.test(p))
+      .map(([, c]) => c)
+      .join("\n");
+    // Resolved the way the connection resolves them: `public` + every schema
+    // on the data source's search_path.
+    const searchPath = /SearchPath = "([^"]+)"/.exec(find(files, /Program\.cs$/))?.[1]?.split(",");
+    expect(searchPath).toEqual(["public", "sales"]);
+    const unqualified = (t: string) => t.slice(t.lastIndexOf(".") + 1);
     const provisioned = new Set([
-      ...sqlTables(find(files, /DbSchema\.cs$/), "CREATE TABLE"),
+      ...sqlTables(migrations, "CREATE TABLE")
+        .filter((t) =>
+          searchPath!.includes(t.includes(".") ? t.slice(0, t.lastIndexOf(".")) : "public"),
+        )
+        .map(unqualified),
       // the `__loom_seed` idempotency marker Seed.cs provisions itself
       ...sqlTables(seed, "CREATE TABLE"),
     ]);
     const written = sqlTables(seed, "INSERT INTO");
     expect(written.length).toBeGreaterThan(0);
     for (const t of written) expect([...provisioned]).toContain(t);
-    // Concretely: unqualified on both sides, matching the adapter's layout.
+    // Concretely: the seed is unqualified, the migration creates the
+    // schema-qualified table the search path finds.
     expect(seed).toContain('INSERT INTO ""customers""');
     expect(seed).not.toContain('""sales"".""customers""');
+    expect(migrations).toContain('CREATE TABLE ""sales"".""customers""');
   });
 });

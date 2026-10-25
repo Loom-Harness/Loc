@@ -77,7 +77,7 @@ describe(".NET generator — versioned optimistic-concurrency", () => {
     expect(filter).toContain(
       'context.Result = Problem(context, 409, "Conflict", __conflictDetail, trace_id);',
     );
-    // RS-39 — EF's native concurrency-token failure carries EF's own wording,
+    // RS-40 — EF's native concurrency-token failure carries EF's own wording,
     // so the detail is rebuilt from the entry the guarded UPDATE missed.
     expect(filter).toContain(
       '__conflictDetail = $"{__name} {__idVal} was modified by another request";',

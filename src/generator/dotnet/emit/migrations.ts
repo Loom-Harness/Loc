@@ -55,18 +55,16 @@ export function emitDotnetMigrations(
 // DbContext model + this DDL only need to be runtime-consistent.
 const PROV_AUDIT_VERSION = "29991231235959";
 
-/** Emit `Migrations/<late>_ProvenanceAudit.cs` when the served contexts use
- *  provenance and/or per-operation audit: CREATE the history/audit tables and
- *  ADD the co-located `<field>_provenance` columns.  No-op (nothing emitted)
- *  when neither feature is present, or on the dapper path (which self-applies
- *  its own DbSchema). */
-export function emitDotnetProvenanceAuditMigration(
+/** The late provenance migration's statements: one `ADD COLUMN IF NOT EXISTS
+ *  <field>_provenance jsonb` per provenanced field, on its owning aggregate's
+ *  table.  Shared by the EF migration class below and the Dapper one
+ *  (`dapper-migrations.ts`), which apply the same DDL through different
+ *  runners.  Empty when `provenance` is off or no field is provenanced. */
+export function dotnetProvenanceColumnStatements(
   contexts: EnrichedBoundedContextIR[],
   sys: SystemIR | undefined,
-  ns: string,
-  out: Map<string, string>,
-  opts: { provenance: boolean; audit: boolean },
-): void {
+  opts: { provenance: boolean },
+): string[] {
   const stmts: string[] = [];
   if (opts.provenance) {
     // The `provenance_records` DDL lives in the shared MigrationsIR
@@ -97,8 +95,26 @@ export function emitDotnetProvenanceAuditMigration(
   // The `audit_records` DDL moved to the shared MigrationsIR
   // (`auditTableShape`) so all five backends derive it from one place.  Hono
   // emitted none at all, so audited commands failed at runtime there.
+  return stmts;
+}
+
+/** The late provenance/audit migration's id — sorts after every module's
+ *  block, so every aggregate table exists before its columns are added. */
+export const DOTNET_PROV_AUDIT_MIGRATION_ID = `${PROV_AUDIT_VERSION}_ProvenanceAudit`;
+
+/** Emit `Migrations/<late>_ProvenanceAudit.cs` when the served contexts use
+ *  provenance: ADD the co-located `<field>_provenance` columns.  No-op
+ *  (nothing emitted) when no field is provenanced. */
+export function emitDotnetProvenanceAuditMigration(
+  contexts: EnrichedBoundedContextIR[],
+  sys: SystemIR | undefined,
+  ns: string,
+  out: Map<string, string>,
+  opts: { provenance: boolean; audit: boolean },
+): void {
+  const stmts = dotnetProvenanceColumnStatements(contexts, sys, opts);
   if (stmts.length === 0) return;
-  const slug = `${PROV_AUDIT_VERSION}_ProvenanceAudit`;
+  const slug = DOTNET_PROV_AUDIT_MIGRATION_ID;
   out.set(`Migrations/${slug}.cs`, renderMigrationClass(ns, `M${slug}`, slug, stmts.join("\n\n")));
 }
 

@@ -97,8 +97,10 @@ import {
   findValidatesRequest,
   isAllFind,
   relativeOpPath,
+  servedOperations,
   staticSubpathMethods,
 } from "../../../ir/util/api-surface.js";
+import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { partsChildrenFirst } from "../../../ir/util/containment-parent.js";
 import {
   callerGates,
@@ -145,6 +147,7 @@ import {
   resolveErrorStatus,
 } from "../../../util/error-defaults.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import { escapeTargetMember } from "../../../util/target-identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Hono routes file with OpenAPI annotations.
@@ -697,9 +700,11 @@ export function buildRoutesFile(
   // derivation against, and that gate stayed non-tautological until four
   // independent implementations had agreed.  Kept local: schemas, handler
   // bodies, history + prepare (`apiSurfaceCoverage.notLifted`).
-  const derivedOps = deriveAggregateOperations(agg, repo, apiStatusContext(ctx));
+  // `servedOperations`: a slot an explicit `route` claims is served by that
+  // route's handler alone (D-EXPLICIT-ROUTE-WINS), so it is not registered here.
+  const derivedOps = servedOperations(deriveAggregateOperations(agg, repo, apiStatusContext(ctx)));
   const derivedCreate = derivedOps.find((o) => o.kind === "create");
-  const derivedGetById = derivedOps.find((o) => o.kind === "getById")!;
+  const derivedGetById = derivedOps.find((o) => o.kind === "getById");
   const derivedDestroy = derivedOps.find((o) => o.kind === "destroy");
   const derivedFindByIR = new Map(
     derivedOps.filter((o) => o.kind === "find").map((o) => [o.find, o]),
@@ -1016,7 +1021,8 @@ export function buildRoutesFile(
     lines.push(`      operationId: "${camelId(opCreate(agg.name))}",`);
     lines.push(`      request: {`);
     lines.push(
-      `        body: { content: { "application/json": { schema: ${reqNameFor({ kind: "create", aggregate: agg.name })} } } },`,
+      // RS-39 — a create with no input fields has an optional body.
+      `        body: { content: { "application/json": { schema: ${reqNameFor({ kind: "create", aggregate: agg.name })} } }${commandBodyOptional(createInputFields(agg)) ? ", required: false" : ""} },`,
     );
     lines.push(`      },`);
     lines.push(`      responses: {`);
@@ -1211,69 +1217,86 @@ export function buildRoutesFile(
   }
 
   // Get by id.
-  lines.push(`  app.openapi(`);
-  lines.push(`    createRoute({`);
-  lines.push(`      method: "${derivedGetById.method}",`);
-  lines.push(`      path: "${honoPath(derivedGetById)}",`);
-  lines.push(`      tags: ["${snake(plural(agg.name))}"],`);
-  lines.push(`      operationId: "${camelId(opGetById(agg.name))}",`);
-  lines.push(`      request: { params: z.object({ id: UuidString }) },`);
-  lines.push(`      responses: {`);
-  lines.push(
-    `        200: { description: "OK", content: { "application/json": { schema: ${agg.name}Response } } },`,
-  );
-  lines.push(...problemResponseLines(derivedGetById, "        "));
-  lines.push(`      },`);
-  lines.push(`    }),`);
-  lines.push(`    async (c) => {`);
-  lines.push(`      const { id } = c.req.valid("param");`);
-  lines.push(`      const found = await repo.findById(Ids.${agg.name}Id(id));`);
-  // RS-27 — the 404-BY-ID `detail` is the sentence `"<Agg> <id> not found"` on
-  // every backend, and this route was the one place Hono answered a machine
-  // token instead.  The cause is structural, not cosmetic: the route reads
-  // through `repo.findById` (returns null) and raises its OWN error, bypassing
-  // `repo.getById`, whose throw already carries exactly this message
-  // (`typescript/repository-builder.ts`).  So the message is spelled to match
-  // what the bypassed producer would have said, which is also what
-  // python/java/elixir/.NET emit.  (An OPTIONAL FIND's 404 keeps the
-  // `"not_found"` token — that class agrees across backends already.)
-  lines.push(
-    `      if (!found) throw new AggregateNotFoundError(\`${agg.name} \${id} not found\`);`,
-  );
-  lines.push(...maskUserBind(agg, "      "));
-  // The ETag half of optimistic concurrency (`versioned`).  The update route
-  // has always READ `If-Match` — but nothing ever SENT an entity-tag, so the
-  // conditional-write path was undiscoverable: a client had no value to echo,
-  // and `expectedVersion` always fell back to the version the SERVER had just
-  // loaded, which defeats the whole point (the race being guarded against is
-  // one that happens across the user's think time, between this read and that
-  // write).  Publishing it here closes the loop: read → hold the tag → send it
-  // back on `If-Match` → get a real 409 if someone else won the race.
-  //
-  // A response header only, deliberately not declared in the `responses`
-  // block: the OpenAPI documents are compared BACKEND-TO-BACKEND by the
-  // conformance spec-diff, so declaring it on node alone would read as a
-  // contract divergence.  Declaring it belongs with emitting it on the other
-  // four backends, in one change.
-  if (aggregateIsVersioned(agg)) {
-    lines.push(`      c.header("etag", versionETag(found.version));`);
-  }
-  if (emitTrace) {
-    // toWire isn't trivial — bind once so it's not run twice between
-    // Object.keys and c.json.
-    lines.push(`      const out = ${wireResp(agg, "repo", "found")};`);
+  if (derivedGetById) {
+    lines.push(`  app.openapi(`);
+    lines.push(`    createRoute({`);
+    lines.push(`      method: "${derivedGetById.method}",`);
+    lines.push(`      path: "${honoPath(derivedGetById)}",`);
+    lines.push(`      tags: ["${snake(plural(agg.name))}"],`);
+    lines.push(`      operationId: "${camelId(opGetById(agg.name))}",`);
+    lines.push(`      request: { params: z.object({ id: UuidString }) },`);
+    lines.push(`      responses: {`);
     lines.push(
-      `      ${renderHonoLogCall("wireOut", "keys: Object.keys(out as Record<string, unknown>)")}`,
+      `        200: { description: "OK", content: { "application/json": { schema: ${agg.name}Response } } },`,
     );
-    lines.push(`      return c.json(out as z.infer<typeof ${agg.name}Response>, 200);`);
-  } else {
+    lines.push(...problemResponseLines(derivedGetById, "        "));
+    lines.push(`      },`);
+    lines.push(`    }),`);
+    lines.push(`    async (c) => {`);
+    lines.push(`      const { id } = c.req.valid("param");`);
+    // M-T3.19 — the author's `find byId(id: T id): T? requires <expr>` gates
+    // this route.  Evaluated BEFORE the load, so a refused caller gets 403 for
+    // an existing and a missing id alike (no existence oracle); same carrier and
+    // `detail` label as the find's own route (`emitFindRoute`).
+    const byIdFind = derivedGetById.find;
+    if (byIdFind?.requires) {
+      if (findGateUsesCurrentUser(byIdFind)) {
+        lines.push(
+          `      const currentUser = (c as unknown as { get(k: "currentUser"): import("../auth/user-types").User }).get("currentUser");`,
+        );
+      }
+      lines.push(
+        `      if (!(${renderTsExpr(byIdFind.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${byIdFind.name}`)});`,
+      );
+    }
+    lines.push(`      const found = await repo.findById(Ids.${agg.name}Id(id));`);
+    // RS-27 — the 404-BY-ID `detail` is the sentence `"<Agg> <id> not found"` on
+    // every backend, and this route was the one place Hono answered a machine
+    // token instead.  The cause is structural, not cosmetic: the route reads
+    // through `repo.findById` (returns null) and raises its OWN error, bypassing
+    // `repo.getById`, whose throw already carries exactly this message
+    // (`typescript/repository-builder.ts`).  So the message is spelled to match
+    // what the bypassed producer would have said, which is also what
+    // python/java/elixir/.NET emit.  (An OPTIONAL FIND's 404 keeps the
+    // `"not_found"` token — that class agrees across backends already.)
     lines.push(
-      `      return c.json(${wireResp(agg, "repo", "found")} as z.infer<typeof ${agg.name}Response>, 200);`,
+      `      if (!found) throw new AggregateNotFoundError(\`${agg.name} \${id} not found\`);`,
     );
+    lines.push(...maskUserBind(agg, "      "));
+    // The ETag half of optimistic concurrency (`versioned`).  The update route
+    // has always READ `If-Match` — but nothing ever SENT an entity-tag, so the
+    // conditional-write path was undiscoverable: a client had no value to echo,
+    // and `expectedVersion` always fell back to the version the SERVER had just
+    // loaded, which defeats the whole point (the race being guarded against is
+    // one that happens across the user's think time, between this read and that
+    // write).  Publishing it here closes the loop: read → hold the tag → send it
+    // back on `If-Match` → get a real 409 if someone else won the race.
+    //
+    // A response header only, deliberately not declared in the `responses`
+    // block: the OpenAPI documents are compared BACKEND-TO-BACKEND by the
+    // conformance spec-diff, so declaring it on node alone would read as a
+    // contract divergence.  Declaring it belongs with emitting it on the other
+    // four backends, in one change.
+    if (aggregateIsVersioned(agg)) {
+      lines.push(`      c.header("etag", versionETag(found.version));`);
+    }
+    if (emitTrace) {
+      // toWire isn't trivial — bind once so it's not run twice between
+      // Object.keys and c.json.
+      lines.push(`      const out = ${wireResp(agg, "repo", "found")};`);
+      lines.push(
+        `      ${renderHonoLogCall("wireOut", "keys: Object.keys(out as Record<string, unknown>)")}`,
+      );
+      lines.push(`      return c.json(out as z.infer<typeof ${agg.name}Response>, 200);`);
+    } else {
+      lines.push(
+        `      return c.json(${wireResp(agg, "repo", "found")} as z.infer<typeof ${agg.name}Response>, 200);`,
+      );
+    }
+    lines.push(`    },`);
+    lines.push(`  );`);
+    lines.push("");
   }
-  lines.push(`    },`);
-  lines.push(`  );`);
-  lines.push("");
 
   // Canonical destroy → DELETE /{id} (hard delete).  Gated on the IR
   // lifecycle: emitted only when the aggregate has an unnamed `destroy`
@@ -1408,23 +1431,27 @@ export function buildRoutesFile(
 
   // Operations — the derived entries (public, non-canonical, in declaration
   // order), each carrying its path + resolved status set.
-  for (const [op, entry] of derivedOpByIR) {
-    lines.push(
-      ...emitOperationRoute(
-        agg,
-        op!,
-        ctx,
-        entry,
-        reqNameFor({ kind: "operation", aggregate: agg.name, operation: op!.name }),
-        auditOps.includes(op!),
-        provOps.includes(op!),
-        emitTrace,
-        usingMikro,
-      ).map((l) => `  ${l}`),
-    );
+  // Keyed on the operation OR its probe: an explicit route can claim one of the
+  // pair and leave the other to this router.
+  for (const op of new Set([...derivedOpByIR.keys(), ...derivedProbeByIR.keys()])) {
+    const entry = derivedOpByIR.get(op);
+    if (entry)
+      lines.push(
+        ...emitOperationRoute(
+          agg,
+          op!,
+          ctx,
+          entry,
+          reqNameFor({ kind: "operation", aggregate: agg.name, operation: op!.name }),
+          auditOps.includes(op!),
+          provOps.includes(op!),
+          emitTrace,
+          usingMikro,
+        ).map((l) => `  ${l}`),
+      );
     const probe = derivedProbeByIR.get(op);
     if (probe) {
-      lines.push("");
+      if (entry) lines.push("");
       lines.push(...emitCanOpRoute(agg, op!, probe, emitTrace).map((l) => `  ${l}`));
     }
     lines.push("");
@@ -2017,7 +2044,10 @@ function emitOperationRoute(
   out.push(`    operationId: "${camelId(opOperation(agg.name, op.name))}",`);
   out.push(`    request: {`);
   out.push(`      params: z.object({ id: UuidString }),`);
-  out.push(`      body: { content: { "application/json": { schema: ${reqName} } } },`);
+  // RS-39 — a parameterless command's body is optional (an empty one reads as `{}`).
+  out.push(
+    `      body: { content: { "application/json": { schema: ${reqName} } }${commandBodyOptional(op.params) ? ", required: false" : ""} },`,
+  );
   out.push(`    },`);
   out.push(`    responses: {`);
   out.push(`      204: { description: "No content" },`);
@@ -2079,7 +2109,7 @@ function emitOperationRoute(
   // so the operation method itself runs preconditions → hook → invariants —
   // the route calls it exactly like a non-extern op.
   const mutation = (pad: string): string[] => [
-    `${pad}aggregate.${lowerFirst(op.name)}(${callArgs});`,
+    `${pad}aggregate.${escapeTargetMember("ts", lowerFirst(op.name))}(${callArgs});`,
   ];
 
   if (!audit && !prov) {
@@ -2192,7 +2222,10 @@ function emitReturningOperationRoute(
   out.push(`    operationId: "${camelId(opOperation(agg.name, op.name))}",`);
   out.push(`    request: {`);
   out.push(`      params: z.object({ id: UuidString }),`);
-  out.push(`      body: { content: { "application/json": { schema: ${reqName} } } },`);
+  // RS-39 — a parameterless command's body is optional (an empty one reads as `{}`).
+  out.push(
+    `      body: { content: { "application/json": { schema: ${reqName} } }${commandBodyOptional(op.params) ? ", required: false" : ""} },`,
+  );
   out.push(`    },`);
   out.push(`    responses: {`);
   // 200 declares the tagged success arms; the error arms are intercepted
@@ -2244,7 +2277,7 @@ function emitReturningOperationRoute(
         // returning op of the same name keeps the write-time CAS fallback.
         isVersionedUpdate: false,
         mutation: (pad) => [
-          `${pad}const __result = aggregate.${lowerFirst(op.name)}(${callArgs});`,
+          `${pad}const __result = aggregate.${escapeTargetMember("ts", lowerFirst(op.name))}(${callArgs});`,
         ],
         capture: true,
       }),
@@ -2255,7 +2288,9 @@ function emitReturningOperationRoute(
     out.push(...whenGateLine(agg, op, "    "));
     // Lifecycle stamps are applied persist-time in the drizzle save()
     // — the handler does not stamp.
-    out.push(`    const result = aggregate.${lowerFirst(op.name)}(${callArgs});`);
+    out.push(
+      `    const result = aggregate.${escapeTargetMember("ts", lowerFirst(op.name))}(${callArgs});`,
+    );
     out.push(`    await repo.save(aggregate);`);
   }
   // Translate each error variant to a ProblemDetails before the success path.
@@ -2591,7 +2626,7 @@ const BODY_DATETIME =
  *  `preprocess` rather than `z.enum([...]).transform(...)` because the
  *  published declaration has to stay `{"type":"boolean"}` — the cross-backend
  *  spec diff compares it against four other backends that declare a boolean
- *  query param as a boolean.  Verified on BOTH pinned majors: zod 3 +
+ *  query param as a boolean.  Verified on both zod majors: zod 3 +
  *  `@hono/zod-openapi@0.19` and zod 4 + `@hono/zod-openapi@1` each publish
  *  `{"type":"boolean"}` for this chain, and `v` infers as `unknown` from
  *  `preprocess`'s own signature under `--strict` on both (and the coercion's spurious
@@ -3029,13 +3064,11 @@ export function emitWireSchema(
       }
     }
     // The NUL guard goes on LAST of the checks, after any declared regex or
-    // length bound.  Under zod 3 — which the `node@v4` lane still pins —
-    // `.refine()` returns a `ZodEffects` WRAPPER that no longer exposes
-    // `.regex`/`.min`/`.max`, so a guard in the BASE would make
-    // `z.string().refine(…).regex(/…/)` a type error in every generated project
-    // on that lane. (zod 4 keeps the `ZodString` type through `.refine`, so on
-    // v5 the position is a no-op — the emitter orders for the stricter of the
-    // two, exactly as `orderSingleFieldPatterns` already does.)
+    // length bound, matching `orderSingleFieldPatterns`.  zod 4 (the Hono
+    // pin) keeps the `ZodString` type through `.refine`, so the position is
+    // free there; under zod 3 `.refine()` returns a `ZodEffects` WRAPPER with
+    // no `.regex`/`.min`/`.max`, and the shared zod-refine helpers still order
+    // for that stricter major.
     if (isPlainString) schema = `${schema}${NO_NUL}`;
     // `.default(...)` / `.optional()` last: each wraps the (now constrained)
     // schema in a ZodDefault / ZodOptional, so any `.min`/`.max` must already

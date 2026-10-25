@@ -7,6 +7,7 @@ import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
   EventIR,
+  FieldIR,
   RepositoryIR,
   SystemIR,
   TimerSourceIR,
@@ -27,15 +28,16 @@ import { directParentName } from "../../ir/util/containment-parent.js";
 import { echoesDenialDetail } from "../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import {
-  foreignEventValueTypes,
+  foreignValueTypeSeeds,
+  foreignValueTypes,
   NO_FOREIGN_VALUE_TYPES,
   resolveForeignEvents,
   valueObjectFieldTypes,
 } from "../../ir/util/foreign-event-types.js";
 import {
   foreignIdBrandNames,
+  hostedContextIdTypeSources,
   userClaimIdTypeSources,
-  workflowIdTypeSources,
 } from "../../ir/util/foreign-ids.js";
 import {
   isTpcBase,
@@ -58,8 +60,8 @@ import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import type { Model } from "../../language/generated/ast.js";
 import { apiRoutePrefix } from "../../util/api-base.js";
-import { emissionSink } from "../../util/emission-sink.js";
-import { plural, snake, upperFirst } from "../../util/naming.js";
+import { emissionSink, rewrite } from "../../util/emission-sink.js";
+import { plural, upperFirst } from "../../util/naming.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
@@ -81,7 +83,7 @@ import {
 import { cqrsStyleAdapter } from "./adapters/cqrs-style.js";
 import { emitDotnetResourceFiles, resourceClassName } from "./adapters/resource-clients.js";
 import { emitAuthFiles } from "./auth-emit.js";
-import { clashFreeRootNamespace } from "./bcl-collision.js";
+import { clashFreeRootNamespace, layerClashAliases } from "./bcl-collision.js";
 import {
   emitBaseReaders,
   emitCommon,
@@ -114,24 +116,34 @@ import {
   renderDapperDocumentRepository,
   renderDapperEventSourcedRepository,
   renderDapperRepository,
-  renderDapperSchema,
 } from "./emit/dapper.js";
+import {
+  dapperSearchPath,
+  emitDapperMigrations,
+  renderDapperMigrationClass,
+  renderDapperMigrationRunner,
+} from "./emit/dapper-migrations.js";
 import { renderDapperConnectionLease } from "./emit/dapper-session.js";
 import {
   dapperPortRegistrations,
-  dapperWorkflowTables,
   emitDapperWorkflowInfra,
   renderDapperOutboxDispatcher,
   renderDapperOutboxRelay,
 } from "./emit/dapper-workflow.js";
 import { renderDomainLog, renderExecutionContextBehavior } from "./emit/domain-log.js";
 import { emitDomainServices } from "./emit/domain-service.js";
+import { renderEmptyJsonBodyMiddleware } from "./emit/empty-body-middleware.js";
 import type { OpFragment } from "./emit/entity.js";
 import { renderExternHookImpl } from "./emit/extern.js";
 import { renderId } from "./emit/ids.js";
 import { CS_MESSAGES_PATH, renderCsMessages } from "./emit/messages.js";
 import { renderHttpMetrics } from "./emit/metrics.js";
-import { emitDotnetMigrations, emitDotnetProvenanceAuditMigration } from "./emit/migrations.js";
+import {
+  DOTNET_PROV_AUDIT_MIGRATION_ID,
+  dotnetProvenanceColumnStatements,
+  emitDotnetMigrations,
+  emitDotnetProvenanceAuditMigration,
+} from "./emit/migrations.js";
 import { OP_UNION_FILTER_PATH, renderOpUnionResponsesFilter } from "./emit/op-union-filter.js";
 import {
   renderOutboxDelivery,
@@ -290,15 +302,9 @@ export function generateDotnetForContexts(
     /** `.ddd` source text keyed by `OriginRef` source path —
      *  forwarded verbatim into the root `renderEntity` call so the REGULAR
      *  named-operation body loop can weave `#line` directives.  Gated on
-     *  `sourceTexts` ALONE — `sourcemap` is NOT consulted (`renderEntity`
-     *  weaves whenever this map is present; a statement whose file has no
-     *  text gets no directive, never a guessed one).  Unlike the v3/SMAP
-     *  sidecars (`recorder && sourceTexts` in src/system/index.ts), the CLI's
-     *  `generate system` always supplies this map, so its .NET output carries
-     *  `#line` with or without `--sourcemap` — which docs/debugging.md's
-     *  "with the flag off, generated output is byte-for-byte unchanged" does
-     *  not describe.  Tracked as leftover-waves C5 (fix: gate on `sourcemap && sourceTexts`), not
-     *  settled here. */
+     *  `sourcemap` also being present (same honest-skip convention as the
+     *  v3 sidecars; enforced at the `renderEntity` call site): no recorder
+     *  or no text → no directives, never guessed. */
     sourceTexts?: ReadonlyMap<string, string>;
   } = {},
 ): Map<string, string> {
@@ -306,18 +312,22 @@ export function generateDotnetForContexts(
   const emitTrace = !!options.emitTrace;
   if (namespace !== undefined) {
     // Single project containing all the given contexts under one namespace.
+    const root = clashFreeRootNamespace(namespace, contexts);
     emitProjectFromContexts(
       contexts,
-      clashFreeRootNamespace(namespace, contexts),
+      root,
       out,
       system,
       emitTrace,
       options.sourcemap,
       options.sourceTexts,
     );
+    for (const [path, src] of layerClashAliases(out, root, contexts)) rewrite(out, path, src);
   } else {
     for (const ctx of contexts) {
-      emitContext(ctx, clashFreeRootNamespace(ctx.name, [ctx]), out, emitTrace);
+      const root = clashFreeRootNamespace(ctx.name, [ctx]);
+      emitContext(ctx, root, out, emitTrace);
+      for (const [path, src] of layerClashAliases(out, root, [ctx])) rewrite(out, path, src);
     }
   }
   return out;
@@ -452,19 +462,24 @@ function emitProjectFromContexts(
         system.sys,
       )
     : [];
-  // The value objects / enums those foreign events reach: the event record
-  // names them, so the consumer must declare them (eval item 11) — derived
-  // ahead of `emitCommon` because a foreign VO's invariant needs the
-  // `ValueObjectInvariantException` it throws.
-  const foreignValueTypes = system
-    ? foreignEventValueTypes(foreignConsumedEvents, system.sys, mergedBase)
+  // The value objects / enums those foreign events — or the hosted contexts'
+  // own declarations (D15: a sibling-context enum / VO) — reach: the event
+  // record / aggregate names them, so the deployable must declare them (eval
+  // item 11) — derived ahead of `emitCommon` because a foreign VO's invariant
+  // needs the `ValueObjectInvariantException` it throws.
+  const foreignValues = system
+    ? foreignValueTypes(
+        foreignValueTypeSeeds(foreignConsumedEvents, contexts),
+        system.sys,
+        mergedBase,
+      )
     : NO_FOREIGN_VALUE_TYPES;
   emitCommon(ns, out, {
     concurrencyException: emitsConcurrencyException,
     file: hasFileField,
     valueObjectInvariant:
       contexts.some(hasValueObjectInvariants) ||
-      foreignValueTypes.valueObjects.some((v) => v.invariants.length > 0),
+      foreignValues.valueObjects.some((v) => v.invariants.length > 0),
     domainFloorCodes: contexts.some(hasDomainFloorMessages),
   });
   emitDispatcher(ns, out, hasSubscriptions, system?.deployable.persistence !== "dapper");
@@ -530,9 +545,14 @@ function emitProjectFromContexts(
       if (svcTests) out.set(`Tests/${ns}.Tests/Services/${svc.name}Tests.cs`, svcTests);
     }
     // Context INTEGRATION test (test-placement.md) — an in-process,
-    // EF-repository-backed cross-aggregate xUnit class reading LOOM_PG_URL,
-    // applying the EF migrations, wiring the repos, and persisting→reading.
-    const integrationTests = renderContextIntegrationTest(ctx, ns);
+    // repository-backed cross-aggregate xUnit class reading LOOM_PG_URL,
+    // bringing the schema up (EF migrations, or the Dapper DbSchema), wiring
+    // the repos, and persisting→reading.
+    const integrationTests = renderContextIntegrationTest(
+      ctx,
+      ns,
+      system?.deployable.persistence === "dapper",
+    );
     if (integrationTests) {
       out.set(`Tests/${ns}.Tests/${upperFirst(ctx.name)}IntegrationTests.cs`, integrationTests);
     }
@@ -582,10 +602,10 @@ function emitProjectFromContexts(
   for (const ev of foreignConsumedEvents) {
     out.set(`Domain/Events/${ev.name}.cs`, renderEvent(ev, ns));
   }
-  for (const e of foreignValueTypes.enums) {
+  for (const e of foreignValues.enums) {
     out.set(`Domain/Enums/${e.name}.cs`, renderEnum(e, ns));
   }
-  for (const vo of foreignValueTypes.valueObjects) {
+  for (const vo of foreignValues.valueObjects) {
     out.set(`Domain/ValueObjects/${vo.name}.cs`, renderValueObject(vo, ns));
   }
   if (system) {
@@ -596,8 +616,8 @@ function emitProjectFromContexts(
     );
     const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
       ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
-      ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
-      ...workflowIdTypeSources(merged.workflows),
+      ...valueObjectFieldTypes(foreignValues.valueObjects),
+      ...hostedContextIdTypeSources([merged]),
       ...userClaimIdTypeSources(system.sys.user),
     ]);
     for (const name of foreignIdNames) {
@@ -626,6 +646,10 @@ function emitProjectFromContexts(
   // The `User` property the SSE endpoint reads the room key off — the bound
   // `tenancy by user.<claim>`, never the row column `TenantId`.
   const realtimeTenantClaim = realtimeTenantClaimProperty(realtimeRoomPlan);
+  // The deployable carries auth: durable events record their EVENT ORIGIN on
+  // the outbox row, every envelope carries it, and the relay / consumer
+  // deliver inside its system principal (ruling D1, `Auth/EventOrigin.cs`).
+  const deployableCarriesAuth = !!(system?.deployable.auth?.required && system.sys.user);
   if (hasChannels && system) {
     out.set(
       "Infrastructure/Channels/ChannelTransport.cs",
@@ -645,7 +669,8 @@ function emitProjectFromContexts(
         {
           hasOutbox: hasOutboxTier,
           durableBroker: durableBrokerEvents.size > 0,
-          valueObjects: [...valueObjectPool(mergedBase), ...foreignValueTypes.valueObjects],
+          valueObjects: [...valueObjectPool(mergedBase), ...foreignValues.valueObjects],
+          carriesOrigin: deployableCarriesAuth,
         },
       ),
     );
@@ -665,7 +690,7 @@ function emitProjectFromContexts(
   // BackgroundService delivers them at-least-once.  BOTH persistence adapters
   // now emit it (M-T6.9): efcore maps the EF `OutboxMessage` entity onto the
   // MigrationsIR-owned table; dapper INSERTs/UPDATEs the same __loom_outbox
-  // (DbSchema-owned DDL) through raw Npgsql.  The `OutboxDelivery` AsyncLocal
+  // (migration-chain DDL) through raw Npgsql.  The `OutboxDelivery` AsyncLocal
   // carrier + the dispatcher/relay class NAMES are identical, so Program.cs's
   // registration lines are shared.
   const durableTypes = [...new Set(contexts.flatMap((c) => [...durableEventTypes(c)]))].sort();
@@ -678,12 +703,16 @@ function emitProjectFromContexts(
     const outboxInner = hasSubscriptions
       ? "InProcessDomainEventDispatcher"
       : "NoopDomainEventDispatcher";
-    const relayOpts = { durableBroker: durableBrokerEvents.size > 0, hasSubscriptions };
+    const relayOpts = {
+      durableBroker: durableBrokerEvents.size > 0,
+      hasSubscriptions,
+      carriesOrigin: deployableCarriesAuth,
+    };
     out.set("Domain/Common/OutboxDelivery.cs", renderOutboxDelivery(ns));
     if (outboxUsesDapper) {
       out.set(
         "Infrastructure/Events/OutboxDomainEventDispatcher.cs",
-        renderDapperOutboxDispatcher(ns, durableTypes, outboxInner),
+        renderDapperOutboxDispatcher(ns, durableTypes, outboxInner, deployableCarriesAuth),
       );
       out.set(
         "Infrastructure/Events/OutboxRelayService.cs",
@@ -693,7 +722,7 @@ function emitProjectFromContexts(
       out.set("Infrastructure/Persistence/OutboxMessage.cs", renderOutboxMessage(ns));
       out.set(
         "Infrastructure/Events/OutboxDomainEventDispatcher.cs",
-        renderOutboxDispatcher(ns, durableTypes, outboxInner),
+        renderOutboxDispatcher(ns, durableTypes, outboxInner, deployableCarriesAuth),
       );
       out.set(
         "Infrastructure/Events/OutboxRelayService.cs",
@@ -751,7 +780,7 @@ function emitProjectFromContexts(
   const usesStamping = merged.aggregates.some((a) => (a.contextStamps?.length ?? 0) > 0);
   // Persistence selection (D-REALIZATION-AXES `persistence:`): `dapper` replaces
   // the EF Core DbContext + model-derived migrations with an Npgsql/Dapper
-  // connection + a self-applied `DbSchema` (CREATE TABLE IF NOT EXISTS).  The
+  // connection + versioned migrations applied by `DbSchema.EnsureAsync`.  The
   // validator gates dapper to the supported subset, so the EF-only branches
   // below stay byte-identical for the default `efcore`.
   const usingDapper = system?.deployable.persistence === "dapper";
@@ -761,7 +790,7 @@ function emitProjectFromContexts(
   // per-handler instrumentation.  Provenance is supported on BOTH persistence
   // adapters — the shared ProvLineage SDK + the co-located `<field>_provenance`
   // columns + the append-only `provenance_records` flush; the Dapper repository
-  // flushes via raw Npgsql (DbSchema owns the history table's DDL) instead of
+  // flushes via raw Npgsql (the migration chain creates the history table) instead of
   // the EF ProvenanceRecord POCO/configuration.  Audit follows exactly that
   // shape, on BOTH adapters — gating it EF-only (`!usingDapper && …`) leaves
   // the handler emitters referencing `IAuditWriter` under Dapper with no
@@ -779,44 +808,14 @@ function emitProjectFromContexts(
   // `historyFind` rather than re-deriving "which aggregates serve history";
   // that derivation is `aggServesHistory` and enrichment already ran it.
   const hasHistory = merged.repositories.some((r) => r.historyFind !== undefined);
-  // Shape routing (shared by both persistence paths): document-shaped aggregates
-  // persist as one JSONB blob table (Dapper) / DbSet<Document> (EF); embedded
-  // ones fold each containment into a JSONB column (Dapper) / owned `.ToJson()`.
-  const docAggSet = documentAggNames(contexts, system?.sys);
-  const embAggSet = embeddedAggNames(contexts, system?.sys);
   if (usingDapper) {
-    // Workflow / saga / outbox / projection DDL (M-T6.9): the raw-Npgsql
-    // siblings of the EF-migration-owned tables, spliced into DbSchema.cs
-    // alongside the aggregate / event-log / provenance tables.  The
-    // `<ctx>_events` log itself is already carried by `eventLogContexts`.
+    // The boot-time migration runner (DbSchema.EnsureAsync).  The migrations it
+    // applies are the shared MigrationsIR chain, emitted below beside EF's
+    // (`emitDapperMigrations`) — every table the repositories and the workflow /
+    // saga / outbox / projection / audit / provenance surfaces read is in that
+    // chain, so this adapter keeps no DDL of its own.
     const dapperWfDurable = durableEventTypes(merged).size > 0;
-    const dapperWorkflowDdl = dapperWorkflowTables(
-      merged.workflows,
-      merged.projections,
-      dapperWfDurable,
-      hasOutbox,
-    );
-    out.set(
-      "Infrastructure/Persistence/DbSchema.cs",
-      renderDapperSchema(
-        merged.aggregates,
-        ns,
-        eventLogContexts(contexts).map((c) => snake(c.name)),
-        docAggSet,
-        embAggSet,
-        dapperWorkflowDdl,
-        // The shared `provenance_records` shape, read off the MigrationsIR
-        // snapshot this deployable was handed.  The Dapper path emits no
-        // migration FILES (DbSchema self-applies instead), but it still gets the
-        // IR, so the bootstrap renders the one shared definition rather than a
-        // hand-written mirror of it.  Absent when the module has no provenanced
-        // field — or when another deployable owns this module's migrations, in
-        // which case that owner's migration creates the table.
-        (system?.migrations ?? [])
-          .flatMap((m) => m.next.tables)
-          .find((t) => t.name === "provenance_records"),
-      ),
-    );
+    out.set("Infrastructure/Persistence/DbSchema.cs", renderDapperMigrationRunner(ns));
     // The connection lease every Dapper repository opens + the ambient
     // unit-of-work transaction it enlists in, so a `transactional` workflow's
     // saves share ONE connection + transaction (dapper-session.ts).
@@ -839,7 +838,7 @@ function emitProjectFromContexts(
     // The shared provenance lineage SDK (ProvLineage) — the entity's co-located
     // `<Field>Provenance` property is typed by it.  The EF ProvenanceRecord POCO
     // / EntityTypeConfiguration are NOT emitted (EF-only); the Dapper repository
-    // flushes history rows via raw Npgsql and DbSchema owns the
+    // flushes history rows via raw Npgsql and the migration chain owns the
     // `provenance_records` DDL (renderDapperSchema, above).
     if (hasProvenance) {
       out.set("Domain/Common/ProvLineage.cs", renderProvLineage(ns));
@@ -962,7 +961,7 @@ function emitProjectFromContexts(
   if (hasAudit) {
     out.set("Infrastructure/Persistence/AuditRecord.cs", renderAuditRecord(ns));
     // The EntityTypeConfiguration is EF-only — under Dapper the table's DDL is
-    // owned by DbSchema.cs, exactly as it is for provenance_records.
+    // owned by the migration chain, exactly as it is for provenance_records.
     if (!usingDapper) {
       out.set(
         "Infrastructure/Persistence/Configurations/AuditRecordConfiguration.cs",
@@ -1064,9 +1063,23 @@ function emitProjectFromContexts(
   // entry points) → no-op.  Emitted before the project shell so
   // Program.cs sees `hasMigrations` and adds the
   // `Database.Migrate()` startup call.
-  // EF migrations only for the efcore path — dapper applies its own
-  // `DbSchema` at startup (see renderProgram), so it needs no migration files
-  // and `hasMigrations` stays false to suppress the `Database.Migrate()` call.
+  //
+  // Dapper applies the SAME chain (D-DAPPER-ALTER / M-T2.17): one versioned
+  // `Migrations/<slug>.cs` per MigrationsIR generation, projected onto the
+  // Dapper column layout and run by `DbSchema.EnsureAsync` instead of
+  // `Database.Migrate()` (Program.cs branches on `usingDapper` first).
+  if (usingDapper && system?.migrations && system.migrations.length > 0) {
+    emitDapperMigrations(system.migrations, ns, out);
+    const provStmts = dotnetProvenanceColumnStatements(contexts, system?.sys, {
+      provenance: hasProvenance,
+    });
+    if (provStmts.length > 0) {
+      out.set(
+        `Migrations/${DOTNET_PROV_AUDIT_MIGRATION_ID}.cs`,
+        renderDapperMigrationClass(ns, DOTNET_PROV_AUDIT_MIGRATION_ID, provStmts),
+      );
+    }
+  }
   const hasMigrations = !usingDapper && !!(system?.migrations && system.migrations.length > 0);
   if (hasMigrations) {
     emitDotnetMigrations(system!.migrations!, ns, out);
@@ -1090,13 +1103,13 @@ function emitProjectFromContexts(
     // the EF model routes the tables into (the DOMAIN path is qualified by the
     // model mapping itself).
     //
-    // …EXCEPT under `persistence: dapper`, which is a SELF-PROVISIONING adapter:
-    // it emits no migration chain, its DDL is `DbSchema.EnsureAsync`, and that
-    // DDL (like every Dapper statement) names tables UNQUALIFIED — so the raw
-    // seed has to target the same unqualified tables `EnsureAsync` created.
-    // Qualifying them off the per-context dataSource schema instead made
-    // `RunSeeds` throw `3F000 schema "catalog" does not exist` on first boot,
-    // because nothing in the Dapper emission ever creates that schema (F2-ADP-2).
+    // …EXCEPT under `persistence: dapper`, whose every statement names tables
+    // UNQUALIFIED and resolves them through the connection's `search_path`
+    // (`public` + the context schemas the migration chain creates the tables
+    // in — `dapperSearchPath`).  The raw seed rides the same connection, so it
+    // stays unqualified too.  (Before the chain, F2-ADP-2: qualifying it threw
+    // `3F000 schema "catalog" does not exist`, because the old bootstrap never
+    // created that schema.)
     emitDotnetSeeds(merged, ns, out, usingDapper, (aggName) => {
       if (usingDapper) return undefined;
       // Resolve through the aggregate's OWNING context, not `merged`: the
@@ -1152,6 +1165,7 @@ function emitProjectFromContexts(
     );
   }
   emitProject(merged, ns, out, {
+    nativePort: system?.deployable.port,
     timers: hasTimers ? ownedTimers : [],
     hasChannels,
     hasChannelConsumers,
@@ -1162,7 +1176,7 @@ function emitProjectFromContexts(
       kafka: channelBindings.some((b) => b.transport === "kafka"),
     },
     authRequired,
-    userFields: (userFields ?? []).map((f) => f.name),
+    userFields: userFields ?? [],
     actorIdProp,
     usesValidators,
     usesStamping,
@@ -1192,6 +1206,7 @@ function emitProjectFromContexts(
     // Dapper persistence-port DI (M-T6.9): closed bindings keyed off the
     // pre-merge event-log context names — computed here (index has `contexts`)
     // and threaded to Program.cs.  Empty on the EF path (it uses open generics).
+    dapperSearchPath: usingDapper ? dapperSearchPath(system?.migrations ?? []) : undefined,
     dapperPortRegistrations: usingDapper
       ? dapperPortRegistrations(
           ns,
@@ -1209,7 +1224,7 @@ function emitProjectFromContexts(
     // materialize `currentUser.orgPath`.  Undefined (flat tenancy) ⇒ omitted.
     orgPathResolver: !!(authRequired && system?.sys && hierarchyRegistry(system.sys)),
   });
-  emitTestProject(merged, ns, out);
+  emitTestProject(merged, ns, out, resourceEmission.nugetDeps);
   // Fullstack mode — generate the React project under ClientApp/.
   // The SPA hits `/api/*` on its own origin (apiBaseUrl: ""), so
   // `api/config.ts` produces `fetch("/api/...")`-shaped calls that
@@ -1405,7 +1420,7 @@ function emitAggregate(
   const aggFolder = plural(agg.name);
   const construct = `${ctx.name}.${agg.name}`;
   // Persistence selection (needed as early as the abstract-base branch below —
-  // a Dapper TPH base owns its shared table via DbSchema, not an EF config).
+  // a Dapper TPH base's shared table comes from the migration chain, not an EF config).
   const usingDapperEarly = emitCtx?.deployable.persistence === "dapper";
   // Per-aggregate placement (D-REALIZATION-AXES `directoryLayout:`): route the
   // aggregate's domain + persistence files through the deployable's RESOLVED
@@ -1460,7 +1475,7 @@ function emitAggregate(
       // the migration stamps on that table (the owning context's Postgres schema),
       // else EF issues `INSERT INTO "vehicles"` while the migration created
       // `"fleet"."vehicles"` → `relation "vehicles" does not exist` at runtime.
-      // Dapper path: DbSchema owns the shared-table DDL (renderDapperSchema — id +
+      // Dapper path: the migration chain owns the shared-table DDL (id +
       // `kind` + base + nullable union of concrete columns), so no EF config is
       // emitted (it would reference Microsoft.EntityFrameworkCore, absent here).
       if (!usingDapperEarly) {
@@ -1597,7 +1612,10 @@ function emitAggregate(
       operationReturnUnions,
       opFragments,
       construct,
-      sourceTexts,
+      // C5 (M-T6.75): `#line` weaving is a `--sourcemap` feature — without a
+      // recorder the output must stay byte-identical to a plain generate,
+      // even though the CLI always hands `sourceTexts` down.
+      sourcemap ? sourceTexts : undefined,
     ),
     agg.origin,
     opFragments,
@@ -1683,7 +1701,7 @@ function emitAggregate(
     const actorIdProp = actorIdField ? upperFirst(actorIdField.name) : undefined;
     // Dapper event store (persistedAs: eventLog) reuses the persistence-agnostic
     // domain fold + CQRS create chain; only the repository is Dapper-specific.
-    // The `<agg>_events` table ships in DbSchema.cs (renderDapperSchema).
+    // The `<ctx>_events` table ships in the migration chain.
     place(
       `${agg.name}Repository.cs`,
       "repository-impl",
@@ -1710,7 +1728,7 @@ function emitAggregate(
       // methods, emitted under the snapshot seam, do the mapping).  Document
       // folds the WHOLE aggregate into one JSONB blob; embedded folds each
       // containment into its own JSONB column beside the flat root columns.  No
-      // `<Agg>Document` EF POCO / configuration — DbSchema owns the table DDL.
+      // `<Agg>Document` EF POCO / configuration — the migration chain owns the table DDL.
       place(`${agg.name}Snapshots.cs`, "entity", renderSnapshots(agg, ns), agg.origin);
     }
   } else if (isEs) {
@@ -1927,10 +1945,12 @@ function emitProject(
   ns: string,
   out: Map<string, string>,
   options?: {
+    /** The deployable's declared port — what a bare `dotnet run` listens on. */
+    nativePort?: number;
     authRequired?: boolean;
     /** Declared `user { … }` field names in declaration order — the shape
      *  `/auth/me` projects (#2548).  Empty without auth. */
-    userFields?: string[];
+    userFields?: readonly FieldIR[];
     usesValidators?: boolean;
     usesStamping?: boolean;
     hasEmbeddedSpa?: boolean;
@@ -2007,6 +2027,8 @@ function emitProject(
      *  lines for the workflow / projection / event-store adapters (empty on the
      *  EF path). */
     dapperPortRegistrations?: string[];
+    /** Dapper connection `search_path` (`dapperSearchPath`). */
+    dapperSearchPath?: string[];
   },
 ): void {
   // Scrutor scan (+ package ref) is needed when the project emits any
@@ -2034,6 +2056,7 @@ function emitProject(
   out.set(
     "Program.cs",
     renderProgram(ctx, ns, {
+      nativePort: options?.nativePort,
       schemaIdOverrides,
       // Read off the emitted files, like `schemaIdOverrides` above.
       opUnionFilter: out.has(OP_UNION_FILTER_PATH),
@@ -2065,6 +2088,7 @@ function emitProject(
       hangfireJobDiRegistrations: hangfireJobDiRegistrations(timers, ns),
       hangfireRecurringRegistrations: hangfireRecurringRegistrations(timers, ns),
       dapperPortRegistrations: options?.dapperPortRegistrations,
+      dapperSearchPath: options?.dapperSearchPath,
     }),
   );
   // Ardalis.Specification ships only when a retrieval exists (EF Core path;
@@ -2106,6 +2130,8 @@ function emitProject(
   // Catalog-identity request log — always-on.  Cross-backend parity
   // with Phoenix's <App>.Telemetry and Hono's pino access log.
   out.set("Middleware/RequestLoggingMiddleware.cs", renderRequestLoggingMiddleware(ns));
+  // RS-39 — an empty request body reads as `{}` (mounted in Program.cs).
+  out.set("Middleware/EmptyJsonBodyMiddleware.cs", renderEmptyJsonBodyMiddleware(ns));
   // Prometheus HTTP metrics — catalog-driven, served at /metrics (Program.cs
   // MapMetrics), recorded from RequestLoggingMiddleware's request_end seam.
   out.set("Observability/HttpMetrics.cs", renderHttpMetrics(ns));
@@ -2154,7 +2180,12 @@ function emitProject(
   }
 }
 
-function emitTestProject(ctx: BoundedContextIR, ns: string, out: Map<string, string>): void {
+function emitTestProject(
+  ctx: BoundedContextIR,
+  ns: string,
+  out: Map<string, string>,
+  resourceNugetDeps: Record<string, string> = {},
+): void {
   // Only emit a test csproj when at least one subject (aggregate / value object
   // / domain service) declares a `test` block — otherwise the project would
   // have nothing to compile.
@@ -2164,7 +2195,7 @@ function emitTestProject(ctx: BoundedContextIR, ns: string, out: Map<string, str
     ctx.domainServices.some((s) => s.tests.length > 0) ||
     ctx.tests.length > 0;
   if (!anyTests) return;
-  out.set(`Tests/${ns}.Tests/${ns}.Tests.csproj`, renderTestCsproj(ns));
+  out.set(`Tests/${ns}.Tests/${ns}.Tests.csproj`, renderTestCsproj(ns, resourceNugetDeps));
 }
 
 function findRepoFor(ctx: BoundedContextIR, name: string): RepositoryIR | undefined {
@@ -2228,7 +2259,7 @@ function makeOwnerOf(contexts: EnrichedBoundedContextIR[]): OwnerOf {
 }
 
 /** Emit the ONE shared `EventRecord` POCO + one `<Ctx>EventRecordConfiguration`
- *  per event-sourced context (EF path only — dapper ships DDL via DbSchema).
+ *  per event-sourced context (EF path only — dapper reads the table the migration chain creates).
  *  No-op when no context owns an event log. */
 function emitEventLogFiles(
   contexts: EnrichedBoundedContextIR[],

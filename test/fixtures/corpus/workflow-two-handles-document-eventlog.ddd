@@ -7,7 +7,7 @@
 // event append writes the versions AFTER the one the handle folded, so a stale
 // handle's append collides with the `(stream_type, stream_id, version)` key.
 // Either way the second save of two handles that both changed the row is stale,
-// answers the RS-39 409, and the `transactional` workflow persists neither.
+// answers the RS-40 409, and the `transactional` workflow persists neither.
 //
 // The pre-fix shapes this pins: java's document upsert had no version guard at
 // all, EF's document save compared against the re-read row instead of the

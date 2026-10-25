@@ -290,10 +290,14 @@ export const AUTHZ_LADDERS = {
     seed: { path: "/api/tickets", body: { subject: "authz ladder probe", open: true } },
     gated: [
       { label: "role gate", method: "POST", path: "/api/tickets/{id}/close", body: {} },
-      // H-10: the unauthorized token OMITS the optional `agentId` claim, so this
-      // arm is "an absent optional claim fails `!= null`" — 204 here is the
-      // bypass node shipped (`undefined !== null`).
+      // The unauthorized token OMITS the optional `agentId` claim, so this arm is
+      // "an absent optional claim fails `!= null`" — 204 here means an absent
+      // claim reached the principal as something other than null.
       { label: "absent optional claim", method: "POST", path: "/api/tickets/{id}/take", body: {} },
+      // The unauthorized token's `assignee` is present but not a UUID, so this
+      // arm is "a malformed identifier claim fails `!= null`" — 204 here means
+      // the raw value reached the principal.
+      { label: "malformed id claim", method: "POST", path: "/api/tickets/{id}/assign", body: {} },
     ],
     arms: { anonymous: 401, unauthorized: 403, authorized: 204 },
   },
@@ -329,6 +333,11 @@ export const AUTHZ_LADDERS = {
       { label: "folded projection", method: "GET", path: "/api/projections/order_book" },
       { label: "folded projection by key", method: "GET", path: "/api/projections/order_book/{id}" },
       { label: "query-time projection", method: "GET", path: "/api/projections/open_orders" },
+      // M-T3.19 — the compiler-derived by-id read, gated by the fixture's
+      // `find byId(id: Order id): Order? requires …`.
+      { label: "gated by-id read", method: "GET", path: "/api/orders/{id}" },
+      // …and the same declared find's own route, under the same gate.
+      { label: "gated byId find route", method: "GET", path: "/api/orders/by_id?id={id}" },
     ],
     arms: { anonymous: null, unauthorized: 403, authorized: 200 },
     anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",
