@@ -13,7 +13,7 @@
 //     already did.
 
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles } from "../_helpers/index.js";
+import { generateSystemFiles, generateSystemFilesUnchecked } from "../_helpers/index.js";
 
 type Framework = "react" | "vue" | "svelte" | "angular" | "feliz" | "flutter";
 
@@ -170,14 +170,19 @@ describe("pages for declared parameterless list finds (U3)", () => {
     expect(files.has("web/src/pages/tickets/by_subject.tsx")).toBe(false);
   });
 
-  it("skips the view pages when a page cannot evaluate the read gate rather than emit a refused gate", async () => {
-    // `!= null` is outside the client gate subset (loom.ui-gate-expr-unsupported).
+  it("emits no view page for a read gate a page cannot evaluate (the List page reports it once)", async () => {
+    // `!= null` is outside the client gate subset: the List page's copy of the
+    // gate is refused (loom.ui-gate-expr-unsupported), and the view pages add
+    // no second copy of the same refusal.
     const gated = spa("react").replace(
       'policy { read Ticket requires currentUser.role == "agent" }',
       "policy { read Ticket requires currentUser.customerId != null }",
     );
     expect(gated).toContain("currentUser.customerId != null }");
-    const files = await generateSystemFiles(gated);
+    const files = await generateSystemFilesUnchecked(
+      gated,
+      "the List page's unevaluable read gate is the error; the subject is that no view page repeats it",
+    );
     expect(files.has("web/src/pages/tickets/mine.tsx")).toBe(false);
     expect(files.has("web/src/pages/tickets/unassigned.tsx")).toBe(false);
   });
