@@ -1008,9 +1008,7 @@ export function scopeFilterSweep(
 export interface GateFact {
   /** Stable key: `<surface> <owner>.<name>`. */
   readonly key: string;
-  /** The 403 detail(s) the gate may render with.  One, except the audit-history
-   *  gate, whose detail the backends spell three ways (a recorded divergence —
-   *  see `HISTORY_DETAILS`). */
+  /** The 403 detail(s) the gate may render with. */
   readonly details: readonly string[];
   /** Tokens, ANY of which the emission's scope/file context must contain
    *  (normalized): the operation name, the lifecycle verb, the find name … */
@@ -1019,10 +1017,6 @@ export interface GateFact {
    *  so `destroy` on `Crate` cannot be satisfied by `destroy` on `Shipment`. */
   readonly owner?: string;
 }
-
-/** The audit-history gate's detail — the declared-find spelling for the
- *  derived `history` find, five-way (pinned by the 403-detail census). */
-const HISTORY_DETAILS = (_agg: string): string[] => ["Forbidden: find history"];
 
 function requiresIn(stmts: readonly StmtIR[]): string[] {
   const out: string[] = [];
@@ -1090,7 +1084,7 @@ export function gateFacts(model: LoomModel): GateFact[] {
           if (repo.historyFind?.requires) {
             out.push({
               key: `history ${repo.aggregateName}`,
-              details: HISTORY_DETAILS(repo.aggregateName),
+              details: [`Forbidden: find ${repo.historyFind.name}`],
               anchors: ["history"],
               owner: repo.aggregateName,
             });

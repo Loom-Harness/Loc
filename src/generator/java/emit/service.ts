@@ -216,6 +216,11 @@ export function renderJavaService(
   // create: before is JSON null (NullNode → the `null` token, satisfying the
   // NOT NULL jsonb column), after is the freshly-created wire snapshot, keyed by
   // the generated id; actor + correlation/scope/parent ids from RequestContext.
+  // `after` is projected from the instance `save` RETURNS, not the one passed
+  // in.  An assigned-id entity is not "new" to Spring Data, so `save` MERGES:
+  // the AuditingEntityListener stamps the managed copy it returns, and the
+  // instance handed in keeps null @CreatedDate / @CreatedBy — projecting it
+  // NPEs on the first stamp read and the audited create answers 500.
   const createAuditLines = auditCreate
     ? [
         `        var __after = ${agg.name}Response.from(__saved);`,

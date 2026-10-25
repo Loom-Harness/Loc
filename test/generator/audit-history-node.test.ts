@@ -1,12 +1,16 @@
 // Entity history — the node/Hono read path (docs/audit.md).
 //
-// The assertions about MASKING and SCOPING here are the reason this endpoint
-// needed a design rather than a route.  An audit row's `before`/`after`
-// snapshots are written server-side inside the command's transaction, where
-// there is no caller to mask against, so they hold raw values for every field.
-// A history endpoint is therefore a read surface over already-collected
-// unmasked data, and every guard the entity read has must be re-established on
-// it explicitly — none of them come for free.
+// An audit row's `before`/`after` snapshots are written server-side inside the
+// command's transaction, where there is no caller to mask against, so they hold
+// raw values for every field, and every guard the entity read has must be
+// re-established on the history read explicitly.  The guards' RUNTIME claims —
+// the masked field's entry dropped (not redacted) for a caller the mask refuses
+// and kept for one it admits, the inherited gate's 403 ahead of the row lookup,
+// stamps / `version` / `id` never in a diff, no route on an unaudited aggregate
+// — are asserted on every backend's booted wire by the corpus case
+// `test/fixtures/corpus/audit-history-guarded.ddd` and its golden.  What stays
+// here is what that wire cannot see: emission shape, the anonymous caller
+// (the behavioural harness has none), and the per-target spellings below.
 
 import { describe, expect, it } from "vitest";
 import { generateSystems } from "../../src/system/index.js";
@@ -50,13 +54,13 @@ const routesOf = (files: Map<string, string>, agg: string): string => {
 };
 
 describe("entity history — node route surface", () => {
-  it("serves GET /{id}/history for an audited aggregate", async () => {
+  it("filters the trail on the target TYPE too, oldest first", async () => {
     const routes = routesOf(await emitFiles(MASKED), "employee");
-    expect(routes).toContain('path: "/{id}/history"');
-    expect(routes).toContain("schema: z.array(AuditEntryResponse)");
-    expect(routes).toContain("from(schema.auditRecords)");
-    // Filtered on the pair the write side indexes, oldest first — a timeline
-    // reads forwards.
+    // The type half of the pair the write side indexes.  With uuid ids a read
+    // keyed on `target_id` alone returns the same rows, so no wire golden can
+    // tell the two apart — this is its only witness.  Oldest first: a timeline
+    // reads forwards, and a dropped ORDER BY usually still returns insertion
+    // order, so the wire would not catch that either.
     expect(routes).toContain('eq(schema.auditRecords.targetType, "Employee")');
     expect(routes).toContain("orderBy(schema.auditRecords.at)");
   });
@@ -74,25 +78,6 @@ describe("entity history — node route surface", () => {
 });
 
 describe("entity history — negative authz", () => {
-  it("DROPS a masked field's change entry rather than redacting it", async () => {
-    const routes = routesOf(await emitFiles(MASKED), "employee");
-    // The unmasked fields run through the unconditional loop...
-    expect(routes).toContain('for (const key of ["name"])');
-    // ...and `salary` is NOT among them.  A masked field must never reach the
-    // always-emitted path.
-    expect(routes).not.toContain('for (const key of ["name", "salary"])');
-    // Its entry is pushed only inside the predicate guard — so a caller who
-    // fails the predicate sees no entry at all.  "admin changed `salary` on the
-    // 3rd" is itself the disclosure the mask exists to prevent; a redacted
-    // placeholder would still make it.
-    expect(routes).toMatch(
-      /if \(currentUser !== null && \([^\n]*permissions[^\n]*\)\) \{[\s\S]*?field: "salary"[\s\S]*?\n {2}\}/,
-    );
-    // There is exactly one mention of the field name in the mapper — the
-    // guarded push — and no redaction-style null assignment.
-    expect(routes).not.toContain('field: "salary", before: null, after: null');
-  });
-
   it("is fail-closed on an unauthenticated caller", async () => {
     const routes = routesOf(await emitFiles(MASKED), "employee");
     // `?? null` → the guard's `currentUser !== null` short-circuits → every
@@ -101,25 +86,10 @@ describe("entity history — negative authz", () => {
     expect(routes).toContain("currentUser !== null &&");
   });
 
-  it("inherits the list read's gate — 403 before any query runs", async () => {
+  it("declares the inherited gate's 403 in the route's OpenAPI responses", async () => {
     const routes = routesOf(await emitFiles(MASKED), "employee");
     const handler = routes.slice(routes.indexOf('path: "/{id}/history"'));
     expect(handler).toContain('403: { description: "Forbidden"');
-    expect(handler).toContain('throw new ForbiddenError("Forbidden: find history")');
-    // The gate runs BEFORE the audit table is touched.
-    expect(handler.indexOf("ForbiddenError")).toBeLessThan(handler.indexOf("schema.auditRecords"));
-  });
-
-  it("never lets a stamp, the version counter, or the id into the diff", async () => {
-    const routes = routesOf(await emitFiles(MASKED), "employee");
-    const mapper = routes.slice(routes.indexOf("function employeeAuditEntry"));
-    const keyLoop = mapper.slice(0, mapper.indexOf("return {"));
-    // `auditable` stamps these post-save, `versioned` bumps `version` on every
-    // command — left in, they would be most of the timeline.
-    expect(keyLoop).not.toContain("updatedAt");
-    expect(keyLoop).not.toContain("createdAt");
-    expect(keyLoop).not.toContain('"version"');
-    expect(keyLoop).not.toContain('"id"');
   });
 
   // F2-W-05 residue.  The row's fix reached the aggregate `toWire` path and the
@@ -158,11 +128,10 @@ describe("entity history — negative authz", () => {
 });
 
 describe("entity history — aggregates that serve none", () => {
-  it("emits no history route, mapper or module when nothing is audited", async () => {
+  it("emits no shared history module when nothing is audited", async () => {
     const files = await emitFiles(
       MASKED.replace("aggregate Employee audited", "aggregate Employee"),
     );
     expect([...files.keys()].some((p) => p.endsWith("audit/history.ts"))).toBe(false);
-    expect(routesOf(files, "employee")).not.toContain('path: "/{id}/history"');
   });
 });

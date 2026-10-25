@@ -612,6 +612,10 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // aggregate's trail as the unprivileged principal (the masked-field DROP and
   // the RS-44 `actor`).
   "corpus/field-mask": ["api.employees.history (no derived operation)"],
+  "corpus/audit-history-guarded": [
+    "api.employees.history (no derived operation)",
+    "api.payslips.history (no derived operation)",
+  ],
   // The QUERY-TIME projection reads (`GET /api/projections/<snake>`) — same
   // `notLifted` class as the folded projection above, one shape further along:
   // a singleton whole-table aggregation and the grouped read models.  The

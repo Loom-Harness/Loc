@@ -330,7 +330,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 21,
       "method": "POST",
       "path": "/api/products/{id}/reprice",
       "status": 422,

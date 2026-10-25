@@ -375,13 +375,14 @@ describe("M-T9.25 round 2, probe 2 — the find-guard 403 detail agrees five-way
 });
 
 // ---------------------------------------------------------------------------
-// POSITIVE — the AUDIT-HISTORY read gate's 403 detail.
+// The AUDIT-HISTORY read gate's 403 detail.
 //
 // An `audited` aggregate's history read inherits its `find all` gate
-// (`docs/audit.md`).  The read is the derived find named `history`, so its
-// refusal carries the declared-find detail every other read gate answers:
-// "Forbidden: find history", five-way.  No golden records it (no ladder arm
-// addresses a history route), so this source-level pin is the witness.
+// (`docs/audit.md`), and the history read is a find named `history` — so its
+// refusal carries the same `Forbidden: find <name>` label every other read gate
+// does, five-way.  The booted witness is the `audit-history-guarded` wire golden
+// (its authz ladder records the history 403 body); this is the source-level twin
+// that fails in seconds.
 // ---------------------------------------------------------------------------
 
 const HISTORY_SOURCE = (platform: string) => `
@@ -411,8 +412,8 @@ system Census {
 }
 `;
 
-describe("the audit-history 403 detail agrees five-way", () => {
-  it("every backend's history gate answers `Forbidden: find history`", async () => {
+describe("the audit-history 403 detail agrees across the five backends", () => {
+  it("each backend's history-gate detail is the read-gate label `Forbidden: find history`", async () => {
     const got: Record<string, string[]> = {};
     for (const platform of PLATFORMS) {
       const files = await generateSystemFiles(HISTORY_SOURCE(platform));

@@ -255,7 +255,7 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 21,
       "method": "POST",
       "path": "/api/cargos/{id}/update",
       "status": 422,

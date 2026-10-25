@@ -782,3 +782,17 @@ Found by #3224: the first golden that records a concurrency 409 (`transactional-
 4. **A field and an operation of the same name** (`yield: string` + `operation yield(…)`) validate clean and collide on node (`TS2300: Duplicate identifier`, and the field getter becomes uncallable). That is a member-namespace collision, not a keyword one — a validator refusal (one member namespace per aggregate) is likely the right fix.
 
 **Verification.** Each item lands as a fixture position or a new fixture on every compile leg; item 1 deletes its `KNOWN_GAPS` entry.
+
+## M-T6.99 — The audit trail's `actor` is five different JSON shapes under `auth` — `open` · **S–M** · P2 ⚠ needs a ruling first
+
+*Minted 2026-10-18 by the `audit-history-guarded` corpus case (the first golden that records a history read on an `auth: required` deployable).* Every backend records the principal into `audit_records.actor` at command time and serves it back as `AuditEntry.actor` (`docs/audit.md` §2: "the principal, as JSON") — and each records a different thing. Measured on the booted legs against the dev-stub principal `{ role: "agent", permissions: ["ops.manage"] }` merged over the built-in identity:
+
+- **node** (and MikroORM) — the verifier's RAW claim bag, undeclared claims included: `{ id, orgId, permissions, role, tenantId }` (the `user {}` block declares only `id`, `role`, `permissions`).
+- **.NET (EF + Dapper)** — the declared shape, PascalCase: `{ Id, Permissions, Role }` (`RequestContext.PrincipalJson()` serializes `CurrentUser` with default `System.Text.Json` naming).
+- **java** — the declared shape, camelCase (`currentUserAccessor.user()` through Jackson).
+- **python** — `null`: `record_audit` takes `actor` and no call site passes it.
+- **elixir** — the id alone: `%{id: actor_id}` (`audit.ex`).
+
+**Decide first** (a `D-` ruling, then an RS-rule in `docs/conformance-semantics.md`): the natural candidate is the declared `user {}` shape in camelCase — what `/api/auth/me` already serves five-way and java already records — but "the id alone" (elixir) is a defensible minimum-disclosure answer for an append-only table. Then implement on the four that differ.
+
+**Verification.** Delete the `M-T6.99` waivers in `test/_helpers/wire-waivers.ts`; every behavioral leg then gates `audit-history-guarded`'s `actor` against the node golden (re-minted under the ruled shape if node is one of the backends that moves).

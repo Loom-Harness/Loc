@@ -90,6 +90,10 @@ const BASELINE: Record<string, Divergence> = {
   // and stamps-principal's `Note with auditable` (the four prelude stamps).
   "audit-history.ddd Ordering.Order": "missing-in-record",
   "stamps-principal.ddd Journal.Note": "missing-in-record",
+  // audit-history-guarded's `Employee with auditable` — the same A1 class (the
+  // mixin's `createdAt`/`createdBy`/`updatedAt`/`updatedBy`), a new-fixture
+  // witness rather than a regression.
+  "audit-history-guarded.ddd Staff.Employee": "missing-in-record",
   // Wave C5 5b: the RS-38 witness soft-deletes a join target, so its `Venue`
   // carries the `softDeletable` mixin — one more instance of THIS class, not
   // a new divergence.
