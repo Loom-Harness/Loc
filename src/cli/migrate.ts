@@ -18,7 +18,7 @@ import {
 // ---------------------------------------------------------------------------
 
 /** `migrations/` beside the entry `.ddd`. */
-export function migrationsDir(sourceFile: string): string {
+function migrationsDir(sourceFile: string): string {
   return path.join(path.dirname(path.resolve(sourceFile)), MIGRATIONS_DIR);
 }
 

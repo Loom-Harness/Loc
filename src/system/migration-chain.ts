@@ -217,7 +217,7 @@ export function chainMigrations(chain: MigrationChain): MigrationsIR[] {
 }
 
 /** A kebab-case `migrate add` name: lower-case words joined by `-`. */
-export function isMigrationName(name: string): boolean {
+function isMigrationName(name: string): boolean {
   return /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(name);
 }
 
