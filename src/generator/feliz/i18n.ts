@@ -31,7 +31,7 @@ import { fsString } from "./fs-expr.js";
 
 /** The npm dependency the ICU half needs — the same engine, at the same pin,
  *  the four JS frontends' stack dependency blocks carry. */
-export const FELIZ_INTL_MESSAGEFORMAT = "^10.7.0";
+export const FELIZ_INTL_MESSAGEFORMAT = "10.7.18";
 
 /** True when this ui has any extractable user-visible string — the single gate
  *  for the whole runtime (module + npm dependency + `ctx.i18nPrefix`).  Empty

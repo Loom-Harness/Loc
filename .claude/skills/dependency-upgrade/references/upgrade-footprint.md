@@ -51,6 +51,13 @@ comment only; the code is migrated.)
 
 ---
 
+> **Every generated-manifest pin is an exact version** (D-EXACT-PINS): `4.13.14`,
+> not `^4.12.0`; `==0.162.0`, not `>=0.115,<1`; `"1.8.16"`, not `~> 1.8`. A bump edits
+> the literal, and the manifest's pins must resolve *together* — run
+> `npm install --package-lock-only` (npm), `pip install --dry-run` (Python) or
+> `mix deps.get` (Elixir) over the whole set. `test/system/generated-manifest-pins.test.ts`
+> fails on any range.
+
 ## Surface B — generated frontends
 
 The deps that land in a **generated project's** `package.json`. These are NOT in

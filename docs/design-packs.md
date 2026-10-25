@@ -341,8 +341,8 @@ is not cosmetic; it has to match how its callers spell the call, and
 7 of 13 packs shipped
 
 ```json
-    "typescript": "^6.0.0",
-    "vite": "^8.0.0"  }
+    "typescript": "6.0.3",
+    "vite": "8.3.5"  }
 }
 ```
 
@@ -359,7 +359,7 @@ re-serializing every pack's emitted `package.json` and diffing:
 
 ```hbs
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "22.20.5",
 {{> stack-package-devdeps}}  }
 ```
 

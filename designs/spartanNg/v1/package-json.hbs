@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "engines": {
-    "node": "^22.22.3 || ^24.15.0 || >=26.0.0"
+    "node": "26.12.1"
   },
   "scripts": {
     "build": "ng build",
@@ -13,7 +13,7 @@
   },
   "dependencies": {
 {{> stack-package-deps}}{{#if usesMoney}},
-    "decimal.js": "^10.4.3"{{/if}}
+    "decimal.js": "10.6.0"{{/if}}
   },
   "devDependencies": {
 {{> stack-package-devdeps}}

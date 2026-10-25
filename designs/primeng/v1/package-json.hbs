@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "engines": {
-    "node": "^22.22.3 || ^24.15.0 || >=26.0.0"
+    "node": "26.12.1"
   },
   "scripts": {
     "build": "ng build",
@@ -13,11 +13,11 @@
   },
   "dependencies": {
 {{> stack-package-deps}},
-    "@angular/cdk": "^22.0.0",
-    "@primeuix/themes": "^1.0.0",
-    "primeng": "^21.0.0",
-    "primeicons": "^7.0.0"{{#if usesMoney}},
-    "decimal.js": "^10.4.3"{{/if}}
+    "@angular/cdk": "22.2.4",
+    "@primeuix/themes": "1.2.5",
+    "primeng": "21.1.10",
+    "primeicons": "7.0.0"{{#if usesMoney}},
+    "decimal.js": "10.6.0"{{/if}}
   },
   "devDependencies": {
 {{> stack-package-devdeps}}
