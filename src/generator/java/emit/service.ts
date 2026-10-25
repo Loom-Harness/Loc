@@ -214,9 +214,14 @@ export function renderJavaService(
   // create: before is JSON null (NullNode → the `null` token, satisfying the
   // NOT NULL jsonb column), after is the freshly-created wire snapshot, keyed by
   // the generated id; actor + correlation/scope/parent ids from RequestContext.
+  // `after` is projected from the instance `save` RETURNS, not the one passed
+  // in.  An assigned-id entity is not "new" to Spring Data, so `save` MERGES:
+  // the AuditingEntityListener stamps the managed copy it returns, and the
+  // instance handed in keeps null @CreatedDate / @CreatedBy — projecting it
+  // NPEs on the first stamp read and the audited create answers 500.
   const createAuditLines = auditCreate
     ? [
-        `        var __after = ${agg.name}Response.from(aggregate);`,
+        `        var __after = ${agg.name}Response.from(__saved);`,
         `        auditRecords.save(new AuditRecord(`,
         `            ${J.UUID}.randomUUID().toString(),`,
         `            ${JSON.stringify(`create${agg.name}`)},`,
@@ -285,7 +290,9 @@ export function renderJavaService(
         // without a caller (stamps nothing) or a caller without a method (does
         // not compile) cannot drift apart (§89).
         docClaimCreateStamps ? `        aggregate._stampOnCreate();` : null,
-        `        repository.save(aggregate);`,
+        auditCreate
+          ? `        var __saved = repository.save(aggregate);`
+          : `        repository.save(aggregate);`,
         ...createAuditLines,
         `        publishEvents(aggregate);`,
         `        return aggregate.id();`,

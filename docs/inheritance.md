@@ -81,7 +81,7 @@ as soon as the reader is routed. Both layouts now delegate.
 |---|---|
 | `node` (Hono / Drizzle) | a read-only `<Base>Repository` whose `findAll()` concatenates each concrete repo's `all()`; a `<Base>` discriminated-union response type |
 | `dotnet` (.NET / EF Core) | `public abstract class <Base>` carrying the shared fields; concretes declare `: <Base>` and inherit them; EF excludes the base via `modelBuilder.Ignore<<Base>>()` so each concrete maps standalone; a read-only `I<Base>Repository` / `<Base>Repository` whose `FindAllAsync()` returns `IReadOnlyList<<Base>>` |
-| `phoenix` (Ecto) | the context module gains `list_<bases>/0` = the union of the concrete `list_<concrete>/0` reads; the base emits no Ecto schema |
+| `phoenix` (Ecto) | a read-only `<Base>Repository` whose `list` concatenates each concrete repository's `list` (draining a paged concrete's pages) and whose `find_by_id` tries each concrete in turn; the context's `list_<bases>` / `get_<base>` delegate to it and take `current_user \\ nil` whenever a concrete read does. TPH included: the `kind` conjunct and every capability / inline filter live in the concrete repositories. A `shape: document` concrete is flattened (`row.data`) before the base serializer runs |
 | `python` (FastAPI / SQLAlchemy) | a read-only `<Base>` repository whose `find_all` concatenates each concrete repo's reads; a `<Base>` union response type |
 | `java` (Spring Boot / JPA) | a read-only `<Base>Repository` whose `findAll()` concatenates each concrete repo's reads; a `<Base>` union response type |
 
@@ -198,22 +198,41 @@ the 409 and the cross-concrete 201 on all five SQL backends.
 | `loom.unique-tpc-not-hierarchy-wide` | **warning** — an `ownTable` (TPC) base with two or more concretes declares `unique (…)`. Each concrete table enforces the key on its own, but nothing spans the sibling tables (see [below](#unique-keys-on-a-tpc-base--loomunique-tpc-not-hierarchy-wide)) |
 | `loom.es-tph-forced-own-table` | event-sourced / document / embedded opt-out forces `ownTable` on a TPH member (D-EMBEDDED-TPH) |
 | `loom.tph-filter-unsupported` | **.NET only** — a TPH *subtype* carries a capability `filter` whose predicate reads a column the hierarchy ROOT does not declare (see below) |
-| `loom.tenancy-inherited-stance-conflict` | a subtype declares the opposite tenancy stance from the base it inherits its columns from (`abstract … with tenantOwned` + `… extends … crossTenant`) |
+| `loom.tenancy-inherited-stance-conflict` | a subtype declares the opposite tenancy stance from the base it inherits it from (`abstract … with tenantOwned` + `… extends … crossTenant`) |
 | (storage gate) | a `sharedTable` (TPH) hierarchy whose context has no node/Hono, .NET, Phoenix, Python, or Java host |
 
-## Capabilities and inheritance — what propagates and what does not
+## Capabilities and inheritance — a base's capabilities apply to every subtype
 
-Only the base's **fields** are merged onto a subtype by the enrich pass. Under
-`ownTable`, its `unique (…)` keys are merged too ([above](#unique-keys-on-a-tpc-base--loomunique-tpc-not-hierarchy-wide)). Its
-capability *identity* is not: a stance, a stamp and a capability `filter` all
-stay on the aggregate that declared them. Two consequences worth stating,
-because both used to be silent:
+A `Car` is a `Vehicle`. When the abstract base applies a capability, every
+concrete subtype gets all of it, not just its columns: the enrich pass merges
+the base's fields, capability `filter`s and bare `filter` declarations, stamps,
+capability tags and tenancy stance onto each concrete (D-INHERITED-CAPABILITIES). Under `ownTable`, its `unique (…)` keys are merged too
+([above](#unique-keys-on-a-tpc-base--loomunique-tpc-not-hierarchy-wide)).
 
-- **Declare the tenancy stance on every concrete.** `abstract aggregate Vehicle
-  with tenantOwned` gives every subtype the `tenant_id` column, but nothing
-  stamps or filters it until the subtype says `with tenantOwned` too. A subtype
-  with no stance is `loom.tenancy-stance-unmarked`; one that says `crossTenant`
-  against a `tenantOwned` base is `loom.tenancy-inherited-stance-conflict`.
+```ddd
+abstract aggregate Vehicle with softDeletable { name: string  plate: string }
+aggregate Car   extends Vehicle { seats: int }
+aggregate Truck extends Vehicle { payload: int }
+repository Trucks for Truck {
+  find byPlateAll(plate: string): Truck[] where this.plate == plate ignoring softDeletable
+}
+```
+
+```ts
+// node — truck-repository.ts: every Truck read hides soft-deleted rows…
+.where(and(eq(schema.vehicles.kind, "Truck"), not(eq(schema.vehicles.isDeleted, true))))
+// …and `ignoring softDeletable` lifts exactly that filter
+.where(and(eq(schema.vehicles.plate, plate), eq(schema.vehicles.kind, "Truck")))
+```
+
+- **`ignoring <baseCap>` works on a subtype.** The capability is the subtype's
+  own as far as the bypass validator is concerned.
+- **The tenancy stance is inherited too.** `abstract aggregate Vehicle with
+  tenantOwned` makes every subtype tenant-owned (filter, stamp and stance); an
+  unmarked subtype is fine. A subtype declaring the opposite stance (`crossTenant`
+  under a `tenantOwned` base) is `loom.tenancy-inherited-stance-conflict`.
+- **Repeating the base's capability on a subtype is harmless.** The inherited
+  filter is applied once, not twice.
 - **A subtype's `filter` reads through the hierarchy.** `criterion Live of Car =
   !this.retired` works when `retired` lives on the abstract base — the predicate
   is typed and lowered against the merged field set on every backend.
@@ -221,14 +240,19 @@ because both used to be silent:
 ### The one .NET restriction
 
 EF Core registers a query filter on the **root** entity type of a hierarchy
-only. Loom therefore hosts every TPH filter on the root config, guarding a
-subtype's filter with the discriminator so it constrains that subtype's rows
-alone and prefixing its name (`Car_LiveFilter`) so two subtypes carrying the
-same capability cannot overwrite each other's key:
+only. Loom therefore hosts every TPH filter on the root config. A filter the
+root declares (and every subtype inherits) is registered once, unguarded, and
+an `ignoring` on any subtype names that root filter. A subtype's own filter is
+guarded with the discriminator so it constrains that subtype's rows alone, and
+prefixed (`Car_LiveFilter`) so two subtypes carrying the same capability cannot
+overwrite each other's key:
 
 ```csharp
-// VehicleConfiguration.cs — `criterion Live of Car = !this.retired`
+// VehicleConfiguration.cs — `abstract … with softDeletable` + `criterion Live of Car = !this.retired`
+builder.HasQueryFilter("IsDeletedFilter", x => !x.IsDeleted);
 builder.HasQueryFilter("Car_LiveFilter", x => EF.Property<string>(x, "kind") != "Car" || (!x.Retired));
+// TruckRepository.cs — `ignoring softDeletable`
+_db.Trucks.IgnoreQueryFilters(["IsDeletedFilter"])
 ```
 
 A predicate reading a **subtype-only** column cannot be hosted that way at all

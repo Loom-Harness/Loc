@@ -97,7 +97,14 @@ describe("hono/drizzle generator — event-sourced concurrency rider", () => {
     // The append is wrapped so a duplicate (stream_type, stream_id, version) →
     // ConcurrencyError.
     expect(repo).toContain("await this.db.insert(schema.accountsEvents).values(rows);");
-    expect(repo).toContain('(err as { code?: string }).code === "23505"');
+    // drizzle wraps the driver error, so the SQLSTATE is read directly OR off
+    // `.cause` (a bare `.code` never matched → the lost append was a 500).
+    expect(repo).toContain(
+      '((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505"',
+    );
+    // Expected-version append (M-T6.98).
+    expect(repo).toContain("let version = aggregate._streamVersion;");
+    expect(repo).toContain("aggregate._streamVersion = version;");
     expect(repo).toContain('throw new ConcurrencyError("Account", aggregate.id as string);');
     // ConcurrencyError is imported from the domain errors module.
     expect(repo).toContain(

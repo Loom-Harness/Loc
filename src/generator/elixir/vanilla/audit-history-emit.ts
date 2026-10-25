@@ -335,7 +335,7 @@ ${cuBind}${inner}
 ${cuBind}    if not (${gate}) do
       ${denialResponse(
         "forbidden",
-        JSON.stringify(`Forbidden: history ${aggPascal}`),
+        JSON.stringify(`Forbidden: find ${find.name}`),
         denialOverrides(ctx),
       )}
     else

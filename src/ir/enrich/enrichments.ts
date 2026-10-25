@@ -83,6 +83,7 @@ import { walkExprDeep, walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "../u
 import { applyDefaultDenyReads } from "./default-deny-reads.js";
 import { applyDemoTenantSeed } from "./demo-tenant.js";
 import { bindFindParams } from "./find-param-bindings.js";
+import { inheritBaseCapabilities } from "./inherited-capabilities.js";
 import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
 
 // ---------------------------------------------------------------------------
@@ -949,7 +950,8 @@ export function enrichContext(
     if (!base) return [];
     return [...inheritedUniqueKeysFor(base, seen), ...(base.uniqueKeys ?? [])];
   };
-  const withInheritance = ctx.aggregates.map((a) => {
+  // Filters and capability tags inherit the same way (`inheritBaseCapabilities`).
+  const withInheritance = inheritBaseCapabilities(ctx.aggregates).map((a) => {
     if (!a.extendsAggregate) return a;
     const merged = mergedFieldsFor(a, new Set<string>());
     const idValueType = rootIdValueTypeFor(a, new Set<string>());

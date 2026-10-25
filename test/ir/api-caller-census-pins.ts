@@ -583,6 +583,15 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.debitOnce.run (no such aggregate)",
     "api.debitTwice.run (no such aggregate)",
   ],
+  // Workflow runs (M-T6.98) — not a lifted route class.
+  "corpus/workflow-two-handles-document-eventlog": [
+    "api.hitSameTwice.run (no such aggregate)",
+    "api.hitTwice.run (no such aggregate)",
+    "api.hitViaSecond.run (no such aggregate)",
+    "api.withdrawSameTwice.run (no such aggregate)",
+    "api.withdrawTwice.run (no such aggregate)",
+    "api.withdrawViaSecond.run (no such aggregate)",
+  ],
   // Workflow runs (M-T6.90) — not a lifted route class, same as above.
   "corpus/workflow-two-handles-containment": [
     "api.addTwice.run (no such aggregate)",
@@ -607,6 +616,10 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.invoices.history (no derived operation)",
     "api.memos.history (no derived operation)",
     "api.orders.history (no derived operation)",
+  ],
+  "corpus/audit-history-guarded": [
+    "api.employees.history (no derived operation)",
+    "api.payslips.history (no derived operation)",
   ],
   // The QUERY-TIME projection reads (`GET /api/projections/<snake>`) — same
   // `notLifted` class as the folded projection above, one shape further along:

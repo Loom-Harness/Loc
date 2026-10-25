@@ -435,7 +435,7 @@ const SITES: Record<Platform, Site[]> = {
       rung: "Forbidden",
       what: "the read gate of the AUDIT-HISTORY controller (was a literal until this PR)",
       file: "controllers/item_controller.ex",
-      at: /problem_response\(conn, (\d+), "[^"]*", "Forbidden: history Item"\)/,
+      at: /problem_response\(conn, (\d+), "[^"]*", "Forbidden: find history"\)/,
     },
     {
       rung: "NotFound",

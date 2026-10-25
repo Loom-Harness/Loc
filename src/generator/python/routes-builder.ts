@@ -964,7 +964,7 @@ function historyRoute(
     // non-raising getter: there, absence means "drop the entry".
     gateUsesUser ? `    current_user_ = ${H.require_current_user}()` : null,
     find.requires
-      ? `    if ${renderPyNegatedGuard(find.requires, { thisName: "self", currentUserExpr: "current_user_" })}:\n        raise ${PY.ForbiddenError}("Forbidden")`
+      ? `    if ${renderPyNegatedGuard(find.requires, { thisName: "self", currentUserExpr: "current_user_" })}:\n        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: find ${find.name}`)})`
       : null,
     // (2) — reachability, not a predicate on the audit table.
     `    await repo.get_by_id(${pyIdType(agg.name)}(id))`,

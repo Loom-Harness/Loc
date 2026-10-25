@@ -625,11 +625,14 @@ export function renderMikroRepository(
   const updateSet = audited ? stampUpdateCall(agg, updateData) : updateData;
   const versionedSaveLines = [
     `    const expected = expectedVersion ?? aggregate.version;`,
+    // The existence probe stays unscoped (a primary-key question about the whole
+    // shared table); the kind guard belongs on the WRITE so a foreign-subtype id
+    // matches nothing and raises ConcurrencyError instead of rewriting that row.
     `    const existing = await em.findOne(${row}, { id: aggregate.id as string });`,
     `    if (existing === null) {`,
     `      await em.insert(${row}, ${insertValues});`,
     `    } else {`,
-    `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, version: expected }, ${updateSet});`,
+    `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, version: expected${kind ? `, kind: ${JSON.stringify(kind)}` : ""} }, ${updateSet});`,
     `      if (affected === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
     `    }`,
   ];
