@@ -1,56 +1,24 @@
-// The plan's live-mission counts must be CODE, not a hand-typed cache
-// (experience_gathered.md §91: "a count in prose is a cache with no
-// invalidation story").
-//
-// What this replaces was the trap in one line. `docs/new-plan/README.md` used
-// to say: "175 headings in all, 2026-09-10 count; the per-track table above is
-// the 09-06 count and T6/T8/T9 have grown since" — two numbers, four days
-// apart, in adjacent paragraphs, with the prose itself telling the reader that
-// one of them was wrong and not which. Agents route on that file.
-//
-// `scripts/mission-counts.mjs` derives both the per-track table and the total
-// from the `## M-Tx.y` headings under `docs/new-plan/T*.md` and
-// `docs/new-plan/archive/T<n>-done.md` on every run, and splices them into a
-// marked region of the README. This test runs its `--check` mode, so archiving
-// a mission or flipping a status without regenerating fails here rather than
-// shipping a stale count.
-//
-// MUTATION PROOFS (each run by hand against this file, reverted by file copy —
-// never `git checkout --`, per experience_gathered.md §84):
-//
-//   1. Edit the total in the README's generated region (148 → 149).
-//      → `--check passes on the committed README` fails with the
-//        "mission-counts region is STALE" message, and
-//        `regenerating reproduces the committed README exactly` fails on the
-//        string comparison.
-//   2. Delete one `## M-T…` heading from a track file.
-//      → the same two fail, because the derived total drops by one while the
-//        committed region still says 148.  This is the direction that matters:
-//        it is what archiving a mission looks like.
-//   3. Give a heading a status the legend does not define (`partial` →
-//      `mostly partial`).
-//      → `every live mission's status parses` still passes (it is a real
-//        status, just not a legend one) while the count moves, so `--check`
-//        fails — the status is REPORTED, not silently dropped.  That is the
-//        point of the `nonLegend` bucket: the two live examples (`mostly done`
-//        on M-T4.12, `in progress` on M-T9.42) are visible in the README
-//        instead of vanishing from the arithmetic.
+// The plan's live-mission counts are derived from the `## M-Tx.y` headings
+// under `docs/new-plan/T*.md` and `docs/new-plan/archive/T<n>-done.md` by
+// `scripts/mission-counts.mjs` on every run, and never committed: a committed
+// copy is a value every mission-touching PR must rewrite, so two such PRs
+// always conflict on it, in the PR and again in the merge queue's combined
+// tree.  This suite pins the derivation itself and that no copy creeps back
+// into the README.
 //
 // The vacuity guard is `parses a real tree`: if the heading regex ever stops
-// matching, every count goes to zero and `--check` would compare two agreeing
-// zeroes, so the suite asserts a non-trivial denominator first.
+// matching, every count goes to zero, so the suite asserts a non-trivial
+// denominator first.
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — plain .mjs script, no type declarations by design
-import { computeCounts, parseStatus, regenerateReadme } from "../../scripts/mission-counts.mjs";
+import { computeCounts, parseStatus } from "../../scripts/mission-counts.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "../..");
-const scriptPath = path.join(repoRoot, "scripts/mission-counts.mjs");
 const readmePath = path.join(repoRoot, "docs/new-plan/README.md");
 
 type Counts = {
@@ -72,15 +40,10 @@ describe("mission counts are derived, not hand-typed (§91)", () => {
     expect(counts.archivedTotal).toBeGreaterThan(50);
   });
 
-  it("--check passes on the committed README (its region matches the headings)", () => {
-    expect(() =>
-      execFileSync(process.execPath, [scriptPath, "--check"], { cwd: repoRoot, stdio: "pipe" }),
-    ).not.toThrow();
-  });
-
-  it("regenerating reproduces the committed README exactly", () => {
+  it("the README carries no committed copy of the counts", () => {
     const readme = fs.readFileSync(readmePath, "utf8");
-    expect(regenerateReadme(readme, computeCounts())).toBe(readme);
+    expect(readme).not.toMatch(/\*\*\d+ live missions\*\*/);
+    expect(readme).not.toContain("mission-counts:begin");
   });
 
   it("every live mission's status parses to something — none is silently absent", () => {

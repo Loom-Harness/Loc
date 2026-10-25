@@ -33,7 +33,7 @@ import { emitsCommandRoute } from "../ir/util/workflow-command-route.js";
 import { emitsInstanceRoutes } from "../ir/util/workflow-instances.js";
 import { platformFor } from "../platform/registry.js";
 import { API_BASE_PATH } from "../util/api-base.js";
-import { lowerFirst, plural, snake } from "../util/naming.js";
+import { escapeTsIdent, lowerFirst, plural, snake } from "../util/naming.js";
 import { DURATION_UNIT_MS } from "../util/temporal.js";
 import {
   TEST_RESET_ENV,
@@ -141,9 +141,18 @@ function apiBasePath(_platform: string): string {
   return API_BASE_PATH;
 }
 
+/** The bundled dev IdP's password-grant endpoint, as the host-side suite
+ *  reaches it.  Present only when the compose stack bundles a realm AND some
+ *  backend requires auth; the suite then mints its own bearer token. */
+export interface DevIdpTokenSource {
+  tokenUrl: string;
+  clientId: string;
+}
+
 export function renderE2EFile(
   sys: SystemIR,
   modulesByName: Map<string, SubdomainIR>,
+  devIdp?: DevIdpTokenSource,
 ): string | null {
   // UI tests go to a separate Playwright spec via the
   // ui-e2e-render path; the vitest api file only carries api tests.
@@ -203,7 +212,9 @@ export function renderE2EFile(
       // backend by name (`my test against dotnetApi`).  Single-
       // backend systems still gain the suffix — small fixture
       // churn but consistent semantics.
-      testLines.push(...renderTest(t, ctx, ` against ${serviceSlug(d.name)}`).map((l) => `  ${l}`));
+      testLines.push(
+        ...renderTest(t, ctx, ` against ${serviceSlug(d.name)}`, !!devIdp).map((l) => `  ${l}`),
+      );
       testLines.push("");
     }
   }
@@ -215,7 +226,16 @@ export function renderE2EFile(
     lines.push(h.src);
     lines.push("");
   }
-  lines.push(E2E_HELPERS.trim());
+  if (devIdp) {
+    lines.push(renderDevIdpBearer(devIdp));
+    lines.push("");
+  }
+  lines.push(
+    (devIdp
+      ? E2E_HELPERS.replace(BEARER_FROM_ENV, BEARER_FROM_ENV_OR_DEV_IDP)
+      : E2E_HELPERS
+    ).trim(),
+  );
   lines.push("");
   lines.push(body);
   return lines.join("\n") + "\n";
@@ -233,10 +253,14 @@ function collectContextsFor(
   return out;
 }
 
-function renderTest(t: TestE2EIR, ctx: RenderCtx, nameSuffix = ""): string[] {
+function renderTest(t: TestE2EIR, ctx: RenderCtx, nameSuffix = "", mintsBearer = false): string[] {
   const out: string[] = [];
   out.push(`it(${JSON.stringify(t.name + nameSuffix)}, async () => {`);
   out.push(`  const base = ENDPOINTS.${serviceSlug(ctx.deployable.name)};`);
+  // Inside the `it()` for the same reason as the reset below: the harnesses
+  // that evaluate this file shim only `describe`/`it`/`expect`, so a
+  // `beforeAll` would not run there.  The first call mints; the rest return.
+  if (mintsBearer) out.push(`  await __ensureBearer();`);
   // Emitted in EVERY test body, though by default it only fires for the first
   // one: `__resetState` owns the per-file / per-test choice (see its note), so
   // the mode is one runtime switch rather than two emission shapes.
@@ -466,7 +490,7 @@ function renderE2EStmt(s: TestStmtIR, ctx: RenderCtx): string {
     if (!ctx.usedLetNames.has(s.name)) {
       return `${renderE2EExpr(s.expr, ctx)};`;
     }
-    return `const ${s.name} = ${renderE2EExpr(s.expr, ctx)};`;
+    return `const ${escapeTsIdent(s.name)} = ${renderE2EExpr(s.expr, ctx)};`;
   }
   if (s.kind === "expression") {
     return `${renderE2EExpr(s.expr, ctx)};`;
@@ -497,7 +521,9 @@ function renderE2EExpr(e: ExprIR, ctx: RenderCtx): string {
     case "literal":
       return renderLiteral(e.lit, e.value);
     case "ref":
-      return e.name;
+      // Escaped exactly like the `let` binding (and lambda param) it names —
+      // `let class = …` binds `class_`, so every reference must read `class_`.
+      return escapeTsIdent(e.name);
     case "this":
       return "this";
     case "id":
@@ -519,8 +545,8 @@ function renderE2EExpr(e: ExprIR, ctx: RenderCtx): string {
       // form — so assert and render.  If a future change introduces a
       // block lambda in test bodies, this branch needs the `block`
       // alternative.
-      if (e.body) return `(${e.param}) => ${renderE2EExpr(e.body, ctx)}`;
-      return `(${e.param}) => { /* block-body lambdas not supported in e2e tests */ }`;
+      if (e.body) return `(${escapeTsIdent(e.param)}) => ${renderE2EExpr(e.body, ctx)}`;
+      return `(${escapeTsIdent(e.param)}) => { /* block-body lambdas not supported in e2e tests */ }`;
     case "member": {
       const recv = parenAwaited(renderE2EExpr(e.receiver, ctx));
       // Property-style collection ops (`lines.count`, `lines.distinct`) lower to
@@ -1289,6 +1315,71 @@ function __qs(url: string, params: Record<string, unknown>): string {
 }`,
   },
 ];
+
+const BEARER_FROM_ENV = "const token = process.env.E2E_BEARER_TOKEN;";
+const BEARER_FROM_ENV_OR_DEV_IDP = "const token = process.env.E2E_BEARER_TOKEN || __devIdpBearer;";
+
+/** The suite's own bearer token, minted from the compose stack's bundled dev
+ *  IdP by password grant (the realm's seeded `demo`/`demo` user), so the suite
+ *  runs against `docker compose up` with nothing exported first.
+ *
+ *  It stands aside whenever the caller chose a principal: an explicit
+ *  `E2E_BEARER_TOKEN` wins, `E2E_DEV_CLAIMS` means a dev-stub target (the
+ *  playground preview), and `E2E_DEV_IDP=off` opts out outright.  A realm that
+ *  is still importing answers 404/connection-refused for a few seconds after
+ *  `up`, hence the short retry; the failure names the remedies. */
+function renderDevIdpBearer(src: DevIdpTokenSource): string {
+  return `// Bearer token minted from the bundled dev IdP (docker-compose \`keycloak\`).
+const __DEV_IDP_TOKEN_URL = process.env.E2E_OIDC_TOKEN_URL ?? ${JSON.stringify(src.tokenUrl)};
+const __DEV_IDP_CLIENT_ID = process.env.E2E_OIDC_CLIENT_ID ?? ${JSON.stringify(src.clientId)};
+let __devIdpBearer = "";
+
+async function __ensureBearer(): Promise<void> {
+  if (__devIdpBearer !== "") return;
+  if (process.env.E2E_BEARER_TOKEN || process.env.E2E_DEV_CLAIMS) return;
+  if (process.env.E2E_DEV_IDP === "off") return;
+  const body = new URLSearchParams({
+    grant_type: "password",
+    client_id: __DEV_IDP_CLIENT_ID,
+    username: process.env.E2E_OIDC_USERNAME ?? "demo",
+    password: process.env.E2E_OIDC_PASSWORD ?? "demo",
+    scope: "openid",
+  });
+  let last = "";
+  for (let attempt = 0; attempt < 8; attempt++) {
+    try {
+      const r = await fetch(__DEV_IDP_TOKEN_URL, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body,
+      });
+      const text = await r.text();
+      if (r.ok) {
+        const token = (JSON.parse(text) as { access_token?: string }).access_token;
+        if (token) {
+          __devIdpBearer = token;
+          return;
+        }
+        last = "the token response carried no access_token";
+        break;
+      }
+      last = \`\${r.status} \${text.slice(0, 200)}\`;
+      // A 4xx other than 404 is a wrong client/user, not a realm still loading.
+      if (r.status !== 404 && r.status < 500) break;
+    } catch (err) {
+      last = err instanceof Error ? err.message : String(err);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(
+    [
+      \`Could not mint a bearer token from the dev IdP at \${__DEV_IDP_TOKEN_URL}: \${last}\`,
+      "Start the stack first (docker compose up -d) and give Keycloak a few seconds to",
+      "import its realm, or pass a token yourself with E2E_BEARER_TOKEN=<jwt>.",
+    ].join("\\n"),
+  );
+}`;
+}
 
 const E2E_HELPERS = `
 // The parsed JSON body of one generated call.  A generated assertion reads

@@ -27,7 +27,7 @@
 // Derive, don't stamp (CLAUDE.md): a pure function of the repository's finds,
 // computed at each emission site.
 
-import type { ExprIR, FindIR, RepositoryIR } from "../types/loom-ir.js";
+import type { ExprIR, FindIR, IdValueType, RepositoryIR, SystemIR } from "../types/loom-ir.js";
 
 /** The repository find backing the aggregate's list endpoint — the
  *  enrichment-injected `all`, or the author's own `find all(...)` when they
@@ -39,10 +39,112 @@ export function listReadFind(repo: RepositoryIR | undefined): FindIR | undefined
 /** The authorization gate on the list endpoint, when the author declared one.
  *
  *  `undefined` for the enrichment-injected `all` (which carries no gate — it is
- *  compiler-synthesized and has no author source line, which is also why
- *  `loom.default-deny-ungated` exempts it).  The emitted route must evaluate
+ *  compiler-synthesized and has no author source line) — EXCEPT under
+ *  `enforcement: denyByDefault` on an `auth: required` backend, where
+ *  enrichment stamps the deny gate on it (`defaultDenied`, M-T3.19) and the
+ *  validator warns `loom.default-deny-list-ungated` until the author declares
+ *  a gated one).  The emitted route must evaluate
  *  this BEFORE the query and answer 403 on failure, exactly as a named find's
  *  gate does. */
 export function listReadGate(repo: RepositoryIR | undefined): ExprIR | undefined {
   return listReadFind(repo)?.requires;
+}
+
+// ── The by-id read (M-T3.19) ────────────────────────────────────────────────
+//
+// Every non-abstract aggregate also serves `GET /<aggs>/{id}`, and until
+// M-T3.19 nothing could gate it: the route is compiler-derived, so there was
+// no declaration to hang a `requires` on.  The surface is the one the list
+// read already uses — a repository `find` — spelled with the by-id SHAPE:
+//
+//     repository Secrets for Secret {
+//       find byId(id: Secret id): Secret? requires currentUser.role == "admin"
+//     }
+//
+// The gate is NAMED AT THE DECLARATION (the #2877 ruling: no inherited
+// aggregate-level default read gate).  Recognition is by name AND shape, so a
+// `find byId(oid: Order id): Order[] where …` (a different read that merely
+// shares the name) stays an ordinary find.  When the author writes no
+// `where`, lowering supplies the only filter the shape can mean
+// (`where this == <param>`), so the find's own `GET /<aggs>/by_id` route and
+// repository method return THE row — not the table's first one.
+
+/** True when `find` has the by-id read shape for aggregate `aggName`:
+ *  named `byId`, exactly one parameter of type `<Agg> id`, returning `<Agg>?`. */
+export function isByIdReadShape(find: FindIR, aggName: string): boolean {
+  if (find.name !== "byId" || find.params.length !== 1) return false;
+  const p = find.params[0]!.type;
+  const r = find.returnType;
+  return (
+    p.kind === "id" &&
+    p.targetName === aggName &&
+    r.kind === "optional" &&
+    r.inner.kind === "entity" &&
+    r.inner.name === aggName
+  );
+}
+
+/** The repository find the author declared as the aggregate's by-id read, if
+ *  any (`find byId(id: T id): T? …`). */
+export function byIdReadFind(repo: RepositoryIR | undefined): FindIR | undefined {
+  if (!repo) return undefined;
+  return repo.finds.find((f) => !f.synthesized && isByIdReadShape(f, repo.aggregateName));
+}
+
+/** The authorization gate on `GET /<aggs>/{id}`, when the author declared one.
+ *  Every backend's by-id route evaluates it BEFORE the load and answers 403 on
+ *  failure — the same place and the same carrier as a named find's gate. */
+export function byIdReadGate(repo: RepositoryIR | undefined): ExprIR | undefined {
+  return byIdReadFind(repo)?.requires;
+}
+
+/** The find that carries `GET /<aggs>/{id}`'s gate: the author's declared
+ *  by-id read, or — when the repository is `readsDefaultDenied` and the author
+ *  declared none — a synthesised by-id find whose gate is the DENY literal, so
+ *  the route fails closed (403) on every backend (M-T3.19).  The synthesised
+ *  one is never in `repo.finds`: it owns no route or repository method of its
+ *  own, it only carries the by-id route's gate. */
+export function byIdRouteFind(
+  repo: RepositoryIR | undefined,
+  idValueType: IdValueType,
+): FindIR | undefined {
+  const declared = byIdReadFind(repo);
+  if (declared || !repo?.readsDefaultDenied) return declared;
+  const idType = { kind: "id", targetName: repo.aggregateName, valueType: idValueType } as const;
+  return {
+    name: "byId",
+    params: [{ name: "id", type: idType }],
+    returnType: { kind: "optional", inner: { kind: "entity", name: repo.aggregateName } },
+    requires: DEFAULT_DENY_GATE(),
+    synthesized: true,
+    defaultDenied: true,
+  };
+}
+
+/** The synthesised deny gate (`false`) stamped on an undeclared read under
+ *  `denyByDefault` (M-T3.19).  A fresh node per call — IR nodes are not shared. */
+export const DEFAULT_DENY_GATE = (): ExprIR => ({ kind: "literal", lit: "bool", value: "false" });
+
+/** True for a gate that can never allow — the literal `false` (the
+ *  synthesised {@link DEFAULT_DENY_GATE}, or an author's `requires false`).
+ *  Two backends' compilers fold a literal condition (C#'s CS0162 unreachable
+ *  code under `/warnaserror`; Elixir 1.18's typing violation under
+ *  `--warnings-as-errors`), so their gate sites spell this one opaquely. */
+export function isAlwaysDenyGate(gate: ExprIR | undefined): boolean {
+  return !!gate && gate.kind === "literal" && gate.lit === "bool" && gate.value === "false";
+}
+
+/** Contexts whose compiler-derived reads fail closed: those hosted by an
+ *  `auth: required` deployable of a system in `enforcement: denyByDefault`.
+ *  ONE derivation, read by enrichment (which stamps `readsDefaultDenied`) and
+ *  by `validateDefaultDeny` (which scopes its diagnostics), so the runtime 403
+ *  and the build warning cover exactly the same reads. */
+export function defaultDenyGuardedContexts(sys: SystemIR): Set<string> {
+  const out = new Set<string>();
+  if (sys.auth?.enforcement !== "denyByDefault") return out;
+  for (const d of sys.deployables) {
+    if (!d.auth?.required) continue;
+    for (const cn of d.contextNames) out.add(cn);
+  }
+  return out;
 }

@@ -6,7 +6,7 @@
 import type { ActionIR, ExprIR, StateFieldIR, StoreIR } from "../../ir/types/loom-ir.js";
 import { typeIsFile } from "../../ir/util/file-field.js";
 import { snake, upperFirst } from "../../util/naming.js";
-import { felizRouteSegments } from "./feliz-target.js";
+import { FELIZ_ACTION_TOAST, felizRouteSegments } from "./feliz-target.js";
 import {
   type FsExprCtx,
   ROUTE_ID_FROM_MODEL,
@@ -327,6 +327,11 @@ export function renderInit(
    *  of from the `.ddd` default — the Feliz answer to Zustand's `persist`
    *  hydration.  Empty on every other app, so their `init` is byte-identical. */
   initOverrides: ReadonlyMap<string, string> = new Map(),
+  /** Per component `state {}` cell (IR identity) whose initializer reads a
+   *  component param: the param values `init` substitutes, or `null` when the
+   *  component is deferred (the cell seeds its type's zero) —
+   *  `component-state-init.ts`.  Empty on every other app (byte-identical). */
+  componentParamValues: ReadonlyMap<StateFieldIR, ReadonlyMap<string, string> | null> = new Map(),
 ): string {
   const hasPageCmd = routed && reads.some((r) => r.single);
   // A user-declared find read is issued with its ARGUMENTS, and those are
@@ -357,17 +362,24 @@ export function renderInit(
       // `init` has no `model` yet, so a state initialiser that reads the route
       // `id` re-parses the current URL — the same source `CurrentPage` is seeded
       // from two lines up.
+      const paramValues = componentParamValues.get(f);
       const ctx: FsExprCtx = {
         stateNames: new Set(),
         locals: new Set(),
         ...(routed ? { routeId: ROUTE_ID_FROM_URL } : {}),
+        ...(paramValues ? { paramValues } : {}),
       };
       const modelField = upperFirst(f.name);
       // A persisted store field hydrates from its backing store; the declared
       // `= <init>` becomes the FALLBACK inside the loader, not the seed here.
       const override = initOverrides.get(modelField);
+      // A deferred component's param-reading cell (`null`) has no init-time
+      // value; nothing renders or dispatches to it, so it seeds the zero.
       const v =
-        override ?? (f.init ? decimalLit(renderFsExpr(f.init, ctx), f.type) : stateFieldZero(f));
+        override ??
+        (f.init && paramValues !== null
+          ? decimalLit(renderFsExpr(f.init, ctx), f.type)
+          : stateFieldZero(f));
       return `      ${modelField} = ${v}`;
     }),
     ...reads.flatMap((r) => [
@@ -683,6 +695,14 @@ function renderUpdateStmt(stmt: ActionIR["body"][number], ctx: FsExprCtx): Updat
             : "/";
         return { cmd: `Cmd.navigatePath(${felizRouteSegments(route).join(", ")})` };
       }
+      // `toast(<msg>)` — the documented page effect, lowered as a
+      // `private-operation` call exactly like `navigate`.  It shows the same
+      // built-in DOM toast an `Action { …, then: toast(…) }` runs; `index.ts`
+      // declares that helper ahead of `update` once an arm calls it.
+      if (stmt.name === "toast") {
+        const msg = args[0] ?? `""`;
+        return { line: `      ${FELIZ_ACTION_TOAST} (string (${msg}))` };
+      }
       // `private-operation`: a backend concept with no frontend arm.  Fail fast
       // rather than silently dropping it.
       throw new Error(
@@ -813,7 +833,15 @@ export function renderUpdate(
   // the same single-program Model/Msg/update — the store arm just renders under
   // a `storeScope` so its own fields resolve to their namespaced Model field).
   const assembleArm = (head: string, body: readonly ActionIR["body"][number][], ctx: FsExprCtx) => {
-    const parts = body.map((s) => renderUpdateStmt(s, ctx));
+    // A `let` binds a local for the statements AFTER it, shadowing a same-named
+    // state cell / store field (`let total = n + 10  n := total` reads the
+    // local, not `model.Total`) — the scope lowering resolved the ref in.
+    let scoped = ctx;
+    const parts = body.map((s) => {
+      const part = renderUpdateStmt(s, scoped);
+      if (s.kind === "let") scoped = { ...scoped, locals: new Set([...scoped.locals, s.name]) };
+      return part;
+    });
     const lines = parts.map((pt) => pt.line).filter((l): l is string => l !== undefined);
     const cmds = parts.map((pt) => pt.cmd).filter((c): c is string => c !== undefined);
     const cmd =
@@ -976,7 +1004,7 @@ export function renderUpdate(
     const elseCtx: FsExprCtx = { stateNames, locals: new Set(), ...armRouteId };
     // Trigger arm: destructure `(id, <param>, …)` (named after the op params) and
     // fire the curried api fn.
-    const argNames = e.params.map((p) => p.name);
+    const argNames = e.params.map((p) => fsIdent(p.name));
     const triggerPat = e.params.length === 0 ? "id" : `(id, ${argNames.join(", ")})`;
     const apiArgs = ["id", ...argNames].join(" ");
     const arms: string[] = [
@@ -992,8 +1020,10 @@ export function renderUpdate(
         ...armRouteId,
       };
       const inner = (b: string) => (e.isMulti ? `(${v.duCase} ${b})` : b);
+      // The binder is a model name — an F# keyword (`member`, `begin`) takes the
+      // double-backtick spelling its body refs already get (`ctx.locals`).
       const arm = assembleArm(
-        `  | ${e.resultMsg} (Ok (Some ${inner(v.binding ?? "_")})) ->`,
+        `  | ${e.resultMsg} (Ok (Some ${inner(v.binding ? fsIdent(v.binding) : "_")})) ->`,
         v.body,
         ctx,
       );

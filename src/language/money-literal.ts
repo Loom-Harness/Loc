@@ -44,11 +44,6 @@ export function moneyLiteralText(expr: Expression | undefined): string | undefin
   return arg.value;
 }
 
-/** True when `expr` is the `money("…")` literal form. */
-export function isMoneyLiteral(expr: Expression | undefined): boolean {
-  return moneyLiteralText(expr) !== undefined;
-}
-
 /**
  * Whether a money literal's string argument is a well-formed precise decimal.
  *

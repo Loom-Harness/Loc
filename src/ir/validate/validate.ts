@@ -9,6 +9,7 @@ import {
 import { validateStampReadsBeforeFlush } from "./checks/capability-checks.js";
 import { validateServerInitialisedFields } from "./checks/constructibility-checks.js";
 import { validateCreateCallSites } from "./checks/create-call-checks.js";
+import { validateDeclaredCreateParams } from "./checks/create-params-checks.js";
 import type { LoomDiagnostic } from "./checks/diagnostic.js";
 import { validateDomainServices } from "./checks/domain-service-checks.js";
 import { validateEntityPartParams } from "./checks/entity-part-param-checks.js";
@@ -20,6 +21,7 @@ import {
   validateMigrationDataSteps,
   validateSelfProvisioningSchemaSupport,
 } from "./checks/migration-checks.js";
+import { validatePagedParamNames } from "./checks/paged-param-checks.js";
 import { validateProjections } from "./checks/projection-checks.js";
 import {
   validateFindGates,
@@ -29,7 +31,12 @@ import {
   validateRetrievals,
   validateWorkflowInstanceReadGates,
 } from "./checks/query-checks.js";
+import {
+  validateReactorGates,
+  validateTimerTenantReads,
+} from "./checks/reactor-principal-checks.js";
 import { validateMemberRepositoryAccess } from "./checks/repo-access-checks.js";
+import { validateReservedFieldNames } from "./checks/reserved-field-name-checks.js";
 import { validateReservedSurfaces } from "./checks/reserved-surfaces.js";
 import { validateSensitiveWireSupport } from "./checks/sensitivity-checks.js";
 import { validateStores } from "./checks/store-checks.js";
@@ -100,12 +107,14 @@ import {
   validateResourceConfig,
   validateSavingShapeSupport,
   validateStampSupport,
+  validateStorageTypeBinding,
   validateSystem,
   validateTenancyFilterBypass,
   validateTphFilterExpressibility,
   validateUiBodyStatementKinds,
   validateUiProjectionReadFramework,
   validateUiRealtimeSupport,
+  validateUiThisUnbound,
   validateVanillaDocumentScope,
 } from "./checks/system-checks.js";
 import { validateTenancy } from "./checks/tenancy-checks.js";
@@ -201,6 +210,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // merits, in every `auth { enforcement: }` mode.
     validateTenancyFilterBypass(sys, diags);
     validateDotnetNameCollisions(sys, diags);
+    validateReservedFieldNames(sys, diags);
     validateStampSupport(sys, diags);
     validateGuardPrincipalWithoutAuth(sys, diags);
     validateDapperSupport(sys, diags);
@@ -209,6 +219,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateResourceConfig(sys, diags);
     validateApiResourceBindings(sys, diags);
     validateDataSourceUnwiredKnobs(sys, diags);
+    validateStorageTypeBinding(sys, diags);
     validateReservedSurfaces(sys, diags);
     validateReactIdReferences(sys, diags);
     validateAuthUiFramework(sys, diags);
@@ -227,6 +238,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateFrontendPropTypes(sys, diags);
     validateFlutterActionBodies(sys, diags);
     validateUiBodyStatementKinds(sys, diags);
+    validateUiThisUnbound(sys, diags);
     validatePageGateExprs(sys, diags);
     validateFormLocalCollisions(sys, diags);
     validateComponentChildrenSupport(sys, diags);
@@ -251,18 +263,21 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     // infra-emitted tick-event shape, single-fire state requirement, and the
     // dead-config unbound warning.
     validateTimerSources(sys, diags);
+    // Reactors run as the tenant-scoped system principal (ruling D1): a timer
+    // tick has no tenant, so its tenant-owned reads must opt out explicitly.
+    validateTimerTenantReads(sys, diags);
     // Advisory index-suggestion lint (uniqueness-and-indexes.md §11,
     // D-INDEX-SUGGEST) — WARNING-severity `loom.index-suggestion` for a
     // query-filtered column with no covering index.  Never auto-derives; rides
     // the normal IR-warning channel (api → LSP / playground / `parse --json`).
     // Warning-only, so it can't flip `ok` or block generation (both error-gated).
     validateIndexSuggestions(sys, diags);
-    // Advisory update-gate lint (audit D3) — WARNING-severity
-    // `loom.update-gate-suggestion` for a field that a `requires`-gated
-    // operation assigns AND `crudish`'s generic `update` mass-assigns, so the
-    // gate is bypassable through `update`.  Points at `immutable`, which
-    // removes the field from the update input while leaving the operation free
-    // to assign it.  Same advisory channel as the index lint above.
+    // Update-gate bypass lint (audit D3, helpdesk H-01) — a counted WARNING
+    // `loom.update-gate-suggestion` for a field that a gated operation
+    // (`requires`, `when`, or a `precondition` reading the field) assigns AND
+    // `crudish`'s generic `update` mass-assigns, so the gate is bypassable
+    // through `update`.  Points at `immutable` (and `managed` for the create
+    // half), which leave the operation free to assign it.
     validateUpdateGateSuggestions(sys, diags);
     // Scaffold expansion now runs at the AST level
     // (`src/language/ddd-scaffold-ast-expander.ts`).  Duplicate-page
@@ -289,6 +304,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateRetrievals(c, diags);
     validateRawSeedColumns(c, diags);
     validateFindNameCollisions(c, diags);
+    validatePagedParamNames(c, diags);
     validateEntityPartParams(c, diags);
     validateAggregateTestBodies(c, diags);
     validateTestStatementVocabulary(c, diags);
@@ -305,6 +321,7 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
     validateExternOperations(c, diags);
     validateStampReadsBeforeFlush(c, diags);
     validateServerInitialisedFields(c, diags);
+    validateDeclaredCreateParams(c, diags);
     validateEventSourcedDiscipline(c, diags);
     validateProjections(c, diags);
     validateAggregateConstructible(c, diags);
@@ -316,10 +333,14 @@ export function validateLoomModel(loom: EnrichedLoomModel): LoomDiagnostic[] {
       // The cross-context-repository gate needs the sibling contexts, like
       // `validateDomainServices` above.
       [...allContexts(loom)],
+      [...loom.rootValueObjects, ...loom.rootEnums, ...loom.rootPayloads].map((d) => d.name),
     );
     // Explicit application-layer handlers (unfoldable-api-derivation.md, Layer 3):
     // queryHandler-read-only + commandHandler-single-aggregate layering contracts.
     validateApplicationHandlers(c, diags);
+    // Ruling D1: a reactor's gates are evaluated against the system principal;
+    // warn on one it can never satisfy.
+    validateReactorGates(c, diags);
     validateCurrentUserScope(c, diags);
     validateFieldDefaults(c, diags);
     validateContainmentCycles(c, diags);

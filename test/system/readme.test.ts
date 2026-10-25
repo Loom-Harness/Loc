@@ -58,7 +58,8 @@ const BACKEND_AND_UI = `
     deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
     test e2e "create a product" against api {
       let p = api.products.create({ sku: "WIDGET-1" })
-      expect(p.sku).toBe("WIDGET-1")
+      let read = api.products.getById(p)
+      expect(read.sku).toBe("WIDGET-1")
     }
   }
 `;
@@ -81,7 +82,8 @@ const TWO_BACKENDS = `
     }
     test e2e "create an order" against ordersApi {
       let o = api.orders.create({ ref: "A-1" })
-      expect(o.ref).toBe("A-1")
+      let read = api.orders.getById(o)
+      expect(read.ref).toBe("A-1")
     }
   }
 `;
@@ -345,5 +347,53 @@ describe("README.md — regeneration", () => {
     expect(md).toContain("`.loomignore`");
     expect(md).toContain("--dry-run");
     expect(md).toContain("overwrite a file you hand-edited");
+  });
+});
+
+// Under `auth { oidc }` the backends accept only verified tokens, so a reader
+// (or an agent) who reaches for the dev-claims header gets 401 and no reason.
+// The README names the bundled dev IdP, its user, and a working token recipe.
+describe("signing in to an auth { oidc } stack", () => {
+  const OIDC = `
+system Shop {
+  user { id: string  role: string }
+  auth { enforcement: opt  provider: auth0  oidc { issuer: "https://shop.eu.auth0.com/"  clientId: env("OIDC_CLIENT_ID") } }
+  subdomain Sales {
+    context Orders {
+      aggregate Order with crudish { code: string }
+      repository Orders for Order { }
+    }
+  }
+  storage primary { type: postgres }
+  resource s { for: Orders, kind: state, use: primary }
+  api SalesApi from Sales
+  deployable api { platform: node contexts: [Orders] serves: SalesApi dataSources: [s] port: 4000 auth: required }
+  test e2e "creates an order" against api {
+    let o = api.orders.create({ code: "A1" })
+    expect(api.orders.getById(o).code).toBe("A1")
+  }
+}`;
+
+  it("names the dev Keycloak, the demo user and a token recipe that matches the realm", async () => {
+    const files = await generateSystemFiles(OIDC);
+    const md = files.get("README.md")!;
+    const realm = JSON.parse(files.get("keycloak/realm.json")!) as {
+      realm: string;
+      clients: { clientId: string }[];
+    };
+    expect(md).toContain("### Signing in");
+    expect(md).toContain("**`demo` / `demo`**");
+    expect(md).toContain(
+      `http://localhost:8081/realms/${realm.realm}/protocol/openid-connect/token`,
+    );
+    expect(md).toContain(`client_id=${realm.clients[0]!.clientId}`);
+    expect(md).toContain("`x-loom-dev-claims` is ignored");
+    expect(md).toContain("The suite signs itself in");
+  });
+
+  it("says nothing about signing in when there is no auth block", async () => {
+    const md = await readme(BACKEND_ONLY);
+    expect(md).not.toContain("### Signing in");
+    expect(md).not.toContain("signs itself in");
   });
 });

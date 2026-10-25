@@ -60,9 +60,10 @@ import type {
   WorkflowStmtIR,
 } from "../types/loom-ir.js";
 import { isShorthandProjection } from "../types/loom-ir.js";
+import { explicitRouteSlot } from "../util/api-surface.js";
 import { AUDIT_HISTORY_FIND, aggServesHistory, buildHistoryFind } from "../util/audit-history.js";
 import { isTpcConcrete, isTphConcrete } from "../util/inheritance.js";
-import { pagedRunStmt } from "../util/paged-run.js";
+import { pagedRunFindName, pagedRunStmt } from "../util/paged-run.js";
 import {
   buildDeepScopeFilter,
   buildDenyFilter,
@@ -79,6 +80,7 @@ import {
   tenancyPrincipalClaim,
 } from "../util/tenant-stance.js";
 import { walkExprDeep, walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "../util/walk.js";
+import { applyDefaultDenyReads } from "./default-deny-reads.js";
 import { applyDemoTenantSeed } from "./demo-tenant.js";
 import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
 
@@ -172,6 +174,26 @@ function enrichSystem(
       if (!(err in merged)) merged[err] = code;
     errorStatusesBySubdomain.set(a.sourceModule, merged);
   }
+  // The slots the explicit `route`s occupy, keyed by the subdomain of each
+  // route's TARGET context — the auto-derived surface over that subdomain
+  // yields them (D-EXPLICIT-ROUTE-WINS).  Keyed by target rather than by the
+  // api's `from` subdomain because an api built `with scaffoldApi(of: …)`
+  // declares no `from`, and its routes still sit beside the derived routes of
+  // the contexts they dispatch into.
+  const subdomainOfContext = new Map<string, string>();
+  for (const m of sys.subdomains)
+    for (const c of m.contexts) subdomainOfContext.set(c.name, m.name);
+  const explicitRouteSlotsBySubdomain = new Map<string, string[]>();
+  for (const a of sys.apis) {
+    for (const r of a.routes) {
+      const sub = subdomainOfContext.get(r.target.context);
+      if (sub === undefined) continue;
+      const slots = explicitRouteSlotsBySubdomain.get(sub) ?? [];
+      const s = explicitRouteSlot(r);
+      if (!slots.includes(s)) slots.push(s);
+      explicitRouteSlotsBySubdomain.set(sub, slots);
+    }
+  }
   // App-wide fold of the structural-conflict statuses (expressible-builtins.md
   // §3 / M-T3.4a). Unlike user `error` payloads (per-subdomain), the structural
   // conflicts (unique / version / when / FK / event-store) surface in
@@ -215,6 +237,9 @@ function enrichSystem(
         rootPayloads,
       ),
       errorStatusOverrides: errorStatusesBySubdomain.get(m.name),
+      ...(explicitRouteSlotsBySubdomain.has(m.name)
+        ? { explicitRouteSlots: explicitRouteSlotsBySubdomain.get(m.name) }
+        : {}),
       structuralErrorStatuses,
     })),
   }));
@@ -254,7 +279,10 @@ function enrichSystem(
     .map((m) => applyPolicyDenies(m))
     // The bundled dev Keycloak's demo tenant gets a first-boot registry row
     // whose id is the demo user's tenancy claim (#26).  See `demo-tenant.ts`.
-    .map((m) => applyDemoTenantSeed(m, sys));
+    .map((m) => applyDemoTenantSeed(m, sys))
+    // M-T3.19: under denyByDefault the undeclared list / by-id reads of a
+    // context served by an `auth: required` backend fail closed (403).
+    .map((m) => applyDefaultDenyReads(m, sys));
   // Then propagate react deployables' context sets from their targets.
   // Done after subdomain enrichment so frontends see the same enriched
   // contexts every other consumer sees.
@@ -955,6 +983,7 @@ export function enrichContext(
     ensureHistoryFind(aggregates, ensureFindAll(aggregates, ctx.repositories)),
     ctx.queryHandlers,
     ctx.criteria,
+    ctx.retrievals,
   );
   // P2 (payload-transport-layer.md): give every concrete aggregate's wire
   // shape a named, referenceable `<Agg>Wire` payload.  Purely additive IR
@@ -1194,6 +1223,7 @@ function synthesizePagedQueryHandlerFinds(
   repositories: RepositoryIR[],
   queryHandlers: QueryHandlerIR[] | undefined,
   criteria: CriterionIR[] | undefined,
+  retrievals: RetrievalIR[] | undefined,
 ): RepositoryIR[] {
   const handlers = (queryHandlers ?? []).filter((h) => pagedReturn(h.returnType));
   if (handlers.length === 0) return repositories;
@@ -1201,28 +1231,44 @@ function synthesizePagedQueryHandlerFinds(
   const out = repositories.map((r) => ({ ...r, finds: [...r.finds] }));
   for (const h of handlers) {
     // The returned value must be a plain `let`-ref bound to a top-level
-    // `Repo.run(<Criterion>)` (synthCriterion) statement — the only paged-run
-    // body shape the five backends emit (`pagedRunStmt`).  Any other shape is
-    // left un-synthesized: phase ⑦ refuses it (`loom.paged-query-handler-shape`)
+    // `Repo.run(<Criterion | Retrieval>)` statement — the only paged-run body
+    // shape the five backends emit (`pagedRunStmt`).  Any other shape is left
+    // un-synthesized: phase ⑦ refuses it (`loom.paged-query-handler-shape`)
     // before any emitter runs.
     const run = pagedRunStmt(h);
-    if (!run?.synthCriterion) continue;
-    const crit = crits.find((c) => c.name === run.synthCriterion!.name);
-    if (!crit) continue;
+    if (!run) continue;
     const repo = out.find((r) => r.aggregateName === run.aggName);
     if (!repo) continue;
-    if (repo.finds.some((f) => f.name === run.retrievalName)) continue;
+    if (repo.finds.some((f) => f.name === pagedRunFindName(run))) continue;
+    if (run.synthCriterion) {
+      const crit = crits.find((c) => c.name === run.synthCriterion!.name);
+      if (!crit) continue;
+      repo.finds.push({
+        name: run.retrievalName,
+        params: crit.params,
+        returnType: h.returnType,
+        filter: crit.body,
+        criterionRef: {
+          name: crit.name,
+          args: crit.params.map(
+            (p): ExprIR => ({ kind: "ref", name: p.name, refKind: "param", type: p.type }),
+          ),
+        },
+        synthesized: true,
+      });
+      continue;
+    }
+    // A named retrieval: its `where` filters the page, its `sort:` orders it
+    // unless the caller picks a whitelisted `sort` column.
+    const r = (retrievals ?? []).find((x) => x.name === run.retrievalName);
+    if (!r) continue;
     repo.finds.push({
-      name: run.retrievalName,
-      params: crit.params,
+      name: pagedRunFindName(run),
+      params: r.params,
       returnType: h.returnType,
-      filter: crit.body,
-      criterionRef: {
-        name: crit.name,
-        args: crit.params.map(
-          (p): ExprIR => ({ kind: "ref", name: p.name, refKind: "param", type: p.type }),
-        ),
-      },
+      filter: r.where,
+      ...(r.criterionRef ? { criterionRef: r.criterionRef } : {}),
+      ...(r.sort.length > 0 ? { defaultSort: r.sort } : {}),
       synthesized: true,
     });
   }

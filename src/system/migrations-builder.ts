@@ -71,7 +71,13 @@ import {
   AUDIT_RECORDS_PK,
   AUDIT_RECORDS_TABLE,
 } from "../util/audit-records-table.js";
-import { plural, snake, upperFirst } from "../util/naming.js";
+import {
+  legacyWorkflowStateTableName,
+  plural,
+  snake,
+  upperFirst,
+  workflowStateTableName,
+} from "../util/naming.js";
 import type { SnapshotStore } from "./snapshot.js";
 
 // ---------------------------------------------------------------------------
@@ -202,9 +208,17 @@ export function schemaFromModule(
       // mirroring emit/schema.ts.  `tableOwnerName` resolves the concrete to
       // its base; the part's `parentId` holds the shared-table row id.
       const owner = tableOwnerName(agg, pool);
-      return agg.parts.map((part) =>
-        tableForPart(part, agg, module.name, voLookup, enumLookup, owner),
-      );
+      // Its `X id[]` reference collections need their join tables too — the
+      // owner FK points at the shared base table, whose row id the concrete's
+      // id IS (every backend's TPH repository writes the base row id there).
+      return [
+        ...agg.parts.map((part) =>
+          tableForPart(part, agg, module.name, voLookup, enumLookup, owner),
+        ),
+        ...agg.associations.map((assoc) =>
+          tableForAssociation(assoc, module.name, plural(snake(owner))),
+        ),
+      ];
     }
     if (isTphBase(agg, pool)) {
       return [tphTableForAggregate(agg, pool, module.name, voLookup, enumLookup)];
@@ -366,11 +380,31 @@ export function schemaFromModule(
       bySchemaAndName.has(`${t.schema ?? ""}.${fk.refTable}`),
     );
   }
+  for (const t of tables) t.indexes = withoutIndexesImpliedByUnique(t.indexes);
   // The snapshot stays alphabetical (a stable, diff-friendly record);
   // `diffSchema` reorders the emitted `createTable` steps by FK
   // dependency so the SQL applies cleanly.
   tables.sort((a, b) => a.name.localeCompare(b.name));
   return { schemaVersion: 1, tables };
+}
+
+/** Drop a plain index a unique index already provides (D13).  A `unique (p)`
+ *  on an FK column `p` used to sit beside the derived FK index on the same
+ *  column (`r2s_p_uq` + `r2s_p_idx`) — two B-trees over one key, the plain one
+ *  pure write overhead.  An unconditional unique index on EXACTLY the same
+ *  ordered column list serves every lookup the plain one would, so the plain
+ *  one goes.  Kept when either side is partial (a soft-delete `WHERE` unique
+ *  covers only live rows) or the plain one carries an operator class (a
+ *  `text_pattern_ops` prefix index answers `LIKE` the default opclass can't).
+ *  On an existing project the delta is a plain `DROP INDEX` — not a
+ *  destructive step. */
+function withoutIndexesImpliedByUnique(indexes: IndexShape[]): IndexShape[] {
+  const key = (i: IndexShape): string => JSON.stringify(i.columns);
+  const uniqueKeys = new Set(indexes.filter((i) => i.unique && !i.predicate).map(key));
+  if (uniqueKeys.size === 0) return indexes;
+  return indexes.filter(
+    (i) => i.unique || !!i.predicate || !!i.opclasses || !uniqueKeys.has(key(i)),
+  );
 }
 
 /** Persisted workflow-correlation state table (mirrors `tableForAggregate`):
@@ -500,7 +534,7 @@ function workflowStateTableShape(
    *  relay's at-least-once redelivery. */
   durable = false,
 ): TableShape {
-  const tableName = plural(snake(wf.name));
+  const tableName = workflowStateTableName(wf.name);
   const corr = wf.correlationField as string;
   const columns: ColumnShape[] = [];
   for (const f of wf.stateFields ?? []) {
@@ -2241,6 +2275,7 @@ export function buildMigrations(
       diffSchema(baseline, next, allRenames, [
         ...tableRenamePlan.tableRenames,
         ...reshapeTableRenames,
+        ...namingFixTableRenames(m, next),
       ]),
       baseline,
       {
@@ -2396,6 +2431,36 @@ function resolveRenames(
       from: snake(ri.from),
       to: snake(ri.to),
     });
+  }
+  return out;
+}
+
+/** Generator-side table-name corrections, as `renameTable`s (D13).  A saga
+ *  table once spelled `plural(snake(wf))` double-pluralised an `-ies` stem
+ *  (`replicate_policieses`); {@link workflowStateTableName} now keeps it
+ *  (`replicate_policies`).  An existing project's baseline still records the
+ *  old relation, so each corrected name is offered to `diffSchema` as a
+ *  rename — which applies it only when the baseline holds the OLD relation and
+ *  not the new one, so a fresh project (no baseline) or an already-renamed
+ *  one is untouched, and the delta is an `ALTER TABLE … RENAME`, never a
+ *  drop + create.  Skipped when the old spelling is itself a live table in
+ *  `next` (it then pairs with itself). */
+function namingFixTableRenames(
+  module: EnrichedSubdomainIR,
+  next: SchemaSnapshot,
+): ResolvedTableRename[] {
+  const out: ResolvedTableRename[] = [];
+  const liveNames = new Set(next.tables.map((t) => t.name));
+  for (const ctx of module.contexts) {
+    for (const wf of ctx.workflows) {
+      if (wf.eventSourced || !wf.correlationField) continue; // no state table
+      const from = legacyWorkflowStateTableName(wf.name);
+      const to = workflowStateTableName(wf.name);
+      if (from === to || liveNames.has(from)) continue;
+      for (const t of next.tables) {
+        if (t.name === to) out.push({ from, to, schema: t.schema });
+      }
+    }
   }
   return out;
 }
@@ -2995,8 +3060,13 @@ function tableForPart(
   };
 }
 
-function tableForAssociation(assoc: AssociationIR, ownerModule: string): TableShape {
-  const ownerTable = plural(snake(assoc.ownerAgg));
+function tableForAssociation(
+  assoc: AssociationIR,
+  ownerModule: string,
+  /** The table the owner FK references when the owner has none of its own —
+   *  a TPH concrete's rows live in its base's shared table. */
+  ownerTable: string = plural(snake(assoc.ownerAgg)),
+): TableShape {
   const targetTable = plural(snake(assoc.targetAgg));
   const idType = idColumnType(assoc.valueType);
   return {

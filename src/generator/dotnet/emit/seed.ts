@@ -24,8 +24,9 @@
 // indirection was considered and not adopted).
 
 import type { EnrichedBoundedContextIR, SeedRowIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import { enumPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
+import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import {
   type Entry,
   groupByDataset,
@@ -150,7 +151,7 @@ function renderArgs(row: SeedRowIR, agg: SeederAggregate): string {
       provided !== undefined
         ? coerceSeedValue(p.type, renderCsExpr(provided))
         : renderCsOmission(p.omission);
-    return `${p.name}: ${value}`;
+    return `${escapeCsharpIdent(p.name)}: ${value}`;
   });
   return args.join(", ");
 }
@@ -209,7 +210,7 @@ function renderSeedFile(
   const body = lines(...fnBlocks);
   const scan = body.replace(/"(?:\\.|[^"\\])*"/g, '""');
   const usesVo = ctx.valueObjects.some((v) => new RegExp(`\\b${v.name}\\b`).test(scan));
-  const usesEnum = ctx.enums.some((e) => new RegExp(`\\b${e.name}\\b`).test(scan));
+  const usesEnum = enumPool(ctx).some((e) => new RegExp(`\\b${e.name}\\b`).test(scan));
 
   const usings = lines(
     "using System;",

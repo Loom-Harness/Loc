@@ -4,12 +4,14 @@
 // `Pricing.quote(cart, customer)` member call into the generated service.
 
 import { describe, expect, it } from "vitest";
+import { spellMarkers } from "../../src/generator/_imports/symbol.js";
 import { renderCsExpr } from "../../src/generator/dotnet/render-expr.js";
 import { renderExpr as renderElixirExpr } from "../../src/generator/elixir/render-expr.js";
 import { renderJavaExpr } from "../../src/generator/java/render-expr.js";
 import { renderPyExpr } from "../../src/generator/python/render-expr.js";
 import { renderTsExpr } from "../../src/generator/typescript/render-expr.js";
 import type { ExprIR } from "../../src/ir/types/loom-ir.js";
+import { pyDerivedImports } from "../_helpers/py-imports.js";
 
 const CALL: ExprIR = {
   kind: "call",
@@ -36,7 +38,10 @@ describe("domain-service call rendering — every backend leaf", () => {
   });
 
   it("Python: bare module function quote(cart, customer)", () => {
-    expect(renderPyExpr(CALL)).toBe("quote(cart, customer)");
+    // Spelled bare; the marker also derives `from app.domain.services.pricing
+    // import quote` into the calling module (M-T9.84).
+    expect(spellMarkers(renderPyExpr(CALL))).toBe("quote(cart, customer)");
+    expect(pyDerivedImports(renderPyExpr(CALL))).toEqual(["app.domain.services.pricing.quote"]);
   });
 
   it("Elixir: fully-qualified MyApp.Domain.Services.Pricing.quote(...)", () => {

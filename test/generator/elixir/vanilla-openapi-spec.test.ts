@@ -56,7 +56,7 @@ describe("vanilla OpenAPI spec (§11f)", () => {
     const specKey = [...files.keys()].find((k) => k.endsWith("_spec.ex") && k.includes("/api/"));
     expect(specKey, "spec module not emitted").toBeDefined();
     const spec = files.get(specKey!)!;
-    expect(spec).toContain("alias OpenApiSpex.{Info, OpenApi, Server}");
+    expect(spec).toContain("alias OpenApiSpex.{Info, OpenApi}");
     expect(spec).toContain("@behaviour OpenApi");
     expect(spec).toContain("def spec do");
     expect(spec).toContain("%OpenApi{");
@@ -129,17 +129,25 @@ system Shop {
     const files = await generateSystemFiles(src);
     const specKey = [...files.keys()].find((k) => k.endsWith("_spec.ex") && k.includes("/api/"));
     const spec = files.get(specKey!)!;
-    const start = spec.indexOf('"/orders/{id}/reserve"');
+    const start = spec.indexOf('"/api/orders/{id}/reserve"');
     expect(start, "reserve path present").toBeGreaterThanOrEqual(0);
     const reserve = spec.slice(start, start + 1200);
     expect(reserve).toContain("200 => %OpenApiSpex.Response{");
-    expect(reserve).toContain("Schemas.OrderOrNotFound");
     expect(reserve).not.toContain("204 =>");
-    const union = file(files, "order_or_not_found.ex");
-    expect(union).toContain('title: "OrderOrNotFound"');
+    // M-FT.24: the 200 carries the SUCCESS arms only; the NotFound arm is served
+    // as a 404 problem, so its status declares ProblemDetails | NotFoundProblem.
+    expect(reserve).toContain("Schemas.OrderOrNotFoundSuccess}");
+    expect(spec.slice(start, start + 4000)).toMatch(
+      /anyOf: \[\w+\.Api\.Schemas\.ProblemDetails, \w+\.Api\.Schemas\.NotFoundProblem\]/,
+    );
+    const union = file(files, "order_or_not_found_success.ex");
+    expect(union).toContain('title: "OrderOrNotFoundSuccess"');
     expect(union).toContain("oneOf: [");
     expect(union).toContain('type: %OpenApiSpex.Schema{type: :string, enum: ["Order"]}');
-    expect(union).toContain('type: %OpenApiSpex.Schema{type: :string, enum: ["NotFound"]}');
+    expect(union).not.toContain('enum: ["NotFound"]');
+    const problem = file(files, "not_found_problem.ex");
+    expect(problem).toContain("allOf: [");
+    expect(problem).toContain("required: [:resource]");
   });
 
   it("uppercases the module alias when the success arm is a PRIMITIVE (B11)", async () => {
@@ -176,21 +184,23 @@ system Shop {
 }`;
     const files = await generateSystemFiles(src);
     // The schema module + the response reference are the uppercase-first alias …
-    const union = file(files, "string_or_not_found.ex");
+    // (The 200 component is the success-arm half, M-FT.24.)
+    const union = file(files, "string_or_not_found_success.ex");
     expect(union).toContain("defmodule");
-    expect(union).toContain(".Api.Schemas.StringOrNotFound do");
-    expect(union).toContain('title: "StringOrNotFound"');
+    expect(union).toContain(".Api.Schemas.StringOrNotFoundSuccess do");
+    expect(union).toContain('title: "StringOrNotFoundSuccess"');
     // … and NEVER the lower-camel form (which would be an invalid Elixir alias).
     expect(union).not.toContain("Schemas.stringOrNotFound");
     const specKey = [...files.keys()].find((k) => k.endsWith("_spec.ex") && k.includes("/api/"));
     const spec = files.get(specKey!)!;
-    expect(spec).toContain("Schemas.StringOrNotFound");
+    expect(spec).toContain("Schemas.StringOrNotFoundSuccess");
     expect(spec).not.toContain("Schemas.stringOrNotFound");
     // The success variant's wire discriminator stays the lowercase primitive tag …
     expect(union).toContain('type: %OpenApiSpex.Schema{type: :string, enum: ["string"]}');
     // … and the scalar arm carries its `value` (no record fields for a primitive).
     expect(union).toContain("value:");
-    expect(union).toContain('type: %OpenApiSpex.Schema{type: :string, enum: ["NotFound"]}');
+    // … and the error arm is not a 200 arm at all.
+    expect(union).not.toContain('enum: ["NotFound"]');
   });
 });
 
@@ -230,7 +240,7 @@ system Shop {
     const spec = files.get(specKey!)!;
 
     // Scalar `string` return → 200 with the plain string schema, NOT 204.
-    const dStart = spec.indexOf('"/orders/{id}/describe"');
+    const dStart = spec.indexOf('"/api/orders/{id}/describe"');
     expect(dStart, "describe path present").toBeGreaterThanOrEqual(0);
     const describe_ = spec.slice(dStart, dStart + 900);
     expect(describe_).toContain("200 => %OpenApiSpex.Response{");
@@ -241,7 +251,7 @@ system Shop {
 
     // Scalar `money` return → 200 with the money wire schema (string/decimal —
     // Jason serialises the Decimal to a string, matching a money FIELD), NOT 204.
-    const tStart = spec.indexOf('"/orders/{id}/total"');
+    const tStart = spec.indexOf('"/api/orders/{id}/total"');
     expect(tStart, "total path present").toBeGreaterThanOrEqual(0);
     const total = spec.slice(tStart, tStart + 900);
     expect(total).toContain("200 => %OpenApiSpex.Response{");
@@ -251,7 +261,7 @@ system Shop {
     expect(total).not.toContain("204 =>");
 
     // A VOID op (no return type) is unchanged — still 204 No Content.
-    const uStart = spec.indexOf('"/orders/{id}/touch"');
+    const uStart = spec.indexOf('"/api/orders/{id}/touch"');
     expect(uStart, "touch path present").toBeGreaterThanOrEqual(0);
     const touch = spec.slice(uStart, uStart + 900);
     expect(touch).toContain('204 => %OpenApiSpex.Response{description: "No Content"}');
@@ -292,7 +302,7 @@ system Shop {
     const files = await generateSystemFiles(src);
     const specKey = [...files.keys()].find((k) => k.endsWith("_spec.ex") && k.includes("/api/"));
     const spec = files.get(specKey!)!;
-    const start = spec.indexOf('"/orders/locate"');
+    const start = spec.indexOf('"/api/orders/locate"');
     expect(start, "locate path present").toBeGreaterThanOrEqual(0);
     const locate = spec.slice(start, start + 1200);
     expect(locate).toContain("Schemas.OrderResponse");
@@ -336,10 +346,12 @@ describe("vanilla OpenAPI spec — workflow instance routes", () => {
     const files = await generateSystemFiles(SAGA_SOURCE);
     const specKey = [...files.keys()].find((k) => k.endsWith("_spec.ex") && k.includes("/api/"));
     const spec = files.get(specKey!)!;
-    expect(spec).toContain('"/workflows/order_fulfillment/instances" => %OpenApiSpex.PathItem{');
+    expect(spec).toContain(
+      '"/api/workflows/order_fulfillment/instances" => %OpenApiSpex.PathItem{',
+    );
     expect(spec).toContain('operationId: "allOrderFulfillmentInstances"');
     expect(spec).toContain(
-      '"/workflows/order_fulfillment/instances/{id}" => %OpenApiSpex.PathItem{',
+      '"/api/workflows/order_fulfillment/instances/{id}" => %OpenApiSpex.PathItem{',
     );
     expect(spec).toContain('operationId: "getOrderFulfillmentInstanceById"');
     // Correlation-id param carries the uuid format every backend declares.

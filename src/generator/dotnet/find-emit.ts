@@ -7,10 +7,12 @@ import type {
   RetrievalIR,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
+import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
 import type { AggPool } from "../../ir/util/inheritance.js";
 import { upperFirst } from "../../util/naming.js";
 import { canEmitToExpressionFor } from "./criteria-emit.js";
 import { bypassedFilterNames, hasNonBypassableFilter } from "./emit/efcore.js";
+import { csLocalNamer, csReadOwnParams } from "./local-names.js";
 import { collectCsExprUsings, renderCsExpr } from "./render-expr.js";
 
 /** The `.IgnoreQueryFilters(…)` clause for an `ignoring`-bearing read
@@ -99,7 +101,10 @@ export function buildFindBodies(
       name: find.name,
       ignoreClause: ignoreFiltersClause(agg, ctx.aggregates, find),
       filterClause: filterClauseFor(find, agg, ctx),
-      projectionClause: projectionClauseFor(find.returnType),
+      projectionClause: projectionClauseFor(
+        find.returnType,
+        csReadOwnParams(find.params.map((p) => p.name)).ct,
+      ),
     };
   });
 }
@@ -154,7 +159,10 @@ function retrievalWhereClause(
       .join(", ");
     return `.Where(new ${upperFirst(r.criterionRef.name)}Criterion(${args}).ToExpression())`;
   }
-  return `.Where(x => ${renderCsExpr(r.where, { thisName: "x", agg, efQuery: true })})`;
+  // The lambda parameter yields to a same-named retrieval param, which the
+  // predicate reads (`x => x.Name == x` would compare the row to itself).
+  const x = csLocalNamer(r.params.map((p) => p.name))("x");
+  return `.Where(${x} => ${renderCsExpr(r.where, { thisName: x, agg, efQuery: true })})`;
 }
 
 /** `.OrderBy(x => x.Col)[.ThenBy…]` for a retrieval's sort terms (empty
@@ -191,6 +199,9 @@ export function collectRetrievalBodyUsings(
 }
 
 function filterClauseFor(find: FindIR, agg: EnrichedAggregateIR, ctx?: BoundedContextIR): string {
+  // The predicate lambda's parameter yields to a same-named find param, which
+  // the predicate reads (`x => x.Name == x` would compare the row to itself).
+  const x = csLocalNamer(find.params.map((p) => p.name))("x");
   // A `where` that is exactly a named, eligible criterion consumes its
   // reified `ToExpression` (symmetric to the retrieval path).
   if (ctx && find.criterionRef && canEmitToExpressionFor(find.criterionRef.name, ctx, agg.name)) {
@@ -204,25 +215,20 @@ function filterClauseFor(find: FindIR, agg: EnrichedAggregateIR, ctx?: BoundedCo
     // `this.<refColl>.contains(param)` predicate to its
     // AssociationIR and emit a join-table subquery.  See
     // `render-expr.ts:renderMethodCall`.
-    return `.Where(x => ${renderCsExpr(find.filter, { thisName: "x", agg, efQuery: true })})`;
+    return `.Where(${x} => ${renderCsExpr(find.filter, { thisName: x, agg, efQuery: true })})`;
   }
   if (find.params.length === 0) return "";
   const conditions: string[] = [];
-  for (const p of find.params) {
-    const matchedField = agg.fields.find(
-      (f) => f.name === p.name || `${f.name.replace(/Id$/, "")}Id` === p.name,
-    );
-    if (matchedField) {
-      conditions.push(`x.${upperFirst(matchedField.name)} == ${p.name}`);
-    }
+  for (const { param: p, field: matchedField } of implicitFindMatches(find, agg)) {
+    conditions.push(`${x}.${upperFirst(matchedField.name)} == ${p.name}`);
   }
   if (conditions.length === 0) return "";
-  return `.Where(x => ${conditions.join(" && ")})`;
+  return `.Where(${x} => ${conditions.join(" && ")})`;
 }
 
-function projectionClauseFor(t: TypeIR): string {
-  if (t.kind === "array") return `.ToListAsync(cancellationToken)`;
-  if (t.kind === "optional") return `.FirstOrDefaultAsync(cancellationToken)`;
+function projectionClauseFor(t: TypeIR, ct: string): string {
+  if (t.kind === "array") return `.ToListAsync(${ct})`;
+  if (t.kind === "optional") return `.FirstOrDefaultAsync(${ct})`;
   // A NON-optional single find has no absent representation, so an empty result
   // set is the domain not-found rung — the `?? throw` idiom this backend already
   // uses for the same situation in a workflow body, landing on the
@@ -237,5 +243,5 @@ function projectionClauseFor(t: TypeIR): string {
   // collections) and to the corpus (no case reads a single find that misses).
   // `"not_found"` is the canonical find-miss detail token on every backend
   // (RS-27 scopes the by-id sentence out of a find).
-  return `.FirstOrDefaultAsync(cancellationToken) ?? throw new AggregateNotFoundException("not_found")`;
+  return `.FirstOrDefaultAsync(${ct}) ?? throw new AggregateNotFoundException("not_found")`;
 }

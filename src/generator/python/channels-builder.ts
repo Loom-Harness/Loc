@@ -1,8 +1,32 @@
-import type { EventIR, TypeIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
+import type { EventIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent } from "../../util/naming.js";
 import { type BrokerBinding, kafkaStartsAtEarliest } from "../_channels/bindings.js";
+import { pyModule, pyRef } from "../_imports/python.js";
+import { ref } from "../_imports/symbol.js";
 import { fromPayload, type PyVoFields, toPayload } from "./dispatch-builder.js";
+import { PY } from "./py-symbols.js";
+
+/** The transport symbols, written as markers so each import is derived from
+ *  the driver code that uses it. */
+const C = {
+  asyncio: ref(pyModule("asyncio")),
+  Awaitable: pyRef("collections.abc", "Awaitable"),
+  Callable: pyRef("collections.abc", "Callable"),
+  unquote: pyRef("urllib.parse", "unquote"),
+  aio_pika: ref(pyModule("aio_pika")),
+  aioredis: ref(pyModule("redis.asyncio", "aioredis")),
+  AbstractChannel: pyRef("aio_pika.abc", "AbstractChannel"),
+  AbstractIncomingMessage: pyRef("aio_pika.abc", "AbstractIncomingMessage"),
+  AbstractRobustConnection: pyRef("aio_pika.abc", "AbstractRobustConnection"),
+  AIOKafkaConsumer: pyRef("aiokafka", "AIOKafkaConsumer"),
+  AIOKafkaProducer: pyRef("aiokafka", "AIOKafkaProducer"),
+  AIOKafkaAdminClient: pyRef("aiokafka.admin", "AIOKafkaAdminClient"),
+  NewTopic: pyRef("aiokafka.admin", "NewTopic"),
+  TopicAlreadyExistsError: pyRef("aiokafka.errors", "TopicAlreadyExistsError"),
+  AsyncSession: pyRef("sqlalchemy.ext.asyncio", "AsyncSession"),
+  engine: pyRef("app.db.engine", "engine"),
+} as const;
 
 // ---------------------------------------------------------------------------
 // `app/channels.py` — the broker transport module (M-T4.4 slices 2b + 7a +
@@ -89,6 +113,11 @@ export function buildPyChannelsFile(
   /** The value objects in scope (hosted + the foreign-event closure) — a
    *  carried VO is encoded as a DSL-keyed record and rebuilt on decode. */
   valueObjects: readonly ValueObjectIR[] = [],
+  /** The deployable carries auth: every envelope carries the raising frame's
+   *  EVENT ORIGIN (`tenantid` / `loomorgpath` / `loomcausedby`, ruling D1)
+   *  and the consumer delivers each event inside the system principal of
+   *  that origin (`app.auth.user.event_origin_frame`). */
+  carriesOrigin = false,
 ): string {
   const vos: PyVoFields = new Map(valueObjects.map((v) => [v.name, v.fields] as const));
   const unique = uniqueBindings(bindings);
@@ -127,31 +156,8 @@ export function buildPyChannelsFile(
     ...fromArms,
     `    raise ValueError(f"unknown carried event type: {event_type}")`,
   );
-  const scan = codec.replace(/"(?:\\.|[^"\\])*"/g, '""');
-  const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
 
   const eventNames = carried.map((e) => e.name).sort();
-  // The domain names the codec reaches — a top-level field's type, or one
-  // reached through a carried value object the codec rebuilds (its own
-  // enum / id fields are decoded exactly like a top-level field's).
-  const ids = new Set<string>();
-  const enums = new Set<string>();
-  const rebuiltVos = new Set<string>();
-  const visit = (t: TypeIR): void => {
-    const inner = t.kind === "optional" ? t.inner : t;
-    if (inner.kind === "id") ids.add(inner.targetName);
-    else if (inner.kind === "enum") enums.add(inner.name);
-    else if (inner.kind === "valueobject" && !rebuiltVos.has(inner.name)) {
-      const fields = vos.get(inner.name);
-      if (fields) {
-        rebuiltVos.add(inner.name);
-        for (const f of fields) visit(f.type);
-      }
-    }
-  };
-  for (const ev of carried) for (const f of ev.fields) visit(f.type);
-  const idNames = [...ids].sort();
-  const enumNames = [...enums, ...rebuiltVos].sort();
 
   const transportNames = [
     ...(hasRedis ? ["RedisChannelTransport"] : []),
@@ -179,34 +185,16 @@ export function buildPyChannelsFile(
     "tee itself wraps `make_dispatcher` in app.dispatch.",
     `"""`,
     "",
-    hasChannelConsumers || hasKafka ? "import asyncio" : null,
     "import json",
     "import os",
-    hasRabbit || hasKafka ? "from collections.abc import Awaitable, Callable" : null,
     "from datetime import UTC, datetime",
-    refersTo("Decimal") ? "from decimal import Decimal" : null,
     // `get_message` narrows redis-py's Any-typed pubsub surface with `cast`
     // in every shape; the consumer block adds the envelope-field narrows.
     "from typing import cast",
-    hasKafka ? "from urllib.parse import unquote" : null,
     "",
-    hasRabbit ? "import aio_pika" : null,
-    hasRedis ? "import redis.asyncio as aioredis" : null,
-    hasRabbit
-      ? "from aio_pika.abc import AbstractChannel, AbstractIncomingMessage, AbstractRobustConnection"
-      : null,
-    hasKafka ? "from aiokafka import AIOKafkaConsumer, AIOKafkaProducer" : null,
-    hasKafka ? "from aiokafka.admin import AIOKafkaAdminClient, NewTopic" : null,
-    hasKafka ? "from aiokafka.errors import TopicAlreadyExistsError" : null,
-    hasChannelConsumers ? "from sqlalchemy.ext.asyncio import AsyncSession" : null,
     "from uuid6 import uuid7",
     "",
-    hasChannelConsumers ? "from app.db.engine import engine" : null,
     `from app.domain.events import ${["DomainEvent", ...eventNames].join(", ")}`,
-    idNames.length > 0
-      ? `from app.domain.ids import ${idNames.map((n) => `${n}Id`).join(", ")}`
-      : null,
-    enumNames.length > 0 ? `from app.domain.value_objects import ${enumNames.join(", ")}` : null,
     "from app.obs.log import log",
     "",
     "# The deployable's wired bindings: broker address per channelSource, with",
@@ -248,7 +236,7 @@ export function buildPyChannelsFile(
           `    """`,
           "",
           "    def __init__(self, url: str) -> None:",
-          "        self._pub = aioredis.Redis.from_url(url)",
+          `        self._pub = ${C.aioredis}.Redis.from_url(url)`,
           "        self._sub = self._pub.pubsub()",
           "",
           "    async def publish(self, address: str, envelope: dict[str, object]) -> None:",
@@ -276,7 +264,7 @@ export function buildPyChannelsFile(
           "CHANNEL_MAX_ATTEMPTS = 5",
           "",
           "# The rabbit consumer callback contract (subscribe's handler param).",
-          "ChannelEnvelopeHandler = Callable[[dict[str, object]], Awaitable[None]]",
+          `ChannelEnvelopeHandler = ${C.Callable}[[dict[str, object]], ${C.Awaitable}[None]]`,
           "",
           "",
           "class RabbitChannelTransport:",
@@ -290,12 +278,12 @@ export function buildPyChannelsFile(
           "",
           "    def __init__(self, url: str) -> None:",
           "        self._url = url",
-          '        self._conn: "AbstractRobustConnection | None" = None',
-          '        self._ch: "AbstractChannel | None" = None',
+          `        self._conn: "${C.AbstractRobustConnection} | None" = None`,
+          `        self._ch: "${C.AbstractChannel} | None" = None`,
           "",
-          "    async def _channel(self) -> AbstractChannel:",
+          `    async def _channel(self) -> ${C.AbstractChannel}:`,
           "        if self._conn is None:",
-          "            self._conn = await aio_pika.connect_robust(self._url)",
+          `            self._conn = await ${C.aio_pika}.connect_robust(self._url)`,
           "        if self._ch is None:",
           "            self._ch = await self._conn.channel()",
           "            await self._ch.set_qos(prefetch_count=1)",
@@ -304,13 +292,13 @@ export function buildPyChannelsFile(
           "    async def publish(self, address: str, envelope: dict[str, object]) -> None:",
           "        ch = await self._channel()",
           "        exchange = await ch.declare_exchange(",
-          "            address, aio_pika.ExchangeType.FANOUT, durable=True",
+          `            address, ${C.aio_pika}.ExchangeType.FANOUT, durable=True`,
           "        )",
           "        await exchange.publish(",
-          "            aio_pika.Message(",
+          `            ${C.aio_pika}.Message(`,
           "                body=json.dumps(envelope).encode(),",
           '                content_type="application/json",',
-          "                delivery_mode=aio_pika.DeliveryMode.PERSISTENT,",
+          `                delivery_mode=${C.aio_pika}.DeliveryMode.PERSISTENT,`,
           "            ),",
           '            routing_key="",',
           "        )",
@@ -326,9 +314,9 @@ export function buildPyChannelsFile(
           "        # the same exchange (fan-out across deployables, one-of-N within).",
           "        ch = await self._channel()",
           "        exchange = await ch.declare_exchange(",
-          "            address, aio_pika.ExchangeType.FANOUT, durable=True",
+          `            address, ${C.aio_pika}.ExchangeType.FANOUT, durable=True`,
           "        )",
-          '        dlx = await ch.declare_exchange("loom.dlx", aio_pika.ExchangeType.DIRECT, durable=True)',
+          `        dlx = await ch.declare_exchange("loom.dlx", ${C.aio_pika}.ExchangeType.DIRECT, durable=True)`,
           '        dlq = await ch.declare_queue(f"loom.dlq.{address}", durable=True)',
           "        await dlq.bind(dlx, routing_key=address)",
           "        queue = await ch.declare_queue(",
@@ -341,7 +329,7 @@ export function buildPyChannelsFile(
           "        )",
           '        await queue.bind(exchange, routing_key="")',
           "",
-          "        async def _on_message(message: AbstractIncomingMessage) -> None:",
+          `        async def _on_message(message: ${C.AbstractIncomingMessage}) -> None:`,
           "            try:",
           '                envelope = cast("dict[str, object]", json.loads(message.body))',
           "            except Exception:  # noqa: BLE001 — malformed body: no retry can fix it",
@@ -373,10 +361,10 @@ export function buildPyChannelsFile(
           '                    headers["x-loom-attempts"] = attempts',
           "                    retry_ch = await self._channel()",
           "                    await retry_ch.default_exchange.publish(",
-          "                        aio_pika.Message(",
+          `                        ${C.aio_pika}.Message(`,
           "                            body=message.body,",
           '                            content_type="application/json",',
-          "                            delivery_mode=aio_pika.DeliveryMode.PERSISTENT,",
+          `                            delivery_mode=${C.aio_pika}.DeliveryMode.PERSISTENT,`,
           "                            headers=headers,",
           "                        ),",
           "                        routing_key=group,",
@@ -400,7 +388,7 @@ export function buildPyChannelsFile(
             ? []
             : [
                 "# The consumer callback contract (subscribe's handler param).",
-                "ChannelEnvelopeHandler = Callable[[dict[str, object]], Awaitable[None]]",
+                `ChannelEnvelopeHandler = ${C.Callable}[[dict[str, object]], ${C.Awaitable}[None]]`,
                 "",
                 "",
               ]),
@@ -429,16 +417,16 @@ export function buildPyChannelsFile(
           "            self._sasl = {",
           '                "security_protocol": "SASL_PLAINTEXT",',
           '                "sasl_mechanism": "PLAIN",',
-          '                "sasl_plain_username": unquote(user),',
-          '                "sasl_plain_password": unquote(password),',
+          `                "sasl_plain_username": ${C.unquote}(user),`,
+          `                "sasl_plain_password": ${C.unquote}(password),`,
           "            }",
-          '        self._producer: "AIOKafkaProducer | None" = None',
-          "        self._consumers: list[AIOKafkaConsumer] = []",
-          '        self._tasks: list["asyncio.Task[None]"] = []',
+          `        self._producer: "${C.AIOKafkaProducer} | None" = None`,
+          `        self._consumers: list[${C.AIOKafkaConsumer}] = []`,
+          `        self._tasks: list["${C.asyncio}.Task[None]"] = []`,
           "",
-          "    async def _get_producer(self) -> AIOKafkaProducer:",
+          `    async def _get_producer(self) -> ${C.AIOKafkaProducer}:`,
           "        if self._producer is None:",
-          "            self._producer = AIOKafkaProducer(bootstrap_servers=self._bootstrap, **self._sasl)",
+          `            self._producer = ${C.AIOKafkaProducer}(bootstrap_servers=self._bootstrap, **self._sasl)`,
           "            await self._producer.start()",
           "        return self._producer",
           "",
@@ -446,13 +434,13 @@ export function buildPyChannelsFile(
           "        # Subscribing to a not-yet-produced topic stalls the group join;",
           "        # idempotently create it (3 partitions / rf 1 — the compose",
           "        # sidecar's defaults; an existing topic keeps its own shape).",
-          "        admin = AIOKafkaAdminClient(bootstrap_servers=self._bootstrap, **self._sasl)",
+          `        admin = ${C.AIOKafkaAdminClient}(bootstrap_servers=self._bootstrap, **self._sasl)`,
           "        await admin.start()",
           "        try:",
           "            await admin.create_topics(",
-          "                [NewTopic(name=topic, num_partitions=3, replication_factor=1)]",
+          `                [${C.NewTopic}(name=topic, num_partitions=3, replication_factor=1)]`,
           "            )",
-          "        except TopicAlreadyExistsError:",
+          `        except ${C.TopicAlreadyExistsError}:`,
           "            pass",
           "        finally:",
           "            await admin.close()",
@@ -480,7 +468,7 @@ export function buildPyChannelsFile(
           "        # the earliest offset so events published before the group's",
           "        # first join are not lost; a log channel starts at the latest.",
           "        # A group with committed offsets resumes from them either way.",
-          "        consumer = AIOKafkaConsumer(",
+          `        consumer = ${C.AIOKafkaConsumer}(`,
           "            address,",
           "            bootstrap_servers=self._bootstrap,",
           "            **self._sasl,",
@@ -519,7 +507,7 @@ export function buildPyChannelsFile(
           "                # consumer-side dedup key.",
           "                await consumer.commit()",
           "",
-          "        self._tasks.append(asyncio.create_task(_run()))",
+          `        self._tasks.append(${C.asyncio}.create_task(_run()))`,
           "",
           "    async def close(self) -> None:",
           "        for task in self._tasks:",
@@ -559,6 +547,31 @@ export function buildPyChannelsFile(
     "    _transports.clear()",
     "",
     "",
+    ...(carriesOrigin
+      ? [
+          "# Envelope extension attribute -> event-origin key (ruling D1).",
+          "_ORIGIN_ATTRIBUTES: tuple[tuple[str, str], ...] = (",
+          '    ("tenantid", "tenant"),',
+          '    ("loomorgpath", "orgPath"),',
+          '    ("loomcausedby", "causedBy"),',
+          ")",
+          "",
+          "",
+          ...(hasChannelConsumers
+            ? [
+                "def _origin_of(envelope: dict[str, object]) -> dict[str, object] | None:",
+                '    """The event origin a received envelope names, or None (a producer',
+                '    without auth, a timer-raised event)."""',
+                "    origin: dict[str, object] = {",
+                "        key: envelope[attr] for attr, key in _ORIGIN_ATTRIBUTES if isinstance(envelope.get(attr), str)",
+                "    }",
+                "    return origin or None",
+                "",
+                "",
+              ]
+            : []),
+        ]
+      : []),
     "def _envelope_for(",
     '    event: DomainEvent, address: str, event_id: "str | None" = None',
     ") -> dict[str, object]:",
@@ -571,7 +584,7 @@ export function buildPyChannelsFile(
         ]
       : [
           '    context = next((b["context"] for b in CHANNEL_BINDINGS if b["address"] == address), "")',
-          "    return {",
+          carriesOrigin ? "    envelope: dict[str, object] = {" : "    return {",
         ]),
     '        "specversion": "1.0",',
     "        # Relay-published (durable) events reuse their outbox row id — the",
@@ -592,9 +605,21 @@ export function buildPyChannelsFile(
           "    key_value = data.get(key_field) if key_field else None",
           "    if key_value is not None:",
           '        envelope["loomkey"] = str(key_value)',
-          "    return envelope",
         ]
       : []),
+    ...(carriesOrigin
+      ? [
+          "    # The raising frame's event origin (ruling D1) — the consumer's",
+          "    # reactor runs as the system principal of this tenant.",
+          `    origin = ${PY.current_event_origin}()`,
+          "    if origin is not None:",
+          "        for attr, key in _ORIGIN_ATTRIBUTES:",
+          "            value = origin.get(key)",
+          "            if value is not None:",
+          "                envelope[attr] = value",
+        ]
+      : []),
+    ...(hasKafka || carriesOrigin ? ["    return envelope"] : []),
     "",
     "",
     "async def _publish_to(address: str, envelope: dict[str, object], event_type: str) -> None:",
@@ -657,15 +682,25 @@ export function buildPyChannelsFile(
                 "    # stamped with it no-op on broker redelivery (design §5).",
                 '    token = _current_event_id.set(cast(str, envelope["id"]))',
                 "    try:",
-                "        async with AsyncSession(engine) as session:",
-                "            await InProcessDispatcher(session).dispatch(event)",
+                `        async with ${C.AsyncSession}(${C.engine}) as session:`,
+                ...(carriesOrigin
+                  ? [
+                      `            with ${PY.event_origin_frame}(_origin_of(envelope)):`,
+                      "                await InProcessDispatcher(session).dispatch(event)",
+                    ]
+                  : ["            await InProcessDispatcher(session).dispatch(event)"]),
                 "            await session.commit()",
                 "    finally:",
                 "        _current_event_id.reset(token)",
               ]
             : [
-                "    async with AsyncSession(engine) as session:",
-                "        await InProcessDispatcher(session).dispatch(event)",
+                `    async with ${C.AsyncSession}(${C.engine}) as session:`,
+                ...(carriesOrigin
+                  ? [
+                      `        with ${PY.event_origin_frame}(_origin_of(envelope)):`,
+                      "            await InProcessDispatcher(session).dispatch(event)",
+                    ]
+                  : ["        await InProcessDispatcher(session).dispatch(event)"]),
                 "        await session.commit()",
               ]),
           "    log(",
@@ -783,13 +818,13 @@ export function buildPyChannelsFile(
                   "    _subscribed.set()",
                   "    # aiokafka consumption runs in per-consumer tasks; keep this task",
                   "    # alive so cancellation on shutdown tears the group down with it.",
-                  "    await asyncio.Event().wait()",
+                  `    await ${C.asyncio}.Event().wait()`,
                 ]
               : [
                   "    _subscribed.set()",
                   "    # aio-pika consumption is callback-driven; keep the task alive so",
                   "    # cancellation on shutdown tears the subscriptions down with it.",
-                  "    await asyncio.Event().wait()",
+                  `    await ${C.asyncio}.Event().wait()`,
                 ]),
           "",
           "",
@@ -799,14 +834,14 @@ export function buildPyChannelsFile(
           // coroutine, so the port could open with no consumer attached, and an
           // ephemeral pub/sub envelope published into that window is dropped by
           // the broker and never redelivered (java: #2350, elixir/dotnet: #2386).
-          "_subscribed = asyncio.Event()",
+          `_subscribed = ${C.asyncio}.Event()`,
           "",
           "",
-          'async def start_channel_consumers() -> "asyncio.Task[None]":',
-          "    task = asyncio.create_task(_run_channel_consumers())",
-          "    waiter = asyncio.create_task(_subscribed.wait())",
-          "    done, _pending = await asyncio.wait(",
-          "        {task, waiter}, return_when=asyncio.FIRST_COMPLETED",
+          `async def start_channel_consumers() -> "${C.asyncio}.Task[None]":`,
+          `    task = ${C.asyncio}.create_task(_run_channel_consumers())`,
+          `    waiter = ${C.asyncio}.create_task(_subscribed.wait())`,
+          `    done, _pending = await ${C.asyncio}.wait(`,
+          `        {task, waiter}, return_when=${C.asyncio}.FIRST_COMPLETED`,
           "    )",
           "    if task in done:",
           "        # Subscribing failed (or returned early); surface it at boot",

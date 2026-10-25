@@ -28,13 +28,14 @@ import type {
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../../ir/types/origin.js";
+import { reactorNeedsPrincipal } from "../../../ir/util/system-principal.js";
 import { walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
-import { denialTerm } from "./denial.js";
+import { workflowDenialTerm } from "./denial.js";
 import { foldStmtsUseParam, renderFoldStatement } from "./fold-stmt-emit.js";
 
 /** Event-sourced workflows in a context. */
@@ -134,7 +135,7 @@ function renderFoldModule(contextModule: string, wf: WorkflowIR): string {
 
   const clauses = (wf.appliers ?? []).map((ap) => {
     const bind = foldStmtsUseParam(ap.statements, ap.param, renderCtx)
-      ? snake(ap.param)
+      ? escapeElixirIdent(snake(ap.param))
       : `_${snake(ap.param)}`;
     const body = ap.statements.map((s) => renderFoldStatement(s, renderCtx)).join("\n");
     return `  def apply_event(state, %${eventsModule}.${upperFirst(ap.event)}{} = ${bind}) do
@@ -418,19 +419,19 @@ export function renderEsWorkflowHandler(
   for (const st of sub.statements) {
     switch (st.kind) {
       case "precondition": {
-        const text = `:ok <- ensure(${renderExpr(st.expr, renderCtx)}, ${denialTerm(st)})`;
+        const text = `:ok <- ensure(${renderExpr(st.expr, renderCtx)}, ${workflowDenialTerm(st)})`;
         guards.push(text);
         regions.push({ text, origin: st.origin });
         break;
       }
       case "requires": {
-        const text = `:ok <- ensure(${renderExpr(st.expr, renderCtx)}, ${denialTerm(st)})`;
+        const text = `:ok <- ensure(${renderExpr(st.expr, renderCtx)}, ${workflowDenialTerm(st)})`;
         guards.push(text);
         regions.push({ text, origin: st.origin });
         break;
       }
       case "expr-let": {
-        const text = `${snake(st.name)} = ${renderExpr(st.expr, renderCtx)}`;
+        const text = `${escapeElixirIdent(snake(st.name))} = ${renderExpr(st.expr, renderCtx)}`;
         lets.push(`      ${text}`);
         regions.push({ text, origin: st.origin });
         break;
@@ -540,7 +541,13 @@ ${requireLogger}  def handle(%${contextModule}.Events.${upperFirst(sub.event)}{}
     # A reactor is a per-dispatch boundary: child execution frame (parent_id <-
     # the dispatching request's scope).
     ${appModule}.RequestContext.with_child_frame(fn ->
-${inner}
+${
+  // An event-sourced saga body is emit-only (no op-calls), so only its own
+  // guards can read the principal: bind the system principal (ruling D1) then.
+  reactorNeedsPrincipal(sub.statements, { aggregates: [] })
+    ? `    current_user = ${appModule}Web.Auth.system_principal()\n\n`
+    : ""
+}${inner}
     end)
   end
 ${ensureHelper}end

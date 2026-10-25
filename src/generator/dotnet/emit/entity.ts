@@ -1,6 +1,7 @@
 import type { SourceMapSubRegion } from "../../../generator/_trace/sourcemap.js";
 import { offsetToLineCol } from "../../../generator/_trace/sourcemap.js";
 import {
+  createInputFields,
   createOmissionValue,
   forCreateInput,
   hasCreate,
@@ -19,16 +20,24 @@ import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../../ir/types/origin.js";
 import { resolveToSource } from "../../../ir/types/origin.js";
 import { typeIsFile } from "../../../ir/util/file-field.js";
-import { operationBody, operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import {
+  createBodyParams,
+  createBodyStatements,
+  operationBody,
+  operationBodyUsesCurrentUser,
+} from "../../../ir/util/op-gates.js";
+import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
-import { constructionSeededFields } from "../../construction-default.js";
+import { constructionSeededFields, serverSeededFields } from "../../construction-default.js";
+import { csMemberScope, csParamIdent, csProjectType, typeMemberNames } from "../bcl-collision.js";
 import { collectCsExprUsings, csNewIdValue, renderCsExpr, renderCsType } from "../render-expr.js";
 import {
   collectCsStmtUsings,
+  csDomainLog,
   declarationSubRegion,
   renderCsStatementChunks,
   renderCsStatements,
@@ -316,7 +325,7 @@ export function renderEntity(
   // call order + wire DTO, so `Agg.Create(cmd.Field, ...)` binds
   // positionally.  Every constructible aggregate's create is parameterized
   // by this set; there is no parameterless form.
-  const createInputFieldList = isAgg(entity) ? forCreateInput(entity.fields) : [];
+  const createInputFieldList = isAgg(entity) ? createInputFields(entity) : [];
   // Event sourcing (appliers A2.2b): an event-sourced aggregate folds
   // events into state via appliers, is rehydrated by `_FromEvents`, and is
   // constructed by its single `create` action's emit-only body (not a
@@ -374,6 +383,10 @@ export function renderEntity(
     // parts don't have associations, but typing as the union keeps
     // the ctx shape stable across the two callers.
     agg: isAgg(entity) ? entity : undefined,
+    // The class's own + inherited member names: one spelled like a static
+    // receiver (`Math`, `Regex`, `DomainLog`, the `System` root, …) shadows it
+    // here, so that receiver renders `global::`-qualified (bcl-collision.ts).
+    memberScope: csMemberScope(typeMemberNames(entity, superType?.fieldNames), ns),
   };
 
   const propLines: string[] = [];
@@ -489,10 +502,11 @@ export function renderEntity(
   if (isRoot && entity.derived.some((d) => d.name === "inspect")) {
     derivedLines.push("    public override string ToString() => Inspect;");
   }
+  // A param spelled like a member of this class (`Guid` beside a `Guid`
+  // field) is renamed so it cannot hide the member (bcl-collision.ts).
+  const paramIdent = (name: string): string => csParamIdent(name, renderCtx.memberScope);
   const fnLines = entity.functions.flatMap((fn) => {
-    const params = fn.params
-      .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
-      .join(", ");
+    const params = fn.params.map((p) => `${renderCsType(p.type)} ${paramIdent(p.name)}`).join(", ");
     // PUBLIC, like the operations below — see the matching note in the node
     // emitter.  The generated code calls a `function` from outside the class
     // (`CloseHandler`, `CanCloseHandler`, a workflow handler's hoisted
@@ -539,7 +553,7 @@ export function renderEntity(
     const opBody = operationBody(op);
     const userParam = usesUser ? "User currentUser" : "";
     const baseParams = op.params
-      .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
+      .map((p) => `${renderCsType(p.type)} ${paramIdent(p.name)}`)
       .join(", ");
     const params = [baseParams, userParam].filter(Boolean).join(", ");
     if (op.extern) {
@@ -557,7 +571,7 @@ export function renderEntity(
       // (`renderExternHookImpl`).
       const hookName = `${upperFirst(op.name)}Core`;
       const callArgs = [
-        ...op.params.map((p) => escapeCsharpIdent(p.name)),
+        ...op.params.map((p) => paramIdent(p.name)),
         ...(usesUser ? ["currentUser"] : []),
       ].join(", ");
       const retType = op.returnType ? renderCsType(op.returnType) : "void";
@@ -585,7 +599,16 @@ export function renderEntity(
         );
       }
       opLines.push("    }");
-      partialHookLines.push(`    private partial ${retType} ${hookName}(${params});`);
+      // The partial DECLARATION keeps the declared parameter spelling: it must
+      // match the scaffold-once implementation (extern.ts `hookParams`) — a
+      // differing name is CS8826 — and, body-less, it hides nothing.
+      const hookParams = [
+        op.params.map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`).join(", "),
+        userParam,
+      ]
+        .filter(Boolean)
+        .join(", ");
+      partialHookLines.push(`    private partial ${retType} ${hookName}(${hookParams});`);
       opLines.push("");
       continue;
     }
@@ -672,7 +695,7 @@ export function renderEntity(
   const applierLines: string[] = [];
   if (isRoot && eventSourced && appliers.length > 0) {
     for (const ap of appliers) {
-      applierLines.push(`    private void _Apply${ap.event}(${ap.event} ${ap.param})`);
+      applierLines.push(`    private void _Apply${ap.event}(${ap.event} ${paramIdent(ap.param)})`);
       applierLines.push("    {");
       const body = renderCsStatements(ap.statements, renderCtx, {
         emitTrace,
@@ -722,13 +745,13 @@ export function renderEntity(
             .join(", ")})`,
           "    {",
           `        var e = new ${entity.name}();`,
-          `        e.Id = new ${idClass}(${csNewIdValue(effIdValueType)});`,
+          `        e.Id = new ${idClass}(${csNewIdValue(effIdValueType, renderCtx.memberScope)});`,
           `        e._Init(${esCreate.params.map((p) => escapeCsharpIdent(p.name)).join(", ")});`,
           "        return e;",
           "    }",
           "",
           `    private void _Init(${esCreate.params
-            .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
+            .map((p) => `${renderCsType(p.type)} ${paramIdent(p.name)}`)
             .join(", ")})`,
           "    {",
           renderCsStatements(esCreate.statements, renderCtx, {
@@ -759,8 +782,8 @@ export function renderEntity(
       inv.message ? inv.message.text : `Invariant violated: ${inv.source}`,
     );
     const thrown = code
-      ? `throw new DomainException(${text}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))})`
-      : `throw new DomainException(${text})`;
+      ? `throw new DomainException(${text}, DomainErrorKind.Invariant, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))})`
+      : `throw new DomainException(${text}, DomainErrorKind.Invariant)`;
     if (!emitTrace) {
       const check = inv.guard
         ? `if ((${renderCsExpr(inv.guard, renderCtx)}) && !(${renderCsExpr(inv.expr, renderCtx)}))`
@@ -768,7 +791,7 @@ export function renderEntity(
       return [`        ${check} ${thrown};`];
     }
     const ok = `__inv_${i}_ok`;
-    const traceCall = `DomainLog.LogTrace("{Event} aggregate={Aggregate} op={Op} expr={Expr} passed={Passed}", "invariant_evaluated", "${entity.name}", __op, ${JSON.stringify(inv.source)}, ${ok});`;
+    const traceCall = `${csDomainLog(renderCtx)}.LogTrace("{Event} aggregate={Aggregate} op={Op} expr={Expr} passed={Passed}", "invariant_evaluated", "${entity.name}", __op, ${JSON.stringify(inv.source)}, ${ok});`;
     if (inv.guard) {
       return [
         `        if (${renderCsExpr(inv.guard, renderCtx)})`,
@@ -897,10 +920,35 @@ export function renderEntity(
   // not a record-parameter default, so `renderCsExpr`'s `2.50m` is legal here
   // (CS1736 constrains the wire DTO, not this).
   const createDefaultSeeds = isAgg(entity)
-    ? constructionSeededFields(entity.fields).map(
-        (f) => `        e.${upperFirst(f.name)} = ${renderCsExpr(f.default, renderCtx)};`,
-      )
+    ? [
+        ...constructionSeededFields(
+          entity.fields,
+          new Set(createInputFieldList.map((f) => f.name)),
+        ).map((f) => `        e.${upperFirst(f.name)} = ${renderCsExpr(f.default, renderCtx)};`),
+        // A server-owned field with no default (`openedAt: datetime managed`)
+        // takes the shared language-defined seed — the value node and python
+        // name too.  Left to the CLR default it read back as 0001-01-01, and a
+        // `string` / list one went in as NULL (500).
+        ...serverSeededFields(entity).map(
+          ({ field, seed }) =>
+            `        e.${upperFirst(field.name)} = ${csServerInitSeed(seed, field.type)};`,
+        ),
+      ]
     : [];
+  // A field a narrowed `create(…)` leaves out with no declared default is a
+  // bare `bool` or a collection (`loom.create-param-required-omitted` refuses
+  // the rest); the CLR leaves a `List<T>` null, so seed its omission value.
+  const createInputNames = new Set(createInputFieldList.map((f) => f.name));
+  const createNarrowedSeeds = isAgg(entity)
+    ? forCreateInput(entity.fields)
+        .filter((f) => !createInputNames.has(f.name) && f.default === undefined)
+        .flatMap((f) => {
+          const v = csFactoryDefault(f);
+          return v === undefined ? [] : [`        e.${upperFirst(f.name)} = ${v};`];
+        })
+    : [];
+  const createBody = isAgg(entity) ? createBodyStatements(entity) : [];
+  const createParams = isAgg(entity) ? createBodyParams(entity) : [];
   const createPublicLines =
     isRoot && isAgg(entity) && hasCreate(entity) && !eventSourced
       ? [
@@ -925,13 +973,39 @@ export function renderEntity(
             .join(", ")})`,
           "    {",
           `        var e = new ${entity.name}();`,
-          `        e.Id = new ${idClass}(${csNewIdValue(effIdValueType)});`,
+          `        e.Id = new ${idClass}(${csNewIdValue(effIdValueType, renderCtx.memberScope)});`,
           ...createAssignments,
           ...createDefaultSeeds,
+          ...createNarrowedSeeds,
           // Public Create factory — same "<init>" label as the hydration path.
           emitTrace ? `        e.${assertName}("<init>");` : `        e.${assertName}();`,
+          // The create body (`createBodyStatements`) runs against the
+          // constructed instance, exactly like an operation body: params as
+          // locals, unlisted fields already at their declared defaults.
+          ...(createBody.length > 0
+            ? [
+                `        e._CreateBody(${createParams.map((p) => escapeCsharpIdent(p.name)).join(", ")});`,
+              ]
+            : []),
           "        return e;",
           "    }",
+          ...(createBody.length > 0
+            ? [
+                "",
+                `    private void _CreateBody(${createParams
+                  .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
+                  .join(", ")})`,
+                "    {",
+                renderCsStatements(createBody, renderCtx, {
+                  emitTrace,
+                  aggregate: entity.name,
+                  op: "create",
+                  eventSourced,
+                  domainFloorCodes: true,
+                }),
+                "    }",
+              ]
+            : []),
         ]
       : [];
 
@@ -964,7 +1038,7 @@ export function renderEntity(
           "    /// matching the interceptor's null-safe behaviour.</summary>",
           "    internal void _StampOnCreate()",
           "    {",
-          "        var currentUser = RequestContext.Current?.CurrentUser;",
+          `        var currentUser = ${csProjectType("RequestContext", "Domain.Common", renderCtx.memberScope)}.Current?.CurrentUser;`,
           "        if (currentUser == null) return;",
           ...docCreateStamps.map(
             (st) => `        ${upperFirst(st.field)} = ${renderCsExpr(st.value, renderCtx)};`,
@@ -1113,9 +1187,10 @@ export function renderAbstractBaseEntity(
   // TPC bases own no typed `Id` (each concrete carries its own strongly-typed
   // id); a base derived body that reads `id` must go through the boxed accessor
   // the concretes override (`IdBoxed`).  TPH bases own the shared typed `Id`.
+  const memberScope = csMemberScope(typeMemberNames(base), ns);
   const renderCtx = options.tph
-    ? { thisName: "this", agg: base }
-    : { thisName: "this", agg: base, idAccessor: "IdBoxed" };
+    ? { thisName: "this", agg: base, memberScope }
+    : { thisName: "this", agg: base, idAccessor: "IdBoxed", memberScope };
   const usings = new Set<string>();
   for (const d of base.derived) collectCsExprUsings(d.expr, usings, ns);
   // A `File` field's type is the shared `FileRef` record in Domain.Common (M-T1.2)
@@ -1173,4 +1248,22 @@ export function renderAbstractBaseEntity(
       "}",
     ) + "\n"
   );
+}
+
+/** The C# spelling of a shared server-init seed kind
+ *  (`src/ir/util/server-init-seed.ts`) for a field of type `t`. */
+function csServerInitSeed(seed: ServerInitSeed, t: TypeIR): string {
+  const name = t.kind === "primitive" ? t.name : "";
+  switch (seed) {
+    case "now":
+      return "DateTime.UtcNow";
+    case "zero":
+      return name === "decimal" ? "0m" : name === "long" ? "0L" : "0";
+    case "false":
+      return "false";
+    case "empty-string":
+      return '""';
+    case "empty-collection":
+      return "new()";
+  }
 }

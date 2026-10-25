@@ -1,11 +1,11 @@
 import type { ExprIR, PathIR, ProvSite, StmtIR } from "../../ir/types/loom-ir.js";
-import { walkStmtExprsDeep } from "../../ir/util/walk.js";
+import { walkStmtsDeep } from "../../ir/util/walk.js";
 import { escapeJavaIdent } from "../../util/naming.js";
 import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
 import { jid } from "./java-ident.js";
-import { addJavaExprImport, type JavaRenderContext, renderJavaExpr } from "./render-expr.js";
+import { type JavaRenderContext, renderJavaExpr, withLambdaScope } from "./render-expr.js";
 
 // ---------------------------------------------------------------------------
 // Statement LEAF TABLE for the Java / Spring backend.  The 11-kind `StmtIR`
@@ -40,7 +40,7 @@ export function renderJavaStatements(
   ctx: JavaRenderContext = DEFAULT_CTX,
   traceCtx: JavaTraceCtx = NO_TRACE,
 ): string {
-  return renderStmtsWith(stmts, javaStmtTarget(ctx, traceCtx));
+  return renderStmtsWith(stmts, javaStmtTarget(withBodyLets(stmts, ctx), traceCtx));
 }
 
 /** Same rendering as `renderJavaStatements`, but one (possibly multi-line)
@@ -55,7 +55,20 @@ export function renderJavaStatementChunks(
   ctx: JavaRenderContext = DEFAULT_CTX,
   traceCtx: JavaTraceCtx = NO_TRACE,
 ): string[] {
-  return renderStmtChunksWith(stmts, javaStmtTarget(ctx, traceCtx));
+  return renderStmtChunksWith(stmts, javaStmtTarget(withBodyLets(stmts, ctx), traceCtx));
+}
+
+/** `ctx` with every `let` the body declares (in its declared Java spelling)
+ *  added to the lambda scope — a `tags.where(x => …)` after (or inside the
+ *  initializer of) a `let x` would otherwise redeclare it. */
+function withBodyLets(stmts: StmtIR[], ctx: JavaRenderContext): JavaRenderContext {
+  const names: string[] = [];
+  for (const s of stmts) {
+    walkStmtsDeep(s, (st) => {
+      if (st.kind === "let") names.push(ctx.letExpr?.(st.name) ?? escapeJavaIdent(st.name));
+    });
+  }
+  return withLambdaScope(ctx, names);
 }
 
 // `statementSubRegions` lives in src/generator/_trace/sourcemap.ts — it's
@@ -63,26 +76,6 @@ export function renderJavaStatementChunks(
 // backend's chunk-producing renderer shares the one cursor walk. Re-exported
 // here so call sites can import it alongside the chunk renderer.
 export { declarationSubRegion, statementSubRegions } from "../_trace/sourcemap.js";
-
-/** Imports a statement body needs — the union of
- *  `collectJavaExprImports` over every rendered expression.
- *
- *  Rides `walkStmtExprsDeep` (M-T6.50 class, wave-2 packet 2.3): the
- *  hand-rolled switch it replaced had no `variant-match` arm — the same gap
- *  wave 1 found and fixed in the Python collector (M-T6.50 (c)) — so an
- *  import-triggering expression (a `decimal`/`money` literal, a
- *  `.matches(...)` call) nested inside a `variant-match` arm or else body
- *  never reached `collectJavaExprImports`, and the class it needed silently
- *  never made it into the generated import block. */
-export function collectJavaStmtImports(
-  stmts: StmtIR[],
-  into: Set<string> = new Set(),
-): Set<string> {
-  for (const s of stmts) {
-    walkStmtExprsDeep(s, (e) => addJavaExprImport(e, into));
-  }
-  return into;
-}
 
 /** The Java leaf table.  Built per call so the arms close over the Java
  *  render context and the `--trace` context instead of threading them
@@ -105,7 +98,8 @@ function javaStmtTarget(ctx: JavaRenderContext, traceCtx: JavaTraceCtx): StmtTar
     let: (s) =>
       // `let`-names may collide with a Java keyword; escape consistently with
       // the matching `refKind: "let"` use sites (`let class` → `class_`).
-      `${INDENT}var ${escapeJavaIdent(s.name)} = ${renderJavaExpr(s.expr, ctx)};`,
+      // (or the collision-safe local the caller's `letExpr` assigned).
+      `${INDENT}var ${ctx.letExpr?.(s.name) ?? escapeJavaIdent(s.name)} = ${renderJavaExpr(s.expr, ctx)};`,
 
     assign: (s, ix) => {
       const base = `${INDENT}${renderPath(s.target)} = ${renderJavaExpr(s.value, ctx)};`;
@@ -153,7 +147,7 @@ function javaStmtTarget(ctx: JavaRenderContext, traceCtx: JavaTraceCtx): StmtTar
 
     call: (s) => {
       const args = s.args.map((a) => renderJavaExpr(a, ctx)).join(", ");
-      return `${INDENT}this.${s.name}(${args});`;
+      return `${INDENT}this.${jid(s.name)}(${args});`;
     },
 
     expression: (s) => `${INDENT}${renderJavaExpr(s.expr, ctx)};`,
@@ -218,8 +212,8 @@ function precondition(
     ? domainFloorCode(message !== undefined ? { text: message } : undefined)
     : undefined;
   const thrown = code
-    ? `throw new DomainException(${JSON.stringify(message)}, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))})`
-    : `throw new DomainException(${JSON.stringify(message ?? `Precondition failed: ${source}`)})`;
+    ? `throw new DomainException(${JSON.stringify(message)}, DomainException.Kind.PRECONDITION, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer({ expr, source }))})`
+    : `throw new DomainException(${JSON.stringify(message ?? `Precondition failed: ${source}`)}, DomainException.Kind.PRECONDITION)`;
   if (!traceCtx.emitTrace) {
     return `${INDENT}if (!(${renderJavaExpr(expr, ctx)})) ${thrown};`;
   }

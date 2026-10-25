@@ -12,6 +12,7 @@ import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channel
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { classifyPage, type PageNameCtx } from "../../ir/util/page-kind.js";
+import { pagedFindRoutes } from "../../ir/util/paged-find-routes.js";
 import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
@@ -53,6 +54,7 @@ import {
   SVELTE_LIB_TOAST_EFFECT_PATH,
   uiUsesToastEffect,
 } from "../_frontend/toast-effect.js";
+import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
@@ -130,6 +132,10 @@ export function generateSvelteForContexts(
   // target backend, docker-compose overrides via `VITE_API_BASE_URL`.
   const apiBaseUrl = options.apiBaseUrl ?? API_BASE_PATH;
   const apiProxyTarget = `http://localhost:${target?.port ?? 8080}`;
+  // A native `vite` run serves on this deployable's declared port.  Only a
+  // standalone frontend (one that `targets:` a backend) has a port of its
+  // own; a bundle embedded in a backend keeps the template default.
+  const devPort = target ? deployable.port : undefined;
   const base = options.basePath || undefined;
 
   const aggregates: Array<{ agg: EnrichedAggregateIR; ctx: EnrichedBoundedContextIR }> = [];
@@ -193,7 +199,10 @@ export function generateSvelteForContexts(
   // Per-aggregate api modules.
   for (const { agg, ctx } of aggregates) {
     const repo = ctx.repositories.find((r) => r.aggregateName === agg.name);
-    out.set(`src/lib/api/${lowerFirst(agg.name)}.ts`, buildSvelteApiModule(agg, repo, ctx));
+    out.set(
+      `src/lib/api/${lowerFirst(agg.name)}.ts`,
+      buildSvelteApiModule(agg, repo, ctx, pagedFindRoutes(sys, target ?? deployable)),
+    );
   }
   if (hasAnyWorkflow(contexts)) {
     out.set("src/lib/api/workflows.ts", buildWorkflowsApiModule(contexts));
@@ -468,7 +477,7 @@ export function generateSvelteForContexts(
   out.set("package.json", pack.render("package-json", { usesMoney, usesCodeBlock }));
   out.set("tsconfig.json", pack.render("tsconfig", {}));
   out.set("svelte.config.js", pack.render("svelte-config", { base }));
-  out.set("vite.config.ts", pack.render("vite-config", { apiProxyTarget }));
+  out.set("vite.config.ts", pack.render("vite-config", { apiProxyTarget, port: devPort }));
   out.set("Dockerfile", pack.render("dockerfile", {}));
   out.set(".dockerignore", pack.render("dockerignore", {}));
   out.set("certs/.gitkeep", "");
@@ -481,6 +490,10 @@ export function generateSvelteForContexts(
   }
   emitShellFiles(pack, out);
   emitShellGlobs(pack, out);
+
+  // Value-object `==` in a page body renders `loomValueEquals(…)`; define it
+  // in every finished file that calls it (`_frontend/value-equals.ts`).
+  emitJsValueEqualsHelpers(out);
 
   // Path-prefix transform — applied once at the end so every emitter
   // above stays path-agnostic (same shape as the react generator's).

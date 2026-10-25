@@ -1,7 +1,8 @@
 import type { EnumIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { messageCode } from "../../../util/message-code.js";
-import { upperFirst } from "../../../util/naming.js";
+import { escapeCsharpIdent, upperFirst } from "../../../util/naming.js";
+import { csMemberScope, csParamIdent, typeMemberNames } from "../bcl-collision.js";
 import {
   collectCsExprUsings,
   collectCsTypeUsings,
@@ -15,7 +16,9 @@ import { collectCsStmtUsings, renderCsStatements } from "../render-stmt.js";
 // skip the invariant block).
 
 export function renderEnum(e: EnumIR, ns: string): string {
-  const valueLines = e.values.map((v, i) => `    ${v}${i < e.values.length - 1 ? "," : ""}`);
+  const valueLines = e.values.map(
+    (v, i) => `    ${escapeCsharpIdent(v)}${i < e.values.length - 1 ? "," : ""}`,
+  );
   return (
     lines(
       "// Auto-generated.",
@@ -60,12 +63,27 @@ export function renderValueObject(vo: ValueObjectIR, ns: string): string {
     collectCsTypeUsings(fn.returnType, usings, ns);
     for (const p of fn.params) collectCsTypeUsings(p.type, usings, ns);
   }
-  const renderCtx = { thisName: "this" };
+  // A field spelled like a static receiver (`Math`, `Regex`, the `System`
+  // root, …) shadows it inside the record — see bcl-collision.ts.
+  const renderCtx = { thisName: "this", memberScope: csMemberScope(typeMemberNames(vo), ns) };
   const propLines = vo.fields.map(
     (f) => `    public ${renderCsType(f.type)} ${upperFirst(f.name)} { get; init; }`,
   );
-  const ctorParams = vo.fields.map((f) => `${renderCsType(f.type)} ${f.name}`).join(", ");
-  const ctorAssignments = vo.fields.map((f) => `        ${upperFirst(f.name)} = ${f.name};`);
+  // A field spelled with a capital (`Guid: string`) would give a constructor
+  // parameter identical to its property — `Guid = Guid;` assigns the parameter
+  // to itself (CS1717 + CS8618) — so such a parameter is renamed (`guid`).
+  // `csParamIdent` is the identity for an ordinary lower-case field; a field
+  // spelled like a C# keyword (`static`) takes the verbatim prefix (`@static`).
+  const ctorParam = (name: string): string =>
+    renderCtx.memberScope.members.has(name)
+      ? csParamIdent(name, renderCtx.memberScope)
+      : escapeCsharpIdent(name);
+  const ctorParams = vo.fields
+    .map((f) => `${renderCsType(f.type)} ${ctorParam(f.name)}`)
+    .join(", ");
+  const ctorAssignments = vo.fields.map(
+    (f) => `        ${upperFirst(f.name)} = ${ctorParam(f.name)};`,
+  );
   const invariantLines = vo.invariants.map((inv) => {
     const check = inv.guard
       ? `if ((${renderCsExpr(inv.guard, renderCtx)}) && !(${renderCsExpr(inv.expr, renderCtx)}))`
@@ -82,7 +100,9 @@ export function renderValueObject(vo: ValueObjectIR, ns: string): string {
       `    public ${renderCsType(d.type)} ${upperFirst(d.name)} => ${renderCsExpr(d.expr, renderCtx)};`,
   );
   const fnLines = vo.functions.flatMap((fn) => {
-    const params = fn.params.map((p) => `${renderCsType(p.type)} ${p.name}`).join(", ");
+    const params = fn.params
+      .map((p) => `${renderCsType(p.type)} ${csParamIdent(p.name, renderCtx.memberScope)}`)
+      .join(", ");
     const head = `    private ${renderCsType(fn.returnType)} ${upperFirst(fn.name)}(${params})`;
     if ("expr" in fn.body) {
       return [`${head} => ${renderCsExpr(fn.body.expr, renderCtx)};`];

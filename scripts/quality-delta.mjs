@@ -592,7 +592,8 @@ async function fetchOpenPrs(repo, token) {
 const MAX_RUN_PAGES = 40;
 
 /**
- * `push: main` workflow-run FAILURES in the window, with the gates that failed.
+ * Workflow-run FAILURES on `main` (nightly schedules + the pages deploy) in the
+ * window, with the gates that failed.
  *
  * Deliberately not a rate.  The obvious shape — "N failed of M runs (P%)" —
  * cannot be computed honestly at this repo's volume: ~29 merges/day × ~60
@@ -615,7 +616,7 @@ async function fetchMainRuns(repo, token, sinceIso) {
   let truncated = true;
   for (let page = 1; page <= MAX_RUN_PAGES; page += 1) {
     const body = await api(
-      `https://api.github.com/repos/${repo}/actions/runs?branch=main&event=push&status=failure` +
+      `https://api.github.com/repos/${repo}/actions/runs?branch=main&status=failure` +
         `&per_page=100&page=${page}`,
       token,
     );
@@ -780,14 +781,14 @@ export function renderReport({ now, days, registers, prev, prevStats, stats, prs
   );
   lines.push("");
 
-  lines.push("### Main-push gate failures");
+  lines.push("### Main gate failures");
   lines.push("");
   if (runs === undefined) {
     lines.push("_Actions API not queried (no token)._");
   } else {
     lines.push(
-      `**${runs.failed}** \`push: main\` run(s) concluded \`failure\`, across **${runs.shas}** ` +
-        `merged commit(s).` +
+      `**${runs.failed}** run(s) on \`main\` concluded \`failure\`, across **${runs.shas}** ` +
+        `commit(s).` +
         (runs.truncated ? " ⚠️ _Page cap reached — this is a LOWER BOUND._" : ""),
     );
     if (runs.byWorkflow.length) {

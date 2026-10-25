@@ -489,6 +489,25 @@
         "title": "Bad Request",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/orders/{id}/drop_code",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/code"
+          }
+        ],
+        "instance": "/api/orders/{id}/drop_code",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
     }
   ]
 }

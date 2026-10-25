@@ -98,7 +98,7 @@ describe("python — a message-less single-field rule answers node's message (#1
     // Only the errors the table arms are rewritten; a type error re-raises.
     expect(routes).toContain('if hit is not None and not e["loc"]:');
     expect(routes).toMatch(
-      /from pydantic import [^\n]*ValidationInfo, ValidatorFunctionWrapHandler, field_validator/,
+      /from pydantic import (?:\([^)]*|[^\n(]*)\bValidationInfo,\s+ValidatorFunctionWrapHandler,\s+field_validator\b/,
     );
   });
 

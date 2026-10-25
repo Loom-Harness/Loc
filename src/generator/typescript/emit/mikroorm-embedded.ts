@@ -11,12 +11,14 @@ import type {
   RepositoryIR,
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst } from "../../../util/naming.js";
+import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
+import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "../paged-locals.js";
 import { synthProjectionFinds } from "../projection-finds.js";
 import { isRefCollection } from "../repository-associations-builder.js";
 import {
@@ -175,7 +177,7 @@ export function renderMikroEmbeddedRepository(
     // see).  That mismatch — not any missing accessor — is what
     // `MIKROORM_SUBSET` was really describing when it refused the shape.
     const usesUser = findUsesCurrentUser(f);
-    const baseParams = f.params.map((p) => `${p.name}: ${tsParamType(p.type)}`);
+    const baseParams = f.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
     const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
     let filter: string;
     try {
@@ -183,13 +185,11 @@ export function renderMikroEmbeddedRepository(
       // The find's OWN predicate reads the declared `currentUser` parameter;
       // the capability filters (`caps`) keep the ambient accessor, because they
       // ride reads that have no such parameter.
+      // A clause-less find still filters — by its implicit key match.
+      const own = effectiveFindFilter(f, agg);
       filter = withContextFilters(
-        f.filter
-          ? whereToMikroFilter(
-              f.filter,
-              usesUser ? "currentUser" : AMBIENT_PRINCIPAL,
-              agg.associations,
-            )
+        own
+          ? whereToMikroFilter(own, usesUser ? "currentUser" : AMBIENT_PRINCIPAL, agg.associations)
           : "{}",
         caps,
       );
@@ -212,21 +212,26 @@ export function renderMikroEmbeddedRepository(
       const sortable = sortableFields(agg)
         .map((s) => JSON.stringify(s))
         .join(", ");
+      // The paged-only locals step aside for a same-named find param.
+      const L = pagedLocalNames(
+        ["sortable", "sortField", "orderBy", "total", "totalPages", "items"] as const,
+        findParamBindings(f.params),
+      );
       return lines(
         `  async ${name}(${pagedParams}): Promise<{ items: ${agg.name}[]; page: number; pageSize: number; total: number; totalPages: number }> {`,
         `    const em = this.em.fork({ keepTransactionContext: true });`,
-        `    const sortable = new Set<string>([${sortable}]);`,
-        `    const sortField = sortable.has(sort) ? sort : "id";`,
-        `    const orderBy: Record<string, "asc" | "desc"> = { [sortField]: dir === "desc" ? "desc" : "asc" };`,
-        `    const total = await em.count(${row}, ${filter});`,
-        `    const totalPages = pageSize > 0 ? Math.ceil(total / pageSize) : 0;`,
-        `    const rows = await em.find(${row}, ${filter}, { limit: pageSize, offset: (page - 1) * pageSize, orderBy });`,
+        `    const ${L.sortable} = new Set<string>([${sortable}]);`,
+        `    const ${L.sortField} = ${L.sortable}.has(sort) ? sort : "id";`,
+        `    const ${L.orderBy}: Record<string, "asc" | "desc"> = { [${L.sortField}]: dir === "desc" ? "desc" : "asc" };`,
+        `    const ${L.total} = await em.count(${row}, ${filter});`,
+        `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
+        `    const rows = await em.find(${row}, ${filter}, { limit: pageSize, offset: (page - 1) * pageSize, ${L.orderBy === "orderBy" ? "orderBy" : `orderBy: ${L.orderBy}`} });`,
         dbg(f.name, "rows.length"),
-        `    const items = rows.map((row) => {`,
+        `    const ${L.items} = rows.map((row) => {`,
         ...embeddedHydrateLocals(agg, "row", "      ", ctx),
         `      return ${hydrateRootExpr(agg, "row", ctx)};`,
         `    });`,
-        `    return { items, page, pageSize, total, totalPages };`,
+        `    return ${pagedEnvelopeLiteral(L)};`,
         `  }`,
       );
     }
@@ -339,7 +344,10 @@ export function renderMikroEmbeddedRepository(
     .replace(/"(?:\\.|[^"\\])*"/g, '""')
     .replace(/'(?:\\.|[^'\\])*'/g, "''")
     .replace(/`(?:\\.|[^`\\])*`/g, "``");
-  const candidates = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)];
+  const candidates = [
+    ...valueObjectPool(ctx).map((v) => v.name),
+    ...enumPool(ctx).map((e) => e.name),
+  ];
   const referenced = candidates.filter((n) => new RegExp(`\\b${n}\\b`).test(bodyScan));
   const isValueUsed = (n: string): boolean =>
     new RegExp(`new\\s+${n}\\(|\\b${n}\\.\\w`).test(bodyScan);

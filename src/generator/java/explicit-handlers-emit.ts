@@ -53,25 +53,37 @@ import {
   isReadingServiceOp,
 } from "../../ir/util/domain-service-read-ports.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../ir/util/handler-contracts.js";
+import {
+  pagedRunFindName,
+  pagedRunGates,
+  pagedRunGatesUseCurrentUser,
+  pagedRunSortDefault,
+  requirePagedRunStmt,
+} from "../../ir/util/paged-run.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
-import { derivedRouteSlots, explicitRoutePath } from "../_api/explicit-route-mount.js";
+import { explicitRoutePath } from "../_api/explicit-route-mount.js";
+import { javaRef } from "../_imports/java.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
-import { JAVA_PAGED_QUERY_PARAMS } from "./emit/common.js";
-import { domainToWire } from "./emit/wire.js";
-import { javaWorkflowStmtTarget, repoField } from "./emit/workflow.js";
+import { javaPagedQueryParams } from "./emit/common.js";
+import { domainToWire, javaIdValueType } from "./emit/wire.js";
 import {
-  collectJavaExprImports,
-  collectJavaTypeImports,
-  type JavaRenderContext,
-  javaValueTypeForId,
-  renderJavaExpr,
-  renderJavaType,
-} from "./render-expr.js";
+  boundLocal,
+  javaWorkflowStmtTarget,
+  repoField,
+  withLetLocals,
+  workflowBodyDerefNames,
+  workflowBoundNames,
+} from "./emit/workflow.js";
+import { isMangled, javaLocals, jid, localOf, movedLocalOrUndefined } from "./java-ident.js";
+import { type JavaRenderContext, renderJavaExpr, renderJavaType } from "./render-expr.js";
 
 type Handler = CommandHandlerIR | QueryHandlerIR;
+
+const JSON_MAPPER = javaRef("tools.jackson.databind.json", "JsonMapper");
+const JSON_PROPERTY = javaRef("com.fasterxml.jackson.annotation", "JsonProperty");
 
 /** The aggregates a handler body loads / saves — its injected
  *  `<Agg>Repository` fields (repo-let loads + exit-saves).  Same derivation the
@@ -175,11 +187,18 @@ const externDomainImports = (basePkg: string): string[] => [
 
 /** The `<retType> handle(<params>)` signature shared by the port, the handler,
  *  and the impl. */
-function externHandleSig(h: Handler): { ret: string; params: string; argNames: string } {
+function externHandleSig(
+  h: Handler,
+  /** Collision-renamed param locals (`javaLocals`) — the generated handler's
+   *  own; the port / impl pass none and keep the `.ddd` names (keyword-escaped
+   *  through `jid`, as every name is). */
+  locals?: ReadonlyMap<string, string>,
+): { ret: string; params: string; argNames: string } {
+  const name = (n: string): string => (locals ? localOf(locals, n) : jid(n));
   return {
     ret: h.returnType ? renderJavaType(h.returnType) : "void",
-    params: h.params.map((p) => `${renderJavaType(p.type)} ${p.name}`).join(", "),
-    argNames: h.params.map((p) => p.name).join(", "),
+    params: h.params.map((p) => `${renderJavaType(p.type)} ${name(p.name)}`).join(", "),
+    argNames: h.params.map((p) => name(p.name)).join(", "),
   };
 }
 
@@ -195,7 +214,15 @@ function renderExternHandlerClass(
   const handlerName = `${h.name}Handler`;
   const portName = `${h.name}Port`;
   const field = lowerFirst(portName);
-  const { ret, params, argNames } = externHandleSig(h);
+  // `handle(...)`'s params share the method with the injected port field it
+  // delegates through — a param named `chargePort` shadowed it
+  // (`chargePort.handle(chargePort)` on an `int`).  Only a colliding param
+  // moves; the port / impl signatures keep the (`jid`-escaped) `.ddd` names.
+  const locals = javaLocals(
+    h.params.map((p) => p.name),
+    new Set([field, portName]),
+  );
+  const { ret, params, argNames } = externHandleSig(h, locals);
   const tx = kind === "command" ? "@Transactional" : "@Transactional(readOnly = true)";
   const call = h.returnType
     ? `return ${field}.handle(${argNames});`
@@ -282,17 +309,7 @@ function pagedRunStmt(
   h: Handler,
   ctx: EnrichedBoundedContextIR,
 ): Extract<WorkflowStmtIR, { kind: "repo-run" }> {
-  const retName = h.returnValue?.kind === "ref" ? h.returnValue.name : undefined;
-  const run = h.statements.find(
-    (s): s is Extract<WorkflowStmtIR, { kind: "repo-run" }> =>
-      s.kind === "repo-run" && !!s.synthCriterion && s.name === retName,
-  );
-  if (!run) {
-    throw new Error(
-      `internal: paged queryHandler '${h.name}' in '${ctx.name}' does not match the ` +
-        "supported `let r = Repo.run(<Criterion>(args)); return r` shape. Please file a bug.",
-    );
-  }
+  const run = requirePagedRunStmt(h, ctx.name);
   return run;
 }
 
@@ -313,22 +330,36 @@ function renderPagedRunHandlerClass(
   const handlerName = `${h.name}Handler`;
   const run = pagedRunStmt(h, ctx);
   const agg = run.aggName;
-  const imports = new Set<string>();
-  const renderCtx = handlerRenderCtx(h, ctx);
-  const critArgs = run.retrievalArgs.map((a) => {
-    collectJavaExprImports(a, imports);
-    return renderJavaExpr(a, renderCtx);
-  });
+  // The (flattened) params sit in `handle(...)` beside the fixed paging
+  // params and the repository field the body dereferences — a criterion param
+  // named `page` / `sort` / … redeclared one (javac "variable page is already
+  // defined").  Only a colliding name moves; criterion args follow it.
+  const flat = flatHandlerParams(h, ctx);
+  const locals = javaLocals(
+    flat.map((p) => p.name),
+    new Set(["page", "pageSize", "sort", "dir", repoField(agg), agg]),
+  );
+  const renderCtx: JavaRenderContext = {
+    ...handlerRenderCtx(h, ctx),
+    paramExpr: (n) => movedLocalOrUndefined(locals, n),
+  };
+  const critArgs = run.retrievalArgs.map((a) => renderJavaExpr(a, renderCtx));
   const callArgs = [...critArgs, "page", "pageSize", "sort", "dir"].join(", ");
-  const params = flatHandlerParams(h, ctx)
-    .map((p) => {
-      collectJavaTypeImports(p.type, imports);
-      return `${renderJavaType(p.type)} ${p.name}`;
-    })
-    .join(", ");
+  const params = flat.map((p) => `${renderJavaType(p.type)} ${localOf(locals, p.name)}`).join(", ");
   const sigParams = [params, "int page", "int pageSize", "String sort", "String dir"]
     .filter(Boolean)
     .join(", ");
+  // The handler's `requires` gates (`scaffoldPaged(requires:)` splices one) —
+  // a ForbiddenException (→ 403) before the read; a gate reading `currentUser`
+  // resolves the actor through the injected accessor.
+  const usesUser = pagedRunGatesUseCurrentUser(h);
+  const forbidden = javaRef(`${basePkg}.domain.common`, "ForbiddenException");
+  const gateLines = pagedRunGates(h).map(
+    (g) =>
+      `        if (!(${renderJavaExpr(g.expr, renderCtx)})) throw new ${forbidden}(${JSON.stringify(`Forbidden: ${g.source}`)});`,
+  );
+  const repo = `${agg}Repository ${repoField(agg)}`;
+  const ctorParams = usesUser ? `${repo}, CurrentUserAccessor currentUserAccessor` : repo;
   const ePkg = entityPkgOf(agg);
   const rPkg = repoPkgOf(agg);
   const aggImports = [
@@ -338,12 +369,11 @@ function renderPagedRunHandlerClass(
   return lines(
     `package ${appPkg};`,
     ``,
-    ...[...imports].sort().map((i) => `import ${i};`),
-    imports.size > 0 ? `` : null,
     `import org.springframework.stereotype.Service;`,
     `import org.springframework.transaction.annotation.Transactional;`,
     ``,
     ...aggImports,
+    usesUser ? `import ${basePkg}.auth.CurrentUserAccessor;` : null,
     `import ${basePkg}.domain.common.Paged;`,
     `import ${basePkg}.domain.enums.*;`,
     `import ${basePkg}.domain.ids.*;`,
@@ -353,13 +383,17 @@ function renderPagedRunHandlerClass(
     `@Transactional(readOnly = true)`,
     `public class ${handlerName} {`,
     `    private final ${agg}Repository ${repoField(agg)};`,
+    usesUser ? `    private final CurrentUserAccessor currentUserAccessor;` : null,
     ``,
-    `    public ${handlerName}(${agg}Repository ${repoField(agg)}) {`,
+    `    public ${handlerName}(${ctorParams}) {`,
     `        this.${repoField(agg)} = ${repoField(agg)};`,
+    usesUser ? `        this.currentUserAccessor = currentUserAccessor;` : null,
     `    }`,
     ``,
     `    public Paged<${agg}> handle(${sigParams}) {`,
-    `        return ${repoField(agg)}.${run.retrievalName}(${callArgs});`,
+    usesUser ? `        var currentUser = currentUserAccessor.user();` : null,
+    ...gateLines,
+    `        return ${repoField(agg)}.${pagedRunFindName(run)}(${callArgs});`,
     `    }`,
     `}`,
     ``,
@@ -383,40 +417,6 @@ function renderHandlerClass(
   domainServicePkg?: string,
 ): string {
   const handlerName = `${h.name}Handler`;
-  const imports = new Set<string>();
-
-  // Body — the shared workflow statement spine, rendered at 8-space indent
-  // (method-body depth).  The render context carries the handler's `command`/
-  // `query` record params so a `cmd.<field>` access collapses to the
-  // flattened flat param; a flat-param handler reuses the base context.
-  const renderCtx = handlerRenderCtx(h, ctx, resources?.classes);
-  const bodyLines = renderWorkflowStmtChunks(
-    h.statements,
-    javaWorkflowStmtTarget(ctx, imports, renderCtx, undefined, collectUnionFindLets(h.statements)),
-    "        ",
-  ).flat();
-  const saveLines = h.savesAtExit.map((s) => `        ${repoField(s.aggName)}.save(${s.name});`);
-  const returnLines: string[] = [];
-  if (h.returnValue) {
-    collectJavaExprImports(h.returnValue, imports);
-    returnLines.push(`        return ${renderJavaExpr(h.returnValue, renderCtx)};`);
-  }
-
-  // A scaffolded read DECLARES a `<Agg>Response` return, but the handler body
-  // still produces the domain entity (the controller projects at the boundary),
-  // so the internal `handle(...)` signature types on the entity —
-  // `normalizeHandlerReturn` maps `OrderResponse`/`OrderResponse[]` back to
-  // `Order`/`Order[]` (an id / scalar / plain-entity / void return passes
-  // through unchanged, keeping the flat-param handlers byte-identical).
-  const internalRet = normalizeHandlerReturn(h.returnType, ctx);
-  const retType = internalRet ? renderJavaType(internalRet) : "void";
-  if (internalRet) collectJavaTypeImports(internalRet, imports);
-  const params = flatHandlerParams(h, ctx)
-    .map((p) => {
-      collectJavaTypeImports(p.type, imports);
-      return `${renderJavaType(p.type)} ${p.name}`;
-    })
-    .join(", ");
 
   // Domain services this body calls (domain-services.md rev. 4).  A READING
   // service is a `@Service` bean, so the handler constructor-injects it exactly
@@ -428,6 +428,62 @@ function renderHandlerClass(
     h.returnValue,
   ]);
   const repoAggs = reposUsed(h);
+
+  // The (flattened) params are `handle(...)`'s own parameters, in a method
+  // whose body dereferences the injected repository / service fields — a param
+  // named like one of them shadows it (`ordersRepository.getById(…)` on an
+  // `int`).  `javaLocals` moves only a colliding name to `<name>_`; body refs
+  // (and a collapsed `cmd.<field>` read) follow it through `paramExpr`.
+  const flat = flatHandlerParams(h, ctx);
+  const methodNames = new Set([
+    ...workflowBodyDerefNames([h.statements], h.savesAtExit, ctx),
+    ...repoAggs.flatMap((a) => [repoField(a), a]),
+    ...calledServices.reading.map((s) => lowerFirst(s)),
+    ...calledServices.reading,
+    ...calledServices.pure,
+  ]);
+  const locals = javaLocals(
+    flat.map((p) => p.name),
+    methodNames,
+  );
+
+  // Body — the shared workflow statement spine, rendered at 8-space indent
+  // (method-body depth).  The render context carries the handler's `command`/
+  // `query` record params (M-T5.10) so a `cmd.<field>` access collapses to the
+  // flattened flat param; a flat-param handler reuses the base context, so its
+  // output stays byte-identical.
+  // The body's own `let` / repo bindings share the method too — moved off the
+  // same names and off the (renamed) params by `withLetLocals`
+  // (`let ordersRepository = Orders.getById(id)` shadowed the field its exit
+  // save dereferences).
+  const renderCtx: JavaRenderContext = withLetLocals(
+    { ...handlerRenderCtx(h, ctx, resources?.classes), paramExpr: (n) => locals.get(n) },
+    workflowBoundNames([h.statements]),
+    new Set([...methodNames, ...locals.values()]),
+  );
+  const bodyLines = renderWorkflowStmtChunks(
+    h.statements,
+    javaWorkflowStmtTarget(ctx, renderCtx, undefined, collectUnionFindLets(h.statements)),
+    "        ",
+  ).flat();
+  const saveLines = h.savesAtExit.map(
+    (s) => `        ${repoField(s.aggName)}.save(${boundLocal(renderCtx, s.name)});`,
+  );
+  const returnLines: string[] = [];
+  if (h.returnValue) {
+    returnLines.push(`        return ${renderJavaExpr(h.returnValue, renderCtx)};`);
+  }
+
+  // A scaffolded read DECLARES a `<Agg>Response` return, but the handler body
+  // still produces the domain entity (the controller projects at the boundary),
+  // so the internal `handle(...)` signature types on the entity —
+  // `normalizeHandlerReturn` maps `OrderResponse`/`OrderResponse[]` back to
+  // `Order`/`Order[]` (an id / scalar / plain-entity / void return passes
+  // through unchanged, keeping the flat-param handlers byte-identical).
+  const internalRet = normalizeHandlerReturn(h.returnType, ctx);
+  const retType = internalRet ? renderJavaType(internalRet) : "void";
+  const params = flat.map((p) => `${renderJavaType(p.type)} ${localOf(locals, p.name)}`).join(", ");
+
   const fields = [
     ...repoAggs.map((a) => `    private final ${a}Repository ${repoField(a)};`),
     ...calledServices.reading.map((s) => `    private final ${s} ${lowerFirst(s)};`),
@@ -479,8 +535,6 @@ function renderHandlerClass(
   return lines(
     `package ${appPkg};`,
     ``,
-    ...[...imports].sort().map((i) => `import ${i};`),
-    imports.size > 0 ? `` : null,
     `import org.springframework.stereotype.Service;`,
     `import org.springframework.transaction.annotation.Transactional;`,
     ``,
@@ -602,19 +656,22 @@ function pathParamNames(path: string): Set<string> {
  *  verbatim.  Body params take a separate `@RequestBody` record path below. */
 function wireActionParam(
   p: ParamIR,
-  imports: Set<string>,
+  /** The Java parameter name: `jid(p.name)`, or a `javaLocals` collision
+   *  rename of it.  Whenever it differs from `p.name` (a reserved word, a
+   *  collision) the URI-template variable is named explicitly, since Spring
+   *  derives it from the parameter name. */
+  local: string = jid(p.name),
 ): { actionParam: string; callArg: string } {
   const t = p.type;
+  const annot = local !== p.name ? `@PathVariable("${p.name}")` : "@PathVariable";
   if (t.kind === "id") {
-    const wire = javaValueTypeForId(t.valueType);
-    if (wire === "UUID") imports.add("java.util.UUID");
+    const wire = javaIdValueType(t.valueType);
     return {
-      actionParam: `@PathVariable ${wire} ${p.name}`,
-      callArg: `new ${t.targetName}Id(${p.name})`,
+      actionParam: `${annot} ${wire} ${local}`,
+      callArg: `new ${t.targetName}Id(${local})`,
     };
   }
-  collectJavaTypeImports(t, imports);
-  return { actionParam: `@PathVariable ${renderJavaType(t)} ${p.name}`, callArg: p.name };
+  return { actionParam: `${annot} ${renderJavaType(t)} ${local}`, callArg: local };
 }
 
 /** The `@RequestParam` sibling of `wireActionParam` for a NON-path criterion
@@ -622,19 +679,19 @@ function wireActionParam(
  *  `new <Agg>Id(...)`; a scalar → the rendered domain type verbatim. */
 function wireQueryParam(
   p: ParamIR,
-  imports: Set<string>,
+  /** As `wireActionParam`: a mangled / collision-moved name keeps its query key. */
+  local: string = jid(p.name),
 ): { actionParam: string; callArg: string } {
   const t = p.type;
+  const annot = local !== p.name ? `@RequestParam("${p.name}")` : "@RequestParam";
   if (t.kind === "id") {
-    const wire = javaValueTypeForId(t.valueType);
-    if (wire === "UUID") imports.add("java.util.UUID");
+    const wire = javaIdValueType(t.valueType);
     return {
-      actionParam: `@RequestParam ${wire} ${p.name}`,
-      callArg: `new ${t.targetName}Id(${p.name})`,
+      actionParam: `${annot} ${wire} ${local}`,
+      callArg: `new ${t.targetName}Id(${local})`,
     };
   }
-  collectJavaTypeImports(t, imports);
-  return { actionParam: `@RequestParam ${renderJavaType(t)} ${p.name}`, callArg: p.name };
+  return { actionParam: `${annot} ${renderJavaType(t)} ${local}`, callArg: local };
 }
 
 /** Emit the `@GetMapping` action for a paged-run queryHandler route.  Path-bound
@@ -648,7 +705,6 @@ function emitPagedRunAction(
   h: Handler,
   ctx: EnrichedBoundedContextIR,
   field: string,
-  imports: Set<string>,
   responsePkgOf: (agg: string) => string,
   responsePkgs: Set<string>,
 ): string[] {
@@ -659,15 +715,23 @@ function emitPagedRunAction(
   const runAgg = ctx.aggregates.find((a) => a.name === agg);
   const runFrom = runAgg?.fields.some((f) => f.maskUnless) ? "fromMasked" : "from";
   const pathNames = pathParamNames(r.path);
+  // The bound params share the action with the paging controls, the `result`
+  // local and the injected handler field — a criterion param named `page` /
+  // `sort` / `result` redeclared one.  Only a colliding name moves (its wire
+  // key named explicitly).
+  const locals = javaLocals(
+    h.params.map((p) => p.name),
+    new Set(["page", "pageSize", "sort", "dir", "result", field]),
+  );
   const bind = new Map(
-    h.params.map((p) => [
-      p.name,
-      pathNames.has(p.name) ? wireActionParam(p, imports) : wireQueryParam(p, imports),
-    ]),
+    h.params.map((p) => {
+      const local = localOf(locals, p.name);
+      return [p.name, pathNames.has(p.name) ? wireActionParam(p, local) : wireQueryParam(p, local)];
+    }),
   );
   const actionParams = [
     ...h.params.map((p) => bind.get(p.name)!.actionParam),
-    ...JAVA_PAGED_QUERY_PARAMS,
+    ...javaPagedQueryParams(pagedRunSortDefault(h, ctx)),
   ].join(", ");
   const callArgs = [
     ...h.params.map((p) => bind.get(p.name)!.callArg),
@@ -708,10 +772,13 @@ function projectReturn(
   // full `MathContext.DECIMAL128` precision where the REST DTO ships a double.
   // `domainToWire` carries the optional / `decimal[]` arms.
   //
-  // KNOWN GAP: the `return "result"` below passes `id` / `money` / `datetime`
-  // scalar returns through UN-projected, so an explicit handler returning one
-  // of those diverges from the DTO wire.  Only the decimal arm is projected.
-  if (info.refKind === "primitive" && info.primitive === "decimal") {
+  // The same holds for the other scalar wire forms: an `<Agg> id` return is a
+  // domain id RECORD, which Jackson serialises as `{"value": "…"}` where every
+  // other backend answers the bare id string; `money` / `datetime` likewise ship
+  // their canonical wire spelling only through `domainToWire`.  Found by the
+  // `handler-aggregate-ops` corpus fixture (M-T9.42 slice 2) — the per-backend
+  // string test pinned `ResponseEntity.ok(result)` and passed.
+  if (info.refKind === "primitive" || info.refKind === "id") {
     return domainToWire(retType, "result");
   }
   if (info.refKind !== "entity") return "result";
@@ -748,12 +815,10 @@ function projectReturn(
  *  target handler's domain params and calls the handler bean directly.  Returns
  *  null when the api binds no resolvable route.
  *
- *  Each `@*Mapping` carries the FULL path including `API_BASE_PATH`, rather
- *  than a class-level `@RequestMapping(API_BASE_PATH)`: Spring always
- *  concatenates a class-level mapping, so there would be no way to leave the
- *  scaffold-duplicate routes at the root — and a duplicated slot is an
- *  `Ambiguous handler methods mapped` failure at request time.  Which routes
- *  move is decided once, in `_api/explicit-route-mount.ts`. */
+ *  Each `@*Mapping` carries the FULL path including `API_BASE_PATH`
+ *  (`explicitRoutePath`, `_api/explicit-route-mount.ts`).  A slot shared with
+ *  the auto-derived surface is this controller's alone: the derived controller
+ *  yields it, so Spring never sees two handlers on one mapping. */
 export function emitExplicitRouteController(
   apiName: string,
   routes: readonly RouteIR[],
@@ -763,9 +828,7 @@ export function emitExplicitRouteController(
   responsePkgOf: (agg: string) => string,
 ): { name: string; content: string } | null {
   if (routes.length === 0) return null;
-  const derivedSlots = derivedRouteSlots(contexts);
   const byName = new Map(contexts.map((c) => [c.name, c]));
-  const imports = new Set<string>();
   // Response DTO packages an entity-returning route projects into (C2) — each
   // wildcard-imported so the `<Agg>Response.from(...)` projection resolves.
   const responsePkgs = new Set<string>();
@@ -800,16 +863,7 @@ export function emitExplicitRouteController(
     if (h.returnType && pagedReturn(h.returnType)) {
       usesPaged = true;
       actions.push(
-        ...emitPagedRunAction(
-          r,
-          explicitRoutePath(r, derivedSlots),
-          h,
-          ctx,
-          field,
-          imports,
-          responsePkgOf,
-          responsePkgs,
-        ),
+        ...emitPagedRunAction(r, explicitRoutePath(r), h, ctx, field, responsePkgOf, responsePkgs),
       );
       continue;
     }
@@ -826,16 +880,36 @@ export function emitExplicitRouteController(
     const effParams = h.extern ? h.params : flatHandlerParams(h, ctx);
     const pathParams = effParams.filter((p) => pathNames.has(p.name));
     const bodyParams = effParams.filter((p) => !pathNames.has(p.name));
-    const pathArg = new Map(pathParams.map((p) => [p.name, wireActionParam(p, imports)]));
+    // The path params are the action's own parameters, next to the
+    // `@RequestBody … body` record, the `result` local, the injected handler
+    // field the action dereferences and the static `JSON` mapper — a token
+    // named like one of those redeclared or shadowed it.  Only a colliding name
+    // moves (`@PathVariable("result") UUID result_`); the body record and the
+    // URI template keep the `.ddd` spelling.
+    const retType = normalizeHandlerReturn(qry ? qry.returnType : cmd?.returnType, ctx);
+    const isBareString = !!retType && renderJavaType(retType) === "String";
+    const pathLocals = javaLocals(
+      pathParams.map((p) => p.name),
+      new Set([
+        field,
+        ...(bodyParams.length > 0 ? ["body"] : []),
+        ...(retType ? ["result"] : []),
+        ...(isBareString ? ["JSON"] : []),
+      ]),
+    );
+    const pathArg = new Map(
+      pathParams.map((p) => [p.name, wireActionParam(p, localOf(pathLocals, p.name))]),
+    );
 
     const actionParamParts = pathParams.map((p) => pathArg.get(p.name)!.actionParam);
     if (bodyParams.length > 0) {
       const bodyRecName = `${h.name}Body`;
       const fields = bodyParams
-        .map((p) => {
-          collectJavaTypeImports(p.type, imports);
-          return `${renderJavaType(p.type)} ${p.name}`;
-        })
+        // A reserved-word name mangles (`case_`) and keeps its wire key.
+        .map(
+          (p) =>
+            `${isMangled(p.name) ? `@${JSON_PROPERTY}("${p.name}") ` : ""}${renderJavaType(p.type)} ${jid(p.name)}`,
+        )
         .join(", ");
       bodyRecords.push(`record ${bodyRecName}(${fields}) {}`);
       actionParamParts.push(`@RequestBody ${bodyRecName} body`);
@@ -845,12 +919,12 @@ export function emitExplicitRouteController(
     // coerce from the route token, body params read off `body.<name>()` (record
     // accessor).
     const callArgs = effParams
-      .map((p) => (pathNames.has(p.name) ? pathArg.get(p.name)!.callArg : `body.${p.name}()`))
+      .map((p) => (pathNames.has(p.name) ? pathArg.get(p.name)!.callArg : `body.${jid(p.name)}()`))
       .join(", ");
     // A query always returns; a command returns only with an explicit type.  A
     // scaffolded read declares `<Agg>Response` — normalise to the entity the
-    // handler actually returns so the boundary projection fires on it.
-    const retType = normalizeHandlerReturn(qry ? qry.returnType : cmd?.returnType, ctx);
+    // handler actually returns so the boundary projection fires on it
+    // (`retType`, computed with the path-param locals above).
     const annot = HTTP_ANNOT[r.method] ?? "GetMapping";
     // A bare `String` return has to be SERIALISED to JSON by hand.
     // Spring selects its converter by the body's RUNTIME type, and
@@ -879,17 +953,12 @@ export function emitExplicitRouteController(
     //
     // Every other type (int, bool, BigDecimal, a response DTO) already routes to
     // Jackson, which is why only this arm needs it.
-    const isBareString = !!retType && renderJavaType(retType) === "String";
-    if (isBareString) {
-      imports.add("org.springframework.http.MediaType");
-      imports.add("tools.jackson.databind.json.JsonMapper");
-      usesJsonString = true;
-    }
+    if (isBareString) usesJsonString = true;
     const callLines = retType
       ? isBareString
         ? [
             `        var result = ${field}.handle(${callArgs});`,
-            `        return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON)`,
+            `        return ResponseEntity.ok().contentType(${javaRef("org.springframework.http", "MediaType")}.APPLICATION_JSON)`,
             `            .body(JSON.writeValueAsString(${projectReturn(retType, ctx, responsePkgOf, responsePkgs)}));`,
           ]
         : [
@@ -901,7 +970,7 @@ export function emitExplicitRouteController(
           `        return ResponseEntity.noContent().build();`,
         ];
     actions.push(
-      `    @${annot}("${explicitRoutePath(r, derivedSlots)}")`,
+      `    @${annot}("${explicitRoutePath(r)}")`,
       `    public ResponseEntity<?> ${lowerFirst(h.name)}(${actionParams}) {`,
       ...callLines,
       `    }`,
@@ -920,8 +989,6 @@ export function emitExplicitRouteController(
     content: lines(
       `package ${basePkg}.api;`,
       ``,
-      ...[...imports].sort().map((i) => `import ${i};`),
-      imports.size > 0 ? `` : null,
       `import org.springframework.http.ResponseEntity;`,
       `import org.springframework.web.bind.annotation.*;`,
       ``,
@@ -951,7 +1018,7 @@ export function emitExplicitRouteController(
       // our own carries no risk and needs no bean lookup.  Jackson 3's
       // `JacksonException` is unchecked, so the action signature stays clean.
       usesJsonString
-        ? `    private static final JsonMapper JSON = JsonMapper.builder().findAndAddModules().build();\n`
+        ? `    private static final ${JSON_MAPPER} JSON = ${JSON_MAPPER}.builder().findAndAddModules().build();\n`
         : null,
       ...fields,
       ``,

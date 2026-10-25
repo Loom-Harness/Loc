@@ -904,8 +904,8 @@ references. `undefined` means the unqualified `public` schema.
 ## The Postgres SQL renderer
 
 `renderPgStep(step)` ([`src/generator/sql-pg.ts`](../src/generator/sql-pg.ts))
-translates one `MigrationStep` to Postgres DDL. It is **shared by the TS, .NET,
-Python, and Java backends** — calling the same renderer means a migration written
+translates one `MigrationStep` to Postgres DDL. It is **shared by the TS, .NET
+(EF Core and Dapper), Python, and Java backends** — calling the same renderer means a migration written
 by any of them is bit-for-bit equivalent SQL. Phoenix is the exception: it stays
 in Ecto DSL (its output is Elixir, not SQL) so `ecto.migrate` keeps
 working, and translates `MigrationStep` itself in
@@ -920,6 +920,7 @@ seed SQL is bit-identical cross-backend).
 |---|---|---|
 | Hono / Drizzle | `db/migrations/<tag>.sql` + `meta/_journal.json` | `migrate()` from `drizzle-orm/node-postgres/migrator` (also `npm run db:migrate`) |
 | .NET / EF Core | `Migrations/<slug>.cs` (`migrationBuilder.Sql(...)`) | `Database.Migrate()` → `__EFMigrationsHistory` |
+| .NET / Dapper | `Migrations/<slug>.cs` (a `LoomMigration` with its `Statements`) | `DbSchema.EnsureAsync` → `public.__loom_migrations` (see below) |
 | Phoenix / Ecto | `priv/repo/migrations/<ts>_create_<table>.exs` | `ecto.migrate` |
 | Java / Spring | `src/main/resources/db/migration/V<v>.<n>__<Mod>_<Name>.sql` | Flyway |
 | Python / FastAPI | `migrations/<tag>.sql` | `run_migrations()` from the FastAPI lifespan; `__loom_migrations` tracking table |
@@ -944,6 +945,85 @@ What *is* still feature-local and hand-emitted per backend is the
 columns, which `ALTER` tables the module migration owns and so ship as a *late*
 migration (a far-future version like `29991231235959`) sorting after every
 module's initial migration.
+
+### `persistence: dapper` — the same chain, on the jsonb layout (M-T2.17)
+
+Until D-DAPPER-ALTER was built, the Dapper adapter applied **no** migrations:
+its `DbSchema.cs` ran `CREATE TABLE IF NOT EXISTS` (in `public`) on every boot,
+so after the first deploy every model change was silently ignored — added and
+renamed columns, backfills, `sql` / `sql before` steps, index flips. It now
+applies the same `MigrationsIR` chain EF applies
+([`dotnet/emit/dapper-migrations.ts`](../src/generator/dotnet/emit/dapper-migrations.ts)):
+
+- **Emission.** One `Migrations/<version>_<Module>_<Name>.cs` per generation —
+  the id EF gives the same migration — rendered by `renderPgStep` and split into
+  single statements (`splitPgStatements`, shared with the python runner). The
+  late provenance-column migration is the same statements EF's carries.
+- **One projection, not a third DDL copy.** The Dapper repositories store a
+  value object as ONE `jsonb` column, a scalar/enum list as `jsonb`, and a
+  value-object list as `jsonb` on the parent, where the canonical IR flattens /
+  uses arrays / a child table. The steps are projected onto that layout before
+  rendering — through the same `collapseVoGroups` / `collapseVoSteps`
+  ([`_persistence/vo-json-columns.ts`](../src/generator/_persistence/vo-json-columns.ts))
+  the Ecto emitter uses for its `:map` value objects. Value-object
+  null-consistency CHECKs drop out (the column is the whole value object).
+- **Placement.** Tables land in the binding's schema exactly as on EF
+  (`snake(<context>)` by default). The repositories keep naming tables
+  unqualified; the Npgsql data source sets `SearchPath = public,<schemas>`.
+  `public` first, so `__loom_migrations`, `__loom_seed` and `__loom_outbox` stay
+  where an unqualified `CREATE` puts them. A `schema:` is therefore honoured; a
+  `tablePrefix:` is still refused (`loom.dapper-unsupported#schema-ignored`).
+  The `#migrations` and `#schema-split` clauses are gone.
+- **Runner.** `DbSchema.EnsureAsync` takes a session advisory lock (so
+  concurrent replicas or restarts serialise), reads the applied set from
+  `public.__loom_migrations` (the table python already keeps, already
+  reset-preserved), and applies every pending migration in id order — an
+  applied **set**, not a watermark — each in its own transaction with its
+  history row. Idempotent: a reboot applies nothing. The exactly-once
+  `appliedDataMigrations` ledger needs nothing new: a raw `sql` step is emitted
+  into exactly one generation's file, and that file runs once.
+
+#### The transition from the old bootstrap
+
+Two halves, one per place the old world left a trace.
+
+**At generate time — re-rooting the output tree**
+([`system/dapper-legacy-reroot.ts`](../src/system/dapper-legacy-reroot.ts)).
+The old toolchain wrote the module snapshot but no migration files, so guard (b)
+refused every later generate into that tree: its history is always exactly one
+`Initial`, and the snapshot it carries is the schema the old bootstrap
+provisioned. On a Dapper-owned module whose snapshot history has **no** file on
+disk, the generate re-emits that `Initial` from the snapshot (under the version
+the history records) ahead of this run's delta, and rewrites the history to name
+just those two. Any other backend in that state is still refused by guard (b).
+
+**At boot — baselining the database** (`BaselineLegacyAsync` in `DbSchema.cs`).
+A database with no `__loom_migrations` table is examined once, inside one
+transaction with the creation of that table. For each `Initial` (each carries
+the list of tables it creates):
+
+- every table present — in its schema, or still in `public` where the old
+  bootstrap put it → the `public` ones are moved (`ALTER TABLE … SET SCHEMA`)
+  and the `Initial` is recorded as applied **without running**;
+- every table absent → a module the old bootstrap never saw; left pending;
+- some of each → refuse to boot, naming the missing tables, rather than guess.
+
+Later migrations then apply normally, which is what finally brings the old
+database up to the model. The decision rests on the old bootstrap having
+provisioned the `Initial`'s shape. That holds column-for-column (checked over
+every `dapper*.ddd` compile fixture). It does not hold for constraints the old
+DDL never had: the FKs, enum CHECKs, `DEFAULT 1` on `version`, and money's
+`NUMERIC(19,4)` bounds stay absent on a baselined database until a later
+migration touches them. A model that already evolved under the old toolchain is
+also out of scope: such a tree could only be regenerated by deleting its
+snapshot and passing `--allow-rebaseline`, so its database is behind its
+snapshot in a way no tool recorded, and it needs reconciling by hand.
+
+Compose and k8s need nothing for this. The per-deployable `db-bootstrap`
+service (#3141) only ever creates the database; the schema inside it is the
+app's to migrate at boot, on every adapter. The chart runs no migration job
+either: each app migrates itself at boot, and the advisory lock makes that safe
+with more than one replica.
 
 ### The Drizzle journal's ordering key
 
@@ -1034,13 +1114,14 @@ The shared harness ([`test/e2e/support/migration-evolution-harness.ts`](../test/
 owns the Postgres lifecycle (one server, `chain` + `fresh` databases), the
 fingerprint, and both assertion sequences; a thin per-backend `BackendDriver`
 supplies only the boot mechanics (mirroring the `tenancy-isolation` recipes).
-Opt-in, per backend: `npm run test:migration-evolution{,-python,-java,-dotnet,-elixir}`
+Opt-in, per backend: `npm run test:migration-evolution{,-python,-java,-dotnet,-dapper,-elixir}`
 (each gated on `LOOM_MIGRATION_E2E[_…]=1`; needs docker or `LOOM_MIGRATION_PG_URL`
-plus host `psql`). The gate is main-push + dispatch, not per-PR by default — a
-docker-heavy multi-boot on every migration-touching PR is a runner burst for a
-regression acceptable to catch one merge later — but applying the
-`run-migration-e2e` label to a PR runs all five legs against that branch before
-merge.
+plus host `psql`). The gate runs per-PR (path-scoped) and in the merge queue;
+see [`ci-gating.md`](ci-gating.md). The `dapper` leg runs every gate the `dotnet` leg runs on `persistence:
+dapper`, plus the transition case (`runDapperLegacyBaselineGate`): the old
+bootstrap's literal DDL (`dapper-legacy-bootstrap.sql`) plus one row, an old
+tree with no `Migrations/`, regenerate v2, then boot. The row must survive the
+baseline and the delta, and a reboot must change nothing.
 
 ## Semantic changes that emit no migration — exact `decimal` arithmetic (RS-37)
 

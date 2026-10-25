@@ -1,1 +1,0 @@
-{{#if hasBind}}<Select{{{labelAttr}}} data={ {{{optionsExpr}}} } value={{expr bind}} onChange={(v) => {{setter}}(v ?? "")}{{#if hasError}} error={ {{{error}}} }{{/if}}{{{testidAttr}}} />{{else}}<Select{{{labelAttr}}} data={ {{{optionsExpr}}} }{{#if hasError}} error={ {{{error}}} }{{/if}}{{{testidAttr}}} />{{/if}}

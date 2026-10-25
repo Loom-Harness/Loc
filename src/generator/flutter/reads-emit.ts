@@ -25,6 +25,7 @@ import type { EnrichedBoundedContextIR, ExprIR, UiIR } from "../../ir/types/loom
 import { AUDIT_ENTRY_TYPE } from "../../ir/util/audit-history.js";
 import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import { groupedProjectionNames, readableProjectionNames } from "../../ir/util/projection-read.js";
+import { walkExprChildren } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
@@ -136,35 +137,14 @@ function readVarName(aggregate: string, operation: string): string {
   return `${lowerFirst(aggregate)}${upperFirst(operation)}`;
 }
 
-/** Direct child expressions of `e` (expression positions only). */
+/** Direct child expressions of `e`, from the shared `never`-checked walker —
+ *  every expression slot, including each `match` arm (where a scaffolded filter
+ *  bar hosts both of its reads).  Lambda-block statements are action bodies,
+ *  never a read or form host, so the statement channel is not followed. */
 function exprChildren(e: ExprIR): ExprIR[] {
-  switch (e.kind) {
-    case "member":
-      return [e.receiver];
-    case "method-call":
-      return [e.receiver, ...e.args];
-    case "call":
-      return e.args;
-    case "lambda":
-      return e.body ? [e.body] : [];
-    case "object":
-    case "new":
-      return e.fields.map((f) => f.value);
-    case "list":
-      return e.elements;
-    case "paren":
-      return [e.inner];
-    case "unary":
-      return [e.operand];
-    case "binary":
-      return [e.left, e.right];
-    case "ternary":
-      return [e.cond, e.then, e.otherwise];
-    case "convert":
-      return [e.value];
-    default:
-      return [];
-  }
+  const out: ExprIR[] = [];
+  walkExprChildren(e, { expr: (c) => out.push(c) });
+  return out;
 }
 
 /** Every READ-BEARING `of:` argument in a page body, in tree order.

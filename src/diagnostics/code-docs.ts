@@ -48,6 +48,7 @@ const CHAPTER_DIR = "language-reference";
 export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.callable-modifier-not-allowed-here":
     "06-behavior-and-statements.md#the-callable-modifier-surface",
+  "loom.param-default-unsupported": "06-behavior-and-statements.md#parameter-defaults",
   "loom.multiple-systems": "02-systems-and-topology.md#system",
   "loom.duplicate-theme-block": "02-systems-and-topology.md#theme",
   "loom.unconstructible-server-field":
@@ -64,6 +65,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.duplicate-api": "14-apis-storage-resources-channels.md#api",
   "loom.api-unknown-subdomain": "14-apis-storage-resources-channels.md#api",
   "loom.duplicate-storage": "14-apis-storage-resources-channels.md#storage",
+  "loom.storage-type-unbound": "14-apis-storage-resources-channels.md#storage",
   "loom.duplicate-resource": "14-apis-storage-resources-channels.md#resource",
   // --- src/language/validators/structural.ts (M-T9.56 drain) --------------
   "loom.audited-no-command": "22-macros.md#audit--the-built-in-capability-auditable",
@@ -113,6 +115,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.derived-type-mismatch":
     "07-invariants-derived-functions.md#derived--a-computed-read-only-field",
   "loom.property-default-type-mismatch": "03-domain-modeling.md#fields-property",
+  "loom.dunder-field-name": "03-domain-modeling.md#field-names-a-generated-runtime-reserves",
+  "loom.elixir-part-timestamp-field":
+    "03-domain-modeling.md#field-names-a-generated-runtime-reserves",
   "loom.parameter-default-type-mismatch":
     "06-behavior-and-statements.md#operation--a-mutating-method",
   // --- src/ir/validate/checks/backend-syntax-checks.ts --------------------
@@ -147,6 +152,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.unresolved-lvalue-head": "06-behavior-and-statements.md#assignment-----",
   "loom.bare-statement-invalid": "06-behavior-and-statements.md#assignment-----",
   "loom.retrieval-where-not-criterion": "10-repositories-and-queries.md#retrieval",
+  "loom.paged-param-reserved": "10-repositories-and-queries.md#return-shapes",
   "loom.paged-query-handler-shape":
     "10-repositories-and-queries.md#reporun--the-paged-queryhandler",
   "loom.function-return-type-mismatch":
@@ -304,6 +310,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.design-pack-ignored": "02-systems-and-topology.md#design-packs",
   "loom.design-theme-unknown": "02-systems-and-topology.md#design-packs",
   "loom.design-pack-custom-unchecked": "02-systems-and-topology.md#design-packs",
+  "loom.design-pack-retired": "02-systems-and-topology.md#design-packs",
   "loom.design-pack-version-unknown": "02-systems-and-topology.md#design-packs",
   "loom.design-pack-format-mismatch": "02-systems-and-topology.md#design-packs",
   // --- src/language/validators/datasource.ts (M-T9.56 drain) --------------
@@ -352,6 +359,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "16-ui-walker-primitives.md#for--list-comprehension",
   "loom.money-in-text-slot":
     "16-ui-walker-primitives.md#formatters--money-datedisplay-enumbadge-idlink-filelink-provenanceinfo-timeline",
+  "loom.button-icon-unknown": "16-ui-walker-primitives.md#button-icons",
+  "loom.valueobject-in-text-slot":
+    "16-ui-walker-primitives.md#a-text-slot-renders-a-scalar-not-a-value-object",
   // The body-walker give-up codes (M-T9.55).  The first four are argument /
   // reference / expression refusals — the chapter's own gate section lists the
   // sibling `loom.page-primitive-*` codes — and the fifth is a porting gap, so
@@ -377,7 +387,12 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.auth-unknown-provider": "17-auth.md#errors",
   "loom.duplicate-permission": "17-auth.md#permissions--a-typed-catalogue-with-implies",
   "loom.unknown-permission": "17-auth.md#permissions--a-typed-catalogue-with-implies",
-  "loom.create-params-not-wire": "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
+  "loom.create-param-not-a-field":
+    "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
+  "loom.create-param-required-omitted":
+    "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
+  "loom.create-call-field-not-in-create":
+    "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.default-deny-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.default-deny-by-id-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.default-deny-list-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
@@ -385,9 +400,15 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.default-deny-es-create-ungateable": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.page-gate-not-client-evaluable": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.ui-gate-expr-unsupported": "15-ui-pages-structure.md#page--route-title-body",
+  "loom.ui-this-unbound": "15-ui-pages-structure.md#page--route-title-body",
   "loom.sensitive-wire-unsupported": "17-auth.md#sensitive--field-tagging",
   "loom.duplicate-user-block": "17-auth.md#user--the-principal-claim-shape",
   "loom.user-duplicate-field": "17-auth.md#user--the-principal-claim-shape",
+  "loom.user-reserved-field": "17-auth.md#user--the-principal-claim-shape",
+  // Ruling D1 — reactors run as the system principal.
+  "loom.reactor-gate-unsatisfiable":
+    "17-auth.md#reactors--the-system-principal-currentuserissystem",
+  "loom.timer-tenant-read": "17-auth.md#reactors--the-system-principal-currentuserissystem",
   // The target-agnostic `match await` subject gate (audit F66) — the reference
   // section that spells the one supported shape.
   "loom.async-effect-subject-unsupported":
@@ -419,7 +440,6 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.e2e-ui-absence-invalid": "18-testing.md#absence--tobenull--tobeabsent",
   "loom.contain-receiver-invalid": "18-testing.md#tocontain--membership-or-substring",
   "loom.absent-receiver-invalid": "18-testing.md#absence--tobenull--tobeabsent",
-  "loom.throw-kind-custom-message": "18-testing.md#tothrow--the-throw-assertion",
   "loom.throw-kind-integration-unsupported": "18-testing.md#tothrow--the-throw-assertion",
   "loom.extern-component-has-body": "21-externs.md#extern-component",
   "loom.extern-function-shadows-stdlib": "21-externs.md#extern-function",

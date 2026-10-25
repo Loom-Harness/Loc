@@ -900,6 +900,16 @@ export interface WalkerTarget {
    *  HEEx: `<%!-- text --%>`. */
   renderComment(text: string): string;
 
+  /** OPTIONAL — wrap a body whose ENTIRE rendering is one {@link renderComment}
+   *  (a top-level give-up, e.g. `body: CreateForm { }`) so it is still a valid
+   *  root element.  Needed only where a comment is not an expression on its
+   *  own: TSX's `return ( {/* … *​/} )` is the empty object `{}`, and an F#
+   *  `let view … =` followed only by `(* … *)` has no body.  Markup-template
+   *  targets (Vue/Svelte/Angular) accept a comment-only template, and Flutter's
+   *  comment already carries a widget — those omit it.  `walkBody` calls it only
+   *  for a lone root comment, so every other output is untouched. */
+  wrapCommentOnlyRoot?(comment: string): string;
+
   /** OPTIONAL — render a VISIBLE degradation notice in markup-child position.
    *
    *  A comment is the right shape for a diagnostic aimed at whoever reads the
@@ -1710,6 +1720,24 @@ export interface WalkerTarget {
    *  it partially, and a target that omits it keeps today's behaviour
    *  byte-for-byte. */
   exprTemporalBinary?(
+    left: string,
+    right: string,
+    e: Extract<ExprIR, { kind: "binary" }>,
+  ): string | null;
+
+  /** VALUE-OBJECT `==` / `!=` (`a == b`, and `a.equals(b)`, which lowers to
+   *  the same node) — the frontend twin of each backend's value-equality leaf.
+   *  A value object compares by its fields; where the host's `==` on the
+   *  page-side representation compares REFERENCES (a plain JSON object on the
+   *  JS frontends, a model class with no `operator ==` on Flutter) the target
+   *  renders a structural comparison instead.
+   *
+   *  Consulted by `emitExpr` FIRST in the binary arm, and only for a node
+   *  `isValueObjectEquality` (`_frontend/value-equals.ts`) accepts — so every
+   *  scalar comparison is untouched.  Return `null` to fall through to the
+   *  other binary seams and `exprBinary`; a target that omits the seam keeps
+   *  its host operator. */
+  exprValueEquality?(
     left: string,
     right: string,
     e: Extract<ExprIR, { kind: "binary" }>,

@@ -11,17 +11,33 @@ import type {
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../../ir/util/channels.js";
+import { reactorNeedsPrincipal } from "../../../ir/util/system-principal.js";
+import { workflowEmits } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeJavaIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
+import { javaRef } from "../../_imports/java.js";
+import { spellMarkers } from "../../_imports/symbol.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../../_workflow/stmt-target.js";
-import { collectJavaExprImports, renderJavaExpr, renderJavaType } from "../render-expr.js";
+import { javaLocals, localOf } from "../java-ident.js";
+import { type JavaRenderContext, renderJavaExpr, renderJavaType } from "../render-expr.js";
 import type { OpFragment } from "./entity.js";
 import { projectionRowClass } from "./projection-state.js";
-import { javaWorkflowStmtTarget, reactorReposUsed, repoField } from "./workflow.js";
+import {
+  boundLocal,
+  javaWorkflowStmtTarget,
+  reactorReposUsed,
+  repoField,
+  withLetLocals,
+  workflowBodyDerefNames,
+  workflowBoundNames,
+} from "./workflow.js";
 import { esEventLogTable, esWorkflowStateClass } from "./workflow-eventsourced.js";
 import { workflowStateClass } from "./workflow-state.js";
+
+const ARRAY_LIST = javaRef("java.util", "ArrayList");
+const JDBC_TEMPLATE = javaRef("org.springframework.jdbc.core", "JdbcTemplate");
 
 // ---------------------------------------------------------------------------
 // In-process saga dispatcher (Java / Spring) — `<Ctx>Dispatcher`, a
@@ -87,6 +103,66 @@ function stateRepoField(wf: WorkflowIR): string {
   return `${lowerFirst(wf.name)}StateRepository`;
 }
 
+/** Names an `@EventListener` reactor METHOD spells itself: the routing key, the
+ *  loaded saga row, the idempotency marker, the emit sink, the injected
+ *  publisher, and — for an event-sourced saga — the JdbcTemplate stream load /
+ *  fold / append temporaries. */
+const REACTOR_METHOD_NAMES: readonly string[] = [
+  "__key",
+  "state",
+  "__eventId",
+  "__events",
+  "events",
+  "OutboxDelivery",
+  "ArrayList",
+  "DomainEvent",
+];
+const ES_REACTOR_METHOD_NAMES: readonly string[] = [
+  "jdbc",
+  "__sid",
+  "__rows",
+  "__loaded",
+  "__r",
+  "__max",
+  "__v",
+  "Integer",
+  "String",
+];
+
+/** The reserved set for a saga reactor method rendering `bodies` — the fixed
+ *  names above plus every bean field / class name the bodies dereference and
+ *  the saga-state repository / fold class.  The event param is the one
+ *  `.ddd`-named local such a method binds (as its own parameter), so it is
+ *  renamed off this set by `javaLocals`. */
+function reactorReserved(
+  wf: WorkflowIR,
+  bodies: readonly ResolvedHandler[],
+  ctx: EnrichedBoundedContextIR,
+): Set<string> {
+  return new Set([
+    ...REACTOR_METHOD_NAMES,
+    ...(wf.eventSourced ? [...ES_REACTOR_METHOD_NAMES, esWorkflowStateClass(wf)] : []),
+    stateRepoField(wf),
+    workflowStateClass(wf),
+    ...workflowBodyDerefNames(
+      bodies.map((b) => b.statements),
+      bodies.flatMap((b) => b.saves),
+      ctx,
+    ),
+  ]);
+}
+
+/** The Java local for a reactor's event param under `reserved` (identity unless
+ *  it collides). */
+function eventParamLocal(param: string, reserved: ReadonlySet<string>): string {
+  return localOf(javaLocals([param], reserved), param);
+}
+
+/** A render context whose `param` refs to the event binding read `local`. */
+function withEventParam(base: JavaRenderContext, param: string, local: string): JavaRenderContext {
+  return { ...base, paramExpr: (n) => (n === param ? local : undefined) };
+}
+
 /** The projection read-model row repository field name (`orderBookRowRepository`). */
 function projRepoField(proj: ProjectionIR): string {
   return `${lowerFirst(proj.name)}RowRepository`;
@@ -102,29 +178,37 @@ function renderProjectionFold(
   proj: ProjectionIR,
   on: ProjectionOnIR,
   sub: EventSubscriptionIR,
-  imports: Set<string>,
 ): string[] {
   const corr = proj.correlationField as string;
-  const param = sub.param;
+  const cls = projectionRowClass(proj);
+  const repo = projRepoField(proj);
+  // The event param is the method's own parameter — moved off `__key` /
+  // `state` / the row repository it shares the method with.
+  const foldNames = ["__key", "state", repo, cls];
+  const param = eventParamLocal(sub.param, new Set(foldNames));
   // this-prop refs resolve through the row's record-style accessors
   // (`state.status()`); writes go through the JavaBean setter (spelled below).
-  const renderCtx = { thisName: "state", accessorProps: true };
+  // A fold `let` is a local of the same method — moved off those names and the
+  // event param (`let boardRowRepository = …` shadowed the row repository the
+  // closing save dereferences).
+  const renderCtx = withLetLocals(
+    withEventParam({ thisName: "state", accessorProps: true }, sub.param, param),
+    on.statements.flatMap((st) => (st.kind === "let" ? [st.name] : [])),
+    new Set([...foldNames, param]),
+  );
   // Routing key: the `by <expr>` value, else the event field name-matching the
   // correlation field (omitted-`by` rule) — an id-typed accessor, so `findById`
   // gets the `<Corr>Id` it expects.
   const keyExpr = on.correlation
     ? renderJavaExpr(on.correlation, renderCtx)
     : `${param}.${lowerFirst(corr)}()`;
-  if (on.correlation) collectJavaExprImports(on.correlation, imports);
 
-  const cls = projectionRowClass(proj);
-  const repo = projRepoField(proj);
   const body: string[] = [
     `        var __key = ${keyExpr};`,
     `        var state = ${repo}.findById(__key).orElseGet(() -> ${cls}._allocate(__key));`,
   ];
   for (const stmt of on.statements) {
-    body.push(...renderProjectionFoldStmt(stmt, proj, on, corr, renderCtx, imports));
+    body.push(...renderProjectionFoldStmt(stmt, proj, on, corr, renderCtx));
   }
   body.push(`        ${repo}.save(state);`);
   return [
@@ -161,12 +245,8 @@ function renderProjectionFoldStmt(
   on: ProjectionOnIR,
   corr: string,
   renderCtx: Parameters<typeof renderJavaExpr>[1],
-  imports: Set<string>,
 ): string[] {
-  const expr = (e: ExprIR): string => {
-    collectJavaExprImports(e, imports);
-    return renderJavaExpr(e, renderCtx);
-  };
+  const expr = (e: ExprIR): string => renderJavaExpr(e, renderCtx);
   const field = (): string => {
     const segs =
       stmt.kind === "assign" || stmt.kind === "add" || stmt.kind === "remove"
@@ -184,7 +264,9 @@ function renderProjectionFoldStmt(
     case "let":
       // `let`-names may collide with a Java keyword; escape consistently with
       // the matching `refKind: "let"` use sites in `render-expr.ts`.
-      return [`        var ${escapeJavaIdent(stmt.name)} = ${expr(stmt.expr)};`];
+      return [
+        `        var ${renderCtx?.letExpr?.(stmt.name) ?? escapeJavaIdent(stmt.name)} = ${expr(stmt.expr)};`,
+      ];
     case "add": {
       const f = field();
       const value = expr(stmt.value);
@@ -240,7 +322,8 @@ function renderProjectionFoldStmt(
  *  nullable while a primitive one cannot be. */
 function accumulateJava(proj: ProjectionIR, field: string, op: "+" | "-", value: string): string {
   const t = proj.stateFields.find((f) => f.name === field)?.type;
-  const spelling = t ? renderJavaType(t) : "int";
+  // Compared as SPELLED text: the type renderer writes import markers (M-T9.86).
+  const spelling = t ? spellMarkers(renderJavaType(t)) : "int";
   const cur = `state.${field}()`;
   if (spelling === "BigDecimal") {
     const verb = op === "+" ? "add" : "subtract";
@@ -369,7 +452,7 @@ export function renderJavaDispatcher(
       pushHandler(
         `on${upperFirst(proj.name)}On${upperFirst(sub.event)}`,
         sub.event,
-        renderProjectionFold(proj, on, sub, imports),
+        renderProjectionFold(proj, on, sub),
       );
       if (!touchedProjections.some((p) => p.name === proj.name)) touchedProjections.push(proj);
       continue;
@@ -397,7 +480,6 @@ export function renderJavaDispatcher(
           createResolved,
           onSub,
           onResolved,
-          imports,
           dctx.contextSchema,
           construct,
           opFragments,
@@ -413,17 +495,8 @@ export function renderJavaDispatcher(
       handlerName(sub),
       sub.event,
       wf.eventSourced
-        ? renderEsHandler(
-            ctx,
-            wf,
-            sub,
-            resolved,
-            imports,
-            construct,
-            dctx.contextSchema,
-            opFragments,
-          )
-        : renderHandler(ctx, wf, sub, resolved, imports, construct, opFragments),
+        ? renderEsHandler(ctx, wf, sub, resolved, construct, dctx.contextSchema, opFragments)
+        : renderHandler(ctx, wf, sub, resolved, construct, opFragments),
       true,
     );
   }
@@ -461,7 +534,7 @@ export function renderJavaDispatcher(
   const fields = [
     `    private final ApplicationEventPublisher events;`,
     ...repoAggs.map((a) => `    private final ${a}Repository ${repoField(a)};`),
-    ...(esPresent ? [`    private final JdbcTemplate jdbc;`] : []),
+    ...(esPresent ? [`    private final ${JDBC_TEMPLATE} jdbc;`] : []),
     ...stateWfs.map(
       (wf) => `    private final ${workflowStateClass(wf)}Repository ${stateRepoField(wf)};`,
     ),
@@ -472,7 +545,7 @@ export function renderJavaDispatcher(
   const ctorParams = [
     "ApplicationEventPublisher events",
     ...repoAggs.map((a) => `${a}Repository ${repoField(a)}`),
-    ...(esPresent ? ["JdbcTemplate jdbc"] : []),
+    ...(esPresent ? [`${JDBC_TEMPLATE} jdbc`] : []),
     ...stateWfs.map((wf) => `${workflowStateClass(wf)}Repository ${stateRepoField(wf)}`),
     ...touchedProjections.map((p) => `${projectionRowClass(p)}Repository ${projRepoField(p)}`),
   ].join(", ");
@@ -514,13 +587,16 @@ export function renderJavaDispatcher(
   // Dedup (an aggregate can be both a repo target and a factory target).
   const uniqueImports = [...new Set(importLines)].sort();
 
-  if (methods.some((m) => m.includes("new ArrayList<"))) imports.add("java.util.ArrayList");
-  if (esPresent) imports.add("org.springframework.jdbc.core.JdbcTemplate");
   // Workflow reactors open a per-dispatch child frame via RequestContext
   // .openChild(); a projection-only dispatcher (pure folds) never does, so gate
   // the import on actual use to keep a folds-only file free of a dead import.
   if (methods.some((m) => m.includes("RequestContext.openChild"))) {
     imports.add(`${dctx.basePkg}.config.RequestContext`);
+  }
+  // A reactor that reads the principal binds the system principal (ruling D1).
+  if (methods.some((m) => m.includes("User.systemPrincipal("))) {
+    imports.add(`${dctx.basePkg}.auth.CurrentUserAccessor`);
+    imports.add(`${dctx.basePkg}.auth.User`);
   }
   // Handler bodies can guard with `precondition` / `requires`, which throw the
   // domain.common exceptions — import them when a body uses one (the stmt target
@@ -626,13 +702,15 @@ function renderHandler(
   wf: WorkflowIR,
   sub: EventSubscriptionIR,
   resolved: ResolvedHandler,
-  imports: Set<string>,
   construct: string,
   /** Source-map — see `renderJavaDispatcher`'s `opFragments`. */
   opFragments?: OpFragment[],
 ): string[] {
   const corr = wf.correlationField as string;
-  const param = sub.param;
+  // The event param is the method's own parameter, alongside `__key`, `state`,
+  // the injected repositories, … — moved to `<name>_` only on a collision.
+  const reserved = reactorReserved(wf, [resolved], ctx);
+  const param = eventParamLocal(sub.param, reserved);
   // The persisted correlation row exposes its fields via record-style accessors
   // (`state.attempts()`), not public fields — so own-state READS in the body
   // (e.g. the `state.attempts() + 1` RHS of a compound `attempts += 1`) must go
@@ -640,13 +718,18 @@ function renderHandler(
   // arm spells `state.setAttempts(...)` directly).  `accessorProps` only affects
   // `this-prop` refs, so the `by <expr>` correlation key (an event-param member)
   // is unchanged.
-  const renderCtx = { thisName: "state", accessorProps: true };
+  // The body's own bindings are locals of the same method — moved off the
+  // reserved names and the event param (`withLetLocals`; identity otherwise).
+  const renderCtx = withLetLocals(
+    withEventParam({ thisName: "state", accessorProps: true }, sub.param, param),
+    workflowBoundNames([resolved.statements]),
+    new Set([...reserved, param]),
+  );
   // Routing key: the `by <expr>` value, else the event field name-matching the
   // correlation field (omitted-`by` rule).
   const keyExpr = resolved.correlation
     ? renderJavaExpr(resolved.correlation, renderCtx)
     : `${param}.${lowerFirst(corr)}()`;
-  if (resolved.correlation) collectJavaExprImports(resolved.correlation, imports);
 
   const hasEmit = bodyHasEmit(resolved.statements);
   const stateClass = workflowStateClass(wf);
@@ -680,7 +763,7 @@ function renderHandler(
     body.push(`            return; // already processed — at-least-once redelivery`);
     body.push(`        }`);
   }
-  if (hasEmit) body.push(`        var __events = new ArrayList<DomainEvent>();`);
+  if (hasEmit) body.push(`        var __events = new ${ARRAY_LIST}<DomainEvent>();`);
   // Handler body — emit appends to __events; the spine threads the 8-space base.
   // Chunked (one lines-array per top-level statement) rather than the
   // pre-flattened `renderWorkflowStmts` — byte-identical either way, but the
@@ -689,7 +772,6 @@ function renderHandler(
     resolved.statements,
     javaWorkflowStmtTarget(
       ctx,
-      imports,
       renderCtx,
       hasEmit ? "__events" : undefined,
       collectUnionFindLets(resolved.statements),
@@ -723,8 +805,9 @@ function renderHandler(
   // Saves: persist each dirty aggregate, then re-publish its own domain events
   // (aggregate-level choreography re-entry).
   for (const s of resolved.saves) {
-    body.push(`        ${repoField(s.aggName)}.save(${s.name});`);
-    body.push(`        for (var __e : ${s.name}.pullEvents()) events.publishEvent(__e);`);
+    const local = boundLocal(renderCtx, s.name);
+    body.push(`        ${repoField(s.aggName)}.save(${local});`);
+    body.push(`        for (var __e : ${local}.pullEvents()) events.publishEvent(__e);`);
   }
   // Stamp the processed marker before the state save (same tx window as the
   // saga mutation) so a redelivery of this id short-circuits above.
@@ -740,6 +823,7 @@ function renderHandler(
     `    @EventListener`,
     `    public void ${handlerName(sub)}(${sub.event} ${param}) {`,
     `        try (var _ = RequestContext.openChild()) {`,
+    ...principalBinding([resolved.statements], ctx),
     ...body.map((l) => `    ${l}`),
     `        }`,
     `    }`,
@@ -757,25 +841,28 @@ function renderEsHandler(
   wf: WorkflowIR,
   sub: EventSubscriptionIR,
   resolved: ResolvedHandler,
-  imports: Set<string>,
   construct: string,
   schema?: string,
   /** Source-map — see `renderJavaDispatcher`'s `opFragments`. */
   opFragments?: OpFragment[],
 ): string[] {
   const corr = wf.correlationField as string;
-  const param = sub.param;
+  const reserved = reactorReserved(wf, [resolved], ctx);
+  const param = eventParamLocal(sub.param, reserved);
   // The event-sourced fold class lives in the dispatcher's OWN package and
   // exposes package-private fields, so a same-package own-state READ
   // (`state.total`) compiles as a bare field — no accessor redirect needed
   // (unlike the cross-package mutable saga row in `renderHandler`).  Event-
   // sourced workflows can't write their own state at all, so there's no
   // compound-assign self-read here to worry about either.
-  const renderCtx = { thisName: "state" };
+  const renderCtx = withLetLocals(
+    withEventParam({ thisName: "state" }, sub.param, param),
+    workflowBoundNames([resolved.statements]),
+    new Set([...reserved, param]),
+  );
   const keyExpr = resolved.correlation
     ? renderJavaExpr(resolved.correlation, renderCtx)
     : `${param}.${lowerFirst(corr)}()`;
-  if (resolved.correlation) collectJavaExprImports(resolved.correlation, imports);
 
   const hasEmit = bodyHasEmit(resolved.statements);
   const cls = esWorkflowStateClass(wf);
@@ -794,7 +881,6 @@ function renderEsHandler(
     resolved.statements,
     javaWorkflowStmtTarget(
       ctx,
-      imports,
       renderCtx,
       hasEmit ? "__events" : undefined,
       collectUnionFindLets(resolved.statements),
@@ -816,7 +902,7 @@ function renderEsHandler(
   const usesState = bodyLines.some((l) => /\bstate\b/.test(l));
 
   const loadFold = [
-    `        var __loaded = new ArrayList<DomainEvent>();`,
+    `        var __loaded = new ${ARRAY_LIST}<DomainEvent>();`,
     `        for (var __r : __rows) __loaded.add(${cls}._rowToEvent((String) __r.get("type"), String.valueOf(__r.get("data"))));`,
     `        var state = ${cls}._fromEvents(__key, __loaded);`,
   ];
@@ -850,7 +936,7 @@ function renderEsHandler(
     );
     body.push(...loadFold);
   }
-  if (hasEmit) body.push(`        var __events = new ArrayList<DomainEvent>();`);
+  if (hasEmit) body.push(`        var __events = new ${ARRAY_LIST}<DomainEvent>();`);
   body.push(...bodyLines);
   if (opFragments) {
     // `body` gets re-indented +4 below (`body.map((l) => \`    ${l}\`)`) when
@@ -866,8 +952,9 @@ function renderEsHandler(
   }
   // Aggregate saves still re-publish their own events (choreography re-entry).
   for (const s of resolved.saves) {
-    body.push(`        ${repoField(s.aggName)}.save(${s.name});`);
-    body.push(`        for (var __e : ${s.name}.pullEvents()) events.publishEvent(__e);`);
+    const local = boundLocal(renderCtx, s.name);
+    body.push(`        ${repoField(s.aggName)}.save(${local});`);
+    body.push(`        for (var __e : ${local}.pullEvents()) events.publishEvent(__e);`);
   }
   // Every emit in an ES workflow has an applier (A1 discipline), so the emitted
   // events ARE the workflow's own stream — append them gap-free, then publish.
@@ -891,6 +978,7 @@ function renderEsHandler(
     `    @EventListener`,
     `    public void ${handlerName(sub)}(${sub.event} ${param}) {`,
     `        try (var _ = RequestContext.openChild()) {`,
+    ...principalBinding([resolved.statements], ctx),
     ...body.map((l) => `    ${l}`),
     `        }`,
     `    }`,
@@ -908,9 +996,15 @@ function esMergedBranchLines(
   ctx: EnrichedBoundedContextIR,
   wf: WorkflowIR,
   resolved: ResolvedHandler,
-  imports: Set<string>,
+  /** The merged method's (collision-safe) event-param local. */
   methodParam: string,
+  /** This branch's `.ddd` event binding name … */
   branchParam: string,
+  /** … and the Java local it renders as (aliased to `methodParam` below). */
+  branchLocal: string,
+  /** The merged method's own names (`reactorReserved` over both branches) —
+   *  this branch's body bindings are moved off them. */
+  reserved: ReadonlySet<string>,
   schema: string | undefined,
   construct: string,
   /** Source-map — this branch's own `OpFragment`, pushed here so
@@ -927,12 +1021,16 @@ function esMergedBranchLines(
   const table = esEventLogTable(ctx.name, schema);
   const streamType = wf.name;
   const hasEmit = bodyHasEmit(resolved.statements);
+  const branchCtx = withLetLocals(
+    withEventParam({ thisName: "state" }, branchParam, branchLocal),
+    workflowBoundNames([resolved.statements]),
+    new Set([...reserved, methodParam, branchLocal]),
+  );
   const stmtChunks = renderWorkflowStmtChunks(
     resolved.statements,
     javaWorkflowStmtTarget(
       ctx,
-      imports,
-      { thisName: "state" },
+      branchCtx,
       hasEmit ? "__events" : undefined,
       collectUnionFindLets(resolved.statements),
     ),
@@ -952,14 +1050,15 @@ function esMergedBranchLines(
   const out: string[] = [];
   // The two triggers may name their event binding differently; alias so this
   // branch's body references resolve against the single merged method param.
-  if (branchParam !== methodParam) {
-    out.push(`        var ${branchParam} = ${methodParam};`);
+  if (branchLocal !== methodParam) {
+    out.push(`        var ${branchLocal} = ${methodParam};`);
   }
-  if (hasEmit) out.push(`        var __events = new ArrayList<DomainEvent>();`);
+  if (hasEmit) out.push(`        var __events = new ${ARRAY_LIST}<DomainEvent>();`);
   out.push(...bodyLines);
   for (const s of resolved.saves) {
-    out.push(`        ${repoField(s.aggName)}.save(${s.name});`);
-    out.push(`        for (var __e : ${s.name}.pullEvents()) events.publishEvent(__e);`);
+    const local = boundLocal(branchCtx, s.name);
+    out.push(`        ${repoField(s.aggName)}.save(${local});`);
+    out.push(`        for (var __e : ${local}.pullEvents()) events.publishEvent(__e);`);
   }
   if (hasEmit) {
     out.push(
@@ -990,7 +1089,6 @@ function renderEsMergedHandler(
   createResolved: ResolvedHandler,
   onSub: EventSubscriptionIR,
   onResolved: ResolvedHandler,
-  imports: Set<string>,
   schema: string | undefined,
   construct: string,
   /** Source-map — forwarded to `esMergedBranchLines` for BOTH
@@ -998,23 +1096,31 @@ function renderEsMergedHandler(
   opFragments?: OpFragment[],
 ): string[] {
   const corr = wf.correlationField as string;
-  const param = createSub.param;
+  // Both event bindings are locals of the ONE merged method (the create
+  // binding as its parameter, the on binding as the else-branch alias) — each
+  // moved off the method's own names, and the alias off the parameter.
+  const reserved = reactorReserved(wf, [createResolved, onResolved], ctx);
+  const param = eventParamLocal(createSub.param, reserved);
+  const onLocal =
+    onSub.param === createSub.param
+      ? param
+      : eventParamLocal(onSub.param, new Set([...reserved, param]));
   const cls = esWorkflowStateClass(wf);
   const table = esEventLogTable(ctx.name, schema);
   const streamType = wf.name;
-  const renderCtx = { thisName: "state" };
+  const renderCtx = withEventParam({ thisName: "state" }, createSub.param, param);
   const keyExpr = createResolved.correlation
     ? renderJavaExpr(createResolved.correlation, renderCtx)
     : `${param}.${lowerFirst(corr)}()`;
-  if (createResolved.correlation) collectJavaExprImports(createResolved.correlation, imports);
 
   const createBranch = esMergedBranchLines(
     ctx,
     wf,
     createResolved,
-    imports,
     param,
+    createSub.param,
     param,
+    reserved,
     schema,
     construct,
     opFragments,
@@ -1023,9 +1129,10 @@ function renderEsMergedHandler(
     ctx,
     wf,
     onResolved,
-    imports,
     param,
     onSub.param,
+    onLocal,
+    reserved,
     schema,
     construct,
     opFragments,
@@ -1042,7 +1149,7 @@ function renderEsMergedHandler(
     // Fold once; both branches read the same folded snapshot.  An empty stream
     // folds from zero (the create branch), a non-empty one replays it (on).
     body.push(
-      `        var __loaded = new ArrayList<DomainEvent>();`,
+      `        var __loaded = new ${ARRAY_LIST}<DomainEvent>();`,
       `        for (var __r : __rows) __loaded.add(${cls}._rowToEvent((String) __r.get("type"), String.valueOf(__r.get("data"))));`,
       `        var state = ${cls}._fromEvents(__key, __loaded);`,
     );
@@ -1057,6 +1164,7 @@ function renderEsMergedHandler(
     `    @EventListener`,
     `    public void on${upperFirst(wf.name)}${upperFirst(createSub.event)}(${createSub.event} ${param}) {`,
     `        try (var _ = RequestContext.openChild()) {`,
+    ...principalBinding([createResolved.statements, onResolved.statements], ctx),
     ...body.map((l) => `    ${l}`),
     `        }`,
     `    }`,
@@ -1064,8 +1172,26 @@ function renderEsMergedHandler(
   ];
 }
 
+/** A reactor has no request principal: it runs as the SYSTEM principal
+ *  (ruling D1) — `User.systemPrincipal(...)`, carrying the dispatching
+ *  request's tenant and recording its user as `causedBy`.  Bound only when a
+ *  body — or an operation it calls, hoisted gate included — reads
+ *  `currentUser`; before this the gate named a `currentUser` nothing declared
+ *  (javac: cannot find symbol).  The listener runs on the publishing thread,
+ *  so `CurrentUserAccessor.currentOrNull()` is the dispatching request's. */
+function principalBinding(
+  bodies: readonly (readonly WorkflowStmtIR[])[],
+  ctx: EnrichedBoundedContextIR,
+): string[] {
+  return bodies.some((b) => reactorNeedsPrincipal(b, ctx))
+    ? [`            var currentUser = User.systemPrincipal(CurrentUserAccessor.currentOrNull());`]
+    : [];
+}
+
+/** Whether a handler body emits anywhere — `if let` / `else` / `for` bodies
+ *  included (`workflowEmits` rides `walkWorkflowStmtsDeep`).  The recursion
+ *  this replaced descended `for` only, so an `emit` inside an `if let` branch
+ *  rendered as a bare log line and was never re-published (claims D4). */
 function bodyHasEmit(statements: WorkflowStmtIR[]): boolean {
-  return statements.some(
-    (s) => s.kind === "emit" || (s.kind === "for-each" && bodyHasEmit(s.body)),
-  );
+  return workflowEmits(statements).length > 0;
 }

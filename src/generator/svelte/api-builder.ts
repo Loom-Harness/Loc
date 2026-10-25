@@ -5,6 +5,7 @@ import {
   PAGED_MAX_PAGE,
   PAGED_MAX_PAGE_SIZE,
   pagedReturn,
+  pagedSortDefault,
 } from "../../ir/stdlib/generics.js";
 import { unionReturn } from "../../ir/stdlib/unions.js";
 import {
@@ -13,12 +14,15 @@ import {
   type EnrichedAggregateIR,
   type RepositoryIR,
 } from "../../ir/types/loom-ir.js";
+import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import {
   aggregateHasProvenanced,
+  clientFinds,
   dualTypeAliases,
   emitOperationUnionResponse,
+  findHookPath,
   historyHookName,
   typeReachesMoney,
 } from "../_frontend/api-module.js";
@@ -54,9 +58,17 @@ import {
 
 export function buildSvelteApiModule(
   agg: EnrichedAggregateIR,
-  repo: RepositoryIR | undefined,
+  declaredRepo: RepositoryIR | undefined,
   ctx: BoundedContextIR,
+  /** The target backend's routes for synthesized paged finds — see the shared
+   *  `ApiModuleOptions.pagedFindRoutes`. */
+  findRoutes?: PagedFindRoutes,
 ): string {
+  // The client sees only the finds it can reach over HTTP.
+  const repo = declaredRepo && {
+    ...declaredRepo,
+    finds: clientFinds(agg.name, declaredRepo.finds, findRoutes),
+  };
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
   lines.push(`import { z } from "zod";`);
@@ -150,7 +162,7 @@ export function buildSvelteApiModule(
           // (schemathesis F4).
           `  page: z.coerce.number().int().min(1).max(${PAGED_MAX_PAGE}).default(${PAGED_DEFAULT_PAGE}),`,
           `  pageSize: z.coerce.number().int().min(1).max(${PAGED_MAX_PAGE_SIZE}).default(${PAGED_DEFAULT_PAGE_SIZE}),`,
-          `  sort: z.string().default("id"),`,
+          `  sort: z.string().default(${JSON.stringify(pagedSortDefault(find))}),`,
           `  dir: z.string().default("asc"),`,
         );
       }
@@ -385,7 +397,9 @@ export function buildSvelteApiModule(
       lines.push(
         `      const qs = new URLSearchParams(Object.entries(query()).map(([k, v]) => [k, String(v)])).toString();`,
       );
-      lines.push(`      const r = await api.get(\`/${tag}/${findSnake}\${qs ? "?" + qs : ""}\`);`);
+      lines.push(
+        `      const r = await api.get(\`${findHookPath(tag, find, servedFindRoute(agg.name, find, findRoutes))}\${qs ? "?" + qs : ""}\`);`,
+      );
       lines.push(`      return ${responseSchema}.parse(r);`);
       lines.push(`    },`);
       lines.push(`  }));`);

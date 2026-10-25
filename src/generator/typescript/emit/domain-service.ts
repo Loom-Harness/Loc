@@ -35,10 +35,10 @@ import {
   type ReadPort,
   readPortsForOperation,
 } from "../../../ir/util/domain-service-read-ports.js";
-import { valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst } from "../../../util/naming.js";
+import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { renderTsType } from "../render-expr.js";
 import { renderTsStatements } from "../render-stmt.js";
 import { PORT_POOL_DOMAIN_SPEC, repoPortName } from "../repository-port-builder.js";
@@ -61,7 +61,7 @@ export function renderDomainServices(ctx: BoundedContextIR): string | undefined 
     .replace(/`(?:\\.|[^`\\])*`/g, "``");
 
   const voNames = new Set(valueObjectPool(ctx).map((v: ValueObjectIR) => v.name));
-  const enumNames = new Set(ctx.enums.map((e: EnumIR) => e.name));
+  const enumNames = new Set(enumPool(ctx).map((e: EnumIR) => e.name));
   const aggNames = new Set(ctx.aggregates.map((a) => a.name));
 
   // Types named in any signature (params + returns) — these always need an
@@ -170,7 +170,7 @@ function renderOperation(op: DomainServiceOperationIR, ctx: BoundedContextIR): s
   // (the repo methods are awaited), and its return type is wrapped in a Promise.
   const ports = readPortsForOperation(op);
   const portParams = ports.map((p) => `${lowerFirst(p.repo)}: ${repoPortName(p.aggregate)}`);
-  const userParams = op.params.map((p) => `${p.name}: ${renderTsType(p.type)}`);
+  const userParams = op.params.map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`);
   const params = [...portParams, ...userParams].join(", ");
   const isReading = ports.length > 0;
   const kw = isReading ? "export async function" : "export function";

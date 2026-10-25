@@ -5,9 +5,12 @@ import type {
   TypeIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
+import { enumPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
-import { pythonIdent, snake, upperFirst } from "../../util/naming.js";
+import { pythonIdent, pythonWireIdent, snake, upperFirst } from "../../util/naming.js";
+import { pyRef } from "../_imports/python.js";
 import { contextEventRowClassName } from "./py-columns.js";
+import { PY, pyIdType, pyVoOrEnum } from "./py-symbols.js";
 import { renderPyExpr } from "./render-expr.js";
 import { fromData, toData } from "./repository-eventsourced-builder.js";
 
@@ -28,6 +31,10 @@ import { fromData, toData } from "./repository-eventsourced-builder.js";
 // (dispatch-builder.ts) folds-on-load and appends own-events.
 // ---------------------------------------------------------------------------
 
+const SELECT = pyRef("sqlalchemy", "select");
+const FUNC = pyRef("sqlalchemy", "func");
+const INSERT = pyRef("sqlalchemy.dialects.postgresql", "insert");
+
 /** Event-sourced workflows in a context. */
 export function eventSourcedWorkflows(workflows: readonly WorkflowIR[]): WorkflowIR[] {
   return workflows.filter((wf) => wf.eventSourced);
@@ -41,7 +48,7 @@ export function eventSourcedWorkflows(workflows: readonly WorkflowIR[]): Workflo
  *  reference the merge name instead of the row class the schema + repository
  *  emit.  `resolveStreamContext` maps the workflow back to its owner; absent →
  *  `ctx.name`, byte-identical for single-context systems. */
-export function esEventRow(
+function esEventRow(
   wf: WorkflowIR,
   ctx: EnrichedBoundedContextIR,
   resolveStreamContext?: (name: string) => string | undefined,
@@ -79,14 +86,14 @@ function corrIdClass(wf: WorkflowIR): string {
   if (t?.kind !== "id") {
     throw new Error(`python es-workflow: correlation field of '${wf.name}' must be id-typed`);
   }
-  return `${t.targetName}Id`;
+  return pyIdType(t.targetName);
 }
 
 /** Python type annotation for a saga-state field (mypy --strict needs it). */
 function pyStateType(t: TypeIR): string {
   if (t.kind === "optional") return `${pyStateType(t.inner)} | None`;
-  if (t.kind === "id") return `${t.targetName}Id`;
-  if (t.kind === "enum") return t.name;
+  if (t.kind === "id") return pyIdType(t.targetName);
+  if (t.kind === "enum") return pyVoOrEnum(t.name);
   if (t.kind === "array") return `list[${pyStateType(t.element)}]`;
   if (t.kind === "primitive") {
     switch (t.name) {
@@ -96,11 +103,11 @@ function pyStateType(t: TypeIR): string {
       case "decimal":
         return "float";
       case "money":
-        return "Decimal";
+        return PY.Decimal;
       case "bool":
         return "bool";
       case "datetime":
-        return "datetime";
+        return PY.datetime;
       default:
         return "str";
     }
@@ -121,11 +128,11 @@ function esZero(t: TypeIR): string {
       case "decimal":
         return "0.0";
       case "money":
-        return 'Decimal("0")';
+        return `${PY.Decimal}("0")`;
       case "bool":
         return "False";
       case "datetime":
-        return "datetime.now(UTC)";
+        return `${PY.datetime}.now(${PY.UTC})`;
       default:
         return '""';
     }
@@ -167,7 +174,7 @@ export function esWorkflowFoldBlock(
   const T = esStateClass(wf);
   const corr = wf.correlationField as string;
   const corrId = corrIdClass(wf);
-  const row = esEventRow(wf, ctx, resolveStreamContext);
+  const row = pyRef("app.db.schema", esEventRow(wf, ctx, resolveStreamContext));
   const fns = esFns(wf);
   const fields = wf.stateFields ?? [];
   const eventNames = [...new Set((wf.appliers ?? []).map((a) => a.event))];
@@ -225,7 +232,7 @@ export function esWorkflowFoldBlock(
     `async def ${fns.load}(session: AsyncSession, key: str) -> list[DomainEvent]:`,
     "    rows = (",
     `        await session.execute(`,
-    `            select(${row})`,
+    `            ${SELECT}(${row})`,
     `            .where(${row}.stream_type == "${wf.name}", ${row}.stream_id == key)`,
     `            .order_by(${row}.version)`,
     "        )",
@@ -240,7 +247,7 @@ export function esWorkflowFoldBlock(
     `async def ${fns.loadAll}(session: AsyncSession) -> list[${T}]:`,
     "    rows = (",
     `        await session.execute(`,
-    `            select(${row})`,
+    `            ${SELECT}(${row})`,
     `            .where(${row}.stream_type == "${wf.name}")`,
     `            .order_by(${row}.stream_id, ${row}.version)`,
     "        )",
@@ -256,7 +263,7 @@ export function esWorkflowFoldBlock(
     "        return",
     "    prior = (",
     `        await session.execute(`,
-    `            select(func.max(${row}.version)).where(`,
+    `            ${SELECT}(${FUNC}.max(${row}.version)).where(`,
     `                ${row}.stream_type == "${wf.name}", ${row}.stream_id == key`,
     "            )",
     "        )",
@@ -265,13 +272,13 @@ export function esWorkflowFoldBlock(
     "    for ev in events:",
     "        version += 1",
     "        await session.execute(",
-    `            insert(${row}).values(`,
+    `            ${INSERT}(${row}).values(`,
     `                stream_type="${wf.name}",`,
     "                stream_id=key,",
     "                version=version,",
     "                type=type(ev).type,",
     `                data=_${snake(wf.name)}_event_to_data(ev),`,
-    "                occurred_at=datetime.now(UTC),",
+    `                occurred_at=${PY.datetime}.now(${PY.UTC}),`,
     "            )",
     "        )",
   );
@@ -279,7 +286,7 @@ export function esWorkflowFoldBlock(
   // Codec — reuses the aggregate event store's per-field converters.
   const rowToEvent = lines(
     `def _${snake(wf.name)}_row_to_event(row: ${row}) -> DomainEvent:`,
-    "    data = cast(dict[str, object], row.data)",
+    `    data = ${PY.cast}(dict[str, object], row.data)`,
     ...foldedEvents.flatMap((ev, i) => [
       `    ${i === 0 ? "if" : "elif"} row.type == "${ev.name}":`,
       `        return ${ev.name}(${ev.fields.map((f) => `${pythonIdent(f.name)}=${fromData(f.name, f.type)}`).join(", ")})`,
@@ -326,9 +333,13 @@ export function esWorkflowFoldBlock(
 function esZeroFor(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
   const inner = t.kind === "optional" ? t.inner : t;
   if (inner.kind === "enum") {
-    const e = ctx.enums.find((x) => x.name === inner.name);
+    // `enumPool`, not `ctx.enums`: a state field typed by a SIBLING context's
+    // enum otherwise misses and zeroes to `cast(Kind, "")` (claims D1).
+    const e = enumPool(ctx).find((x) => x.name === inner.name);
     const first = e?.values[0];
-    return first ? `${inner.name}.${first}` : `cast(${inner.name}, "")`;
+    return first
+      ? `${pyVoOrEnum(inner.name)}.${pythonWireIdent(first)}`
+      : `${PY.cast}(${pyVoOrEnum(inner.name)}, "")`;
   }
   return esZero(t);
 }

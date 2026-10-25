@@ -197,6 +197,30 @@ export const PAGED_DEFAULT_PAGE_SIZE = 20;
 export const PAGED_MAX_PAGE = 1_000_000;
 export const PAGED_MAX_PAGE_SIZE = 500;
 
+/** The query parameters every backend adds to a `paged` read, in wire
+ *  spelling: the two paging controls plus the server-side sort pair (M-T2.6).
+ *  The union across all five backends and the frontend api clients —
+ *  Hono/zod and the `_frontend` client (`page`/`pageSize`/`sort`/`dir`), .NET
+ *  `CS_PAGED_QUERY_PARAMS`, Spring `JAVA_PAGED_QUERY_PARAMS`, FastAPI
+ *  `PY_PAGED_CONTROLS` + `sort`/`dir`, Phoenix `page_param(params, "page" |
+ *  "pageSize")` + `Map.get(params, "sort" | "dir")`.
+ *
+ *  A paged read's OWN parameter may not reuse one of these names
+ *  (`loom.paged-param-reserved`): it would be a second value for the same HTTP
+ *  query key and a duplicate parameter in every generated repository / service
+ *  / controller signature. */
+export const PAGED_QUERY_PARAMS: readonly string[] = ["page", "pageSize", "sort", "dir"];
+
+/** The `sort` query value a paged read's route defaults to when the caller
+ *  sends none: `""` — no whitelisted column, so the repository takes the page
+ *  in the read's `defaultSort` order — for a read that declares one (a
+ *  retrieval's `sort:`), `"id"` otherwise.  Every backend's paged route and
+ *  every frontend client reads its default here, so the declared order is the
+ *  one an unsorted request gets on all of them. */
+export function pagedSortDefault(find: { defaultSort?: readonly unknown[] }): string {
+  return find.defaultSort && find.defaultSort.length > 0 ? "" : "id";
+}
+
 /** If `t` is a top-level `envelope(arg)` instantiation, return its carried
  *  `arg`; otherwise null.
  *

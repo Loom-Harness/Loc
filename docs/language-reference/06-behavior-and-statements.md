@@ -2,7 +2,7 @@
 
 How an aggregate changes state: the four action members — `operation` (a mutating method), `create` / `destroy` (lifecycle factory / terminator), and the event-sourcing `apply` fold — plus the statement vocabulary their bodies share (`precondition`, `requires`, `let`, `emit`, `return`, the assignment family `:=` / `+=` / `-=`, and the effect-form `match`). The same statements also fill a page `action` and an application-layer `commandHandler` / `queryHandler`. Reach for it when you need a domain method that validates, mutates, raises an event, or returns a typed outcome.
 
-> **Grammar:** `Operation`, `Create`, `Destroy`, `Apply`, `CommandHandler` / `QueryHandler`, `Statement` (`PreconditionStmt`, `RequiresStmt`, `LetStmt`, `EmitStmt` / `EmitField`, `ReturnStmt`, `AssignOrCallStmt` / `LValue`, `MatchStmt` / `VariantStmtArm`; `ForStmt` / `IfLetStmt` are workflow-body only — see [Workflows](13-workflows.md)) · **Validators:** `loom.this-id-in-create`, `loom.extern-body-not-precondition`, `loom.lifecycle-body-dropped` / `loom.create-params-not-wire` / `loom.named-lifecycle-dropped` / `loom.lifecycle-guard-unreadable` / `loom.lifecycle-guard-event-sourced`, `loom.applier-*` / `loom.emitted-event-*`, `loom.audited-backend-unsupported`, `loom.repository-access-outside-workflow`, `loom.when-references-op-param` / `loom.unmapped-error-status`, `loom.missing-effect-marker` / `loom.effect-in-lambda` / `loom.match-await-*` / `loom.instance-effect-needs-route-id`, `loom.handler-*` / `loom.query-handler-saves` / `loom.command-handler-multi-aggregate` (`src/language/validators/statements.ts`, `handlers.ts`; `src/ir/validate/checks/structural-checks.ts`, `system-checks.ts`, `api-checks.ts`, `ui-checks.ts`) · **Lowering:** [`src/ir/lower/lower-stmt.ts`](../../src/ir/lower/lower-stmt.ts), `lower-members.ts`, `lower-workflow.ts` (handler bodies); shared dispatch in [`_stmt/target.ts`](../../src/generator/_stmt/target.ts) · **Docs:** [`../language.md`](../language.md), [`../actions.md`](../actions.md), [`../workflow.md`](../workflow.md), [`../auth.md`](../auth.md)
+> **Grammar:** `Operation`, `Create`, `Destroy`, `Apply`, `CommandHandler` / `QueryHandler`, `Statement` (`PreconditionStmt`, `RequiresStmt`, `LetStmt`, `EmitStmt` / `EmitField`, `ReturnStmt`, `AssignOrCallStmt` / `LValue`, `MatchStmt` / `VariantStmtArm`; `ForStmt` / `IfLetStmt` are workflow-body only — see [Workflows](13-workflows.md)) · **Validators:** `loom.this-id-in-create`, `loom.extern-body-not-precondition`, `loom.lifecycle-body-dropped` / `loom.create-param-not-a-field` / `loom.create-param-required-omitted` / `loom.named-lifecycle-dropped` / `loom.lifecycle-guard-unreadable` / `loom.lifecycle-guard-event-sourced`, `loom.applier-*` / `loom.emitted-event-*`, `loom.audited-backend-unsupported`, `loom.repository-access-outside-workflow`, `loom.when-references-op-param` / `loom.unmapped-error-status`, `loom.missing-effect-marker` / `loom.effect-in-lambda` / `loom.match-await-*` / `loom.instance-effect-needs-route-id`, `loom.handler-*` / `loom.query-handler-saves` / `loom.command-handler-multi-aggregate` (`src/language/validators/statements.ts`, `handlers.ts`; `src/ir/validate/checks/structural-checks.ts`, `system-checks.ts`, `api-checks.ts`, `ui-checks.ts`) · **Lowering:** [`src/ir/lower/lower-stmt.ts`](../../src/ir/lower/lower-stmt.ts), `lower-members.ts`, `lower-workflow.ts` (handler bodies); shared dispatch in [`_stmt/target.ts`](../../src/generator/_stmt/target.ts) · **Docs:** [`../language.md`](../language.md), [`../actions.md`](../actions.md), [`../workflow.md`](../workflow.md), [`../auth.md`](../auth.md)
 
 Every aggregate body lowers through one shared `lowerStatement`, so an `operation`, a `create`, a `destroy`, and an `apply` all draw from the same statement set; the **kind tag** (not the body syntax) carries the lifecycle asymmetry. The lowered `StmtIR` has **11 kinds** — `precondition`, `requires`, `let`, `assign`, `add`, `remove`, `emit`, `call`, `expression`, `return`, `variant-match` — and `src/generator/_stmt/target.ts` owns the dispatch once; each backend's `render-stmt.ts` is a leaf table. Every tab below was generated from one scratch system with one deployable per backend (`node bin/cli.js generate system … -o out`) and excerpted; statements are separated by newlines (there is no `;` statement separator). The C# tabs are excerpted one step further than the rest: the .NET emitter weaves a C#10 `#line (a,b)-(c,d) "…ddd"` directive ahead of each mapped statement of a named operation (`weaveLineDirectives`, `src/generator/dotnet/emit/entity.ts`), so a debugger steps the `.ddd` source; those directives are elided here.
 
@@ -229,6 +229,29 @@ if (err instanceof ConcurrencyError)       return problem(409, "Conflict", err.m
 
 A `requires` that reads `currentUser` needs a deployable that binds a verified principal (`loom.guard-principal-without-auth`); see [Auth](17-auth.md#requires--the-authorization-gate-http-403).
 
+### A parameterless operation needs no request body
+
+`operation confirm()` routes to `POST /api/<plural>/{id}/confirm`, and a caller with nothing to send may send nothing: on all five backends an empty body — no `Content-Type`, or a JSON one with zero bytes — is answered exactly as `{}` is ([RS-39](../conformance-semantics.md)). The same holds for a workflow started with no input. The published `requestBody` is optional; a foreign media type (`text/plain`, a form post) is still `415`.
+
+```ddd
+operation confirm() when status == Requested { status := Confirmed }
+```
+
+```ts
+// http/appointment.routes.ts
+request: {
+  params: z.object({ id: UuidString }),
+  body: { content: { "application/json": { schema: ConfirmAppointmentRequest } }, required: false },
+},
+```
+
+```python
+# app/http/appointment_routes.py
+async def confirm_appointment(id: …, body: Annotated[ConfirmAppointmentRequest, Body(default_factory=ConfirmAppointmentRequest)], …)
+```
+
+`curl -X POST …/appointments/$ID/confirm` → `204`. On an operation **with** parameters an empty body is the `{}` that fails validation: `422` with an `errors[]` entry per missing field — `{"pointer": "/reason", "message": "Required"}` on all five backends. A `create` with no input fields publishes an optional body too.
+
 ### `when` also auto-exposes `GET /{id}/can_<op>`
 
 A `when`-gated operation gets a free, side-effect-free companion route returning `{ allowed }` so a UI can enable/disable the action without invoking it (the canCommand pattern), on all five backends (`can_confirmOrder` / `CanConfirmQuery` / `canConfirm` / `can_confirm_order` / `can_confirm_order/1`). That companion route takes **no arguments**, so a `when` predicate may only read the aggregate's own state — referencing an operation parameter is `loom.when-references-op-param`. Move an argument-aware check into a `precondition` in the body, or express it as `from <Criterion>(args)`.
@@ -312,16 +335,16 @@ On an event-sourced aggregate (`persistedAs: eventLog`), `emit` does **double du
 
 `target := Expr` is scalar assignment; `target += Expr` / `target -= Expr` are collection append / remove (`add` / `remove` in the IR). The target is an `LValue` — a bare field name or a dotted path (`draft.zip`), optionally rooted with an explicit `this.` (`this.name`, `this.draft.zip`). Assigning to a `derived` member is an error (`Cannot assign to derived property …`). A numeric/decimal literal flowing into a `money` target is elaborated to the precise money constructor at lowering (`subtotal := 0.50` → `money("0.50")`).
 
-**`this.` is a disambiguator, not decoration.** Without it the head is resolved as a free name first, so a parameter named after the field it fills wins — and the assignment is then *type-checked against the parameter*, not against the member being written:
+**An assignment always writes the member.** Every backend emits `name := …` as a write to the aggregate's own field (`this._name = …`), so a bare head that names a member is type-checked against that member — even when a parameter or `let` of the same name shadows it on the right-hand side:
 
 ```ddd
 operation rename(name: int) {
   this.name := name   // error: Cannot assign 'int' to 'string'
-  name := name        // accepted — the head resolves to the int parameter
+  name := name        // error: Cannot assign 'int' to 'string' — the head is the field
 }
 ```
 
-Both spellings *emit* the same write (`this._name = name`), so the bare form on a mismatched pair emits an assignment its own target language rejects. Prefer the explicit prefix whenever a parameter shares a field's name. The same applies to a this-rooted **call**: `this.files.put(k, v)` is a member call on the aggregate even when a `resource files` is in scope, which the bare spelling would otherwise resolve to the resource.
+(Before M-T5.42 the bare form resolved its head to the int parameter, validated clean, and emitted an assignment its own target language rejected.) Prefer the explicit prefix whenever a parameter shares a field's name. The same applies to a this-rooted **call**: `this.files.put(k, v)` is a member call on the aggregate even when a `resource files` is in scope, which the bare spelling would otherwise resolve to the resource.
 
 ```ddd
 aggregate Order {
@@ -382,15 +405,91 @@ changeset =
 
 ## `create` / `destroy` — lifecycle actions
 
-`create [name](params) [audited] { body }` is the factory marker: an **unnamed** `create(...)` makes the aggregate constructible over HTTP (`POST /<aggs>` + a static factory whose input is **derived from the field set**, not from the parameter list); `destroy [name][(params)] [audited] { body }` is the terminator (`DELETE /{id}`). Neither is ever `private` or `extern`. The `crudish` capability injects the canonical pair plus an `update`. Two gates are distinct: the **domain factory** `Agg.create(...)` is emitted for every *constructible* aggregate — one that declares a create, or whose every invariant is satisfiable from the create input (`isConstructible`, `src/ir/enrich/wire-projection.ts`) — and is parameterized over the create-input field set, while the **REST** `POST /<aggs>` appears only when a canonical `create` is actually declared (by hand or by `crudish`). Field defaults do not decide either: a default only makes that field optional *input*.
+`create [name](params) [audited] { body }` is the factory marker: an **unnamed** `create(...)` makes the aggregate constructible over HTTP (`POST /<aggs>` + a static factory whose input is the parameter list — or, for the empty `create()`, the whole client-suppliable field set; see below); `destroy [name][(params)] [audited] { body }` is the terminator (`DELETE /{id}`). Neither is ever `private` or `extern`. The `crudish` capability injects the canonical pair plus an `update`. Two gates are distinct: the **domain factory** `Agg.create(...)` is emitted for every *constructible* aggregate — one that declares a create, or whose every invariant is satisfiable from the create input (`isConstructible`, `src/ir/enrich/wire-projection.ts`) — and is parameterized over the create-input field set, while the **REST** `POST /<aggs>` appears only when a canonical `create` is actually declared (by hand or by `crudish`). Field defaults do not decide either: a default only makes that field optional *input*.
 
-On a **state-based** aggregate the braces are a contract, not a body: no backend renders `canonicalCreate.statements` / `canonicalDestroy.statements`, so the validator refuses any statement that would silently vanish (`loom.lifecycle-body-dropped`, an error): a `precondition`, an `emit`, a `+=`/`-=`, a call, or an assignment whose value the emitted factory does not already reproduce. Two assignments *are* reproduced and therefore admitted — `field := <same-named param>` (the field-derived input supplies it) and `field := <literal>` when the field declares that same literal default. A **named** `create open(...)` / `destroy close(...)` on a state-based aggregate reaches no emitter at all and is refused whole (`loom.named-lifecycle-dropped`) — with one exception: on an **event-sourced** aggregate the single `create` is canonical whether or not it is named, so `create open(owner: string) { emit Opened { … } }` is emitted and ungated. Reading the identity as the explicit `this.id` inside a `create` body is `loom.this-id-in-create`; a bare `id` is not gated, and is what the event-sourced `create` above emits.
+On a **state-based** aggregate a `create` body runs against the constructed instance, exactly like an operation body (`createBodyStatements`, `src/ir/util/op-gates.ts`): its `requires` gates the route (403, below), a `precondition` refuses with the domain-floor 422 an operation's does, an `emit` records the event and the create's save dispatches it, and a `let` binds a value either reads. The params are locals and every field the params do not supply already holds its declared default, so a guard may read both. Everything else would silently vanish and is refused instead (`loom.lifecycle-body-dropped`, an error): a `+=`/`-=`, a call, an `if` / `match`, or an assignment whose value the emitted factory does not already reproduce — and in a `destroy` body anything beyond its `requires`. Two assignments *are* reproduced and therefore admitted — `field := <same-named param>` (the create input supplies it) and `field := <literal>` when the field declares that same literal default.
 
-The **parameter list is not the request contract either.** `POST /<plural>` takes the field-derived create input, so a narrowed list shapes nothing: `create(project: Project id, key: string, title: string)` on an aggregate that also has a required `blockedBy: Issue id[]` still emits a body that demands `blockedBy`, and a client (or a `test` block) written from the declaration gets a 422 naming a field the create does not accept. `loom.create-params-not-wire` (a warning) names each required create-input field the list omits. Listing every create-input field — which is what `with crudish` generates — or emptying the parameter list keeps it quiet. **The parens stay: `create() { … }`, not `create { … }`.** Unlike `destroy`, whose parens are optional, `Create` requires them (`Expecting token of type '(' but found \`{\`` otherwise) — a deliberate asymmetry recorded in the grammar, and the reason this sentence spells the form.
+```ddd
+event AppointmentRequested { appointment: Appointment id, patient: string }
+aggregate Appointment {
+  patient: string
+  status: AppointmentStatus = Requested
+  create(patient: string) {
+    precondition patient.length >= 2 message "A patient name needs two characters"
+    emit AppointmentRequested { appointment: id, patient: patient }
+  }
+}
+```
 
-This warning is a stand-in for a missing capability, not the end state: **[M-T5.32](../new-plan/T5-language-core.md)** makes the declared parameter list *become* the create input, and deletes `loom.create-params-not-wire` in the same change.
+::: tabs backend
+== node
+```ts
+// domain/appointment.ts
+static create(input: { patient: string }): Appointment {
+  const inst = new Appointment({ id: Ids.newAppointmentId(), patient: input.patient,
+    status: AppointmentStatus.Requested, version: 1 });
+  inst._createBody(input.patient);
+  return inst;
+}
 
-**Call sites are checked against the same contract.** A `Agg.create({ … })` written in a `test`, a workflow body or a handler is validated against the factory the emitters actually emit, using those same two derivations: calling it on an aggregate that is not constructible is `loom.create-call-not-constructible` (the message names the invariant that removed the factory — e.g. `invariant lines.all(l => l.currency == currency)`, which reaches a containment and so cannot be satisfied from the create input), and omitting a required create-input field is `loom.create-call-missing-field` (`loom.workflow-create-missing-field` inside a workflow body). Both used to pass validation and then fail the *generated* project's own compiler — `TS2551: Property 'create' does not exist on type 'typeof Order'` and `TS2345: Property 'binCode' is missing`. Unknown and server-owned keys at the same call site stay `loom.create-unknown-field` / `loom.create-server-field`.
+private _createBody(patient: string): void {
+  if (!([...patient].length >= 2)) throw new DomainError("A patient name needs two characters", "msg.ojnyph", "/patient");
+  this._events.push({ type: "AppointmentRequested", appointment: this._id, patient: patient });
+}
+```
+== elixir
+```elixir
+# lib/app/scheduling.ex — guards over the validated draft, insert, then dispatch
+def create_appointment(attrs) do
+  with {:ok, record} <- Ecto.Changeset.apply_action(AppointmentChangeset.base_changeset(AppointmentChangeset.take_create_attrs(attrs)), :insert),
+       patient = record.patient,
+       :ok <- ensure(length(String.to_charlist(patient)) >= 2, {:precondition_failed, %{detail: "A patient name needs two characters", code: "msg.ojnyph", pointer: "/patient"}}) do
+    case AppointmentRepository.insert(attrs) do
+      {:ok, record} ->
+        loom_event_0 = %Scheduling.Events.AppointmentRequested{appointment: record.id, patient: patient}
+        Phoenix.PubSub.broadcast(App.PubSub, "events", loom_event_0)
+        {:ok, record}
+      error -> error
+    end
+  end
+end
+```
+::: end
+
+A **named** `create open(...)` / `destroy close(...)` on a state-based aggregate reaches no emitter at all and is refused whole (`loom.named-lifecycle-dropped`) — with one exception: on an **event-sourced** aggregate the single `create` is canonical whether or not it is named, so `create open(owner: string) { emit Opened { … } }` is emitted and ungated. Reading the identity as the explicit `this.id` inside a `create` body is `loom.this-id-in-create`; a bare `id` is not gated, and is what the event-sourced `create` above emits.
+
+**The parameter list IS the request contract.** On a state-based aggregate, a non-empty unnamed `create(p1, p2, …)` narrows the create input to exactly the fields it lists — the `POST /<plural>` wire schema, the route binding, the OpenAPI document, the generated clients, the domain factory and the scaffolded `CreateForm` all derive from it (`declaredCreateParamNames` / `buildCreateInput`, `src/ir/enrich/wire-projection.ts`). Every field the list leaves out is initialised by the factory: its declared constant default, `null` for a `T?`, `false` for a bare `bool`, `[]` for a collection. A request body that names such a field anyway is ignored for it:
+
+```ddd
+aggregate Appointment {
+  doctor: Doctor id
+  minutes: int
+  status: AppointmentStatus = Requested
+  notes: string?
+  create(doctor: Doctor id, minutes: int) { }
+  operation complete(summary: string) when status == Confirmed { status := Completed  notes := summary }
+}
+```
+
+::: tabs backend
+== node
+```ts
+// http/appointment.routes.ts + domain/appointment.ts
+const CreateAppointmentRequest = z.object({
+  doctor: UuidString,
+  minutes: z.number().int()…,
+})   // `status` / `notes` are not create input — a POSTed "status":"Completed" is dropped
+
+static create(input: { doctor: Ids.DoctorId; minutes: number }): Appointment {
+  return new Appointment({ id: Ids.newAppointmentId(), doctor: input.doctor, minutes: input.minutes,
+    status: AppointmentStatus.Requested, notes: null, version: 1 });
+}
+```
+::: end
+
+So a `when`-gated state field cannot be set at creation, and the create form shows only the listed fields. Two shapes are refused, because neither has an honest emission: a parameter that is not the wire slot of a client-suppliable field — no such field, a `managed` / `internal` / `token` one, or a different type (`loom.create-param-not-a-field`) — and a field outside the list the factory cannot initialise on its own: required with no default, or defaulted to something that is not a compile-time constant (`now()`, `currentUser.*`, a value-object constructor) (`loom.create-param-required-omitted`). The empty list `create() { … }` keeps the full field-derived input, as does the create `with crudish` synthesizes, and an event-sourced create's parameters are its command payload. **The parens stay: `create() { … }`, not `create { … }`.** Unlike `destroy`, whose parens are optional, `Create` requires them (`Expecting token of type '(' but found \`{\`` otherwise) — a deliberate asymmetry recorded in the grammar, and the reason this sentence spells the form.
+
+**Call sites are checked against the same contract.** A `Agg.create({ … })` written in a `test`, a workflow body or a handler is validated against the factory the emitters actually emit, using those same two derivations: calling it on an aggregate that is not constructible is `loom.create-call-not-constructible` (the message names the invariant that removed the factory — e.g. `invariant lines.all(l => l.currency == currency)`, which reaches a containment and so cannot be satisfied from the create input), omitting a required create-input field is `loom.create-call-missing-field` (`loom.workflow-create-missing-field` inside a workflow body), and passing a field a narrowed `create(…)` does not list is `loom.create-call-field-not-in-create`. Both used to pass validation and then fail the *generated* project's own compiler — `TS2551: Property 'create' does not exist on type 'typeof Order'` and `TS2345: Property 'binCode' is missing`. Unknown and server-owned keys at the same call site stay `loom.create-unknown-field` / `loom.create-server-field`.
 
 A `requires` **is** rendered for the canonical pair (every backend evaluates it at its own chokepoint and denies with 403). Note the spelling: `Create`/`Destroy` have no header `requires` clause in the grammar — `create(name: string) requires … { }` is a parse error — so a lifecycle guard is written as the first *statement* of the body. What it may read is narrow: a `create` guard may read `currentUser` only; a `destroy` guard may read `currentUser` and `this` — never a parameter (`loom.lifecycle-guard-unreadable`). On an event-sourced aggregate a `create` guard is enforceable only on `elixir`, which hoists it to the context function and binds a principal there; the other four render the create body into a domain `_init` with no principal in scope, so `loom.lifecycle-guard-event-sourced` refuses it — naming the hosting backends that cannot enforce it, and for *every* create on the aggregate (the rendered one is `creates[0]` by index, so a named `create open(...)` is covered too). Gate the operation that issues the create instead. Where that refusal applies the create has no usable gate surface, so `denyByDefault` reports a missing gate as a warning (`loom.default-deny-es-create-ungateable`) rather than an unsatisfiable error; on an `elixir` host it stays a hard error, because there the gate is accepted.
 
@@ -705,7 +804,7 @@ Vue / Svelte / Angular / Feliz / Flutter emit the same try-match shape through t
 
 ## Handler bodies — `commandHandler` / `queryHandler`
 
-`[extern] commandHandler Name(params) [: Return] { … }` and `[extern] queryHandler Name(params): Return { … }` are context-level, application-layer handlers — a single-aggregate workflow `handle` lifted out, routable from an `api { route POST "/…" -> Ctx.Name }` body. Their body is the **workflow vocabulary** (`lower-workflow.ts`, see [Workflows](13-workflows.md#body-vocabulary)): `let x = Repo.getById(id)` / a single non-nullable `find`, an operation call on the binding, `Repo.delete(x)`, `precondition` / `requires`, `emit`, `return`. A loaded aggregate is saved automatically when an operation was invoked on it — you don't write the save. Gates: a non-`extern` handler needs a body (`loom.handler-missing-body`) and an `extern` one must be bodyless `;` (`loom.extern-handler-has-body`); a parameter may not be named `id` (`loom.handler-param-reserved-id`); a nullable load has no null-handling vocabulary (`loom.handler-load-nullable-unsupported` — use `getById`); a `queryHandler` may not mutate (`loom.query-handler-saves`) and a `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`).
+`[extern] commandHandler Name(params) [: Return] { … }` and `[extern] queryHandler Name(params): Return { … }` are context-level, application-layer handlers — a single-aggregate workflow `handle` lifted out, routable from an `api { route POST "/…" -> Ctx.Name }` body. Their body is the **workflow vocabulary** (`lower-workflow.ts`, see [Workflows](13-workflows.md#body-vocabulary)): `let x = Repo.getById(id)` / a single non-nullable `find`, `if let x = Repo.<find>(args) { … } else { … }` over a nullable one, an operation call on the binding, `Repo.delete(x)`, `precondition` / `requires`, `emit`, `return`. A loaded aggregate is saved automatically when an operation was invoked on it — you don't write the save. Gates: a non-`extern` handler needs a body (`loom.handler-missing-body`) and an `extern` one must be bodyless `;` (`loom.extern-handler-has-body`); a parameter may not be named `id` (`loom.handler-param-reserved-id`); a nullable load may not be `let`-bound (`loom.handler-load-nullable-unsupported` — use `getById`, or `if let`); a `queryHandler` may not mutate (`loom.query-handler-saves`) and a `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`).
 
 ```ddd
 context Accounts {
@@ -842,3 +941,19 @@ this-write. Move the rule to the aggregate operation that owns the state.
 The table states **today's** surface exactly: no capability was added or removed when it landed, and emission is byte-identical across all eleven targets. A row that gains a modifier is an emitter obligation on every target, so widening one is a change to make deliberately, not a table edit.
 
 The two callable-*shaped* declarations that are deliberately **not** rows: `criterion` (it carries `of <T>` / `as <alias>` and is inlined at its call sites) and `component` (it returns markup, not a value). The ui-level `function` is a separate rule that is `extern` by construction — the `extern from "<path>"` clause *is* its body — so it has no modifier surface to police.
+
+### Parameter defaults
+
+`param: T = <expr>` parses at every callable site (one shared `Parameter` rule), but only an aggregate `operation` / `create` / `destroy` and a workflow `create` lower the default so the generated signature carries it. A `domainService` operation, a workflow `handle`, a `commandHandler` / `queryHandler` and a `function` drop it — so a caller omitting the argument would reach a signature that still requires it. A default there is **`loom.param-default-unsupported`**:
+
+```ddd
+domainService Pricing {
+  operation quote(base: int = 3): int { return base }
+}
+```
+
+```
+error: Parameter 'base' declares a default, but a domain-service operation does not
+support parameter defaults: the default would be dropped and every generated signature
+would still require the argument. Remove '= …' and pass the value at each call site.
+```

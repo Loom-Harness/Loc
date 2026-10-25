@@ -1,4 +1,4 @@
-import { forCreateInput } from "../../../ir/enrich/wire-projection.js";
+import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -11,23 +11,26 @@ import type {
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
-import { findValueObjectInScope, valueObjectPool } from "../../../ir/util/reachable-types.js";
+import { findValueObjectInScope } from "../../../ir/util/reachable-types.js";
 import { escapePythonIdent, pythonIdent, snake } from "../../../util/naming.js";
+import { PY_IMPORTS, pyModule, pyRef } from "../../_imports/python.js";
+import { ref, spellMarkers } from "../../_imports/symbol.js";
 import {
   coerceMatcherExpected,
   coerceTestArgs,
   coerceTestLiteral,
   type TestLiteralTarget,
 } from "../../_test/arg-coercion.js";
-import { throwKindPatternSource } from "../../_test/throw-kind.js";
+import { DOMAIN_REJECTION_ERRORS } from "../../_test/throw-kind.js";
+import { PY, pyIdType, pyVoOrEnum } from "../py-symbols.js";
 import { renderPyExpr, renderPyType } from "../render-expr.js";
 
 /** Python leaves for the shared test-literal coercion rule
  *  (`_test/arg-coercion.ts`).  `<X>Id(…)` is the id class the generator emits
  *  into `app/domain/ids.py`; `datetime` parses via `fromisoformat`. */
 const PY_TEST_LITERAL: TestLiteralTarget = {
-  id: (rendered, targetName) => `${targetName}Id(${rendered})`,
-  datetime: (rendered) => `datetime.fromisoformat(${rendered})`,
+  id: (rendered, targetName) => `${pyIdType(targetName)}(${rendered})`,
+  datetime: (rendered) => `${PY.datetime}.fromisoformat(${rendered})`,
 };
 
 // A currentUser-gated operation's method signature picks up a trailing
@@ -38,8 +41,10 @@ const PY_TEST_LITERAL: TestLiteralTarget = {
 // cast so it stays valid regardless of the system's actual
 // `user { ... }` claim shape (the Python analogue of the TS emitter's
 // `as unknown as User`).
-const TEST_ACTOR_PY =
-  'cast(User, SimpleNamespace(id="00000000-0000-0000-0000-000000000000", role="admin", permissions=["*"]))';
+const TEST_ACTOR_PY = `${PY.cast}(${pyRef("app.auth.user", "User")}, ${pyRef("types", "SimpleNamespace")}(id="00000000-0000-0000-0000-000000000000", role="admin", permissions=["*"]))`;
+
+/** `import pytest` — the `pytest.raises` context manager. */
+const PYTEST = ref(pyModule("pytest"));
 
 // ---------------------------------------------------------------------------
 // `test "..." { ... }` DSL → pytest file at `tests/test_<snake(agg)>.py`.
@@ -51,7 +56,10 @@ const TEST_ACTOR_PY =
 //   expect(x).toBe(y)        → `assert x == y` (comparison matchers map
 //                               1:1 onto operators; `.not.` inverts)
 //   expect <bool-expr>       → `assert <bool-expr>`
-//   expectThrows <call>      → `with pytest.raises(Exception): <call>`
+//   expect(<call>).toThrow() → `with pytest.raises((DisallowedError, DomainError,
+//                               ForbiddenError)): <call>` — a DOMAIN rejection
+//                               only (`DOMAIN_REJECTION_ERRORS`), so a NameError
+//                               from broken code fails the test
 //   let x = …                → `x = …`
 //
 // `<Agg>.create({ … })` literals coerce each field to its declared
@@ -60,6 +68,11 @@ const TEST_ACTOR_PY =
 // declared field order (omitted optionals → None), datetime literals
 // parse via `datetime.fromisoformat`.
 // ---------------------------------------------------------------------------
+
+/** What a bare `toThrow()` accepts: the domain floor's refusal classes, as the
+ *  tuple `pytest.raises` takes.  Not `Exception` — that admitted a `NameError`
+ *  out of broken generated code as a passing negative test (claims D2). */
+const DOMAIN_REJECTION_TUPLE = `(${DOMAIN_REJECTION_ERRORS.map((n) => pyRef("app.domain.errors", n)).join(", ")})`;
 
 export function renderPyTestsFile(agg: AggregateIR, ctx: BoundedContextIR): string | null {
   return renderPySubjectTests(agg.name, agg.tests, ctx, {
@@ -123,63 +136,33 @@ function renderPySubjectTests(
     .filter((a) => a.name !== describeName && refs(a.name))
     .map((a) => a.name)
     .sort();
-  const voEnumNames = [...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]
-    .filter(refs)
-    .sort();
-  // Every aggregate + part in the context yields an id class in
-  // `app/domain/ids.py`.  A create-input `X id` field brands to `<X>Id(…)`,
-  // and X may be a *cross-aggregate* reference (e.g. `customerId: Customer id`
-  // on an Order test), so the candidate set is the whole context's ids, not
-  // just this aggregate's own — filtered to those actually referenced.
-  const idNames = [
-    ...new Set(
-      ctx.aggregates.flatMap((a) => [a.name, ...a.parts.map((p) => p.name)]).map((n) => `${n}Id`),
-    ),
-  ]
-    .filter(refs)
-    .sort();
-  const usesPytest = /\bpytest\./.test(bodyStr);
-  const usesDatetime = /\bdatetime\./.test(bodyStr);
-  // A5 temporal — test bodies render domain expressions, so duration
-  // constructors (`timedelta(...)`) can appear and need their imports.
-  const usesTimedelta = /\btimedelta\(/.test(bodyStr);
-  const usesDecimal = /\bDecimal\(/.test(bodyStr);
-  const usesMath = /\bmath\./.test(bodyStr);
-  const usesActor = bodyStr.includes("SimpleNamespace(");
-  // `cast(...)` appears both from the synthetic actor and from null-safe
-  // nullable-field reads (`cast(Shipment, o.shipment).carrier`).
-  const usesCast = usesActor || /\bcast\(/.test(bodyStr);
+  // The module has always set a lone `from typing import cast` flush against
+  // the docstring (no blank line) — kept for byte-identity.
+  const spelled = spellMarkers(bodyStr);
+  const castOnly =
+    /\bcast\(/.test(spelled) &&
+    !/\b(datetime\.|timedelta\(|Decimal\(|math\.|pytest\.|SimpleNamespace\()/.test(spelled);
 
   const out: string[] = [];
   out.push(`"""Domain tests for ${describeName}.  Auto-generated."""`);
-  if (usesDatetime || usesTimedelta || usesDecimal || usesMath || usesPytest || usesActor) {
-    out.push("");
+  // A test observes state a METHOD changed — `assert wo.status == S.Scheduled`,
+  // `wo.complete()`, `assert wo.status == S.Completed`.  mypy keeps the first
+  // assert's narrowing across the call, so the second compare reads as
+  // non-overlapping (`comparison-overlap` under --strict) on every enum
+  // progression.  The file-level inline config scopes the waiver to this test
+  // module (a pyproject `tests.*` override cannot: `tests/` has no
+  // `__init__.py`, so mypy names the module `test_<x>`), and only a file that
+  // compares at all carries it.
+  if (/^\s+assert .*[=!]= /m.test(spelled)) {
+    out.push(`# mypy: disable-error-code="comparison-overlap"`);
   }
-  if (usesMath) out.push("import math");
-  if (usesDatetime || usesTimedelta) {
-    const names = [
-      ...(usesDatetime ? (/\bUTC\b/.test(bodyStr) ? ["UTC", "datetime"] : ["datetime"]) : []),
-      ...(usesTimedelta ? ["timedelta"] : []),
-    ];
-    out.push(`from datetime import ${names.join(", ")}`);
-  }
-  if (usesDecimal) out.push("from decimal import Decimal");
-  if (usesActor) out.push("from types import SimpleNamespace");
-  if (usesCast) out.push("from typing import cast");
-  if (usesPytest) out.push("import pytest");
-  out.push("");
-  if (usesActor) out.push("from app.auth.user import User");
+  if (!castOnly) out.push("");
+  out.push(PY_IMPORTS);
   if (subjectImport && subjectNames.length > 0) {
     out.push(`from ${subjectImport.module} import ${subjectNames.join(", ")}`);
   }
   for (const name of siblingAggs) {
     out.push(`from app.domain.${snake(name)} import ${name}`);
-  }
-  if (idNames.length > 0) {
-    out.push(`from app.domain.ids import ${idNames.join(", ")}`);
-  }
-  if (voEnumNames.length > 0) {
-    out.push(`from app.domain.value_objects import ${voEnumNames.join(", ")}`);
   }
   return `${out.join("\n")}\n${bodyStr}\n`;
 }
@@ -252,7 +235,7 @@ export function renderTestExpr(
     const recv = renderTestExpr(e.receiver, ctx, lets);
     const rt = e.receiver.memberType;
     const inner = rt.kind === "optional" ? rt.inner : rt;
-    return `cast(${renderPyType(inner)}, ${recv}).${pythonIdent(e.member)}`;
+    return `${PY.cast}(${renderPyType(inner)}, ${recv}).${pythonIdent(e.member)}`;
   }
   // Calls of currentUser-gated ops thread the synthetic actor as the
   // trailing argument (mirrors the TS test emitter).  The aggregate
@@ -297,7 +280,7 @@ export function renderTestExpr(
   ) {
     const agg = ctx.aggregates.find((a) => a.name === (e.receiver as { name: string }).name);
     if (agg) {
-      return `${agg.name}.create(${renderCreateInput(e.args[0] as Extract<ExprIR, { kind: "object" }>, agg, ctx)})`;
+      return `${pyRef(`app.domain.${snake(agg.name)}`, agg.name)}.create(${renderCreateInput(e.args[0] as Extract<ExprIR, { kind: "object" }>, agg, ctx)})`;
     }
   }
   return renderPyExpr(e);
@@ -308,7 +291,7 @@ export function renderCreateInput(
   agg: AggregateIR,
   ctx: BoundedContextIR,
 ): string {
-  const declared = new Map(forCreateInput(agg.fields).map((f) => [f.name, f.type] as const));
+  const declared = new Map(createInputFields(agg).map((f) => [f.name, f.type] as const));
   // Emit EXACTLY the fields the test author wrote.
   //
   // Filling each omission from the create-input set would make the assertion
@@ -340,7 +323,7 @@ function coerceCreateValue(value: ExprIR, type: TypeIR | undefined, ctx: Bounded
         const v = byName.get(vf.name);
         return v ? coerceCreateValue(v, vf.type, ctx) : "None";
       });
-      return `${vo.name}(${args.join(", ")})`;
+      return `${pyVoOrEnum(vo.name)}(${args.join(", ")})`;
     }
   }
   // The id / datetime arms are the SHARED rule (`_test/arg-coercion.ts`) — the
@@ -425,16 +408,19 @@ export function renderTestStmt(
   }
   if (s.kind === "expect-throws") {
     const call = `        ${renderTestExpr(s.expr, ctx, lets)}`;
-    // `toThrow(<kind>)` — `pytest.raises(match=...)` runs `re.search` over
-    // `str(exc)`, so the rung's derived prefix is passed anchored (`^…`).  The
-    // pattern is a raw string: the prefix is escaped for regex, and `r"…"`
-    // keeps any backslash that escaping introduces out of Python's own string
-    // grammar.
+    // `toThrow(<kind>)` — catch the `DomainError` (a value object's
+    // `ValueObjectInvariantError` subclasses it) and assert its structural
+    // `kind`, never its message, which an authored `message "..."` replaces.
+    // `rejected` is rebound by each assertion, so several in one test body
+    // don't collide.
     if (s.throwKind) {
-      const pattern = throwKindPatternSource(s.throwKind);
-      return [`    with pytest.raises(Exception, match=r"${pattern}"):`, call];
+      return [
+        `    with ${PYTEST}.raises(${PY.DomainError}) as rejected:`,
+        call,
+        `    assert rejected.value.kind == ${JSON.stringify(s.throwKind)}, str(rejected.value)`,
+      ];
     }
-    return ["    with pytest.raises(Exception):", call];
+    return [`    with ${PYTEST}.raises(${DOMAIN_REJECTION_TUPLE}):`, call];
   }
   if (s.kind === "let") {
     return [`    ${escapePythonIdent(snake(s.name))} = ${renderTestExpr(s.expr, ctx, lets)}`];

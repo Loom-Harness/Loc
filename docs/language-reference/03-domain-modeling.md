@@ -515,6 +515,26 @@ exists yet — notably the create-request wire schema*); write a `derived` inste
 
 A `check` on a field is exactly the inline form of a member `invariant` — both lower to the constructor guard shown under `contains` above (`qty: int check qty > 0` → `if (!(this._qty > 0)) throw …`). See [Invariants, derived & functions](07-invariants-derived-functions.md) for the full invariant surface.
 
+### Field names a generated runtime reserves
+
+A field name is any identifier, but a few collide with names a generated runtime
+owns:
+
+- **`__name__`-shaped names** (`__meta__`, `__struct__`, …) are refused on every
+  backend — `loom.dunder-field-name`. Elixir refuses `__struct__` in a struct
+  definition, Ecto defines `__meta__` on every schema, and pydantic does not treat
+  a dunder annotation as a field at all.
+- **`inserted_at` / `updated_at`** (or `insertedAt`) are the columns Ecto's bundled
+  `timestamps()` defines. On an aggregate root the Elixir backend drops
+  `timestamps()` from the schema and its migration, and the declared field owns
+  the column. On a relational entity part hosted on `platform: elixir` the name —
+  and `updatedAt`, whose column is `updated_at` — is refused,
+  `loom.elixir-part-timestamp-field`. A part's `createdAt` is an ordinary column.
+
+Elixir reserved words (`end`, `after`, `fn`, `do`, …) are fine as field and
+parameter names. The Elixir backend binds the local as `end_` and keeps the wire
+key and column as `end`.
+
 ## Access modifiers
 
 Every field carries an access modifier governing its role across three shapes: the **create** input, the **update** wire, and the **read** projection. `editable` (the default, no keyword) is full client read+write. The five explicit modifiers:
@@ -564,9 +584,12 @@ Drop the modifier and `status` is a writable update field like any other, so
 `POST /claims/{id}/update {"status":"Approved"}` sets it at whatever gate the
 *update* carries — skipping both the `requires` on `approve()` and its
 `precondition`. The compiler does not decide this for you (a field with no
-modifier is *declared* `editable`), but it points the case out: the advisory
-`loom.update-gate-suggestion` names the field, the guarded operation, and this
-remedy.
+modifier is *declared* `editable`), but it flags the case: the warning
+`loom.update-gate-suggestion` names the field, the gated operation, and this
+remedy. It fires for any gate on the operation — `requires`, a `when` state
+gate, or a `precondition` reading the field and no parameter — so a `when`-only state machine
+with no auth is caught too, and for those it adds that `managed = <default>`
+keeps the field off `create` as well.
 
 ```ddd
 context Orders {

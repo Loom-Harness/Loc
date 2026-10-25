@@ -1,17 +1,14 @@
 // Auto-generated.  Do not edit by hand.
 // Vuetify instance — single home for the design tokens projected from
 // the system's `theme { … }` block (or the toolchain defaults).
-// Components/directives are imported in full, explicitly: correctness
-// over tree-shaking — no `vite-plugin-vuetify` auto-import resolver
-// dependency (see vue-frontend-plan.md, Risks).
+// No component or directive is registered here: each `.vue` file imports the
+// Vuetify components its own template renders (`import { VBtn } from
+// "vuetify/components"`), so a page's components load with its lazy route
+// instead of the whole library loading in the entry chunk.
 import { createVuetify } from "vuetify";
-import * as components from "vuetify/components";
-import * as directives from "vuetify/directives";
 import "vuetify/styles";
 
 export const vuetify = createVuetify({
-  components,
-  directives,
   theme: {
     defaultTheme: "{{colorScheme}}",
     themes: {

@@ -1,5 +1,7 @@
 # Mission runbook — how an agent executes a mission
 
+> **Retired (2026-10-18; claims and status moved to issues 2026-10-21).** Every session follows [`../agent-runbook.md`](../agent-runbook.md): work is claimed on a GitHub issue, never with a draft PR, and its status lives on that issue, not in the track files. A mission from this plan is picked up through its issue (search for one naming the `M-Tx.y` id first; file one only if none exists). A PR already open for a mission finishes as it is; in any push it needs anyway, it drops its `docs/new-plan/` status edits and records the status on the issue instead. The steps below are kept as the design record.
+
 *This is the standing protocol for implementing any mission from this plan. It exists so the kickoff prompt can be two lines. Follow it in order; every step is load-bearing.*
 
 ## 0. Inputs

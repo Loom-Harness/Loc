@@ -2059,19 +2059,18 @@ Parameter:
 //     statement head, silently so: with `requires` soft, a gate line missing
 //     its subject (`requires .permissions.contains(x)`) parsed as a CALL
 //     statement on a name `requires` instead of failing (review of the sweep).
+//     `precondition` (and `invariant`, below) are also the `ThrowKind` slot
+//     words: soft, `toThrow(precondition)` is ambiguous (see `ThrowKind`).
 //   * the heads of members that share a body with `Property` — `contains`
 //     `derived` `invariant` `private` `unique` `function` `operation` `create`
 //     `destroy` `entity` `test` `apply` `on`.  Both alternatives start with the
 //     same token, so a MALFORMED member (`create { }`) stops reporting its real
 //     error and reports a no-viable-alternative on the head instead.
-//   * words that parse but break a generated backend — `enum` `import`
-//     `extends` `static` (TypeScript / Python / Java reserved as a parameter or
-//     attribute) and `system` (a C# `System` property shadows every
-//     fully-qualified `System.*` reference the .NET emitter writes), plus
-//     `repository` / `aggregate` (the Java service binds each create / update
-//     input to a local named after the field, which then shadows its own
-//     `repository` field / `aggregate` local).  Soften them only together with
-//     the emitter fix.
+//
+// `enum` `import` `extends` `static` `system` `repository` `aggregate` were
+// held hard until every backend escaped / renamed a field, param or local
+// spelled that way (the target-reserved-name fleet, D-TARGET-RESERVED-NAMES);
+// they are soft now, like the rest.
 //
 // A field named after a hard word gets `loom.parse-error#reserved-name`
 // ("'event' is a Loom keyword … rename it") from
@@ -2108,7 +2107,8 @@ CommonSoftKeywords returns string:
       | 'solution' | 'sort' | 'spartanNg' | 'sql' | 'sqlite' | 'stamp' | 'state' | 'storage' | 'store'
       | 'subdomain' | 'svelte' | 'tablePrefix' | 'targets' | 'tenancy' | 'testCase' | 'theme' | 'timerSource'
       | 'title' | 'token' | 'transactional' | 'ttl' | 'type' | 'ui' | 'urlStyle' | 'use' | 'user'
-      | 'valueobject' | 'verifies' | 'views' | 'vue' | 'vuetify' | 'work' | 'workflow' | 'workflows' | 'write';
+      | 'valueobject' | 'verifies' | 'views' | 'vue' | 'vuetify' | 'work' | 'workflow' | 'workflows' | 'write'
+      | 'enum' | 'import' | 'extends' | 'static' | 'system' | 'repository' | 'aggregate';
 
 // LooseName — admissible identifiers in name positions that need to
 // accept Loom keywords as ordinary names.  Used by `Parameter.name`
@@ -2264,7 +2264,7 @@ VariantStmtArm:
 // trailing `{ }` block from being swallowed by a `BuilderCall` the way the
 // loop iterable does.
 IfLetStmt:
-    'if' 'let' var=(ID | 'write') '=' source=ForIterable '{'
+    'if' 'let' var=(ID | CommonSoftKeywords) '=' source=ForIterable '{'
         thenBody+=Statement*
     '}' ('else' '{'
         elseBody+=Statement*
@@ -2303,7 +2303,7 @@ ReturnStmt:
 // `for` is already a hard keyword elsewhere (`repository X for Agg`); the
 // leading statement position disambiguates the loop.
 ForStmt:
-    'for' var=ID 'in' iterable=ForIterable '{'
+    'for' var=(ID | CommonSoftKeywords) 'in' iterable=ForIterable '{'
         body+=Statement*
     '}';
 
@@ -2328,8 +2328,11 @@ PreconditionStmt:
 RequiresStmt:
     'requires' expr=Expression;
 
+// A binding a body can READ back, so it admits exactly the words a bare
+// name-ref does (`NameRefIdent`'s shared core): `let event = …` then
+// `event.amount`.
 LetStmt:
-    'let' name=(ID | 'write') '=' expr=Expression;
+    'let' name=(ID | CommonSoftKeywords) '=' expr=Expression;
 
 EmitStmt:
     'emit' event=[EventDecl:ID] '{'
@@ -2383,8 +2386,8 @@ LValueTail returns string:
 // LValueTail for a call statement); the SLUG FLOOR in
 // `keyword-identifier-completeness.test.ts` derives the set from the grammar
 // and fails naming any plural-shaped keyword left out (it is literal:
-// `aggregate A` is `api.as`, `aggregate Extend` is `api.extends`).
-// Only the plural-shaped keywords that are NOT already soft in
+// `aggregate A` is `api.as`; `aggregate Extend` is `api.extends`, which the
+// shared core now admits).  Only the plural-shaped keywords that are NOT already soft in
 // `CommonSoftKeywords` are listed — the rest (`claims`, `serves`, `targets`,
 // …) are admissible through the shared core, and a word spelled in two
 // alternatives of the same rule is an ambiguous alternative.  `requires` is
@@ -2395,7 +2398,7 @@ LValueTail returns string:
 // membership in this rule, so a word moving between the two lists is
 // invisible to it.
 PluralSlugKeyword returns string:
-    'as' | 'extends' | 'requires' | 'this';
+    'as' | 'requires' | 'this';
 
 LValueIdent returns string:
     ID | CommonSoftKeywords
@@ -2645,6 +2648,13 @@ PostfixSuffix:
 // has already committed to a member call.  A kind word in any OTHER call is a
 // parse success and a validator refusal (`loom.throw-kind-outside-tothrow`) —
 // the catalogue stays closed and compiler-known.
+//
+// The slot is unambiguous ONLY while both words stay HARD.  Soften either into
+// `NameRefIdent` and it is also a one-token `CallArg`, so `toThrow(precondition)`
+// parses two ways and ALL(*) prints "Ambiguous Alternatives Detected … inside
+// <PostfixSuffix>" to the user's stdout on every `ddd parse` / `generate` /
+// `verify`.  `test/language/parsing/grammar-ambiguity.test.ts` pins both the
+// hardness and the silent parse.
 ThrowKind returns string:
     'precondition' | 'invariant';
 

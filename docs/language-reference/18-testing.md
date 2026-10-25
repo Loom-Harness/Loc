@@ -56,6 +56,10 @@ The block lowers to one runnable spec per subject, emitted next to the domain cl
 import { describe, it, expect } from "vitest";
 import { Order } from "./order";
 import { OrderStatus } from "./value-objects";
+import { DisallowedError, DomainError, ForbiddenError } from "./errors";
+
+// A bare toThrow(): passes only on a domain rejection; any other error is rethrown.
+function expectDomainRejection(call: () => unknown): void { /* … */ }
 
 describe("Order", () => {
   it("adding a line then confirming yields a confirmed order", () => {
@@ -64,7 +68,7 @@ describe("Order", () => {
     order.confirm();
     expect(order.status).toBe(OrderStatus.Confirmed);
     expect(order.lines.length).toBe(1);
-    expect(() => { order.addLine("00000000-0000-0000-0000-000000000002", 0); }).toThrow();
+    expectDomainRejection(() => { order.addLine("00000000-0000-0000-0000-000000000002", 0); });
   });
 });
 ```
@@ -125,6 +129,13 @@ context Sales {
     expect(order.status).toBe(Draft)
   }
 }
+```
+
+**A test file must be imported.** File-root tests can live in their own file (conventionally `tests/*.ddd`), but nothing scans that directory: the project is exactly the import graph reachable from the entry file, so a `tests/order.ddd` that no file `import`s is silently ignored — no diagnostic, no emitted test. Import it from the entry file:
+
+```ddd
+// main.ddd
+import "./tests/order.ddd"   // without this line the tests in it never run
 ```
 
 ### Context integration tests
@@ -241,6 +252,24 @@ describe("SalesSystem e2e", () => {
 
 > The api-e2e suite is emitted as a single vitest+fetch file regardless of backend platform (it talks HTTP, so it is target-language-neutral) — there is no per-backend xUnit/ExUnit api-e2e variant. Only the in-process `test` blocks diverge per backend.
 
+**Response reads are checked against what the route answers** (`loom.e2e-unknown-response-field`), whether the read goes through a `let` binding or straight off the call. A `getById` read is judged against the aggregate's api-read wire shape. A `create` answers `201 { id }` on all five backends, never the row, so `id` is the only field a create result carries:
+
+```ddd
+let w = api.widgets.create({ code: "A" })
+expect(w.code).toBe("A")           // refused: 'w.code' is undefined at run time
+expect(w.note).toBeAbsent()        // refused: green only because '{ id }' has no 'note' key
+let r = api.widgets.getById(w)     // read the row back instead
+expect(r.code).toBe("A")
+expect(r.note).toBeNull()          // an absent optional is an explicit null on the wire
+```
+
+```ts
+const w = await __post(`${base}/api/widgets`, ({ code: "A" }));      // → { id: "…" }
+const r = await __get(`${base}/api/widgets/${w.id}`);               // → { id, code, note: null, version }
+expect(r.code).toBe("A");
+expect(r.note).toBeNull();
+```
+
 ### Driving a workflow — `run` / `instances` / `instance`
 
 A `test e2e` body reaches the **orchestration tier** through the workflow's own name in the slug position. Three verbs, onto the three routes every backend already mounts (`POST /api/workflows/<snake>`, `GET …/instances`, `GET …/instances/{key}`):
@@ -320,7 +349,7 @@ test("place and confirm an order through the UI", async ({ page }) => {
 });
 ```
 
-Assert against a **`getById`-bound** read, as above. A locator assertion taken straight off a `create` result (`let o = ui.orders.create({…})` … `expect(o.reference).toHaveText("…")`) parses and validates clean but currently **crashes `generate system`** (`expect requires a matcher …` out of `renderExpectStmt`) — re-open the row with `getById` first.
+Assert against a **`getById`-bound** read, as above. A locator assertion taken straight off a `ui` `create` result (`let o = ui.orders.create({…})` … `expect(o.reference).toHaveText("…")`) lowers to that same read inlined — `(await new OrderDetailPage(page, o.id).goto()).field("reference")` — because the submitted form returns only `{ id }`: the row is re-opened, never read off the create result. (The `api` side has no such rewrite — see the response-read check above.)
 
 `ui.workflows.<name>(…)` resolves through the generated workflow page object. The page objects (`web_app/e2e/pages/<agg>.ts`) are emitted from the same UI shape under [`src/generator/_frontend/`](../../src/generator/_frontend/) and shared across the frontends.
 
@@ -440,7 +469,7 @@ refusal each backend would invent its own answer.
 
 ### `toThrow()` — the throw assertion
 
-`expect(<call>).toThrow()` asserts the call rejects. The lowering recognises the matcher and rewrites the `expect` into an `expect-throws` IR node, so every backend renders it as its idiomatic throw assertion. The bare form is valid in both unit and **api** e2e bodies; the single-argument form `toThrow(<status>)` **pins an HTTP status** and is only legal in a `test e2e` body (*"'toThrow(<status>)' pins an HTTP status and is only valid in a 'test e2e' block; use a bare 'toThrow()' in an in-process test."*) — the argument is an integer literal (`toThrow(404)`).
+`expect(<call>).toThrow()` asserts the call rejects. In a unit `test` it must be a **domain** rejection: a precondition, an invariant (aggregate, part or value object) or a `when` state gate. A `ReferenceError` / `NameError` out of broken code fails the test rather than passing it. node lowers to a file-local `expectDomainRejection(…)`, python to `pytest.raises((DisallowedError, DomainError, ForbiddenError))`, and Java / .NET / elixir accept the whole domain-rejection family — a precondition, an invariant, a `when` gate or a `requires` (Java / .NET catch the throw, then assert it is a `DomainException` / `DisallowedException` / `ForbiddenException`; elixir asserts its `GuardError`, whose pure op core checks the `when` gate first) ([language.md § What a bare `toThrow()` accepts](../language.md#what-a-bare-tothrow-accepts)). The lowering recognises the matcher and rewrites the `expect` into an `expect-throws` IR node, so every backend renders it as its idiomatic throw assertion. The bare form is valid in both unit and **api** e2e bodies; the single-argument form `toThrow(<status>)` **pins an HTTP status** and is only legal in a `test e2e` body (*"'toThrow(<status>)' pins an HTTP status and is only valid in a 'test e2e' block; use a bare 'toThrow()' in an in-process test."*) — the argument is an integer literal (`toThrow(404)`).
 
 ```ddd
 // unit test — wrap the mutating call
@@ -465,7 +494,7 @@ expect(read.status).toHaveText("Draft")
 
 A bare `toThrow()` asserts only that *something* threw, and the domain floor has more than one rung. The 2026-09-13 testability audit found out the hard way: it deleted a `precondition` from a generated aggregate as a mutation probe and **the test stayed green**, because a guarded collection `invariant` threw in its place. A test named *"a fresh work order cannot be completed"* went on claiming something it no longer proved (F11).
 
-The single-argument **kind** form pins the rung. It is legal only in a unit `test`.
+The single-argument **kind** form pins the rung. It is legal only in a unit `test`. The rung is **structural** on every backend — the domain error carries it as a field (`DomainError.kind` on node / python, `DomainException.getKind()` on java, `DomainException.Kind` on .NET, `GuardError.kind` on elixir), never inferred from the message text — so a rule with an authored `message "…"` is asserted exactly like one without, and the HTTP answer is unchanged (the 422 problem's `detail` is the authored message).
 
 ```ddd
 test "a fresh work order cannot be completed" {
@@ -476,40 +505,39 @@ test "a fresh work order cannot be completed" {
 
 `precondition` and `invariant` are **keywords, not values** — they parse through a dedicated grammar slot and are legal only in this one argument position. Anywhere else (`expect(x).toBe(invariant)`, `wo.complete(precondition)`) the word would be silently dropped in lowering, so `loom.throw-kind-outside-tothrow` rejects it at the source span. `requires` is deliberately **not** a rung here: it is an authorization gate (403) needing a principal the unit tier has no vocabulary for.
 
-**Three refusals bound the form**, each for a different reason:
+**Two refusals bound the form**, each for a different reason:
 
 | Code | When | Why |
 |---|---|---|
 | `loom.e2e-throw-kind-invalid` | in a `test e2e` body | Over HTTP both rungs answer **422**, and their only discriminator is the RFC 7807 `detail` sentence — which an authored `message "…"` on the rule overwrites. One matcher meaning two strengths of claim is the defect [#2959](https://github.com/Loom-Harness/Loc/pull/2959) fixed on the ui side. The e2e body keeps `toThrow(<status>)`. |
 | `loom.throw-kind-integration-unsupported` | in a context-integration `test` | That rung renders through each backend's separate `integration-tests.ts`, which carries no rung — the argument would be dropped and the test would quietly assert only that something threw. |
-| `loom.throw-kind-custom-message` | the rule under test carries `message "…"` | The node / python / java / .NET domain layers discriminate on the derived `"Precondition failed: "` / `"Invariant violated: "` prefix, and an authored message **replaces** that string. Elixir alone is structural — but one unit `test` is emitted for all five backends. Drop the `message`, or assert the bare `toThrow()` and pin the wording in a `test e2e` block, where the message is the RFC 7807 `detail`. |
 
 ::: tabs backend
 == node
 ```ts
-expect(() => { wo.complete(); }).toThrow(/^Precondition failed: /);
+// the file-local helper: a DomainError whose `kind` is the rung, else expect.fail naming both
+expectDomainRejection(() => { wo.complete(); }, "precondition");
 ```
 == python
 ```python
-with pytest.raises(Exception, match=r"^Precondition failed: "):
+with pytest.raises(DomainError) as rejected:
     wo.complete()
+assert rejected.value.kind == "precondition", str(rejected.value)
 ```
 == java
 ```java
 DomainException __thrown1 = assertThrows(DomainException.class, () -> wo.complete());
-assertTrue(__thrown1.getMessage().startsWith("Precondition failed: "),
-    "expected a precondition to reject this call, but it threw: " + __thrown1.getMessage());
+assertEquals(DomainException.Kind.PRECONDITION, __thrown1.getKind(), __thrown1.getMessage());
 ```
 == dotnet
 ```csharp
 var __thrown1 = Assert.Throws<DomainException>(() => { wo.Complete(); });
-Assert.StartsWith("Precondition failed: ", __thrown1.Message);
+Assert.Equal(DomainErrorKind.Precondition, __thrown1.Kind);
 ```
 == elixir
 ```elixir
-# structural, not textual: GuardError is `defexception [:message, :kind]`
-__thrown1 = assert_raise D.GuardError, fn -> D.Work.WorkOrder.complete(wo, %{}) end
-assert __thrown1.kind == :precondition
+rejected1 = assert_raise D.GuardError, fn -> D.Work.WorkOrder.complete(wo, %{}) end
+assert rejected1.kind == :precondition
 ```
 ::: end
 

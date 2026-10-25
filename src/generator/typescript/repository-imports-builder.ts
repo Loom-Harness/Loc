@@ -11,7 +11,11 @@
 // `enums` arrays so the emitted imports are stable across runs.
 
 import type { BoundedContextIR, EnrichedAggregateIR, TypeIR } from "../../ir/types/loom-ir.js";
-import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
+import {
+  enumPool,
+  findValueObjectInScope,
+  valueObjectPool,
+} from "../../ir/util/reachable-types.js";
 
 export function collectValueObjects(agg: EnrichedAggregateIR, ctx: BoundedContextIR): string[] {
   const used = new Set<string>();
@@ -43,5 +47,7 @@ export function collectEnums(agg: EnrichedAggregateIR, ctx: BoundedContextIR): s
   };
   for (const f of agg.fields) visit(f.type);
   for (const part of agg.parts) for (const f of part.fields) visit(f.type);
-  return ctx.enums.filter((e) => used.has(e.name)).map((e) => e.name);
+  return enumPool(ctx)
+    .filter((e) => used.has(e.name))
+    .map((e) => e.name);
 }

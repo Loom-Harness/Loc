@@ -16,11 +16,12 @@ import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channel
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { classifyPage, type PageNameCtx, pageConstructId } from "../../ir/util/page-kind.js";
+import { pagedFindRoutes } from "../../ir/util/paged-find-routes.js";
 import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
-import { humanize, plural, snake, upperFirst } from "../../util/naming.js";
+import { humanize, plural, snake } from "../../util/naming.js";
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_GATE_VUE, AUTH_SESSION_TS, AUTH_USE_SESSION_VUE } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
@@ -60,6 +61,7 @@ import { smokeSpec } from "../_frontend/smoke-spec.js";
 import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
 import { prepareThemeVM } from "../_frontend/theme-preparer.js";
 import { uiUsesToastEffect } from "../_frontend/toast-effect.js";
+import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
 import { buildWorkflowsApiModule, hasAnyWorkflow } from "../_frontend/workflows-module.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
@@ -82,6 +84,7 @@ import {
 } from "../react/emit-templates.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import { renderVueChartRuntime } from "./chart-runtime.js";
+import { addComponentImports } from "./component-imports.js";
 import { prepareVueNamedLayouts } from "./layouts-emitter.js";
 import { buildVueRealtimeHandlers } from "./realtime-handlers-builder.js";
 import { VUE_REF_LABEL, VUE_REF_LABEL_PATH } from "./ref-label-runtime.js";
@@ -155,6 +158,10 @@ export function generateVueForContexts(
   // target backend, docker-compose overrides via `VITE_API_BASE_URL`.
   const apiBaseUrl = options.apiBaseUrl ?? API_BASE_PATH;
   const apiProxyTarget = `http://localhost:${target?.port ?? 8080}`;
+  // A native `vite` run serves on this deployable's declared port.  Only a
+  // standalone frontend (one that `targets:` a backend) has a port of its
+  // own; a bundle embedded in a backend keeps the template default.
+  const devPort = target ? deployable.port : undefined;
   const basePath = options.basePath ?? "";
   const viteBase = basePath ? `${basePath}/` : undefined;
   const routerBasename = basePath || undefined;
@@ -218,7 +225,10 @@ export function generateVueForContexts(
     const repo = ctx.repositories.find((r) => r.aggregateName === agg.name);
     out.set(
       `src/api/${agg.name[0]!.toLowerCase()}${agg.name.slice(1)}.ts`,
-      buildApiModule(agg, repo, ctx, { queryPackage: "@tanstack/vue-query" }),
+      buildApiModule(agg, repo, ctx, {
+        queryPackage: "@tanstack/vue-query",
+        pagedFindRoutes: pagedFindRoutes(sys, target ?? deployable),
+      }),
     );
   }
 
@@ -728,7 +738,10 @@ export function generateVueForContexts(
   out.set("package.json", renderShell(pack, "package-json", { usesMoney, usesCodeBlock }));
   out.set("tsconfig.json", renderShell(pack, "tsconfig", {}));
   out.set("tsconfig.node.json", renderShell(pack, "tsconfig-node", {}));
-  out.set("vite.config.ts", renderShell(pack, "vite-config", { base: viteBase, apiProxyTarget }));
+  out.set(
+    "vite.config.ts",
+    renderShell(pack, "vite-config", { base: viteBase, apiProxyTarget, port: devPort }),
+  );
   // TS 6 (TS2882) requires a declaration for side-effect imports of
   // non-code modules; the shadcnVue pack's `main.ts` does
   // `import "./globals.css"`.  `vite/client` declares the `*.css`
@@ -757,6 +770,14 @@ export function generateVueForContexts(
   }
   emitShellFiles(pack, out);
   emitShellGlobs(pack, out);
+  // Last, over the finished file set: each SFC imports exactly the library
+  // components its template renders (for a pack that opts in), so nothing
+  // registers the whole library in the entry chunk.
+  if (pack.manifest.componentImports) addComponentImports(out, pack.manifest.componentImports);
+
+  // Value-object `==` in a page body renders `loomValueEquals(…)`; define it
+  // in every finished file that calls it (`_frontend/value-equals.ts`).
+  emitJsValueEqualsHelpers(out);
 
   // Path-prefix transform — applied once at the end (mirrors the
   // React generator) so every emitter above stays path-agnostic.
@@ -788,19 +809,6 @@ function pagePath(page: PageIR): string {
   return pageEmitPath(page, ".vue");
 }
 
-/** Pascal component name for a page's router import, derived from its
- *  emit path so sibling pages in different directories can't collide
- *  (`orders/list` → `OrdersList`, `engineer_detail` → `EngineerDetail`). */
-function pageComponentName(page: PageIR): string {
-  const rel = pagePath(page)
-    .replace(/^src\/pages\//, "")
-    .replace(/\.vue$/, "");
-  return rel
-    .split("/")
-    .map((seg) => seg.split(/[_-]/).map(upperFirst).join(""))
-    .join("");
-}
-
 /** A routed page that declares NO `body:` — an intentionally-empty page
  *  (route + title, no content).  Vue's router imports a component for every
  *  routed page, so this shell keeps the import resolvable; the pages WITH a
@@ -823,6 +831,15 @@ function renderPageStub(page: PageIR): string {
 `;
 }
 
+/** A page's route component as a lazy loader.  vue-router resolves the
+ *  `() => import(...)` before it renders the route, and the bundler splits each
+ *  page into its own chunk — so the initial bundle carries only the shell
+ *  (layouts, NotFound) and a page's code downloads the first time it is
+ *  visited. */
+function lazyPageComponent(page: PageIR): string {
+  return `() => import(${JSON.stringify(pagePath(page).replace(/^src\//, "./"))})`;
+}
+
 /** The shared `__LOOM_BASENAME__` hook block both router shapes emit. */
 function pushBasename(lines: string[], bakedBasename?: string): void {
   lines.push("// Optional basename hook the host page can set before the bundle");
@@ -841,10 +858,6 @@ function renderRouter(pages: PageIR[], bakedBasename?: string): string {
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
   lines.push(`import { createRouter, createWebHistory } from "vue-router";`);
-  for (const page of pages) {
-    const rel = pagePath(page).replace(/^src\//, "./");
-    lines.push(`import ${pageComponentName(page)} from "${rel}";`);
-  }
   lines.push(`import NotFound from "./pages/NotFound.vue";`);
   lines.push("");
   pushBasename(lines, bakedBasename);
@@ -854,7 +867,7 @@ function renderRouter(pages: PageIR[], bakedBasename?: string): string {
   lines.push("  routes: [");
   for (const page of pages) {
     lines.push(
-      `    { path: ${JSON.stringify(page.route!)}, component: ${pageComponentName(page)} },`,
+      `    { path: ${JSON.stringify(page.route!)}, component: ${lazyPageComponent(page)} },`,
     );
   }
   lines.push(`    { path: "/:pathMatch(.*)*", component: NotFound },`);
@@ -881,15 +894,6 @@ function renderNestedRouter(
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
   lines.push(`import { createRouter, createWebHistory } from "vue-router";`);
-  const allPages = [
-    ...nonePages,
-    ...layoutNames.flatMap((n) => namedLayoutPages.get(n)!),
-    ...defaultPages,
-  ];
-  for (const page of allPages) {
-    const rel = pagePath(page).replace(/^src\//, "./");
-    lines.push(`import ${pageComponentName(page)} from "${rel}";`);
-  }
   lines.push(`import NotFound from "./pages/NotFound.vue";`);
   lines.push(`import DefaultLayout from "./layouts/DefaultLayout.vue";`);
   for (const name of layoutNames) {
@@ -904,7 +908,7 @@ function renderNestedRouter(
   // `layout: none` — top-level, no chrome.
   for (const page of nonePages) {
     lines.push(
-      `    { path: ${JSON.stringify(page.route!)}, component: ${pageComponentName(page)} },`,
+      `    { path: ${JSON.stringify(page.route!)}, component: ${lazyPageComponent(page)} },`,
     );
   }
   // Named layouts — each wraps its pages as children.  The parent is a
@@ -918,7 +922,7 @@ function renderNestedRouter(
     lines.push("      children: [");
     for (const page of namedLayoutPages.get(name)!) {
       lines.push(
-        `        { path: ${JSON.stringify(page.route!)}, component: ${pageComponentName(page)} },`,
+        `        { path: ${JSON.stringify(page.route!)}, component: ${lazyPageComponent(page)} },`,
       );
     }
     lines.push("      ],");
@@ -931,7 +935,7 @@ function renderNestedRouter(
   lines.push("      children: [");
   for (const page of defaultPages) {
     lines.push(
-      `        { path: ${JSON.stringify(page.route!)}, component: ${pageComponentName(page)} },`,
+      `        { path: ${JSON.stringify(page.route!)}, component: ${lazyPageComponent(page)} },`,
     );
   }
   lines.push(`        { path: "/:pathMatch(.*)*", component: NotFound },`);

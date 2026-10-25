@@ -38,6 +38,37 @@
     },
     {
       "seq": 4,
+      "method": "POST",
+      "path": "/api/accounts/{id}/deposit",
+      "status": 422,
+      "body": {
+        "detail": "Balance cap exceeded",
+        "errors": [
+          {
+            "code": "msg.4ybnu4",
+            "message": "Balance cap exceeded",
+            "pointer": "/balance"
+          }
+        ],
+        "instance": "/api/accounts/{id}/deposit",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "status": 200,
+      "body": {
+        "balance": 70,
+        "id": "<volatile:key>",
+        "owner": "alice"
+      }
+    },
+    {
+      "seq": 6,
       "method": "GET",
       "path": "/api/accounts",
       "status": 200,
@@ -50,7 +81,7 @@
       ]
     },
     {
-      "seq": 5,
+      "seq": 7,
       "method": "POST",
       "path": "/api/accounts",
       "status": 201,
@@ -59,14 +90,14 @@
       }
     },
     {
-      "seq": 6,
+      "seq": 8,
       "method": "POST",
       "path": "/api/accounts/{id}/deposit",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 7,
+      "seq": 9,
       "method": "GET",
       "path": "/api/accounts/by_owner?owner=bob",
       "status": 200,
@@ -77,7 +108,7 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 10,
       "method": "PATCH",
       "path": "/api/accounts",
       "status": 405,
@@ -90,7 +121,7 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 11,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -103,7 +134,7 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 12,
       "method": "POST",
       "path": "/api/accounts",
       "status": 400,
@@ -112,6 +143,25 @@
         "instance": "/api/accounts",
         "status": 400,
         "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/accounts/{id}/deposit",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/amount"
+          }
+        ],
+        "instance": "/api/accounts/{id}/deposit",
+        "status": 422,
+        "title": "Validation failed",
         "type": "about:blank"
       }
     }

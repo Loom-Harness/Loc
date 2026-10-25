@@ -32,6 +32,7 @@
             "id": "<volatile:key>"
           }
         ],
+        "stage": "Pending",
         "title": "T1",
         "version": 2,
         "viewCount": 0
@@ -58,6 +59,7 @@
             "id": "<volatile:key>"
           }
         ],
+        "stage": "Published",
         "title": "T2",
         "version": 3,
         "viewCount": 5
@@ -84,6 +86,7 @@
             "id": "<volatile:key>"
           }
         ],
+        "stage": "Published",
         "title": "T2",
         "version": 4,
         "viewCount": 6
@@ -104,6 +107,7 @@
               "id": "<volatile:key>"
             }
           ],
+          "stage": "Published",
           "title": "T2",
           "version": 4,
           "viewCount": 6
@@ -125,6 +129,7 @@
               "id": "<volatile:key>"
             }
           ],
+          "stage": "Published",
           "title": "T2",
           "version": 4,
           "viewCount": 6
@@ -312,6 +317,45 @@
         "instance": "/api/articles",
         "status": 400,
         "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 27,
+      "method": "POST",
+      "path": "/api/articles/{id}/bump",
+      "status": 404,
+      "body": {
+        "detail": "Article {id} not found",
+        "instance": "/api/articles/{id}/bump",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 28,
+      "method": "POST",
+      "path": "/api/articles/{id}/bump",
+      "status": 404,
+      "body": {
+        "detail": "Article {id} not found",
+        "instance": "/api/articles/{id}/bump",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 29,
+      "method": "POST",
+      "path": "/api/articles/{id}/bump",
+      "status": 415,
+      "body": {
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/articles/{id}/bump",
+        "status": 415,
+        "title": "Unsupported Media Type",
         "type": "about:blank"
       }
     }

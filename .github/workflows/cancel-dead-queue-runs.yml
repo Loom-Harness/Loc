@@ -1,0 +1,36 @@
+name: Cancel dead merge-queue runs
+
+# A re-formed merge-queue group leaves its predecessor's runs queued and
+# running: the predecessor's `gh-readonly-queue/…` ref is deleted, but every
+# group ref is unique, so no concurrency group ever cancels them.  This sweep
+# cancels any `merge_group` run whose group ref no longer exists — the queue's
+# equivalent of `cancel-in-progress` on a superseded PR push.  Logic and
+# rationale: scripts/cancel-dead-queue-runs.mjs.
+
+on:
+  schedule:
+    # Every 10 minutes, off the :00 scheduler rush.
+    - cron: '3-59/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: cancel-dead-queue-runs
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: scripts/cancel-dead-queue-runs.mjs
+          sparse-checkout-cone-mode: false
+      - name: Cancel runs of discarded queue groups
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/cancel-dead-queue-runs.mjs

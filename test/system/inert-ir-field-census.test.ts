@@ -72,6 +72,10 @@ const NO_DOWNSTREAM_READER: readonly string[] = [
   // --- the rest: candidates awaiting a disposition -------------------------
   "auditHistory",
   "crossTenant",
+  // M-T3.19 deny-by-default reads: read only through `src/ir/util/read-gates.ts`
+  // (`byIdRouteFind`) and the validator; the effect reaches every target as the
+  // stamped/synthesised `requires` gate, which every route emitter renders.
+  "defaultDenied",
   "execTestsByCodeElement",
   "impliedBy",
   "keyPrefix",
@@ -81,18 +85,13 @@ const NO_DOWNSTREAM_READER: readonly string[] = [
   "policyWriteLevels",
   "priority",
   "readonly",
+  "readsDefaultDenied", // see `defaultDenied` above — consumed via read-gates.ts
   "resourceInterfaces",
   "retain",
   "rootEnums",
   "rootPayloads",
   "rootValueObjects",
-  "runtimeString",
   "sessions",
-  // Read only through `src/ir/util/reachable-types.ts` (`enumPool`), which the
-  // generators call — the root grep does not follow that indirection.  Its
-  // twin `siblingValueObjects` is read directly by one flutter emitter, so it
-  // passes by accident; this row says the pair is benign (#3033).
-  "siblingEnums",
   "sourceAlias",
   "sourceModule",
   "testCaseId",

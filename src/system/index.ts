@@ -1,4 +1,5 @@
 import { claimPathFor } from "../generator/_auth/claim-types.js";
+import { DEV_STUB_ID_GUID } from "../generator/_auth/dev-stub-id.js";
 import {
   brokerUrl,
   devPassword,
@@ -25,6 +26,7 @@ import type {
   EnrichedLoomModel,
   EnrichedSubdomainIR,
   EnrichedSystemIR,
+  FieldIR,
   Platform,
   SystemIR,
   TypeIR,
@@ -44,8 +46,9 @@ import { AUTH_BASE_PATH } from "../util/api-base.js";
 import { type EmissionSink, emissionSink } from "../util/emission-sink.js";
 import { resourceEnvUrlVar, resourceSidecarUrl } from "../util/resource-env.js";
 import { renderAsyncApi } from "./asyncapi.js";
+import { rerootLegacyDapperModules, withRerootedVersions } from "./dapper-legacy-reroot.js";
 import { renderDataSourcesMd } from "./datasources.js";
-import { renderE2EFile } from "./e2e-render.js";
+import { type DevIdpTokenSource, renderE2EFile } from "./e2e-render.js";
 import { collectGiveUps, type GiveUpReport } from "./give-up-report.js";
 import { renderHelmChart } from "./helm.js";
 import { renderMessageCatalog } from "./i18n-catalog.js";
@@ -229,9 +232,11 @@ export function generateSystemsFromLoom(
   // (same pattern as traceability below), so a single recorder's paths
   // line up with the final written paths across every system.
   const recorder = options.sourcemap ? SourceMapRecorder.create() : undefined;
-  // Every system's migrations, folded into ONE source-side ledger below:
-  // the ledger is keyed by module and lives beside the `.ddd`, which may
-  // declare several systems.
+  // Every system's migrations, folded into ONE source-side ledger below: the
+  // ledger is keyed by module and lives beside the `.ddd`.  (A valid project
+  // declares exactly one system — `loom.multiple-systems` — so these loops run
+  // once; a second system would collide on the root files, which the
+  // write-once sink refuses.)
   const builtMigrations: MigrationsIR[] = [];
   // Every system's phase-⑨ advisories, folded into one list on the emission.
   const migrationWarnings: MigrationWarning[] = [];
@@ -305,8 +310,7 @@ export function generateSystemsFromLoom(
   // which test projects exist, how each deployable's own project boots, which
   // `.loom/` artifacts this model produced (traceability is emitted above,
   // after `emitSystem`, so an earlier call would under-report it).  Written at
-  // the output root beside `docker-compose.yml`, and like that file the last
-  // system wins when a source declares several.  Scaffold-once, so it never
+  // the output root beside `docker-compose.yml`.  Scaffold-once, so it never
   // overwrites `ddd new`'s README at this same path nor a reader's own edits
   // — see the header of `readme.ts`.
   for (const sys of loom.systems) {
@@ -316,6 +320,7 @@ export function generateSystemsFromLoom(
         slugOf: serviceSlug,
         emitted: out,
         dbImage: POSTGRES_IMAGE,
+        ...(bundlesKeycloak(sys) ? { devIdp: keycloakConfig(sys) } : {}),
       }),
     );
   }
@@ -365,7 +370,7 @@ function emitSystem(
   // a baseline to diff against.  Modules without an owner are skipped
   // by `buildMigrations` — `migrations` only carries entries for
   // modules where `module.migrationsOwner` is set.
-  const migrations = buildMigrations(sys, options.snapshots, {
+  const built = buildMigrations(sys, options.snapshots, {
     allowDestructive: options.allowDestructive,
     renameIntents: loom.renameIntents,
     tableRenameIntents: loom.tableRenameIntents,
@@ -373,6 +378,15 @@ function emitSystem(
     sqlSteps: loom.sqlMigrationSteps,
     warnings: options.collectMigrationWarnings,
   });
+  // A Dapper output tree written before that adapter applied the chain holds a
+  // snapshot history with no files behind it; re-emit its Initial so the
+  // runner can baseline the database the old bootstrap provisioned
+  // (`dapper-legacy-reroot.ts`).  Needs the on-disk inventory to recognise it.
+  const { migrations, rerooted } = rerootLegacyDapperModules(
+    sys,
+    built,
+    options.existingMigrations,
+  );
   // Baseline-safety guards (M-T2.2): refuse a silent re-baseline when the
   // snapshot is missing but migration files exist, verify files ↔ recorded
   // history, and reject version-number reuse.  Skipped when no on-disk
@@ -382,9 +396,12 @@ function emitSystem(
   // supplied a ledger.  `checkMigrationBaseline` with an empty index simply
   // skips (a)-(c).
   if (options.existingMigrations || options.recordedHistory) {
+    // Guarded on the DERIVED list: a re-emitted Initial is not a fresh
+    // "Initial" re-baselining a module (guard (a)), it is the file the
+    // snapshot history already names — which the index now shows on disk.
     checkMigrationBaseline(
-      migrations,
-      options.existingMigrations ?? memoryMigrationArtifactIndex(),
+      built,
+      withRerootedVersions(options.existingMigrations ?? memoryMigrationArtifactIndex(), rerooted),
       {
         allowRebaseline: options.allowRebaseline,
         recordedHistory: options.recordedHistory,
@@ -393,8 +410,11 @@ function emitSystem(
     );
   }
   options.collectMigrations?.push(...migrations);
-  for (const m of migrations) {
-    out.set(snapshotRelPath(m.module), serializeSnapshot(m.next));
+  // One snapshot per module — the LAST migration's (a re-rooted module carries
+  // its re-emitted Initial ahead of this run's delta).
+  const nextByModule = new Map(migrations.map((m) => [m.module, m.next] as const));
+  for (const [module, next] of nextByModule) {
+    out.set(snapshotRelPath(module), serializeSnapshot(next));
   }
 
   for (const d of sys.deployables) {
@@ -449,7 +469,11 @@ function emitSystem(
   if (options.sourcemap) {
     const debugConfigs = sys.deployables
       .map((d) =>
-        platformFor(d.platform).debugLaunch?.({ deployable: d, slug: serviceSlug(d.name) }),
+        platformFor(d.platform).debugLaunch?.({
+          deployable: d,
+          slug: serviceSlug(d.name),
+          contexts: collectContextsFor(d, modulesByName),
+        }),
       )
       .filter((c): c is Record<string, unknown> => c !== undefined);
     if (debugConfigs.length > 0) {
@@ -500,7 +524,7 @@ function emitSystem(
   // E2E test scaffolding — emitted only when the system declares
   // `test e2e` blocks.  Lives at the system root so it can run against
   // the whole compose stack with one `vitest run e2e/`.
-  const e2eFile = renderE2EFile(sys, modulesByName);
+  const e2eFile = renderE2EFile(sys, modulesByName, devIdpTokenSource(sys));
   if (e2eFile) {
     out.set(`e2e/${sys.name}.e2e.test.ts`, e2eFile);
     out.set("e2e/package.json", E2E_PACKAGE_JSON);
@@ -697,7 +721,7 @@ function emitDeployable(
   // dictates).
   const sub = serviceSlug(d.name);
   // Resolve the EMITTER surface by the fully-qualified `platformRef`
-  // (`node@v4` / `node@v5`) so a backend version pin selects the right
+  // (`node@v5`) so a backend version pin selects the right
   // dep-pin set.  Family-level facts (`needsDb`, adapters) stay keyed on
   // `d.platform` — they're version-independent.  (Before multiple node
   // versions existed, family→default coincided with the only version.)
@@ -960,9 +984,9 @@ function renderDockerCompose(sys: SystemIR): string {
 
 // ---------------------------------------------------------------------------
 // Bundled dev Keycloak (D-AUTH-OIDC §4.2 — the zero-config quick-start).
-// Added when the system declares an OIDC `auth { … }` block whose provider is
-// self-hosted (keycloak / custom / a raw `oidc { issuer }`); hosted presets
-// (google / auth0 / …) use their own IdP and get no bundled service.
+// Added whenever the system declares an OIDC `auth { … }` block, hosted
+// presets (google / auth0 / …) included — see `bundlesDevKeycloak` for why the
+// local stack never depends on the real provider.
 // ---------------------------------------------------------------------------
 
 /** Host port the bundled Keycloak is published on.  Starts at 8081 (8080 is
@@ -1002,6 +1026,24 @@ function keycloakConfig(sys: SystemIR): {
   };
 }
 
+/** Where the generated e2e suite mints its bearer token when the runner hands
+ *  it none: the bundled realm's token endpoint as the HOST sees it, plus the
+ *  realm's public client.  `undefined` when no backend requires auth or no
+ *  realm is bundled — the suite then emits no minting code at all.
+ *
+ *  `localhost`, not `host.docker.internal`: the suite runs on the host.  The
+ *  token's `iss` is still the `KC_HOSTNAME` URL the backends verify against,
+ *  because Keycloak stamps its configured hostname, not the request's. */
+function devIdpTokenSource(sys: SystemIR): DevIdpTokenSource | undefined {
+  if (!bundlesKeycloak(sys)) return undefined;
+  if (!sys.deployables.some((d) => d.auth?.required)) return undefined;
+  const { realm, clientId, hostPort } = keycloakConfig(sys);
+  return {
+    tokenUrl: `http://localhost:${hostPort}/realms/${realm}/protocol/openid-connect/token`,
+    clientId,
+  };
+}
+
 function renderKeycloakService(sys: SystemIR): string[] {
   const hostPort = keycloakHostPort(sys);
   return [
@@ -1036,23 +1078,31 @@ function renderKeycloakRealm(sys: SystemIR): string {
   // carry it, or every password-grant/redirect token 401s out of the
   // box (Keycloak's default `aud` is `account`).  An audience protocol
   // mapper on the client injects the declared value into access tokens.
+  //
+  // An `env(…)` audience has no value at generate time, so the realm cannot
+  // mint it verbatim.  It mints the CLIENT'S OWN id instead
+  // (`included.client.audience`) — without a mapper Keycloak's access-token
+  // `aud` is `account`, which no audience value an operator could set would
+  // match, so `OIDC_AUDIENCE=<clientId>` on the bundled stack 401'd every
+  // token.  With it, the documented setting just works.
   const audience = sys.auth?.oidc.audience;
-  const audienceMappers =
-    audience?.kind === "literal"
-      ? [
-          {
-            name: "loom-declared-audience",
-            protocol: "openid-connect",
-            protocolMapper: "oidc-audience-mapper",
-            consentRequired: false,
-            config: {
-              "included.custom.audience": audience.value,
-              "access.token.claim": "true",
-              "id.token.claim": "false",
-            },
+  const audienceMappers = audience
+    ? [
+        {
+          name: "loom-declared-audience",
+          protocol: "openid-connect",
+          protocolMapper: "oidc-audience-mapper",
+          consentRequired: false,
+          config: {
+            ...(audience.kind === "literal"
+              ? { "included.custom.audience": audience.value }
+              : { "included.client.audience": clientId }),
+            "access.token.claim": "true",
+            "id.token.claim": "false",
           },
-        ]
-      : [];
+        },
+      ]
+    : [];
   // ONE PROTOCOL MAPPER PER DECLARED CLAIM, with a seeded value on the demo
   // user — so the dev IdP can actually exercise the authorization model the
   // same `.ddd` declares.
@@ -1174,8 +1224,39 @@ function renderKeycloakRealm(sys: SystemIR): string {
         ? ["admin"]
         : f.name === demoTenantClaim(sys)
           ? [DEMO_TENANT_ID]
-          : [`demo-${f.name.replace(/([A-Z])/g, (c) => `-${c.toLowerCase()}`)}`];
+          : [demoClaimValue(f, sys)];
   }
+
+  // A SECOND seeded user, `demo-admin`, holding EVERY declared permission.
+  //
+  // `demo` stays exactly as unprivileged as the comment above argues — its
+  // permission denial is a contract the cross-backend runtime-authorization
+  // gate pins.  But under `enforcement: denyByDefault` (the language default)
+  // every client-reachable member carries a `requires` gate, which in practice
+  // is a permission check, so a realm whose only user holds no permission is a
+  // stack where nothing can be done at all (claims eval D8).  `demo-admin` is
+  // the allow-path principal: it carries the `<subdomain>.<name>` runtime
+  // string of every `permissions { }` entry, through whichever channel the
+  // backends read `permissions` from — the flat user-attribute claim, or the
+  // realm roles when `permissions` maps onto `realm_access.roles`.
+  const permissionStrings = [
+    ...new Set(sys.subdomains.flatMap((s) => s.permissions.map((p) => p.runtimeString))),
+  ].sort();
+  const permissionsField = (sys.user?.fields ?? []).find(
+    (f) => f.name === "permissions" && f.type.kind === "array",
+  );
+  const permissionsPath = permissionsField
+    ? claimPathFor(permissionsField.name, sys.auth ?? { claims: [] })
+    : undefined;
+  const grantsViaAttribute =
+    !!permissionsField && claimFields.includes(permissionsField) && permissionStrings.length > 0;
+  const grantsViaRealmRoles =
+    permissionsPath === "realm_access.roles" && permissionStrings.length > 0;
+  const adminAttributes: Record<string, string[]> = {
+    ...demoAttributes,
+    ...(grantsViaAttribute ? { permissions: permissionStrings } : {}),
+  };
+  const seedsAdmin = grantsViaAttribute || grantsViaRealmRoles;
 
   const clientMappers = [...audienceMappers, ...claimMappers];
   const doc = {
@@ -1195,7 +1276,30 @@ function renderKeycloakRealm(sys: SystemIR): string {
     // by the same tool and must not disagree; `keycloak-realm-grants-handshake-scopes`
     // pins that they don't.
     roles: {
-      realm: [{ name: "user" }, { name: "agent" }, { name: "admin" }, { name: "offline_access" }],
+      realm: [
+        { name: "user" },
+        { name: "agent" },
+        { name: "admin" },
+        { name: "offline_access" },
+        ...(grantsViaRealmRoles ? permissionStrings.map((name) => ({ name })) : []),
+      ],
+    },
+    // Keycloak 24+ runs every realm under the declarative user profile, whose
+    // default `unmanagedAttributePolicy` is unset — so an attribute the profile
+    // does not declare is DROPPED: an operator granting `permissions` (or any
+    // claim attribute) to a user through the admin console / API saw it
+    // silently discarded, and the token never carried it.  ENABLED keeps such
+    // attributes and lets the per-claim mappers above project them.  The four
+    // built-in attributes are restated because this config REPLACES the
+    // default profile rather than merging into it.
+    components: {
+      "org.keycloak.userprofile.UserProfileProvider": [
+        {
+          providerId: "declarative-user-profile",
+          subComponents: {},
+          config: { "kc.user.profile.config": [JSON.stringify(KEYCLOAK_USER_PROFILE)] },
+        },
+      ],
     },
     clients: [
       {
@@ -1225,6 +1329,26 @@ function renderKeycloakRealm(sys: SystemIR): string {
         // no claims beyond `id`/`email`, so those realms stay byte-identical.
         ...(Object.keys(demoAttributes).length > 0 ? { attributes: demoAttributes } : {}),
       },
+      ...(seedsAdmin
+        ? [
+            {
+              username: "demo-admin",
+              enabled: true,
+              email: "demo-admin@example.com",
+              firstName: "Demo",
+              lastName: "Admin",
+              emailVerified: true,
+              credentials: [{ type: "password", value: "demo-admin", temporary: false }],
+              realmRoles: [
+                "user",
+                "agent",
+                "offline_access",
+                ...(grantsViaRealmRoles ? permissionStrings : []),
+              ],
+              ...(Object.keys(adminAttributes).length > 0 ? { attributes: adminAttributes } : {}),
+            },
+          ]
+        : []),
     ],
   };
   return `${JSON.stringify(doc, null, 2)}\n`;
@@ -1618,6 +1742,15 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
     const kc = keycloakConfig(sys);
     lines.push(`    OIDC_ISSUER: ${JSON.stringify(kc.issuer)}`);
     lines.push(`    OIDC_CLIENT_ID: ${JSON.stringify(kc.clientId)}`);
+    // An `audience: env(...)` resolves to nothing unless the deploy env sets
+    // it, and an unset audience turns the `aud` check OFF on every backend —
+    // so without this line the dev stack verified tokens fail-open.  The realm
+    // mints the client id into `aud` for exactly this case (the audience
+    // mapper in `renderKeycloakRealm`); every backend reads `OIDC_AUDIENCE`
+    // ahead of the declared variable, so this one name covers any env name.
+    if (sys.auth?.oidc.audience?.kind === "env") {
+      lines.push(`    OIDC_AUDIENCE: ${JSON.stringify(kc.clientId)}`);
+    }
     lines.push(
       `    OIDC_REDIRECT_URI: ${JSON.stringify(`http://localhost:${d.port}${AUTH_BASE_PATH}/callback`)}`,
     );
@@ -1691,6 +1824,123 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
 /** Keycloak's `jsonType.label` for a declared claim's Loom type.  Keycloak
  *  types the claim value from this; getting it wrong makes a numeric claim
  *  arrive as a string (and an int comparison in a gate silently false). */
+/** The seeded demo value of a non-authority claim, shaped like its declared
+ *  type.  An `X id` / `guid` claim is a UUID — the dev stub's all-zero id
+ *  (`DEV_STUB_ID_GUID`), since a `demo-agent-id` string fails every backend's
+ *  id parse (and the .NET/java UUID-backed id types outright); a numeric claim
+ *  is `0` and a `bool` claim `false`, because Keycloak types the claim from the
+ *  mapper's `jsonType.label` and a non-numeric seed is dropped from the token.
+ *  Every TYPED claim must decode on all five backends: the .NET / java
+ *  verifiers decode typed claims (D16) and reject a token whose REQUIRED typed
+ *  claim does not decode, so a `demo-since` datetime would 401 the demo user.
+ *  Hence a fixed ISO-8601 instant for `datetime`, `"0"` for `decimal`/`money`,
+ *  an enum's first member, and a list claim seeded with ONE valid element of
+ *  its element type (it rides a `multivalued` mapper).  Only a `string` (or
+ *  an unmodelled shape) keeps the obviously-synthetic `demo-<kebab-name>`. */
+function demoClaimValue(f: FieldIR, sys: SystemIR): string {
+  const synthetic = `demo-${f.name.replace(/([A-Z])/g, (c: string) => `-${c.toLowerCase()}`)}`;
+  const seed = (t: TypeIR): string => {
+    switch (t.kind) {
+      case "optional":
+        return seed(t.inner);
+      case "array":
+        return seed(t.element);
+      case "id":
+        return DEV_STUB_ID_GUID;
+      case "enum":
+        return enumFirstMember(sys, t.name) ?? synthetic;
+      case "primitive":
+        switch (t.name) {
+          case "guid":
+            return DEV_STUB_ID_GUID;
+          case "int":
+          case "long":
+          case "decimal":
+          case "money":
+            return "0";
+          case "bool":
+            return "false";
+          case "datetime":
+            return DEMO_CLAIM_INSTANT;
+          default:
+            return synthetic;
+        }
+      default:
+        return synthetic;
+    }
+  };
+  return seed(f.type);
+}
+
+/** The fixed instant a `datetime` claim is seeded with — ISO-8601 UTC, which
+ *  every backend's verifier decodes. */
+const DEMO_CLAIM_INSTANT = "2026-01-01T00:00:00Z";
+
+/** The first declared member of the enum `name`, searched across the system. */
+function enumFirstMember(sys: SystemIR, name: string): string | undefined {
+  for (const sd of sys.subdomains) {
+    for (const ctx of sd.contexts) {
+      const e = ctx.enums.find((x) => x.name === name);
+      if (e) return e.values[0];
+    }
+  }
+  return undefined;
+}
+
+/** The realm's declarative user profile (Keycloak 24+): Keycloak's own default
+ *  profile — the four built-in attributes, restated because a realm-import
+ *  `kc.user.profile.config` REPLACES the default — plus
+ *  `unmanagedAttributePolicy: ENABLED`, so claim attributes the profile does
+ *  not declare survive an admin-console / admin-API edit instead of being
+ *  dropped. */
+const KEYCLOAK_USER_PROFILE = {
+  attributes: [
+    {
+      name: "username",
+      displayName: "${username}",
+      validations: {
+        length: { min: 3, max: 255 },
+        "username-prohibited-characters": {},
+        "up-username-not-idn-homograph": {},
+      },
+      permissions: { view: ["admin", "user"], edit: ["admin", "user"] },
+      multivalued: false,
+    },
+    {
+      name: "email",
+      displayName: "${email}",
+      validations: { email: {}, length: { max: 255 } },
+      required: { roles: ["user"] },
+      permissions: { view: ["admin", "user"], edit: ["admin", "user"] },
+      multivalued: false,
+    },
+    {
+      name: "firstName",
+      displayName: "${firstName}",
+      validations: { length: { max: 255 }, "person-name-prohibited-characters": {} },
+      required: { roles: ["user"] },
+      permissions: { view: ["admin", "user"], edit: ["admin", "user"] },
+      multivalued: false,
+    },
+    {
+      name: "lastName",
+      displayName: "${lastName}",
+      validations: { length: { max: 255 }, "person-name-prohibited-characters": {} },
+      required: { roles: ["user"] },
+      permissions: { view: ["admin", "user"], edit: ["admin", "user"] },
+      multivalued: false,
+    },
+  ],
+  groups: [
+    {
+      name: "user-metadata",
+      displayHeader: "User metadata",
+      displayDescription: "Attributes, which refer to user metadata",
+    },
+  ],
+  unmanagedAttributePolicy: "ENABLED",
+} as const;
+
 function keycloakJsonType(t: TypeIR): string {
   const inner = t.kind === "array" ? t.element : t;
   if (inner.kind === "primitive") {

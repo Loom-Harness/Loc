@@ -69,15 +69,27 @@ const NAMES = [
   "LineItem",
   "PurchaseOrder",
 ];
-// NOTE the absence of `amount`.  Its PascalCase form collides with the value
-// object `Amount` in VO_NAMES below, and the dotnet backend refuses that by
-// design (`loom.dotnet-name-collision`): C# resolves a simple name in
-// expression position against the enclosing class's members first, so a member
-// `Amount` hides the type `Amount` and the emitted C# stops compiling.  The
-// generator was emitting that model and the deep leg reported it as `invalid`,
-// correctly — the gate is right, the generator was wrong.  `assertNoTypeNameCollisions`
-// below keeps the two lists disjoint so a future addition cannot reintroduce it.
-const FIELDS = ["code", "label", "charge", "quantity", "active", "note", "total", "openedAt"];
+// `amount` is here ON PURPOSE, beside the value object `Amount` in VO_NAMES
+// below.  The dotnet backend used to refuse that pair
+// (`loom.dotnet-name-collision`), and the deep leg's seeds 45/70/115 all shrank
+// to it — but the refusal was an over-fire: the emitted aggregate class names a
+// value object only in TYPE position (`public Amount Price`, `new Amount(…)`),
+// where member lookup never runs, so the member hides nothing (M-T6.69, corpus
+// fixture `member-named-like-vo`).  What the gate still refuses is a member
+// named after an AGGREGATE (its own class / parts / id classes are referenced
+// in EXPRESSION position); `assertNoTypeNameCollisions` keeps FIELDS disjoint
+// from NAMES so a future addition cannot reintroduce that.
+const FIELDS = [
+  "code",
+  "label",
+  "amount",
+  "charge",
+  "quantity",
+  "active",
+  "note",
+  "total",
+  "openedAt",
+];
 
 /** A literal of the given declared type — the generator only ever emits
  *  type-correct assignments, because an INVALID model proves nothing about the
@@ -129,7 +141,9 @@ function genShallowModel(seed: number): string {
     const first = fields[0] as { name: string; type: string };
     const create = crudish
       ? ""
-      : `\n        create(${first.name}: ${first.type}) {\n          ${first.name} := ${first.name}\n        }`;
+      : // A declared create's params ARE the create input, so it lists every
+        // (required) field.
+        `\n        create(${fields.map((f) => `${f.name}: ${f.type}`).join(", ")}) {\n          ${first.name} := ${first.name}\n        }`;
 
     // A named operation assigning one field, optionally guarded.
     let ops = "";
@@ -310,16 +324,17 @@ export type ModelSpec = {
 
 const VO_NAMES = ["Amount", "Ratio", "Extent"];
 
-/** A generated FIELD name must never PascalCase onto a generated TYPE name.
+/** A generated FIELD name must never PascalCase onto a generated AGGREGATE name
+ *  (value objects are fine — see the note on FIELDS).
  *  Checked at import so the failure names the cause, rather than surfacing 250
  *  seeds later as a `loom.dotnet-name-collision` in the `invalid` tier. */
 function assertNoTypeNameCollisions(): void {
-  const types = new Set([...VO_NAMES, ...NAMES].map((n) => n.toLowerCase()));
+  const types = new Set(NAMES.flatMap((n) => [n, `${n}Id`]).map((n) => n.toLowerCase()));
   const clash = FIELDS.filter((f) => types.has(f.toLowerCase()));
   if (clash.length > 0) {
     throw new Error(
       `ddd-model-generator: field name(s) ${clash.join(", ")} collide with a generated ` +
-        `type name. The dotnet backend refuses that model (loom.dotnet-name-collision), ` +
+        `aggregate name. The dotnet backend refuses that model (loom.dotnet-name-collision), ` +
         `so every seed carrying the field would be reported as an invalid MODEL rather ` +
         `than telling you anything about the pipeline. Rename the field.`,
     );
@@ -368,7 +383,8 @@ function emitAgg(agg: AggSpec): string {
   const create =
     createField === undefined
       ? ""
-      : `\n        create(${createField.name}: ${createField.type}) {` +
+      : // A declared create's params ARE the create input: every field.
+        `\n        create(${agg.fields.map((f) => `${f.name}: ${f.type}`).join(", ")}) {` +
         `\n          ${createField.name} := ${createField.name}\n        }`;
   const op = agg.op
     ? `\n        operation ${agg.op.name}() {` +

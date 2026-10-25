@@ -1,7 +1,8 @@
-import type { BoundedContextIR } from "../../../ir/types/loom-ir.js";
+import type { BoundedContextIR, FieldIR } from "../../../ir/types/loom-ir.js";
 import { deriveContextOperations, staticSubpathRoutes } from "../../../ir/util/api-surface.js";
 import { readPortsForOperation } from "../../../ir/util/domain-service-read-ports.js";
 import { isTphBase } from "../../../ir/util/inheritance.js";
+import { UNSUPPORTED_MEDIA_TYPE_DETAIL } from "../../../ir/util/openapi-errors.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, upperFirst } from "../../../util/naming.js";
@@ -98,12 +99,19 @@ export function renderProgram(
   ctx: BoundedContextIR,
   ns: string,
   options?: {
+    /** The deployable's declared port: a `dotnet run` with no URL configured
+     *  listens there.  Absent (the per-context legacy mode) leaves Kestrel's
+     *  own default. */
+    nativePort?: number;
     authRequired?: boolean;
-    /** Declared `user { … }` field names, in declaration order — the shape
+    /** Declared `user { … }` fields, in declaration order — the shape
      *  `/auth/me` projects (#2548).  Empty/absent when the deployable has no
      *  auth. */
-    userFields?: string[];
+    userFields?: readonly FieldIR[];
     usesValidators?: boolean;
+    /** True when the project emits `Api/OpUnionResponsesFilter.cs` (an
+     *  operation-return union with an `error` arm, M-FT.24); registers it. */
+    opUnionFilter?: boolean;
     /** When true, at least one aggregate carries `flags.isAuditable`
      *  (any aggregate has contextStamps from one or more macros).
      *  Program.cs registers the `AuditableInterceptor` and attaches
@@ -158,7 +166,7 @@ export function renderProgram(
     realtimeTenantClaim?: string;
     /** Persistence selection (D-REALIZATION-AXES `persistence:`): when true,
      *  the deployable uses Dapper — Program.cs registers an `NpgsqlDataSource`
-     *  (not a `DbContext`) and applies the self-contained `DbSchema` at
+     *  (not a `DbContext`) and applies its versioned migrations via `DbSchema` at
      *  startup instead of EF migrations. */
     usingDapper?: boolean;
     /** Per-operation audit (audit-and-logging.md): registers the scoped
@@ -214,6 +222,10 @@ export function renderProgram(
      *  index.ts (it holds the pre-merge context names the event stores key
      *  off).  Consumed only when `usingDapper` — the EF path uses open generics. */
     dapperPortRegistrations?: string[];
+    /** Dapper connection `search_path` — `public` then every schema the
+     *  migrations put this deployable's tables in (`dapperSearchPath`).
+     *  Consumed only when `usingDapper`. */
+    dapperSearchPath?: string[];
     /** File upload/download (M-T1.2): fully-qualified raw-bytes helper method
      *  references for the bound objectStore, so Program.cs maps root
      *  `POST /files` + `GET /files/{key}` over them.  Undefined ⇒ no File field,
@@ -785,7 +797,7 @@ app.Use(async (HttpContext http, RequestDelegate next) =>
   // the declared spelling verbatim (the web defaults' camelCase policy applies
   // to PROPERTY names, not dictionary keys) and sidesteps C# identifier rules.
   const meProjection = (options?.userFields ?? [])
-    .map((f) => `            [${JSON.stringify(f)}] = accessor.User.${upperFirst(f)},`)
+    .map((f) => `            [${JSON.stringify(f.name)}] = ${meClaimValue(f)},`)
     .join("\n");
   const authMe = authRequired
     ? `app.MapGet("${AUTH_BASE_PATH}/me", (ICurrentUserAccessor accessor) =>
@@ -814,7 +826,18 @@ using OpenTelemetry.Trace;
 using Prometheus;
 
 var builder = WebApplication.CreateBuilder(args);
-
+${
+  options?.nativePort !== undefined
+    ? `
+// A native \`dotnet run\` listens on the deployable's declared port.  The image
+// sets ASPNETCORE_URLS, and --urls / ASPNETCORE_HTTP_PORTS still win here.
+if (string.IsNullOrEmpty(builder.Configuration["urls"]) && string.IsNullOrEmpty(builder.Configuration["http_ports"]))
+{
+    builder.WebHost.UseUrls("http://localhost:${options.nativePort}");
+}
+`
+    : ""
+}
 // Fail fast on a missing connection string.  Without this an unset
 // ConnectionStrings__Default surfaces as a confusing
 // "Cannot open connection" mid-request; we'd rather die at boot
@@ -893,7 +916,7 @@ builder.Services.AddHttpLogging(opts =>
 ${
   usingDapper
     ? `// Dapper persistence: a single Npgsql data source, no DbContext.
-${renderDapperConnectionSetup().join("\n")}`
+${renderDapperConnectionSetup(options?.dapperSearchPath ?? []).join("\n")}`
     : usesStamping
       ? `builder.Services.AddScoped<${ns}.Infrastructure.Persistence.AuditableInterceptor>();
 builder.Services.AddDbContext<AppDbContext>((sp, opts) =>
@@ -1004,6 +1027,8 @@ builder.Services.AddProblemDetails(opts =>
         ctx.ProblemDetails.Type = "about:blank";
         ctx.ProblemDetails.Status = status;
         ctx.ProblemDetails.Title ??= ReasonPhrases.GetReasonPhrase(status);
+        // A 415 carries the one sentence every backend sends for it (RS-39).
+        if (status == 415) ctx.ProblemDetails.Detail = ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)};
         ctx.ProblemDetails.Detail ??= ctx.ProblemDetails.Title;
         ctx.ProblemDetails.Instance ??= ctx.HttpContext.Request.Path;
         ctx.ProblemDetails.Extensions.Remove("traceId");
@@ -1064,7 +1089,14 @@ builder.Services.AddSwaggerGen(c =>
     c.OperationFilter<ProblemDetailsResponsesFilter>();
     // Promote inline array list responses to named <Agg>ListResponse
     // components (matches Hono/Phoenix, which name the wrapper).
-    c.DocumentFilter<ListResponseWrapperFilter>();
+    c.DocumentFilter<ListResponseWrapperFilter>();${
+      options?.opUnionFilter
+        ? `
+    // An operation returning \`T or <Error>\`: 200 carries the success arms,
+    // each error arm's status carries its problem body (M-FT.24).
+    c.DocumentFilter<OpUnionResponsesFilter>();`
+        : ""
+    }
     // Mark non-nullable reference-type properties as required in the
     // schema — matches Hono/Phoenix, which mark every non-optional field
     // required.  Without this Swashbuckle leaves the required set empty.
@@ -1118,10 +1150,13 @@ await LoomWaitForDbAsync(
     },
     app.Services.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>().CreateLogger("Migrations"));
 
-// Dapper persistence: apply the self-contained schema (CREATE TABLE IF NOT
-// EXISTS) before serving traffic.  Idempotent; no migration history table.
+// Dapper persistence: apply the pending versioned migrations (Migrations/)
+// before serving traffic.  Idempotent — applied ids are recorded in
+// public.__loom_migrations; a database the pre-migration DbSchema bootstrap
+// provisioned is baselined on its first boot here (see DbSchema.cs).
 await ${ns}.Infrastructure.Persistence.DbSchema.EnsureAsync(
-    app.Services.GetRequiredService<NpgsqlDataSource>());
+    app.Services.GetRequiredService<NpgsqlDataSource>(),
+    app.Services.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>().CreateLogger("Migrations"));
 `
     : hasMigrations
       ? `
@@ -1325,6 +1360,10 @@ app.UseStatusCodePages(async (StatusCodeContext statusCodeContext) =>
     }, (JsonSerializerOptions?)null, "application/problem+json");
 });
 app.UseCors();
+// An EMPTY request body is the empty JSON object (RS-39) — see
+// Middleware/EmptyJsonBodyMiddleware.cs.  Ahead of routing's endpoints so
+// model binding sees the normalised body.
+app.UseMiddleware<${ns}.Middleware.EmptyJsonBodyMiddleware>();
 // Serve the spec at /openapi.json (documentName "openapi" → "{documentName}.json").
 app.UseSwagger(c => c.RouteTemplate = "{documentName}.json");
 ${staticSubpathGuard}${authMount}app.MapControllers();
@@ -1346,7 +1385,7 @@ app.MapFallbackToFile("index.html");
 }
 ${
   usingDapper || hasMigrations
-    ? // Dapper applied its schema via DbSchema.EnsureAsync at startup; a
+    ? // Dapper applied its migrations via DbSchema.EnsureAsync at startup; a
       // migrations-bearing deployable applied them via Database.Migrate().
       // Either way EnsureCreated must NOT also run: mixing it with
       // Migrate() is the classic EF trap — whichever runs first creates
@@ -1462,19 +1501,7 @@ export function renderCsproj(
   const cronosRef = withCronTimers
     ? `\n    <!-- Hangfire — durable cron timerSource scheduler (Postgres storage) -->\n    <PackageReference Include="Hangfire.AspNetCore" Version="1.8.21" />\n    <PackageReference Include="Hangfire.PostgreSql" Version="1.20.12" />\n    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />`
     : "";
-  // MailKit (smtp mailer, kind: mailer) and its transitive MimeKit carry a
-  // moderate BouncyCastle advisory present on every published version; the
-  // generated code only uses the SMTP send path.  Suppress the two audit
-  // entries so `dotnet build /warnaserror` (NU1902) passes with MailKit present.
-  const mailkitAuditSuppress =
-    "MailKit" in resourceNugetDeps
-      ? `\n  <ItemGroup>
-    <!-- MailKit/MimeKit: moderate transitive (BouncyCastle) advisory on every
-         version; SMTP send path only.  See docs/old/proposals/email-resource-kind.md. -->
-    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-9j88-vvj5-vhgr" />
-    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-g7hc-96xr-gvvx" />
-  </ItemGroup>`
-      : "";
+  const mailkitAuditSuppress = nugetAuditSuppressItemGroup(resourceNugetDeps);
   return `<!-- Auto-generated. -->
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
@@ -1514,6 +1541,13 @@ export function renderCsproj(
          (the StringComparison overloads throw at query compile), and it runs
          as an anchored SQL prefix test where the collation decides, so the
          catalogue's ordinal contract holds.
+         CA1866: the same queryable \`startsWith\` with a ONE-character literal
+         prefix (\`startsWith("w")\`) — the analyzer wants StartsWith(char), but
+         EF Core 10 / Npgsql does NOT translate the char overloads (measured via
+         ToQueryString: StartsWith/EndsWith/Contains(char) all throw "could not
+         be translated"; StartsWith("w") lowers to LIKE 'w%').  The DOMAIN
+         position does take the char overload (its CA1865 twin is not
+         suppressed — render-expr.ts \`csSingleCharLiteral\`).
          MSG0005: Mediator 3's source generator warns on any IMessage with no
          registered handler.  Loom emits domain-event notifications that have
          no in-process subscriber by design (they exist for the outbox / event
@@ -1537,8 +1571,23 @@ export function renderCsproj(
          rule polices a decision Loom does not own, and it fires on a model that
          compiles clean everywhere else.  The C#-suffix conventions it protects
          (a type ending \`Exception\` should derive from Exception) describe
-         hand-written libraries, not a mapped domain model. -->
-    <NoWarn>CA1707;CA1711;CA1848;CA1873;CA1862;CA1847;CA1304;CA1310;CA1311;CA1827;MSG0005</NoWarn>
+         hand-written libraries, not a mapped domain model.
+         CA1720: "identifier contains type name" — the same bargain for MEMBER
+         names.  A field \`Guid: string\` or \`single: bool\` (→ \`Single\`)
+         is legal .ddd on every backend, and its C# property name
+         is the wire field (and the column) on all five, so the generator may
+         not rename it and refusing it would reject a valid model for a C#
+         naming guideline.  The rule fires on the property, the request /
+         response record parameters and the command — every surface of it.
+         CA1716: "identifiers should not match keywords" — of ANY .NET
+         language, so Visual Basic's too.  The same bargain for TYPE and
+         parameter names: \`aggregate Module\`, \`aggregate Case\` (a legal-case
+         model), \`aggregate Step\`, \`entity Event\` are domain vocabulary
+         that compiles clean on the other four backends, and the C# type name
+         is the wire / table name the generator may not rewrite.  It also
+         rejects a keyword-named parameter of an interface member even when
+         verbatim-escaped (\`@static\` in \`find byLevel(static: int)\`). -->
+    <NoWarn>CA1707;CA1711;CA1716;CA1720;CA1848;CA1873;CA1862;CA1847;CA1304;CA1310;CA1311;CA1827;CA1866;MSG0005</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <!-- Test files live in the sibling Tests/${ns}.Tests project -->
@@ -1569,7 +1618,32 @@ ${persistenceRefs}
 `;
 }
 
-export function renderTestCsproj(ns: string): string {
+/** The `<NuGetAuditSuppress>` item group a csproj needs for the resource
+ *  packages it restores, or `""` when it needs none.
+ *
+ *  MailKit (smtp mailer, kind: mailer) and its transitive MimeKit carry a
+ *  moderate BouncyCastle advisory present on every published version; the
+ *  generated code only uses the SMTP send path.  Suppressing the two audit
+ *  entries keeps `dotnet build /warnaserror` (NU1902) green with MailKit present.
+ *
+ *  Both the API csproj and the xUnit csproj carry it: NuGet audits a project's
+ *  whole transitive graph, MailKit reaches the test project through its
+ *  `ProjectReference`, and an audit suppression is a per-project item that a
+ *  reference does not carry across. */
+export function nugetAuditSuppressItemGroup(resourceNugetDeps: Record<string, string>): string {
+  if (!("MailKit" in resourceNugetDeps)) return "";
+  return `\n  <ItemGroup>
+    <!-- MailKit/MimeKit: moderate transitive (BouncyCastle) advisory on every
+         version; SMTP send path only.  See docs/old/proposals/email-resource-kind.md. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-9j88-vvj5-vhgr" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-g7hc-96xr-gvvx" />
+  </ItemGroup>`;
+}
+
+export function renderTestCsproj(
+  ns: string,
+  resourceNugetDeps: Record<string, string> = {},
+): string {
   return `<!-- Auto-generated. -->
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
@@ -1593,7 +1667,7 @@ export function renderTestCsproj(ns: string): string {
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../${ns}.csproj" />
-  </ItemGroup>
+  </ItemGroup>${nugetAuditSuppressItemGroup(resourceNugetDeps)}
 </Project>
 `;
 }
@@ -1738,4 +1812,20 @@ export function renderDockerignore(): string {
 *.user
 *.log
 `;
+}
+
+/** One `/auth/me` value: the declared claim, with an `X id` (or `X id[]`)
+ *  claim projected onto its raw value.  The strong-id record struct has no
+ *  JSON converter (the wire DTOs carry the raw `Guid`), so serialising it
+ *  shipped `{"value": "…"}` where node / python / elixir answer the bare id
+ *  string the token carried. */
+function meClaimValue(f: FieldIR): string {
+  const access = `accessor.User.${upperFirst(f.name)}`;
+  const optional = f.optional || f.type.kind === "optional";
+  const t = f.type.kind === "optional" ? f.type.inner : f.type;
+  if (t.kind === "id") return `${access}${optional ? "?" : ""}.Value`;
+  if (t.kind === "array" && t.element.kind === "id") {
+    return `${access}${optional ? "?" : ""}.Select(v => v.Value).ToList()`;
+  }
+  return access;
 }

@@ -69,7 +69,6 @@ import type {
   RouteIR,
   TypeIR,
   ValueObjectIR,
-  WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import {
@@ -79,13 +78,21 @@ import {
 import { normalizeHandlerReturn, requestRecordFor } from "../../../ir/util/handler-contracts.js";
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
 import {
+  pagedRunFindName,
+  pagedRunGates,
+  pagedRunGatesUseCurrentUser,
+  pagedRunSortDefault,
+  requirePagedRunStmt,
+} from "../../../ir/util/paged-run.js";
+import {
   collectReachableTypes,
+  enumPool,
   orderValueObjectsByDependency,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
 import { walkExprDeep, walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
-import { lowerFirst, plural, snake } from "../../../util/naming.js";
+import { escapeTsIdent, lowerFirst, plural, snake } from "../../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
 import { emitWireSchema, QUERY_BOOL, wireToDomainExpr, zodFor } from "./routes-builder.js";
 import {
@@ -203,17 +210,7 @@ function emitPagedRunHandler(
   // (synthCriterion) statement — the shape enrich synthesized the paged FIND
   // for.  Locate it to recover the repo/aggregate + the paged find method name
   // (`retrievalName` = `findAllBy<Criterion>`) + the criterion args.
-  const retName = h.returnValue?.kind === "ref" ? h.returnValue.name : undefined;
-  const run = h.statements.find(
-    (s): s is Extract<WorkflowStmtIR, { kind: "repo-run" }> =>
-      s.kind === "repo-run" && !!s.synthCriterion && s.name === retName,
-  );
-  if (!run) {
-    throw new Error(
-      `internal: paged queryHandler '${h.name}' in '${ctx.name}' does not match the ` +
-        "supported `let r = Repo.run(<Criterion>(args)); return r` shape. Please file a bug.",
-    );
-  }
+  const run = requirePagedRunStmt(h, ctx.name);
   // Path-bound params (`{token}`) stay path params; the rest ride the query
   // string (a paged read is a GET — no body), joined by the pagination controls.
   const pathParams = h.params.filter((p) => pathNames.has(p.name));
@@ -237,7 +234,7 @@ function emitPagedRunHandler(
     // routes-builder.ts (schemathesis F4).
     `page: z.coerce.number().int().min(1).max(${PAGED_MAX_PAGE}).default(${PAGED_DEFAULT_PAGE})`,
     `pageSize: z.coerce.number().int().min(1).max(${PAGED_MAX_PAGE_SIZE}).default(${PAGED_DEFAULT_PAGE_SIZE})`,
-    `sort: z.string().default("id")`,
+    `sort: z.string().default(${JSON.stringify(pagedRunSortDefault(h, ctx))})`,
     `dir: z.string().default("asc")`,
   ];
   reqParts.push(`query: z.object({ ${queryFields.join(", ")} })`);
@@ -261,13 +258,32 @@ function emitPagedRunHandler(
   out.push(`    const query = httpCtx.req.valid("query");`);
   const paramExprs = new Map<string, string>();
   for (const p of pathParams) {
-    out.push(`    const ${p.name} = ${wireToDomainExpr(`params.${p.name}`, p.type, ctx)};`);
-    paramExprs.set(p.name, p.name);
+    out.push(
+      `    const ${escapeTsIdent(p.name)} = ${wireToDomainExpr(`params.${p.name}`, p.type, ctx)};`,
+    );
+    paramExprs.set(p.name, escapeTsIdent(p.name));
   }
   for (const p of queryParams) {
-    out.push(`    const ${p.name} = ${wireToDomainExpr(`query.${p.name}`, p.type, ctx)};`);
-    paramExprs.set(p.name, p.name);
+    out.push(
+      `    const ${escapeTsIdent(p.name)} = ${wireToDomainExpr(`query.${p.name}`, p.type, ctx)};`,
+    );
+    paramExprs.set(p.name, escapeTsIdent(p.name));
   }
+  // The handler's `requires` gates (`scaffoldPaged(requires:)` splices one) —
+  // a 403 before the read, rendered through the shared workflow stmt target.
+  const gates = pagedRunGates(h);
+  if (pagedRunGatesUseCurrentUser(h)) {
+    out.push(
+      `    const currentUser = (httpCtx as unknown as { get(k: "currentUser"): import("../auth/user-types").User }).get("currentUser");`,
+    );
+  }
+  out.push(
+    ...renderWorkflowStmtChunks(
+      gates,
+      honoWorkflowStmtTarget(ctx, paramExprs, "this"),
+      "    ",
+    ).flat(),
+  );
   const repoVar = lowerFirst(run.repoName);
   out.push(`    const ${repoVar} = new ${run.aggName}Repository(db, events);`);
   // Criterion args (handler params passed to the criterion) + the pagination
@@ -276,7 +292,7 @@ function emitPagedRunHandler(
   const callArgs = [...critArgs, "query.page", "query.pageSize", "query.sort", "query.dir"].join(
     ", ",
   );
-  out.push(`    const result = await ${repoVar}.${run.retrievalName}(${callArgs});`);
+  out.push(`    const result = await ${repoVar}.${pagedRunFindName(run)}(${callArgs});`);
   const runMasked = !!ctx.aggregates.find((a) => a.name === run.aggName && aggHasFieldMask(a));
   out.push(...maskBind(runMasked, "    "));
   out.push(
@@ -421,21 +437,23 @@ function emitRouteHandler(
   for (const m of materialised) {
     if (m.kind === "scalar") {
       const p = h.params.find((pp) => pp.name === m.name)!;
-      out.push(`    const ${m.name} = ${wireToDomainExpr(wireSrc(m.name), p.type, ctx)};`);
+      out.push(
+        `    const ${escapeTsIdent(m.name)} = ${wireToDomainExpr(wireSrc(m.name), p.type, ctx)};`,
+      );
     } else {
       const fields = m.fields
         .map((f) => `${f.field}: ${wireToDomainExpr(wireSrc(f.field), f.type, ctx)}`)
         .join(", ");
-      out.push(`    const ${m.name} = { ${fields} };`);
+      out.push(`    const ${escapeTsIdent(m.name)} = { ${fields} };`);
     }
-    paramExprs.set(m.name, m.name);
+    paramExprs.set(m.name, escapeTsIdent(m.name));
   }
   // Extern handler: no DSL body — no repos, no workflow statements, no wire
   // projection.  Delegate to the scaffold-once user impl module (imported by
   // `buildExplicitRoutesFile`), passing the domain-coerced param locals.  The
   // impl owns the return shape, so it serialises as-is.
   if (h.extern) {
-    const call = `${externImplFn(h.name)}(${h.params.map((p) => p.name).join(", ")})`;
+    const call = `${externImplFn(h.name)}(${h.params.map((p) => escapeTsIdent(p.name)).join(", ")})`;
     if (hasReturn) {
       out.push(`    const result = await ${call};`);
       out.push(`    return httpCtx.json(result as unknown, 200);`);
@@ -492,7 +510,7 @@ function emitRouteHandler(
   );
   out.push(...chunks.flat());
   for (const save of h.savesAtExit) {
-    out.push(`    await ${lowerFirst(save.repoName)}.save(${save.name});`);
+    out.push(`    await ${lowerFirst(save.repoName)}.save(${escapeTsIdent(save.name)});`);
   }
   if (hasReturn) {
     const retExpr = renderExprWithParams(h.returnValue!, paramExprs, "this", readPortArgs);
@@ -889,7 +907,9 @@ export function buildExplicitRoutesFile(
  *  call); the return type is the user's contract. */
 function renderExternHandlerImpl(h: Handler, ctx: EnrichedBoundedContextIR): string {
   const fn = externImplFn(h.name);
-  const params = h.params.map((p) => `${p.name}: ${renderTsType(p.type)}`).join(", ");
+  const params = h.params
+    .map((p) => `${escapeTsIdent(p.name)}: ${renderTsType(p.type)}`)
+    .join(", ");
   const ret = h.returnType ? renderTsType(h.returnType) : "void";
   const sig = `export async function ${fn}(${params}): Promise<${ret}>`;
   const kind = (ctx.queryHandlers ?? []).includes(h as QueryHandlerIR)
@@ -907,7 +927,7 @@ function renderExternHandlerImpl(h: Handler, ctx: EnrichedBoundedContextIR): str
     .filter(refersTo)
     .sort();
   const voEnumNames = [
-    ...new Set([...valueObjectPool(ctx).map((v) => v.name), ...ctx.enums.map((e) => e.name)]),
+    ...new Set([...valueObjectPool(ctx).map((v) => v.name), ...enumPool(ctx).map((e) => e.name)]),
   ]
     .filter(refersTo)
     .sort();

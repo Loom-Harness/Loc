@@ -11,8 +11,8 @@ import { handlerTargets, targetHandlerName, targetMethod, targetPath } from "./_
  *
  *   ↓ SalesApi gains
  *
- *   route GET  "/orders/{orderId}"          -> Ordering.GetOrder
  *   route GET  "/orders/by_status"          -> Ordering.ByStatus
+ *   route GET  "/orders/{orderId}"          -> Ordering.GetOrder
  *   route POST "/orders"                    -> Ordering.CreateOrder
  *   route POST "/orders/{orderId}/cancel"   -> Ordering.CancelOrder
  *
@@ -20,6 +20,11 @@ import { handlerTargets, targetHandlerName, targetMethod, targetPath } from "./_
  * method, path, and handler segment are all derived from the SAME
  * `handlerTargets` selection + `target*` helpers that `scaffoldHandlers` uses,
  * so a route always resolves to a handler that macro emitted.
+ *
+ * Each aggregate's finds are emitted BEFORE its get-by-id.  These routes own
+ * their slots outright (D-EXPLICIT-ROUTE-WINS), and node, python and elixir
+ * match in registration order — `GET /orders/{orderId}` registered first would
+ * swallow `GET /orders/by_status`.
  * `scaffoldHandlers` must be applied to each targeted context
  * (`context X with scaffoldHandlers`) to supply those handlers. */
 export default defineMacro({
@@ -37,7 +42,15 @@ export default defineMacro({
     const sub = args.of as Subdomain;
     const out: Route[] = [];
     for (const ctx of sub.contexts ?? []) {
-      for (const t of handlerTargets(ctx)) {
+      const targets = handlerTargets(ctx);
+      const ordered = targets.flatMap((t) =>
+        t.kind === "getById"
+          ? [...targets.filter((f) => f.kind === "find" && f.agg === t.agg), t]
+          : t.kind === "find"
+            ? []
+            : [t],
+      );
+      for (const t of ordered) {
         out.push(route(targetMethod(t), targetPath(t), handlerRef(ctx.name, targetHandlerName(t))));
       }
     }
