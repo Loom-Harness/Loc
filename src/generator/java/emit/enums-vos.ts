@@ -7,16 +7,23 @@
 import type { EnumIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { messageCode } from "../../../util/message-code.js";
-import { isMangled, JSON_PROPERTY_IMPORT, jid, jsonProp } from "../java-ident.js";
+import { JAVA_IMPORTS, javaRef } from "../../_imports/java.js";
+import { isMangled, jid } from "../java-ident.js";
 import {
   buildJavaRegexFields,
-  collectJavaExprImports,
   collectJavaRegexLiterals,
-  collectJavaTypeImports,
   renderJavaExpr,
   renderJavaType,
 } from "../render-expr.js";
-import { collectJavaStmtImports, renderJavaStatements } from "../render-stmt.js";
+import { renderJavaStatements } from "../render-stmt.js";
+
+const JSON_PROPERTY = javaRef("com.fasterxml.jackson.annotation", "JsonProperty");
+
+/** `@JsonProperty("<name>") ` for a mangled `.ddd` name (the original spelling
+ *  pinned back onto the JSON property), else nothing — `jsonProp`'s shape. */
+function jsonPropRef(name: string): string {
+  return isMangled(name) ? `@${JSON_PROPERTY}("${name}") ` : "";
+}
 
 export function renderJavaEnum(e: EnumIR, basePkg: string): string {
   // M-T6.36 — a `.ddd` enum VALUE named after a Java reserved word cannot be an
@@ -38,7 +45,7 @@ export function renderJavaEnum(e: EnumIR, basePkg: string): string {
   const mangled = e.values.some((v) => isMangled(v));
   const valueLines = e.values.map(
     (v, i) =>
-      `    ${mangled ? `@JsonProperty(${JSON.stringify(v)}) ` : ""}${jid(v)}${i < e.values.length - 1 ? "," : ";"}`,
+      `    ${mangled ? `@${JSON_PROPERTY}(${JSON.stringify(v)}) ` : ""}${jid(v)}${i < e.values.length - 1 ? "," : ";"}`,
   );
   // The trailing separator differs: a plain enum ends its last constant with
   // nothing, a codec-carrying one needs the `;` that opens the class body.
@@ -48,8 +55,7 @@ export function renderJavaEnum(e: EnumIR, basePkg: string): string {
   return lines(
     `package ${basePkg}.domain.enums;`,
     ``,
-    mangled ? `import ${JSON_PROPERTY_IMPORT};` : null,
-    mangled ? `` : null,
+    JAVA_IMPORTS,
     `public enum ${e.name} {`,
     ...valueLines,
     mangled ? enumWireCodec(e) : null,
@@ -90,23 +96,6 @@ function enumWireCodec(e: EnumIR): string[] {
 }
 
 export function renderJavaValueObject(vo: ValueObjectIR, basePkg: string): string {
-  const javaImports = new Set<string>();
-  for (const f of vo.fields) collectJavaTypeImports(f.type, javaImports);
-  for (const inv of vo.invariants) {
-    collectJavaExprImports(inv.expr, javaImports);
-    if (inv.guard) collectJavaExprImports(inv.guard, javaImports);
-  }
-  for (const d of vo.derived) {
-    collectJavaExprImports(d.expr, javaImports);
-    collectJavaTypeImports(d.type, javaImports);
-  }
-  for (const fn of vo.functions) {
-    if ("expr" in fn.body) collectJavaExprImports(fn.body.expr, javaImports);
-    else collectJavaStmtImports(fn.body.stmts, javaImports);
-    collectJavaTypeImports(fn.returnType, javaImports);
-    for (const p of fn.params) collectJavaTypeImports(p.type, javaImports);
-  }
-
   // Hoist `string.matches("…")` regex literals (invariants / derived / pure
   // expr-functions) into `private static final Pattern` fields so the compact
   // constructor — which runs on every construction AND Hibernate hydration —
@@ -121,7 +110,6 @@ export function renderJavaValueObject(vo: ValueObjectIR, basePkg: string): strin
     if ("expr" in fn.body) collectJavaRegexLiterals(fn.body.expr, regexLiterals);
   }
   const regex = buildJavaRegexFields(regexLiterals);
-  if (regex.decls.length > 0) javaImports.add("java.util.regex.Pattern");
 
   // Compact-constructor scope: parameters by bare name.
   const ctorCtx = { thisName: "this", bareProps: true, regexFields: regex.fields };
@@ -134,7 +122,7 @@ export function renderJavaValueObject(vo: ValueObjectIR, basePkg: string): strin
   // response.  `jid` mangles only a Java reserved word, and `jsonProp` pins
   // the original spelling back onto the JSON property when it does.
   const params = vo.fields
-    .map((f) => `${jsonProp(f.name, javaImports)}${renderJavaType(f.type)} ${jid(f.name)}`)
+    .map((f) => `${jsonPropRef(f.name)}${renderJavaType(f.type)} ${jid(f.name)}`)
     .join(", ");
   const invariantLines = vo.invariants.map((inv) => {
     const check = inv.guard
@@ -144,7 +132,7 @@ export function renderJavaValueObject(vo: ValueObjectIR, basePkg: string): strin
     // M-T5.1 — a DomainException subclass the advice answers with an errors[]
     // entry; a messaged rule carries the wire rung's content-hash code.
     const code = inv.message ? `, ${JSON.stringify(messageCode(inv.message.text))}` : "";
-    return `        ${check} throw new ValueObjectInvariantException(${JSON.stringify(vo.name)}, ${JSON.stringify(text)}${code});`;
+    return `        ${check} throw new ${javaRef(`${basePkg}.domain.common`, "ValueObjectInvariantException")}(${JSON.stringify(vo.name)}, ${JSON.stringify(text)}${code});`;
   });
   const derivedLines = vo.derived.flatMap((d) => [
     `    public ${renderJavaType(d.type)} ${jid(d.name)}() {`,
@@ -168,15 +156,10 @@ export function renderJavaValueObject(vo: ValueObjectIR, basePkg: string): strin
   return lines(
     `package ${basePkg}.domain.valueobjects;`,
     ``,
-    ...[...javaImports].sort().map((i) => `import ${i};`),
-    javaImports.size > 0 ? `` : null,
     `import jakarta.persistence.Embeddable;`,
     `import org.jmolecules.ddd.annotation.ValueObject;`,
     ``,
     `import ${basePkg}.domain.common.DomainException;`,
-    vo.invariants.length > 0
-      ? `import ${basePkg}.domain.common.ValueObjectInvariantException;`
-      : null,
     `import ${basePkg}.domain.enums.*;`,
     `import ${basePkg}.domain.ids.*;`,
     ``,

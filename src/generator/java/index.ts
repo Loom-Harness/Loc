@@ -34,7 +34,8 @@ import { directParentOf } from "../../ir/util/containment-parent.js";
 import { echoesDenialDetail } from "../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import {
-  foreignEventValueTypes,
+  foreignValueTypeSeeds,
+  foreignValueTypes,
   NO_FOREIGN_VALUE_TYPES,
   resolveForeignEvents,
   valueObjectFieldTypes,
@@ -60,13 +61,13 @@ import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
-import { emissionSink } from "../../util/emission-sink.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
 import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
 import { collectWireValidationMessages } from "../_i18n/validation-catalog.js";
+import { spellMarkers } from "../_imports/symbol.js";
 import {
   type RequestComponentOwner,
   requestComponentNamerFor,
@@ -254,6 +255,7 @@ import {
 } from "./emit/workflow-state.js";
 import { emitExplicitHandlers, emitExplicitRouteController } from "./explicit-handlers-emit.js";
 import { collectMangledNames, mangledEnumNames } from "./java-ident.js";
+import { JavaOutputMap } from "./java-output.js";
 import { basePackageFor, javaPackageSegment, mainSourcePath } from "./naming.js";
 import { API_CLIENT_CLASS as JAVA_API_CLIENT_CLASS } from "./render-expr.js";
 import { renderSqlRestriction } from "./render-sql-restriction.js";
@@ -299,9 +301,9 @@ export function generateJavaForContexts(
   system?: SystemArgs,
   options: { emitTrace?: boolean; sourcemap?: SourceMapRecorder } = {},
 ): Map<string, string> {
-  const out = emissionSink("generator/java/index");
+  const out = new JavaOutputMap();
   emitProjectFromContexts(contexts, ns, out, system, !!options.emitTrace, options.sourcemap);
-  return out;
+  return out.assertFinal();
 }
 
 function emitProjectFromContexts(
@@ -344,13 +346,13 @@ function emitProjectFromContexts(
     const artifact = { name, content, category, aggregateName } as JavaArtifact;
     const path = layout.pathFor(artifact, emitCtx);
     out.set(path, content);
-    sourcemap?.file(path, content, origin, construct);
+    sourcemap?.file(path, out.get(path)!, origin, construct);
     // Statement-granular sub-regions (source-map) — layered onto
     // the whole-file region just recorded above, anchored by exact-text
     // search against this SAME final content.
     if (sourcemap && opFragments) {
       for (const frag of opFragments) {
-        sourcemap.fragment(path, content, frag.fragmentText, frag.subRegions);
+        sourcemap.fragment(path, out.get(path)!, spellMarkers(frag.fragmentText), frag.subRegions);
       }
     }
   };
@@ -1299,15 +1301,17 @@ function emitProjectFromContexts(
           system.sys,
         )
       : [];
-  // The value objects / enums those foreign events reach: the event record
-  // names them, so the consumer must declare them (eval item 11).
-  const foreignValueTypes =
-    hasChannels && system
-      ? foreignEventValueTypes(foreignConsumedEvents, system.sys, {
-          valueObjects: contexts.flatMap((c) => c.valueObjects),
-          enums: contexts.flatMap((c) => c.enums),
-        })
-      : NO_FOREIGN_VALUE_TYPES;
+  // The value objects / enums those foreign events — or the hosted contexts'
+  // own declarations (D15: a sibling-context enum / VO) — reach: the event
+  // record / entity names them, so the deployable must declare them (eval
+  // item 11).  NOT channel-gated: the hosted half reaches a sibling type in a
+  // channel-less project, exactly as the foreign id brands below do.
+  const foreignValues = system
+    ? foreignValueTypes(foreignValueTypeSeeds(foreignConsumedEvents, contexts), system.sys, {
+        valueObjects: contexts.flatMap((c) => c.valueObjects),
+        enums: contexts.flatMap((c) => c.enums),
+      })
+    : NO_FOREIGN_VALUE_TYPES;
 
   // Foreign id brands are NOT channel vocabulary, and gating them on
   // `hasChannels` was a latent bug: a workflow starter param naming an
@@ -1324,7 +1328,7 @@ function emitProjectFromContexts(
     );
     const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
       ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
-      ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
+      ...valueObjectFieldTypes(foreignValues.valueObjects),
       ...hostedContextIdTypeSources(contexts),
       ...userClaimIdTypeSources(system.sys.user),
     ]);
@@ -1340,27 +1344,28 @@ function emitProjectFromContexts(
     }
   }
 
+  for (const e of foreignValues.enums) {
+    place(`${e.name}.java`, "enum", renderJavaEnum(e, basePkg));
+  }
+  for (const vo of foreignValues.valueObjects) {
+    place(`${vo.name}.java`, "valueobject", renderJavaValueObject(vo, basePkg));
+  }
+  // A foreign VO's compact constructor throws the invariant exception the
+  // hosted-VO gate above only emits for a HOSTED invariant.
+  if (
+    !contexts.some(hasValueObjectInvariants) &&
+    foreignValues.valueObjects.some((v) => v.invariants.length > 0)
+  ) {
+    place(
+      "ValueObjectInvariantException.java",
+      "domain-common",
+      renderValueObjectInvariantException(basePkg),
+    );
+  }
+
   if (hasChannels && system) {
     for (const ev of foreignConsumedEvents) {
       place(`${ev.name}.java`, "event", renderJavaEvent(ev, basePkg));
-    }
-    for (const e of foreignValueTypes.enums) {
-      place(`${e.name}.java`, "enum", renderJavaEnum(e, basePkg));
-    }
-    for (const vo of foreignValueTypes.valueObjects) {
-      place(`${vo.name}.java`, "valueobject", renderJavaValueObject(vo, basePkg));
-    }
-    // A foreign VO's compact constructor throws the invariant exception the
-    // hosted-VO gate above only emits for a HOSTED invariant.
-    if (
-      !contexts.some(hasValueObjectInvariants) &&
-      foreignValueTypes.valueObjects.some((v) => v.invariants.length > 0)
-    ) {
-      place(
-        "ValueObjectInvariantException.java",
-        "domain-common",
-        renderValueObjectInvariantException(basePkg),
-      );
     }
     const carriedEvents = [...contexts.flatMap((c) => c.events), ...foreignConsumedEvents];
     for (const [name, content] of renderJavaChannelFiles(
@@ -1375,7 +1380,7 @@ function emitProjectFromContexts(
         outboxRepoPkg: pkgFor("spring-data-repository"),
         valueObjects: [
           ...contexts.flatMap((c) => valueObjectPool(c)),
-          ...foreignValueTypes.valueObjects,
+          ...foreignValues.valueObjects,
         ],
         carriesOrigin: authRequired,
       },

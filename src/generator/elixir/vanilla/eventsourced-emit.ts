@@ -44,7 +44,9 @@ import type {
   OperationIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
+import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { renderableHere } from "../../../ir/util/changeset-invariant-carrier.js";
+import { byIdRouteFind, listReadFind } from "../../../ir/util/read-gates.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { messageCode } from "../../../util/message-code.js";
 import {
@@ -70,6 +72,7 @@ import {
 } from "./denial.js";
 import { renderFindActions } from "./find-controller.js";
 import { foldStmtsUseParam, renderFoldStatement } from "./fold-stmt-emit.js";
+import { effectiveGate, renderGateCondition } from "./gate.js";
 import { renderProblemVariantHelper } from "./operation-returns-emit.js";
 import {
   renderPathIdCastPlug,
@@ -698,6 +701,31 @@ export function renderEsController(
   const ctxModule = contextCallRef(appModule, ctxName);
   // `GET /<plural>/<find>` actions — event-sourced finds run load-all + filter.
   const findActions = renderFindActions(appModule, ctxModule, agg, ctx);
+  // The list and by-id reads' authorization gates — the author's
+  // `find all(): T[] requires …` / `find byId(id: T id): T? requires …`
+  // (M-T3.19, `read-gates.ts`).  403 BEFORE the load, with the same carrier +
+  // `detail` label the relational controller (`api-emit.ts`) renders.  This
+  // controller used to emit both actions without consulting either gate.
+  const repo = (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name);
+  const gatedReadAction = (head: string, body: string, find: FindIR | undefined): string => {
+    const gate = effectiveGate(find?.requires);
+    if (!gate) return `${head}\n${body}\n  end`;
+    const cuBind = exprUsesCurrentUser(gate)
+      ? "    current_user = Map.get(conn.assigns, :current_user)\n"
+      : "";
+    return `${head}
+${cuBind}    if not (${renderGateCondition(gate, (g) => renderExpr(g, { thisName: "record", contextModule: facadeMod }))}) do
+      ${denialResponse(
+        "forbidden",
+        JSON.stringify(`Forbidden: find ${find!.name}`),
+        denialOverrides(ctx),
+        `${appModule}Web.ProblemDetails`,
+      )}
+    else
+${body}
+    end
+  end`;
+  };
 
   // RS-13 — the 201 body is the ID ENVELOPE, not the serialized aggregate; see
   // the matching note in api-emit.ts.  The event-sourced controller shares the
@@ -856,21 +884,25 @@ ${contextAliasLine(appModule, ctxName)}  alias ${appModule}Web.ProblemDetails
 
 ${renderPathIdCastPlug()}
 ${renderRequiredParamsPlug(new Map(publicOps.map((op) => [snake(op.name), requiredWireParams(op.params)])))}
-  def index(conn, _params) do
-    with {:ok, records} <- ${ctxModule}.list_${aggSnake}s() do
+${gatedReadAction(
+  `  def index(conn, _params) do`,
+  `    with {:ok, records} <- ${ctxModule}.list_${aggSnake}s() do
       json(conn, Enum.map(records, &serialize/1))
-    end
-  end
+    end`,
+  listReadFind(repo),
+)}
 
-  def show(conn, %{"id" => id}) do
-    case ${ctxModule}.get_${aggSnake}(id) do
+${gatedReadAction(
+  `  def show(conn, %{"id" => id}) do`,
+  `    case ${ctxModule}.get_${aggSnake}(id) do
       {:ok, record} ->
         json(conn, serialize(record))
 
       {:error, :not_found} ->
         ProblemDetails.not_found_response(conn, "${aggPascal}", id)
-    end
-  end
+    end`,
+  byIdRouteFind(repo, agg.idValueType),
+)}
 ${findActions}
 ${create}${opActions}
 ${commandError}${problemVariant}
