@@ -968,6 +968,8 @@ function stubCsharpValueForType(t: TypeIR): string {
           return "false";
         case "datetime":
           return "System.DateTime.UnixEpoch";
+        case "date":
+          return "System.DateOnly.MinValue";
         case "guid":
           return "System.Guid.Empty";
         default:

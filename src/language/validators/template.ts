@@ -136,8 +136,11 @@ export function checkTemplateHoles(model: Model, accept: ValidationAcceptor): vo
         }
         if (kind === "date" || kind === "time") {
           // Date/time formatting LIFTS the datetime rejection below — a
-          // `datetime` hole is exactly what these skeletons format.
+          // `datetime` hole is exactly what these skeletons format.  A
+          // calendar `date` formats under `{x, date}` only: it has no
+          // time-of-day for a `time` skeleton to show.
           if (t.kind === "primitive" && t.name === "datetime") continue;
+          if (kind === "date" && t.kind === "primitive" && t.name === "date") continue;
           accept(
             "error",
             diagMessage("loom.interp-hole-type#date-format", { kind, t: typeToString(t) }),
