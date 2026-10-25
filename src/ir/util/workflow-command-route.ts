@@ -13,12 +13,13 @@
 // byte-identical copy of this rule (the `page-kind.ts` precedent).  Pure,
 // platform-neutral, browser-safe.
 // -------------------------------------------------------------------------
-import type {
-  CreateIR,
-  EnrichedBoundedContextIR,
-  ExprIR,
-  TypeIR,
-  WorkflowIR,
+import {
+  type CreateIR,
+  type EnrichedBoundedContextIR,
+  type ExprIR,
+  type TypeIR,
+  type WorkflowIR,
+  workflowEmitsCommandRoute,
 } from "../types/loom-ir.js";
 
 /** The create the command route serves — the primary unnamed command-triggered
@@ -29,11 +30,9 @@ function routedCreate(wf: WorkflowIR): CreateIR | undefined {
   return wf.creates.find((c) => c.name === null && c.triggerKind === "command") ?? wf.creates[0];
 }
 
-/** True when the workflow has an HTTP command surface (a POST route). */
-export function emitsCommandRoute(wf: WorkflowIR): boolean {
-  const facade = routedCreate(wf);
-  return !facade || facade.triggerKind === "command";
-}
+/** True when the workflow has an HTTP command surface (a POST route) — the
+ *  one rule lives in `workflowEmitsCommandRoute` (`loom-ir.ts`). */
+export const emitsCommandRoute: (wf: WorkflowIR) => boolean = workflowEmitsCommandRoute;
 
 /** The declared result of the workflow's command route — `create(…): T { …
  *  return <expr> }` on the create the route serves.  When present the route

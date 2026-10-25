@@ -11,6 +11,7 @@ import type {
 import { exprUsesCurrentUser, findUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
+import { CONCURRENCY_CONFLICT_SUFFIX } from "../../ir/util/openapi-errors.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
@@ -217,7 +218,7 @@ export function buildPyDocumentRepositoryFile(
           `            .returning(${row}.id)`,
           "        )",
           "        if _guarded.first() is None:",
-          `            raise ${R.ConcurrencyError}(f"${agg.name} {aggregate.id} was modified concurrently")`,
+          `            raise ${R.ConcurrencyError}(f"${agg.name} {aggregate.id} ${CONCURRENCY_CONFLICT_SUFFIX}")`,
         ]
       : [
           `        existing = await self._session.get(${row}, aggregate.id)`,

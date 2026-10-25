@@ -1326,6 +1326,15 @@ export const DIAGNOSTIC_MESSAGES = {
     `\`unique\` column '${p.col}' on aggregate '${p.name}' is a value object, which ` +
     `stores as several columns — a uniqueness key must list single-column ` +
     `(scalar / enum / id) fields.`,
+  "loom.unique-tpc-not-hierarchy-wide": (p: {
+    name: unknown;
+    columns: unknown;
+    concretes: unknown;
+  }) =>
+    `\`unique (${p.columns})\` on abstract aggregate '${p.name}' (inheritanceUsing: ownTable) is ` +
+    `enforced per concrete table (${p.concretes}) — each subtype rejects its own duplicates, but ` +
+    `the same value can still exist once in EACH sibling table.  If the key must be unique ` +
+    `across the whole hierarchy, map it to one shared table: \`inheritanceUsing: sharedTable\`.`,
   "loom.find-reserved-name": (p: { name: unknown; findName: unknown }) =>
     `repository '${p.name}' find '${p.findName}': name collides with the auto-emitted repository method '${p.findName}(...)'. ` +
     `Choose a different find name (e.g. 'persist', 'fetchById').`,
@@ -4477,6 +4486,18 @@ export const DIAGNOSTIC_MESSAGES = {
     `action, so no backend mounts 'POST /api/${p.slug}' and the generated suite would call a ` +
     `route this same compilation did not emit (405). Add 'with crudish' to '${p.aggregate}', ` +
     `or give it an explicit 'create(...) { … }'.`,
+  "loom.e2e-call-options#shape": (p: { slug: unknown; verb: unknown }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(id, body, options)' — the optional third argument must be ` +
+    `exactly '{ ifMatch: <version> }', which sends the 'If-Match' precondition header. No other ` +
+    `key and no fourth argument is read, so anything else would be silently dropped.`,
+  "loom.e2e-call-options#if-match-scope": (p: {
+    slug: unknown;
+    verb: unknown;
+    aggregate: unknown;
+  }) =>
+    `e2e: 'api.${p.slug}.${p.verb}(…, { ifMatch: … })' — only the 'update' operation of a ` +
+    `'versioned' aggregate reads 'If-Match' on every backend, and '${p.aggregate}.${p.verb}' is ` +
+    `not one. Drop the third argument, or drive the precondition through '${p.slug}.update'.`,
   "loom.e2e-unrouted-verb#destroy": (p: { slug: unknown; aggregate: unknown }) =>
     `e2e: 'api.${p.slug}.destroy(…)' has no route — '${p.aggregate}' declares no canonical ` +
     `'destroy { }', so no backend mounts 'DELETE /api/${p.slug}/{id}'. Add 'with crudish' to ` +
