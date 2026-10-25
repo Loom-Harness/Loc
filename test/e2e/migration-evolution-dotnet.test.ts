@@ -83,11 +83,14 @@ describe.skipIf(!EF_ENABLED)(
 // #3229 — `unique (…)` across a softDeletable flip (full → partial → full) and
 // across inheritance (a TPC base's key on each concrete table; a TPH base's key
 // mapped to 409 on each concrete route).  See `runUniqueIndexEvolutionGate`.
-describe.skipIf(!EF_ENABLED)("unique-index evolution gate over the generated dotnet backend", () => {
-  it("rebuilds the index across a softDeletable flip; inherited keys enforce per table / hierarchy", async () => {
-    await runUniqueIndexEvolutionGate(dotnetDriver("dotnet"));
-  }, 900_000);
-});
+describe.skipIf(!EF_ENABLED)(
+  "unique-index evolution gate over the generated dotnet backend",
+  () => {
+    it("rebuilds the index across a softDeletable flip; inherited keys enforce per table / hierarchy", async () => {
+      await runUniqueIndexEvolutionGate(dotnetDriver("dotnet"));
+    }, 900_000);
+  },
+);
 
 describe.skipIf(!DAPPER_ENABLED)(
   "migration-evolution gate over the generated .NET backend on persistence: dapper (LOOM_MIGRATION_E2E_DAPPER=1)",
