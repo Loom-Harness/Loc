@@ -1,0 +1,194 @@
+{
+  "case": "contained-part-rebuild",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/carts",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/carts/{id}/add_line",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/carts/{id}/drop_note",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/carts/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "lines": [
+          {
+            "id": "<volatile:key>",
+            "notes": [
+              {
+                "id": "<volatile:key>",
+                "text": "b"
+              }
+            ],
+            "qty": 2,
+            "sku": "B"
+          }
+        ],
+        "name": "c",
+        "version": 3
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/carts/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/carts/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "lines": [
+          {
+            "id": "<volatile:key>",
+            "notes": [
+              {
+                "id": "<volatile:key>",
+                "text": "b"
+              }
+            ],
+            "qty": 2,
+            "sku": "B"
+          }
+        ],
+        "name": "c2",
+        "version": 4
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/carts",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "lines": [
+              {
+                "id": "<volatile:key>",
+                "notes": [
+                  {
+                    "id": "<volatile:key>",
+                    "text": "b"
+                  }
+                ],
+                "qty": 2,
+                "sku": "B"
+              }
+            ],
+            "name": "c2",
+            "version": 4
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 7,
+      "method": "DELETE",
+      "path": "/api/carts/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/carts",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 9,
+      "method": "PATCH",
+      "path": "/api/carts",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/carts",
+        "instance": "/api/carts",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/carts",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/carts",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/carts/{id}/update",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/name"
+          }
+        ],
+        "instance": "/api/carts/{id}/update",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

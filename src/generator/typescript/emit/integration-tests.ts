@@ -27,6 +27,7 @@ import type {
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
+import { repoVerbOpAt } from "../../../util/repository-contract.js";
 import { renderTsExpr } from "../render-expr.js";
 import { renderCreateInput, renderExplicitMatcher, testBodyValueImports } from "./tests.js";
 
@@ -55,10 +56,6 @@ function createCallOf(
   return undefined;
 }
 
-// Built-in repository reads every aggregate's repo emits (findById / getById /
-// findAll), in addition to the context's declared custom finds.
-const BUILTIN_READS = new Set(["findById", "getById", "findAll"]);
-
 /** A `<Agg>.<find>(...)` repository read → the aggregate + method + args, whether
  *  a declared custom find or a built-in (findById / getById / findAll);
  *  undefined otherwise.  `nullable` marks reads whose emitted method returns
@@ -74,9 +71,12 @@ function findCallOf(
   const hasRepo = ctx.repositories.some((r) => r.aggregateName === aggName);
   if (!hasRepo) return undefined;
   const custom = findRepoQuery(e.member, aggName, ctx);
-  if (!BUILTIN_READS.has(e.member) && !custom) return undefined;
+  // The built-in reads a context integration test accepts (the contract's
+  // `integration-test` position), beside the context's declared finds.
+  const op = repoVerbOpAt(e.member, "integration-test");
+  if (!op && !custom) return undefined;
   const nullable =
-    e.member === "findById" ||
+    op === "load-optional" ||
     custom?.returnType.kind === "optional" ||
     custom?.returnType.kind === "union";
   return { aggName, method: e.member, args: e.args, nullable };

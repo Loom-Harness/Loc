@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
-// A COMMAND-triggered create (`create(n: int)`, no `by`) drives the vanilla
+// A COMMAND-triggered create (`create(orderId: Order id, n: int)`, no `by`) drives the vanilla
 // workflow-execution path; an event-triggered `create … by` persists through
 // dispatch-emit instead (covered by the phoenix/ash test).
 
@@ -16,8 +16,8 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // the vanilla foundation.  It lowers to the same `assign` node with the value
 // rewritten to a `binary` over the current value, so the struct update's new
 // value is a read-modify-write off the shared expression renderer — int as
-// `record.attempts + n`, money as `Decimal.sub(record.total, …)`.  The self-read
-// resolves to the loaded `record` row, not `state`.
+// `state.attempts + n`, money as `Decimal.sub(state.total, …)`.  The self-read
+// resolves to the loaded saga row the create keys on `orderId`.
 const COMPOUND_SRC = `
   system S {
     subdomain M {
@@ -25,9 +25,10 @@ const COMPOUND_SRC = `
         aggregate Order { status: string }
         repository Orders for Order {}
         workflow OrderFulfillment transactional {
+          orderId: Order id
           attempts: int
           total: money
-          create(n: int) { attempts += n  total -= money("5.00") }
+          create(orderId: Order id, n: int) { attempts += n  total -= money("5.00") }
         }
       }
     }
@@ -45,7 +46,7 @@ describe("vanilla foundation — workflow own-state compound assignment", () => 
       k.endsWith("workflows/order_fulfillment.ex"),
     )?.[1];
     expect(wf).toContain(
-      'state <- (%{state | total: Decimal.sub(record.total, Decimal.new("5.00"))})',
+      'state <- (%{state | total: Decimal.sub(state.total, Decimal.new("5.00"))})',
     );
   });
 });

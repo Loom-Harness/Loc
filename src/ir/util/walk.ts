@@ -451,6 +451,15 @@ export function walkWorkflowStmtExprsDeep(s: WorkflowStmtIR, visit: (e: ExprIR) 
   });
 }
 
+/** Visit every expression reachable from `s`'s OWN expression slots, without
+ *  descending into the workflow statements a `for-each` / `if-let` nests.  The
+ *  per-statement half of {@link walkWorkflowStmtExprsDeep}, for a consumer that
+ *  visits the nested statements itself (because it attributes each expression
+ *  to the statement — or the scope — that holds it). */
+export function walkWorkflowStmtOwnExprsDeep(s: WorkflowStmtIR, visit: (e: ExprIR) => void): void {
+  walkWorkflowStmtChildren(s, { expr: (c) => walkExprDeep(c, visit) });
+}
+
 /** Visit `s` and every workflow-body statement nested inside it, descending
  *  through the `for-each` / `if-let` bodies.
  *

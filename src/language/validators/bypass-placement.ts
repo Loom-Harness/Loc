@@ -33,6 +33,7 @@
 
 import { AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
+import { repositoryVerb } from "../../util/repository-contract.js";
 import {
   isLetStmt,
   isMemberSuffix,
@@ -40,10 +41,6 @@ import {
   type Model,
   type PostfixChain,
 } from "../generated/ast.js";
-
-/** The member names whose call form consumes a chain-borne `ignoring` —
- *  `matchRunCall` / `matchFindAllCall` in `src/ir/lower/lower-workflow.ts`. */
-const BYPASS_CONSUMING_READS: ReadonlySet<string> = new Set(["findAll", "run"]);
 
 /** Does this chain carry an `ignoring` clause?  The fragment sets `bypassAll`
  *  for `ignoring *` and fills `bypass` for `ignoring A, B`. */
@@ -73,7 +70,7 @@ export function checkBypassPlacement(model: Model, accept: ValidationAcceptor): 
     if (
       isLetStmt(parent) &&
       node.$containerProperty === "expr" &&
-      BYPASS_CONSUMING_READS.has(trailingCallMember(node) ?? "")
+      repositoryVerb(trailingCallMember(node) ?? "")?.ignoring === true
     ) {
       continue;
     }
