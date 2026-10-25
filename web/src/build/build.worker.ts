@@ -26,11 +26,10 @@ import { captureSnapshots } from "../../../src/system/loomsnap.js";
 // spec differ (all browser-safe siblings of `system/index`, so the bundle-
 // boundary test stays green).
 import { runEvolution } from "./evolution.js";
-// P2a moved the TS orchestrator into the hono@v4 package; the
-// playground legacy single-context build targets the default Hono
-// backend and supplies that package's pins (B2.1).
+// The playground's legacy single-context build targets the default Hono
+// backend and supplies that package's pins to the shared emitter.
 import { generateTypeScript } from "../../../src/platform/hono/v4/emit.js";
-import { BACKEND_PINS as HONO_V4_PINS } from "../../../src/platform/hono/v4/pins.js";
+import { BACKEND_PINS as HONO_PINS } from "../../../src/platform/hono/v5/pins.js";
 import { fnv1a32 } from "../util/hash.js";
 import { MemoryVfs } from "../vfs/memory-vfs.js";
 import { loadProjectFromVfs } from "./project-loader.js";
@@ -233,7 +232,7 @@ async function generateFromAst(input: {
   }
   if (loom.contexts.length > 0) {
     return wrapGenerate("ts", input.diagnostics, irDiags, () => ({
-      files: generateTypeScript(input.model, HONO_V4_PINS),
+      files: generateTypeScript(input.model, HONO_PINS),
     }));
   }
   return emptyResult(input.diagnostics, irDiags);

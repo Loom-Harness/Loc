@@ -1,6 +1,0 @@
-{{#if hasChildren}}<Grid{{{testidAttr}}}{{{styleAttr}}}>
-{{colIndent}}{{#each children}}{{#if ../hasResponsiveCols}}<Grid.Col span=\{{ base: 12, sm: {{../spanTablet}}, lg: {{../spanDesktop}} }}>{{else}}<Grid.Col span="auto">{{/if}}
-{{../childIndent}}{{{this}}}
-{{../colIndent}}</Grid.Col>{{#unless @last}}
-{{../colIndent}}{{/unless}}{{/each}}
-{{closeIndent}}</Grid>{{else}}<Grid{{{testidAttr}}}{{{styleAttr}}} />{{/if}}

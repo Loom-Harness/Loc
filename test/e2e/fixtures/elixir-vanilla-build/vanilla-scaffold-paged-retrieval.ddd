@@ -1,0 +1,44 @@
+// `scaffoldPaged(of: <retrieval>, requires: <Policy>)` on Phoenix, COMPILED.
+//
+// The paged route is a controller action that binds `current_user` from the
+// conn assigns, opens a `cond` whose first arm answers the gate's 403, and
+// only then calls the context's synthesized paged find
+// (`page_<retrieval>_<agg>`), passing `""` as the default sort so the
+// retrieval's declared `sort:` orders the page.  A misnamed context function
+// or an unused binding only fails under `mix compile --warnings-as-errors`,
+// which is what this fixture reaches.
+system P {
+  user { id: string  role: string }
+  auth {
+    enforcement: opt
+    provider: keycloak
+    oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") audience: env("OIDC_AUDIENCE") }
+  }
+  subdomain S {
+    context C with scaffoldPaged(of: MyThings, requires: Staff) {
+      aggregate Thing with crudish {
+        name: string
+        owner: string
+        rank: int
+      }
+      policy Staff(): bool = currentUser.role == "staff"
+      criterion OwnedBy(o: string) of Thing = owner == o
+      retrieval MyThings(o: string) of Thing {
+        where: OwnedBy(o)
+        sort: [rank desc]
+      }
+      repository Things for Thing { }
+    }
+  }
+  api PApi with scaffoldPagedApi(of: MyThings) from S { }
+  storage primary { type: postgres }
+  resource s { for: C, kind: state, use: primary, index: [Thing.owner] }
+  deployable api {
+    platform: elixir
+    contexts: [C]
+    dataSources: [s]
+    serves: PApi
+    port: 4000
+    auth: required
+  }
+}

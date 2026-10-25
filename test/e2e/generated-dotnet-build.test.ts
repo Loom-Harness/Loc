@@ -29,6 +29,27 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..");
 const cli = path.join(repoRoot, "bin", "cli.js");
 
+/** The Dapper deployable's DDL as the schema assertions read it: every
+ *  `Migrations/*.cs` statement (Dapper applies the shared migration chain —
+ *  M-T2.17), C# verbatim-string escaping undone, identifiers unquoted and
+ *  schema-unqualified, lowercased. */
+function dapperDdl(proj: string): string {
+  const dir = path.join(proj, "Migrations");
+  return fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith(".cs"))
+    .sort()
+    .map((f) => {
+      const c = fs.readFileSync(path.join(dir, f), "utf8");
+      return [...c.matchAll(/^ {12}@"((?:[^"]|"")*)",$/gm)].map((m) => m[1]).join("\n");
+    })
+    .join("\n")
+    .replace(/""/g, '"')
+    .replace(/"[a-z_0-9]+"\./g, "")
+    .replace(/"/g, "")
+    .toLowerCase();
+}
+
 const ENABLED = process.env.LOOM_DOTNET_BUILD === "1";
 
 interface UnitTestCounts {
@@ -1021,9 +1042,7 @@ describe.skipIf(!ENABLED)(
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
-        expect(
-          fs.readFileSync(path.join(proj, "Infrastructure", "Persistence", "DbSchema.cs"), "utf8"),
-        ).toContain("accounts_events");
+        expect(dapperDdl(proj)).toContain("create table accounts_events");
         expect(
           fs.readFileSync(
             path.join(proj, "Infrastructure", "Repositories", "AccountRepository.cs"),
@@ -1057,13 +1076,10 @@ describe.skipIf(!ENABLED)(
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
-        const schema = fs.readFileSync(
-          path.join(proj, "Infrastructure", "Persistence", "DbSchema.cs"),
-          "utf8",
-        );
+        const schema = dapperDdl(proj);
         // The contained part gets NO child table — it folds from the stream.
-        expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS ledger_lines");
-        expect(schema).toContain("accounts_events");
+        expect(schema).not.toContain("create table ledger_lines (");
+        expect(schema).toContain("create table accounts_events");
         execSync(`dotnet restore --nologo`, { cwd: proj, stdio: "inherit", timeout: 240_000 });
         execSync(`dotnet build --no-restore --nologo /warnaserror`, {
           cwd: proj,
@@ -1095,12 +1111,9 @@ describe.skipIf(!ENABLED)(
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
-        const schema = fs.readFileSync(
-          path.join(proj, "Infrastructure", "Persistence", "DbSchema.cs"),
-          "utf8",
-        );
-        expect(schema).toContain("CREATE TABLE IF NOT EXISTS line_items");
-        expect(schema).toContain("references orders (id) on delete cascade");
+        const schema = dapperDdl(proj);
+        expect(schema).toContain("create table line_items (");
+        expect(schema).toContain("references orders on delete cascade");
         expect(
           fs.readFileSync(
             path.join(proj, "Infrastructure", "Repositories", "OrderRepository.cs"),
@@ -1137,14 +1150,11 @@ describe.skipIf(!ENABLED)(
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
-        const schema = fs.readFileSync(
-          path.join(proj, "Infrastructure", "Persistence", "DbSchema.cs"),
-          "utf8",
-        );
+        const schema = dapperDdl(proj);
         // Grandchild tables FK their DIRECT parent part, not the aggregate root.
-        expect(schema).toContain("references shipments (id) on delete cascade");
-        expect(schema).toContain("CREATE TABLE IF NOT EXISTS labels");
-        expect(schema).toContain("CREATE TABLE IF NOT EXISTS stickers");
+        expect(schema).toContain("references shipments on delete cascade");
+        expect(schema).toContain("create table labels (");
+        expect(schema).toContain("create table stickers (");
         const repo = fs.readFileSync(
           path.join(proj, "Infrastructure", "Repositories", "OrderRepository.cs"),
           "utf8",
@@ -1180,10 +1190,7 @@ describe.skipIf(!ENABLED)(
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
-        const schema = fs.readFileSync(
-          path.join(proj, "Infrastructure", "Persistence", "DbSchema.cs"),
-          "utf8",
-        );
+        const schema = dapperDdl(proj);
         expect(schema).toContain("tags jsonb not null");
         expect(schema).toContain("notes jsonb"); // optional list
         execSync(`dotnet restore --nologo`, { cwd: proj, stdio: "inherit", timeout: 240_000 });
@@ -1370,13 +1377,10 @@ describe.skipIf(!ENABLED)(
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
-        const schema = fs.readFileSync(
-          path.join(proj, "Infrastructure", "Persistence", "DbSchema.cs"),
-          "utf8",
-        );
+        const schema = dapperDdl(proj);
         // Blob table, not a normalised per-field/child-table tree.
         expect(schema).toContain("data jsonb not null");
-        expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS cart_lines");
+        expect(schema).not.toContain("create table cart_lines (");
         expect(
           fs.readFileSync(
             path.join(proj, "Infrastructure", "Repositories", "CartRepository.cs"),
@@ -1416,13 +1420,10 @@ describe.skipIf(!ENABLED)(
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
-        const schema = fs.readFileSync(
-          path.join(proj, "Infrastructure", "Persistence", "DbSchema.cs"),
-          "utf8",
-        );
+        const schema = dapperDdl(proj);
         // Flat root columns + jsonb containment columns; no child tables.
-        expect(schema).toContain("lines jsonb not null");
-        expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS cart_lines");
+        expect(schema).toContain("lines jsonb"); // a JSONB column on the root row (the migration chain declares it nullable)
+        expect(schema).not.toContain("create table cart_lines (");
         expect(
           fs.readFileSync(
             path.join(proj, "Infrastructure", "Repositories", "CartRepository.cs"),
@@ -1463,14 +1464,11 @@ describe.skipIf(!ENABLED)(
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
-        const schema = fs.readFileSync(
-          path.join(proj, "Infrastructure", "Persistence", "DbSchema.cs"),
-          "utf8",
-        );
+        const schema = dapperDdl(proj);
         // Root containment is a jsonb column; nested part has NO child table.
-        expect(schema).toContain("boxes jsonb not null");
-        expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS boxes");
-        expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS items");
+        expect(schema).toContain("boxes jsonb"); // a JSONB column on the root row (the migration chain declares it nullable)
+        expect(schema).not.toContain("create table boxes (");
+        expect(schema).not.toContain("create table items (");
         // Nested snapshot ParentId brands to its DIRECT parent (BoxId).
         const snaps = fs.readFileSync(
           path.join(proj, "Domain", "Carts", "CartSnapshots.cs"),
@@ -1511,13 +1509,10 @@ describe.skipIf(!ENABLED)(
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
-        const schema = fs.readFileSync(
-          path.join(proj, "Infrastructure", "Persistence", "DbSchema.cs"),
-          "utf8",
-        );
+        const schema = dapperDdl(proj);
         // Concrete tables carry merged fields; no table for the abstract base.
-        expect(schema).toContain("CREATE TABLE IF NOT EXISTS customers");
-        expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS parties");
+        expect(schema).toContain("create table customers (");
+        expect(schema).not.toContain("create table parties (");
         expect(
           fs.readFileSync(
             path.join(proj, "Infrastructure", "Repositories", "PartyRepository.cs"),
@@ -1558,14 +1553,11 @@ describe.skipIf(!ENABLED)(
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
-        const schema = fs.readFileSync(
-          path.join(proj, "Infrastructure", "Persistence", "DbSchema.cs"),
-          "utf8",
-        );
+        const schema = dapperDdl(proj);
         // ONE shared table named for the base; concretes own none.
-        expect(schema).toContain("CREATE TABLE IF NOT EXISTS parties");
+        expect(schema).toContain("create table parties (");
         expect(schema).toContain("kind text not null");
-        expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS customers");
+        expect(schema).not.toContain("create table customers (");
         const repo = fs.readFileSync(
           path.join(proj, "Infrastructure", "Repositories", "CustomerRepository.cs"),
           "utf8",
@@ -1607,19 +1599,14 @@ describe.skipIf(!ENABLED)(
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
-        const schema = fs.readFileSync(
-          path.join(proj, "Infrastructure", "Persistence", "DbSchema.cs"),
-          "utf8",
-        );
+        const schema = dapperDdl(proj);
         // Concrete owns no state table; its child + join tables FK the base row.
-        expect(schema).not.toContain("CREATE TABLE IF NOT EXISTS customers");
-        expect(schema).toContain("CREATE TABLE IF NOT EXISTS notes");
-        expect(schema).toContain(
-          "party_id uuid not null references parties (id) on delete cascade",
-        );
+        expect(schema).not.toContain("create table customers (");
+        expect(schema).toContain("create table notes (");
+        expect(schema).toContain("foreign key (party_id) references parties on delete cascade");
         // Part-in-part under the TPH concrete: the grandchild FKs its sibling part.
-        expect(schema).toContain("references notes (id) on delete cascade");
-        expect(schema).toContain("CREATE TABLE IF NOT EXISTS customer_tags");
+        expect(schema).toContain("references notes on delete cascade");
+        expect(schema).toContain("create table customer_tags (");
         const repo = fs.readFileSync(
           path.join(proj, "Infrastructure", "Repositories", "CustomerRepository.cs"),
           "utf8",

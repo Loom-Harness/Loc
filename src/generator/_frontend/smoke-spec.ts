@@ -12,15 +12,14 @@ import { type PageNameCtx, pageEmitName } from "../../ir/util/page-kind.js";
  *  in the page objects under e2e/pages/ and the generated
  *  `*.ui.spec.ts`.
  *
- *  WHAT "LOADS" HAS TO MEAN.  This used to assert `toHaveURL(<the route it
- *  just navigated to>)` and nothing else — `page.goto` sets that URL, so the
- *  assertion restated its own input and could not fail on anything the app
- *  did, up to and including rendering nothing.  A pack whose shell threw on
- *  mount (mui@v5: a CJS default import handed to React as a module object)
- *  shipped a blank error boundary through this gate, through `tsc --noEmit`,
- *  and through `vite build`.
+ *  WHAT "LOADS" HAS TO MEAN.  `toHaveURL(<the route it just navigated to>)`
+ *  alone restates `page.goto`'s own input and cannot fail on anything the app
+ *  did, up to and including rendering nothing.  A pack whose shell throws on
+ *  mount (e.g. a CJS default import handed to React as a module object) ships
+ *  a blank error boundary through that check, through `tsc --noEmit`, and
+ *  through `vite build`.
  *
- *  So each case now also asserts the app did not crash into its own error
+ *  So each case also asserts the app did not crash into its own error
  *  boundary.  `app-error` is the testid every JSX/SFC pack's app-shell puts on
  *  that boundary, which makes it a hook the generator already owns rather than
  *  a new convention.  `toHaveCount(0)` is deliberately a no-op on a target

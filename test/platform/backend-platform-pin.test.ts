@@ -7,7 +7,7 @@ import type { Model } from "../../src/language/generated/ast.js";
 import { diagText } from "../_helpers/diagnostics.js";
 
 // ---------------------------------------------------------------------------
-// The grammar admits `platform: "node@v4"`
+// The grammar admits `platform: "node@v5"`
 // (STRING alternative).  Lowering normalises it to the family
 // (byte-identical `platform`) + a qualified `platformRef`; the
 // validator rejects unknown versions / unknown platforms.  The legacy
@@ -39,9 +39,15 @@ describe("platform pin grammar + validation", () => {
     expect(errors).toEqual([]);
   });
 
-  it('accepts a registered pin `platform: "node@v4"`', async () => {
-    const { errors } = await parse(sys(`"node@v4"`));
+  it('accepts a registered pin `platform: "node@v5"`', async () => {
+    const { errors } = await parse(sys(`"node@v5"`));
     expect(errors).toEqual([]);
+  });
+
+  it("rejects the retired `node@v4` pin, naming its successor", async () => {
+    const { errors } = await parse(sys(`"node@v4"`));
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/Platform 'node@v4' on deployable 'api' was retired\. Pin 'node@v5'/);
   });
 
   it("rejects the retired `hono` alias (D-NODE-PLATFORM)", async () => {
@@ -61,7 +67,7 @@ describe("platform pin grammar + validation", () => {
   it("rejects an unregistered version with an available-list error", async () => {
     const { errors } = await parse(sys(`"node@v9"`));
     expect(errors.some((e) => /no version 'v9' of backend 'node'/.test(e))).toBe(true);
-    expect(errors.some((e) => /'node@v4'/.test(e))).toBe(true);
+    expect(errors.some((e) => /Available: 'node@v5'\./.test(e))).toBe(true);
   });
 
   it("rejects an unknown platform name (STRING no longer a free pass)", async () => {
@@ -99,11 +105,11 @@ describe("lowering normalises platform + platformRef", () => {
   });
 
   it("pin: platform=family (NOT the pin), platformRef=the pin", async () => {
-    const d = await lowerDeployable(`"node@v4"`);
+    const d = await lowerDeployable(`"node@v5"`);
     // The pin's family lands on `platform`; the pin is carried
     // separately on platformRef.
     expect(d.platform).toBe("node");
-    expect(d.platformRef).toBe("node@v4");
+    expect(d.platformRef).toBe("node@v5");
   });
 
   it("frontend: platform and platformRef both the bareword", async () => {

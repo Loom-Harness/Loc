@@ -15,6 +15,7 @@ import { contextUsesMoney } from "../../ir/types/loom-ir.js";
 import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { type PageNameCtx, pageConstructId } from "../../ir/util/page-kind.js";
+import { pagedFindRoutes } from "../../ir/util/paged-find-routes.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
@@ -706,7 +707,12 @@ export function generateAngularForContexts(
   for (const { agg } of aggregates) {
     out.set(
       `src/api/${lowerFirst(agg.name)}.ts`,
-      buildAngularApiModule(agg, repoByAggregate.get(agg.name), bcByAggregate.get(agg.name)),
+      buildAngularApiModule(
+        agg,
+        repoByAggregate.get(agg.name),
+        bcByAggregate.get(agg.name),
+        pagedFindRoutes(sys, target ?? deployable),
+      ),
     );
   }
   // Workflows API module — the Angular-native sibling of the

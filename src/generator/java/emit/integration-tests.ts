@@ -29,7 +29,7 @@ import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { jid } from "../java-ident.js";
 import { packagePath } from "../naming.js";
-import { collectJavaExprImports, type JavaRenderContext, renderJavaExpr } from "../render-expr.js";
+import { type JavaRenderContext, renderJavaExpr } from "../render-expr.js";
 import {
   javaBareToThrow,
   renderCreateCall,
@@ -65,12 +65,7 @@ const repoField = (aggName: string): string => `${lowerFirst(aggName)}Repository
  *  `findById` (and an optional/union custom find) returns `Optional<Agg>` → we
  *  `.orElseThrow()` so the binding is a plain `Agg` (mirrors node's non-null
  *  assertion). `getById` already returns `Agg` (throws); `findAll` a `List`. */
-function findCallOf(
-  e: ExprIR,
-  ctx: BoundedContextIR,
-  imports: Set<string>,
-  rctx: JavaRenderContext,
-): string | undefined {
+function findCallOf(e: ExprIR, ctx: BoundedContextIR, rctx: JavaRenderContext): string | undefined {
   if (e.kind !== "method-call" || e.receiver.kind !== "ref") return undefined;
   const aggName = (e.receiver as { name: string }).name;
   if (!ctx.repositories.some((r) => r.aggregateName === aggName)) return undefined;
@@ -79,7 +74,6 @@ function findCallOf(
   const field = repoField(aggName);
   const args = e.args
     .map((a) => {
-      collectJavaExprImports(a, imports);
       return renderJavaExpr(a, rctx);
     })
     .join(", ");
@@ -94,7 +88,6 @@ function findCallOf(
 function renderStmt(
   s: TestStmtIR,
   ctx: BoundedContextIR,
-  imports: Set<string>,
   rctx: JavaRenderContext,
   /** Position in the test body: mints a collision-free local per throw assertion. */
   index = 0,
@@ -104,12 +97,11 @@ function renderStmt(
     case "let": {
       const agg = createAggOf(s.expr, ctx);
       if (agg && s.expr.kind === "method-call" && s.expr.args[0]?.kind === "object") {
-        const create = renderCreateCall(s.expr, ctx, imports, rctx) ?? renderJavaExpr(s.expr, rctx);
+        const create = renderCreateCall(s.expr, ctx, rctx) ?? renderJavaExpr(s.expr, rctx);
         return [`${I}var ${s.name} = ${create};`, `${I}${repoField(agg.name)}.save(${s.name});`];
       }
-      const find = findCallOf(s.expr, ctx, imports, rctx);
+      const find = findCallOf(s.expr, ctx, rctx);
       if (find) return [`${I}var ${s.name} = ${find};`];
-      collectJavaExprImports(s.expr, imports);
       return [`${I}var ${s.name} = ${renderJavaExpr(s.expr, rctx)};`];
     }
     case "expression": {
@@ -121,25 +113,21 @@ function renderStmt(
         !s.expr.isCollectionOp
       ) {
         const aggName = s.expr.receiverType.name;
-        collectJavaExprImports(s.expr.receiver, imports);
         const recv = renderJavaExpr(s.expr.receiver, rctx);
-        const call =
-          renderOperationCall(s.expr, ctx, imports, rctx) ?? renderJavaExpr(s.expr, rctx);
+        const call = renderOperationCall(s.expr, ctx, rctx) ?? renderJavaExpr(s.expr, rctx);
         return [`${I}${call};`, `${I}${repoField(aggName)}.save(${recv});`];
       }
-      collectJavaExprImports(s.expr, imports);
       return [`${I}${renderJavaExpr(s.expr, rctx)};`];
     }
     case "expect": {
-      const explicit = renderExplicitMatcher(s.expr, imports, rctx);
+      const explicit = renderExplicitMatcher(s.expr, rctx);
       if (explicit) return [`${I}${explicit}`];
-      collectJavaExprImports(s.expr, imports);
       return [`${I}assertTrue(${renderJavaExpr(s.expr, rctx)});`];
     }
     case "expect-throws": {
       const inner =
-        renderCreateCall(s.expr, ctx, imports, rctx) ??
-        renderOperationCall(s.expr, ctx, imports, rctx) ??
+        renderCreateCall(s.expr, ctx, rctx) ??
+        renderOperationCall(s.expr, ctx, rctx) ??
         renderJavaExpr(s.expr, rctx);
       return javaBareToThrow(s.expr, inner, `__thrown${index}`, I);
     }
@@ -148,7 +136,7 @@ function renderStmt(
   }
 }
 
-function renderTest(t: TestIR, ctx: BoundedContextIR, imports: Set<string>): string[] {
+function renderTest(t: TestIR, ctx: BoundedContextIR): string[] {
   const methodName =
     t.name
       .replace(/[^A-Za-z0-9]+/g, "_")
@@ -156,7 +144,7 @@ function renderTest(t: TestIR, ctx: BoundedContextIR, imports: Set<string>): str
       .replace(/^([0-9])/, "_$1") || "test";
   // Locals are declared under their source name here (`var ${s.name}`).
   const rctx = testBodyRenderContext(t, (name) => name);
-  const body = t.statements.flatMap((s, i) => renderStmt(s, ctx, imports, rctx, i));
+  const body = t.statements.flatMap((s, i) => renderStmt(s, ctx, rctx, i));
   return [
     `    @Test`,
     `    @DisplayName(${JSON.stringify(t.name)})`,
@@ -180,8 +168,7 @@ export function renderJavaContextIntegrationTest(
 ): { path: string; content: string } | null {
   if (ctx.tests.length === 0) return null;
 
-  const imports = new Set<string>();
-  const methods = ctx.tests.flatMap((t) => renderTest(t, ctx, imports));
+  const methods = ctx.tests.flatMap((t) => renderTest(t, ctx));
   while (methods[methods.length - 1] === "") methods.pop();
   const bodyStr = methods.join("\n");
 
@@ -191,6 +178,7 @@ export function renderJavaContextIntegrationTest(
       new RegExp(`\\b${a.name}\\b`).test(bodyStr),
   );
   // Feature-package wildcards for every used aggregate's entity + repository.
+  const imports = new Set<string>();
   for (const a of usedAggs) {
     imports.add(`${entityPkgOf(a.name)}.*`);
     imports.add(`${repoPkgOf(a.name)}.*`);
@@ -212,8 +200,13 @@ export function renderJavaContextIntegrationTest(
     `import org.springframework.test.context.DynamicPropertyRegistry;`,
     `import org.springframework.test.context.DynamicPropertySource;`,
     ``,
+    // The same domain wildcards the unit-test emitter imports: a test body
+    // constructs value objects (`new Berth(...)`) and names enum constants
+    // (`Size.Large`), and both packages always exist.
     `import ${basePkg}.domain.common.*;`,
+    `import ${basePkg}.domain.enums.*;`,
     `import ${basePkg}.domain.ids.*;`,
+    `import ${basePkg}.domain.valueobjects.*;`,
     ``,
     `@SpringBootTest`,
     `public class ${className} {`,

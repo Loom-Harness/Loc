@@ -214,15 +214,15 @@ Format: symptom → cause → fix → where it's pinned / who found it.
 - **Python 3.13** (#1424) — `requires-python >=3.13` in `python/pins.ts` and
   `python:3.13-slim` base image; re-check ruff/mypy/pytest floors move together.
 - **drizzle-orm** (pre-1.0, every minor is breaking) — bump `drizzle-orm` +
-  `drizzle-kit` together in the **active** hono pins (`hono/v5/pins.ts` is the
-  default; `v4/pins.ts` is the legacy lane); run `LOOM_TS_BUILD=1`.
+  `drizzle-kit` together in the hono pins (`hono/v5/pins.ts`, the only
+  registered lane); run `LOOM_TS_BUILD=1`.
 - **Loose ranges to tighten opportunistically:** `postgrex` was historically
   `">= 0.0.0"` (now `~> 0.20`); never re-loosen a Hex/npm range to a bare
   any-version on a bump.
 - **The zod 3→4 / TS 6 / vitest 4 cross-major set already forked into
   `hono@v5`** — that's the *resolution* of the deferral, not a pending item.
-  Bareword `platform: node` resolves to **v5** (zod 4 / TS 6); `node@v4` stays
-  pinnable (zod 3 / TS 5). Honor the package boundary: a within-major dep bump
-  edits the relevant version's `pins.ts`; a fresh cross-major set is a new
-  package version, not an in-place edit. The two pins.ts files **drift on
-  purpose** — don't "sync" them.
+  Bareword `platform: node` resolves to **v5** (zod 4 / TS 6), the only
+  registered version; `node@v4` (zod 3 / TS 5) was retired, and pinning it is a
+  validation error naming `node@v5`. Honor the package boundary: a within-major
+  dep bump edits `v5/pins.ts`; a fresh cross-major set is a new package version,
+  not an in-place edit.

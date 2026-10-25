@@ -172,7 +172,7 @@ describe("no design pack re-spells the list shape", () => {
 
   it("finds the templates it means to guard", () => {
     // A scan that matches nothing passes silently (experience_gathered.md §59).
-    expect(idSelectTemplates().length).toBeGreaterThanOrEqual(12);
+    expect(idSelectTemplates().length).toBeGreaterThanOrEqual(8);
   });
 
   it.each(idSelectTemplates())("%s splices optionsExpr and never `.items`", (path) => {

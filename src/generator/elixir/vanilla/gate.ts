@@ -1,4 +1,5 @@
 import type { ExprIR } from "../../../ir/types/loom-ir.js";
+import { isAlwaysDenyGate } from "../../../ir/util/read-gates.js";
 
 /** `requires true` is the language's documented "intentionally public" escape
  *  (`docs/auth.md` §32) — a gate that can never deny.  It lowers to a plain
@@ -25,4 +26,21 @@ export function isAlwaysPublicGate(gate: ExprIR | undefined): boolean {
  *  escape.  Call this instead of reading `.requires` directly at a guard site. */
 export function effectiveGate(gate: ExprIR | undefined): ExprIR | undefined {
   return isAlwaysPublicGate(gate) ? undefined : gate;
+}
+
+/** The Elixir spelling of the always-deny gate (`isAlwaysDenyGate` — e.g. the
+ *  one enrichment stamps on an undeclared read under denyByDefault, M-T3.19).  NOT the literal `false`: the
+ *  1.18 type checker folds `if not (false)` into a typing violation ("will
+ *  always evaluate to true"), failing `--warnings-as-errors` — the same reason
+ *  `isAlwaysPublicGate` drops `requires true`.  Dropping is not an option here
+ *  (the guard is the whole point), so the deny is spelled as a runtime
+ *  membership test against the empty allow-set — opaque to the checker, the
+ *  same device as the document repository's `__denied?/1`
+ *  (`capability-filter.ts`). */
+const ELIXIR_ALWAYS_DENY = "Enum.member?([], :default_deny)";
+
+/** Render a gate CONDITION for an `if not (…)` guard — `render` for an
+ *  author-written gate, {@link ELIXIR_ALWAYS_DENY} for the synthesised deny. */
+export function renderGateCondition(gate: ExprIR, render: (g: ExprIR) => string): string {
+  return isAlwaysDenyGate(gate) ? ELIXIR_ALWAYS_DENY : render(gate);
 }

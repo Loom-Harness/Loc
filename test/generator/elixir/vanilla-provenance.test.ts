@@ -222,7 +222,7 @@ system Ordering {
     context Orders {
       aggregate Order {
         ratio: decimal
-        total: decimal provenanced
+        total: decimal provenanced = 0
         create(ratio: decimal) { }
         operation reprice(qty: int) {
           total := decimal(qty) * ratio

@@ -67,6 +67,19 @@ Relates to [M-T2.1](#m-t21) (rename intent), the phase-⑨ migration gating, and
 
 ## M-T2.17 — the self-provisioning adapters get a real migration chain (dapper + mikroorm) — `open` · **L** · P2
 
+**Dapper half landed (#3260, stacked on #3204).** Dapper now applies the
+chain as versioned `Migrations/*.cs` run by `DbSchema.EnsureAsync`. It keeps a
+`public.__loom_migrations` history, runs one transaction per migration, and
+takes an advisory lock. The steps are projected onto its jsonb value-object
+layout via the shared `vo-json-columns.ts`. Tables land in the binding's schema
+and are reached through the connection's `search_path`, which settles slice (d)
+for `schema:` (`tablePrefix:` is still refused). A database provisioned by the
+old bootstrap is baselined at boot, and an old output tree is re-rooted at
+generate time (`docs/migrations.md` → "`persistence: dapper`"). The
+`test:migration-evolution-dapper` leg is wired, and `#migrations` /
+`#schema-split` are gone for Dapper. **What stays open is the mikroorm half**:
+slices (b) and (c) for `persistence: mikroorm`, and its `#schema-*` clauses.
+
 Minted 2026-09-13 by wave C2 packet 2b, as [`D-DAPPER-ALTER`](../decisions.md#d-dapper-alter--dapper-and-mikroorm-get-a-real-alter-path-in-phase-9-the-widened-refusal-lands-first)
 requires ("a named **T2 mission** owns the build"). The ruling is already given —
 option (c), BUILD it, with the widened gate (b) as the interim — so this mission

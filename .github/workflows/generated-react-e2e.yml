@@ -21,7 +21,7 @@ name: Generated React e2e
 #                    (`_frontend/`, `_walker/`, `_packs/`,
 #                    `frontend-dispatch.ts`); the two packs this matrix
 #                    runs (`designs/mantine`, `designs/shadcn`) and their
-#                    stacks (`stacks/v1`, `stacks/v3`); the TSX host
+#                    stack (`stacks/v3`); the TSX host
 #                    template layer (`vite/`, `api/`, `docker/`); the
 #                    example, the test and this file.  A change confined
 #                    to a non-React backend does not fire it.
@@ -61,6 +61,7 @@ on:
       - 'src/generator/_frontend/**'
       - 'src/generator/_payload/**'
       - 'src/generator/_trace/**'
+      - 'src/generator/_imports/**'
       - 'src/generator/_walker/**'
       - 'src/generator/_packs/**'
       - 'src/platform/frontend-dispatch.ts'
@@ -71,7 +72,6 @@ on:
       - 'api/**'
       - 'vite/**'
       - 'docker/**'
-      - 'stacks/v1/**'
       - 'stacks/v3/**'
       - 'test/e2e/generated-react-e2e.test.ts'
       - 'package.json'
@@ -116,7 +116,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pack: ['mantine@v7', 'shadcn@v4']
+        pack: ['mantine@v9', 'shadcn@v4']
     timeout-minutes: 20
     name: showcase × ${{ matrix.pack }}
     steps:

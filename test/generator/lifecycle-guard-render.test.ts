@@ -250,7 +250,7 @@ const SPECS: Record<Backend, BackendSpec> = {
       // M-T3.16 C2: the request is validated FIRST (the wire rung the other
       // four answer at the route boundary), then the gate, then the insert.
       gate:
-        "with {:ok, _} <- Ecto.Changeset.apply_action(D.Warehouse.ShipmentChangeset.base_changeset(attrs), :insert),\n" +
+        "with {:ok, _} <- Ecto.Changeset.apply_action(D.Warehouse.ShipmentChangeset.base_changeset(D.Warehouse.ShipmentChangeset.take_create_attrs(attrs)), :insert),\n" +
         "         :ok <- ensure(not is_nil(current_user) and " +
         '(Enum.member?(current_user.permissions, "ops.manage")), ' +
         '{:forbidden, "Forbidden: currentUser.permissions.contains(permissions.manage)"}) do',

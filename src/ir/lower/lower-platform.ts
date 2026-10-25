@@ -31,7 +31,7 @@ export function qualifyDesign(raw: string | undefined, fallback: BuiltinPackFami
 /** Split a `platform:` value into the family (the closed `Platform`
  *  union every consumer branches on) and the fully-qualified ref
  *  (`family@version`, mirrors `qualifyDesign`).  Bareword backend →
- *  family + `family@latest`.  Backend pin (`node@v4`) → family + the
+ *  family + `family@latest`.  Backend pin (`node@v5`) → family + the
  *  pin verbatim.  Frontend / unknown (`react`, `static`) → value for
  *  both (no version axis here).  Byte-identical for every existing
  *  source: `family` equals the bareword, so all `platform === "…"`
