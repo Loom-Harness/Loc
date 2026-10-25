@@ -67,9 +67,60 @@ export type RepoResultShape = "row" | "optional-row" | "rows" | "none";
  *  generated repository by aggregate name (`Order.getById(id)`). */
 export type RepoVerbPosition = "body" | "integration-test";
 
+/** The surface spellings the contract table offers. */
+export type ContractVerb =
+  | "getById"
+  | "findById"
+  | "find"
+  | "findAll"
+  | "all"
+  | "run"
+  | "delete"
+  | "remove";
+
+/** Persistence names that are NOT contract verbs.  A body persists at its exit
+ *  (or at the end of a loop iteration / branch), never by statement, so a call
+ *  to one of these is refused in a workflow / handler body
+ *  (`loom.workflow-explicit-save`) and in a `reading` domain service. */
+export type PersistVerb = "save" | "insert" | "update" | "add" | "commit";
+
+/** Every repository method name the toolchain classifies: the contract verbs
+ *  plus the persistence names it refuses.  A declared find is called by its own
+ *  name and is not one of these. */
+export type RepoVerb = ContractVerb | PersistVerb;
+
+/** The body effect a repository verb performs (`ir/types/effect-ir.ts`):
+ *  `load` reads rows, `delete` removes one, `persist` writes one. */
+export type RepoVerbEffect = "load" | "delete" | "persist";
+
+/** Every verb's effect.  A `Record` over the closed `RepoVerb` union, so a new
+ *  verb without an effect is a type error here instead of a fallthrough at a
+ *  string-set lookup. */
+export const REPO_VERB_EFFECT: Readonly<Record<RepoVerb, RepoVerbEffect>> = {
+  getById: "load",
+  findById: "load",
+  find: "load",
+  findAll: "load",
+  all: "load",
+  run: "load",
+  delete: "delete",
+  remove: "delete",
+  save: "persist",
+  insert: "persist",
+  update: "persist",
+  add: "persist",
+  commit: "persist",
+};
+
+/** The effect of a repository method name, or `undefined` for a name that is
+ *  not a `RepoVerb` (a declared find, or an unknown method). */
+export function repoVerbEffect(name: string): RepoVerbEffect | undefined {
+  return Object.hasOwn(REPO_VERB_EFFECT, name) ? REPO_VERB_EFFECT[name as RepoVerb] : undefined;
+}
+
 export interface RepoVerbContract {
   /** The surface spelling accepted today. */
-  readonly verb: string;
+  readonly verb: ContractVerb;
   readonly op: RepoOp;
   readonly face: RepoFace;
   readonly args: RepoArgShape;
@@ -167,17 +218,6 @@ export const REPOSITORY_CONTRACT: readonly RepoVerbContract[] = [
   },
 ];
 
-/** Persistence names that are not contract verbs.  A call to one of them is a
- *  write: a `reading` domain service refuses it, and a workflow body lowers it
- *  as a write statement. */
-const NON_CONTRACT_WRITE_NAMES: ReadonlySet<string> = new Set([
-  "save",
-  "insert",
-  "update",
-  "add",
-  "commit",
-]);
-
 const BY_VERB: ReadonlyMap<string, RepoVerbContract> = new Map(
   REPOSITORY_CONTRACT.map((c) => [c.verb, c]),
 );
@@ -194,11 +234,12 @@ export function repoVerbOp(name: string): RepoOp | undefined {
   return BY_VERB.get(name)?.op;
 }
 
-/** True when the named repository call mutates persistence: a write-face
- *  contract verb, or a non-contract persistence name.  Every other name (a
- *  contract read, a declared find) is a read. */
+/** True when the named repository call mutates persistence: a `delete` or
+ *  `persist` verb.  Every other name (a contract read, a declared find) is a
+ *  read. */
 export function isRepoWriteName(name: string): boolean {
-  return BY_VERB.get(name)?.face === "write" || NON_CONTRACT_WRITE_NAMES.has(name);
+  const effect = repoVerbEffect(name);
+  return effect === "delete" || effect === "persist";
 }
 
 /** True when the name is a contract verb accepted at `position`. */

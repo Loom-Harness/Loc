@@ -25,6 +25,7 @@ import type {
   WorkflowStmtIR,
 } from "../../types/loom-ir.js";
 import { findUsesCurrentUser } from "../../types/loom-ir.js";
+import { bodyEffects } from "../../util/effects.js";
 import {
   walkExprDeep,
   walkStmtExprsDeep,
@@ -212,6 +213,7 @@ export function validateWorkflows(
     validateWorkflowUnresolvedNames(ctx, wf, foreignRepos, projectionNames, declaredNames, diags);
     validateWorkflowCorrelation(ctx, wf, diags, allEvents);
     validateWorkflowOwnStateAddressable(ctx, wf, diags);
+    validateWorkflowUncorrelatedStateWrite(ctx, wf, diags);
     validateWorkflowCreates(wf, diags, ctx.name);
     validateWorkflowFunctions(wf, diags, ctx.name);
     validateWorkflowHandlers(wf, diags, ctx.name);
@@ -826,11 +828,10 @@ function validateWorkflowCorrelation(
 // TWO THINGS DELIBERATELY NOT GATED, named so the silence is not read as a
 // claim that they are fine:
 //
-//   * a workflow with `Property` members and NO id-shaped field at all.  That
-//     is a SHIPPED shape, not a gap: M-T6.50 (b) made python emit a
-//     request-scoped scratch (`self = SimpleNamespace(...)`) for it.  node,
-//     .NET and java still emit an unbound `this` there — a cross-backend parity
-//     gap on M-T6.62, not something to refuse.
+//   * a workflow with `Property` members and NO id-shaped field at all.  A
+//     command create that WRITES that state is refused by its own rule
+//     (`validateWorkflowUncorrelatedStateWrite`, below): with no row key no
+//     later step could ever read the write.
 //   * a command create whose body does NOT touch own state: it emits fine, but
 //     still creates no row, so an `on` reactor for the same key logs
 //     `event_unrouted` forever (the reactor path loads, it does not allocate).
@@ -877,6 +878,42 @@ function validateWorkflowOwnStateAddressable(
     origin: wf.origin,
     code: "loom.workflow-create-correlation-unsupplied",
   });
+}
+
+// An UNCORRELATED workflow — state fields but no id-shaped one, not
+// event-sourced — keeps no instance row: there is no key to store one under or
+// to find it by.  A command `create` that assigns that state therefore writes a
+// value no later step could ever address, and the backends disagreed on what
+// to make of it (an unbound `this` / `state` on node, .NET, java and elixir; a
+// request-scoped scratch that persisted nothing on python).  Refused, so the
+// author correlates the workflow or drops the state.  The write is read off the
+// body's effects (`ir/util/effects.ts`), at any nesting depth.
+function validateWorkflowUncorrelatedStateWrite(
+  ctx: BoundedContextIR,
+  wf: WorkflowIR,
+  diags: LoomDiagnostic[],
+): void {
+  const stateFields = wf.stateFields ?? [];
+  if (stateFields.length === 0 || wf.eventSourced) return;
+  if (stateFields.some((f) => f.type.kind === "id")) return;
+  for (const c of wf.creates) {
+    if (c.triggerKind !== "command") continue;
+    const written = new Set<string>();
+    for (const e of bodyEffects(c)) {
+      if (e.kind === "mutate" && e.target.kind === "state") written.add(e.target.field);
+    }
+    if (written.size === 0) continue;
+    diags.push({
+      severity: "error",
+      code: "loom.workflow-uncorrelated-state-write",
+      message: diagMessage("loom.workflow-uncorrelated-state-write", {
+        name: wf.name,
+        fields: [...written].map((f) => `'${f}'`).join(", "),
+      }),
+      source: `${ctx.name}/${wf.name}`,
+      origin: wf.origin,
+    });
+  }
 }
 
 /** A create param whose PAYLOAD type declares a field named `corr` — the

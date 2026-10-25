@@ -23,7 +23,8 @@
 // correlation field — the command-side twin of the reactor's omitted-`by` rule.
 
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles } from "../_helpers/index.js";
+import { validateLoomModel } from "../../src/ir/validate/validate.js";
+import { buildLoomModelUnchecked, generateSystemFiles } from "../_helpers/index.js";
 
 const SRC = (deployable: string) => `
 system Acme {
@@ -113,12 +114,11 @@ describe("command-triggered create on a state-bearing workflow (F58)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Bycatch found while fixing F58: M-T6.50's own-state scratch for an
-// UNCORRELATED command workflow (`self = SimpleNamespace(...)`) was emitted at
-// the 4-space base while every other line of the route body sits at 8, inside a
-// `try:`.  That is an `IndentationError` — the file never parsed, so the fix it
-// shipped could never have run.  No gate saw it because no fixture pairs a
-// state-bearing workflow with a python deployable.
+// An UNCORRELATED state-bearing command workflow — state fields, no id-shaped
+// one — keeps no instance row, so a create that assigns its state wrote a value
+// nothing could ever read (python rendered a request-scoped scratch that
+// persisted nothing; node / .NET / java / elixir an unbound receiver).  It is
+// refused at phase ⑦ instead, on every backend alike.
 const UNCORRELATED = `
 system Acme {
   subdomain Ops {
@@ -149,17 +149,11 @@ system Acme {
 }
 `;
 
-describe("python own-state scratch for an uncorrelated command workflow", () => {
-  it("is emitted at the route body's own indent, not one level out", async () => {
-    const files = await generateSystemFiles(UNCORRELATED);
-    const wf = [...files.entries()].find(([p]) => p.endsWith("workflows_routes.py"))?.[1];
-    expect(wf).toBeDefined();
-    // The defect: `    self = SimpleNamespace(...)` at the 4-space base inside
-    // an 8-space `try:` block.
-    expect(wf).not.toMatch(/\n {4}self = SimpleNamespace\(/);
-    expect(wf).toContain('        self = SimpleNamespace(_note="", _status="")');
-    // Every line of the route body sits at one consistent depth.
-    expect(wf).toContain('        self._status = "Pending"');
+describe("an uncorrelated command workflow that writes state", () => {
+  it("is refused with loom.workflow-uncorrelated-state-write", async () => {
+    const loom = await buildLoomModelUnchecked(UNCORRELATED, "the subject is the refusal itself");
+    const codes = validateLoomModel(loom).map((d) => d.code);
+    expect(codes).toContain("loom.workflow-uncorrelated-state-write");
   });
 });
 

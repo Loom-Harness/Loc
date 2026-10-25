@@ -38,8 +38,9 @@ system S {
       }
 
       workflow claim {
+        orderId: Order id
         owner: string
-        create(code: string) {
+        create(orderId: Order id, code: string) {
           let r = Lookup.probe(code)
           owner := match r { Hit h => h.code, NotFound n => n.resource }
         }
