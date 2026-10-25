@@ -7,6 +7,7 @@ import { efcorePersistenceAdapter } from "../generator/dotnet/adapters/efcore-pe
 import { dotnetRootNamespace } from "../generator/dotnet/bcl-collision.js";
 import { DOTNET_TFM } from "../generator/dotnet/emit/program.js";
 import { generateDotnetForContexts } from "../generator/dotnet/index.js";
+import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import {
   type ComposeServiceShape,
   EMBEDDABLE_FRAMEWORKS,
@@ -49,6 +50,7 @@ const dotnetPlatform: PlatformSurface = {
   // it DOES on Hono — the validator takes the union across all
   // platforms (see `validateLoomModel`).
   reservedRepositoryFindNames: new Set(["saveAsync", "getByIdAsync"]),
+  capabilities: TARGET_CAPABILITIES.dotnet,
   emitProject({
     contexts,
     deployable,

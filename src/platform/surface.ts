@@ -13,6 +13,7 @@ import type {
   SystemIR,
 } from "../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../ir/types/migrations-ir.js";
+import type { TargetCapabilityTable } from "../util/target-capabilities.js";
 
 // ---------------------------------------------------------------------------
 // D-PHOENIX-SURFACE — framework host-capability building blocks.
@@ -182,6 +183,12 @@ export interface PlatformDescriptor {
    * the DSL's casing (lowerCamelCase) — the validator compares
    * against `find.name` directly. */
   readonly reservedRepositoryFindNames: ReadonlySet<string>;
+  /** What this target renders, per construct × position — supported, or
+   *  refused with a stable reason.  The validator refuses a refused construct
+   *  at compile time (`loom.target-unsupported`), so the emitter never meets
+   *  it.  Pure data from `src/util/target-capabilities.ts`, shared with the
+   *  emitters that pick a path per target. */
+  readonly capabilities: TargetCapabilityTable;
 }
 
 /** The full platform surface — its data descriptor plus the

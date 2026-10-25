@@ -162,7 +162,7 @@ describe("loom.table-filter-unsupported", () => {
   it("REACHABILITY: the framework Set is what makes it fire", async () => {
     // Every shipping frontend is now listed, so "the check works" and "the
     // check is unreachable" look identical from outside.  This is what tells
-    // them apart — the same discipline CHART_FRAMEWORKS uses: drop one member
+    // them apart: drop one member
     // and the diagnostic comes straight back.
     expect([...TABLE_FILTER_FRAMEWORKS].sort()).toEqual([
       "angular",

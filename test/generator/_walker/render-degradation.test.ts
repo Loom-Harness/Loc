@@ -237,7 +237,7 @@ const SENTINELS: ReadonlyArray<{
       },
       {
         file: "src/generator/_walker/primitives/data-grid.ts",
-        template: "`{/* DataGrid: not supported on ${ctx.target.framework} */}`",
+        template: "`DataGrid: not supported on ${ctx.target.framework}`",
       },
     ],
   },

@@ -37,42 +37,31 @@
 // The gate is one predicate, shared by BOTH walker engines (the JSX/markup
 // `walkBody` core and the parallel HEEx one), so the two cannot disagree about
 // which reads a target serves.  A frontend joins the set by collecting the
-// history read AND implementing `Timeline` — the same day, or not at all.
+// history read AND implementing `Timeline` — the same day, or not at all — and
+// marking its `read:entity-history@body` row supported in
+// `src/util/target-capabilities.ts`.
 // ---------------------------------------------------------------------------
 
 import type { ExprIR } from "../../ir/types/loom-ir.js";
-import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
+import { isEntityHistoryRead } from "../../ir/util/entity-history-read.js";
+import { frameworksSupporting } from "../../util/target-capabilities.js";
+
+export { isEntityHistoryRead };
 
 /** Frontends whose read layer collects the derived `history(id)` read and whose
  *  walker renders `Timeline`.  Both halves are required — a target that renders
  *  the primitive but binds the wrong read is worse than one that renders
- *  nothing, because it looks like it works. */
-export const HISTORY_CAPABLE_FRAMEWORKS: ReadonlySet<string> = new Set([
-  "react",
-  "vue",
-  "svelte",
-  "angular",
-  "phoenixLiveView",
-  "feliz",
-  "flutter",
-]);
-
-/** True when a `QueryView` `of:` expression is the derived entity-history read
- *  — `<api>.<Agg>.history(id)` or the no-api-handle `<Agg>.history(id)`.  The
- *  receiver must name an aggregate this ui knows, so an unrelated
- *  `something.history(…)` is not mistaken for one. */
-export function isEntityHistoryRead(
-  ofArg: ExprIR,
-  aggregatesByName: { has(name: string): boolean },
-): boolean {
-  if (ofArg.kind !== "method-call" || ofArg.member !== AUDIT_HISTORY_FIND) return false;
-  const recv = ofArg.receiver;
-  const name = recv.kind === "member" ? recv.member : recv.kind === "ref" ? recv.name : undefined;
-  return name !== undefined && aggregatesByName.has(name);
-}
+ *  nothing, because it looks like it works.  Derived from the capability table
+ *  (`read:entity-history@body`), so the validator refuses exactly the
+ *  frameworks this gate would skip. */
+export const HISTORY_CAPABLE_FRAMEWORKS: ReadonlySet<string> = frameworksSupporting(
+  "read:entity-history@body",
+);
 
 /** True when this target must SKIP a history-read view (see the module header).
- *  Callers render `renderComment(...)` in its place. */
+ *  Callers render `renderComment(...)` in its place.  Unreachable on a
+ *  validated model — `loom.target-unsupported#entity-history-read` refuses it
+ *  first; kept as the emitter's floor. */
 export function skipsEntityHistoryRead(
   framework: string,
   ofArg: ExprIR | undefined,

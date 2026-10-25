@@ -1,7 +1,7 @@
 // `Chart` presence in a page/component body — one predicate, two consumers.
 //
 // The IR validator gates `Chart` on targets without the mantine@v9 template
-// (`loom.chart-unsupported-target`), and the React emitter needs the same
+// (`loom.target-unsupported#chart`), and the React emitter needs the same
 // answer to decide whether the emitted `package.json` carries the chart
 // dependency (`@mantine/charts` + its recharts peer — the `usesChart`
 // template flag, mirroring `usesMoney`).  Two copies of a "does this ui use

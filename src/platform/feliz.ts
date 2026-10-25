@@ -1,5 +1,6 @@
 import { generateFelizForContexts } from "../generator/feliz/index.js";
 import { API_BASE_PATH } from "../util/api-base.js";
+import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import type { ComposeServiceShape, PlatformSurface } from "./surface.js";
 
 // ---------------------------------------------------------------------------
@@ -26,6 +27,7 @@ const felizPlatform: PlatformSurface = {
   // the static-bundle hosts share.  Must equal the metadata descriptor.
   hostableFrameworks: new Set(["feliz"]),
   reservedRepositoryFindNames: new Set(),
+  capabilities: TARGET_CAPABILITIES.feliz,
   emitProject({ contexts, sys, deployable, sourcemap }): Map<string, string> {
     return generateFelizForContexts(contexts, sys, deployable, { sourcemap });
   },

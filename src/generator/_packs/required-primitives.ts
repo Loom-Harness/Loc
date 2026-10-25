@@ -265,7 +265,7 @@ const TSX_FORM: readonly string[] = [
 // comment used to say; it described the mechanism, not the objection — see
 // D-DATAGRID-TARGETS § Correction.)
 // Flutter and HEEx stay honest gaps, rejected by
-// `loom.datagrid-unsupported-target` rather than rendering a blank page region.
+// `loom.target-unsupported#datagrid` rather than rendering a blank page region.
 const DATA_GRID_PRIMITIVES: readonly string[] = ["primitive-data-grid"];
 
 // `Chart` — the line/bar chart over a grouped projection's LIST response
@@ -291,9 +291,9 @@ const DATA_GRID_PRIMITIVES: readonly string[] = ["primitive-data-grid"];
 // `renderChartHeex` (the rows are already in a server assign, so the geometry
 // is arithmetic).  Neither format has a `designs/` .hbs tree to require it in.
 //
-// So `Chart` reaches ALL SEVEN frameworks, which is why `CHART_FRAMEWORKS`
-// (`src/ir/validate/checks/system-checks.ts`) lists all seven and
-// `loom.chart-unsupported-target` fires for nothing that ships — it is the
+// So `Chart` reaches ALL SEVEN frameworks, which is why the capability table
+// (`src/util/target-capabilities.ts`) marks it supported on all seven and
+// `loom.target-unsupported#chart` fires for nothing that ships — it is the
 // seam a NEW frontend gates on until it ports, not a live gap.
 const CHART_PRIMITIVES: readonly string[] = ["primitive-chart"];
 
