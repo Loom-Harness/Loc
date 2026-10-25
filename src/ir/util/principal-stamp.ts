@@ -95,20 +95,6 @@ export function requiredClaimStamps(
   return [...byField.values()].sort((x, y) => (x.field < y.field ? -1 : x.field > y.field ? 1 : 0));
 }
 
-/** The union of {@link requiredClaimStamps} across several aggregates — what a
- *  backend emitting ONE shared stamp helper (node's `db/audit-stamp.ts`, .NET's
- *  interceptor) needs, since that helper runs for all of them. */
-export function requiredClaimStampsAcross(
-  aggs: readonly (Pick<AggregateIR, "fields"> & { contextStamps?: ContextStampIR[] })[],
-  event: "create" | "update",
-): RequiredClaimStamp[] {
-  const byField = new Map<string, RequiredClaimStamp>();
-  for (const agg of aggs) {
-    for (const s of requiredClaimStamps(agg, event)) byField.set(s.field, s);
-  }
-  return [...byField.values()].sort((x, y) => (x.field < y.field ? -1 : x.field > y.field ? 1 : 0));
-}
-
 /** The refusal message every backend uses, so the answer reads the same
  *  whichever one is serving.  Deliberately names the claim, the column, and the
  *  fix — this string is what someone reads at 3am instead of `"internal"`. */

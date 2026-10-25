@@ -5,6 +5,7 @@ import type {
   EnrichedBoundedContextIR,
   OperationIR,
 } from "../../../ir/types/loom-ir.js";
+import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import {
   lifecycleGates,
   lifecycleGatesUseCurrentUser,
@@ -109,7 +110,7 @@ type DepList = readonly { readonly type: string; readonly field: string }[];
 function whenGate(agg: AggregateIR, op: AggregateIR["operations"][number]): string {
   if (!op.when) return "";
   const pred = renderCsExpr(op.when, { thisName: "aggregate" });
-  return `        if (!(${pred})) throw new DisallowedException("operation '${op.name}' is not allowed in the current state of ${agg.name}.");\n`;
+  return `        if (!(${pred})) throw new DisallowedException(${JSON.stringify(disallowedDetail(op.name, agg.name, op.whenSource))});\n`;
 }
 
 /** Namespaces the gates rendered INTO the handler body reach into — the `when`

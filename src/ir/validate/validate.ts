@@ -20,6 +20,7 @@ import { validateCustomDesignPacks } from "./checks/design-pack-checks.js";
 import type { LoomDiagnostic } from "./checks/diagnostic.js";
 import { validateDomainServices } from "./checks/domain-service-checks.js";
 import { validateEntityPartParams } from "./checks/entity-part-param-checks.js";
+import { validateSingleRowFindUniqueness } from "./checks/find-uniqueness-checks.js";
 import { validateIfStatementPlacement } from "./checks/if-stmt-checks.js";
 import { validateIndexSuggestions } from "./checks/index-suggestion-checks.js";
 import { validateMemberResolution } from "./checks/member-resolution-checks.js";
@@ -128,6 +129,7 @@ import {
   validateUiThisUnbound,
   validateVanillaDocumentScope,
 } from "./checks/system-checks.js";
+import { validatePersistedTableCollisions } from "./checks/table-name-checks.js";
 import { validateTenancy } from "./checks/tenancy-checks.js";
 import {
   validateAggregateTestBodies,
@@ -343,6 +345,8 @@ export function validateLoomModel(
     validateRawSeedColumns(c, diags);
     validateFindNameCollisions(c, diags);
     validatePagedParamNames(c, diags);
+    validatePersistedTableCollisions(c, diags);
+    validateSingleRowFindUniqueness(c, diags);
     validateEntityPartParams(c, diags);
     validateAggregateTestBodies(c, diags);
     validateTestStatementVocabulary(c, diags);

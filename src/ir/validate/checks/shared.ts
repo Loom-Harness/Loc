@@ -6,6 +6,7 @@
 import { nearestName } from "../../../util/edit-distance.js";
 import { intrinsicFor, intrinsicReturnType } from "../../../util/intrinsics.js";
 import type { AggregateIR, BoundedContextIR, ExprIR } from "../../types/loom-ir.js";
+import { principalTerm } from "../../util/principal-term.js";
 import { durationCtorOperand, isDatetimeTypedIR } from "../../util/temporal.js";
 import { walkExprDeep } from "../../util/walk.js";
 
@@ -275,6 +276,13 @@ export type PredicateGateOptions = {
    *  resolve `this` against, so `memberType` is a placeholder rather than the
    *  column's type.  Today that is the context-level `filter` capability. */
   readonly thisTypesUnresolved?: boolean;
+  /** Set by the capability-`filter` call site: a column-free `==` / `!=` over
+   *  principal-side values (`currentUser.role == "agent"`) is admitted there,
+   *  because every backend's filter renderer evaluates it against the request
+   *  principal and drops the constant into the query (`principalTerm`).  A
+   *  `find` / criterion `where` keeps refusing it — a per-read principal test
+   *  is what `requires` is for. */
+  readonly admitPrincipalTerms?: boolean;
 };
 
 const PREDICATE_COMPARE_OPS: ReadonlySet<string> = new Set(["==", "!=", "<", "<=", ">", ">="]);
@@ -324,10 +332,15 @@ export function firstNonQueryablePredicate(
       const bad = firstNonQueryableNode(inner);
       if (bad) return bad;
       if (!isColumnRooted(inner.left) && !isColumnRooted(inner.right)) {
+        if (opts.admitPrincipalTerms && principalTerm(inner)) return null;
         return (
           `a comparison with no column on either side ('${inner.op}') — a query predicate is ` +
           `lowered as '<column> ${inner.op} <value>' on every adapter, so one side must read ` +
-          `'this.<field>'`
+          `'this.<field>'` +
+          (opts.admitPrincipalTerms
+            ? ` (the one column-free comparison a capability filter admits is '==' / '!=' ` +
+              `between 'currentUser.<claim>' and another claim, a literal or an enum value)`
+            : "")
         );
       }
       return null;

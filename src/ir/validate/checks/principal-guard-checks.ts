@@ -14,6 +14,8 @@ import type {
   ExprIR,
   SystemIR,
 } from "../../types/loom-ir.js";
+import { isDocumentShaped, resolveDataSourceConfig } from "../../util/resolve-datasource.js";
+import { stampValueReadsAggregate } from "../../util/stamp-self-read.js";
 import { walkExprDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
@@ -41,6 +43,12 @@ import type { LoomDiagnostic } from "./diagnostic.js";
 // to tell them apart.  `-invalid` marks "impossible or refused", and a target
 // name never belongs in a code identity — it becomes a lie the day that target
 // supports it.
+//
+// A third code, `loom.stamp-reads-aggregate-unsupported`, IS a backend gap
+// rather than a language rule: it refuses the single (family, shape) cell —
+// Elixir, document-shaped — whose stamp site has no record to evaluate a
+// self-reading stamp value against.  It is scoped to exactly that cell, so it
+// lifts by deleting one arm when that seam binds the record.
 // ---------------------------------------------------------------------------
 
 /** The noun for the missing request principal.  Elixir says "principal
@@ -101,6 +109,34 @@ export function validateStampSupport(sys: SystemIR, diags: LoomDiagnostic[]): vo
             origin: dep.origin,
             code: "loom.stamp-on-event-sourced-invalid",
           });
+        }
+        // The one backend-specific arm: Elixir's document write seam merges a
+        // document aggregate's stamps into the request attrs before any struct
+        // exists, so a stamp value reading the aggregate has no record to read.
+        // Every other (family, shape) cell evaluates it against the instance
+        // being persisted.
+        if (
+          family === "elixir" &&
+          isDocumentShaped(enriched, resolveDataSourceConfig(enriched, ctx, sys))
+        ) {
+          const selfRead = stamps
+            .flatMap((r) => r.assignments)
+            .find((a) => stampValueReadsAggregate(a.value));
+          if (selfRead) {
+            diags.push({
+              severity: "error",
+              message: diagMessage("loom.stamp-reads-aggregate-unsupported", {
+                dep: dep.name,
+                family,
+                ctxName,
+                name: agg.name,
+                field: selfRead.field,
+              }),
+              source: `${sys.name}/${dep.name}`,
+              origin: dep.origin,
+              code: "loom.stamp-reads-aggregate-unsupported",
+            });
+          }
         }
       }
     }
