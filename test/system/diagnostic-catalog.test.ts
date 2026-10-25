@@ -97,6 +97,12 @@ function catalogedSources(): string[] {
     path.join("src", "generator", "_frontend", "component-prop-type.ts"),
     path.join("src", "generator", "_frontend", "extern-functions.ts"),
     path.join("src", "generator", "flutter", "riverpod-emit.ts"),
+    // The design-pack loader's floor (`loom.design-pack-invalid#load`): the
+    // same defect list phase ⑦ reports, thrown for a caller that skipped it.
+    path.join("src", "generator", "_packs", "loader-fs.ts"),
+    path.join("src", "generator", "_packs", "loader.ts"),
+    path.join("src", "generator", "_packs", "pack-chrome.ts"),
+    path.join("src", "generator", "_packs", "shell-emits.ts"),
   ]) {
     out.push(f);
   }

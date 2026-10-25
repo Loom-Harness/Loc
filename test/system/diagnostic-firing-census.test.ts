@@ -2,8 +2,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { validate } from "../../src/api/index.js";
+import { type ToolkitOptions, validate } from "../../src/api/index.js";
 import { codeOfMessageKey, DIAGNOSTIC_MESSAGES } from "../../src/diagnostics/messages.js";
+import { fsDesignPackInspector } from "../../src/generator/_packs/loader-fs.js";
 import { TABLE_FILTER_FRAMEWORKS } from "../../src/ir/validate/checks/ui-collection-display-checks.js";
 import {
   allAdapterNames,
@@ -505,7 +506,60 @@ system S {
   } }
 }`;
 
+/** What a fixture needs from the HOST beyond its source — the toolkit parses in
+ *  memory and reads no disk, so a check that inspects a file the model names
+ *  fires only when the host hands phase ⑦ a reader, exactly as the CLI does. */
+const FIXTURE_HOST_OPTIONS: Record<string, ToolkitOptions> = {
+  "loom.design-pack-invalid": {
+    designPacks: fsDesignPackInspector(dirname(fileURLToPath(import.meta.url))),
+  },
+};
+
 const FIRING_FIXTURES: Record<string, string> = {
+  // An event-sourced workflow with only a command-triggered create and no
+  // id-shaped state field: its event stream has no key, so it is refused even
+  // though nothing consumes an event (the .NET / Java / Elixir ES emitters
+  // need the key's id class).
+  "loom.workflow-correlation-required": `
+system EsNoKey {
+  subdomain S { context C {
+    event Recorded { code: string, count: int }
+    workflow Tracker eventSourced {
+      code: string
+      archivedCount: int
+      create(c: string) { emit Recorded { code: c, count: 1 } }
+      apply(rec: Recorded) { archivedCount := archivedCount + rec.count }
+    }
+  } }
+}`,
+  // An OPTIONAL reference collection: the schema has no optional form of a
+  // join-table set, and JPA crashed demanding an association for it.
+  "loom.collection-field-unpersisted": `
+system OptRefColl {
+  subdomain S { context C {
+    aggregate Tag with crudish { label: string }
+    aggregate Order with crudish {
+      code: string
+      tags: Tag id[]?
+    }
+  } }
+}`,
+  // A query-time projection selecting a \`datetime - datetime\` span: a
+  // \`duration\` has no column and no wire form, and node / .NET crashed on it.
+  "loom.projection-select-duration": `
+system SpanSelect {
+  subdomain S { context C {
+    aggregate Order with crudish {
+      code: string
+      openedAt: datetime
+      closedAt: datetime
+    }
+    projection Spans {
+      from Order as o
+      select code = o.code, span = o.closedAt - o.openedAt
+    }
+  } }
+}`,
   // A `unique (…)` on an abstract TPC base lands on each concrete TABLE, so it
   // cannot stop the same value existing once per sibling subtype.
   "loom.unique-tpc-not-hierarchy-wide": `
@@ -664,6 +718,49 @@ system MemberBackstop {
 }`,
   // An `emit` in a CONTEXT integration test: no backend's integration-test
   // renderer has an arm for it, and before #3133 every one crashed generate.
+  // A `return` in an applier: a fold yields nothing, and the Phoenix fold
+  // renderer has no arm for it (it crashed generate before the gate).
+  "loom.applier-stmt-invalid": `
+system Ledger {
+  subdomain Core { context Accounts {
+    event Opened { account: Account id, owner: string }
+    aggregate Account persistedAs: eventLog {
+      owner: string
+      create open(owner: string) { emit Opened { account: id, owner: owner } }
+      apply(e: Opened) {
+        owner := e.owner
+        return owner
+      }
+    }
+    repository Accounts for Account { }
+  } }
+}`,
+  // A workflow fold constructing an entity part of an aggregate: nothing
+  // outside the owning aggregate can hold one (the IR arm; the AST arm — a part
+  // TYPE named outside its aggregate — never links, see `ddd-scope.ts`).
+  "loom.cross-aggregate-entity-part": `
+system WFN {
+  subdomain F { context F {
+    aggregate Order {
+      create(status: string) { }
+      status: string
+      entity Line { sku: string }
+      lines: Line[]
+    }
+    repository Orders for Order { }
+    event Started { order: Order id }
+    event Added { order: Order id, sku: string }
+    workflow Track eventSourced {
+      orderId: Order id
+      last: string
+      create(p: Started) by p.order { emit Added { order: p.order, sku: "x" } }
+      apply(a: Added) {
+        let l = Line { sku: a.sku }
+        last := a.sku
+      }
+    }
+  } }
+}`,
   "loom.test-statement-invalid": `
 system TestVocab {
   subdomain S { context C {
@@ -1398,11 +1495,9 @@ system S {
   deployable d { platform: dotnet contexts: [Vehicles] dataSources: [st] serves: Api port: 8080 }
 }`,
 
-  // A subtype taking the OPPOSITE tenancy stance from the base it inherits its
-  // columns from.  The base capability still contributes `tenant_id NOT NULL`
-  // to the row; `crossTenant` means nothing stamps or filters it.  This parsed
-  // 0 errors on all five backends, and it is the exact spelling the old
-  // `loom.tenancy-stance-unmarked` message recommended.
+  // A subtype taking the OPPOSITE tenancy stance from the base it inherits.
+  // The base's `tenantOwned` reaches the subtype, so it would be both tenant
+  // data and shared data.
   "loom.tenancy-inherited-stance-conflict": `
 system S {
   user { id: guid  tenantId: string }
@@ -2600,6 +2695,12 @@ system P {
     "deployable web { platform: react targets: api ui: WebApp design: coreComponents port: 3001 }",
     { ui: true },
   ),
+  // Driven with the CLI's disk-backed pack reader (see FIXTURE_HOST_OPTIONS):
+  // the path names no directory, so the pack has no `pack.json`.
+  "loom.design-pack-invalid": topology(
+    'deployable web { platform: react targets: api ui: WebApp design: "./no-such-design-pack" port: 3001 }',
+    { ui: true },
+  ),
   "loom.datasource-context-unlisted": topology(
     "deployable api2 { platform: node contexts: [Orders] dataSources: [st, other] port: 3002 }",
     { secondContext: true },
@@ -3217,6 +3318,43 @@ system P {
     }`,
   ),
 
+  // --- the frontend body vocabulary (ui-body-vocabulary-checks.ts) ----------
+  // Each validated clean and then crashed `generate system`: the shared JS
+  // walker (`this`, a write to a non-state name), the Feliz find-read builder
+  // (arity), the Feliz MVU renderer (a block lambda in an action).
+  "loom.ui-assign-not-state": uiPages(
+    "",
+    `    page Home {
+      route: "/"
+      state { count: int = 0 }
+      action bump() { other := 1 }
+      body: Stack { Button { "Bump", onClick: bump } }
+    }`,
+  ),
+  "loom.ui-find-call-arity": uiPages(
+    "",
+    `    page Home {
+      route: "/"
+      body: QueryView { of: Sales.Order.byCode(), loading: Text { "l" }, error: Text { "e" }, empty: Text { "n" }, data: rows => Text { "x" } }
+    }`,
+  ).replace(
+    "repository Orders for Order { }",
+    "repository Orders for Order { find byCode(code: string): Order[] where this.code == code }",
+  ),
+  "loom.ui-body-feature-unsupported": flutterUi(
+    `    page Detail(id: Order id) {
+      route: "/orders/:id"
+      state { msg: string = "" }
+      action go() {
+        match await Shop.Order.confirm() {
+          Order o => { match await Shop.Order.confirm() { Order p => { msg := p.code } else => { msg := "b" } } }
+          else => { msg := "u" }
+        }
+      }
+      body: Stack { Button { "Go", onClick: go } }
+    }`,
+  ),
+
   // A `menu` link naming a page that does not exist.  The linker already
   // reports the bare unresolved reference; this check is the one that names
   // what IS linkable — and a scaffolded page is named by ROLE inside a
@@ -3733,12 +3871,6 @@ const UNREACHABLE_PINS: Record<string, string> = {
     "ungating `isolation:` in `ddd.langium`.",
 
   // --- the last three singletons -------------------------------------------
-  "loom.cross-aggregate-entity-part":
-    "The arm needs a RESOLVED entity-part owned by a different aggregate, and `ddd-scope.ts` " +
-    "restricts containment part types to entity parts declared in the SAME aggregate (the rule " +
-    "CLAUDE.md states as `cross-aggregate references must use X id`).  So the name never links " +
-    "and the source reports `loom.linking-error` instead.  Driven and confirmed.  Re-test by " +
-    "widening the containment part-type scope to sibling aggregates.",
   "loom.platform-knob-style-layout-mismatch":
     "Every platform's LAYOUT menu is a subset of what its style declares in `styleSupportedLayouts`, " +
     "so a layout that would mismatch is already out-of-menu and `loom.platform-knob-out-of-menu` " +
@@ -4138,7 +4270,9 @@ describe("diagnostic firing census", () => {
   describe("every fixture raises the code it claims", () => {
     for (const [code, source] of Object.entries(FIRING_FIXTURES)) {
       it(`${code} fires`, async () => {
-        const raised = (await validate(source)).diagnostics.map((d) => d.code);
+        const raised = (await validate(source, FIXTURE_HOST_OPTIONS[code])).diagnostics.map(
+          (d) => d.code,
+        );
         expect(
           raised,
           `${code} did not come out of its own fixture.  Either the fixture\n` +

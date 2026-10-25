@@ -139,24 +139,21 @@ export function buildPyEventSourcedRepositoryFile(
     // The guard is NOT the relational/document one.  Those default the
     // expectation to `aggregate.version`; an event-sourced aggregate cannot,
     // because `_from_events` folds the stream with `_version = 0` and never
-    // increments it, so `.version` is ALWAYS 0 here.  The authoritative version
-    // of an event-sourced aggregate is its STREAM HEAD, which is `prior` below.
-    // So an explicit expectation (the `If-Match` echo) is compared against the
-    // head, and absent one there is nothing to compare — the (stream_id,
-    // version) PK already rejects a concurrent append on its own.
+    // increments it, so `.version` is ALWAYS 0 here.  The version an
+    // event-sourced handle was loaded at is `_stream_version` (M-T6.98), and
+    // the append continues from it: an explicit expectation (the `If-Match`
+    // echo) is compared against it, and a stream some other append has moved
+    // past rejects the first re-used version on the (stream_id, version) PK.
     aggregateIsVersioned(agg)
       ? `    async def save(self, aggregate: ${aggRef(agg)}, expected_version: int | None = None) -> None:`
       : `    async def save(self, aggregate: ${aggRef(agg)}) -> None:`,
     "        pending = aggregate.pull_events()",
     "        if pending:",
-    "            prior = (",
-    "                await self._session.execute(",
-    `                    ${R.select}(${R.func}.max(${row}.version)).where(
-                        ${row}.stream_type == "${agg.name}", ${row}.stream_id == aggregate.id
-                    )`,
-    "                )",
-    "            ).scalar()",
-    "            version = prior or 0",
+    // Expected-version append (M-T6.98): continue from the version THIS handle
+    // was folded to, not from a `max(version)` re-read here — a re-read lets a
+    // handle loaded before another append commit a decision taken on its
+    // stale fold.
+    "            version = aggregate._stream_version",
     ...(aggregateIsVersioned(agg)
       ? [
           "            if expected_version is not None and version != expected_version:",
@@ -166,8 +163,8 @@ export function buildPyEventSourcedRepositoryFile(
     "            for ev in pending:",
     "                version += 1",
     // The (stream_id, version) PK IS the event stream's optimistic-concurrency
-    // control: a competing append that read the same max(version) inserts the
-    // same version and loses with a Postgres unique_violation (SQLSTATE 23505).
+    // control: a stale handle's append re-inserts a version that exists and
+    // loses with a Postgres unique_violation (SQLSTATE 23505).
     // Map it to ConcurrencyError → 409 (parity with the `versioned` guarded
     // write); asyncpg exposes `.sqlstate` on the `.orig` driver error.
     "                try:",
@@ -186,6 +183,7 @@ export function buildPyEventSourcedRepositoryFile(
     `                        raise ${R.ConcurrencyError}(f"${agg.name} {aggregate.id} ${CONCURRENCY_CONFLICT_SUFFIX}") from err`,
     "                    raise",
     "                await self._events.dispatch(ev)",
+    "            aggregate._stream_version = version",
     "        await self._session.flush()",
     `        ${PY.log}("debug", "repository_save", aggregate=${JSON.stringify(agg.name)}, id=str(aggregate.id))`,
     "",

@@ -295,6 +295,27 @@ context Sales {
     expect(reparse.diagnostics.filter((d) => d.severity === 1)).toEqual([]);
   });
 
+  it("refuses to unfold a capability that an `ignoring` clause names (the tag would be lost)", async () => {
+    const source = `
+context Sales {
+  aggregate Order with softDeletable {
+    subject: string
+  }
+  repository Orders for Order {
+    find bySubject(s: string): Order[] where this.subject == s ignoring softDeletable
+  }
+}
+`;
+    await expect(unfold(source, "softDeletable", "Unfold capability")).rejects.toThrow(
+      /no unfold action/,
+    );
+    // The same capability with no `ignoring` reference still unfolds.
+    const plain = source.replace(" ignoring softDeletable", "");
+    await expect(unfold(plain, "softDeletable", "Unfold capability")).resolves.toMatch(
+      /filter !this\.isDeleted/,
+    );
+  });
+
   it("a user-declared capability wins over the built-in in capability unfold", async () => {
     // The declaration sits AFTER the usage so the marker search lands on the
     // `with` clause's MacroCall (positionOf finds the first occurrence).

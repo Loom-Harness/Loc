@@ -1400,6 +1400,34 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     ],
     tier: "behavioral",
   },
+  {
+    id: "RS-41",
+    title:
+      "A save is checked against the version its handle was loaded at — a `shape: document` row and a `persistedAs: eventLog` stream included",
+    trigger:
+      "`workflow-two-handles-document-eventlog.ddd`: two `getById` loads of one document row (and of one event stream) inside a `transactional` workflow, both changed",
+    observable:
+      "the second save answers the RS-40 409 and the workflow persists neither change; a document upsert is guarded on the handle's loaded `version`, an event append writes the versions after the one the handle folded (so a stream another append moved past rejects it on the `(stream_type, stream_id, version)` key); one handle changed twice, or only the second handle changed, is not a conflict.",
+    // THE RULING (M-T6.98): EXPECTED-VERSION appends.  Every event store read
+    // `max(version)` at append time, so two loads of one stream both appended
+    // and a `precondition` decided on a stale fold was kept; the key only caught
+    // two appends racing between their read and their insert.  The stream is
+    // the event-sourced aggregate's concurrency control (why `versioned` is not
+    // spliced onto it), so it is checked against what the handle saw.  Document
+    // shape: java had no write-time guard (M-T6.95) and EF compared against the
+    // re-read, already-advanced tracked row.
+    //
+    // NOT yet proven on elixir: its store refuses both writes, but the
+    // workflows controller has no `{:error, :conflict}` arm (M-T6.92, #3247)
+    // and it persists each op call, bumping `version` per op (M-T6.99).
+    conforms: ["node", "dotnet", "java", "python"],
+    targets: ["elixir"],
+    provenance: [
+      "M-T6.95 + M-T6.98 (docs/new-plan/archive/T6-done.md), #3285",
+      "the witness is test/fixtures/corpus/workflow-two-handles-document-eventlog.ddd, whose golden is test/behavioral/wire-golden/workflow-two-handles-document-eventlog.json",
+    ],
+    tier: "behavioral",
+  },
 ];
 
 // ---------------------------------------------------------------------------

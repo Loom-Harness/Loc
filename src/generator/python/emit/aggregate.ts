@@ -367,6 +367,9 @@ function renderEntity(
     ...e.fields.map((f) => `        self._${snake(f.name)} = ${pythonIdent(f.name)}`),
     ...e.contains.map((c) => `        self._${snake(c.name)} = ${pythonIdent(c.name)}`),
     e.isRoot ? `        self._events: list[DomainEvent] = []` : null,
+    // Event-sourced root (M-T6.98): the stream version this instance was folded
+    // to — the expected version of its next append (repository `save`).
+    e.isRoot && e.eventSourced ? `        self._stream_version: int = 0` : null,
     // Co-located provenance lineage, set on each provenanced write and
     // restored on hydrate; None until first written.
     ...provFields.map((f) => `        self._${provColumn(f.name)}: ProvLineage | None = None`),
@@ -723,6 +726,8 @@ function renderEntity(
       "        inst._events = []",
       "        for ev in events:",
       "            inst._apply(ev)",
+      // A stream is gap-free from 1, so the folded count IS its head version.
+      "        inst._stream_version = len(events)",
       "        return inst",
     );
     if (e.esCreate) {
@@ -737,6 +742,7 @@ function renderEntity(
         `        inst._id = ${pyNewId(e.name)}()`,
         ...e.fields.map((f) => `        inst._${snake(f.name)} = ${shellSeed(f)}`),
         "        inst._events = []",
+        "        inst._stream_version = 0",
         `        inst._init(${e.esCreate.params.map((p) => pythonIdent(p.name)).join(", ")})`,
         "        return inst",
         "",

@@ -55,7 +55,12 @@ describe("java generator — shape: document", () => {
     expect(impl).toContain(
       `+ "data = jsonb_set(excluded.data, '{version}', to_jsonb(articles.version + 1)), "`,
     );
-    expect(impl).toContain('+ "version = articles.version + 1"');
+    // M-T6.95: the update arm is guarded on the handle's loaded version.
+    expect(impl).toContain('+ "version = articles.version + 1 "');
+    expect(impl).toContain('+ "where articles.version = ? returning version",');
+    expect(impl).toContain(
+      "throw new ObjectOptimisticLockingFailureException(Article.class, aggregate.id().value());",
+    );
     expect(impl).toContain("return JSON.readValue(data, Article.class);");
   });
 
