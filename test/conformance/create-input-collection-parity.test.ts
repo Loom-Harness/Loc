@@ -141,8 +141,8 @@ describe("a collection create-input field may be omitted (#2864 G4)", () => {
 
   it("java: a null-coalesce to an empty MUTABLE list", async () => {
     const src = await emitted("java", "features/voyages/Voyage.java");
-    expect(src).toContain("e.legs = legs != null ? legs : new ArrayList<>()");
-    expect(src).toContain("e.tags = tags != null ? tags : new ArrayList<>()");
+    expect(src).toContain("e.legs = legs != null ? new ArrayList<>(legs) : new ArrayList<>()");
+    expect(src).toContain("e.tags = tags != null ? new ArrayList<>(tags) : new ArrayList<>()");
     // `List.of()` is immutable and Hibernate manages these fields after
     // construction, so an @ElementCollection it adds into would throw at flush.
     expect(src, "not the immutable List.of()").not.toContain("legs : List.of()");
