@@ -975,7 +975,9 @@ describe("validation", () => {
       expect(errors).toEqual([]);
       expect(
         warnings.some((w) =>
-          /Custom design pack '\.\/my-custom-pack'.*not checked at parse time/.test(w),
+          /Custom design pack '\.\/my-custom-pack'.*checked only when the CLI loads the pack/.test(
+            w,
+          ),
         ),
       ).toBe(true);
     });

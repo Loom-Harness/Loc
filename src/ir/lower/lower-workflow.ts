@@ -63,6 +63,7 @@ import { lowerCallableParams } from "./callable-params.js";
 import { resolveBypass } from "./lower-capabilities.js";
 import {
   ambientResourceKind,
+  boundApiOf,
   inferExprType,
   lowerEmitFields,
   lowerExpr,
@@ -951,6 +952,7 @@ function lowerWorkflowStatementInner(
                 verb,
                 capability: verbDef?.capability ?? "",
                 ...(verbDef?.interfaceOverride ? { interface: verbDef.interfaceOverride } : {}),
+                ...boundApiOf(lv.head, env),
               },
             },
           },
