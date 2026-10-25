@@ -6,12 +6,12 @@
 
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
+import { readFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { generateSystemsFromLoom } from "../../src/system/index.js";
-import { loadExampleModel, toLoomModel } from "../_helpers/index.js";
+import { generateSystemFiles } from "../_helpers/index.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..");
@@ -84,20 +84,8 @@ describe("generate system --verify-ir", () => {
 });
 
 describe("GenerateSystemOptions.verifyIr", () => {
-  it("throws on a violated model and is silent when off", async () => {
-    const model = toLoomModel(await loadExampleModel("examples/acme.ddd"));
-    const strip = (node: unknown): void => {
-      if (!node || typeof node !== "object") return;
-      const o = node as Record<string, unknown>;
-      if (o.kind === "ref" && o.refKind === "enum-value" && o.enumName) o.enumName = undefined;
-      for (const v of Object.values(o)) {
-        if (Array.isArray(v)) for (const c of v) strip(c);
-        else if (v && typeof v === "object") strip(v);
-      }
-    };
-    strip(model);
-    expect(() => generateSystemsFromLoom(model as never, { verifyIr: true })).toThrow(
-      /IR verification failed/,
-    );
+  it("accepts a clean model (the throwing path is the CLI test above)", async () => {
+    const files = await generateSystemFiles(readFileSync(acme, "utf8"), { verifyIr: true });
+    expect(files.size).toBeGreaterThan(0);
   }, 120_000);
 });
