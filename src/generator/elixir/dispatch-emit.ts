@@ -1123,9 +1123,7 @@ function renderStmt(
     case "repo-let": {
       const argList = st.args.map((a) => renderExpr(a, renderCtx)).join(", ");
       const action =
-        st.method === "getById"
-          ? `get_${snake(st.aggName)}`
-          : `${snake(st.method)}_${snake(st.aggName)}`;
+        st.op === "load" ? `get_${snake(st.aggName)}` : `${snake(st.method)}_${snake(st.aggName)}`;
       const call = argList
         ? `${contextModule}.${action}(${argList})`
         : `${contextModule}.${action}()`;

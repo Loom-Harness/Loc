@@ -21,6 +21,7 @@
 // browser-safe.
 // -------------------------------------------------------------------------
 import type { CreateIR, ExprIR, ParamIR, WorkflowIR, WorkflowStmtIR } from "../types/loom-ir.js";
+import { bodyEffects } from "./effects.js";
 import { walkWorkflowStmtExprsDeep, walkWorkflowStmtsDeep } from "./walk.js";
 import { emitsCommandRoute } from "./workflow-command-route.js";
 
@@ -53,14 +54,9 @@ export function workflowBodyUsesOwnState(statements: readonly WorkflowStmtIR[]):
  *  {@link workflowBodyUsesOwnState}: a body that only READS state needs the row
  *  BOUND but has nothing to write back. */
 export function workflowBodyWritesOwnState(statements: readonly WorkflowStmtIR[]): boolean {
-  let found = false;
-  for (const st of statements) {
-    if (found) break;
-    walkWorkflowStmtsDeep(st, (inner) => {
-      if (inner.kind === "assign") found = true;
-    });
-  }
-  return found;
+  return bodyEffects({ statements, savesAtExit: [] }).some(
+    (e) => e.kind === "mutate" && e.target.kind === "state",
+  );
 }
 
 /** The primary (facade) create — the one the HTTP command route renders. */

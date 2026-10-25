@@ -1,4 +1,5 @@
 import { isRepository } from "../../../language/generated/ast.js";
+import { repoOpVerb } from "../../../util/repository-contract.js";
 import type { BoundedContext, TypeRef } from "../../api/index.js";
 import {
   callExpr,
@@ -95,7 +96,7 @@ export default defineMacro({
       // page-is-call-only decision.
       letStmt(
         "r",
-        memberAccess(nameRef(repo.name), "run", {
+        memberAccess(nameRef(repo.name), repoOpVerb("select-many", "retrieval-or-criterion"), {
           call: true,
           args: [
             callExpr(

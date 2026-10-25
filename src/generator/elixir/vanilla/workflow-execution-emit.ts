@@ -491,16 +491,14 @@ function lowerStatement(
       //   `let c = Customers.byEmail(needle)` (custom find) →
       //     `{:ok, c} <- Context.by_email_customer(needle)`
       //
-      // The `getById` finder maps to the context's `get_<agg>/1` (find_by_id)
+      // The by-id `load` maps to the context's `get_<agg>/1` (find_by_id)
       // facade.  Custom finds map to the per-find defdelegate emitted by
       // `context-emit.ts` (see `customFindsOf`), which routes to the
       // matching `def <find>` in the repository module.
       const argList = st.args.map((a) => renderExpr(a, renderCtx)).join(", ");
       const action =
-        st.method === "getById"
-          ? `get_${snake(st.aggName)}`
-          : `${snake(st.method)}_${snake(st.aggName)}`;
-      // M-T5.1 A4 — a `getById` miss is the not-found-on-load policy: the
+        st.op === "load" ? `get_${snake(st.aggName)}` : `${snake(st.method)}_${snake(st.aggName)}`;
+      // A `load` miss is the not-found-on-load policy: the
       // declared 404, whose detail names the row ("Order <id> not found") on
       // the other four backends and on this one's own GET-by-id route.  The
       // context facade answers a bare `{:error, :not_found}`, which the
@@ -511,7 +509,7 @@ function lowerStatement(
       // domain-service paths share this lowering, and their dispatchers know
       // only the bare term.
       const call =
-        st.method === "getById" && renderCtx.tagGetByIdMiss
+        st.op === "load" && renderCtx.tagGetByIdMiss
           ? `(case ${contextModule}.${action}(${argList}) do
            {:error, :not_found} -> {:error, {:not_found, "${upperFirst(st.aggName)} #{${argList}} not found"}}
            found -> found
@@ -1877,7 +1875,7 @@ function workflowLoadsById(wf: WorkflowIR): boolean {
   for (const list of lists) {
     for (const top of list) {
       walkWorkflowStmtsDeep(top, (s) => {
-        if (s.kind === "repo-let" && s.method === "getById") found = true;
+        if (s.kind === "repo-let" && s.op === "load") found = true;
       });
     }
   }

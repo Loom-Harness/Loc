@@ -383,6 +383,16 @@ has) — return the id and read the record back, or use a `commandHandler`.
   exit, in declaration order.
 - **Loaded aggregates** (`Repo.getById` etc.) are saved only if at
   least one operation was invoked on them inside the workflow body.
+- **There is no save statement.**  An explicit `Repo.save(x)` (or
+  `insert` / `update` / `add` / `commit`) in a workflow or handler body
+  is an error, `loom.workflow-explicit-save`: the exit save above is the
+  one way a body persists.  `Repo.delete(x)` / `Repo.remove(x)` is the
+  one repository write a body states, and the removed aggregate is not
+  saved again on the way out.
+- **State needs a key.**  A command `create` that assigns workflow state
+  on a workflow with no id-shaped state field is an error,
+  `loom.workflow-uncorrelated-state-write`: without a correlation key no
+  instance row is kept, so no later step could read the write.
 - **Aggregate-level events** (raised inside an operation via `emit`)
   drain through the aggregate's repository save.  In a
   non-transactional workflow each save commits on its own, so its
