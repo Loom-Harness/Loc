@@ -887,6 +887,19 @@ system UpdateGate {
   resource st { for: Billing, kind: state, use: pg }
   deployable d { platform: node, contexts: [Billing], dataSources: [st], serves: BillingApi, port: 3000, auth: required }
 }`,
+  // A `softDeletable` aggregate that keeps `crudish`'s canonical destroy —
+  // `DELETE /{id}` is a hard delete, documented but rarely what was meant.
+  "loom.crudish-hard-delete": `
+system HardDelete {
+  subdomain Core { context Ledger {
+    aggregate Account with softDeletable, crudish { number: string }
+    repository Accounts for Account { }
+  } }
+  api LedgerApi from Core
+  storage pg { type: postgres }
+  resource st { for: Ledger, kind: state, use: pg }
+  deployable d { platform: node, contexts: [Ledger], dataSources: [st], serves: LedgerApi, port: 3000 }
+}`,
   // --- phase ④ AST validate -----------------------------------------------
   // Two complete `system { }` blocks and NO top-level members — the shape that
   // slipped past the fold-triggered composition check, because with nothing to
@@ -3879,6 +3892,11 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // file drives the warning, its `sql before` silencing, and the rebuild /
   // new-table / first-generation exemptions.
   "loom.migration-unique-on-existing-table": "test/ir/migrations-sql-before.test.ts",
+  // Phase ⑨, same reason: the destructive-change gate needs a BASELINE.  Its
+  // catalog entries are the capability-column lines (a `tenantOwned` /
+  // `auditable` column added to a populated table); the pointed-at file drives
+  // both refusals and asserts the code and the wording.
+  "loom.migration-destructive": "test/ir/migrations-capability-columns.test.ts",
   // B-20: the AST validator rejects any `sql <placement>` other than `before`.
   "loom.migration-sql-placement": "test/language/validation/migration-data-steps.test.ts",
   "loom.page-primitive-target-gap": "test/generator/elixir/heex-unsupported-primitive.test.ts",
