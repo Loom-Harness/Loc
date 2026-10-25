@@ -34,9 +34,22 @@ export const R = {
     "HANDED OFF: .NET Dapper document finds apply the shared `_CapabilityVisible` predicate " +
     "to `ignoring` finds too — the bypass is silently not honoured (fail-closed), while " +
     "`FILTER_BYPASS_FAMILIES` certifies dotnet as honouring it",
+  /** HANDED OFF (#3957, src/generator/python/base-reader-builder.ts).  The
+   *  python TPH base reader's `all()` scans the shared table with no predicate
+   *  at all — no tenant, no capability filter — and hydrates each row through
+   *  the concrete's `get_by_id`.  LATENT: no route imports the reader, so
+   *  nothing serves it yet; the polymorphic base read that would (#3959) has
+   *  to carry the root-hosted, kind-guarded form of every subtype's filter. */
+  pythonTphBaseReaderUnscoped:
+    "HANDED OFF (#3957): the python TPH base reader's `all()` reads the shared table with no " +
+    "tenant or capability predicate — latent, since no route imports the reader yet (#3959)",
 } as const;
 
 export const EMITTED_FINDING_PINS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  "corpus/inheritance-read-restrictions python": {
+    "python missing:principal Vehicle@all (repositories/vehicle_repository.py)":
+      R.pythonTphBaseReaderUnscoped,
+  },
   "corpus/find-bypass dapper": {
     "dapper retained:principal Note@AnyTenantNote (Repositories/NoteRepository.cs)":
       R.dotnetDocumentBypassNotHonoured,
@@ -49,4 +62,5 @@ export const EMITTED_FINDING_PINS: Readonly<Record<string, Readonly<Record<strin
  *  compared both ways (a prose tally is a cache with no invalidation). */
 export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   dotnetDocumentBypassNotHonoured: 2,
+  pythonTphBaseReaderUnscoped: 1,
 };

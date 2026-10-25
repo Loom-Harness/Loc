@@ -180,6 +180,8 @@ export function makeWireGate(backend, workDir) {
   return {
     /**
      * Compare one case's recording; prints its own line, returns the count.
+     * `expectFailure` marks a tracked expected-failure cell: the count is
+     * returned for the case loop to settle and kept out of the run's total.
      *
      * `results` (optional) is the case's test outcomes.  A recording is only
      * MEANINGFUL when the api tier actually completed: a failed or half-run
@@ -199,7 +201,7 @@ export function makeWireGate(backend, workDir) {
      * outcome has to be classified deliberately rather than turning the gate off
      * by default.
      */
-    async check(caseName, entries, results) {
+    async check(caseName, entries, results, { expectFailure = false } = {}) {
       if (WIRE_OFF) return 0;
       // No recording at all ⇒ the api tier never ran (a boot/infra failure the
       // runner has ALREADY counted as an errored case).
@@ -213,6 +215,11 @@ export function makeWireGate(backend, workDir) {
       const res = await gateWireRecording({ backend, caseName, entries, workDir });
       if (res.report) process.stdout.write(`${res.report}\n`);
       if (res.skipped) return 0;
+      // A tracked expected failure (BEHAVIOURAL_XFAIL) is settled by the case
+      // loop, which needs the divergence count to judge it — but its
+      // divergences are not the run's, and a waiver it happens to match must
+      // not be kept alive by a case that is known to be wrong.
+      if (expectFailure) return res.gating.length;
       ranCases.push(caseName);
       for (const i of res.usedWaivers) usedWaivers.add(i);
       gating += res.gating.length;
@@ -690,9 +697,17 @@ const __authzLadder = async (spec, creds, dispatch) => {
     seed: g.seed ?? null,
     // Why a \`null\` arm on THIS surface is skipped (overrides anonymousNote).
     note: g.note ?? null,
+    // Per-rung ROW VISIBILITY, for a 2xx surface whose status cannot see a
+    // leak — a collection read answers 200 to every tenant, so only its BODY
+    // says whether another tenant's row is in it.  \`{ otherTenant: false }\`
+    // asserts the seeded id is absent from that rung's response, \`true\` that
+    // it is present (the control, and the deliberate \`ignoring tenantOwned\`
+    // bypass).  Keyed by rung: anonymous / unauthorized / otherTenant /
+    // authorized.
+    rowVisible: g.rowVisible ?? null,
   }));
 
-  const arm = async (surface, rung, headers, expected, skipNote, sid) => {
+  const arm = async (surface, rung, headers, expected, skipNote, sid, rungKey) => {
     const where = surface.label ? \`\${surface.label} — \` : "";
     if (expected === null || expected === undefined) {
       push(\`authz ladder: \${where}\${rung} (skipped — \${skipNote ?? spec.anonymousNote ?? "not expressible"})\`, "skip");
@@ -710,6 +725,17 @@ const __authzLadder = async (spec, creds, dispatch) => {
       got === expected ? "pass" : "fail",
       got === expected ? undefined : \`expected \${expected}, got \${got}: \${String(r?.response?.body ?? "").slice(0, 200)}\`,
     );
+    const visible = surface.rowVisible?.[rungKey];
+    if (got === expected && got >= 200 && got < 300 && typeof visible === "boolean") {
+      // A substring test on the raw body, not a parse: every collection shape
+      // (bare array, \`paged\`, a single object) carries the id as a JSON string.
+      const seen = String(r?.response?.body ?? "").includes(sid);
+      push(
+        \`authz ladder: \${where}\${rung} → the seeded row is \${visible ? "visible" : "absent"}\`,
+        seen === visible ? "pass" : "fail",
+        seen === visible ? undefined : \`row \${sid} \${seen ? "present" : "missing"} in: \${String(r?.response?.body ?? "").slice(0, 200)}\`,
+      );
+    }
     // M-T9.25 — the refusal's WIRE CONTRACT, on the booted app.  The status arm
     // above says the gate refused; this says HOW, against the two RFCs rather
     // than against any emitter: RFC 7807 (an application/problem+json body
@@ -747,8 +773,8 @@ const __authzLadder = async (spec, creds, dispatch) => {
       sid = await seedRows(s.seed, \`authz ladder: \${s.label ?? s.path} — seed\`);
       if (!sid) continue;
     }
-    await arm(s, "unauthenticated", {}, s.arms.anonymous, null, sid);
-    await arm(s, "authenticated-but-unauthorized", unauthorized, s.arms.unauthorized, s.note, sid);
+    await arm(s, "unauthenticated", {}, s.arms.anonymous, null, sid, "anonymous");
+    await arm(s, "authenticated-but-unauthorized", unauthorized, s.arms.unauthorized, s.note, sid, "unauthorized");
     if (s.arms.otherTenant !== undefined) {
       await arm(
         s,
@@ -757,9 +783,10 @@ const __authzLadder = async (spec, creds, dispatch) => {
         otherTenant ? s.arms.otherTenant : null,
         "this system's auth flavour carries no tenancy claim to vary",
         sid,
+        "otherTenant",
       );
     }
-    await arm(s, "authorized", authorized, s.arms.authorized, s.note, sid);
+    await arm(s, "authorized", authorized, s.arms.authorized, s.note, sid, "authorized");
   }
   return out;
 };`;

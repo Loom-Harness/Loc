@@ -41,6 +41,13 @@ ddd trace <logfile>                               # translate a runtime stack-tr
 ddd breakpoints <file.ddd> --line <n>             # resolve a .ddd source line to the generated file:line(s), or file:line:col when the construct maps to a fine expression region — the reverse of `trace`
 ```
 
+`generate system` also accepts `--verify-ir`: it runs the IR verifier
+(`src/ir/verify/verify-ir.ts` — the compiler checking its own lowering/enrichment
+output, e.g. an `enum-value` ref that lost its `enumName`) before phase ⑦ and exits
+non-zero, listing each violation, if any invariant is broken. A violation is a
+compiler bug, never a model error; off by default. The same check is
+`GenerateSystemOptions.verifyIr` for in-process callers (throws).
+
 `generate system` additionally accepts `--sourcemap`, which also emits
 `.loom/sourcemap.json` (construct- and statement-granular `.ddd` ↔ generated-line
 origins). `ddd trace <logfile>` reads that file to rewrite a backend stack-trace so

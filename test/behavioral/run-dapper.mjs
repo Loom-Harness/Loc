@@ -36,6 +36,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, parseTrx, resetDatabase, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
 import { stopServer, waitForPort, waitForPortFree } from "./proc.mjs";
+import { makeCaseLoop } from "./case-loop.mjs";
 import { makeWireGate, recorderPreamble } from "./wire-differential.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
 
@@ -317,7 +318,7 @@ const only = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 // Manifest-derived corpus features (dotnet backend) + shared tokenized systems,
 // every source forced onto the Dapper adapter via DAPPER_CLAUSE.
 const allCorpus = [
-  ...(await featureCases("dotnet", DAPPER_CLAUSE, WORK)),
+  ...(await featureCases("dotnet", DAPPER_CLAUSE, WORK, "dapper")),
   ...sharedSystemCases(DAPPER_CLAUSE),
 ].filter((c) => only.length === 0 || only.includes(c.name));
 // Drop the tracked dapper-gap cases (unless one is named explicitly, so a fix can
@@ -333,42 +334,18 @@ if (corpus.some((c) => /\n\s*auth\s*\{/.test(c.source))) {
   oidc = await startMockIssuer();
 }
 
-let pass = 0;
-let fail = 0;
-let errored = 0;
-let skipped = 0;
 // Cross-backend runtime wire differential (M-T9.11).  The persistence adapter
 // must not change the WIRE: this leg is byte-compared against the SAME
 // canonical golden the default-adapter legs are, so an adapter that serializes
 // a decimal/absence/enum differently fails here, per-PR.
 const wire = makeWireGate("dapper", WORK);
+const loop = makeCaseLoop("dapper", wire);
 for (const c of corpus) {
-  process.stdout.write(`\n▶ ${c.name}  [dapper → ${BASE}]\n`);
-  let out;
-  try {
-    out = await runCase(c);
-  } catch (err) {
-    errored++;
-    process.stdout.write(`  ERROR booting/running: ${err?.message ?? err}\n`);
-    continue;
-  }
-  for (const r of out.results) {
-    if (r.status === "skip") {
-      skipped++;
-      process.stdout.write(`  ○ [${r.tier ?? "api"}] ${r.name}\n`);
-      continue;
-    }
-    const ok = r.status === "pass";
-    ok ? pass++ : fail++;
-    process.stdout.write(`  ${ok ? "✓" : "✗"} [${r.tier ?? "api"}] ${r.name}\n`);
-    if (!ok && r.error) process.stdout.write(`      ${String(r.error).split("\n")[0]}\n`);
-  }
-  await wire.check(c.name, out.wire, out.results);
+  await loop.run(c, runCase, { header: `dapper → ${BASE}` });
 }
 
 await oidc?.stop();
 
 const wireBad = await wire.finish();
 
-process.stdout.write(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped` : ""}${errored ? `, ${errored} cases errored` : ""}\n`);
-process.exit(fail > 0 || errored > 0 || wireBad > 0 ? 1 : 0);
+process.exit(loop.finish(wireBad));
