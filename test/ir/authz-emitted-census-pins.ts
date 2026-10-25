@@ -47,7 +47,8 @@ export const R = {
 
 export const EMITTED_FINDING_PINS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   "corpus/inheritance-read-restrictions python": {
-    "python missing:principal Vehicle@all (repositories/vehicle_repository.py)": R.pythonTphBaseReaderUnscoped,
+    "python missing:principal Vehicle@all (repositories/vehicle_repository.py)":
+      R.pythonTphBaseReaderUnscoped,
   },
   "corpus/find-bypass dapper": {
     "dapper retained:principal Note@AnyTenantNote (Repositories/NoteRepository.cs)":
