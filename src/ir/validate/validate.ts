@@ -107,7 +107,6 @@ import {
   validateFormLocalCollisions,
   validateFrontendPropTypes,
   validateGuardPrincipalWithoutAuth,
-  validateHeexComponentHostState,
   validateInheritanceStorage,
   validateLiveViewHoisting,
   validateNeedCapabilities,
@@ -267,7 +266,6 @@ export function validateLoomModel(
     // is refused here rather than failing on a generated page.
     validateUiReadsServed(sys, diags);
     validateDataGridFramework(sys, diags);
-    validateHeexComponentHostState(sys, diags);
     validateLiveViewHoisting(sys, diags);
     validateFrontendPropTypes(sys, diags);
     validateFlutterActionBodies(sys, diags);

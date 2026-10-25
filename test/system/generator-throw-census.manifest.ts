@@ -605,7 +605,11 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
 
   // src/generator/elixir/heex-walker-core.ts
-  "src/generator/elixir/heex-walker-core.ts#renderExpr": {
+  "src/generator/elixir/heex-walker-core.ts#interceptedKind": {
+    invariant:
+      "A HEEX_TARGET leaf for a kind HEEX_NODE_RENDERERS intercepts before the shared dispatcher reaches the leaves; the table and the leaf set are declared side by side. (src/generator/elixir/heex-walker-core.ts HEEX_TARGET)",
+  },
+  "src/generator/elixir/heex-walker-core.ts#rejectAuthzFilter": {
     invariant:
       "authz-filter sentinels are built only by tenancy/deny enrichment into aggregate query-filter positions, never into a UI page body expression. (src/ir/util/tenant-stance.ts:349,:451 (only producers of authz-filter, used for aggregate contextFilters/writeScopeFilter in enrichment))",
   },
