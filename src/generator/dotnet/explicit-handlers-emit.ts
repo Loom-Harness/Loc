@@ -66,6 +66,7 @@ import { explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { csIdValueClrType, projectEntityExpr, projectToResponse } from "./dto-mapping.js";
 import { csPagedQueryParams } from "./emit/common.js";
+import { csFindMethodName } from "./find-method-name.js";
 import {
   API_CLIENT_CLASS,
   collectCsExprUsings,
@@ -468,7 +469,7 @@ ${ctor}
 
     public async ValueTask<Paged<${agg}Response>> Handle(${h.name}Query query, CancellationToken cancellationToken)
     {
-${gateLines.map((l) => `${l}\n`).join("")}        var domain = await ${field}.${upperFirst(pagedRunFindName(run))}(${callArgs}, cancellationToken);
+${gateLines.map((l) => `${l}\n`).join("")}        var domain = await ${field}.${csFindMethodName(pagedRunFindName(run))}(${callArgs}, cancellationToken);
         return new Paged<${agg}Response>(domain.Items.Select(d => ${projectEntityExpr("d", aggIR, ctx)}).ToList(), domain.Page, domain.PageSize, domain.Total, domain.TotalPages);
     }
 }

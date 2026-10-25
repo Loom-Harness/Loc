@@ -34,7 +34,6 @@ const vuePlatform: PlatformSurface = {
   hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
   // Vue generator only emits API call factories — no per-aggregate
   // repository class.  No find-name collisions are possible.
-  reservedRepositoryFindNames: new Set(),
   emitProject({
     contexts,
     sys,

@@ -52,6 +52,7 @@ import { type ElixirChannelsCfg, opEmitsDurableEvent } from "../channels-emit.js
 import { contextHasDispatcher } from "../dispatch-emit.js";
 import { opBodyStmtsDeep, opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { renderReadingServiceContextFns } from "../domain-service-emit.js";
+import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { unguardedName } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
@@ -614,7 +615,7 @@ function renderContextModule(
         ...pageArgs,
         ...(principal || findUsesPrincipal(f) ? ["current_user \\\\ nil"] : []),
       ].join(", ");
-      return `  defdelegate ${findSnake}_${aggSnake}(${findArgs}), to: ${repoMod}, as: :${findSnake}`;
+      return `  defdelegate ${elixirFindFacadeFn(f.name, agg.name)}(${findArgs}), to: ${repoMod}, as: :${findSnake}`;
     });
     const findBlock = findLines.length > 0 ? `\n${findLines.join("\n")}\n` : "";
     // `change_<agg>/2` — a blank-or-seeded Ecto changeset facade the Phoenix

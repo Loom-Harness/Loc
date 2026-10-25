@@ -19,6 +19,7 @@ import type { ApiOperationIR } from "../../../ir/util/api-surface.js";
 import { defaultErrorStatus, errorTitle, errorTypeUri } from "../../../util/error-defaults.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import type { ApiRoute } from "../api-emit.js";
+import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { renderExpr } from "../render-expr.js";
 import { plugRelativePath } from "./api-emit.js";
 import { aggregateUsesPrincipalContextFilter, findUsesPrincipal } from "./capability-filter.js";
@@ -195,7 +196,6 @@ export function renderFindActions(
   agg: AggregateIR,
   ctx: BoundedContextIR,
 ): string {
-  const aggSnake = snake(agg.name);
   const aggPascal = upperFirst(agg.name);
   // A principal (tenancy) find threads the request actor; pull it off
   // `conn.assigns` and pass it as the trailing find arg.  Non-principal finds
@@ -246,7 +246,7 @@ export function renderFindActions(
         : []),
       ...(findActor ? ["current_user"] : []),
     ].join(", ");
-    const call = `${ctxModule}.${findSnake}_${aggSnake}(${argReads})`;
+    const call = `${ctxModule}.${elixirFindFacadeFn(f.name, agg.name)}(${argReads})`;
 
     // Assemble the action from its inner body — wrapping it in an `if not (gate)
     // do <403> else … end` guard when the find declares a `requires` clause.

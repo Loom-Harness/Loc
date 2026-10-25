@@ -1757,24 +1757,57 @@ describe("Loom IR validation (post-lowering)", async () => {
     expect(diags).toEqual([]);
   });
 
-  it("rejects find name 'save' (collides with auto-emitted save method)", async () => {
-    const loom = await loomFrom(`
+  // `loom.find-reserved-name` reserves only the repository verbs of the Loom
+  // LANGUAGE (a declared find of that name makes `Repo.<name>(…)` ambiguous);
+  // no name is reserved because of a target backend.
+  const findNameModel = (name: string) => `
       context T {
         aggregate Order { sku: string  derived display: string = sku }
         repository Orders for Order {
-          find save(s: string): Order[] where this.sku == s
+          find ${name}(s: string): Order? where this.sku == s
         }
       }
-    `);
-    const diags = validateLoomModel(loom);
+    `;
+
+  it.each([
+    "getById",
+    "findById",
+    "findAll",
+    "run",
+    "save",
+    "insert",
+    "update",
+    "delete",
+    "add",
+    "remove",
+    "commit",
+  ])("rejects find name '%s' (a built-in repository verb of the language)", async (name) => {
+    const diags = validateLoomModel(await loomFrom(findNameModel(name)));
     expect(
       diags.some(
         (d) =>
           d.severity === "error" &&
-          /find 'save': name collides with the auto-emitted/.test(d.message),
+          d.code === "loom.find-reserved-name" &&
+          d.message.includes(`find '${name}': '${name}' is a built-in repository verb`),
       ),
       JSON.stringify(diags),
     ).toBe(true);
+  });
+
+  it.each([
+    // Formerly reserved by one backend's emitter, which now escapes the name.
+    "saveAsync",
+    "getByIdAsync",
+    "get",
+    "read",
+    // The documented way to gate the list read: a declared `all` replaces it.
+    "all",
+  ])("accepts find name '%s' on every backend", async (name) => {
+    const diags = validateLoomModel(await loomFrom(findNameModel(name)));
+    expect(
+      diags.filter((d) => d.code === "loom.find-reserved-name"),
+      JSON.stringify(diags),
+    ).toEqual([]);
   });
 
   it("rejects mutating statements inside aggregate-level test blocks", async () => {
@@ -1879,31 +1912,6 @@ describe("Loom IR validation (post-lowering)", async () => {
           /'extern' bodies may only contain 'precondition' statements \(found 'assign'\)/.test(
             d.message,
           ),
-      ),
-      JSON.stringify(diags),
-    ).toBe(true);
-  });
-
-  it("rejects find name 'saveAsync' (.NET-specific reserved name)", async () => {
-    // Reserved-name set is the union of every platform's
-    // `reservedRepositoryFindNames` — `saveAsync` collides on .NET
-    // (Pascal-cased to `SaveAsync()`) but not on Hono.  We catch it
-    // either way so a context generated for both platforms stays
-    // valid on both.
-    const loom = await loomFrom(`
-      context T {
-        aggregate Order { sku: string  derived display: string = sku }
-        repository Orders for Order {
-          find saveAsync(s: string): Order[] where this.sku == s
-        }
-      }
-    `);
-    const diags = validateLoomModel(loom);
-    expect(
-      diags.some(
-        (d) =>
-          d.severity === "error" &&
-          /find 'saveAsync': name collides with the auto-emitted/.test(d.message),
       ),
       JSON.stringify(diags),
     ).toBe(true);

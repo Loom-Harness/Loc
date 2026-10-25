@@ -42,13 +42,6 @@ const dotnetPlatform: PlatformSurface = {
   // `hasUiBinding && !platformMountsUi`, which never fires absent
   // an explicit `ui:` declaration.
   mountsUi: true,
-  // .NET repository auto-emits `SaveAsync` and `GetByIdAsync`.  Find
-  // names are Pascal-cased on the C# side, so a DSL find named
-  // `saveAsync` lowers to `SaveAsync()` colliding with the auto
-  // method.  Plain `save` (→ `Save()`) doesn't collide on .NET, but
-  // it DOES on Hono — the validator takes the union across all
-  // platforms (see `validateLoomModel`).
-  reservedRepositoryFindNames: new Set(["saveAsync", "getByIdAsync"]),
   emitProject({
     contexts,
     deployable,

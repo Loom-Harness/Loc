@@ -1336,8 +1336,8 @@ export const DIAGNOSTIC_MESSAGES = {
     `the same value can still exist once in EACH sibling table.  If the key must be unique ` +
     `across the whole hierarchy, map it to one shared table: \`inheritanceUsing: sharedTable\`.`,
   "loom.find-reserved-name": (p: { name: unknown; findName: unknown }) =>
-    `repository '${p.name}' find '${p.findName}': name collides with the auto-emitted repository method '${p.findName}(...)'. ` +
-    `Choose a different find name (e.g. 'persist', 'fetchById').`,
+    `repository '${p.name}' find '${p.findName}': '${p.findName}' is a built-in repository verb of the Loom language, ` +
+    `so '${p.name}.${p.findName}(...)' would already mean the built-in. Choose a different find name (e.g. 'byRef', 'lookup').`,
   "loom.duplicate-find": (p: { name: unknown; findName: unknown }) =>
     `repository '${p.name}' declares find '${p.findName}' more than once.`,
   "loom.paged-param-reserved#find": (p: {

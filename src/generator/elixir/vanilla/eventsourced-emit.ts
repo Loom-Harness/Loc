@@ -61,6 +61,7 @@ import { domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js";
 import { contextHasDispatcher } from "../dispatch-emit.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
+import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import {
   contextAliasLine,
@@ -671,7 +672,7 @@ export function renderEsContextBlock(
           ]
         : [];
       const args = [...f.params.map((p) => elixirLocal(p.name)), ...pageArgs].join(", ");
-      return `  defdelegate ${findSnake}_${aggSnake}(${args}), to: ${repoMod}, as: :${findSnake}`;
+      return `  defdelegate ${elixirFindFacadeFn(f.name, agg.name)}(${args}), to: ${repoMod}, as: :${findSnake}`;
     });
 
   return `  # ${aggPascal} (event-sourced)

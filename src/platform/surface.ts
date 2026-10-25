@@ -173,15 +173,6 @@ export interface PlatformDescriptor {
    * `Framework` grammar strings (today `react` | `phoenixLiveView`,
    * plus `static` as React's alias). */
   readonly hostableFrameworks: ReadonlySet<string>;
-  /** Repository method names this platform auto-emits for every
-   * aggregate.  A user-declared find with one of these names would
-   * collide with the auto-emitted method (TS: duplicate function
-   * implementation; .NET: same).  Used by the IR validator to
-   * surface the collision as a parse-time diagnostic instead of a
-   * downstream tsc/csc error.  Names are case-sensitive and use
-   * the DSL's casing (lowerCamelCase) — the validator compares
-   * against `find.name` directly. */
-  readonly reservedRepositoryFindNames: ReadonlySet<string>;
 }
 
 /** The full platform surface — its data descriptor plus the

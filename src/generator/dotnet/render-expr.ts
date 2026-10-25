@@ -40,6 +40,7 @@ import {
 } from "./bcl-collision.js";
 import { joinDbSetName, joinFkPropName } from "./emit/join-entities.js";
 import { csStateHolderOf } from "./emit/state-holder.js";
+import { csFindMethodName } from "./find-method-name.js";
 import { csReadOwnParams } from "./local-names.js";
 
 // ---------------------------------------------------------------------------
@@ -1399,11 +1400,12 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
  *  generates: the by-id `load` → `GetByIdAsync` (the built-in load-or-null,
  *  which carries the `Async` suffix, like the workflow `repoLet`); any other
  *  read called by name (a declared find such as `byHolder`, the enriched `all`)
- *  → `<UpperFirst>` (declared finds get no `Async` suffix — `Task<Account?>
- *  ByHolder(...)`).  A criterion / retrieval read never reaches here: it
+ *  → `csFindMethodName` (declared finds get no `Async` suffix — `Task<Account?>
+ *  ByHolder(...)` — and are escaped when they would collide with a built-in
+ *  method).  A criterion / retrieval read never reaches here: it
  *  carries a `retrievalName` and renders the retrieval method. */
 function csRepoReadMethod(op: RepoOp, method: string): string {
-  return op === "load" ? "GetByIdAsync" : upperFirst(method);
+  return op === "load" ? "GetByIdAsync" : csFindMethodName(method);
 }
 
 function renderNew(

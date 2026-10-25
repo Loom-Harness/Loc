@@ -20,6 +20,7 @@ import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { domainFindShape } from "../find-emit.js";
+import { csFindMethodName } from "../find-method-name.js";
 import { csLocalNamer, csReadOwnParams } from "../local-names.js";
 import {
   AMBIENT_CURRENT_USER,
@@ -82,7 +83,7 @@ export function renderRepositoryInterface(
       ? ["int page", "int pageSize", "string sort", "string dir"]
       : [];
     return [
-      `    Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser, pageExtra)});`,
+      `    Task<${renderCsType(f.returnType)}> ${csFindMethodName(f.name)}(${renderParamsWithCt(f.params, usesUser, pageExtra)});`,
     ];
   });
   // `Run<Name>Async(args, page?, cancellationToken)` per context retrieval (retrieval.md).
@@ -303,7 +304,7 @@ export function renderRepositoryImpl(
       const orderExpr = (asc: boolean): string =>
         `_db.${setName}${ignore}${filter}.${asc ? "OrderBy" : "OrderByDescending"}(e => EF.Property<object>(e, ${L("sortColumn")}))`;
       return [
-        `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser, ["int page", "int pageSize", "string sort", "string dir"])})`,
+        `    public async Task<${renderCsType(f.returnType)}> ${csFindMethodName(f.name)}(${renderParamsWithCt(f.params, usesUser, ["int page", "int pageSize", "string sort", "string dir"])})`,
         "    {",
         `        var ${L("offset")} = (page - 1) * pageSize;`,
         `        var ${L("sortColumn")} = sort switch { ${sortArms}${sortArms ? ", " : ""}_ => ${declaredOrder ? "(string?)null" : '"Id"'} };`,
@@ -326,7 +327,7 @@ export function renderRepositoryImpl(
     }
     const rowsExpr = findRowsExpr(f.returnType, L("result"));
     return [
-      `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser)})`,
+      `    public async Task<${renderCsType(f.returnType)}> ${csFindMethodName(f.name)}(${renderParamsWithCt(f.params, usesUser)})`,
       "    {",
       `        var ${L("result")} = await _db.${setName}${ignore}${filter}${projection};`,
       `        ${renderDotnetLogCall("findExecuted", [
@@ -909,7 +910,7 @@ export function renderDocumentRepositoryImpl(
       return inMemoryPagedFindLines(agg, f, { loadAll, filter, usesUser });
     }
     return [
-      `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser)})`,
+      `    public async Task<${renderCsType(f.returnType)}> ${csFindMethodName(f.name)}(${renderParamsWithCt(f.params, usesUser)})`,
       "    {",
       `        ${loadAll}`,
       `        var ${result} = __all${filter}${projection};`,
@@ -1213,7 +1214,7 @@ export function renderEventSourcedRepositoryImpl(
       return inMemoryPagedFindLines(agg, f, { loadAll, filter, usesUser });
     }
     return [
-      `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(f.params, usesUser)})`,
+      `    public async Task<${renderCsType(f.returnType)}> ${csFindMethodName(f.name)}(${renderParamsWithCt(f.params, usesUser)})`,
       "    {",
       `        ${loadAll}`,
       `        var ${result} = __all${filter}${projection};`,
@@ -1419,7 +1420,7 @@ export function inMemoryPagedFindLines(
     .map((wf) => `"${wf}" => (object?)__x.${upperFirst(wf)}`)
     .join(", ");
   return [
-    `    public async Task<${renderCsType(f.returnType)}> ${upperFirst(f.name)}(${renderParamsWithCt(
+    `    public async Task<${renderCsType(f.returnType)}> ${csFindMethodName(f.name)}(${renderParamsWithCt(
       f.params,
       opts.usesUser,
       ["int page", "int pageSize", "string sort", "string dir"],
