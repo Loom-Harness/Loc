@@ -59,6 +59,7 @@ import {
   TEST_RESET_PATH,
   TEST_RESET_TOKEN_ENV,
 } from "../../util/test-reset.js";
+import { UUID_WIRE_MESSAGE, UUID_WIRE_PATTERN } from "../../util/uuid-wire.js";
 import { devClaimFields } from "../_auth/dev-claims.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { DEBIAN_CERTS_BLOCK, NODE_CERTS_BLOCK, NPM_INSTALL_BLOCK } from "../_docker/node-stage.js";
@@ -343,14 +344,14 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   }
   // PyJWT (with the `crypto` extra for RS256/ES256 JWKS verification) ships
   // in pyproject only under an `auth { oidc }` block.
-  const oidcDeps = args.deployable.auth?.required && args.sys.auth ? ["pyjwt[crypto]>=2.9,<3"] : [];
+  const oidcDeps = args.deployable.auth?.required && args.sys.auth ? ["pyjwt[crypto]==2.15.1"] : [];
   // Durable timer store: procrastinate drives the owned `cron:` timerSources
   // (Postgres-native periodic tasks — store-coordinated single-fire + missed-run
   // catch-up).  psycopg[binary] bundles libpq so the python:3.13-slim image needs
   // no apt libpq (the domain layer's asyncpg driver doesn't ship one).  Both are
   // added ONLY when this deployable owns a cron timer; an every-only (or
   // timer-free) project stays byte-identical.
-  const timerDeps = hasDurableTimers ? ["procrastinate>=3,<4", "psycopg[binary]>=3.2,<4"] : [];
+  const timerDeps = hasDurableTimers ? ["procrastinate==3.10.0", "psycopg[binary]==3.3.6"] : [];
   // Broker transports (M-T4.4 slices 2b + 7a + 8a) — redis-py (MIT, design
   // §6a) speaks RESP to the compose-provisioned Valkey sidecar; aio-pika
   // (Apache-2.0) speaks AMQP 0-9-1 to the rabbitmq sidecar; aiokafka
@@ -366,11 +367,11 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // `file-download.ddd` (M-T6.39), so no python leg had ever booted one.
   // Wiring-gated on the same flag that emits the routes, so a File-free project
   // stays byte-identical.
-  const fileDeps = hasFileRoutes ? ["python-multipart>=0.0.20,<1"] : [];
+  const fileDeps = hasFileRoutes ? ["python-multipart==0.0.32"] : [];
   const channelDeps = [
-    ...(channelBindings.some((b) => b.transport === "redis") ? ["redis>=5.2,<7"] : []),
-    ...(channelBindings.some((b) => b.transport === "rabbitmq") ? ["aio-pika>=9.5,<10"] : []),
-    ...(channelBindings.some((b) => b.transport === "kafka") ? ["aiokafka>=0.12,<0.13"] : []),
+    ...(channelBindings.some((b) => b.transport === "redis") ? ["redis==6.4.0"] : []),
+    ...(channelBindings.some((b) => b.transport === "rabbitmq") ? ["aio-pika==9.6.2"] : []),
+    ...(channelBindings.some((b) => b.transport === "kafka") ? ["aiokafka==0.12.0"] : []),
   ];
   out.set(
     "pyproject.toml",
@@ -387,7 +388,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
         ...timerDeps,
         ...fileDeps,
         ...channelDeps,
-        ...(apiClients ? ["httpx>=0.28,<1"] : []),
+        ...(apiClients ? ["httpx==0.28.1"] : []),
       ],
       [...resources.devDeps],
       channelBindings.some((b) => b.transport === "kafka") ? ["aiokafka"] : [],
@@ -627,7 +628,11 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // aggregate declares an `audited` op, so non-audit projects stay
   // byte-identical.  The per-op capture + the record_audit helper are wired by
   // routes-builder.ts / repository-builder.ts.
-  emitPyAudit(args.contexts, out);
+  emitPyAudit(
+    args.contexts,
+    out,
+    args.deployable.auth?.required && args.sys.user ? args.sys.user : undefined,
+  );
   if (seedFile != null) out.set("app/db/seed.py", seedFile);
 
   // In-process event dispatch (channels.md): only when a channel routes
@@ -951,7 +956,7 @@ function renderPyproject(
     "# discovery refuses the flat layout, which also holds `migrations/` and",
     "# `tests/` beside it.",
     "[build-system]",
-    `requires = ["setuptools>=77"]`,
+    `requires = ["setuptools==84.2.1"]`,
     `build-backend = "setuptools.build_meta"`,
     "",
     "[tool.setuptools.packages.find]",
@@ -2236,6 +2241,24 @@ def _pointer(loc: tuple[object, ...]) -> str:
     return "/" + "/".join(segments) if segments else ""
 
 
+_UUID_PATTERN = r"${UUID_WIRE_PATTERN}"
+
+
+def _wire_message(e: dict[str, object]) -> str:
+    """The errors[] message for one validation error.  A value that misses the
+    shared uuid pattern (a path {id}, a body \`X id\` field) answers the same
+    sentence as the other backends rather than pydantic's default, which would
+    put the server's regex on the wire."""
+    ctx = e.get("ctx")
+    if (
+        e.get("type") == "string_pattern_mismatch"
+        and isinstance(ctx, dict)
+        and ctx.get("pattern") == _UUID_PATTERN
+    ):
+        return ${JSON.stringify(UUID_WIRE_MESSAGE)}
+    return str(e.get("msg", ""))
+
+
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ForbiddenError)
     async def _forbidden(request: Request, err: ForbiddenError) -> JSONResponse:
@@ -2286,7 +2309,7 @@ ${voHandler}${integrityHandler}${versionedHandler}    @app.exception_handler(Agg
             entry: dict[str, str] = {
                 "pointer": _pointer(tuple(e["loc"])),
                 # An absent required field reads the same on every backend (RS-39).
-                "message": MISSING_FIELD if e.get("type") == "missing" else str(e["msg"]),
+                "message": MISSING_FIELD if e.get("type") == "missing" else _wire_message(e),
             }
             # A messaged rule raises PydanticCustomError with a "msg.<hash>"
             # type — the stable content-hash wire code (i18n key). A message-less

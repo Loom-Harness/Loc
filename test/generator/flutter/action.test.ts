@@ -44,7 +44,12 @@ describe("flutter Action buttons", () => {
     expect(page, "no detail page").toBeDefined();
     const src = page![1];
     expect(src).toContain("ElevatedButton(onPressed: () async {");
-    expect(src).toContain("http.post(apiUri('/products/${id}/activate'))");
+    // A param-less op still posts a JSON body: a bodiless POST is a 415 on every
+    // backend, and the button only reacts to a 2xx.
+    expect(src).toContain(
+      "http.post(apiUri('/products/${id}/activate'), " +
+        "headers: const {'Content-Type': 'application/json'}, body: '{}');",
+    );
     expect(src).toContain("child: Text('Activate')");
     expect(src).toContain("import 'package:http/http.dart' as http;");
     expect(src).toContain("import '../config.dart';");

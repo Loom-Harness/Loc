@@ -59,6 +59,22 @@ A pack manifest declares **what to emit** (`emits`, `shellFiles`,
 stack carries React / router / Zod / Vite versions; see [§ 2a Stacks
 and how a pack picks one](#2a-stacks-and-how-a-pack-picks-one) below.
 
+**A custom pack is checked before anything is generated.**  For
+`design: "./my-pack"` (resolved against the directory of the `.ddd` file
+that declares the deployable, not the working directory), `ddd parse` and
+`ddd generate` load the pack and refuse a malformed one with a single
+`loom.design-pack-invalid` error naming the defects: no `pack.json` (or
+not valid JSON), no `emits` map, an `emits` entry whose `.hbs` is missing,
+an unknown `format` or `stack`, a missing required template (§ 3), a
+`chrome` message that is empty, carries a markup-significant character (`<`, `>`, `"`, a backslash, a backtick, `${`) or a stray
+brace, a template naming an undeclared `chrome` role, a HEEx template
+passing ICU hole values to `chrome`, a `shellFiles` key not in `emits`, a
+template that is not valid Handlebars, or a `{{> partial}}` nothing
+provides.  A pack whose `format` is not the framework's is
+`loom.design-pack-format-mismatch`.  The editor (and the playground) cannot
+read the directory, so there the only signal is the
+`loom.design-pack-custom-unchecked` warning.
+
 ### `format`
 
 Optional, defaults to `"tsx"`.  Discriminates the output language the
@@ -341,8 +357,8 @@ is not cosmetic; it has to match how its callers spell the call, and
 7 of 13 packs shipped
 
 ```json
-    "typescript": "^6.0.0",
-    "vite": "^8.0.0"  }
+    "typescript": "6.0.3",
+    "vite": "8.3.5"  }
 }
 ```
 
@@ -359,7 +375,7 @@ re-serializing every pack's emitted `package.json` and diffing:
 
 ```hbs
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "22.20.5",
 {{> stack-package-devdeps}}  }
 ```
 
@@ -383,7 +399,7 @@ to fulfill the contract.
 | `tsconfig` | `tsconfig.json`.  shadcn adds path mappings for `@/*`. |
 | `vite-config` | `vite.config.ts`.  shadcn adds Vite resolver alias for `@/*`. |
 | `format-helpers` | Per-pack runtime helpers (`IdValue`, `DateTimeValue`, `BoolValue`, `NumberValue`, `EmptyValue`, `KeyValueRow`, and the money helper — see the money-display contract below).  Output written to `src/lib/format.tsx` (`src/lib/format.ts` on Vue/Svelte/Angular). |
-| `app-shell` | App-shell layout: navbar/sidebar/main outlet. |
+| `app-shell` | App-shell layout: navbar/sidebar/main outlet.  Under `auth: ui` (the `authUi` view-model flag) it also renders the **Sign out** control (`data-testid="sign-out"`, label via `{{{chrome "signOut"}}}`) in its header/toolbar — the pack-agnostic `AuthGate` renders none, so it never floats over page content.  Pinned for every pack by `test/generator/_frontend/sign-out-in-shell.test.ts`. |
 | `home` | Home/dashboard page. |
 
 #### The money-display contract (a pack does not own it)

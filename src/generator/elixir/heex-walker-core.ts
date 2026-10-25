@@ -56,6 +56,7 @@ import type {
   ValueObjectIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
+import { type EnrichedAggregateIR, exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { isDescendingSort } from "../../ir/util/collection-op-site.js";
 import {
   listShapedProjectionNames,
@@ -73,7 +74,7 @@ import { icuFromConcat, messageKey } from "../_walker/i18n-extract.js";
 import { WALKER_PRIMITIVES } from "../_walker/registry.js";
 import { heexTarget, renderHeexStoreActionCall, renderHeexStoreFieldRead } from "./heex-target.js";
 import { elixirI18nString } from "./i18n.js";
-import { ELIXIR_INTRINSIC_RENDERERS } from "./render-expr.js";
+import { ELIXIR_INTRINSIC_RENDERERS, renderExpr as renderDomainExpr } from "./render-expr.js";
 
 export type RenderPosition = "template" | "handler";
 
@@ -496,6 +497,13 @@ export interface WalkContext {
    *  operation forms (`OperationForm(data.confirm)`).  Populated when QueryView
    *  walks its single-record `data:` lambda. */
   instanceTypes?: ReadonlyMap<string, string>;
+  /** A list QueryView's `data:` param → the aggregate its rows are.  Read by
+   *  `Table` / `For` to type their row lambdas (`rowTypes`). */
+  listTypes?: ReadonlyMap<string, string>;
+  /** A ROW variable — a `Table` column's / `For` item's lambda param over a
+   *  list QueryView's rows → its aggregate.  Kept apart from `instanceTypes`
+   *  (records) so only `Action` reads a row as an operation's instance. */
+  rowTypes?: ReadonlyMap<string, string>;
   /** True when the host deployable runs `auth: required` — so
    *  `LiveAuth.on_mount` assigns `@current_user` into the LiveView scope.
    *  Gates an `Action(<instance>.<op>)` button whose operation's `requires`
@@ -642,15 +650,17 @@ export function walkBodyToHeex(
 
   // Direct store-action handlers (`onClick: Cart.clear`) — a bare store-action
   // reference used as a handler has no matching page `action`, so the button's
-  // `phx-click="clear"` would dangle without a clause.  Synthesize the clause
+  // `phx-click` would dangle without a clause.  Synthesize the clause
   // (dispatch the store action over its per-page assign) exactly like a page
-  // action whose body is the single store-action call, so it is byte-identical
-  // to the wrapped `action discard() { Cart.clear() }` idiom.  Deduped by event
-  // name so a store action onClicked twice (or one also called from a page
-  // action) emits one clause.
+  // action whose body is the single store-action call.  The event is named
+  // `storeActionEvent(store, action)` — a hyphenated name no `snake(action)`
+  // can spell — so it never shares a clause with a page or component action
+  // of the same name (`Cart.clear` beside a component's own `action clear()`
+  // is two handlers, not one).  Deduped by event name so a store action
+  // onClicked twice emits one clause.
   const existingHandlers = new Set(ctx.handlers.map((h) => h.name));
   for (const { store, action } of collectStoreActionRefs(body)) {
-    const name = snake(action);
+    const name = storeActionEvent(store, action);
     if (existingHandlers.has(name)) continue;
     existingHandlers.add(name);
     ctx.usedStores.add(store);
@@ -692,6 +702,14 @@ export function walkBodyToHeex(
     uploadBindings: ctx.uploadBindings,
     tableControls: ctx.tableControls,
   };
+}
+
+/** The `handle_event` name of a bare store-action handler (`onClick:
+ *  Cart.clear` → `"store-cart-clear"`).  Hyphenated like the emitter's other
+ *  synthesized events (`loom-sort`), so it cannot equal a `snake(action)`
+ *  clause a page or component action hoists. */
+function storeActionEvent(store: string, action: string): string {
+  return `store-${snake(store)}-${snake(action)}`;
 }
 
 /** Collect the bare store-action handler references (`action-ref` with a
@@ -812,7 +830,9 @@ export function renderExpr(expr: ExprIR, ctx: WalkContext): string {
       // matching `handle_event` clause is hoisted from `page.actions` at the
       // top of `walkBodyToHeex`.  (Component-level actions, like component-
       // level lambdas, do not hoist to the host LiveView — a pre-existing
-      // HEEx limitation tracked by the parity gate.)
+      // HEEx limitation tracked by the parity gate.)  A STORE action ref
+      // (`Cart.clear`) names its own synthesized clause.
+      if (expr.storeName) return storeActionEvent(expr.storeName, expr.actionName);
       return snake(expr.actionName);
     case "authz-filter":
       // Authorization/tenancy filter sentinel — a query-filter node,
@@ -963,7 +983,37 @@ function renderMember(expr: Extract<ExprIR, { kind: "member" }>, ctx: WalkContex
   ) {
     return renderExpr(expr.receiver, ctx);
   }
+  // A `derived` read off a loaded aggregate.  The JSON frontends find it on
+  // the wire (the controller's `serialize/1` computes it); a LiveView holds
+  // the Ecto struct, which has no key for it — `@data.is_open` raises.  So
+  // compute it here from the same expression `serialize/1` renders, rooted at
+  // the record the page holds.
+  const derived = derivedOfReceiver(expr, ctx);
+  if (derived) {
+    return `(${renderDomainExpr(derived.expr, {
+      thisName: renderExpr(expr.receiver, ctx),
+      contextModule: ctx.contextModuleByAggName.get(derived.agg.name) ?? ctx.appModule,
+      agg: derived.agg as EnrichedAggregateIR,
+    })})`;
+  }
   return `${renderExpr(expr.receiver, ctx)}.${snake(expr.member)}`;
+}
+
+/** The aggregate `derived` a member read names, when its receiver is a loaded
+ *  aggregate record and the expression can be computed in the template (it
+ *  reads no `currentUser`, which a domain expression takes as a parameter). */
+function derivedOfReceiver(
+  expr: Extract<ExprIR, { kind: "member" }>,
+  ctx: WalkContext,
+): { agg: AggregateIR; expr: ExprIR } | undefined {
+  let t = expr.receiverType;
+  while (t?.kind === "optional") t = t.inner;
+  if (t?.kind !== "entity") return undefined;
+  const agg = ctx.aggregatesByName.get(t.name);
+  if (!agg || agg.fields.some((f) => f.name === expr.member)) return undefined;
+  const d = agg.derived.find((x) => x.name === expr.member);
+  if (!d || exprUsesCurrentUser(d.expr)) return undefined;
+  return { agg, expr: d.expr };
 }
 
 /** JS-frontend collection ops that aren't in the shared `isCollectionOp`
@@ -1020,11 +1070,18 @@ function renderUserComponent(
   ctx.usedComponents.add(comp.name);
   ctx.componentUses.set(comp.name, (ctx.componentUses.get(comp.name) ?? 0) + 1);
   const attrs: string[] = [];
+  // A positional argument with no param left to land on is a CHILD: it renders
+  // between the open and close tags, into the component's `Slot {}`
+  // (`render_slot(@inner_block)`).
+  const children: ExprIR[] = [];
   let pos = 0;
   for (let i = 0; i < expr.args.length; i++) {
     const argName = expr.argNames?.[i];
     const paramName = argName ?? comp.params[pos++]?.name;
-    if (!paramName) continue;
+    if (!paramName) {
+      children.push(expr.args[i]!);
+      continue;
+    }
     const value = renderExpr(expr.args[i]!, { ...ctx, position: "template" });
     attrs.push(`${snake(paramName)}={${value}}`);
   }
@@ -1047,7 +1104,9 @@ function renderUserComponent(
     attrs.push(`${assign}={@${assign}}`);
   }
   const tag = `${ctx.appModule}Web.Components.UiComponents.${snake(comp.name)}`;
-  return attrs.length > 0 ? `<${tag} ${attrs.join(" ")} />` : `<${tag} />`;
+  const open = attrs.length > 0 ? `<${tag} ${attrs.join(" ")}` : `<${tag}`;
+  if (children.length === 0) return `${open} />`;
+  return `${open}>${children.map((c) => renderChild(c, ctx)).join("")}</${tag}>`;
 }
 
 /** Derive the Elixir module reference for an `extern` component from its
@@ -1083,7 +1142,9 @@ export function renderAction(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkC
   }
   const instanceName = opRef.receiver.name;
   const opName = opRef.member;
-  const aggName = ctx.instanceTypes?.get(instanceName);
+  // A record (`instanceTypes`), or a ROW of a list — the `phx-value-id` then
+  // carries that row's own id.
+  const aggName = ctx.instanceTypes?.get(instanceName) ?? ctx.rowTypes?.get(instanceName);
   if (!aggName) {
     return `<!-- ${giveUpText("loom.page-ref-unreachable", `Action(${instanceName}.${opName}): '${instanceName}' is not an in-scope aggregate instance`)} -->`;
   }
@@ -1135,7 +1196,7 @@ export function renderAction(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkC
  *  touches `this.<field>` / params (not currentUser-only — `tryRenderGate`
  *  returns null), is also left ungated; the operation still enforces the
  *  gate server-side regardless (defence-in-depth). */
-function gateActionButton(
+export function gateActionButton(
   button: string,
   op: import("../../ir/types/loom-ir.js").OperationIR,
   ctx: WalkContext,

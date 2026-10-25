@@ -166,10 +166,14 @@ const PROBES: Readonly<Record<string, Probe>> = {
   WorkflowForm: { body: `WorkflowForm { runs: Signup }` },
   DestroyForm: { route: "/p/destroyform/:id", body: `DestroyForm { of: Customer }` },
   // A ROW-scoped Action — the shape an author reaches for first (a button per
-  // table row).  It validates, then degrades on every cell (GAPS, D-CENSUS-1);
-  // the component-hosted form (`component P(c: Customer) { Action { c.op } }`)
-  // is driven by `react/walker-action.test.ts` and the operation-button gates.
-  Action: { body: `${ROWS} Table { rows: rows, Column { "Act", o => Action { o.activate } } } }` },
+  // table row).  That each row's button mutates ITS row is pinned per target by
+  // `row-scoped-action.test.ts`; the component-hosted form
+  // (`component P(c: Customer) { Action { c.op } }`) is driven by
+  // `react/walker-action.test.ts` and the operation-button gates.
+  Action: {
+    body: `${ROWS} Table { rows: rows, Column { "Act", o => Action { o.activate } } } }`,
+    witness: "Activate",
+  },
   For: { body: `${ROWS} For { each: rows, o => Text { o.name } } }` },
 };
 
@@ -244,46 +248,10 @@ const REFUSED: Readonly<Record<string, { cells: readonly string[]; code: string 
   },
 };
 
-const ALL_CELLS: readonly string[] = CELLS.map((c) => c.id);
-
-const gapRows = (primitive: string, cells: readonly string[], reason: string): [string, string][] =>
-  cells.map((c) => [`${c}|${primitive}`, reason]);
-
 /** `<cell>|<primitive>` → why the cell renders but degrades.  Shrink-only.
- *  Measured on the census's first run (2026-09-28); each row is a defect
- *  handed off in `docs/new-plan/waves/handoffs/wave-c3-3f-coverage.md`. */
-const GAPS: Readonly<Record<string, string>> = Object.fromEntries([
-  ...gapRows(
-    "Action",
-    ALL_CELLS,
-    "D-CENSUS-1: a ROW-scoped `Action { o.<op> }` (a Table column / For lambda) passes " +
-      "validation and then renders a `loom:unrendered [loom.page-ref-unreachable]` comment — " +
-      "the walker resolves only a component-param or detail-record instance; the phase-⑦ " +
-      "`loom.unresolved-page-ref` gate does not reach an op-ref through a lambda row",
-  ),
-  ...gapRows(
-    "Avatar",
-    [
-      "vue/vuetify",
-      "vue/shadcnVue",
-      "angular/angularMaterial",
-      "angular/primeng",
-      "angular/spartanNg",
-      "feliz",
-      "flutter",
-      "heex/coreComponents",
-      "heex/daisyui",
-    ],
-    "D-CENSUS-2: an `Avatar` without `src:` drops its `alt:` (e.g. `<v-avatar></v-avatar>`) — " +
-      "the element's accessible name is lost; React keeps it",
-  ),
-  ...gapRows(
-    "Slot",
-    ["heex/coreComponents", "heex/daisyui"],
-    "D-CENSUS-3: a component call's CHILDREN are dropped on HEEx — `Framed { Text { … } }` " +
-      "emits a self-closing `<…UiComponents.framed />`, so the component's `Slot {}` renders nothing",
-  ),
-]);
+ *  Empty: every gap the first run measured (2026-09-28) is fixed.  A new row is
+ *  a defect handed off with a repro, and goes in the change that fixes it. */
+const GAPS: Readonly<Record<string, string>> = {};
 
 // --- harness -----------------------------------------------------------------
 

@@ -394,7 +394,7 @@ a \`requires <expr>\` gate, or the build fails with
 
 - The two synthesised reads need a gate too — declare them on the
   repository and the gate lands on the route:
-  \`find all(): <T>[] requires <expr>\` gates \`GET /api/<plural>\`, and
+  \`find all(): <T> paged requires <expr>\` gates \`GET /api/<plural>\`, and
   \`find byId(id: <T> id): <T>? requires <expr>\` gates
   \`GET /api/<plural>/{id}\`.  Undeclared (or ungated), each is refused at
   runtime (403) and the build *warns*

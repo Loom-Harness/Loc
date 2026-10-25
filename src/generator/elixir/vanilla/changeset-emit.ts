@@ -28,7 +28,12 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { outboundReferenceFields } from "../../../ir/util/aggregate-flags.js";
-import { baseOf, ownFieldsOf, tableOwnerName } from "../../../ir/util/inheritance.js";
+import {
+  baseOf,
+  ownFieldsOf,
+  tableOwnerName,
+  uniqueKeyIndex,
+} from "../../../ir/util/inheritance.js";
 import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
@@ -44,6 +49,13 @@ import {
   MONEY_WIRE_SCALE,
 } from "../../money-scale.js";
 import { renderExpr as renderElixirExpr } from "../render-expr.js";
+import {
+  decimalIngressPaths,
+  isStringField,
+  renderDecimalIngressHelpers,
+  renderDecimalIngressList,
+  renderRequirePresentHelper,
+} from "./changeset-ingress.js";
 import {
   aggregateHasResidualInvariants,
   messagedRoutesToResidual,
@@ -272,6 +284,32 @@ function renderChangeset(
 
   const allCols = allFields.map((f) => `:${snake(f.name)}`).join(", ");
   const requiredCols = requiredFields.map((f) => `:${snake(f.name)}`).join(", ");
+
+  // String columns keep a blank value (`changeset-ingress.ts`): they are cast
+  // separately with `empty_values: []`, and their presence check is nil-only.
+  // An aggregate with no string column keeps the single `cast` and
+  // `validate_required` (byte-identical).
+  const atoms = (fs: readonly AggField[]): string => fs.map((f) => `:${snake(f.name)}`).join(", ");
+  const stringFields = allFields.filter(isStringField);
+  const hasStrings = stringFields.length > 0;
+  const requiredStrings = requiredFields.filter(isStringField);
+  const stringDecls = hasStrings
+    ? `\n  @string_fields [${atoms(stringFields)}]\n  @required_strings [${atoms(requiredStrings)}]`
+    : "";
+  const castLines = (cols: string, strings: string): string =>
+    hasStrings
+      ? `cast(attrs, ${cols} -- ${strings})\n    |> cast(attrs, ${strings}, empty_values: [])`
+      : `cast(attrs, ${cols})`;
+  const requireLines = (req: string, reqStrings: string): string =>
+    hasStrings
+      ? `validate_required(${req} -- ${reqStrings})\n    |> __require_present(${reqStrings})`
+      : `validate_required(${req})`;
+  // Decimal leaves the ingress guard checks on create (top-level money/decimal
+  // columns and value-object leaves).
+  const vosForIngress = [...ctx.valueObjects, ...(ctx.siblingValueObjects ?? [])];
+  const createDecimalPaths = decimalIngressPaths(allFields, vosForIngress);
+  const createIngressLine =
+    createDecimalPaths.length > 0 ? "\n    |> __loom_decimal_ingress(attrs, @decimal_ingress)" : "";
 
   // Per-field constraint validators derived from single-field invariants (the
   // same `singleFieldConstraints` classifier Zod / FluentValidation / the Java
@@ -607,9 +645,10 @@ ${
   // table, so its unique index (inherited from the base) and its FKs are named
   // for that table, not for the concrete.
   const uniqueTable = plural(snake(tableOwnerName(agg, ctx.aggregates)));
+  // A key the TPH concrete declares ITSELF is a separate, `kind`-partial index
+  // with a discriminator-scoped name; `uniqueKeyIndex` names both shapes.
   const uniqueLines = (agg.uniqueKeys ?? []).map((uk) => {
-    const cols = uk.columns.map((c) => snake(c));
-    const name = `${uniqueTable}_${cols.join("_")}_uq`;
+    const { name, columns: cols } = uniqueKeyIndex(agg, uk, ctx.aggregates);
     return `    |> unique_constraint(:${cols[0]}, name: ${JSON.stringify(name)})`;
   });
   const uniqueBlock = uniqueLines.length > 0 ? `\n${uniqueLines.join("\n")}` : "";
@@ -676,6 +715,35 @@ ${
         .map((f) => `:${snake(f.name)}`)
         .join(", ")}]`
     : "";
+  // The update seam's string / decimal-ingress lists: the create lists when the
+  // update-editable subset names the same columns, their own lists otherwise.
+  const updateStrings = updateFields.filter(isStringField);
+  const updateReqStrings = updateFields.filter((f) => isRequiredUpdateInput(f) && isStringField(f));
+  const ownUpdateStrings =
+    atoms(updateStrings) !== atoms(stringFields) ||
+    atoms(updateReqStrings) !== atoms(requiredStrings);
+  const updateStringList = ownUpdateStrings ? "@update_string_fields" : "@string_fields";
+  const updateReqStringList = ownUpdateStrings ? "@update_required_strings" : "@required_strings";
+  const updateStringDecls =
+    emitUpdateChangeset && hasStrings && ownUpdateStrings
+      ? `\n  @update_string_fields [${atoms(updateStrings)}]\n  @update_required_strings [${atoms(updateReqStrings)}]`
+      : "";
+  const updateDecimalPaths = decimalIngressPaths(updateFields, vosForIngress);
+  const ownUpdateIngress =
+    renderDecimalIngressList(updateDecimalPaths) !== renderDecimalIngressList(createDecimalPaths);
+  const updateIngressLine =
+    updateDecimalPaths.length > 0
+      ? `\n    |> __loom_decimal_ingress(attrs, ${ownUpdateIngress ? "@update_decimal_ingress" : "@decimal_ingress"})`
+      : "";
+  const ingressDecls = [
+    createDecimalPaths.length > 0
+      ? `\n  @decimal_ingress ${renderDecimalIngressList(createDecimalPaths)}`
+      : "",
+    emitUpdateChangeset && ownUpdateIngress && updateDecimalPaths.length > 0
+      ? `\n  @update_decimal_ingress ${renderDecimalIngressList(updateDecimalPaths)}`
+      : "",
+  ].join("");
+  const ingressHelper = createDecimalPaths.length > 0 ? renderDecimalIngressHelpers() : "";
   const optimisticLine = versioned ? "\n    |> optimistic_lock(:version)" : "";
   const updateVcPrep = valueCollections.length > 0 ? "attrs = prepare_vc_attrs(attrs)\n\n    " : "";
   // RS-26 presence check.  `validate_required/2` alone CANNOT enforce a required
@@ -750,8 +818,8 @@ ${
   def update_changeset(struct, attrs) do
     attrs = __normalize_keys(attrs)
     ${voKeyNormalizeLine}${updateVcPrep}struct
-    |> cast(attrs, ${updateColsList})${presenceLine}${clearAbsentLine}
-    |> validate_required(${updateReqList})${validatorBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}${optimisticLine}
+    |> ${castLines(updateColsList, updateStringList)}${updateIngressLine}${presenceLine}${clearAbsentLine}
+    |> ${requireLines(updateReqList, updateReqStringList)}${validatorBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}${optimisticLine}
   end`
     : "";
 
@@ -800,15 +868,15 @@ defmodule ${changesetMod} do
   alias ${aggModule}
 
   @all_fields [${allCols}]
-  @required_fields [${requiredCols}]${updateAttrDecls}${clearAbsentDecl}
+  @required_fields [${requiredCols}]${stringDecls}${updateAttrDecls}${updateStringDecls}${clearAbsentDecl}${ingressDecls}
 
   @doc "Default cast/3 helper applied by every per-action changeset below."
   def base_changeset(struct \\\\ %${aggPascal}{}, attrs) do
     attrs = __normalize_keys(attrs)
     ${voKeyNormalizeLine}${valueCollections.length > 0 ? "attrs = prepare_vc_attrs(attrs)\n\n    " : ""}struct
-    |> cast(attrs, @all_fields)${defaultBlock}
-    |> validate_required(@required_fields)${validatorBlock}${castEmbedBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}
-  end${updateChangesetBlock}${invariantFnBlock}${keyNormalizeHelper}${presenceHelper}${clearAbsentHelper}${defaultHelper}${moneyRangeHelper}${voHelper}${bodyVoHelper}${normalizeHelper}${ordinalHelper}
+    |> ${castLines("@all_fields", "@string_fields")}${createIngressLine}${defaultBlock}
+    |> ${requireLines("@required_fields", "@required_strings")}${validatorBlock}${castEmbedBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}
+  end${updateChangesetBlock}${invariantFnBlock}${keyNormalizeHelper}${presenceHelper}${hasStrings ? renderRequirePresentHelper() : ""}${ingressHelper}${clearAbsentHelper}${defaultHelper}${moneyRangeHelper}${voHelper}${bodyVoHelper}${normalizeHelper}${ordinalHelper}
 
 ${actionHelpers}
 end

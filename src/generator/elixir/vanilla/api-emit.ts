@@ -33,6 +33,7 @@ import {
   relativeOpPath,
   servedOperations,
 } from "../../../ir/util/api-surface.js";
+import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { createBodyStatements, lifecycleGates } from "../../../ir/util/op-gates.js";
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
 import { requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
@@ -53,6 +54,7 @@ import {
   renderVanillaHistoryMapper,
   vanillaHistoryFind,
 } from "./audit-history-emit.js";
+import { type BaseReaderShape, baseReaderShape } from "./base-reader.js";
 import { aggregateUsesPrincipalContextFilter, listUsesPrincipal } from "./capability-filter.js";
 import { CRUD_RESERVED_NAMES } from "./context-emit.js";
 import {
@@ -168,7 +170,7 @@ export function servesHistory(ctx: BoundedContextIR, agg: AggregateIR): boolean 
  * documented but left unrouted).
  *
  * Matches the node/dotnet/python/java backends, which gate the REST create
- * on an EXPLICIT canonical `create` (`agg.canonicalCreate != null` — written
+ * on an EXPLICIT canonical `create` (`canonicalCreate(agg) != null` — written
  * by hand or synthesised by `with crudish`), symmetric with how DELETE gates
  * on a canonical `destroy`.  Merely being constructible (`isConstructible`)
  * does NOT expose a POST — that predicate gates only the DOMAIN factory
@@ -240,6 +242,7 @@ export function emitVanillaApiControllers(
           ctx,
           isVanillaDocAgg(agg, ctx, sys),
           isAbstractBase(agg),
+          isAbstractBase(agg) ? baseReaderShape(agg, ctx, sys) : undefined,
         );
     out.set(controllerPath, controllerContent);
     sourcemap?.file(controllerPath, controllerContent, agg.origin, `${ctx.name}.${agg.name}`);
@@ -336,6 +339,8 @@ function renderController(
    *  delete actions, which would call write-seam context fns the read-only base
    *  context never defines). */
   readOnly = false,
+  /** Abstract base only: the shape of its polymorphic reader. */
+  baseReader?: BaseReaderShape,
 ): string {
   const aggPascal = upperFirst(agg.name);
   const facadeMod = `${appModule}.${ctxName}`;
@@ -367,7 +372,7 @@ function renderController(
   // controller pulls `current_user` off `conn.assigns` (set by the Auth plug,
   // which the validator requires when a principal filter is present) and threads
   // it into the context reads.  Non-principal aggregates stay byte-identical.
-  const principal = aggregateUsesPrincipalContextFilter(agg);
+  const principal = readOnly ? !!baseReader?.principal : aggregateUsesPrincipalContextFilter(agg);
   const cuBind = principal ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
   const getActor = principal ? ", current_user" : "";
   // The auto-`findAll` is paged-by-default (M-T2.6): the `index` action parses
@@ -382,7 +387,7 @@ function renderController(
   // The LIST read threads the actor when its predicate reads the principal — a
   // principal capability filter, or a declared `find all(): X[] where <pred>`
   // reading `currentUser` (`listUsesPrincipal`, shared with the repo + context).
-  const listPrincipal = listUsesPrincipal(agg, listAllFind);
+  const listPrincipal = readOnly ? principal : listUsesPrincipal(agg, listAllFind);
   const listArg = listPrincipal ? "current_user" : "";
   // The paging controls are bound by the `with` clauses `PAGE_WITH_CLAUSES`
   // prepends (page-param.ts), so an out-of-range window 422s before the read
@@ -514,8 +519,9 @@ ${cuBind}${showBody}
   // Without the arm the tuple falls through the `case` and raises, turning the
   // refusal back into the 500 it exists to replace.
   const createGated =
-    lifecycleGates(agg.canonicalCreate).length > 0 || requiredClaimStamps(agg, "create").length > 0;
-  const destroyGated = lifecycleGates(agg.canonicalDestroy).length > 0;
+    lifecycleGates(canonicalCreate(agg)).length > 0 ||
+    requiredClaimStamps(agg, "create").length > 0;
+  const destroyGated = lifecycleGates(canonicalDestroy(agg)).length > 0;
   const createCuBind =
     stampPrincipal || defaultUsesPrincipal || createGated
       ? `    current_user = Map.get(conn.assigns, :current_user)\n${createParamDefaults}`
@@ -1002,7 +1008,17 @@ ${((): string => {
       })
     : renderWireSerialize(agg, ctx, { contextModule: facadeMod });
   const nested = helpers.length > 0 ? `\n\n${helpers.join("\n\n")}` : "";
-  return `${serialize}${nested}${refIdsHelper}`;
+  // A `shape: document` concrete keeps its fields in the `data` embed, so the
+  // base serializer (which reads columns) first flattens that row.
+  const docRows = (baseReader?.concretes ?? [])
+    .filter((c) => c.doc)
+    .map(
+      (c) =>
+        `  defp serialize(%${facadeMod}.${upperFirst(c.agg.name)}{} = row),
+    do: serialize(Map.merge(Map.from_struct(row.data), %{id: row.id, version: row.version}))\n\n`,
+    )
+    .join("");
+  return `${docRows}${serialize}${nested}${refIdsHelper}`;
 })()}${historyMapper}
 end
 `;

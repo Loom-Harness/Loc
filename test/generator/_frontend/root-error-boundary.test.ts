@@ -73,7 +73,7 @@ describe("root render-time error boundary", () => {
 
   it("svelte: the stack floor covers <svelte:boundary> (Svelte >= 5.3)", async () => {
     const files = await project("svelte", "shadcnSvelte");
-    expect(files.get("web/package.json")!).toContain('"svelte": "^5.3.0"');
+    expect(files.get("web/package.json")!).toContain('"svelte": "5.57.2"');
   });
 
   for (const pack of ["angularMaterial", "primeng", "spartanNg"]) {

@@ -309,7 +309,13 @@ export function lowerOperation(op: Operation, env: Env): OperationIR {
   // params are deliberately out of scope (criterion.md: arg-aware checks
   // belong to `from <Criterion>(args)`, not `when`); the validator reports
   // a param reference rather than letting it lower as a free name.
-  if (op.when) ir.when = lowerExpr(op.when, env);
+  if (op.when) {
+    ir.when = lowerExpr(op.when, env);
+    // The predicate as the author wrote it — the 409 `detail` names it, the
+    // way the 403 / 422 details name a `requires` / `precondition`.  Source
+    // text is an input the IR cannot re-derive, so it is captured here.
+    ir.whenSource = cstText(op.when).replace(/\s+/g, " ").trim();
+  }
   // `requires Expr` — the authorization gate (authorization.md §11.3).  A
   // header `requires` is semantically a relocated first-body `requires`
   // statement: a bool pre-check that denies with 403 (`ForbiddenError` /

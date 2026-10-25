@@ -1,5 +1,6 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
 import type {
+  AggregateIR,
   EnrichedBoundedContextIR,
   EventIR,
   EventSubscriptionIR,
@@ -31,6 +32,7 @@ import { PY_NUMERIC, pyEventSourcedDecimalDecode } from "./numeric-codec.js";
 import { PY, pyIdType, pyVoOrEnum } from "./py-symbols.js";
 import { renderPyExpr } from "./render-expr.js";
 import { resourceImportLines } from "./resource-clients.js";
+import { pySaveRenderer } from "./stamp-call.js";
 import { esFns, esWorkflowFoldBlock } from "./workflow-eventsourced-emit.js";
 import { collectLiveLetNames, pyWorkflowStmtTarget } from "./workflows-builder.js";
 
@@ -291,6 +293,7 @@ export function buildPyDispatchFile(
         resolved.correlation,
         resolved.statements,
         resolved.saves,
+        ctx.aggregates,
         hasOutbox,
         construct,
         ctx,
@@ -720,6 +723,9 @@ function handlerFn(
   correlation: ExprIR | undefined,
   statements: WorkflowStmtIR[],
   saves: { name: string; aggName: string; repoName: string }[],
+  /** The context's aggregates — each save takes its aggregate's lifecycle
+   *  stamp (`stamp-call.ts`). */
+  aggregates: readonly AggregateIR[],
   hasOutbox: boolean,
   construct: string,
   /** The hosting context — a value-object state field allocates its leaf
@@ -739,6 +745,7 @@ function handlerFn(
       correlation,
       statements,
       saves,
+      aggregates,
       hasOutbox,
       construct,
       ctx,
@@ -801,9 +808,10 @@ function handlerFn(
   // re-indent transform sits between here and the final file, so the chunk
   // texts collected here are already the exact text that lands in
   // `app/dispatch.py`.
+  const saveLines = pySaveRenderer(statements, aggregates);
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
-    pyWorkflowStmtTarget(rctx, ctx, collectLiveLetNames(statements, saves)),
+    pyWorkflowStmtTarget(rctx, ctx, collectLiveLetNames(statements, saves), saveLines),
     "    ",
   );
   out.push(...stmtChunks.flat());
@@ -816,9 +824,7 @@ function handlerFn(
       });
     }
   }
-  for (const save of saves) {
-    out.push(`    await ${snake(save.repoName)}.save(${snake(save.name)})`);
-  }
+  for (const save of saves) out.push(...saveLines(save, "    "));
   if (persisted) out.push("    await session.flush()");
   if (hasEmit) {
     out.push("    for ev in workflow_events:");
@@ -847,6 +853,9 @@ function esHandlerFn(
   correlation: ExprIR | undefined,
   statements: WorkflowStmtIR[],
   saves: { name: string; aggName: string; repoName: string }[],
+  /** The context's aggregates — each save takes its aggregate's lifecycle
+   *  stamp (`stamp-call.ts`). */
+  aggregates: readonly AggregateIR[],
   hasOutbox: boolean,
   construct: string,
   ctx: EnrichedBoundedContextIR,
@@ -863,9 +872,10 @@ function esHandlerFn(
   // that only emits constants never touches `state`) — folding is a pure
   // no-op then, so we skip the unused binding (ruff F841).  The chunk list
   // also lets us surface per-statement sub-regions (source-map).
+  const saveLines = pySaveRenderer(statements, aggregates);
   const stmtChunks = renderWorkflowStmtChunks(
     statements,
-    pyWorkflowStmtTarget(rctx, ctx, collectLiveLetNames(statements, saves)),
+    pyWorkflowStmtTarget(rctx, ctx, collectLiveLetNames(statements, saves), saveLines),
     "    ",
   );
   const bodyLines = stmtChunks.flat();
@@ -922,9 +932,7 @@ function esHandlerFn(
       });
     }
   }
-  for (const save of saves) {
-    out.push(`    await ${snake(save.repoName)}.save(${snake(save.name)})`);
-  }
+  for (const save of saves) out.push(...saveLines(save, "    "));
   // Every emit in an ES workflow has an applier (A1 discipline), so the
   // emitted events ARE the workflow's own stream — append them gap-free.
   if (hasEmit) out.push(`    await ${fns.append}(session, __key, workflow_events)`);

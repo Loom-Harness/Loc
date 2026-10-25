@@ -2,7 +2,7 @@
 
 Reading data: the `repository` container and its `find` operations, the restricted "queryable subset" a `where` clause admits, reusable `criterion` predicate specifications, `Repo.run(<Criterion>)` and `retrieval` query bundles with `sort`/`loads`, the `paged`/`envelope`/`option` return shapes, the `ignoring` capability-filter bypass, and — the read-model surface that replaced the removed `view` — `projection` in its two flavours: **query-time** (`from … where … join … group by … select …`, computed on every read) and **folded** (`keyed by` + `on(e: Event) { … }`, a materialized read-model table). Reach for it when you need to know exactly what SQL a read lowers to on each backend, why a `where` is rejected, or which read shape (find / criterion / retrieval / projection) to pick.
 
-> **Grammar:** `Repository`, `FindDecl`, `IgnoringClause` (fragment), `Criterion`, `Retrieval`, `RetrievalLiteral`, `SortItem`, `LoadPath`, `Projection`, `ProjectionMember`, `ProjectionOn`, `ProjectionJoin`, `ProjectionSelect`, `QueryHandler` · **Validators:** `loom.find-where-not-queryable` / `-unknown-field` / `-column-column`, `loom.find-reserved-name`, `loom.duplicate-find`, `loom.repository-find-deprecated`, `loom.find-gate-not-current-user`, `loom.index-suggestion`, `loom.findall-*`, `loom.criterion-*`, `loom.retrieval-*`, `loom.filter-bypass-*`, `loom.ignoring-clause-placement`, `loom.projection-*` (30 codes), `loom.field-mask-projection-source`, `loom.read-context-repo-write`, `loom.paged-query-handler-shape`, `loom.paged-param-reserved` (queryable oracle: `firstNonQueryableNode` + `firstNonQueryablePredicate` in `src/ir/validate/checks/shared.ts`) · **Docs:** [`../criterion.md`](../criterion.md), [`../scaffold-macros.md`](../scaffold-macros.md) (`scaffoldPaged`, `scaffoldDashboard`)
+> **Grammar:** `Repository`, `FindDecl`, `IgnoringClause` (fragment), `Criterion`, `Retrieval`, `RetrievalLiteral`, `SortItem`, `LoadPath`, `Projection`, `ProjectionMember`, `ProjectionOn`, `ProjectionJoin`, `ProjectionSelect`, `QueryHandler` · **Validators:** `loom.find-where-not-queryable` / `-unknown-field` / `-column-column`, `loom.find-reserved-name`, `loom.duplicate-find`, `loom.find-param-unbound`, `loom.repository-find-deprecated`, `loom.find-gate-not-current-user`, `loom.index-suggestion`, `loom.findall-*`, `loom.criterion-*`, `loom.retrieval-*`, `loom.filter-bypass-*`, `loom.ignoring-clause-placement`, `loom.projection-*` (30 codes), `loom.field-mask-projection-source`, `loom.read-context-repo-write`, `loom.paged-query-handler-shape`, `loom.paged-param-reserved` (queryable oracle: `firstNonQueryableNode` + `firstNonQueryablePredicate` in `src/ir/validate/checks/shared.ts`) · **Docs:** [`../criterion.md`](../criterion.md), [`../scaffold-macros.md`](../scaffold-macros.md) (`scaffoldPaged`, `scaffoldDashboard`)
 
 All multi-backend examples below are generated from one scratch `system` (`Catalog` context: `Product`, `Customer`, `Order with softDeletable`) once per backend pin; output is excerpted.
 
@@ -91,9 +91,31 @@ end
 
 The comparison binds **one column against one value** (a parameter, literal, or enum value) on every backend — that constraint is what makes the clause selectable, and it is enforced (see the queryable subset below).
 
+### A find without `where` — key lookup by parameter name
+
+A find with no `where` filters on the fields its parameters name: each parameter
+equals the field of the same name, or the field whose `<field>Id` spelling it is
+(`siteId` → `site`). The pairing is resolved once in enrichment and stored on
+the find, so every backend filters on the same keys. A parameter that names no
+field is refused (`loom.find-param-unbound`) — it would otherwise be dropped
+from the query, and the find would answer every lookup with an arbitrary row.
+
+```ddd
+repository Products for Product {
+  find bySku(sku: string): Product?     // ≡ where this.sku == sku
+  find bySkuOops(s: string): Product?   // loom.find-param-unbound: 's' names no field
+}
+```
+
+```ts
+// node — product-repository.ts
+async bySku(sku: string): Promise<Product | null> {
+  const rootRows = await this.db.select().from(schema.products).where(eq(schema.products.sku, sku)).limit(1);
+```
+
 ### List finds are deprecated
 
-`pricey` compiles, but with a **warning**: `loom.repository-find-deprecated` — "repository find 'pricey' is a wire-shaped list query — declare a 'criterion' (run it with Repo.run(<Criterion>(args))) or a 'retrieval' instead of accreting a bespoke list finder on the repository, and put it on the wire with 'scaffoldPaged(of: <it>)' on the context plus 'scaffoldPagedApi(of: <it>)' on the api when a client must call it." Every find returning `T[]` or `T paged` gets it, in every context ([`criterion.md`](../criterion.md#advisories--the-compiler-steers-you-toward-criteria)). A unique-key reconstitution find returning `T` / `T?` stays fine. The compiler-synthesised reads (auto-`findAll`, `scaffoldPaged`'s paged find) are exempt. The replacements are §[`criterion`](#criterion), §[`Repo.run` / paged `queryHandler`](#reporun--the-paged-queryhandler) and §[`projection`](#projection--the-read-model). A query that filters an un-indexed column — a `find … where`, a `criterion` body or a `retrieval`'s `where` — also gets an advisory `loom.index-suggestion` pointing at the `resource … { index: [Agg.col] }` hatch ([chapter 14](14-apis-storage-resources-channels.md#resource)); the suggestion survives the find → criterion migration.
+`pricey` compiles, but with a **warning**: `loom.repository-find-deprecated` — "repository find 'pricey' is a wire-shaped list query — declare a 'criterion' (run it with Repo.run(<Criterion>(args))) or a 'retrieval' instead of accreting a bespoke list finder on the repository, and put it on the wire with 'scaffoldPaged(of: <it>)' on the context plus 'scaffoldPagedApi(of: <it>)' on the api when a client must call it." Every find returning `T[]` or `T paged` gets it, in every context ([`criterion.md`](../criterion.md#advisories--the-compiler-steers-you-toward-criteria)). A unique-key reconstitution find returning `T` / `T?` stays fine — provided the key really is unique: a single-row find keyed by equality on fields that no `unique (…)` covers gets the advisory `loom.single-row-find-not-unique` (declare `unique (number)` beside `find byNumber(number: string): Ticket?`). The compiler-synthesised reads (auto-`findAll`, `scaffoldPaged`'s paged find) are exempt. The replacements are §[`criterion`](#criterion), §[`Repo.run` / paged `queryHandler`](#reporun--the-paged-queryhandler) and §[`projection`](#projection--the-read-model). A query that filters an un-indexed column — a `find … where`, a `criterion` body or a `retrieval`'s `where` — also gets an advisory `loom.index-suggestion` pointing at the `resource … { index: [Agg.col] }` hatch ([chapter 14](14-apis-storage-resources-channels.md#resource)); the suggestion survives the find → criterion migration.
 
 ## The queryable subset
 
@@ -551,7 +573,7 @@ Every backend does the same through its own serializer — .NET `domain.Select(d
 
 ### Whole-table aggregation — the singleton
 
-A `select` made only of aggregations (`count()` / `sum(col)` / `avg(col)` / `min(col)` / `max(col)`) is a **whole-table aggregation**: one SQL query, no rows rehydrated, and the read returns **one object** rather than a list. Aggregation arguments must be bare source columns (`sum(o.total)`, never `sum(o.total + o.tax)` — `loom.projection-aggregate-arg-not-columnar`).
+A `select` made only of aggregations (`count()` / `sum(col)` / `avg(col)` / `min(col)` / `max(col)`) is a **whole-table aggregation**: one SQL query, no rows rehydrated, and the read returns **one object** rather than a list. Aggregation arguments must be bare source columns (`sum(o.total)`, never `sum(o.total + o.tax)` — `loom.projection-aggregate-arg-not-columnar`).  `count` takes no argument — it counts rows, never a column's values — and the others take exactly one column; any other argument count is `loom.projection-aggregate-arity` (to count only the rows where a condition holds, narrow them with a `where` in a projection of their own).
 
 ```ddd
 projection OrderVolume {

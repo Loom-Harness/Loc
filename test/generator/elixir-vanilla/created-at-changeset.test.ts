@@ -52,7 +52,10 @@ system Shop {
     // create input on every backend, so it is cast but not required.  `label`
     // and `created_at` carry no default and stay required.
     expect(cs).toContain("@required_fields [:label, :created_at]");
-    expect(cs).toContain("|> cast(attrs, @all_fields)");
+    // `label` is a string and rides its own `empty_values: []` cast; every
+    // other column, `created_at` included, is cast from `@all_fields`.
+    expect(cs).toContain("@string_fields [:label]");
+    expect(cs).toContain("|> cast(attrs, @all_fields -- @string_fields)");
   });
 
   it("a stamp-managed createdAt stays OUT of the cast (lifecycle owns it)", async () => {

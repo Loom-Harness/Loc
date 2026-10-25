@@ -82,6 +82,8 @@ import {
 import { walkExprDeep, walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "../util/walk.js";
 import { applyDefaultDenyReads } from "./default-deny-reads.js";
 import { applyDemoTenantSeed } from "./demo-tenant.js";
+import { bindFindParams } from "./find-param-bindings.js";
+import { inheritBaseCapabilities } from "./inherited-capabilities.js";
 import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
 
 // ---------------------------------------------------------------------------
@@ -948,7 +950,8 @@ export function enrichContext(
     if (!base) return [];
     return [...inheritedUniqueKeysFor(base, seen), ...(base.uniqueKeys ?? [])];
   };
-  const withInheritance = ctx.aggregates.map((a) => {
+  // Filters and capability tags inherit the same way (`inheritBaseCapabilities`).
+  const withInheritance = inheritBaseCapabilities(ctx.aggregates).map((a) => {
     if (!a.extendsAggregate) return a;
     const merged = mergedFieldsFor(a, new Set<string>());
     const idValueType = rootIdValueTypeFor(a, new Set<string>());
@@ -977,13 +980,16 @@ export function enrichContext(
   // on top of the auto-`findAll` repositories; the synthesized find is flagged
   // so the aggregate router does NOT auto-expose it (the queryHandler's own
   // route is the exposure).
-  const repositories = synthesizePagedQueryHandlerFinds(
-    // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
-    // find's gate + `ignoring` stance, so the implicit `all` must exist first.
-    ensureHistoryFind(aggregates, ensureFindAll(aggregates, ctx.repositories)),
-    ctx.queryHandlers,
-    ctx.criteria,
-    ctx.retrievals,
+  const repositories = bindFindParams(
+    synthesizePagedQueryHandlerFinds(
+      // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
+      // find's gate + `ignoring` stance, so the implicit `all` must exist first.
+      ensureHistoryFind(aggregates, ensureFindAll(aggregates, ctx.repositories)),
+      ctx.queryHandlers,
+      ctx.criteria,
+      ctx.retrievals,
+    ),
+    aggregates,
   );
   // P2 (payload-transport-layer.md): give every concrete aggregate's wire
   // shape a named, referenceable `<Agg>Wire` payload.  Purely additive IR
@@ -1742,8 +1748,7 @@ function enrichAggregate(
   // wire shape is NOT stamped — every consumer recomputes it on demand via
   // `wireFieldsForAggregate` (see CLAUDE.md "Derive, don't stamp").
   // Stamp routeSlug on every lifecycle action.  New objects (don't
-  // mutate shared refs); canonicalCreate/Destroy are re-pointed at the
-  // freshly-stamped array entries.
+  // mutate shared refs).
   const stamp = (o: OperationIR): OperationIR => ({ ...o, routeSlug: routeSlugFor(o, urlStyle) });
   const operations = agg.operations.map(stamp);
   const creates = agg.creates?.map(stamp);
@@ -1754,8 +1759,6 @@ function enrichAggregate(
     operations,
     creates,
     destroys,
-    canonicalCreate: creates?.find((c) => c.canonical) ?? null,
-    canonicalDestroy: destroys?.find((d) => d.canonical) ?? null,
     parts,
     associations: associationsForAggregate(resolved),
     createInput: buildCreateInput(resolved),

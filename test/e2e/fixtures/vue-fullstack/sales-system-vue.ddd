@@ -214,15 +214,12 @@ system SalesSystem {
   test e2e "a product's numeric fields survive the UI round-trip" against webApp {
     let prod = ui.products.create({ sku: "NUM-WIDGET", price: { amount: 1.00, currency: "USD" }, listPrice: money("98.7600"), weight: 1.25, stock: 4242, barcode: 1234567890123456 })
     let read = ui.products.getById(prod)
-    // "98.76", not "98.7600" — and that is a FINDING, not a preference.  The
-    // backend returns "98.7600"; the Vue read schema turns it into a decimal.js
-    // instance, which stringifies without trailing zeros, so the scale is lost
-    // before the verbatim `formatMoney` ever sees it (Feliz keeps "98.7600",
-    // Flutter drops it too).  Measured, not assumed: the first run of this leg
-    // received "98.76" against an expected "98.7600".  Handed off from wave C3
-    // packet 3b; when the read path keeps the scale, this line and the
-    // contract's `vue` cell flip together.
-    expect(read.listPrice).toHaveText("98.76")
+    // "98.7600", the wire's own digits: the backend returns the fixed-scale
+    // string, the read schema's decimal.js value keeps that scale in its own
+    // rendering, and the verbatim `formatMoney` prints it.  A read path that
+    // normalises (decimal.js alone prints "98.76") fails here, and this line
+    // and the contract's `vue` cell move together.
+    expect(read.listPrice).toHaveText("98.7600")
     expect(read.weight).toHaveText("1.25")
     expect(read.stock).toHaveText("4242")
     expect(read.barcode).toHaveText("1234567890123456")

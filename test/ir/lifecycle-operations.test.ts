@@ -3,6 +3,7 @@ import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { AggregateIR } from "../../src/ir/types/loom-ir.js";
+import { canonicalCreate, canonicalDestroy } from "../../src/ir/util/canonical-lifecycle.js";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
 import { diagText } from "../_helpers/diagnostics.js";
@@ -84,8 +85,8 @@ describe("lifecycle operations — parsing + lowering", () => {
     expect(agg.operations[0].kind ?? "mutate").toBe("mutate");
     expect(agg.creates).toEqual([]);
     expect(agg.destroys).toEqual([]);
-    expect(agg.canonicalCreate).toBeNull();
-    expect(agg.canonicalDestroy).toBeNull();
+    expect(canonicalCreate(agg)).toBeNull();
+    expect(canonicalDestroy(agg)).toBeNull();
   });
 
   it("lowers a named `create` into creates[] (not operations[]) with kind 'create'", async () => {
@@ -105,7 +106,7 @@ describe("lifecycle operations — parsing + lowering", () => {
     expect(create.name).toBe("place");
     expect(create.canonical).toBe(false);
     expect(create.params.map((p) => p.name)).toEqual(["s", "a"]);
-    expect(agg.canonicalCreate).toBeNull();
+    expect(canonicalCreate(agg)).toBeNull();
   });
 
   it("treats an unnamed `create(...)` as the canonical creator (name = keyword)", async () => {
@@ -115,7 +116,7 @@ describe("lifecycle operations — parsing + lowering", () => {
     expect(agg.creates).toHaveLength(1);
     expect(agg.creates![0].canonical).toBe(true);
     expect(agg.creates![0].name).toBe("create");
-    expect(agg.canonicalCreate).toBe(agg.creates![0]);
+    expect(canonicalCreate(agg)).toBe(agg.creates![0]);
   });
 
   it("parses canonical `destroy { }` (no name, no parens) as the canonical terminator", async () => {
@@ -127,7 +128,7 @@ describe("lifecycle operations — parsing + lowering", () => {
     expect(agg.destroys![0].canonical).toBe(true);
     expect(agg.destroys![0].name).toBe("destroy");
     expect(agg.destroys![0].params).toEqual([]);
-    expect(agg.canonicalDestroy).toBe(agg.destroys![0]);
+    expect(canonicalDestroy(agg)).toBe(agg.destroys![0]);
   });
 
   it("parses a named `destroy archive()` with a soft-delete body", async () => {
@@ -138,7 +139,7 @@ describe("lifecycle operations — parsing + lowering", () => {
     const agg = aggregateFrom(model, "Order");
     expect(agg.destroys!.map((d) => d.name)).toEqual(["archive"]);
     expect(agg.destroys![0].canonical).toBe(false);
-    expect(agg.canonicalDestroy).toBeNull();
+    expect(canonicalDestroy(agg)).toBeNull();
   });
 
   it("supports multiple named creates with distinct shapes side by side", async () => {

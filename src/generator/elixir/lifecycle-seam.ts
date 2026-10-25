@@ -39,6 +39,7 @@
 // exists to avoid.
 
 import type { AggregateIR } from "../../ir/types/loom-ir.js";
+import { canonicalCreate, canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { lifecycleGates } from "../../ir/util/op-gates.js";
 import { snake } from "../../util/naming.js";
 
@@ -48,12 +49,12 @@ const UNGUARDED = "_unguarded";
 /** True when the aggregate's canonical `create` carries a `requires` gate, so the
  *  context emits the guarded/`_unguarded` pair rather than one delegate. */
 export function createIsGuarded(agg: AggregateIR | undefined): boolean {
-  return lifecycleGates(agg?.canonicalCreate).length > 0;
+  return lifecycleGates(canonicalCreate(agg)).length > 0;
 }
 
 /** True when the aggregate's canonical `destroy` carries a `requires` gate. */
 export function destroyIsGuarded(agg: AggregateIR | undefined): boolean {
-  return lifecycleGates(agg?.canonicalDestroy).length > 0;
+  return lifecycleGates(canonicalDestroy(agg)).length > 0;
 }
 
 /** The context function an IN-PROCESS caller (workflow step, event dispatch,

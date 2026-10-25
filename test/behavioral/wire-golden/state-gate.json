@@ -33,7 +33,7 @@
       "path": "/api/orders/{id}/cancel",
       "status": 409,
       "body": {
-        "detail": "operation 'cancel' is not allowed in the current state of Order.",
+        "detail": "operation 'cancel' is not allowed in the current state of Order (when cancellable()).",
         "instance": "/api/orders/{id}/cancel",
         "status": 409,
         "title": "Disallowed",

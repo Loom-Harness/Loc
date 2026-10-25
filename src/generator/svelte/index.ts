@@ -8,6 +8,7 @@ import {
   type SystemIR,
   uiUsesMoney,
 } from "../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
@@ -152,7 +153,7 @@ export function generateSvelteForContexts(
   };
 
   const design = deployable.design ?? "shadcnSvelte@v1";
-  const pack = loadPack(resolvePackDir(design));
+  const pack = loadPack(resolvePackDir(design, deployable.designBaseDir));
 
   if (!deployable.uiName) {
     throw new Error(
@@ -290,7 +291,7 @@ export function generateSvelteForContexts(
   // `page { requires … }` gate).  Drives the session client + route guard emits.
 
   // Shared lib surface.
-  const hasDelete = aggregates.some((a) => !!a.agg.canonicalDestroy);
+  const hasDelete = aggregates.some((a) => !!canonicalDestroy(a.agg));
   out.set("src/lib/api/client.ts", pack.render("api-client", { hasDelete, hasAuthUi: authUi }));
   if (authUi) {
     out.set("src/lib/auth/session.ts", AUTH_SESSION_TS);
@@ -439,6 +440,9 @@ export function generateSvelteForContexts(
       navSections: navSectionsVM,
       hasNav: navSections.length > 0,
       navUsesSession,
+      // `auth: ui` — the shell header carries the Sign out control (the
+      // AuthGate renders none, so it never floats over page content).
+      authUi,
       // Pack-chrome (M-T1.11): raw source string when i18n is off (byte-identical
       // to the pre-i18n shell), else a Svelte `{t("chrome.skipToContent", "…")}`
       // interpolation keyed to `APP_SHELL_CHROME`; the gated `t` import rides the

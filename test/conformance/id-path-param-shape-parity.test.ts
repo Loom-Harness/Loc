@@ -106,9 +106,10 @@ const sourceFor = (files: Map<string, string>, ...exts: string[]): string =>
 function honoIdPattern(files: Map<string, string>): string {
   const problemDetails = files.get("api/http/problem-details.ts");
   expect(problemDetails, "hono emits http/problem-details.ts").toBeDefined();
-  const m = /export const UuidString = z\s*\.string\(\)\s*\.regex\(\/(.+?)\/\)/s.exec(
-    problemDetails!,
-  );
+  const m =
+    /export const UuidString = z\s*\.string\(\)\s*\.regex\(\/(.+?)\/(?:,\s*"[^"]*")?\)/s.exec(
+      problemDetails!,
+    );
   expect(m, "hono's UuidString is a regex over the dashed-hex shape").not.toBeNull();
   return m![1];
 }

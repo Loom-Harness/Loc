@@ -10,6 +10,7 @@ public sealed class AddLineCommandValidator : AbstractValidator<AddLineCommand>
 {
     public AddLineCommandValidator()
     {
-        RuleFor(x => x.Qty).GreaterThanOrEqualTo(1);
+        RuleFor(x => x.Qty).GreaterThanOrEqualTo(1)
+            .WithMessage("Qty must be at least 1");
     }
 }

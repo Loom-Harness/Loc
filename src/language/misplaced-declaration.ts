@@ -156,7 +156,7 @@ export function scopesDeclaring(keyword: string): DeclarationScope[] {
 // ---------------------------------------------------------------------------
 
 /** One open `{` on the way to the failing token. */
-interface OpenBlock {
+export interface OpenBlock {
   /** The scope this block opens, or `undefined` for any other block (a
    *  `deployable { … }`, an operation body, …). */
   scope: DeclarationScope | undefined;
@@ -183,7 +183,7 @@ function classifyHeader(raw: string): OpenBlock {
 
 /** The `{` blocks still open at `offset`, outermost first.  Strings and
  *  comments are skipped so a brace inside either is not structure. */
-function openBlocksAt(text: string, offset: number): OpenBlock[] {
+export function openBlocksAt(text: string, offset: number): OpenBlock[] {
   const stack: OpenBlock[] = [];
   let segmentStart = 0;
   let i = 0;

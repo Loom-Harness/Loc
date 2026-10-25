@@ -196,16 +196,20 @@ replaced the old `push: main` re-runs (see "Post-merge net").
 
 **Kept out, with dated reasons (2026-10-05):**
 
-- **The Schemathesis elixir cell stays a discovery cell** (`continue-on-error`
-  in `schemathesis.yml`). The 2026-10-05 nightly (run 37301241323, report
-  artifact `schemathesis-reports-elixir`) found **32 failures and 30 errors
-  over 29 operations (21 tested, 8 errored)**: 14 `Schema Error`s, 16 `Runtime Error`s,
-  `Ecto.Query.CastError` on a non-uuid `{id}` and on the static `/by_email`
-  sub-path shadowed by `/{id}`, undeclared success Content-Types, `TRACE`
-  answering an undocumented 404, and `POST /customers` + `POST /orders` answering 405.
-  Binding it means writing root-cause rules for those AND fixing the real
-  defects among them in `src/generator/elixir/**` — an elixir triage packet,
-  not a workflow edit. Nightly-only, like every other discovery leg.
+- **The Schemathesis elixir cell BINDS (2026-10-11).** It was a discovery
+  cell (`continue-on-error`) on the 2026-10-05 measurement — **32 failures and
+  30 errors over 29 operations** on nightly run 37301241323. Triaged locally
+  (wave C3F packet F8), most of that was the harness: an unpinned
+  `jsonschema-rs` ≥ 0.56 crashed the fuzzer on every parameterised operation
+  on ALL five legs (now pinned beside schemathesis, and an untestable
+  operation is a finding `<op>::error:<type>`), and `--url` dropped phoenix's
+  relative `servers: /api`, so the leg fuzzed the LiveView pages. The real
+  defects — an unresolvable value-object `$ref`, a keep-alive body-parser
+  desync, unchecked find params — are fixed in `src/generator/elixir/**`.
+  After: **5 findings, all waived (W8 ×3, W37, W38 for F35 → M-T6.89), 0
+  errors, 29/29 operations tested**; the other four re-run clean with the pin.
+  `discovery: true` and `continue-on-error` are gone. Nightly-only, so it is
+  outside the `push: main` ratchet above.
 - **The per-backend npm legs are not collapsed (A7).** Measured: 51 of the
   112 `test*` scripts are per-backend variants. The runtime features they
   serve are already ONE matrix workflow each (`tenancy-e2e` 18 cells,

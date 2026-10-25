@@ -63,8 +63,15 @@
 // ---------------------------------------------------------------------------
 
 import Handlebars from "handlebars";
+import { diagMessage } from "../../diagnostics/messages.js";
 import type { PackFormat } from "../../util/builtin-formats.js";
 import { contentHash } from "../../util/content-hash.js";
+import { chromeKey, chromeMessage } from "../_walker/i18n-chrome.js";
+import {
+  chromeDeclarationDefects,
+  describePackDefects,
+  CHROME_HOLE as HOLE,
+} from "./pack-defects.js";
 
 /** The literal prefix of every pack-chrome binding the JS frontends emit.
  *
@@ -101,42 +108,21 @@ export function packChromeCatalog(manifest: {
   return out;
 }
 
-/** Characters a declared chrome message may not contain.
- *
- *  Every one of them is significant to a grammar the message is spliced into
- *  UNQUOTED on the i18n-OFF path: `<`/`>` open a tag (and close an EEx `%>`),
- *  `"` closes the attribute form's delimiter, `\` and a backtick and `${`
- *  reopen a JS string.  Rejected at load time rather than escaped, because the
- *  OFF path's whole guarantee is that the bytes are the ones the pack author
- *  wrote — an escape would silently change them. */
-const FORBIDDEN_IN_MESSAGE = /[<>"\\`]|\$\{/;
-
-/** An ICU hole: `{name}`.  Holes are the ONLY braces a message may carry. */
-const HOLE = /\{(\w+)\}/g;
-
-/** Reject a chrome declaration that cannot be rendered safely.  Runs at pack
- *  load so a bad declaration names its own pack, rather than surfacing as
- *  mangled markup in a generated project. */
+/** Reject a chrome declaration that cannot be rendered safely — the
+ *  `chromeDeclarationDefects` half of the pack defect list (`pack-defects.ts`),
+ *  as a throw for a caller holding a bare manifest. */
 export function assertDeclaredChromeIsSane(manifest: {
   name: string;
   chrome?: Record<string, string>;
 }): void {
-  for (const [role, message] of Object.entries(manifest.chrome ?? {})) {
-    if (typeof message !== "string" || message === "") {
-      throw new Error(
-        `pack-chrome: pack ${manifest.name} declares chrome role "${role}" with a non-string or empty message.`,
-      );
-    }
-    if (FORBIDDEN_IN_MESSAGE.test(message)) {
-      throw new Error(
-        `pack-chrome: pack ${manifest.name} chrome role "${role}" contains a character that is significant to the markup it is spliced into (< > " \\ \` \${): ${JSON.stringify(message)}.`,
-      );
-    }
-    if (message.replace(HOLE, "").includes("{") || message.replace(HOLE, "").includes("}")) {
-      throw new Error(
-        `pack-chrome: pack ${manifest.name} chrome role "${role}" has an unbalanced or non-ICU brace: ${JSON.stringify(message)}.  Braces are only allowed as ICU holes ({name}).`,
-      );
-    }
+  const defects = chromeDeclarationDefects(manifest);
+  if (defects.length > 0) {
+    throw new Error(
+      diagMessage("loom.design-pack-invalid#load", {
+        pack: manifest.name,
+        defects: describePackDefects(defects),
+      }),
+    );
   }
 }
 
@@ -261,8 +247,13 @@ export function chromeHelpers(
   const declared = (role: unknown): string => {
     const message = manifest.chrome?.[String(role)];
     if (message === undefined) {
+      // A literal role is checked at load (`pack-defects.ts`, kind
+      // `chrome-role-undeclared`); only a computed one can reach here.
       throw new Error(
-        `pack-chrome: pack ${family} has no chrome string "${String(role)}".  Declare it in pack.json's \`chrome\` map: { "chrome": { "${String(role)}": "<English>" } }.`,
+        diagMessage("loom.design-pack-invalid#load", {
+          pack: family,
+          defects: `no chrome string "${String(role)}" (declare it in pack.json's \`chrome\` map: { "chrome": { "${String(role)}": "<English>" } })`,
+        }),
       );
     }
     return message;
@@ -272,10 +263,14 @@ export function chromeHelpers(
     if (format === "heex" && holes.length > 0) {
       // Not a limitation worth hiding: gettext cannot substitute ICU holes on
       // its own (D-I18N-HEEX-ICU routes authored interpolation through
-      // `loom_icu`), and no HEEx pack needs a holed chrome string.  Fail at the
-      // pack rather than emit a `{item}` a user would read literally.
+      // `loom_icu`), and no HEEx pack needs a holed chrome string.  Checked at
+      // load for every literal role (`pack-defects.ts`, kind
+      // `chrome-hole-heex`), so a `{item}` never reaches a user.
       throw new Error(
-        `pack-chrome: pack ${family} chrome role "${role}" passes ICU hole values, which the heex format does not render.  Split the sentence or drop the hole.`,
+        diagMessage("loom.design-pack-invalid#load", {
+          pack: family,
+          defects: `chrome role "${role}" passes ICU hole values, which the heex format does not render (split the sentence or drop the hole)`,
+        }),
       );
     }
     return spelling.call(packChromeKey(family, role, message), message, holes);
@@ -324,6 +319,39 @@ export function chromeHelpers(
      *  where the runtime is a sibling under `src/lib/`). */
     chromeImport(specifier: unknown) {
       return new Handlebars.SafeString(i18n ? spelling.importLine(String(specifier)) : "");
+    },
+    /** A SHARED `chrome.<name>` string (`_walker/i18n-chrome.ts`) in markup
+     *  TEXT position — for a pack template that renders a control every
+     *  frontend spells, so it must read the same key (a list pager's "Prev" /
+     *  "Next" / "Page {page} of {pages}").  HEEx only: the JS packs receive
+     *  these as walker-built tokens.
+     *
+     *  Hole values are RUNTIME Elixir expressions (`page="@page"`).  Off i18n
+     *  each hole renders as a HEEx `{expr}` interpolation inside the English;
+     *  on, gettext resolves the message and each hole is substituted into the
+     *  active locale's text — raw substitution, so `core_components.ex` needs
+     *  no ICU runtime. */
+    sharedChrome(name: unknown, options: Handlebars.HelperOptions) {
+      if (format !== "heex") {
+        throw new Error(
+          `pack-chrome: {{sharedChrome}} is a HEEx-pack helper; pack ${family} (format ${format}) renders shared chrome through walker-built tokens.`,
+        );
+      }
+      const message = chromeMessage(String(name));
+      const holes = holesOf(options);
+      if (!i18n) {
+        const byName = new Map(holes);
+        return new Handlebars.SafeString(
+          message.replace(HOLE, (whole, hole: string) =>
+            byName.has(hole) ? `{${byName.get(hole)}}` : whole,
+          ),
+        );
+      }
+      let call = `pgettext(${elixirLiteral(chromeKey(String(name)))}, ${elixirLiteral(message)})`;
+      for (const [hole, expr] of holes) {
+        call = `String.replace(${call}, ${elixirLiteral(`{${hole}}`)}, to_string(${expr}))`;
+      }
+      return new Handlebars.SafeString(spelling.text(call));
     },
   };
 }

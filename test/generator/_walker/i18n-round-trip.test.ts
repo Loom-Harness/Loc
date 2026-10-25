@@ -278,98 +278,39 @@ const BOTH: readonly MenuShape[] = ["explicit", "derived"];
  *  over-merge waiver may NEVER cover a key whose English the tree renders raw —
  *  that is a defect by definition, and the gate fails it. */
 const DEAD_KEY_WAIVERS: readonly Waiver[] = [
+  // --- over-merge: a feature this fixture does not reach -------------------
+  {
+    kind: "over-merge",
+    id: "OM-SIGN-OUT",
+    targets: [...REACT, ...VUE, ...SVELTE, ...NG],
+    menus: BOTH,
+    key: /^pack\.\w+\.signOut\./,
+    reason:
+      "each JSX pack's app shell renders its Sign out control only under `auth: ui`; the " +
+      "pack declares the chrome role unconditionally (packChromeCatalog catalogs every " +
+      "declared role), and this fixture's frontend deployable has no auth.",
+  },
   // --- defects -------------------------------------------------------------
   {
     kind: "defect",
     id: "D-I18N-1",
-    targets: "*",
-    menus: BOTH,
+    targets: ["feliz", "flutter"],
+    menus: ["derived"],
     key: /^page\.\w+\.menu\.(label|section)\./,
     reason:
-      "a scaffold page's `menu:` sidebar metadata is extracted (i18n-extract.ts, 'Per-page " +
-      "sidebar chrome') but no target's DERIVED sidebar reads it — the JSX shells render the " +
-      'section/label raw (`label="Products"`); under an explicit `menu {}` the keys are dead ' +
-      "outright.  #2667 closed A13(b) for the explicit `menu` form only.",
+      "a scaffold page's `menu:` sidebar metadata is catalogued, but the Feliz navbar labels " +
+      "its links by page name and Flutter emits no navigation at all — the menu-navigation " +
+      "rework for these two shells (with D-I18N-9) reads it",
   },
   {
     kind: "defect",
     id: "D-I18N-2",
-    targets: [...VUE, ...NG, "feliz", "flutter", ...HEEX],
+    targets: ["flutter"],
     menus: BOTH,
     key: /^chrome\.delete(Entity|Confirm)$/,
     reason:
-      '`DestroyForm`\'s button ("Delete Product") and confirm prompt render raw — the shared ' +
-      "walker's `localizedPageChrome*` path (primitives/forms.ts:203) is honoured by React and " +
-      "Svelte only",
-  },
-  {
-    kind: "defect",
-    id: "D-I18N-3",
-    targets: [...VUE, ...NG],
-    menus: BOTH,
-    key: /^chrome\.notFound$/,
-    reason: 'the shell\'s 404 route renders "Not found" raw',
-  },
-  {
-    kind: "defect",
-    id: "D-I18N-4",
-    targets: ["feliz", "flutter"],
-    menus: BOTH,
-    key: /^chrome\.rootErrorTitle$/,
-    reason: 'the root error view renders "Something went wrong." raw',
-  },
-  {
-    kind: "defect",
-    id: "D-I18N-5",
-    targets: NG,
-    menus: BOTH,
-    key: /^pack\.\w+\.bool(True|False)\./,
-    reason:
-      "the Angular packs render a bool cell's Yes/No raw while the catalog carries the pack keys",
-  },
-  {
-    kind: "defect",
-    id: "D-I18N-6",
-    targets: HEEX,
-    menus: BOTH,
-    key: /^chrome\.(prev|next|pageOf)$/,
-    reason: "the HEEx list pager renders its position counter raw and reads neither prev/next key",
-  },
-  {
-    kind: "defect",
-    id: "D-I18N-7",
-    targets: ["feliz"],
-    menus: BOTH,
-    key: /^pack\.mantine\./,
-    reason:
-      "Feliz has no design pack, yet its catalog carries the DEFAULT pack's (mantine) form " +
-      "chrome — keys no Feliz view can read",
-  },
-  {
-    kind: "defect",
-    id: "D-I18N-8",
-    targets: ["feliz"],
-    menus: BOTH,
-    key: /^page\.(Detail|ProductAdmin)\.modalTitle\./,
-    reason:
-      "a `trigger:` Modal's (and the scaffold detail op-modal's) `title:` is catalogued but " +
-      "Feliz never renders it (the open/close Modal form, which the slot-coverage gate probes, does)",
-  },
-  {
-    kind: "defect",
-    id: "D-I18N-9",
-    targets: ["feliz", "flutter"],
-    menus: ["explicit"],
-    key: /^menu\.(section|link)\./,
-    reason: "an explicit `menu {}` is extracted but the Feliz / Flutter shells never render it",
-  },
-  {
-    kind: "defect",
-    id: "D-I18N-10",
-    targets: HEEX,
-    menus: ["explicit"],
-    key: /^menu\.section\./,
-    reason: "the HEEx sidebar renders an explicit menu's links but drops its section heading",
+      '`DestroyForm`\'s button ("Delete Product") renders raw in the Flutter form runtime ' +
+      "(`forms.dart`), which owns the widget's label",
   },
   // --- design over-merge (_walker/i18n-chrome.ts) --------------------------
   {
@@ -462,7 +403,7 @@ const DEAD_KEY_WAIVERS: readonly Waiver[] = [
   {
     kind: "over-merge",
     id: "O-backToHome",
-    targets: [...SVELTE, ...NG, "feliz", "flutter", ...HEEX],
+    targets: [...SVELTE, "feliz", "flutter", ...HEEX],
     menus: BOTH,
     key: /^chrome\.backToHome$/,
     reason: "APP_SHELL_CHROME: this shell's error/404 view has no recovery link",

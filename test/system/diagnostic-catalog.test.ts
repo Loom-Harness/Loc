@@ -97,6 +97,12 @@ function catalogedSources(): string[] {
     path.join("src", "generator", "_frontend", "component-prop-type.ts"),
     path.join("src", "generator", "_frontend", "extern-functions.ts"),
     path.join("src", "generator", "flutter", "riverpod-emit.ts"),
+    // The design-pack loader's floor (`loom.design-pack-invalid#load`): the
+    // same defect list phase ⑦ reports, thrown for a caller that skipped it.
+    path.join("src", "generator", "_packs", "loader-fs.ts"),
+    path.join("src", "generator", "_packs", "loader.ts"),
+    path.join("src", "generator", "_packs", "pack-chrome.ts"),
+    path.join("src", "generator", "_packs", "shell-emits.ts"),
   ]) {
     out.push(f);
   }
@@ -107,6 +113,7 @@ function catalogedSources(): string[] {
   // than orphaned.
   out.push(path.join("src", "language", "parse-errors.ts"));
   out.push(path.join("src", "language", "misplaced-declaration.ts"));
+  out.push(path.join("src", "language", "storage-config-key.ts"));
   // Phase ⑨ — the migration derivation's own refusals (F-018).  Like the
   // `_expr/target.ts` entry above, these are THROWN errors whose `code` is a
   // class property, not `accept()`/object-literal sites, so only the orphan

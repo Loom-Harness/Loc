@@ -19,6 +19,7 @@ import type {
   TestStmtIR,
   TypeIR,
 } from "../../types/loom-ir.js";
+import { canonicalDestroy } from "../../util/canonical-lifecycle.js";
 import {
   E2E_WORKFLOW_VERBS,
   findWorkflowBySlug,
@@ -29,6 +30,7 @@ import {
   resolveRoutedHandler,
   routedHandlerCallHints,
 } from "../../util/routed-handler.js";
+import { walkExprDeep, walkStmtExprsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { routeContractWillReport } from "./e2e-route-checks.js";
 import { walkExpr } from "./shared.js";
@@ -79,7 +81,7 @@ export function validateAggregateTestBodies(ctx: BoundedContextIR, diags: LoomDi
     for (const test of agg.tests) {
       checkMatcherSubjects(test.statements, `${ctx.name}/${agg.name}.test:${test.name}`, diags);
       for (const stmt of test.statements) {
-        const reason = testStmtRefusal(stmt, UNIT_TEST_STMT_KINDS);
+        const reason = testStmtRefusal(stmt, UNIT_TEST_STMT_KINDS) ?? partBuilderRefusal(stmt);
         if (!reason) continue;
         diags.push({
           severity: "error",
@@ -95,6 +97,23 @@ export function validateAggregateTestBodies(ctx: BoundedContextIR, diags: LoomDi
       }
     }
   }
+}
+
+/** An entity-part builder (`Line { qty: 1 }`) anywhere in a unit-test
+ *  statement.  A part is minted by its aggregate's factory with the PARENT's
+ *  id, and an aggregate test has no aggregate instance to supply one — every
+ *  backend that renders the builder reaches for an ambient `this` id that a
+ *  test body does not have. */
+function partBuilderRefusal(stmt: TestStmtIR): string | undefined {
+  let part: string | undefined;
+  const visit = (e: ExprIR): void => {
+    if (e.kind === "new" && part === undefined) part = e.partName;
+  };
+  if (stmt.kind === "expect" || stmt.kind === "expect-throws") walkExprDeep(stmt.expr, visit);
+  else walkStmtExprsDeep(stmt, visit);
+  return part === undefined
+    ? undefined
+    : `the entity-part builder '${part} { … }' needs the owning aggregate's id, which a test body does not have.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -771,14 +790,14 @@ function checkMagicCall(
   }
   if (method === "create" || method === "getById") return;
   // The CANONICAL destroy (`DELETE /api/<aggs>/{id}`).  It lives on
-  // `agg.canonicalDestroy`, NOT in `agg.operations` (lowering keeps the
+  // `canonicalDestroy(agg)`, NOT in `agg.operations` (lowering keeps the
   // lifecycle actions in their own arrays), so without this arm the verb the
   // route derivation exposes was rejected as an unknown method — the route
   // existed on all five backends and no `test e2e` body could reach it.
   // Gated on `canonicalDestroy` exactly as `deriveAggregateOperations` gates
   // the DELETE route: a NAMED destroy (`destroy archive { }`) has no route, so
   // it must keep falling through to the unknown-method error below.
-  if (method === "destroy" && agg.canonicalDestroy) return;
+  if (method === "destroy" && canonicalDestroy(agg)) return;
   const isPublicOp = agg.operations.some((o) => o.visibility === "public" && o.name === method);
   if (isPublicOp) return;
   // Find queries — search every context's repositories for one
@@ -823,7 +842,7 @@ function checkMagicCall(
   const knownVerbs = [
     "create",
     "getById",
-    ...(agg.canonicalDestroy ? ["destroy"] : []),
+    ...(canonicalDestroy(agg) ? ["destroy"] : []),
     ...(repo?.historyFind ? ["history"] : []),
     ...ops,
     ...finds,

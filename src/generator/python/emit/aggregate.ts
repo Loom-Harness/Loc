@@ -23,6 +23,7 @@ import {
   type TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { directParentName, partsChildrenFirst } from "../../../ir/util/containment-parent.js";
+import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import {
   createBodyParams,
   createBodyStatements,
@@ -48,6 +49,11 @@ import {
   renderPyStatements,
   statementSubRegions,
 } from "../render-stmt.js";
+import {
+  stampRules as insertOrUpdateStampRules,
+  type StampEvent,
+  stampEventsFor,
+} from "../stamp-call.js";
 
 /** One operation body's exact emitted text plus its per-statement
  *  sub-regions — surfaced by `renderPyAggregate` (when `opFragments` is
@@ -361,6 +367,9 @@ function renderEntity(
     ...e.fields.map((f) => `        self._${snake(f.name)} = ${pythonIdent(f.name)}`),
     ...e.contains.map((c) => `        self._${snake(c.name)} = ${pythonIdent(c.name)}`),
     e.isRoot ? `        self._events: list[DomainEvent] = []` : null,
+    // Event-sourced root (M-T6.98): the stream version this instance was folded
+    // to — the expected version of its next append (repository `save`).
+    e.isRoot && e.eventSourced ? `        self._stream_version: int = 0` : null,
     // Co-located provenance lineage, set on each provenanced write and
     // restored on hydrate; None until first written.
     ...provFields.map((f) => `        self._${provColumn(f.name)}: ProvLineage | None = None`),
@@ -437,7 +446,7 @@ function renderEntity(
       ? [
           `        if ${renderPyNegatedGuard(op.when)}:`,
           `            raise ${PY.DisallowedError}(${JSON.stringify(
-            `operation '${op.name}' is not allowed in the current state of ${e.name}.`,
+            disallowedDetail(op.name, e.name, op.whenSource),
           )})`,
         ]
       : [];
@@ -541,10 +550,11 @@ function renderEntity(
   // the principal id (`current_user.<idAttr>`, threaded from
   // `request.state.current_user`).  Root-only; event-sourced aggregates and
   // principal stamps without auth are gated upstream.
-  const stampRules = (event: "create" | "update"): ContextStampAssignmentIR[] =>
-    e.isRoot
-      ? (e.contextStamps ?? []).filter((r) => r.event === event).flatMap((r) => r.assignments)
-      : [];
+  // `_stamp_on_create` runs the `onCreate` rules then the `onUpdate` ones
+  // (`stampRules` in `stamp-call.ts`), so every insert site — REST route,
+  // workflow, handler, reactor — writes `updated_*` alongside `created_*`.
+  const stampRules = (event: StampEvent): ContextStampAssignmentIR[] =>
+    e.isRoot ? insertOrUpdateStampRules(e, event) : [];
   const renderStampValue = (value: ExprIR): string =>
     value.kind === "ref" && value.refKind === "current-user"
       ? `current_user.${principalIdAttr ?? "id"}`
@@ -558,7 +568,10 @@ function renderEntity(
     // database's to report as an opaque 500.  An OPTIONAL target is left alone:
     // null is legal there, and guarding it would refuse the claim-less signup
     // bootstrap.
-    const guards = requiredClaimStamps(e, event).flatMap((stamp) => [
+    const claimStamps = new Map(
+      stampEventsFor(event).flatMap((ev) => requiredClaimStamps(e, ev).map((c) => [c.field, c])),
+    );
+    const guards = [...claimStamps.values()].flatMap((stamp) => [
       `        if not current_user.${snake(stamp.claim)}:`,
       `            raise ${PY.ForbiddenError}(${JSON.stringify(missingClaimMessage(stamp))})`,
     ]);
@@ -713,6 +726,8 @@ function renderEntity(
       "        inst._events = []",
       "        for ev in events:",
       "            inst._apply(ev)",
+      // A stream is gap-free from 1, so the folded count IS its head version.
+      "        inst._stream_version = len(events)",
       "        return inst",
     );
     if (e.esCreate) {
@@ -727,6 +742,7 @@ function renderEntity(
         `        inst._id = ${pyNewId(e.name)}()`,
         ...e.fields.map((f) => `        inst._${snake(f.name)} = ${shellSeed(f)}`),
         "        inst._events = []",
+        "        inst._stream_version = 0",
         `        inst._init(${e.esCreate.params.map((p) => pythonIdent(p.name)).join(", ")})`,
         "        return inst",
         "",

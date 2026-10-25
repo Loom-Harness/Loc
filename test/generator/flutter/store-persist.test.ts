@@ -97,7 +97,7 @@ describe("flutter `persist: local` — shared_preferences, JS-compatible key + b
 
   it("pulls shared_preferences into the pubspec and awaits it before runApp", async () => {
     const out = await gen(LOCAL);
-    expect(out.get("app/pubspec.yaml")!).toContain("shared_preferences: ^2.3.2");
+    expect(out.get("app/pubspec.yaml")!).toContain("shared_preferences: 2.5.6");
     const main = out.get("app/lib/main.dart")!;
     // M-T1.8 (flutter arm): the persist-boot work runs inside the
     // `runZonedGuarded` async closure, so `main()` itself stays sync.

@@ -63,7 +63,7 @@ describe("elixir numeric op-param ingress (M-T6.48)", () => {
     // …and an in-type, out-of-range value gets the 422 responder, not the db.
     expect(ctx).toContain(
       "defp __loom_int32_param(record, field, value) when is_integer(value),\n" +
-        '    do: {:error, __loom_param_error(record, field, value, "Integer out of range")}',
+        '    do: {:error, Ecto.Changeset.add_error(Ecto.Changeset.change(record, %{}), field, "Integer out of range")}',
     );
   });
 

@@ -10,6 +10,7 @@ import type {
   FieldIR,
   TypeIR,
 } from "../../types/loom-ir.js";
+import { canonicalCreate } from "../../util/canonical-lifecycle.js";
 import { isConstantDefault } from "../../util/constant-default.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
@@ -78,7 +79,7 @@ function factoryCanInitialise(f: FieldIR, stamped: ReadonlySet<string>): boolean
 export function validateDeclaredCreateParams(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
   for (const agg of ctx.aggregates as EnrichedAggregateIR[]) {
     const declared = declaredCreateParamNames(agg);
-    const create = agg.canonicalCreate;
+    const create = canonicalCreate(agg);
     if (!declared || !create) continue;
     const source = `${ctx.name}/aggregate ${agg.name}.create`;
     const suppliable = new Map(forCreateInput(agg.fields).map((f) => [f.name, f] as const));

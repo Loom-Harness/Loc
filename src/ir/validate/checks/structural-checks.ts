@@ -22,15 +22,14 @@ import type {
   FindIR,
   FunctionIR,
   StmtIR,
-  TestIR,
   TypeIR,
   UiIR,
 } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
+import { canonicalCreate, canonicalDestroy } from "../../util/canonical-lifecycle.js";
 import {
-  baseOf,
+  ancestorUniqueKeySet,
   isTpcBase,
-  isTpcConcrete,
   isTphBase,
   isTphConcrete,
   tpcConcretesOf,
@@ -230,7 +229,7 @@ export function validateUniqueColumns(loom: EnrichedLoomModel, diags: LoomDiagno
       const byName = new Map(agg.fields.map((f) => [f.name, f]));
       // A TPC concrete carries copies of its ancestors' keys (enrichment);
       // the declaring base reports those, so one declaration reports once.
-      const inherited = ancestorKeySet(agg, ctx.aggregates);
+      const inherited = ancestorUniqueKeySet(agg, ctx.aggregates);
       for (const uk of agg.uniqueKeys) {
         if (inherited.has(uk.columns.join(","))) continue;
         for (const col of uk.columns) {
@@ -250,20 +249,6 @@ export function validateUniqueColumns(loom: EnrichedLoomModel, diags: LoomDiagno
       }
     }
   }
-}
-
-/** The column lists of every `unique (…)` key `agg`'s abstract ancestors
- *  declare, when `agg` is a TPC or TPH concrete (the aggregates enrichment
- *  copies those keys onto); empty otherwise. */
-function ancestorKeySet(agg: AggregateIR, pool: readonly AggregateIR[]): Set<string> {
-  const out = new Set<string>();
-  if (!isTpcConcrete(agg, pool) && !isTphConcrete(agg, pool)) return out;
-  const seen = new Set<string>();
-  for (let b = baseOf(agg, pool); b && !seen.has(b.name); b = baseOf(b, pool)) {
-    seen.add(b.name);
-    for (const uk of b.uniqueKeys ?? []) out.add(uk.columns.join(","));
-  }
-  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -323,6 +308,35 @@ function unionReservedFindNames(): Set<string> {
     for (const n of p.reservedRepositoryFindNames) out.add(n);
   }
   return out;
+}
+
+/** A clause-less find filters on the fields its parameters name
+ *  (`FindIR.paramBindings`); a parameter that names no field would be
+ *  dropped from the query, so it is refused.  `id` names the aggregate's own
+ *  key, which is not a declared field: `find byId(id: X id)` is the by-id read
+ *  form the read-gate surface recognises, so it is not refused here. */
+export function validateFindParamBindings(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
+  for (const repo of ctx.repositories) {
+    for (const find of repo.finds) {
+      if (find.filter || find.synthesized || find.auditHistory) continue;
+      const bound = new Set((find.paramBindings ?? []).map((b) => b.param));
+      for (const p of find.params) {
+        if (bound.has(p.name) || p.name === "id") continue;
+        diags.push({
+          severity: "error",
+          code: "loom.find-param-unbound",
+          message: diagMessage("loom.find-param-unbound", {
+            name: repo.name,
+            findName: find.name,
+            param: p.name,
+            aggName: repo.aggregateName,
+          }),
+          source: `${ctx.name}/${repo.name}.${find.name}`,
+          origin: repo.origin,
+        });
+      }
+    }
+  }
 }
 
 export function validateFindNameCollisions(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
@@ -570,10 +584,12 @@ export function validateExternOperations(ctx: BoundedContextIR, diags: LoomDiagn
 //      `this.x` would bypass the stream and desync the fold.
 //   3. Every event a command emits needs a matching applier, or the
 //      fold silently drops that transition.
-//   4. Applier bodies are pure folds: assignments / collection mutations
-//      and `let` bindings only.  No `emit` (an applier reacts to an
-//      event, it doesn't raise one), and no side-effecting calls (the
-//      fold must be deterministic and replayable).
+//   4. Applier bodies are pure folds: assignments / collection mutations,
+//      `let` bindings and branches only.  No `emit` (an applier reacts to an
+//      event, it doesn't raise one), no side-effecting calls (the fold must
+//      be deterministic and replayable), no `return` (it yields nothing).
+//      Checked by `validateApplierBodies` in `body-stmt-vocabulary.ts`, which
+//      applies the same rule to an `eventSourced` workflow's appliers.
 //   5. At most one applier per event type — two folds for one event are
 //      ambiguous.
 //
@@ -720,65 +736,8 @@ export function validateEventSourcedDiscipline(
       }
     }
 
-    // Rule 4 — applier bodies are pure folds.  Deep, for the same reason.
-    for (const ap of appliers) {
-      for (const stmt of deepStmts(ap.statements)) {
-        switch (stmt.kind) {
-          case "emit":
-            diags.push({
-              severity: "error",
-              code: "loom.applier-emits",
-              message: diagMessage("loom.applier-emits", { name: agg.name, event: ap.event }),
-              source: `${ctx.name}/${agg.name}`,
-              origin: agg.origin,
-            });
-            break;
-          case "call":
-            diags.push({
-              severity: "error",
-              code: "loom.applier-impure-call",
-              message: diagMessage("loom.applier-impure-call", {
-                name: agg.name,
-                event: ap.event,
-                stmtName: stmt.name,
-              }),
-              source: `${ctx.name}/${agg.name}`,
-              origin: agg.origin,
-            });
-            break;
-          case "precondition":
-          case "requires":
-            diags.push({
-              severity: "error",
-              code: "loom.applier-guard",
-              message: diagMessage("loom.applier-guard", {
-                name: agg.name,
-                event: ap.event,
-                kind: stmt.kind,
-              }),
-              source: `${ctx.name}/${agg.name}`,
-              origin: agg.origin,
-            });
-            break;
-          // A fold's legitimate vocabulary: state writes, bindings, the
-          // trailing expression, `return`, and the branch statements whose
-          // bodies `deepStmts` already flattened into this list.
-          case "assign":
-          case "add":
-          case "remove":
-          case "expression":
-          case "if":
-          case "let":
-          case "return":
-          case "variant-match":
-            break;
-          default: {
-            const _exhaustive: never = stmt;
-            void _exhaustive;
-          }
-        }
-      }
-    }
+    // Rule 4 — applier bodies are pure folds — is `validateApplierBodies`
+    // (`body-stmt-vocabulary.ts`), which holds it for workflow appliers too.
   }
 }
 
@@ -1253,182 +1212,6 @@ export function validateFieldDefaults(ctx: BoundedContextIR, diags: LoomDiagnost
   for (const vo of ctx.valueObjects) check(vo.name, vo.fields);
 }
 
-// ---------------------------------------------------------------------------
-// `loom.resource-op-outside-workflow` — a resource verb call may only appear
-// where a backend actually has the resource client in scope.
-//
-// A resource handle (`salesFiles`, `mail`, …) is AMBIENT over the whole
-// context: `lowerContext` seeds `resources` into the same `Env` an aggregate
-// body resolves against, and `lower-expr.ts` resolves the bare name ahead of
-// locals — so `salesFiles.put(k, v)` inside an aggregate `operation` lowers to
-// a perfectly well-formed `callKind: "resource-op"` with no complaint at all.
-//
-// Only the WORKFLOW / handler / domain-service emitters thread the resource
-// client map into their render context (`resourceClasses` on .NET+Java,
-// `resourceModules` on Phoenix, the client-module import on TS/Python).  An
-// aggregate member body has none of that, and the five backends fail five
-// different ways:
-//
-//   .NET / Java / Phoenix — `render-expr.ts` THROWS mid-generation ("reached
-//       the … renderer without a resource class mapping"), so `ddd generate`
-//       dies with a stack trace and writes nothing.
-//   TS / Python — emit an awaited helper call (`(await salesFiles$put(…))`)
-//       into a module that never imports it → TS2304 / `F821`.  Worse, the
-//       plain aggregate method renders `salesFiles.put(…)` unawaited against
-//       an unimported symbol.
-//
-// `docs/resources.md` § "Verb vocabulary" already states the rule ("workflows
-// only — resource-ops are not allowed in aggregate operations"); nothing
-// enforced it.  This is that enforcement, at the IR tier, once for all five
-// backends — the same shape as `loom.resource-op-in-transaction`, which is the
-// OTHER placement rule resource-ops carry.
-//
-// LIFECYCLE GUARDS ARE INCLUDED.  `structural-checks`'s
-// `lifecycleGuardIllegalReads` notes in passing that a `resource-op` "renders a
-// module- or class-qualified call — none of them touches the receiver", and
-// defers the question with "(A guard doing IO is a different objection, not
-// this one.)".  That deferral is settled here, empirically: a `create { requires
-// salesFiles.list("x").count == 0 }` CRASHES the .NET generator inside
-// `lifecycleGate`, and on Hono emits `(await salesFiles$list("x"))` into
-// `http/<agg>.routes.ts`, a file that imports no resource client → TS2304.  A
-// guard is rendered in a route/authz position, which is exactly where no
-// resource client is in scope.  So guards are gated too — and the walk gets
-// them for free, since a lifecycle `requires` is a statement in the
-// create/destroy body.
-//
-// The LEGAL sites are workflow bodies and command/query handler bodies —
-// the application layer, which owns the transaction and all outbound I/O.
-// Everything else on an aggregate / part / value object is rejected.
-//
-// DOMAIN SERVICES ARE *NOT* A LEGAL SITE.  The first cut of this gate listed
-// `domainService` operation bodies as legal, matching the ambient-resource
-// `Env` and the three sites `deriveNeeds` scans.  No domain-service emitter
-// threads a resource client in, so the "legal" third site failed in the SAME
-// five ways the aggregate bodies did — re-verified against a `domainService
-// Archiver { operation archived(name: string): bool { let existing =
-// salesFiles.list("orders/" + name) … } }`:
-//
-//   .NET   — THROWS "reached the .NET renderer without a resource class
-//            mapping" out of `emit/domain-service.ts` → `renderOperation`.
-//   Java   — THROWS the Java twin out of `emit/domain-service.ts`.
-//   Phoenix— THROWS "reached the Phoenix renderer without a module mapping"
-//            out of `domain-service-emit.ts` → `renderOperation`.
-//   TS     — emits `(await salesFiles$list(…))` into `domain/services.ts`, a
-//            file importing no resource client, inside a NON-async
-//            `export function` → TS1308 + TS2304.
-//   Python — emits the same `await` into a bare `def` in
-//            `app/domain/services/<svc>.py` → SyntaxError + F821.
-//
-// And porting it is a LANGUAGE change, not plumbing.  `docs/domain-services.md`
-// defines a domain service as a stateless calculator whose only infrastructure
-// touch is a read-only repository query, with the `workflow` owning "the
-// transaction and all outbound I/O"; a resource-op is outbound I/O.  Admitting
-// one would also (1) re-open the aggregate hole this gate just closed — a
-// `pure`-tier op is callable from an aggregate `operation`, so the tier ladder
-// (`classifyDomainServiceTier`) would need a new tier plus a call-site gate,
-// (2) force async signatures onto the sync static/module shapes four of five
-// backends emit for the pure/reading tiers, and (3) let a resource-op hide from
-// `loom.resource-op-in-transaction`, which only walks the workflow span.  So
-// the honest answer is an error at the source, not five silent failures.
-// ---------------------------------------------------------------------------
-
-/** Push one diagnostic per (location, resource.verb) — an operation calling the
- *  same verb twice is one authoring mistake, not two. */
-export function validateResourceOpPlacement(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
-  const seen = new Set<string>();
-  const flag = (location: string, expr: ExprIR | undefined): void => {
-    if (!expr) return;
-    walkExprDeep(expr, (e) => {
-      if (e.kind !== "call" || e.callKind !== "resource-op" || !e.resourceOp) return;
-      const { resourceName, verb } = e.resourceOp;
-      const key = `${location}\0${resourceName}.${verb}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      diags.push({
-        severity: "error",
-        code: "loom.resource-op-outside-workflow",
-        message: diagMessage("loom.resource-op-outside-workflow", {
-          location,
-          resourceName,
-          verb,
-        }),
-        source: `${ctx.name}/${location}`,
-        origin: ctx.origin,
-      });
-    });
-  };
-  const flagStmts = (location: string, stmts: readonly StmtIR[]): void => {
-    for (const s of stmts) walkExprsInStmt(s, (e) => flag(location, e));
-  };
-  // A `test { }` body is the FOURTH statement-bearing surface (after
-  // operations, guards and function bodies), and it renders into ordinary
-  // target code — so a resource-op there fails exactly the five ways the gate
-  // exists to prevent: .NET and Java DIE mid-generation ("reached the renderer
-  // without a resource class mapping"), node and python emit `await` inside a
-  // non-async test fn against an unimported symbol, elixir alone degrades
-  // honestly.  `TestStmtIR` widens `StmtIR` with `expect` / `expect-throws`,
-  // whose `expr` is the most likely host of the call.
-  const flagTestStmts = (location: string, tests: readonly TestIR[]): void => {
-    for (const t of tests) {
-      for (const s of t.statements) {
-        if (s.kind === "expect" || s.kind === "expect-throws") flag(location, s.expr);
-        else walkExprsInStmt(s, (e) => flag(location, e));
-      }
-    }
-  };
-  // An aggregate / part / value object — every member surface that renders into
-  // domain (or route-gate) code.  `creates` / `destroys` are separate arrays
-  // from `operations`, and a lifecycle `requires` guard is a statement inside
-  // them, so walking all three statement lists covers guards too.
-  for (const agg of ctx.aggregates) {
-    for (const op of [...agg.operations, ...(agg.creates ?? []), ...(agg.destroys ?? [])]) {
-      flagStmts(`${agg.name}.${op.name || "create"}`, op.statements);
-      flag(`${agg.name}.${op.name || "create"}`, op.when);
-    }
-    for (const inv of agg.invariants) {
-      flag(`${agg.name}.invariant`, inv.expr);
-      flag(`${agg.name}.invariant`, inv.guard);
-    }
-    for (const d of agg.derived) flag(`${agg.name}.derived[${d.name}]`, d.expr);
-    for (const fn of agg.functions) flagFunctionBody(`${agg.name}.function[${fn.name}]`, fn, flag);
-    flagTestStmts(`${agg.name}.test`, agg.tests);
-    for (const part of agg.parts) {
-      for (const inv of part.invariants) {
-        flag(`${part.name}.invariant`, inv.expr);
-        flag(`${part.name}.invariant`, inv.guard);
-      }
-      for (const d of part.derived) flag(`${part.name}.derived[${d.name}]`, d.expr);
-      for (const fn of part.functions)
-        flagFunctionBody(`${part.name}.function[${fn.name}]`, fn, flag);
-    }
-  }
-  for (const vo of ctx.valueObjects) {
-    for (const inv of vo.invariants) {
-      flag(`${vo.name}.invariant`, inv.expr);
-      flag(`${vo.name}.invariant`, inv.guard);
-    }
-    for (const d of vo.derived) flag(`${vo.name}.derived[${d.name}]`, d.expr);
-    for (const fn of vo.functions) flagFunctionBody(`${vo.name}.function[${fn.name}]`, fn, flag);
-    flagTestStmts(`${vo.name}.test`, vo.tests);
-  }
-  // Repository find filters lower to SQL / a query predicate; a resource-op
-  // there has no renderable form on any backend either.
-  for (const repo of ctx.repositories) {
-    for (const f of repo.finds) flag(`repository[${repo.name}].find[${f.name}]`, f.filter);
-  }
-  // Context-scoped integration tests — the fourth `TestIR[]` array.
-  flagTestStmts(`${ctx.name}.test`, ctx.tests);
-  // Domain-service operation bodies — see the DOMAIN SERVICES header note: the
-  // five emitters split 3 throws / 2 unimported-await-in-a-sync-function, so
-  // this is the same class, not a per-backend gap.
-  for (const svc of ctx.domainServices) {
-    for (const op of svc.operations) {
-      flagStmts(`domainService[${svc.name}].operation[${op.name}]`, op.body);
-    }
-    flagTestStmts(`domainService[${svc.name}].test`, svc.tests);
-  }
-}
-
 /** Walk every expression inside an entity's invariants, derived
  *  properties, function bodies, and repository find
  *  filters; flag any `current-user` ref found there.  Uses the
@@ -1897,7 +1680,7 @@ export function validateLifecycleBodyDropped(
       // EVERY create, not just the canonical one.  An event-sourced create is
       // rendered BY INDEX (`agg.creates[0]`), so a NAMED `create open(...)` on
       // an event stream IS the emitted one — and reading only
-      // `agg.canonicalCreate` here let its guard through untouched: it rendered
+      // `canonicalCreate(agg)` here let its guard through untouched: it rendered
       // into the domain `_init` as a free `currentUser`, so `ddd parse` said
       // `0 error(s)` and the generated project then failed to COMPILE (measured
       // on node: `acct.ts(68,11): error TS2304: Cannot find name 'currentUser'`;
@@ -1929,8 +1712,8 @@ export function validateLifecycleBodyDropped(
     }
 
     for (const [label, action] of [
-      ["create", agg.canonicalCreate],
-      ["destroy", agg.canonicalDestroy],
+      ["create", canonicalCreate(agg)],
+      ["destroy", canonicalDestroy(agg)],
     ] as const) {
       // ── the guard's READABLE SURFACE ────────────────────────────────────
       // Runs for EVERY lifecycle guard, event-sourced included — deliberately
@@ -2064,11 +1847,11 @@ export function validateNamedLifecycleDropped(
     // stream is emitted and must not be flagged.
     const renderedCreate = aggregateIsEventSourced(agg)
       ? (agg.creates?.[0] ?? null)
-      : (agg.canonicalCreate ?? null);
+      : (canonicalCreate(agg) ?? null);
 
     for (const [label, actions, rendered] of [
       ["create", agg.creates ?? [], renderedCreate],
-      ["destroy", agg.destroys ?? [], agg.canonicalDestroy ?? null],
+      ["destroy", agg.destroys ?? [], canonicalDestroy(agg) ?? null],
     ] as const) {
       for (const action of actions) {
         if (action === rendered) continue;

@@ -19,6 +19,7 @@ import type {
   WireField,
 } from "../types/loom-ir.js";
 import { isMacroEmitted } from "../types/origin.js";
+import { canonicalCreate, canonicalDestroy } from "../util/canonical-lifecycle.js";
 import { hasTenantOwned, TENANT_OWNED_DATA_KEY_FIELD } from "../util/tenant-stance.js";
 import { satisfiableAtConstruction } from "../validate/invariant-classify.js";
 
@@ -126,7 +127,7 @@ export function createInputFields(agg: AggregateIR): FieldIR[] {
  *  `loom.create-param-required-omitted`), so the set this returns always
  *  names real create-input fields. */
 export function declaredCreateParamNames(agg: AggregateIR): ReadonlySet<string> | undefined {
-  const create = agg.canonicalCreate;
+  const create = canonicalCreate(agg);
   if (!create || create.params.length === 0) return undefined;
   if (agg.persistedAs === "eventLog") return undefined;
   if (isMacroEmitted(create.origin)) return undefined;
@@ -336,7 +337,7 @@ export function wireCreateDefault(f: FieldIR): ExprIR | undefined {
  * undefaulted fields but no blocking invariant is constructible: those fields
  * become required create params. */
 export function isConstructible(agg: AggregateIR): boolean {
-  if (agg.canonicalCreate != null) return true;
+  if (canonicalCreate(agg) != null) return true;
   const available = new Set(forCreateInput(agg.fields).map((f) => f.name));
   return agg.invariants.every((inv) => satisfiableAtConstruction(inv, available));
 }
@@ -379,7 +380,7 @@ export function hasCreate(agg: AggregateIR): boolean {
 export function emitsRestCreate(agg: AggregateIR): boolean {
   return agg.persistedAs === "eventLog"
     ? (agg.creates?.length ?? 0) > 0
-    : agg.canonicalCreate != null;
+    : canonicalCreate(agg) != null;
 }
 
 /** Whether the aggregate exposes the generic `DELETE /<aggs>/{id}` REST route.
@@ -399,7 +400,7 @@ export function emitsRestCreate(agg: AggregateIR): boolean {
  * Abstract inheritance bases are excluded at the aggregate-iteration level
  * (they have no HTTP surface at all), not here. */
 export function emitsRestDestroy(agg: AggregateIR): boolean {
-  return agg.canonicalDestroy != null;
+  return canonicalDestroy(agg) != null;
 }
 
 /** Fields clients may modify in an **update** request's editable

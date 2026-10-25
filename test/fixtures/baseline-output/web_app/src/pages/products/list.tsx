@@ -2,7 +2,6 @@
 import { useState } from "react";
 import { useNavigate, Link as RouterLink } from "react-router";
 import { t } from "../../i18n";
-import { IdValue } from "../../lib/format";
 import { Alert, Anchor, Breadcrumbs, Button, Center, Group, Paper, Skeleton, Stack, Table, Text, Title } from "@mantine/core";
 import { useAllProducts } from "../../api/product";
 
@@ -41,15 +40,13 @@ export default function ProductList() {
             <><div className="loom-table-scroll" style={{ width: "100%", overflowX: "auto" }}><Table striped highlightOnHover stickyHeader>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "id") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("id"); setSortDir("asc"); } }}>{t("page.List.columnHeader.o4495s", "ID")}{sortKey === "id" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
                   <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "sku") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("sku"); setSortDir("asc"); } }}>{t("page.List.columnHeader.gkg0ca", "Sku")}{sortKey === "sku" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
                 { productAll.data.items.map((row) => (
                   <Table.Tr key={ row.id } data-testid={ ("products-row-" + row.id) }>
-                    <Table.Td><RouterLink to={`/products/${ row.id }`}><IdValue id={ row.id } /></RouterLink></Table.Td>
-                    <Table.Td><Text>{row.sku}</Text></Table.Td>
+                    <Table.Td><Anchor component={RouterLink} to={("/products/" + row.id)}>{row.display}</Anchor></Table.Td>
                   </Table.Tr>
                 )) }
               </Table.Tbody>

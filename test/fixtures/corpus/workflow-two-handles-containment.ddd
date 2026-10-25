@@ -1,0 +1,99 @@
+// shape: two `getById` loads of ONE row inside a workflow are two independent
+// handles over an aggregate with a contained collection — each handle carries
+// its own child graph and the version it read (M-T6.90).
+//
+// The sibling `transactional-workflow-event-rollback` pins the stale-handle
+// conflict on a flat aggregate.  This one pins the half that a containment
+// makes risky on .NET EF: the second handle no longer shares EF's identity map
+// with the first (it is loaded into a forked change tracker), so its owned
+// `lines` graph has to persist a child INSERT and a child DELETE exactly as the
+// primary context would — no duplicate rows, no orphaned ones — and two handles
+// that both touch the children still conflict (409) and persist neither change.
+system WorkflowTwoHandlesContainment {
+  subdomain Shop {
+    context Carts {
+      aggregate Cart with crudish {
+        name: string
+        contains lines: Line[]
+        entity Line { sku: string  qty: int }
+
+        operation addLine(sku: string, qty: int) { lines += Line { sku: sku, qty: qty } }
+        operation drop(sku: string) { lines -= lines.where(l => l.sku == sku).first() }
+      }
+      repository Carts for Cart { }
+
+      // Only the SECOND handle is touched: its save carries the version it
+      // read, so it commits — and its child insert must land exactly once.
+      workflow addViaSecond {
+        create(c: Cart id, sku: string) {
+          let first = Carts.getById(c)
+          let second = Carts.getById(c)
+          second.addLine(sku, 1)
+        }
+      }
+
+      // The same through a child DELETE.
+      workflow dropViaSecond {
+        create(c: Cart id, sku: string) {
+          let first = Carts.getById(c)
+          let second = Carts.getById(c)
+          second.drop(sku)
+        }
+      }
+
+      // Both handles add a child: the second save is stale (409) and the
+      // transactional workflow persists neither line.
+      workflow addTwice transactional {
+        create(c: Cart id) {
+          let first = Carts.getById(c)
+          let second = Carts.getById(c)
+          first.addLine("A", 1)
+          second.addLine("B", 1)
+        }
+      }
+    }
+  }
+
+  api CartsApi from Shop
+  storage pg { type: postgres }
+  resource cartsState { for: Carts, kind: state, use: pg }
+
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Carts]
+    dataSources: [cartsState]
+    serves: CartsApi
+    port: 4000
+  }
+
+  test e2e "two handles on one row keep their own child graph and version" against d {
+    let c = api.carts.create({ name: "c" })
+    api.carts.addLine(c, { sku: "S1", qty: 2 })
+
+    // A child insert through the second handle lands once.
+    api.addViaSecond.run({ c: c.id, sku: "S2" })
+    let added = api.carts.getById(c)
+    expect(added.lines.length).toBe(2)
+
+    // A child delete through the second handle removes exactly one row.
+    api.dropViaSecond.run({ c: c.id, sku: "S1" })
+    let dropped = api.carts.getById(c)
+    expect(dropped.lines.length).toBe(1)
+    expect(dropped.lines.first().sku).toBe("S2")
+
+    // Two handles both adding: stale second save → 409, neither line persists.
+    expect(api.addTwice.run({ c: c.id })).toThrow(409)
+    let after = api.carts.getById(c)
+    expect(after.lines.length).toBe(1)
+
+    // The rest of the crudish surface, so every derived route has a caller.
+    api.carts.drop(c, { sku: "S2" })
+    api.carts.update(c, { name: "renamed" })
+    let all = api.carts.all()
+    expect(all.total).toBe(1)
+    expect(all.items.first().name).toBe("renamed")
+    api.carts.destroy(c)
+    let gone = api.carts.all()
+    expect(gone.total).toBe(0)
+  }
+}

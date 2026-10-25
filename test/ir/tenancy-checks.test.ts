@@ -108,19 +108,17 @@ describe("loom.tenancy-stance-unmarked", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Inheritance × stance (F2-CB-C10 / F2-CB-C11).
+  // Inheritance × stance.
   //
-  // A base's FIELDS are merged onto its subtypes by the enrich pass, so
-  // `abstract … with tenantOwned` puts `tenant_id NOT NULL` on the subtype's
-  // row.  Its STANCE is read off `agg.capabilities` alone and does NOT
-  // propagate, so the two halves can disagree — and the two tests below are the
-  // two ways they did.
+  // The enrich pass merges a base's fields, capabilities, filters, stamps and
+  // stance onto every subtype, so a subtype inherits its base's side and may
+  // not declare the opposite one.
   // -------------------------------------------------------------------------
 
-  it("names the real constraint when the BASE declared the stance the concrete is missing", async () => {
-    // C10: the generic message told the author to add `with tenantOwned` — which
-    // they had already written, on the base — and offered `crossTenant` as the
-    // alternative, which walks straight into C11 below.
+  it("a concrete inherits the stance its abstract base declares", async () => {
+    // D-INHERITED-CAPABILITIES: the base's `tenantOwned` — its filter, its stamp
+    // and its stance — applies to every subtype, so the concrete has picked a
+    // side without repeating the marker.
     const diags = await tenancyDiags(`
       system Fleets {
         user { id: guid  tenantId: string }
@@ -129,27 +127,17 @@ describe("loom.tenancy-stance-unmarked", () => {
           context Fleet {
             abstract aggregate Vehicle with tenantOwned { name: string }
             aggregate Car extends Vehicle { doors: int }
+            abstract aggregate Plan crossTenant { title: string }
+            aggregate Tier extends Plan { rank: int }
             aggregate Org { title: string }
             repository Cars for Car { }
+            repository Tiers for Tier { }
             repository Orgs for Org { }
           }
         }
       }
     `);
-    expect(diags.map((d) => [d.code, d.source])).toEqual([
-      ["loom.tenancy-stance-unmarked", "Fleet/Car"],
-    ]);
-    const msg = diags[0]!.message;
-    expect(msg, "names the base that already declares it").toContain("'Vehicle' declares");
-    expect(msg, "states that a stance does not propagate").toContain(
-      "does NOT propagate through `extends`",
-    );
-    expect(msg, "explains what the subtype actually lacks").toContain(
-      "the tenant column without the stamp that fills it",
-    );
-    expect(msg, "must NOT offer crossTenant as a remedy any more").toContain(
-      "`crossTenant` would contradict the base and is rejected",
-    );
+    expect(diags).toEqual([]);
   });
 
   it("rejects a `crossTenant` subtype of a `tenantOwned` base", async () => {
@@ -178,6 +166,7 @@ describe("loom.tenancy-stance-unmarked", () => {
     ]);
     expect(diags[0]!.severity).toBe("error");
     expect(diags[0]!.message).toContain("declares `crossTenant` but its abstract base 'Vehicle'");
+    expect(diags[0]!.message).toContain("would be both tenant data and shared data");
   });
 
   it("accepts a subtype that repeats the base's stance", async () => {

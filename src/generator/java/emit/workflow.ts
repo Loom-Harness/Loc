@@ -727,12 +727,18 @@ function workflowVoMappers(
     const fields: readonly FieldIR[] = voLookup.get(vo) ?? [];
     const args = fields
       .map((f) =>
-        wireToDomain(effType(f.type, !!f.optional), `request.${jid(f.name)}()`, `/${f.name}`),
+        wireToDomain(
+          effType(f.type, !!f.optional),
+          `request.${jid(f.name)}()`,
+          `/${f.name}`,
+          undefined,
+          "at",
+        ),
       )
       .join(", ");
     for (const f of fields) collectWireToDomainImports(f.type, imports, basePkg);
     return [
-      `    private static ${vo} to${vo}(${vo}Request request) {`,
+      `    private static ${vo} to${vo}(${vo}Request request, String at) {`,
       `        return new ${vo}(${args});`,
       `    }`,
       ``,
@@ -753,11 +759,19 @@ function workflowPayloadMappers(
 ): string[] {
   return payloads.flatMap((pl) => {
     const args = pl.fields
-      .map((f) => wireToDomain(effType(f.type, !!f.optional), `request.${f.name}()`, `/${f.name}`))
+      .map((f) =>
+        wireToDomain(
+          effType(f.type, !!f.optional),
+          `request.${f.name}()`,
+          `/${f.name}`,
+          undefined,
+          "at",
+        ),
+      )
       .join(", ");
     for (const f of pl.fields) collectWireToDomainImports(f.type, imports, basePkg);
     return [
-      `    private static ${pl.name} to${pl.name}(${pl.name}Response request) {`,
+      `    private static ${pl.name} to${pl.name}(${pl.name}Response request, String at) {`,
       `        return new ${pl.name}(${args});`,
       `    }`,
       ``,
@@ -1185,8 +1199,21 @@ export function renderJavaWorkflows(
   // resolve both unqualified.
   for (const pl of payloads) {
     const wireImports = new Set<string>();
+    // The record is bound from the request body (`@Valid` on the enclosing
+    // param), so its members take the workflow body's own rules: a required
+    // member is `@NotNull`, a required PRIMITIVE is boxed so its absence is
+    // visible (RS-26), and a nested record is `@Valid`.  Without them a
+    // missing `c.amount` reached `WireFormatException.money(null, …)` and
+    // answered "Invalid decimal: null" instead of the required-field refusal
+    // every other backend sends at `/c/amount`.
     const wireComponents = pl.fields.map((f) => {
-      return `${wireJavaType(effType(f.type, !!f.optional), "Request")} ${f.name}`;
+      const required = !f.optional && f.type.kind !== "optional";
+      const javaType = wireJavaType(
+        required ? { kind: "optional", inner: f.type } : effType(f.type, !!f.optional),
+        "Request",
+      );
+      const nested = bearsNestedRecord(f.type);
+      return `${required ? `@${NOT_NULL} ` : ""}${nested ? `@${VALID} ` : ""}${javaType} ${f.name}`;
     });
     // A VO field's `<Vo>Request` record lives in an aggregate's application
     // package, not `domain.valueobjects.*` — import it explicitly, exactly as

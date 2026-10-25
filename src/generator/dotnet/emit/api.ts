@@ -1,6 +1,7 @@
 import { emitsRestCreate } from "../../../ir/enrich/wire-projection.js";
 import type { AggregateIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
 import { type ApiOperationIR, relativeOpPath } from "../../../ir/util/api-surface.js";
+import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import {
   CONCURRENCY_CONFLICT_SUFFIX,
@@ -382,7 +383,7 @@ export function renderController(
   // aggregate emits none, so `using …Commands;` would reference a namespace
   // that does not exist (CS0234 under `/warnaserror`).  (Queries/Requests/
   // Responses always have at least the auto findAll + Response DTO.)
-  const hasCommands = emitsRestCreate(agg) || !!agg.canonicalDestroy || agg.operations.length > 0;
+  const hasCommands = emitsRestCreate(agg) || !!canonicalDestroy(agg) || agg.operations.length > 0;
   return (
     lines(
       "// Auto-generated.",
@@ -1522,6 +1523,43 @@ public static class ValidationProblem
                 })
                 .ToArray();
             return new ObjectResult(missingProblem)
+            {
+                StatusCode = 422,
+                ContentTypes = { "application/problem+json" },
+            };
+        }
+        // An int literal past Int32 is a FIELD refusal, not a malformed body
+        // (RS-42): Serialization.Int32RangeJsonConverter throws it with the
+        // range sentence as its message, and the input formatter files that
+        // message under the field's JSON path ("$.n", "$.best.qty").  Answered
+        // like a missing member: only the range errors, never the companion
+        // "The request field is required." the same rejection records against
+        // the action parameter.
+        static bool IsIntegerRange(ModelError error) =>
+            error.ErrorMessage == global::${ns}.Serialization.Int32RangeJsonConverter.Message
+            || error.Exception?.Message == global::${ns}.Serialization.Int32RangeJsonConverter.Message;
+        var outOfRange = context.ModelState
+            .Where(entry => entry.Value is not null && entry.Value.Errors.Any(IsIntegerRange))
+            .Select(entry => entry.Key)
+            .ToArray();
+        if (outOfRange.Length > 0)
+        {
+            var rangeProblem = new ProblemDetails
+            {
+                Type = "about:blank",
+                Title = "Validation failed",
+                Status = 422,
+                Detail = "One or more fields are invalid.",
+                Instance = context.HttpContext.Request.Path,
+            };
+            rangeProblem.Extensions["errors"] = outOfRange
+                .Select(key => new Dictionary<string, object>
+                {
+                    ["pointer"] = PointerOf(key.TrimStart('$').TrimStart('.')),
+                    ["message"] = global::${ns}.Serialization.Int32RangeJsonConverter.Message,
+                })
+                .ToArray();
+            return new ObjectResult(rangeProblem)
             {
                 StatusCode = 422,
                 ContentTypes = { "application/problem+json" },

@@ -33,7 +33,7 @@ system Acme {
         note: string
       }
       repository Orders for Order {
-        find byQty(min: int): Order[]
+        find byQty(min: int): Order[] where this.qty >= min
         find recent(): Order[]
       }
       aggregate Tag with crudish {
