@@ -1248,6 +1248,16 @@ system S {
       select code = o.code, orders = count()
     }`),
 
+  // --- natural-key reads (repo-key-lookup) ---------------------------------
+  "loom.repo-key-not-unique":
+    repoOnly(`    aggregate Product with crudish { sku: string  name: string  unique (sku) }
+    repository Products for Product { }
+    workflow w { create(n: string) { if let p = Products.findBy(name: n) { } } }`),
+  "loom.repo-key-incomplete":
+    repoOnly(`    aggregate Product with crudish { region: string  name: string  unique (region, name) }
+    repository Products for Product { }
+    workflow w { create(n: string) { if let p = Products.findBy(name: n) { } } }`),
+
   // --- variant match (structural-checks + the AST-level subject rule) ------
   "loom.match-unknown-variant": unionMatch(
     `outcome { Order o => o.code, Other x => x.resource, else => "" }`,

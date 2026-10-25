@@ -983,6 +983,18 @@ export interface FindIR {
   defaultDenied?: boolean;
 }
 
+/** A natural-key read's key (`Repo.getBy(sku: s)` / `Repo.findBy(…)`,
+ *  D-REPO-KEY-LOOKUP): the declared `unique (…)` tuple it names, in declared
+ *  column order, and the read's `ignoring` stance.  The read is emitted as a
+ *  repository method named by `keyLookupMethodName`, which enrichment
+ *  synthesises (`synthesizeKeyLookupFinds`) as a `synthesized` find — one
+ *  `WHERE` equality per column, capability filters applied as on any read. */
+export interface KeyLookupIR {
+  columns: string[];
+  bypassAll?: boolean;
+  bypassCaps?: string[];
+}
+
 export interface RepositoryIR {
   name: string;
   aggregateName: string;
@@ -1835,11 +1847,16 @@ export type WorkflowStmtIR =
       repoName: string;
       aggName: string;
       /** What the call does (`util/repository-contract.ts`).  Emitters
-       *  dispatch on it; `method` is kept for a declared find's own name. */
+       *  dispatch on it; `method` is kept for a declared find's own name and
+       *  a natural-key read's method (`findBySku`). */
       op: RepoOp;
       method: string;
       args: ExprIR[];
       returnType: TypeIR;
+      /** A natural-key read (`load-by-key` / `load-by-key-optional`): the
+       *  tuple `args` follow and the `ignoring` stance.  Enrichment
+       *  synthesises the repository method `method` names from it. */
+      key?: KeyLookupIR;
       origin?: OriginRef;
     }
   | {
@@ -1985,8 +2002,9 @@ export type WorkflowStmtIR =
       kind: "if-let";
       var: string;
       /** `select-one` for a criterion source, `declared-find` for a declared
-       *  optional find (`findMethod` names it). */
-      op: Extract<RepoOp, "select-one" | "declared-find">;
+       *  optional find (`findMethod` names it), `load-by-key-optional` for a
+       *  natural-key `Repo.findBy(…)` (`findMethod` names its method). */
+      op: Extract<RepoOp, "select-one" | "declared-find" | "load-by-key-optional">;
       repoName: string;
       aggName: string;
       /** Name of the shared synthetic retrieval (`findAllBy<Criterion>`);
@@ -1997,8 +2015,11 @@ export type WorkflowStmtIR =
       retrievalArgs: ExprIR[];
       synthCriterion: { name: string };
       /** The declared optional find the source calls, when the source is
-       *  `Repo.<find>(args)` rather than `Repo.find(<Criterion>)`. */
+       *  `Repo.<find>(args)` rather than `Repo.find(<Criterion>)` — or the
+       *  method a natural-key `Repo.findBy(…)` source is emitted as. */
       findMethod?: string;
+      /** A natural-key source's tuple + `ignoring` stance (see `repo-let`). */
+      key?: KeyLookupIR;
       thenBody: WorkflowStmtIR[];
       elseBody?: WorkflowStmtIR[];
       /** Saves for aggregates created/mutated inside `thenBody` (the bound
@@ -3883,6 +3904,8 @@ export type ExprIR =
          *  workflow `synthCriterion` names).  Absent for a retrieval run and a
          *  read called by name. */
         synthCriterion?: { name: string };
+        /** A natural-key read's tuple + `ignoring` stance (see `repo-let`). */
+        key?: KeyLookupIR;
       };
       /** Populated when `callKind === "store-action"` (Stage 5) — the resolved
        *  store + action a `<Store>.<action>(…)` call dispatches to.  Structured
@@ -4295,7 +4318,7 @@ export function workflowCanAnswerNotFound(
    *  phase-⑦ error (`loom.workflow-unknown-repository{,-method}`), so the
    *  declared set for a model that does not compile is moot either way. */
   const readThrows = (repoName: string, op: RepoOp, method: string): boolean => {
-    if (op === "load") return true;
+    if (op === "load" || op === "load-by-key") return true;
     if (op !== "declared-find") return false;
     const find = repositories
       .find((r) => r.name === repoName)

@@ -1,0 +1,88 @@
+// Natural-key reads (D-REPO-KEY-LOOKUP): `Repo.getBy(<col>: v, …)` and
+// `Repo.findBy(…)` over the aggregate's declared `unique (…)` tuples.
+//
+// Every read shape a body can make is here, on all five backends:
+//   - `getBy` bound by a `let` in a workflow, a commandHandler and a
+//     queryHandler (a miss answers 404);
+//   - `findBy` as an `if let` source (`T?`), in a workflow and a handler;
+//   - a composite tuple `(region, name)` called with its arguments out of
+//     declared order (both spellings reach ONE method, `findByRegionAndName`);
+//   - `ignoring *` widening a read past the `softDeletable` filter (its own
+//     method);
+//   - a `domainService` reading op (`findBy(…) != null`).
+// Compiled by each backend's `LOOM_*_BUILD` gate.
+system KeyShop {
+  subdomain Sales {
+    context Catalog {
+      aggregate Product with crudish, softDeletable {
+        sku: string
+        name: string
+        region: string
+        price: int
+        archived: bool
+        unique (sku)
+        unique (region, name)
+        operation reprice(to: int) { price := to }
+        operation archive() { archived := true }
+      }
+      repository Products for Product { }
+
+      domainService ProductQueries {
+        operation skuTaken(sku: string): bool {
+          return Products.findBy(sku: sku) != null
+        }
+      }
+
+      workflow repriceBySku {
+        create(sku: string, to: int) {
+          let p = Products.getBy(sku: sku)
+          p.reprice(to)
+        }
+      }
+
+      workflow archiveIfListed {
+        create(region: string, name: string) {
+          if let p = Products.findBy(name: name, region: region) {
+            p.archive()
+          }
+        }
+      }
+
+      queryHandler ProductBySku(sku: string): Product {
+        let p = Products.getBy(sku: sku)
+        return p
+      }
+
+      queryHandler AnyProductBySku(sku: string): Product {
+        let p = Products.getBy(sku: sku) ignoring *
+        return p
+      }
+
+      commandHandler RepriceListing(region: string, name: string, to: int): Product id {
+        let p = Products.getBy(region: region, name: name)
+        p.reprice(to)
+        return p.id
+      }
+
+      commandHandler ArchiveListing(name: string, region: string): int {
+        if let p = Products.findBy(region: region, name: name) {
+          p.archive()
+        }
+        return 0
+      }
+    }
+  }
+  api CatalogApi from Sales {
+    route GET  "/products/by-sku/{sku}"          -> Catalog.ProductBySku
+    route GET  "/products/any-by-sku/{sku}"      -> Catalog.AnyProductBySku
+    route POST "/products/listing/reprice"       -> Catalog.RepriceListing
+    route POST "/products/listing/archive"       -> Catalog.ArchiveListing
+  }
+  storage pg { type: postgres }
+  resource st { for: Catalog, kind: state, use: pg }
+  deployable nodeApi   { platform: node,   contexts: [Catalog], dataSources: [st], serves: CatalogApi, port: 5001 }
+  deployable dotnetApi { platform: dotnet, contexts: [Catalog], dataSources: [st], serves: CatalogApi, port: 5002 }
+  deployable javaApi   { platform: java,   contexts: [Catalog], dataSources: [st], serves: CatalogApi, port: 5003 }
+  deployable pythonApi { platform: python, contexts: [Catalog], dataSources: [st], serves: CatalogApi, port: 5004 }
+  deployable elixirApi { platform: elixir, contexts: [Catalog], dataSources: [st], serves: CatalogApi, port: 5005 }
+}

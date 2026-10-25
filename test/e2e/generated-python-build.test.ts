@@ -33,6 +33,9 @@ const CASES: Array<[fixture: string, project: string, flags?: string]> = [
   ["test/e2e/fixtures/python-build/shell.ddd", "api"],
   // Entity parts + containment + collection ops + money domain logic.
   ["test/e2e/fixtures/python-build/domain.ddd", "api"],
+  // Natural-key reads (D-REPO-KEY-LOOKUP): `get_by_sku` / `find_by_region_and_name`
+  // repository methods, `getBy` raising AggregateNotFoundError on a miss.
+  ["test/e2e/fixtures/elixir-vanilla-build/key-lookup.ddd", "python_api"],
   // Part-in-part nesting (Order → Shipment[] → Label[]): a part's FK targets
   // its DIRECT parent (labels.shipment_id), recursive save + hydrate of the
   // nested level (nested-parts-alignment.md Phase 2).

@@ -16771,6 +16771,14 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
                   "arguments": []
                 },
                 "cardinality": "+"
+              },
+              {
+                "$type": "RuleCall",
+                "rule": {
+                  "$ref": "#/rules@138"
+                },
+                "arguments": [],
+                "cardinality": "?"
               }
             ],
             "cardinality": "?"

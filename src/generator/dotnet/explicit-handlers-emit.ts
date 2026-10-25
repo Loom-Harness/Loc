@@ -101,6 +101,13 @@ function collectRepos(h: Handler): Map<string, string> {
       if (st.kind === "repo-let" || st.kind === "repo-delete") repos.set(st.repoName, st.aggName);
     });
   }
+  // An `if let` source reads through its repository too, and its then-branch
+  // saves through it.
+  for (const s of h.statements) {
+    walkWorkflowStmtsDeep(s, (st) => {
+      if (st.kind === "if-let" && st.repoName) repos.set(st.repoName, st.aggName);
+    });
+  }
   for (const save of h.savesAtExit) repos.set(save.repoName, save.aggName);
   return repos;
 }

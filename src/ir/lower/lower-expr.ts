@@ -409,6 +409,7 @@ function lowerPostfixChain(chain: PostfixChain, env: Env): ExprIR {
           op: read.op,
           ...(retrievalName ? { retrievalName } : {}),
           ...(read.criterionName ? { synthCriterion: { name: read.criterionName } } : {}),
+          ...(read.key ? { key: read.key } : {}),
         },
       };
       return callIR;
