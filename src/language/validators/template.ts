@@ -26,9 +26,9 @@ import {
   type Model,
 } from "../generated/ast.js";
 import {
-  type DddType,
   envForNode,
   isImplicitlyStringifiable,
+  type Ty,
   typeOf,
   typeToString,
 } from "../type-system.js";
@@ -79,7 +79,7 @@ function domainCodeHost(node: AstNode): "derived" | "function" | "operation" | u
   return host;
 }
 
-function isNumericType(t: DddType): boolean {
+function isNumericType(t: Ty): boolean {
   return (
     t.kind === "primitive" &&
     (t.name === "int" || t.name === "long" || t.name === "decimal" || t.name === "money")
@@ -106,7 +106,7 @@ export function checkTemplateHoles(model: Model, accept: ValidationAcceptor): vo
           );
         }
       }
-      const t: DddType = typeOf(hole.value, env);
+      const t: Ty = typeOf(hole.value, env);
       // `unknown` is already reported upstream (unresolved ref / bad expr) —
       // fail open so we don't double-report.
       if (t.kind === "unknown") continue;

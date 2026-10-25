@@ -1,8 +1,8 @@
 import type { AstNode } from "langium";
 import { AstUtils } from "langium";
-import type { PrimitiveName } from "../ir/types/loom-ir.js";
+import type { PrimitiveName, SensitivityTags } from "../ir/types/loom-ir.js";
 import { COLLECTION_OP_SIGNATURES, isCollectionOp } from "../util/collection-ops.js";
-import { intrinsicsForReceiver, isIntrinsicName } from "../util/intrinsics.js";
+import { intrinsicsForReceiver } from "../util/intrinsics.js";
 import { PRINCIPAL_IS_SYSTEM, PRINCIPAL_ORG_PATH, PRINCIPAL_ROOT_ORG } from "../util/principal.js";
 import { durationUnitOf } from "../util/temporal.js";
 import {
@@ -15,7 +15,6 @@ import type {
   BoundedContext,
   Criterion,
   EntityPart,
-  EnumDecl,
   EventDecl,
   Expression,
   FunctionDecl,
@@ -28,176 +27,74 @@ import type {
   Property,
   Repository,
   TypeRef,
-  UserBlock,
   ValueObject,
 } from "./generated/ast.js";
 import {
   isAggregate,
-  isAwaitExpr,
-  isBinaryChain,
-  isBoolLit,
   isBoundedContext,
-  isBuilderCall,
-  isCallSuffix,
   isContainment,
   isCriterion,
-  isDecLit,
   isDerivedProp,
   isEntityPart,
   isFindDecl,
   isFunctionDecl,
-  isIdRef,
-  isIntLit,
-  isLambda,
-  isListLit,
-  isMatchExpr,
   isMemberSuffix,
   isModel,
   isNameRef,
-  isNowExpr,
-  isNullLit,
-  isObjectLit,
   isOperation,
-  isParameter,
-  isParenExpr,
   isPolicyDecl,
-  isPostfixChain,
-  isPrimitiveConversion,
   isProperty,
   isRetrieval,
-  isStringLit,
+  isRetrievalLiteral,
   isSystem,
-  isTemplateStr,
-  isTernaryExpr,
-  isThisRef,
-  isUnaryExpr,
   isValueObject,
 } from "./generated/ast.js";
 import { stdFunction } from "./stdlib.js";
-import { toDddType } from "./typing/adapt.js";
 import { PRIMITIVE_FIELDS } from "./typing/primitive-fields.js";
+import { typeToString } from "./typing/relations.js";
 import { typingFor } from "./typing/shared.js";
-import { PAGED_META } from "./typing/ty.js";
+import { PAGED_META, type Ty, withTags } from "./typing/ty.js";
 
 // ---------------------------------------------------------------------------
 // Type representation
+//
+// A type here is the single typing pass's `Ty` (`typing/ty.ts`), and the
+// relations the validators judge with — equality, assignability,
+// comparability, the ternary join, the diagnostic printer — are the pass's
+// (`typing/relations.ts`). This module adds the AST-facing lookups the
+// validators and the LSP share: environments, member walks, signatures.
 // ---------------------------------------------------------------------------
 
-/** Information-flow sensitivity labels carried by a value's type.  An
- * empty / absent tag set means "clean".  Tags are opaque identifiers
- * declared at field sites via `sensitive(<tag>, ...)`; the type system
- * propagates them through expression composition (concat, ternary,
- * call returns) so a value can't be laundered clean by reshaping the
- * expression.  See `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/sensitivity-and-compliance.md`. */
-export type SensitivityTags = readonly string[];
+export {
+  comparable,
+  isAssignable,
+  sensitivityNarrows,
+  tagsSubset,
+  ternaryJoin,
+  typesEqual,
+  typeToString,
+} from "./typing/relations.js";
+export { mergeTags, withTags } from "./typing/ty.js";
+export type { PrimitiveName, SensitivityTags, Ty };
 
-export type DddType =
-  | { kind: "primitive"; name: PrimitiveName; sensitivity?: SensitivityTags }
-  | { kind: "id"; target: Aggregate | EntityPart; sensitivity?: SensitivityTags }
-  | { kind: "enum"; ref: EnumDecl; sensitivity?: SensitivityTags }
-  | { kind: "valueobject"; ref: ValueObject; sensitivity?: SensitivityTags }
-  | { kind: "aggregate"; ref: Aggregate; sensitivity?: SensitivityTags }
-  | { kind: "entity"; ref: EntityPart; sensitivity?: SensitivityTags }
-  /** A transport record — an `event` (EventDecl) or a `payload`
-   *  (`command`/`query`/`response`/`error`).  Carried by a workflow command
-   *  parameter (`create(e: PaymentReceived) by …`, `handle h(c: SettleOrder)`)
-   *  and by `on`/`apply` event bindings.  A flat record of `fields` (no `id`,
-   *  containment, or derived members); member access resolves through
-   *  `stepInto`'s payload arm so field-level type checks (comparison /
-   *  arithmetic / assignment) apply instead of cascading to `unknown`. */
-  | { kind: "payload"; ref: EventDecl | PayloadDecl; sensitivity?: SensitivityTags }
-  /** The authentication principal — the `currentUser` magic identifier backed
-   *  by the system's `user { … }` claim block.  A flat record of `UserField`s
-   *  (plus the derived `orgPath` / `rootOrg` members); member access resolves
-   *  through `lookupUserMember` so a claim-field's real type (e.g.
-   *  `permissions: string[]`) flows into downstream checks — a bare gate like
-   *  `requires currentUser.permissions.contains(permissions.x)` types as
-   *  `bool` instead of cascading to `unknown`.  Fails open on an unknown member
-   *  (string), mirroring the IR layer (`lower-expr.ts`), so it never introduces
-   *  a new error on an already-valid claim reference. */
-  | { kind: "userclaim"; ref: UserBlock; sensitivity?: SensitivityTags }
-  /** `pagedMeta`: an auto-paged read's row array (see the typing pass's `Ty`). */
-  | { kind: "array"; element: DddType; pagedMeta?: true; sensitivity?: SensitivityTags }
-  | { kind: "optional"; inner: DddType; sensitivity?: SensitivityTags }
-  /** Element-shaped param marker — mirrors the `TypeIR.slot` variant
-   *  produced by lowering a `SlotType` AST node.  Only valid on a
-   *  `component`'s parameter list (the validator
-   *  `checkSlotTypePosition` rejects misuse).  Conceptually equivalent
-   *  to `React.ReactNode`; arithmetic / comparison / member access on
-   *  a slot ref is an error and the consumer-side validators flag it.
-   *  Compatibility against `any` succeeds (opaque pass-through). */
-  | { kind: "slot"; sensitivity?: SensitivityTags }
-  /** Function-valued param marker — `slot`'s behavioural sibling
-   *  (extern-component-escape-hatch.md, Tier 2).  Only valid on a
-   *  `component`'s parameter list (`checkActionTypePosition` rejects
-   *  misuse).  `arg` is the callback's declared argument type
-   *  (undefined for a bare zero-arg `action`); the caller-side value
-   *  is a lambda whose param types flow forward from `arg`. */
-  | { kind: "action"; arg?: DddType; sensitivity?: SensitivityTags }
-  | { kind: "any"; sensitivity?: SensitivityTags }
-  | { kind: "never"; sensitivity?: SensitivityTags }
-  | { kind: "unknown"; sensitivity?: SensitivityTags };
-
-// `PrimitiveName` is the canonical primitive-type set sourced from
-// `src/ir/types/loom-ir.ts` (the IR layer downstream consumes the same
-// union the type-system layer assigns names against — kept in one
-// place so a new primitive shows up in both without N parallel
-// updates).  See `experience_gathered.md` → "Adding a new primitive".
-export type { PrimitiveName };
-
+/** Constructors for the types validators build by hand. A hand-built
+ *  `unknown` is a validator standing down, not a typing-pass gap. */
 export const T = {
-  prim: (name: PrimitiveName): DddType => ({ kind: "primitive", name }),
-  array: (e: DddType): DddType => ({ kind: "array", element: e }),
-  opt: (i: DddType): DddType => ({ kind: "optional", inner: i }),
-  slot: { kind: "slot" } as DddType,
-  any: { kind: "any" } as DddType,
-  never: { kind: "never" } as DddType,
-  unknown: { kind: "unknown" } as DddType,
+  prim: (name: PrimitiveName): Ty => ({ kind: "primitive", name }),
+  array: (e: Ty): Ty => ({ kind: "array", element: e }),
+  opt: (i: Ty): Ty => ({ kind: "optional", inner: i }),
+  slot: { kind: "slot" } as Ty,
+  any: { kind: "any" } as Ty,
+  never: { kind: "never" } as Ty,
+  unknown: { kind: "unknown", cause: "no-rule" } as Ty,
+  /** The record type of an aggregate or entity part. */
+  record: (ref: Aggregate | EntityPart): Ty => ({
+    kind: "record",
+    shape: isAggregate(ref) ? { of: "aggregate", ref } : { of: "part", ref },
+  }),
+  /** `X id` for an aggregate or entity part. */
+  id: (target: Aggregate | EntityPart): Ty => ({ kind: "id", target, name: target.name }),
 };
-
-// ---------------------------------------------------------------------------
-// Sensitivity helpers — union, subset, attach.  Tag sets are stored as
-// sorted, deduplicated readonly arrays so equality is cheap and the IR
-// (which mirrors `SensitivityTags`) stays JSON-serializable.
-// ---------------------------------------------------------------------------
-
-/** Merge any number of tag sets into a single canonical (sorted, unique)
- * tag set.  Returns undefined when every input is empty so the "clean"
- * case stays represented as the absent field rather than an empty array
- * — keeps existing equality / JSON output unchanged for non-sensitive types. */
-export function mergeTags(
-  ...sets: ReadonlyArray<SensitivityTags | undefined>
-): SensitivityTags | undefined {
-  const seen = new Set<string>();
-  for (const s of sets) {
-    if (!s) continue;
-    for (const t of s) seen.add(t);
-  }
-  if (seen.size === 0) return undefined;
-  return Object.freeze([...seen].sort()) as SensitivityTags;
-}
-
-/** True iff every tag in `sub` is present in `sup` (treating undefined /
- * empty as the empty set).  The narrowing direction we forbid in
- * `isAssignable`: a value with tags can't flow into a slot with fewer
- * tags. */
-export function tagsSubset(
-  sub: SensitivityTags | undefined,
-  sup: SensitivityTags | undefined,
-): boolean {
-  if (!sub || sub.length === 0) return true;
-  if (!sup || sup.length === 0) return false;
-  for (const t of sub) if (!sup.includes(t)) return false;
-  return true;
-}
-
-/** Attach (union) tags to a type.  Returns the input unchanged when the
- * tag set is empty — keeps the common "clean" path allocation-free. */
-export function withTags(t: DddType, tags: SensitivityTags | undefined): DddType {
-  if (!tags || tags.length === 0) return t;
-  const merged = mergeTags(t.sensitivity, tags);
-  return { ...t, sensitivity: merged };
-}
 
 /** Pull the tags declared at a Property's declaration site (if any). */
 export function propertySensitivity(p: Property | undefined): SensitivityTags | undefined {
@@ -206,230 +103,16 @@ export function propertySensitivity(p: Property | undefined): SensitivityTags | 
   return Object.freeze([...new Set(tags)].sort()) as SensitivityTags;
 }
 
-export function typeToString(t: DddType): string {
-  const base = (() => {
-    switch (t.kind) {
-      case "primitive":
-        return t.name;
-      case "id":
-        return `${t.target.name} id`;
-      case "enum":
-        return t.ref.name;
-      case "valueobject":
-        return t.ref.name;
-      case "aggregate":
-        return t.ref.name;
-      case "entity":
-        return t.ref.name;
-      case "payload":
-        return t.ref.name;
-      case "userclaim":
-        return "currentUser";
-      case "array":
-        return `${typeToString(t.element)}[]`;
-      case "optional":
-        return `${typeToString(t.inner)}?`;
-      case "slot":
-        return "slot";
-      case "action":
-        return t.arg ? `action(${typeToString(t.arg)})` : "action";
-      case "any":
-        return "any";
-      case "never":
-        return "never";
-      case "unknown":
-        return "unknown";
-    }
-  })();
-  if (t.sensitivity && t.sensitivity.length > 0) {
-    return `${base}!{${t.sensitivity.join(",")}}`;
-  }
-  return base;
-}
-
-export function typesEqual(a: DddType, b: DddType): boolean {
-  if (a.kind === "any" || b.kind === "any") return true;
-  if (a.kind !== b.kind) return false;
-  // Structural equality only — sensitivity is a *flow* property layered
-  // by `isAssignable`, not part of structural identity.  Keeping this
-  // function tag-agnostic preserves the semantics every existing caller
-  // (validator, LSP) relies on.
-  switch (a.kind) {
-    case "primitive":
-      return a.name === (b as typeof a).name;
-    case "id":
-      return a.target === (b as typeof a).target;
-    case "enum":
-      return a.ref === (b as typeof a).ref;
-    case "valueobject":
-      return a.ref === (b as typeof a).ref;
-    case "aggregate":
-      return a.ref === (b as typeof a).ref;
-    case "entity":
-      return a.ref === (b as typeof a).ref;
-    case "payload":
-      return a.ref === (b as typeof a).ref;
-    case "array":
-      return typesEqual(a.element, (b as typeof a).element);
-    case "optional":
-      return typesEqual(a.inner, (b as typeof a).inner);
-    default:
-      return true;
-  }
-}
-
-// `null` literal is assignable to any optional type; numeric widening
-// (int → long, int → decimal) is permitted.  Sensitivity narrowing
-// (`string!{pii}` → `string!{}`) is allowed structurally but flagged by
-// `sensitivityNarrows`; the validator emits a warning at the call site
-// so an implicit conversion that drops tags is visible without
-// breaking the build.
-export function isAssignable(value: DddType, target: DddType): boolean {
-  if (typesEqual(value, target)) return true;
-  if (value.kind === "any" || target.kind === "any") return true;
-  if (target.kind === "optional") {
-    // `never` (the `null` literal) and any bare `T` that fits the inner
-    // type wrap into the optional.  An optional VALUE only fits when its
-    // OWN inner type is assignable to the target's inner — this is what
-    // keeps `int? := string?` an error while still admitting numeric
-    // widening through the optional (`int? → long?` composes with the
-    // primitive-widening arm below via the recursive inner check).  A
-    // `never`-typed inner is the bottom type (the `null` literal types as
-    // `never?` — see the `isNullLit` arm of `typeOf`), so `never? → U?`
-    // stays assignable regardless of `U`.
-    return (
-      value.kind === "never" ||
-      isAssignable(value, target.inner) ||
-      (value.kind === "optional" &&
-        (value.inner.kind === "never" || isAssignable(value.inner, target.inner)))
-    );
-  }
-  // The empty list literal `[]` (`never[]`, a bottom element) fits any list.
-  if (value.kind === "array" && target.kind === "array" && value.element.kind === "never")
-    return true;
-  if (value.kind === "primitive" && target.kind === "primitive") {
-    if (value.name === "int" && (target.name === "long" || target.name === "decimal")) return true;
-    if (value.name === "long" && target.name === "decimal") return true;
-    // guid ↔ string bridge — see `guidStringBridge` (tenancy stamps a `guid`
-    // claim into a `string tenantId` column and back).
-    if (guidStringBridge(value.name, target.name)) return true;
-  }
-  return false;
-}
-
-/**
- * True iff `a` and `b` are pairwise comparable with the relational /
- * equality operators (`== != < <= > >=`).  Comparable pairs:
- *
- *   - same primitive (`string == string`, `bool != bool`)
- *   - both numeric in the `int / long / decimal` widening chain
- *     (`int < decimal`) — money is intentionally NOT mixed in here;
- *     it's a closed type, only comparable with money
- *   - both money
- *   - same enum (different enums have no shared values; rejected)
- *   - same `X id` target (different aggregate ids reject)
- *   - same value object (different VOs reject)
- *   - `T?` compared with `T` (optional unwrap), `null` against any
- *     `T?` (null literal narrows to `never`-typed optional)
- *
- * Mixing across these categories yields meaningless comparisons:
- * `string == int` is always false in JS / always-error in C# /
- * runtime-crash in Elixir; the validator should reject up front
- * rather than waiting for backends to surface it inconsistently.
- *
- * Used by the binary-operand validator and by future LSP code
- * actions (e.g. "did you mean `<other>.id == X` instead of
- * `<other> == X`?").
- */
-export function comparable(a: DddType, b: DddType): boolean {
-  if (a.kind === "any" || b.kind === "any") return true;
-  if (a.kind === "never" || b.kind === "never") return true; // null literal
-  if (typesEqual(a, b)) return true;
-  if (a.kind === "primitive" && b.kind === "primitive") {
-    const numeric = (n: PrimitiveName) => n === "int" || n === "long" || n === "decimal";
-    if (numeric(a.name) && numeric(b.name)) return true;
-    if (guidStringBridge(a.name, b.name)) return true;
-  }
-  if (a.kind === "optional") return comparable(a.inner, b);
-  if (b.kind === "optional") return comparable(a, b.inner);
-  return false;
-}
-
-/** `guid` and `string` are a compatible pair for comparison / assignment.
- *  A guid is a string-shaped scalar (its literals are string literals), and
- *  Loom's own tenancy infrastructure freely bridges the two: the built-in
- *  `tenantOwned` capability stamps a `guid` `currentUser.<claim>` into a
- *  `string tenantId` column and filters `this.tenantId (string) ==
- *  currentUser.<claim> (guid)`, a binding `tenancyClaimBinding` blesses as
- *  "guid-from-string".  Treating the pair as compatible keeps those
- *  Loom-authored expressions valid (they were only ever accepted because
- *  `currentUser` used to type as `unknown`, silently suppressing the check). */
-function guidStringBridge(a: PrimitiveName, b: PrimitiveName): boolean {
-  return (a === "guid" && b === "string") || (a === "string" && b === "guid");
-}
-
-/**
- * Join of a ternary's two branch types (`cond ? a : b`) — the value the
- * whole expression produces.  Uses the existing `isAssignable` lattice
- * (numeric widening `int → long → decimal`, optional-wrapping `T → T?`,
- * `never`/`null` as the bottom type) rather than inventing a new one:
- *
- *   - if one branch is assignable to the other, the target (the more
- *     general side) is the join — `cond ? int : long` ⇒ `long`,
- *     `cond ? T : T?` ⇒ `T?`;
- *   - the `null` literal (`never?` / `never`) joins with any `T` into
- *     `T?` — `cond ? null : order` ⇒ `Order?`;
- *   - otherwise the branches share no supertype (`cond ? int : string`)
- *     and the join is `undefined` — the ternary validator reports it.
- *
- * Sensitivity is NOT merged here (a structural join); callers attach the
- * union of both branches' tags with `withTags` so a value chosen from
- * either branch stays as tainted as either was.
- */
-export function ternaryJoin(a: DddType, b: DddType): DddType | undefined {
-  if (a.kind === "unknown" || b.kind === "unknown") return T.unknown;
-  if (isAssignable(a, b)) return b;
-  if (isAssignable(b, a)) return a;
-  // The `null` literal types as `never?` (see the `isNullLit` arm of
-  // `typeOf`); a bare `never` is the same bottom.  Either joins with a
-  // non-optional branch by wrapping it into an optional.
-  const isNullish = (t: DddType): boolean =>
-    t.kind === "never" || (t.kind === "optional" && t.inner.kind === "never");
-  if (isNullish(a)) return b.kind === "optional" ? b : T.opt(b);
-  if (isNullish(b)) return a.kind === "optional" ? a : T.opt(a);
-  return undefined;
-}
-
-/** True iff `value` carries sensitivity tags that `target` does not.
- * The validator uses this to emit a warning at flow boundaries
- * (assignments, emits, derived expressions, function returns) where
- * a sensitive value silently flows into a non-sensitive — or
- * less-sensitive — target.  Implicit conversion is *permitted* at the
- * type level; the warning makes the conversion visible.
- *
- * Returns the dropped tag set when narrowing occurs, undefined when
- * it does not — callers can include the dropped tags in the diagnostic. */
-export function sensitivityNarrows(value: DddType, target: DddType): SensitivityTags | undefined {
-  if (tagsSubset(value.sensitivity, target.sensitivity)) return undefined;
-  const dropped: string[] = [];
-  for (const t of value.sensitivity ?? []) {
-    if (!target.sensitivity?.includes(t)) dropped.push(t);
-  }
-  if (dropped.length === 0) return undefined;
-  return Object.freeze(dropped.sort()) as SensitivityTags;
-}
-
 // ---------------------------------------------------------------------------
-// TypeRef → DddType
+// TypeRef → Ty
 // ---------------------------------------------------------------------------
 
-export function resolveTypeRef(ref: TypeRef | undefined): DddType {
+/** A declared type, as the typing pass resolves it — including the
+ *  macro-built references whose cross-reference never linked, which the pass
+ *  finds by name. */
+export function resolveTypeRef(ref: TypeRef | undefined): Ty {
   if (!ref?.base) return T.unknown;
-  // Type references resolve through the single typing pass (M-T5.47, 3b) —
-  // including the macro-built ones whose cross-reference never linked, which
-  // the pass finds by name.  A union reads as its head variant and a generic
-  // carrier as its argument: the view this layer has always had.
-  return toDddType(typingFor(ref).resolveType(ref), { generic: "arg" });
+  return typingFor(ref).resolveType(ref);
 }
 
 // ---------------------------------------------------------------------------
@@ -442,7 +125,7 @@ export function resolveTypeRef(ref: TypeRef | undefined): DddType {
  * and for symbol resolution in generators.
  */
 export interface Env {
-  resolve(name: string): { type: DddType; origin: AstNode } | undefined;
+  resolve(name: string): { type: Ty; origin: AstNode } | undefined;
   // The aggregate (root) currently in scope, if any — needed to type `id`
   // and lookup nested parts/functions/operations.
   aggregate?: Aggregate;
@@ -469,297 +152,12 @@ function envContext(env: Env): BoundedContext | undefined {
   return start ? AstUtils.getContainerOfType(start, isBoundedContext) : undefined;
 }
 
-// ---------------------------------------------------------------------------
-// Ternary null-narrowing (`x != null ? <x is T> : <x is T?>`).
-//
-// A `T?` is unusable in most positions — `+` wants two `string`s, an intrinsic
-// call wants a non-null receiver — and Loom has no `??`, no `if let` outside a
-// workflow, and no `match` for `T?` (`T option` is a different, tagged thing;
-// see `docs/payloads.md`).  The ternary is the one guard shape the language
-// already spells, and the EMITTED CODE WAS ALREADY CORRECT: the null test sits
-// in the condition, so every backend's `ternary` leaf renders the same bytes
-// whether or not the checker knows the branch is safe.  Only the checker was
-// missing.  Hence this is a TYPE-CHECKER-ONLY change — no grammar, no IR, no
-// emitter — and emitted output is byte-identical.
-//
-// SCOPE, deliberately tight:
-//   • Only a DIRECT null comparison on the ternary's OWN condition:
-//     `<path> != null` / `null != <path>` narrows the THEN branch,
-//     `<path> == null` / `null == <path>` narrows the ELSE branch.
-//   • Only a SIMPLE PATH — a `this` / bare-name head plus plain member
-//     accesses.  `f().x` names no stable storage location, so it never narrows
-//     even when spelled identically twice.
-//   • NO general flow analysis.  `&&` chains, `!`-negated tests, `precondition`
-//     guards, `let`-propagation and early-return guards are all out of scope by
-//     design; whether to go further is a separate decision.
-//
-// SOUNDNESS.  Narrowing is sound only if the value cannot change between the
-// test and the use.  Loom assignments are STATEMENTS and a ternary branch is an
-// EXPRESSION, so no assignment can run inside a branch — verified: an in-branch
-// `(path := null)` is a PARSE error.  That is NOT the whole story, and the
-// tempting conclusion is wrong: a branch CAN call a sibling `operation`, and an
-// operation body assigns freely, so
-//
-//     this.path != null ? this.bump() + this.path : ""
-//
-// with `private operation bump(): string { path := null }` really can null the
-// field between the test and the use — and the toolchain accepts that source
-// today.  (A `function` cannot: it is gated pure by `loom.function-block-
-// impure`.)  So an operation call is the one live mutation vector, and
-// `branchBlocksNarrowing` refuses to narrow any branch carrying a call it
-// cannot prove pure.
-// ---------------------------------------------------------------------------
-
-/** Canonical dotted key for a "simple path" — a `this` / bare-name head
- *  followed only by PLAIN member accesses.  `undefined` for anything else (a
- *  call, an operator expression, a literal): only a path naming a stable
- *  storage location may take part in narrowing, so `<path>` in the condition
- *  and `<path>` in the branch are the same location by construction rather
- *  than by coincidence of spelling. */
-function simplePathKey(e: AstNode | undefined): string | undefined {
-  if (!e) return undefined;
-  if (isParenExpr(e)) return simplePathKey(e.inner);
-  if (isThisRef(e)) return "this";
-  if (isNameRef(e)) return e.name;
-  if (isPostfixChain(e)) {
-    const head = simplePathKey(e.head);
-    if (head === undefined) return undefined;
-    const parts = [head];
-    for (const s of e.suffixes) {
-      if (!isMemberSuffix(s) || s.call) return undefined;
-      parts.push(s.member);
-    }
-    return parts.join(".");
-  }
-  return undefined;
-}
-
-/** `e` with any grouping parens peeled. */
-function unparen(e: AstNode | undefined): AstNode | undefined {
-  let cur = e;
-  while (cur && isParenExpr(cur)) cur = cur.inner;
-  return cur;
-}
-
-/** Does `cond` DIRECTLY compare `key` against the `null` literal with `op`?
- *  A single-op comparison chain only — `a != null && b != null` is a two-op
- *  `&&` chain and deliberately does not narrow. */
-function condTestsNull(cond: AstNode | undefined, key: string, op: "==" | "!="): boolean {
-  const c = unparen(cond);
-  if (!c || !isBinaryChain(c)) return false;
-  if (c.ops.length !== 1 || c.ops[0] !== op) return false;
-  const left = unparen(c.head);
-  const right = unparen(c.rest[0]);
-  if (!left || !right) return false;
-  const lNull = isNullLit(left);
-  const rNull = isNullLit(right);
-  if (lNull === rNull) return false; // `null != null`, or neither side is null
-  return simplePathKey(lNull ? right : left) === key;
-}
-
-/** True when `branch` carries a call this pass cannot prove leaves aggregate
- *  state alone — the mutation vector documented above.  Scalar intrinsics and
- *  collection ops are the whitelist (pure by catalogue); a member call naming a
- *  sibling `operation` is rejected outright, as is any bare / free call, whose
- *  callee this syntactic pass does not resolve. */
-function branchBlocksNarrowing(branch: AstNode): boolean {
-  const opNames = new Set<string>();
-  for (const owner of [
-    AstUtils.getContainerOfType(branch, isAggregate),
-    AstUtils.getContainerOfType(branch, isEntityPart),
-  ]) {
-    if (!owner) continue;
-    for (const m of owner.members) if (isOperation(m)) opNames.add(m.name);
-  }
-  for (const n of [branch, ...AstUtils.streamAllContents(branch)]) {
-    if (isCallSuffix(n)) return true;
-    if (isMemberSuffix(n) && n.call) {
-      if (opNames.has(n.member)) return true;
-      if (!isIntrinsicName(n.member) && !isCollectionOp(n.member) && n.member !== "matches") {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-/** True when `node` sits in a ternary branch whose own condition proves `key`
- *  non-null there.  Walks outward, so nested ternaries compose. */
-function isNarrowedNonNull(node: AstNode, key: string): boolean {
-  let child: AstNode = node;
-  let parent = child.$container;
-  while (parent) {
-    if (isTernaryExpr(parent)) {
-      const inThen = parent.thenExpr === child;
-      const inElse = parent.elseExpr === child;
-      if (inThen || inElse) {
-        const op = inThen ? "!=" : "==";
-        if (condTestsNull(parent.cond, key, op) && !branchBlocksNarrowing(child)) return true;
-      }
-    }
-    child = parent;
-    parent = child.$container;
-  }
-  return false;
-}
-
-export function typeOf(expr: Expression | undefined, env: Env): DddType {
-  const t = typeOfExpr(expr, env);
-  // Only an OPTIONAL result can narrow, so the ancestry walk never runs for any
-  // other expression — the common path pays one `kind` comparison.  Sensitivity
-  // tags carried by the optional move onto the unwrapped type: dropping them
-  // would let a null guard launder a `sensitive(...)` field clean.
-  if (!expr || t.kind !== "optional") return t;
-  const key = simplePathKey(expr);
-  if (key === undefined) return t;
-  return isNarrowedNonNull(expr, key) ? withTags(t.inner, t.sensitivity) : t;
-}
-
-function typeOfExpr(expr: Expression | undefined, _env: Env): DddType {
-  if (!expr) return T.unknown;
-  // Literals and operators are typed by the single typing pass (M-T5.47,
-  // cutover family 3a) — the same answer lowering reads.
-  if (
-    isStringLit(expr) ||
-    isTemplateStr(expr) ||
-    isIntLit(expr) ||
-    isDecLit(expr) ||
-    isPrimitiveConversion(expr) ||
-    isBoolLit(expr) ||
-    isNullLit(expr) ||
-    isNowExpr(expr) ||
-    isUnaryExpr(expr) ||
-    isBinaryChain(expr) ||
-    isTernaryExpr(expr) ||
-    // Cutover family 3b — names and member access.
-    isThisRef(expr) ||
-    isIdRef(expr) ||
-    isNameRef(expr) ||
-    isPostfixChain(expr) ||
-    // Cutover family 3c — calls, builders and the value-forming expressions.
-    isBuilderCall(expr) ||
-    isParenExpr(expr) ||
-    isListLit(expr) ||
-    isMatchExpr(expr) ||
-    isAwaitExpr(expr) ||
-    isObjectLit(expr) ||
-    // Cutover family 3d — lambdas (typed by the context that binds them).
-    isLambda(expr)
-  ) {
-    const t = typingFor(expr).synthAt(expr);
-    return t ? toDddType(t) : T.unknown;
-  }
-  return T.unknown;
-}
-
-export function arithmeticResult(a: DddType, b: DddType, op: string): DddType {
-  // Sensitivity flows through any arithmetic or string concatenation.
-  // `"Hello " + email` ⇒ string!{pii}; `(price + tax)` inherits whatever
-  // tags either operand carries.
-  const tags = mergeTags(a.sensitivity, b.sensitivity);
-
-  // String concatenation: `+` between a string and an "implicitly
-  // stringifiable" operand (numeric primitive, bool, enum, or `X id`)
-  // produces a string, with the non-string side auto-converted at
-  // the lowering layer (mirrors how every modern `+`-for-concat
-  // language behaves).  Checked before the money/numeric paths so
-  // `"hello" + money(...)` and `"id: " + orderId` succeed instead
-  // of falling into the wrong branch.  The convert-injection lives
-  // in `lower-expr.ts`'s binary handler — same `convert` IR shape
-  // explicit `string(x)` produces, so backends emit identically.
-  if (op === "+") {
-    const aStr = a.kind === "primitive" && a.name === "string";
-    const bStr = b.kind === "primitive" && b.name === "string";
-    if (aStr || bStr) {
-      const other = aStr ? b : a;
-      if (aStr && bStr) return withTags(T.prim("string"), tags);
-      if (isImplicitlyStringifiable(other)) return withTags(T.prim("string"), tags);
-      // Fall through — `"hello" + customer` (a VO) hits unknown,
-      // surfaced by the validator with a "no canonical string form"
-      // diagnostic.  Same for datetime / guid until each gets its
-      // own explicit form (datetime needs format choices, guid is
-      // rare).
-    }
-  }
-
-  // money is a closed type with restricted arithmetic.  Checked before
-  // the general numeric-widening path so a stray decimal in a money
-  // expression is rejected instead of silently widening through
-  // `int → long → decimal`.  Rules:
-  //   money ± money              → money
-  //   money × {int|long|decimal} → money   (also commutative)
-  //   money ÷ {int|long|decimal} → money
-  //   anything else involving money → unknown (rejected)
-  const aIsMoney = a.kind === "primitive" && a.name === "money";
-  const bIsMoney = b.kind === "primitive" && b.name === "money";
-  if (aIsMoney || bIsMoney) {
-    return withTags(moneyArithmetic(a, b, op, aIsMoney, bIsMoney), tags);
-  }
-
-  // duration / datetime form a closed temporal algebra (A5 temporal) —
-  // checked before the numeric-widening path (like money) so a stray
-  // operand is rejected instead of silently widening.  Rules in
-  // `temporalArithmetic` below.
-  const isTemporal = (t: DddType): boolean =>
-    t.kind === "primitive" && (t.name === "duration" || t.name === "datetime");
-  if (isTemporal(a) || isTemporal(b)) {
-    return withTags(temporalArithmetic(a, b, op), tags);
-  }
-
-  if (a.kind === "primitive" && b.kind === "primitive") {
-    const order = ["int", "long", "decimal"] as const;
-    const ai = (order as readonly string[]).indexOf(a.name);
-    const bi = (order as readonly string[]).indexOf(b.name);
-    if (ai >= 0 && bi >= 0) {
-      const widened = order[Math.max(ai, bi)]!;
-      // Division always yields a fractional result: `int / int` (and
-      // `long / long`, `int / long`) widens to `decimal`, so `5 / 2` is `2.5`
-      // on every backend rather than truncating differently per host.  An
-      // author who wants truncating integer division writes `a.divTrunc(b)`.
-      // `+ - * %` stay int-preserving; money/decimal handled above.
-      if (op === "/" && (widened === "int" || widened === "long")) {
-        return withTags(T.prim("decimal"), tags);
-      }
-      return withTags(T.prim(widened), tags);
-    }
-  }
-  return withTags(T.unknown, tags);
-}
-
-/**
- * The closed temporal arithmetic rules (A5 temporal, https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md)
- * — the duration/datetime twin of `moneyArithmetic`.  At least one operand
- * is duration- or datetime-typed when this runs.  Rules:
- *
- *   datetime + duration → datetime      duration + datetime → datetime
- *   datetime - duration → datetime      datetime - datetime → duration
- *   duration ± duration → duration
- *   duration × int → duration           int × duration → duration
- *
- * Everything else involving a duration/datetime operand under `+ - * / %`
- * is rejected (unknown) — including `duration ÷ anything`, `datetime ×`,
- * and mixing with non-int numerics (a fractional day is written as
- * `hours(n)`, not `days(0.5)`).
- */
-function temporalArithmetic(a: DddType, b: DddType, op: string): DddType {
-  const an = a.kind === "primitive" ? a.name : undefined;
-  const bn = b.kind === "primitive" ? b.name : undefined;
-  if (an === "datetime" && bn === "duration") {
-    return op === "+" || op === "-" ? T.prim("datetime") : T.unknown;
-  }
-  if (an === "duration" && bn === "datetime") {
-    return op === "+" ? T.prim("datetime") : T.unknown;
-  }
-  if (an === "datetime" && bn === "datetime") {
-    return op === "-" ? T.prim("duration") : T.unknown;
-  }
-  if (an === "duration" && bn === "duration") {
-    return op === "+" || op === "-" ? T.prim("duration") : T.unknown;
-  }
-  if (op === "*" && ((an === "duration" && bn === "int") || (an === "int" && bn === "duration"))) {
-    return T.prim("duration");
-  }
-  return T.unknown;
+/** An expression's type, as the single typing pass synthesized it (null
+ *  narrowing included). `unknown` for an expression the pass never reached. */
+export function typeOf(expr: Expression | undefined, _env: Env): Ty {
+  // A `retrieval { … }` literal is a query, not a value; only `run` reads it.
+  if (!expr || isRetrievalLiteral(expr)) return T.unknown;
+  return typingFor(expr).synthAt(expr) ?? T.unknown;
 }
 
 /**
@@ -777,7 +175,7 @@ function temporalArithmetic(a: DddType, b: DddType, op: string): DddType {
  * explicit `string(x)` once admitted).  Same set the explicit
  * `string(x)` conversion vocabulary admits.
  */
-export function isImplicitlyStringifiable(t: DddType): boolean {
+export function isImplicitlyStringifiable(t: Ty): boolean {
   if (t.kind === "primitive") {
     return (
       t.name === "int" ||
@@ -789,7 +187,7 @@ export function isImplicitlyStringifiable(t: DddType): boolean {
   }
   if (t.kind === "enum") return true;
   if (t.kind === "id") return true;
-  if (t.kind === "aggregate") return aggregateHasDisplay(t.ref);
+  if (t.kind === "record" && t.shape.of === "aggregate") return aggregateHasDisplay(t.shape.ref);
   return false;
 }
 
@@ -798,30 +196,6 @@ export function isImplicitlyStringifiable(t: DddType): boolean {
  * concrete expression; absence makes both compile errors. */
 function aggregateHasDisplay(agg: Aggregate): boolean {
   return agg.members.some((m) => isDerivedProp(m) && m.name === "display");
-}
-
-function moneyArithmetic(
-  a: DddType,
-  b: DddType,
-  op: string,
-  aIsMoney: boolean,
-  bIsMoney: boolean,
-): DddType {
-  if (aIsMoney && bIsMoney) {
-    // money ± money = money; money × money / money ÷ money rejected.
-    return op === "+" || op === "-" ? T.prim("money") : T.unknown;
-  }
-  // Exactly one operand is money.  The other must be a numeric scalar
-  // (int / long / decimal) for scaling; anything else is rejected.
-  const other = aIsMoney ? b : a;
-  if (other.kind !== "primitive") return T.unknown;
-  const isScalar = other.name === "int" || other.name === "long" || other.name === "decimal";
-  if (!isScalar) return T.unknown;
-  // money × scalar (commutative) = money;
-  // money ÷ scalar = money (but scalar ÷ money is rejected).
-  if (op === "*") return T.prim("money");
-  if (op === "/" && aIsMoney) return T.prim("money");
-  return T.unknown;
 }
 
 /** The policy function a free call `name(args)` names when that call resolves
@@ -929,10 +303,10 @@ export function isDurationBuiltinCall(name: string, env: Env): boolean {
 // expression) was a third such walker; since M-T5.47 it is the single typing
 // pass's, read through `suffixType`.  They were written as `if (t.kind === …)`
 // chains falling through to a silent `unknown` / `undefined` — the shape
-// M-T5.16 (a) names: **a new `DddType` kind resolves on one walker, silently
+// M-T5.16 (a) names: **a new type kind resolves on one walker, silently
 // misses the other, and nothing fails.**
 //
-// Each walker is a `switch (t.kind)` covering EVERY member of the `DddType`
+// Each walker is a `switch (t.kind)` covering EVERY member of the `Ty`
 // union with a `const _exhaustive: never` default (the `walk.ts` idiom), so
 // adding a kind fails `tsc` at both sites at once, and a kind that genuinely
 // has no members carries an explicit arm saying so.
@@ -941,7 +315,7 @@ export function isDurationBuiltinCall(name: string, env: Env): boolean {
 // below, asserted by `test/language/type-system/walker-exhaustiveness.test.ts`.
 // ---------------------------------------------------------------------------
 
-/** Which `DddType` kinds each dotted-path walker actually resolves a member ON
+/** Which `Ty` kinds each dotted-path walker actually resolves a member ON
  *  (as opposed to answering `unknown` / `undefined`), stated as data so that
  *  widening one of them is a visible edit here rather than an invisible one at
  *  the site. */
@@ -949,18 +323,38 @@ export const MEMBER_RESOLVING_KINDS = {
   /** Dotted-path step (`a.b.c` in an lvalue / projection source).  NARROWER
    *  than the postfix walk (the typing pass's) on purpose: a dotted path is a record walk, so
    *  collection ops (`array`), scalar intrinsics (`primitive`), `X id`
-   *  dereference and the principal (`userclaim`) are not reachable through it
+   *  dereference and the principal record are not reachable through it
    *  today.  Widening it is a language change, not a bug fix. */
-  stepInto: ["entity", "aggregate", "valueobject", "payload"],
+  stepInto: ["record", "valueobject"],
   /** AST-node twin of `stepInto`, for go-to-definition. Same kinds. */
-  stepIntoNode: ["entity", "aggregate", "valueobject", "payload"],
-} as const satisfies Record<string, ReadonlyArray<DddType["kind"]>>;
+  stepIntoNode: ["record", "valueobject"],
+} as const satisfies Record<string, ReadonlyArray<Ty["kind"]>>;
+
+/** The record shapes a dotted path walks into: the declared records. A
+ *  workflow / projection state, the principal, a resource handle and a store
+ *  have no dotted-path surface. */
+type DeclaredRecord =
+  | { of: "aggregate"; ref: Aggregate }
+  | { of: "part"; ref: EntityPart }
+  | { of: "event"; ref: EventDecl }
+  | { of: "payload"; ref: PayloadDecl };
+
+function declaredRecord(t: Ty & { kind: "record" }): DeclaredRecord | undefined {
+  switch (t.shape.of) {
+    case "aggregate":
+    case "part":
+    case "event":
+    case "payload":
+      return t.shape;
+    default:
+      return undefined;
+  }
+}
 
 /** The receiver type AFTER `suffix` — what the single typing pass recorded
  *  for it (M-T5.47): the one member-access walk validators and the LSP read. */
-export function suffixType(suffix: PostfixSuffix): DddType {
-  const t = typingFor(suffix).synthAt(suffix);
-  return t ? toDddType(t) : T.unknown;
+export function suffixType(suffix: PostfixSuffix): Ty {
+  return typingFor(suffix).synthAt(suffix) ?? T.unknown;
 }
 
 /** For the unknown-user-claim validator: `name` is definitively NOT reachable
@@ -983,13 +377,14 @@ export function suffixType(suffix: PostfixSuffix): DddType {
  *  WITHOUT a `tenancy by` line is already its own diagnostic
  *  (`loom.orgpath-without-tenancy`, `validators/tenancy.ts`), so they are
  *  accepted here unconditionally — never double-reported. */
-export function absentUserClaim(recvType: DddType, name: string): string[] | undefined {
+export function absentUserClaim(recvType: Ty, name: string): string[] | undefined {
   const t = recvType.kind === "optional" ? recvType.inner : recvType;
-  if (t.kind !== "userclaim") return undefined;
+  if (t.kind !== "record" || t.shape.of !== "principal" || !t.shape.ref) return undefined;
   if (name === PRINCIPAL_ORG_PATH || name === PRINCIPAL_ROOT_ORG) return undefined;
   if (name === PRINCIPAL_IS_SYSTEM) return undefined;
-  if (t.ref.fields.some((f) => f.name === name)) return undefined;
-  return t.ref.fields.map((f) => f.name);
+  const user = t.shape.ref;
+  if (user.fields.some((f) => f.name === name)) return undefined;
+  return user.fields.map((f) => f.name);
 }
 
 /** For the unknown-member validator: `name` is definitively NOT reachable on a
@@ -1022,7 +417,7 @@ export function absentUserClaim(recvType: DddType, name: string): string[] | und
  *  own code (`loom.intrinsic-bare`).  One diagnostic per mistake.  The string
  *  regex `matches` is reachable the same way though it is not a catalogue row. */
 export function absentPrimitiveMember(
-  recvType: DddType,
+  recvType: Ty,
   name: string,
 ): { prim: PrimitiveName; known: string[] } | undefined {
   const t = recvType.kind === "optional" ? recvType.inner : recvType;
@@ -1048,7 +443,7 @@ export function absentPrimitiveMember(
  *  type without a call), which is indistinguishable from "absent" and would
  *  flag a legitimate `this.someOperation()`.  `id` is always valid on an
  *  aggregate / entity / id receiver (the implicit identity accessor). */
-export function absentRecordMember(recvType: DddType, name: string): string | undefined {
+export function absentRecordMember(recvType: Ty, name: string): string | undefined {
   // Member access transparently unwraps a single optional level.
   const t = recvType.kind === "optional" ? recvType.inner : recvType;
   switch (t.kind) {
@@ -1074,33 +469,40 @@ export function absentRecordMember(recvType: DddType, name: string): string | un
       return isCollectionOp(name) || name === "length" || (t.pagedMeta && PAGED_META.has(name))
         ? undefined
         : typeToString(t);
-    case "aggregate": {
-      if (name === "id") return undefined;
-      return aggregateChainHasMember(t.ref, name) ? undefined : t.ref.name;
-    }
-    case "entity": {
-      // Entity parts don't participate in `extends` inheritance (aggregate-only).
-      if (name === "id") return undefined;
-      const has = t.ref.members.some((m) => (m as { name?: string }).name === name);
-      return has ? undefined : t.ref.name;
+    case "record": {
+      const r = declaredRecord(t);
+      switch (r?.of) {
+        case "aggregate":
+          if (name === "id") return undefined;
+          return aggregateChainHasMember(r.ref, name) ? undefined : r.ref.name;
+        case "part": {
+          // Entity parts don't participate in `extends` inheritance (aggregate-only).
+          if (name === "id") return undefined;
+          const has = r.ref.members.some((m) => (m as { name?: string }).name === name);
+          return has ? undefined : r.ref.name;
+        }
+        case "event":
+        case "payload":
+          return r.ref.fields.some((f) => f.name === name) ? undefined : r.ref.name;
+        default:
+          return undefined;
+      }
     }
     case "id": {
       if (name === "id") return undefined;
       const tgt = t.target;
+      if (!tgt || !(isAggregate(tgt) || isEntityPart(tgt))) return undefined;
       const has = isAggregate(tgt)
         ? aggregateChainHasMember(tgt, name)
         : tgt.members.some((m) => (m as { name?: string }).name === name);
       return has ? undefined : tgt.name;
     }
     case "valueobject": {
+      if (!t.ref) return undefined;
       const has = t.ref.members.some((m) => (m as { name?: string }).name === name);
       // `equals` is the value-equality intrinsic, not an absent member — its
       // call shape is judged by `checkIntrinsicCalls`.
       if (!has && name === VALUE_OBJECT_EQUALS) return undefined;
-      return has ? undefined : t.ref.name;
-    }
-    case "payload": {
-      const has = t.ref.fields.some((f) => f.name === name);
       return has ? undefined : t.ref.name;
     }
     default:
@@ -1223,7 +625,7 @@ function lookupValueObjectByName(name: string, env: Env): ValueObject | undefine
 // Helpers for collecting parameters / let-bindings into an Env
 // ---------------------------------------------------------------------------
 
-export function paramType(p: Parameter): DddType {
+export function paramType(p: Parameter): Ty {
   return resolveTypeRef(p.type);
 }
 
@@ -1233,12 +635,12 @@ export function paramType(p: Parameter): DddType {
 function typeRefAggregate(t: TypeRef | undefined): Aggregate | undefined {
   if (!t || t.array || t.optional) return undefined;
   const dt = resolveTypeRef(t);
-  return dt.kind === "aggregate" ? dt.ref : undefined;
+  return dt.kind === "record" && dt.shape.of === "aggregate" ? dt.shape.ref : undefined;
 }
 
 export function makeEnv(
   outer: Env | undefined,
-  bindings: Map<string, { type: DddType; origin: AstNode }>,
+  bindings: Map<string, { type: Ty; origin: AstNode }>,
   ctx: {
     aggregate?: Aggregate;
     part?: EntityPart;
@@ -1266,15 +668,15 @@ export function makeEnv(
 // ---------------------------------------------------------------------------
 
 /** Resolve a bare identifier as an aggregate root member (or `id`). */
-export function lookupRootMember(agg: Aggregate, name: string): DddType {
-  if (name === "id") return { kind: "id", target: agg };
+export function lookupRootMember(agg: Aggregate, name: string): Ty {
+  if (name === "id") return T.id(agg);
   for (const m of agg.members) {
     if (isProperty(m) && m.name === name)
       return withTags(resolveTypeRef(m.type), propertySensitivity(m));
     if (isContainment(m) && m.name === name) {
       const part = m.partType?.ref;
       if (!part) return T.unknown;
-      const t: DddType = { kind: "entity", ref: part };
+      const t = T.record(part);
       return m.collection ? T.array(t) : t;
     }
     if (isDerivedProp(m) && m.name === name) return resolveTypeRef(m.type);
@@ -1283,57 +685,66 @@ export function lookupRootMember(agg: Aggregate, name: string): DddType {
 }
 
 /** Walk a single dotted path step on a typed receiver.  Exhaustive over
- *  `DddType["kind"]` — see the note above `typeAfterSuffix`; the kinds it
+ *  `Ty["kind"]` — see the note above `MEMBER_RESOLVING_KINDS`; the kinds it
  *  deliberately does NOT resolve on are `MEMBER_RESOLVING_KINDS.stepInto`'s
  *  complement, and each carries an explicit arm below. */
-export function stepInto(t: DddType, name: string): DddType {
+export function stepInto(t: Ty, name: string): Ty {
   switch (t.kind) {
-    case "entity":
-    case "aggregate": {
-      if (name === "id") return { kind: "id", target: t.ref };
-      for (const m of t.ref.members) {
-        if (isProperty(m) && m.name === name)
-          return withTags(resolveTypeRef(m.type), propertySensitivity(m));
-        if (isContainment(m) && m.name === name) {
-          const part = m.partType?.ref;
-          if (!part) return T.unknown;
-          const inner: DddType = { kind: "entity", ref: part };
-          return m.collection ? T.array(inner) : inner;
+    case "record": {
+      const r = declaredRecord(t);
+      switch (r?.of) {
+        case "aggregate":
+        case "part": {
+          if (name === "id") return T.id(r.ref);
+          for (const m of r.ref.members) {
+            if (isProperty(m) && m.name === name)
+              return withTags(resolveTypeRef(m.type), propertySensitivity(m));
+            if (isContainment(m) && m.name === name) {
+              const part = m.partType?.ref;
+              if (!part) return T.unknown;
+              return m.collection ? T.array(T.record(part)) : T.record(part);
+            }
+            if (isDerivedProp(m) && m.name === name) return resolveTypeRef(m.type);
+          }
+          return T.unknown;
         }
-        if (isDerivedProp(m) && m.name === name) return resolveTypeRef(m.type);
+        case "event":
+        case "payload":
+          // A transport record is a flat list of `Property` fields — no `id`,
+          // containment, or derived members.  Resolving the field type (instead
+          // of cascading to `unknown`) is what lets the binary-operand /
+          // assignment validators check expressions over event/payload fields.
+          for (const f of r.ref.fields) {
+            if (f.name === name) return withTags(resolveTypeRef(f.type), propertySensitivity(f));
+          }
+          return T.unknown;
+        default:
+          return T.unknown;
       }
-      return T.unknown;
     }
     case "valueobject": {
-      for (const m of t.ref.members) {
+      for (const m of t.ref?.members ?? []) {
         if (isProperty(m) && m.name === name)
           return withTags(resolveTypeRef(m.type), propertySensitivity(m));
         if (isDerivedProp(m) && m.name === name) return resolveTypeRef(m.type);
       }
       return T.unknown;
     }
-    case "payload": {
-      // A transport record is a flat list of `Property` fields — no `id`,
-      // containment, or derived members.  Resolving the field type (instead of
-      // cascading to `unknown`) is what lets the binary-operand / assignment
-      // validators check expressions over event/payload param fields.
-      for (const f of t.ref.fields) {
-        if (f.name === name) return withTags(resolveTypeRef(f.type), propertySensitivity(f));
-      }
-      return T.unknown;
-    }
-    // Not reachable through a dotted path today.  `array` / `primitive` /
-    // `userclaim` / `id` DO resolve members in `typeAfterSuffix`; a dotted
-    // path is a record walk, so collection ops, scalar intrinsics, the
-    // principal and `X id` dereference are out of its surface. The remaining
-    // kinds have no member surface anywhere. Widening any of these is a
-    // language change — make it here and in `MEMBER_RESOLVING_KINDS`.
+    // Not reachable through a dotted path today.  `array` / `primitive` / the
+    // principal / `id` DO resolve members in the postfix walk (the typing
+    // pass's); a dotted path is a record walk, so collection ops, scalar
+    // intrinsics, the principal and `X id` dereference are out of its surface.
+    // A union is read through a `match`, never member by member.  The
+    // remaining kinds have no member surface anywhere.  Widening any of these
+    // is a language change — make it here and in `MEMBER_RESOLVING_KINDS`.
     case "array":
     case "primitive":
-    case "userclaim":
     case "id":
     case "enum":
     case "optional":
+    case "union":
+    case "none":
+    case "generic":
     case "slot":
     case "action":
     case "any":
@@ -1415,11 +826,7 @@ export function envForNode(node: AstNode): Env {
     context: AstUtils.getContainerOfType(node, isBoundedContext),
     resolve(name) {
       const b = typingFor(node).bindingAt(node, name);
-      if (!b) return undefined;
-      // A declared type keeps the declaration view of a generic carrier
-      // (`T paged` reads as `T`), exactly as `resolveTypeRef` does.
-      const declared = isParameter(b.origin) || isProperty(b.origin) || isDerivedProp(b.origin);
-      return { type: toDddType(b.ty, declared ? { generic: "arg" } : {}), origin: b.origin };
+      return b ? { type: b.ty, origin: b.origin } : undefined;
     },
   };
 }
@@ -1433,7 +840,7 @@ export function envForNode(node: AstNode): Env {
 export interface EntityMemberInfo {
   name: string;
   kind: "property" | "containment" | "derived" | "function" | "operation";
-  type: DddType;
+  type: Ty;
   node: AstNode;
 }
 
@@ -1454,7 +861,7 @@ export function iterateEntityMembers(
     } else if (isContainment(m)) {
       const partRef = m.partType?.ref;
       if (partRef) {
-        const inner: DddType = { kind: "entity", ref: partRef };
+        const inner = T.record(partRef);
         out.push({
           name: m.name,
           kind: "containment",
@@ -1512,7 +919,7 @@ function entityMemberCompletions(
   return out;
 }
 
-export function membersOfType(t: DddType): MemberCompletion[] {
+export function membersOfType(t: Ty): MemberCompletion[] {
   switch (t.kind) {
     case "array":
       return COLLECTION_OP_SIGNATURES.map((op) => ({
@@ -1520,10 +927,36 @@ export function membersOfType(t: DddType): MemberCompletion[] {
         kind: "method",
         detail: `collection op: ${op.signature}`,
       }));
-    case "aggregate":
-    case "entity":
-      return entityMemberCompletions(t.ref, true);
+    case "record":
+      switch (t.shape.of) {
+        case "aggregate":
+        case "part":
+          return entityMemberCompletions(t.shape.ref, true);
+        case "event":
+        case "payload":
+          return t.shape.ref.fields.map((f) => ({
+            name: f.name,
+            kind: "field",
+            detail: typeToString(resolveTypeRef(f.type)),
+          }));
+        case "principal":
+          return [
+            ...(t.shape.ref?.fields ?? []).map(
+              (f): MemberCompletion => ({
+                name: f.name,
+                kind: "field",
+                detail: typeToString(resolveTypeRef(f.type)),
+              }),
+            ),
+            { name: PRINCIPAL_ORG_PATH, kind: "field", detail: "string" },
+            { name: PRINCIPAL_ROOT_ORG, kind: "field", detail: "string" },
+            { name: PRINCIPAL_IS_SYSTEM, kind: "field", detail: "bool" },
+          ];
+        default:
+          return [];
+      }
     case "valueobject": {
+      if (!t.ref) return [];
       const own = entityMemberCompletions(t.ref, false);
       return isValueObjectEqualsIntrinsic(t.ref.members, VALUE_OBJECT_EQUALS)
         ? [
@@ -1538,7 +971,9 @@ export function membersOfType(t: DddType): MemberCompletion[] {
     }
     case "id":
       // `X id.member` follows the typed reference into X's schema.
-      return entityMemberCompletions(t.target, true);
+      return t.target && (isAggregate(t.target) || isEntityPart(t.target))
+        ? entityMemberCompletions(t.target, true)
+        : [];
     case "optional":
       // Member access transparently unwraps an optional (the validator
       // enforces the null-guard separately).
@@ -1554,27 +989,12 @@ export function membersOfType(t: DddType): MemberCompletion[] {
       );
       return [...fields, ...intrinsics];
     }
-    case "enum":
-      return t.ref.values.map((v) => ({ name: v.name, kind: "enum-value", detail: t.ref.name }));
-    case "payload":
-      return t.ref.fields.map((f) => ({
-        name: f.name,
-        kind: "field",
-        detail: typeToString(resolveTypeRef(f.type)),
-      }));
-    case "userclaim":
-      return [
-        ...t.ref.fields.map(
-          (f): MemberCompletion => ({
-            name: f.name,
-            kind: "field",
-            detail: typeToString(resolveTypeRef(f.type)),
-          }),
-        ),
-        { name: PRINCIPAL_ORG_PATH, kind: "field", detail: "string" },
-        { name: PRINCIPAL_ROOT_ORG, kind: "field", detail: "string" },
-        { name: PRINCIPAL_IS_SYSTEM, kind: "field", detail: "bool" },
-      ];
+    case "enum": {
+      const ref = t.ref;
+      return ref
+        ? ref.values.map((v) => ({ name: v.name, kind: "enum-value", detail: ref.name }))
+        : [];
+    }
     default:
       return [];
   }
@@ -1586,44 +1006,48 @@ export function membersOfType(t: DddType): MemberCompletion[] {
 // access (`order.lines` → the `Containment` declaration).
 // ---------------------------------------------------------------------------
 
-export function stepIntoNode(t: DddType, name: string): AstNode | undefined {
+export function stepIntoNode(t: Ty, name: string): AstNode | undefined {
   switch (t.kind) {
-    case "entity":
-    case "aggregate": {
-      for (const m of t.ref.members) {
-        if (isProperty(m) && m.name === name) return m;
-        if (isContainment(m) && m.name === name) return m;
-        if (isDerivedProp(m) && m.name === name) return m;
-        if (isFunctionDecl(m) && m.name === name) return m;
-        if (isOperation(m) && m.name === name) return m;
+    case "record": {
+      const r = declaredRecord(t);
+      switch (r?.of) {
+        case "aggregate":
+        case "part":
+          for (const m of r.ref.members) {
+            if (isProperty(m) && m.name === name) return m;
+            if (isContainment(m) && m.name === name) return m;
+            if (isDerivedProp(m) && m.name === name) return m;
+            if (isFunctionDecl(m) && m.name === name) return m;
+            if (isOperation(m) && m.name === name) return m;
+          }
+          return undefined;
+        case "event":
+        case "payload":
+          return r.ref.fields.find((f) => f.name === name);
+        default:
+          return undefined;
       }
-      return undefined;
     }
     case "valueobject": {
-      for (const m of t.ref.members) {
+      for (const m of t.ref?.members ?? []) {
         if (isProperty(m) && m.name === name) return m;
         if (isDerivedProp(m) && m.name === name) return m;
         if (isFunctionDecl(m) && m.name === name) return m;
-      }
-      return undefined;
-    }
-    case "payload": {
-      for (const f of t.ref.fields) {
-        if (f.name === name) return f;
       }
       return undefined;
     }
     // No declaration node to jump to: `array` / `primitive` / `id` members are
-    // synthetic (collection ops, scalar intrinsics, the derived `id`),
-    // `userclaim` members live on a `user { … }` block this walker has never
-    // reached, and the rest have no member surface. See the note above
-    // `typeAfterSuffix` and `MEMBER_RESOLVING_KINDS`.
+    // synthetic (collection ops, scalar intrinsics, the derived `id`), a union
+    // is read through a `match`, and the rest have no member surface. See the
+    // note above `MEMBER_RESOLVING_KINDS`.
     case "array":
     case "primitive":
-    case "userclaim":
     case "id":
     case "enum":
     case "optional":
+    case "union":
+    case "none":
+    case "generic":
     case "slot":
     case "action":
     case "any":
@@ -1678,7 +1102,7 @@ export function calleeSignature(
   // receiver's type at the point before this suffix is applied.
   if (isMemberSuffix(s)) {
     if (!s.call) return undefined;
-    let recvType: DddType = typeOf(chain.head, envForNode(chain.head));
+    let recvType: Ty = typeOf(chain.head, envForNode(chain.head));
     for (let i = 0; i < suffixIdx; i++) {
       recvType = suffixType(chain.suffixes[i]!);
     }
