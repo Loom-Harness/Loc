@@ -25,6 +25,7 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import type { EnrichedSystemIR } from "../../types/loom-ir.js";
+import { canonicalDestroy } from "../../util/canonical-lifecycle.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 export function validateCrudishHardDelete(sys: EnrichedSystemIR, diags: LoomDiagnostic[]): void {
@@ -34,7 +35,7 @@ export function validateCrudishHardDelete(sys: EnrichedSystemIR, diags: LoomDiag
         if (!(agg.capabilities?.includes("softDeletable") ?? false)) continue;
         // Only the destroy `crudish` synthesised: a hand-written `destroy {}`
         // is the author's own, explicit choice of a hard delete.
-        const origin = agg.canonicalDestroy?.origin;
+        const origin = canonicalDestroy(agg)?.origin;
         if (origin?.kind !== "macro" || origin.macro !== "crudish") continue;
         diags.push({
           severity: "warning",

@@ -98,9 +98,9 @@ describe("vanilla — workflow body lowering (resource-call)", () => {
   it("threads the resource-adapter hex deps into mix.exs", async () => {
     const files = await load();
     const mix = files.get([...files.keys()].find((k) => k.endsWith("/mix.exs"))!)!;
-    expect(mix).toMatch(/\{:ex_aws_s3, "~> 2\.5"\}/);
-    expect(mix).toMatch(/\{:ex_aws, "~> 2\.5"\}/);
-    expect(mix).toMatch(/\{:hackney, "~> 1\.20"\}/);
+    expect(mix).toMatch(/\{:ex_aws_s3, "2\.5\.9"\}/);
+    expect(mix).toMatch(/\{:ex_aws, "2\.6\.1"\}/);
+    expect(mix).toMatch(/\{:hackney, "1\.25\.0"\}/);
     // No double-quoting regression (the values from `hexDeps` come
     // pre-quoted; the renderer must not add another pair).
     expect(mix).not.toMatch(/""~>/);

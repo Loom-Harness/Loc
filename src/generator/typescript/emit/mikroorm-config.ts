@@ -127,6 +127,6 @@ export const MIKRO_INDEX_IMPORTS: readonly string[] = [
 /** package.json dependency rows (JSON-shaped, like the drizzle adapter). */
 
 export const MIKRO_DEPS: readonly string[] = [
-  `"@mikro-orm/core": "^6.4.0",`,
-  `"@mikro-orm/postgresql": "^6.4.0",`,
+  `"@mikro-orm/core": "6.6.17",`,
+  `"@mikro-orm/postgresql": "6.6.17",`,
 ];

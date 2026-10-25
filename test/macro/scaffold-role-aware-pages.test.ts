@@ -60,7 +60,7 @@ const DOMAIN = `
       find unassigned(): Ticket[] requires currentUser.role == "agent" where status == Open
       find mine(): Ticket[] requires currentUser.customerId != null
         where customer == currentUser.customerId
-      find bySubject(s: string): Ticket[]
+      find bySubject(s: string): Ticket[] where subject == s
     }
   } }
   api A from Sup

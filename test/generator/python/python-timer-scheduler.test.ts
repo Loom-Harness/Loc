@@ -128,8 +128,8 @@ describe("timerSource → Python/FastAPI scheduler", () => {
     // Durable store deps — procrastinate + psycopg (binary wheel bundles libpq
     // so the slim image needs no apt libpq).  Both ship py.typed, so no mypy
     // override is emitted (unlike the old apscheduler driver).
-    expect(pyproject).toContain("procrastinate>=3,<4");
-    expect(pyproject).toContain("psycopg[binary]>=3.2,<4");
+    expect(pyproject).toContain("procrastinate==3.10.0");
+    expect(pyproject).toContain("psycopg[binary]==3.3.6");
     expect(pyproject).not.toContain("apscheduler");
     expect(pyproject).not.toContain("ignore_missing_imports");
   });

@@ -10,6 +10,7 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
 import { CONCURRENCY_CONFLICT_SUFFIX } from "../../../ir/util/openapi-errors.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
@@ -119,7 +120,7 @@ export function renderRepositoryInterface(
       `    ${bclTask} SaveAsync(${agg.name} aggregate, CancellationToken cancellationToken = default);`,
       // Hard delete — only when the aggregate has a canonical `destroy`
       // (declared or via `crudish`); keeps plain repos unchanged.
-      ...(agg.canonicalDestroy
+      ...(canonicalDestroy(agg)
         ? [
             `    ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default);`,
           ]
@@ -602,7 +603,7 @@ export function renderRepositoryImpl(
       // Hard delete — gated on a canonical `destroy`.  `Remove` + Save;
       // containment children and join-table rows drop via the schema's
       // ON DELETE CASCADE FKs (mirrors the Hono Drizzle delete).
-      ...(agg.canonicalDestroy
+      ...(canonicalDestroy(agg)
         ? [
             "",
             `    public async ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
@@ -1087,7 +1088,7 @@ export function renderDocumentRepositoryImpl(
       // `Remove` it; a missing row is a no-op.  Without this, a document-shaped
       // aggregate with `crudish` fails CS0535 — the interface declares
       // `DeleteAsync` but the impl wouldn't provide it.
-      ...(agg.canonicalDestroy
+      ...(canonicalDestroy(agg)
         ? [
             "",
             `    public async ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,

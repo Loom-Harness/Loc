@@ -36,7 +36,7 @@ import { EmptyFileSystem } from "langium";
 import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import { reflection } from "../../src/language/generated/ast.js";
-import { dddSourceOf, trackedDddFiles, UNPARSEABLE_DDD } from "../_helpers/ddd-corpus.js";
+import { dddSourceOf, trackedDddFiles } from "../_helpers/ddd-corpus.js";
 
 const parser = createDddServices(EmptyFileSystem).Ddd.parser.LangiumParser;
 
@@ -84,7 +84,6 @@ function concreteAstTypes(): string[] {
 function censusByFile(): Map<string, Map<string, number>> {
   const out = new Map<string, Map<string, number>>();
   for (const file of trackedDddFiles()) {
-    if (file === UNPARSEABLE_DDD) continue;
     const counts = new Map<string, number>();
     tallyAstTypes(parser.parse(dddSourceOf(file)).value, counts);
     out.set(file, counts);

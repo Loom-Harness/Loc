@@ -49,7 +49,7 @@ system HeexRead {
       }
       repository Items for Item {
         find byState(state: St): Item[] where this.st == state
-        find byName(n: string): Item?
+        find byName(n: string): Item? where this.name == n
       }
       criterion LiveItems of Item = st == Live
     }

@@ -16,6 +16,7 @@ import {
   exprUsesCurrentUser,
   findUsesCurrentUser,
 } from "../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
 import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
@@ -85,7 +86,7 @@ export function buildDocumentRepositoryFile(
   // Lifecycle stamps land on the doc payload at INSERT — see the save()
   // comment below for why only the insert branch stamps.
   const audited = aggregateIsAudited(agg);
-  const emitsDelete = !!agg.canonicalDestroy;
+  const emitsDelete = !!canonicalDestroy(agg);
   // Root rehydrate call — a versioned root takes the authoritative `version`
   // COLUMN (`<rowVar>.version`), not the stale blob copy (see entityFromDocFn).
   const fromDocOf = (rowVar: string): string =>

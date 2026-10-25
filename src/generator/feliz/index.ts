@@ -1939,9 +1939,9 @@ const PACKAGE_JSON = (name: string, usesDataGrid = false, usesI18n = false): str
         dev: "npm run fable && vite",
       },
       dependencies: {
-        react: "^18.2.0",
-        "react-dom": "^18.2.0",
-        ...(usesDataGrid ? { "@tanstack/table-core": "^8.21.3" } : {}),
+        react: "18.3.1",
+        "react-dom": "18.3.1",
+        ...(usesDataGrid ? { "@tanstack/table-core": "8.21.3" } : {}),
         // The ICU half of the generated `I18n` module (M-T1.11) — the same
         // engine, at the same pin, the four JS frontends' stacks carry.
         ...(usesI18n ? { "intl-messageformat": FELIZ_INTL_MESSAGEFORMAT } : {}),
@@ -1952,11 +1952,11 @@ const PACKAGE_JSON = (name: string, usesDataGrid = false, usesI18n = false): str
       // supplies the component layer + themes.  Pinned to Tailwind v3 / daisyUI
       // v4 (the v3 `@tailwind base` directive syntax, matching the HEEx pack).
       devDependencies: {
-        vite: "^5.4.0",
-        tailwindcss: "^3.4.0",
-        daisyui: "^4.12.0",
-        autoprefixer: "^10.4.0",
-        postcss: "^8.4.0",
+        vite: "5.4.21",
+        tailwindcss: "3.4.19",
+        daisyui: "4.12.24",
+        autoprefixer: "10.6.1",
+        postcss: "8.5.31",
       },
     },
     null,

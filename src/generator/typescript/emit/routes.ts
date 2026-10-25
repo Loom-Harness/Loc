@@ -4,6 +4,7 @@ import {
   aggregatesHaveUniqueKeys,
   aggregatesNeedConcurrency,
 } from "../../../ir/util/aggregate-flags.js";
+import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { durableEventTypes, realtimeEventTypes } from "../../../ir/util/channels.js";
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
@@ -186,11 +187,11 @@ export function renderHttpIndex(
     // transactional router signature in routes-builder; the lifecycle gate
     // mirrors `auditCreate` / `auditDestroy` there).
     const auditedCreateAction =
-      a.persistedAs === "eventLog" ? (a.creates?.[0] ?? null) : (a.canonicalCreate ?? null);
+      a.persistedAs === "eventLog" ? (a.creates?.[0] ?? null) : (canonicalCreate(a) ?? null);
     const needsTx =
       a.operations.some((o) => o.visibility === "public" && (o.audited || opHasProvSite(o))) ||
       !!auditedCreateAction?.audited ||
-      !!a.canonicalDestroy?.audited;
+      !!canonicalDestroy(a)?.audited;
     const repoArg = `new ${a.name}Repository(db, events)`;
     const args = needsTx ? `${repoArg}, db, events` : repoArg;
     return `  app.route("${API_BASE_PATH}/${snake(plural(a.name))}", ${lowerFirst(a.name)}Routes(${args}));`;
