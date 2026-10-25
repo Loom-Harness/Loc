@@ -162,7 +162,9 @@ and elixir has no `document` shape at all.  See *Deferred cases* below.
   Emission is per-entity-type; the filter applies to *every* query of that
   aggregate (capability application was resolved earlier, at expansion +
   lowering).  **Under `sharedTable` (TPH) inheritance the entity type is the
-  hierarchy ROOT** — EF accepts a filter nowhere else — so a subtype's filter is
+  hierarchy ROOT** — EF accepts a filter nowhere else.  A filter the root
+  declares is registered there once and reaches every subtype, so a subtype's
+  `ignoring <rootCap>` names the root's filter; a subtype's own filter is
   registered on the root config, guarded by the `kind` discriminator
   (`EF.Property<string>(x, "kind") != "Car" || (…)`) and prefixed
   (`"Car_LiveFilter"`) so two subtypes carrying the same capability keep
@@ -362,6 +364,13 @@ members propagate to every aggregate in the context:
 | `stamp <event> { … }` at context scope | every aggregate in the context |
 | `with <Cap>` / `implements <Cap>` at context scope | the capability is applied to every aggregate in the context |
 | `with <Cap>` / `implements <Cap>` at aggregate scope | the capability is applied to that aggregate |
+| any of the above on an `abstract` base | every concrete that `extends` it, transitively (enrich pass, `src/ir/enrich/inherited-capabilities.ts`) |
+
+A base's capabilities apply to every subtype (D-INHERITED-CAPABILITIES): the
+concrete inherits the base's filters (ancestors' first, then its own), stamps,
+capability tags and `crossTenant` stance, so `ignoring <baseCap>` is valid on a
+subtype read. A subtype repeating a capability its base applies gets that
+filter once. See [`inheritance.md`](inheritance.md#capabilities-and-inheritance--a-bases-capabilities-apply-to-every-subtype).
 
 ## Relationship to macros
 

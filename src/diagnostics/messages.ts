@@ -4319,21 +4319,6 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.tenancy-stance-unmarked": (p: { name: unknown }) =>
     `aggregate '${p.name}' declares no tenancy stance; add ` +
     `\`with tenantOwned\` (tenant data) or \`crossTenant\` (shared data).`,
-  // Same rule, different remedy — the author DID write the marker, on the
-  // abstract base.  The generic message above told them to add something they
-  // had already added, and its other suggestion (`crossTenant`) walks straight
-  // into `loom.tenancy-inherited-stance-conflict`.
-  "loom.tenancy-stance-unmarked#inherited": (p: {
-    name: unknown;
-    base: unknown;
-    marker: unknown;
-  }) =>
-    `aggregate '${p.name}' declares no tenancy stance. Its abstract base ` +
-    `'${p.base}' declares \`${p.marker}\`, but a stance does NOT propagate through ` +
-    `\`extends\`: only the base's FIELDS are inherited, so '${p.name}' has the tenant ` +
-    `column without the stamp that fills it or the filter that scopes reads by it. ` +
-    `Repeat \`${p.marker}\` on '${p.name}' — \`crossTenant\` would contradict the base ` +
-    `and is rejected.`,
   "loom.tenancy-inherited-stance-conflict": (p: {
     name: unknown;
     base: unknown;
@@ -4342,12 +4327,9 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `aggregate '${p.name}' declares \`${p.own}\` but its abstract base '${p.base}' ` +
     `declares \`${p.baseMarker}\` — a subtype cannot take the opposite tenancy stance ` +
-    `from the base it inherits its columns from. The base's capability contributes the ` +
-    `\`tenant_id\` column (NOT NULL) to the row either way, while the subtype's stance ` +
-    `decides whether anything stamps or filters it: the two halves disagree at runtime, ` +
-    `so every write either persists an empty tenant with no isolation or fails the NOT ` +
-    `NULL constraint. Declare \`${p.baseMarker}\` on '${p.name}' too, or move the ` +
-    `capability off the base and onto the subtypes that want it.`,
+    `from its base. A base's stance and capabilities apply to every subtype, so ` +
+    `'${p.name}' would be both tenant data and shared data. Drop \`${p.own}\` from ` +
+    `'${p.name}', or move \`${p.baseMarker}\` off the base and onto the subtypes that want it.`,
   "loom.unique-missing-tenant-scope": (p: { source: unknown; name: unknown; columns: unknown }) =>
     `\`${p.source}\` on tenant-owned aggregate '${p.name}' omits the tenant ` +
     `discriminator — this is a GLOBAL unique across all tenants. Did you mean ` +

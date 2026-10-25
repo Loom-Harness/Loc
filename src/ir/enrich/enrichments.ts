@@ -80,6 +80,7 @@ import {
 import { walkExprDeep, walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "../util/walk.js";
 import { applyDefaultDenyReads } from "./default-deny-reads.js";
 import { applyDemoTenantSeed } from "./demo-tenant.js";
+import { inheritBaseCapabilities } from "./inherited-capabilities.js";
 import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
 
 // ---------------------------------------------------------------------------
@@ -924,7 +925,8 @@ export function enrichContext(
     const base = byName.get(a.extendsAggregate);
     return base ? rootIdValueTypeFor(base, seen) : a.idValueType;
   };
-  const withInheritance = ctx.aggregates.map((a) => {
+  // Filters and capability tags inherit the same way (`inheritBaseCapabilities`).
+  const withInheritance = inheritBaseCapabilities(ctx.aggregates).map((a) => {
     if (!a.extendsAggregate) return a;
     const merged = mergedFieldsFor(a, new Set<string>());
     const idValueType = rootIdValueTypeFor(a, new Set<string>());
