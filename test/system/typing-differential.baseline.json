@@ -4,15 +4,15 @@
     "expressions": 250000
   },
   "classes": {
-    "agree": 214650,
+    "agree": 217507,
     "conflict": 0,
-    "declaration-name": 60042,
+    "declaration-name": 60524,
     "new-differs": 0,
     "new-only": 0,
-    "new=ir": 3377,
+    "new=ir": 3432,
     "new=lang": 6482,
     "nobody-knows": 3445,
-    "not-lowered-agree": 2619,
+    "not-lowered-agree": 2666,
     "not-lowered-differ": 20,
     "unreached": 0
   },

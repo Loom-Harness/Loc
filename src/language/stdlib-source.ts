@@ -36,5 +36,6 @@ function roundTo(n: decimal, places: int): decimal = n.round(places)
 function isOverdue(due: datetime): bool = now() > due
 function isFuture(t: datetime): bool = t > now()
 function isPast(t: datetime): bool = t < now()
+function today(): date = now().toDate()
 `,
 };

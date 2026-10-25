@@ -75,6 +75,7 @@ export const FRONTEND_PROP_PRIMITIVES: ReadonlySet<string> = new Set([
   "decimal",
   "bool",
   "string",
+  "date",
   "datetime",
   "guid",
   "json",

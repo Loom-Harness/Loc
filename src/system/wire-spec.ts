@@ -46,7 +46,7 @@ interface JsonSchemaObject {
 }
 
 type JsonSchemaProperty =
-  | { type: "string"; format?: "date-time" | "uuid" | "decimal" }
+  | { type: "string"; format?: "date" | "date-time" | "uuid" | "decimal" }
   /** A `string` closed to a declared value set — the `enum` type's members, in
    *  declaration order.  JSON Schema's own `enum` keyword, so a consumer that
    *  understands the rest of this document understands this too. */
@@ -277,6 +277,8 @@ export function jsonPropertyForType(
           return { type: "string" };
         case "bool":
           return { type: "boolean" };
+        case "date":
+          return { type: "string", format: "date" };
         case "datetime":
           return { type: "string", format: "date-time" };
         case "guid":
