@@ -23,8 +23,10 @@ import {
 } from "../../../generator/money-scale.js";
 import {
   buildBaseReaderFile,
+  buildBaseRoutesFile,
   buildBaseUnionFile,
   buildTpcBaseReaderFile,
+  routesPolymorphicRead,
 } from "../../../generator/typescript/base-reader-builder.js";
 import { addTsExtensionsForNodeDebug } from "../../../generator/typescript/debug-imports.js";
 import {
@@ -85,6 +87,7 @@ import {
   renderRepositoryPortsFile,
 } from "../../../generator/typescript/repository-port-builder.js";
 import { deriveEventSubscriptions, enrichLoomModel } from "../../../ir/enrich/enrichments.js";
+import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
 import { lowerModel } from "../../../ir/lower/lower.js";
 import {
   type BoundedContextIR,
@@ -1364,12 +1367,14 @@ export function generateTypeScriptForContexts(
     // TPH (aggregate-inheritance.md): each `sharedTable` base owns the shared
     // table but has no per-concrete repo/routes.  Emit its polymorphic read
     // home — the `<Base>` discriminated union + a read-only `<Base>Repository`
-    // (findById / findAll dispatching on `kind`) — so `find all <Base>` and
-    // polymorphic `<Base> id` dereferences resolve to a tagged union.
+    // (one select over the shared table, dispatching on `kind`) — so `find all
+    // <Base>` and polymorphic `<Base> id` dereferences resolve to a tagged
+    // union, and on drizzle the paged `GET /api/<bases>` route that serves it.
     for (const base of ctx.aggregates) {
       if (!isTphBase(base, ctx.aggregates)) continue;
       const concretes = tphConcretesOf(base, ctx.aggregates) as typeof ctx.aggregates;
-      if (concretes.length === 0) continue;
+      const read = polymorphicReadFor(base, ctx.aggregates);
+      if (!read) continue;
       const baseConstruct = `${ctx.name}.${base.name}`;
       place(
         "domain-aggregate",
@@ -1381,21 +1386,32 @@ export function generateTypeScriptForContexts(
       place(
         "drizzle-repository",
         base.name,
-        usingMikro ? renderMikroBaseReader(base, concretes) : buildBaseReaderFile(base, concretes),
+        usingMikro
+          ? renderMikroBaseReader(base, concretes)
+          : buildBaseReaderFile(base, concretes, ctx, read),
         base.origin,
         baseConstruct,
       );
+      if (!usingMikro && routesPolymorphicRead(base, ctx)) {
+        place(
+          "http-routes",
+          base.name,
+          buildBaseRoutesFile(base, read),
+          base.origin,
+          baseConstruct,
+        );
+      }
     }
     // TPC (aggregate-inheritance.md, ownTable): the base owns no table, but is
     // the read home for the polymorphic `find all <Base>`.  Emit the `<Base>`
-    // discriminated union + a read-only `<Base>Repository` that delegates to
-    // the concrete repositories (findAll = union of each concrete's `all()`;
-    // findById tries each).  The concretes are full standalone tables, so this
-    // reuses their loaders rather than hand-rolling a column-aligned unionAll.
+    // discriminated union + a read-only `<Base>Repository` that merges each
+    // concrete repository's own read in the one global order (findById tries
+    // each), and on drizzle the paged `GET /api/<bases>` route.
     for (const base of ctx.aggregates) {
       if (!isTpcBase(base, ctx.aggregates)) continue;
       const concretes = tpcConcretesOf(base, ctx.aggregates) as typeof ctx.aggregates;
-      if (concretes.length === 0) continue;
+      const read = polymorphicReadFor(base, ctx.aggregates);
+      if (!read) continue;
       const baseConstruct = `${ctx.name}.${base.name}`;
       place(
         "domain-aggregate",
@@ -1409,10 +1425,19 @@ export function generateTypeScriptForContexts(
         base.name,
         usingMikro
           ? renderMikroTpcBaseReader(base, concretes)
-          : buildTpcBaseReaderFile(base, concretes),
+          : buildTpcBaseReaderFile(base, concretes, read),
         base.origin,
         baseConstruct,
       );
+      if (!usingMikro && routesPolymorphicRead(base, ctx)) {
+        place(
+          "http-routes",
+          base.name,
+          buildBaseRoutesFile(base, read),
+          base.origin,
+          baseConstruct,
+        );
+      }
     }
   }
 
