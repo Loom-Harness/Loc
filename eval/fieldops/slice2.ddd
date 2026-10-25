@@ -157,21 +157,26 @@ system FieldOps {
       }
 
       repository Customers for Customer {
-        find all(): Customer[] requires currentUser.permissions.contains(permissions.workOrderRead)
+        find all(): Customer[]
       }
+      policy { read Customer requires currentUser.permissions.contains(permissions.workOrderRead) }
       repository Sites for Site {
-        find all(): Site[] requires currentUser.permissions.contains(permissions.workOrderRead)
+        find all(): Site[]
       }
+      policy { read Site requires currentUser.permissions.contains(permissions.workOrderRead) }
       repository Assets for Asset {
-        find all(): Asset[] requires currentUser.permissions.contains(permissions.workOrderRead)
+        find all(): Asset[]
       }
+      policy { read Asset requires currentUser.permissions.contains(permissions.workOrderRead) }
       repository Technicians for Technician {
-        find all(): Technician[] requires currentUser.permissions.contains(permissions.workOrderRead)
+        find all(): Technician[]
       }
+      policy { read Technician requires currentUser.permissions.contains(permissions.workOrderRead) }
       repository WorkOrders for WorkOrder {
-        find all(): WorkOrder[] requires currentUser.permissions.contains(permissions.workOrderRead)
-        find mine(): WorkOrder[] requires true where this.technicianId == currentUser.technicianId
+        find all(): WorkOrder[]
+        find mine(): WorkOrder[] where this.technicianId == currentUser.technicianId
       }
+      policy { read WorkOrder requires currentUser.permissions.contains(permissions.workOrderRead) }
     }
   }
 

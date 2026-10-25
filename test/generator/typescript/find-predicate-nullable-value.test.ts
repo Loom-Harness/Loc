@@ -25,12 +25,13 @@ system X {
     aggregate WorkOrder with crudish { technicianId: Technician id?  priority: int  derived display: string = "wo" }
     repository Technicians for Technician { }
     repository WorkOrders for WorkOrder {
-      find mine(): WorkOrder[] requires true where this.technicianId == currentUser.technicianId
-      find notMine(): WorkOrder[] requires true where currentUser.technicianId != this.technicianId
+      find mine(): WorkOrder[] where this.technicianId == currentUser.technicianId
+      find notMine(): WorkOrder[] where currentUser.technicianId != this.technicianId
       find byTech(t: Technician id?): WorkOrder[] where this.technicianId == t
       find above(p: int?): WorkOrder[] where this.priority > p
       find exact(t: Technician id): WorkOrder[] where this.technicianId == t
     }
+    policy { read WorkOrder requires true }
   } }
   storage p { type: postgres }
   resource r { for: C, kind: state, use: p }

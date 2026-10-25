@@ -31,8 +31,9 @@ system Shop {
         total: money
       }
       repository Orders for Order {
-        find all(): Order[] requires currentUser.role == "clerk"
-      }${extra}
+        find all(): Order[]
+      }
+      policy { read Order requires currentUser.role == "clerk" }${extra}
     }
   }
   api SalesApi from Sales

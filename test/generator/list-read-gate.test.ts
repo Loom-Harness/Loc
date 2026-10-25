@@ -1,13 +1,12 @@
-// The LIST read's `requires` gate, on all five backends at once — because the
+// The LIST read's gate, on all five backends at once — because the
 // interesting property is that they AGREE, and for a long time they did not.
 //
 // Every aggregate serves one list endpoint (`GET /<aggs>`), backed by the
 // repository find named `all`.  Usually that find is the one enrichment injects,
-// but an author may declare their own and gate it:
+// but an author may declare their own; either way the aggregate's read gate
+// lands on it:
 //
-//     repository Orders for Order {
-//       find all(): Order[] requires currentUser.role == "admin"
-//     }
+//     policy { read Order requires currentUser.role == "admin" }
 //
 // node/Hono and .NET emit a route per repository find, so `all` was just
 // another entry and picked the gate up for free.  Java, Python and Elixir each
@@ -18,7 +17,7 @@
 // and every compile tier stayed green, because a missing guard is not a syntax
 // error anywhere.
 //
-// Both spellings are pinned: the bare `T[]` list and the `paged` carrier, since
+// Both shapes are pinned: a declared bare `T[]` list and the injected `paged` one, since
 // each backend renders the two through different arms and the gate has to land
 // in both.  The negative case is pinned too: an ungated aggregate emits no gate
 // machinery at all (no principal binding, no accessor injection, no 403), so
@@ -29,7 +28,7 @@ import { generateSystemFiles } from "../_helpers/index.js";
 
 const GATE = 'requires currentUser.role == "admin"';
 
-const system = (platform: string, findClause: string) => `system Shop {
+const system = (platform: string, findClause: string, gate: string) => `system Shop {
   user { id: string role: string }
   subdomain Sales {
     context Orders {
@@ -37,6 +36,7 @@ const system = (platform: string, findClause: string) => `system Shop {
       repository Orders for Order {
         ${findClause}
       }
+      ${gate ? `policy { read Order ${gate} }` : ""}
     }
   }
   api SalesApi from Sales
@@ -49,8 +49,9 @@ async function fileEndingWith(
   platform: string,
   findClause: string,
   suffix: string,
+  gate = "",
 ): Promise<string> {
-  const files = await generateSystemFiles(system(platform, findClause));
+  const files = await generateSystemFiles(system(platform, findClause, gate));
   for (const [path, content] of files) if (path.endsWith(suffix)) return content;
   throw new Error(`no generated file ending with ${suffix} (platform ${platform})`);
 }
@@ -93,11 +94,11 @@ const BACKENDS = [
 ] as const;
 
 for (const shape of ["bare", "paged"] as const) {
-  const decl = shape === "bare" ? "find all(): Order[] " : "find all(): Order paged ";
-  describe(`list-read \`requires\` gate — ${shape} list`, () => {
+  const decl = shape === "bare" ? "find all(): Order[]" : "";
+  describe(`list-read gate — ${shape} list`, () => {
     for (const b of BACKENDS) {
       it(`${b.name}: 403s BEFORE the list query runs`, async () => {
-        const out = await fileEndingWith(b.name, `${decl}${GATE}`, b.file);
+        const out = await fileEndingWith(b.name, decl, b.file, GATE);
         const gateAt = out.indexOf(b.guard());
         expect(gateAt, `gate not emitted on ${b.name}`).toBeGreaterThan(-1);
         const readAt = out.indexOf(b.read);

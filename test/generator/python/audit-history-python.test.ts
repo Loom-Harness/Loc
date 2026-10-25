@@ -28,8 +28,9 @@ const MASKED = `system S {
         operation rename(name: string) { name := name }
       }
       repository Employees for Employee {
-        find all(): Employee[] requires currentUser.role == "hr"
+        find all(): Employee[]
       }
+      policy { read Employee requires currentUser.role == "hr" }
     }
   }
   api A from M

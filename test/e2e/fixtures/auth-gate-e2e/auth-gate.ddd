@@ -26,10 +26,10 @@ system Gatekeeper {
         }
       }
       repository Jobs for Job {
-        // The list + by-id reads, intentionally public (denyByDefault, M-T3.19).
-        find all(): Job paged requires true
-        find byId(id: Job id): Job? requires true
+        find byId(id: Job id): Job?
       }
+      // Every read of Job is intentionally public (denyByDefault).
+      policy { read Job requires true }
     }
   }
 

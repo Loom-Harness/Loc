@@ -33,9 +33,9 @@ system Helpdesk {
         derived display: string = subject
       }
       repository Tickets for Ticket {
-        find all(): Ticket paged requires true
-        find byId(id: Ticket id): Ticket? requires true
+        find byId(id: Ticket id): Ticket?
       }
+      policy { read Ticket requires true }
     }
   }
   storage primary { type: postgres }

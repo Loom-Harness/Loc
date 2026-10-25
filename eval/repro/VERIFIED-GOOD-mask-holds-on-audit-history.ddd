@@ -17,8 +17,9 @@ system Leak {
         operation rename(n: string) { requires true  name := n }
       }
       repository People for Person {
-        find all(): Person[] requires true
+        find all(): Person[]
       }
+      policy { read Person requires true }
     }
   }
   user { id: string  role: string }

@@ -59,9 +59,10 @@ system P {
       valueobject Money { amount: decimal  currency: string }
 ${agg}
       repository Orders for Order {
-        find all(): Order[] requires true
-        find byId(id: Order id): Order? requires true
+        find all(): Order[]
+        find byId(id: Order id): Order?
       }
+      policy { read Order requires true }
     }
   }
   storage pg { type: postgres }
