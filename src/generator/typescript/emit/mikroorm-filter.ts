@@ -28,6 +28,7 @@ import { isReservedIdent } from "../../sql-reserved.js";
 import { TS_INTRINSIC_RENDERERS } from "../render-expr.js";
 import { documentWriteScopeBody, writeScopeDeniesAll } from "../repository-document-builder.js";
 import { GUID_CLAIM_RE_LITERAL } from "../repository-find-predicate.js";
+import { tsNotFoundThrow } from "../wire-policy-ts.js";
 
 // ---------------------------------------------------------------------------
 // find `where` → MikroORM FilterQuery object literal. Minimal subset; throws on
@@ -804,14 +805,14 @@ export function mikroGetByIdLines(
     ? [
         `    const em = this.em.fork({ keepTransactionContext: true });`,
         `    const inScope = await em.count(${rowClass}, { $and: [{ id: id as string }, ${writeFilter}] });`,
-        `    if (inScope === 0) throw new AggregateNotFoundError(\`${agg.name} \${id} not found\`);`,
+        `    if (inScope === 0) ${tsNotFoundThrow(agg.name, "id")}`,
       ]
     : [];
   return [
     `  async getById(id: ${idVar}): Promise<${agg.name}> {`,
     ...guard,
     `    const found = await this.findById(id);`,
-    `    if (!found) throw new AggregateNotFoundError(\`${agg.name} \${id} not found\`);`,
+    `    if (!found) ${tsNotFoundThrow(agg.name, "id")}`,
     `    return found;`,
     `  }`,
   ];
@@ -823,7 +824,7 @@ export function mikroGetByIdLines(
  *  evaluate their capability read filters. */
 
 export function mikroBlobGetByIdLines(agg: EnrichedAggregateIR, idVar: string): readonly string[] {
-  const notFound = `throw new AggregateNotFoundError(\`${agg.name} \${id} not found\`);`;
+  const notFound = tsNotFoundThrow(agg.name, "id");
   // `deny write` → the in-app form is the constant `false`, so no row is ever
   // writable: answer not-found without loading (and without emitting the
   // `if (!(false))` a constant-condition lint would flag).

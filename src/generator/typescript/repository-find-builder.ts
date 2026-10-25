@@ -14,6 +14,7 @@
 // module stays the single import surface the sibling repository builders
 // already reference.
 
+import { FIND_ABSENT_DETAIL } from "../../ir/enrich/wire-policy.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   BoundedContextIR,
@@ -595,7 +596,7 @@ export function findQueryMethod(
         // split is the exact defect shape `not-found-by-id-detail-parity`
         // and `absent-read-envelope-parity` exist to catch; the sibling
         // gate for THIS class is `find-miss-detail-parity.test.ts`.
-        `    if (rootRows.length === 0) throw new AggregateNotFoundError("not_found");`,
+        `    if (rootRows.length === 0) throw new AggregateNotFoundError(${JSON.stringify(FIND_ABSENT_DETAIL)});`,
     needsIdsLocal && `    const rootIds = rootRows.map((r) => r.id);`,
     ...bulkLoadContainmentLines(eagerContains, agg, ctx),
     associationMapLines(agg, "this.db", "    "),

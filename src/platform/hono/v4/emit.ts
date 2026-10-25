@@ -18,7 +18,6 @@ import type { SourceMapRecorder } from "../../../generator/_trace/sourcemap.js";
 import {
   MONEY_INTEGER_DIGITS,
   MONEY_PRECISION,
-  MONEY_RANGE_MESSAGE,
   MONEY_WIRE_SCALE,
 } from "../../../generator/money-scale.js";
 import {
@@ -85,6 +84,17 @@ import {
   renderRepositoryPortsFile,
 } from "../../../generator/typescript/repository-port-builder.js";
 import { deriveEventSubscriptions, enrichLoomModel } from "../../../ir/enrich/enrichments.js";
+import {
+  fieldFixedMessage,
+  fieldSentenceSuffix,
+  fieldValuePrefix,
+  REASON_PHRASE_STATUSES,
+  reasonPhrase,
+  wireFixedDetail,
+  wireSentence,
+  wireStatus,
+  wireTitle,
+} from "../../../ir/enrich/wire-policy.js";
 import { lowerModel } from "../../../ir/lower/lower.js";
 import {
   type BoundedContextIR,
@@ -128,11 +138,6 @@ import {
   tphConcretesOf,
 } from "../../../ir/util/inheritance.js";
 import { mergeContexts } from "../../../ir/util/merge-contexts.js";
-import {
-  CONCURRENCY_CONFLICT_SUFFIX,
-  MISSING_FIELD_MESSAGE,
-  UNSUPPORTED_MEDIA_TYPE_DETAIL,
-} from "../../../ir/util/openapi-errors.js";
 import { contextsHaveProvenancedField } from "../../../ir/util/prov-id.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import {
@@ -149,7 +154,7 @@ import { lines } from "../../../util/code-builder.js";
 // Hono-framework builders now live in this package (P2b) — siblings.
 import { emissionSink } from "../../../util/emission-sink.js";
 import { lowerFirst, plural } from "../../../util/naming.js";
-import { UUID_WIRE_MESSAGE, UUID_WIRE_REGEX_LITERAL } from "../../../util/uuid-wire.js";
+import { UUID_WIRE_REGEX_LITERAL } from "../../../util/uuid-wire.js";
 import { emitApiClientModule } from "./adapters/api-client.js";
 import {
   byLayerLayoutAdapter,
@@ -284,7 +289,7 @@ export function domainFloorProblem(c: Context, err: unknown, status: number, tit
   const entry = { pointer: ${pointer}, message: ${message}, ...(err.code ? { code: err.code } : {}) };
   return c.body(
     JSON.stringify({ type: "about:blank", title, status, detail: err.message, instance: c.req.path, errors: [entry] }),
-    status as 422,
+    status as ${wireStatus("field-invalid")},
     { "content-type": "application/problem+json", "x-request-id": trace_id },
   );
 }
@@ -383,7 +388,7 @@ ${
  *  apart via the \`conflict\` vs \`disallowed\` log event. */
 export class ConcurrencyError extends Error {
   constructor(aggregate: string, id: string) {
-    super(\`\${aggregate} \${id} ${CONCURRENCY_CONFLICT_SUFFIX}\`);
+    super(\`\${aggregate} \${id} ${wireSentence("version-conflict").suffix}\`);
     this.name = "ConcurrencyError";
   }
 }
@@ -442,11 +447,11 @@ ${errorImports.length > 0 ? `import { ${errorImports.join(", ")} } from "../doma
  *  \`pattern\`, which is what Python already published, so the two specs now
  *  agree where they previously differed.
  *
- *  A miss answers \`${UUID_WIRE_MESSAGE}\` — the regex itself never
+ *  A miss answers \`${fieldFixedMessage("malformed-id")}\` — the regex itself never
  *  reaches the client. */
 export const UuidString = z
   .string()
-  .regex(${UUID_WIRE_REGEX_LITERAL}, ${JSON.stringify(UUID_WIRE_MESSAGE)})
+  .regex(${UUID_WIRE_REGEX_LITERAL}, ${JSON.stringify(fieldFixedMessage("malformed-id"))})
   .openapi({ format: "uuid" });
 
 /** RFC 7807 ProblemDetails body — the base 5 spec fields plus the §3.2
@@ -479,7 +484,7 @@ function pointerOf(path: ReadonlyArray<PropertyKey>): string {
 }
 
 /** Is the issue's path ABSENT from the request input?  An absent required
- *  field answers the one word every backend sends for it (RS-39) instead of
+ *  field answers the sentence every backend sends for it (RS-39) instead of
  *  zod's type-mismatch sentence ("expected string, received undefined"). */
 function isAbsent(input: unknown, path: ReadonlyArray<PropertyKey>): boolean {
   if (path.length === 0) return false;
@@ -489,6 +494,12 @@ function isAbsent(input: unknown, path: ReadonlyArray<PropertyKey>): boolean {
     node = (node as Record<PropertyKey, unknown>)[seg];
   }
   return node !== null && typeof node === "object" && !(path[path.length - 1]! in node);
+}
+
+/** \`"<field> ${fieldSentenceSuffix("missing")}"\` for an absent key — the field is the
+ *  path's last segment, the key \`isAbsent\` found missing. */
+function missingFieldMessage(path: ReadonlyArray<PropertyKey>): string {
+  return \`\${String(path[path.length - 1])} ${fieldSentenceSuffix("missing")}\`;
 }
 
 
@@ -520,8 +531,8 @@ export function defaultHook(result: { success: boolean; data?: unknown; error?: 
     // authored text the refine carries.  Resolved HERE rather than in the refine
     // because a zod "message" is fixed when the schema is CONSTRUCTED (module
     // load), where no request — and so no locale — exists yet.
-    message: isAbsent(result.data, issue.path) ? ${JSON.stringify(MISSING_FIELD_MESSAGE)} : localizeMessage(issue.params?.loomCode, issue.message),`
-        : `message: isAbsent(result.data, issue.path) ? ${JSON.stringify(MISSING_FIELD_MESSAGE)} : issue.message,`
+    message: isAbsent(result.data, issue.path) ? missingFieldMessage(issue.path) : localizeMessage(issue.params?.loomCode, issue.message),`
+        : `message: isAbsent(result.data, issue.path) ? missingFieldMessage(issue.path) : issue.message,`
     }
     // A messaged invariant/precondition carries a stable content-hash code (via
     // the refine's params.loomCode) so a client can localise the error;
@@ -531,13 +542,13 @@ export function defaultHook(result: { success: boolean; data?: unknown; error?: 
   return c.body(
     JSON.stringify({
       type: "about:blank",
-      title: "Validation failed",
-      status: 422,
-      detail: "One or more fields are invalid.",
+      title: ${JSON.stringify(wireTitle("field-invalid"))},
+      status: ${wireStatus("field-invalid")},
+      detail: ${JSON.stringify(wireFixedDetail("field-invalid"))},
       instance: c.req.path,
       errors,
     }),
-    422,
+    ${wireStatus("field-invalid")},
     { "content-type": "application/problem+json", "x-request-id": trace_id },
   );
 }
@@ -572,8 +583,8 @@ export function parseIfMatch(header: string | undefined, current: number): numbe
   if (raw === "*") return current;
   const match = /^(?:W\\/)?(?:"(\\d+)"|(\\d+))$/.exec(raw);
   if (match === null) {
-    throw new HTTPException(400, {
-      message: \`Malformed If-Match header: \${header}\`,
+    throw new HTTPException(${wireStatus("malformed-if-match")}, {
+      message: \`${wireSentence("malformed-if-match").prefix}\${header}\`,
     });
   }
   return Number(match[1] ?? match[2]);
@@ -604,15 +615,7 @@ export function newApp(): OpenAPIHono {
  *  The values are node's verbatim.  A status outside this set falls back to
  *  "Error", as node's own table does for a code it doesn't carry. */
 const REASON_PHRASES: Record<number, string> = {
-  400: "Bad Request",
-  401: "Unauthorized",
-  403: "Forbidden",
-  404: "Not Found",
-  405: "Method Not Allowed",
-  409: "Conflict",
-  415: "Unsupported Media Type",
-  422: "Unprocessable Entity",
-  500: "Internal Server Error",
+${REASON_PHRASE_STATUSES.map((st) => `  ${st}: ${JSON.stringify(reasonPhrase(st))},`).join("\n")}
 };
 
 /** RFC 7807 body for a fault the FRAMEWORK raised — one no domain error class
@@ -627,7 +630,7 @@ export function frameworkProblemBody(status: number, detail: string, instance: s
   const title = REASON_PHRASES[status] ?? "Error";
   // A 415 reads the same whether hono's own media-type gate or
   // \`requireJsonContentType\` raised it (RS-39).
-  const said = status === 415 ? ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)} : detail;
+  const said = status === ${wireStatus("unsupported-media-type")} ? ${JSON.stringify(wireFixedDetail("unsupported-media-type"))} : detail;
   return JSON.stringify({ type: "about:blank", title, status, detail: said, instance });
 }
 
@@ -658,7 +661,7 @@ const JSON_MEDIA_TYPE = /^application\\/([a-z-.]+\\+)?json(;\\s*[a-zA-Z0-9\\-]+=
 export function requireJsonContentType(c: Context): void {
   const contentType = c.req.header("Content-Type");
   if (contentType && JSON_MEDIA_TYPE.test(contentType)) return;
-  throw new HTTPException(415, { message: ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)} });
+  throw new HTTPException(${wireStatus("unsupported-media-type")}, { message: ${JSON.stringify(wireFixedDetail("unsupported-media-type"))} });
 }
 
 /** Does this request carry no content at all?  Read from the framing headers
@@ -1885,7 +1888,7 @@ export const moneySchema = z.string().transform((s: string, ctx: any) => {
   if (!/^-?\\d+(\\.\\d+)?$/.test(s)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: \`Invalid decimal: \${JSON.stringify(s)}\`,
+      message: \`${fieldValuePrefix("money-grammar")}: \${JSON.stringify(s)}\`,
     });
     return z.NEVER;
   }
@@ -1898,7 +1901,7 @@ export const moneySchema = z.string().transform((s: string, ctx: any) => {
   if (s.replace(/^-/, "").split(".")[0]!.replace(/^0+(?=\\d)/, "").length > ${MONEY_INTEGER_DIGITS}) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: \`${MONEY_RANGE_MESSAGE}: \${JSON.stringify(s)}\`,
+      message: \`${fieldValuePrefix("money-range")}: \${JSON.stringify(s)}\`,
     });
     return z.NEVER;
   }
@@ -1907,7 +1910,7 @@ export const moneySchema = z.string().transform((s: string, ctx: any) => {
   } catch {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: \`Invalid decimal: \${JSON.stringify(s)}\`,
+      message: \`${fieldValuePrefix("money-grammar")}: \${JSON.stringify(s)}\`,
     });
     return z.NEVER;
   }

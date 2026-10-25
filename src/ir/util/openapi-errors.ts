@@ -86,9 +86,10 @@ export const UNSUPPORTED_MEDIA_TYPE = 415;
  *  the refusal reads the same whichever framework layer raised it. */
 export const UNSUPPORTED_MEDIA_TYPE_DETAIL = "Content-Type must be application/json";
 
-/** The `errors[].message` every backend sends for a REQUIRED request field the
- *  body leaves out (RS-39) — one word, so the 422 for an absent field reads the
- *  same whichever framework noticed the absence. */
+/** The `errors[].message` .NET, java, python and elixir send for a REQUIRED
+ *  request field the body leaves out (RS-39).  The ruled sentence is the
+ *  `wirePolicy` fact's `missingFieldMessage` (`"<field> is required"`), which
+ *  node renders; each other backend moves onto it and stops reading this. */
 export const MISSING_FIELD_MESSAGE = "Required";
 
 /** The wire-validation tier every route that PARSES a request part answers on
@@ -316,6 +317,8 @@ export function problemTitle(status: number): string {
   switch (status) {
     case 400:
       return "Bad Request";
+    case 401:
+      return "Unauthorized";
     // Codes an `httpStatus <Error> -> <Code>` override may retarget a rung to
     // (M-T3.4a / M-T5.20) — kept here so a remapped rung's 7807 title and its
     // OpenAPI `description` stay a real reason phrase, not the generic fallback.
@@ -325,6 +328,9 @@ export function problemTitle(status: number): string {
       return "Forbidden";
     case 404:
       return "Not Found";
+    // The routing tier's answer to a verb a path does not serve (RS-9).
+    case 405:
+      return "Method Not Allowed";
     case 409:
       return "Conflict";
     // A natural retarget for the `NotFound` rung — `httpStatus NotFound -> 410`

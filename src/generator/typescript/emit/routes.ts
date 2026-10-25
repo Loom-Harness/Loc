@@ -1,3 +1,4 @@
+import { wireFixedDetail, wireStatus, wireTitle } from "../../../ir/enrich/wire-policy.js";
 import type { EnrichedBoundedContextIR } from "../../../ir/types/loom-ir.js";
 import { isMaterializedProjection, isQueryTimeProjection } from "../../../ir/types/loom-ir.js";
 import {
@@ -6,11 +7,9 @@ import {
 } from "../../../ir/util/aggregate-flags.js";
 import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { durableEventTypes, realtimeEventTypes } from "../../../ir/util/channels.js";
-import { problemTitle, UNIQUE_CONFLICT_DETAIL } from "../../../ir/util/openapi-errors.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { API_BASE_PATH, AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
-import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { lowerFirst, plural, snake } from "../../../util/naming.js";
 import {
   resetTableDiscoverySql,
@@ -20,6 +19,7 @@ import {
   TEST_RESET_TOKEN_ENV,
 } from "../../../util/test-reset.js";
 import { renderHonoBaseLogCall, renderHonoLogCall } from "../../_obs/render-hono.js";
+import { tsNotFoundThrow, tsSentence } from "../wire-policy-ts.js";
 
 // The per-aggregate routes file is built procedurally in
 // `routes-builder.ts` because the OpenAPI annotations push it past
@@ -374,7 +374,7 @@ export function renderHttpIndex(
         // the same RFC 7807 envelope every other absent read answers with —
         // including the `httpStatus NotFound -> <Code>` override, which a
         // hand-built body would not honour.
-        "    if (!obj) throw new AggregateNotFoundError(`File ${key} not found`);",
+        `    if (!obj) ${tsNotFoundThrow("File", "key")}`,
         `    // Copy into a standalone ArrayBuffer — Hono's c.body() rejects a`,
         `    // Uint8Array whose backing buffer is only ArrayBufferLike.`,
         `    const ab = obj.body.buffer.slice(`,
@@ -397,28 +397,22 @@ export function renderHttpIndex(
   // event-sourced respectively — because only such a project can raise them
   // (and `ConcurrencyError` is not even emitted into `domain/errors.ts`
   // otherwise).
-  const rootForbiddenStatus = resolveErrorStatus("Forbidden", ctx.structuralErrorStatuses);
-  const rootDisallowedStatus = resolveErrorStatus("Disallowed", ctx.structuralErrorStatuses);
-  const rootDomainStatus = resolveErrorStatus("DomainError", ctx.structuralErrorStatuses);
-  const rootUniquenessStatus = resolveErrorStatus(
-    "UniquenessConflict",
-    ctx.structuralErrorStatuses,
-  );
-  const rootConcurrencyStatus = resolveErrorStatus(
-    "ConcurrencyConflict",
-    ctx.structuralErrorStatuses,
-  );
+  const rootForbiddenStatus = wireStatus("forbidden", ctx.structuralErrorStatuses);
+  const rootDisallowedStatus = wireStatus("state-gate", ctx.structuralErrorStatuses);
+  const rootDomainStatus = wireStatus("domain-floor", ctx.structuralErrorStatuses);
+  const rootUniquenessStatus = wireStatus("unique-conflict", ctx.structuralErrorStatuses);
+  const rootConcurrencyStatus = wireStatus("version-conflict", ctx.structuralErrorStatuses);
   // The domain NOT-FOUND rung, resolved like every other one (M-T5.20 final
   // slice).  Distinct from the FRAMEWORK 404 below it (`no route for …`), which
   // is about the URL space and stays literal on all five backends.
-  const rootNotFoundStatus = resolveErrorStatus("NotFound", ctx.structuralErrorStatuses);
+  const rootNotFoundStatus = wireStatus("not-found", ctx.structuralErrorStatuses);
   const rootNeedsConcurrency = aggregatesNeedConcurrency(ctx.aggregates);
   const rootHasUniqueKeys = aggregatesHaveUniqueKeys(ctx.aggregates);
   const rootProblemStatuses = new Set<number>([
     rootForbiddenStatus,
     rootNotFoundStatus,
     rootDomainStatus,
-    500,
+    wireStatus("internal"),
     rootDisallowedStatus,
   ]);
   if (rootHasUniqueKeys) rootProblemStatuses.add(rootUniquenessStatus);
@@ -442,22 +436,22 @@ export function renderHttpIndex(
     `      ${renderHonoBaseLogCall("forbidden", `message: err.message, status: ${rootForbiddenStatus}`)}`,
     '      recordDomainFault("forbidden");',
     // `err.detail` (ruling D4, #20): echoed only under the dev-stub verifier.
-    `      return problem(${rootForbiddenStatus}, ${JSON.stringify(problemTitle(rootForbiddenStatus))}, err.detail);`,
+    `      return problem(${rootForbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail);`,
     "    }",
     "    if (err instanceof DisallowedError) {",
     `      ${renderHonoBaseLogCall("disallowed", `message: err.message, status: ${rootDisallowedStatus}`)}`,
     '      recordDomainFault("disallowed");',
-    `      return problem(${rootDisallowedStatus}, "Disallowed", err.message);`,
+    `      return problem(${rootDisallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message);`,
     "    }",
     "    if (err instanceof DomainError) {",
     `      ${renderHonoBaseLogCall("domainError", `message: err.message, status: ${rootDomainStatus}`)}`,
     '      recordDomainFault("domain_error");',
-    `      return problem(${rootDomainStatus}, ${JSON.stringify(problemTitle(rootDomainStatus))}, err.message);`,
+    `      return problem(${rootDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message);`,
     "    }",
     "    if (err instanceof AggregateNotFoundError) {",
     `      ${renderHonoBaseLogCall("notFound", `status: ${rootNotFoundStatus}`)}`,
     '      recordDomainFault("not_found");',
-    `      return problem(${rootNotFoundStatus}, ${JSON.stringify(problemTitle(rootNotFoundStatus))}, err.message);`,
+    `      return problem(${rootNotFoundStatus}, ${JSON.stringify(wireTitle("not-found", ctx.structuralErrorStatuses))}, err.message);`,
     "    }",
     ...(rootHasUniqueKeys
       ? [
@@ -466,7 +460,7 @@ export function renderHttpIndex(
           `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505")) {`,
           `      ${renderHonoBaseLogCall("disallowed", `message: (err as { constraint?: string }).constraint ?? (err as { cause?: { constraint?: string } }).cause?.constraint ?? "unique_violation", status: ${rootUniquenessStatus}`)}`,
           '      recordDomainFault("disallowed");',
-          `      return problem(${rootUniquenessStatus}, "Conflict", ${JSON.stringify(UNIQUE_CONFLICT_DETAIL)});`,
+          `      return problem(${rootUniquenessStatus}, ${JSON.stringify(wireTitle("unique-conflict"))}, ${JSON.stringify(wireFixedDetail("unique-conflict"))});`,
           "    }",
         ]
       : []),
@@ -475,7 +469,7 @@ export function renderHttpIndex(
           "    if (err instanceof ConcurrencyError) {",
           `      ${renderHonoBaseLogCall("conflict", `message: err.message, status: ${rootConcurrencyStatus}`)}`,
           '      recordDomainFault("conflict");',
-          `      return problem(${rootConcurrencyStatus}, "Conflict", err.message);`,
+          `      return problem(${rootConcurrencyStatus}, ${JSON.stringify(wireTitle("version-conflict"))}, err.message);`,
           "    }",
         ]
       : []),
@@ -483,7 +477,7 @@ export function renderHttpIndex(
     `      ${renderHonoBaseLogCall("externHandlerThrew", "aggregate: err.aggName, op: err.opName, error: err.message")}`,
     // RS-28 — sanitized: the operator gets op + aggregate + the inner message on
     // the log line; the wire gets the same "internal" every other 500 sends.
-    '      return problem(500, "Internal Server Error", "internal");',
+    `      return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))});`,
     "    }",
   ];
   return (
@@ -697,12 +691,12 @@ export function renderHttpIndex(
       "    if (allow.length > 0) {",
       "      return frameworkProblem(",
       "        c,",
-      "        405,",
+      `        ${wireStatus("method-not-allowed")},`,
       "        `method ${c.req.method} is not supported for ${c.req.path}`,",
       '        { allow: allow.join(", ") },',
       "      );",
       "    }",
-      "    return frameworkProblem(c, 404, `no route for ${c.req.method} ${c.req.path}`);",
+      `    return frameworkProblem(c, ${wireStatus("no-route")}, ${tsSentence("no-route", "${c.req.method} ${c.req.path}")});`,
       "  });",
       "  app.onError((err, c) => {",
       ...rootDomainLadder,
@@ -715,8 +709,8 @@ export function renderHttpIndex(
       "      return frameworkProblem(c, err.status as ContentfulStatusCode, err.message);",
       "    }",
       "    const message = err instanceof Error ? err.message : String(err);",
-      `    ${renderHonoBaseLogCall("internalError", "error: message, status: 500")}`,
-      '    return frameworkProblem(c, 500, "internal");',
+      `    ${renderHonoBaseLogCall("internalError", `error: message, status: ${wireStatus("internal")}`)}`,
+      `    return frameworkProblem(c, ${wireStatus("internal")}, ${JSON.stringify(wireFixedDetail("internal"))});`,
       "  });",
       "  // OpenAPI 3.1 spec assembled from every sub-router's createRoute()",
       "  // calls.  Diffed against the .NET-emitted /openapi.json by",
