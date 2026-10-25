@@ -154,20 +154,20 @@
       "status": 200,
       "body": [
         {
-          "label": "B",
-          "slotId": "<volatile:key>",
-          "startsAt": "<timestamp>",
-          "venueCapacity": null,
-          "venueName": null,
-          "venueOpenedAt": null
-        },
-        {
           "label": "A",
           "slotId": "<volatile:key>",
           "startsAt": "<timestamp>",
           "venueCapacity": 40,
           "venueName": "Hall",
           "venueOpenedAt": "<timestamp>"
+        },
+        {
+          "label": "B",
+          "slotId": "<volatile:key>",
+          "startsAt": "<timestamp>",
+          "venueCapacity": null,
+          "venueName": null,
+          "venueOpenedAt": null
         }
       ]
     },
