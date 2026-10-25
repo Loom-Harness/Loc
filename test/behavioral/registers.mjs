@@ -307,6 +307,16 @@ export const BEHAVIOURAL_XFAIL = {
       tests: { "two handles on one row keep their own child graph": "expected 2 to be 1" },
       reason: "M-T6.94 — removing a contained part (`lines -= …`) in an operation does not persist",
     },
+    // Every test passes; the recording diverges from the golden in five
+    // values — the 409 `detail` names no aggregate/id (#3838), and each op call
+    // inside the workflow is persisted, so a document's `version` reads one
+    // higher (#4089).
+    "workflow-two-handles-document-eventlog": {
+      issue: "#3838, #4089",
+      expect: "wire",
+      reason:
+        "the workflow 409 `detail` names no aggregate or id, and per-call persistence bumps the document `version` twice",
+    },
     // Elixir is the one leg that ROUTES the TPH base by-id read — and it serves
     // an archived subtype row through it: the unfiltered `Repo.get(<Base>, id)`
     // of #3955, observed on the wire.
