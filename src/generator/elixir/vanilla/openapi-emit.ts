@@ -41,6 +41,7 @@ import {
 } from "../../../ir/util/api-surface.js";
 import { AUDIT_ENTRY_TYPE, auditEntryWireShape } from "../../../ir/util/audit-history.js";
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
+import { foreignValueTypeSeeds, foreignValueTypes } from "../../../ir/util/foreign-event-types.js";
 import {
   errorStatuses,
   type OpErrorKind,
@@ -290,6 +291,27 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
       emittedEnums.add(en.name);
       files.set(`${schemaDir}/${snake(en.name)}.ex`, renderEnumSchema(en, webModule));
     }
+  }
+
+  // Sibling-context value objects / enums a hosted declaration references but
+  // no hosted context declares (claims D15): an aggregate in context B typed
+  // `kind: Kind` against `enum Kind` in an unhosted sibling context A.  The
+  // response / request schemas `$ref` them, so the deployable must declare
+  // them — the same shared closure the four typed backends declare foreign
+  // value types through (`src/ir/util/foreign-event-types.ts`).
+  const unhosted = foreignValueTypes(foreignValueTypeSeeds([], contexts), args.sys, {
+    valueObjects: contexts.flatMap((c) => c.valueObjects),
+    enums: contexts.flatMap((c) => c.enums),
+  });
+  for (const vo of unhosted.valueObjects) {
+    if (emittedVOs.has(vo.name)) continue;
+    emittedVOs.add(vo.name);
+    files.set(`${schemaDir}/${snake(vo.name)}.ex`, renderValueObjectSchema(vo, webModule));
+  }
+  for (const en of unhosted.enums) {
+    if (emittedEnums.has(en.name)) continue;
+    emittedEnums.add(en.name);
+    files.set(`${schemaDir}/${snake(en.name)}.ex`, renderEnumSchema(en, webModule));
   }
 
   // Entity parts (deduplication by name)

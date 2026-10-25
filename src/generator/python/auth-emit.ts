@@ -5,23 +5,17 @@ import { snake } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
 import { claimShapes, UUID_PATTERN } from "../_auth/claim-decode.js";
-import { claimIdTargets } from "../_auth/claim-types.js";
 import { DEV_CLAIMS_HEADER, MALFORMED_DEV_CLAIMS_DETAIL } from "../_auth/dev-claims.js";
 import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { claimFromOriginString } from "../_auth/origin-claim.js";
+import { pyRef } from "../_imports/python.js";
 import { LogEvents } from "../_obs/log-events.js";
 import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
+import { PY, pyIdType } from "./py-symbols.js";
 import { renderPyType } from "./render-expr.js";
 
-/** The branded id NewTypes an auth module must import from `app.domain.ids`
- *  because the claim shape names them (`customerId: Customer id?` annotates
- *  as `CustomerId | None`).  Both the `User` dataclass and the OIDC verifier
- *  name them — and the verifier's annotation sits INSIDE `cast(...)` in a
- *  function body, so a missing import there is not a lint nit but a
- *  `NameError` raised on every token verification (D6/P2). */
-function pyIdClaimImports(user: UserIR): string[] {
-  return claimIdTargets(user.fields).map((t) => `${t}Id`);
-}
+const TEXT = pyRef("sqlalchemy", "text");
+const SESSION_FACTORY = pyRef("app.db.engine", "session_factory");
 
 // ---------------------------------------------------------------------------
 // Python-side auth scaffolding emitted per deployable when
@@ -92,9 +86,6 @@ function pyAuthValue(v: AuthValueIR | undefined, fallback = '""'): string {
   return `os.environ.get(${JSON.stringify(v.env)}, "")`;
 }
 
-/** The IdP claim path projected onto a user field — explicit `claims:` wins;
- *  else `id` → `sub`, every other field reads its own snake name.  Mirrors the
- *  Hono / .NET / Phoenix `claimPathFor`. */
 /** Python kwargs for the dev-stub User — same defaults as Hono's
  *  `renderStubUserLiteral` (string claims "admin", arrays EMPTY — so
  *  permission-guarded surfaces deny by default — optionals None). */
@@ -119,11 +110,11 @@ function stubValueForType(t: TypeIR): string {
         case "decimal":
           return "0.0";
         case "money":
-          return 'Decimal("0")';
+          return `${PY.Decimal}("0")`;
         case "bool":
           return "False";
         case "datetime":
-          return "datetime.fromtimestamp(0, tz=UTC)";
+          return `${PY.datetime}.fromtimestamp(0, tz=${PY.UTC})`;
         case "date":
           return `${PY_CALENDAR_DATE}(1970, 1, 1)`;
         case "guid":
@@ -134,8 +125,10 @@ function stubValueForType(t: TypeIR): string {
     // Already constructed through the NewType factory — the only one of the
     // five stub tables that did.  Routed through the shared arm so it stays
     // that way (and widens with the id's value type).
+    // The leading `<T>Id` is written as the id-type marker so its import is
+    // derived from use.
     case "id":
-      return devStubIdExpr(t, "python");
+      return pyIdType(t.targetName) + devStubIdExpr(t, "python").slice(`${t.targetName}Id`.length);
     case "array":
       return "[]";
     default:
@@ -239,8 +232,6 @@ function renderUserModule(
     "        except ValueError:",
     "            return None",
   ];
-  // Id-typed claims (`Customer id?`) reference the branded NewTypes.
-  const idNames = pyIdClaimImports(user);
   return lines(
     '"""User-claim shape decoded from the inbound JWT.  Auto-generated.',
     "",
@@ -263,8 +254,6 @@ function renderUserModule(
     "from contextvars import ContextVar",
     "from dataclasses import dataclass",
     "",
-    idNames.length > 0 ? `from app.domain.ids import ${idNames.join(", ")}` : null,
-    idNames.length > 0 ? "" : null,
     "",
     "@dataclass(frozen=True)",
     "class User:",
@@ -538,9 +527,9 @@ function renderAuthMiddleware(
         "    if not claim:",
         "        return claim",
         "    try:",
-        "        async with session_factory() as session:",
+        `        async with ${SESSION_FACTORY}() as session:`,
         "            result = await session.execute(",
-        `                text("SELECT data_key FROM ${orgPathRegistryTable} WHERE id = :claim LIMIT 1"),`,
+        `                ${TEXT}("SELECT data_key FROM ${orgPathRegistryTable} WHERE id = :claim LIMIT 1"),`,
         '                {"claim": claim},',
         "            )",
         "            data_key = result.scalar_one_or_none()",
@@ -561,15 +550,11 @@ function renderAuthMiddleware(
     "",
     "from fastapi import Request, Response",
     "from fastapi.responses import JSONResponse",
-    hierarchy ? "from sqlalchemy import text" : null,
     "from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint",
     "",
     "from app.auth.user import current_user_var",
     "from app.auth.verifier import MalformedDevClaimsError, verify_user_or_throw",
-    hierarchy ? "from app.db.engine import session_factory" : null,
-    orgContext
-      ? "from app.obs.log import log, set_actor_id"
-      : "from app.obs.log import set_actor_id",
+    "from app.obs.log import set_actor_id",
     "",
     `BYPASS_PREFIXES = ${bypass}`,
     ...resolver,
@@ -639,7 +624,7 @@ function renderAuthMiddleware(
           "                requested_org_context == scope",
           '                or requested_org_context.startswith(scope + ".")',
           "            ):",
-          "                log(",
+          `                ${PY.log}(`,
           `                    "${LogEvents.orgContextDenied.level}",`,
           `                    "${LogEvents.orgContextDenied.event}",`,
           "                    org_context=requested_org_context,",
@@ -783,8 +768,8 @@ function renderClaimChecks(user: UserIR, auth: AuthIR): { defs: string; check: s
   const helpers = formatted
     ? `
 
-_CLAIM_FORMATS: dict[str, re.Pattern[str]] = {
-    "uuid": re.compile(r"${UUID_PATTERN}"),
+_CLAIM_FORMATS: dict[str, ${PY.re}.Pattern[str]] = {
+    "uuid": ${PY.re}.compile(r"${UUID_PATTERN}"),
 }
 
 
@@ -813,17 +798,10 @@ def _claim_list(value: Any, fmt: str) -> list[str]:
 _REQUIRED_CLAIMS: list[tuple[str, str | None]] = [${required.join(", ")}]${helpers}`;
   const check = `    for path, fmt in _REQUIRED_CLAIMS:
         if (${read}) is None:
-            log("debug", "auth_token_rejected", reason=f"claim {path} absent or malformed")
+            ${PY.log}("debug", "auth_token_rejected", reason=f"claim {path} absent or malformed")
             return None
 `;
   return { defs, check };
-}
-
-/** `import re` exists iff the finished module spells `re.<name>`: derived from
- *  the text that uses it, so the import and its usage cannot disagree. */
-function importReWhenUsed(src: string): string {
-  if (!/(^|[^\w.])re\.(compile|Pattern)\b/.test(src)) return src;
-  return src.replace(/^import os\n/m, (os) => `${os}import re\n`);
 }
 
 function renderOidcModule(user: UserIR, auth: AuthIR): string {
@@ -850,12 +828,6 @@ function renderOidcModule(user: UserIR, auth: AuthIR): string {
   const scopes = scopeList.join(" ");
   const buildUser = renderBuildUserKwargs(user, auth);
   const claimChecks = renderClaimChecks(user, auth);
-  // `_build_user` annotates each id-typed claim inside `cast(...)`, which
-  // Python EVALUATES on every call — so this import is load-bearing at
-  // runtime, not just for the type checker (D6/P2).
-  const oidcIds = pyIdClaimImports(user);
-  const oidcIdImport =
-    oidcIds.length > 0 ? `from app.domain.ids import ${oidcIds.join(", ")}\n` : "";
   const moduleText = `"""Generated OIDC verifier + redirect handshake.  Auto-generated.
 
 Validates the inbound JWT against the issuer's JWKS and maps the configured
@@ -879,7 +851,6 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from app.auth.user import User
 from app.auth.verifier import register_user_verifier
-${oidcIdImport}from app.obs.log import log
 
 _SCOPES = ${JSON.stringify(scopes)}
 # An EMPTY audience (OIDC_AUDIENCE unset or "") means "no aud check" — the
@@ -962,7 +933,7 @@ async def _oidc_verifier(request: Request) -> User | None:
     except Exception as err:
         # A rejected token is a 401, never a 500 — but say WHY at debug, so a
         # misconfigured issuer / audience is diagnosable from the log stream.
-        log("debug", "auth_token_rejected", reason=str(err))
+        ${PY.log}("debug", "auth_token_rejected", reason=str(err))
         return None
 ${claimChecks.check}    return User(
 ${buildUser}
@@ -1103,5 +1074,5 @@ def _exchange_refresh(refresh_token: str) -> dict[str, Any] | None:
         }
     )
 `;
-  return importReWhenUsed(moduleText);
+  return moduleText;
 }

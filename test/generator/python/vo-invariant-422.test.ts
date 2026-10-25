@@ -55,7 +55,9 @@ describe("python VO invariant → 422 at the wire", () => {
     // Two length invariants on one field merge into a single Field(...).
     expect(wm).toContain("class Sku(BaseModel):");
     expect(wm).toContain("    code: WireStr = Field(min_length=3, max_length=12)");
-    expect(wm).toContain("from pydantic import BaseModel, Field");
+    expect(wm).toMatch(
+      /^from pydantic import \(\n(?: {4}\w+,\n)*? {4}BaseModel,\n(?: {4}\w+,\n)*? {4}Field,\n/m,
+    );
   });
 
   it("cross-field / messaged VO invariants route through a `@model_validator`", async () => {
@@ -98,7 +100,16 @@ describe("python VO invariant → 422 at the wire", () => {
       // alias uses it, exactly as `Int32` uses `Field` (F20).  `BeforeValidator`
       // joins it for the same reason — the always-emitted `WireNum`/`WireInt`
       // aliases and `Int32` all carry the F17 numeric-type guard.
-      "from pydantic import BaseModel, Field, AfterValidator, BeforeValidator, StringConstraints, WithJsonSchema\n",
+      [
+        "from pydantic import (",
+        "    AfterValidator,",
+        "    BaseModel,",
+        "    BeforeValidator,",
+        "    Field,",
+        "    StringConstraints,",
+        "    WithJsonSchema,",
+        ")\n",
+      ].join("\n"),
     );
     // Scoped to the VO's own class body: `Field` now appears at module level
     // unconditionally, because the shared `Int32` alias uses it (F11). What

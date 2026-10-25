@@ -83,6 +83,7 @@ on:
       - 'src/generator/_channels/**'
       - 'src/generator/_docker/**'
       - 'src/generator/_expr/**'
+      - 'src/generator/_imports/**'
       - 'src/generator/_frontend/**'
       - 'src/generator/_i18n/**'
       - 'src/generator/_numeric/**'

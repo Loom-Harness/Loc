@@ -8,7 +8,8 @@
 
 import { describe, expect, it } from "vitest";
 import { renderI18nModule } from "../../src/generator/_frontend/i18n-runtime.js";
-import { wireCalendarDateImport } from "../../src/generator/python/emit/calendar-date.js";
+import { finalizePyModule, PY_IMPORTS } from "../../src/generator/_imports/python.js";
+import { PY_CALENDAR_DATE } from "../../src/generator/python/emit/calendar-date.js";
 import { generateSystemFiles } from "../_helpers/index.js";
 import { parseString } from "../_helpers/parse.js";
 
@@ -141,19 +142,14 @@ describe("date scalar — per-backend representation", () => {
 });
 
 describe("date scalar — python import wiring", () => {
-  it("lands the import after a MULTI-line module docstring, at the head of the import block", () => {
-    const out = new Map([
-      ["app/x.py", '"""Doc.\n\nMore.\n"""\n\nfrom typing import Protocol\n\nx: CalendarDate\n'],
-      ["app/future.py", "from __future__ import annotations\n\nx: CalendarDate\n"],
-      ["app/none.py", "x = 1\n"],
-    ]);
-    wireCalendarDateImport(out);
-    expect(out.get("app/x.py")).toBe(
-      '"""Doc.\n\nMore.\n"""\n\nfrom datetime import date as CalendarDate\nfrom typing import Protocol\n\nx: CalendarDate\n',
+  it("a module that names CalendarDate imports it under the alias; one that does not, does not", () => {
+    const withDate = finalizePyModule(
+      `"""Doc."""\n\nfrom __future__ import annotations\n\n${PY_IMPORTS}\n\nx: ${PY_CALENDAR_DATE}\n`,
     );
-    expect(out.get("app/future.py")!.split("\n")[0]).toBe("from __future__ import annotations");
-    expect(out.get("app/future.py")).toContain("from datetime import date as CalendarDate");
-    expect(out.get("app/none.py")).toBe("x = 1\n");
+    expect(withDate).toContain("from datetime import date as CalendarDate");
+    expect(withDate).toContain("x: CalendarDate");
+    expect(withDate.indexOf("from __future__")).toBeLessThan(withDate.indexOf("from datetime"));
+    expect(finalizePyModule("x = 1\n")).toBe("x = 1\n");
   });
 });
 
