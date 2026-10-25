@@ -35,7 +35,8 @@ import { directParentOf } from "../../ir/util/containment-parent.js";
 import { echoesDenialDetail } from "../../ir/util/denial-detail.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import {
-  foreignEventValueTypes,
+  foreignValueTypeSeeds,
+  foreignValueTypes,
   NO_FOREIGN_VALUE_TYPES,
   resolveForeignEvents,
   valueObjectFieldTypes,
@@ -1323,15 +1324,17 @@ function emitProjectFromContexts(
           system.sys,
         )
       : [];
-  // The value objects / enums those foreign events reach: the event record
-  // names them, so the consumer must declare them (eval item 11).
-  const foreignValueTypes =
-    hasChannels && system
-      ? foreignEventValueTypes(foreignConsumedEvents, system.sys, {
-          valueObjects: contexts.flatMap((c) => c.valueObjects),
-          enums: contexts.flatMap((c) => c.enums),
-        })
-      : NO_FOREIGN_VALUE_TYPES;
+  // The value objects / enums those foreign events — or the hosted contexts'
+  // own declarations (D15: a sibling-context enum / VO) — reach: the event
+  // record / entity names them, so the deployable must declare them (eval
+  // item 11).  NOT channel-gated: the hosted half reaches a sibling type in a
+  // channel-less project, exactly as the foreign id brands below do.
+  const foreignValues = system
+    ? foreignValueTypes(foreignValueTypeSeeds(foreignConsumedEvents, contexts), system.sys, {
+        valueObjects: contexts.flatMap((c) => c.valueObjects),
+        enums: contexts.flatMap((c) => c.enums),
+      })
+    : NO_FOREIGN_VALUE_TYPES;
 
   // Foreign id brands are NOT channel vocabulary, and gating them on
   // `hasChannels` was a latent bug: a workflow starter param naming an
@@ -1348,7 +1351,7 @@ function emitProjectFromContexts(
     );
     const foreignIdNames = foreignIdBrandNames(hostedIdNames, [
       ...foreignConsumedEvents.flatMap((e) => e.fields.map((f) => f.type)),
-      ...valueObjectFieldTypes(foreignValueTypes.valueObjects),
+      ...valueObjectFieldTypes(foreignValues.valueObjects),
       ...hostedContextIdTypeSources(contexts),
       ...userClaimIdTypeSources(system.sys.user),
     ]);
@@ -1364,27 +1367,28 @@ function emitProjectFromContexts(
     }
   }
 
+  for (const e of foreignValues.enums) {
+    place(`${e.name}.java`, "enum", renderJavaEnum(e, basePkg));
+  }
+  for (const vo of foreignValues.valueObjects) {
+    place(`${vo.name}.java`, "valueobject", renderJavaValueObject(vo, basePkg));
+  }
+  // A foreign VO's compact constructor throws the invariant exception the
+  // hosted-VO gate above only emits for a HOSTED invariant.
+  if (
+    !contexts.some(hasValueObjectInvariants) &&
+    foreignValues.valueObjects.some((v) => v.invariants.length > 0)
+  ) {
+    place(
+      "ValueObjectInvariantException.java",
+      "domain-common",
+      renderValueObjectInvariantException(basePkg),
+    );
+  }
+
   if (hasChannels && system) {
     for (const ev of foreignConsumedEvents) {
       place(`${ev.name}.java`, "event", renderJavaEvent(ev, basePkg));
-    }
-    for (const e of foreignValueTypes.enums) {
-      place(`${e.name}.java`, "enum", renderJavaEnum(e, basePkg));
-    }
-    for (const vo of foreignValueTypes.valueObjects) {
-      place(`${vo.name}.java`, "valueobject", renderJavaValueObject(vo, basePkg));
-    }
-    // A foreign VO's compact constructor throws the invariant exception the
-    // hosted-VO gate above only emits for a HOSTED invariant.
-    if (
-      !contexts.some(hasValueObjectInvariants) &&
-      foreignValueTypes.valueObjects.some((v) => v.invariants.length > 0)
-    ) {
-      place(
-        "ValueObjectInvariantException.java",
-        "domain-common",
-        renderValueObjectInvariantException(basePkg),
-      );
     }
     const carriedEvents = [...contexts.flatMap((c) => c.events), ...foreignConsumedEvents];
     for (const [name, content] of renderJavaChannelFiles(
@@ -1399,7 +1403,7 @@ function emitProjectFromContexts(
         outboxRepoPkg: pkgFor("spring-data-repository"),
         valueObjects: [
           ...contexts.flatMap((c) => valueObjectPool(c)),
-          ...foreignValueTypes.valueObjects,
+          ...foreignValues.valueObjects,
         ],
         carriesOrigin: authRequired,
       },

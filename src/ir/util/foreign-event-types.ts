@@ -16,9 +16,25 @@
 // One derivation, shared, for the same reason `foreign-ids.ts` exists: the
 // four hand-written copies each drew from the same sources, and a missing
 // source is a bug that has to be fixed four times.
+//
+// The HOSTED contexts are the second source (claims D15).  A cross-context
+// type reference is legal (`aggregate Clm { kind: Kind }` in context B against
+// `enum Kind` in sibling context A) and resolves at lowering, so a deployable
+// hosting B alone references `Kind` from its aggregate, DTOs and repository —
+// and, seeded from foreign events only, declared it nowhere.  All four typed
+// backends emitted a reference to an undeclared type (node TS2306, python
+// mypy name-defined, javac / csc "cannot find symbol").  The same closure,
+// seeded from the hosted surface too, declares it through the same emission.
 // ---------------------------------------------------------------------------
 
-import type { EnumIR, EventIR, SystemIR, TypeIR, ValueObjectIR } from "../types/loom-ir.js";
+import type {
+  BoundedContextIR,
+  EnumIR,
+  EventIR,
+  SystemIR,
+  TypeIR,
+  ValueObjectIR,
+} from "../types/loom-ir.js";
 import { collectReachableTypes, orderValueObjectsByDependency } from "./reachable-types.js";
 
 /** Resolve foreign event NAMES to their declarations, system-wide — the first
@@ -46,8 +62,8 @@ export function resolveForeignEvents(
   return out;
 }
 
-export interface ForeignEventValueTypes {
-  /** Value objects the foreign events reach (directly, or through another
+export interface ForeignValueTypes {
+  /** Value objects the seeds reach (directly, or through another
    *  value object's fields) that the hosted contexts do not declare — in
    *  dependency order, so a VO follows every VO its fields name. */
   valueObjects: ValueObjectIR[];
@@ -56,25 +72,97 @@ export interface ForeignEventValueTypes {
 }
 
 /** The empty closure — a deployable with no system context (legacy
- *  single-project mode) or no foreign consumed events. */
-export const NO_FOREIGN_VALUE_TYPES: ForeignEventValueTypes = Object.freeze({
+ *  single-project mode), or one whose seeds reach no foreign type. */
+export const NO_FOREIGN_VALUE_TYPES: ForeignValueTypes = Object.freeze({
   valueObjects: [],
   enums: [],
 });
 
-/** The transitive value-object + enum closure of `events`' field types,
- *  minus the names the consumer already hosts (`hosted` shadows — its own
- *  declaration is the one the consumer emits).  Resolved against every
- *  context of `sys`, first declaration by name. */
-export function foreignEventValueTypes(
+/** Every `TypeIR` position the deployable's emitted code can name a value
+ *  object or enum through: the foreign consumed events' fields, plus the
+ *  HOSTED contexts' own declaration surface — aggregate / part fields, derived
+ *  and function types, operation params and returns, hosted value-object and
+ *  event fields, payload fields, repository finds, workflows, projections,
+ *  command / query handlers and domain-service operations.  The hosted half is
+ *  what reaches a sibling-context type the deployable does not host (D15). */
+export function foreignValueTypeSeeds(
   events: readonly EventIR[],
+  contexts: readonly BoundedContextIR[],
+): TypeIR[] {
+  const out: TypeIR[] = events.flatMap((e) => e.fields.map((f) => f.type));
+  const params = (ps: readonly { type: TypeIR }[]): void => {
+    for (const p of ps) out.push(p.type);
+  };
+  const ret = (t: TypeIR | undefined): void => {
+    if (t) out.push(t);
+  };
+  for (const c of contexts) {
+    for (const owner of [...c.aggregates, ...c.aggregates.flatMap((a) => a.parts)]) {
+      params(owner.fields);
+      params(owner.derived);
+      for (const fn of owner.functions) {
+        params(fn.params);
+        ret(fn.returnType);
+      }
+    }
+    for (const a of c.aggregates) {
+      for (const op of [...a.operations, ...(a.creates ?? []), ...(a.destroys ?? [])]) {
+        params(op.params);
+        ret(op.returnType);
+      }
+    }
+    for (const v of c.valueObjects) {
+      params(v.fields);
+      params(v.derived);
+    }
+    for (const e of c.events) params(e.fields);
+    for (const p of c.payloads) {
+      params(p.fields);
+      for (const t of p.variants ?? []) out.push(t);
+    }
+    for (const r of c.repositories) {
+      for (const f of r.finds) {
+        params(f.params);
+        ret(f.returnType);
+      }
+    }
+    for (const w of c.workflows) {
+      params(w.params);
+      params(w.stateFields ?? []);
+      for (const cr of w.creates) params(cr.params);
+      ret(w.returnType);
+    }
+    for (const p of c.projections) {
+      params(p.params);
+      params(p.stateFields);
+    }
+    for (const h of [...(c.commandHandlers ?? []), ...(c.queryHandlers ?? [])]) {
+      params(h.params);
+      ret(h.returnType);
+    }
+    for (const s of c.domainServices) {
+      for (const op of s.operations) {
+        params(op.params);
+        ret(op.returnType);
+      }
+    }
+  }
+  return out;
+}
+
+/** The transitive value-object + enum closure of `seeds` (see
+ *  `foreignValueTypeSeeds`), minus the names the deployable already hosts
+ *  (`hosted` shadows — its own declaration is the one it emits).  Resolved
+ *  against every context of `sys`, first declaration by name. */
+export function foreignValueTypes(
+  seeds: readonly TypeIR[],
   sys: SystemIR,
   hosted: {
     readonly valueObjects: readonly ValueObjectIR[];
     readonly enums: readonly EnumIR[];
   },
-): ForeignEventValueTypes {
-  if (events.length === 0) return { valueObjects: [], enums: [] };
+): ForeignValueTypes {
+  if (seeds.length === 0) return { valueObjects: [], enums: [] };
   const voByName = new Map<string, ValueObjectIR>();
   const enumByName = new Map<string, EnumIR>();
   for (const sub of sys.subdomains) {
@@ -83,10 +171,7 @@ export function foreignEventValueTypes(
       for (const e of c.enums) if (!enumByName.has(e.name)) enumByName.set(e.name, e);
     }
   }
-  const reach = collectReachableTypes(
-    events.flatMap((e) => e.fields.map((f) => f.type)),
-    [...voByName.values()],
-  );
+  const reach = collectReachableTypes(seeds, [...voByName.values()]);
   const hostedVos = new Set(hosted.valueObjects.map((v) => v.name));
   const hostedEnums = new Set(hosted.enums.map((e) => e.name));
   const valueObjects = [...reach.valueObjects]
@@ -123,7 +208,7 @@ export function withForeignValueTypes<
     readonly siblingValueObjects?: ValueObjectIR[];
     readonly siblingEnums?: EnumIR[];
   },
->(ctx: C, extra: ForeignEventValueTypes): C {
+>(ctx: C, extra: ForeignValueTypes): C {
   if (extra.valueObjects.length === 0 && extra.enums.length === 0) return ctx;
   const voNames = new Set(extra.valueObjects.map((v) => v.name));
   const enumNames = new Set(extra.enums.map((e) => e.name));
