@@ -124,8 +124,9 @@ const SRC = `
 
     // (3) STATEMENT slot — the call is the value of an own-state \`assign\`.
     workflow StateAssign transactional {
+      accountId: Account id
       screened: bool
-      create(holder: string) {
+      create(accountId: Account id, holder: string) {
         screened := Screening.inRegion(holder)
         let acct = Account.create({ holder: holder, archived: false })
       }

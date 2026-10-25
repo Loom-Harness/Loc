@@ -14,6 +14,7 @@ import { walkExprDeep } from "../../ir/util/walk.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import { escapeCsharpIdent, upperFirst } from "../../util/naming.js";
+import type { RepoOp } from "../../util/repository-contract.js";
 import { csCodePointLength, csCodePointSubstring } from "../_expr/code-point.js";
 import { csSubtreeLikePattern } from "../_expr/subtree-like.js";
 import {
@@ -1346,7 +1347,7 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
         // CA1826 (an error under `/warnaserror`), so the first row is read by
         // a list pattern — its variable is scoped to its own arm, so two finds
         // in one expression cannot collide.
-        if (read.readKind !== "named" && read.retrievalName) {
+        if (read.retrievalName) {
           const method = `Run${upperFirst(read.retrievalName)}Async`;
           const { ct } = csReadOwnParams(ctx.retrievalParamNames?.(read.retrievalName) ?? []);
           const callArgs =
@@ -1354,11 +1355,11 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
               ? `${argList}, ${ct}: cancellationToken`
               : `${ct}: cancellationToken`;
           const call = `${handle}.${method}(${callArgs})`;
-          return read.readKind === "find"
+          return read.op === "select-one"
             ? `((await ${call}) switch { [var __first, ..] => __first, _ => null })`
             : `(await ${call})`;
         }
-        const method = csRepoReadMethod(read.method, read.readKind);
+        const method = csRepoReadMethod(read.op, read.method);
         const ctArg = argList.length > 0 ? `${argList}, cancellationToken` : "cancellationToken";
         // `getById` is contractually NON-NULL — it throws rather than returning
         // absent, which is what `loom.handler-load-nullable-unsupported`
@@ -1378,7 +1379,7 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
         // `Api/DomainExceptionFilter.cs`, so "throws → 404" is literally true.
         // A declared find keeps its own declared nullability.
         const call = `await ${handle}.${method}(${ctArg})`;
-        if (read.readKind === "named" && read.method === "getById") {
+        if (read.op === "load") {
           const idArg = argList.length > 0 ? ` {${argList}}` : "";
           return `(${call} ?? throw new AggregateNotFoundException($"${read.aggregate}${idArg} not found"))`;
         }
@@ -1396,24 +1397,17 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
   }
 }
 
-/** The .NET repository method name a `repo-read` (`callKind: "repo-read"`) in a
- *  `reading` domain-service body resolves to (domain-services.md rev. 4).
- *  Mirrors the names the repository emitter generates:
- *   - a named `getById` read → `GetByIdAsync` (the built-in load-or-null, which
- *     carries the `Async` suffix, like the workflow `repoLet`);
- *   - the auto-`findAll` (`readKind: "findAll"`) → `All` (the enriched find named
- *     `all`, PascalCased — no `Async` suffix, like every declared find);
- *   - any other named declared `find` (`byHolder`, …) → `<UpperFirst>` (declared
- *     finds get no `Async` suffix — `Task<Account?> ByHolder(...)`).
- *  The `find`/`run` criterion/retrieval forms are not part of the reading-tier
- *  Slice-1 surface (the validator-admitted bodies use named finds); they fall
- *  back to the PascalCased verb so the switch stays total. */
-function csRepoReadMethod(method: string, readKind: string): string {
-  if (readKind === "named") {
-    return method === "getById" ? "GetByIdAsync" : upperFirst(method);
-  }
-  if (readKind === "findAll") return "All";
-  return upperFirst(method);
+/** The .NET repository method name a `repo-read` (`callKind: "repo-read"`)
+ *  called by name in a `reading` domain-service body resolves to
+ *  (domain-services.md rev. 4).  Mirrors the names the repository emitter
+ *  generates: the by-id `load` → `GetByIdAsync` (the built-in load-or-null,
+ *  which carries the `Async` suffix, like the workflow `repoLet`); any other
+ *  read called by name (a declared find such as `byHolder`, the enriched `all`)
+ *  → `<UpperFirst>` (declared finds get no `Async` suffix — `Task<Account?>
+ *  ByHolder(...)`).  A criterion / retrieval read never reaches here: it
+ *  carries a `retrievalName` and renders the retrieval method. */
+function csRepoReadMethod(op: RepoOp, method: string): string {
+  return op === "load" ? "GetByIdAsync" : upperFirst(method);
 }
 
 function renderNew(

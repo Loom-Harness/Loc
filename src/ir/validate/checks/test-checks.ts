@@ -6,6 +6,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { lowerFirst, plural, snake } from "../../../util/naming.js";
+import { isRepoVerbAt } from "../../../util/repository-contract.js";
 import type {
   AggregateIR,
   ApiIR,
@@ -130,14 +131,14 @@ export function validateContextIntegrationTests(
   ctx: BoundedContextIR,
   diags: LoomDiagnostic[],
 ): void {
-  const BUILTIN_READS = new Set(["findById", "getById", "findAll"]);
   const isRepoFind = (e: ExprIR): boolean => {
     if (e.kind !== "method-call" || e.receiver.kind !== "ref") return false;
     const aggName = (e.receiver as { name: string }).name;
     const repos = ctx.repositories.filter((r) => r.aggregateName === aggName);
     if (repos.length === 0) return false;
     return (
-      BUILTIN_READS.has(e.member) || repos.some((r) => r.finds.some((f) => f.name === e.member))
+      isRepoVerbAt(e.member, "integration-test") ||
+      repos.some((r) => r.finds.some((f) => f.name === e.member))
     );
   };
   for (const test of ctx.tests) {

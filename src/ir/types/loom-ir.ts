@@ -29,6 +29,7 @@
 // `ir/types` → `ir/util`; the reverse edge (walk.ts → loom-ir.ts) is `import
 // type` only (erased at emit), so no runtime cycle forms.
 import type { ThrowKindName } from "../../util/intrinsic-matchers.js";
+import type { RepoOp } from "../../util/repository-contract.js";
 import type { DurationUnit } from "../../util/temporal.js";
 import {
   walkExprDeep,
@@ -1807,6 +1808,9 @@ export type WorkflowStmtIR =
       name: string;
       repoName: string;
       aggName: string;
+      /** What the call does (`util/repository-contract.ts`).  Emitters
+       *  dispatch on it; `method` is kept for a declared find's own name. */
+      op: RepoOp;
       method: string;
       args: ExprIR[];
       returnType: TypeIR;
@@ -1828,6 +1832,8 @@ export type WorkflowStmtIR =
       name: string;
       repoName: string;
       aggName: string;
+      /** Always `select-many`: a run binds the matching rows. */
+      op: Extract<RepoOp, "select-many">;
       retrievalName: string;
       retrievalArgs: ExprIR[];
       page?: { offset?: ExprIR; limit?: ExprIR };
@@ -1879,6 +1885,8 @@ export type WorkflowStmtIR =
       // the removed entity must NOT be re-saved at handler exit (`computeSaves`
       // never registers a `repo-delete` as a mutation target).
       kind: "repo-delete";
+      /** Always `remove`. */
+      op: Extract<RepoOp, "remove">;
       repoName: string;
       aggName: string;
       entity: ExprIR;
@@ -1950,6 +1958,9 @@ export type WorkflowStmtIR =
       // no retrieval is synthesised.
       kind: "if-let";
       var: string;
+      /** `select-one` for a criterion source, `declared-find` for a declared
+       *  optional find (`findMethod` names it). */
+      op: Extract<RepoOp, "select-one" | "declared-find">;
       repoName: string;
       aggName: string;
       /** Name of the shared synthetic retrieval (`findAllBy<Criterion>`);
@@ -3819,28 +3830,32 @@ export type ExprIR =
        *  operation body (`Accounts.byHolder(h)` / `Repo.find/findAll/run`).
        *  Fully resolved at lowering time: `repo` is the repository name,
        *  `aggregate` its target aggregate, `method` the find / retrieval method
-       *  to render against the generated repository, and `readKind` the recognised
-       *  shape (`named` declared find / `getById`, vs the criterion `find`/`findAll`
-       *  vs retrieval `run`).  Backends render a real call into the generated
-       *  repository without re-recognising the AST.  No backend emits from it
-       *  yet — this is the IR foundation. */
+       *  to render against the generated repository, and `op` what the read
+       *  does.  Backends render a real call into the generated repository
+       *  without re-recognising the AST. */
       repoRead?: {
         repo: string;
         aggregate: string;
         method: string;
-        readKind: "named" | "find" | "findAll" | "run";
+        /** What the read does (`util/repository-contract.ts`): `load` /
+         *  `load-optional` by id, `select-one` / `select-many` over a criterion
+         *  or retrieval (or the whole collection), or a `declared-find`.
+         *  Backends dispatch on it, never on `method`. */
+        op: Exclude<RepoOp, "remove">;
         /** The retrieval a criterion / retrieval read runs against — mirrors the
          *  workflow `repo-run` path.  For `find`/`findAll` it is the synthesized
          *  `findAllBy<Criterion>` (materialised by `synthesizeFindAllRetrievals`
          *  from the criterion); for `run` it is the referenced retrieval name.
-         *  Absent for `named` reads (a declared `find`/`getById`).  Backends
+         *  Absent for a read called by name (a declared find, a by-id load,
+         *  the whole collection).  Backends
          *  render their retrieval-method name (`run<Name>`) from it so the
          *  emitted call hits a real method that APPLIES the criterion, rather
          *  than dropping it and calling the whole-table `findAll`/`all`. */
         retrievalName?: string;
         /** The criterion a `find`/`findAll` read filters by — drives the enrich
          *  pass's synthesis of the `retrievalName` retrieval (same criterion the
-         *  workflow `synthCriterion` names).  Absent for `run`/`named`. */
+         *  workflow `synthCriterion` names).  Absent for a retrieval run and a
+         *  read called by name. */
         synthCriterion?: { name: string };
       };
       /** Populated when `callKind === "store-action"` (Stage 5) — the resolved
@@ -4253,8 +4268,9 @@ export function workflowCanAnswerNotFound(
    *  evidence that it throws — a repository/method that does not exist is a
    *  phase-⑦ error (`loom.workflow-unknown-repository{,-method}`), so the
    *  declared set for a model that does not compile is moot either way. */
-  const readThrows = (repoName: string, method: string): boolean => {
-    if (method === "getById") return true;
+  const readThrows = (repoName: string, op: RepoOp, method: string): boolean => {
+    if (op === "load") return true;
+    if (op !== "declared-find") return false;
     const find = repositories
       .find((r) => r.name === repoName)
       ?.finds.find((f) => f.name === method);
@@ -4276,8 +4292,8 @@ export function workflowCanAnswerNotFound(
     walkWorkflowStmtExprsDeep(top, (e) => {
       if (e.kind !== "call" || e.callKind !== "repo-read") return;
       const read = e.repoRead;
-      if (read?.readKind !== "named") return;
-      if (readThrows(read.repo, read.method)) canNotFound = true;
+      if (!read) return;
+      if (readThrows(read.repo, read.op, read.method)) canNotFound = true;
     });
   }
   return canNotFound;
