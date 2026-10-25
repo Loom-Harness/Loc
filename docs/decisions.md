@@ -2387,7 +2387,7 @@ itself**. Not "iff it emits JSX", and not "iff its UI kit has a grid widget".
   `Table` is server-driven there instead, and carries real sort + pagination.
 
 `Table` is the portable answer on both, and it carries column sort, pagination
-and filtering on every frontend. `loom.datagrid-unsupported-target` says so, per
+and filtering on every frontend. `loom.target-unsupported#datagrid` says so, per
 target, rather than "not supported yet".
 
 **Correction (DataGrid pin re-examination).** Until this revision, HEEx's
@@ -2429,7 +2429,7 @@ it a candidate for `Table`, not an argument for a partial `DataGrid`.
   re-implementation is the same cost everywhere, with no shared spec to hold
   the targets together.
 
-**Affects.** `DATA_GRID_FRAMEWORKS` (`ir/validate/checks/system-checks.ts`);
+**Affects.** the `primitive:DataGrid@body` row of `util/target-capabilities.ts`;
 `DATA_GRID_PRIMITIVES` (`generator/_packs/required-primitives.ts`);
 `util/flutter-deferred-primitives.ts`; `generator/feliz/data-grid-child.ts`;
 [`page-metamodel.md` §9.1](page-metamodel.md); `new-plan/T1-ui-frontend.md`

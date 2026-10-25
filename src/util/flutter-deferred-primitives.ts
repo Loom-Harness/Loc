@@ -63,11 +63,11 @@
  *
  *      `Table` remains the portable answer on Flutter — it carries column sort,
  *      pagination and filtering on every frontend — and that is what
- *      `loom.datagrid-unsupported-target` points authors at.
+ *      `loom.target-unsupported#datagrid` points authors at.
  *
  *      It is NOT in {@link FLUTTER_UNRENDERED_PRIMITIVES} because it
  *      already has a dedicated, better-worded gate —
- *      `loom.datagrid-unsupported-target` names `Table` as the portable
+ *      `loom.target-unsupported#datagrid` names `Table` as the portable
  *      alternative — and two gates for one condition is one too many. */
 export const FLUTTER_INLINE_OR_DEFERRED: ReadonlySet<string> = new Set([
   "primitive-form-of",

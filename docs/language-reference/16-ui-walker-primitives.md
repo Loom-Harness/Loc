@@ -2,7 +2,7 @@
 
 Page bodies are written in a **closed primitive library** — 56 top-level primitives (`Stack`, `Heading`, `Field`, `Table`, `CreateForm`, `QueryView`, `Chart`, `For`, …) plus the two sub-elements `Tab` and `Column`, and the `match` expression. There is no escape hatch to raw markup; every primitive is dispatched by the body walker into the page's active **design pack**, so one `.ddd` body renders as Mantine, shadcn, Vuetify, Angular Material, daisyUI (Feliz), Material 3 (Flutter) or HEEx depending on the hosting frontend. Reach for this chapter to see what each primitive takes, what it emits, and where a target honestly declines.
 
-> **Grammar:** primitives are `BuilderCall`s whose names come from the registry `src/generator/_walker/registry.ts` (`WALKER_PRIMITIVES`), mirrored for the validator by `src/util/walker-primitive-names.ts` (`WALKER_LAYOUT_PRIMITIVES`, `WALKER_SUB_PRIMITIVES`, `WALKER_PRIMITIVE_SLOTS`) and `src/util/walker-primitive-args.ts` (`WALKER_PRIMITIVE_NAMED_ARGS`) / `src/util/walker-primitive-arg-values.ts` (`WALKER_PRIMITIVE_ARG_VALUES`) · **Validators:** `loom.unknown-page-element` · `loom.unresolved-page-ref` · `loom.page-primitive-unknown-arg` · `loom.page-primitive-unknown-arg-value` · `loom.page-primitive-extra-children` · `loom.sub-primitive-misplaced` · `loom.slot-outside-component` · `loom.component-prop-type` · `loom.a11y-missing-alt` · `loom.a11y-icon-only-no-name` · `loom.file-upload-not-file-field` · `loom.frontend-collection-op-unsupported` · `loom.user-visible-concat` · `loom.chart-kind-invalid` · `loom.chart-of-not-grouped` · `loom.chart-accessor-not-field` · `loom.datagrid-selection-not-state` · `loom.datagrid-selection-not-array` · `loom.table-filter-server-paged` · `loom.op-form-needs-route-id` · `loom.destroy-form-of-unresolved` · `loom.create-unknown-field` · `loom.create-server-field` · `loom.create-field-type` · per-target: `loom.datagrid-unsupported-target` · `loom.chart-unsupported-target` · `loom.table-filter-unsupported` · `loom.modal-controlled-op-form-unsupported` · `loom.flutter-primitive-unsupported` · **Docs:** [`../page-metamodel.md`](../page-metamodel.md) §9, [`../design-packs.md`](../design-packs.md), [`../actions.md`](../actions.md)
+> **Grammar:** primitives are `BuilderCall`s whose names come from the registry `src/generator/_walker/registry.ts` (`WALKER_PRIMITIVES`), mirrored for the validator by `src/util/walker-primitive-names.ts` (`WALKER_LAYOUT_PRIMITIVES`, `WALKER_SUB_PRIMITIVES`, `WALKER_PRIMITIVE_SLOTS`) and `src/util/walker-primitive-args.ts` (`WALKER_PRIMITIVE_NAMED_ARGS`) / `src/util/walker-primitive-arg-values.ts` (`WALKER_PRIMITIVE_ARG_VALUES`) · **Validators:** `loom.unknown-page-element` · `loom.unresolved-page-ref` · `loom.page-primitive-unknown-arg` · `loom.page-primitive-unknown-arg-value` · `loom.page-primitive-extra-children` · `loom.sub-primitive-misplaced` · `loom.slot-outside-component` · `loom.component-prop-type` · `loom.a11y-missing-alt` · `loom.a11y-icon-only-no-name` · `loom.file-upload-not-file-field` · `loom.frontend-collection-op-unsupported` · `loom.user-visible-concat` · `loom.chart-kind-invalid` · `loom.chart-of-not-grouped` · `loom.chart-accessor-not-field` · `loom.datagrid-selection-not-state` · `loom.datagrid-selection-not-array` · `loom.table-filter-server-paged` · `loom.op-form-needs-route-id` · `loom.destroy-form-of-unresolved` · `loom.create-unknown-field` · `loom.create-server-field` · `loom.create-field-type` · per-target: `loom.target-unsupported#datagrid` · `loom.target-unsupported#chart` · `loom.table-filter-unsupported` · `loom.modal-controlled-op-form-unsupported` · `loom.flutter-primitive-unsupported` · **Docs:** [`../page-metamodel.md`](../page-metamodel.md) §9, [`../design-packs.md`](../design-packs.md), [`../actions.md`](../actions.md)
 
 Every output block below is **real generated output** from one fixture — a `ui Web` with the pages shown, bound to seven deployables: `react` (Mantine v9, the default pack), `vue` (Vuetify), `svelte` (shadcnSvelte), `angular` (Angular Material), `feliz`, `flutter`, and a self-hosting `elixir` deployable (Phoenix LiveView, `coreComponents`). The `frontend` tab group carries the four static-bundle frontends; Feliz, Flutter and HEEx output follows as plain blocks where it diverges. A second `react` deployable pinned `design: shadcn` drives the `pack` tabs.
 
@@ -854,7 +854,7 @@ LoomChart(isBar: true, label: "Bar chart of SalesByVisibility: revenue by visibi
   points: (salesByVisibilityRead.asData?.value ?? const []).map((r) => LoomChartPoint(r.visibility.toString(), (r.revenue as num).toDouble())).toList()),
 ```
 
-All targets carry the same a11y contract — `role="img"` (`Semantics(image: true)` on Flutter) with the derived accessible name. The eight React packs each ship a `primitive-chart` template binding their own library (`@mantine/charts`, `@mui/x-charts`, recharts for shadcn/chakra), pulled into `package.json` only when a page charts; Vue, Svelte and Angular render a generated dependency-free `LoomChart` component from one `primitive-chart.hbs` in the framework's shared template layer (`vue/`, `sveltekit/`, `angular/`). `loom.chart-unsupported-target` names no shipping frontend today — it is the seam a new frontend gates on.
+All targets carry the same a11y contract — `role="img"` (`Semantics(image: true)` on Flutter) with the derived accessible name. The eight React packs each ship a `primitive-chart` template binding their own library (`@mantine/charts`, `@mui/x-charts`, recharts for shadcn/chakra), pulled into `package.json` only when a page charts; Vue, Svelte and Angular render a generated dependency-free `LoomChart` component from one `primitive-chart.hbs` in the framework's shared template layer (`vue/`, `sveltekit/`, `angular/`). `loom.target-unsupported#chart` names no shipping frontend today — it is the seam a new frontend gates on.
 
 ## The form family — `CreateForm`, `OperationForm`, `WorkflowForm`, `DestroyForm`
 
@@ -1193,7 +1193,7 @@ QueryView { of: Sales.Customer.all, data: rows => DataGrid {
   rows: rows, selection: picked, multiSort: true, columnVisibility: true, pageSize: 25, testid: "customers-grid" } }
 ```
 
-`selection:` must name a `string[]` field of the page's `state` (`loom.datagrid-selection-not-state`, `loom.datagrid-selection-not-array`). It ships on react, vue, svelte, angular and feliz; Phoenix (no client row model) and Flutter (no JS runtime) reject it with `loom.datagrid-unsupported-target` — use `Table`, whose sort and paging are server-driven there. The 15 JS packs each ship a `primitive-data-grid.hbs` for the chrome. Full design notes: [page-metamodel.md §9.1](../page-metamodel.md).
+`selection:` must name a `string[]` field of the page's `state` (`loom.datagrid-selection-not-state`, `loom.datagrid-selection-not-array`). It ships on react, vue, svelte, angular and feliz; Phoenix (no client row model) and Flutter (no JS runtime) reject it with `loom.target-unsupported#datagrid` — use `Table`, whose sort and paging are server-driven there. The 15 JS packs each ship a `primitive-data-grid.hbs` for the chrome. Full design notes: [page-metamodel.md §9.1](../page-metamodel.md).
 
 ## `For` — list comprehension
 
@@ -1435,15 +1435,16 @@ Feliz emits `let PageBox (props: {| title: string; children: ReactElement |}) = 
 
 ## Per-target honest gates
 
-Where a target cannot render a primitive the compiler says so — a `loom.*` error, never a blank spot:
+Where a target cannot render a primitive the compiler says so — a `loom.*` error, never a blank spot. The `loom.target-unsupported#<reason>` rows are read off the per-target capability table (`src/util/target-capabilities.ts`, each platform's `capabilities`), which gives every target a verdict per construct — supported, or refused with a reason:
 
 | Gate | Fires when |
 |---|---|
-| `loom.datagrid-unsupported-target` | `DataGrid` on `phoenixLiveView` or `flutter` |
+| `loom.target-unsupported#datagrid` | `DataGrid` on `phoenixLiveView` or `flutter` |
 | `loom.table-filter-unsupported` | `Table { filter: }` on `phoenixLiveView` |
 | `loom.table-filter-server-paged` | `filter:` on a `serverPaged: true` table (any target) |
 | `loom.modal-controlled-op-form-unsupported` | `Modal { open: …, OperationForm { … } }` on react / vue / svelte / flutter |
-| `loom.chart-unsupported-target` | `Chart` on a frontend with no chart renderer — none of the seven today |
+| `loom.target-unsupported#chart` | `Chart` on a frontend with no chart renderer — none of the seven today |
+| `loom.target-unsupported#entity-history-read` | `QueryView { of: <Agg>.history(id) }` on a frontend whose read layer does not collect the history read — none of the seven today |
 | `loom.flutter-primitive-unsupported` | a primitive the Flutter pack has no renderer for — none in the current registry (the message still names `FileUpload`, which now renders) |
 | `loom.user-component-deferred-target` | a `component` shape the Angular / Feliz emitter filters out — `slot` / `action` params, a Feliz body with `Action { … }`, a `byId` or store read, an Angular read fed by an `@Input()` ([15](15-ui-pages-structure.md)) |
 | `loom.heex-component-host-state-unsupported` | inputs / forms / queries / uploads / table controls inside a `component` on Phoenix — only `state` and named `action`s are lifted to the host LiveView |

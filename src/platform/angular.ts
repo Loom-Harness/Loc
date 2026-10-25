@@ -1,4 +1,5 @@
 import { API_BASE_PATH } from "../util/api-base.js";
+import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import { dispatchFrontendProject } from "./frontend-dispatch.js";
 import {
   type ComposeServiceShape,
@@ -34,6 +35,7 @@ const angularPlatform: PlatformSurface = {
   // Angular generator only emits API call services — no per-aggregate
   // repository class.  No find-name collisions are possible.
   reservedRepositoryFindNames: new Set(),
+  capabilities: TARGET_CAPABILITIES.angular,
   emitProject({
     contexts,
     sys,

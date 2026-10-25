@@ -35,7 +35,7 @@ describe("flutter pack format groundwork", () => {
     // renders inline (Track B/D) or defers to full parity.
     // `primitive-chart` is TSX-ONLY (M-T1.3 Phase 5): each react pack binds its
     // own charting library, and no flutter pack ships a chart template — `Chart`
-    // stays an honest `loom.chart-unsupported-target` gap here.
+    // stays an honest `loom.target-unsupported#chart` gap here.
     tsx.delete("primitive-chart");
     for (const name of tsx) {
       // Flutter builds with `flutter build`, so it ships a Dart `pubspec`

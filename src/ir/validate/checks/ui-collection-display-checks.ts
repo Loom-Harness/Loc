@@ -276,8 +276,7 @@ function walkRenderedPrimitives(
  *  EXPORTED so its own test can prove the gate still bites: with every
  *  shipping framework listed, "the check works" and "the check is unreachable"
  *  look identical from outside, and the only honest way to tell them apart is
- *  to remove one and watch the diagnostic come back — the same discipline
- *  `CHART_FRAMEWORKS` uses. */
+ *  to remove one and watch the diagnostic come back. */
 
 export const TABLE_FILTER_FRAMEWORKS: ReadonlySet<string> = new Set([
   "react",
@@ -794,7 +793,7 @@ function isStringArray(t: TypeIR): boolean {
 // permanently empty chart with no diagnostic).  Gated here instead, where the
 // projection inventory and its `wireShape` are resolved and the diagnostic
 // can name the fix.  Whether the TARGET can render a chart at all is
-// `validateChartSupport` (system-checks.ts) — same flavour/framework split as
+// the capability table's `primitive:Chart@body` row — same flavour/framework split as
 // the projection-read gates above.
 // -------------------------------------------------------------------------
 

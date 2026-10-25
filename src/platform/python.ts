@@ -1,4 +1,5 @@
 import { generatePythonForContexts } from "../generator/python/index.js";
+import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import {
   type ComposeServiceShape,
   EMBEDDABLE_FRAMEWORKS,
@@ -46,6 +47,7 @@ const pythonPlatform: PlatformSurface = {
   // `_to_wire`; a user find named `all` merges with the auto reader
   // the same way Hono's does).
   reservedRepositoryFindNames: new Set(["save", "findById", "getById", "delete"]),
+  capabilities: TARGET_CAPABILITIES.python,
   emitProject({
     contexts,
     deployable,

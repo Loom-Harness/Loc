@@ -4,6 +4,7 @@ import { ectoPersistenceAdapter } from "../generator/elixir/adapters/ecto-persis
 import { layeredStyleAdapter } from "../generator/elixir/adapters/layered-style.js";
 import { generateElixirProject } from "../generator/elixir/index.js";
 import { deterministicHex } from "../util/deterministic-secret.js";
+import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import type { ComposeServiceShape, PlatformSurface } from "./surface.js";
 
 // ---------------------------------------------------------------------------
@@ -53,6 +54,7 @@ const elixirPlatform: PlatformSurface = {
   // these would collide with the generated CRUD context function of the
   // same name (`get_<agg>` / `create_<agg>` / …).
   reservedRepositoryFindNames: new Set(["get", "read", "create", "update", "destroy"]),
+  capabilities: TARGET_CAPABILITIES.elixir,
   emitProject({
     contexts,
     deployable,

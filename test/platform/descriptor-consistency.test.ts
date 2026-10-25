@@ -37,6 +37,8 @@ describe("descriptor table pinned to the live surfaces", () => {
     expect([...d.reservedRepositoryFindNames].sort()).toEqual(
       [...surface.reservedRepositoryFindNames].sort(),
     );
+    // The capability table is the SAME object the validator reads, not a copy.
+    expect(d.capabilities).toBe(surface.capabilities);
   });
 
   it("allPlatformDescriptors yields the same reserved-find-name union as allPlatforms", () => {

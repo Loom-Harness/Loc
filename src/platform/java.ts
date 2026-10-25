@@ -5,6 +5,7 @@ import { jpaPersistenceAdapter } from "../generator/java/adapters/jpa-persistenc
 import { layeredStyleAdapter } from "../generator/java/adapters/layered-style.js";
 import { generateJavaForContexts } from "../generator/java/index.js";
 import { basePackageFor, javaPackageSegment } from "../generator/java/naming.js";
+import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import {
   type ComposeServiceShape,
   EMBEDDABLE_FRAMEWORKS,
@@ -45,6 +46,7 @@ const javaPlatform: PlatformSurface = {
   // across platforms (see `validateFindNameCollisions`) picks up the
   // difference.
   reservedRepositoryFindNames: new Set(["save", "findById", "getById", "delete", "findAll"]),
+  capabilities: TARGET_CAPABILITIES.java,
   emitProject({
     contexts,
     deployable,

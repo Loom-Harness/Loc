@@ -1,4 +1,5 @@
 import type { Platform } from "../ir/types/loom-ir.js";
+import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import {
   EMBEDDABLE_FRAMEWORKS,
   type PlatformDescriptor,
@@ -158,6 +159,7 @@ const reactDescriptor: PlatformDescriptor = {
   isFrontend: true,
   hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
   reservedRepositoryFindNames: new Set(),
+  capabilities: TARGET_CAPABILITIES.react,
 };
 
 const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
@@ -169,6 +171,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     isFrontend: false,
     hostableFrameworks: EMBEDDABLE_FRAMEWORKS,
     reservedRepositoryFindNames: new Set(["saveAsync", "getByIdAsync"]),
+    capabilities: TARGET_CAPABILITIES.dotnet,
   },
   node: {
     name: "node",
@@ -178,6 +181,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     isFrontend: false,
     hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
     reservedRepositoryFindNames: new Set(["save", "findById", "getById", "delete"]),
+    capabilities: TARGET_CAPABILITIES.node,
   },
   react: reactDescriptor,
   // `static` is React's UI-only alias — same surface, same descriptor.
@@ -190,6 +194,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     isFrontend: true,
     hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
     reservedRepositoryFindNames: new Set(),
+    capabilities: TARGET_CAPABILITIES.svelte,
   },
   vue: {
     name: "vue",
@@ -199,6 +204,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     isFrontend: true,
     hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
     reservedRepositoryFindNames: new Set(),
+    capabilities: TARGET_CAPABILITIES.vue,
   },
   angular: {
     name: "angular",
@@ -208,6 +214,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     isFrontend: true,
     hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
     reservedRepositoryFindNames: new Set(),
+    capabilities: TARGET_CAPABILITIES.angular,
   },
   // Feliz (Fable/F#/Elmish MVU) — a frontend whose bundle is built via
   // `dotnet fable` + `vite`, NOT the vite-only static pipeline, so it hosts
@@ -220,6 +227,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     isFrontend: true,
     hostableFrameworks: new Set(["feliz"]),
     reservedRepositoryFindNames: new Set(),
+    capabilities: TARGET_CAPABILITIES.feliz,
   },
   // Flutter (Dart/Material) mobile+web target — a self-hosting frontend built
   // by the Flutter SDK (`flutter build web`), NOT the vite-only static
@@ -234,6 +242,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     isFrontend: true,
     hostableFrameworks: new Set(["flutter"]),
     reservedRepositoryFindNames: new Set(),
+    capabilities: TARGET_CAPABILITIES.flutter,
   },
   elixir: {
     name: "elixir",
@@ -251,6 +260,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
       "feliz",
     ]),
     reservedRepositoryFindNames: new Set(["get", "read", "create", "update", "destroy"]),
+    capabilities: TARGET_CAPABILITIES.elixir,
   },
   python: {
     name: "python",
@@ -260,6 +270,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     isFrontend: false,
     hostableFrameworks: EMBEDDABLE_FRAMEWORKS,
     reservedRepositoryFindNames: new Set(["save", "findById", "getById", "delete"]),
+    capabilities: TARGET_CAPABILITIES.python,
   },
   java: {
     name: "java",
@@ -269,6 +280,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     isFrontend: false,
     hostableFrameworks: EMBEDDABLE_FRAMEWORKS,
     reservedRepositoryFindNames: new Set(["save", "findById", "getById", "delete", "findAll"]),
+    capabilities: TARGET_CAPABILITIES.java,
   },
 };
 

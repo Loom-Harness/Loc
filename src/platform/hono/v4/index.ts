@@ -9,6 +9,7 @@ import type {
   PlatformAdapterDefaults,
   PlatformAdapters,
 } from "../../../generator/_adapters/index.js";
+import { TARGET_CAPABILITIES } from "../../../util/target-capabilities.js";
 import {
   type ComposeServiceShape,
   type PlatformSurface,
@@ -41,6 +42,7 @@ export function makeHonoPlatform(pins: BackendPins): PlatformSurface {
     // one of these names would compile-error with TS2393 "Duplicate
     // function implementation".
     reservedRepositoryFindNames: new Set(["save", "findById", "getById", "delete"]),
+    capabilities: TARGET_CAPABILITIES.node,
     emitProject({
       contexts,
       deployable,

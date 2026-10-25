@@ -1,5 +1,6 @@
 import { generateFlutterForContexts } from "../generator/flutter/index.js";
 import { API_BASE_PATH } from "../util/api-base.js";
+import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import type { ComposeServiceShape, PlatformSurface } from "./surface.js";
 
 // ---------------------------------------------------------------------------
@@ -34,6 +35,7 @@ const flutterPlatform: PlatformSurface = {
   // the static-bundle hosts share.  Must equal the metadata descriptor.
   hostableFrameworks: new Set(["flutter"]),
   reservedRepositoryFindNames: new Set(),
+  capabilities: TARGET_CAPABILITIES.flutter,
   emitProject({ contexts, sys, deployable, sourcemap }): Map<string, string> {
     // `sourcemap` is forwarded exactly as react/vue/svelte/angular forward it —
     // Flutter records one region per emitted page file and one per user

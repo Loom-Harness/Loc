@@ -1,4 +1,5 @@
 import { API_BASE_PATH } from "../util/api-base.js";
+import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import { dispatchFrontendProject } from "./frontend-dispatch.js";
 import {
   type ComposeServiceShape,
@@ -19,6 +20,7 @@ const reactPlatform: PlatformSurface = {
   // React generator only emits API hooks — no per-aggregate
   // repository class.  No find-name collisions are possible.
   reservedRepositoryFindNames: new Set(),
+  capabilities: TARGET_CAPABILITIES.react,
   emitProject({
     contexts,
     sys,
