@@ -1244,7 +1244,7 @@ export function buildRoutesFile(
     lines.push(`    }),`);
     lines.push(`    async (c) => {`);
     lines.push(`      const { id } = c.req.valid("param");`);
-    // M-T3.19 — the author's `find byId(id: T id): T? requires <expr>` gates
+    // The aggregate's read gate (`policy { read T requires <expr> }`) gates
     // this route.  Evaluated BEFORE the load, so a refused caller gets 403 for
     // an existing and a missing id alike (no existence oracle); same carrier and
     // `detail` label as the find's own route (`emitFindRoute`).

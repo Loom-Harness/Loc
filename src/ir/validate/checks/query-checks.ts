@@ -375,8 +375,8 @@ export function validateRetrievals(ctx: BoundedContextIR, diags: LoomDiagnostic[
 }
 
 // ---------------------------------------------------------------------------
-// Read `requires` gate (D-AUTH-OIDC / default-deny).  A repository find's
-// optional `requires <expr>` is an authorization gate evaluated against
+// Read `requires` gate (D-AUTH-OIDC / default-deny).  A read gate (the policy
+// `read X requires <expr>`, a projection's `requires`) is evaluated against
 // `currentUser` *before* the query runs — failure → 403.  Because no row exists
 // at gate time, the gate may reference only `currentUser` (+ constants), never
 // the source row.  Reject row-state references (this-prop / this-vo-prop /
@@ -395,34 +395,59 @@ export const GATE_ALLOWED_REFS: ReadonlySet<RefKind> = new Set<RefKind>([
   "helper-fn",
 ]);
 
-// Find `requires` gate (D-AUTH-OIDC / default-deny).
-// A repository find's optional `requires <expr>` runs before
-// the query; because no row exists yet it may reference only `currentUser`
-// (+ constants), never the source row.  Reject any source-row reference (which
-// lowers to an `unknown` ref in the bare gate env).
-export function validateFindGates(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
-  for (const repo of ctx.repositories) {
-    for (const find of repo.finds) {
-      if (!find.requires) continue;
-      const offending = firstNonGateRef(find.requires, GATE_ALLOWED_REFS);
-      if (offending !== null) {
-        diags.push({
-          severity: "error",
-          code: "loom.find-gate-not-current-user",
-          message: diagMessage("loom.find-gate-not-current-user", {
-            name: repo.name,
-            findName: find.name,
-            offending,
-          }),
-          source: `find/${repo.name}.${find.name}`,
-          origin: repo.origin,
-        });
-      }
+// The policy read gate (`policy { read X requires <expr> }`).  It runs before
+// the load; because no row exists yet it may reference only `currentUser`
+// (+ constants), never the source row (which lowers to an `unknown` ref in the
+// bare gate env).  It also must name an aggregate of this context, once.
+export function validatePolicyReadGates(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
+  const seen = new Set<string>();
+  for (const rule of ctx.policyReadGates ?? []) {
+    const source = `${ctx.name}/policy/read ${rule.aggregate}`;
+    if (seen.has(rule.aggregate)) {
+      diags.push({
+        severity: "error",
+        code: "loom.policy-duplicate-target",
+        message: diagMessage("loom.policy-duplicate-target#read-gate", {
+          name: ctx.name,
+          aggregate: rule.aggregate,
+        }),
+        source,
+        origin: rule.origin ?? ctx.origin,
+      });
+      continue;
+    }
+    seen.add(rule.aggregate);
+    if (!ctx.aggregates.some((a) => a.name === rule.aggregate)) {
+      diags.push({
+        severity: "error",
+        code: "loom.policy-unknown-aggregate",
+        message: diagMessage("loom.policy-unknown-aggregate#read-gate", {
+          name: ctx.name,
+          aggregate: rule.aggregate,
+        }),
+        source,
+        origin: rule.origin ?? ctx.origin,
+      });
+      continue;
+    }
+    const offending = firstNonGateRef(rule.gate, GATE_ALLOWED_REFS);
+    if (offending !== null) {
+      diags.push({
+        severity: "error",
+        code: "loom.policy-read-gate-not-current-user",
+        message: diagMessage("loom.policy-read-gate-not-current-user", {
+          name: ctx.name,
+          aggregate: rule.aggregate,
+          offending,
+        }),
+        source,
+        origin: rule.origin ?? ctx.origin,
+      });
     }
   }
 }
 
-// Projection `requires` gate — the projection twin of the find gate.  The gate
+// Projection `requires` gate — the projection twin of the policy read gate.  The gate
 // runs before the read; because no row exists yet it may reference only
 // `currentUser` (+ constants), never the projection row or the source row.
 //

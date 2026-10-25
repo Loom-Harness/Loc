@@ -16,11 +16,14 @@
 //   - loom.criterion-cycle — `criterion A = B` / `criterion B = A`.
 //   - loom.criterion-arity — a criterion call supplies the wrong number
 //     of arguments.
+//   - loom.criterion-retrieval-name-clash — a criterion and a retrieval in
+//     one context share a name.
 
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import {
   type Aggregate,
+  type BoundedContext,
   type Criterion,
   isAggregate,
   isBoundedContext,
@@ -34,6 +37,7 @@ import {
   isPostfixChain,
   isPrimitiveType,
   isRepository,
+  isRetrieval,
   type Model,
   type NameRef,
 } from "../generated/ast.js";
@@ -62,10 +66,31 @@ function isBoolTarget(c: Criterion): boolean {
 
 export function checkCriteria(model: Model, accept: ValidationAcceptor): void {
   for (const node of AstUtils.streamAllContents(model)) {
+    if (isBoundedContext(node)) checkCriterionRetrievalClash(node, accept);
     if (!isCriterion(node)) continue;
     checkOneCriterion(node, accept);
   }
   checkCriterionUseSites(model, accept);
+}
+
+/** loom.criterion-retrieval-name-clash — a `criterion` and a `retrieval` in one
+ *  context may not share a name.  `Repo.run(<Name>(args))`, `scaffoldPaged(of:
+ *  <Name>)` and a retrieval's `where: <Name>` all resolve the bare name, and a
+ *  name that is both would have to pick one silently (D-LIST-FIND-REMOVED).
+ *  The retrieval carries the diagnostic: it is the one that bundles the
+ *  criterion, so renaming it is the usual fix. */
+function checkCriterionRetrievalClash(ctx: BoundedContext, accept: ValidationAcceptor): void {
+  const criteria = new Set<string>();
+  for (const m of ctx.members) if (isCriterion(m)) criteria.add(m.name);
+  if (criteria.size === 0) return;
+  for (const m of ctx.members) {
+    if (!isRetrieval(m) || !criteria.has(m.name)) continue;
+    accept(
+      "error",
+      diagMessage("loom.criterion-retrieval-name-clash", { name: m.name, context: ctx.name }),
+      { node: m, property: "name", code: "loom.criterion-retrieval-name-clash" },
+    );
+  }
 }
 
 function checkOneCriterion(c: Criterion, accept: ValidationAcceptor): void {

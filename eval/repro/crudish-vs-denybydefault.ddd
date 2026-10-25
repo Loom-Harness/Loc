@@ -5,7 +5,8 @@ system X {
   auth { enforcement: denyByDefault  oidc { issuer: env("I") clientId: env("C") } }
   subdomain S { context C {
     aggregate Project with crudish { name: string  derived display: string = name }
-    repository Projects for Project { find all(): Project[] requires true }
+    repository Projects for Project { find all(): Project[] }
+    policy { read Project requires true }
   } }
   storage p { type: postgres }
   resource r { for: C, kind: state, use: p }

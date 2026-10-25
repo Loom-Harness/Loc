@@ -47,8 +47,9 @@ const SRC = `system S {
         operation archive() when tags.contains("archivable") { status := "archived" }
       }
       repository Orders for Order {
-        find all(): Order[] requires currentUser.permissions.contains(permissions.readOrders)
+        find all(): Order[]
       }
+      policy { read Order requires currentUser.permissions.contains(permissions.readOrders) }
     }
   }
   api SalesApi from Sales

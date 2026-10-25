@@ -77,9 +77,10 @@ system TitleCensus {
         }
       }
       repository Items for Item {
-        find all(): Item[] requires currentUser.level > 2
+        find all(): Item[]
         find byName(n: string): Item? where this.name == n
       }
+      policy { read Item requires currentUser.level > 2 }
     }
   }
   api A from S ${apiBody}

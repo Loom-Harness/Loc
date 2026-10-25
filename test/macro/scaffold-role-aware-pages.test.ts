@@ -6,14 +6,14 @@
 //     columns drop and the column count is capped (Detail keeps everything);
 //   * Detail shows `derived` values read-only;
 //   * a parameterless list `find` the author declared gets its own page, gated
-//     by the find's `requires`, with a sidebar entry;
+//     by the aggregate's `policy { read X requires … }`, with a sidebar entry;
 //   * Home offers no card for a List the principal may be refused;
 //   * an operation whose `requires` reads only `currentUser` hides its Detail
 //     trigger for a principal it refuses — on every frontend, as `Action`
 //     already did.
 
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles } from "../_helpers/index.js";
+import { generateSystemFiles, generateSystemFilesUnchecked } from "../_helpers/index.js";
 
 type Framework = "react" | "vue" | "svelte" | "angular" | "feliz" | "flutter";
 
@@ -56,12 +56,13 @@ const DOMAIN = `
     repository Customers for Customer { }
     repository Tags for Tag { }
     repository Tickets for Ticket {
-      find all(): Ticket[] requires currentUser.role == "agent"
-      find unassigned(): Ticket[] requires currentUser.role == "agent" where status == Open
-      find mine(): Ticket[] requires currentUser.customerId != null
+      find all(): Ticket[]
+      find unassigned(): Ticket[] where status == Open
+      find mine(): Ticket[]
         where customer == currentUser.customerId
       find bySubject(s: string): Ticket[] where subject == s
     }
+    policy { read Ticket requires currentUser.role == "agent" }
   } }
   api A from Sup
   storage db { type: postgres }
@@ -158,7 +159,7 @@ describe("pages for declared parameterless list finds (U3)", () => {
     expect(app).toContain(
       '<Route path="/tickets/views/unassigned" element={<TicketsUnassigned />} />',
     );
-    // The nav entry carries the find's own gate.
+    // The nav entry carries the aggregate's read gate.
     expect(app).toMatch(
       /\{\(currentUser\.role === "agent"\) \? <NavLink component=\{RouterLink\} to="\/tickets\/views\/unassigned"/,
     );
@@ -169,10 +170,21 @@ describe("pages for declared parameterless list finds (U3)", () => {
     expect(files.has("web/src/pages/tickets/by_subject.tsx")).toBe(false);
   });
 
-  it("skips a find whose gate a page cannot evaluate rather than emit a refused gate", async () => {
-    // `!= null` is outside the client gate subset (loom.ui-gate-expr-unsupported).
-    const files = await generateSystemFiles(spa("react"));
+  it("emits no view page for a read gate a page cannot evaluate (the List page reports it once)", async () => {
+    // `!= null` is outside the client gate subset: the List page's copy of the
+    // gate is refused (loom.ui-gate-expr-unsupported), and the view pages add
+    // no second copy of the same refusal.
+    const gated = spa("react").replace(
+      'policy { read Ticket requires currentUser.role == "agent" }',
+      "policy { read Ticket requires currentUser.customerId != null }",
+    );
+    expect(gated).toContain("currentUser.customerId != null }");
+    const files = await generateSystemFilesUnchecked(
+      gated,
+      "the List page's unevaluable read gate is the error; the subject is that no view page repeats it",
+    );
     expect(files.has("web/src/pages/tickets/mine.tsx")).toBe(false);
+    expect(files.has("web/src/pages/tickets/unassigned.tsx")).toBe(false);
   });
 });
 

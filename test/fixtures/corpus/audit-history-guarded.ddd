@@ -73,8 +73,9 @@ system AuditHistoryGuarded {
         }
       }
       repository Payslips for Payslip {
-        find all(): Payslip[] requires currentUser.role == "agent"
+        find all(): Payslip[]
       }
+      policy { read Payslip requires currentUser.role == "agent" }
 
       // The UNAUDITED sibling — same context, same deployable, no history.
       aggregate Desk {

@@ -67,28 +67,6 @@ const WAIVERS: Record<string, Waiver> = {
     reason:
       "the e2e test client's verbs and the ui data-handle path (`Ctx.Agg.findAll`), both API-surface vocabularies",
   },
-  // Per-platform reserved find names are removed outright by the
-  // reserved-find-names slice (emitters escape a clashing name instead).
-  "src/platform/metadata.ts": {
-    count: 3,
-    reason: "per-platform reserved repository find names",
-    blockedBy: "#3481",
-  },
-  "src/platform/java.ts": {
-    count: 1,
-    reason: "per-platform reserved repository find names",
-    blockedBy: "#3481",
-  },
-  "src/platform/python.ts": {
-    count: 1,
-    reason: "per-platform reserved repository find names",
-    blockedBy: "#3481",
-  },
-  "src/platform/hono/v4/index.ts": {
-    count: 1,
-    reason: "per-platform reserved repository find names",
-    blockedBy: "#3481",
-  },
 };
 
 function walk(dir: string, out: string[]): void {

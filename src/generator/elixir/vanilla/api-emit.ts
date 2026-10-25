@@ -434,8 +434,8 @@ ${indexBody}
     : `  def index(conn, ${indexParamArg}) do
 ${cuBind}${indexCuBind}${indexBody}
   end`;
-  // The BY-ID read's authorization gate (M-T3.19) — the author's
-  // `find byId(id: T id): T? requires <expr>`.  403 BEFORE the load, so a
+  // The BY-ID read's authorization gate — the aggregate's
+  // `policy { read T requires <expr> }` (`byIdRouteFind`).  403 BEFORE the load, so a
   // refused caller cannot tell an existing id from a missing one; same
   // denial carrier + `detail` label as the list gate above and the find's own
   // `by_id` action (`renderFindActions`).

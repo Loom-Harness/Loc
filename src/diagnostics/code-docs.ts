@@ -204,6 +204,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.unmapped-error-status":
     "09-payloads-and-unions.md#error--httpstatus--exception-less-problemdetails",
   "loom.criterion-impure": "10-repositories-and-queries.md#criterion",
+  "loom.criterion-retrieval-name-clash": "10-repositories-and-queries.md#retrieval",
   "loom.integer-literal-imprecise": "04-type-system.md#numeric-representation-rules",
   "loom.projection-select-duration": "04-type-system.md#duration--expression-only",
   "loom.projection-aggregate-arg-not-columnar": "10-repositories-and-queries.md#grouped--group-by",
@@ -424,6 +425,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.create-call-field-not-in-create":
     "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.default-deny-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
+  "loom.policy-read-gate-not-current-user": "17-auth.md#read--who-may-read-an-aggregate",
+  "loom.policy-unknown-rule": "17-auth.md#read--who-may-read-an-aggregate",
   "loom.default-deny-by-id-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.default-deny-list-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.policy-out-of-scope": "17-auth.md#named-policy-functions",

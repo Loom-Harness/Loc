@@ -19,7 +19,16 @@
 
 import { AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
-import { type FindDecl, isFindDecl, isProjection, type Model } from "../generated/ast.js";
+import {
+  type Expression,
+  type FindDecl,
+  isFindDecl,
+  isPolicyReadRule,
+  isProjection,
+  type Model,
+  type PolicyReadRule,
+  type Projection,
+} from "../generated/ast.js";
 import { envForNode, typeOf, typeToString } from "../type-system.js";
 
 /** A read-path `requires <expr>` authorization gate must type to bool, exactly
@@ -29,8 +38,8 @@ import { envForNode, typeOf, typeToString } from "../type-system.js";
  *  types precisely (`type-system.ts`), a bare
  *  `requires currentUser.permissions.contains(permissions.x)` gate passes. */
 function checkGateIsBool(
-  gate: FindDecl["gate"],
-  node: FindDecl | import("../generated/ast.js").Projection,
+  gate: Expression | undefined,
+  node: PolicyReadRule | Projection,
   accept: ValidationAcceptor,
 ): void {
   if (!gate) return;
@@ -44,6 +53,9 @@ function checkGateIsBool(
   }
 }
 
+/** The words a `policy { }` rule may start with. */
+const POLICY_RULE_HEADS: ReadonlySet<string> = new Set(["allow", "deny", "read"]);
+
 /** A find whose return type is a COLLECTION — an array (`T[]`) or the `paged`
  *  list carrier (`T paged`).  These are list queries; a single (`T`) or
  *  optional-single (`T?`) return is reconstitution, not a list. */
@@ -55,25 +67,25 @@ function returnsCollection(find: FindDecl): boolean {
 
 export function checkRepositoryFinds(model: Model, accept: ValidationAcceptor): void {
   for (const node of AstUtils.streamAllContents(model)) {
-    // Read-path `requires` gate bool check — the find and query-time projection
-    // (the "view" successor) gates, the read-side twins of the operation gate.
-    if (isProjection(node)) {
+    // Read-path `requires` gate bool check — the policy read gate
+    // (`policy { read X requires … }`) and the query-time projection gate,
+    // the read-side twins of the operation gate.
+    if (isPolicyReadRule(node) && !POLICY_RULE_HEADS.has(node.effect)) {
+      // `read` heads the gate rule as an identifier, not a keyword, so any
+      // other word parses there too — refuse it by name.
+      accept("error", diagMessage("loom.policy-unknown-rule", { word: node.effect }), {
+        node,
+        property: "effect",
+        code: "loom.policy-unknown-rule",
+      });
+      continue;
+    }
+    if (isProjection(node) || isPolicyReadRule(node)) {
       checkGateIsBool(node.gate, node, accept);
       continue;
     }
     if (!isFindDecl(node)) continue;
-    checkGateIsBool(node.gate, node, accept);
     if (!returnsCollection(node)) continue;
-    // `find all` is NOT a bespoke list finder — it is the aggregate's own
-    // compiler-synthesised list route, and DECLARING it is the one documented
-    // way to put a `requires` gate on that route (auth.md: "the auto-injected
-    // `find all` list route ... Declaring an explicit `find all(): T[] requires
-    // <expr>` gates that route, and does so on all five backends").  Warning on
-    // it told the reader that the fix for an ungated list read is deprecated —
-    // two shipped rules contradicting each other, with security on the losing
-    // side.  A criterion/retrieval cannot replace it: neither is reachable from
-    // that route.
-    if (node.name === "all") continue;
     accept("warning", diagMessage("loom.repository-find-deprecated", { name: node.name }), {
       node,
       property: "name",

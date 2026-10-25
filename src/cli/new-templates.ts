@@ -392,12 +392,11 @@ a \`requires <expr>\` gate, or the build fails with
 \`loom.default-deny-ungated\`.  \`requires true\` is the explicit
 "intentionally public" escape.  Two things to know:
 
-- The two synthesised reads need a gate too — declare them on the
-  repository and the gate lands on the route:
-  \`find all(): <T> paged requires <expr>\` gates \`GET /api/<plural>\`, and
-  \`find byId(id: <T> id): <T>? requires <expr>\` gates
-  \`GET /api/<plural>/{id}\`.  Undeclared (or ungated), each is refused at
-  runtime (403) and the build *warns*
+- Reads need a gate too — one line per aggregate in the context's
+  \`policy\` block, \`policy { read <T> requires <expr> }\`, gates every read
+  of it (\`GET /api/<plural>\`, \`GET /api/<plural>/{id}\`, each find).
+  Ungated, the list and by-id reads are refused at runtime (403) and the
+  build *warns*
   (\`loom.default-deny-list-ungated\` / \`loom.default-deny-by-id-ungated\`);
   the warnings become errors in a later release.
 - \`with crudish\` generates create/update/destroy — gate them by naming a

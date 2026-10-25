@@ -267,32 +267,31 @@ system Helpdesk {
         sort: [createdAt asc]
       }
 
-      repository Customers for Customer {
-        find all(): Customer paged requires currentUser.role == "agent"
-      }
-      repository Agents for Agent {
-        find all(): Agent paged requires currentUser.role == "agent"
-      }
-      repository Categories for Category {
-        find all(): Category paged requires currentUser.role == "agent"
-      }
+      repository Customers for Customer {}
+      policy { read Customer requires currentUser.role == "agent" }
+      repository Agents for Agent {}
+      policy { read Agent requires currentUser.role == "agent" }
+      repository Categories for Category {}
+      policy { read Category requires currentUser.role == "agent" }
       repository InternalNotes for InternalNote {
-        find all(): InternalNote paged requires currentUser.role == "agent"
-        find forTicket(ticket: Ticket id): InternalNote[] requires currentUser.role == "agent"
+        find forTicket(ticket: Ticket id): InternalNote[]
       }
-      repository SlaSweeps for SlaSweep {
-        find all(): SlaSweep paged requires currentUser.role == "agent"
-      }
+      policy { read InternalNote requires currentUser.role == "agent" }
+      repository SlaSweeps for SlaSweep {}
+      policy { read SlaSweep requires currentUser.role == "agent" }
       repository Tickets for Ticket {
-        find byNumber(number: string): Ticket? requires currentUser.role == "agent"
-        find all(): Ticket paged requires currentUser.role == "agent"
-        find myQueue(): Ticket[] requires currentUser.role == "agent"
+        find byNumber(number: string): Ticket?
+        find myQueue(): Ticket[]
           where assignee == currentUser.agentId && status != Resolved && status != Closed
-        find unassigned(): Ticket[] requires currentUser.role == "agent"
+        find unassigned(): Ticket[]
           where assignee == null && status == Open
-        find mine(): Ticket[] requires currentUser.customerId != null
+        find mine(): Ticket[]
           where customer == currentUser.customerId
       }
+      // One read gate per aggregate: `mine` is agent-gated like every other Ticket
+      // read. A customer's own-ticket view needs its own exposure (a queryHandler
+      // with `requires currentUser.customerId != null` over a criterion).
+      policy { read Ticket requires currentUser.role == "agent" }
     }
   }
 

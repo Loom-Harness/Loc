@@ -30,7 +30,8 @@ system W {
       create(subject: string, priority: Priority) { requires true }
       operation escalate() { priority := High  emit TicketEscalated { ticket: id } }
     }
-    repository Tickets for Ticket { find all(): Ticket paged requires true }
+    repository Tickets for Ticket {}
+    policy { read Ticket requires true }
     aggregate Note {
       body: string
       writtenAt: datetime managed

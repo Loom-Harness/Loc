@@ -25,7 +25,7 @@ import { IDENTIFIER } from "./rename";
 // ---------------------------------------------------------------------------
 // Operation / find HEADER editing — the signature surface around a body:
 // parameters, return type, the `requires` / `when` gates, the `private` /
-// `extern` / `audited` modifiers, and a find's `requires` gate + `ignoring`
+// `extern` / `audited` modifiers, and a find's `ignoring`
 // clause.  `body.ts` owns everything INSIDE the braces; this module owns
 // everything before them.
 //
@@ -38,7 +38,7 @@ import { IDENTIFIER } from "./rename";
 // The grammar order of the header is fixed:
 //
 //   [private] operation name(params) [extern] [audited] [: T] [requires e] [when e] { … }
-//   find name(params): T [requires e] [where e] [ignoring * | A, B]
+//   find name(params): T [where e] [ignoring * | A, B]
 //
 // so adding a clause is an insertion at the END of the last preceding element
 // (never "somewhere after the parens"), and removing one deletes from that same
@@ -188,7 +188,6 @@ export interface FindSurface {
   params: ParamInfo[];
   returnType: TypeSpec;
   returnTypeText: string;
-  requires: string | null;
   where: string | null;
   /** `"*"` for `ignoring *`, the capability names for `ignoring A, B`, null
    *  when the clause is absent. */
@@ -203,7 +202,6 @@ export function findSurface(ast: Model, repo: string, find: string): FindSurface
     params: node.params.map(paramInfo),
     returnType: specOf(node.returnType),
     returnTypeText: node.returnType.$cstNode?.text.trim() ?? "",
-    requires: node.gate?.$cstNode?.text.trim() ?? null,
     where: node.filter?.$cstNode?.text.trim() ?? null,
     ignoring: node.bypassAll ? "*" : node.bypass.length > 0 ? [...node.bypass] : null,
   };
@@ -439,41 +437,14 @@ export function setOpModifier(
 
 // --- find header -----------------------------------------------------------
 
-/** End offset of the last `find` header element before `stop`. */
-function findAnchorBefore(find: FindDecl, stop: "requires" | "ignoring"): number | null {
+/** End offset of the last `find` header element before the `ignoring`
+ *  clause (a find carries no gate: who may read the aggregate is
+ *  `policy { read X requires … }`). */
+function findAnchorBefore(find: FindDecl): number | null {
   let at = find.returnType.$cstNode?.end;
   if (at === undefined) return null;
-  if (stop === "requires") return at;
-  if (find.gate?.$cstNode) at = find.gate.$cstNode.end;
   if (find.filter?.$cstNode) at = find.filter.$cstNode.end;
   return at;
-}
-
-/** Add / replace / remove a find's `requires` gate (it sits between the return
- *  type and the `where` filter, so an insertion never disturbs the filter). */
-export function setFindGate(
-  source: string,
-  repo: string,
-  find: string,
-  exprText: string | null,
-): string | null {
-  const node = locateFind(source, repo, find);
-  if (!node) return null;
-  const existing = node.gate?.$cstNode;
-  if (exprText === null) {
-    if (!existing) return source;
-    const from = findAnchorBefore(node, "requires");
-    if (from === null) return null;
-    return ifParses(applyEdits(source, [{ offset: from, end: existing.end, newText: "" }]));
-  }
-  const text = exprText.trim();
-  if (!text) return null;
-  if (existing) {
-    return ifParses(applyEdits(source, [{ offset: existing.offset, end: existing.end, newText: text }]));
-  }
-  const at = findAnchorBefore(node, "requires");
-  if (at === null) return null;
-  return ifParses(applyEdits(source, [{ offset: at, end: at, newText: ` requires ${text}` }]));
 }
 
 /** Span of an existing `ignoring …` clause — the keyword through its last
@@ -509,7 +480,7 @@ export function setFindIgnoring(
   const drop = spec === null || (spec !== "*" && names.length === 0);
   if (drop) {
     if (!existing) return source;
-    const from = findAnchorBefore(node, "ignoring");
+    const from = findAnchorBefore(node);
     if (from === null) return null;
     return ifParses(applyEdits(source, [{ offset: from, end: existing.end, newText: "" }]));
   }
@@ -520,7 +491,7 @@ export function setFindIgnoring(
       applyEdits(source, [{ offset: existing.offset, end: existing.end, newText: clause }]),
     );
   }
-  const at = findAnchorBefore(node, "ignoring");
+  const at = findAnchorBefore(node);
   if (at === null) return null;
   return ifParses(applyEdits(source, [{ offset: at, end: at, newText: ` ${clause}` }]));
 }

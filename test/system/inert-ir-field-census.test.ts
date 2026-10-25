@@ -81,6 +81,10 @@ const NO_DOWNSTREAM_READER: readonly string[] = [
   "keyPrefix",
   "loadPlan",
   "policyDenies",
+  // `policy { read X requires … }`: consumed by enrichment
+  // (`applyPolicyReadGates`), which puts the gate on every find's `requires` —
+  // the carrier every route emitter renders.
+  "policyReadGates",
   "policyReadLevels",
   "policyWriteLevels",
   "priority",

@@ -78,9 +78,10 @@ aggregate Ticket {
   operation close() when isOpen { requires currentUser.role == "agent" || currentUser.customerId == customer … }
 }
 repository Tickets for Ticket {
-  find all(): Ticket[] requires currentUser.role == "agent"
-  find unassigned(): Ticket[] requires currentUser.role == "agent" where assignee == null
+  find all(): Ticket[]
+  find unassigned(): Ticket[] where assignee == null
 }
+policy { read Ticket requires currentUser.role == "agent" }
 ```
 
 - **List columns.** The row's label — `derived display: string`, the name
@@ -109,8 +110,9 @@ repository Tickets for Ticket {
   `area Tickets { page Unassigned { route: "/tickets/views/unassigned"
   requires currentUser.role == "agent" … } }` with a sidebar entry
   "Tickets: Unassigned".  A find with parameters stays a filter-bar arm on the
-  List page.  A find whose gate the browser cannot evaluate (a `null` literal,
-  a `policy` reference, a call other than `.contains`) gets no page, since the
+  List page.  Each view page carries the aggregate's `policy { read … }`
+  gate; when the browser cannot evaluate it (a `null` literal, a `policy`
+  reference, a call other than `.contains`) no view page is emitted, since the
   page gate check would refuse its copy.
 
 - **Home cards.** Home links only to List pages with no `requires`.  A gated

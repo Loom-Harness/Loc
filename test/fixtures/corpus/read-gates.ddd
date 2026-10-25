@@ -58,13 +58,14 @@ system ReadGates {
       repository Orders for Order {
         // (1) The LIST read, gated.  An author-declared `find all` wins over
         // the enrichment-injected one, gate included.
-        find all(): Order[] requires currentUser.role == "agent"
+        find all(): Order[]
         // (4) The BY-ID read, gated (M-T3.19).  `GET /api/orders/{id}` is
         // compiler-derived; declaring the by-id SHAPE here is its gate surface,
         // and every backend renders the gate on the `/{id}` route before the
         // load.
-        find byId(id: Order id): Order? requires currentUser.role == "agent"
+        find byId(id: Order id): Order?
       }
+      policy { read Order requires currentUser.role == "agent" }
       // NB: the correlation column is `orderRef`, not `order` — `order` is a
       // reserved SQL word and identifier quoting in the projection read-model
       // DDL/DML is not uniform across backends (see projection.ddd).  That is

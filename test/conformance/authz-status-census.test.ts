@@ -45,11 +45,12 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { gateSites, type VariantId } from "../ir/authz-emitted-census.js";
 
-/** One aggregate with BOTH an operation `requires` gate and a declared-find
- *  `requires` gate, under `auth: required`, so all three authz arms are emitted:
+/** One aggregate with BOTH an operation `requires` gate and a policy read gate
+ *  (`policy { read Item requires … }`) on a declared find, under
+ *  `auth: required`, so all three authz arms are emitted:
  *
  *    operation bump() requires …  → the 403 arm on a WRITE  (detail agrees)
- *    find openOnes() requires …   → the 403 arm on a READ   (detail diverges)
+ *    find openOnes() (read gate)  → the 403 arm on a READ   (detail diverges)
  *    auth: required               → the 401 arm on every route (no envelope)
  *
  *  The context is fixed to `S` so elixir's domain module is a stable `s.ex`.
@@ -69,8 +70,9 @@ system Census {
         }
       }
       repository Items for Item {
-        find openOnes(): Item[] requires currentUser.level > 2 where this.qty > 0
+        find openOnes(): Item[] where this.qty > 0
       }
+      policy { read Item requires currentUser.level > 2 }
     }
   }
   api A from S
@@ -394,8 +396,9 @@ system Census {
         name: string
       }
       repository Items for Item {
-        find all(): Item[] requires currentUser.level > 2
+        find all(): Item[]
       }
+      policy { read Item requires currentUser.level > 2 }
     }
   }
   api A from S

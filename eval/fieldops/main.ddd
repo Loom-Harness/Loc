@@ -71,9 +71,8 @@ system FieldOps {
           name := name
         }
       }
-      repository Organizations for Organization {
-        find all(): Organization paged requires currentUser.role != "none"
-      }
+      repository Organizations for Organization {}
+      policy { read Organization requires currentUser.role != "none" }
     }
   }
 
@@ -275,25 +274,21 @@ system FieldOps {
       criterion OpenWorkOrders() of WorkOrder = this.status != Completed && this.status != Cancelled
       criterion ForTechnician(t: Technician id) of WorkOrder = this.technicianId == t
 
-      repository Customers for Customer {
-        find all(): Customer paged requires currentUser.role != "none"
-      }
-      repository Sites for Site {
-        find all(): Site paged requires currentUser.role != "none"
-      }
+      repository Customers for Customer {}
+      policy { read Customer requires currentUser.role != "none" }
+      repository Sites for Site {}
+      policy { read Site requires currentUser.role != "none" }
       repository Assets for Asset {
-        find all(): Asset paged requires currentUser.role != "none"
         find bySerial(serial: string): Asset?
-          requires currentUser.role != "none"
           where this.serial == serial
       }
-      repository Technicians for Technician {
-        find all(): Technician paged requires currentUser.role != "none"
-      }
+      policy { read Asset requires currentUser.role != "none" }
+      repository Technicians for Technician {}
+      policy { read Technician requires currentUser.role != "none" }
       repository WorkOrders for WorkOrder {
-        find all(): WorkOrder paged requires currentUser.role != "none"
-        find mine(): WorkOrder[] requires true where this.technicianId == currentUser.technicianId
+        find mine(): WorkOrder[] where this.technicianId == currentUser.technicianId
       }
+      policy { read WorkOrder requires currentUser.role != "none" }
 
       // Cross-aggregate orchestration.  The skill rule spans WorkOrder + Technician
       // + Asset, so it cannot live in any one aggregate's invariants.
@@ -398,14 +393,12 @@ system FieldOps {
       criterion PartBySku(s: string) of Part = this.sku == s
 
       repository Parts for Part {
-        find all(): Part paged requires currentUser.role != "none"
         find bySku(sku: string): Part?
-          requires currentUser.role != "none"
           where this.sku == sku
       }
-      repository PartUsages for PartUsage {
-        find all(): PartUsage paged requires currentUser.role != "none"
-      }
+      policy { read Part requires currentUser.role != "none" }
+      repository PartUsages for PartUsage {}
+      policy { read PartUsage requires currentUser.role != "none" }
 
     }
 
@@ -448,11 +441,10 @@ system FieldOps {
       }
 
       repository Invoices for Invoice {
-        find all(): Invoice paged requires currentUser.role != "none"
         find byNumber(number: string): Invoice?
-          requires currentUser.role != "none"
           where this.number == number
       }
+      policy { read Invoice requires currentUser.role != "none" }
     }
   }
 
@@ -466,9 +458,8 @@ system FieldOps {
         derived display: string = kind
         create(workOrderRef: string, kind: string, sentAt: datetime) { requires true }
       }
-      repository Notifications for Notification {
-        find all(): Notification paged requires true
-      }
+      repository Notifications for Notification {}
+      policy { read Notification requires true }
       workflow notifyOnCompletion {
         workOrderId: WorkOrder id
         create(e: WorkOrderCompleted) by e.workOrder {
