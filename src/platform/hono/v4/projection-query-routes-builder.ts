@@ -13,6 +13,7 @@ import {
   allContextFilterEntries,
   DRIZZLE_INTRINSIC_SQL,
   drizzleDiscriminatorEq,
+  drizzleGuardedSubtypePredicates,
   type FilterBypass,
   lowerToDrizzle,
 } from "../../../generator/typescript/repository-find-predicate.js";
@@ -965,6 +966,9 @@ function drizzleCapabilityPredicates(
     for (const op of l.ops) ops.add(op);
     out.push(l.expr);
   }
+  // A projection `from <TPH base>` reads the whole hierarchy: every concrete's
+  // own restrictions apply too, each guarded by its discriminator.
+  out.push(...drizzleGuardedSubtypePredicates(agg, ctx, ops, projectionBypass(p)));
   return out;
 }
 
