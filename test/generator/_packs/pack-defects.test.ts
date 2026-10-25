@@ -150,7 +150,7 @@ const emitsOf = (m: Record<string, unknown>) => m.emits as Record<string, string
 const CASES: Case[] = [
   {
     name: "no pack.json (loader-fs.ts#loadPack)",
-    shipped: "mantine/v7",
+    shipped: "mantine/v9",
     system: reactSystem,
     mutate: (dir) => fs.rmSync(path.join(dir, "pack.json")),
     kind: "manifest-missing",
@@ -158,7 +158,7 @@ const CASES: Case[] = [
   },
   {
     name: "pack.json is not JSON",
-    shipped: "mantine/v7",
+    shipped: "mantine/v9",
     system: reactSystem,
     mutate: (dir) => fs.writeFileSync(path.join(dir, "pack.json"), "{ not json"),
     kind: "manifest-unreadable",
@@ -166,7 +166,7 @@ const CASES: Case[] = [
   },
   {
     name: "no emits map (loader-fs.ts#loadPack$2)",
-    shipped: "mantine/v7",
+    shipped: "mantine/v9",
     system: reactSystem,
     mutate: (_dir, m) => {
       delete m.emits;
@@ -176,7 +176,7 @@ const CASES: Case[] = [
   },
   {
     name: "an emits entry names a missing .hbs (loader-fs.ts#loadPack$4)",
-    shipped: "mantine/v7",
+    shipped: "mantine/v9",
     system: reactSystem,
     mutate: (_dir, m) => {
       emitsOf(m)["primitive-button"] = "nope.hbs";
@@ -186,7 +186,7 @@ const CASES: Case[] = [
   },
   {
     name: "an unknown stack (loader-fs.ts#loadPack$5)",
-    shipped: "mantine/v7",
+    shipped: "mantine/v9",
     system: reactSystem,
     mutate: (_dir, m) => {
       m.stack = "v999";
@@ -196,7 +196,7 @@ const CASES: Case[] = [
   },
   {
     name: "an unknown format",
-    shipped: "mantine/v7",
+    shipped: "mantine/v9",
     system: reactSystem,
     mutate: (_dir, m) => {
       m.format = "jsx";
@@ -206,7 +206,7 @@ const CASES: Case[] = [
   },
   {
     name: "a required primitive is missing (loader.ts#compilePack$3)",
-    shipped: "mantine/v7",
+    shipped: "mantine/v9",
     system: reactSystem,
     mutate: (_dir, m) => {
       delete emitsOf(m)["primitive-button"];
@@ -216,7 +216,7 @@ const CASES: Case[] = [
   },
   {
     name: "an empty chrome message (pack-chrome.ts#assertDeclaredChromeIsSane)",
-    shipped: "mantine/v7",
+    shipped: "mantine/v9",
     system: reactSystem,
     mutate: (_dir, m) => {
       (m.chrome as Record<string, string>).boolTrue = "";
@@ -226,7 +226,7 @@ const CASES: Case[] = [
   },
   {
     name: "a chrome message carrying `<` (pack-chrome.ts#assertDeclaredChromeIsSane$2)",
-    shipped: "mantine/v7",
+    shipped: "mantine/v9",
     system: reactSystem,
     mutate: (_dir, m) => {
       (m.chrome as Record<string, string>).boolTrue = "<b>Yes";
@@ -236,7 +236,7 @@ const CASES: Case[] = [
   },
   {
     name: "a chrome message with an unbalanced brace (pack-chrome.ts#assertDeclaredChromeIsSane$3)",
-    shipped: "mantine/v7",
+    shipped: "mantine/v9",
     system: reactSystem,
     mutate: (_dir, m) => {
       (m.chrome as Record<string, string>).boolTrue = "Yes {";
@@ -246,7 +246,7 @@ const CASES: Case[] = [
   },
   {
     name: "a template uses an undeclared chrome role (pack-chrome.ts#declared)",
-    shipped: "mantine/v7",
+    shipped: "mantine/v9",
     system: reactSystem,
     mutate: (_dir, m) => {
       delete (m.chrome as Record<string, string>).boolTrue;
@@ -272,7 +272,7 @@ const CASES: Case[] = [
   },
   {
     name: "a shellFiles key not in emits (shell-emits.ts#emitShellFiles)",
-    shipped: "mantine/v7",
+    shipped: "mantine/v9",
     system: reactSystem,
     mutate: (_dir, m) => {
       m.shellFiles = { "nonexistent-tpl": "src/x.tsx" };
@@ -282,7 +282,7 @@ const CASES: Case[] = [
   },
   {
     name: "a template that is not valid Handlebars",
-    shipped: "mantine/v7",
+    shipped: "mantine/v9",
     system: reactSystem,
     mutate: (dir, m) => {
       fs.writeFileSync(path.join(dir, emitsOf(m)["primitive-button"]!), "{{#if x}}unclosed");
@@ -292,7 +292,7 @@ const CASES: Case[] = [
   },
   {
     name: "a template includes a partial nothing provides",
-    shipped: "mantine/v7",
+    shipped: "mantine/v9",
     system: reactSystem,
     mutate: (dir, m) => {
       const f = path.join(dir, emitsOf(m)["primitive-button"]!);
@@ -333,7 +333,7 @@ describe("a malformed custom design pack is refused as loom.design-pack-invalid"
   }
 
   it("a well-formed custom pack passes (the copy of a shipped one)", async () => {
-    const dir = brokenPack("mantine/v7", () => {});
+    const dir = brokenPack("mantine/v9", () => {});
     expect(inspectPackDir(dir).defects).toEqual([]);
     expect(await irErrors(reactSystem(dir))).toEqual([]);
   });
@@ -369,7 +369,7 @@ describe("a relative design: path resolves against the .ddd file, not the cwd", 
   // runs from an unrelated cwd.  Resolving against the cwd found no pack.json.
   const project = path.join(tmpRoot, "project");
   fs.mkdirSync(path.join(project, "design"), { recursive: true });
-  fs.cpSync(path.join(repoRoot, "designs", "mantine", "v7"), path.join(project, "design", "mine"), {
+  fs.cpSync(path.join(repoRoot, "designs", "mantine", "v9"), path.join(project, "design", "mine"), {
     recursive: true,
   });
   const file = path.join(project, "main.ddd");
