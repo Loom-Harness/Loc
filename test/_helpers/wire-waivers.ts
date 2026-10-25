@@ -142,6 +142,7 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
       "field-mask",
       "file-download",
       "inheritance",
+      "inheritance-read-restrictions",
       "java-reserved-words",
       "ledger",
       "lifecycle-guard",
