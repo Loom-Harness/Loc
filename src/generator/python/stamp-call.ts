@@ -14,6 +14,7 @@ import type { AggregateIR, WorkflowStmtIR } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { snake } from "../../util/naming.js";
+import { pyRef } from "../_imports/python.js";
 
 export type StampEvent = "create" | "update";
 
@@ -51,8 +52,7 @@ export function stampUsesUser(agg: Stamped, event: StampEvent): boolean {
 /** The ambient-principal accessor the in-process save sites read.  Aliased
  *  because those bodies may already bind a local `current_user: User`, which
  *  would shadow the module function of the same name. */
-export const AMBIENT_PRINCIPAL = "ambient_principal";
-export const AMBIENT_PRINCIPAL_IMPORT = `from app.auth.user import current_user as ${AMBIENT_PRINCIPAL}`;
+export const AMBIENT_PRINCIPAL = pyRef("app.auth.user", "current_user", "ambient_principal");
 
 /** The `let` names a body binds through an aggregate factory
  *  (`let t = Ticket.create({ … })`) — the bindings whose save is an INSERT

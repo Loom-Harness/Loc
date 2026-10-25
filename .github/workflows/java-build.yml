@@ -36,6 +36,7 @@ on:
       - 'src/generator/java/**'
       - 'src/generator/_api/**'
       - 'src/generator/_expr/**'
+      - 'src/generator/_imports/**'
       - 'src/generator/_openapi/**'
       - 'src/generator/_projection/**'
       - 'src/platform/java.ts'
