@@ -54,6 +54,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.unconstructible-server-field":
     "03-domain-modeling.md#a-server-owned-field-must-have-a-value",
   "loom.ambiguous-enum-value": "03-domain-modeling.md#bare-values-across-two-enums",
+  "loom.collection-field-unpersisted":
+    "04-type-system.md#where-a-collection-of-references-or-value-objects-can-live",
   "loom.containment-cycle": "03-domain-modeling.md#entity-parts--contains",
   "loom.tenant-registry-not-constructible":
     "02-systems-and-topology.md#tenancy-by-userclaim-of-registry",
@@ -163,6 +165,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.create-call-missing-field":
     "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
+  "loom.applier-stmt-invalid":
+    "06-behavior-and-statements.md#applye-event--the-event-sourcing-fold",
   "loom.applier-on-non-event-sourced":
     "06-behavior-and-statements.md#applye-event--the-event-sourcing-fold",
   "loom.reserved-derived-on-vo": "07-invariants-derived-functions.md#reserved-display-and-inspect",
@@ -197,6 +201,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "09-payloads-and-unions.md#error--httpstatus--exception-less-problemdetails",
   "loom.criterion-impure": "10-repositories-and-queries.md#criterion",
   "loom.integer-literal-imprecise": "04-type-system.md#numeric-representation-rules",
+  "loom.projection-select-duration": "04-type-system.md#duration--expression-only",
   "loom.projection-aggregate-arg-not-columnar": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-aggregate-arity":
     "10-repositories-and-queries.md#whole-table-aggregation--the-singleton",
@@ -281,6 +286,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.flutter-action-statement-unsupported": "15-ui-pages-structure.md#state--derived--action",
   "loom.flutter-action-body-unsupported": "15-ui-pages-structure.md#state--derived--action",
   "loom.ui-body-statement-kind": "15-ui-pages-structure.md#state--derived--action",
+  "loom.ui-assign-not-state": "15-ui-pages-structure.md#state--derived--action",
+  "loom.ui-find-call-arity": "15-ui-pages-structure.md#queryview--page-parameters",
+  "loom.ui-body-feature-unsupported": "15-ui-pages-structure.md#state--derived--action",
   "loom.ui-page-route-collision": "15-ui-pages-structure.md#page--route-title-body",
   "loom.heex-handler-name-collision": "15-ui-pages-structure.md#state--derived--action",
   "loom.heex-stateful-component-reused": "15-ui-pages-structure.md#component--reusable-region-tree",
@@ -325,6 +333,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.design-pack-ignored": "02-systems-and-topology.md#design-packs",
   "loom.design-theme-unknown": "02-systems-and-topology.md#design-packs",
   "loom.design-pack-custom-unchecked": "02-systems-and-topology.md#design-packs",
+  "loom.design-pack-invalid": "../design-packs.md#2-the-packjson-manifest",
   "loom.design-pack-retired": "02-systems-and-topology.md#design-packs",
   "loom.design-pack-version-unknown": "02-systems-and-topology.md#design-packs",
   "loom.design-pack-format-mismatch": "02-systems-and-topology.md#design-packs",

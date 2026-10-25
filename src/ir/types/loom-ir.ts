@@ -3309,6 +3309,11 @@ export interface DeployableIR {
    *  `ui` a keyword in the deployable block would shadow the test-DSL
    *  accessor and break parsing of existing examples. */
   design?: string;
+  /** For a custom `design:` path: the directory of the `.ddd` file that
+   *  declared this deployable, which a RELATIVE path resolves against
+   *  (`resolvePackDir(design, designBaseDir)`).  Absent for built-in packs
+   *  and for a model with no file location (an in-memory source). */
+  designBaseDir?: string;
   /** Realization axes (D-REALIZATION-AXES).  Each decomposes the
    *  platform bundle into one orthogonal concern.  All optional in the
    *  type but **always concrete on backend deployables post-lowering**
@@ -3759,6 +3764,11 @@ export type ExprIR =
         verb: string;
         capability: string;
         interface?: LoomInterface;
+        /** Set when the resource is an `api` bound to an IN-SYSTEM api (M-T4.8).
+         *  Such a resource has no raw-verb vocabulary — its calls lower to
+         *  `remote-api-op` — so a resource-op carrying this is always refused
+         *  (`loom.resource-verb-invalid#api-bound`); no renderer reads it. */
+        boundApi?: string;
       };
       /** Populated when `callKind === "remote-api-op"` (M-T4.8) — a typed call
        *  on a resource that binds an in-system `api`.  Fully resolved at

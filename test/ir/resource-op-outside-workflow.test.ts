@@ -127,7 +127,7 @@ describe("loom.resource-op-outside-workflow — the gate", () => {
     ).find((x) => x.code === CODE);
     expect(d?.severity).toBe("error");
     expect(d?.message).toMatch(/salesFiles\.put/);
-    expect(d?.message).toMatch(/Order\.archive/);
+    expect(d?.message).toMatch(/Order\/archive \(an aggregate operation \/ lifecycle body\)/);
     expect(d?.message).toMatch(/workflow/);
   });
 
@@ -185,7 +185,7 @@ describe("loom.resource-op-outside-workflow — the gate", () => {
     ).find((x) => x.code === CODE);
     expect(d?.severity).toBe("error");
     expect(d?.message).toMatch(/salesFiles\.put/);
-    expect(d?.message).toMatch(/domainService\[Archiver\]\.operation\[stash\]/);
+    expect(d?.message).toMatch(/Archiver\/stash \(a domainService operation\)/);
   });
 
   // ---------------------------------------------------------------------
