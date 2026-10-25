@@ -54,6 +54,7 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import type { BoundedContextIR, WorkflowStmtIR } from "../../types/loom-ir.js";
+import { canonicalCreate } from "../../util/canonical-lifecycle.js";
 import { DEMO_TENANT_DATASET } from "../../util/demo-tenant.js";
 import { walkWorkflowStmtsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
@@ -124,7 +125,7 @@ export function validateAggregateConstructible(
   for (const agg of ctx.aggregates) {
     if (agg.isAbstract || isBase.has(agg.name)) continue;
     if ((agg.appliers ?? []).length > 0) continue;
-    if (agg.canonicalCreate || (agg.creates ?? []).length > 0) continue;
+    if (canonicalCreate(agg) || (agg.creates ?? []).length > 0) continue;
     if (built.has(agg.name)) continue;
     diags.push({
       severity: "warning",

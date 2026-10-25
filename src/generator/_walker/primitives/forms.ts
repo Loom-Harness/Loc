@@ -8,6 +8,7 @@
 
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type { AggregateIR, BoundedContextIR, ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
 import {
   escapeTsIdent,
@@ -166,7 +167,7 @@ export function emitDestroyForm(
       `DestroyForm(of: ${ofArg.name}): aggregate not found`,
     );
   }
-  if (!agg.canonicalDestroy) {
+  if (!canonicalDestroy(agg)) {
     return giveUp(
       ctx.target,
       "loom.page-ref-unreachable",

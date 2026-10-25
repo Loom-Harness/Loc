@@ -29,12 +29,6 @@ export function dddSourceOf(file: string): string {
   return readFileSync(resolve(REPO_ROOT, file), "utf8").replaceAll("__PLATFORM__", "node");
 }
 
-/** The one tracked `.ddd` that cannot parse: a design document carrying a
- *  `.ddd` extension, which says so in its own header. Pinned (with the full
- *  reasoning) by `ddd-source-census.test.ts`; every other sweep skips it
- *  because a partial AST would silently under-count. */
-export const UNPARSEABLE_DDD = "examples/sales-ui.ddd";
-
 export interface InlineDoc {
   readonly file: string;
   /** 1-based line of the literal's opening backtick, so a failure is clickable. */

@@ -497,6 +497,13 @@ export interface WalkContext {
    *  operation forms (`OperationForm(data.confirm)`).  Populated when QueryView
    *  walks its single-record `data:` lambda. */
   instanceTypes?: ReadonlyMap<string, string>;
+  /** A list QueryView's `data:` param → the aggregate its rows are.  Read by
+   *  `Table` / `For` to type their row lambdas (`rowTypes`). */
+  listTypes?: ReadonlyMap<string, string>;
+  /** A ROW variable — a `Table` column's / `For` item's lambda param over a
+   *  list QueryView's rows → its aggregate.  Kept apart from `instanceTypes`
+   *  (records) so only `Action` reads a row as an operation's instance. */
+  rowTypes?: ReadonlyMap<string, string>;
   /** True when the host deployable runs `auth: required` — so
    *  `LiveAuth.on_mount` assigns `@current_user` into the LiveView scope.
    *  Gates an `Action(<instance>.<op>)` button whose operation's `requires`
@@ -1063,11 +1070,18 @@ function renderUserComponent(
   ctx.usedComponents.add(comp.name);
   ctx.componentUses.set(comp.name, (ctx.componentUses.get(comp.name) ?? 0) + 1);
   const attrs: string[] = [];
+  // A positional argument with no param left to land on is a CHILD: it renders
+  // between the open and close tags, into the component's `Slot {}`
+  // (`render_slot(@inner_block)`).
+  const children: ExprIR[] = [];
   let pos = 0;
   for (let i = 0; i < expr.args.length; i++) {
     const argName = expr.argNames?.[i];
     const paramName = argName ?? comp.params[pos++]?.name;
-    if (!paramName) continue;
+    if (!paramName) {
+      children.push(expr.args[i]!);
+      continue;
+    }
     const value = renderExpr(expr.args[i]!, { ...ctx, position: "template" });
     attrs.push(`${snake(paramName)}={${value}}`);
   }
@@ -1090,7 +1104,9 @@ function renderUserComponent(
     attrs.push(`${assign}={@${assign}}`);
   }
   const tag = `${ctx.appModule}Web.Components.UiComponents.${snake(comp.name)}`;
-  return attrs.length > 0 ? `<${tag} ${attrs.join(" ")} />` : `<${tag} />`;
+  const open = attrs.length > 0 ? `<${tag} ${attrs.join(" ")}` : `<${tag}`;
+  if (children.length === 0) return `${open} />`;
+  return `${open}>${children.map((c) => renderChild(c, ctx)).join("")}</${tag}>`;
 }
 
 /** Derive the Elixir module reference for an `extern` component from its
@@ -1126,7 +1142,9 @@ export function renderAction(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkC
   }
   const instanceName = opRef.receiver.name;
   const opName = opRef.member;
-  const aggName = ctx.instanceTypes?.get(instanceName);
+  // A record (`instanceTypes`), or a ROW of a list — the `phx-value-id` then
+  // carries that row's own id.
+  const aggName = ctx.instanceTypes?.get(instanceName) ?? ctx.rowTypes?.get(instanceName);
   if (!aggName) {
     return `<!-- ${giveUpText("loom.page-ref-unreachable", `Action(${instanceName}.${opName}): '${instanceName}' is not an in-scope aggregate instance`)} -->`;
   }

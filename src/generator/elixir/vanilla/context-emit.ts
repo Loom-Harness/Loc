@@ -28,6 +28,7 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { stmtUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import {
   createBodyParams,
   createBodyStatements,
@@ -38,7 +39,7 @@ import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
-import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
+import { INT32_MAX, INT32_MIN, INTEGER_RANGE_MESSAGE } from "../../../util/numeric-range.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { declarationSubRegion, statementSubRegions } from "../../_trace/sourcemap.js";
@@ -349,17 +350,10 @@ function paramGuardClause(wireName: string, type: TypeIR | undefined): string | 
  *  .NET.  A fractional value for an `int` is refused rather than truncated —
  *  the same strictness M-T6.48 pins for Java's `ACCEPT_FLOAT_AS_INT`. */
 /** The refusal an out-of-int32 `int` gets, on both ingress paths — the op-param
- *  guard here and the create/update changeset in `changeset-emit.ts`.
- *
- *  Spelled like `MONEY_RANGE_MESSAGE` beside it, and for the same reason: a
- *  client sees ONE family of wire refusals rather than a different sentence per
- *  column kind.  It is elixir-local because the other four backends each render
- *  their framework's own text for this (zod's "Number must be less than or
- *  equal to …", pydantic's "Input should be less than or equal to …", Bean
- *  Validation's "must be less than or equal to …"), so there is no shared
- *  string to converge on — only a shared STATUS, which is the part that
- *  matters: 422, not the 500 the database used to answer. */
-export const INT32_RANGE_MESSAGE = "Integer out of range";
+ *  guard here and the create/update changeset in `changeset-emit.ts`.  It is
+ *  the cross-backend range sentence (RS-42, `INTEGER_RANGE_MESSAGE`), sent
+ *  bare — no value appended — exactly as the other four send it. */
+export const INT32_RANGE_MESSAGE = INTEGER_RANGE_MESSAGE;
 
 function renderNumericParamHelpers(
   needsDecimal: boolean,
@@ -433,7 +427,7 @@ function renderNumericParamHelpers(
        do: {:ok, value}
 
   defp __loom_int32_param(record, field, value) when is_integer(value),
-    do: {:error, __loom_param_error(record, field, value, ${JSON.stringify(INT32_RANGE_MESSAGE)})}
+    do: {:error, Ecto.Changeset.add_error(Ecto.Changeset.change(record, %{}), field, ${JSON.stringify(INT32_RANGE_MESSAGE)})}
 
   defp __loom_int32_param(record, field, value),
     do: {:error, __loom_param_error(record, field, value, "Invalid integer")}
@@ -530,6 +524,38 @@ function renderContextModule(
     // the If-Match header at the controller) as a trailing `expected_version \\ nil`
     // arg through the update defdelegate to the repository's optimistic-lock write.
     const versionedArg = aggregateIsVersioned(agg) ? ", expected_version \\\\ nil" : "";
+    // An AUDITED `update` (aggregate-wide `audited`, or `operation update(…)
+    // audited`) records its row in the context seam both the REST action and
+    // the LiveView edit form call: the field update goes through the
+    // repository, not the op body that stages audit for every other
+    // operation, so a plain delegate left the most common audited write with
+    // no trail.  The row commits in the save's transaction.
+    const updateOp = agg.operations.find((o) => o.name === "update");
+    const updateSeam = updateOp?.audited
+      ? `  def update_${aggSnake}(record, attrs${stampActorArg}${versionedArg}) do
+    ${appModule}.Repo.transaction(fn ->
+      case ${repoMod}.update(record, attrs${stampActorArg ? ", current_user" : ""}${versionedArg ? ", expected_version" : ""}) do
+        {:ok, updated} ->
+${auditRecordCall({
+  appModule,
+  operationId: `update${aggPascal}`,
+  action: "update",
+  targetType: aggPascal,
+  targetId: "updated.id",
+  before: wireSnapshot("record", false, appModule),
+  after: wireSnapshot("updated", false, appModule),
+  indent: "          ",
+})}
+
+          updated
+
+        {:error, reason} ->
+          ${appModule}.Repo.rollback(reason)
+      end
+    end)
+  end
+`
+      : `  defdelegate update_${aggSnake}(record, attrs${stampActorArg}${versionedArg}), to: ${repoMod}, as: :update`;
     // Skip ops whose names collide with the CRUD defdelegates above —
     // notably `update`/`destroy` from `with crudish` would redefine
     // `update_<agg>/2`/`delete_<agg>/1` otherwise.  The CRUD seam
@@ -652,14 +678,14 @@ function renderContextModule(
       contextModule: facadeMod,
       agg: agg as EnrichedAggregateIR,
     };
-    const destroyClauses = lifecycleEnsureClauses(agg.canonicalDestroy, destroyGateRc);
+    const destroyClauses = lifecycleEnsureClauses(canonicalDestroy(agg), destroyGateRc);
     // `destroy_<agg>!` takes the principal when the gate reads it.  On a
     // principal (tenancy-filtered) aggregate the getter already carries one, and
     // that same binding feeds the gate — no second parameter.
     const destroyBangArgs =
       destroyClauses.length === 0 || principal
         ? getArgs
-        : `id, ${principalParam(lifecycleGatesUseCurrentUser(agg.canonicalDestroy))}`;
+        : `id, ${principalParam(lifecycleGatesUseCurrentUser(canonicalDestroy(agg)))}`;
     const destroyBangBody =
       destroyClauses.length === 0
         ? `      {:ok, record} -> ${appModule}.Repo.delete!(record)`
@@ -775,7 +801,7 @@ ${body}
     // then delegates — so EVERY caller (REST controller, LiveView form,
     // DestroyForm) passes the gate, not just the ones that go through a
     // controller.  Ungated aggregates keep the delegate byte-identical.
-    const createClauses = lifecycleEnsureClauses(agg.canonicalCreate, {
+    const createClauses = lifecycleEnsureClauses(canonicalCreate(agg), {
       thisName: "record",
       contextModule: facadeMod,
       agg: agg as EnrichedAggregateIR,
@@ -831,7 +857,7 @@ ${body}
       }),
     ];
     const bodyEmits = body.some((st) => st.kind === "emit");
-    const emitAction = { ...agg.canonicalCreate!, statements: body };
+    const emitAction = { ...canonicalCreate(agg)!, statements: body };
     const createHasDispatcher = contextHasDispatcher(
       ctx as EnrichedBoundedContextIR,
       extraChannels,
@@ -913,7 +939,7 @@ ${createDo}
         ? bodyEntry(`create_${aggSnake}`)
         : `  @doc "Create a ${aggPascal} — the request is validated FIRST (the same 422 the other backends' request validator answers), then the canonical \`create\`'s \`requires\` gate runs HERE, so the REST and LiveView callers are gated alike."
   def create_${aggSnake}(attrs, ${principalParam(
-    lifecycleGatesUseCurrentUser(agg.canonicalCreate) || createStampsActor,
+    lifecycleGatesUseCurrentUser(canonicalCreate(agg)) || createStampsActor,
   )}) do
     with ${[createValidateClause, ...createClauses].join(",\n         ")} do
       ${unguardedName("create", agg.name)}(attrs${createStampsActor ? ", current_user" : ""})
@@ -922,7 +948,7 @@ ${createDo}
 
   @doc "Create a ${aggPascal} with NO authorization gate — the in-process entry (workflow step, event dispatch, emitted integration test), which carries no request principal.  Request-side callers use \`create_${aggSnake}/2\`."
 ${bodyEntry(unguardedName("create", agg.name))}`;
-    const deleteClauses = lifecycleEnsureClauses(agg.canonicalDestroy, destroyGateRc);
+    const deleteClauses = lifecycleEnsureClauses(canonicalDestroy(agg), destroyGateRc);
     const deleteDelegate = !emitsRestDelete(agg)
       ? ""
       : deleteClauses.length === 0
@@ -930,7 +956,7 @@ ${bodyEntry(unguardedName("create", agg.name))}`;
         : `\n
   @doc "Delete a ${aggPascal} — the canonical \`destroy\`'s \`requires\` gate runs HERE, against the loaded row."
   def delete_${aggSnake}(record, ${principalParam(
-    lifecycleGatesUseCurrentUser(agg.canonicalDestroy),
+    lifecycleGatesUseCurrentUser(canonicalDestroy(agg)),
   )}) do
     with ${deleteClauses.join(",\n         ")} do
       ${unguardedName("delete", agg.name)}(record)
@@ -947,7 +973,7 @@ ${bodyEntry(unguardedName("create", agg.name))}`;
       : ""
   }
 ${createDelegate}
-  defdelegate update_${aggSnake}(record, attrs${stampActorArg}${versionedArg}), to: ${repoMod}, as: :update${deleteDelegate}${changeFacade}${destroyFacade}${opBangFacade}${canFacade}${renderRefLabelFacade(appModule, facadeMod, agg, ctx, sys)}
+${updateSeam}${deleteDelegate}${changeFacade}${destroyFacade}${opBangFacade}${canFacade}${renderRefLabelFacade(appModule, facadeMod, agg, ctx, sys)}
 ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privateOpHelpers.length > 0 ? `${privateOpHelpers.join("\n")}\n` : ""}${functionBlock}`;
   });
 
@@ -1087,8 +1113,8 @@ function contextNeedsGuardEnsure(ctx: BoundedContextIR): boolean {
     // exactly the shape that would otherwise emit `ensure(...)` calls with no
     // `ensure/2` defined (undefined function, not a warning).
     if (
-      lifecycleGates(agg.canonicalCreate).length > 0 ||
-      lifecycleGates(agg.canonicalDestroy).length > 0 ||
+      lifecycleGates(canonicalCreate(agg)).length > 0 ||
+      lifecycleGates(canonicalDestroy(agg)).length > 0 ||
       createBodyStatements(agg).some((st) => st.kind === "precondition")
     ) {
       return true;

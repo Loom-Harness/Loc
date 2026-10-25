@@ -66,6 +66,7 @@ import Handlebars from "handlebars";
 import { diagMessage } from "../../diagnostics/messages.js";
 import type { PackFormat } from "../../util/builtin-formats.js";
 import { contentHash } from "../../util/content-hash.js";
+import { chromeKey, chromeMessage } from "../_walker/i18n-chrome.js";
 import {
   chromeDeclarationDefects,
   describePackDefects,
@@ -318,6 +319,39 @@ export function chromeHelpers(
      *  where the runtime is a sibling under `src/lib/`). */
     chromeImport(specifier: unknown) {
       return new Handlebars.SafeString(i18n ? spelling.importLine(String(specifier)) : "");
+    },
+    /** A SHARED `chrome.<name>` string (`_walker/i18n-chrome.ts`) in markup
+     *  TEXT position — for a pack template that renders a control every
+     *  frontend spells, so it must read the same key (a list pager's "Prev" /
+     *  "Next" / "Page {page} of {pages}").  HEEx only: the JS packs receive
+     *  these as walker-built tokens.
+     *
+     *  Hole values are RUNTIME Elixir expressions (`page="@page"`).  Off i18n
+     *  each hole renders as a HEEx `{expr}` interpolation inside the English;
+     *  on, gettext resolves the message and each hole is substituted into the
+     *  active locale's text — raw substitution, so `core_components.ex` needs
+     *  no ICU runtime. */
+    sharedChrome(name: unknown, options: Handlebars.HelperOptions) {
+      if (format !== "heex") {
+        throw new Error(
+          `pack-chrome: {{sharedChrome}} is a HEEx-pack helper; pack ${family} (format ${format}) renders shared chrome through walker-built tokens.`,
+        );
+      }
+      const message = chromeMessage(String(name));
+      const holes = holesOf(options);
+      if (!i18n) {
+        const byName = new Map(holes);
+        return new Handlebars.SafeString(
+          message.replace(HOLE, (whole, hole: string) =>
+            byName.has(hole) ? `{${byName.get(hole)}}` : whole,
+          ),
+        );
+      }
+      let call = `pgettext(${elixirLiteral(chromeKey(String(name)))}, ${elixirLiteral(message)})`;
+      for (const [hole, expr] of holes) {
+        call = `String.replace(${call}, ${elixirLiteral(`{${hole}}`)}, to_string(${expr}))`;
+      }
+      return new Handlebars.SafeString(spelling.text(call));
     },
   };
 }

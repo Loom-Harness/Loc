@@ -94,7 +94,7 @@ describe("Feliz i18n runtime", () => {
     expect(fs).toContain('import "IntlMessageFormat" "intl-messageformat"');
     expect(fs).toContain('[<Fable.Core.Emit("new $0($1, $2).format($3)")>]');
     // …and the package.json carries the dependency, at the JS frontends' pin.
-    expect(await packageJson(src)).toContain('"intl-messageformat": "^10.7.0"');
+    expect(await packageJson(src)).toContain('"intl-messageformat": "10.7.18"');
   });
 
   it("emits an interpolated template as an ICU I18n.tf call + catalog entry", async () => {

@@ -189,8 +189,8 @@ describe("ts renderTsExpr — member + method-call", () => {
         receiverType: STRING,
         isCollectionOp: false,
       });
-    expect(sub([litInt("1")])).toBe("this._name.slice(1)");
-    expect(sub([litInt("1"), litInt("3")])).toBe("this._name.slice(1, (1) + (3))");
+    expect(sub([litInt("1")])).toBe('[...this._name].slice(1).join("")');
+    expect(sub([litInt("1"), litInt("3")])).toBe('[...this._name].slice(1, (1) + (3)).join("")');
   });
 
   it("renders collection-op `count` as .length", () => {

@@ -994,6 +994,7 @@ gate field writes with `operation update(…) requires <field> == this.<field> |
 | Diagnostic | When |
 | --- | --- |
 | `loom.field-mask-not-current-user` | the predicate references the row / a param, not just `currentUser` |
+| `loom.field-mask-principal-without-auth` | the predicate reads `currentUser` but the hosting deployable has no auth (no `auth: required` + `user {}`) — there is no principal to evaluate it against, so the field could only ever read as null; the mask-side sibling of `loom.guard-principal-without-auth` |
 | `loom.field-mask-unsupported` | the hosting backend does not emit the read redaction (none today — every backend supports it) |
 | `loom.field-mask-projection-source` | a masked aggregate is a query-time `projection` source — projection responses aren't read-masked yet, so it would leak |
 | *(AST)* `'mask unless' … must be of type 'bool'` | the predicate is not a bool |

@@ -271,6 +271,30 @@ export function validateGuardPrincipalWithoutAuth(sys: SystemIR, diags: LoomDiag
       for (const p of ctx.projections ?? []) {
         if (readsPrincipal(p.query?.requires)) report(ctxName, `projection ${p.name}`);
       }
+      // A `mask unless` predicate is the READ-side sibling of a `requires`
+      // gate: a caller check over `currentUser` (docs/auth.md § "mask unless").
+      // With no principal it cannot be evaluated — the field would redact for
+      // every caller, and the emitted redaction names a principal accessor the
+      // project does not carry (.NET CS1061 on `RequestContext.CurrentUser`,
+      // java's missing `auth` package, python's import of an absent module).
+      for (const agg of ctx.aggregates) {
+        for (const f of agg.fields) {
+          if (!readsPrincipal(f.maskUnless)) continue;
+          diags.push({
+            severity: "error",
+            message: diagMessage("loom.field-mask-principal-without-auth", {
+              dep: dep.name,
+              family,
+              ctxName,
+              field: `${agg.name}.${f.name}`,
+              principalNoun,
+            }),
+            source: `${sys.name}/${dep.name}`,
+            origin: f.origin ?? dep.origin,
+            code: "loom.field-mask-principal-without-auth",
+          });
+        }
+      }
     }
   }
 }

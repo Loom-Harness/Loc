@@ -55,7 +55,7 @@ import { collectUiMessages } from "../_walker/i18n-extract.js";
 export const GETTEXT_DOMAIN = "default";
 
 /** The hex dependency line for the generated `mix.exs` `deps do` list. */
-export const GETTEXT_DEP = `{:gettext, "~> 0.26"}`;
+export const GETTEXT_DEP = `{:gettext, "0.26.2"}`;
 
 /** The ICU formatter dependency, added only for a ui with an INTERPOLATED
  *  message (D-I18N-HEEX-ICU).  `ex_cldr_messages` is the Elixir ICU
@@ -63,7 +63,7 @@ export const GETTEXT_DEP = `{:gettext, "~> 0.26"}`;
  *  the four JS frontends and Feliz, and of `package:intl`'s `MessageFormat` on
  *  Flutter.  It pulls `ex_cldr` + `ex_cldr_numbers` transitively; `ex_cldr` is
  *  named explicitly because the generated backend module `use`s it. */
-export const ICU_DEPS = [`{:ex_cldr, "~> 2.47"}`, `{:ex_cldr_messages, "~> 1.0"}`];
+export const ICU_DEPS = [`{:ex_cldr, "2.47.5"}`, `{:ex_cldr_messages, "1.0.4"}`];
 
 /** True when this ui has any extractable user-visible string — the single gate
  *  for the whole runtime (backend module + `.po`/`.pot` + the `mix.exs` dep +

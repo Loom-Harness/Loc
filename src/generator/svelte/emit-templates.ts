@@ -1,6 +1,8 @@
 // Static (non-templated) sources the Svelte generator emits verbatim.
 // Sibling of src/generator/react/emit-templates.ts.
 
+import { MONEY_SCHEMA_TS } from "../_frontend/money-schema.js";
+
 /** `src/lib/forms.svelte.ts` — the hand-rolled runes + zod form
  *  helper (svelte-frontend-plan.md decision: no third-party form
  *  dependency).  Mirrors the surface the react packs get from
@@ -69,11 +71,11 @@ export interface LoomForm<T> {
   readonly submitting: boolean;
   reset(): void;
   submit(onValid: (vals: T) => Promise<void> | void): Promise<void>;
-  /** Decode an RFC 7807 ProblemDetails 422 body (or any
-   *  \`{ errors: { field: msg } }\` shape) into per-field errors.
-   *  Returns "fields" when at least one error attached to a field,
-   *  "global" with a title for problem bodies without field errors,
-   *  and "unhandled" otherwise. */
+  /** Decode an RFC 7807 ProblemDetails 422 body (its \`errors\` ARRAY of
+   *  \`{ pointer, code, message }\`) into per-field errors.  Returns "fields"
+   *  when every error attached to a field, "global" with a title for a
+   *  pointer-less error or a problem body without field errors, and
+   *  "unhandled" otherwise. */
   applyServerErrors(e: unknown): { kind: "fields" } | { kind: "global"; title: string } | { kind: "unhandled" };
 }
 
@@ -152,24 +154,30 @@ export function createForm<S extends z.ZodType>(
     applyServerErrors(e: unknown) {
       const body = e instanceof ApiError ? e.body : e;
       if (body && typeof body === "object") {
-        const rec = body as { errors?: Record<string, string | string[]>; title?: string; detail?: string };
-        if (rec.errors && typeof rec.errors === "object") {
+        const rec = body as { errors?: unknown; title?: string; detail?: string };
+        // A 422's \`errors\` is an ARRAY of \`{ pointer, code, message }\`: an entry
+        // whose JSON pointer names a field lands on that field's dot-path
+        // (\`/price/amount\` → \`price.amount\`); a pointer-less entry (a
+        // whole-object rule) is the form-level message.
+        if (Array.isArray(rec.errors)) {
           const next: Record<string, string> = { ...errors };
           let any = false;
-          for (const [k, v] of Object.entries(rec.errors)) {
-            const msg = Array.isArray(v) ? v[0] : v;
-            if (typeof msg === "string") {
-              // ProblemDetails keys may be PascalCase — align with the
-              // camelCase form paths the zod schemas use.
-              const path = k.length > 0 ? k[0]!.toLowerCase() + k.slice(1) : k;
-              next[path] = msg;
+          let formLevel: string | undefined;
+          for (const entry of rec.errors as unknown[]) {
+            if (!entry || typeof entry !== "object") continue;
+            const { pointer, message } = entry as { pointer?: unknown; message?: unknown };
+            if (typeof message !== "string" || message.length === 0) continue;
+            const path = typeof pointer === "string" ? pointerToPath(pointer) : "";
+            if (path) {
+              next[path] = message;
               any = true;
+            } else {
+              formLevel ??= message;
             }
           }
-          if (any) {
-            errors = next;
-            return { kind: "fields" as const };
-          }
+          if (any) errors = next;
+          if (formLevel !== undefined) return { kind: "global" as const, title: formLevel };
+          if (any) return { kind: "fields" as const };
         }
         // RFC 7807 \`detail\` carries the domain sentence; \`title\` is only the
         // reason phrase ("Unprocessable Entity"), so prefer the former.
@@ -186,6 +194,16 @@ export function createForm<S extends z.ZodType>(
       return { kind: "unhandled" as const };
     },
   };
+}
+
+/** A JSON pointer (RFC 6901) as the form's dot-path; "" for the whole document. */
+function pointerToPath(pointer: string): string {
+  if (!pointer.startsWith("/")) return pointer;
+  return pointer
+    .slice(1)
+    .split("/")
+    .map((seg) => decodeURIComponent(seg).replaceAll("~1", "/").replaceAll("~0", "~"))
+    .join(".");
 }
 
 /** Modal focus trap (a Svelte \`use:\` action).  On mount it moves focus to the
@@ -270,45 +288,9 @@ export const toast = {
 };
 `;
 
-/** `src/lib/schemas.ts` — shared money wire schema.  Byte-compatible
- *  with the react projects' src/lib/schemas.ts (same zod transform). */
-export const SVELTE_LIB_SCHEMAS_MONEY = `// Auto-generated.  Do not edit by hand.
-import Decimal from "decimal.js";
-import { z } from "zod";
-
-/**
- * Schema for the \`money\` primitive, on both of its inbound shapes:
- *
- *   - Wire JSON: a decimal-formatted string (\`"123.4500"\`) — parsed
- *     to a \`decimal.js\` Decimal instance.
- *   - Form state: an already-constructed Decimal — the money input
- *     control converts on change, so the zod resolver sees the
- *     instance, not a string.  Passed through unchanged.
- *
- * Format violations and parse failures both surface as typed Zod
- * issues — invalid input becomes a form-level error attached to the
- * field, not an uncaught throw.
- */
-export const moneySchema = z.union([z.instanceof(Decimal), z.string()]).transform((s, ctx) => {
-  if (s instanceof Decimal) return s;
-  if (!/^-?\\d+(\\.\\d+)?$/.test(s)) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: \`Invalid decimal: \${JSON.stringify(s)}\`,
-    });
-    return z.NEVER;
-  }
-  try {
-    return new Decimal(s);
-  } catch {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: \`Invalid decimal: \${JSON.stringify(s)}\`,
-    });
-    return z.NEVER;
-  }
-});
-`;
+/** `src/lib/schemas.ts` — shared money wire schema, the same source the
+ *  React and Vue projects emit (`_frontend/money-schema.ts`). */
+export const SVELTE_LIB_SCHEMAS_MONEY = MONEY_SCHEMA_TS;
 
 /** `src/app.d.ts` — SvelteKit ambient types.  `PageState` carries the
  *  shallow-routing state `navigate(path, { state })` writes. */

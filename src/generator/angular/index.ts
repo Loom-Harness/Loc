@@ -12,9 +12,11 @@ import type {
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { contextUsesMoney } from "../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
 import { type PageNameCtx, pageConstructId } from "../../ir/util/page-kind.js";
+import { menuMetaString } from "../../ir/util/page-menu.js";
 import { pagedFindRoutes } from "../../ir/util/paged-find-routes.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
@@ -74,6 +76,7 @@ import {
 } from "./realtime-handlers-builder.js";
 import { ANGULAR_REF_LABEL, ANGULAR_REF_LABEL_PATH } from "./ref-label-runtime.js";
 import { type AngularRouteDesc, renderAngularRoutes, routePath } from "./routes-emitter.js";
+import { ANGULAR_SERVER_ERRORS_TS } from "./server-errors.js";
 import { renderAngularStoreModule, storeFileSlug } from "./store-builder.js";
 import { angularTargetFor } from "./walker/angular-target.js";
 import {
@@ -168,7 +171,7 @@ export function generateAngularForContexts(
   for (const ctx of contexts) {
     for (const repo of ctx.repositories) repoByAggregate.set(repo.aggregateName, repo);
   }
-  const hasDelete = aggregates.some((a) => !!a.agg.canonicalDestroy);
+  const hasDelete = aggregates.some((a) => !!canonicalDestroy(a.agg));
   const usesMoney = contexts.some(contextUsesMoney);
   const authUi = !!(deployable.auth?.ui && target?.auth?.required && sys.user);
   // Hoisted above the project shell: the shell's package.json / angular.json /
@@ -210,10 +213,12 @@ export function generateAngularForContexts(
   out.set("src/main.ts", pack.render("main", { usesCodeBlock }));
   if (usesCodeBlock) out.set("src/lib/highlight.ts", HIGHLIGHT_MODULE_ANGULAR_TS);
   out.set("src/styles.css", pack.render("theme", prepareThemeVM(sys.theme)));
-  out.set("src/lib/format.ts", pack.render("format-helpers", { moneySource: MONEY_TEXT_SOURCE }));
   // Interactive-table sort helper (M-T1.1) — re-exposed as a component member
   // by any page rendering a sortable Table; emitted unconditionally.
   out.set("src/lib/table-sort.ts", buildTableSortHelper());
+  // The submit handlers' 422 → form-control mapper (`server-errors.ts`);
+  // emitted unconditionally, like React's `apply-server-errors.ts`.
+  out.set("src/lib/server-errors.ts", ANGULAR_SERVER_ERRORS_TS);
   // The `toast(<msg>)` PAGE EFFECT (docs/page-metamodel.md §15).  The walker
   // renders the call verbatim, exactly like `navigate(…)`, so without an
   // emitted module and a matching import the component references a symbol the
@@ -263,6 +268,9 @@ export function generateAngularForContexts(
   // Pack-DECLARED chrome rides the SAME already-enabled gate (see the React
   // generator for the rationale) — never flips the runtime on by itself.
   pack.setChromeI18n(i18nEnabled);
+  // The format helpers carry pack chrome (a bool cell's Yes / No), so they
+  // render only once the pack's chrome binding knows the i18n state.
+  out.set("src/lib/format.ts", pack.render("format-helpers", { moneySource: MONEY_TEXT_SOURCE }));
   if (i18nEnabled && ui) {
     // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
     // produced (scoped to this ui's keys, `TODO:` values already dropped by
@@ -691,7 +699,7 @@ export function generateAngularForContexts(
   // index route; a wildcard NotFound always.
   const hasIndex = routeDescs.some((d) => routePath(d.route) === "");
   out.set("src/app/app.routes.ts", renderAngularRoutes(routeDescs, !hasIndex));
-  out.set("src/app/not-found.component.ts", NOT_FOUND_COMPONENT);
+  out.set("src/app/not-found.component.ts", renderNotFoundComponent(i18nEnabled));
   if (!hasIndex) out.set("src/app/home.component.ts", HOME_COMPONENT);
 
   // --- Shared neutral sources (angular/ + api/) ----------------------
@@ -825,22 +833,28 @@ import { Component } from "@angular/core";
 export class HomeComponent {}
 `;
 
-const NOT_FOUND_COMPONENT = `// Auto-generated.
+/** The 404 route's component.  Its chrome reads the shared `chrome.notFound`
+ *  / `backToHome` keys under i18n (the template resolves `t` against the
+ *  component instance, hence the member); off it, the English — byte-identical
+ *  to the untranslated view. */
+function renderNotFoundComponent(i18nEnabled: boolean): string {
+  return `// Auto-generated.
 import { Component } from "@angular/core";
 import { RouterLink } from "@angular/router";
-
+${i18nEnabled ? 'import { t } from "../lib/i18n";\n' : ""}
 @Component({
   selector: "app-not-found",
   imports: [RouterLink],
   template: \`
     <section data-testid="not-found" style="padding: 16px">
-      <h2>Not found</h2>
-      <a routerLink="/">&larr; Back to home</a>
+      <h2>${angularChromeText("notFound", i18nEnabled)}</h2>
+      <a routerLink="/">&larr; ${angularChromeText("backToHome", i18nEnabled)}</a>
     </section>
   \`,
 })
-export class NotFoundComponent {}
+export class NotFoundComponent {${i18nEnabled ? "\n  protected readonly t = t;\n" : ""}}
 `;
+}
 
 /** The root error-handler FALLBACK, spliced into every Angular pack's app
  *  shell as its first template node.
@@ -887,7 +901,10 @@ function defaultAngularNavSection(
     label: humanize(sys.name),
     entries: pages.map((p) => ({
       to: p.route ?? "",
-      label: humanize(p.name),
+      // A page's own `menu { label: … }` (a scaffold List page's "Products")
+      // names its link; `deriveSidebarFromUi` keys it and groups it under the
+      // page's `menu { section: … }`.
+      label: menuMetaString(p, "label") ?? humanize(p.name),
       testId: `nav-${pageSlug(p, pageCtx)}`,
       activeArgs: JSON.stringify(p.route ?? ""),
       ...(authUi && p.requires ? { requiresJs: renderGateExpr(p.requires, "currentUser") } : {}),

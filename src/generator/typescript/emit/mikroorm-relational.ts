@@ -18,6 +18,7 @@ import type {
   RetrievalIR,
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import { discriminatorValue, tableOwnerName } from "../../../ir/util/inheritance.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
@@ -812,7 +813,7 @@ export function renderMikroRepository(
       );
     });
 
-  const deleteMethod = agg.canonicalDestroy
+  const deleteMethod = canonicalDestroy(agg)
     ? hasChildren
       ? lines(
           `  async delete(id: Ids.${agg.name}Id): Promise<void> {`,

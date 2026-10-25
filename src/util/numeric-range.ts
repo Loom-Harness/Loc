@@ -26,6 +26,17 @@
 export const INT32_MIN = -2147483648;
 export const INT32_MAX = 2147483647;
 
+/** The refusal every backend sends for a wire `int` outside the int32 range —
+ *  the `errors[].message` of a 422 at the field's pointer (RS-42).  ONE text,
+ *  owned here rather than by any framework, because each framework's own
+ *  wording differs (zod's "Too big: expected number to be <=2147483647",
+ *  pydantic's "Input should be less than or equal to …") and two of them (Jackson,
+ *  System.Text.Json) only fail the whole body.  Spelled like
+ *  `MONEY_RANGE_MESSAGE` so a client sees one family of range refusals.  No
+ *  value is appended: java and .NET learn of the overflow from the JSON
+ *  reader, which reports the path but not the literal. */
+export const INTEGER_RANGE_MESSAGE = "Integer out of range";
+
 /** The declared ceiling of `long`: 2^53−1, the largest integer a JS `number`
  *  holds exactly (`Number.MAX_SAFE_INTEGER`).  Spelled as a literal rather than
  *  read off `Number` so the value that governs EMITTED source and the validator

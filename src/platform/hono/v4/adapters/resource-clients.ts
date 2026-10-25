@@ -46,8 +46,8 @@ function sidecarUrl(r: DataSourceIR, type: "smtp" | "rabbitmq"): string {
 export const s3ResourceAdapter: ResourceAdapter = {
   name: "s3",
   emitProjectDeps: () => ({
-    "@aws-sdk/client-s3": "^3.700.0",
-    "@aws-sdk/s3-request-presigner": "^3.700.0",
+    "@aws-sdk/client-s3": "3.1156.0",
+    "@aws-sdk/s3-request-presigner": "3.1156.0",
   }),
   emitClientModule(resources, stores): Lines {
     const out: string[] = [
@@ -267,7 +267,7 @@ export const rabbitmqResourceAdapter: ResourceAdapter = {
   name: "rabbitmq",
   // `amqplib` ships no bundled type declarations, so the queue client needs
   // `@types/amqplib` or the generated project fails strict tsc (TS7016).
-  emitProjectDeps: () => ({ amqplib: "^0.10.4", "@types/amqplib": "^0.10.5" }),
+  emitProjectDeps: () => ({ amqplib: "0.10.9", "@types/amqplib": "0.10.8" }),
   emitClientModule(resources): Lines {
     const out: string[] = [`import * as amqp from "amqplib";`, ``];
     for (const r of resources) {
@@ -358,7 +358,7 @@ function mailFromLine(r: DataSourceIR, stores: readonly StorageIR[]): string {
 export const smtpResourceAdapter: ResourceAdapter = {
   name: "smtp",
   // nodemailer ships no bundled type declarations.
-  emitProjectDeps: () => ({ nodemailer: "^6.9.0", "@types/nodemailer": "^6.4.0" }),
+  emitProjectDeps: () => ({ nodemailer: "6.10.1", "@types/nodemailer": "6.4.24" }),
   emitClientModule(resources, stores): Lines {
     const out: string[] = [`import nodemailer from "nodemailer";`, ``];
     for (const r of resources) {
@@ -383,7 +383,7 @@ export const smtpResourceAdapter: ResourceAdapter = {
 
 export const sesResourceAdapter: ResourceAdapter = {
   name: "ses",
-  emitProjectDeps: () => ({ "@aws-sdk/client-ses": "^3.700.0" }),
+  emitProjectDeps: () => ({ "@aws-sdk/client-ses": "3.1156.0" }),
   emitClientModule(resources, stores): Lines {
     const out: string[] = [
       `import { SendEmailCommand, SESClient } from "@aws-sdk/client-ses";`,
@@ -416,7 +416,7 @@ export const sesResourceAdapter: ResourceAdapter = {
 
 export const sendgridResourceAdapter: ResourceAdapter = {
   name: "sendgrid",
-  emitProjectDeps: () => ({ "@sendgrid/mail": "^8.1.0" }),
+  emitProjectDeps: () => ({ "@sendgrid/mail": "8.1.6" }),
   emitClientModule(resources, stores): Lines {
     const out: string[] = [`import sgMail from "@sendgrid/mail";`, ``];
     out.push(`sgMail.setApiKey(process.env.SENDGRID_API_KEY ?? "");`);

@@ -64,6 +64,7 @@ import {
   type RepositoryIR,
   type TypeIR,
 } from "../types/loom-ir.js";
+import { canonicalCreate, canonicalDestroy } from "./canonical-lifecycle.js";
 import { lifecycleGates } from "./op-gates.js";
 import { errorStatuses, UNPROCESSABLE_ENTITY } from "./openapi-errors.js";
 import {
@@ -523,7 +524,7 @@ export function deriveAggregateOperations(
       // A `requires` in the canonical `create` declares 403 — the gate is
       // rendered by every backend (route / command handler / service /
       // context), so the derivation must publish what they answer.
-      errorStatuses("create", lifecycleGates(agg.canonicalCreate).length > 0, resolveStatus),
+      errorStatuses("create", lifecycleGates(canonicalCreate(agg)).length > 0, resolveStatus),
     );
   }
 
@@ -580,7 +581,7 @@ export function deriveAggregateOperations(
       // exactly as the `operation` kind does; `ReferencedInUse` is unaffected —
       // the structural fold enumerates all four structural names by
       // construction and is spread last, so it still wins.
-      errorStatuses("destroy", lifecycleGates(agg.canonicalDestroy).length > 0, resolveStatus),
+      errorStatuses("destroy", lifecycleGates(canonicalDestroy(agg)).length > 0, resolveStatus),
     );
   }
 

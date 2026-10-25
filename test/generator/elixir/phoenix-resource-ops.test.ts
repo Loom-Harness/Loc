@@ -82,9 +82,9 @@ describe("Phoenix resource emission", () => {
 
   it("adds the Hex deps to mix.exs (ex_aws + amqp + req, each once)", async () => {
     const mix = (await gen()).get("api/mix.exs")!;
-    expect(mix).toMatch(/\{:ex_aws, "~> 2.5"\}/);
-    expect(mix).toMatch(/\{:ex_aws_s3, "~> 2.5"\}/);
-    expect(mix).toMatch(/\{:amqp, "~> 4.0"\}/);
+    expect(mix).toMatch(/\{:ex_aws, "2\.6\.1"\}/);
+    expect(mix).toMatch(/\{:ex_aws_s3, "2\.5\.9"\}/);
+    expect(mix).toMatch(/\{:amqp, "4\.3\.0"\}/);
     expect((mix.match(/\{:req,/g) ?? []).length).toBe(1);
   });
 

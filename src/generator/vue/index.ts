@@ -12,6 +12,7 @@ import type {
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { contextUsesMoney, uiUsesMoney } from "../../ir/types/loom-ir.js";
+import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
@@ -433,7 +434,16 @@ export function generateVueForContexts(
       pageConstructId(ui.name, page),
     );
   }
-  out.set("src/pages/NotFound.vue", renderShell(pack, "not-found-page", {}));
+  // The 404 view's chrome reads the shared `chrome.notFound` / `backToHome`
+  // keys under i18n; off it, the tokens are the English (byte-identical).
+  out.set(
+    "src/pages/NotFound.vue",
+    renderShell(pack, "not-found-page", {
+      scriptBody: i18nEnabled ? '\nimport { t } from "../i18n";\n' : "",
+      notFoundText: shellChromeText("notFound", i18nEnabled),
+      backToHomeText: shellChromeText("backToHome", i18nEnabled),
+    }),
+  );
 
   // Store modules (named-actions-and-stores.md §3, Stage 5) — one `reactive()`
   // singleton per `store Cart { … }` at `src/stores/<snake>.ts`.  Page/component
@@ -524,7 +534,7 @@ export function generateVueForContexts(
   }
 
   // Shared shell files (api/ + vue/ + docker/ shared-source layers).
-  const hasDelete = aggregates.some((a) => !!a.agg.canonicalDestroy);
+  const hasDelete = aggregates.some((a) => !!canonicalDestroy(a.agg));
   // `authUi` computed above (before page emission, which consumes it for the
   // `page { requires … }` gate).  Drives the session client + provide/inject
   // route guard emits below (the Vue-shaped half of the React auth wiring).

@@ -181,9 +181,7 @@ describe("the shipped example corpus is clean under the same scan", () => {
   // Not a formality: this is the measurement behind the finding.  If it ever
   // reports a name, either an emitter regressed or the heuristic drifted — and
   // either way the fixtures above stop being the only known instances.
-  const examples = trackedDddFiles().filter(
-    (f) => f.startsWith("examples/") && f !== "examples/sales-ui.ddd",
-  );
+  const examples = trackedDddFiles().filter((f) => f.startsWith("examples/"));
 
   it("every shipped example emits a backend tree with no unbound names", async () => {
     expect(examples.length, "the example corpus went empty").toBeGreaterThan(5);

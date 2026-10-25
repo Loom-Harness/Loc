@@ -38,8 +38,10 @@ export interface AngularActionSpec {
   hookName: string;
   importFrom: string;
   /** The component method the `(click)` calls — reads the id, guards, mutates,
-   *  then runs the optional `then:` effect. */
-  method: { name: string; idAccess: string; thenJs?: string };
+   *  then runs the optional `then:` effect.  `rowId`: a ROW-scoped Action (a
+   *  `Table` column / `For` lambda) — the method takes the row's id as its
+   *  argument instead of reading `idAccess`. */
+  method: { name: string; idAccess: string; thenJs?: string; rowId?: boolean };
   /** A `when`-gated op's `can_<op>` probe, hoisted as
    *  `readonly <local> = <hook>(() => <idAccess> ?? "")`.  Absent when ungated. */
   gate?: { local: string; hook: string };
@@ -76,7 +78,11 @@ export function renderAngularAction(
   if (opRef?.kind !== "member" || opRef.receiver.kind !== "ref") return null;
   const instanceName = opRef.receiver.name;
   const opName = opRef.member;
-  const aggName = ctx.paramTypes?.get(instanceName);
+  // A component param / detail record (`paramTypes`), or a ROW of a list —
+  // the item of a `Table` column or `For` lambda (`listRowAggregates`).
+  const rowScoped =
+    !ctx.paramTypes?.has(instanceName) && ctx.listRowAggregates?.has(instanceName) === true;
+  const aggName = ctx.paramTypes?.get(instanceName) ?? ctx.listRowAggregates?.get(instanceName);
   if (!aggName) {
     return giveUp(
       ctx.target,
@@ -104,7 +110,7 @@ export function renderAngularAction(
   const localVar = `${lowerFirst(op.name)}${agg.name}`;
   const hookName = `use${upperFirst(op.name)}${agg.name}`;
   const importFrom = `../../api/${lowerFirst(agg.name)}`;
-  const methodName = `on${upperFirst(op.name)}${agg.name}`;
+  const methodName = `on${upperFirst(op.name)}${agg.name}${rowScoped ? "Row" : ""}`;
 
   // The record id is read INSIDE the method, not pre-staged in the markup.  Its
   // receiver renders in TEMPLATE scope (`<handle>.data()!` for a QueryView
@@ -126,20 +132,25 @@ export function renderAngularAction(
   const thenArg = namedArgValue(call, "then");
   const thenJs = thenArg ? prefixThis(emitActionThen(thenArg, ctx), fieldNames) : undefined;
 
-  const gate = opGateFor(ctx, agg, op, `can${upperFirst(op.name)}${agg.name}`);
+  // A `when`-gated op's `can_<op>` probe is per RECORD, so a row button does
+  // not pre-disable on it (one probe cannot serve every row); the server still
+  // answers the op's own refusal.
+  const gate = rowScoped
+    ? undefined
+    : opGateFor(ctx, agg, op, `can${upperFirst(op.name)}${agg.name}`);
   const spec: AngularActionSpec = {
     localVar,
     hookName,
     importFrom,
-    method: { name: methodName, idAccess, thenJs },
+    method: { name: methodName, idAccess, thenJs, ...(rowScoped ? { rowId: true } : {}) },
     ...(gate ? { gate: { local: gate.local, hook: gate.hook } } : {}),
   };
   const specs = angularSink(ctx).actions;
-  if (!specs.some((s) => s.localVar === localVar)) specs.push(spec);
+  if (!specs.some((s) => s.method.name === methodName)) specs.push(spec);
 
   const button = renderPrimitive(ctx, "primitive-button", {
     label: humanize(op.name),
-    onClick: `${methodName}()`,
+    onClick: rowScoped ? `${methodName}(${receiverTemplate}.id)` : `${methodName}()`,
     hasOnClick: true,
     disabled: gate ? `${localVar}.isPending() || ${gate.disabledExpr}` : `${localVar}.isPending()`,
     hasDisabled: true,

@@ -59,7 +59,7 @@ describe("M-FT.5 — Feliz Action", () => {
     // The collector now derives single-ness the way the renderer does.
     expect(app).toContain("  | ArchiveNote of string");
     expect(app).toContain("  | ArchiveNoteDone of Result<unit, string>");
-    expect(app).toContain("let archiveNote (id: string)");
+    expect(app).toContain("let archiveNoteAction (id: string)");
   }, 90_000);
 
   it("`then: toast(...)` runs the author's toast after the POST succeeds", async () => {
@@ -76,7 +76,7 @@ describe("M-FT.5 — Feliz Action", () => {
     expect(app).toContain("  | ArchiveNoteThenDone of Result<unit, string> * (unit -> unit)");
     // …and `update` runs it on success only, after queuing the refetch.
     expect(app).toContain(
-      "  | ArchiveNoteThen (id, andThen) -> model, Cmd.OfAsync.perform Api.archiveNote id (fun r -> ArchiveNoteThenDone (r, andThen))",
+      "  | ArchiveNoteThen (id, andThen) -> model, Cmd.OfAsync.perform Api.archiveNoteAction id (fun r -> ArchiveNoteThenDone (r, andThen))",
     );
     expect(app).toContain(
       "  | ArchiveNoteThenDone (Ok (), andThen) -> model, Cmd.batch [ pageCmd model.CurrentPage; Cmd.ofEffect (fun _ -> andThen ()) ]",

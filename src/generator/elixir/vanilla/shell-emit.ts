@@ -350,7 +350,7 @@ function renderVanillaMixExs(
   // LiveView dep — only when the deployable mounts a HEEx `ui:`.
   // `phoenix_html` is already in the base set; LiveView adds
   // `phoenix_live_view` (the `~H`/`live` runtime).  Pinned to `~> 1.0`.
-  const liveViewDep = hasLiveView ? `,\n      {:phoenix_live_view, "~> 1.0"}` : "";
+  const liveViewDep = hasLiveView ? `,\n      {:phoenix_live_view, "1.2.13"}` : "";
   // Dev convenience for the pack-emitted assets pipeline: `mix assets.build`
   // compiles assets/ (tailwind + esbuild via npm) into priv/static/assets —
   // the same step the Dockerfile's assets-build stage runs for the image.
@@ -377,7 +377,7 @@ function renderVanillaMixExs(
   // exchange (the authorization-code handshake) still ride the built-in
   // `:httpc` (`:inets`/`:ssl`).  Added only when an `auth { oidc }` block is
   // present.
-  const oidcDep = oidc ? `,\n      {:joken, "~> 2.6"},\n      {:joken_jwks, "~> 1.6"}` : "";
+  const oidcDep = oidc ? `,\n      {:joken, "2.7.0"},\n      {:joken_jwks, "1.7.0"}` : "";
   const oidcApps = oidc ? ", :inets, :ssl" : "";
   return `# Auto-generated.
 defmodule ${appModule}.MixProject do
@@ -407,13 +407,13 @@ defmodule ${appModule}.MixProject do
 
   defp deps do
     [
-      {:phoenix, "~> 1.8"},
-      {:phoenix_ecto, "~> 4.4"},
-      {:ecto_sql, "~> 3.10"},
-      {:postgrex, "~> 0.20"},
-      {:phoenix_html, "~> 4.1"},
-      {:jason, "~> 1.4"},
-      {:uuidv7, "~> 1.0"},
+      {:phoenix, "1.8.16"},
+      {:phoenix_ecto, "4.7.0"},
+      {:ecto_sql, "3.14.0"},
+      {:postgrex, "0.22.4"},
+      {:phoenix_html, "4.3.0"},
+      {:jason, "1.4.5"},
+      {:uuidv7, "1.0.0"},
       # Bandit, not Plug.Cowboy.  Phoenix 1.8's own default adapter, and the
       # reason it is spelled out here: the cowboy chain (plug_cowboy ->
       # cowboy -> cowlib) ends at cowlib, whose latest release IS the one
@@ -421,16 +421,16 @@ defmodule ${appModule}.MixProject do
       # (cookie header injection).  There is nothing to bump to, so every
       # generated Elixir project shipped a flagged transitive dependency it
       # never actually needed.  Bandit is pure Elixir and pulls none of it.
-      {:bandit, "~> 1.12"},
-      {:open_api_spex, "~> 3.0"},
-      {:telemetry_metrics, "~> 1.0"},
-      {:telemetry_metrics_prometheus_core, "~> 1.1"},
+      {:bandit, "1.13.1"},
+      {:open_api_spex, "3.22.4"},
+      {:telemetry_metrics, "1.2.0"},
+      {:telemetry_metrics_prometheus_core, "1.2.1"},
       # OpenTelemetry tracing: the RequestContext plug opens a SERVER
       # span per request; exported via OTLP/HTTP only when a collector endpoint
       # is set (config/runtime.exs).
-      {:opentelemetry_api, "~> 1.4"},
-      {:opentelemetry, "~> 1.5"},
-      {:opentelemetry_exporter, "~> 1.8"}${liveViewDep}${gettextDep}${icuDeps}${extraBlock}${oidcDep}
+      {:opentelemetry_api, "1.5.0"},
+      {:opentelemetry, "1.7.0"},
+      {:opentelemetry_exporter, "1.11.0"}${liveViewDep}${gettextDep}${icuDeps}${extraBlock}${oidcDep}
     ]
   end
 
@@ -1058,7 +1058,16 @@ defmodule ${appModule}Web.BodyParser do
           do: "Malformed JSON in request body",
           else: Plug.Conn.Status.reason_phrase(status)
 
-      send_problem(conn, status, detail)
+      # \`conn\` here is the one from BEFORE the parser ran: the adapter state
+      # the parser advanced while reading the body was lost with the raise.
+      # Left on a keep-alive connection, the server would then "drain" a body
+      # it already read — consuming the head of the client's NEXT request off
+      # the socket, which then arrives as \`OST /api/…\` and is refused.
+      # Closing the connection after this answer is the only state that is
+      # true whatever the parser had read.
+      conn
+      |> Plug.Conn.put_resp_header("connection", "close")
+      |> send_problem(status, detail)
   end
 
   defp send_problem(conn, status, detail) do

@@ -309,11 +309,17 @@ describe("react generator", () => {
       const { files } = generateSystems(model);
       const app = files.get("web_app/src/App.tsx")!;
       // Section headers (the one cross-pack section-label style).
-      expect(app).toMatch(/<div className="loom-nav-section">Aggregates<\/div>/);
-      expect(app).toMatch(/<div className="loom-nav-section">Workflows<\/div>/);
+      // Headings and labels the scaffold's page `menu:` metadata authors read
+      // through their catalog keys (acme is i18n-enabled).
+      expect(app).toMatch(
+        /<div className="loom-nav-section">\{t\("page\.List\.menu\.section\.\w+", "Aggregates"\)\}<\/div>/,
+      );
+      expect(app).toMatch(
+        /<div className="loom-nav-section">\{t\("page\.\w+\.menu\.section\.\w+", "Workflows"\)\}<\/div>/,
+      );
       // Per-aggregate NavLink with active prop wired through useLocation.
       expect(app).toMatch(
-        /<NavLink component=\{RouterLink\} to="\/orders" label="Orders" active=\{isActive\("\/orders"\)\}/,
+        /<NavLink component=\{RouterLink\} to="\/orders" label=\{t\("page\.List\.menu\.label\.\w+", "Orders"\)\} active=\{isActive\("\/orders"\)\}/,
       );
       // Index-page NavLinks use exact-match so /workflows doesn't
       // shadow /workflows/<slug>.
@@ -350,7 +356,9 @@ describe("react generator", () => {
       );
       const { files } = generateSystems(doc.parseResult.value as Model);
       const app = files.get("web/src/App.tsx")!;
-      expect(app).toMatch(/<div className="loom-nav-section">Aggregates</);
+      expect(app).toMatch(
+        /<div className="loom-nav-section">\{t\("page\.List\.menu\.section\.\w+", "Aggregates"\)\}</,
+      );
       // No workflows section emitted.
       expect(app).not.toMatch(/label="Workflows"/);
       expect(app).not.toMatch(/data-testid="nav-workflows"/);
@@ -672,7 +680,7 @@ describe("react generator", () => {
         /<NavLink component=\{RouterLink\} to="\/workflows" label="All workflows"[\s\S]*?data-testid="nav-workflows"/,
       );
       expect(app).toMatch(
-        /<NavLink component=\{RouterLink\} to="\/workflows\/place_order" label="Place Order"[\s\S]*?data-testid="nav-workflow-place_order"/,
+        /<NavLink component=\{RouterLink\} to="\/workflows\/place_order" label=\{t\("page\.\w+\.menu\.label\.\w+", "Place Order"\)\}[\s\S]*?data-testid="nav-workflow-place_order"/,
       );
     });
   });

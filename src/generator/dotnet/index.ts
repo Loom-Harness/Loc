@@ -2159,6 +2159,7 @@ function emitProject(
       hasLogger: emitTrace,
       actorIdProp: options?.actorIdProp,
       hasVersioned,
+      userFields: (options?.userFields ?? []).map((f) => f.name),
     }),
   );
   out.set(

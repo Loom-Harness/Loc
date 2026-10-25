@@ -231,6 +231,12 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     guardedBy: ["loom.design-pack-invalid"],
     note: "Every literal chrome role a template passes hash (hole) values to is scanned in a heex pack (pack-defects.ts kind chrome-hole-heex) by the phase-⑦ inspection; every shipped and every inspected template names its role as a string literal.",
   },
+  "src/generator/_packs/pack-chrome.ts#sharedChrome": {
+    deferred:
+      'A custom NON-heex pack whose template calls {{sharedChrome "prev"}} (the built-in JS packs receive shared chrome as walker-built tokens; only the two HEEx packs call it). Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
+    mission: "M-T9.83",
+    reviewUntil: "2027-01-31",
+  },
   "src/generator/_packs/pack-chrome.ts#declared": {
     guardedBy: ["loom.design-pack-invalid"],
     note: "Every literal chrome role a template uses is checked against pack.json's chrome map (pack-defects.ts kind chrome-role-undeclared) by the phase-⑦ inspection; built-in packs are inspected clean by test/generator/_packs/pack-defects.test.ts.",
