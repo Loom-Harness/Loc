@@ -135,7 +135,7 @@ export interface ReadScope {
 /** True when `ignoring` drops a restriction of this provenance: `ignoring *`
  *  drops every capability-provenanced restriction, a named clause only the one
  *  it names.  Restrictions without provenance are never dropped. */
-export function isBypassedBy(capability: string | undefined, ignoring?: ReadBypass): boolean {
+function isBypassedBy(capability: string | undefined, ignoring?: ReadBypass): boolean {
   if (!ignoring || capability === undefined) return false;
   if (ignoring.bypassAll) return true;
   return (ignoring.bypassCaps ?? []).includes(capability);

@@ -666,7 +666,7 @@ export type FilterBypass = ReadBypass;
 
 /** The read-scope fact for one read of `agg` — the single source every drizzle
  *  read site takes its `kind` scope and its filters from. */
-export function drizzleReadScope(
+function drizzleReadScope(
   agg: EnrichedAggregateIR,
   ctx: BoundedContextIR,
   bypass?: FilterBypass,
