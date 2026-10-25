@@ -106,6 +106,20 @@ const POST_COMMIT_WORKFLOW_DISPATCH: readonly Backend[] = ["node", "python", "do
  *    answer M-T6.92's (now fixed) 409. */
 const INDEPENDENT_HANDLES: readonly Backend[] = ["node", "python", "dotnet"];
 
+/** The backends whose in-workflow stale save of a `shape: document` row or a
+ *  `persistedAs: eventLog` stream answers the RS-40 409
+ *  (`workflow-two-handles-document-eventlog`, M-T6.95 / M-T6.98).
+ *
+ *  ELIXIR is out.  Its store refuses the stale write (`{:error, :conflict}`)
+ *  and the workflows controller maps that term to 409 (M-T6.92), but:
+ *   - that term carries no aggregate/id, so the RS-40 `detail` sentence cannot
+ *     be built from it;
+ *   - elixir persists each op call inside a workflow (the other four save a
+ *     handle once at the end), so `hitSameTwice` bumps the document `version`
+ *     twice — `$.version` reads one higher than the golden (M-T6.99).
+ *  Arm it by adding `"vanilla"` here when those close. */
+const WORKFLOW_DOC_ES_CONFLICT: readonly Backend[] = ALL.filter((b) => b !== "vanilla");
+
 /** The backends that compile a hosted `X id[]` whose target aggregate lives in a
  *  sibling context the deployable does NOT host (claims eval D18's list position).
  *
@@ -672,6 +686,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "capabilities",
     backends: ALL,
     note: "Minted by M-T6.91: the concurrency 409 `detail` was node's `<Aggregate> <id> was modified by another request` on node and a fixed `The resource was modified by another request; reload and retry.` on the other four, and the one golden that recorded the 409 (`transactional-workflow-event-rollback`) ran on three legs.  This case drives the route every backend shares — a stale `If-Match` on the versioned `update`, via the e2e call's `{ ifMatch: v }` third argument — so the golden diff pins the sentence on every wire-gated leg.",
+  },
+  {
+    id: "workflow-two-handles-document-eventlog",
+    title:
+      "two handles on one `shape: document` row or one `persistedAs: eventLog` stream inside a workflow — the stale save answers the RS-40 409",
+    doc: "workflow",
+    backends: WORKFLOW_DOC_ES_CONFLICT,
+    note: "Minted by M-T6.95 / M-T6.98.  Pre-fix, java's document upsert carried no version guard, EF's document save compared against the re-read row instead of the handle, and every event store appended at `max(version) + 1` read at append time — so two handles that both changed one row (or both appended to one stream) both committed.  The case drives it without concurrent requests: two `getById` loads inside one `transactional` workflow, both changed, expect 409 and nothing persisted; plus the single-handle and only-the-second-handle controls, which must NOT conflict.  Runs on node (drizzle + the MikroORM leg), .NET (EF + the Dapper leg), java and python; elixir is out — see `WORKFLOW_DOC_ES_CONFLICT`.",
   },
   {
     id: "audit-history",

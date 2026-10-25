@@ -583,6 +583,15 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.debitOnce.run (no such aggregate)",
     "api.debitTwice.run (no such aggregate)",
   ],
+  // Workflow runs (M-T6.98) — not a lifted route class.
+  "corpus/workflow-two-handles-document-eventlog": [
+    "api.hitSameTwice.run (no such aggregate)",
+    "api.hitTwice.run (no such aggregate)",
+    "api.hitViaSecond.run (no such aggregate)",
+    "api.withdrawSameTwice.run (no such aggregate)",
+    "api.withdrawTwice.run (no such aggregate)",
+    "api.withdrawViaSecond.run (no such aggregate)",
+  ],
   // Workflow runs (M-T6.90) — not a lifted route class, same as above.
   "corpus/workflow-two-handles-containment": [
     "api.addTwice.run (no such aggregate)",

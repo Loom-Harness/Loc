@@ -8,7 +8,10 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // Slice 5c's context facade functions:
 //
 //   factory-let  → `{:ok, <name>} <- Context.create_<agg>(%{fields})`
-//   op-call      → `{:ok, _}      <- Context.<op>_<agg>(target, %{args})`
+//   op-call      → `{:ok, target} <- Context.<op>_<agg>(target, %{args})` — the
+//                  handle is rebound to the record the call saved when it is
+//                  read again (`{:ok, _}` otherwise), so a second op on it does
+//                  not save the loaded version (M-T6.98)
 //
 // Unsupported kinds fall through to a `# TODO: lower <kind>` comment so
 // the workflow module still compiles under --warnings-as-errors.  Each
@@ -80,7 +83,8 @@ describe("vanilla — workflow body lowering (factory-let + op-call)", () => {
     const wf = files.get(
       [...files.keys()].find((k) => k.endsWith("/workflows/create_and_complete.ex"))!,
     )!;
-    expect(wf).toContain("{:ok, _} <- Context.mark_done_task(t, %{})");
+    // `t` is used again (`t.toggle(false)`), so it is rebound to the saved record.
+    expect(wf).toContain("{:ok, t} <- Context.mark_done_task(t, %{})");
   });
 
   it("keys an op-call's params map by the called op's REAL param name as a string key", async () => {

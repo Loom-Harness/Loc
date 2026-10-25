@@ -783,6 +783,26 @@
         "the witness is test/fixtures/corpus/concurrency-conflict.ddd, whose golden is test/behavioral/wire-golden/concurrency-conflict.json — a stale `If-Match` driven through the e2e call's `{ ifMatch: v }` third argument (loom.e2e-call-options)"
       ],
       "tier": "behavioral"
+    },
+    {
+      "id": "RS-41",
+      "title": "A save is checked against the version its handle was loaded at — a `shape: document` row and a `persistedAs: eventLog` stream included",
+      "trigger": "`workflow-two-handles-document-eventlog.ddd`: two `getById` loads of one document row (and of one event stream) inside a `transactional` workflow, both changed",
+      "observable": "the second save answers the RS-40 409 and the workflow persists neither change; a document upsert is guarded on the handle's loaded `version`, an event append writes the versions after the one the handle folded (so a stream another append moved past rejects it on the `(stream_type, stream_id, version)` key); one handle changed twice, or only the second handle changed, is not a conflict.",
+      "conforms": [
+        "node",
+        "dotnet",
+        "java",
+        "python"
+      ],
+      "targets": [
+        "elixir"
+      ],
+      "provenance": [
+        "M-T6.95 + M-T6.98 (docs/new-plan/archive/T6-done.md), #3285",
+        "the witness is test/fixtures/corpus/workflow-two-handles-document-eventlog.ddd, whose golden is test/behavioral/wire-golden/workflow-two-handles-document-eventlog.json"
+      ],
+      "tier": "behavioral"
     }
   ]
 }

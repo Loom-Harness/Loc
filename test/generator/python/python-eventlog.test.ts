@@ -67,7 +67,10 @@ describe("python event sourcing", () => {
     expect(repo).toContain(
       "return Account._from_events(id, [self._row_to_event(row) for row in rows])",
     );
-    expect(repo).toContain("select(func.max(AccountsEventRow.version))");
+    // Expected-version append (M-T6.98): continue from the folded version.
+    expect(repo).toContain("version = aggregate._stream_version");
+    expect(repo).toContain("aggregate._stream_version = version");
+    expect(repo).not.toContain("func.max");
     // Reads filter, and appends stamp, this aggregate's stream_type — two
     // aggregates sharing the per-context log must each fold only their own.
     expect(repo).toContain('AccountsEventRow.stream_type == "Account"');

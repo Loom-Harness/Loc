@@ -180,9 +180,11 @@ export function renderJavaEventSourcedRepositoryImpl(
     `        var pending = aggregate.pullEvents();`,
     `        if (!pending.isEmpty()) {`,
     `            var sid = String.valueOf(aggregate.id().value());`,
-    `            Integer max = jdbc.queryForObject(`,
-    `                "select max(version) from ${table} where stream_type = ? and stream_id = ?", Integer.class, "${streamType}", sid);`,
-    `            int version = max == null ? 0 : max;`,
+    // Expected-version append (M-T6.98): continue from the version THIS handle
+    // was folded to, not from a `max(version)` re-read here — a re-read lets a
+    // handle loaded before another append keep a decision taken on its stale
+    // fold.
+    `            int version = aggregate._streamVersion();`,
     `            for (var ev : pending) {`,
     `                version++;`,
     `                try {`,
@@ -190,8 +192,8 @@ export function renderJavaEventSourcedRepositoryImpl(
     `                        "insert into ${table} (stream_type, stream_id, version, type, data) values (?, ?, ?, ?, ?::jsonb)",`,
     `                        "${streamType}", sid, version, ev.getClass().getSimpleName(), JSON.writeValueAsString(ev));`,
     // The (stream_id, version) PK IS the event stream's optimistic-concurrency
-    // control: a competing append that read the same max(version) inserts the
-    // same version and loses with a Postgres 23505, which JdbcTemplate maps to
+    // control: a stale handle's append re-inserts a version that exists and
+    // loses with a Postgres 23505, which JdbcTemplate maps to
     // DuplicateKeyException.  Rethrow the SAME exception the `versioned` service
     // raises so the ApiExceptionAdvice 409 arm maps it to Conflict.
     `                } catch (org.springframework.dao.DuplicateKeyException e) {`,
@@ -202,6 +204,7 @@ export function renderJavaEventSourcedRepositoryImpl(
     `                }`,
     `                CatalogLog.event(${javaLogEvent("eventDispatched")}, "event_type", ev.getClass().getSimpleName(), "aggregate", "${agg.name}");`,
     `            }`,
+    `            aggregate._streamVersion(version);`,
     `        }`,
     // repository_save (debug) — after the stream append; (aggregate, id) prefix
     // mirrors the relational repo + .NET/Hono emission (children omitted).
