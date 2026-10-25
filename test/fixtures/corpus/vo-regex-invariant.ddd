@@ -27,13 +27,12 @@
 //   java    correct — `CodeValidator.java` imports `java.util.regex.Pattern` and
 //           hoists `Pattern.compile(...)` to a static field.
 //   elixir  free — `Regex`/`=~` are in Elixir's Kernel, nothing to import.
-//   python  BROKEN, and this fixture is how we know.  `app/http/wire_models.py`
-//           emits `re.search("^[A-Z]{5}$", self.value)` and its import block has
-//           no `import re` — `ruff` reports `F821 Undefined name 're'`.  The
-//           DOMAIN half is right (`app/domain/value_objects.py` imports it), so
-//           this is F-013's defect class exactly, on a second backend, found the
-//           moment the shape existed.  Excluded from `backends:` via the
-//           manifest's named `WIRE_REGEX_IMPORT` set; one import returns the key.
+//   python  FIXED (M-T9.84).  `app/http/wire_models.py` used to emit
+//           `re.search("^[A-Z]{5}$", self.value)` with no `import re` (ruff
+//           F821) while the domain half imported it — F-013's defect class, on a
+//           second backend, found the moment this shape existed.  The renderer
+//           now writes `re` through a `ref()` marker, so every module that
+//           spells it derives its own import; python is back in `backends:`.
 //
 // COMPILE-TIER ONLY — no runtime block, same reason as `vo-cross-context.ddd`:
 // a recorded behavioural case must ship a reviewed wire golden

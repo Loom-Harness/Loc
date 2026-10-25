@@ -60,6 +60,7 @@ import {
   opWorkflowInstanceById,
   opWorkflowInstances,
 } from "../../../ir/util/openapi-ids.js";
+import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
@@ -592,6 +593,15 @@ function renderApiSpec(
   for (const { ctx, wf } of allWorkflows) {
     const slug = snake(wf.name);
     const reqMod = `${schemasModule}.${reqNameFor({ kind: "workflow", workflow: wf.name })}`;
+    // `create(…): T` answers 200 with the value (`respond_result`), typed by
+    // the same type→schema map a scalar-returning operation uses.
+    const result = commandCreateResult(wf);
+    const success = result
+      ? `200 => %OpenApiSpex.Response{
+              description: "OK",
+              content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${openApiType(result.type, schemasModule)}}}
+            }`
+      : `204 => %OpenApiSpex.Response{description: "No Content"}`;
     pathEntries.push(`      "/workflows/${slug}" => %OpenApiSpex.PathItem{
         post: %OpenApiSpex.Operation{
           summary: "Run ${wf.name} workflow",
@@ -604,7 +614,7 @@ function renderApiSpec(
             }
           },
           responses: %{
-            204 => %OpenApiSpex.Response{description: "No Content"}${errorResponseEntries(
+            ${success}${errorResponseEntries(
               "workflow",
               schemasModule,
               workflowIsGuarded(wf),

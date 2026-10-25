@@ -11,10 +11,12 @@ import {
 } from "../../../ir/util/workflow-instances.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, snake, upperFirst } from "../../../util/naming.js";
+import { javaRef } from "../../_imports/java.js";
 import { jid, jsonProp } from "../java-ident.js";
-import { collectJavaExprImports, javaValueTypeForId, renderJavaExpr } from "../render-expr.js";
+import { J } from "../java-symbols.js";
+import { renderJavaExpr } from "../render-expr.js";
 import { javaNotFoundThrow } from "./common.js";
-import { collectWireImports, domainToWire, wireJavaType } from "./wire.js";
+import { domainToWire, javaIdValueType, wireJavaType } from "./wire.js";
 import {
   esEventLogTable,
   esWorkflowCorrIdClass,
@@ -97,7 +99,6 @@ function renderInstanceResponseDto(wf: WorkflowIR, wctx: WorkflowInstancesCtx): 
   const wireImports = new Set<string>();
   const components = shape.map((f) => {
     guardInstanceField(wf, f);
-    collectWireImports(f.type, wireImports, "Response");
     return `${jsonProp(f.name, wireImports)}${wireJavaType(f.type, "Response")} ${jid(f.name)}`;
   });
   return lines(
@@ -125,9 +126,8 @@ function renderInstancesController(
   wctx: WorkflowInstancesCtx,
 ): string {
   const className = `${ctx.name}WorkflowInstancesController`;
-  const anyUuid = workflows.some(
-    (wf) => javaValueTypeForId(workflowCorrIdValueType(wf)) === "UUID",
-  );
+  const forbidden = javaRef(`${wctx.basePkg}.domain.common`, "ForbiddenException");
+  const accessor = javaRef(`${wctx.basePkg}.auth`, "CurrentUserAccessor");
   const stateWfs = workflows.filter((wf) => !wf.eventSourced);
   const esWfs = workflows.filter((wf) => wf.eventSourced);
   // ES instance reads fold the `<wf>_events` stream over a shared JdbcTemplate
@@ -138,15 +138,10 @@ function renderInstancesController(
   // (only when the predicate reads it), then 403 BEFORE the read.  Collected
   // across workflows because the import set and the accessor injection are
   // controller-wide decisions — the same shape the projections controller uses.
-  const gateImports = new Set<string>();
-  let anyGate = false;
   let anyGateUsesUser = false;
   for (const wf of workflows) {
     const g = wf.instanceReadGate;
-    if (!g) continue;
-    anyGate = true;
-    collectJavaExprImports(g, gateImports);
-    if (exprUsesCurrentUser(g)) anyGateUsesUser = true;
+    if (g && exprUsesCurrentUser(g)) anyGateUsesUser = true;
   }
   const gateLines = (wf: WorkflowIR): string[] => {
     const g = wf.instanceReadGate;
@@ -154,7 +149,7 @@ function renderInstancesController(
     const gl: string[] = [];
     if (exprUsesCurrentUser(g)) gl.push(`        var currentUser = currentUserAccessor.user();`);
     gl.push(
-      `        if (!(${renderJavaExpr(g, { thisName: "this" })})) throw new ForbiddenException(${JSON.stringify(
+      `        if (!(${renderJavaExpr(g, { thisName: "this" })})) throw new ${forbidden}(${JSON.stringify(
         `Forbidden: workflow ${wf.name} instances`,
       )});`,
     );
@@ -166,7 +161,7 @@ function renderInstancesController(
     const T = `${upperFirst(wf.name)}InstanceResponse`;
     const slug = snake(wf.name);
     const corr = corrWireField(wf);
-    const idJava = javaValueTypeForId(workflowCorrIdValueType(wf));
+    const idJava = javaIdValueType(workflowCorrIdValueType(wf));
     // The `{id}` param binds the correlation id's Java value type (UUID / int /
     // long / String), so springdoc emits the matching param schema — guid →
     // `{type: string, format: uuid}`, int/long → integer — parity with Hono /
@@ -198,10 +193,10 @@ function renderInstancesController(
         ...gateLines(wf),
         `        var __rows = jdbc.queryForList(`,
         `            "select stream_id, type, data from ${table} where stream_type = ? order by stream_id, version", "${streamType}");`,
-        `        var __byStream = new LinkedHashMap<String, List<DomainEvent>>();`,
+        `        var __byStream = new ${LINKED_HASH_MAP}<String, List<DomainEvent>>();`,
         `        for (var __r : __rows) {`,
         `            var __sid = (String) __r.get("stream_id");`,
-        `            __byStream.computeIfAbsent(__sid, __k -> new ArrayList<>())`,
+        `            __byStream.computeIfAbsent(__sid, __k -> new ${ARRAY_LIST}<>())`,
         `                .add(${cls}._rowToEvent((String) __r.get("type"), String.valueOf(__r.get("data"))));`,
         `        }`,
         `        return __byStream.entrySet().stream()`,
@@ -222,7 +217,7 @@ function renderInstancesController(
         // The sentence is the node/python spelling (`<Wf> <id> not found`) —
         // the RS-27 extension already documented in the Hono emitter.
         `        if (__rows.isEmpty()) throw ${javaNotFoundThrow(upperFirst(wf.name), "id")};`,
-        `        var __loaded = new ArrayList<DomainEvent>();`,
+        `        var __loaded = new ${ARRAY_LIST}<DomainEvent>();`,
         `        for (var __r : __rows) __loaded.add(${cls}._rowToEvent((String) __r.get("type"), String.valueOf(__r.get("data"))));`,
         `        var x = ${cls}._fromEvents(new ${corrId}(${idExpr}), __loaded);`,
         `        return ResponseEntity.ok(new ${T}(${proj("x")}));`,
@@ -261,13 +256,13 @@ function renderInstancesController(
   );
   const fieldDecls = [
     ...repoFields,
-    ...(esPresent ? [`    private final JdbcTemplate jdbc;`] : []),
-    ...(anyGateUsesUser ? [`    private final CurrentUserAccessor currentUserAccessor;`] : []),
+    ...(esPresent ? [`    private final ${JDBC_TEMPLATE} jdbc;`] : []),
+    ...(anyGateUsesUser ? [`    private final ${accessor} currentUserAccessor;`] : []),
   ];
   const ctorParams = [
     ...stateWfs.map((wf) => `${workflowStateClass(wf)}Repository ${stateRepoField(wf)}`),
-    ...(esPresent ? ["JdbcTemplate jdbc"] : []),
-    ...(anyGateUsesUser ? ["CurrentUserAccessor currentUserAccessor"] : []),
+    ...(esPresent ? [`${JDBC_TEMPLATE} jdbc`] : []),
+    ...(anyGateUsesUser ? [`${accessor} currentUserAccessor`] : []),
   ].join(", ");
   const ctorAssigns = [
     ...stateWfs.map((wf) => `        this.${stateRepoField(wf)} = ${stateRepoField(wf)};`),
@@ -278,21 +273,14 @@ function renderInstancesController(
   return lines(
     `package ${wctx.basePkg}.api;`,
     ``,
-    esPresent ? `import java.util.ArrayList;` : null,
     `import java.util.List;`,
-    esPresent ? `import java.util.LinkedHashMap;` : null,
-    anyUuid ? `import java.util.UUID;` : null,
     ``,
     `import org.springframework.http.ResponseEntity;`,
-    esPresent ? `import org.springframework.jdbc.core.JdbcTemplate;` : null,
     `import org.springframework.web.bind.annotation.*;`,
     ``,
     // The 404 carrier the instance show raises (M-T6.31) — unconditional, since
     // every instance-bearing workflow emits a show route.
-    ...[...gateImports].sort().map((i) => `import ${i};`),
     `import ${wctx.basePkg}.domain.common.AggregateNotFoundException;`,
-    anyGate ? `import ${wctx.basePkg}.domain.common.ForbiddenException;` : null,
-    anyGateUsesUser ? `import ${wctx.basePkg}.auth.CurrentUserAccessor;` : null,
     `import ${wctx.pkg}.*;`,
     stateWfs.length > 0 ? `import ${wctx.stateRepoPkg}.*;` : null,
     esPresent ? `import ${wctx.basePkg}.domain.events.*;` : null,
@@ -313,14 +301,18 @@ function renderInstancesController(
   );
 }
 
+const ARRAY_LIST = javaRef("java.util", "ArrayList");
+const LINKED_HASH_MAP = javaRef("java.util", "LinkedHashMap");
+const JDBC_TEMPLATE = javaRef("org.springframework.jdbc.core", "JdbcTemplate");
+
 /** Convert a stream_id `String` back to the correlation id's value type so a
  *  folded ES instance can wrap it in `new <Corr>Id(...)`.  The stream_id column
  *  stores `String.valueOf(key.value())`, so the inverse depends on the value
  *  type (UUID → `UUID.fromString`, numeric → parse, string → identity). */
 function idFromString(expr: string, idJava: string): string {
   switch (idJava) {
-    case "UUID":
-      return `UUID.fromString(${expr})`;
+    case J.UUID:
+      return `${J.UUID}.fromString(${expr})`;
     case "int":
       return `Integer.parseInt(${expr})`;
     case "long":
