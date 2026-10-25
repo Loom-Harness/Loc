@@ -42,6 +42,7 @@ function javaRealtimeValue(access: string, t: TypeIR): string {
   let base = access;
   if (inner.kind === "id") base = `${access}.value()`;
   else if (inner.kind === "primitive" && inner.name === "datetime") base = javaInstantWire(access);
+  else if (inner.kind === "primitive" && inner.name === "date") base = `${access}.toString()`;
   // money pins the FIXED wire scale (RS-12) — a bare `toPlainString()` echoes
   // whatever scale the domain `BigDecimal` happens to carry rather than the
   // canonical 4dp every other read path (REST, channels) now applies (see

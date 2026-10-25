@@ -15,6 +15,7 @@ import type {
   TestStmtIR,
   WorkflowIR,
 } from "../ir/types/loom-ir.js";
+import { readE2eCallOptions } from "../ir/util/e2e-call-options.js";
 import {
   E2E_WORKFLOW_VERBS,
   findWorkflowBySlug,
@@ -29,7 +30,7 @@ import {
   routedHandlerNeedsUnsendableBody,
 } from "../ir/util/routed-handler.js";
 import { walkExprDeep } from "../ir/util/walk.js";
-import { emitsCommandRoute } from "../ir/util/workflow-command-route.js";
+import { commandCreateResult, emitsCommandRoute } from "../ir/util/workflow-command-route.js";
 import { emitsInstanceRoutes } from "../ir/util/workflow-instances.js";
 import { platformFor } from "../platform/registry.js";
 import { API_BASE_PATH } from "../util/api-base.js";
@@ -120,6 +121,11 @@ interface RenderCtx {
   apis: ApiIR[];
   /** Locals introduced by `let`. */
   locals: Set<string>;
+  /** `let`s bound to a VALUE, not a `{ id, … }` record — today the result of
+   *  `api.<wf>.run(…)` on a workflow whose create declares one
+   *  (`create(…): Account id`).  Such a local already IS the id, so
+   *  `renderIdArg` passes it through instead of appending `.id`. */
+  valueLocals: Set<string>;
   /** `let` names that are actually referenced later in the test body.
    *  A `let` whose binding is unused emits as a bare expression so the
    *  generated test doesn't carry a dead `const` (Biome's noUnusedVariables). */
@@ -204,6 +210,7 @@ export function renderE2EFile(
         contexts,
         apis: apisServedBy(d, sys.apis),
         locals: new Set(),
+        valueLocals: new Set(),
         usedLetNames: collectUsedLetNames(t.statements),
         apiBasePath: apiBasePath(d.platform),
       };
@@ -484,6 +491,7 @@ function renderE2EStmt(s: TestStmtIR, ctx: RenderCtx): string {
   }
   if (s.kind === "let") {
     ctx.locals.add(s.name);
+    if (isWorkflowResultCall(s.expr, ctx)) ctx.valueLocals.add(s.name);
     // Drop the `const <name> =` binding when nothing in the test body
     // references it — `Sales.Order.create({...})` as a bare seed line
     // shouldn't leave a dead local in the emitted test.
@@ -1005,7 +1013,18 @@ function renderOperationCall(
   const body = args.length >= 2 ? renderE2EExpr(args[1], ctx) : "{}";
   const opSnake = snake(op.name);
   const prefix = ctx.apiBasePath;
-  return `await __post(\`\${base}${prefix}/${slug}/\${${idExpr}}/${opSnake}\`, ${body})`;
+  const url = `\`\${base}${prefix}/${slug}/\${${idExpr}}/${opSnake}\``;
+  // The optional third argument (validated as `loom.e2e-call-options`).
+  const options = readE2eCallOptions(args[2]);
+  if (options === "malformed") {
+    throw new Error(
+      `e2e: api.${slug}.${op.name}(id, body, options) — options must be { ifMatch: <version> }`,
+    );
+  }
+  if (options) {
+    return `await __postIfMatch(${url}, ${body}, ${renderE2EExpr(options.ifMatch, ctx)})`;
+  }
+  return `await __post(${url}, ${body})`;
 }
 
 function renderFindCall(find: FindIR, slug: string, args: ExprIR[], ctx: RenderCtx): string {
@@ -1036,10 +1055,20 @@ function renderIdArg(arg: ExprIR, ctx: RenderCtx): string {
   // If the argument is a let-bound name, the user probably bound the
   // result of `api.x.create(...)` which returns `{ id }` — append `.id`.
   const rendered = renderE2EExpr(arg, ctx);
-  if (arg.kind === "ref" && ctx.locals.has(arg.name)) {
+  if (arg.kind === "ref" && ctx.locals.has(arg.name) && !ctx.valueLocals.has(arg.name)) {
     return `${rendered}.id`;
   }
   return rendered;
+}
+
+/** `api.<wf>.run(…)` on a workflow whose create declares a result — the call
+ *  answers the bare value (`create(…): T`), not a record. */
+function isWorkflowResultCall(e: ExprIR, ctx: RenderCtx): boolean {
+  const call = matchApiCall(e);
+  if (call?.method !== "run") return false;
+  if (findAggregateBySlug(call.aggregateSlug, ctx.contexts)) return false;
+  const wf = findWorkflowBySlug(call.aggregateSlug, ctx.contexts);
+  return !!wf && !!commandCreateResult(wf);
 }
 
 /**
@@ -1056,7 +1085,9 @@ function renderIdArg(arg: ExprIR, ctx: RenderCtx): string {
  * so this arm adds no wire surface, it only lets a `test e2e` body reach one.
  *
  * `.run()` answers 204 with an empty body, which `__post` already returns as
- * `{}`; the instance reads answer the persisted correlation row's
+ * `{}` — or, for a `create(…): T`, 200 with the bare declared value (a `let`
+ * bound to it is a `valueLocals` entry, so it is never `.id`-unwrapped); the
+ * instance reads answer the persisted correlation row's
  * `instanceWireShape`, which is what makes a folded saga's scalars assertable
  * (the verb M-T9.12's follow-up said the DSL did not have).
  *
@@ -1172,6 +1203,28 @@ function serviceSlug(name: string): string {
  *  need: they are lexicographically ordered by construction, so `<` is already
  *  correct for them and coercing would produce NaN. */
 const E2E_WIRE_HELPERS: ReadonlyArray<{ name: string; src: string }> = [
+  {
+    // `api.<aggs>.update(id, body, { ifMatch: v })` (e2e-call-options.ts) — the
+    // operation POST with the optimistic-concurrency precondition.  The version
+    // is sent as a quoted entity-tag, the form every backend's If-Match parser
+    // accepts (it is what the API's own ETag hands a client).  On demand, so a
+    // suite without the option carries no dead helper.
+    name: "__postIfMatch",
+    src: `async function __postIfMatch(url: string, body: unknown, version: unknown): Promise<__WireBody> {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", "if-match": \`"\${String(version)}"\`, ...__authHeaders() },
+    body: JSON.stringify(body ?? {}),
+  });
+  const text = await r.text();
+  if (!r.ok) throw new Error(\`POST \${url} → \${r.status} \${r.statusText}\${text ? ": " + text : ""}\`);
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(\`POST \${url} → \${r.status}: expected JSON, got \${JSON.stringify(text.slice(0, 200))}\`);
+  }
+}`,
+  },
   {
     name: "__cmpKey",
     src: `// Ordering key for a wire value — see \`sortBy\`/\`min\`/\`max\` below.  Money and

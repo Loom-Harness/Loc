@@ -223,6 +223,7 @@ function javaTestLiteral(): TestLiteralTarget {
       return `new ${targetName}Id(${rendered})`;
     },
     datetime: (rendered) => `${J.Instant}.parse(${rendered})`,
+    date: (rendered) => `${J.LocalDate}.parse(${rendered})`,
   };
 }
 

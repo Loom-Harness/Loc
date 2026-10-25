@@ -1,0 +1,67 @@
+// The optimistic-concurrency 409 (RS-40, M-T6.91) — one sentence, every backend.
+//
+// A `versioned` aggregate's `update` reads the client's expected version off an
+// `If-Match` header.  A write whose expectation is stale — another request
+// already moved the row — is refused with 409, and the RFC 9457 `detail` names
+// the aggregate and the row: `"Note <id> was modified by another request"`.
+//
+// Until M-T6.91 that sentence was node's alone; .NET (EF + Dapper), java,
+// python and elixir answered one fixed `"The resource was modified by another
+// request; reload and retry."`.  Status, `title` and `type` already agreed, so
+// only a wire-golden diff of the `detail` could see it, and the only golden
+// that recorded a concurrency 409 (`transactional-workflow-event-rollback`)
+// runs on three legs.  This fixture runs on all of them, and the golden pins
+// the sentence: the `<uuid>` placeholder normalises the id, the words do not.
+//
+// The stale `If-Match` is the route every backend shares (a two-handle
+// conflict inside a workflow is not: EF tracks one entity for both loads,
+// M-T6.90, and elixir answers 500 inside a `transactional` one, M-T6.92).
+// `{ ifMatch: v }` is the e2e call's third argument — it sends `If-Match: "v"`.
+system ConcurrencyConflictSystem {
+  subdomain Notes {
+    context Notes {
+      aggregate Note with versioned, crudish {
+        text: string
+      }
+      repository NoteRepo for Note { }
+    }
+  }
+  api NotesApi from Notes
+  storage pg { type: postgres }
+  resource notesState { for: Notes, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Notes]
+    dataSources: [notesState]
+    serves: NotesApi
+    port: 4000
+  }
+
+  test e2e "a stale If-Match is refused with the named 409, and the fresh write stands" against d {
+    let n = api.notes.create({ text: "first" })
+    let read = api.notes.getById(n)
+    expect(read.text).toBe("first")
+
+    // The current version is accepted and moves the row on.
+    api.notes.update(n, { text: "second" }, { ifMatch: read.version })
+    let moved = api.notes.getById(n)
+    expect(moved.text).toBe("second")
+    expect(moved.version).toBe(read.version + 1)
+
+    // The same — now stale — version is refused.  The 409's body is what the
+    // wire golden pins (RS-40); the row is untouched.
+    expect(api.notes.update(n, { text: "lost" }, { ifMatch: read.version })).toThrow(409)
+    let kept = api.notes.getById(n)
+    expect(kept.text).toBe("second")
+    expect(kept.version).toBe(moved.version)
+
+    // The two crudish routes the case does not otherwise reach (the api-caller
+    // census wants every derived route driven): the collection read sees the
+    // one row, and the delete takes it away.
+    let listed = api.notes.all()
+    expect(listed.total).toBe(1)
+    api.notes.destroy(n)
+    let gone = api.notes.all()
+    expect(gone.total).toBe(0)
+  }
+}

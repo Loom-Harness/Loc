@@ -265,6 +265,26 @@ and, unless the generate run passes `--allow-destructive`, **aborts** with a
   A backfill step **wins** where both could apply: it is the author's explicit
   statement about this one migration, and it is the only one of the two that
   can express a per-row value.
+- **Capability columns on a populated table.** A built-in capability added to
+  an aggregate whose table already holds rows adds columns the source never
+  spells. Each is handled by whether its value for the EXISTING rows is
+  knowable:
+
+  | Capability | NOT NULL column | Existing rows | On a populated table |
+  |---|---|---|---|
+  | `softDeletable` | `is_deleted` | `false`, unambiguously (no row was ever soft-deleted before the capability) | added `DEFAULT false`, the default dropped in the same migration, as a field default (above). No flag, no block |
+  | `versioned` | `version` | `1` | a real `DEFAULT 1` column, never blocking |
+  | `tenantOwned` | `tenant_id` | unknown: which tenant owns a pre-tenancy row is a business fact, and a wrong guess leaks it | **refused**, with a line naming the capability and why |
+  | `auditable` | `created_at`/`updated_at`/`created_by`/`updated_by` | unknown: the real creation time and author are lost | **refused**, same |
+
+  The nullable ones (`deleted_at`, `data_key`) need nothing. A declared
+  `migration "…" { Agg.field = <value> }` block still wins over the automatic
+  `softDeletable` fill, and is the remedy for the two refused ones:
+
+  ```text
+  - ADD COLUMN l.accounts.tenant_id NOT NULL (no default) — contributed by `with tenantOwned`. Loom cannot infer which tenant owns a row written before tenancy, and a wrong guess hands it to another tenant, so there is no automatic backfill. Declare what the existing rows hold in a migration block (`migration "…" { <Agg>.<field> = <value> }`), or add the capability before the table holds data.
+  ```
+
 - **NULL → NOT NULL flips** (M-T2.3). Making an existing column required
   fails at apply time on any row holding NULL, so the flip is classified
   destructive too — unless a backfill step covers the column, in which case
@@ -444,6 +464,61 @@ had over the same columns (the drop + add a column rename causes, or a full
 unique narrowed to a partial one). A NEW partial unique (`softDeletable`'s
 `WHERE is_deleted = false`) still warns — it is a uniqueness claim over the
 live rows. A warning never changes the exit code.
+
+### A unique index follows a `softDeletable` flip (partial ↔ full)
+
+Under `softDeletable` the `unique (…)` index is **partial** (`WHERE is_deleted =
+false`), so a live row may reuse a soft-deleted row's key. The index name
+(`<table>_<cols>_uq`) depends only on the table and the columns, so flipping the
+capability keeps the name and changes only the predicate. The index diff
+compares the whole index (columns after renames, uniqueness, predicate,
+opclasses), not only the name: a same-named index whose shape changed is
+**rebuilt**, as a `DROP INDEX` + `CREATE … INDEX`, because Postgres cannot alter
+an index predicate. The drop rides the leading index-drop bucket and the create
+the trailing index-add bucket, so a predicate that names `is_deleted` is created
+after that column's `ADD COLUMN`, and dropped before its `DROP COLUMN`. All five
+backends render it: Ecto as `drop index(…)` + `create index(…, where: …)`, the
+others as shared Postgres SQL.
+
+```ddd
+// generation 1: aggregate Account with crudish { number: string  unique (number) }
+aggregate Account with softDeletable, crudish { number: string  owner: string  unique (number) }
+```
+```sql
+DROP INDEX "ledger"."accounts_number_uq";
+--> statement-breakpoint
+ALTER TABLE "ledger"."accounts" ADD COLUMN "is_deleted" BOOLEAN NOT NULL DEFAULT false;
+--> statement-breakpoint
+ALTER TABLE "ledger"."accounts" ALTER COLUMN "is_deleted" DROP DEFAULT;
+--> statement-breakpoint
+ALTER TABLE "ledger"."accounts" ADD COLUMN "deleted_at" TIMESTAMP WITH TIME ZONE NULL;
+--> statement-breakpoint
+CREATE UNIQUE INDEX "accounts_number_uq" ON "ledger"."accounts" ("number") WHERE is_deleted = false;
+```
+
+- **Full → partial (adding `softDeletable`)** relaxes the constraint: every row
+  the full index admitted, the partial one admits too. The flip is not
+  destructive and raises no warning. The NOT NULL `is_deleted` column fills
+  itself (§ Capability columns on a populated table).
+- **Partial → full (dropping `softDeletable`)** tightens the constraint. The
+  formerly soft-deleted rows now count, so a live row that reused a deleted
+  row's key makes the `CREATE UNIQUE INDEX` fail at boot. This raises
+  `loom.migration-unique-on-existing-table`. Dedupe the rows with a
+  `sql before` step, as described in the previous section. Dropping
+  `is_deleted` itself is a `dropColumn`, so it needs `--allow-destructive`.
+
+Before this, the diff paired indexes by name only. The flip emitted no index
+step, and the database kept whichever index the first generation created.
+
+The migration-evolution tier runs both directions against a populated database
+on every SQL backend (`runUniqueIndexEvolutionGate`, `npm run
+test:migration-evolution{,-python,-java,-dotnet,-elixir}`):
+- full → partial: the migration applies with no backfill block and no flag
+  (the pre-existing row still reads 200, `is_deleted = false`, and the column
+  has no default left), a soft-deleted row's key is reused (201), and a live
+  duplicate gets 409;
+- partial → full: a `sql before` dedupe runs, the index is rebuilt full, and a
+  duplicate gets 409.
 
 ### Amending a generation that never applied
 

@@ -389,6 +389,7 @@ function elementTsType(el: TypeIR): string {
       case "bool":
         return "boolean";
       case "string":
+      case "date":
       case "datetime":
       case "guid":
       case "money":
@@ -549,7 +550,11 @@ export function fieldInput(
     }
     addNg(ctx, "primeng/inputtext", "InputTextModule");
     const inputType =
-      inner.kind === "primitive" && inner.name === "datetime" ? ' type="datetime-local"' : "";
+      inner.kind === "primitive" && inner.name === "datetime"
+        ? ' type="datetime-local"'
+        : inner.kind === "primitive" && inner.name === "date"
+          ? ' type="date"'
+          : "";
     return `<label class="loom-field"><span class="loom-label">${label}</span><input pInputText class="loom-input"${inputType}${moneyMode} formControlName=${cn}${testid} /></label>`;
   }
   let inputType = "";
@@ -560,6 +565,9 @@ export function fieldInput(
       inputType = ' type="number"';
     } else if (inner.name === "datetime") {
       inputType = ' type="datetime-local"';
+    } else if (inner.name === "date") {
+      // A date picker, whose value is already the wire's `YYYY-MM-DD`.
+      inputType = ' type="date"';
     }
   }
   if (style === "material") {

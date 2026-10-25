@@ -324,6 +324,11 @@ function paramGuardClause(wireName: string, type: TypeIR | undefined): string | 
       return `{:ok, ${elixirLocal(wireName)}} <- __loom_int32_param(record, ${field}, ${access})`;
     case "long":
       return `{:ok, ${elixirLocal(wireName)}} <- __loom_int_param(record, ${field}, ${access})`;
+    // A `date` is ISO `YYYY-MM-DD` text on the wire; the op persists through
+    // `force_change` (no cast), so a non-date would reach the `:date` column
+    // as a binary and raise — refused here as the 422 instead.
+    case "date":
+      return `{:ok, ${elixirLocal(wireName)}} <- __loom_date_param(record, ${field}, ${access})`;
     default:
       return null;
   }
@@ -360,6 +365,7 @@ function renderNumericParamHelpers(
   needsDecimal: boolean,
   needsInt: boolean,
   needsInt32: boolean,
+  needsDate = false,
 ): string {
   // Emitted SEPARATELY, not as one block: `mix compile --warnings-as-errors`
   // rejects an unused private function, so a context whose ops take an `int`
@@ -432,10 +438,26 @@ function renderNumericParamHelpers(
   defp __loom_int32_param(record, field, value),
     do: {:error, __loom_param_error(record, field, value, "Invalid integer")}
 `;
+  // `Date.from_iso8601/1` is strict ISO `YYYY-MM-DD`: a datetime-shaped value
+  // is refused rather than having its time-of-day dropped.
+  const date = `
+  defp __loom_date_param(_record, _field, nil), do: {:ok, nil}
+  defp __loom_date_param(_record, _field, %Date{} = value), do: {:ok, value}
+
+  defp __loom_date_param(record, field, value) when is_binary(value) do
+    case Date.from_iso8601(value) do
+      {:ok, d} -> {:ok, d}
+      _ -> {:error, __loom_param_error(record, field, value, "Invalid date")}
+    end
+  end
+
+  defp __loom_date_param(record, field, value),
+    do: {:error, __loom_param_error(record, field, value, "Invalid date")}
+`;
   return `  # Wire-format guards for operation params (M-T6.48).  Each returns
   # \`{:ok, value}\` or \`{:error, changeset}\` — the latter renders as the
   # standard 422 with a \`/<param>\` pointer.
-${err}${needsDecimal ? dec : ""}${needsInt ? int : ""}${needsInt32 ? int32 : ""}`;
+${err}${needsDecimal ? dec : ""}${needsInt ? int : ""}${needsInt32 ? int32 : ""}${needsDate ? date : ""}`;
 }
 
 function renderContextModule(
@@ -1028,9 +1050,10 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
   const needsDecimalParam = assembledBody.includes("__loom_decimal_param(");
   const needsIntParam = assembledBody.includes("__loom_int_param(");
   const needsInt32Param = assembledBody.includes("__loom_int32_param(");
+  const needsDateParam = assembledBody.includes("__loom_date_param(");
   const numericParamHelpers =
-    needsDecimalParam || needsIntParam || needsInt32Param
-      ? `\n${renderNumericParamHelpers(needsDecimalParam, needsIntParam, needsInt32Param)}`
+    needsDecimalParam || needsIntParam || needsInt32Param || needsDateParam
+      ? `\n${renderNumericParamHelpers(needsDecimalParam, needsIntParam, needsInt32Param, needsDateParam)}`
       : "";
 
   return `# Auto-generated.

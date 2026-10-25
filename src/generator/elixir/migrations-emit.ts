@@ -720,7 +720,13 @@ export function renderEctoStep(step: MigrationStep): string[] {
       ];
     }
     case "dropIndex":
-      return [`drop index(:${step.table}, name: "${step.name}"${prefixOpt(step.schema)})`];
+      // `index/3` takes the COLUMN list second.  The old `index(:t, name: …)`
+      // passed the keyword list AS the columns, so Ecto derived a name of its
+      // own from them (`accounts_accounts_number_uq_ledger_index`) and the drop
+      // failed with `index … does not exist` — found by the migration-evolution
+      // runtime gate the first time a delta dropped an index on Phoenix.  A drop
+      // needs only the name (+ prefix), so the column list is empty.
+      return [`drop index(:${step.table}, [], name: "${step.name}"${prefixOpt(step.schema)})`];
     case "addCheck":
       // Only the VO null-consistency kind is skipped, and only it.  Ecto stores
       // a value object as ONE `:map` column (`collapseVoGroups`), so the
@@ -872,6 +878,8 @@ function ectoColumnType(t: ColumnType): string {
       return ":boolean";
     case "decimal":
       return ":decimal";
+    case "date":
+      return ":date";
     case "datetime":
       // `timestamptz`, the column every other backend uses: a microsecond UTC
       // instant the `Loom.Datetime` field type reads back at millisecond

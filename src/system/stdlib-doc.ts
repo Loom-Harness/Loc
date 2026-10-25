@@ -37,6 +37,7 @@ const RECEIVER_ORDER: ReadonlyArray<{ receiver: IntrinsicReceiver; heading: stri
   { receiver: "long", heading: "long" },
   { receiver: "decimal", heading: "decimal" },
   { receiver: "money", heading: "money" },
+  { receiver: "date", heading: "date" },
   { receiver: "datetime", heading: "datetime" },
 ];
 
@@ -44,7 +45,7 @@ const RECEIVER_ORDER: ReadonlyArray<{ receiver: IntrinsicReceiver; heading: stri
 const PRELUDE_BLURBS: Readonly<Record<string, string>> = {
   strings: "String predicates and shaping.",
   math: "Numeric clamping, ratios, and rounding.",
-  temporal: "Datetime comparisons against `now()`.",
+  temporal: "Datetime comparisons against `now()`, and `today()`'s UTC calendar date.",
 };
 
 function intrinsicTable(receiver: IntrinsicReceiver): string {

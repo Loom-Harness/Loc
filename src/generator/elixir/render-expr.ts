@@ -406,6 +406,9 @@ function renderElixirConvert(
     // "2026-01-01 00:00:00Z" — a SPACE where the wire form has `T`, so it is
     // not the value .NET / java / python / node emit for this conversion.
     if (from === "datetime") return `DateTime.to_iso8601(${v})`;
+    // `to_string(%Date{})` is already ISO `YYYY-MM-DD`; spelled explicitly so
+    // the wire form does not rest on `String.Chars`.
+    if (from === "date") return `Date.to_iso8601(${v})`;
     return `to_string(${v})`;
   }
   if (target === "long" || target === "int") {
@@ -727,6 +730,14 @@ export const ELIXIR_INTRINSIC_RENDERERS: Record<string, (recv: string, args: str
     // TIME to midnight is the catalogue's midnight-UTC bucket.
     "datetime.startOfDay": (recv) =>
       `DateTime.new!(DateTime.to_date(${recv}), ~T[00:00:00], "Etc/UTC")`,
+    // The `%DateTime{}` is UTC (above), so its date IS the UTC calendar date.
+    "datetime.toDate": (recv) => `DateTime.to_date(${recv})`,
+    // ---- date — a `%Date{}`; `Date.diff/2` is the signed whole-day distance
+    // (`Date.diff(b, a)` is `b - a`).
+    "date.year": (recv) => `${recv}.year`,
+    "date.month": (recv) => `${recv}.month`,
+    "date.day": (recv) => `${recv}.day`,
+    "date.daysUntil": (recv, args) => `Date.diff(${args[0]}, ${recv})`,
   };
 
 export const ECTO_INTRINSIC_FRAGMENTS: Record<string, (recv: string, args: string[]) => string> = {
@@ -1072,7 +1083,13 @@ function sortSorter(e: Extract<ExprIR, { kind: "method-call" }> | undefined): st
   const lam = e?.args[0];
   const bodyT = lam?.kind === "lambda" && lam.body ? bodyTypeOf(lam.body) : undefined;
   const name = bodyT?.kind === "primitive" ? bodyT.name : undefined;
-  const mod = isDecimalStruct(name) ? "Decimal" : name === "datetime" ? "DateTime" : null;
+  const mod = isDecimalStruct(name)
+    ? "Decimal"
+    : name === "datetime"
+      ? "DateTime"
+      : name === "date"
+        ? "Date"
+        : null;
   if (!mod) return desc ? ":desc" : null;
   return desc ? `{:desc, ${mod}}` : mod;
 }
@@ -1087,6 +1104,7 @@ function reductionSorter(
   const notToken = kind === "min" ? ":gt" : ":lt";
   if (isDecimalStruct(name)) return `&(Decimal.compare(&1, &2) != ${notToken})`;
   if (name === "datetime") return `&(DateTime.compare(&1, &2) != ${notToken})`;
+  if (name === "date") return `&(Date.compare(&1, &2) != ${notToken})`;
   return kind === "min" ? "&<=/2" : "&>=/2";
 }
 
@@ -1563,6 +1581,16 @@ function renderBinary(
   ) {
     return renderDateTimeCompare(e.op, l, r);
   }
+  // A `%Date{}` is a struct too — the same structural-order hazard, through
+  // `Date.compare/2`.
+  if (
+    !ectoQuery &&
+    e.leftType?.kind === "primitive" &&
+    e.leftType.name === "date" &&
+    (e.op === "<" || e.op === "<=" || e.op === ">" || e.op === ">=")
+  ) {
+    return renderDateTimeCompare(e.op, l, r, "Date");
+  }
   // Prefer the IR-level `leftType` over the AST-shape check: chained
   // string concats (`a + b + c`) carry `leftType: string` on the outer
   // binary even when the left operand is itself a binary.
@@ -1640,11 +1668,16 @@ function renderEctoNullableComparison(l: string, r: string, e: BinaryExpr): stri
 
 /** `DateTime.compare/2`-based order comparison (A5 temporal) — the datetime
  *  sibling of `renderDecimalBinary`'s comparison arms. */
-function renderDateTimeCompare(op: "<" | "<=" | ">" | ">=", l: string, r: string): string {
-  if (op === "<") return `DateTime.compare(${l}, ${r}) == :lt`;
-  if (op === "<=") return `DateTime.compare(${l}, ${r}) in [:lt, :eq]`;
-  if (op === ">") return `DateTime.compare(${l}, ${r}) == :gt`;
-  return `DateTime.compare(${l}, ${r}) in [:gt, :eq]`;
+function renderDateTimeCompare(
+  op: "<" | "<=" | ">" | ">=",
+  l: string,
+  r: string,
+  mod: "DateTime" | "Date" = "DateTime",
+): string {
+  if (op === "<") return `${mod}.compare(${l}, ${r}) == :lt`;
+  if (op === "<=") return `${mod}.compare(${l}, ${r}) in [:lt, :eq]`;
+  if (op === ">") return `${mod}.compare(${l}, ${r}) == :gt`;
+  return `${mod}.compare(${l}, ${r}) in [:gt, :eq]`;
 }
 
 const DECIMAL_ARITH: Record<string, string | undefined> = {
@@ -1841,6 +1874,8 @@ export function renderTypespec(t: TypeIR, contextModule: string, typesModule?: s
           return "boolean()";
         case "datetime":
           return typesModule ? `${typesModule}.timestamp()` : "DateTime.t()";
+        case "date":
+          return "Date.t()";
         case "guid":
           // UUIDs are plain binary strings on the struct.
           return "String.t()";

@@ -630,7 +630,7 @@ ${cuBind}${showBody}
         ? `
 
       {:error, :conflict} ->
-        ProblemDetails.conflict_response(conn)`
+        ProblemDetails.conflict_response(conn, "${aggPascal}", id)`
         : "";
       return `
   def ${elixirOpAction(op.name)}(conn, %{"id" => id} = params) do
@@ -879,7 +879,7 @@ ${cuBind}${destroyCuBind}    with {:ok, record} <- ${ctxModule}.${cmdGet}(id${ge
     ? `
 
       {:error, :conflict} ->
-        ProblemDetails.conflict_response(conn)`
+        ProblemDetails.conflict_response(conn, "${aggPascal}", id)`
     : "";
   // Private helper — parse the client's expected `version` from the `if-match`
   // request header (bare int or a quoted ETag).  Absent/unparseable → nil, which

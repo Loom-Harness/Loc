@@ -130,20 +130,20 @@ The lowering phase has two sub-passes, both driven by `lowerModel`:
 
 After lowering, `src/ir/enrich/` (`enrichments.ts` + `wire-projection.ts`) runs **one pure pass** (phase ⑥) that derives:
 
-1. **`wireShape`** on every aggregate / part / value object — the canonical ordered field list every backend's DTO emitter consumes (`id`, then declared properties, then containments, then derived). Cross-backend wire compatibility is structural, not coincidental. (The wire-shape/createInput extraction lives in `wire-projection.ts`.)
+1. **The wire shape** of every aggregate / part / value object — the canonical ordered field list every backend's DTO emitter consumes (`id`, then declared properties, then containments, then derived). It is not stored on the IR: the `wireFieldsFor*` helpers in `wire-projection.ts` compute it on demand from the node, so every backend derives the same list. Cross-backend wire compatibility is structural, not coincidental.
 2. **Auto-`findAll`** on every aggregate's repository.
 3. **Associations** for `X id[]` collection fields (join-table metadata).
 4. **React `targets:` module inheritance** — react deployables inherit their target backend's `moduleNames`.
 5. **Per-module `migrationsOwner`** — picks one backend deployable per module to own schema-migration emission; consumed by `buildMigrations` in phase ⑨.
 6. **Tenancy scope-filter stances** (deep/deny/global/self-scope), plus `deriveNeeds`, resource interfaces, event subscriptions, workflow return/instance shapes, and traceability derivations — the pass has grown well beyond the five original derivations.
 
-The output is a branded `EnrichedLoomModel` — the validator, system orchestrator, and generators all take `EnrichedLoomModel` / `EnrichedBoundedContextIR` / `EnrichedAggregateIR` at their entry points, so an un-enriched IR fails to type-check rather than getting silently passed through with a `wireShape!` cast.
+The output is a branded `EnrichedLoomModel` — the validator, system orchestrator, and generators all take `EnrichedLoomModel` / `EnrichedBoundedContextIR` / `EnrichedAggregateIR` at their entry points, so an un-enriched IR fails to type-check rather than getting silently passed through un-enriched.
 
 Then `src/ir/validate/validate.ts` runs phase ⑦ — cross-aggregate / multi-file IR-level checks that need the fully-resolved, enriched IR. `validate.ts` is a thin orchestrator (`validateLoomModel`) that fans out to ~40 per-theme leaf modules under `src/ir/validate/checks/`, plus `shared.ts` helpers and `diagnostic.ts` for the `LoomDiagnostic` type; `firstNonQueryableNode` + `LoomDiagnostic` are re-exported from `validate.ts` so its public surface is unchanged.
 
 **Diagnostic wording lives in one catalog.** Every `loom.*` diagnostic the user can see — raised by the macro expander (`src/macros/expander.ts`, phase ②), the AST validators (`src/language/validators/`), these IR check leaves, or the `src/api/` toolkit entry points — takes its human-readable text from `src/diagnostics/messages.ts` — keyed by the stable `loom.*` code (plus a `#<slug>` when one code carries several messages), with the call site passing `diagMessage(key, params)` and still attaching the bare `code`. Add a message there, not inline; `test/system/diagnostic-catalog.test.ts` fails on an inline literal, on a key that belongs to a different code, and on an orphaned entry.
 
-A JSON Schema artifact at `<outdir>/.loom/wire-spec.json` is built from `wireShape` by `src/system/wire-spec.ts` (in phase ⑨) for diff-based contract change detection. See [`docs/loom-artifacts.md`](docs/loom-artifacts.md) for the full `.loom/` bundle (mermaid views, LikeC4 model, traceability, verification, provenance snapshots, opt-in `sourcemap.json`) — every sibling of `index.ts` under `src/system/` emits one of these.
+A JSON Schema artifact at `<outdir>/.loom/wire-spec.json` is built from the derived wire shape by `src/system/wire-spec.ts` (in phase ⑨) for diff-based contract change detection. See [`docs/loom-artifacts.md`](docs/loom-artifacts.md) for the full `.loom/` bundle (mermaid views, LikeC4 model, traceability, verification, provenance snapshots, opt-in `sourcemap.json`) — every sibling of `index.ts` under `src/system/` emits one of these.
 
 ### Per-platform generators (`src/generator/<platform>/`)
 
