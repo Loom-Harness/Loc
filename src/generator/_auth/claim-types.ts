@@ -26,7 +26,7 @@ import type { FieldIR, TypeIR } from "../../ir/types/loom-ir.js";
 /** Aggregate/entity target names whose strong id (`<Name>Id`) a user-claim
  *  field's type names, sorted + deduped.  Looks through `optional` and `array`
  *  wrappers, so `Customer id?` and `Customer id[]` both count. */
-export function claimIdTargets(fields: readonly FieldIR[]): string[] {
+function claimIdTargets(fields: readonly FieldIR[]): string[] {
   const out = new Set<string>();
   for (const f of fields) collectIdTargets(f.type, out);
   return [...out].sort();
