@@ -71,6 +71,7 @@ import {
 import { dotnetNotFoundThrow } from "./emit/common.js";
 import { dapperWorkflowStateColumns } from "./emit/dapper-workflow.js";
 import type { OpFragment } from "./emit/entity.js";
+import { csFindMethodName } from "./find-method-name.js";
 import { csReadOwnParams } from "./local-names.js";
 import type { CsRenderContext } from "./render-expr.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "./render-expr.js";
@@ -1867,7 +1868,7 @@ export function csWorkflowStmtTarget(
       // A user find (`locate`, `byHandle`) is emitted WITHOUT an `Async` suffix
       // (matching the CQRS query handler's `_repo.<Find>(...)` call convention),
       // so don't append one or the method won't resolve (CS1061).
-      const methodName = st.method === "getById" ? "GetByIdAsync" : upperFirst(st.method);
+      const methodName = st.method === "getById" ? "GetByIdAsync" : csFindMethodName(st.method);
       const call = `await ${fieldName}.${methodName}(${callArgs})`;
       // `getById` is load-or-throw (Hono's returns non-null; the .NET
       // op-command handler guards the same way).  Guard the `Task<T?>` result
@@ -2064,7 +2065,7 @@ export function csWorkflowStmtTarget(
       // `Task<T?>`, so it binds directly.
       const lookup = st.findMethod
         ? [
-            `${indent}var ${st.var} = await ${fieldName}.${upperFirst(st.findMethod)}(${[...st.retrievalArgs.map(renderArg), "cancellationToken"].join(", ")});`,
+            `${indent}var ${st.var} = await ${fieldName}.${csFindMethodName(st.findMethod)}(${[...st.retrievalArgs.map(renderArg), "cancellationToken"].join(", ")});`,
           ]
         : [
             `${indent}var ${hits} = await ${fieldName}.Run${upperFirst(st.retrievalName)}Async(${callArgs});`,

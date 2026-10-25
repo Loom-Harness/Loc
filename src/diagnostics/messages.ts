@@ -1288,8 +1288,8 @@ export const DIAGNOSTIC_MESSAGES = {
     `stores as several columns — a uniqueness key must list single-column ` +
     `(scalar / enum / id) fields.`,
   "loom.find-reserved-name": (p: { name: unknown; findName: unknown }) =>
-    `repository '${p.name}' find '${p.findName}': name collides with the auto-emitted repository method '${p.findName}(...)'. ` +
-    `Choose a different find name (e.g. 'persist', 'fetchById').`,
+    `repository '${p.name}' find '${p.findName}': '${p.findName}' is a built-in repository verb of the Loom language, ` +
+    `so '${p.name}.${p.findName}(...)' would already mean the built-in. Choose a different find name (e.g. 'byRef', 'lookup').`,
   "loom.duplicate-find": (p: { name: unknown; findName: unknown }) =>
     `repository '${p.name}' declares find '${p.findName}' more than once.`,
   "loom.paged-param-reserved#find": (p: {

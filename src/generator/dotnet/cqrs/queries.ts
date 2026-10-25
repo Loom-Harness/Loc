@@ -20,6 +20,7 @@ import {
   renderHistoryEntryMapperLines,
 } from "../emit/audit-history.js";
 import { renderQuery, renderQueryHandler } from "../emit.js";
+import { csFindMethodName } from "../find-method-name.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "../render-expr.js";
 
 /** `<ns>.Domain.Common` holds the types a DTO PROJECTION can name —
@@ -373,7 +374,7 @@ function buildFindHandlerBody(
     const pagedCall = `${pagedArgs.join(", ")}, cancellationToken`;
     return (
       gate +
-      `        var domain = await _repo.${upperFirst(find.name)}(${pagedCall});\n` +
+      `        var domain = await _repo.${csFindMethodName(find.name)}(${pagedCall});\n` +
       `        return new Paged<${agg.name}Response>(domain.Items.Select(d => ${projectEntityExpr("d", agg, ctx)}).ToList(), domain.Page, domain.PageSize, domain.Total, domain.TotalPages);\n`
     );
   }
@@ -388,27 +389,27 @@ function buildFindHandlerBody(
     // need a `oneOf`, are rejected for finds at IR validation.)
     return (
       gate +
-      `        var domain = await _repo.${upperFirst(find.name)}(${callArgs});\n` +
+      `        var domain = await _repo.${csFindMethodName(find.name)}(${callArgs});\n` +
       `        return domain is null ? null : ${projectEntityExpr("domain", agg, ctx)};\n`
     );
   }
   if (find.returnType.kind === "array") {
     return (
       gate +
-      `        var domain = await _repo.${upperFirst(find.name)}(${callArgs});\n` +
+      `        var domain = await _repo.${csFindMethodName(find.name)}(${callArgs});\n` +
       `        return domain.Select(d => ${projectEntityExpr("d", agg, ctx)}).ToList();\n`
     );
   }
   if (find.returnType.kind === "optional") {
     return (
       gate +
-      `        var domain = await _repo.${upperFirst(find.name)}(${callArgs});\n` +
+      `        var domain = await _repo.${csFindMethodName(find.name)}(${callArgs});\n` +
       `        return domain is null ? null : ${projectEntityExpr("domain", agg, ctx)};\n`
     );
   }
   return (
     gate +
-    `        var domain = await _repo.${upperFirst(find.name)}(${callArgs});\n` +
+    `        var domain = await _repo.${csFindMethodName(find.name)}(${callArgs});\n` +
     `        return ${projectEntityExpr("domain", agg, ctx)};\n`
   );
 }

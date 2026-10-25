@@ -264,7 +264,6 @@ Every surface implements:
 | `defaultPort` | Used when the deployable doesn't specify one. |
 | `needsDb` | Drives `db-init` script + `depends_on: db` wiring. |
 | `mountsUi` | Drives validator acceptance of `ui:` on this platform. |
-| `reservedRepositoryFindNames` | Names a user-declared `find` would collide with (e.g. an auto-emitted `findAll`).  IR validator surfaces collisions at parse time. |
 | `emitProject({ contexts, deployable, sys, migrations, emitTrace })` | Returns `Map<path, content>` for the deployable's project tree. |
 | `composeService({ deployable, sys, slug })` | Returns the docker-compose stanza (env, healthcheck path, internal port). |
 

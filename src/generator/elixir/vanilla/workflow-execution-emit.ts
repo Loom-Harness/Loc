@@ -102,6 +102,7 @@ import {
 } from "../../_workflow/create-state.js";
 import type { ApiRoute } from "../api-emit.js";
 import { inlineMutatingServiceCall } from "../domain-service-emit.js";
+import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { internalCreateFn, internalDeleteFn } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { stateDefault, stateDefaultDecls } from "../state-default.js";
@@ -460,7 +461,7 @@ function lowerStatement(
       const action =
         st.method === "getById"
           ? `get_${snake(st.aggName)}`
-          : `${snake(st.method)}_${snake(st.aggName)}`;
+          : elixirFindFacadeFn(st.method, st.aggName);
       // M-T5.1 A4 — a `getById` miss is the not-found-on-load policy: the
       // declared 404, whose detail names the row ("Order <id> not found") on
       // the other four backends and on this one's own GET-by-id route.  The
@@ -674,7 +675,7 @@ function lowerStatement(
       // `case` reads it.
       const lookup = st.findMethod
         ? {
-            call: `${contextModule}.${snake(st.findMethod)}_${snake(st.aggName)}(${st.retrievalArgs.map((a) => renderExpr(a, renderCtx)).join(", ")})`,
+            call: `${contextModule}.${elixirFindFacadeFn(st.findMethod, st.aggName)}(${st.retrievalArgs.map((a) => renderExpr(a, renderCtx)).join(", ")})`,
             hit: "{:ok, hit}",
           }
         : {

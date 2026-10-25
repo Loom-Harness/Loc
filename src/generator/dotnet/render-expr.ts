@@ -39,6 +39,7 @@ import {
 } from "./bcl-collision.js";
 import { joinDbSetName, joinFkPropName } from "./emit/join-entities.js";
 import { csStateHolderOf } from "./emit/state-holder.js";
+import { csFindMethodName } from "./find-method-name.js";
 import { csReadOwnParams } from "./local-names.js";
 
 // ---------------------------------------------------------------------------
@@ -1387,14 +1388,15 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
  *     carries the `Async` suffix, like the workflow `repoLet`);
  *   - the auto-`findAll` (`readKind: "findAll"`) → `All` (the enriched find named
  *     `all`, PascalCased — no `Async` suffix, like every declared find);
- *   - any other named declared `find` (`byHolder`, …) → `<UpperFirst>` (declared
- *     finds get no `Async` suffix — `Task<Account?> ByHolder(...)`).
+ *   - any other named declared `find` (`byHolder`, …) → `csFindMethodName`
+ *     (declared finds get no `Async` suffix — `Task<Account?> ByHolder(...)` —
+ *     and are escaped when they would collide with a built-in method).
  *  The `find`/`run` criterion/retrieval forms are not part of the reading-tier
  *  Slice-1 surface (the validator-admitted bodies use named finds); they fall
  *  back to the PascalCased verb so the switch stays total. */
 function csRepoReadMethod(method: string, readKind: string): string {
   if (readKind === "named") {
-    return method === "getById" ? "GetByIdAsync" : upperFirst(method);
+    return method === "getById" ? "GetByIdAsync" : csFindMethodName(method);
   }
   if (readKind === "findAll") return "All";
   return upperFirst(method);

@@ -35,6 +35,7 @@ import {
   renderExprWith,
   type UnaryExpr,
 } from "../_expr/target.js";
+import { elixirFindFacadeFn } from "./find-facade-name.js";
 import { isValueObjectType, renderValueObjectEquality } from "./vanilla/value-object-type-emit.js";
 
 // ---------------------------------------------------------------------------
@@ -375,7 +376,7 @@ export function renderExpr(e: ExprIR, ctx: RenderCtx = DEFAULT): string {
  *  reading service rendered as a context fn (which has the ambient `Repo`)
  *  resolves them as bare same-module calls. */
 export function contextFindFnFor(method: string, aggregate: string): string {
-  return method === "getById" ? `get_${snake(aggregate)}` : `${snake(method)}_${snake(aggregate)}`;
+  return method === "getById" ? `get_${snake(aggregate)}` : elixirFindFacadeFn(method, aggregate);
 }
 
 /**
