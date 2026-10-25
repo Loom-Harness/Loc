@@ -113,6 +113,27 @@ for. Conversely, booting a docker stack to assert a string appears in a
 file would be absurdly slow. Put each assertion at the **lowest altitude
 that can actually catch the failure**.
 
+### Proving a toolchain change neutral — `scripts/compare-toolchains.mjs`
+
+A refactor that claims "no behaviour change" (a typing-pass cutover, an IR
+reshape, an emitter dedup) proves it against the models the repo already has:
+
+```bash
+node scripts/compare-toolchains.mjs                       # base = merge-base with origin/main
+node scripts/compare-toolchains.mjs --match examples/     # a subset, for a quick look
+node scripts/compare-toolchains.mjs --only diagnostics    # skip the generate leg
+```
+
+It builds the base in a detached worktree, then compares two legs over every
+tracked `.ddd`. The first is `ddd parse --json` diagnostics; the second is
+`ddd generate system` output, byte for byte, for each model the base validates.
+Each side reads its own copy of the sources, because `generate system` writes
+`<dir>/.loom/<model>.migration-history.json` next to the model and reads it back
+on the next run. Exit 0 means identical, 1 means a difference (listed in
+`<out>/report.json`). The full run takes about an hour on 4 cores. Put the
+result in the PR body; if the change is meant to move some output, list the
+intended differences there.
+
 ## Running any CI gate locally — the reverse index
 
 **Every CI gate runs locally.** Do not push a commit just to see whether a
