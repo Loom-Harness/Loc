@@ -675,9 +675,6 @@ export function generateVueForContexts(
     systemNameHuman: humanize(sys.name),
     navSections: navSectionsVM,
     navUsesSession,
-    // `auth: ui` — the shell header carries the Sign out control (the
-    // AuthGate renders none, so it never floats over page content).
-    authUi,
     hasRealtimeHandlers,
     hasToastHost,
     i18nEnabled,
@@ -708,18 +705,13 @@ export function generateVueForContexts(
         hasToastHost: false,
         // DefaultLayout.vue sits one directory deeper than `src/`.
         i18nImportPath: "../i18n",
-        sessionImportPath: "../auth/session",
       }),
     );
     out.set("src/App.vue", renderShell(pack, "app-root", { hasRealtimeHandlers }));
   } else {
     out.set(
       "src/App.vue",
-      renderShell(pack, "app-shell", {
-        ...chromeVM,
-        i18nImportPath: "./i18n",
-        sessionImportPath: "./auth/session",
-      }),
+      renderShell(pack, "app-shell", { ...chromeVM, i18nImportPath: "./i18n" }),
     );
   }
 

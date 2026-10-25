@@ -88,9 +88,7 @@ describe("angular menu-link gate", () => {
       await generateSystemFiles(SYS({ authUi: true, gate: "" })),
       "web/src/app/app.component.ts",
     );
-    // The session is still injected — the toolbar's Sign out control reads
-    // it — but no nav gate binds `currentUser`.
-    expect(shell).toContain("readonly session = inject(SessionService);");
+    expect(shell).not.toContain("SessionService");
     expect(shell).not.toContain("currentUser");
     // No NAV gate.  (A bare `not.toContain("@if")` would now also forbid the
     // root error-handler banner, which every shell carries — M-T1.8.)

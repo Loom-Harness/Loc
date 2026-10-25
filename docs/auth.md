@@ -1483,10 +1483,7 @@ Every backend mounts its auth routes under the shared API base, i.e.
   behavioural wire goldens).
 - `/api/auth/login`, `/api/auth/callback`, `/api/auth/logout` — the OIDC
   authorization-code redirect handshake, emitted only under an
-  `auth { oidc { … } }` block.  An `auth: ui` frontend's **Sign out** control
-  redirects to `/api/auth/logout`; it sits in the design pack's app-shell
-  header/toolbar (the Spartan pack, which has no header, puts it at the foot of
-  the sidebar), never as an overlay on the page.  The block's fields are documented in
+  `auth { oidc { … } }` block.  The block's fields are documented in
   [`language-reference/17-auth.md`](language-reference/17-auth.md#auth-----oidc-config);
   the one worth reading before you ship is **`audience:`, which is optional and
   whose absence turns the `aud` check off** — the verifier then accepts any
