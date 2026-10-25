@@ -105,6 +105,54 @@ or switching to `inheritanceUsing: ownTable` (which works everywhere).
 > backend literals are `node` (the JS runtime, ex-`hono`), `dotnet`, and
 > `phoenix` (ex-`phoenixLiveView`). The legacy spellings still parse as aliases.
 
+## Unique keys on a TPC base — `loom.unique-tpc-not-hierarchy-wide`
+
+A `unique (…)` key on an abstract base follows the base's table layout:
+
+- **`sharedTable` (TPH):** the hierarchy has one table, so it gets one index
+  (`parties_email_uq`), and the key is unique across every subtype. The enrich
+  pass still copies the key onto each concrete, because the concrete's write
+  surface has to know a duplicate can happen. The Hono per-router `23505` →
+  409 arm and the Ecto `unique_constraint` gate on it. The Ecto constraint
+  names the shared table's index. Without the copy, a duplicate posted
+  through `/customers` answered 500.
+- **`ownTable` (TPC):** the base owns no table. The enrich pass copies the key
+  onto each concrete, beside the merged fields. Each concrete table then gets
+  its own index, named for that table. Every per-table consumer of the key sees
+  it: the migration on all five backends, the .NET Dapper `DbSchema` bootstrap,
+  the Hono per-router `23505` → 409 arm, and the Ecto `unique_constraint`.
+
+Both layouts are checked at runtime, on every SQL backend, by the
+migration-evolution tier (`runUniqueIndexEvolutionGate`).
+
+```ddd
+abstract aggregate Party inheritanceUsing: ownTable {
+  name: string
+  email: string
+  unique (email)
+}
+aggregate Customer extends Party inheritanceUsing: ownTable with crudish { creditLimit: decimal }
+aggregate Supplier extends Party inheritanceUsing: ownTable with crudish { rating: int }
+```
+```sql
+CREATE UNIQUE INDEX "customers_email_uq" ON "parties"."customers" ("email");
+CREATE UNIQUE INDEX "suppliers_email_uq" ON "parties"."suppliers" ("email");
+```
+
+Each subtype rejects its own duplicates: a second `Customer` with the same
+`email` answers 409. A `Customer` and a `Supplier` can still share an `email`,
+because no index spans the two tables. When a TPC base with two or more
+concretes declares a key, it raises a warning:
+
+```text
+loom.unique-tpc-not-hierarchy-wide warning: `unique (email)` on abstract aggregate 'Party' (inheritanceUsing: ownTable) is enforced per concrete table (customers, suppliers) — each subtype rejects its own duplicates, but the same value can still exist once in EACH sibling table.  If the key must be unique across the whole hierarchy, map it to one shared table: `inheritanceUsing: sharedTable`.
+```
+
+If the key must be unique across the whole hierarchy, use `inheritanceUsing:
+sharedTable`. A concrete's own `unique (…)` keys stay as they are, and a
+concrete that redeclares the same column list does not get a second copy. Before
+this, a TPC base's keys reached no table, so no backend enforced them.
+
 ## Validation rules
 
 | Code | Fires when |
@@ -116,6 +164,7 @@ or switching to `inheritanceUsing: ownTable` (which works everywhere).
 | `loom.abstract-aggregate-contains` | an abstract base declares `contains` — the base owns no repository and concretes do not inherit its parts, so the part's table would have no reader and no writer. Declare the containment on each concrete instead |
 | `loom.abstract-repository` | a `repository` targets an abstract base |
 | `loom.polymorphic-id-ref-unsupported` | a `<Base> id` reference to an `ownTable` (TPC) base |
+| `loom.unique-tpc-not-hierarchy-wide` | **warning** — an `ownTable` (TPC) base with two or more concretes declares `unique (…)`. Each concrete table enforces the key on its own, but nothing spans the sibling tables (see [below](#unique-keys-on-a-tpc-base--loomunique-tpc-not-hierarchy-wide)) |
 | `loom.es-tph-forced-own-table` | event-sourced / document / embedded opt-out forces `ownTable` on a TPH member (D-EMBEDDED-TPH) |
 | `loom.tph-filter-unsupported` | **.NET only** — a TPH *subtype* carries a capability `filter` whose predicate reads a column the hierarchy ROOT does not declare (see below) |
 | `loom.tenancy-inherited-stance-conflict` | a subtype declares the opposite tenancy stance from the base it inherits it from (`abstract … with tenantOwned` + `… extends … crossTenant`) |
@@ -126,7 +175,8 @@ or switching to `inheritanceUsing: ownTable` (which works everywhere).
 A `Car` is a `Vehicle`. When the abstract base applies a capability, every
 concrete subtype gets all of it, not just its columns: the enrich pass merges
 the base's fields, capability `filter`s and bare `filter` declarations, stamps,
-capability tags and tenancy stance onto each concrete (D-INHERITED-CAPABILITIES).
+capability tags and tenancy stance onto each concrete (D-INHERITED-CAPABILITIES). Under `ownTable`, its `unique (…)` keys are merged too
+([above](#unique-keys-on-a-tpc-base--loomunique-tpc-not-hierarchy-wide)).
 
 ```ddd
 abstract aggregate Vehicle with softDeletable { name: string  plate: string }
