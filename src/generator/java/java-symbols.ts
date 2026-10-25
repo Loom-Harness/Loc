@@ -10,6 +10,8 @@ export const J = {
   BigDecimal: javaRef("java.math", "BigDecimal"),
   MathContext: javaRef("java.math", "MathContext"),
   Instant: javaRef("java.time", "Instant"),
+  LocalDate: javaRef("java.time", "LocalDate"),
+  ZoneOffset: javaRef("java.time", "ZoneOffset"),
   Duration: javaRef("java.time", "Duration"),
   Pattern: javaRef("java.util.regex", "Pattern"),
   Objects: javaRef("java.util", "Objects"),

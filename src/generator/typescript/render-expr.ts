@@ -855,6 +855,11 @@ const TS_TYPE_TARGET: TypeTarget = {
         return "string";
       case "bool":
         return "boolean";
+      case "date":
+        // A calendar date is its ISO `YYYY-MM-DD` text — the wire form, the
+        // drizzle `date(…, { mode: "string" })` column value, and ordered
+        // correctly by plain string comparison.
+        return "string";
       case "datetime":
         return "Date";
       case "duration":

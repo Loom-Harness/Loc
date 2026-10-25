@@ -526,7 +526,13 @@ function wireFamily(t: DddType): WireFamily {
       )
         return "num";
       if (base.name === "bool") return "bool";
-      if (base.name === "string" || base.name === "datetime" || base.name === "guid") return "text";
+      if (
+        base.name === "string" ||
+        base.name === "date" ||
+        base.name === "datetime" ||
+        base.name === "guid"
+      )
+        return "text";
       return "skip"; // json / File — arbitrary wire shape
     case "id":
     case "enum":

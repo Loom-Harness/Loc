@@ -115,7 +115,9 @@ function scalarCodec(t: TypeIR): FelizPersistScalar | undefined {
       return "decimal";
     case "money":
       return "money";
+    // A calendar `date` is its `YYYY-MM-DD` string on this frontend.
     case "string":
+    case "date":
     case "json":
       return "string";
     case "datetime":

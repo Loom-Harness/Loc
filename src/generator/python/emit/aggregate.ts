@@ -877,6 +877,8 @@ function shellSeed(f: FieldIR): string {
         return '""';
       case "datetime":
         return `${PY.datetime}.now(${PY.UTC})`;
+      case "date":
+        return `${PY.datetime}.now(${PY.UTC}).date()`;
       default:
         return "None";
     }

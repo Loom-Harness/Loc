@@ -326,6 +326,9 @@ export function fillBlock(
       // minute-precision datetimes, so the round-trip stays correct as
       // long as the test source uses `Z` consistently.
       lines.push(...robustFill(testId, `${accessor}!.slice(0, 16)`));
+    } else if (inner.name === "date") {
+      // `<input type="date">` accepts exactly `YYYY-MM-DD` — the wire form.
+      lines.push(...robustFill(testId, `${accessor}!.slice(0, 10)`));
     } else if (inner.name === "int" || inner.name === "long" || inner.name === "decimal") {
       lines.push(...robustFill(testId, `String(${accessor})`));
     } else if (inner.name === "money") {

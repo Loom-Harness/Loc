@@ -951,6 +951,9 @@ function groupKeyCoerce(t: TypeIR, read: string, viaFunction = false): string {
         return `(Boolean) ${read}`;
       case "guid":
         return `(${J.UUID}) ${read}`;
+      case "date":
+        // A `LocalDate` column → its ISO `yyyy-MM-dd` wire text.
+        return `((${J.LocalDate}) ${read}).toString()`;
     }
   }
   throw new Error(
