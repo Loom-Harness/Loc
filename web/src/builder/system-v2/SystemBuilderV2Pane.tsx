@@ -104,7 +104,6 @@ import {
   opSurface,
   renameOpParam,
   retypeOpParam,
-  setFindGate,
   setFindIgnoring,
   setOpGate,
   setOpModifier,
@@ -1290,18 +1289,6 @@ function Inner({ ctx, path, setPath, onOverview }: {
           // default they overlap the next find's node.
           detailsLabel = "clauses";
           inputs = [
-            {
-              label: "requires",
-              value: surface.requires ?? "",
-              placeholder: "(none)",
-              testid: "c4system-v2-find-requires",
-              // Empty text is "drop the clause" — `setFindGate` treats null as
-              // the removal request and returns the source untouched when
-              // there was none.
-              onCommit: (v) => {
-                find.applyOrRefuse(setFindGate(ctx.getSource(), repoName, findName, v.trim() || null));
-              },
-            },
             {
               label: "ignoring",
               value: surface.ignoring === "*" ? "*" : (surface.ignoring ?? []).join(", "),

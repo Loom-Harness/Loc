@@ -356,7 +356,7 @@ def days_to_visit(%__MODULE__{} = record), do: Date.diff((if is_nil(record.next_
 ```
 ::: end
 
-**Migrating a `datetime` field to `date`** is a column type change (`ALTER COLUMN … TYPE DATE USING col::DATE`): it drops the time-of-day, and the cast reads each instant in the database session's zone. Like every type change it is destructive, so `generate system` refuses it without `--allow-destructive`.
+**Migrating a `datetime` field to `date`** is a column type change (`ALTER COLUMN … TYPE DATE USING col::DATE`): it drops the time-of-day, and the cast reads each instant in the database session's zone. Like every type change it is destructive, so `ddd migrate add` refuses it without `--allow-destructive`.
 
 The corpus fixture `test/fixtures/corpus/date-scalar.ddd` drives create / update / an operation parameter / a SQL comparison and the intrinsics on all five backends, asserting each date read back as the exact string written.
 

@@ -134,6 +134,7 @@ import type {
   PayloadIR,
   PermissionDeclIR,
   PolicyDenyIR,
+  PolicyReadGateIR,
   PolicyReadLevelIR,
   PolicyWriteLevelIR,
   ProjectionIR,
@@ -1398,9 +1399,24 @@ function lowerContext(
   const policyReadLevels: PolicyReadLevelIR[] = [];
   const policyWriteLevels: PolicyWriteLevelIR[] = [];
   const policyDenies: PolicyDenyIR[] = [];
+  const policyReadGates: PolicyReadGateIR[] = [];
   for (const m of ctx.members) {
     if (!isPolicyDecl(m)) continue;
     for (const r of m.rules) {
+      // `read X requires G` — who may read X.  Lowered in the bare context env
+      // (no `this`, no params): the gate runs before any row is loaded, so a
+      // row field fails to resolve and phase ⑦ reports it.
+      if (r.effect === "read") {
+        if (r.gate) {
+          policyReadGates.push({
+            aggregate: r.target,
+            gate: lowerExpr(r.gate, env),
+            source: `read ${r.target} requires ${cstText(r.gate)}`,
+            origin: originFor(r),
+          });
+        }
+        continue;
+      }
       // `deny [write] on X` — the deny-wins carve-out.  All-or-nothing
       // at the aggregate (no level); the optional `write` verb selects the
       // access.  Enrichment resolves deny-wins after the allow passes.
@@ -1413,6 +1429,8 @@ function lowerContext(
         });
         continue;
       }
+      // Any other head word is `loom.policy-unknown-rule` (AST phase).
+      if (r.effect !== "allow") continue;
       // The optional `verb` selects the ladder: `write` gates mutations;
       // bare / `read` is the read ladder.
       if (r.verb === "write") {
@@ -1466,6 +1484,7 @@ function lowerContext(
     ...(policyReadLevels.length > 0 ? { policyReadLevels } : {}),
     ...(policyWriteLevels.length > 0 ? { policyWriteLevels } : {}),
     ...(policyDenies.length > 0 ? { policyDenies } : {}),
+    ...(policyReadGates.length > 0 ? { policyReadGates } : {}),
   };
 }
 
@@ -1809,24 +1828,18 @@ function lowerRepository(
       for (const p of f.params) {
         env = withLocal(env, p.name, "param", lowerType(p.type));
       }
-      // The `requires` gate is lowered in the BARE context env (not
-      // `inAggregate`, no params), so `currentUser` resolves but the source
-      // row's fields do not — the gate decides endpoint access before any row
-      // exists, so it may reference only the principal (+ constants).
-      // Referencing an aggregate field is then a name-resolution error, exactly
-      // the restriction we want.
-      const gateEnv = newEnv(repo.$container as BoundedContext, user, modulePermissions);
+      // A find carries no gate of its own: enrichment puts the aggregate's
+      // `policy { read X requires … }` gate on it (`applyPolicyReadGates`).
       const lowered: FindIR = {
         name: f.name,
         params: f.params.map((p) => ({ name: p.name, type: lowerType(p.type) })),
         returnType: lowerType(f.returnType),
-        requires: f.gate ? lowerExpr(f.gate, gateEnv) : undefined,
         filter: f.filter ? lowerExpr(f.filter, env) : undefined,
         criterionRef: criterionRefOf(f.filter, env),
         ...resolveBypass(f),
       };
-      // M-T3.19 — the by-id read (`find byId(id: T id): T? requires …`) is
-      // written without a `where`; supply the one filter its shape means, so
+      // The by-id read (`find byId(id: T id): T?`) is written without a
+      // `where`; supply the one filter its shape means, so
       // the find's own route + repository method read THE row (a filterless
       // optional find reads the table's first row).  Spelled exactly as the
       // author's `where this.id == id` would lower.

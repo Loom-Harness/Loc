@@ -11,8 +11,9 @@ system P {
       create() { requires currentUser.role == "admin" }
     }
     repository Secrets for Secret {
-      find all(): Secret[] requires currentUser.role == "admin"
+      find all(): Secret[]
     }
+    policy { read Secret requires currentUser.role == "admin" }
   } }
   storage db { type: postgres }
   resource st { for: C, kind: state, use: db }

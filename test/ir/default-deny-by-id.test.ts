@@ -4,13 +4,12 @@
 // "0 error(s), 0 warning(s)": the LIST of secrets was admin-only and an
 // INDIVIDUAL secret was readable by anyone holding (or guessing) an id.
 //
-// M-T3.19 gave the by-id read a surface — `find byId(id: T id): T? requires
-// <expr>` in the repository, the same spelling the list read's `find all` gate
-// uses — and made the UNDECLARED one fail closed at runtime (403 on every
+// The by-id read is gated by the aggregate's read gate —
+// `policy { read T requires <expr> }`, the same line that gates the list read
+// and every find — and an UNGATED one fails closed at runtime (403 on every
 // backend, via the deny gate enrichment synthesises).  The diagnostic stays a
 // WARNING for one release (owner decision 2026-10-11) so existing models keep
-// building; promotion to error is the tracked T3 follow-up.  A declared gate
-// silences it.  See the call-site comment in
+// building.  A read gate silences it.  See the call-site comment in
 // `src/ir/validate/checks/default-deny-checks.ts`.
 
 import { describe, expect, it } from "vitest";
@@ -27,9 +26,14 @@ async function diagnose(source: string): Promise<LoomDiagnostic[]> {
   return validateLoomModel(enrichLoomModel(lowerModel(model)));
 }
 
-/** The repro: every command AND the list read gated admin-only, so the only
- *  ungated surface left is the by-id read. */
-function vault(opts: { enforcement: string; authRequired?: boolean; byId?: string }): string {
+/** Every command gated admin-only; the reads gated only when `readGate` is
+ *  given (the policy line), so without it the by-id read is ungated. */
+function vault(opts: {
+  enforcement: string;
+  authRequired?: boolean;
+  readGate?: string;
+  finds?: string;
+}): string {
   return `
 system S {
   user { id: guid  role: string }
@@ -39,9 +43,8 @@ system S {
       body: string
       create() { requires currentUser.role == "admin" }
     }
-    repository Secrets for Secret {
-      find all(): Secret[] requires currentUser.role == "admin"${opts.byId ? `\n      ${opts.byId}` : ""}
-    }
+    repository Secrets for Secret { ${opts.finds ?? ""} }
+    ${opts.readGate ? `policy { read Secret requires ${opts.readGate} }` : ""}
   } }
   api Api from D
   storage pg { type: postgres }
@@ -51,7 +54,7 @@ system S {
 }
 
 describe("loom.default-deny-by-id-ungated — the ungated by-id read warns (and 403s at runtime)", () => {
-  it("fires under denyByDefault on an aggregate whose every other surface IS gated", async () => {
+  it("fires under denyByDefault on an aggregate with no read gate", async () => {
     const diags = await diagnose(vault({ enforcement: "denyByDefault" }));
     // Non-breaking for one release: NOTHING is an error.
     expect(diags.filter((d) => d.severity === "error")).toEqual([]);
@@ -60,7 +63,7 @@ describe("loom.default-deny-by-id-ungated — the ungated by-id read warns (and 
     expect(byId[0]!.severity).toBe("warning");
     // Says plainly what happens now, what fixes it, and what happens later.
     expect(byId[0]!.message).toContain("REFUSED AT RUNTIME (403)");
-    expect(byId[0]!.message).toContain("find byId(id: Secret id): Secret? requires <expr>");
+    expect(byId[0]!.message).toContain("policy { read Secret requires <expr> }");
     expect(byId[0]!.message).toContain("enforcement: opt");
     expect(byId[0]!.message).toContain("becomes an error in a later release");
     // Names the aggregate AND the exact route, so the reader can check it.
@@ -77,8 +80,8 @@ system S {
     abstract aggregate Vehicle { name: string }
     aggregate Car extends Vehicle { doors: int }
     aggregate Van extends Vehicle { volume: int }
-    repository Cars for Car { find all(): Car[] requires true }
-    repository Vans for Van { find all(): Van[] requires true }
+    repository Cars for Car { }
+    repository Vans for Van { }
   } }
   api Api from Fleet
   storage pg { type: postgres }
@@ -89,22 +92,24 @@ system S {
     expect(named.sort()).toEqual(["Vehicles/Car", "Vehicles/Van"]);
   });
 
-  it("is satisfied by a gated `find byId` — the M-T3.19 surface", async () => {
-    const diags = await diagnose(
-      vault({
-        enforcement: "denyByDefault",
-        byId: 'find byId(id: Secret id): Secret? requires currentUser.role == "admin"',
-      }),
-    );
+  it("is satisfied by the policy read gate", async () => {
+    const source = vault({ enforcement: "denyByDefault", readGate: 'currentUser.role == "admin"' });
+    const diags = await diagnose(source);
     expect(diags.filter((d) => d.severity === "error")).toEqual([]);
     expect(diags.filter((d) => d.code === CODE)).toEqual([]);
+    // …and the by-id route carries THAT gate, not the synthesised deny.
+    const { model } = await parseString(source, { validate: false });
+    const ctx = enrichLoomModel(lowerModel(model)).systems[0]!.subdomains[0]!.contexts[0]!;
+    const op = deriveContextOperations(ctx).find((o) => o.kind === "getById");
+    expect(op?.find?.defaultDenied).toBeUndefined();
+    expect(op?.find?.requires?.kind).toBe("binary");
   });
 
   it("is satisfied by `requires true` — the explicit public escape", async () => {
     const diags = await diagnose(
       vault({
         enforcement: "denyByDefault",
-        byId: "find byId(id: Secret id): Secret? requires true",
+        readGate: "true",
       }),
     );
     expect(diags.filter((d) => d.severity === "error")).toEqual([]);
@@ -129,14 +134,15 @@ system S {
     expect(deriveContextOperations(optCtx).find((o) => o.kind === "getById")?.find).toBeUndefined();
   });
 
-  it("a declared but UNGATED `find byId` is still refused (once, as a find)", async () => {
+  it("a declared `find byId` with no read gate is refused (once, as a find)", async () => {
     const diags = await diagnose(
-      vault({ enforcement: "denyByDefault", byId: "find byId(id: Secret id): Secret?" }),
+      vault({ enforcement: "denyByDefault", finds: "find byId(id: Secret id): Secret?" }),
     );
     const errors = diags.filter((d) => d.severity === "error");
     expect(errors).toHaveLength(1);
     expect(errors[0]!.code).toBe("loom.default-deny-ungated");
     expect(errors[0]!.message).toContain("Secrets.byId");
+    expect(errors[0]!.message).toContain("policy { read Secret requires <expr> }");
   });
 
   it("a `find byId` of a different SHAPE is not the by-id read", async () => {
@@ -145,7 +151,7 @@ system S {
     const diags = await diagnose(
       vault({
         enforcement: "denyByDefault",
-        byId: "find byId(id: Secret id): Secret[] requires true where this.id == id",
+        finds: "find byId(id: Secret id): Secret[] where this.id == id",
       }),
     );
     expect(diags.filter((d) => d.code === CODE)).toHaveLength(1);

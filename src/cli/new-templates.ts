@@ -360,13 +360,13 @@ Change \`main.ddd\` and re-run \`${opts.invocation} generate system main.ddd -o 
 Generation overwrites its own output every run; pin any file you hand-edit
 in \`.loomignore\` so it survives (see the comments in that file).
 
-Schema changes become migrations, so two files have to be **committed** for
-the next regenerate to produce a correct delta rather than a fresh baseline:
-\`.loom/snapshots/\` (the schema the migrations have built up) and
-\`.loom/main.migration-history.json\` (which versions this model has emitted).
-Without the second, generating into a directory that carries no migrations —
-a CI job, a fresh clone — re-issues the first migration under a version your
-database has already applied, and the change silently never lands.
+Schema changes become migrations once you record them.  The first time the
+database has to be kept rather than recreated, run
+\`${opts.invocation} migrate add initial main.ddd\`; after every later schema
+change, \`${opts.invocation} migrate add <what-changed> main.ddd\` (kebab-case).
+Each run writes the change to \`migrations/\` — **commit that directory**.
+\`generate\` renders every backend's migrations from it, and refuses to run
+while the model has a schema change that is not recorded there.
 
 ## Authentication and authorization
 
@@ -392,12 +392,11 @@ a \`requires <expr>\` gate, or the build fails with
 \`loom.default-deny-ungated\`.  \`requires true\` is the explicit
 "intentionally public" escape.  Two things to know:
 
-- The two synthesised reads need a gate too — declare them on the
-  repository and the gate lands on the route:
-  \`find all(): <T> paged requires <expr>\` gates \`GET /api/<plural>\`, and
-  \`find byId(id: <T> id): <T>? requires <expr>\` gates
-  \`GET /api/<plural>/{id}\`.  Undeclared (or ungated), each is refused at
-  runtime (403) and the build *warns*
+- Reads need a gate too — one line per aggregate in the context's
+  \`policy\` block, \`policy { read <T> requires <expr> }\`, gates every read
+  of it (\`GET /api/<plural>\`, \`GET /api/<plural>/{id}\`, each find).
+  Ungated, the list and by-id reads are refused at runtime (403) and the
+  build *warns*
   (\`loom.default-deny-list-ungated\` / \`loom.default-deny-by-id-ungated\`);
   the warnings become errors in a later release.
 - \`with crudish\` generates create/update/destroy — gate them by naming a

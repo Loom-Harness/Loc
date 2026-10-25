@@ -189,7 +189,7 @@ describe.skipIf(!RUN)(
 
         // --- Negative-authz runtime gate (M-T3.13): the emitted `requires`
         // filter must ENFORCE at runtime, not merely compile.  The demo user's
-        // realm roles are [user, agent] (no admin), so the two gated finds split:
+        // realm roles are [user, agent] (no admin), so the two gated reads split:
         // Authorized (role present) → 200 — the gate-satisfied control that
         // proves the gate isn't always-deny.
         expect(
@@ -198,11 +198,11 @@ describe.skipIf(!RUN)(
         // Authenticated but UNauthorized (role absent) → 403 — the deny half; a
         // forgetful backend emitting a no-op gate would return 200 here.
         expect(
-          (await fetch(`${API_BASE}/api/tickets/admin_scoped`, { headers: bearer })).status,
+          (await fetch(`${API_BASE}/api/projections/admin_scoped`, { headers: bearer })).status,
         ).toBe(403);
         // Unauthenticated hitting the gated route → 401 (authn precedes authz;
         // the unscoped call is rejected before the gate is even reached).
-        expect((await fetch(`${API_BASE}/api/tickets/admin_scoped`)).status).toBe(401);
+        expect((await fetch(`${API_BASE}/api/projections/admin_scoped`)).status).toBe(401);
 
         // --- Realtime stream authentication (M-T4.12), the two plan rules
         // (src/ir/util/realtime-rooms.ts) exercised against the live backend.

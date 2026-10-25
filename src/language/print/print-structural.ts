@@ -736,7 +736,7 @@ function printSeed(node: import("../generated/ast.js").Seed): string {
   );
 }
 
-/** `policy <Name>? { allow <level> on <Aggregate> … }` (authorization.md §3;
+/** `policy <Name>? { allow <level> on <Aggregate> … read <Aggregate> requires <expr> }` (authorization.md §3;
  *  multi-tenancy — the read-reachability ladder) OR the function
  *  form `policy <Name>(<params>): bool = <expr>` (authorization — a
  *  named, requires-gated authorization predicate). */
@@ -748,11 +748,13 @@ function printPolicyDecl(node: import("../generated/ast.js").PolicyDecl): string
   }
   const name = node.name ? ` ${node.name}` : "";
   return block(`policy${name}`, () =>
-    (node.rules ?? []).map((r) =>
-      r.effect === "deny"
+    (node.rules ?? []).map((r) => {
+      if (r.effect === "read")
+        return `read ${r.target} requires ${r.gate ? printExpr(r.gate) : ""}`;
+      return r.effect === "deny"
         ? `deny ${r.verb ? `${r.verb} ` : ""}on ${r.target}`
-        : `allow ${r.verb ? `${r.verb} ` : ""}${r.level} on ${r.target}`,
-    ),
+        : `allow ${r.verb ? `${r.verb} ` : ""}${r.level} on ${r.target}`;
+    }),
   );
 }
 
@@ -893,9 +895,8 @@ export function printIgnoringClause(node: { bypassAll?: boolean; bypass?: string
 
 function printFindDecl(node: FindDecl): string {
   const params = node.params.map(printParameter).join(", ");
-  const requires = node.gate ? ` requires ${printExpr(node.gate)}` : "";
   const where = node.filter ? ` where ${printExpr(node.filter)}` : "";
-  return `find ${node.name}(${params}): ${printTypeRef(node.returnType)}${requires}${where}${printIgnoringClause(node)}`;
+  return `find ${node.name}(${params}): ${printTypeRef(node.returnType)}${where}${printIgnoringClause(node)}`;
 }
 
 /** `criterion <Name>[(<params>)] of <T> = <expr>` — the single-line form

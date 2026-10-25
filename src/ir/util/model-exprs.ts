@@ -146,6 +146,7 @@ export const SITES = {
     "BoundedContextIR.domainServices",
     "BoundedContextIR.events",
     "BoundedContextIR.payloads",
+    "BoundedContextIR.policyReadGates",
     "BoundedContextIR.projections",
     "BoundedContextIR.queryHandlers",
     "BoundedContextIR.repositories",
@@ -223,6 +224,7 @@ export const SITES = {
     "PageIR.title",
     "ParamIR.default",
     "PayloadIR.fields",
+    "PolicyReadGateIR.gate",
     "ProjectionAggregateIR.arg",
     "ProjectionIR.handlers",
     "ProjectionIR.params",
@@ -652,6 +654,9 @@ function visitContext(c: BoundedContextIR, v: ExprVisitor) {
   for (const r of c.retrievals) visitRetrieval(r, s, v);
   for (const d of c.domainServices) visitDomainService(d, s, v);
   for (const sd of c.seeds) visitSeed(sd, s, v);
+  for (const g of c.policyReadGates ?? []) {
+    expr(g.gate, `${s}/policy/${g.aggregate}`, "PolicyReadGateIR.gate", v);
+  }
   visitTests(c.tests, s, v);
   for (const h of c.commandHandlers ?? []) {
     const hs = `${s}/${h.name}`;

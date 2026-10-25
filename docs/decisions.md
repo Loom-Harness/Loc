@@ -5056,6 +5056,51 @@ Gate: `test/generator/inherited-capability-filter.test.ts` — one case per
 backend × TPH/TPC; a Truck read carries the base's `is_deleted` filter and
 `ignoring softDeletable` on Truck drops it.
 
+## D-MIGRATE-WORKFLOW — the migration history is a committed chain beside the source; `generate` only renders it
+
+**Status:** PINNED (owner ruling 2026-10-25, #4065).
+
+**Question.** Where does the state a schema migration is diffed against live,
+and who decides when a generation is cut? `generate system` used to do both:
+it diffed the model against `.loom/snapshots/` *under `-o`* and minted the next
+version as a side effect. The output tree is exactly the thing that gets lost
+(CI building into a scratch dir, a fresh clone, a second environment), so five
+generate-time guards and a fingerprinted side ledger beside the `.ddd` existed
+only to *detect* a lost or stale baseline — and the ledger, re-recorded by
+every PR that touched Initial DDL, was itself a source of churn.
+
+**Decision.**
+
+1. **The chain.** `migrations/` beside the entry `.ddd` holds one JSON file per
+   (generation, module): its backend-neutral `MigrationsIR` steps and the
+   module's schema after them (`src/system/migration-chain.ts`). Each backend's
+   migration files are rendered from the whole chain on every
+   `generate system`; nothing migration-related is written under `-o`, which is
+   fully disposable. Committed with the model.
+2. **Recording is explicit.** `ddd migrate add <name> <file.ddd>` diffs the
+   model against the chain's head and appends. `generate system` refuses a
+   model with an unrecorded schema change (`MigrationDriftError`). A source
+   with **no** `migrations/` has nothing recorded: `generate` emits each
+   module's initial migration from the model, with no drift check — so
+   examples and fixtures carry no migration state.
+3. **Versions** are the UTC clock at `migrate add`, moved above the head (and
+   above `head + INITIAL_RESERVATION` after an `Initial`, which expands into
+   many Ecto files) — unique across modules and strictly increasing, which is
+   what Drizzle's watermark, Flyway's out-of-order refusal and Ecto's file
+   versions each need. Every entry names its parent; **two heads** (two
+   branches that each recorded a migration) refuse to be read until one is
+   re-recorded on top of the other.
+4. **The destructive decision is made once, at `migrate add`**
+   (`--allow-destructive`), and recorded in the entry; `generate` has no such
+   flag.
+5. **Clean break.** Loom has no external consumers, so there is no import path
+   from output-tree snapshots: the guards, the side ledger,
+   `--allow-rebaseline`, per-module version blocks and the Dapper tree
+   re-rooting are deleted outright.
+
+**Affects.** `docs/migrations.md` § The migration chain; `docs/tools.md`
+§ Migrations workflow. `migrate status` / `remove` / `rebase` are #4083.
+
 ---
 
 ## D-REPOSITORY-CONTRACT — a repository is a body-less declaration whose surface is one declared verb contract
@@ -5137,3 +5182,102 @@ contract module and the lowerers fails it, unless waived with a count and a
 reason (the e2e test client's HTTP verbs, which name routes rather than
 repository calls, and the per-platform reserved find names that a later slice
 removes).
+
+---
+
+## D-READ-GATE-IN-POLICY — who may read an aggregate is `policy { read X requires … }`, not a repository find
+
+**Status:** PINNED (owner ruling, 2026-10-25; parent #3949).
+
+**Question.** Under `denyByDefault` the only way to gate an aggregate's
+compiler-derived reads was to declare them on the repository with a gate —
+`find all(): T[] requires G` / `find byId(id: T id): T? requires G` — and every
+other read (history, the scaffolded List page) inherited from those finds. That
+put an access rule inside a domain collection, made the gate depend on
+declaring a find whose only purpose was to carry it, and let two finds of one
+aggregate disagree about who may read it.
+
+**Decision.** "Who may read X" is an access fact and lives in the context's
+`policy { }` block, beside the `allow` / `deny` ladder:
+
+```ddd
+repository Orders for Order {}
+policy { read Order requires currentUser.role == "clerk" }
+```
+
+- One rule per aggregate gates **every** read of it: the list and by-id routes,
+  each declared find's route, the audit history read, and the scaffolded List
+  page. An exposure gate (`scaffoldPaged(requires:)`, a route / handler
+  `requires`) still ANDs on top.
+- Semantics are the old find gate's: evaluated before the load, 403, no
+  existence oracle, `currentUser` and constants only
+  (`loom.policy-read-gate-not-current-user`).
+- `FindDecl` loses its `requires` clause (hard cutover, the #3608 ruling);
+  `scripts/codemod-find-gate-to-policy.mjs` migrates a project.
+- The rule lowers into the carrier the emitters already read: enrichment
+  (`applyPolicyReadGates`) puts the gate on every declared find and on the
+  injected `all`; the by-id route takes it from `all` (`byIdRouteFind`) and
+  history copies it (`ensureHistoryFind`). No emitter changed.
+- `read` is not a keyword (it is a common permission / operation name): the
+  rule head parses as an identifier and the validator pins it to `read`
+  (`loom.policy-unknown-rule`).
+
+**Consequences.** `loom.default-deny-list-ungated` /
+`loom.default-deny-by-id-ungated` / `loom.audit-history-ungated` and the
+ungated-find arm of `loom.default-deny-ungated` name the policy line to write.
+`loom.find-gate-not-current-user` is retired. Two reads of one aggregate can no
+longer answer to different principals — model them as different aggregates or
+gate the exposure instead. The `find all` exemption from
+`loom.repository-find-deprecated` is gone with the gate it existed for.
+
+---
+
+## D-LIST-FIND-REMOVED — a list read is a criterion; a list `find` and a criterion/retrieval name clash are errors
+
+**Status:** PINNED (owner rulings on #3463 item 6 and #3608, 2026-10-21; slice 2 of #3949).
+The name-clash error and the codemod hold now; the codemod run over the
+corpus and the list-find hard error land together with #4049.
+
+**Question.** Two read-path rules were soft. A repository `find` returning a
+list (`T[]` / `T paged`) is only a warning (`loom.repository-find-deprecated`),
+so a new list query can still mint one more `find byX` method on the
+repository. And a name declared both as a `criterion` and as a `retrieval`
+was resolved by a precedence rule (the retrieval won), so `Repo.run(<Name>)`
+silently picked one meaning.
+
+**Decision.**
+
+- A `criterion` and a `retrieval` with the same name in one context are an
+  **error**, `loom.criterion-retrieval-name-clash` (reported on the
+  retrieval). There is no precedence rule.
+- A list `find` becomes an **error** with no warning window (the #3608 rule
+  for breaking language changes: a `scripts/` codemod plus a hard cutover). A
+  list read is a `criterion` (or a `retrieval` when it needs a `sort:`), read
+  with `Repo.run(<it>(args))` and put on the wire with `scaffoldPaged(of: …)` +
+  `scaffoldPagedApi(of: …)` or a routed `queryHandler`.
+- Two finds stay legal: a single-row find (`T` / `T?` and the single-row
+  carriers), and a declared `find all(): T[] / T paged`. Read gates live in
+  `policy { read X requires … }` (D-READ-GATE-IN-POLICY), not on a find. The finds the compiler synthesises
+  in enrichment (auto-`findAll`, the paged find behind `scaffoldPaged`,
+  projection sources, `findAllBy<Criterion>`) are not author-declared and are
+  unaffected.
+- `scripts/codemod-list-find-to-criterion.mjs` rewrites each list find to a
+  criterion beside its repository (`<Plural><Find>`, the find's `where` as the
+  body, or the parameter-name convention spelled out for a find written
+  without one; a `where` that is exactly a criterion over the find's own
+  params reuses that criterion) and each `Repo.<find>(args)` call to
+  `Repo.run(<Criterion>(args))`. A find carries no sort, so the target is
+  always a criterion. A parameterless, filterless list find read every row and
+  becomes the repository's `find all`. A `test e2e` read of the find's route
+  keeps the route: the codemod adds a routed `queryHandler List<Criterion>`
+  over `Repo.run` on the same path (parameters as `{token}`s, a GET carries no
+  body). What it
+  cannot rewrite (a page reading the route, a find whose api lives in another
+  file) it lists.
+
+**Consequences.** The grammar keeps parsing `FindDecl` with any return type —
+the list check is by return type, and removing `FindDecl` altogether belongs
+to #3951. The emitters' find paths stay: each is still reached by single-row
+finds, `find all`, or the synthesised paged finds. The scaffolded list page's
+filter bar is built from list finds only, so it goes with the hard error
+(#4049).

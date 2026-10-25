@@ -181,7 +181,7 @@ explicitly:
 
 | Guard | How history gets it |
 |---|---|
-| **Read gate** | The synthesized find copies the aggregate's list read (`find all`) `requires` gate. Fails → `403`, before any query runs. Under `enforcement: denyByDefault`, an audited aggregate with an ungated list read is a compile error (`loom.audit-history-ungated`) — declare the gate on `find all` and history inherits it. |
+| **Read gate** | The aggregate's read gate (`policy { read X requires … }`) covers history too — the synthesized find copies it from the list read `all`. Fails → `403`, before any query runs. Under `enforcement: denyByDefault`, an audited aggregate with no read gate is a compile error (`loom.audit-history-ungated`) — write the policy line and history is gated with every other read. |
 | **Capability filters** (`tenantOwned`, and any `filter` capability) | `audit_records` is machinery: it carries `target_type`/`target_id` and **no tenant column**, so there is nothing on it for a query-filter to scope. Scoping rides the **entity** instead — the handler resolves the row through `findById`, which already carries every capability predicate. A row the caller cannot read yields `404`, the same answer the entity read gives, so history discloses nothing about another tenant's rows, not even their existence. The find's `ignoring` stance is copied from the list read too, so widening one widens both. |
 | **`mask unless`** | The same predicate composes into every entry. |
 

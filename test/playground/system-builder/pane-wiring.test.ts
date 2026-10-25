@@ -134,13 +134,14 @@ describe("SystemBuilderV2Pane — operation header inspector", () => {
 });
 
 describe("SystemBuilderV2Pane — find header inspector", () => {
-  it("reads the find surface and writes both header clauses", () => {
+  it("reads the find surface and writes its `ignoring` clause", () => {
     expect(PANE).toContain("findSurface(parsed.ast, repoName, n.name)");
-    expect(PANE).toContain("setFindGate(ctx.getSource(), repoName, findName");
     expect(PANE).toContain("setFindIgnoring(ctx.getSource(), repoName, findName, spec)");
+    // A find carries no gate (it moved to `policy { read X requires … }`).
+    expect(PANE).not.toContain("setFindGate(");
   });
 
-  it.each(["c4system-v2-find-requires", "c4system-v2-find-ignoring"])("exposes %s", (id) => {
+  it.each(["c4system-v2-find-ignoring"])("exposes %s", (id) => {
     expect(PANE).toContain(`"${id}"`);
   });
 });

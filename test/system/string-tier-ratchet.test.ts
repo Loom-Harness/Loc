@@ -72,6 +72,9 @@ const MAX_HEADROOM = 2 * BUCKET;
  * fixture or a compile/behavioural cell.
  */
 const CEILINGS: Record<string, number> = {
+  // 2900 → 3100 (#3263): the money-comparison pins (money-compare-leftovers.test.ts)
+  // assert each emitter's spelling across 5 backends + 6 frontends; the runtime proof
+  // is the money-nullable corpus fixture and money-compare-ui.
   "(cross-target)": 3100,
   _expr: 200,
   _frontend: 400,

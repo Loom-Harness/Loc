@@ -34,6 +34,7 @@ import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import { repoVerbOpAt } from "../../../util/repository-contract.js";
+import { csFindMethodName } from "../find-method-name.js";
 import { renderCsExpr } from "../render-expr.js";
 import {
   csBareToThrow,
@@ -86,7 +87,7 @@ function findCallOf(
     return { call: `(await ${repo}.All(1, 1000, "id", "asc")).Items`, nullable: false };
   }
   const nullable = custom?.returnType.kind === "optional" || custom?.returnType.kind === "union";
-  return { call: `await ${repo}.${upperFirst(e.member)}(${args})`, nullable };
+  return { call: `await ${repo}.${csFindMethodName(e.member)}(${args})`, nullable };
 }
 
 const repoVar = (aggName: string): string => `${lowerFirst(aggName)}Repo`;

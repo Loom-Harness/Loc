@@ -192,21 +192,21 @@ system Helpdesk {
         }
       }
       repository InternalNotes for InternalNote {
-        find all(): InternalNote paged requires currentUser.permissions.contains(permissions.ticketsWork)
-        find forTicket(t: Ticket id): InternalNote[] requires IsAgent() where ticket == t
+        find forTicket(t: Ticket id): InternalNote[] where ticket == t
       }
+      policy { read InternalNote requires currentUser.permissions.contains(permissions.ticketsWork) }
 
       repository Customers for Customer { }
       repository Agents for Agent { }
       repository Tickets for Ticket {
-        find all(): Ticket paged requires currentUser.permissions.contains(permissions.ticketsWork)
-        find mine(): Ticket[] requires currentUser.customerId != null
+        find mine(): Ticket[]
           where requester == currentUser.customerId
-        find myQueue(): Ticket[] requires currentUser.agentId != null
+        find myQueue(): Ticket[]
           where assignee == currentUser.agentId && status != Closed && status != Resolved
-        find unassigned(): Ticket[] requires currentUser.permissions.contains(permissions.ticketsWork)
+        find unassigned(): Ticket[]
           where assignee == null && status != Closed
       }
+      policy { read Ticket requires currentUser.permissions.contains(permissions.ticketsWork) }
 
       // CSAT survey, created when a ticket is resolved.
       aggregate Survey with tenantOwned {
@@ -222,8 +222,9 @@ system Helpdesk {
         }
       }
       repository Surveys for Survey {
-        find mine(): Survey[] requires currentUser.customerId != null where requester == currentUser.customerId
+        find mine(): Survey[] where requester == currentUser.customerId
       }
+      policy { read Survey requires currentUser.customerId != null }
 
       criterion OverdueCandidates(cutoff: datetime) of Ticket = status == Open && openedAt < cutoff && !escalated
 

@@ -37,7 +37,8 @@ function model(gate: string, reads = true): string {
         open: bool
         operation close() { ${gate}open := false }
       }
-      repository Tickets for Ticket { ${reads ? "find all(): Ticket[] requires true  find byId(id: Ticket id): Ticket? requires true" : ""} }
+      repository Tickets for Ticket { }
+      ${reads ? "policy { read Ticket requires true }" : ""}
     }
   }
   storage primary { type: postgres }

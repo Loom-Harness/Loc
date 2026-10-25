@@ -241,7 +241,7 @@ function EvolutionReport({ e, isDesktop }: { e: EvolutionOk; isDesktop: boolean 
                 {e.hasBaseline ? "No schema changes since the last save." : "No tables to create."}
               </Text>
             ) : (
-              e.migrations.map((m) => <MigrationCard key={`${m.module}/${m.version}`} m={m} />)
+              e.migrations.map((m) => <MigrationCard key={`${m.module}/${m.name}`} m={m} />)
             )}
           </Stack>
         </Group>
@@ -434,7 +434,7 @@ function MigrationCard({ m }: { m: MigrationView }): JSX.Element {
           {m.name}
         </Badge>
         <Text size="xs" c="dimmed">
-          {m.module} · v{m.version}
+          {m.module}
         </Text>
         {m.destructive && (
           <Badge size="xs" color="red" variant="filled">

@@ -9,7 +9,8 @@ system X {
         name: string
         create(n: string) { requires currentUser.permissions.contains(permissions.make) }
       }
-      repository Things for Thing { find all(): Thing[] requires true }
+      repository Things for Thing { find all(): Thing[] }
+      policy { read Thing requires true }
     }
   }
   storage p { type: postgres }

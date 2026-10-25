@@ -17,8 +17,10 @@ system Repro {
       }
     }
     policy Anyone(): bool = true
-    repository Agents for Agent { find all(): Agent paged requires true }
-    repository Tickets for Ticket { find all(): Ticket paged requires true }
+    repository Agents for Agent {}
+    policy { read Agent requires true }
+    repository Tickets for Ticket {}
+    policy { read Ticket requires true }
   }
   storage db { type: postgres }
   resource st { for: C, kind: state, use: db }

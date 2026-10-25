@@ -695,6 +695,8 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
       return `${subject} is ${e.op === "!=" ? "not " : ""}None`;
     }
   }
+  const absentOrdering = renderNullableDecimalOrdering(left, right, e);
+  if (absentOrdering !== null) return absentOrdering;
   // Python's `%` is a FLOORED modulo — the result takes the sign of the
   // DIVISOR (`-5 % 3 == 1`).  Every other Loom backend truncates towards
   // zero, so the result takes the sign of the DIVIDEND (`-5 % 3 == -2` on
@@ -763,6 +765,32 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
   if (dt === "right") return `${left} ${pyBinOp(e.op)} ${right}.isoformat()`;
   if (dt === "left") return `${left}.isoformat() ${pyBinOp(e.op)} ${right}`;
   return `${left} ${pyBinOp(e.op)} ${right}`;
+}
+
+/** An ORDERING with a nullable `money?`/`decimal?` side — or a nullable
+ *  integral against a money/decimal — answers false when either side is absent
+ *  (SQL's UNKNOWN, .NET's lifted operators).  Python raises `TypeError` on
+ *  `None > Decimal(...)`, so the ordering routes through the emitted
+ *  `present_order` helper (`emit/numeric.ts`): each operand is evaluated once,
+ *  and the `None` test runs before the operator.
+ *  Null for every other pair. */
+function renderNullableDecimalOrdering(
+  left: string,
+  right: string,
+  e: Extract<ExprIR, { kind: "binary" }>,
+): string | null {
+  if (e.op !== "<" && e.op !== "<=" && e.op !== ">" && e.op !== ">=") return null;
+  if (e.leftType?.kind !== "optional" && e.rightType?.kind !== "optional") return null;
+  const prim = (t: TypeIR | undefined): string | undefined => {
+    const inner = t?.kind === "optional" ? t.inner : t;
+    return inner?.kind === "primitive" ? inner.name : undefined;
+  };
+  const decimalLike = (n: string | undefined) => n === "money" || n === "decimal";
+  const numeric = (n: string | undefined) => decimalLike(n) || n === "int" || n === "long";
+  const l = prim(e.leftType);
+  const r = prim(e.rightType);
+  if (!numeric(l) || !numeric(r) || (!decimalLike(l) && !decimalLike(r))) return null;
+  return `present_order(${left}, ${JSON.stringify(e.op)}, ${right})`;
 }
 
 /**

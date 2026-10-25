@@ -46,7 +46,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 /** A system whose workflow takes a `Doc id` — so every frontend renders the
  *  picker — with `Doc`'s list read spelled either way. */
 function system(frontend: string, design: string | null, declaredFindAll: boolean): string {
-  const find = declaredFindAll ? `find all(): Doc[] requires true` : "";
+  const find = declaredFindAll ? `find all(): Doc[]` : "";
   return `
 system FindAllShape {
   user { id: string  role: string }

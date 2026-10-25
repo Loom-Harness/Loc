@@ -97,19 +97,12 @@ export function normaliseManifestPath(relPath: string): string {
 
 /**
  * Paths the pruner refuses to consider, even when a previous manifest lists
- * them and the current run does not emit them.  Two families, both cases
- * where "not emitted this run" does NOT mean "stale":
+ * them and the current run does not emit them — cases where "not emitted this
+ * run" does NOT mean "stale":
  *
- *  - **Migration files.**  Backends emit only the NEW migration each run;
- *    every earlier migration file stays on disk unmentioned (that is exactly
- *    what `checkMigrationBaseline`'s history ⊆ files guard verifies).  A
- *    naive prune would therefore delete the entire applied schema history on
- *    the second regeneration.  Matched on a `migrations`/`migration` path
- *    segment, the same rule `migration-artifacts.ts` scans with, so every
- *    backend's layout (Drizzle, EF, Ecto, Alembic, Flyway) is covered.
- *  - **`.loom/snapshots/`.**  The migration baselines and `ddd snapshot`
- *    provenance records.  Losing one is unrecoverable and turns the next
- *    generate into a refused re-baseline.
+ *  - **`.loom/snapshots/`.**  The `ddd snapshot` provenance records, written
+ *    by a separate command and never re-emitted by `generate`.  Losing one is
+ *    unrecoverable.
  *  - **Licence files.**  `ddd generate` used to write a MIT `LICENSE` at the
  *    output root on every run; M-FT.13 stopped it (finding G9 — the licence
  *    belongs to `ddd new`, which owns the project's identity files, not to a
@@ -130,10 +123,7 @@ export function isProtectedFromPrune(relPath: string): boolean {
   if (p === MANIFEST_REL_PATH) return true;
   if (p.startsWith(".loom/snapshots/")) return true;
   const segments = p.split("/");
-  if (isLicenceFileName(segments[segments.length - 1])) return true;
-  // The last segment is the file name — a directory segment is what marks a
-  // migration directory.
-  return segments.slice(0, -1).some(isMigrationDirSegment);
+  return isLicenceFileName(segments[segments.length - 1]);
 }
 
 /** True when `fileName` is one of the conventional licence-file names.  The
@@ -152,16 +142,6 @@ function isLicenceFileName(fileName: string): boolean {
     lower.startsWith("license.") ||
     lower.startsWith("licence.")
   );
-}
-
-/** True when `dirName` is a directory a backend lands migration files in.
- *  Matched case-insensitively so `migrations`, `Migrations`, and Flyway's
- *  singular `migration` (under `src/main/resources/db/migration/`) all count,
- *  wherever the layout adapter nests them.  (Mirrors the private predicate in
- *  `migration-artifacts.ts`, which scans the same shape on disk.) */
-function isMigrationDirSegment(dirName: string): boolean {
-  const lower = dirName.toLowerCase();
-  return lower === "migrations" || lower === "migration";
 }
 
 /** Build a manifest from the paths a run emitted.  Sorted and deduplicated so
@@ -232,12 +212,12 @@ export function parseManifest(text: string): OutputManifest | null {
  * still owns — the protected families (see {@link isProtectedFromPrune}),
  * when the file is still on disk.
  *
- * Without this the manifest would CHURN.  Backends emit only the newest
- * migration each run, so run 2's file map has no migration in it; a manifest
- * built from that map alone drops the migration entry, run 3 has nothing to
- * drop, and the manifest flips between two contents forever — rewritten on
- * every regen, which breaks the "a no-op regen touches no file" invariant
- * that watching dev servers depend on (`test/cli/regeneration.test.ts`).
+ * Without this the manifest would CHURN for a protected file a run lists
+ * once and never re-emits: a manifest built from the next run's file map
+ * alone drops its entry, the run after has nothing to drop, and the manifest
+ * flips between two contents forever — rewritten on every regen, which
+ * breaks the "a no-op regen touches no file" invariant that watching dev
+ * servers depend on (`test/cli/regeneration.test.ts`).
  *
  * Only the PROTECTED families are carried.  An ordinary path the previous run
  * emitted and this one does not is precisely a prune candidate: it is about

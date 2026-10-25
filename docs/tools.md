@@ -31,6 +31,7 @@ ddd parse <file.ddd>                              # parse + validate (AST + IR),
 ddd generate ts <file.ddd> -o <outdir>            # emit a single TypeScript project (legacy)
 ddd generate dotnet <file.ddd> -o <outdir>        # emit a single .NET project (legacy)
 ddd generate system <file.ddd> -o <outdir>        # emit every deployable + docker-compose.yml
+ddd migrate add <name> <file.ddd>                 # record schema changes in migrations/ (see Migrations workflow)
 ddd verify <file.ddd> --results <results.json>    # join test results onto the requirements graph
 ddd verify <file.ddd> --from-vitest <report.json> # …the same, straight from `vitest run --reporter=json`
 ddd verify <file.ddd> --from-vitest unit.json --from-vitest e2e.json --from-playwright ui.json  # every flag repeatable — one per runner report
@@ -165,7 +166,7 @@ project the .NET namespace and `.csproj` keep the capitalised form.
 | `-w, --watch` | every `generate` | Re-run the generator whenever the source `.ddd` file changes (see [Watch mode](#watch-mode) below). |
 | `--dry-run` | every `generate`, `snapshot` | List every path that would be written (plus any paths skipped via `.loomignore`).  Writes nothing. |
 | `--trace` | every `generate` | Emit trace-level domain instrumentation (`value_computed`, `precondition_evaluated`, …) into the generated project.  Off by default — see [`observability.md`](observability.md). |
-| `--allow-destructive` | `generate system` | Permit destructive delta migrations (column/table drops, and NOT-NULL column adds without a default on an existing table).  Off by default a destructive delta aborts with a `loom.migration-destructive` error — see [`migrations.md`](migrations.md) § Destructive changes. |
+| `--allow-destructive` | `migrate add` | Permit destructive steps (column/table drops, NOT-NULL column adds without a default on an existing table, reshapes) in the recorded migration.  Off by default a destructive delta aborts with a `loom.migration-destructive` error — see [`migrations.md`](migrations.md) § Destructive changes. |
 | `--all-warnings` | `parse`, `generate system` | Print every IR-level warning in full.  By default a warning code that fires more than three times (the per-aggregate `denyByDefault` read-gate warnings, typically) prints its first occurrence plus one line naming the rest — `… and 3 more loom.default-deny-by-id-ungated warning(s): Desk/Agent, Desk/Queue, Desk/Tag`.  The `N warning(s)` count and `--json` output always carry every diagnostic. |
 
 `ddd parse` exits non-zero if the source has errors.  `ddd generate`
@@ -337,21 +338,22 @@ sub-second feedback on real-world models.
 
 ## Migrations workflow
 
-Loom **owns migration generation** end-to-end via a snapshot-and-diff
-pipeline.  Each `generate system` run compares the current source
-against a checked-in baseline at
-`.loom/snapshots/<Subdomain>.snapshot.json`, derives a platform-neutral
-`MigrationsIR` (`src/ir/types/migrations-ir.ts`), and the per-backend
-emitters translate that into a single dated migration file per
-backend.  Subsequent regens emit only the delta — adding a property
-produces one `ALTER TABLE … ADD COLUMN …` per backend.  See
+Loom **owns migration generation** end-to-end.  `ddd migrate add` diffs
+the current source against the head of the **migration chain** — the
+committed `migrations/` directory beside the `.ddd` — and records the
+platform-neutral delta (`MigrationsIR`, `src/ir/types/migrations-ir.ts`)
+as a new entry.  `generate system` renders every backend's migration
+files from the whole chain; adding a property produces one
+`ALTER TABLE … ADD COLUMN …` per backend.  See
+[`migrations.md`](migrations.md) § The migration chain, and
 [`generators.md` § Migrations](generators.md) for the per-platform
 output table and the runtime application path.
 
-The user-facing workflow is **regenerate, then run**:
+The user-facing workflow is **record, regenerate, then run**:
 
 ```bash
-ddd generate system ./model.ddd -o ./out   # emits SQL/migrations alongside the rest
+ddd migrate add add-order-notes ./model.ddd   # records the schema change in ./migrations/
+ddd generate system ./model.ddd -o ./out     # emits SQL/migrations alongside the rest
 cd out
 docker compose up                          # backends apply migrations at boot
 ```
@@ -367,18 +369,21 @@ There is no separate `db:generate` / `dotnet ef migrations add` step
 | Python (SQLAlchemy) | `<deployable>/migrations/<version>_<module>_<name>.sql` raw-SQL files | `run_migrations()` from the FastAPI lifespan applies pending files in order, tracking applied tags in a `__loom_migrations` table (the Drizzle-runtime-migrator pattern). |
 | Java (Spring/Flyway) | `<deployable>/src/main/resources/db/migration/V<version>.<n>__<Module>_<Name>.sql` Flyway scripts | Flyway runs them on Spring Boot startup (tracked in `flyway_schema_history`). |
 
-The `.loom/snapshots/<Subdomain>.snapshot.json` files are
-repo-checked-in baselines — committing them is what gives the next
-regen something to diff against.  `ddd snapshot` (a separate
-command, for provenance) does NOT touch them; those are governed by
-`src/system/snapshot.ts` and rewritten on every `generate system`.
+Commit `migrations/` with the model: it is the whole migration history,
+and the output tree carries none of it.  A source with no `migrations/`
+yet gets each module's initial migration derived from the model; once
+the chain exists, `generate system` refuses a schema change that is not
+recorded in it.
 
 ### Renames
 
-Column / table renames are not detected — they emit as drop+add,
-which destroys data.  Until a `@migration(rename: "old")` annotation
-ships, hand-edit the dated migration file to a single
-`RENAME COLUMN` (or equivalent) before committing the regen.
+Declare a rename in a `migration` block (`migration "rename-qty" {
+Order.qty -> quantity }`, or `Order -> PurchaseOrder` for a table) so
+`migrate add` records a `RENAME COLUMN` / `RENAME TO` instead of a
+data-losing drop+add.  An undeclared single drop+add of the same type
+on one table is collapsed into a rename too, and announced with
+`loom.migration-rename-inferred`.  See [`migrations.md`](migrations.md)
+§ Destructive changes.
 
 ### Cross-backend data migrations
 

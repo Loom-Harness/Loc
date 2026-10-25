@@ -542,7 +542,6 @@ export function checkPredicateSlotArgs(model: Model, accept: ValidationAcceptor)
   for (const node of AstUtils.streamAllContents(model)) {
     if (isFindDecl(node)) {
       visit((node as FindDecl).filter);
-      visit((node as FindDecl).gate);
     } else if (isRetrieval(node)) {
       visit((node as Retrieval).where);
     } else if (isRetrievalLiteral(node)) {
@@ -551,6 +550,7 @@ export function checkPredicateSlotArgs(model: Model, accept: ValidationAcceptor)
       visit((node as Criterion).body);
     } else if (isPolicyDecl(node)) {
       visit((node as PolicyDecl).body);
+      for (const r of (node as PolicyDecl).rules) visit(r.gate);
     } else if (isOperation(node)) {
       visit((node as Operation).gate);
       visit((node as Operation).when);

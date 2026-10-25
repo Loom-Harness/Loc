@@ -5,7 +5,6 @@ import {
   type BackendDriver,
   handleFor,
   type PgConn,
-  runDapperLegacyBaselineGate,
   runMigrationEvolutionGate,
   runUniqueIndexEvolutionGate,
 } from "./support/migration-evolution-harness.js";
@@ -97,10 +96,6 @@ describe.skipIf(!DAPPER_ENABLED)(
   () => {
     it("migrate-chain ≡ fresh-create, and seeded rows survive forward-migrate", async () => {
       await runMigrationEvolutionGate(dotnetDriver("dapper"));
-    }, 900_000);
-
-    it("baselines a database the pre-migration DbSchema bootstrap provisioned, then migrates it", async () => {
-      await runDapperLegacyBaselineGate(dotnetDriver("dapper"));
     }, 900_000);
 
     // The unique-index evolution gate (#3229 / #3248 — a `unique` across a

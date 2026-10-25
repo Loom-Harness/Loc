@@ -96,7 +96,7 @@ const SRC = `system Shop {
         }
       }
       repository Orders for Order {
-        find byId(id: int): Order? requires permissions.read where this.id == id
+        find byId(id: int): Order? where this.id == id
         find open(): Order[] where true
       }
       projection OrderRow(limit: int) keyed by sku requires permissions.read {
@@ -140,6 +140,7 @@ const SRC = `system Shop {
       policy {
         allow deep on Order
         deny write on Tenant
+        read Order requires permissions.read
       }
       policy canEdit(o: Order): bool = true
       filter this.status
@@ -439,10 +440,14 @@ describe("Model v2 — authz visibility", () => {
     });
   });
 
-  it("a block-form policy lists its allow / deny read rules", () => {
+  it("a block-form policy lists its allow / deny / read-gate rules", () => {
     expect(byId(ctxGraph(), "policy:0")).toMatchObject({
       name: "policy",
-      summary: ["allow deep on Order", "deny write on Tenant"],
+      summary: [
+        "allow deep on Order",
+        "deny write on Tenant",
+        "read Order requires permissions.read",
+      ],
     });
   });
 
@@ -465,11 +470,9 @@ describe("Model v2 — authz visibility", () => {
     expect(byId(aggGraph(), "field:sku").badges).toBeUndefined();
   });
 
-  it("a gated repository find gets a `requires` badge; an open one does not", () => {
+  it("a repository find carries no gate badge — the read gate is a policy rule", () => {
     const g = buildViewGraph(AST, [{ kind: "repository", name: "Orders" }]);
-    expect(byId(g, "find:byId").badges).toEqual([
-      { label: "requires", detail: "permissions.read" },
-    ]);
+    expect(byId(g, "find:byId").badges).toBeUndefined();
     expect(byId(g, "find:open").badges).toBeUndefined();
   });
 

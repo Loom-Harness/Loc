@@ -24,6 +24,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { elixirString, plural, snake, upperFirst } from "../../../util/naming.js";
 import { repoVerbOpAt } from "../../../util/repository-contract.js";
+import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { internalCreateFn } from "../lifecycle-seam.js";
 import { type Env, renderExpect, vtExpr } from "./tests-emit.js";
 
@@ -76,7 +77,7 @@ function findBinding(
     return `{:ok, ${name}} = ${ctxMod}.get_${snake(agg.name)}(${args})`;
   }
   // A custom find is re-exported on the context module under its own name.
-  return `{:ok, ${name}} = ${ctxMod}.${snake(e.member)}(${args})`;
+  return `{:ok, ${name}} = ${ctxMod}.${elixirFindFacadeFn(e.member, agg.name)}(${args})`;
 }
 
 /** Render an object-literal create/op argument to an Ecto attrs map. */

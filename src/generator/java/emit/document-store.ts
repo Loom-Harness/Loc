@@ -307,6 +307,11 @@ export function renderJavaDocumentRepositoryImpl(
     `            .withVisibility(PropertyAccessor.FIELD, JsonAutoDetect.Visibility.ANY)`,
     `            .withVisibility(PropertyAccessor.GETTER, JsonAutoDetect.Visibility.NONE)`,
     `            .withVisibility(PropertyAccessor.IS_GETTER, JsonAutoDetect.Visibility.NONE)`,
+    // SETTER detection off too: a domain operation named `setX(…)` (`setLimit`)
+    // is a Jackson setter by name, so rehydrating the document RAN the
+    // operation — its preconditions threw out of the deserializer (a 500 on
+    // every read of the row).  Fields are the only property source.
+    `            .withVisibility(PropertyAccessor.SETTER, JsonAutoDetect.Visibility.NONE)`,
     `            .withVisibility(PropertyAccessor.CREATOR, JsonAutoDetect.Visibility.ANY))`,
     `        .build();`,
     ``,

@@ -1,5 +1,5 @@
-// Find `requires` gate on Python/FastAPI (D-AUTH-OIDC / default-deny).  A
-// `find f(): T[] requires <expr> where <pred>` emits a 403 gate at the top of
+// The policy read gate on a find route, Python/FastAPI (D-AUTH-OIDC / default-deny).  A
+// `policy { read T requires <expr> }` over a `find f(): T[] where <pred>` emits a 403 gate at the top of
 // the `GET /<plural>/<f>` route — the read-side twin of the view gate —
 // evaluated against the request's currentUser before the query.  ForbiddenError
 // maps to 403 via the app exception handler.  Ungated → no gate.
@@ -14,7 +14,7 @@ function src(findClause: string): string {
     subdomain Sales { context Tickets {
       aggregate Ticket { subject: string  open: bool }
       repository Tickets for Ticket {
-        find openOnes(): Ticket[] ${findClause}where open == true
+        find openOnes(): Ticket[] where open == true${findClause ? `\n}\npolicy { read Ticket ${findClause}` : ""}
       }
     } }
     storage primary { type: postgres }

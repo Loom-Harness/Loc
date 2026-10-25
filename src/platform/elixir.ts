@@ -49,10 +49,6 @@ const elixirPlatform: PlatformSurface = {
     "angular",
     "feliz",
   ]),
-  // Context-function conventions.  A user-declared find named one of
-  // these would collide with the generated CRUD context function of the
-  // same name (`get_<agg>` / `create_<agg>` / …).
-  reservedRepositoryFindNames: new Set(["get", "read", "create", "update", "destroy"]),
   emitProject({
     contexts,
     deployable,

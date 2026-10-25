@@ -88,10 +88,9 @@ const PINNED: Record<string, number> = {
   // 201/409 across the three generations).
   "test/e2e/migration-evolution.test.ts": 6,
   // dotnet: the EF evolution gate and its unique-index gate, then the Dapper
-  // leg's evolution gate and its legacy-bootstrap baseline gate
-  // (`runDapperLegacyBaselineGate`) — each delegates to a harness function that
+  // leg's evolution gate — each delegates to a harness function that
   // `expect`s the rows and the history.
-  "test/e2e/migration-evolution-dotnet.test.ts": 4,
+  "test/e2e/migration-evolution-dotnet.test.ts": 3,
   "test/e2e/migration-evolution-elixir.test.ts": 2,
   "test/e2e/migration-evolution-java.test.ts": 2,
   "test/e2e/migration-evolution-python.test.ts": 2,

@@ -32,7 +32,6 @@ import type {
   ColumnType,
   FKShape,
   IndexShape,
-  MigrationHistoryEntry,
   MigrationStep,
   MigrationsIR,
   SchemaSnapshot,
@@ -96,25 +95,6 @@ import type { SnapshotStore } from "./snapshot.js";
 // `buildMigrations` wires the two together at system scope, one entry
 // per owning module.
 // ---------------------------------------------------------------------------
-
-/** Canonical base timestamp — matches the legacy Phoenix initial-migration
- *  scheme so existing fixtures stay byte-stable across the refactor. */
-export const BASE_TIMESTAMP = "20260101000000";
-
-/** Width of one module's slice of the version space (fleet-bug-hunt I1).  Every
- *  backend that serves >1 module writes all their migrations into ONE
- *  directory, and Ecto refuses a directory with a duplicated integer version
- *  prefix, so each module needs a disjoint slice.  1e6 also happens to be one
- *  DAY in the `YYYYMMDDHHMMSS` shape these versions imitate, so a strided
- *  version still reads as a timestamp. */
-export const MODULE_VERSION_STRIDE = 1_000_000;
-
-/** Portion of a module's block reserved for its INITIAL migration.  One
- *  initial `MigrationsIR` can expand into MANY files (the Elixir emitter
- *  writes one migration per table, allocating `floor + i`, `floor + N*10 + …`,
- *  `floor + N*100 + …`), so deltas start above the reservation rather than at
- *  `floor + 1`, which would alias the second create-table. */
-export const INITIAL_SUBBLOCK_SPAN = 500_000;
 
 export function schemaFromModule(
   module: EnrichedSubdomainIR,
@@ -761,9 +741,8 @@ function eventLogTableForStream(snakeCtxName: string, ownerModule: string): Tabl
 /** Match prev/next tables by schema-qualified key, with a graceful fallback
  *  for OLD snapshots whose tables were written before schema-qualification:
  *  a prev table with no `schema` matches a single same-bare-name next table,
- *  so an existing `.loom` snapshot reads as "same table, now qualified"
- *  instead of drop+recreate.  A corrupt file still errors upstream
- *  (`fsSnapshotStore.read`); this only reconciles a legitimate format bump. */
+ *  so such a baseline reads as "same table, now qualified" instead of
+ *  drop+recreate. */
 interface TableMatch {
   pairs: [TableShape, TableShape][];
   dropped: TableShape[];
@@ -1309,8 +1288,8 @@ export function uniqueOnExistingTableWarnings(
 // Destructive-change gate (audit finding 19).
 // ---------------------------------------------------------------------------
 
-/** Raised when a delta migration contains a destructive change and the
- *  generate run did not pass `--allow-destructive`.  Destructive =
+/** Raised when a delta migration contains a destructive change and
+ *  `ddd migrate add` was not given `--allow-destructive`.  Destructive =
  *  `dropColumn` / `dropTable` (irreversible data loss) or a NOT-NULL
  *  column add without a default on a previously-existing table (fails on any
  *  populated table).  First-run (Initial) migrations never raise this —
@@ -1326,7 +1305,7 @@ export class MigrationDestructiveError extends Error {
         offending.map((s) => `  - ${describeDestructive(s)}`).join("\n") +
         `\nA migration-block backfill step makes a NOT NULL add or flip non-destructive ` +
         `with no flag needed:  migration "…" { <Agg>.<field> = <value> }\n` +
-        `Otherwise re-run \`generate system\` with --allow-destructive to apply them. ` +
+        `Otherwise record it with \`ddd migrate add <name> <file.ddd> --allow-destructive\`. ` +
         `Column/table drops are irreversible; a NOT NULL column add without a default fails ` +
         `on a populated table — under --allow-destructive it is emitted as the safe ` +
         `add-nullable / backfill-TODO / SET NOT NULL sequence instead.`,
@@ -1953,7 +1932,7 @@ export class MigrationShapeChangeError extends Error {
       `migration for module "${module}" reshapes ${reshapes.length} table(s):\n` +
         reshapes.map((r) => `  - ${r}`).join("\n") +
         `\nA shape/strategy flip is a full-table data move the column diff can't express. ` +
-        `Re-run \`generate system\` with --allow-destructive to emit the safe reshape: the ` +
+        `Record it with \`ddd migrate add <name> <file.ddd> --allow-destructive\` for the safe reshape: the ` +
         `old table is renamed to <table>${RESHAPE_BACKUP_SUFFIX} (kept, NOT dropped) and the ` +
         `new shape is created empty, with a TODO recipe to copy the data across (INSERT … ` +
         `SELECT). The backup's cleanup drop is destructive-gated on the next generation.`,
@@ -2123,13 +2102,17 @@ export class MigrationSqlScopeError extends Error {
   }
 }
 
+/** One module's derived generation, before the migration chain numbers it:
+ *  a `MigrationsIR` without its `version`. */
+export type MigrationDelta = Omit<MigrationsIR, "version">;
+
 export function buildMigrations(
   sys: EnrichedSystemIR,
   snapshots: SnapshotStore,
   options: BuildMigrationsOptions = {},
-): MigrationsIR[] {
+): MigrationDelta[] {
   const allowDestructive = options.allowDestructive ?? false;
-  const out: MigrationsIR[] = [];
+  const out: MigrationDelta[] = [];
   // Raw-sql scope pinning (M-T2.3): a block's sql steps run on the module its
   // OTHER intents pin.  A block naming aggregates across several modules — or
   // none, in a multi-owner system — cannot be pinned and raises
@@ -2146,83 +2129,6 @@ export function buildMigrations(
   for (const tr of options.tableRenameIntents ?? []) pin(tr.migration, tr.context);
   for (const bi of options.backfillIntents ?? []) pin(bi.migration, bi.context);
   const ownerModules = sys.subdomains.filter((md) => md.migrationsOwner).map((md) => md.name);
-  // Per-module VERSION BLOCK (fleet-bug-hunt I1).  Resolved for every owner
-  // module up front, because allocating a block for a NEW module needs to see
-  // every block already taken.  Precedence:
-  //   1. the block recorded in the module's own snapshot — a module keeps its
-  //      block for life, so its deltas always land in the same slice;
-  //   2. for a snapshot that predates the field, the LEGACY position-derived
-  //      index, so already-generated projects keep the block their initial
-  //      migrations were emitted with;
-  //   3. otherwise (a brand-new module) the next free block, above everything
-  //      — which is what makes a module added later safe to insert anywhere in
-  //      the source.
-  const versionBlocks = new Map<string, number>();
-  {
-    let maxBlock = -1;
-    ownerModules.forEach((name, i) => {
-      const snap = snapshots.read(name);
-      if (snap === null) return;
-      const block = snap.versionBlock ?? i;
-      versionBlocks.set(name, block);
-      maxBlock = Math.max(maxBlock, block);
-    });
-    for (const name of ownerModules) {
-      if (!versionBlocks.has(name)) versionBlocks.set(name, ++maxBlock);
-    }
-  }
-  const versionBlockOf = (name: string): number => versionBlocks.get(name) ?? 0;
-  // Global CREATION ORDINAL for migration-history entries (fleet-bug-hunt
-  // F-012).  Drizzle's runtime migrator is a watermark — it applies a journal
-  // entry only when `lastApplied.created_at < entry.when` — so the journal
-  // needs an ordering key that is stable per migration identity AND higher for
-  // every newly appended entry than for anything already applied.  `version`
-  // cannot supply one: versions are allocated in per-module blocks, so a delta
-  // in block 0 sorts below the *initial* of block 1 and disappears behind the
-  // watermark once that initial has run.  See `MigrationHistoryEntry.seq`.
-  //
-  // Resolved for every owner module up front, because allocating an ordinal for
-  // a new entry needs to see every ordinal already taken.  An entry that
-  // predates the field is backfilled from (version, module) order — the order
-  // the old journal already applied them in — so an existing project's recorded
-  // history keeps the same relative shape instead of being reshuffled.
-  const historySeq = new Map<string, number>();
-  const seqKey = (module: string, version: string, name: string): string =>
-    `${module}\u0000${version}\u0000${name}`;
-  let maxSeq = 0;
-  {
-    const legacy: { module: string; version: string; name: string }[] = [];
-    for (const name of ownerModules) {
-      const snap = snapshots.read(name);
-      if (snap === null) continue;
-      for (const e of snap.migrationHistory ?? []) {
-        if (e.seq === undefined) {
-          legacy.push({ module: name, version: e.version, name: e.name });
-          continue;
-        }
-        historySeq.set(seqKey(name, e.version, e.name), e.seq);
-        maxSeq = Math.max(maxSeq, e.seq);
-      }
-    }
-    // Backfill above every ordinal already recorded, so a partially-migrated
-    // snapshot set (some modules re-stamped, some not) cannot mint a duplicate.
-    legacy.sort((a, b) =>
-      a.version !== b.version
-        ? a.version < b.version
-          ? -1
-          : 1
-        : a.module < b.module
-          ? -1
-          : a.module > b.module
-            ? 1
-            : 0,
-    );
-    for (const e of legacy) historySeq.set(seqKey(e.module, e.version, e.name), ++maxSeq);
-  }
-  /** This module's history with every entry's ordinal resolved — recorded ones
-   *  kept verbatim, pre-`seq` ones carrying the backfill above. */
-  const withSeq = (module: string, history: readonly MigrationHistoryEntry[]) =>
-    history.map((e) => ({ ...e, seq: e.seq ?? historySeq.get(seqKey(module, e.version, e.name)) }));
   // Per-block spent tracking for `loom.migration-block-applied`: a block is
   // spent when, in every module it touches, each of its steps is already
   // reflected in that module's BASELINE snapshot.  `judged` guards the
@@ -2386,75 +2292,22 @@ export function buildMigrations(
       ...newData.filter((d) => !d.before).map(toExec),
     ];
     const storageName = findPrimaryStorageBinding(sys, m, m.migrationsOwner) ?? "";
-    // Version allocation is per-module BLOCK (fleet-bug-hunt I1).  A module's
-    // block is `BASE_TIMESTAMP + block * MODULE_VERSION_STRIDE`; its INITIAL
-    // migration sits at the block's floor, its deltas above
-    // `INITIAL_SUBBLOCK_SPAN`.  The reservation exists because one initial
-    // MigrationsIR can expand into MANY files — the Elixir emitter writes one
-    // migration per table, allocating `floor + i`, `floor + N*10 + …`,
-    // `floor + N*100 + …` — so a delta numbered `floor + 1` would alias the
-    // second create-table.  Keeping the arithmetic here (rather than re-homing
-    // versions inside the emitter) is what lets the snapshot's
-    // `migrationHistory` and the emitted FILENAMES agree, which the
-    // migration-baseline guard checks.
-    const blockFloor =
-      BigInt(BASE_TIMESTAMP) + BigInt(versionBlockOf(m.name) * MODULE_VERSION_STRIDE);
-    const version =
-      baseline === null
-        ? String(blockFloor)
-        : String(BigInt(baseline.lastVersion ?? String(blockFloor)) + 1n);
+    // The version is NOT decided here: it belongs to the migration chain,
+    // which numbers a generation when it is recorded (`migration-chain.ts`).
+    // The derivation only says what changed.
     const name = baseline === null ? "Initial" : describeMigration(steps);
-    // Stamp the next snapshot with the version we're about to emit so
-    // the FOLLOWING regen starts from `version + 1`.  Append to
-    // migrationHistory when steps are non-empty — the TS emitter
-    // rebuilds Drizzle's _journal.json from this list each regen so
-    // Drizzle's runtime migrator can see every past migration.
-    const prevHistory = baseline?.migrationHistory ?? [];
     // Applied-data ledger (M-T2.3): carry the baseline's keys and record the
     // ones this generation emits, so a `sql` step / TPH fix-up runs exactly
-    // once across regens.
+    // once across the chain.
     const appliedOut = [...(baseline?.appliedDataMigrations ?? []), ...newData.map((d) => d.key)];
-    const appliedField: Partial<SchemaSnapshot> =
-      appliedOut.length > 0 ? { appliedDataMigrations: appliedOut } : {};
-    // The module's block is stamped on EVERY snapshot write (including the
-    // no-op one) so a pre-`versionBlock` project records its legacy block on
-    // the first regen after this change, instead of re-deriving it forever.
-    const versionBlock = versionBlockOf(m.name);
-    // After an INITIAL, the next version starts above the reserved
-    // initial sub-block, not at `version + 1` — see the comment above.
-    const lastVersionAfter =
-      baseline === null ? String(blockFloor + BigInt(INITIAL_SUBBLOCK_SPAN)) : version;
     const stamped: SchemaSnapshot =
-      steps.length === 0
-        ? {
-            ...next,
-            lastVersion: baseline?.lastVersion ?? next.lastVersion,
-            // Like `versionBlock`, the resolved ordinals are stamped on EVERY
-            // snapshot write (the no-op one included), so a pre-`seq` project
-            // records its backfill on the first regen after this change rather
-            // than re-deriving it forever.
-            migrationHistory: prevHistory.length > 0 ? withSeq(m.name, prevHistory) : undefined,
-            versionBlock,
-            ...appliedField,
-          }
-        : {
-            ...next,
-            lastVersion: lastVersionAfter,
-            // The new entry is allocated ABOVE every ordinal already in use, so
-            // Drizzle's watermark cannot hide it behind an entry that has
-            // already been applied — which is what made the first real
-            // evolution of a multi-module system a silent no-op (F-012).
-            migrationHistory: [...withSeq(m.name, prevHistory), { version, name, seq: ++maxSeq }],
-            versionBlock,
-            ...appliedField,
-          };
+      appliedOut.length > 0 ? { ...next, appliedDataMigrations: appliedOut } : next;
     out.push({
       module: m.name,
       storageName,
       baseline,
       next: stamped,
       steps,
-      version,
       name,
     });
   }

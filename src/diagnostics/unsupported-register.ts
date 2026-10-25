@@ -726,7 +726,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.criterion-unsupported-target",
     kind: "scope",
-    site: "src/language/validators/criterion.ts:87",
+    site: "src/language/validators/criterion.ts:112",
     what: "criteria over primitives/VOs/enums reserved for `from <Criterion>(args)`",
     mission: "M-T5.4",
     verified: true,

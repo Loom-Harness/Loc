@@ -18,9 +18,9 @@ system Repro {
         }
       }
       repository Things for Thing {
-        find all(): Thing paged requires currentUser.permissions.contains(permissions.manage)
-        find byId(id: Thing id): Thing? requires currentUser.permissions.contains(permissions.manage)
+        find byId(id: Thing id): Thing?
       }
+      policy { read Thing requires currentUser.permissions.contains(permissions.manage) }
     }
   }
   user { id: string  role: string  permissions: string[] }
