@@ -87,6 +87,7 @@ import {
   pyWireToDomain,
   repoClassRef,
 } from "./routes-builder.js";
+import { pySaveRenderer } from "./stamp-call.js";
 import {
   collectLiveLetNames,
   collectServiceReadPorts,
@@ -307,7 +308,7 @@ function renderPagedRunHandlerModule(
   const usesUser = pagedRunGatesUseCurrentUser(h);
   const gateLines = renderWorkflowStmtChunks(
     pagedRunGates(h),
-    pyWorkflowStmtTarget(rctx, ctx, new Set()),
+    pyWorkflowStmtTarget(rctx, ctx, new Set(), pySaveRenderer([], ctx.aggregates)),
     "    ",
   ).flat();
   const sigParams = [
@@ -457,14 +458,13 @@ function renderHandlerModule(
   walkExpr(h.returnValue, (n) => {
     if (n.kind === "ref" && n.refKind === "let") usedLets.add(n.name);
   });
+  const renderSave = pySaveRenderer(h.statements, ctx.aggregates);
   const stmtLines = renderWorkflowStmtChunks(
     h.statements,
-    pyWorkflowStmtTarget(rctx, ctx, usedLets),
+    pyWorkflowStmtTarget(rctx, ctx, usedLets, renderSave),
     "    ",
   ).flat();
-  const saveLines = h.savesAtExit.map(
-    (s) => `    await ${snake(s.repoName)}.save(${snake(s.name)})`,
-  );
+  const saveLines = h.savesAtExit.flatMap((s) => renderSave(s, "    "));
   const returnExpr = h.returnValue
     ? projectRepoHandle
       ? projectIsCollection

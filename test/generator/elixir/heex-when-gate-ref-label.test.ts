@@ -121,9 +121,11 @@ describe.each([
         '<.link navigate={~p"/projects/#{o.project}"}><%= Map.get(@project_labels, o.project) || o.project %></.link>',
       );
       expect(detail).toContain("<%= Map.get(@project_labels, @data.project) || @data.project %>");
-      // The Project list's own ID column still shows the id.
+      // The Project list's own rows link by their `display`, computed from the
+      // loaded struct (which has no `display` key) — no label map needed.
       const projects = file(fs, "/live/project_list_live.ex");
-      expect(projects).toContain('<.link navigate={~p"/projects/#{o.id}"}><%= o.id %></.link>');
+      expect(projects).toContain('<.link navigate={"/projects/" <> o.id}><%= (o.name) %></.link>');
+      expect(projects).not.toContain("o.display");
       expect(projects).not.toContain("_labels");
     });
 

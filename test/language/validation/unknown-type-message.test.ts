@@ -40,8 +40,8 @@ async function errorsFor(type: string, extra = ""): Promise<string> {
 
 describe("an unknown type reports as a type, not as a dangling reference", () => {
   it("names the position and the catalogue, not `NamedDecl`", async () => {
-    const e = await errorsFor("duration");
-    expect(e).toContain("Unknown type 'duration'.");
+    const e = await errorsFor("timespan");
+    expect(e).toContain("Unknown type 'timespan'.");
     expect(e).toContain("Field types are:");
     // The internal wording that said nothing usable.
     expect(e).not.toContain("NamedDecl");
@@ -60,13 +60,13 @@ describe("an unknown type reports as a type, not as a dangling reference", () =>
   });
 
   it("offers no suggestion when nothing is close", async () => {
-    // A wrong guess is worse than none: `duration` is not a near miss of any
+    // A wrong guess is worse than none: `timespan` is not a near miss of any
     // type, and claiming it is would send the reader down a dead end.
-    expect(await errorsFor("duration")).not.toContain("Did you mean");
+    expect(await errorsFor("timespan")).not.toContain("Did you mean");
   });
 
   it("the catalogue it prints is the grammar's, and is complete", async () => {
-    const e = await errorsFor("duration");
+    const e = await errorsFor("timespan");
     const names = primitiveTypeNames();
     // Non-empty, or the derivation silently found no rule and the message
     // would be advertising an empty list.
@@ -94,5 +94,47 @@ describe("an unknown type reports as a type, not as a dangling reference", () =>
     const e = extractErrors(doc.diagnostics).join("\n");
     expect(e).toContain("Could not resolve reference to Aggregate named 'Nope'.");
     expect(e).not.toContain("Unknown type 'Nope'");
+  });
+
+  it("`duration` is named as expression-only, with the int-amount rewrite", async () => {
+    // `duration` is a real expression type, so "Unknown type" read as a typo.
+    const e = await errorsFor("duration");
+    expect(e).toContain("'duration' cannot be written as a type");
+    expect(e).toContain("exists only inside expressions");
+    expect(e).toContain("Carry the amount as an 'int'");
+    expect(e).not.toContain("Unknown type 'duration'");
+  });
+});
+
+describe("an enum value in a variant-match arm points at the predicate form", () => {
+  const SRC = `system T {
+    subdomain S { context C {
+      enum Priority { Low, Urgent }
+      aggregate Ticket {
+        priority: Priority
+        derived display: string = "x"
+        function slaHours(p: Priority): int = match p { Urgent => 4, Low => 48 }
+      }
+      repository Tickets for Ticket { }
+    } }
+  }`;
+
+  it("explains on the first arm and points back from the later ones", async () => {
+    const { doc } = await parseString(SRC);
+    const errors = extractErrors(doc.diagnostics);
+    expect(errors.filter((e) => e.includes("Unknown type"))).toEqual([]);
+    const first = errors.filter((e) => e.includes("'Urgent' is a value of enum 'Priority'"));
+    expect(first).toHaveLength(1);
+    expect(first[0]).toContain("match { <subject> == Urgent =>");
+    const later = errors.filter((e) => e.includes("'Low' is a value of enum 'Priority'"));
+    expect(later).toHaveLength(1);
+    expect(later[0]).toContain("see the first arm of this match");
+  });
+
+  it("the suggested predicate form validates", async () => {
+    const { doc } = await parseString(
+      SRC.replace("match p { Urgent => 4, Low => 48 }", "match { p == Urgent => 4, else => 48 }"),
+    );
+    expect(extractErrors(doc.diagnostics)).toEqual([]);
   });
 });

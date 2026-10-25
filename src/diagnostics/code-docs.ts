@@ -198,6 +198,10 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.criterion-impure": "10-repositories-and-queries.md#criterion",
   "loom.integer-literal-imprecise": "04-type-system.md#numeric-representation-rules",
   "loom.projection-aggregate-arg-not-columnar": "10-repositories-and-queries.md#grouped--group-by",
+  "loom.projection-aggregate-arity":
+    "10-repositories-and-queries.md#whole-table-aggregation--the-singleton",
+  "loom.single-row-find-not-unique": "10-repositories-and-queries.md#list-finds-are-deprecated",
+  "loom.persisted-table-collision": "13-workflows.md#13-workflows",
   "loom.projection-aggregate-type-mismatch": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-groupby-join-invalid": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-groupby-key-not-columnar": "10-repositories-and-queries.md#grouped--group-by",
@@ -226,6 +230,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "11-capabilities-filters-stamps.md#filter-expr--a-predicate-and-ed-into-every-read",
   "loom.self-outside-capability":
     "11-capabilities-filters-stamps.md#self-id--self-reference-inside-a-capability",
+  "loom.stamp-reads-aggregate-unsupported":
+    "11-capabilities-filters-stamps.md#validator-gated-stamp-cases",
   "loom.workflow-load-array-unsupported": "13-workflows.md#body-vocabulary",
   "loom.workflow-cross-context-repository": "13-workflows.md#body-vocabulary",
   "loom.workflow-private-operation": "13-workflows.md#body-vocabulary",
@@ -476,6 +482,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "../migrations.md#destructive-changes--the---allow-destructive-gate",
   "loom.migration-rename-inferred":
     "../migrations.md#the-inferred-rename-announces-itself--loommigration-rename-inferred",
+  "loom.migration-block-applied":
+    "../migrations.md#a-spent-block-says-so--loommigration-block-applied",
   "loom.migration-sql-placement": "../migrations.md#data-migrations-m-t23",
   "loom.migration-unique-on-existing-table":
     "../migrations.md#a-unique-index-on-a-populated-table--loommigration-unique-on-existing-table",

@@ -68,7 +68,7 @@
       "path": "/api/appointments/{id}/confirm",
       "status": 409,
       "body": {
-        "detail": "operation 'confirm' is not allowed in the current state of Appointment.",
+        "detail": "operation 'confirm' is not allowed in the current state of Appointment (when status == Requested).",
         "instance": "/api/appointments/{id}/confirm",
         "status": 409,
         "title": "Disallowed",

@@ -78,7 +78,7 @@ describe("bare toThrow() over a `when`-gated operation (claims D17)", () => {
     const core = await file("elixir", "/desk/ticket.ex");
     const close = core.slice(core.indexOf("def close("));
     expect(close).toMatch(
-      /def close\(%__MODULE__\{\} = record, _params\) do\n {4}if not \(record\.status == :Open\), do: raise\(Api\.GuardError, kind: :disallowed, message: "operation 'close' is not allowed in the current state of Ticket\."\)\n {4}record = %\{record \| status: :Closed\}/,
+      /def close\(%__MODULE__\{\} = record, _params\) do\n {4}if not \(record\.status == :Open\), do: raise\(Api\.GuardError, kind: :disallowed, message: "operation 'close' is not allowed in the current state of Ticket \(when status == Open\)\."\)\n {4}record = %\{record \| status: :Closed\}/,
     );
     const tests = await file("elixir", "ticket_test.exs");
     expect(tests).toContain("assert_raise Api.GuardError, fn -> Api.Desk.Ticket.close(t, %{}) end");

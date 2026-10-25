@@ -135,7 +135,17 @@ crashes later, is brought back by compose.
 
 **Migrations** (info / error):
 `migrations_starting`, `migration_applied`, `migrations_complete`,
-`migration_failed` (error).
+`migration_failed` (error).  The `error` field of `migration_failed` names the
+database's reason, not just the failing statement: Hono walks drizzle's
+wrapped error chain and appends the Postgres `code` / `detail` / `constraint`
+(e.g. `Key (number)=(T-1) is duplicated.` for a unique index over existing
+rows); .NET spells out the `PostgresException`'s SQLSTATE, message and
+constraint (Npgsql redacts `detail` unless the connection string sets
+`Include Error Detail`); Python's `str(exc)` and Phoenix's
+`Exception.message/1` already carry the driver's detail.  Java's Flyway
+callback has no access to the failure, so its line says only `migration
+failed`; Spring Boot's startup-failure trace right after it carries the
+`PSQLException` with its detail.
 
 **Auth and audit** (info / debug):
 `auth_enabled`, `audit_recorded` (debug), `provenance_recorded`
