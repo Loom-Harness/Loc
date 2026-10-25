@@ -55,6 +55,7 @@ on:
       - 'src/generator/elixir/**'
       - 'src/generator/_api/**'
       - 'src/generator/_expr/**'
+      - 'src/generator/_imports/**'
       - 'src/generator/_openapi/**'
       - 'src/platform/elixir.ts'
       # Shared emission seams the platform tree above delegates into: `_stmt` is

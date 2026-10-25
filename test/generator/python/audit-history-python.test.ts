@@ -119,7 +119,7 @@ describe("entity history — the gate is a second reader of the ambient principa
     expect(routes).toContain("current_user_ = require_current_user()");
     // Gating the import on masking alone left this call undefined (ruff F821 →
     // runtime NameError).  Both readers must keep an import alive.
-    expect(routes).toContain("from app.auth.user import require_current_user");
+    expect(routes).toMatch(/^from app\.auth\.user import [^\n]*\brequire_current_user\b/m);
   });
 
   it("omits the accessor import when neither reader exists", async () => {

@@ -1,8 +1,8 @@
 import { commandBodyOptional } from "../../ir/util/command-body.js";
+import { pyRef } from "../_imports/python.js";
 
-/** What a route body carries when it uses FastAPI's `Body` marker — the
- *  import gate for `from fastapi import Body`. */
-const OPTIONAL_BODY_MARK = "Body(default_factory=";
+const ANNOTATED = pyRef("typing", "Annotated");
+const BODY = pyRef("fastapi", "Body");
 
 /** The `body` parameter of a command route.  A command with no inputs takes
  *  its (empty) request model with a default (RS-39), so FastAPI publishes the
@@ -10,11 +10,6 @@ const OPTIONAL_BODY_MARK = "Body(default_factory=";
  *  `JsonBodyMiddleware`. */
 export function pyCommandBodyParam(model: string, inputs: readonly unknown[]): string {
   return commandBodyOptional(inputs)
-    ? `body: Annotated[${model}, ${OPTIONAL_BODY_MARK}${model})]`
+    ? `body: ${ANNOTATED}[${model}, ${BODY}(default_factory=${model})]`
     : `body: ${model}`;
-}
-
-/** True when emitted route source uses the optional-body marker. */
-export function usesOptionalBody(source: string): boolean {
-  return source.includes(OPTIONAL_BODY_MARK);
 }
