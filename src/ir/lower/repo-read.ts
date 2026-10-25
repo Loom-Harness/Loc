@@ -35,8 +35,13 @@ import {
   isRetrieval,
   isRetrievalLiteral,
 } from "../../language/generated/ast.js";
+import {
+  isRepoWriteName,
+  namedRepoCallOp,
+  type RepoOp,
+  repoOpResult,
+} from "../../util/repository-contract.js";
 import type { TypeIR } from "../types/loom-ir.js";
-import { isReadMethod } from "../util/repo-methods.js";
 import { type Env, lowerType } from "./lower-types.js";
 
 /** A predicate that decides whether a bare `run(<Name>)` / `run(<Name>(args))`
@@ -324,25 +329,22 @@ export function criterionRefFromExpr(
   return undefined;
 }
 
-/** The kind of repository read recognised in a body — the discriminator the
- *  domain-service read lowerer stamps onto the resolved `repo-read` Call so a
- *  backend renders the right find-method without re-recognising the AST shape.
- *  `named` = a declared `find`/`getById`; `find`/`findAll` = a criterion read;
- *  `run` = a retrieval read. */
-export type RepoReadKind = "named" | "find" | "findAll" | "run";
-
 export interface RepoReadMatch {
-  kind: RepoReadKind;
+  /** What the read does (`util/repository-contract.ts`) — the discriminator the
+   *  domain-service read lowerer stamps onto the resolved `repo-read` Call so a
+   *  backend renders the right find-method without re-recognising the AST
+   *  shape. */
+  op: Exclude<RepoOp, "remove">;
   repo: Repository;
   /** The find / retrieval / criterion method name to render against the repo. */
   method: string;
   /** Positional argument expressions (criterion / find args), lowered by the
    *  caller in its own scope. */
   args: Expression[];
-  /** For `find`/`findAll` — the referenced criterion name.  The read FILTERS by
-   *  this criterion; without carrying it the criterion is silently dropped and
-   *  the read returns every row (data-exposure).  Drives the synthesis of the
-   *  `findAllBy<Criterion>` retrieval the backend renders. */
+  /** For a criterion `find`/`findAll` — the referenced criterion name.  The
+   *  read FILTERS by this criterion; without carrying it the criterion is
+   *  silently dropped and the read returns every row (data-exposure).  Drives
+   *  the synthesis of the `findAllBy<Criterion>` retrieval the backend renders. */
   criterionName?: string;
   /** For `run` — the referenced (named) retrieval.  Empty for an anonymous
    *  retrieval literal, whose predicate rides `criterionName` instead. */
@@ -364,7 +366,7 @@ export function matchRepoRead(
   const find = matchFindCall(expr, reposByName);
   if (find)
     return {
-      kind: "find",
+      op: "select-one",
       repo: find.repo,
       method: "find",
       args: find.criterionArgs,
@@ -373,7 +375,7 @@ export function matchRepoRead(
   const findAll = matchFindAllCall(expr, reposByName);
   if (findAll)
     return {
-      kind: "findAll",
+      op: "select-many",
       repo: findAll.repo,
       method: "findAll",
       args: findAll.criterionArgs,
@@ -382,7 +384,7 @@ export function matchRepoRead(
   const run = matchRetrievalRunCall(expr, reposByName, isCriterionRun);
   if (run)
     return {
-      kind: "run",
+      op: "select-many",
       repo: run.repo,
       method: "run",
       args: run.anon ? run.anon.criterionArgs : run.retrievalArgs,
@@ -391,8 +393,15 @@ export function matchRepoRead(
         : { retrievalName: run.retrievalName }),
     };
   const repo = matchRepoCall(expr, reposByName);
-  if (repo && isReadMethod(repo.method))
-    return { kind: "named", repo: repo.repo, method: repo.method, args: repo.args };
+  if (repo && !isRepoWriteName(repo.method)) {
+    // A read name that is neither a declared find nor a contract verb rides
+    // `declared-find`: it is resolved by name, and its validator reports the
+    // unknown method.
+    const declared = repo.repo.finds.some((f) => f.name === repo.method);
+    const op = namedRepoCallOp(repo.method, declared) ?? "declared-find";
+    if (op === "remove") return undefined;
+    return { op, repo: repo.repo, method: repo.method, args: repo.args };
+  }
   return undefined;
 }
 
@@ -420,49 +429,34 @@ export function matchRepoRead(
  *  shape), and `find` takes the `T?` its `if let` arm implies. */
 export function repoReadResultType(read: RepoReadMatch, env?: Env): TypeIR {
   const entity: TypeIR = { kind: "entity", name: read.repo.aggregate?.ref?.name ?? "Unknown" };
-  switch (read.kind) {
-    // A criterion `findAll` and a retrieval `run` both yield the retrieval's
-    // result ARRAY (workflow: the `repo-run` arms' `arrayType`).
-    case "findAll":
-    case "run":
-      return { kind: "array", element: entity };
-    // `Repo.find(<Criterion>)` is the single-result sibling of `findAll`, and
-    // the result may be ABSENT: `lower-workflow.ts` calls it "the only optional
-    // producer this release" and consumes it only as an `if let` source, whose
-    // bound var is the UNWRAPPED entity.  So the read itself is `T?`.
-    case "find":
+  // A DECLARED find is the repository's own contract, so it wins and is
+  // honoured verbatim (`Owner[]`, `Owner?`, a union…).
+  if (read.op === "declared-find") {
+    const decl = read.repo.finds.find((f) => f.name === read.method);
+    // An unresolvable named read falls back to the bare aggregate, like the
+    // workflow `repo-let` arm.
+    return decl ? lowerType(decl.returnType, env) : entity;
+  }
+  return repoResultTypeIR(read.op, entity);
+}
+
+/** The IR type of a contract read's result over `entity`, from the op's
+ *  result shape in `util/repository-contract.ts`.  The by-id reads do NOT share
+ *  one shape: `load` is the row (it throws → 404 when absent), `load-optional`
+ *  is `T?`.  Typing the optional read as a bare entity is a lie the whole
+ *  pipeline then believes — no nullable gate fires and no backend guards the
+ *  dereference.  `select-one` is the `T?` an `if let` source unwraps, and
+ *  `select-many` is the row array, so a member read off it (`.count`) takes
+ *  the collection lowering. */
+export function repoResultTypeIR(op: Exclude<RepoOp, "declared-find">, entity: TypeIR): TypeIR {
+  switch (repoOpResult(op)) {
+    case "optional-row":
       return { kind: "optional", inner: entity };
-    // A named call — a DECLARED `find`, or one of the built-in verbs every
-    // repository auto-emits.  A declaration is the contract, so it wins and is
-    // honoured verbatim (`Owner[]`, `Owner?`, a union…).
-    //
-    // The built-ins carry no declaration to read, and they do NOT share one
-    // shape: `getById`/`findById` load a single row, `findAll`/`all` return the
-    // whole collection.  Collapsing them either way reintroduces exactly this
-    // bug for the other half — bind `findAll()` as one aggregate and `.count`
-    // goes back to emitting verbatim; bind `getById()` as a collection and a
-    // single row types as `Owner[]`.  The split mirrors `repositoryMethodType`
-    // in `src/language/type-system.ts`, which is the same table one layer up.
-    case "named": {
-      const decl = read.repo.finds.find((f) => f.name === read.method);
-      if (decl) return lowerType(decl.returnType, env);
-      if (read.method === "findAll" || read.method === "all")
-        return { kind: "array", element: entity };
-      // `findById` is the NULLABLE by-id read — that is the whole of what
-      // distinguishes it from `getById`, which throws (see
-      // `loom.handler-load-nullable-unsupported`'s remedy, "Use getById (throws
-      // → 404)").  Typing it as a bare entity was a lie the whole pipeline then
-      // believed: no gate fired (both nullable gates conclude "not optional, so
-      // nothing to refuse") and no backend guarded, so a `let` binding of it
-      // dereferenced unguarded on ALL FIVE backends — and on two of them the
-      // emitted method does not even exist (`_owners.FindById` is CS1061 on
-      // .NET; `find_by_id_owner` is an undefined function on elixir), because
-      // only the DECLARED finds get emitted under their own names.
-      if (read.method === "findById") return { kind: "optional", inner: entity };
-      // `getById`, and the fallback for an unresolvable named read — the
-      // workflow `repo-let` arm's default is likewise the bare aggregate.
+    case "rows":
+      return { kind: "array", element: entity };
+    case "row":
+    case "none":
       return entity;
-    }
   }
 }
 

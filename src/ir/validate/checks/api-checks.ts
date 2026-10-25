@@ -159,7 +159,7 @@ export function validateApplicationHandlers(ctx: BoundedContextIR, diags: LoomDi
           });
           return;
         }
-        if (s.kind !== "repo-let" || s.method === "getById") return;
+        if (s.kind !== "repo-let" || s.op === "load") return;
         if (s.returnType.kind !== "optional") return;
         diags.push({
           severity: "error",

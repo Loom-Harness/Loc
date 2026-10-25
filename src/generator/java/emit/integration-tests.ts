@@ -27,6 +27,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
+import { repoVerbOpAt } from "../../../util/repository-contract.js";
 import { jid } from "../java-ident.js";
 import { packagePath } from "../naming.js";
 import { type JavaRenderContext, renderJavaExpr } from "../render-expr.js";
@@ -58,7 +59,6 @@ function createAggOf(e: ExprIR, ctx: BoundedContextIR): AggregateIR | undefined 
   return undefined;
 }
 
-const BUILTIN_READS = new Set(["findById", "getById", "findAll"]);
 const repoField = (aggName: string): string => `${lowerFirst(aggName)}Repository`;
 
 /** A `<Agg>.<find>(...)` repository read → the emitted call string, or undefined.
@@ -70,16 +70,17 @@ function findCallOf(e: ExprIR, ctx: BoundedContextIR, rctx: JavaRenderContext): 
   const aggName = (e.receiver as { name: string }).name;
   if (!ctx.repositories.some((r) => r.aggregateName === aggName)) return undefined;
   const custom = findRepoQuery(e.member, aggName, ctx);
-  if (!BUILTIN_READS.has(e.member) && !custom) return undefined;
+  const op = repoVerbOpAt(e.member, "integration-test");
+  if (!op && !custom) return undefined;
   const field = repoField(aggName);
   const args = e.args
     .map((a) => {
       return renderJavaExpr(a, rctx);
     })
     .join(", ");
-  if (e.member === "findById") return `${field}.findById(${args}).orElseThrow()`;
-  if (e.member === "getById") return `${field}.getById(${args})`;
-  if (e.member === "findAll") return `${field}.findAll()`;
+  if (op === "load-optional") return `${field}.findById(${args}).orElseThrow()`;
+  if (op === "load") return `${field}.getById(${args})`;
+  if (op === "select-many") return `${field}.findAll()`;
   const optional = custom?.returnType.kind === "optional" || custom?.returnType.kind === "union";
   return `${field}.${jid(e.member)}(${args})${optional ? ".orElseThrow()" : ""}`;
 }

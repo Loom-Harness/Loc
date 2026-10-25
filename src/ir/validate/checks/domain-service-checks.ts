@@ -49,6 +49,7 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { isRepoWriteName } from "../../../util/repository-contract.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -60,7 +61,6 @@ import type {
   StmtIR,
 } from "../../types/loom-ir.js";
 import { aggregateOpResolver, classifyDomainServiceTier } from "../../util/domain-service-tier.js";
-import { isWriteMethod } from "../../util/repo-methods.js";
 import { walkStmtExprsDeep, walkStmtsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { foreignRepositoryOwners } from "./shared.js";
@@ -127,22 +127,21 @@ function checkNullableRepoLoad(
     if (stmt.kind !== "let") continue;
     const call = stmt.expr;
     if (call.kind !== "call" || call.callKind !== "repo-read" || !call.repoRead) continue;
-    const { repo: repoName, method } = call.repoRead;
-    if (method === "getById") continue;
-    // Optionality has TWO sources, and reading only the first is how the
-    // built-in nullable read slipped past this gate: a DECLARED find carries it
-    // on its own return type, but `findById` is a BUILT-IN — there is no
-    // declaration to look up, so `finds.find(...)` returned undefined and the
-    // `!== "optional"` test below skipped it.  `findById` is nullable by
-    // construction (it is the return-absent sibling of the throwing `getById`),
-    // so honour it explicitly.  The handler-tier twin
+    const { repo: repoName, method, op: readOp } = call.repoRead;
+    if (readOp === "load") continue;
+    // Optionality has TWO sources: a DECLARED find carries it on its own return
+    // type, but the by-id `load-optional` is a BUILT-IN — there is no
+    // declaration to look up, so `finds.find(...)` returns undefined and the
+    // `!== "optional"` test below would skip it.  `load-optional` is nullable
+    // by construction (it is the return-absent sibling of the throwing
+    // `load`), so honour it explicitly.  The handler-tier twin
     // (`api-checks.ts:validateApplicationHandlers`) needs no equivalent arm: it
     // decides on the IR statement's own `returnType`, which
     // `lower-workflow.ts` now types `optional` for `findById`.
     const declared = ctx.repositories
       .find((r) => r.name === repoName)
       ?.finds.find((f) => f.name === method);
-    const nullable = method === "findById" || declared?.returnType.kind === "optional";
+    const nullable = readOp === "load-optional" || declared?.returnType.kind === "optional";
     if (!nullable) continue;
     const key = `${repoName}.${method}`;
     if (flagged.has(key)) continue;
@@ -241,7 +240,7 @@ function checkOperationBody(
         // Only a WRITE method is rejected — reads are allowed (and have already
         // been lowered to `repo-read` Calls, so a `method-call` on a repo here
         // is either a write verb or an unknown one; gate on the write verbs).
-        if (e.kind === "method-call" && isWriteMethod(e.member)) {
+        if (e.kind === "method-call" && isRepoWriteName(e.member)) {
           diags.push({
             severity: "error",
             code: "loom.domain-service-no-repo-write",
