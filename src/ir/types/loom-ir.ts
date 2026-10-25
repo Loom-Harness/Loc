@@ -804,6 +804,10 @@ export type TestStmtIR =
        *  Mutually exclusive with `status` by grammar: the `ThrowKind` slot and
        *  the `CallArg` list are alternatives on the same suffix. */
       throwKind?: ThrowKindName;
+      /** The `expect(...)` statement's own span, present with `throwKind` —
+       *  an IR-phase diagnostic about the rung points at the assertion that
+       *  wrote it rather than at the enclosing test or declaration. */
+      origin?: OriginRef;
     };
 
 export interface EnumIR {
@@ -930,6 +934,12 @@ export interface FindIR {
    *  the aggregate router skips this find (route + query schema + paged DTO).
    *  The repository builder still emits the method. */
   synthesized?: boolean;
+  /** The order a PAGED find's page is taken in when the caller's `sort` key
+   *  names no whitelisted column — its route's `sort` then defaults to `""`
+   *  (`pagedSortDefault`).  Absent: the `id` order every paged read falls back
+   *  to.  Set on the paged find a `queryHandler` over `Repo.run(<Retrieval>)`
+   *  synthesizes, from the retrieval's declared `sort:`. */
+  defaultSort?: SortTermIR[];
   /** The compiler-synthesized per-entity history read (`docs/audit.md`) —
    *  `GET /<agg>/{id}/history`, served from the module's `audit_records` table
    *  rather than from the aggregate's own table.  Injected by enrichment onto
@@ -943,6 +953,13 @@ export interface FindIR {
    *  find-route + repository builders skip it and each backend's audit emitter
    *  serves it instead. */
   auditHistory?: boolean;
+  /** `requires` is the DENY gate enrichment synthesised (a `false` literal),
+   *  not one the author wrote (M-T3.19).  Set on the list read (`all`) — and
+   *  on the by-id read `byIdRouteFind` synthesises — of a repository marked
+   *  `readsDefaultDenied`, when the author declared no gate for it: under
+   *  `denyByDefault` that read fails closed (403 before the load) on every
+   *  backend, and the validator still reports it as ungated. */
+  defaultDenied?: boolean;
 }
 
 export interface RepositoryIR {
@@ -965,6 +982,13 @@ export interface RepositoryIR {
    *  resolved for `op.audited`; a separate field makes consumption OPT-IN, so
    *  a backend that has not ported history emits nothing instead of garbage. */
   historyFind?: FindIR;
+  /** Set by enrichment (M-T3.19) when the aggregate is served by an
+   *  `auth: required` backend under `enforcement: denyByDefault`: its two
+   *  compiler-derived reads (list, by-id) fail CLOSED unless the author
+   *  declares a gated `find all` / `find byId`.  A system-composition fact the
+   *  per-context backends cannot re-derive (they never see the deployables),
+   *  hence stored.  Consumed through `read-gates.ts`. */
+  readsDefaultDenied?: boolean;
   /** Provenance chain back to the `.ddd` source — see
    * src/ir/types/origin.ts.  Populated at lowering; absent on purely
    * derived nodes. */
@@ -1489,6 +1513,17 @@ export interface CreateIR {
   /** Event-triggered only: the bound event-param name and its event type. */
   eventBinding?: string;
   eventRef?: string;
+  /** The declared `: T` result of a command-triggered starter (`create(…): T
+   *  { … return <expr> }`) — the commandHandler twin.  When set, the command
+   *  route answers 200 with `returnValue` as its JSON body instead of 204.
+   *  Read through `commandCreateResult` (src/ir/util/workflow-command-route.ts),
+   *  which also decides that this create is the one the route serves. */
+  returnType?: TypeIR;
+  /** The lowered terminal `return <expr>`, held apart from `statements` (the
+   *  shared workflow statement vocabulary has no `return` arm — see
+   *  `CommandHandlerIR.returnValue`).  Lowered whenever the body ends in a
+   *  return, annotated or not, so the validator can refuse the unannotated one. */
+  returnValue?: ExprIR;
 }
 
 /** A `on(e: Event) [by <expr>] { … }` reactor on a workflow — an extrinsic

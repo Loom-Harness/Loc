@@ -81,6 +81,7 @@ import {
   vanillaHistoryMapperName,
   vanillaHistoryMapperTakesPrincipal,
 } from "./vanilla/audit-history-emit.js";
+import { renderGateCondition } from "./vanilla/gate.js";
 import { isRelationalRowAgg, servesRefLabel, servesRefLabels } from "./vanilla/ref-label.js";
 
 /** One router entry the orchestrator splices into router.ex. */
@@ -278,10 +279,11 @@ export function emitLiveViewPages(args: {
       );
       if (listGate) {
         listReadGateByAggName.set(agg.name, {
-          expr: renderDomainExpr(listGate, {
-            thisName: "record",
-            contextModule: ctxModule,
-          }),
+          // The synthesised denyByDefault gate (M-T3.19) must not render as
+          // the literal `false` — see `renderGateCondition`.
+          expr: renderGateCondition(listGate, (g) =>
+            renderDomainExpr(g, { thisName: "record", contextModule: ctxModule }),
+          ),
           usesUser: exprUsesCurrentUser(listGate),
         });
       }

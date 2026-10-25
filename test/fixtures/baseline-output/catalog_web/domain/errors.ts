@@ -1,6 +1,18 @@
 // Auto-generated.
+/** Which rung of the domain floor refused a call: a `precondition` of the
+ *  operation, or an `invariant` of the aggregate / part / value object.  It is
+ *  carried apart from the message, which an authored `message "..."` replaces. */
+export type DomainErrorKind = "precondition" | "invariant";
+
 export class DomainError extends Error {
-  constructor(message: string) { super(message); this.name = "DomainError"; }
+  /** The rung that refused; undefined for a DomainError thrown outside the
+   *  precondition / invariant floor. */
+  readonly kind: DomainErrorKind | undefined;
+  constructor(message: string, kind?: DomainErrorKind) {
+    super(message);
+    this.name = "DomainError";
+    this.kind = kind;
+  }
 }
 /** A value object's invariant refused a value (M-T5.1).  A DomainError, so
  *  every catch still classifies it; the routers answer it with the domain-floor
@@ -10,7 +22,7 @@ export class ValueObjectInvariantError extends DomainError {
   readonly valueObject: string;
   readonly code: string | undefined;
   constructor(valueObject: string, message: string, code?: string) {
-    super(message);
+    super(message, "invariant");
     this.name = "ValueObjectInvariantError";
     this.valueObject = valueObject;
     this.code = code;

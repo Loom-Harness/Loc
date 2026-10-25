@@ -31,6 +31,14 @@ mikroorm }` — see the "Realization axes" section of [`platforms.md`](platforms
 The alternates (`dapper`, `mikroorm`) share the domain layer below and only
 swap the repository/schema layer; both are now at full parity with their
 default (M-T6.9) — see [`platforms.md`](platforms.md) → "Realization axes".
+Schema evolution differs between them. **Dapper** applies the same versioned
+`MigrationsIR` chain as EF Core: `Migrations/*.cs`, run at boot by
+`DbSchema.EnsureAsync` behind `public.__loom_migrations`, projected onto its
+jsonb value-object layout. A database provisioned by the old `CREATE TABLE IF
+NOT EXISTS` bootstrap is baselined on its first migration-aware boot. See
+[`migrations.md`](migrations.md) → "`persistence: dapper`". **MikroORM** still
+self-provisions with `updateSchema()`, and declared `migration` steps are
+refused on it.
 
 > **Scope note.** The construct-by-construct matrix below tracks the three
 > reference platforms (TypeScript/Hono, .NET, React) for readability — it maps
@@ -456,6 +464,13 @@ unreadable one (RS-9's split).  `Program.cs` pairs it with
 `UseStatusCodePages` (404/405, which routing refuses with no body at all) and
 a `CustomizeProblemDetails` hook that normalises the ProblemDetails the
 framework builds itself (415).
+
+**`Middleware/EmptyJsonBodyMiddleware.cs`** — an empty request body reads as
+`{}` (RS-39), so a parameterless operation answers a body-less `POST`.  It
+swaps the body, its framing headers *and* `IHttpRequestBodyDetectionFeature`
+— MVC's body binder reads the feature, not the stream.  The other backends'
+twins: hono `emptyBodyAsEmptyObject`, python `JsonBodyMiddleware`, java
+`EmptyJsonBodyFilter`, the Phoenix `BodyParser`.
 
 **`Program.cs`** — hosting entry:
 

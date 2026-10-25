@@ -40,6 +40,8 @@ import {
   relativeOpPath,
 } from "../../../ir/util/api-surface.js";
 import { AUDIT_ENTRY_TYPE, auditEntryWireShape } from "../../../ir/util/audit-history.js";
+import { commandBodyOptional } from "../../../ir/util/command-body.js";
+import { foreignValueTypeSeeds, foreignValueTypes } from "../../../ir/util/foreign-event-types.js";
 import {
   errorStatuses,
   type OpErrorKind,
@@ -58,6 +60,7 @@ import {
   opWorkflowInstanceById,
   opWorkflowInstances,
 } from "../../../ir/util/openapi-ids.js";
+import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
@@ -289,6 +292,27 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
       emittedEnums.add(en.name);
       files.set(`${schemaDir}/${snake(en.name)}.ex`, renderEnumSchema(en, webModule));
     }
+  }
+
+  // Sibling-context value objects / enums a hosted declaration references but
+  // no hosted context declares (claims D15): an aggregate in context B typed
+  // `kind: Kind` against `enum Kind` in an unhosted sibling context A.  The
+  // response / request schemas `$ref` them, so the deployable must declare
+  // them — the same shared closure the four typed backends declare foreign
+  // value types through (`src/ir/util/foreign-event-types.ts`).
+  const unhosted = foreignValueTypes(foreignValueTypeSeeds([], contexts), args.sys, {
+    valueObjects: contexts.flatMap((c) => c.valueObjects),
+    enums: contexts.flatMap((c) => c.enums),
+  });
+  for (const vo of unhosted.valueObjects) {
+    if (emittedVOs.has(vo.name)) continue;
+    emittedVOs.add(vo.name);
+    files.set(`${schemaDir}/${snake(vo.name)}.ex`, renderValueObjectSchema(vo, webModule));
+  }
+  for (const en of unhosted.enums) {
+    if (emittedEnums.has(en.name)) continue;
+    emittedEnums.add(en.name);
+    files.set(`${schemaDir}/${snake(en.name)}.ex`, renderEnumSchema(en, webModule));
   }
 
   // Entity parts (deduplication by name)
@@ -569,19 +593,28 @@ function renderApiSpec(
   for (const { ctx, wf } of allWorkflows) {
     const slug = snake(wf.name);
     const reqMod = `${schemasModule}.${reqNameFor({ kind: "workflow", workflow: wf.name })}`;
+    // `create(…): T` answers 200 with the value (`respond_result`), typed by
+    // the same type→schema map a scalar-returning operation uses.
+    const result = commandCreateResult(wf);
+    const success = result
+      ? `200 => %OpenApiSpex.Response{
+              description: "OK",
+              content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${openApiType(result.type, schemasModule)}}}
+            }`
+      : `204 => %OpenApiSpex.Response{description: "No Content"}`;
     pathEntries.push(`      "/workflows/${slug}" => %OpenApiSpex.PathItem{
         post: %OpenApiSpex.Operation{
           summary: "Run ${wf.name} workflow",
           operationId: "${camelId(opWorkflow(wf.name))}",
           tags: ["workflows"],
           requestBody: %OpenApiSpex.RequestBody{
-            required: true,
+            required: ${!commandBodyOptional(wf.params)},
             content: %{
               "application/json" => %OpenApiSpex.MediaType{schema: ${reqMod}}
             }
           },
           responses: %{
-            204 => %OpenApiSpex.Response{description: "No Content"}${errorResponseEntries(
+            ${success}${errorResponseEntries(
               "workflow",
               schemasModule,
               workflowIsGuarded(wf),
@@ -691,7 +724,7 @@ function renderApiSpec(
           operationId: "${camelId(opCreate(agg.name))}",
           tags: ["${aggSlug}"],
           requestBody: %OpenApiSpex.RequestBody{
-            required: true,
+            required: ${!commandBodyOptional(createInputFields(agg))},
             content: %{
               "application/json" => %OpenApiSpex.MediaType{schema: ${createReqMod}}
             }
@@ -833,7 +866,7 @@ ${pagingQueryParams()}
             %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${idParamSchema(agg.idValueType)}}
           ],
           requestBody: %OpenApiSpex.RequestBody{
-            required: true,
+            required: ${!commandBodyOptional(op.params)},
             content: %{
               "application/json" => %OpenApiSpex.MediaType{schema: ${opReqMod}}
             }

@@ -39,7 +39,7 @@ system Shop {
         code: string
         status: string
         total: Money
-        create(code: string) { }
+        create(code: string, status: string, total: Money) { }
         operation reprice(newTotal: Money) { total := newTotal }
       }
       repository Orders for Order {

@@ -64,12 +64,13 @@ describe("the server-init seed table", () => {
     ["decimal", "zero"],
     ["bool", "false"],
     ["string", "empty-string"],
-    ["guid", "empty-string"],
   ] as const)("%s seeds to %s", (name, expected) => {
     expect(serverInitSeed(prim(name))).toBe(expected);
   });
 
-  it.each(["money", "json"] as const)("%s has no seed", (name) => {
+  // `guid`: `""` is not a uuid (a uuid column refuses it) and the nil uuid is a
+  // real value a client could be handed, so absent has no spelling.
+  it.each(["money", "json", "guid"] as const)("%s has no seed", (name) => {
     expect(serverInitSeed(prim(name))).toBeNull();
   });
 
@@ -87,6 +88,7 @@ describe("loom.unconstructible-server-field", () => {
       ["an internal money", "total: money internal"],
       ["a managed value object", "price: Money managed"],
       ["a managed enum", "tier: Tier managed"],
+      ["a managed guid", "token: guid managed"],
     ] as const)("%s", async (_label, field) => {
       expect(await refusedFields(field)).toHaveLength(1);
     });

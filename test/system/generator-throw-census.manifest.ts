@@ -13,6 +13,92 @@ export type ThrowClassification =
   | { deferred: string; mission: string; reviewUntil: string };
 
 export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
+  // src/generator/_imports/java.ts
+  "src/generator/_imports/java.ts#finalizeJavaUnit": {
+    invariant:
+      "JAVA_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a unit that writes a marker has an import region). No .ddd input moves either; the wiring gate (test/generator/imports/java-imports.test.ts) finalizes every corpus unit. (src/generator/_imports/java.ts:109)",
+  },
+  "src/generator/_imports/java.ts#finalizeJavaUnit$2": {
+    invariant:
+      "JAVA_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a unit that writes a marker has an import region). No .ddd input moves either; the wiring gate (test/generator/imports/java-imports.test.ts) finalizes every corpus unit. (src/generator/_imports/java.ts:116)",
+  },
+  "src/generator/_imports/java.ts#finalizeJavaUnit$3": {
+    deferred:
+      "A user type name equal to an imported JDK/library type (e.g. a value object named `Instant` or `List`) makes two imports bind one simple name; refused here (Java has no import alias) instead of emitting a javac ambiguity. The target-reserved table from S1 (#3155, `isReserved`) is to refuse or escape such names up front; wire it in and re-classify guardedBy.",
+    mission: "M-T9.86",
+    reviewUntil: "2027-01-31",
+  },
+
+  // src/generator/_imports/python.ts
+  "src/generator/_imports/python.ts#parseStatement": {
+    invariant:
+      "Parses only import lines the backend's own emitters wrote into a module's leading region (hand-written constant header lines); no .ddd text reaches them, and the python corpus+examples trees finalize clean. Fail-closed so an emitter writing an unsupported form fails generation instead of shipping a broken import. (src/generator/_imports/python.ts:141)",
+  },
+  "src/generator/_imports/python.ts#parseStatement$2": {
+    invariant:
+      "Parses only import lines the backend's own emitters wrote into a module's leading region (hand-written constant header lines); no .ddd text reaches them, and the python corpus+examples trees finalize clean. Fail-closed so an emitter writing an unsupported form fails generation instead of shipping a broken import. (src/generator/_imports/python.ts:151)",
+  },
+  "src/generator/_imports/python.ts#parseStatement$3": {
+    invariant:
+      "Parses only import lines the backend's own emitters wrote into a module's leading region (hand-written constant header lines); no .ddd text reaches them, and the python corpus+examples trees finalize clean. Fail-closed so an emitter writing an unsupported form fails generation instead of shipping a broken import. (src/generator/_imports/python.ts:160)",
+  },
+  "src/generator/_imports/python.ts#parseStatement$4": {
+    invariant:
+      "Parses only import lines the backend's own emitters wrote into a module's leading region (hand-written constant header lines); no .ddd text reaches them, and the python corpus+examples trees finalize clean. Fail-closed so an emitter writing an unsupported form fails generation instead of shipping a broken import. (src/generator/_imports/python.ts:164)",
+  },
+  "src/generator/_imports/python.ts#finalizePyModule": {
+    invariant:
+      "PY_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a module that writes a marker has an import region). No .ddd input moves either; the finalizer wiring gate (test/generator/imports/python-imports.test.ts) finalizes every corpus module. (src/generator/_imports/python.ts:286)",
+  },
+  "src/generator/_imports/python.ts#finalizePyModule$2": {
+    invariant:
+      "PY_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a module that writes a marker has an import region). No .ddd input moves either; the finalizer wiring gate (test/generator/imports/python-imports.test.ts) finalizes every corpus module. (src/generator/_imports/python.ts:291)",
+  },
+  "src/generator/_imports/python.ts#finalizePyModule$5": {
+    invariant:
+      "PY_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a module that writes a marker has an import region). No .ddd input moves either; the finalizer wiring gate (test/generator/imports/python-imports.test.ts) finalizes every corpus module. (src/generator/_imports/python.ts:336)",
+  },
+  "src/generator/_imports/python.ts#finalizePyModule$3": {
+    deferred:
+      "A user name equal to an imported symbol (e.g. a value object named `Decimal` or `UTC`) makes two imports bind one name; refused here instead of emitting an F811/shadowing module. The target-reserved table from S1 (#3155, `isReserved`) is to refuse or escape such names up front; wire it into the finalizer and re-classify guardedBy.",
+    mission: "M-T9.84",
+    reviewUntil: "2027-01-31",
+  },
+  "src/generator/_imports/python.ts#finalizePyModule$4": {
+    deferred:
+      "A user name equal to an imported symbol (e.g. a value object named `Decimal` or `UTC`) makes two imports bind one name; refused here instead of emitting an F811/shadowing module. The target-reserved table from S1 (#3155, `isReserved`) is to refuse or escape such names up front; wire it into the finalizer and re-classify guardedBy.",
+    mission: "M-T9.84",
+    reviewUntil: "2027-01-31",
+  },
+
+  // src/generator/_imports/symbol.ts
+  "src/generator/_imports/symbol.ts#check": {
+    invariant:
+      "Import handles are constructed by emitter code from fixed module paths and names that pass through the backend's identifier escaping; a malformed handle is an emitter bug, caught at construction instead of emitting a broken import line. (src/generator/_imports/symbol.ts:47)",
+  },
+  "src/generator/_imports/symbol.ts#check$2": {
+    invariant:
+      "Import handles are constructed by emitter code from fixed module paths and names that pass through the backend's identifier escaping; a malformed handle is an emitter bug, caught at construction instead of emitting a broken import line. (src/generator/_imports/symbol.ts:49)",
+  },
+  "src/generator/_imports/symbol.ts#check$3": {
+    invariant:
+      "Import handles are constructed by emitter code from fixed module paths and names that pass through the backend's identifier escaping; a malformed handle is an emitter bug, caught at construction instead of emitting a broken import line. (src/generator/_imports/symbol.ts:52)",
+  },
+  "src/generator/_imports/symbol.ts#resolveMarkers": {
+    invariant:
+      "Markers are produced only by ref() with validated handles and consumed by the same module's finalizer; a malformed or surviving marker is an emitter bug (a fragment that bypassed the finalizer), never user input. (src/generator/_imports/symbol.ts:111)",
+  },
+  "src/generator/_imports/symbol.ts#assertNoMarkers": {
+    invariant:
+      "Markers are produced only by ref() with validated handles and consumed by the same module's finalizer; a malformed or surviving marker is an emitter bug (a fragment that bypassed the finalizer), never user input. (src/generator/_imports/symbol.ts:133)",
+  },
+
+  // src/generator/_trace/sourcemap.ts
+  "src/generator/_trace/sourcemap.ts#fragment": {
+    invariant:
+      "Markers are produced only by ref() with validated handles and consumed by the same module's finalizer; a malformed or surviving marker is an emitter bug (a fragment that bypassed the finalizer), never user input. (src/generator/_trace/sourcemap.ts:251)",
+  },
+
   // src/generator/_auth/dev-stub-id.ts
   "src/generator/_auth/dev-stub-id.ts#devStubIdExpr": {
     invariant:
@@ -432,14 +518,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "A unit-test statement outside let/expression/call/expect/expect-throws — refused since #3133 (the test-tier statement vocabulary).",
   },
 
-  // src/generator/dotnet/explicit-handlers-emit.ts
-  "src/generator/dotnet/explicit-handlers-emit.ts#pagedRunStmt": {
-    deferred:
-      "Any `queryHandler H(...): Agg paged` whose body is not exactly `let r = Repo.run(Crit(args)); return r` (e.g. `return Orders.run(InRegion(rgn))`, a let-bound paged find, or an aliased let) validates clean but crashes (repros also g2-pagedqh-find.ddd, g2-pagedqh-alias.ddd).",
-    mission: "M-T9.77",
-    reviewUntil: "2027-01-31",
-  },
-
   // src/generator/dotnet/projection-emit.ts
   "src/generator/dotnet/projection-emit.ts#renderProjectionFoldStmt": {
     guardedBy: ["loom.projection-fold-impure"],
@@ -662,14 +740,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     deferred:
       "An `if` inside an event-sourced aggregate's `create` body is never checked by the elixir if-gate, yet the create is rendered through the ES command runner.",
     mission: "M-T9.79",
-    reviewUntil: "2027-01-31",
-  },
-
-  // src/generator/elixir/vanilla/explicit-handlers-emit.ts
-  "src/generator/elixir/vanilla/explicit-handlers-emit.ts#pagedRunStmt": {
-    deferred:
-      "A `queryHandler X(n): Thing paged { let xs = Things.byName(n) return xs }` (custom find, not a synthesized-criterion Repo.run) passes validation but has no synthCriterion repo-run.",
-    mission: "M-T9.77",
     reviewUntil: "2027-01-31",
   },
 
@@ -1100,14 +1170,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "Every workflow factory-let naming an aggregate outside the context's aggregates is rejected by the IR validator.",
   },
 
-  // src/generator/java/explicit-handlers-emit.ts
-  "src/generator/java/explicit-handlers-emit.ts#pagedRunStmt": {
-    deferred:
-      "A queryHandler returning `Order paged` whose body is anything other than `let r = Repo.run(Crit(args)); return r` (e.g. `return Orders.run(InRegion(rgn))`) validates clean and throws here.",
-    mission: "M-T9.77",
-    reviewUntil: "2027-01-31",
-  },
-
   // src/generator/java/render-expr.ts
   "src/generator/java/render-expr.ts#renderCall": {
     deferred:
@@ -1148,14 +1210,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/python/emit/tests.ts#renderTestStmt": {
     guardedBy: ["loom.test-statement-invalid", "loom.aggregate-test-context"],
     note: "A unit-test statement outside let/expression/call/expect/expect-throws — refused since #3133 (the test-tier statement vocabulary).",
-  },
-
-  // src/generator/python/explicit-handlers-emit.ts
-  "src/generator/python/explicit-handlers-emit.ts#pagedRunStmt": {
-    deferred:
-      "Same as Java: any paged queryHandler body other than the exact let/return repo-run shape validates clean.",
-    mission: "M-T9.77",
-    reviewUntil: "2027-01-31",
   },
 
   // src/generator/python/find-predicate.ts
@@ -1369,6 +1423,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
 
   // src/platform/hono/v4/adapters/by-feature-layout.ts
+  "src/platform/hono/v4/workflow-builder.ts#workflowResultTsType": {
+    guardedBy: ["loom.workflow-return-type-unsupported"],
+    note: "Reached only through commandCreateResult, whose type phase ④ admits only as an `X id` or a string/int/long/bool primitive (isSupportedWorkflowResult, src/language/validators/structural.ts).",
+  },
   "src/platform/hono/v4/adapters/by-feature-layout.ts#pathFor": {
     invariant:
       "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'domain-aggregate'; a missing one is a programmer error in our own emit sites. (src/platform/hono/v4/emit.ts:1082-1095)",
@@ -1408,14 +1466,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/platform/hono/v4/emit.ts#generateTypeScriptForContexts": {
     invariant:
       "ownsTimers and the ownedTimers filter apply the identical predicate (timer's context's subdomain migrationsOwner === deployable name) to the same system, so they cannot disagree. (src/platform/hono/v4/emit.ts:638-644; src/platform/hono/v4/emit.ts:1403-1416)",
-  },
-
-  // src/platform/hono/v4/explicit-handlers-builder.ts
-  "src/platform/hono/v4/explicit-handlers-builder.ts#emitPagedRunHandler": {
-    deferred:
-      "No validator pins the body of a `queryHandler H(...): <Agg> paged`; `return Orders.run(InRegion(rgn))` (or a let-rebinding, or `let r = Orders.findAll()`, or a compound criterion) validates clean on node and crashes the paged branch.",
-    mission: "M-T9.77",
-    reviewUntil: "2027-01-31",
   },
 
   // src/platform/hono/v4/projection-builder.ts

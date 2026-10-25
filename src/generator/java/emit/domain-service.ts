@@ -70,13 +70,12 @@ import { lowerFirst } from "../../../util/naming.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import { javaLocals, jid, localOf, movedLocalOrUndefined } from "../java-ident.js";
 import {
-  collectJavaTypeImports,
   type JavaRenderContext,
   javaRepoField,
   renderJavaType,
   withLambdaScope,
 } from "../render-expr.js";
-import { collectJavaStmtImports, renderJavaStatements } from "../render-stmt.js";
+import { renderJavaStatements } from "../render-stmt.js";
 import { type JavaReturnUnionSpec, renderJavaDomainUnionFiles, returnUnionSpec } from "./unions.js";
 
 export interface DomainServiceFile {
@@ -165,8 +164,7 @@ function renderService(
   aggNames: ReadonlySet<string>,
   entityPkgOf: (aggName: string) => string,
 ): string {
-  const javaImports = new Set<string>();
-  const methodBlocks = svc.operations.map((op) => renderOperation(op, ctx, unions, javaImports));
+  const methodBlocks = svc.operations.map((op) => renderOperation(op, ctx, unions));
   // Drop a trailing blank line so the class closes cleanly.
   const body = methodBlocks.flat();
   while (body.length > 0 && body[body.length - 1] === "") body.pop();
@@ -187,8 +185,6 @@ function renderService(
   return lines(
     `package ${pkg};`,
     ``,
-    ...[...javaImports].sort().map((i) => `import ${i};`),
-    javaImports.size > 0 ? `` : null,
     `import ${basePkg}.domain.common.*;`,
     `import ${basePkg}.domain.enums.*;`,
     `import ${basePkg}.domain.ids.*;`,
@@ -210,12 +206,7 @@ function renderOperation(
   op: DomainServiceOperationIR,
   ctx: EnrichedBoundedContextIR,
   unions: ReadonlyMap<string, JavaReturnUnionSpec>,
-  javaImports: Set<string>,
 ): string[] {
-  for (const p of op.params) collectJavaTypeImports(p.type, javaImports);
-  if (op.returnType) collectJavaTypeImports(op.returnType, javaImports);
-  collectJavaStmtImports(op.body, javaImports);
-
   const spec = op.returnType ? unions.get(unionKeyOf(op, ctx)) : undefined;
   // The params are method locals a body lambda may not redeclare.
   const renderCtx: JavaRenderContext = withLambdaScope(
@@ -259,7 +250,6 @@ function renderReadingService(
   entityPkgOf: (aggName: string) => string,
   repoPkgOf?: (aggName: string) => string,
 ): string {
-  const javaImports = new Set<string>();
   // One injected repository per DISTINCT read-port aggregate (first-read order,
   // deduped) — drives the fields, the ctor, and the repository-interface
   // imports.  Sorted by aggregate for stable output.
@@ -269,7 +259,7 @@ function renderReadingService(
   // shadowed it (`ordersRepository.byRegion(ordersRepository)` on a String).
   const fieldNames = new Set(readAggs.flatMap((a) => [javaRepoField(a), a]));
   const methodBlocks = svc.operations.map((op) =>
-    renderReadingOperation(op, ctx, unions, javaImports, fieldNames),
+    renderReadingOperation(op, ctx, unions, fieldNames),
   );
   const body = methodBlocks.flat();
   while (body.length > 0 && body[body.length - 1] === "") body.pop();
@@ -296,8 +286,6 @@ function renderReadingService(
   return lines(
     `package ${pkg};`,
     ``,
-    ...[...javaImports].sort().map((i) => `import ${i};`),
-    javaImports.size > 0 ? `` : null,
     `import org.springframework.stereotype.Service;`,
     `import org.springframework.transaction.annotation.Transactional;`,
     ``,
@@ -332,14 +320,9 @@ function renderReadingOperation(
   op: DomainServiceOperationIR,
   ctx: EnrichedBoundedContextIR,
   unions: ReadonlyMap<string, JavaReturnUnionSpec>,
-  javaImports: Set<string>,
   /** The bean's injected field names (`renderReadingService`). */
   fieldNames: ReadonlySet<string>,
 ): string[] {
-  for (const p of op.params) collectJavaTypeImports(p.type, javaImports);
-  if (op.returnType) collectJavaTypeImports(op.returnType, javaImports);
-  collectJavaStmtImports(op.body, javaImports);
-
   // Params and body `let`s are locals of a method that dereferences the
   // injected repository fields — only a colliding name moves to `<name>_`.
   const paramLocals = javaLocals(

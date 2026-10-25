@@ -536,6 +536,9 @@ export const UNCALLED_PINS: Record<string, Record<string, string>> = {
   "corpus/state-gate": {
     canCancelOrder: R.gateProbe,
   },
+  "corpus/create-contract": {
+    canConfirmAppointment: R.gateProbe,
+  },
   // ── The ROUTED-HANDLER fixture's two id-taking aggregate routes ──────────
   // `handler-triad`'s whole api is explicit `route … -> Sales.<Handler>`
   // bindings, and all five are now driven (`api.sales.echo(…)` &c) along with
@@ -695,6 +698,14 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // Wave C3 packet 3a: the same WORKFLOW-accessor class, on the command
   // workflow whose primitive params the drained block sends.
   "corpus/workflow-primitive-params": ["api.topUp.run (no such aggregate)"],
+  // B-03 — the workflow `create(…): T` result fixture drives three command
+  // workflows (two answering a value, one the 204 sibling); same not-lifted
+  // workflow-route class.
+  "corpus/workflow-create-result": [
+    "api.openAccount.run (no such aggregate)",
+    "api.topUp.run (no such aggregate)",
+    "api.transfer.run (no such aggregate)",
+  ],
   // M-T9.42 — the EVENT-SOURCED saga's instance reads (LIST folds every stream,
   // by-key folds one), the same not-lifted workflow-route class as above.
   // …and the plain (state-table) saga's by-key read (M-T9.42 own-state).
@@ -1254,7 +1265,7 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
 export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   tenantRegistryRow: 20,
   seededListReadUnwritten: 2,
-  gateProbe: 1,
+  gateProbe: 2,
   clockDependentFind: 1,
   // +2 — `corpus/handler-triad` joined the census when the routed-handler call
   // form made its api addressable, and brought its aggregate's two id-taking

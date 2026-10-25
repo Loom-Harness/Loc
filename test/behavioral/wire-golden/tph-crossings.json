@@ -252,6 +252,64 @@
         "title": "Bad Request",
         "type": "about:blank"
       }
+    },
+    {
+      "seq": 22,
+      "method": "POST",
+      "path": "/api/parcels/{id}/soft_delete",
+      "status": 404,
+      "body": {
+        "detail": "Parcel {id} not found",
+        "instance": "/api/parcels/{id}/soft_delete",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 23,
+      "method": "POST",
+      "path": "/api/parcels/{id}/soft_delete",
+      "status": 404,
+      "body": {
+        "detail": "Parcel {id} not found",
+        "instance": "/api/parcels/{id}/soft_delete",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 24,
+      "method": "POST",
+      "path": "/api/parcels/{id}/soft_delete",
+      "status": 415,
+      "body": {
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/parcels/{id}/soft_delete",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 25,
+      "method": "POST",
+      "path": "/api/parcels/{id}/update",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "Required",
+            "pointer": "/courier"
+          }
+        ],
+        "instance": "/api/parcels/{id}/update",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
     }
   ]
 }

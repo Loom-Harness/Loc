@@ -5,37 +5,31 @@ import type {
   FieldIR,
   RepositoryIR,
 } from "../../ir/types/loom-ir.js";
-import { exprUsesCurrentUser, findUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
-import { fieldIdTargets, valueObjectIdTargets } from "../../ir/util/id-targets.js";
-import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
+import { PY_IMPORTS } from "../_imports/python.js";
 import { renderPyHistoryRepoMethod } from "./emit/audit-history.js";
-import {
-  aggUsesPrincipalContextFilter,
-  contextFilterPredicate,
-  writeScopePredicate,
-} from "./find-predicate.js";
+import { contextFilterPredicate, writeScopePredicate } from "./find-predicate.js";
 import { isRefCollectionField, isValueCollectionField, rowClassName } from "./py-columns.js";
-import { wireHelperImport } from "./py-type-imports.js";
+import { PY, pyIdType } from "./py-symbols.js";
 import {
   aggHasFieldMask,
+  aggRef,
   allFindCapabilityFilter,
-  allFindOf,
-  authUserImport,
   declaredAllFilterPredicate,
   emittableFinds,
   hydrateField,
   partWireMethod,
   persistField,
+  R,
   recordAuditMethod,
   relationalFindMethod,
   rootWhere,
+  schemaRow,
   toWireMaskedMethod,
   toWireMethod,
-  writeGuardInAppUsesPrincipal,
   writeGuardMethod,
 } from "./repository-builder.js";
 import { entityFromDoc, entityToDoc } from "./repository-document-builder.js";
@@ -59,13 +53,12 @@ export function buildPyEmbeddedRepositoryFile(
   repo: RepositoryIR | undefined,
   ctx: EnrichedBoundedContextIR,
 ): string {
-  const row = rowClassName(agg.name);
+  const row = schemaRow(rowClassName(agg.name));
   const parts: EnrichedEntityPartIR[] = agg.parts;
   // `delete(id)` under the reachable-`destroy` gate (the destroy route calls
   // `repo.delete(id)`).  One row — containments / ref-collections fold into the
   // row's jsonb.  (The embedded `save` is already versioned.)
   const emitsDelete = !!agg.canonicalDestroy;
-  const findUser = emittableFinds(repo).some(findUsesCurrentUser);
   // An embedded aggregate's root scalars are real columns, so a capability
   // `filter` AND-s into every root read exactly like the relational path
   // (DEBT-02 tail).  Non-principal AND principal predicates are wired — the
@@ -80,13 +73,13 @@ export function buildPyEmbeddedRepositoryFile(
 
   const body = lines(
     `class ${agg.name}Repository:`,
-    "    def __init__(self, session: AsyncSession, events: DomainEventDispatcher) -> None:",
+    `    def __init__(self, session: ${R.AsyncSession}, events: ${R.DomainEventDispatcher}) -> None:`,
     "        self._session = session",
     "        self._events = events",
     "",
-    `    async def find_by_id(self, id: ${agg.name}Id) -> ${agg.name} | None:`,
+    `    async def find_by_id(self, id: ${pyIdType(agg.name)}) -> ${aggRef(agg)} | None:`,
     filterPred
-      ? `        row = (await self._session.execute(select(${row})${rootWhere(
+      ? `        row = (await self._session.execute(${R.select}(${row})${rootWhere(
           { expr: `${row}.id == id`, ops: new Set() },
           row,
           undefined,
@@ -97,11 +90,11 @@ export function buildPyEmbeddedRepositoryFile(
     "            return None",
     "        return await self._hydrate(row)",
     "",
-    `    async def get_by_id(self, id: ${agg.name}Id) -> ${agg.name}:`,
+    `    async def get_by_id(self, id: ${pyIdType(agg.name)}) -> ${aggRef(agg)}:`,
     "        found = await self.find_by_id(id)",
-    `        log("debug", "aggregate_loaded", aggregate=${JSON.stringify(agg.name)}, id=str(id), found=found is not None)`,
+    `        ${PY.log}("debug", "aggregate_loaded", aggregate=${JSON.stringify(agg.name)}, id=str(id), found=found is not None)`,
     "        if found is None:",
-    `            raise AggregateNotFoundError(f"${agg.name} {id} not found")`,
+    `            raise ${R.AggregateNotFoundError}(f"${agg.name} {id} not found")`,
     "        return found",
     // Command load (authorization): an embedded root is a normal
     // queryable row, so the write-scope pre-guard pushes into the same SQL
@@ -109,12 +102,12 @@ export function buildPyEmbeddedRepositoryFile(
     // predicate SQLAlchemy cannot express).
     ...writeGuardMethod(agg, row, writeScopePredicate(agg, ctx)),
     "",
-    `    async def all(self) -> list[${agg.name}]:`,
+    `    async def all(self) -> list[${aggRef(agg)}]:`,
     // A DECLARED `find all(): X[] where <pred>` keeps its predicate (B-A1 —
     // the embedded half of eval item 2): the root scalars are real columns, so
     // it AND-s into the SQL `where` exactly as the relational `all()` does,
     // and its `ignoring` stance narrows the capability filter the same way.
-    `        rows = (await self._session.execute(select(${row})${rootWhere(allPred, row, undefined, allFilterPred)})).scalars().all()`,
+    `        rows = (await self._session.execute(${R.select}(${row})${rootWhere(allPred, row, undefined, allFilterPred)})).scalars().all()`,
     "        return [await self._hydrate(row) for row in rows]",
     // `false`: the embedded repo loads the whole aggregate from one jsonb column
     // (no per-row child SELECT), so it emits no `_hydrate_many` — find methods
@@ -124,8 +117,8 @@ export function buildPyEmbeddedRepositoryFile(
       relationalFindMethod(agg, f, ctx, filterPred, false),
     ]),
     "",
-    `    async def find_many_by_ids(self, ids: list[${agg.name}Id]) -> list[${agg.name}]:`,
-    `        rows = (await self._session.execute(select(${row})${rootWhere(
+    `    async def find_many_by_ids(self, ids: list[${pyIdType(agg.name)}]) -> list[${aggRef(agg)}]:`,
+    `        rows = (await self._session.execute(${R.select}(${row})${rootWhere(
       { expr: `${row}.id.in_(list(ids))`, ops: new Set() },
       row,
       undefined,
@@ -137,8 +130,8 @@ export function buildPyEmbeddedRepositoryFile(
     "",
     ...(emitsDelete
       ? [
-          `    async def delete(self, id: ${agg.name}Id) -> None:`,
-          `        await self._session.execute(delete(${row}).where(${row}.id == id))`,
+          `    async def delete(self, id: ${pyIdType(agg.name)}) -> None:`,
+          `        await self._session.execute(${R.delete}(${row}).where(${row}.id == id))`,
           "        await self._session.flush()",
           "",
         ]
@@ -171,7 +164,7 @@ export function buildPyEmbeddedRepositoryFile(
     // verbatim rather than re-implemented per shape.
     ...(aggHasAuditedTarget(agg) ? ["", recordAuditMethod()] : []),
     ...(repo?.historyFind ? ["", renderPyHistoryRepoMethod(agg)] : []),
-    ...parts.flatMap((p) => ["", partWireMethod(p, ctx)]),
+    ...parts.flatMap((p) => ["", partWireMethod(p, agg, ctx)]),
   );
 
   const serializers = lines(
@@ -179,113 +172,10 @@ export function buildPyEmbeddedRepositoryFile(
     ...parts.flatMap((p) => [entityFromDoc(p, false, agg, ctx), "", ""]),
   );
 
-  const scan = `${body}\n${serializers}`.replace(/"(?:\\.|[^"\\])*"/g, '""');
-  const refersTo = (n: string): boolean => new RegExp(`\\b${n}\\b`).test(scan);
-  const idNames = [
-    ...new Set([
-      ...[agg, ...parts].flatMap((e) => [
-        `${e.name}Id`,
-        ...fieldIdTargets(e.fields).map((n) => `${n}Id`),
-      ]),
-      // …plus every id a VALUE OBJECT holds.  The brand is rendered INSIDE the
-      // VO constructor (`Berth(ShipId(...), ...)`) while the aggregate's own
-      // field is typed `Berth`, so the walk above never proposes it and the
-      // module names it unimported — `ruff F821`, and a `NameError` on the
-      // first read.  Freight audit D3 / M-T6.64; the relational emitter carried
-      // the identical gap.  Candidates are free: `refersTo` drops any this
-      // module does not actually spell.
-      // Sourced from `valueObjectPool`, not `ctx.valueObjects`, to match the
-      // `voEnumNames` line below: a VO declared in a SIBLING context is a legal
-      // reference whose declaration never enters this context's own list.  That
-      // branch is currently unobservable — the cross-context hydrate emits
-      // `berth=row.berth` against flattened `berth_ship`/`berth_position`
-      // columns, so it never reaches the brand at all (a separate, upstream
-      // defect; reported on #2864, not fixed here) — but the pool is the right
-      // source the moment it is, and costs nothing meanwhile since `refersTo`
-      // filters every candidate.
-      ...valueObjectIdTargets(valueObjectPool(ctx)).map((n) => `${n}Id`),
-    ]),
-  ]
-    .filter(refersTo)
-    .sort();
-  const voEnumNames = [...ctx.valueObjects.map((v) => v.name), ...enumPool(ctx).map((e) => e.name)]
-    .filter(refersTo)
-    .sort();
-  const domainNames = [agg.name, ...parts.map((p) => p.name)].filter(refersTo);
-  // `and_`/`or_`/`not_` ride in when a capability filter lowers to them; `func`
-  // for a paged find's count; `select` for the reads + membership EXISTS.
-  // (`insert` is the separate `sqlalchemy.dialects.postgresql` import below.)
-  const saNames = ["and_", "delete", "func", "literal", "not_", "or_", "select"].filter(refersTo);
-  // `UTC` rides in with a value-side `now()` bind (`datetime.now(UTC)`), A5
-  // temporal `where` arithmetic included.
-  const dtNames = [
-    ...(refersTo("UTC") ? ["UTC"] : []),
-    ...(refersTo("datetime") ? ["datetime"] : []),
-  ];
-
   return lines(
     `"""${agg.name} embedded repository (shape: embedded).  Auto-generated."""`,
     "",
-    refersTo("math") ? "import math" : null,
-    dtNames.length > 0 ? `from datetime import ${dtNames.join(", ")}` : null,
-    refersTo("Decimal") ? "from decimal import Decimal" : null,
-    refersTo("math") || dtNames.length > 0 || refersTo("Decimal") ? "" : null,
-    // `history()` is annotated `-> Sequence[...]` (F7).
-    aggHasAuditedTarget(agg) ? "from collections.abc import Sequence" : null,
-    refersTo("cast") ? "from typing import cast" : null,
-    "",
-    saNames.length > 0 ? `from sqlalchemy import ${saNames.join(", ")}` : null,
-    refersTo("insert") ? "from sqlalchemy.dialects.postgresql import insert" : null,
-    // `uuid4` + `AuditRecordRow` for `record_audit`'s insert (F7) — the same two
-    // lines the relational builder gates on its own `hasAudit`.  `datetime`/`UTC`
-    // need no gate: `refersTo` scans the emitted body, which now contains them.
-    aggHasAuditedTarget(agg) ? "from uuid import uuid4" : null,
-    "from sqlalchemy.ext.asyncio import AsyncSession",
-    "",
-    // `User` for a per-find `where` principal param; `require_current_user` for
-    // an always-on principal capability filter (DEBT-02 tail) — one sorted import.
-    // Third gate — see the document builder: `to_wire_masked` reads
-    // `current_user()` fail-closed and needs the import (F6 / ruff F821).
-    // Second gate is the union of both accessor reasons (find filter, #2694
-    // in-app write guard).
-    authUserImport(
-      findUser,
-      aggUsesPrincipalContextFilter(agg) ||
-        exprUsesCurrentUser(allFindOf(repo)?.filter) ||
-        writeGuardInAppUsesPrincipal(agg),
-      aggHasFieldMask(agg),
-    ),
-    `from app.db.schema import ${row}`,
-    aggHasAuditedTarget(agg) ? "from app.db.audit import AuditRecordRow" : null,
-    // A `paged` find returns the `PagedResult` carrier — in the return
-    // annotation AND in the constructor call.  Gated on the emitted body like
-    // its four siblings (relational / document / event-sourced / port): the
-    // embedded builder was the one that never picked the import up, so
-    // `shape: embedded` × a paged find emitted both uses with no import
-    // (ruff F821 — the pairwise compile oracle's python half).
-    refersTo("PagedResult") ? "from app.domain.paging import PagedResult" : null,
-    wireHelperImport(refersTo),
-    aggregateIsVersioned(agg)
-      ? "from app.domain.errors import AggregateNotFoundError, ConcurrencyError"
-      : "from app.domain.errors import AggregateNotFoundError",
-    refersTo("DomainEvent")
-      ? "from app.domain.events import DomainEvent, DomainEventDispatcher"
-      : "from app.domain.events import DomainEventDispatcher",
-    idNames.length > 0 ? `from app.domain.ids import ${idNames.join(", ")}` : null,
-    domainNames.length > 0
-      ? `from app.domain.${snake(agg.name)} import ${domainNames.join(", ")}`
-      : null,
-    voEnumNames.length > 0
-      ? `from app.domain.value_objects import ${voEnumNames.join(", ")}`
-      : null,
-    // `log` for the mechanism-debug trio (aggregate_loaded / repository_save;
-    // find_executed rides the shared relationalFindMethod) — always emitted (S5).
-    // The audit insert reads the ambient RequestContext accessors for the
-    // correlation / scope / parent ids (F7), so they join `log` in this import
-    // exactly as the relational builder unions them.  Sorted, single line.
-    aggHasAuditedTarget(agg)
-      ? "from app.obs.log import correlation_id, log, parent_id, scope_id"
-      : "from app.obs.log import log",
+    PY_IMPORTS,
     "",
     "",
     body,
@@ -296,14 +186,14 @@ export function buildPyEmbeddedRepositoryFile(
 }
 
 function hydrateMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): string {
-  const row = rowClassName(agg.name);
-  const kwargs: string[] = [`id=${agg.name}Id(row.id)`];
+  const row = schemaRow(rowClassName(agg.name));
+  const kwargs: string[] = [`id=${pyIdType(agg.name)}(row.id)`];
   for (const f of agg.fields) {
     if (isValueCollectionField(f)) continue;
     if (isRefCollectionField(f)) {
       const target = refTarget(f);
       kwargs.push(
-        `${pythonIdent(f.name)}=[${target}Id(cast(str, __x)) for __x in cast(list[object], row.${pythonIdent(f.name)})]`,
+        `${pythonIdent(f.name)}=[${pyIdType(target)}(${PY.cast}(str, __x)) for __x in ${PY.cast}(list[object], row.${pythonIdent(f.name)})]`,
       );
       continue;
     }
@@ -313,20 +203,20 @@ function hydrateMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR):
     const fromDoc = `_${snake(c.partName)}_from_doc`;
     kwargs.push(
       c.collection
-        ? `${pythonIdent(c.name)}=[${fromDoc}(__x) for __x in cast(list[object], row.${pythonIdent(c.name)})]`
+        ? `${pythonIdent(c.name)}=[${fromDoc}(__x) for __x in ${PY.cast}(list[object], row.${pythonIdent(c.name)})]`
         : `${pythonIdent(c.name)}=(None if row.${pythonIdent(c.name)} is None else ${fromDoc}(row.${pythonIdent(c.name)}))`,
     );
   }
   return lines(
-    `    async def _hydrate(self, row: ${row}) -> ${agg.name}:`,
-    `        return ${agg.name}._rehydrate(`,
+    `    async def _hydrate(self, row: ${row}) -> ${aggRef(agg)}:`,
+    `        return ${aggRef(agg)}._rehydrate(`,
     kwargs.map((k) => `            ${k},`),
     "        )",
   );
 }
 
 function saveMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): string {
-  const row = rowClassName(agg.name);
+  const row = schemaRow(rowClassName(agg.name));
   const pairs: Array<[string, string]> = [["id", "aggregate.id"]];
   for (const f of agg.fields) {
     if (isValueCollectionField(f)) continue;
@@ -348,8 +238,8 @@ function saveMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
   const versioned = aggregateIsVersioned(agg);
   const out: string[] = [
     versioned
-      ? `    async def save(self, aggregate: ${agg.name}, expected_version: int | None = None) -> None:`
-      : `    async def save(self, aggregate: ${agg.name}) -> None:`,
+      ? `    async def save(self, aggregate: ${aggRef(agg)}, expected_version: int | None = None) -> None:`
+      : `    async def save(self, aggregate: ${aggRef(agg)}) -> None:`,
     "        root = {",
     ...pairs.map(([k, v]) => `            "${k}": ${v},`),
     "        }",
@@ -368,7 +258,7 @@ function saveMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
     out.push(
       "        _expected = aggregate.version if expected_version is None else expected_version",
       "        _guarded = await self._session.execute(",
-      `            insert(${row})`,
+      `            ${R.insert}(${row})`,
       "            .values(**root)",
       "            .on_conflict_do_update(",
       '                index_elements=["id"],',
@@ -378,18 +268,18 @@ function saveMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
       `            .returning(${row}.id)`,
       "        )",
       "        if _guarded.first() is None:",
-      `            raise ConcurrencyError(f"${agg.name} {aggregate.id} was modified concurrently")`,
+      `            raise ${R.ConcurrencyError}(f"${agg.name} {aggregate.id} was modified concurrently")`,
     );
   } else {
     out.push(
       "        await self._session.execute(",
-      `            insert(${row}).values(**root).on_conflict_do_update(index_elements=["id"], set_=root)`,
+      `            ${R.insert}(${row}).values(**root).on_conflict_do_update(index_elements=["id"], set_=root)`,
       "        )",
     );
   }
   out.push(
     "        await self._session.flush()",
-    `        log("debug", "repository_save", aggregate=${JSON.stringify(agg.name)}, id=str(aggregate.id))`,
+    `        ${PY.log}("debug", "repository_save", aggregate=${JSON.stringify(agg.name)}, id=str(aggregate.id))`,
   );
   if (ctx.events.length > 0) {
     out.push("        for event in aggregate.pull_events():");

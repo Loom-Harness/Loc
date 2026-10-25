@@ -277,7 +277,7 @@ describe("D-EXPLICIT-ROUTE-WINS — an explicit route owns its slot; the derived
       )
       .replace(
         "status: string\n",
-        "status: string\n        create(code: string) { code := code }\n",
+        'status: string = "new"\n        create(code: string) { code := code }\n',
       )
       .replace(
         'route POST "/echo/{text}" -> Sales.Echo',

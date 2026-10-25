@@ -126,7 +126,9 @@ describe("java generator — extern operations (domain extension point, Phase 2)
     const proj = (await files()).get(`${ROOT}/features/projects/Project.java`)!;
     expect(proj).toContain("public void syncFromVcs() {");
     // preconditions inline, then delegate, then invariants — the framework flow.
-    expect(proj).toContain('throw new DomainException("Precondition failed: active == true");');
+    expect(proj).toContain(
+      'throw new DomainException("Precondition failed: active == true", DomainException.Kind.PRECONDITION);',
+    );
     expect(proj).toContain("ProjectExtern.syncFromVcs(this);");
     expect(proj).toContain("this._assertInvariants();");
     // The `_raiseEvent` hook the extern impl uses to emit domain events.

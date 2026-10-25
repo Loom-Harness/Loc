@@ -36,6 +36,7 @@ on:
       - 'src/generator/dotnet/**'
       - 'src/generator/_api/**'
       - 'src/generator/_expr/**'
+      - 'src/generator/_imports/**'
       - 'src/generator/_projection/**'
       - 'src/platform/dotnet.ts'
       - 'src/platform/dotnet/**'

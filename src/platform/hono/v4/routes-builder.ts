@@ -100,6 +100,7 @@ import {
   servedOperations,
   staticSubpathMethods,
 } from "../../../ir/util/api-surface.js";
+import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { partsChildrenFirst } from "../../../ir/util/containment-parent.js";
 import {
   callerGates,
@@ -1020,7 +1021,8 @@ export function buildRoutesFile(
     lines.push(`      operationId: "${camelId(opCreate(agg.name))}",`);
     lines.push(`      request: {`);
     lines.push(
-      `        body: { content: { "application/json": { schema: ${reqNameFor({ kind: "create", aggregate: agg.name })} } } },`,
+      // RS-39 — a create with no input fields has an optional body.
+      `        body: { content: { "application/json": { schema: ${reqNameFor({ kind: "create", aggregate: agg.name })} } }${commandBodyOptional(createInputFields(agg)) ? ", required: false" : ""} },`,
     );
     lines.push(`      },`);
     lines.push(`      responses: {`);
@@ -1232,6 +1234,21 @@ export function buildRoutesFile(
     lines.push(`    }),`);
     lines.push(`    async (c) => {`);
     lines.push(`      const { id } = c.req.valid("param");`);
+    // M-T3.19 — the author's `find byId(id: T id): T? requires <expr>` gates
+    // this route.  Evaluated BEFORE the load, so a refused caller gets 403 for
+    // an existing and a missing id alike (no existence oracle); same carrier and
+    // `detail` label as the find's own route (`emitFindRoute`).
+    const byIdFind = derivedGetById.find;
+    if (byIdFind?.requires) {
+      if (findGateUsesCurrentUser(byIdFind)) {
+        lines.push(
+          `      const currentUser = (c as unknown as { get(k: "currentUser"): import("../auth/user-types").User }).get("currentUser");`,
+        );
+      }
+      lines.push(
+        `      if (!(${renderTsExpr(byIdFind.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${byIdFind.name}`)});`,
+      );
+    }
     lines.push(`      const found = await repo.findById(Ids.${agg.name}Id(id));`);
     // RS-27 — the 404-BY-ID `detail` is the sentence `"<Agg> <id> not found"` on
     // every backend, and this route was the one place Hono answered a machine
@@ -2027,7 +2044,10 @@ function emitOperationRoute(
   out.push(`    operationId: "${camelId(opOperation(agg.name, op.name))}",`);
   out.push(`    request: {`);
   out.push(`      params: z.object({ id: UuidString }),`);
-  out.push(`      body: { content: { "application/json": { schema: ${reqName} } } },`);
+  // RS-39 — a parameterless command's body is optional (an empty one reads as `{}`).
+  out.push(
+    `      body: { content: { "application/json": { schema: ${reqName} } }${commandBodyOptional(op.params) ? ", required: false" : ""} },`,
+  );
   out.push(`    },`);
   out.push(`    responses: {`);
   out.push(`      204: { description: "No content" },`);
@@ -2202,7 +2222,10 @@ function emitReturningOperationRoute(
   out.push(`    operationId: "${camelId(opOperation(agg.name, op.name))}",`);
   out.push(`    request: {`);
   out.push(`      params: z.object({ id: UuidString }),`);
-  out.push(`      body: { content: { "application/json": { schema: ${reqName} } } },`);
+  // RS-39 — a parameterless command's body is optional (an empty one reads as `{}`).
+  out.push(
+    `      body: { content: { "application/json": { schema: ${reqName} } }${commandBodyOptional(op.params) ? ", required: false" : ""} },`,
+  );
   out.push(`    },`);
   out.push(`    responses: {`);
   // 200 declares the tagged success arms; the error arms are intercepted

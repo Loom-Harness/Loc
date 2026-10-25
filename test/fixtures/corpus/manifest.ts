@@ -90,19 +90,17 @@ const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotne
  *    backend. */
 const POST_COMMIT_WORKFLOW_DISPATCH: readonly Backend[] = ["node", "python", "vanilla"];
 
-/** The backends that import the regex machinery into EVERY file they lift a
- *  `.matches(<regex>)` value-object invariant into.
+/** The backends that compile a hosted `X id[]` whose target aggregate lives in a
+ *  sibling context the deployable does NOT host (claims eval D18's list position).
  *
- *  `python` is absent, and this is the NAME of that exclusion: `app/http/wire_models.py`
- *  emits `re.search(...)` and its import block has no `import re` (`ruff F821`),
- *  while the domain half (`app/domain/value_objects.py`) imports it correctly.
- *  That is the evaluation's F-013's defect class exactly — .NET's own instance of
- *  it (a FluentValidation request validator calling `Regex.IsMatch` with no
- *  `using`) is FIXED and verified under `dotnet build /warnaserror` on sdk:10.0.
- *  node is free (the regex is an inline literal), java imports
- *  `java.util.regex.Pattern`, elixir's `Regex`/`=~` live in Kernel.  One import in
- *  the python wire-model emitter returns the key. */
-const WIRE_REGEX_IMPORT: readonly Backend[] = ALL.filter((b) => b !== "python");
+ *  `vanilla` (elixir) is absent, and this is the NAME of that exclusion: the
+ *  schema emits `many_to_many :others, <App>.<HostCtx>.Pol, join_through: …` —
+ *  an Ecto association to a schema module that exists in no context of this
+ *  deployable, so `mix compile --warnings-as-errors` fails with "invalid
+ *  association … associated schema … does not exist".  The join-table migration
+ *  itself is fine (no FK).  The elixir key returns the day its id-list emitter
+ *  stops modelling a NON-hosted target as an Ecto association. */
+const FOREIGN_ID_LIST: readonly Backend[] = ALL.filter((b) => b !== "vanilla");
 
 /** `projection-valueobject-row` — a `valueobject` field on a FOLDED PROJECTION's
  *  read model.  The shared `MigrationsIR` spreads it into one column per leaf
@@ -312,6 +310,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     backends: ALL,
     note: "minted by the 2026-09-09 verification fleet (F58 / M-T6.62, P0): the corpus had event-triggered creates (`saga`) and stateless command creates, but NOTHING paired a command `create(params)` with workflow `Property` state — so the command route rendered its body against the default `this` receiver on all five backends and never loaded or saved the correlation row.  Four of the five emitted projects did not compile (`this.status` in a Hono module-scope arrow = TS2683; `this.Status` on a .NET handler with no such member; `this.setStatus(...)` on a Java service without it; an unbound `state` in the Elixir `with`-chain), python's `self._status` in a module-level `async def` was the silent one — and the missing row meant the reactor logged `event_unrouted` forever.  The COMPILE tier is what sees this class, which is what the fixture is for.  M-T5.36 P9 (F5) added the BEHAVIOURAL half: driving the command → event → reactor cascade over the wire reads the saga row back through the workflow-instance route, and the `test e2e` DSL had no verb for that — `api.fulfillment.run(…)` was refused as an unknown AGGREGATE — so the note here used to defer it.  `api.<wf>.run(…)` / `.instances()` / `.instance(key)` are that verb set, and this fixture is their runtime proof: the folded `status` / `attempts` scalars are asserted on the very row the command create must have persisted, which is the half of F58 no compile gate can see",
   },
+  {
+    id: "workflow-create-result",
+    title:
+      "command-triggered `create(…): T { … return <expr> }` — the workflow route answers 200 with the declared value (an `X id`, a scalar read after a transactional body); a result-less create keeps 204",
+    doc: "workflow",
+    backends: ALL,
+    note: "Banking eval B-03: a workflow POST could only answer 204, so `openAccount` could never tell its caller the new account's id.  The fixture pins the three per-backend hazards: an id result crossing as its raw value (not the java/.NET id record), a transactional result read after two operations (elixir must rebind the updated struct, not return the one its `with`-chain loaded), and a sibling result-less create still answering 204.",
+  },
   { id: "projection", title: "folded projection — read model folded from aggregate events (keyed row + on() folds)", backends: ALL },
   {
     id: "projection-valueobject-row",
@@ -481,6 +487,7 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "policy-document", title: "`policy { allow deep / deny }` on a `shape: document` aggregate — the authz ladder applied IN-APP, where it cannot be a column predicate", doc: "auth", backends: IN_APP_DOCUMENT_FILTER },
   { id: "stamps", title: "lifecycle stamps (audit timestamps via stamp blocks)", doc: "capabilities", backends: ALL },
   { id: "field-defaults", title: "field `= default` — omittable create input, declared value applied", doc: "language", backends: ALL },
+  { id: "create-contract", title: "a declared `create(…)`'s params ARE the create input — every unlisted field is initialised by the factory", doc: "language", backends: ALL },
   {
     id: "reserved-words",
     title:
@@ -551,8 +558,8 @@ export const CORPUS: readonly CorpusFeature[] = [
     title:
       "a value-object invariant calling `.matches(<regex>)` — the regex is lifted into the WIRE/request validator beside the domain class, so two emitted files' import lists must agree",
     doc: "language",
-    backends: WIRE_REGEX_IMPORT,
-    note: "Minted by the fixture-shape audit (docs/audits/2026-09-29-fixture-shape-coverage.md): the corpus had NO regex invariant at all (0 of 89), and only four models in the whole repo used `.matches(` anywhere (one elixir-vanilla-build fixture, three `examples/`), so no compile gate on any backend had ever seen a regex leave the DOMAIN emitter.  That is precisely the evaluation's F-013 — `Domain/ValueObjects/UnLocode.cs` emitted `using System.Text.RegularExpressions;` while the FluentValidation request validator called `Regex.IsMatch` with no using, failing `dotnet build` on ordinary modelling.  dotnet is now FIXED (verified with `dotnet build /warnaserror` on sdk:10.0); node is free (inline `/re/.test(...)`, no import to forget); java is correct (`import java.util.regex.Pattern` + a hoisted `Pattern.compile`); elixir is free (`Regex`/`=~` live in Kernel).  PYTHON IS BROKEN and this fixture is how we know: `app/http/wire_models.py` emits `re.search(...)` with no `import re` (`ruff F821 Undefined name 're'`) while the domain half imports it correctly — F-013's defect class exactly, on a second backend, surfaced the moment the shape existed.  python is therefore excluded from `backends:` here via the named `WIRE_REGEX_IMPORT` set above (a reasoned exclusion, not a compile-skip: `gate-ledger.test.ts` refuses a cell that only generates, and asserts every corpus COMPILE_SKIP map stays drained).  The invariant is the plainest possible on purpose: the bug class is a missing import in a second file, so nothing more elaborate reaches it and anything more elaborate blurs which emitter is under test.",
+    backends: ALL,
+    note: "Minted by the fixture-shape audit (docs/audits/2026-09-29-fixture-shape-coverage.md): the corpus had NO regex invariant at all (0 of 89), and only four models in the whole repo used `.matches(` anywhere (one elixir-vanilla-build fixture, three `examples/`), so no compile gate on any backend had ever seen a regex leave the DOMAIN emitter.  That is precisely the evaluation's F-013 — `Domain/ValueObjects/UnLocode.cs` emitted `using System.Text.RegularExpressions;` while the FluentValidation request validator called `Regex.IsMatch` with no using, failing `dotnet build` on ordinary modelling.  dotnet is now FIXED (verified with `dotnet build /warnaserror` on sdk:10.0); node is free (inline `/re/.test(...)`, no import to forget); java is correct (`import java.util.regex.Pattern` + a hoisted `Pattern.compile`); elixir is free (`Regex`/`=~` live in Kernel).  Python WAS broken and this fixture is how we knew: `app/http/wire_models.py` emitted `re.search(...)` with no `import re` (`ruff F821 Undefined name 're'`) while the domain half imported it correctly — F-013's defect class exactly, on a second backend.  Fixed structurally by M-T9.84: the python renderers write `re` through a `ref()` marker, so every module that spells `re.search` derives its own `import re`; python is back in `backends:`.  The invariant is the plainest possible on purpose: the bug class is a missing import in a second file, so nothing more elaborate reaches it and anything more elaborate blurs which emitter is under test.",
   },
   {
     id: "vo-root-kernel",
@@ -746,6 +753,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "language",
     backends: ALL,
     note: "minted by the Fable field test (A1): node's zod refine rendered `==` as JS `===`, so an omitted optional key — `undefined`, the wire's OTHER spelling of absent — failed the guard and `POST /api/tasks` answered 422 where .NET and Python answered 201.  No corpus fixture omitted an optional field a rule then referenced, so the five-way wire golden could not see the divergence at all.  The aggregate is `Ticket`, not the `Task` the field test used: an aggregate named `Task` shadows `System.Threading.Tasks.Task` inside the generated .NET repository, so `ITaskRepository` and `TaskRepository` disagree on `SaveAsync(Task, CancellationToken)` and the project does not compile (CS0535/CS0738, reproduced on the behavioral-dotnet leg).  That BCL-name collision is real and unfixed — `loom.dotnet-name-collision` (#2737) refuses a member colliding with a SIBLING type, not an aggregate colliding with a type the emitter itself uses — but it is not what this fixture is for, and pinning it here would make the absent-optional row unreachable on .NET",
+  },
+  {
+    id: "managed-seeds",
+    title:
+      "server-owned fields with no default (`openedAt: datetime managed`, `hits: int managed`, … `seenAt: datetime internal`) read back at the shared language-defined seed",
+    doc: "language",
+    backends: ALL,
+    note: "minted by the booking DX trial: java inserted NULL for `openedAt: datetime managed` and answered 409/500 where node created the row at now.  Measured on all five booted backends: node and python seeded every type; .NET left the CLR default (datetime 0001-01-01, string/list NULL → 500); java left datetime/decimal/string/list unassigned (NULL → 500); elixir seeded nothing (500 on all six, 422 on the internal one).  The seed table (`src/ir/util/server-init-seed.ts`) was the shared rule all along; java, .NET and elixir never consumed it — `serverSeededFields` (`src/generator/construction-default.ts`) now feeds every backend's create factory.",
   },
   {
     id: "optional-reference",

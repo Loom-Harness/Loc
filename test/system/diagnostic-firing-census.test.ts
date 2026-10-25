@@ -491,7 +491,71 @@ ${opts.e2eTest}
 }`;
 }
 
+/** A bank context whose `workflow` members are the defect under test — the
+ *  `create(…): T { … return x }` pairing rules (`loom.workflow-return-*`). */
+const workflowResult = (members: string, header = "") => `
+system S {
+  subdomain D { context Bank {
+    aggregate Account with crudish { number: string  balance: int }
+    repository Accounts for Account { }
+    event Opened { account: Account id }
+    workflow w${header} {
+      ${members}
+    }
+  } }
+}`;
+
 const FIRING_FIXTURES: Record<string, string> = {
+  // `create(…): T` — a result needs a caller.  An event-triggered starter has
+  // none (the in-process dispatcher drops whatever it would return).
+  "loom.workflow-return-no-caller": workflowResult(`
+      create(e: Opened): int by e.account {
+        let a = Accounts.getById(e.account)
+        return a.balance
+      }`),
+  // A `return` before the last statement would be lowered apart from the body
+  // and silently answered AFTER the steps that follow it.
+  "loom.workflow-return-not-last": workflowResult(`
+      create(n: string): Account id {
+        let a = Account.create({ number: n, balance: 0 })
+        return a.id
+        let b = Account.create({ number: n, balance: 1 })
+      }`),
+  // A `return` with no `: T` — the route would answer a body its contract
+  // never published.
+  "loom.workflow-return-untyped": workflowResult(`
+      create(n: string) {
+        let a = Account.create({ number: n, balance: 0 })
+        return a.id
+      }`),
+  // A `: T` with no `return` — nothing to answer the declared 200 with.
+  "loom.workflow-return-missing": workflowResult(`
+      create(n: string): Account id {
+        let a = Account.create({ number: n, balance: 0 })
+      }`),
+  // The returned value disagrees with the declared type.
+  "loom.workflow-return-type-mismatch": workflowResult(`
+      create(n: string): int {
+        let a = Account.create({ number: n, balance: 0 })
+        return a.number
+      }`),
+  // An `eventSourced` workflow's create may only `emit` — no state for a
+  // result to read, and the event-sourced route has no result path.
+  "loom.workflow-return-event-sourced": workflowResult(
+    `
+      apply(e: Opened) { }
+      create(n: string): string {
+        emit Opened { account: n }
+        return n
+      }`,
+    " eventSourced",
+  ),
+  // An aggregate result has no workflow-route wire projection yet.
+  "loom.workflow-return-type-unsupported": workflowResult(`
+      create(n: string): Account {
+        let a = Account.create({ number: n, balance: 0 })
+        return a
+      }`),
   // Ruling D1 — an event starter reaches a claims gate with no `isSystem`
   // disjunct: the system principal it runs as can never pass it.
   "loom.reactor-gate-unsatisfiable": `
@@ -720,21 +784,40 @@ system P {
     repository Things for Thing { }
   } }
 }`,
-  // A canonical `create` whose parameter list OMITS a required create-input
-  // field.  `POST /things` still demands `secret` (no emitter reads
-  // `canonicalCreate.params`), so a client written from the declaration 422s on
-  // a field the create never mentions.  The body is the ubiquitous
-  // `field := <same-named param>` idiom, which `loom.lifecycle-body-dropped`
-  // deliberately exempts — that exemption is exactly why this shape was silent.
-  "loom.create-params-not-wire": `
+  // A declared `create(…)` is the create input, so a param must BE a
+  // client-suppliable field — `n` names none.
+  "loom.create-param-not-a-field": `
+system P {
+  subdomain S { context C {
+    aggregate Thing {
+      name: string?
+      create(n: string) { }
+    }
+    repository Things for Thing { }
+  } }
+}`,
+  // A narrowed `create(…)` leaves out a required, undefaulted field — nothing
+  // would give `secret` a value at creation.
+  "loom.create-param-required-omitted": `
 system P {
   subdomain S { context C {
     aggregate Thing {
       name: string
       secret: string
-      create(name: string) {
-        name := name
-      }
+      create(name: string) { }
+    }
+    repository Things for Thing { }
+  } }
+}`,
+  // `Agg.create({ … })` passing a field the narrowed `create(…)` does not list.
+  "loom.create-call-field-not-in-create": `
+system P {
+  subdomain S { context C {
+    aggregate Thing {
+      name: string
+      rank: int = 1
+      create(name: string) { }
+      test "t" { let t = Thing.create({ name: "a", rank: 2 }) }
     }
     repository Things for Thing { }
   } }
@@ -1725,6 +1808,7 @@ system S {
     criterion InRegion(rgn: string) of Order = region == rgn
     retrieval ByRegion(rgn: string) of Order { where: InRegion(rgn)  sort: [code asc] }
     queryHandler ListViaRetrieval(rgn: string): Order paged {
+      let tag = "x"
       let r = Orders.run(ByRegion(rgn))
       return r
     }
@@ -3142,10 +3226,6 @@ system S {
   }),
   "loom.throw-kind-integration-unsupported": throwKindProbe({
     contextTest: `        expect(wo.complete()).toThrow(precondition)`,
-  }),
-  "loom.throw-kind-custom-message": throwKindProbe({
-    unitBody: `          expect(wo.complete()).toThrow(precondition)`,
-    precondMessage: ` message "finish the work first"`,
   }),
   "loom.throw-kind-outside-tothrow": throwKindProbe({
     unitBody: `          expect(wo.reference).toBe(invariant)`,
