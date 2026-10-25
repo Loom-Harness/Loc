@@ -761,9 +761,9 @@ function renderCall(args: string[], e: CallExpr, ctx: JavaRenderContext): string
       // `findAll`.  A single-result `find` takes the first row.
       const read = e.repoRead!;
       const field = javaRepoField(read.aggregate);
-      if (read.readKind !== "named" && read.retrievalName) {
+      if (read.retrievalName) {
         const call = `${field}.run${upperFirst(read.retrievalName)}(${argList})`;
-        return read.readKind === "find" ? `${call}.stream().findFirst().orElse(null)` : call;
+        return read.op === "select-one" ? `${call}.stream().findFirst().orElse(null)` : call;
       }
       return `${field}.${read.method}(${argList})`;
     }
