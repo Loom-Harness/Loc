@@ -9,8 +9,9 @@ system X {
     context C {
       aggregate Thing with crudish { name: string  derived display: string = name }
       repository Things for Thing {
-        find all(): Thing[] requires currentUser.permissions.contains(permissions.read)
+        find all(): Thing[]
       }
+      policy { read Thing requires currentUser.permissions.contains(permissions.read) }
     }
   }
   ui Web with scaffold(subdomains: [S]) { framework: react }
