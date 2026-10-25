@@ -7,6 +7,7 @@ import type {
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { firstNonQueryableNode } from "../../../ir/validate/validate.js";
 import { lines } from "../../../util/code-builder.js";
+import { JAVA_IMPORTS, javaRef } from "../../_imports/java.js";
 import { javaLocals, localOf, movedLocalOrUndefined } from "../java-ident.js";
 import { renderCriteriaPredicate } from "../render-criteria.js";
 import { renderJavaType } from "../render-expr.js";
@@ -67,7 +68,8 @@ export function renderJavaCriteriaClasses(
   }
   const out: CriteriaFile[] = [];
   for (const { agg, crits } of byAgg.values()) {
-    const imports = new Set<string>();
+    const entityPkg = entityPkgOf(agg.name);
+    const self = javaRef(entityPkg, agg.name);
     const factories = crits.flatMap((crit) => {
       // The params are closed over by the `(root, query, cb) ->` lambda below:
       // keyword-escaped (`jid`) like every use the predicate renders, and moved
@@ -80,7 +82,6 @@ export function renderJavaCriteriaClasses(
       const predicate = renderCriteriaPredicate(crit.body, {
         agg,
         voLookup,
-        imports,
         paramExpr: (n) => movedLocalOrUndefined(locals, n),
       });
       const params = crit.params
@@ -88,7 +89,7 @@ export function renderJavaCriteriaClasses(
         .join(", ");
       return [
         `    /** criterion ${crit.name} of ${agg.name} */`,
-        `    public static Specification<${agg.name}> ${crit.name}(${params}) {`,
+        `    public static Specification<${self}> ${crit.name}(${params}) {`,
         `        return (root, query, cb) -> ${predicate};`,
         `    }`,
         ``,
@@ -107,13 +108,13 @@ export function renderJavaCriteriaClasses(
       principalFilters.length > 0
         ? (() => {
             const preds = principalFilters.map((p) =>
-              renderCriteriaPredicate(p, { agg, voLookup, imports }),
+              renderCriteriaPredicate(p, { agg, voLookup }),
             );
             const body = preds.length === 1 ? preds[0]! : `cb.and(${preds.join(", ")})`;
             return [
               `    /** Tenancy scope (principal capability filter) — AND-ed into reified`,
               `     *  retrievals so they honour the same row scoping as the @Query reads. */`,
-              `    public static Specification<${agg.name}> tenantScope(User currentUser) {`,
+              `    public static Specification<${self}> tenantScope(${javaRef(`${basePkg}.auth`, "User")} currentUser) {`,
               `        return (root, query, cb) -> ${body};`,
               `    }`,
               ``,
@@ -122,18 +123,13 @@ export function renderJavaCriteriaClasses(
         : [];
     const allFactories = [...factories, ...tenantScope];
     while (allFactories[allFactories.length - 1] === "") allFactories.pop();
-    const entityPkg = entityPkgOf(agg.name);
     out.push({
       name: `${agg.name}Criteria.java`,
       content: lines(
         `package ${pkg};`,
         ``,
-        ...[...imports].sort().map((i) => `import ${i};`),
-        imports.size > 0 ? `` : null,
+        JAVA_IMPORTS,
         `import org.springframework.data.jpa.domain.Specification;`,
-        ``,
-        entityPkg !== pkg ? `import ${entityPkg}.${agg.name};` : null,
-        tenantScope.length > 0 ? `import ${basePkg}.auth.User;` : null,
         `import ${basePkg}.domain.enums.*;`,
         `import ${basePkg}.domain.ids.*;`,
         `import ${basePkg}.domain.valueobjects.*;`,
