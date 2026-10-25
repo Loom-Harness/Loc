@@ -13,13 +13,37 @@
 // byte-identical copy of this rule (the `page-kind.ts` precedent).  Pure,
 // platform-neutral, browser-safe.
 // -------------------------------------------------------------------------
-import type { EnrichedBoundedContextIR, WorkflowIR } from "../types/loom-ir.js";
+import type {
+  CreateIR,
+  EnrichedBoundedContextIR,
+  ExprIR,
+  TypeIR,
+  WorkflowIR,
+} from "../types/loom-ir.js";
+
+/** The create the command route serves — the primary unnamed command-triggered
+ *  create, else the first create (the `WorkflowIR.params`/`statements` facade).
+ *  File-local twin of `workflow-own-state.ts`'s exported `facadeCreate`, which
+ *  imports THIS module (so it cannot be imported back without a cycle). */
+function routedCreate(wf: WorkflowIR): CreateIR | undefined {
+  return wf.creates.find((c) => c.name === null && c.triggerKind === "command") ?? wf.creates[0];
+}
 
 /** True when the workflow has an HTTP command surface (a POST route). */
 export function emitsCommandRoute(wf: WorkflowIR): boolean {
-  const facade =
-    wf.creates.find((c) => c.name === null && c.triggerKind === "command") ?? wf.creates[0];
+  const facade = routedCreate(wf);
   return !facade || facade.triggerKind === "command";
+}
+
+/** The declared result of the workflow's command route — `create(…): T { …
+ *  return <expr> }` on the create the route serves.  When present the route
+ *  answers 200 with `value` as its JSON body; absent ⇒ the unchanged 204.  Every
+ *  backend's workflow-route emitter reads this one predicate, so "does this
+ *  route return a body" cannot drift between them. */
+export function commandCreateResult(wf: WorkflowIR): { type: TypeIR; value: ExprIR } | undefined {
+  if (!emitsCommandRoute(wf)) return undefined;
+  const c = routedCreate(wf);
+  return c?.returnType && c.returnValue ? { type: c.returnType, value: c.returnValue } : undefined;
 }
 
 /** The command-route-bearing workflows of a context (filter helper). */
