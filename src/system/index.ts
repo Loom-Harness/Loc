@@ -69,11 +69,8 @@ import {
   MigrationDriftError,
   unrecordedMigrations,
 } from "./migration-chain.js";
-import {
-  buildMigrations,
-  type MigrationDelta,
-  type MigrationWarning,
-} from "./migrations-builder.js";
+import { migrationIntents } from "./migration-diff.js";
+import { buildMigrations, type MigrationWarning } from "./migrations-builder.js";
 import { renderSystemReadme } from "./readme.js";
 import { renderSmap } from "./smap.js";
 import { memorySnapshotStore } from "./snapshot.js";
@@ -664,32 +661,7 @@ function emitDeployable(
   out.copyFrom(files, `${sub}/`);
 }
 
-/** The schema changes `loom` has made since `chain`'s head — one delta per
- *  owning module of every system, empty where nothing changed.  What
- *  `ddd migrate add` records, and what `generate system` refuses to render
- *  past.  Pure: the caller reads the chain and writes the entries. */
-export function pendingMigrations(
-  loom: EnrichedLoomModel,
-  chain: MigrationChain,
-  options: { allowDestructive?: boolean; warnings?: MigrationWarning[] } = {},
-): MigrationDelta[] {
-  return loom.systems.flatMap((sys) =>
-    buildMigrations(sys, headSnapshots(chain), {
-      ...migrationIntents(loom),
-      allowDestructive: options.allowDestructive,
-      warnings: options.warnings,
-    }),
-  );
-}
-
-function migrationIntents(loom: EnrichedLoomModel) {
-  return {
-    renameIntents: loom.renameIntents,
-    tableRenameIntents: loom.tableRenameIntents,
-    backfillIntents: loom.backfillIntents,
-    sqlSteps: loom.sqlMigrationSteps,
-  };
-}
+export { pendingMigrations } from "./migration-diff.js";
 
 /** The migrations every backend renders for `sys`.  With a committed chain:
  *  the whole chain, after checking the model has not moved past its head.

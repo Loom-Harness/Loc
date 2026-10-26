@@ -270,8 +270,23 @@ export const MIGRATIONS = {
   destructiveTitle: "Destructive change — blocked by default",
   destructiveFlag: "--allow-destructive",
   destructiveBody:
-    "ddd generate system refuses this migration until it runs with the flag below; the SQL shown is the safe add-nullable / backfill / set-not-null sequence it would emit once allowed.",
+    "ddd migrate add refuses to record this migration until it runs with the flag below; the SQL shown is the safe add-nullable / backfill / set-not-null sequence it would record once allowed.",
   destructiveDropsHeading: "Data it would drop",
+  diffFailed: "Diff failed.",
+  noChangesSinceRecorded: "No schema changes since the last recorded migration.",
+  /** The chain status line (`ddd migrate status`). */
+  noChain: "No migrations/ yet — recording starts the chain with each module's Initial migration.",
+  noChainNothingToRecord: "No migrations/ yet.",
+  chainStatus: (entries: number, head: string, unrecorded: number): string =>
+    `${entries} recorded · head ${head} · ${unrecorded === 0 ? "nothing unrecorded" : `${unrecorded} unrecorded step${unrecorded === 1 ? "" : "s"}`}`,
+  twoHeads: (a: string, b: string): string =>
+    `The chain has two heads (${a}, ${b}). Run \`ddd migrate rebase main.ddd\` locally to record one on top of the other.`,
+  nameLabel: "Migration name",
+  namePlaceholder: "migration-name (kebab-case)",
+  record: "Record migration",
+  recorded: (n: number): string =>
+    n === 0 ? "Nothing to record." : `Recorded ${n} migration file${n === 1 ? "" : "s"} in migrations/.`,
+  recordUnavailable: "Recording needs the build worker and a writable workspace.",
 } as const;
 
 /** Requirement verdicts (audit M9) — sentence case on the badge, one legend

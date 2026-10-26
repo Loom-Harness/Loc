@@ -2,13 +2,13 @@
 // The EVOLUTION family of the toolkit — the transport-neutral core behind the
 // `loom_snapshot` and `loom_diff` agent tools (and reusable by any surface).
 //
-// The playground's Migrations dock tab (M-T8.11) made schema migrations, wire-
-// contract drift, and provenance snapshots VISIBLE to a human editing a model.
-// These two functions give an AGENT editing a model the same evolution signals,
-// riding the SAME shipped pure cores the dock does — `captureSnapshots`,
-// `buildMigrations`, `buildWireSpec`/`diffWireSpec`, `renderPgStep`. All are
-// browser-safe (the build worker already imports them), so this module keeps
-// the toolkit's no-Node-only invariant.
+// The playground's Migrations dock tab makes schema migrations, wire-contract
+// drift, and provenance snapshots VISIBLE to a human editing a model.  These
+// two functions give an AGENT editing a model the same evolution signals,
+// riding the SAME pure cores the dock does — `captureSnapshots`,
+// `evolveSystem` (`src/system/migration-diff.ts`), `renderPgStep`.  All are
+// browser-safe (the build worker imports them too), so this module keeps the
+// toolkit's no-Node-only invariant.
 //
 // Scope note: like every other toolkit verb these take a SINGLE `.ddd` source
 // string (the multi-file import-graph baselines the playground worker resolves
@@ -25,15 +25,12 @@ import { renderPgStep } from "../generator/sql-pg.js";
 import { enrichLoomModel } from "../ir/enrich/enrichments.js";
 import { lowerModel, mergeLoomModels } from "../ir/lower/lower.js";
 import type { EnrichedLoomModel } from "../ir/types/loom-ir.js";
-import type { SchemaSnapshot } from "../ir/types/migrations-ir.js";
 import { createDddServices } from "../language/ddd-module.js";
 import type { Model } from "../language/generated/ast.js";
 import { captureSnapshots } from "../system/loomsnap.js";
 import { headSnapshots, MigrationChainError, parseChain } from "../system/migration-chain.js";
-import { buildMigrations, MigrationDestructiveError } from "../system/migrations-builder.js";
+import { evolveSystem, wireChangeEntity } from "../system/migration-diff.js";
 import type { SnapshotStore } from "../system/snapshot.js";
-import { buildWireSpec } from "../system/wire-spec.js";
-import { diffWireSpec } from "../system/wire-spec-diff.js";
 import { langiumDiagnosticToJson } from "./report.js";
 
 type EnrichedSystemIR = EnrichedLoomModel["systems"][number];
@@ -133,18 +130,6 @@ function hasErrors(diagnostics: Diagnostic[]): boolean {
   return diagnostics.some((d) => d.severity === 1);
 }
 
-/** An in-memory snapshot store seeded from a baseline's `.next` snapshots —
- *  the browser/CLI-agnostic twin of `memorySnapshotStore`/`memStore`. */
-function memStore(initial: Record<string, SchemaSnapshot> = {}): SnapshotStore {
-  return { read: (module: string) => initial[module] ?? null };
-}
-
-const BUCKET_LABEL: Record<string, string> = {
-  aggregates: "aggregate",
-  parts: "part",
-  valueObjects: "value object",
-};
-
 /** Lower + enrich a single parsed source to the enriched IR (the same phases
  *  `generate`/`readModel` run), surfacing a lowering throw as `null`. */
 function lowerEnriched(model: Model): EnrichedLoomModel | null {
@@ -188,84 +173,32 @@ export async function snapshot(source: string): Promise<SnapshotReport> {
   return { ok: true, files, diagnostics: json };
 }
 
-/** Derive the pending schema migrations + wire changes a `current` system
- *  implies against an optional `baseline` system.  The schema baseline is
- *  `chainHeads` when a migration chain was given, else the baseline system's
- *  own schema.  Pure; throws only on a derivation refusal other than the
- *  destructive gate. */
+/** The toolkit's view of one system's evolution — the modules with steps,
+ *  rendered to Postgres SQL, and the wire changes. */
 function diffSystems(
   cur: EnrichedLoomModel,
   curSys: EnrichedSystemIR,
   baseSys: EnrichedSystemIR | null,
   chainHeads: SnapshotStore | null,
 ): { migrations: MigrationView[]; wireChanges: WireChangeView[]; breaking: boolean } {
-  const migrations: MigrationView[] = [];
-  const wireChanges: WireChangeView[] = [];
-  let breaking = false;
-
-  // -- schema migration -----------------------------------------------------
-  // The baseline's schema comes from the chain's heads, or from deriving the
-  // baseline source from scratch (empty store ⇒ the baseline itself is
-  // "Initial"); the steps that come back deriving the current source against
-  // it ARE the pending migration — what `ddd migrate add` would record.
-  let store = chainHeads;
-  if (!store) {
-    const seed: Record<string, SchemaSnapshot> = {};
-    if (baseSys) {
-      for (const bm of buildMigrations(baseSys, memStore())) seed[bm.module] = bm.next;
-    }
-    store = memStore(seed);
-  }
-  const intents = {
-    renameIntents: cur.renameIntents,
-    tableRenameIntents: cur.tableRenameIntents,
-    backfillIntents: cur.backfillIntents,
-    sqlSteps: cur.sqlMigrationSteps,
-  };
-  const destructiveByModule = new Map<string, string>();
-  let migs: ReturnType<typeof buildMigrations>;
-  try {
-    migs = buildMigrations(curSys, store, intents);
-  } catch (err) {
-    if (err instanceof MigrationDestructiveError) {
-      destructiveByModule.set(err.module, err.message);
-      breaking = true;
-      // Re-derive with the gate OFF so the caller still sees the (safe-
-      // sequence) steps the change implies, not just the refusal.
-      migs = buildMigrations(curSys, store, { ...intents, allowDestructive: true });
-    } else {
-      throw err;
-    }
-  }
-  for (const mig of migs) {
-    if (mig.steps.length === 0) continue; // clean regen ⇒ no-op, don't list
-    migrations.push({
+  const evo = evolveSystem(cur, curSys, baseSys, chainHeads);
+  const migrations: MigrationView[] = evo.deltas
+    .filter((mig) => mig.steps.length > 0)
+    .map((mig) => ({
       module: mig.module,
       name: mig.name,
       steps: mig.steps.map((s) => ({ op: s.op, sql: renderPgStep(s) })),
-      destructive: destructiveByModule.has(mig.module),
-      destructiveMessage: destructiveByModule.get(mig.module),
-    });
-  }
-
-  // -- wire contract --------------------------------------------------------
-  // Only meaningful against a real baseline; with none, every shape is "new"
-  // and the contract diff would be noise.
-  if (baseSys) {
-    const diff = diffWireSpec(buildWireSpec(baseSys), buildWireSpec(curSys));
-    if (diff.breaking) breaking = true;
-    for (const c of diff.changes) {
-      wireChanges.push({
-        entity: `${BUCKET_LABEL[c.bucket] ?? c.bucket} ${c.entity}`,
-        field: c.field,
-        kind: c.kind,
-        breaking: c.breaking,
-        detail: c.detail,
-      });
-    }
-  }
-
-  return { migrations, wireChanges, breaking };
+      destructive: evo.destructive.has(mig.module),
+      destructiveMessage: evo.destructive.get(mig.module),
+    }));
+  const wireChanges: WireChangeView[] = (evo.wire?.changes ?? []).map((c) => ({
+    entity: wireChangeEntity(c),
+    field: c.field,
+    kind: c.kind,
+    breaking: c.breaking,
+    detail: c.detail,
+  }));
+  return { migrations, wireChanges, breaking: evo.breaking };
 }
 
 /**
