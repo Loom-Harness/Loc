@@ -16,7 +16,6 @@ import type {
   BinaryChain,
   DerivedProp,
   EntityPart,
-  EnumDecl,
   Expression,
   FunctionDecl,
   IfStmt,
@@ -213,13 +212,28 @@ function absentQualifiedEnumValue(
   const first = chain.suffixes[0];
   if (!first || !isMemberSuffix(first) || first.call) return undefined;
   const enumName = chain.head.name;
-  const enums: EnumDecl[] = [];
-  for (const n of AstUtils.streamAllContents(AstUtils.findRootNode(chain))) {
-    if (isEnumDecl(n) && n.name === enumName) enums.push(n);
-  }
-  if (enums.length === 0) return undefined;
-  if (enums.some((e) => e.values.some((v) => v.name === first.member))) return undefined;
+  const values = enumValuesByName(AstUtils.findRootNode(chain)).get(enumName);
+  if (!values || values.has(first.member)) return undefined;
   return { suffix: first, member: first.member, enumName };
+}
+
+/** Per-root index of enum name → the union of its declared values, built
+ *  once per document root so the check stays linear in model size (a
+ *  re-parse yields a new root, which invalidates the entry). */
+const ENUM_VALUES_BY_ROOT = new WeakMap<AstNode, Map<string, Set<string>>>();
+function enumValuesByName(root: AstNode): Map<string, Set<string>> {
+  let index = ENUM_VALUES_BY_ROOT.get(root);
+  if (!index) {
+    index = new Map();
+    for (const n of AstUtils.streamAllContents(root)) {
+      if (!isEnumDecl(n)) continue;
+      const values = index.get(n.name) ?? new Set<string>();
+      for (const v of n.values) values.add(v.name);
+      index.set(n.name, values);
+    }
+    ENUM_VALUES_BY_ROOT.set(root, index);
+  }
+  return index;
 }
 
 export function checkUnknownMemberAccess(model: Model, accept: ValidationAcceptor): void {
