@@ -160,7 +160,7 @@ the query as a constant:
 | .NET / EF Core | `_currentUser.User.Role == "agent"` inside `HasQueryFilter` (EF binds it as a parameter) |
 | .NET / Dapper | `@__pt_<hash>`, bound to `(RequestContext.Current!.CurrentUser!.Role == "agent")` |
 | Java / JPA | `:#{@currentUserAccessor.user() != null and (@currentUserAccessor.user().role() == 'agent')} = true` (`cb.conjunction()` / `cb.disjunction()` in a Criteria `Specification`) |
-| Python / SQLAlchemy | `literal(require_current_user().role == "agent")` |
+| Python / SQLAlchemy | `literal(user.role == "agent")`, built in the read-scope hook from the request principal |
 | Phoenix / Ecto | `^(not is_nil(current_user) and current_user.role == "agent")` |
 
 Null semantics are Loom's on every backend (a null claim equals `null` and
@@ -230,6 +230,16 @@ and elixir has no `document` shape at all.  See *Deferred cases* below.
   DI-resolved principal); a **non-relational** aggregate filters in-app
   over the rehydrated `document`, or AND-s into the SQL read for an
   `embedded` root (whose scalars are real columns).
+- **Python / SQLAlchemy** — SQLAlchemy's native global-criteria hook: one
+  `do_orm_execute` listener (`app/db/read_scope.py`,
+  `src/generator/python/read-scope-builder.ts`) adds each restriction to every
+  ORM SELECT as `with_loader_criteria(<Row>, …)`, so no repository read
+  spells one.  `ignoring` is the `loom_ignoring` execution option.  A
+  **principal** predicate is built from the request principal on each
+  execution (`false()` with none); a TPH subtype's own filter is hosted on
+  the root row class, guarded by `kind`; by-id reads run a `select` with
+  `populate_existing` so the identity map cannot answer for the hook.  A
+  `document` aggregate filters in-app over the rehydrated instance.
 - **Java / Hibernate** — a static `@SQLRestriction("…")` on the
   entity for the non-principal predicate (`src/generator/java/emit/entity.ts`);
   a **principal** predicate instead AND-s a SpEL-principal JPQL clause

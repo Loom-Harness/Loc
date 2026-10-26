@@ -6918,3 +6918,25 @@ passes for any input, including one that does not parse. Eleven tests named
 named `ignoring` did not parse). Use `parseErrorsOf` / `parseRawOk` from
 `test/_helpers/parse.ts`; `test/system/vacuous-parse-assertion.test.ts` gates the
 pattern.
+
+## 135. SQLAlchemy global criteria: three traps the docs do not lead with (2026-10-26)
+
+Verified on SQLAlchemy 2.1.6 while moving python reads onto one `do_orm_execute` +
+`with_loader_criteria` hook (#3962):
+
+- A `lambda cls:` criterion is cached by its code object; a closure variable must
+  be a plain scalar SQLAlchemy can track as a bound value. `lambda cls: cls.tenant_id ==
+  user.tenant_id` raises `Closure variable named 'user' … does not refer to a
+  cacheable SQL element`. A principal-bound criterion is therefore built eagerly
+  as a plain expression on each execution (`Row.tenant_id == user.tenant_id`);
+  bound values are extracted per execution, so a cache hit never reuses another
+  request's tenant.
+- `state.all_mappers` is empty for `select(func.count()).select_from(Row)`, yet the
+  criteria still apply to it. Gating the hook on `all_mappers` would silently skip
+  every count, so the hook adds every option unconditionally (a criterion for an
+  entity absent from the statement is a no-op) and resolves the principal without
+  raising (`false()` when there is none).
+- A criterion on a mapped subclass never reaches a query of its base, and
+  `session.get()` answers from the identity map without SQL. Subtype restrictions
+  are hosted on the TPH root guarded by `kind`, and by-id reads run
+  `select(...).execution_options(populate_existing=True)`.

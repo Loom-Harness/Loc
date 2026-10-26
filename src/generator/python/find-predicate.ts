@@ -7,7 +7,7 @@ import {
   type WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { nullComparison } from "../../ir/util/comparison-operands.js";
-import { baseOf, isTphConcrete, ownFieldsOf, tableOwnerName } from "../../ir/util/inheritance.js";
+import { baseOf, isTphConcrete, ownFieldsOf } from "../../ir/util/inheritance.js";
 import { principalTerm } from "../../ir/util/principal-term.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import {
@@ -150,12 +150,34 @@ export function lowerToSqlAlchemy(
     principalAccessor?: string;
   },
 ): PyPredicate | null {
-  // TPH concretes query the base's shared table.
+  // A TPH concrete's row class is the mapped subclass of its root's: its
+  // columns are the shared table's, and `select(CarRow)` carries the
+  // discriminator natively.
   return lowerOver(
     e,
-    schemaRow(rowClassName(tableOwnerName(agg, ctx.aggregates))),
+    schemaRow(rowClassName(agg.name)),
     agg.associations ?? [],
     opts?.principalAccessor ?? "current_user",
+    tphNullableBoolColumns(agg, ctx),
+  );
+}
+
+/** Lower one read restriction of `agg` over an explicit row expression — the
+ *  `cls` parameter of a `with_loader_criteria` lambda, or the hosting row
+ *  class itself — for the read-scope hook (`read-scope-builder.ts`).  A
+ *  `currentUser.<claim>` renders against `principalAccessor`. */
+export function lowerRestrictionToSqlAlchemy(
+  e: ExprIR,
+  agg: EnrichedAggregateIR,
+  ctx: EnrichedBoundedContextIR,
+  row: string,
+  principalAccessor: string,
+): PyPredicate | null {
+  return lowerOver(
+    e,
+    row,
+    agg.associations ?? [],
+    principalAccessor,
     tphNullableBoolColumns(agg, ctx),
   );
 }
@@ -662,16 +684,13 @@ function isColumnRooted(e: ExprIR): boolean {
 // ---------------------------------------------------------------------------
 // Capability filters (`filter <expr>` → AggregateIR.contextFilters).
 //
-// SQLAlchemy has no global query filter (the EF Core `HasQueryFilter`
-// analogue), so the generated repository must AND each predicate into every
-// root-table read site (find_by_id / find_many_by_ids / all / find* /
-// retrievals).  Both shapes of relational filter are wired: the
-// NON-principal case (e.g. `filter !this.isDeleted`) AND the PRINCIPAL case
-// (`filter this.tenantId == currentUser.tenantId`, DEBT-02), the latter
-// rendering `current_user.<claim>` against the ambient `require_current_user()`
-// accessor so no read method gains a parameter.  Non-relational (document /
-// embedded) principal filters stay gated by the IR validator
-// (`validateContextFilterSupport`), so they never reach codegen here.
+// A relational (or embedded) aggregate's read restrictions are not ANDed into
+// its repository reads: SQLAlchemy's global-criteria hook — `do_orm_execute`
+// + `with_loader_criteria` — applies them to every ORM read, generated once in
+// `app/db/read_scope.py` (`read-scope-builder.ts`).  What stays here is the
+// in-app form for the blob shapes (`shape: document`, the event-sourced
+// stream), whose rows expose no queryable columns, and the WRITE-scope guard,
+// which narrows command loads only.
 // ---------------------------------------------------------------------------
 
 /** A read's capability filter-bypass spec (`ignoring <Cap>` / `ignoring *`),
@@ -693,62 +712,6 @@ function isFilterBypassed(origin: string | undefined, bypass: FilterBypass | und
   if (!bypass || origin === undefined) return false;
   if (bypass.bypassAll) return true;
   return (bypass.bypassCaps ?? []).includes(origin);
-}
-
-/** Lower an aggregate's capability filters — non-principal AND principal — to a
- *  single SQLAlchemy predicate (conjoined with `and_(...)` when there is more
- *  than one), or null when the aggregate has no capability filter.  Mirrors
- *  node's `contextFilterPredicate`.
- *
- *  A principal-referencing predicate (`this.tenantId == currentUser.tenantId`,
- *  DEBT-02) renders its `currentUser.<claim>` against the ambient
- *  `require_current_user()` accessor (the module-level `ContextVar[User | None]`
- *  the auth middleware sets) — so the predicate AND-s into every root read
- *  without any read method gaining a parameter, exactly like node's
- *  `requireCurrentUser()` weave / EF Core's `HasQueryFilter`.  The validator
- *  (`validateContextFilterSupport`) has already required `auth: required` + a
- *  system `user {}` block, so the accessor is guaranteed to be emitted.
- *
- *  Every kept predicate always lowers to a closed expression because the IR
- *  validator gated the queryable shape first; returns null (rather than
- *  throwing) on a non-lowerable predicate, which is unreachable for valid
- *  models.
- *
- *  When `bypass` is supplied (the read carried an `ignoring` clause), every
- *  capability filter whose `contextFilterOrigins[i]` the bypass names is
- *  OMITTED from the conjunction for that read only.  The origins array is
- *  index-aligned with the FULL `agg.contextFilters`, so the original index is
- *  carried through before bypass matching. */
-export function contextFilterPredicate(
-  agg: EnrichedAggregateIR,
-  ctx: EnrichedBoundedContextIR,
-  bypass?: FilterBypass,
-): PyPredicate | null {
-  const kept = (agg.contextFilters ?? [])
-    .map((predicate, i) => ({ predicate, origin: agg.contextFilterOrigins?.[i] }))
-    .filter((e) => !isFilterBypassed(e.origin, bypass));
-  if (kept.length === 0) return null;
-  const ops = new Set<string>();
-  const lowered: string[] = [];
-  for (const { predicate } of kept) {
-    // A principal-referencing filter renders `current_user.<claim>` against the
-    // ambient `require_current_user()` accessor (no read-method parameter); a
-    // non-principal filter lowers as before (the accessor default is unused).
-    const l = lowerToSqlAlchemy(
-      predicate,
-      agg,
-      ctx,
-      exprUsesCurrentUser(predicate)
-        ? { principalAccessor: `${REQUIRE_CURRENT_USER}()` }
-        : undefined,
-    );
-    if (!l) return null;
-    for (const op of l.ops) ops.add(op);
-    lowered.push(l.expr);
-  }
-  if (lowered.length === 1) return { expr: lowered[0]!, ops };
-  ops.add("and_");
-  return { expr: `${AND_}(${lowered.join(", ")})`, ops };
 }
 
 /** Lower an aggregate's `writeScopeFilter` (authorization — the
@@ -793,7 +756,7 @@ export function aggUsesPrincipalContextFilter(agg: EnrichedAggregateIR): boolean
  *  `requireCurrentUser()` weave).  Multiple filters conjoin with ` and `.
  *
  *  `bypass` (a read's `ignoring` clause) drops the named capability-origin
- *  filters exactly like the relational `contextFilterPredicate`.  Returns null
+ *  filters exactly like the read-scope hook's `loom_ignoring` option.  Returns null
  *  when no filter survives (no capability filter, or all bypassed) — emission
  *  then stays byte-identical to the pre-DEBT-02 document repository. */
 export function documentCapabilityBody(

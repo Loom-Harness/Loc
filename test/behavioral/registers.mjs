@@ -280,7 +280,6 @@ export const BEHAVIOURAL_XFAIL = {
     "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
   },
   python: {
-    "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
     // `{"st": row.st}` against a model whose only attributes are the leaves.
     "projection-valueobject-row": projectionVoRow({
       expect: "fail",
