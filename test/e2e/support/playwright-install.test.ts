@@ -5,59 +5,81 @@ import {
   PLAYWRIGHT_INSTALL_ATTEMPTS,
   PLAYWRIGHT_INSTALL_BACKOFF_MS,
   PLAYWRIGHT_INSTALL_CMD,
+  PLAYWRIGHT_INSTALL_DEPS_CMD,
 } from "./playwright-install.js";
 
-function harness(failures: number) {
-  const calls: { cmd: string; cwd: string; timeout: number }[] = [];
+/** An exec that fails the download `downloadFailures` times, and the deps step
+ *  when `depsFails` is set. */
+function harness(downloadFailures: number, depsFails = false) {
+  const calls: string[] = [];
   const waits: number[] = [];
-  const exec = (cmd: string, opts: { cwd: string; timeout: number }) => {
-    calls.push({ cmd, ...opts });
-    if (calls.length <= failures) throw new Error(`spawnSync /bin/sh ETIMEDOUT\n(stdout)`);
+  const logs: string[] = [];
+  let downloads = 0;
+  const exec = (cmd: string) => {
+    calls.push(cmd);
+    if (cmd === PLAYWRIGHT_INSTALL_CMD && ++downloads <= downloadFailures) {
+      throw new Error("spawnSync /bin/sh ETIMEDOUT\n(stdout)");
+    }
+    if (cmd === PLAYWRIGHT_INSTALL_DEPS_CMD && depsFails) {
+      throw Object.assign(new Error("Command failed: install-deps"), {
+        stderr: "E: Unable to acquire the dpkg frontend lock\n",
+      });
+    }
   };
   return {
     calls,
     waits,
+    logs,
     run: () =>
-      installPlaywrightChromium("/tmp/e2e", { exec, wait: (ms) => waits.push(ms), log: () => {} }),
+      installPlaywrightChromium("/tmp/e2e", {
+        exec,
+        wait: (ms) => waits.push(ms),
+        log: (l) => logs.push(l),
+      }),
   };
 }
 
 describe("installPlaywrightChromium", () => {
-  it("runs the install once when it succeeds", () => {
+  it("downloads the browser, then installs its OS deps, once each when both succeed", () => {
     const h = harness(0);
     h.run();
-    expect(h.calls).toEqual([
-      { cmd: PLAYWRIGHT_INSTALL_CMD, cwd: "/tmp/e2e", timeout: expect.any(Number) },
-    ]);
+    expect(h.calls).toEqual([PLAYWRIGHT_INSTALL_CMD, PLAYWRIGHT_INSTALL_DEPS_CMD]);
     expect(h.waits).toEqual([]);
   });
 
-  it("retries a stalled fetch with the backoff, then succeeds", () => {
+  it("retries a stalled download with the backoff, then succeeds", () => {
     const h = harness(PLAYWRIGHT_INSTALL_ATTEMPTS - 1);
     h.run();
-    expect(h.calls).toHaveLength(PLAYWRIGHT_INSTALL_ATTEMPTS);
+    expect(h.calls.filter((c) => c === PLAYWRIGHT_INSTALL_CMD)).toHaveLength(
+      PLAYWRIGHT_INSTALL_ATTEMPTS,
+    );
     expect(h.waits).toEqual([...PLAYWRIGHT_INSTALL_BACKOFF_MS]);
   });
 
-  it("throws after the last attempt, naming every attempt's cause", () => {
+  it("throws after the last download attempt, naming every attempt's cause", () => {
     const h = harness(PLAYWRIGHT_INSTALL_ATTEMPTS);
     expect(() => h.run()).toThrow(
       /failed 3 times:\nattempt 1: spawnSync \/bin\/sh ETIMEDOUT\nattempt 2: .*\nattempt 3: /,
     );
-    expect(h.calls).toHaveLength(PLAYWRIGHT_INSTALL_ATTEMPTS);
+    expect(h.calls).not.toContain(PLAYWRIGHT_INSTALL_DEPS_CMD);
+  });
+
+  it("only warns when the OS deps step fails — the host's libraries may suffice", () => {
+    const h = harness(0, true);
+    expect(() => h.run()).not.toThrow();
+    expect(h.calls).toEqual([PLAYWRIGHT_INSTALL_CMD, PLAYWRIGHT_INSTALL_DEPS_CMD]);
+    expect(h.logs.join("\n")).toContain("Unable to acquire the dpkg frontend lock");
   });
 
   it("names the child's last stderr line in the cause", () => {
     const exec = () => {
       throw Object.assign(new Error("Command failed: npx playwright install"), {
-        stderr: "Downloading Chromium\nError: lock held by another process\n",
+        stderr: "Downloading Chromium\nError: connect ETIMEDOUT\n",
       });
     };
     expect(() =>
       installPlaywrightChromium("/tmp/e2e", { exec, wait: () => {}, log: () => {} }),
-    ).toThrow(
-      /attempt 1: Command failed: npx playwright install — Error: lock held by another process/,
-    );
+    ).toThrow(/attempt 1: Command failed: npx playwright install — Error: connect ETIMEDOUT/);
   });
 
   it("bounds the attempt with GNU timeout, which signals the whole process group", () => {

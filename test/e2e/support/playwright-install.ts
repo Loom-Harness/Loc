@@ -11,10 +11,16 @@
 // download (a broken `npx`, a bad cwd) still surfaces — after the last attempt,
 // with every attempt's cause in the message.
 //
-// The attempt runs under GNU `timeout`, which signals its whole process group.
-// A timeout on `execSync` alone kills only the `/bin/sh` wrapper: npm, the
-// playwright CLI and its `apt-get` keep running, keep the install lock, and
-// every retry then fails in seconds against it.
+// The download and the OS dependencies are separate steps.  `--with-deps`
+// runs `sudo apt-get`, and an apt-get from a stalled attempt runs as root —
+// beyond any timeout's reach — and keeps the dpkg lock, so every retry then
+// fails in seconds (`Unable to acquire the dpkg frontend lock`).  The DOWNLOAD
+// needs no lock and is what retries: each attempt runs under GNU `timeout`,
+// which signals its whole process group (a timeout on `execSync` alone kills
+// only the `/bin/sh` wrapper and leaves npm and the playwright CLI running).
+// The deps step runs once and only warns on failure: the hosted Ubuntu images
+// ship Chrome and its libraries, and a library that really is missing still
+// fails the spec, with Playwright naming it at browser launch.
 //
 // Scope: the browser FETCH only.  Running the specs must keep failing fast.
 // ---------------------------------------------------------------------------
@@ -27,10 +33,15 @@ export const PLAYWRIGHT_INSTALL_ATTEMPTS = 3;
 /** Milliseconds to wait before attempt 2, before attempt 3. */
 export const PLAYWRIGHT_INSTALL_BACKOFF_MS = [5_000, 20_000] as const;
 
-/** Per-attempt timeout: long enough for a healthy download with `--with-deps`. */
+/** Per-attempt timeout: long enough for a healthy browser download. */
 export const PLAYWRIGHT_INSTALL_TIMEOUT_MS = 240_000;
 
-export const PLAYWRIGHT_INSTALL_CMD = "npx playwright install --with-deps chromium";
+export const PLAYWRIGHT_INSTALL_CMD = "npx playwright install chromium";
+
+export const PLAYWRIGHT_INSTALL_DEPS_CMD = "npx playwright install-deps chromium";
+
+/** The deps step's one bounded attempt. */
+export const PLAYWRIGHT_INSTALL_DEPS_TIMEOUT_MS = 180_000;
 
 type Exec = (cmd: string, opts: { cwd: string; timeout: number }) => void;
 
@@ -58,8 +69,9 @@ function sleep(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-/** Install the Playwright Chromium (and its OS deps) for the project at `cwd`,
- *  retrying a failed or stalled fetch.  Throws once every attempt has failed. */
+/** Install the Playwright Chromium for the project at `cwd`, retrying a failed
+ *  or stalled download, then its OS deps once.  Throws once every download
+ *  attempt has failed; a failed deps step only warns. */
 export function installPlaywrightChromium(
   cwd: string,
   opts: { exec?: Exec; wait?: (ms: number) => void; log?: (line: string) => void } = {},
@@ -71,6 +83,13 @@ export function installPlaywrightChromium(
   for (let attempt = 1; attempt <= PLAYWRIGHT_INSTALL_ATTEMPTS; attempt++) {
     try {
       exec(PLAYWRIGHT_INSTALL_CMD, { cwd, timeout: PLAYWRIGHT_INSTALL_TIMEOUT_MS });
+      try {
+        exec(PLAYWRIGHT_INSTALL_DEPS_CMD, { cwd, timeout: PLAYWRIGHT_INSTALL_DEPS_TIMEOUT_MS });
+      } catch (deps) {
+        log(
+          `playwright install-deps failed (${causeOf(deps)}); continuing with the host's libraries`,
+        );
+      }
       return;
     } catch (e) {
       const cause = causeOf(e);
