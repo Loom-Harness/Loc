@@ -89,7 +89,7 @@ export interface MikroScalar {
  *  integer on store (9.99 → 10).
  *
  *  `File` is a `json` column in the fact, but this adapter maps it to a plain
- *  string; kept as-is (see the census waiver) until the adapter is moved. */
+ *  string — a divergence kept byte-identical here, to be fixed in the adapter. */
 export function mikroScalar(name: CodecPrimitive): MikroScalar {
   if (name === "string" || name === "File") return { mikro: "string", ts: "string" };
   const c = scalarCodec(name).column;
