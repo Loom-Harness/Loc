@@ -89,9 +89,11 @@ import type {
 } from "./adapters/by-layer-layout.js";
 import { emitJavaResourceFiles, javaResourceClassName } from "./adapters/resource-clients.js";
 import {
+  bypassFilterNames,
+  hasStaticRestriction,
   inlineRunBypassesByRetrieval,
   promotedCapabilities,
-  sqlRestrictionFilters,
+  restrictionHostFor,
 } from "./capability-filter.js";
 import {
   renderApiExceptionAdvice,
@@ -259,7 +261,6 @@ import { collectMangledNames, mangledEnumNames } from "./java-ident.js";
 import { JavaOutputMap } from "./java-output.js";
 import { basePackageFor, javaPackageSegment, mainSourcePath } from "./naming.js";
 import { API_CLIENT_CLASS as JAVA_API_CLIENT_CLASS } from "./render-expr.js";
-import { renderSqlRestriction } from "./render-sql-restriction.js";
 import { javaRequestComponentOwners } from "./request-component-owners.js";
 
 // ---------------------------------------------------------------------------
@@ -1740,27 +1741,13 @@ function emitAggregate(
   // the hierarchy's table — its mapping lands with the inheritance slice.
   if (agg.isAbstract) {
     const tph = isTphBase(agg, ctx.aggregates);
-    // A TPH concrete's static capability filter (soft-delete et al.) cannot sit
-    // on the concrete (Hibernate refuses `@SQLRestriction` on a SINGLE_TABLE
-    // subclass) — collect each shared-table concrete's fragment here and let
-    // the root declare them, discriminator-guarded.  Same collector + renderer
-    // `renderJavaEntity` uses for a plain root, so the fragment is identical.
-    const subtypeRestrictions = tph
-      ? ctx.aggregates.flatMap((c) => {
-          if (c.extendsAggregate !== agg.name || !isTphConcrete(c, ctx.aggregates)) return [];
-          const promoted = new Set(promotedCapabilities(c, ctx));
-          const filters = sqlRestrictionFilters(c, promoted);
-          if (filters.length === 0) return [];
-          return [{ kind: c.name, condition: filters.map(renderSqlRestriction).join(" and ") }];
-        })
-      : [];
     place(
       `${agg.name}.java`,
       "entity",
       renderJavaAbstractBaseEntity(agg, basePkg, pkgFor("entity", agg.name), {
         tph,
         persistence: { schema, voLookup, mangledEnums },
-        subtypeRestrictions,
+        restrictionHost: restrictionHostFor(agg, ctx),
       }),
       agg.name,
       agg.origin,
@@ -1860,7 +1847,7 @@ function emitAggregate(
       superType,
       operationReturnUnions,
       eventFields,
-      promotedCaps,
+      restrictionHost: restrictionHostFor(agg, ctx),
       construct,
       opFragments,
       // Event-sourced / document aggregates have no normalised state
@@ -1925,6 +1912,8 @@ function emitAggregate(
     isReified,
     provenance: provenancedFieldsOf(agg).length > 0,
     promotedCaps,
+    bypassFilters: bypassFilterNames(agg, ctx),
+    staticRestriction: hasStaticRestriction(agg, ctx),
     bypassByRetrieval: inlineRunBypassesByRetrieval(ctx, agg.name),
   };
   const repoOrigin = repo?.origin ?? agg.origin;

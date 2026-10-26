@@ -43,14 +43,24 @@
 // is derived in this emitter.
 // ---------------------------------------------------------------------------
 
+import {
+  type ReadRestriction,
+  readFilterRestrictions,
+  readScopeFor,
+} from "../../ir/enrich/read-scope.js";
 import type {
   AggregateIR,
   BoundedContextIR,
-  EnrichedAggregateIR,
   ExprIR,
   WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, isQueryTimeProjection } from "../../ir/types/loom-ir.js";
+import {
+  isTphBase,
+  isTphConcrete,
+  tableOwnerName,
+  tphConcretesOf,
+} from "../../ir/util/inheritance.js";
 import { renderSqlRestriction } from "./render-sql-restriction.js";
 
 /** A read's capability filter-bypass spec (`ignoring <Cap>` / `ignoring *`),
@@ -161,73 +171,6 @@ export function promotedCapabilities(agg: AggregateIR, ctx: BoundedContextIR): s
   return origins.filter((cap) => bypasses.some((b) => bypassDrops(cap, b)));
 }
 
-/** The non-principal capability-filter predicates that STAY in `@SQLRestriction`
- *  for `agg`: every non-principal predicate whose origin is NOT promoted (bare
- *  filters — `undefined` origin — always stay).  Index-aligned subset of
- *  `agg.contextFilters`. */
-export function sqlRestrictionFilters(
-  agg: EnrichedAggregateIR,
-  promoted: ReadonlySet<string>,
-): ExprIR[] {
-  const filters = agg.contextFilters ?? [];
-  const origins = agg.contextFilterOrigins ?? [];
-  return filters.filter((pred, i) => {
-    if (exprUsesCurrentUser(pred)) return false;
-    const o = origins[i];
-    return o == null || !promoted.has(o);
-  });
-}
-
-/** A promoted capability paired with its static SQL `condition` for the
- *  `@FilterDef`/`@Filter` pair.  Multiple predicates contributed by one cap are
- *  AND-ed into a single condition (same join `@SQLRestriction` uses). */
-export interface PromotedFilter {
-  cap: string;
-  condition: string;
-}
-
-/** The PROMOTED capabilities' filter conditions for `agg`, one per cap, in
- *  declaration order.  Each condition is a constant SQL fragment (reusing the
- *  `@SQLRestriction` renderer) — parameterless (the validator gates the
- *  non-relational / principal shapes off java), so no `@ParamDef`/resolver is
- *  needed.  A cap contributing several predicates conjoins them with ` and `. */
-export function promotedFilters(
-  agg: EnrichedAggregateIR,
-  promoted: ReadonlySet<string>,
-): PromotedFilter[] {
-  if (promoted.size === 0) return [];
-  const filters = agg.contextFilters ?? [];
-  const origins = agg.contextFilterOrigins ?? [];
-  const byCap = new Map<string, string[]>();
-  filters.forEach((pred, i) => {
-    if (exprUsesCurrentUser(pred)) return;
-    const o = origins[i];
-    if (o == null || !promoted.has(o)) return;
-    const list = byCap.get(o) ?? [];
-    list.push(renderSqlRestriction(pred));
-    byCap.set(o, list);
-  });
-  const out: PromotedFilter[] = [];
-  for (const [cap, conds] of byCap) {
-    out.push({ cap, condition: conds.join(" and ") });
-  }
-  return out;
-}
-
-/** The PROMOTED capabilities a read's `bypass` actually drops on `agg` — the
- *  intersection of `promoted` with what `bypass` names (`ignoring *` drops them
- *  all; a named `ignoring X` drops the matching cap).  Returns the cap names in
- *  `promoted` iteration order, so the disableFilter sequence is deterministic.
- *  Empty when the read carries no `ignoring` clause or names only non-promoted
- *  caps (a principal cap, or one that stays in @SQLRestriction). */
-export function bypassedPromotedCaps(
-  promoted: ReadonlySet<string>,
-  bypass: FilterBypass | undefined,
-): string[] {
-  if (promoted.size === 0 || !bypass) return [];
-  return [...promoted].filter((cap) => bypassDrops(cap, bypass));
-}
-
 /** The UNION bypass spec per retrieval name, drawn from the inline
  *  `Repo.run(<Retrieval>(…)) ignoring …` call-sites in `ctx`'s workflows that
  *  hit `aggName`.  A retrieval's `run<Name>` impl method is SHARED across
@@ -295,4 +238,159 @@ export function wrapWithFilterBypass(caps: readonly string[], bodyLines: string[
     ...enables,
     `        }`,
   ];
+}
+
+// ---------------------------------------------------------------------------
+// Where an aggregate's static restrictions live, and what a read bypasses.
+//
+// Hibernate applies a restriction declared on a SINGLE_TABLE subclass only to
+// queries OF that subclass — `from Vehicle` and `find(Vehicle.class, id)` skip
+// it — and refuses `@SQLRestriction` on a subclass outright.  So every
+// restriction of a TPH hierarchy is hosted on its ROOT entity: the root's own
+// unguarded, each concrete's own guarded by its discriminator
+// (`(kind <> 'Car' or (<fragment>))`), straight off the `readScope` fact.  A
+// TPH concrete hosts nothing.  A flat aggregate or a TPC concrete hosts its
+// own `readScope` restrictions.
+//
+// Within the host, the §11.6 triage above decides the annotation: a capability
+// some read `ignoring`s becomes an auto-enabled, by-key `@FilterDef`/`@Filter`
+// (named after the capability; a TPH subtype's after `<Concrete>_<cap>`), the
+// rest — never-bypassed capabilities, bare filters, denies — ride
+// `@SQLRestriction`.  Under TPH a capability bypassed by ANY read of the
+// hierarchy is promoted on every member that carries it, so the base's reads
+// and each concrete's reads disable named filters that exist.
+//
+// Principal (tenancy) predicates are not static SQL, so they stay out of both
+// annotations (see the module header).
+// ---------------------------------------------------------------------------
+
+/** One bypassable Hibernate named filter an entity hosts. */
+export interface HostedFilter {
+  /** The `@FilterDef` / `@Filter` name — what `disableFilter` names. */
+  name: string;
+  /** The capability whose `ignoring` disables the filter. */
+  cap: string;
+  /** The SQL condition, already discriminator-guarded for a TPH subtype. */
+  condition: string;
+  /** The TPH concrete this filter narrows (its discriminator), or undefined
+   *  for a filter over every row the host maps. */
+  kind?: string;
+}
+
+/** The static restrictions one JPA entity class hosts. */
+export interface RestrictionHost {
+  /** The `@SQLRestriction` conjuncts, joined with ` and ` when rendered. */
+  sqlRestriction: string[];
+  /** The promoted capabilities' named filters, in declaration order. */
+  filters: HostedFilter[];
+}
+
+const EMPTY_HOST: RestrictionHost = { sqlRestriction: [], filters: [] };
+
+/** True for a restriction a static SQL fragment can carry. */
+function isStaticRestriction(r: ReadRestriction): r is ReadRestriction & { predicate: ExprIR } {
+  return r.predicate !== undefined && !exprUsesCurrentUser(r.predicate);
+}
+
+/** The TPH root a concrete shares its table with, or undefined. */
+function tphRootOf(agg: AggregateIR, pool: readonly AggregateIR[]): AggregateIR | undefined {
+  if (!isTphConcrete(agg, pool)) return undefined;
+  const owner = tableOwnerName(agg, pool);
+  return pool.find((a) => a.name === owner);
+}
+
+/** Every capability some read of the hierarchy rooted at `root` bypasses. */
+function hierarchyPromoted(root: AggregateIR, ctx: BoundedContextIR): Set<string> {
+  const members = [root, ...tphConcretesOf(root, ctx.aggregates)];
+  return new Set(members.flatMap((m) => promotedCapabilities(m, ctx)));
+}
+
+/** The restrictions the JPA entity for `agg` declares.  Empty for a TPH
+ *  concrete (its root hosts them) and for an abstract base that maps no table
+ *  of its own (a TPC `@MappedSuperclass`, an intermediate TPH base). */
+export function restrictionHostFor(agg: AggregateIR, ctx: BoundedContextIR): RestrictionHost {
+  const pool = ctx.aggregates;
+  if (isTphConcrete(agg, pool)) return EMPTY_HOST;
+  const tphRoot = isTphBase(agg, pool);
+  if (agg.isAbstract && !tphRoot) return EMPTY_HOST;
+  const promoted = tphRoot ? hierarchyPromoted(agg, ctx) : new Set(promotedCapabilities(agg, ctx));
+  const scope = readScopeFor(agg, pool);
+  const sqlRestriction: string[] = [];
+  const byName = new Map<string, { filter: Omit<HostedFilter, "condition">; conds: string[] }>();
+  const addFilter = (name: string, cap: string, cond: string, kind?: string): void => {
+    const cur = byName.get(name) ?? { filter: { name, cap, ...(kind ? { kind } : {}) }, conds: [] };
+    cur.conds.push(cond);
+    byName.set(name, cur);
+  };
+  for (const r of readFilterRestrictions(scope)) {
+    if (!isStaticRestriction(r)) continue;
+    const frag = renderSqlRestriction(r.predicate);
+    if (r.capability !== undefined && promoted.has(r.capability)) {
+      addFilter(r.capability, r.capability, frag);
+    } else sqlRestriction.push(frag);
+  }
+  // A concrete's own static fragments, grouped per concrete so each guard
+  // wraps the conjunction once.
+  const guardedStatic = new Map<string, string[]>();
+  for (const { discriminator, restriction: r } of scope.subtypeRestrictions) {
+    if (!isStaticRestriction(r)) continue;
+    const frag = renderSqlRestriction(r.predicate);
+    if (r.capability !== undefined && promoted.has(r.capability)) {
+      addFilter(`${discriminator}_${r.capability}`, r.capability, frag, discriminator);
+    } else {
+      guardedStatic.set(discriminator, [...(guardedStatic.get(discriminator) ?? []), frag]);
+    }
+  }
+  for (const [kind, frags] of guardedStatic) {
+    sqlRestriction.push(kindGuarded(kind, frags));
+  }
+  const filters = [...byName.values()].map(
+    ({ filter, conds }): HostedFilter => ({
+      ...filter,
+      condition: filter.kind ? kindGuarded(filter.kind, conds) : conds.join(" and "),
+    }),
+  );
+  return { sqlRestriction, filters };
+}
+
+/** A subtype's fragments over the shared table, constraining only its rows. */
+function kindGuarded(kind: string, frags: readonly string[]): string {
+  return `(kind <> '${kind}' or (${frags.join(" and ")}))`;
+}
+
+/** True when a read of `reader` runs under a static restriction its entity
+ *  host declares.  Such a by-id read must go through a query: a primary-key
+ *  `find` of a row the session already holds returns that instance without
+ *  running SQL, so neither `@SQLRestriction` nor a `@Filter` is consulted. */
+export function hasStaticRestriction(reader: AggregateIR, ctx: BoundedContextIR): boolean {
+  const host = restrictionHostFor(tphRootOf(reader, ctx.aggregates) ?? reader, ctx);
+  return host.sqlRestriction.length > 0 || host.filters.length > 0;
+}
+
+/** The named filters a read of `reader` runs under, by capability: its host's
+ *  filters that reach `reader`'s rows — all of them for the host itself; for a
+ *  TPH concrete, the root's unguarded ones and its own guarded ones.  A read
+ *  `ignoring` a capability disables exactly that capability's names. */
+export function bypassFilterNames(
+  reader: AggregateIR,
+  ctx: BoundedContextIR,
+): ReadonlyMap<string, readonly string[]> {
+  const root = tphRootOf(reader, ctx.aggregates);
+  const host = restrictionHostFor(root ?? reader, ctx);
+  const out = new Map<string, string[]>();
+  for (const f of host.filters) {
+    if (root && f.kind !== undefined && f.kind !== reader.name) continue;
+    out.set(f.cap, [...(out.get(f.cap) ?? []), f.name]);
+  }
+  return out;
+}
+
+/** The named filters a read with `bypass` disables, in host declaration
+ *  order.  Empty when the read bypasses nothing promoted. */
+export function bypassedFilterNames(
+  names: ReadonlyMap<string, readonly string[]>,
+  bypass: FilterBypass | undefined,
+): string[] {
+  if (names.size === 0 || !bypass) return [];
+  return [...names].flatMap(([cap, ns]) => (bypassDrops(cap, bypass) ? [...ns] : []));
 }

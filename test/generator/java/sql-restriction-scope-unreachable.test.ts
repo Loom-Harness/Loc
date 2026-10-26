@@ -22,9 +22,10 @@
 //   2. `walkExprChildren` DESCENDS into those two children for an
 //      `authz-filter` node (`src/ir/util/walk.ts`);
 //   3. so `exprUsesCurrentUser` answers true for the sentinel;
-//   4. and BOTH callers of `renderSqlRestriction` — `sqlRestrictionFilters` and
-//      `promotedFilters` in `capability-filter.ts` — drop every predicate for
-//      which that is true, before the renderer is reached.
+//   4. and the one caller of `renderSqlRestriction` — `restrictionHostFor` in
+//      `capability-filter.ts`, on both its `@SQLRestriction` arm and its
+//      bypassable `@Filter` arm — drops every predicate for which that is
+//      true, before the renderer is reached.
 //
 // Link 2 is the load-bearing one and the easiest to lose: it is a single `if`
 // inside one `case` of the shared walker, and deleting it turns a compile-time
@@ -36,12 +37,13 @@
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
-import {
-  promotedFilters,
-  sqlRestrictionFilters,
-} from "../../../src/generator/java/capability-filter.js";
+import { restrictionHostFor } from "../../../src/generator/java/capability-filter.js";
 import { renderSqlRestriction } from "../../../src/generator/java/render-sql-restriction.js";
-import type { EnrichedAggregateIR, ExprIR } from "../../../src/ir/types/loom-ir.js";
+import type {
+  BoundedContextIR,
+  EnrichedAggregateIR,
+  ExprIR,
+} from "../../../src/ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../src/ir/types/loom-ir.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
@@ -70,6 +72,16 @@ const aggWith = (filters: ExprIR[], origins: (string | undefined)[]): EnrichedAg
     contextFilters: filters,
     contextFilterOrigins: origins,
   }) as unknown as EnrichedAggregateIR;
+
+/** A context holding `agg`, whose one find `ignoring`s `bypassCaps` — the read
+ *  that PROMOTES those capabilities onto the bypassable `@Filter` arm. */
+const ctxWith = (agg: EnrichedAggregateIR, bypassCaps: string[] = []): BoundedContextIR =>
+  ({
+    aggregates: [agg],
+    repositories: [{ aggregateName: agg.name, finds: [{ bypassCaps }] }],
+    workflows: [],
+    projections: [],
+  }) as unknown as BoundedContextIR;
 
 const SRC = `
 system JavaScope {
@@ -135,14 +147,18 @@ describe("render-sql-restriction: the principal-`scope` refusal is unreachable",
       2,
     );
 
-    // `sqlRestrictionFilters` — the always-on `@SQLRestriction` path.
-    const statics = sqlRestrictionFilters(agg, new Set());
-    expect(statics).toEqual([DENY]);
-    expect(() => statics.map(renderSqlRestriction)).not.toThrow();
+    // The always-on `@SQLRestriction` arm.
+    const statics = restrictionHostFor(agg, ctxWith(agg));
+    expect(statics.sqlRestriction).toEqual([renderSqlRestriction(DENY)]);
+    expect(statics.filters).toEqual([]);
 
-    // `promotedFilters` — the bypassable `@FilterDef`/`@Filter` path, which
-    // calls the SAME renderer and is the arm a reader is most likely to forget.
-    expect(promotedFilters(aggWith([SCOPE], ["scopeCap"]), promoted)).toEqual([]);
+    // The bypassable `@FilterDef`/`@Filter` arm, which calls the SAME renderer
+    // and is the arm a reader is most likely to forget.
+    const scoped = aggWith([SCOPE], ["scopeCap"]);
+    expect(restrictionHostFor(scoped, ctxWith(scoped, [...promoted]))).toEqual({
+      sqlRestriction: [],
+      filters: [],
+    });
   });
 
   // END TO END — the shape that would crash codegen if any link above moved.
