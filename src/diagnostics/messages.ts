@@ -3752,7 +3752,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `Deployable '${p.name}' selects 'persistence: mikroorm', but the model declares ` +
     `${p.count} migration step(s) it can never apply (first: '${p.step}' in migration ` +
     `'${p.migration}'). The MikroORM adapter emits no migration chain — it syncs its schema ` +
-    `with 'orm.schema.updateSchema()' at boot, which has no rename intent to consult and ` +
+    `with 'orm.schema.update()' at boot, which has no rename intent to consult and ` +
     `resolves a rename as DROP + ADD, destroying the column's data. Use ` +
     `'persistence: drizzle' on this deployable, or host these contexts elsewhere.`,
   // The second consequence of self-provisioning (F2-ADP-3): the same
@@ -3810,7 +3810,7 @@ export const DIAGNOSTIC_MESSAGES = {
   // array column (M-T6.23).  The CODE stays live through the three
   // migration-checks.ts variants above (`#migrations`, `#schema-split`,
   // `#schema-ignored`) — the self-provisioning limits this adapter's
-  // `orm.schema.updateSchema()` boot-time schema owner genuinely cannot
+  // `orm.schema.update()` boot-time schema owner genuinely cannot
   // express.)
   "loom.resource-missing-capability": (p: {
     name: unknown;
@@ -4787,9 +4787,9 @@ export const DIAGNOSTIC_MESSAGES = {
     verb: unknown;
     aggregate: unknown;
   }) =>
-    `e2e: 'api.${p.slug}.${p.verb}(…, { ifMatch: … })' — only the 'update' operation of a ` +
-    `'versioned' aggregate reads 'If-Match' on every backend, and '${p.aggregate}.${p.verb}' is ` +
-    `not one. Drop the third argument, or drive the precondition through '${p.slug}.update'.`,
+    `e2e: 'api.${p.slug}.${p.verb}(…, { ifMatch: … })' — only an operation of a 'versioned' ` +
+    `aggregate reads 'If-Match', and '${p.aggregate}.${p.verb}' is not one (an event-sourced ` +
+    `aggregate is checked against its stream version, never the header). Drop the third argument.`,
   "loom.e2e-unrouted-verb#destroy": (p: { slug: unknown; aggregate: unknown }) =>
     `e2e: 'api.${p.slug}.destroy(…)' has no route — '${p.aggregate}' declares no canonical ` +
     `'destroy { }', so no backend mounts 'DELETE /api/${p.slug}/{id}'. Add 'with crudish' to ` +

@@ -524,8 +524,9 @@ describe.skipIf(!ENABLED)(
     // DEBT-02 Slice A: a PRINCIPAL-referencing capability filter on a
     // `shape: embedded` aggregate.  The embedded aggregate's root scalars are
     // real columns, so it reuses the relational-principal path — the embedded
-    // repository weaves `requireCurrentUser().tenantId` into every embedded
-    // root read and imports `requireCurrentUser` from `../../auth/middleware`.
+    // repository reads every embedded root through `orderScope()`, whose
+    // `db/read-scopes.ts` helper weaves `requireCurrentUser().tenantId` in and
+    // imports `requireCurrentUser` from `../auth/middleware`.
     // Previously gated by `loom.context-filter-no-principal`.  Generated via
     // `generate system` (the user block + auth/middleware.ts are system-level);
     // this gate compiles the emitted embedded repository + the import.
@@ -542,9 +543,13 @@ describe.skipIf(!ENABLED)(
           path.join(proj, "db", "repositories", "order-repository.ts"),
           "utf8",
         );
-        // The principal weave is present in the embedded repository.
-        expect(repo).toContain('import { requireCurrentUser } from "../../auth/middleware"');
-        expect(repo).toContain("requireCurrentUser().tenantId");
+        // The embedded repository reads through the scope helper, and the
+        // helper carries the principal weave.
+        expect(repo).toContain('import { orderScope } from "../read-scopes"');
+        expect(repo).toContain("orderScope()");
+        const scopes = fs.readFileSync(path.join(proj, "db", "read-scopes.ts"), "utf8");
+        expect(scopes).toContain('import { requireCurrentUser } from "../auth/middleware"');
+        expect(scopes).toContain("requireCurrentUser().tenantId");
         installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 120_000 });
       } finally {

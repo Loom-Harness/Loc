@@ -11,6 +11,8 @@
 // emitter.
 
 import { describe, expect, it } from "vitest";
+import { inlineDapperScope } from "../_helpers/dapper-scope.js";
+import { inlineDrizzleScope } from "../_helpers/drizzle-scope.js";
 import { generateSystemFiles } from "../_helpers/index.js";
 
 type Layout = "sharedTable" | "ownTable";
@@ -62,7 +64,8 @@ describe.each<Layout>(["sharedTable", "ownTable"])("inherited softDeletable — 
   const table = tph ? "vehicles" : "trucks";
 
   it("node (drizzle)", async () => {
-    const repo = file(await gen("node", layout), "db/repositories/truck-repository.ts");
+    const files = await gen("node", layout);
+    const repo = inlineDrizzleScope(files, file(files, "db/repositories/truck-repository.ts"));
     expect(lineWith(repo, "rootRows", `inArray(schema.${table}.id, ids)`)).toContain(
       `not(eq(schema.${table}.isDeleted, true))`,
     );
@@ -70,12 +73,18 @@ describe.each<Layout>(["sharedTable", "ownTable"])("inherited softDeletable — 
   });
 
   it("node (mikroorm)", async () => {
-    const repo = file(
-      await gen("node { persistence: mikroorm }", layout),
-      "db/repositories/truck-repository.ts",
+    const files = await gen("node { persistence: mikroorm }", layout);
+    const entities = file(files, "db/entities.ts");
+    const repo = file(files, "db/repositories/truck-repository.ts");
+    // The base's filter is a named default filter on the schema(s) the rows are
+    // read through: the one root schema under TPH, each concrete's under TPC.
+    const declared = entities.match(
+      /"softDeletable": \{ name: "softDeletable", cond: \(\) => \(\{ isDeleted: false \}\)/g,
     );
-    expect(lineWith(repo, "em.find(", "{ id: { $in: ids")).toContain("{ isDeleted: false }");
-    expect(lineWith(repo, "{ plate: plate }")).not.toContain("isDeleted");
+    expect(declared).toHaveLength(layout === "sharedTable" ? 1 : 2);
+    // So no read carries it by hand, and the bypassing find switches it off by name.
+    expect(lineWith(repo, "em.find(", "{ id: { $in: ids")).not.toContain("isDeleted");
+    expect(lineWith(repo, "{ plate: plate }")).toContain('{ filters: { "softDeletable": false } }');
   });
 
   it("python (sqlalchemy)", async () => {
@@ -119,9 +128,11 @@ describe.each<Layout>(["sharedTable", "ownTable"])("inherited softDeletable — 
   });
 
   it(".NET (dapper)", async () => {
-    const repo = file(
-      await gen("dotnet { persistence: dapper }", layout),
-      "Infrastructure/Repositories/TruckRepository.cs",
+    const repo = inlineDapperScope(
+      file(
+        await gen("dotnet { persistence: dapper }", layout),
+        "Infrastructure/Repositories/TruckRepository.cs",
+      ),
     );
     // The SELECT list names `is_deleted` either way; only the WHERE clause counts.
     const where = (l: string): string => l.slice(l.indexOf(" WHERE "));

@@ -20,6 +20,7 @@
 // The guard belongs on the write.
 
 import { describe, expect, it } from "vitest";
+import { scopeFn } from "../../_helpers/drizzle-scope.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
 // This fixture used to ride the legacy `generateHono` helper on a BARE loose
@@ -87,11 +88,15 @@ describe("TPH write paths carry the kind discriminator (Hono/Drizzle)", () => {
 
     const carDelete = car.split("\n").find((l) => l.includes("this.db.delete(")) ?? "";
     expect(carDelete).toContain("eq(schema.vehicles.id, id)");
-    expect(carDelete).toContain('eq(schema.vehicles.kind, "Car")');
+    expect(carDelete).toContain("carScope({ write: true })");
+    // The write scope is the `kind` scope alone, spelled once in the helper.
+    expect(scopeFn(files, "carScope")).toContain(
+      'if (use.write) return eq(schema.vehicles.kind, "Car");',
+    );
 
     // …and the sibling concrete scopes to ITS OWN kind, not the first one.
     const truckDelete = truck.split("\n").find((l) => l.includes("this.db.delete(")) ?? "";
-    expect(truckDelete).toContain('eq(schema.vehicles.kind, "Truck")');
+    expect(truckDelete).toContain("truckScope({ write: true })");
   });
 
   it("the guarded UPDATE in save scopes by kind, so a foreign row is never rewritten", async () => {
@@ -100,7 +105,7 @@ describe("TPH write paths carry the kind discriminator (Hono/Drizzle)", () => {
     const update = car.split("\n").find((l) => l.includes("tx.update(schema.vehicles)")) ?? "";
     expect(update, "guarded update emitted").not.toEqual("");
     expect(update).toContain("eq(schema.vehicles.version, expected)");
-    expect(update).toContain('eq(schema.vehicles.kind, "Car")');
+    expect(update).toContain("carScope({ write: true })");
     // Zero rows matched -> the same ConcurrencyError a lost race raises, rather
     // than a silent overwrite.
     expect(car).toContain('throw new ConcurrencyError("Car"');

@@ -7,7 +7,6 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
-import { CONCURRENCY_CONFLICT_SUFFIX } from "../../ir/util/openapi-errors.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
@@ -37,6 +36,7 @@ import {
   writeGuardMethod,
 } from "./repository-builder.js";
 import { entityFromDoc, entityToDoc } from "./repository-document-builder.js";
+import { pyConflictRaise, pyNotFoundRaise } from "./wire-policy-py.js";
 
 // ---------------------------------------------------------------------------
 // Embedded-children (`shape: embedded`) repository for the Python backend.
@@ -83,7 +83,7 @@ export function buildPyEmbeddedRepositoryFile(
     "        found = await self.find_by_id(id)",
     `        ${PY.log}("debug", "aggregate_loaded", aggregate=${JSON.stringify(agg.name)}, id=str(id), found=found is not None)`,
     "        if found is None:",
-    `            raise ${R.AggregateNotFoundError}(f"${agg.name} {id} not found")`,
+    `            ${pyNotFoundRaise(R.AggregateNotFoundError, agg.name, "id")}`,
     "        return found",
     // Command load (authorization): an embedded root is a normal
     // queryable row, so the write-scope pre-guard pushes into the same SQL
@@ -249,7 +249,7 @@ function saveMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
       `            .returning(${row}.id)`,
       "        )",
       "        if _guarded.first() is None:",
-      `            raise ${R.ConcurrencyError}(f"${agg.name} {aggregate.id} ${CONCURRENCY_CONFLICT_SUFFIX}")`,
+      `            ${pyConflictRaise(R.ConcurrencyError, agg.name, "aggregate.id")}`,
     );
   } else {
     out.push(

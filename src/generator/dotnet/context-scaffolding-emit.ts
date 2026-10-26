@@ -1,6 +1,11 @@
 import { polymorphicReadFor } from "../../ir/enrich/read-scope.js";
-import type { BoundedContextIR, EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
-import { isTphBase, isTphConcrete, rootBaseOf } from "../../ir/util/inheritance.js";
+import type {
+  BoundedContextIR,
+  EnrichedAggregateIR,
+  EnrichedBoundedContextIR,
+} from "../../ir/types/loom-ir.js";
+import { isTphBase, isTphConcrete, rootBaseOf, tphConcretesOf } from "../../ir/util/inheritance.js";
+import { effectiveSavingShape, resolveDataSourceConfig } from "../../ir/util/resolve-datasource.js";
 import { plural, upperFirst } from "../../util/naming.js";
 import type { EmitCtx } from "../_adapters/index.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
@@ -14,6 +19,7 @@ import {
   renderBaseController,
   routesPolymorphicRead,
 } from "./emit/base-reader.js";
+import { renderDapperTphBaseReaderImpl } from "./emit/dapper-base-reader.js";
 import {
   renderAuditableInterceptor,
   renderBaseReaderImpl,
@@ -173,6 +179,23 @@ export function emitDispatcher(
   }
 }
 
+/** True when a Dapper TPH concrete hydrates from its root row alone: the relational
+ *  shape with no contained parts or `X id[]` references (anything else is loaded
+ *  through the concrete's own repository). */
+function dapperHydratesFromRow(
+  a: EnrichedAggregateIR,
+  ctx: EnrichedBoundedContextIR,
+  emitCtx: EmitCtx | undefined,
+): boolean {
+  const ds = emitCtx ? resolveDataSourceConfig(a, ctx, emitCtx.sys) : undefined;
+  return (
+    a.persistedAs !== "eventLog" &&
+    effectiveSavingShape(a, ds) === "relational" &&
+    a.contains.length === 0 &&
+    (a.associations ?? []).length === 0
+  );
+}
+
 /** The polymorphic read home of each abstract base in the context that has
  *  one (`polymorphicReadFor`: a TPH root or a TPC base, with a concrete): a
  *  read-only `I<Base>Repository` / `<Base>Repository` pair, and — when the read
@@ -188,7 +211,7 @@ export function emitBaseReaders(
   opts: { dapper?: boolean; routePrefix?: string; emitCtx?: EmitCtx } = {},
 ): void {
   for (const base of ctx.aggregates) {
-    if (!emitsBaseReader(base, ctx.aggregates, !!opts.dapper)) continue;
+    if (!emitsBaseReader(base, ctx.aggregates)) continue;
     const read = polymorphicReadFor(base, ctx.aggregates)!;
     const construct = `${ctx.name}.${base.name}`;
     // Placed through the deployable's layout adapter, like the base's own
@@ -211,9 +234,17 @@ export function emitBaseReaders(
     place(
       `${base.name}Repository.cs`,
       "repository-impl",
-      renderBaseReaderImpl(base, read, ctx, ns),
+      opts.dapper && read.layout === "sharedTable"
+        ? renderDapperTphBaseReaderImpl(
+            base,
+            tphConcretesOf(base, ctx.aggregates) as EnrichedAggregateIR[],
+            ctx,
+            ns,
+            (a) => dapperHydratesFromRow(a, ctx, opts.emitCtx),
+          )
+        : renderBaseReaderImpl(base, read, ctx, ns),
     );
-    if (opts.routePrefix !== undefined && !opts.dapper && routesPolymorphicRead(read, ctx)) {
+    if (opts.routePrefix !== undefined && routesPolymorphicRead(read, ctx)) {
       place(
         `${plural(upperFirst(base.name))}Controller.cs`,
         "controller",

@@ -143,8 +143,8 @@ describe("MikroORM timerSource scheduling", () => {
     expect(everyPkg).not.toContain('"pg-boss"');
   });
 
-  it("keeps the watermark alive across boots: entity + safe-mode updateSchema", async () => {
-    // The blocker an owner review caught.  `orm.schema.updateSchema()` defaults to
+  it("keeps the watermark alive across boots: entity + safe-mode schema.update", async () => {
+    // The blocker an owner review caught.  `orm.schema.update()` defaults to
     // `dropTables: true` over an unpruned introspection, so from the SECOND boot
     // onward every table the entity metadata does not describe is diffed as
     // removed.  `loom_timer_runs` is created by raw SQL (it is self-owned
@@ -152,7 +152,7 @@ describe("MikroORM timerSource scheduling", () => {
     // exactly such a table — and its rows are the ONLY reason it exists (the
     // cron coalesce-once catch-up).  Two independent guards, both pinned:
     const files = await emit(sys("mikroorm", 'cron: "*/5 * * * *"'));
-    //  (1) the watermark is a real ENTITY, so `updateSchema()` maintains it
+    //  (1) the watermark is a real ENTITY, so `schema.update()` maintains it
     //      instead of diffing it away…
     const entities = files.get("d/db/entities.ts") as string;
     expect(entities).toContain("export class LoomTimerRunsRow {");
@@ -160,12 +160,12 @@ describe("MikroORM timerSource scheduling", () => {
     expect(entities).toContain('timer: { type: "string", primary: true },');
     expect(entities).toContain('lastFiredAt: { type: "Date", columnType: "timestamptz" },');
     expect(entities).toMatch(/export const entities = \[[^\]]*LoomTimerRunsRowSchema[^\]]*\];/);
-    //  (2) …and boot runs updateSchema in SAFE mode, which is what protects the
+    //  (2) …and boot runs schema.update in SAFE mode, which is what protects the
     //      tables no entity could ever cover — pg-boss's own schema and the
     //      first-boot seed marker `__loom_seed` (created the same raw way).
     const index = files.get("d/index.ts") as string;
-    expect(index).toContain("await orm.schema.updateSchema({ safe: true });");
-    expect(index).not.toContain("await orm.schema.updateSchema();");
+    expect(index).toContain("await orm.schema.update({ safe: true });");
+    expect(index).not.toContain("await orm.schema.update();");
   });
 
   it("emits the watermark entity ONLY for a deployable that owns a timer", async () => {
@@ -181,7 +181,7 @@ describe("MikroORM timerSource scheduling", () => {
     // …but safe mode is unconditional: the seed marker and pg-boss are not
     // timer-specific.
     expect(noTimers.get("d/index.ts") as string).toContain(
-      "await orm.schema.updateSchema({ safe: true });",
+      "await orm.schema.update({ safe: true });",
     );
   });
 

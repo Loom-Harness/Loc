@@ -281,7 +281,7 @@ export const R = {
    *     repositories always write `version` explicitly).
    *   • the MikroORM adapter ignores the dataSource `schema:` altogether: its
    *     `EntitySchema`s are mapped `tableName: "<plural>"` with no schema and it
-   *     creates them with `orm.schema.updateSchema()` instead of running the
+   *     creates them with `orm.schema.update()` instead of running the
    *     emitted migration chain — so the same `.ddd` puts its tables in
    *     `"<ctx>"` on drizzle and in `public` on mikroorm.  A THIRD source of
    *     truth for one table.  Its raw seed INSERT is therefore left unqualified

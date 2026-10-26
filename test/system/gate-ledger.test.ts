@@ -142,7 +142,9 @@ describe("gate ledger", () => {
     // per-feature register above would be the wrong shape to describe it.
     const split = [...new Set(ledger.cells.map((c) => c.feature))].filter((f) => {
       const cs = ledger.cells.filter((c) => c.feature === f);
-      return cs.some((c) => c.behavioural) && cs.some((c) => !c.behavioural);
+      // A tracked expected failure is booted and ratcheted by its own
+      // `BEHAVIOURAL_XFAIL` entry — not hidden — so it is no split.
+      return cs.some((c) => c.behavioural) && cs.some((c) => !c.behavioural && !c.expectedFailure);
     });
     expect(split).toEqual([]);
   });

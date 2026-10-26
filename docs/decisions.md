@@ -5675,9 +5675,59 @@ answers, and backends render it:
 
 **Consequences.** node/Hono renders every refusal from the fact, and
 `test/generator/hono/wire-policy-census.test.ts` fails on a status, title or
-sentence a node emitter picks itself. The other four backends move onto it one
-at a time; until each does, its wire-golden legs carry a per-golden waiver in
-`test/_helpers/wire-waivers.ts` for the missing-field sentence.
+sentence a node emitter picks itself. python/FastAPI renders it through
+`src/generator/python/wire-policy-py.ts`, guarded by
+`test/generator/python/wire-policy-census.test.ts` (request bools are
+`StrictBool`, so `"true"`/`1` is a refusal like every other cross-type value).
+The remaining backends move onto it one at a time; until each does, its
+wire-golden legs carry a per-golden waiver in `test/_helpers/wire-waivers.ts`
+for the missing-field sentence.
+
+## D-CODEC — how a value is encoded on the wire, in a column, in memory and in a lineage comes from one IR fact
+
+**Status:** PINNED (encodes RS-4, RS-12, RS-24, RS-37, RS-38, RS-42,
+D-LONG-AVG-DEFAULTS and the owner ruling on #3527; fact landed for #3593
+item 5).
+
+**Question.** Each backend picked the encoding of `money`, `decimal`, the
+integers and `datetime` itself, at each read path, column and lineage write.
+So the same value reached the wire, the database or a provenance lineage in a
+different form per backend (#3297, #3527, #3535, #3544, #3487, #3434).
+
+**Decision.** One derived table, `src/ir/enrich/codec.ts`, owns those answers
+per storable primitive, and `codecOf` resolves a declared type (optional,
+collection, id, enum, value object) onto it:
+
+- **Wire** (`WireEncoding`): `money` is a fixed-scale-4 decimal string with
+  the RS-42 grammar; `decimal` is a float64 number; `int` / `long` are integers
+  inside int32 / ±(2^53−1); `datetime` is ISO-8601 UTC at millisecond precision
+  with no fraction on a whole second, truncated at ingress; `date` is
+  `YYYY-MM-DD`.
+- **Column** (`ColumnType`): `money` is `NUMERIC(19,4)`, `decimal` is
+  unbounded, `datetime` is `timestamptz`, `File` is a JSONB reference. The
+  migrations builder reads it.
+- **Memory** (`MemoryHint`): what the in-memory value must hold exactly, and
+  whether arithmetic is exact decimal.
+- **Lineage** (`LineageEncoding`): `money` and the integers are written in
+  their wire encoding (#3527). Every other scalar is `unruled`.
+
+What the fact does not rule is listed in `UNRULED`, one owner question per
+entry, and no backend is moved onto a value for those.
+
+**Consequences.** The generator-layer numeric decision table
+(`_numeric/codec.ts`) and `money-scale.ts` now derive from the fact. node/Hono
+spells it in `src/generator/typescript/codec-spelling.ts` and
+`numeric-codec.ts`, and `test/generator/hono/codec-census.test.ts` fails on a
+scale, range bound, column factory, money grammar or ISO-8601 trim that a node
+emitter chooses itself. The other four backends move onto the fact one at a
+time. Until each does, it boots `corpus/provenance-money` as a tracked
+expected failure (`BEHAVIOURAL_XFAIL`, #3527).
+
+java/Spring renders the fact through `src/generator/java/wire-policy-java.ts`
+(`test/generator/java/wire-policy-census.test.ts` is its census, with the
+Jackson coercion table derived from `ingressFor`). Known java subject gap: the
+still-referenced 409 detail reads `This resource is still referenced…` because
+the shared advice does not know the aggregate.
 
 ## D-FAILURE-MODEL — Loom has no exceptions: each failure kind has one construct, and an expected failure is a value the caller must handle
 
@@ -5706,8 +5756,10 @@ call statement dropped it, and a workflow answered 204.
   statement and an unread `let` discard it. There is no implicit propagation
   and no `?` operator. (#4134)
 - **Returning `E` discards the operation's writes.** An operation that returns
-  an `error` variant leaves the aggregate as it was; nothing it assigned is
-  saved. (#4146)
+  an `error` variant leaves no trace: nothing it assigned is saved, and the
+  events it raised are neither published nor written to the outbox — the same
+  as a failed `precondition`. A failed attempt that must be recorded is
+  recorded explicitly. (#4146)
 - **A read does not encode absence as an error.** `T or NotFound` finds go; a
   read that may miss is `T?` (`find…`), one that must hit is `T` (`get…`, the
   standard 404). (#3951)
@@ -5720,6 +5772,11 @@ call statement dropped it, and a workflow answered 204.
 **Consequences.** `loom.unhandled-result` refuses a dropped `or E`
 (`src/language/validators/unhandled-result.ts`). In a workflow body the only
 handling route until #3367 lands is binding the result and reading it.
+Every backend's operation route or handler checks the error variant before it
+stamps, saves, audits or publishes (Java also marks the transaction
+rollback-only, since its loaded aggregate is a managed entity); the
+`operation-returns` corpus golden pins the unchanged read-back on every
+behavioural leg.
 
 ## D-ABSENCE-MODEL — "may be missing" has one type, `T?`; presence is the generated update's rule, not a type
 
