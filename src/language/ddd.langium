@@ -65,7 +65,7 @@ System:
 // pervasively as a domain identifier (operation/workflow/function names)
 // across the corpus; the `->` carries the intent.  A `RenameStep` is either a
 // COLUMN rename (`Agg.old -> new`) or a TABLE/aggregate rename
-// (`OldName -> NewAggregate`).
+// (`OldName -> NewName`, or a cross-context move `A.Name -> B.Name`).
 Migration:
     'migration' name=STRING '{'
         (steps+=MigrationStepDecl (','? steps+=MigrationStepDecl)* ','?)?
@@ -73,14 +73,13 @@ Migration:
 
 // A migration step: a raw `sql "…"` escape hatch, a column step (rename or
 // backfill — shares the `Agg.field` prefix, left-factored so the parser
-// stays LL(k)), or a table/aggregate rename (bare `OldName -> NewAggregate`).
-// Disambiguation: `sql` keyword ⇒ raw step; `ID '.'` ⇒ column step; `ID '->'`
-// ⇒ table rename.  Only the LIVE side is a cross-reference: a column step's
-// `aggregate` is the still-present aggregate; a table rename's `toAggregate`
-// is the post-rename aggregate.  The dead side (`field` as an old column
-// name / `fromTable` old table) is a bare identifier the model may no longer
-// declare — a ledger block legitimately names things that have since moved
-// on, so it is NOT cross-referenced.
+// stays LL(k)), or a table step (`OldName -> NewName`, `A.Name -> B.Name`).
+// Disambiguation: `sql` keyword ⇒ raw step; `ID '->'` ⇒ table rename;
+// `ID '.' ID '->' ID '.'` ⇒ table move; any other `ID '.'` ⇒ column step.  A
+// column step's `aggregate` is a cross-reference to the still-present
+// aggregate.  The dead side (`field` as an old column name / `fromTable` /
+// `fromContext`) is a bare identifier the model may no longer declare — a
+// ledger block legitimately names things that have since moved on.
 MigrationStepDecl:
     SqlStep | ColumnStep | TableRename;
 
@@ -111,13 +110,20 @@ SqlStep:
 ColumnStep:
     aggregate=[Aggregate:ID] '.' field=PropertyName ('->' renamedTo=PropertyName | '=' value=Expression);
 
-// `OldName -> NewAggregate` — the aggregate's table `plural(snake(OldName))`
-// is renamed to `plural(snake(NewAggregate))` in the derived diff, cascading
-// to the aggregate's owned child tables (parts / value-collections /
-// associations) and their owner FK columns.  `fromTable` is the OLD, now-
-// absent aggregate name (bare ID); `toAggregate` is the live cross-reference.
+// A table step renames and/or moves the table(s) of an aggregate, workflow or
+// projection, keeping their rows:
+//   - `OldName -> NewName`           — rename in place (same context).
+//   - `OldCtx.OldName -> NewCtx.NewName` — move to another bounded context
+//     (`SET SCHEMA`), renaming too when the names differ.
+// Both sides are bare names, never cross-references: the old side names
+// something the model no longer declares, and the new side may be an
+// aggregate, a workflow or a projection declared in any file of the project,
+// so it is resolved on the merged IR (phase ⑦, `resolveTableStepTarget`), which
+// reports an unknown, missing or ambiguous target.  The qualified form must
+// qualify BOTH sides: `Ctx.Name -> Name` would read as a column rename.
 TableRename:
-    fromTable=ID '->' toAggregate=[Aggregate:ID];
+    (fromContext=ID '.' fromTable=ID '->' toContext=ID '.' to=ID)
+    | (fromTable=ID '->' to=ID);
 
 SystemMember:
     Subdomain | Deployable | BoundedContext | TestE2E | UserBlock | AuthBlock | TenancyDecl | ThemeBlock | Ui | Api | Storage | Resource | ChannelSource | TimerSource | Layout | Capability | FunctionDecl;

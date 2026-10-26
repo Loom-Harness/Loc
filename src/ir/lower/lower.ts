@@ -477,10 +477,10 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
     else if (isMigration(m)) {
       // Schema-evolution intents (M-T2.1 renames + M-T2.3 data steps): each
       // step becomes an intent the phase-⑨ migration builder folds into its
-      // diff.  The live aggregate is resolved to its owning bounded context so
-      // the builder can pin the module + Postgres schema.  Names stay RAW (the
-      // builder snake-cases them exactly as it does aggregate fields / table
-      // names).
+      // diff.  A column or backfill step's live aggregate is resolved to its
+      // owning bounded context so the builder can pin the module + Postgres
+      // schema.  Names stay RAW (the builder snake-cases them exactly as it
+      // does aggregate fields / table names).
       m.steps.forEach((step, index) => {
         if (isSqlStep(step)) {
           sqlMigrationSteps.push({
@@ -522,15 +522,16 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
             });
           }
         } else {
-          // Table/aggregate rename (`OldName -> NewAggregate`).  Only the NEW
-          // aggregate is cross-referenced (the old name is gone); it pins the
-          // context/module.  `fromTable` is the old, now-absent name.
-          const agg = step.toAggregate.ref;
+          // Table step (`Old -> New`, or the qualified move `A.Old -> B.New`).
+          // Names stay raw: the target may be declared in another file, so it
+          // is resolved on the merged IR (`resolveTableStepTarget`).
           tableRenameIntents.push({
             migration: m.name,
-            fromAggregate: step.fromTable,
-            toAggregate: agg?.name ?? step.toAggregate.$refText,
-            context: AstUtils.getContainerOfType(agg, isBoundedContext)?.name ?? "",
+            from: step.fromTable,
+            to: step.to,
+            ...(step.fromContext !== undefined
+              ? { fromContext: step.fromContext, toContext: step.toContext }
+              : {}),
             origin: originFor(step),
           });
         }

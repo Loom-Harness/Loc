@@ -25,10 +25,22 @@ export function renderPgStep(step: MigrationStep): string {
       return renderCreateTable(step.table);
     case "dropTable":
       return `DROP TABLE ${qualified(step.schema, step.name)};`;
-    case "renameTable":
-      // Postgres `RENAME TO` takes an UNqualified new name (the table stays in
-      // its schema); qualify the source, bare the target.
-      return `ALTER TABLE ${qualified(step.schema, step.from)} RENAME TO ${ident(step.to)};`;
+    case "renameTable": {
+      // A move first changes schema (creating the target schema, idempotent,
+      // as a create-table does); Postgres carries the table's indexes,
+      // constraints and owned sequences along.  `RENAME TO` then takes an
+      // UNqualified new name (the table stays in its schema); qualify the
+      // source, bare the target.
+      const out: string[] = [];
+      if (step.fromSchema !== undefined) {
+        if (step.schema) out.push(`CREATE SCHEMA IF NOT EXISTS ${ident(step.schema)};`);
+        out.push(`${renderSetSchemaSql({ ...step, fromSchema: step.fromSchema })};`);
+      }
+      if (step.from !== step.to) {
+        out.push(`ALTER TABLE ${qualified(step.schema, step.from)} RENAME TO ${ident(step.to)};`);
+      }
+      return out.join("\n");
+    }
     case "addColumn":
       return renderAddColumn(step.table, step.schema, step.column, step.fk, step.ifNotExists);
     case "dropColumn":
@@ -154,6 +166,17 @@ export function renderAlterColumnDefaultSql(step: {
 }): string {
   const target = `ALTER TABLE ${qualified(step.schema, step.table)} ALTER COLUMN ${ident(step.name)}`;
   return step.to === undefined ? `${target} DROP DEFAULT` : `${target} SET DEFAULT ${step.to}`;
+}
+
+/** `ALTER TABLE … SET SCHEMA …` for a moved table, under its OLD name (a
+ *  rename, if any, follows in the new schema).  No trailing `;`.  A move into
+ *  the default schema names `public`. */
+export function renderSetSchemaSql(step: {
+  from: string;
+  schema?: string;
+  fromSchema: string | null;
+}): string {
+  return `ALTER TABLE ${qualified(step.fromSchema ?? undefined, step.from)} SET SCHEMA ${ident(step.schema ?? "public")}`;
 }
 
 export function renderRenameIndexSql(step: { from: string; to: string; schema?: string }): string {

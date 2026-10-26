@@ -54,7 +54,9 @@ export function readFixture(
     | "field-default-evolved"
     | "journal-order-base"
     | "journal-order-evolved"
-    | "unique-evo-base",
+    | "unique-evo-base"
+    | "move-base"
+    | "move-evolved",
 ): string {
   return fs.readFileSync(path.join(fixtureDir, `${name}.ddd`), "utf8");
 }
@@ -1448,6 +1450,121 @@ migration "harden" { sql before "DELETE FROM ledger.accounts WHERE is_deleted = 
       fs.rmSync(tree, { recursive: true, force: true });
     } catch {
       /* best-effort */
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Cross-context move gate — a table step `A.Note -> B.Note` keeps the rows.
+//
+// move-base.ddd holds a relational `Note` (with contained `Line` parts) and an
+// event-sourced `Ledger` in context `A` of module Notes; move-evolved.ddd moves
+// both into context `B` of a NEW module, Archive, through one migration block.
+// Without the block that is a drop of every `a.*` table and a create of the
+// `b.*` ones; with it the Archive module's first generation moves them
+// (`ALTER TABLE … SET SCHEMA`, the event log renamed `a_events → b_events`) and
+// the Notes module's generation only records the hand-off.
+//
+// Seeds a row in each table under v1, applies the v2 chain on top, and proves:
+//   (a) the seeded rows come out of the `b.*` tables, and nothing is left in
+//       `a` but the untouched `keeps`;
+//   (b) the migrated schema is the one a fresh create of v2 builds.
+//
+// Deliberately does NOT boot the backend — the move is DDL, so psql alone is a
+// complete and much faster proof.
+// ---------------------------------------------------------------------------
+export async function runCrossContextMoveGate(): Promise<void> {
+  const v1 = readFixture("move-base");
+  const v2 = readFixture("move-evolved");
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "loom-mev-move-"));
+  const fresh = fs.mkdtempSync(path.join(os.tmpdir(), "loom-mev-move-fresh-"));
+  let server: PgServer | undefined;
+  const migDir = (root: string) => path.join(root, "d", "db", "migrations");
+  const sqlFiles = (root: string) =>
+    fs
+      .readdirSync(migDir(root))
+      .filter((f) => f.endsWith(".sql"))
+      .sort();
+  try {
+    generate(v1, "node", tree);
+    const v1Files = sqlFiles(tree);
+    server = await startPgServer();
+    resetDatabase(server, "move");
+    for (const f of v1Files)
+      psql(server, "move", fs.readFileSync(path.join(migDir(tree), f), "utf8"));
+
+    const noteId = "11111111-1111-1111-1111-111111111111";
+    psql(
+      server,
+      "move",
+      `INSERT INTO "a"."notes" ("id", "text", "version") VALUES ('${noteId}', 'kept', 1)`,
+    );
+    psql(
+      server,
+      "move",
+      `INSERT INTO "a"."lines" ("id", "note_id", "sku") VALUES ('22222222-2222-2222-2222-222222222222', '${noteId}', 'SKU-1')`,
+    );
+    psql(
+      server,
+      "move",
+      `INSERT INTO "a"."a_events" ("stream_type", "stream_id", "version", "type", "data") ` +
+        `VALUES ('Ledger', 'L-1', 1, 'Charged', '{"amount": 5}')`,
+    );
+
+    // v2 records with NO --allow-destructive: the declared move is not
+    // destructive.
+    generate(v2, "node", tree);
+    const deltas = sqlFiles(tree).filter((f) => !v1Files.includes(f));
+    if (deltas.length === 0) throw new Error(`no v2 migration emitted under ${migDir(tree)}`);
+    const all = deltas.map((f) => fs.readFileSync(path.join(migDir(tree), f), "utf8")).join("\n");
+    expect(all).not.toMatch(/DROP TABLE/);
+    expect(all).toContain(`ALTER TABLE "a"."notes" SET SCHEMA "b";`);
+    for (const f of deltas)
+      psql(server, "move", fs.readFileSync(path.join(migDir(tree), f), "utf8"));
+
+    // (a) The rows survived the move.
+    expect(psql(server, "move", `SELECT "text" FROM "b"."notes" WHERE "id" = '${noteId}'`)).toBe(
+      "kept",
+    );
+    expect(
+      psql(server, "move", `SELECT "sku" FROM "b"."lines" WHERE "note_id" = '${noteId}'`),
+    ).toBe("SKU-1");
+    expect(
+      psql(server, "move", `SELECT "stream_type" || '/' || "stream_id" FROM "b"."b_events"`),
+    ).toBe("Ledger/L-1");
+    expect(
+      psql(
+        server,
+        "move",
+        `SELECT string_agg(table_name, ',' ORDER BY table_name) FROM information_schema.tables WHERE table_schema = 'a'`,
+      ),
+    ).toBe("keeps");
+    // The moved log still assigns its cursor — the sequence moved with it.
+    psql(
+      server,
+      "move",
+      `INSERT INTO "b"."b_events" ("stream_type", "stream_id", "version", "type", "data") ` +
+        `VALUES ('Ledger', 'L-1', 2, 'Charged', '{"amount": 1}')`,
+    );
+
+    // (b) The chain built the schema a fresh create of v2 builds.
+    generate(v2, "node", fresh);
+    resetDatabase(server, "movefresh");
+    for (const f of sqlFiles(fresh)) {
+      psql(server, "movefresh", fs.readFileSync(path.join(migDir(fresh), f), "utf8"));
+    }
+    assertSchemaEquivalent(
+      fingerprintSchema(server, "move"),
+      fingerprintSchema(server, "movefresh"),
+    );
+  } finally {
+    server?.stop();
+    for (const dir of [tree, fresh]) {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* best-effort */
+      }
     }
   }
 }

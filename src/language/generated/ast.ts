@@ -3743,14 +3743,18 @@ export function isSystemMember(item: unknown): item is SystemMember {
 export interface TableRename extends langium.AstNode {
     readonly $container: Migration;
     readonly $type: 'TableRename';
+    fromContext?: string;
     fromTable: string;
-    toAggregate: langium.Reference<Aggregate>;
+    to: string;
+    toContext?: string;
 }
 
 export const TableRename = {
     $type: 'TableRename',
+    fromContext: 'fromContext',
     fromTable: 'fromTable',
-    toAggregate: 'toAggregate'
+    to: 'to',
+    toContext: 'toContext'
 } as const;
 
 export function isTableRename(item: unknown): item is TableRename {
@@ -7585,12 +7589,19 @@ export class DddAstReflection extends langium.AbstractAstReflection {
         TableRename: {
             name: TableRename.$type,
             properties: {
+                fromContext: {
+                    name: TableRename.fromContext,
+                    optional: true
+                },
                 fromTable: {
                     name: TableRename.fromTable
                 },
-                toAggregate: {
-                    name: TableRename.toAggregate,
-                    referenceType: Aggregate.$type
+                to: {
+                    name: TableRename.to
+                },
+                toContext: {
+                    name: TableRename.toContext,
+                    optional: true
                 }
             },
             superTypes: [MigrationStepDecl.$type]
