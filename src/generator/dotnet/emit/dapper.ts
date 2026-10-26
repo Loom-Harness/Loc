@@ -55,6 +55,7 @@ import { lines } from "../../../util/code-builder.js";
 import { rewrite } from "../../../util/emission-sink.js";
 import { intrinsicFor, intrinsicKey } from "../../../util/intrinsics.js";
 import { escapeCsharpIdent, plural, snake, upperFirst } from "../../../util/naming.js";
+import { tableNameFor } from "../../../util/storage-names.js";
 import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js";
 import { PG_INTRINSIC_SQL } from "../../_expr/pg-intrinsics.js";
 import { renderPrincipalTest } from "../../_expr/principal-term.js";
@@ -151,7 +152,7 @@ export function sqlIdent(name: string): string {
  *  callers quote it at the SQL position with `sqlIdent`, because the same
  *  string also seeds derived names (a `CREATE INDEX` name) where a quote would
  *  be wrong. */
-const tableOf = (aggName: string): string => plural(snake(aggName));
+const tableOf = (aggName: string): string => tableNameFor(aggName);
 
 /** The state table an aggregate's rows live in — the SAME derivation the
  *  repositories and the DDL use, exported so the OTHER raw-Npgsql readers
@@ -531,7 +532,7 @@ function partChildrenOf(agg: EnrichedAggregateIR, ownerName: string = agg.name):
       return {
         cont,
         part,
-        table: plural(snake(part.name)),
+        table: tableNameFor(part.name),
         fkOwner,
         parentFk: `${snake(fkOwner)}_id`,
         parentEntityId,

@@ -6,7 +6,8 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { directParentName } from "../../../ir/util/containment-parent.js";
 import { lines } from "../../../util/code-builder.js";
-import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { plural, upperFirst } from "../../../util/naming.js";
+import { tableNameFor } from "../../../util/storage-names.js";
 import { csValueTypeForId, renderCsType } from "../render-expr.js";
 
 // ---------------------------------------------------------------------------
@@ -91,7 +92,7 @@ export function renderDocumentConfiguration(
   ns: string,
   options: { schema?: string; tablePrefix?: string } = {},
 ): string {
-  const baseTable = snake(plural(agg.name));
+  const baseTable = tableNameFor(agg.name);
   const tableName = options.tablePrefix ? `${options.tablePrefix}${baseTable}` : baseTable;
   const tableArgs = options.schema ? `"${tableName}", "${options.schema}"` : `"${tableName}"`;
   return (

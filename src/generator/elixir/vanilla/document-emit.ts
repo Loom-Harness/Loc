@@ -67,10 +67,10 @@ import {
   elixirLocal,
   elixirString,
   escapeElixirIdent,
-  plural,
   snake,
   upperFirst,
 } from "../../../util/naming.js";
+import { tableNameFor } from "../../../util/storage-names.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
@@ -97,7 +97,6 @@ import {
 } from "./operation-returns-emit.js";
 import { renderEctoDefault } from "./schema-emit.js";
 import { stampAssignmentPairs, stampUsesPrincipal, stampUsesPrincipalFor } from "./stamp-emit.js";
-
 /** True iff the aggregate's effective saving shape is `document` (binding-aware,
  *  matching the migration + validator).  `sys` may be absent in a few legacy
  *  test paths — then the header alone decides (`agg.savingShape`). */
@@ -220,7 +219,7 @@ export function renderDocSchema(
   pureCore: readonly string[] = [],
 ): string {
   const moduleName = `${appModule}.${ctxModule}.${upperFirst(agg.name)}`;
-  const tableName = snake(plural(agg.name));
+  const tableName = tableNameFor(agg.name);
   const pureCoreBlock = pureCore.length > 0 ? `\n${pureCore.join("\n")}\n` : "";
   const prefixLine = schemaPrefix ? `  @schema_prefix ${JSON.stringify(schemaPrefix)}\n` : "";
   // Route A: the blob is a TYPED `embeds_one :data, <Agg>.Data` embedded schema

@@ -149,7 +149,7 @@ describe("`sql before` ordering (B-20)", () => {
       return 0;
     };
     for (const [backend, files] of Object.entries(outputs)) {
-      const paths = [...files.keys()].filter((p) => !/db\/migrate\.ts$|\.json$/.test(p));
+      const paths = [...files.keys()].filter((p) => !/db\/migrate(-cli)?\.ts$|\.json$/.test(p));
       paths.sort(backend === "flyway" ? byFlyway : undefined);
       const applied = paths.map((p) => files.get(p)!).join("\n");
       expect(paths.length, `${backend}: a transactional + a concurrent unit`).toBe(2);

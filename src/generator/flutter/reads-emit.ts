@@ -27,14 +27,14 @@ import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import { groupedProjectionNames, readableProjectionNames } from "../../ir/util/projection-read.js";
 import { walkExprChildren } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
-import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { isEntityHistoryRead } from "../_walker/history-read.js";
 import { isOfReadCall } from "../_walker/of-reads.js";
 import { bcByAggregateOf, isPagedQuery } from "../_walker/paged-query.js";
 import { flutterHttpImport } from "./api-client.js";
 import { dartType } from "./dart-types.js";
-
 /** One distinct read a ui issues, projected to everything the provider emitter
  *  needs.  Deduped by `varName` across every page of the ui. */
 export interface FlutterRead {
@@ -244,7 +244,7 @@ export function collectFlutterReads(
           varName,
           aggregate: AUDIT_ENTRY_TYPE,
           single: false,
-          routePath: `/${snake(plural(detected.aggregateName))}`,
+          routePath: `/${routeSegmentFor(detected.aggregateName)}`,
           paged: false,
           history: true,
         });
@@ -272,7 +272,7 @@ export function collectFlutterReads(
           // `GET /<plural(agg)>/<snake(findName)>?<params>` (cf. the React
           // `useNamedProduct` client — the contract is read off that, not
           // invented here).
-          routePath: `/${snake(plural(detected.aggregateName))}/${snake(detected.operation)}`,
+          routePath: `/${routeSegmentFor(detected.aggregateName)}/${snake(detected.operation)}`,
           paged: false,
           params: find.params.map((p) => ({ name: p.name, dartType: dartType(p.type) })),
         });
@@ -285,7 +285,7 @@ export function collectFlutterReads(
         varName,
         aggregate: upperFirst(detected.aggregateName),
         single: detected.operation === "byId",
-        routePath: `/${snake(plural(detected.aggregateName))}`,
+        routePath: `/${routeSegmentFor(detected.aggregateName)}`,
         paged: detected.operation !== "byId" && isPagedQuery(ofArg, pagedCtx),
         bareList:
           detected.operation === "all" &&

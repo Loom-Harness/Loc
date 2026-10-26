@@ -21,8 +21,8 @@ import {
 } from "../../ir/types/loom-ir.js";
 import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
 import { findRaisesNotFound } from "../../ir/util/key-lookup.js";
-import { CONCURRENCY_CONFLICT_SUFFIX } from "../../ir/util/openapi-errors.js";
 import { defaultSortOrder } from "../../ir/util/sortable-fields.js";
+import { pyConflictRaise, pyNotFoundRaise } from "./wire-policy-py.js";
 
 /** The minimal read shape the query-time projection reuse feeds
  *  `viewFindMethod` — a name, an aggregate source, an optional filter and
@@ -263,7 +263,7 @@ export function writeGuardMethod(
     `    async def get_by_id_for_write(self, id: ${pyIdType(agg.name)}) -> ${aggRef(agg)}:`,
     `        __ok = (await self._session.execute(${R.select}(${root}.id).where(${root}.id == id, ${writePred.expr}))).first()`,
     "        if __ok is None:",
-    `            raise ${R.AggregateNotFoundError}(f"${agg.name} {id} not found")`,
+    `            ${pyNotFoundRaise(R.AggregateNotFoundError, agg.name, "id")}`,
     "        return await self.get_by_id(id)",
   ];
 }
@@ -284,7 +284,7 @@ export function writeGuardMethod(
  *  the routes layer only dispatches here when it is set. */
 export function writeGuardInApp(agg: EnrichedAggregateIR): (string | null)[] {
   if (!agg.writeScopeFilter) return [];
-  const notFound = `raise ${R.AggregateNotFoundError}(f"${agg.name} {id} not found")`;
+  const notFound = `${pyNotFoundRaise(R.AggregateNotFoundError, agg.name, "id")}`;
   const sig = `    async def get_by_id_for_write(self, id: ${pyIdType(agg.name)}) -> ${aggRef(agg)}:`;
   if (writeScopeDeniesAll(agg)) {
     return [
@@ -398,7 +398,7 @@ export function buildPyRepositoryFile(
     // Hono/.NET repo emission.
     `        ${PY.log}("debug", "aggregate_loaded", aggregate=${JSON.stringify(agg.name)}, id=str(id), found=found is not None)`,
     "        if found is None:",
-    `            raise ${R.AggregateNotFoundError}(f"${agg.name} {id} not found")`,
+    `            ${pyNotFoundRaise(R.AggregateNotFoundError, agg.name, "id")}`,
     "        return found",
     // The command-load path (authorization): a mutation route
     // loads through this when the aggregate's WRITE scope is narrower than its
@@ -1407,9 +1407,7 @@ function saveMethod(
     out.push(`            .returning(${root}.id)`);
     out.push("        )");
     out.push("        if _guarded.first() is None:");
-    out.push(
-      `            raise ${R.ConcurrencyError}(f"${agg.name} {${aggVar}.id} ${CONCURRENCY_CONFLICT_SUFFIX}")`,
-    );
+    out.push(`            ${pyConflictRaise(R.ConcurrencyError, agg.name, `${aggVar}.id`)}`);
   } else {
     out.push("        await self._session.execute(");
     out.push(

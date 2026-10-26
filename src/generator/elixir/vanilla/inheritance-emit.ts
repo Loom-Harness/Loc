@@ -12,7 +12,7 @@
 // exposes the table name + discriminator the emitters need.
 //
 // A TPH concrete's schema resolves to the SHARED BASE TABLE and carries `kind`
-// — never `snake(plural(agg.name))` (`customers` / `vendors`), which the
+// — never the concrete's own table (`customers` / `vendors`), which the
 // migration never creates, since TPH shares one table named for the abstract
 // base with a `kind` discriminator; reads there 500 at runtime with "relation
 // customers does not exist".  The repository filters every read by `kind` and
@@ -20,14 +20,9 @@
 // reader.
 // ---------------------------------------------------------------------------
 
+import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
 import type { AggregateIR, FieldIR } from "../../../ir/types/loom-ir.js";
-import {
-  discriminatorValue,
-  ownFieldsOf,
-  tableOwnerName,
-  tphConcretesOf,
-} from "../../../ir/util/inheritance.js";
-import { plural, snake } from "../../../util/naming.js";
+import { discriminatorValue, ownFieldsOf, tphConcretesOf } from "../../../ir/util/inheritance.js";
 
 export {
   baseOf,
@@ -43,11 +38,10 @@ export {
 
 /** The Ecto `schema "<table>"` name for an aggregate — the SHARED base table
  *  (`parties`) for a TPH base or concrete, otherwise the aggregate's own
- *  pluralised table.  Mirrors `migrations-builder.ts` (which names the TPH
- *  table `plural(snake(base.name))`), so the generated schema and the migrated
- *  table always agree. */
+ *  table.  The migrations builder reads the same `aggregateTableName`, so the
+ *  generated schema and the migrated table always agree. */
 export function vanillaTableName(agg: AggregateIR, pool: readonly AggregateIR[]): string {
-  return snake(plural(tableOwnerName(agg, pool)));
+  return aggregateTableName(agg, pool);
 }
 
 /** True when the aggregate is an abstract base — it is never instantiated, so

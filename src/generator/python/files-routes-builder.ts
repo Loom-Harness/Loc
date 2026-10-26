@@ -1,4 +1,5 @@
 import { lines } from "../../util/code-builder.js";
+import { pyNotFoundRaise } from "./wire-policy-py.js";
 
 /** `app/domain/file_ref.py` — the shared `FileRef` wire/JSONB shape a `File`
  *  field round-trips (M-T1.2).  A `TypedDict` (a plain dict at runtime) so it
@@ -74,7 +75,7 @@ export function renderPyFilesRoutes(fn: string, module: string): string {
     // handler registered on the FastAPI app) rather than hand-building a body,
     // so an absent object answers the same RFC 7807 envelope — and the same
     // `httpStatus NotFound -> <Code>` override — as every other absent read.
-    '        raise AggregateNotFoundError(f"File {key} not found")',
+    `        ${pyNotFoundRaise("AggregateNotFoundError", "File", "key")}`,
     "    body, content_type = obj",
     "    return Response(content=body, media_type=content_type)",
     "",

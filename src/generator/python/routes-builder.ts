@@ -1,3 +1,4 @@
+import { FIND_ABSENT_DETAIL, reasonPhrase, wireSentenceFor } from "../../ir/enrich/wire-policy.js";
 import {
   createInputFields,
   emitsRestCreate,
@@ -47,7 +48,7 @@ import {
   operationGates,
   operationGatesUseCurrentUser,
 } from "../../ir/util/op-gates.js";
-import { errorStatuses, type OpErrorKind, problemTitle } from "../../ir/util/openapi-errors.js";
+import { errorStatuses, type OpErrorKind } from "../../ir/util/openapi-errors.js";
 import {
   camelId,
   opCreate,
@@ -61,19 +62,13 @@ import { listReadFind } from "../../ir/util/read-gates.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
 import {
-  defaultErrorStatus,
-  errorTitle,
-  errorTypeUri,
-  resolveErrorStatus,
-} from "../../util/error-defaults.js";
-import {
-  plural,
   pythonIdent,
   pythonWireIdent,
   pythonWireNeedsAlias,
   snake,
   upperFirst,
 } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { UUID_WIRE_PATTERN } from "../../util/uuid-wire.js";
 import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/server-default.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
@@ -93,6 +88,11 @@ import { PY, pyIdType, pyVoOrEnum } from "./py-symbols.js";
 import { renderPyExpr, renderPyNegatedGuard } from "./render-expr.js";
 import { aggHasFieldMask, emittableFinds } from "./repository-builder.js";
 import { hasStamp, type StampEvent, stampUsesUser } from "./stamp-call.js";
+import {
+  pyErrorVariantReturn,
+  pyProblemResponseEntry,
+  wireStatusResolver,
+} from "./wire-policy-py.js";
 
 // The symbols a routes module references, as `ref()` markers — the module's
 // import block derives from the ones that survive into its text (M-T9.84).
@@ -185,7 +185,7 @@ export function buildPyRoutesFile(
    *  write (M-T9.84) — kept so the orchestrator's call shape is unchanged. */
   _extraIdNames: readonly string[] = [],
 ): string {
-  const slug = snake(plural(agg.name));
+  const slug = routeSegmentFor(agg.name);
   // THE UNIFICATION SEAM (api-surface.ts): route-set membership, decorator
   // paths, and the declared error statuses come from the shared derivation.
   // This file keeps what is genuinely python's: pydantic models, handler
@@ -347,9 +347,7 @@ export function errorResponsesKwarg(
     (a, b) => a - b,
   );
   if (statuses.length === 0) return "";
-  const entries = statuses.map(
-    (st) => `${st}: {"model": ${H.ProblemDetails}, "description": "${problemTitle(st)}"}`,
-  );
+  const entries = statuses.map((st) => pyProblemResponseEntry(st, H.ProblemDetails));
   return `, responses={${entries.join(", ")}}`;
 }
 
@@ -360,9 +358,7 @@ export function errorResponsesKwarg(
  *  from `deriveAggregateOperations`, only the kwarg idiom is python's. */
 function derivedResponsesKwarg(op: ApiOperationIR): string {
   if (op.errorStatuses.length === 0) return "";
-  const entries = op.errorStatuses.map(
-    (st) => `${st}: {"model": ${H.ProblemDetails}, "description": "${problemTitle(st)}"}`,
-  );
+  const entries = op.errorStatuses.map((st) => pyProblemResponseEntry(st, H.ProblemDetails));
   return `, responses={${entries.join(", ")}}`;
 }
 
@@ -370,7 +366,7 @@ function derivedResponsesKwarg(op: ApiOperationIR): string {
  *  structural-conflict status resolver every route in the file threads
  *  (M-T3.4a). With no override every conflict resolves to 409 (byte-identical). */
 export function conflictResolver(ctx: EnrichedBoundedContextIR): (name: string) => number {
-  return (name) => resolveErrorStatus(name, ctx.structuralErrorStatuses);
+  return wireStatusResolver(ctx.structuralErrorStatuses);
 }
 
 /** The two pagination controls of a paged read, as FastAPI parameter
@@ -886,7 +882,7 @@ function allRoute(
     ].join(", ");
     return lines(
       `@router.get("${relativeOpPath(apiOp)}", response_model=${paged.name}, operation_id="all${agg.name}"${derivedResponsesKwarg(apiOp)})`,
-      `async def all_${snake(plural(agg.name))}(${sig}) -> dict[str, object]:`,
+      `async def all_${routeSegmentFor(agg.name)}(${sig}) -> dict[str, object]:`,
       gateLines,
       "    repo = _repo(session)",
       "    result = await repo.all(page, pageSize, sort, dir)",
@@ -901,7 +897,7 @@ function allRoute(
   }
   return lines(
     `@router.get("${relativeOpPath(apiOp)}", response_model=${agg.name}ListResponse, operation_id="all${agg.name}"${derivedResponsesKwarg(apiOp)})`,
-    `async def all_${snake(plural(agg.name))}(${[...userParam, "session: SessionDep"].join(", ")}) -> list[dict[str, object]]:`,
+    `async def all_${routeSegmentFor(agg.name)}(${[...userParam, "session: SessionDep"].join(", ")}) -> list[dict[str, object]]:`,
     gateLines,
     "    repo = _repo(session)",
     `    return [${wireResp(agg, "root")} for root in await repo.all()]`,
@@ -1024,8 +1020,8 @@ function destroyRoute(
     `        return ${H.problem}(`,
     "            request,",
     `            ${referencedInUse},`,
-    `            "Conflict",`,
-    `            "${agg.name} is still referenced and cannot be deleted.",`,
+    `            ${JSON.stringify(reasonPhrase(referencedInUse))},`,
+    `            ${JSON.stringify(wireSentenceFor("referenced-in-use", agg.name))},`,
     "        )",
     `    return ${H.Response}(status_code=204)`,
   );
@@ -1184,17 +1180,16 @@ function operationRoute(
     const errorTags = op.returnType.variants
       .map((v) => variantTag(v))
       .filter((tag) => ctx.payloads.some((pl) => pl.name === tag && pl.kind === "error"));
-    const translations = errorTags.flatMap((tag) => {
-      const st = ctx.errorStatusOverrides?.[tag] ?? defaultErrorStatus(tag);
-      return [
-        `    if result["type"] == ${JSON.stringify(tag)}:`,
-        `        return ${H.JSONResponse}(`,
-        `            {**result, "type": ${JSON.stringify(errorTypeUri(tag))}, "title": ${JSON.stringify(errorTitle(tag))}, "status": ${st}, "detail": ${JSON.stringify(errorTitle(tag))}, "instance": request.url.path},`,
-        `            status_code=${st},`,
-        '            media_type="application/problem+json",',
-        "        )",
-      ];
-    });
+    const translations = errorTags.flatMap((tag) => [
+      `    if result["type"] == ${JSON.stringify(tag)}:`,
+      ...pyErrorVariantReturn({
+        tag,
+        overrides: ctx.errorStatusOverrides,
+        jsonResponseRef: H.JSONResponse,
+        bodyHead: "**result, ",
+        indent: "        ",
+      }),
+    ]);
     const usesUser = operationBodyUsesCurrentUser(op);
     const gateUsesUser = operationGatesUseCurrentUser(op);
     // Update stamps apply right before the persist; a principal-referencing
@@ -1350,16 +1345,11 @@ function findRoute(
     // status.  Declared on the OpenAPI route so the error response is typed
     // (was missing) and the 200 is the SUCCESS variant directly — never a
     // tagged union (exception-less.md §4).
-    const absentStatus =
-      unionSpec.absent.kind === "none"
-        ? 404
-        : (ctx.errorStatusOverrides?.[unionSpec.absent.tag] ??
-          defaultErrorStatus(unionSpec.absent.tag));
     const absent =
       unionSpec.absent.kind === "none"
         ? [
             `    if (found := await repo.${findSnake}(${args})) is None:`,
-            `        raise ${H.AggregateNotFoundError}("not_found")`,
+            `        raise ${H.AggregateNotFoundError}(${JSON.stringify(FIND_ABSENT_DETAIL)})`,
           ]
         : (() => {
             const tag = unionSpec.absent.tag;
@@ -1368,11 +1358,13 @@ function findRoute(
               : "";
             return [
               `    if (found := await repo.${findSnake}(${args})) is None:`,
-              `        return ${H.JSONResponse}(`,
-              `            {${resourceExt}"type": ${JSON.stringify(errorTypeUri(tag))}, "title": ${JSON.stringify(errorTitle(tag))}, "status": ${absentStatus}, "detail": ${JSON.stringify(errorTitle(tag))}, "instance": request.url.path},`,
-              `            status_code=${absentStatus},`,
-              '            media_type="application/problem+json",',
-              "        )",
+              ...pyErrorVariantReturn({
+                tag,
+                overrides: ctx.errorStatusOverrides,
+                jsonResponseRef: H.JSONResponse,
+                bodyHead: resourceExt,
+                indent: "        ",
+              }),
             ];
           })();
     return lines(
@@ -1383,7 +1375,7 @@ function findRoute(
       // the optional arm, it once published [404] while its sibling published
       // [403].)
       `@router.get("${relativeOpPath(apiOp)}", response_model=${agg.name}Response, operation_id="${opId}"${derivedResponsesKwarg(apiOp)})`,
-      `async def ${findSnake}_${snake(plural(agg.name))}(${sig}) -> dict[str, object] | ${H.JSONResponse}:`,
+      `async def ${findSnake}_${routeSegmentFor(agg.name)}(${sig}) -> dict[str, object] | ${H.JSONResponse}:`,
       userBind,
       gateLines,
       "    repo = _repo(session)",
@@ -1415,7 +1407,7 @@ function findRoute(
     ];
     return lines(
       `@router.get("${relativeOpPath(apiOp)}", response_model=${paged.name}, operation_id="${opId}"${derivedResponsesKwarg(apiOp)})`,
-      `async def ${findSnake}_${snake(plural(agg.name))}(${pagedSig}) -> dict[str, object]:`,
+      `async def ${findSnake}_${routeSegmentFor(agg.name)}(${pagedSig}) -> dict[str, object]:`,
       userBind,
       gateLines,
       "    repo = _repo(session)",
@@ -1432,7 +1424,7 @@ function findRoute(
   if (isList) {
     return lines(
       `@router.get("${relativeOpPath(apiOp)}", response_model=${agg.name}ListResponse, operation_id="${opId}"${derivedResponsesKwarg(apiOp)})`,
-      `async def ${findSnake}_${snake(plural(agg.name))}(${sig}) -> list[dict[str, object]]:`,
+      `async def ${findSnake}_${routeSegmentFor(agg.name)}(${sig}) -> list[dict[str, object]]:`,
       userBind,
       gateLines,
       "    repo = _repo(session)",
@@ -1441,7 +1433,7 @@ function findRoute(
   }
   return lines(
     `@router.get("${relativeOpPath(apiOp)}", response_model=${agg.name}Response, operation_id="${opId}"${derivedResponsesKwarg(apiOp)})`,
-    `async def ${findSnake}_${snake(plural(agg.name))}(${sig}) -> dict[str, object]:`,
+    `async def ${findSnake}_${routeSegmentFor(agg.name)}(${sig}) -> dict[str, object]:`,
     userBind,
     gateLines,
     "    repo = _repo(session)",

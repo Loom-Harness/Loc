@@ -1,5 +1,6 @@
 import type { ExprIR, OperationIR } from "../../ir/types/loom-ir.js";
-import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { humanize, lowerFirst, upperFirst } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { preconditionsAsInvariants } from "../_frontend/zod-schemas.js";
 import { giveUp } from "../_walker/give-up.js";
 import { opDialogChrome } from "../_walker/i18n-chrome.js";
@@ -23,7 +24,6 @@ import {
 } from "./form-fields.js";
 import { angularValidatorMap, applyAngularValidators } from "./form-validators.js";
 import { angularSink } from "./walker/sink.js";
-
 // ---------------------------------------------------------------------------
 // Angular `Modal { OperationForm(…), trigger: Button(…) }` renderer — the
 // operation-dialog form, forked from the shared RHF path via the `renderModal`
@@ -133,7 +133,7 @@ export function renderAngularModal(
   const mutationFn = `use${upperFirst(op.name)}${aggName}`;
   const importFrom = `../../api/${lowerFirst(aggName)}`;
   const submitMethod = `submit${upperFirst(op.name)}${aggName}`;
-  const ns = stringNamed(formChild, "testid") ?? `${snake(plural(aggName))}-op-${op.name}`;
+  const ns = stringNamed(formChild, "testid") ?? `${routeSegmentFor(aggName)}-op-${op.name}`;
 
   const trigger = namedArgValue(call, "trigger");
   const triggerPositional = trigger?.kind === "call" ? positionalArgs(trigger)[0] : undefined;

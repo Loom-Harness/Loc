@@ -7,6 +7,7 @@
 // logic change.
 // -------------------------------------------------------------------------
 
+import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   ContainmentIR,
@@ -24,7 +25,6 @@ import { discriminatorValue, tableOwnerName } from "../../../ir/util/inheritance
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
-import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
 import { joinColumnName } from "../emit.js";
@@ -602,7 +602,7 @@ export function renderMikroRepository(
   // `ConcurrencyError` (mapped to 409 by the shared onError arm).  `expected` is
   // the caller's `expectedVersion` (threaded from the route's `If-Match`) falling
   // back to the just-loaded `aggregate.version`.
-  const versioned = aggregateIsVersioned(agg);
+  const versioned = rowVersionGuarded(agg);
   const nonVersionEntries = scalarFields
     .filter((f) => f.name !== "version")
     .flatMap((f) => projectFieldEntries(f, "aggregate", ctx));

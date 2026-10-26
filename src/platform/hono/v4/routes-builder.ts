@@ -3,12 +3,6 @@ import {
   serverSourcedDefaultFields,
 } from "../../../generator/_frontend/server-default.js";
 import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
-import {
-  INT32_MAX,
-  INT32_MIN,
-  LONG_SAFE_MAX,
-  LONG_SAFE_MIN,
-} from "../../../generator/_numeric/codec.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import { requestComponentNamer } from "../../../generator/_openapi/request-component-names.js";
@@ -30,6 +24,7 @@ import {
   PG_REFERENCED_IN_USE_SQLSTATES,
   PG_UNIQUE_VIOLATION,
 } from "../../../generator/_persistence/pg-sqlstate.js";
+import { tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
 import {
   historyMapperArgs,
   historyMapperName,
@@ -54,6 +49,12 @@ import {
   refineClauseFor,
   takeSingleFieldChain,
 } from "../../../generator/zod-refine.js";
+import {
+  aggregateCanConflict,
+  operationVersionCheck,
+  readsIfMatch,
+  type VersionCheck,
+} from "../../../ir/enrich/version-check.js";
 import {
   errorVariantResponse,
   FIND_ABSENT_DETAIL,
@@ -145,15 +146,14 @@ import {
   orderValueObjectsByDependency,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
-import { aggregateIsEventSourced } from "../../../ir/util/resolve-datasource.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
-import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExpr } from "../../../ir/validate/checks/shared.js";
 import type {
   ClassifyContext,
   SingleFieldPattern,
 } from "../../../ir/validate/invariant-classify.js";
-import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import { lowerFirst, upperFirst } from "../../../util/naming.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
 import { escapeTargetMember } from "../../../util/target-identifiers.js";
 
 // ---------------------------------------------------------------------------
@@ -259,7 +259,7 @@ function emitHistoryRoute(
   const notFoundStatus = wireStatus("not-found", statuses);
   const forbiddenStatus = wireStatus("forbidden", statuses);
   const out: string[] = [];
-  const aggSlug = snake(plural(agg.name));
+  const aggSlug = routeSegmentFor(agg.name);
   out.push(`app.openapi(`);
   out.push(`  createRoute({`);
   out.push(`    method: "get",`);
@@ -569,7 +569,7 @@ export function buildRoutesFile(
     "DisallowedError",
     "ForbiddenError",
     "ExternHandlerError",
-    ...(aggregateIsVersioned(agg) || aggregateIsEventSourced(agg) ? ["ConcurrencyError"] : []),
+    ...(aggregateCanConflict(agg) ? ["ConcurrencyError"] : []),
     ...(hasExternOp ? ["NotImplementedError"] : []),
   ];
   lines.push(`import { ${errorNames.join(", ")} } from "../domain/errors";`);
@@ -1026,7 +1026,7 @@ export function buildRoutesFile(
     lines.push(`    createRoute({`);
     lines.push(`      method: "${derivedCreate.method}",`);
     lines.push(`      path: "${honoPath(derivedCreate)}",`);
-    lines.push(`      tags: ["${snake(plural(agg.name))}"],`);
+    lines.push(`      tags: ["${routeSegmentFor(agg.name)}"],`);
     lines.push(`      operationId: "${camelId(opCreate(agg.name))}",`);
     lines.push(`      request: {`);
     lines.push(
@@ -1172,7 +1172,7 @@ export function buildRoutesFile(
       lines.push(`    createRoute({`);
       lines.push(`      method: "get",`);
       lines.push(`      path: "/prepare",`);
-      lines.push(`      tags: ["${snake(plural(agg.name))}"],`);
+      lines.push(`      tags: ["${routeSegmentFor(agg.name)}"],`);
       lines.push(`      operationId: "prepare${agg.name}",`);
       lines.push(`      responses: {`);
       lines.push(`        200: {`);
@@ -1227,7 +1227,7 @@ export function buildRoutesFile(
     lines.push(`    createRoute({`);
     lines.push(`      method: "${derivedGetById.method}",`);
     lines.push(`      path: "${honoPath(derivedGetById)}",`);
-    lines.push(`      tags: ["${snake(plural(agg.name))}"],`);
+    lines.push(`      tags: ["${routeSegmentFor(agg.name)}"],`);
     lines.push(`      operationId: "${camelId(opGetById(agg.name))}",`);
     lines.push(`      request: { params: z.object({ id: UuidString }) },`);
     lines.push(`      responses: {`);
@@ -1280,7 +1280,7 @@ export function buildRoutesFile(
     // conformance spec-diff, so declaring it on node alone would read as a
     // contract divergence.  Declaring it belongs with emitting it on the other
     // four backends, in one change.
-    if (aggregateIsVersioned(agg)) {
+    if (readsIfMatch(operationVersionCheck(agg))) {
       lines.push(`      c.header("etag", versionETag(found.version));`);
     }
     if (emitTrace) {
@@ -1316,7 +1316,7 @@ export function buildRoutesFile(
     lines.push(`    createRoute({`);
     lines.push(`      method: "${derivedDestroy.method}",`);
     lines.push(`      path: "${honoPath(derivedDestroy)}",`);
-    lines.push(`      tags: ["${snake(plural(agg.name))}"],`);
+    lines.push(`      tags: ["${routeSegmentFor(agg.name)}"],`);
     lines.push(`      operationId: "${camelId(opDestroy(agg.name))}",`);
     lines.push(`      request: { params: z.object({ id: UuidString }) },`);
     lines.push(`      responses: {`);
@@ -1501,8 +1501,7 @@ export function buildRoutesFile(
     disallowedStatus,
   ]);
   if ((agg.uniqueKeys?.length ?? 0) > 0) emittedProblemStatuses.add(uniquenessStatus);
-  if (aggregateIsVersioned(agg) || aggregateIsEventSourced(agg))
-    emittedProblemStatuses.add(concurrencyStatus);
+  if (aggregateCanConflict(agg)) emittedProblemStatuses.add(concurrencyStatus);
   // The `NotImplementedError` → 501 arm below widens the `problem()` helper's
   // status union; without this the emitted call is a TS type error.
   if (agg.operations.some((o) => o.extern)) emittedProblemStatuses.add(NOT_IMPLEMENTED_STATUS);
@@ -1634,7 +1633,7 @@ export function buildRoutesFile(
   // emits byte-identically — only such a table's save ever throws
   // ConcurrencyError (the guarded write's stale-write rejection, or the
   // event-log append's `(stream_id, version)` 23505 collision).
-  if (aggregateIsVersioned(agg) || aggregateIsEventSourced(agg)) {
+  if (aggregateCanConflict(agg)) {
     lines.push(`    if (err instanceof ConcurrencyError) {`);
     lines.push(
       `      ${renderHonoLogCall("conflict", `aggregate: "${agg.name}", message: err.message, status: ${concurrencyStatus}`)}`,
@@ -1854,7 +1853,7 @@ function emitCanOpRoute(
 ): string[] {
   if (!op.when) return [];
   void emitTrace;
-  const aggSlug = snake(plural(agg.name));
+  const aggSlug = routeSegmentFor(agg.name);
   const pred = renderTsExpr(op.when, { thisName: "aggregate" });
   const out: string[] = [];
   out.push(`app.openapi(`);
@@ -1882,6 +1881,31 @@ function emitCanOpRoute(
   return out;
 }
 
+/** The route's expected-version binding, from the write path's contract.
+ *
+ *  An `if-match` path reads the client's entity-tag and falls back to the
+ *  version just loaded, so a client that sends none still gets the write-time
+ *  guard.  The tag is parsed by the shared `parseIfMatch`, not `Number(…)`: an
+ *  entity-tag is QUOTED (`If-Match: "3"`), and `Number('"3"')` is NaN — a
+ *  guarded UPDATE on NaN matches no row and answers a spurious 409.  A `handle`
+ *  or `none` path binds nothing: the repository's save checks the handle's own
+ *  version, or nothing. */
+function expectedVersionLines(check: VersionCheck, pad: string): string[] {
+  if (!readsIfMatch(check)) return [];
+  return [
+    `${pad}const ifMatch = c.req.header("if-match");`,
+    `${pad}const expectedVersion = parseIfMatch(ifMatch, aggregate.version);`,
+  ];
+}
+
+/** The route's save of the loaded `aggregate`, passing the expected version
+ *  `expectedVersionLines` bound when the contract reads `If-Match`. */
+function checkedSaveLine(check: VersionCheck, repoVar: string, pad: string): string {
+  return readsIfMatch(check)
+    ? `${pad}await ${repoVar}.save(aggregate, expectedVersion);`
+    : `${pad}await ${repoVar}.save(aggregate);`;
+}
+
 /** The AUDITED / PROVENANCED write path of an operation route, emitted once and
  *  shared by the void-204 handler and the returning (`X or NotFound`) one.
  *
@@ -1905,11 +1929,12 @@ function auditProvTxLines(args: {
   audit: boolean;
   prov: boolean;
   usingMikro: boolean;
-  isVersionedUpdate: boolean;
+  /** The operation's concurrency contract (`operationVersionCheck`). */
+  check: VersionCheck;
   mutation: (pad: string) => string[];
   capture?: boolean;
 }): string[] {
-  const { agg, op, ctx, audit, prov, usingMikro, isVersionedUpdate, mutation } = args;
+  const { agg, op, ctx, audit, prov, usingMikro, check, mutation } = args;
   const out: string[] = [];
   if (audit) {
     // Actor = the principal's declared shape (`auditActor`, null when no
@@ -1925,19 +1950,12 @@ function auditProvTxLines(args: {
   out.push(`    ${args.capture ? "const result = await" : "await"} ${txWrapperCall(usingMikro)}`);
   out.push(`      const repoTx = new ${agg.name}Repository(tx, __deferred);`);
   out.push(`      const aggregate = await repoTx.getById(Ids.${agg.name}Id(id));`);
-  if (isVersionedUpdate) {
-    out.push(`      const ifMatch = c.req.header("if-match");`);
-    out.push(`      const expectedVersion = parseIfMatch(ifMatch, aggregate.version);`);
-  }
+  out.push(...expectedVersionLines(check, "      "));
   out.push(...requiresGateLines(op, "      ", ctx));
   out.push(...whenGateLine(agg, op, "      "));
   if (audit) out.push(`      const before = repoTx.toWire(aggregate);`);
   out.push(...mutation("      "));
-  out.push(
-    isVersionedUpdate
-      ? `      await repoTx.save(aggregate, expectedVersion);`
-      : `      await repoTx.save(aggregate);`,
-  );
+  out.push(checkedSaveLine(check, "repoTx", "      "));
   if (audit) {
     out.push(`      const after = repoTx.toWire(aggregate);`);
     out.push(`      await ${historyInsertCall(usingMikro, "auditRecords")}`);
@@ -2005,7 +2023,7 @@ function emitOperationRoute(
 ): string[] {
   // Lifecycle stamps are applied persist-time in the drizzle save(); the
   // operation route does not stamp.
-  const aggSlug = snake(plural(agg.name));
+  const aggSlug = routeSegmentFor(agg.name);
   // Exception-less operation (`operation foo(): X or NotFound`): the route
   // captures the tagged-union result and translates an `error`-variant to an
   // RFC-7807 ProblemDetails status, a success to HTTP 200 (exception-less.md).
@@ -2030,15 +2048,9 @@ function emitOperationRoute(
       usingMikro,
     );
   }
-  // The canonical `update(...)` operation (crudish, or a hand-declared one of
-  // the same name) is the one route that honours the client's optimistic-
-  // concurrency precondition (`updatePreconditions(agg.wireShape)` — the
-  // `version` token field) via an `If-Match` request header.  Every other
-  // mutate route on a versioned aggregate still gets a guarded write (see
-  // repository-save-builder.ts), just via the write-time CAS fallback
-  // (`aggregate.version`, the value the route just loaded) rather than a
-  // client-supplied header.
-  const isVersionedUpdate = op.name === "update" && aggregateIsVersioned(agg);
+  // Which version the save is checked against is the operation's
+  // `operationVersionCheck` contract — never decided here.
+  const check = operationVersionCheck(agg, op);
   const out: string[] = [];
   out.push(`app.openapi(`);
   out.push(`  createRoute({`);
@@ -2118,28 +2130,11 @@ function emitOperationRoute(
 
   if (!audit && !prov) {
     out.push(`    const aggregate = await repo.getById(Ids.${agg.name}Id(id));`);
-    if (isVersionedUpdate) {
-      // `If-Match` carries the client's expected version
-      // (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/optimistic-concurrency-versioned.md /
-      // updatePreconditions); absent header falls back to the version just
-      // loaded, so an unaware client still gets a coherent guarded write.
-      //
-      // Parsed through the shared `parseIfMatch` rather than a bare
-      // `Number(ifMatch)`: an entity-tag is a QUOTED string, so a client
-      // sending back the ETag this API gave it (`If-Match: "3"`) yielded
-      // `Number('"3"') === NaN`, the guarded UPDATE matched no row, and the
-      // caller got a spurious 409 for doing exactly the right thing.
-      out.push(`    const ifMatch = c.req.header("if-match");`);
-      out.push(`    const expectedVersion = parseIfMatch(ifMatch, aggregate.version);`);
-    }
+    out.push(...expectedVersionLines(check, "    "));
     out.push(...requiresGateLines(op, "    ", ctx));
     out.push(...whenGateLine(agg, op, "    "));
     out.push(...mutation("    "));
-    out.push(
-      isVersionedUpdate
-        ? `    await repo.save(aggregate, expectedVersion);`
-        : `    await repo.save(aggregate);`,
-    );
+    out.push(checkedSaveLine(check, "repo", "    "));
   } else {
     out.push(
       ...auditProvTxLines({
@@ -2149,7 +2144,7 @@ function emitOperationRoute(
         audit,
         prov,
         usingMikro,
-        isVersionedUpdate,
+        check,
         mutation,
       }),
     );
@@ -2186,7 +2181,7 @@ function emitReturningOperationRoute(
 ): string[] {
   // Lifecycle stamps are applied persist-time in the drizzle save(); the
   // operation route does not stamp.
-  const aggSlug = snake(plural(agg.name));
+  const aggSlug = routeSegmentFor(agg.name);
   const variants = op.returnType?.kind === "union" ? op.returnType.variants : [];
   const errorVariants = variants.filter((vv) => isErrorVariant(vv, ctx));
   const u = op.returnType ? unionForFind(op.returnType, ctx) : null;
@@ -2264,10 +2259,7 @@ function emitReturningOperationRoute(
         audit,
         prov,
         usingMikro,
-        // A returning `update` does not take the `If-Match` precondition path —
-        // the void handler owns the canonical crudish update; a hand-declared
-        // returning op of the same name keeps the write-time CAS fallback.
-        isVersionedUpdate: false,
+        check: operationVersionCheck(agg, op),
         mutation: (pad) => [
           `${pad}const __result = aggregate.${escapeTargetMember("ts", lowerFirst(op.name))}(${callArgs});`,
         ],
@@ -2275,7 +2267,9 @@ function emitReturningOperationRoute(
       }),
     );
   } else {
+    const check = operationVersionCheck(agg, op);
     out.push(`    const aggregate = await repo.getById(Ids.${agg.name}Id(id));`);
+    out.push(...expectedVersionLines(check, "    "));
     out.push(...requiresGateLines(op, "    ", ctx));
     out.push(...whenGateLine(agg, op, "    "));
     // Lifecycle stamps are applied persist-time in the drizzle save()
@@ -2283,7 +2277,7 @@ function emitReturningOperationRoute(
     out.push(
       `    const result = aggregate.${escapeTargetMember("ts", lowerFirst(op.name))}(${callArgs});`,
     );
-    out.push(`    await repo.save(aggregate);`);
+    out.push(checkedSaveLine(check, "repo", "    "));
   }
   // Translate each error variant to a ProblemDetails before the success path.
   // Status / title / type come from the stdlib defaults (exception-less.md A1);
@@ -2335,7 +2329,7 @@ function emitFindRoute(
   entry: ApiOperationIR,
   emitTrace: boolean,
 ): string[] {
-  const aggSlug = snake(plural(agg.name));
+  const aggSlug = routeSegmentFor(agg.name);
   const paged = pagedReturn(find.returnType);
   const isList = find.returnType.kind === "array";
   // A union find's 200 body is the SUCCESS variant directly (the aggregate),
@@ -2693,12 +2687,14 @@ const PLAIN_STRING_BASE = "z.string()";
  *  zod's own text, which is both framework-worded and zod-major-specific
  *  ("Too big: expected number to be <=…" on 4, "Number must be less than or
  *  equal to …" on 3). */
-const INT32_RANGE = `.min(${INT32_MIN}, ${JSON.stringify(fieldFixedMessage("integer-range"))}).max(${INT32_MAX}, ${JSON.stringify(fieldFixedMessage("integer-range"))})`;
+const INT32_BOUND = tsIntegerRange("int");
+const LONG_BOUND = tsIntegerRange("long");
+const INT32_RANGE = `.min(${INT32_BOUND.min}, ${JSON.stringify(fieldFixedMessage("integer-range"))}).max(${INT32_BOUND.max}, ${JSON.stringify(fieldFixedMessage("integer-range"))})`;
 /** `long`'s enforced-but-unpublished safe-integer bound — see the block comment
  *  above.  A `.refine` is invisible to the OpenAPI emitter, so the published
  *  shape stays the plain integer every other backend publishes while this
  *  backend refuses the values it cannot carry exactly. */
-const LONG_SAFE = `.refine((n: number) => n >= ${LONG_SAFE_MIN} && n <= ${LONG_SAFE_MAX})`;
+const LONG_SAFE = `.refine((n: number) => n >= ${LONG_BOUND.min} && n <= ${LONG_BOUND.max})`;
 /** The published `format`, WITHOUT the bound.  This is the whole RESPONSE
  *  half: a response value came out of the very `int4` column the bound
  *  describes, so validating it again buys nothing — but the published shape

@@ -1,7 +1,14 @@
 import { diagMessage } from "../diagnostics/messages.js";
-import { MONEY_PRECISION, MONEY_WIRE_SCALE } from "../generator/money-scale.js";
 import { qIdent } from "../generator/sql-pg.js";
 import { renderSqlScalarExpr } from "../generator/sql-pg-expr.js";
+import { idColumn, scalarCodec } from "../ir/enrich/codec.js";
+import {
+  aggregateTableName,
+  associationTables,
+  partTableName,
+  projectionTableName,
+  tableNameFor,
+} from "../ir/enrich/storage-names.js";
 import type {
   AggregateIR,
   AssociationIR,
@@ -14,6 +21,7 @@ import type {
   FieldIR,
   IdValueType,
   ManualIndexIR,
+  PrimitiveName,
   ProjectionIR,
   RenameIntentIR,
   SavingShape,
@@ -76,14 +84,12 @@ import {
 } from "../util/audit-records-table.js";
 import {
   legacyWorkflowStateTableName,
-  plural,
   snake,
   uniqueIndexName,
   upperFirst,
   workflowStateTableName,
 } from "../util/naming.js";
 import type { SnapshotStore } from "./snapshot.js";
-
 // ---------------------------------------------------------------------------
 // MigrationsIR builder + diff.
 //
@@ -200,9 +206,7 @@ export function schemaFromModule(
         ...agg.parts.map((part) =>
           tableForPart(part, agg, module.name, voLookup, enumLookup, owner),
         ),
-        ...agg.associations.map((assoc) =>
-          tableForAssociation(assoc, module.name, plural(snake(owner))),
-        ),
+        ...agg.associations.map((assoc) => tableForAssociation(assoc, module.name, pool)),
       ];
     }
     if (isTphBase(agg, pool)) {
@@ -234,7 +238,7 @@ export function schemaFromModule(
     // here.  `tableForAggregate` / `tableForPart` skip the column at
     // emission time (see `mapField`).
     for (const assoc of agg.associations) {
-      out.push(tableForAssociation(assoc, module.name));
+      out.push(tableForAssociation(assoc, module.name, pool));
     }
     // Value-object array fields (`charges: Money[]`) persist as an id-less
     // child table (flattened VO columns + parent FK + ordinal).  Relational
@@ -596,7 +600,7 @@ function projectionTableShape(
   ownerModule: string,
   voLookup: VoLookup,
 ): TableShape {
-  const tableName = plural(snake(proj.name));
+  const tableName = projectionTableName(proj);
   const corr = proj.correlationField as string;
   const columns: ColumnShape[] = [];
   for (const f of proj.stateFields) {
@@ -684,7 +688,7 @@ function orderTablesByFkDependency(tables: TableShape[]): TableShape[] {
  *  jsonb columns, and Phoenix embedded schemas all map to natively — one
  *  physical layout shared across every backend. */
 function embeddedTableForAggregate(agg: AggregateIR, ownerModule: string): TableShape {
-  const tableName = plural(snake(agg.name));
+  const tableName = tableNameFor(agg.name);
   const columns: ColumnShape[] = [
     { name: "id", type: idColumnType(agg.idValueType), nullable: false },
   ];
@@ -729,7 +733,7 @@ function embeddedTableForAggregate(agg: AggregateIR, ownerModule: string): Table
  *  `X id` / `X id[]` references stay references but ride inside `data` as
  *  id strings / arrays. */
 function documentTableForAggregate(agg: AggregateIR, ownerModule: string): TableShape {
-  const tableName = plural(snake(agg.name));
+  const tableName = tableNameFor(agg.name);
   return {
     name: tableName,
     ownerModule,
@@ -2872,7 +2876,7 @@ function resolveRenames(
       // table; `plural(snake(ri.aggregate))` would index the rename under a
       // nonexistent `concretes` table, so diffTable would never see it and the
       // declared rename would silently degrade to a drop+add (data loss).
-      table: plural(snake(tableOwnerName(agg, ctx.aggregates))),
+      table: aggregateTableName(agg, ctx.aggregates),
       schema: schemaOf(agg, ctx),
       from: snake(ri.from),
       to: snake(ri.to),
@@ -2968,7 +2972,7 @@ function resolveBackfills(
       : [agg];
     for (const target of targets) {
       out.push({
-        table: plural(snake(tableOwnerName(target, ctx.aggregates))),
+        table: aggregateTableName(target, ctx.aggregates),
         schema: schemaOf(target, ctx),
         column: snake(bi.field),
         valueSql,
@@ -3106,8 +3110,8 @@ function resolveTableRenames(
       } else {
         const proj = ctx.projections.find((p) => p.name === ri.to)!;
         if (!isMaterializedProjection(proj)) continue; // query-time: no table
-        const from = plural(oldStem);
-        const to = plural(newStem);
+        const from = tableNameFor(ri.from);
+        const to = tableNameFor(ri.to);
         push(from, to, newSchema, isMove ? { fromSchema: oldSchemaFor(from) } : undefined);
       }
       continue;
@@ -3116,7 +3120,7 @@ function resolveTableRenames(
     const agg = ctx.aggregates.find((a) => a.name === ri.to)!;
     const schema = schemaOf(agg, ctx);
     const move = isMove
-      ? { fromSchema: oldSchemaFor(plural(snake(tableOwnerName(agg, ctx.aggregates)))) }
+      ? { fromSchema: oldSchemaFor(aggregateTableName(agg, ctx.aggregates)) }
       : undefined;
 
     // TPH concrete: no owned root table — but the shared table's `kind`
@@ -3124,7 +3128,7 @@ function resolveTableRenames(
     // (M-T2.3 ledgered sqlExec).  Its part and join tables move with the base.
     if (isTphConcrete(agg, ctx.aggregates)) {
       if (oldStem === newStem) continue;
-      const baseTable = plural(snake(tableOwnerName(agg, ctx.aggregates)));
+      const baseTable = aggregateTableName(agg, ctx.aggregates);
       dataFixups.push({
         key: `${ri.migration}#tph:${ri.from}->${ri.to}`,
         sql: `UPDATE ${qualified(schema, baseTable)} SET "kind" = '${ri.to}' WHERE "kind" = '${ri.from}'`,
@@ -3152,7 +3156,7 @@ function resolveTableRenames(
 
     // Root table — plural, so computed directly (irregular plurals like
     // `category → categories` don't survive a bare prefix substitution).
-    push(plural(oldStem), plural(newStem), schema, move);
+    push(tableNameFor(ri.from), tableNameFor(ri.to), schema, move);
 
     // Value-object collection child tables owned by the ROOT (`field: VO[]`)
     // and association join tables (`Target id[]`): table and owner FK both
@@ -3178,7 +3182,7 @@ function resolveTableRenames(
     // part FKs its sibling (not the root), so its `snake(agg)_id` column never
     // existed and the baseline guard drops the candidate.
     for (const part of agg.parts) {
-      const table = plural(snake(part.name));
+      const table = partTableName(part);
       if (move) {
         push(table, table, schema, move);
         for (const vc of valueCollectionsFor(part))
@@ -3195,7 +3199,7 @@ function resolveTableRenames(
       for (const c of ctx.aggregates.filter((a) => isTphConcrete(a, ctx.aggregates))) {
         if (tableOwnerName(c, ctx.aggregates) !== agg.name) continue;
         for (const part of c.parts) {
-          const table = plural(snake(part.name));
+          const table = partTableName(part);
           push(table, table, schema, move);
         }
         for (const assoc of c.associations) push(assoc.joinTable, assoc.joinTable, schema, move);
@@ -3354,7 +3358,7 @@ export { uniqueIndexName };
  *  `<table>_<cols>_idx`; deduped against an existing index of the same name. */
 function applyManualIndexes(tables: readonly TableShape[], specs: readonly ManualIndexIR[]): void {
   for (const spec of specs) {
-    const target = plural(snake(spec.entity));
+    const target = tableNameFor(spec.entity);
     const table = tables.find((t) => t.name === target);
     if (!table) continue;
     const columns = spec.columns.map((c) => snake(c));
@@ -3507,7 +3511,7 @@ function stampReshapeMetadata(
 ): void {
   if (agg.persistedAs === "eventLog") return; // stream lives in <ctx>_events
   if (isTphConcrete(agg, pool)) return; // shares the base's table (stamped there)
-  const root = produced.find((t) => t.name === plural(snake(agg.name)));
+  const root = produced.find((t) => t.name === tableNameFor(agg.name));
   if (!root) return; // no own root table (abstract TPC base owns none)
   if (isTphBase(agg, pool)) {
     root.inheritance = { strategy: "sharedTable", base: agg.name };
@@ -3536,7 +3540,7 @@ function tableForAggregate(
   // NO `enumValues` CHECK, which is exactly the silent gap this closes.
   enumLookup: EnumLookup,
 ): TableShape {
-  const tableName = plural(snake(agg.name));
+  const tableName = tableNameFor(agg.name);
   const columns: ColumnShape[] = [
     { name: "id", type: idColumnType(agg.idValueType), nullable: false },
   ];
@@ -3603,7 +3607,7 @@ function tphTableForAggregate(
   // NO `enumValues` CHECK, which is exactly the silent gap this closes.
   enumLookup: EnumLookup,
 ): TableShape {
-  const tableName = plural(snake(base.name));
+  const tableName = tableNameFor(base.name);
   const kindField: FieldIR = {
     name: "kind",
     type: { kind: "primitive", name: "string" },
@@ -3705,7 +3709,7 @@ function tableForPart(
   // base.  Defaults to `parent.name` so non-inheritance output is unchanged.
   ownerName: string = parent.name,
 ): TableShape {
-  const tableName = plural(snake(part.name));
+  const tableName = partTableName(part);
   // A NESTED part (declared inside a sibling part — `Shipment contains label`)
   // FKs to that sibling's table, not the aggregate root, so a collection nested
   // below the root keeps its hierarchy instead of flattening every level onto
@@ -3714,7 +3718,7 @@ function tableForPart(
   // single-level output is byte-identical.
   const dp = directParentOf(parent, part.name);
   const fkOwnerName = dp?.nested ? dp.name : ownerName;
-  const parentTable = plural(snake(fkOwnerName));
+  const parentTable = tableNameFor(fkOwnerName);
   const parentFk = `${snake(fkOwnerName)}_id`;
   const columns: ColumnShape[] = [
     { name: "id", type: idColumnType(parent.idValueType), nullable: false },
@@ -3769,11 +3773,11 @@ function tableForPart(
 function tableForAssociation(
   assoc: AssociationIR,
   ownerModule: string,
-  /** The table the owner FK references when the owner has none of its own —
-   *  a TPH concrete's rows live in its base's shared table. */
-  ownerTable: string = plural(snake(assoc.ownerAgg)),
+  /** Resolves the table the owner FK references — a TPH concrete owner's rows
+   *  live in its base's shared table. */
+  pool: readonly AggregateIR[],
 ): TableShape {
-  const targetTable = plural(snake(assoc.targetAgg));
+  const { ownerTable, targetTable } = associationTables(assoc, pool);
   const idType = idColumnType(assoc.valueType);
   return {
     name: assoc.joinTable,
@@ -3837,7 +3841,7 @@ function valueCollectionTableShape(
   enumLookup: EnumLookup,
   partName?: string,
 ): TableShape {
-  const ownerTable = partName ? plural(snake(partName)) : plural(snake(parentAgg.name));
+  const ownerTable = partName ? tableNameFor(partName) : tableNameFor(parentAgg.name);
   const idType = idColumnType(parentAgg.idValueType);
   const elementFields = voLookup.get(vc.voName) ?? [];
   const columns: ColumnShape[] = [
@@ -4251,7 +4255,7 @@ function mapTypeToColumn(t: TypeIR): {
     case "id":
       return {
         type: idColumnType(t.valueType),
-        fkRefTable: plural(snake(t.targetName)),
+        fkRefTable: tableNameFor(t.targetName),
       };
     case "enum":
       return { type: { kind: "text" } };
@@ -4281,56 +4285,18 @@ function mapTypeToColumn(t: TypeIR): {
   }
 }
 
-function primitiveColumnType(name: string): ColumnType {
-  switch (name) {
-    case "int":
-      return { kind: "int" };
-    case "long":
-      return { kind: "bigint" };
-    case "decimal":
-      return { kind: "decimal" };
-    case "money":
-      // `money` is a precise decimal — same column family as `decimal`, but
-      // BOUNDED: the canonical `NUMERIC(19,4)` every other layer already
-      // declares (`money-scale.ts`, the Drizzle/SQLAlchemy/MikroORM models).
-      // A bare `DECIMAL` here drops those bounds, so the table and the ORM
-      // model reading it disagree and the column keeps whatever scale each
-      // backend happens to write.
-      return { kind: "decimal", precision: MONEY_PRECISION, scale: MONEY_WIRE_SCALE };
-    case "string":
-      return { kind: "text" };
-    case "bool":
-      return { kind: "bool" };
-    case "date":
-      // A calendar date — Postgres `date`, which round-trips the wire's
-      // `YYYY-MM-DD` exactly (no zone, no time-of-day).
-      return { kind: "date" };
-    case "datetime":
-      return { kind: "datetime" };
-    case "guid":
-      return { kind: "uuid" };
-    case "json":
-      return { kind: "json" };
-    case "File":
-      // File reference (FileRef) is stored as JSONB, exactly like `json` —
-      // the bytes live in object storage; the column carries the reference.
-      return { kind: "json" };
-    default:
-      throw new Error(`migrations-builder: unknown primitive type '${name}'`);
-  }
+/** A primitive's column, read off the `Codec` fact (`src/ir/enrich/codec.ts`):
+ *  `money` is the bounded `NUMERIC(19,4)`, a plain `decimal` unbounded, `date`
+ *  a calendar `date`, `File` the JSONB reference.  A copy of the column on the
+ *  generated ORM model must agree with it. */
+function primitiveColumnType(name: PrimitiveName): ColumnType {
+  if (name === "duration")
+    throw new Error("migrations-builder: 'duration' is expression-only and has no column");
+  return scalarCodec(name).column;
 }
 
 function idColumnType(t: IdValueType): ColumnType {
-  switch (t) {
-    case "guid":
-      return { kind: "uuid" };
-    case "int":
-      return { kind: "int" };
-    case "long":
-      return { kind: "bigint" };
-    case "string":
-      return { kind: "text" };
-  }
+  return idColumn(t);
 }
 
 // ---------------------------------------------------------------------------

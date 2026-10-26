@@ -811,6 +811,20 @@ end
 
 A record variant flattens its fields beside `type` on the wire; a scalar variant wraps a `value`; a `none` variant is the bare `{ type: … }`. See [Payloads & unions](09-payloads-and-unions.md) for the union wire shape and `httpStatus` mapping.
 
+**A caller must handle the error case** (`loom.unhandled-result`, [D-FAILURE-MODEL](../decisions.md)). An `or E` result whose `E` is an `error` is matched, returned through a caller whose own declared result admits it, or bound with `let` and read. A call statement and an unread `let` drop it, which in a workflow would answer 204 on the failure. There is no implicit propagation.
+
+```ddd
+operation withdraw(amt: money): Account or InsufficientCredit { … }
+operation drain(amt: money) { withdraw(amt) }                                   // loom.unhandled-result
+operation pay(amt: money): Account or InsufficientCredit { return withdraw(amt) } // OK — returned
+```
+
+```ts
+public pay(amt: Decimal): ({ type: "Account"; id: string; balance: Decimal; version: number } | { type: "InsufficientCredit"; available: Decimal }) {
+  return this.withdraw(amt);
+}
+```
+
 ## `match` — the effect-form variant match
 
 `match SUBJECT { Variant [b] => stmt | { stmts }, …, else => … }` (`MatchStmt` / `VariantStmtArm`) is the **statement** twin of the variant-match expression: its arms run statements rather than yield a value, and each arm may bind the narrowed variant. It lowers to the `variant-match` StmtIR kind, which is **frontend-only**: it renders in a page / component / store `action` body and has no backend form. Written anywhere else — an `operation`, a `create` / `destroy` / `apply` body, a `function`, a domain-service operation, a projection `on` fold, or a workflow / handler body — it is refused at phase ④ by `loom.variant-match-placement`, a **permanent** placement rule. (Until M-T5.28 nothing gated it: a domain-body `match` validated clean and then threw `variant-match statement is frontend-only …` out of the shared statement dispatcher on all five backends. That throw survives as an internal-invariant assertion for a caller that generates without validating.) Every arm of an `or`-union must be covered or an `else` supplied.

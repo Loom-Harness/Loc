@@ -62,6 +62,7 @@ import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
 import { lines } from "../../util/code-builder.js";
 import { errorTypeUri } from "../../util/error-defaults.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import { preconditionsAsInvariants } from "../_frontend/zod-schemas.js";
 import { provenancedTypeMembers } from "../_payload/provenanced-wire.js";
@@ -74,7 +75,6 @@ import { CODE_POINT_LEN_HELPER, type FelizFieldRule, felizFieldRules } from "./f
 import { fsString } from "./fs-expr.js";
 import { fsIdent } from "./fs-ident.js";
 import { typeToFs } from "./type-fs.js";
-
 /** A read the page view issues, projected to everything the MVU wiring + api
  *  module need.  Two shapes:
  *   - LIST (`<param>.<agg>.all`) — a `Remote<'T list>` fired at `init`.
@@ -360,7 +360,7 @@ export function felizAllRead(aggregate: string, opts: FelizAllReadOpts = {}): Fe
     decoderExpr: paging
       ? `(Decode.map2 (fun __items __meta -> (__items, __meta)) ${items} ${PAGE_META_DECODER})`
       : items,
-    route: `${API_BASE_PATH}/${snake(plural(aggregate))}`,
+    route: `${API_BASE_PATH}/${routeSegmentFor(aggregate)}`,
     binding: lowerFirst(field),
     single: false,
     listShaped: true,
@@ -380,7 +380,7 @@ export function felizByIdRead(aggregate: string, pageCase: string): FelizRead {
     aggregate,
     resultType: `${upperFirst(aggregate)} option`,
     decoderExpr: `(Decode.option Decoders.${fsIdent(lowerFirst(aggregate))})`,
-    route: `${API_BASE_PATH}/${snake(plural(aggregate))}`,
+    route: `${API_BASE_PATH}/${routeSegmentFor(aggregate)}`,
     binding: lowerFirst(field),
     single: true,
     listShaped: false,
@@ -522,7 +522,7 @@ export function felizFindRead(
           : // A REQUIRED single find still lands in an `option` so it can reuse
             // `View.remoteOne` — the same lift a singleton projection read uses.
             `(Decode.map Some ${decoder})`,
-    route: `${API_BASE_PATH}/${snake(plural(aggregate))}/${snake(find.name)}`,
+    route: `${API_BASE_PATH}/${routeSegmentFor(aggregate)}/${snake(find.name)}`,
     binding: lowerFirst(field),
     single: false,
     listShaped,
@@ -550,7 +550,7 @@ export function felizHistoryRead(aggregate: string, pageCase: string): FelizRead
     aggregate,
     resultType: "AuditEntry list",
     decoderExpr: "(Decode.list auditEntryDecoder)",
-    route: `${API_BASE_PATH}/${snake(plural(aggregate))}`,
+    route: `${API_BASE_PATH}/${routeSegmentFor(aggregate)}`,
     binding: lowerFirst(field),
     single: true,
     listShaped: true,
@@ -576,7 +576,7 @@ function felizCanRead(aggregate: string, op: OperationIR, pageCase: string): Fel
     aggregate,
     resultType: "bool",
     decoderExpr: '(Decode.field "allowed" Decode.bool)',
-    route: `${API_BASE_PATH}/${snake(plural(aggregate))}`,
+    route: `${API_BASE_PATH}/${routeSegmentFor(aggregate)}`,
     binding: lowerFirst(field),
     single: true,
     listShaped: false,
@@ -730,8 +730,8 @@ export function felizDeleteMutation(aggregate: string): FelizMutation {
     dispatchCase: `Delete${upperFirst(aggregate)}`,
     resultCase: `${upperFirst(aggregate)}Deleted`,
     apiFn: `delete${upperFirst(aggregate)}`,
-    route: `${API_BASE_PATH}/${snake(plural(aggregate))}`,
-    navigateSegs: snake(plural(aggregate)).split("/"),
+    route: `${API_BASE_PATH}/${routeSegmentFor(aggregate)}`,
+    navigateSegs: routeSegmentFor(aggregate).split("/"),
   };
 }
 
@@ -1125,7 +1125,7 @@ export function felizAction(aggregate: string, op: OperationIR): FelizAction {
     apiFn: `${op.name}${upperFirst(aggregate)}Action`,
     triggerMsg: opCap,
     doneMsg: `${opCap}Done`,
-    route: `${API_BASE_PATH}/${snake(plural(aggregate))}`,
+    route: `${API_BASE_PATH}/${routeSegmentFor(aggregate)}`,
     opPath: snake(op.routeSlug ?? op.name),
     label: humanize(op.name),
   };
@@ -1529,8 +1529,8 @@ export function felizCreateForm(
     apiFn: `create${upperFirst(name)}`,
     submitMsg: `Submit${formType}`,
     resultMsg: `${upperFirst(name)}Created`,
-    route: `${API_BASE_PATH}/${snake(plural(name))}`,
-    navigateSegs: snake(plural(name)).split("/"),
+    route: `${API_BASE_PATH}/${routeSegmentFor(name)}`,
+    navigateSegs: routeSegmentFor(name).split("/"),
     // The create endpoint returns the new record's identity envelope (`{ id }`),
     // NOT the full aggregate — decode the id so the success handler can route to
     // the new record's detail page (`/<coll>/<id>`).  (Decoding the whole
@@ -1586,9 +1586,9 @@ export function felizOperationForm(
     apiFn: `${op.name}${upperFirst(name)}`,
     submitMsg: `Submit${formType}`,
     doneMsg: `${opCap}Done`,
-    route: `${API_BASE_PATH}/${snake(plural(name))}`,
+    route: `${API_BASE_PATH}/${routeSegmentFor(name)}`,
     opPath: snake(op.routeSlug ?? op.name),
-    navigateSegs: snake(plural(name)).split("/"),
+    navigateSegs: routeSegmentFor(name).split("/"),
     fields,
     fieldArrays: buildFieldArrays(formType, op.params, vosByName, enumsByName, idLabels),
     ...(sendsIfMatchPrecondition(agg, op) ? { ifMatch: true } : {}),
@@ -2775,7 +2775,7 @@ function felizAsyncEffect(
     triggerMsg: trigger,
     resultMsg: `${trigger}Result`,
     apiFn: `${op.name}${upperFirst(shape.opAggregate)}Effect`,
-    route: `${API_BASE_PATH}/${snake(plural(shape.opAggregate))}`,
+    route: `${API_BASE_PATH}/${routeSegmentFor(shape.opAggregate)}`,
     opPath: snake(op.routeSlug ?? op.name),
     isMulti,
     outcomeType: isMulti ? `${opCap}Outcome` : variants[0]!.recordType,

@@ -34,7 +34,6 @@ import {
 import { commandCreateResult, commandWorkflowsOf } from "../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
-import { resolveErrorStatus } from "../../util/error-defaults.js";
 import {
   pythonIdent,
   pythonWireIdent,
@@ -80,6 +79,7 @@ import {
   requestFieldDecl,
 } from "./routes-builder.js";
 import { type PySaveLines, pySaveRenderer } from "./stamp-call.js";
+import { pyNotFoundRaise, wireStatusResolver } from "./wire-policy-py.js";
 import { esFns } from "./workflow-eventsourced-emit.js";
 
 // ---------------------------------------------------------------------------
@@ -834,7 +834,7 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
         `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: workflow ${wf.name} instances`)})`,
       ]
     : null;
-  const resolve = (name: string): number => resolveErrorStatus(name, ctx.structuralErrorStatuses);
+  const resolve = wireStatusResolver(ctx.structuralErrorStatuses);
   const listKwarg = errorResponsesKwarg("findList", !!gate, [], resolve);
   const byIdKwarg = gate
     ? errorResponsesKwarg("findOptional", true, [], resolve)
@@ -883,7 +883,7 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
         gateLines,
         `    __stream = await ${dispatchFn(fns.load)}(session, ${idAsKey})`,
         "    if not __stream:",
-        `        raise ${H.AggregateNotFoundError}(f"${T} {id} not found")`,
+        `        ${pyNotFoundRaise(H.AggregateNotFoundError, T, "id")}`,
         `    row = ${dispatchFn(fns.fold)}(${idAsKey}, __stream)`,
         `    return {${proj("row")}}`,
       )
@@ -893,7 +893,7 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
         gateLines,
         `    row = await session.get(${row}, id)`,
         "    if row is None:",
-        `        raise ${H.AggregateNotFoundError}(f"${T} {id} not found")`,
+        `        ${pyNotFoundRaise(H.AggregateNotFoundError, T, "id")}`,
         `    return {${proj("row")}}`,
       );
   return [list, byId].join("\n\n\n");

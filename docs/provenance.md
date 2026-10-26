@@ -289,6 +289,21 @@ change to the lineage half is now visible to the wire diff.  It equally rides
 `forApiRead`'s access filtering and any `mask unless` redaction, which a
 bolted-on sibling key did not.
 
+**A lineage value is encoded by the `Codec` fact** (`src/ir/enrich/codec.ts`,
+D-CODEC).  A `money` input or `computedValue` is written in its wire
+encoding, the RS-12 fixed-scale-4 string (`"3000.3000"`, never `3000.3` or
+`"3000.3"`), and an `int` / `long` is written as its wire number.  Any other
+type's lineage encoding is not ruled yet (`UNRULED` in the fact), so each
+backend records its domain value as it does today.  node writes money through
+the wire encoder.  The other four backends boot `corpus/provenance-money` as
+tracked expected failures (#3527) until each one is moved onto the fact.
+
+```ts
+// node, `market := comparable * units` on a `money provenanced` field
+const __prov_0 = [{ path: "comparable", value: (comparable == null ? null : comparable.toFixed(4)) }, { path: "units", value: units }];
+const __lin_0: ProvLineage = { …, inputs: __prov_0, computedValue: (this._market == null ? null : this._market.toFixed(4)) };
+```
+
 **Storage is unchanged.** The row still carries a typed value column plus a
 `<field>_provenance` jsonb column, and the in-memory domain object still keeps
 the two apart — the carrier is a DTO/serialization shape only, assembled on the

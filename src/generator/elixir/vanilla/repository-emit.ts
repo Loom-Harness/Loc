@@ -379,7 +379,7 @@ function renderRepository(
     ? `  @spec list(pos_integer(), pos_integer(), String.t(), String.t()${listPrincipal ? ", map() | nil" : ""}) :: {:ok, map()} | {:error, term()}
   def list(${listPagedArgs}) do
     query = ${listQuery}
-    total = Repo.aggregate(query, :count, :id)
+    total = Repo.aggregate(query, :count)
     offset = (page - 1) * page_size
 
     sort_col =
@@ -749,7 +749,7 @@ function renderFindFn(
     return `${spec}
   def ${fnName}(${headFor(query)}) do
     query = ${query}
-    total = Repo.aggregate(query, :count, :id)
+    total = Repo.aggregate(query, :count)
     offset = (page - 1) * page_size
 
     sort_col =

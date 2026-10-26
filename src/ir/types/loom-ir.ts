@@ -2870,14 +2870,14 @@ export interface UiChannelParamIR {
 /** A `refetch(<Aggregate>)` action inside an `on` handler body — the
  *  realtime analogue of a mutation's `onSuccess` cache invalidation.
  *  Fully resolved: `queryTag` is the exact `["<tag>"]` query key the
- *  frontend api modules register (`snake(plural(aggregate))`), so a
+ *  frontend api modules register (`routeSegmentFor(aggregate)`), so a
  *  realtime invalidation and a mutation-success invalidation hit the
  *  same cache entries.  Backends never re-derive the tag. */
 export interface RefetchTargetIR {
   /** The aggregate whose queries are invalidated (resolved to a real
    *  aggregate in the enclosing system by the validator). */
   aggregate: string;
-  /** The query-key tag — `snake(plural(aggregate))`.  Frontends emit
+  /** The query-key tag — `routeSegmentFor(aggregate)`.  Frontends emit
    *  `qc.invalidateQueries({ queryKey: ["<queryTag>"] })`, prefix-matching
    *  the aggregate's list / detail / find queries. */
   queryTag: string;

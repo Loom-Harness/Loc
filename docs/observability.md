@@ -73,6 +73,13 @@ see the domain narrative without the noise. The `--trace` switch is the
 only way to inject trace lines into domain methods (kept off by default
 so the default artefact stays pure).
 
+Every backend reads the `LOG_LEVEL` env var at boot (compose sets `info`;
+accepted `trace`/`debug`/`info`/`warn`/`error`, case-insensitive, anything
+else falls back to `info`). Phoenix has no `trace` level, so it maps to
+`:debug`; `warn`/`warning` map to `:warning`. In a release the level is set
+in `config/runtime.exs`, so Ecto's per-statement SQL logging (`:debug`) stays
+out of the stream unless `LOG_LEVEL=debug`.
+
 ### Catalog excerpt
 
 The full list lives in `src/generator/_obs/log-events.ts`. Highlights:

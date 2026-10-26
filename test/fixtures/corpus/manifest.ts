@@ -141,6 +141,20 @@ const FOREIGN_ID_LIST: readonly Backend[] = ALL.filter((b) => b !== "vanilla");
  *  (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs, #4023). */
 const PROJECTION_VO_ROW: readonly Backend[] = ["node", "java", "vanilla"];
 
+/** The backends that write a provenanced `money` value into its lineage in the
+ *  `Codec` fact's lineage encoding — the RS-12 wire string (owner ruling on
+ *  #3527).  Only node is on the fact so far.  The other four generate the case
+ *  cleanly, and each boots it as a tracked expected failure
+ *  (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs):
+ *  - **dotnet** / **java**: the lineage's `object` slot serializes a JSON
+ *    number (`3000.3`).
+ *  - **python**: the lineage jsonb bind cannot serialize a `Decimal`; the
+ *    write answers 500.
+ *  - **elixir** (`vanilla`): Jason encodes the `Decimal` unscaled (`"3000.3"`).
+ *  Each backend joins this row in the change that moves it onto the fact and
+ *  deletes its expected-failure entry. */
+const MONEY_LINEAGE_WIRE: readonly Backend[] = ["node"];
+
 // M-T6.96: .NET EF cannot re-host a part's nested OWNED instances under a new
 // owner (they are deleted with the old one), so the rebuild shape is held off
 // .NET until that lands — then this becomes ALL.
@@ -275,6 +289,14 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "embedded-optional", title: "shape: embedded — optional single containment (nullable jsonb)", doc: "language", backends: ALL },
   { id: "inheritance", title: "aggregate inheritance — TPH (sharedTable) + TPC (ownTable)", doc: "inheritance", backends: ALL },
   { id: "tph", title: "TPH-only (sharedTable) hierarchy — Vehicle/Car/Truck canonical fixture", doc: "inheritance", backends: ALL },
+  {
+    id: "acronym-names",
+    title:
+      "acronym-named aggregate, part, TPH base, join table, projection and workflow — one table name and one route segment per name",
+    doc: "migrations",
+    backends: ALL,
+    note: "Minted for #3450.  `plural(snake(n))` and `snake(plural(n))` disagree for a name ending in an acronym (`ProductSKU` → `product_skus` vs `product_sk_us`); the migrations created the first while drizzle, EF Core, SQLAlchemy and Ecto mapped the second, so the first read of any such table failed.  `test/conformance/acronym-storage-names.test.ts` holds every ORM mapping and every router to the migration's spelling.",
+  },
   {
     id: "tph-crossings",
     title:
@@ -722,6 +744,14 @@ export const CORPUS: readonly CorpusFeature[] = [
   },
   { id: "provenance", title: "provenanced stored fields — per-write-site rule snapshots", doc: "provenance", backends: ALL },
   {
+    id: "provenance-money",
+    title:
+      "a provenanced `money` field's lineage — `inputs[].value` and `computedValue` carry money as the RS-12 wire string",
+    doc: "provenance",
+    backends: MONEY_LINEAGE_WIRE,
+    note: "The `Codec` fact (`src/ir/enrich/codec.ts`) rules a money value's lineage encoding to be its wire encoding (owner ruling on #3527).  node writes it through the money wire encoder; the other four legs boot it as tracked expected failures (`BEHAVIOURAL_XFAIL`, #3527) until each is moved onto the fact — java and .NET send a JSON number, elixir an unscaled Decimal string, python 500s on the write",
+  },
+  {
     id: "audited",
     title: "command audit — aggregate-wide `audited` + per-command `audited`, transactional audit_records rows",
     doc: "audit",
@@ -734,6 +764,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "capabilities",
     backends: ALL,
     note: "Minted by M-T6.91: the concurrency 409 `detail` was node's `<Aggregate> <id> was modified by another request` on node and a fixed `The resource was modified by another request; reload and retry.` on the other four, and the one golden that recorded the 409 (`transactional-workflow-event-rollback`) ran on three legs.  This case drives the route every backend shares — a stale `If-Match` on the versioned `update`, via the e2e call's `{ ifMatch: v }` third argument — so the golden diff pins the sentence on every wire-gated leg.",
+  },
+  {
+    id: "concurrency-two-writers",
+    title:
+      "the write-path concurrency contract — a stale `If-Match` on any named operation (void, returning, `shape: document`) answers the 409, and two simultaneous writers with one tag yield exactly one 409",
+    doc: "capabilities",
+    backends: ALL,
+    note: "Minted with the `checksVersion` fact (#3593 item 6).  Node and elixir read `If-Match` only on the canonical `update`, so a stale tag on any other operation overwrote newer data with a 204 (#3531); java's guarded save let two simultaneous writers carrying the same tag both land (#3521).  The `test e2e` block drives the sequential half; the wire tier's two-writer probe replays the block's first `If-Match` write as concurrent pairs.",
   },
   {
     id: "workflow-two-handles-document-eventlog",

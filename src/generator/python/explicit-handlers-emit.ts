@@ -438,8 +438,9 @@ function renderHandlerModule(
       // The return aggregate was never loaded (e.g. a freshly created entity):
       // construct a repo purely to project it, keyed by its plural name.
       if (!projectRepoHandle) {
-        projectRepoHandle = snake(plural(info.base));
-        repos.set(plural(info.base), info.base);
+        const repoName = plural(info.base);
+        projectRepoHandle = snake(repoName);
+        repos.set(repoName, info.base);
       }
     }
   }

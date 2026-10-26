@@ -41,6 +41,7 @@ import {
 } from "../../ir/util/page-kind.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, plural, snake } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { valueObjectIndex } from "../_frontend/component-prop-type.js";
 import {
   buildExternFunctionShim,
@@ -64,7 +65,6 @@ import {
   renderSveltePage,
 } from "./walker/page-shell.js";
 import { svelteTarget } from "./walker/svelte-target.js";
-
 export interface SveltePageEmitContext {
   sys: SystemIR;
   deployable: DeployableIR;
@@ -390,7 +390,7 @@ export function defaultNavSections(
     sections.push({
       label: "Aggregates",
       entries: scaffoldedAggregates.map((a) => {
-        const slug = snake(plural(a.name));
+        const slug = routeSegmentFor(a.name);
         // Humanised, like every other frontend's default sidebar (react's
         // `prepareAppShellVM`, vue's `defaultNavSections`): the sidebar showed
         // the raw declaration identifiers — `closeProject`, `fileUrgent`,

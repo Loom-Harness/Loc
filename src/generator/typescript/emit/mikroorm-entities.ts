@@ -8,6 +8,7 @@
 // change.
 // -------------------------------------------------------------------------
 
+import type { CodecPrimitive } from "../../../ir/enrich/codec.js";
 import type {
   AssociationIR,
   EnrichedAggregateIR,
@@ -29,14 +30,16 @@ import {
 import { findValueObjectInScope } from "../../../ir/util/reachable-types.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
-import { plural, snake, upperFirst, workflowStateTableName } from "../../../util/naming.js";
+import { snake, upperFirst, workflowStateTableName } from "../../../util/naming.js";
+import { tableNameFor } from "../../../util/storage-names.js";
+import { type MikroScalar, mikroScalar } from "../codec-spelling.js";
 import { joinColumnName, joinTableConstName } from "../emit.js";
 import { isRefCollection } from "../repository-associations-builder.js";
 import { docFieldType } from "../repository-document-builder.js";
 
 /** Postgres table for an aggregate — lowercase plural (e.g. `orders`). */
 
-const tableOf = (aggName: string): string => plural(snake(aggName));
+const tableOf = (aggName: string): string => tableNameFor(aggName);
 
 /** Row-entity class name for an aggregate (the MikroORM persistence model). */
 
@@ -86,37 +89,12 @@ function unwrapOptional(t: TypeIR): { type: TypeIR; nullable: boolean } {
   return t.kind === "optional" ? { type: t.inner, nullable: true } : { type: t, nullable: false };
 }
 
-/** MikroORM type + Row TS type for a primitive. */
-
-function primTypes(name: string): { mikro: string; ts: string; columnType?: string } {
-  switch (name) {
-    case "int":
-      return { mikro: "integer", ts: "number" };
-    case "long":
-      return { mikro: "bigint", ts: "number" };
-    case "decimal":
-      // Unbounded `numeric` — matches the drizzle backend's `numeric(col)`
-      // (no precision/scale).  MikroORM's bare `type: "decimal"` DEFAULTS to
-      // `numeric(10,0)` (scale 0), which rounds every fractional value to an
-      // integer on store (9.99 → 10); pin `columnType: "numeric"` so the DDL
-      // is scale-free and fractional decimals survive the round-trip.
-      return { mikro: "decimal", ts: "string", columnType: "numeric" };
-    case "money":
-      return { mikro: "decimal", ts: "string", columnType: "numeric(19,4)" };
-    case "bool":
-      return { mikro: "boolean", ts: "boolean" };
-    case "date":
-      // MikroORM's `date` type hydrates the column as its `YYYY-MM-DD` text.
-      return { mikro: "date", ts: "string" };
-    case "datetime":
-      return { mikro: "datetime", ts: "Date" };
-    case "guid":
-      return { mikro: "uuid", ts: "string" };
-    case "json":
-      return { mikro: "json", ts: "unknown" };
-    default:
-      return { mikro: "string", ts: "string" };
-  }
+/** MikroORM type + Row TS type for a primitive — the `Codec` fact's column,
+ *  spelled by `mikroScalar`. */
+function primTypes(name: string): MikroScalar {
+  return name === "duration"
+    ? { mikro: "string", ts: "string" }
+    : mikroScalar(name as CodecPrimitive);
 }
 
 /** Expand a single field into its column(s). VO fields flatten into one column
@@ -445,7 +423,7 @@ function renderPartRowEntity(
       "",
       `export const ${schemaName} = new EntitySchema<${cls}>({`,
       `  class: ${cls},`,
-      `  tableName: "${snake(plural(part.name))}",`,
+      `  tableName: "${tableNameFor(part.name)}",`,
       `  properties: {`,
       ...propLines,
       `  },`,
@@ -945,7 +923,7 @@ export function renderMikroEntities(
     if (!isMaterializedProjection(proj)) continue;
     const { block, schemaName } = renderRecordRowEntity(
       mikroProjectionRowClass(proj),
-      snake(plural(proj.name)),
+      tableNameFor(proj.name),
       projectionStateColumns(proj, ctx),
     );
     schemaNames.push(schemaName);

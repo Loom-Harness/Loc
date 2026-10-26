@@ -1,0 +1,53 @@
+// A provenanced `money` field's lineage carries money as the RS-12 wire string
+// (`Codec` fact: `lineage: "wire"` for money; owner ruling on #3527).  The
+// lineage is persisted as jsonb and read back verbatim, so an input or a
+// computed value that skipped the money encoder reached the wire unscaled
+// (node `"3000.3"`), as a JSON number (java `3000.3`) or not at all (python
+// 500s on the write).  `units` is an `int`, whose lineage encoding is its wire
+// number on every backend (the `provenance` golden pins it).
+system LeasingSystem {
+  subdomain Leasing {
+    context Leasing {
+      aggregate Lease with crudish {
+        rent: money
+        market: money provenanced
+        operation assess(comparable: money, units: int) {
+          market := comparable * units
+        }
+      }
+      repository Leases for Lease { }
+    }
+  }
+  api LeasingApi from Leasing
+  storage primary { type: postgres }
+  resource leasingState { for: Leasing, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Leasing]
+    dataSources: [leasingState]
+    serves: LeasingApi
+    port: 4000
+  }
+
+  test e2e "a provenanced money lineage carries money at the wire scale" against d {
+    let l = api.leases.create({ rent: money("1000"), market: money("900") })
+    api.leases.assess(l, { comparable: money("1000.1"), units: 3 })
+    let read = api.leases.getById(l)
+    expect(read.market.value).toBe("3000.3000")
+    expect(read.market.lineage.computedValue).toBe("3000.3000")
+    expect(read.market.lineage.inputs.where(i => i.path == "comparable").first().value).toBe("1000.1000")
+
+    // The crudish `update` is the second write site: the lineage records the
+    // submitted value itself, at the same scale.
+    api.leases.update(l, { rent: money("1000"), market: money("12.5") })
+    let updated = api.leases.getById(l)
+    expect(updated.market.lineage.computedValue).toBe("12.5000")
+    expect(updated.market.lineage.inputs.where(i => i.path == "market").first().value).toBe("12.5000")
+
+    // The list route reads the same lineage column in bulk.
+    let listed = api.leases.all()
+    expect(listed.items.length).toBe(1)
+    api.leases.destroy(l)
+    expect(api.leases.getById(l)).toThrow(404)
+  }
+}

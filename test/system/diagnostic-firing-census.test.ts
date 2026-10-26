@@ -2082,6 +2082,13 @@ system S {
     queryHandler Q(n: int): int { if n > 0 { return 1 } else { return 2 } }
   } }
 }`,
+  // A dropped `or E` result: the call statement throws the `error` case away.
+  "loom.unhandled-result": repoOnly(`    error Rejected { reason: string }
+    aggregate Order with crudish {
+      code: string
+      operation probe(): Order or Rejected { return Rejected { reason: code } }
+      operation touch() { probe() }
+    }`),
   // An anonymous `retrieval { where: … }` whose `where` is a predicate rather
   // than the criterion reference this release admits.
   "loom.retrieval-where-not-criterion": `

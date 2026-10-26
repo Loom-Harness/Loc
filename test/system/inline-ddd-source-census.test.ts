@@ -66,6 +66,11 @@ const DELIBERATELY_UNPARSEABLE: readonly { file: string; contains?: string; why:
     why: "a deployable with its name deleted, pinning the parse error's candidate list (keyword-sweep review)",
   },
   {
+    file: "test/ir/tenancy-claim-binding.test.ts",
+    contains: "tenancy by user.\n",
+    why: "a `tenancy` declaration with its claim not yet typed — the macro expander must expand it without throwing",
+  },
+  {
     file: "test/playground/builder-recovered-ast.test.ts",
     why: "its subject IS parse recovery — every fixture is a source mid-edit, and a parseable one would test nothing",
   },

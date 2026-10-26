@@ -20,14 +20,14 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import { plural, snake } from "../../../util/naming.js";
+import { snake, workflowStateTableName } from "../../../util/naming.js";
+import { tableNameFor } from "../../../util/storage-names.js";
 import type { BoundedContextIR } from "../../types/loom-ir.js";
 import { isMaterializedProjection } from "../../types/loom-ir.js";
 import type { OriginRef } from "../../types/origin.js";
 import { isTphBase, isTphConcrete } from "../../util/inheritance.js";
 import { valueCollectionsFor } from "../../util/value-collections.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
-
 export interface PersistedTable {
   /** The physical table name the migration DDL creates. */
   readonly table: string;
@@ -61,7 +61,7 @@ export function persistedTablesOf(ctx: BoundedContextIR): PersistedTable[] {
     if (isTphConcrete(agg, pool)) {
       for (const part of agg.parts) {
         out.push({
-          table: plural(snake(part.name)),
+          table: tableNameFor(part.name),
           owner: `entity '${part.name}' of aggregate '${agg.name}'`,
           declaredName: part.name,
           kind: "part",
@@ -75,7 +75,7 @@ export function persistedTablesOf(ctx: BoundedContextIR): PersistedTable[] {
       continue;
     }
     out.push({
-      table: plural(snake(agg.name)),
+      table: tableNameFor(agg.name),
       owner: `aggregate '${agg.name}'`,
       declaredName: agg.name,
       kind: "aggregate",
@@ -86,7 +86,7 @@ export function persistedTablesOf(ctx: BoundedContextIR): PersistedTable[] {
     if (shape !== "relational") continue;
     for (const part of agg.parts) {
       out.push({
-        table: plural(snake(part.name)),
+        table: tableNameFor(part.name),
         owner: `entity '${part.name}' of aggregate '${agg.name}'`,
         declaredName: part.name,
         kind: "part",
@@ -121,7 +121,7 @@ export function persistedTablesOf(ctx: BoundedContextIR): PersistedTable[] {
     }
     if (!wf.correlationField) continue;
     out.push({
-      table: plural(snake(wf.name)),
+      table: workflowStateTableName(wf.name),
       owner: `workflow '${wf.name}'`,
       declaredName: wf.name,
       kind: "workflow",
@@ -131,7 +131,7 @@ export function persistedTablesOf(ctx: BoundedContextIR): PersistedTable[] {
   for (const proj of ctx.projections) {
     if (!isMaterializedProjection(proj)) continue;
     out.push({
-      table: plural(snake(proj.name)),
+      table: tableNameFor(proj.name),
       owner: `projection '${proj.name}'`,
       declaredName: proj.name,
       kind: "projection",
