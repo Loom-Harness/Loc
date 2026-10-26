@@ -1,7 +1,7 @@
+import { wireStatus } from "../../../ir/enrich/wire-policy.js";
 import type { BoundedContextIR, FieldIR } from "../../../ir/types/loom-ir.js";
 import { deriveContextOperations, staticSubpathRoutes } from "../../../ir/util/api-surface.js";
 import { readPortsForOperation } from "../../../ir/util/domain-service-read-ports.js";
-import { UNSUPPORTED_MEDIA_TYPE_DETAIL } from "../../../ir/util/openapi-errors.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, upperFirst } from "../../../util/naming.js";
@@ -21,6 +21,7 @@ import { BOOT_DB_RETRY } from "../../_obs/boot-db-retry.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
 import { OTEL_ENDPOINT_ENV, OTEL_SERVICE_NAME_ENV } from "../../_obs/tracing.js";
 import type { SchemaIdOverride } from "../schema-ids.js";
+import { csFixedDetail, csSentence } from "../wire-policy-cs.js";
 import { emitsBaseReader } from "./base-reader.js";
 import { DAPPER_PROJECT_DEPS, renderDapperConnectionSetup } from "./dapper.js";
 
@@ -371,7 +372,7 @@ app.MapGet("/files/{key}", async (string key, HttpContext http, ILogger<${ns}.Ap
     // override), the x-request-id header, the catalog event and the fault
     // counter are all the ones every other absent read produces.
     return obj is null
-        ? ${ns}.Api.DomainExceptionFilter.NotFoundProblem(http, log, $"File {key} not found")
+        ? ${ns}.Api.DomainExceptionFilter.NotFoundProblem(http, log, ${csSentence("not-found", "File {key}")})
         : Results.File(obj.Value.Bytes, obj.Value.ContentType);
 });
 `
@@ -782,7 +783,7 @@ app.Use(async (HttpContext http, RequestDelegate next) =>
     if (staticSubpathMethods.TryGetValue(http.Request.Path.Value ?? string.Empty, out var allow)
         && !allow.Contains(http.Request.Method, StringComparer.Ordinal))
     {
-        http.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
+        http.Response.StatusCode = ${wireStatus("method-not-allowed")};
         http.Response.Headers["Allow"] = string.Join(", ", allow);
         return;
     }
@@ -1042,7 +1043,7 @@ builder.Services.AddProblemDetails(opts =>
         ctx.ProblemDetails.Status = status;
         ctx.ProblemDetails.Title ??= ReasonPhrases.GetReasonPhrase(status);
         // A 415 carries the one sentence every backend sends for it (RS-39).
-        if (status == 415) ctx.ProblemDetails.Detail = ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)};
+        if (status == ${wireStatus("unsupported-media-type")}) ctx.ProblemDetails.Detail = ${csFixedDetail("unsupported-media-type")};
         ctx.ProblemDetails.Detail ??= ctx.ProblemDetails.Title;
         ctx.ProblemDetails.Instance ??= ctx.HttpContext.Request.Path;
         ctx.ProblemDetails.Extensions.Remove("traceId");
@@ -1354,8 +1355,8 @@ app.UseStatusCodePages(async (StatusCodeContext statusCodeContext) =>
     // showed it as the one member still diverging once the statuses converged.
     var detail = status switch
     {
-        404 => $"no route for {http.Request.Method} {http.Request.Path}",
-        405 => $"method {http.Request.Method} is not supported for {http.Request.Path}",
+        ${wireStatus("no-route")} => ${csSentence("no-route", "{http.Request.Method} {http.Request.Path}")},
+        ${wireStatus("method-not-allowed")} => $"method {http.Request.Method} is not supported for {http.Request.Path}",
         _ => title,
     };
     ${asLifecycleStmt(

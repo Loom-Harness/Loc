@@ -20,6 +20,7 @@ import { maskNamer, projectEntityExpr, projectToResponse, wireType } from "../dt
 import { renderCommand, renderCommandHandler } from "../emit.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "../render-expr.js";
 import { renderCreateValidator, renderOperationValidator } from "../validator-emit.js";
+import { csNotFoundException } from "../wire-policy-cs.js";
 
 /** The `when` canCommand gate (criterion.md use site 2): evaluate the
  *  predicate against the loaded aggregate before the body runs; false →
@@ -351,7 +352,7 @@ export function emitDestroyCommandAndHandler(
       extraUsings: [...destroyAuditUsings, ...destroyGate.usings],
       body:
         `        var aggregate = await _repo.${writeCmdLoad(agg)}(command.Id, cancellationToken)\n` +
-        `            ?? throw new AggregateNotFoundException($"${agg.name} {command.Id} not found");\n` +
+        `            ?? throw ${csNotFoundException(null, `${agg.name} {command.Id}`)};\n` +
         // AFTER the load (so an unreachable id is a 404, not a 403) and BEFORE
         // the audit stage AND the delete.  The ordering is the security
         // property: #2450's gate passed a mutation that moved this line below
@@ -535,7 +536,7 @@ export function emitOperationCommandAndHandler(
     // save, then return it (the aggregate produces the tagged Domain union).
     const loadLine =
       `        var aggregate = await _repo.${writeCmdLoad(agg)}(command.Id, cancellationToken)\n` +
-      `            ?? throw new AggregateNotFoundException($"${agg.name} {command.Id} not found");\n` +
+      `            ?? throw ${csNotFoundException(null, `${agg.name} {command.Id}`)};\n` +
       requiresGate(op) +
       whenGate(agg, op);
     const handlerBody = returnUnion

@@ -42,6 +42,7 @@ import { joinDbSetName, joinFkPropName } from "./emit/join-entities.js";
 import { csStateHolderOf } from "./emit/state-holder.js";
 import { csFindMethodName } from "./find-method-name.js";
 import { csReadOwnParams } from "./local-names.js";
+import { csNotFoundException } from "./wire-policy-cs.js";
 
 // ---------------------------------------------------------------------------
 // Expression renderer for the .NET / C# backend.
@@ -1382,7 +1383,7 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
         const call = `await ${handle}.${method}(${ctArg})`;
         if (read.op === "load") {
           const idArg = argList.length > 0 ? ` {${argList}}` : "";
-          return `(${call} ?? throw new AggregateNotFoundException($"${read.aggregate}${idArg} not found"))`;
+          return `(${call} ?? throw ${csNotFoundException(null, `${read.aggregate}${idArg}`)})`;
         }
         return `(${call})`;
       }

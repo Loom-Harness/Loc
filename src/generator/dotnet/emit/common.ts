@@ -10,8 +10,8 @@ import {
   PAGED_MAX_PAGE,
   PAGED_MAX_PAGE_SIZE,
 } from "../../../ir/stdlib/generics.js";
-import { CONCURRENCY_CONFLICT_SUFFIX } from "../../../ir/util/openapi-errors.js";
 import { renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
+import { csFindAbsentException, csNotFoundException, csSentence } from "../wire-policy-cs.js";
 
 export function renderCommon(
   ns: string,
@@ -130,8 +130,8 @@ public sealed record FileRef(string Url, string Key, string ContentType, long Si
 /// <c>DbUpdateConcurrencyException</c>.</summary>
 public sealed class ConcurrencyConflictException : Exception
 {
-    // RS-40: the message IS the 409 detail ("<Aggregate> <id> ${CONCURRENCY_CONFLICT_SUFFIX}").
-    public ConcurrencyConflictException(string aggregate, object id) : base($"{aggregate} {id} ${CONCURRENCY_CONFLICT_SUFFIX}") { }
+    // RS-40: the message IS the 409 detail ("<Aggregate> <id> was modified by another request").
+    public ConcurrencyConflictException(string aggregate, object id) : base(${csSentence("version-conflict", "{aggregate} {id}")}) { }
 }
 
 `
@@ -578,7 +578,7 @@ public sealed class InProcessDomainEventDispatcher : IDomainEventDispatcher
  * branch is the destroy FK catch), so the plain EF leg carried it identically.
  */
 export function dotnetFindAbsenceThrow(ns: string): string {
-  return `throw new global::${ns}.Domain.Common.AggregateNotFoundException("not_found");`;
+  return `throw ${csFindAbsentException(ns)};`;
 }
 
 /**
@@ -609,7 +609,7 @@ export function dotnetFindAbsenceThrow(ns: string): string {
  * `ToString()`), so the bytes match the other four backends.
  */
 export function dotnetNotFoundThrow(ns: string, resource: string, keyExpr: string): string {
-  return `throw new global::${ns}.Domain.Common.AggregateNotFoundException($"${resource} {${keyExpr}} not found");`;
+  return `throw ${csNotFoundException(ns, `${resource} {${keyExpr}}`)};`;
 }
 
 /**

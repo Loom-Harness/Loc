@@ -5679,6 +5679,12 @@ sentence a node emitter picks itself. The other four backends move onto it one
 at a time; until each does, its wire-golden legs carry a per-golden waiver in
 `test/_helpers/wire-waivers.ts` for the missing-field sentence.
 
+.NET (EF and Dapper) renders it through `src/generator/dotnet/wire-policy-cs.ts`,
+guarded by `test/generator/dotnet/wire-policy-census.test.ts`. A wrong-typed
+JSON value (`"5"` for an `int`, `12.5` for a `money`) is a `field-invalid` 422 at
+the field's pointer, as on node — not the 400 malformed-body answer it used to
+get.
+
 ## D-FAILURE-MODEL — Loom has no exceptions: each failure kind has one construct, and an expected failure is a value the caller must handle
 
 **Status:** PINNED (owner rulings 2026-10-25 on #4134, #4146, #3951, #3916;
