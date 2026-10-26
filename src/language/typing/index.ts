@@ -35,6 +35,8 @@ export interface TypingSession {
   /** An assignment / call target's receiver chain: `this`'s type, then the
    *  type after each data segment. */
   lvalueStepsAt(lv: AstNode): readonly Ty[] | undefined;
+  /** What a call target (`a.withdraw(amt)` as a statement) returns. */
+  lvalueCallResultAt(lv: AstNode): Ty | undefined;
   /** `synthAt` for a node inside a CONTEXT-level `filter` / `stamp`, typed
    *  against the aggregate `host` it lands on; undefined elsewhere. */
   synthAtFor(node: AstNode, host: Aggregate): Ty | undefined;
@@ -55,6 +57,7 @@ export function typingSession(
     resolveType: (t) => elab.resolveType(t, undefined),
     scopeAt: (node) => elab.scopes.get(node),
     lvalueStepsAt: (lv) => elab.lvalueChains.get(lv),
+    lvalueCallResultAt: (lv) => elab.lvalueCallResults.get(lv),
     synthAtFor: (node, host) => {
       for (let n: AstNode | undefined = node; n; n = n.$container) {
         const hosts = elab.perHost.get(n);
