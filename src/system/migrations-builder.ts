@@ -797,8 +797,8 @@ export function diffSchema(
   // Guarded on the old relation existing (and the new name being free) so a
   // ledger block that's already been baked into the snapshot, or a rename of a
   // same-generation add, is a no-op.  The actual `renameTable` DDL is emitted
-  // separately (`tableRenameSteps`) and ordered before `createTable` so a new
-  // table can inline-reference the renamed one under its new name.
+  // separately (`tableRenameSteps`) and runs FIRST: every other step the diff
+  // derives for a renamed table addresses it by its NEW name.
   const tableRenameSteps: MigrationStep[] = [];
   if (prev && tableRenames.length > 0) {
     const prevKeys = new Set(prev.tables.map((t) => qkey(t.schema, t.name)));
@@ -865,23 +865,28 @@ export function diffSchema(
   );
 
   // FK-safe global order:
-  //   drop indexes/columns (unblocks table drops) → drop tables (child-first)
-  //   → rename tables (so a new table can inline-reference a renamed relation
-  //   under its new name; Postgres keeps FK constraints valid across the
-  //   rename) → create tables (parent-first) → rename columns (before
-  //   adds/alters so a renamed column exists under its new name for a
+  //   rename tables → drop indexes/columns (unblocks table drops) → drop
+  //   tables (child-first) → create tables (parent-first) → rename columns
+  //   (before adds/alters so a renamed column exists under its new name for a
   //   subsequent type alter) → add columns (targets now exist) → alter columns
   //   → add indexes.
+  // Table renames lead because `diffTable` pairs a renamed table with its new
+  // self, so the CHECK / column / index drops it emits name the NEW relation —
+  // run ahead of the rename they fail with `relation "<new>" does not exist`.
+  // Leading is safe: a rename only applies when its new name is free in the
+  // baseline, so it never collides with a table this generation drops, and a
+  // new table can then inline-reference the renamed relation under its new
+  // name (Postgres keeps FK constraints valid across the rename).
   // Checks bracket the column work: a CHECK is dropped FIRST (before the
   // columns it constrains can be dropped or renamed out from under it — a
   // Postgres constraint keeps its columns alive) and added LAST (after every
   // column it names exists under its final name).
   return [
+    ...tableRenameSteps,
     ...buckets.dropIndex,
     ...buckets.dropCheck,
     ...buckets.dropColumn,
     ...dropTableSteps,
-    ...tableRenameSteps,
     ...createTableSteps,
     ...buckets.rename,
     ...buckets.addColumn,
@@ -890,6 +895,39 @@ export function diffSchema(
     ...buckets.addIndex,
     ...buckets.addCheck,
   ];
+}
+
+/** Expand a rename of a value-object FIELD into the renames of its leaf
+ *  columns.  A value-object field is stored as one column per leaf
+ *  (`home_street`, `home_city`, all `voGroup: "home"`), so `Person.home ->
+ *  residence` names no column on either side; read as a plain column rename it
+ *  would match nothing and the field would fall through to drop + add.  When
+ *  `from` is a value-object group of the baseline and `to` one of the next
+ *  shape, each next leaf `residence_<path>` is renamed from `home_<path>` — the
+ *  same leaf path under the old prefix.  A leaf with no old counterpart (the
+ *  value object also grew a field) stays an add, one with no new counterpart a
+ *  drop.  A rename that already names a leaf column (`Person.homeStreet ->
+ *  residenceStreet`) passes through unchanged, as does every non-group rename.
+ *  The json-column backends (Ecto, Dapper) collapse the leaf renames back into
+ *  one rename of the group's column (`collapseVoSteps`). */
+function expandValueObjectRenames(
+  renames: readonly TableColumnRename[],
+  prevColumns: readonly ColumnShape[],
+  nextColumns: readonly ColumnShape[],
+): TableColumnRename[] {
+  const prevNames = new Set(prevColumns.map((c) => c.name));
+  return renames.flatMap((r): TableColumnRename[] => {
+    if (prevNames.has(r.from)) return [r];
+    if (!prevColumns.some((c) => c.voGroup === r.from)) return [r];
+    const leaves = nextColumns.filter((c) => c.voGroup === r.to);
+    if (leaves.length === 0) return [r];
+    return leaves.flatMap((leaf): TableColumnRename[] => {
+      const from = `${r.from}${leaf.name.slice(r.to.length)}`;
+      return prevColumns.some((c) => c.name === from && c.voGroup === r.from)
+        ? [{ ...r, from, to: leaf.name }]
+        : [];
+    });
+  });
 }
 
 /** True for a column the migration DIFF may act on.
@@ -951,7 +989,9 @@ function diffTable(
   const colRenameMap = new Map<string, string>();
   if (renames.length > 0) {
     const edge = new Map<string, string>();
-    for (const r of renames) edge.set(r.from, r.to);
+    for (const r of expandValueObjectRenames(renames, prevColumns, nextColumns)) {
+      edge.set(r.from, r.to);
+    }
     for (const c of prevColumns) {
       if (nextCols.has(c.name) || !edge.has(c.name)) continue; // persisted, or not renamed
       // Follow the rename chain (qty → quantity → amount) to the first hop
@@ -2365,9 +2405,13 @@ function judgeBlocksAgainstBaseline(
       st.op === "backfillColumn" ? [`${qkey(st.schema, st.table)}.${st.column}`] : [],
     ),
   );
+  // A value-object field rename names the field's group of leaf columns, not
+  // a column (see `expandValueObjectRenames`).
+  const hasColOrGroup = (t: TableShape, col: string): boolean =>
+    t.columns.some((c) => c.name === col || c.voGroup === col);
   const columnRenameSpent = (r: TableColumnRename): boolean => {
     const t = tableOf(r.schema, r.table);
-    return t !== undefined && hasCol(t, r.to) && !hasCol(t, r.from);
+    return t !== undefined && hasColOrGroup(t, r.to) && !hasColOrGroup(t, r.from);
   };
   const blocks = new Set<string>([
     ...(options.renameIntents ?? []).map((i) => i.migration),

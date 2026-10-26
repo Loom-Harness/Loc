@@ -66,8 +66,10 @@ The result is a `MigrationDelta` — a `MigrationsIR` without a version. Only th
 chain numbers a generation, when `ddd migrate add` records it (see
 [The migration chain](#the-migration-chain--migrations-beside-the-source)).
 
-`diffSchema` emits an **FK-safe global order**: drop indexes/columns (which
-unblocks table drops) → drop tables in **reverse-topological (child-first)** order
+`diffSchema` emits an **FK-safe global order**: rename tables first (the diff
+pairs a renamed table with its new self, so every later step — a dropped
+`CHECK`, column or index included — names it by its NEW name) → drop
+indexes/columns (which unblocks table drops) → drop tables in **reverse-topological (child-first)** order
 so a parent is never dropped while a child still references it → create tables in
 **topological (parent-first)** order (Kahn's sort with an alphabetical tiebreak) so
 an inline `REFERENCES` never points at a not-yet-created table → add columns (their
@@ -116,6 +118,28 @@ such flag.
   ALTER TABLE "orders" RENAME COLUMN "qty" TO "quantity";
   ALTER TABLE "orders" RENAME COLUMN "shipped_at" TO "fulfilled_at";
   ```
+
+  A **value-object field** renames by its field name too. The relational
+  backends store it as one column per leaf, so the rename becomes one
+  `renameColumn` per leaf (`home_road → residence_road`, …); Ecto and Dapper
+  store it as one json column, so they rename that column. A leaf the value
+  object gained in the same generation is an add. The per-leaf spelling
+  (`Person.homeRoad -> residenceRoad`) renames that one leaf column and still
+  works, but the field form is the one to write.
+
+  ```ddd
+  valueobject Address { road: string  city: string }
+  aggregate Person { name: string  residence: Address }   // was `home: Address`
+
+  migration "res" { Person.home -> residence }
+  ```
+  ```sql
+  ALTER TABLE "people"."persons" RENAME COLUMN "home_road" TO "residence_road";
+  ALTER TABLE "people"."persons" RENAME COLUMN "home_city" TO "residence_city";
+  ```
+  ```elixir
+  rename table(:persons, prefix: "people"), :home, to: :residence
+  ```
 - **Table / aggregate rename (M-T2.1).** A bare `OldName -> NewAggregate` step in
   the same block renames a whole aggregate's table. Only the NEW aggregate is a
   cross-reference (the old name is gone); the diff emits a `renameTable` for the
@@ -152,9 +176,17 @@ such flag.
   ```elixir
   rename table(:orders), to: table(:purchase_orders)
   ```
-  Renaming an aggregate that is the *target* of a sibling aggregate's reference
-  collection (`Other.xs: Order id[]`) is not yet cascaded — that sibling join
-  table's `targetFk` change falls under the destructive gate (never silent).
+  The `renameTable` steps lead the generation, so anything else the diff emits
+  for the renamed table runs against its new name. An enum field's `CHECK` is
+  named after the table, so it is dropped under its old name on the renamed
+  relation and re-added under the new one:
+
+  ```sql
+  ALTER TABLE "people"."employees" RENAME TO "staffs";
+  ALTER TABLE "people"."staffs" DROP CONSTRAINT IF EXISTS "employees_grade_enum";
+  -- …
+  ALTER TABLE "people"."staffs" ADD CONSTRAINT "staffs_grade_enum" CHECK (…) NOT VALID;
+  ```
 - **Rename detection (heuristic fallback).** With no explicit block, a table with
   *exactly one* `dropColumn` and *one* `addColumn` of **identical type *and*
   nullability** is an unambiguous rename → the pair collapses into a single non-destructive
