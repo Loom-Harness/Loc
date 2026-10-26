@@ -6919,7 +6919,32 @@ named `ignoring` did not parse). Use `parseErrorsOf` / `parseRawOk` from
 `test/_helpers/parse.ts`; `test/system/vacuous-parse-assertion.test.ts` gates the
 pattern.
 
-## 135. SQLAlchemy global criteria: three traps the docs do not lead with (2026-10-26)
+## 135. A lossy type view hides the typing pass's own bugs — and `generate system` writes next to its input (2026-10-25)
+
+Retiring `type-system.ts`'s `DddType` (#4114) meant validators read the typing
+pass's `Ty` directly instead of through an adapter that turned every shape it
+could not express (resource handles, workflow state, unions, carriers) into
+`unknown`. Validators stand down on `unknown`, so the adapter had been hiding a
+pass bug: the pass resolved a name to an ambient resource handle BEFORE the
+lexical scope, the opposite of ruling D7 and of lowering. `create(name, st) {
+st := st }` next to `resource st` typed its RHS as the handle; nothing reported
+it until the adapter was gone (`test/ir/resource-name-shadowing.test.ts`:
+"Cannot assign 'st' to 'string'"). Expect this whenever a lossy view is
+removed: the first failures are the old view's blind spots, not the new code.
+
+Two harness traps from proving the change neutral (diagnostics over all 631
+tracked `.ddd`, `generate system` over the 428 that validate):
+
+- **`generate system` writes `<dir>/.loom/<model>.migration-history.json` next to
+  the SOURCE**, and the next run reads it back. A before/after diff that points
+  both toolchains at one source tree compares a first generation against a
+  second one. Give each toolchain its own copy (a `git worktree` for the base,
+  the checkout for the change), and delete the untracked history files after.
+- **`pgrep -f <pattern> | xargs kill` from inside a Bash tool call kills that call**:
+  its own command line contains the pattern. Kill by PID from `ps -eo pid,args |
+  grep "[p]attern"` (§116 has the fleet-wide version of this).
+
+## 136. SQLAlchemy global criteria: three traps the docs do not lead with (2026-10-26)
 
 Verified on SQLAlchemy 2.1.6 while moving python reads onto one `do_orm_execute` +
 `with_loader_criteria` hook (#3962):

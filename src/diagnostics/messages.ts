@@ -2894,9 +2894,9 @@ export const DIAGNOSTIC_MESSAGES = {
     aggName: unknown;
   }) =>
     `queryHandler '${p.name}' pages retrieval '${p.retrieval}', whose \`sort:\` is the page's default order — but '${p.aggName}' is not a single-table relational aggregate, and its paged read is taken in memory without that order. Drop the retrieval's \`sort:\` (the client orders through the route's \`sort\`/\`dir\`), or page a criterion instead.`,
-  "loom.datagrid-unsupported-target": (p: { what: unknown; dName: unknown; fw: unknown }) =>
+  "loom.target-unsupported#datagrid": (p: { what: unknown; dName: unknown; target: unknown }) =>
     `${p.what} uses 'DataGrid', which deployable '${p.dName}' can't render ` +
-    `(frontend '${p.fw}'). DataGrid is a TanStack row model, so it ships wherever ` +
+    `(frontend '${p.target}'). DataGrid is a TanStack row model, so it ships wherever ` +
     `TanStack can run: react, vue, svelte, angular and feliz. It is a permanent gap on flutter ` +
     `(the native target has no JS runtime) and on heex (LiveView could only re-implement the ` +
     `row model, forking its sort, filter and pagination semantics). Use 'Table' — it supports ` +
@@ -3013,12 +3013,21 @@ export const DIAGNOSTIC_MESSAGES = {
     `so Loom emits the component itself — a WALKED component is invoked by its own tag ` +
     `('<app-x …>children</app-x>') and projects children into '<ng-content>' — or pass the ` +
     `content as a declared parameter, or host this page on another frontend.`,
-  "loom.chart-unsupported-target": (p: { what: unknown; name: unknown; uiFramework: unknown }) =>
-    `${p.what} uses 'Chart', which deployable '${p.name}' can't render ` +
-    `(frontend '${p.uiFramework}'). Chart ships on every shipping frontend — react, vue, ` +
+  "loom.target-unsupported#chart": (p: { what: unknown; dName: unknown; target: unknown }) =>
+    `${p.what} uses 'Chart', which deployable '${p.dName}' can't render ` +
+    `(frontend '${p.target}'). Chart ships on every shipping frontend — react, vue, ` +
     `svelte, angular, feliz, flutter and phoenixLiveView — so this names a frontend the ` +
     `chart renderer has not been written for yet. Bind the grouped projection to 'Table' ` +
     `meanwhile: it renders the same rows on every frontend.`,
+  "loom.target-unsupported#entity-history-read": (p: {
+    what: unknown;
+    dName: unknown;
+    target: unknown;
+  }) =>
+    `${p.what} reads an entity's audit history (\`QueryView { of: <Agg>.history(id) }\`), ` +
+    `which deployable '${p.dName}' can't serve (frontend '${p.target}'): its read layer does ` +
+    `not collect the history read or render 'Timeline'. Host this page on a frontend that does, ` +
+    `or read the history through a backend query.`,
   "loom.ui-projection-read-unsupported#frontend-has-no-client": (p: {
     what: unknown;
     name: unknown;

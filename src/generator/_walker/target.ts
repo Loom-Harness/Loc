@@ -1643,7 +1643,7 @@ export interface WalkerTarget {
   //
   // OPTIONAL, but unlike the `Table` seams the absence is NOT a graceful
   // degradation: a grid that renders nothing is a blank page region, not a
-  // simpler table.  So `loom.datagrid-unsupported-target` rejects `DataGrid`
+  // simpler table.  So `loom.target-unsupported#datagrid` rejects `DataGrid`
   // on any framework without this seam at IR-validate, and the sentinel the
   // primitive emits when it is missing is unreachable from valid input.
 

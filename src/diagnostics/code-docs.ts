@@ -377,8 +377,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "16-ui-walker-primitives.md#chart--grouped-projection-series-every-frontend",
   "loom.chart-of-not-grouped":
     "16-ui-walker-primitives.md#chart--grouped-projection-series-every-frontend",
-  "loom.chart-unsupported-target":
-    "16-ui-walker-primitives.md#chart--grouped-projection-series-every-frontend",
+  "loom.target-unsupported": "16-ui-walker-primitives.md#per-target-honest-gates",
   "loom.bindable-input-value-arg":
     "16-ui-walker-primitives.md#the-form-family--createform-operationform-workflowform-destroyform",
   "loom.page-form-locals-unsupported":

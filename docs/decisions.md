@@ -2387,7 +2387,7 @@ itself**. Not "iff it emits JSX", and not "iff its UI kit has a grid widget".
   `Table` is server-driven there instead, and carries real sort + pagination.
 
 `Table` is the portable answer on both, and it carries column sort, pagination
-and filtering on every frontend. `loom.datagrid-unsupported-target` says so, per
+and filtering on every frontend. `loom.target-unsupported#datagrid` says so, per
 target, rather than "not supported yet".
 
 **Correction (DataGrid pin re-examination).** Until this revision, HEEx's
@@ -2429,7 +2429,7 @@ it a candidate for `Table`, not an argument for a partial `DataGrid`.
   re-implementation is the same cost everywhere, with no shared spec to hold
   the targets together.
 
-**Affects.** `DATA_GRID_FRAMEWORKS` (`ir/validate/checks/system-checks.ts`);
+**Affects.** the `primitive:DataGrid@body` row of `util/target-capabilities.ts`;
 `DATA_GRID_PRIMITIVES` (`generator/_packs/required-primitives.ts`);
 `util/flutter-deferred-primitives.ts`; `generator/feliz/data-grid-child.ts`;
 [`page-metamodel.md` §9.1](page-metamodel.md); `[new-plan/T1-ui-frontend.md](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T1-ui-frontend.md)`
@@ -4647,9 +4647,8 @@ still each framework's (node's zod text is itself zod-major-specific:
 `Invalid input: expected string, received undefined` on zod 4, `Required` on
 3). Whether to adopt a zod text as the cross-backend contract or mint a
 Loom-owned sentence is its own question — mission M-T6.93. Elixir's
-create/update CHANGESET still renders a message-less single-field rule
-through Ecto's own validators and text — mission M-T6.96 (that seam is wave
-C3F packet F1's tree); its operation rung follows this ruling.
+create/update changeset passes the same sentence as the `message:` of each
+message-less single-field validator, as its operation rung does.
 
 **Consequences.** .NET appends `.WithMessage(<node sentence>)` to each
 native FluentValidation arm (`dotnet/validator-emit.ts`); java passes the

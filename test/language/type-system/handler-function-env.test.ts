@@ -17,19 +17,19 @@ import {
   isLetStmt,
   isQueryHandler,
 } from "../../../src/language/generated/ast.js";
-import type { DddType } from "../../../src/language/type-system.js";
+import type { Ty } from "../../../src/language/type-system.js";
 import { envForNode } from "../../../src/language/type-system.js";
 import { parseString } from "../../_helpers/index.js";
 
-function show(t: DddType | undefined): string {
+function show(t: Ty | undefined): string {
   if (!t) return "(unbound)";
   switch (t.kind) {
     case "primitive":
       return `primitive:${t.name}`;
     case "id":
-      return `id<${t.target.name}>`;
-    case "aggregate":
-      return `aggregate:${t.ref.name}`;
+      return `id<${t.name}>`;
+    case "record":
+      return t.shape.of === "aggregate" ? `aggregate:${t.shape.ref.name}` : t.shape.of;
     case "optional":
       return `optional<${show(t.inner)}>`;
     case "array":
