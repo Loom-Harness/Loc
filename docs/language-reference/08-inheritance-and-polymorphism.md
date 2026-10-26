@@ -1,6 +1,6 @@
 # 8. Inheritance & polymorphism
 
-> **Grammar:** `abstract` prefix on `Aggregate`, `extends`, `inheritanceUsing:` header modifier · **Validators:** `loom.extends-non-abstract`, `loom.extends-self`, `loom.extends-cycle`, `loom.inheritance-modifier-misplaced`, `loom.abstract-aggregate-behavior`, `loom.abstract-aggregate-contains`, `loom.abstract-repository`, `loom.polymorphic-id-ref-unsupported`, `loom.polymorphic-id-ref-mixed-strategy`, `loom.es-tph-forced-own-table`, `loom.tph-own-override-unsupported`, `loom.tph-filter-unsupported`, `loom.tph-backend-unsupported`, `loom.seed-abstract-aggregate`, `loom.tenancy-inherited-stance-conflict` · **Docs:** [`../inheritance.md`](../inheritance.md)
+> **Grammar:** `abstract` prefix on `Aggregate`, `extends`, `inheritanceUsing:` header modifier · **Validators:** `loom.extends-non-abstract`, `loom.extends-self`, `loom.extends-cycle`, `loom.inheritance-modifier-misplaced`, `loom.abstract-aggregate-behavior`, `loom.abstract-aggregate-contains`, `loom.abstract-repository`, `loom.polymorphic-id-ref-unsupported`, `loom.polymorphic-id-ref-mixed-strategy`, `loom.es-tph-forced-own-table`, `loom.tph-own-override-unsupported`, `loom.tph-backend-unsupported`, `loom.seed-abstract-aggregate`, `loom.tenancy-inherited-stance-conflict` · **Docs:** [`../inheritance.md`](../inheritance.md)
 
 One aggregate may `extend` another so subtypes share a field set and can be read polymorphically. An `abstract aggregate` declares the base; concrete aggregates `extends` it; the `inheritanceUsing: …` header modifier chooses how the hierarchy maps to tables. The whole chapter hinges on one fork: **`sharedTable` (TPH) — one table plus a `kind` discriminator — vs `ownTable` (TPC) — one table per concrete subtype.** That choice changes the emitted SQL, the polymorphic reader, and whether `<Base> id` references are legal; everything below shows both.
 
@@ -455,7 +455,7 @@ Both strategies emit on **all five backends** (node/Hono, .NET, Phoenix, Python,
 
 **Tenancy stance is per concrete.** A base's `with tenantOwned` contributes the `tenant_id NOT NULL` column to every subtype's row, but the *stance* is read off each aggregate's own capability list: nothing stamps or filters until the concrete says `with tenantOwned` too (a silent subtype is `loom.tenancy-stance-unmarked`; one that says `crossTenant` against a `tenantOwned` base is `loom.tenancy-inherited-stance-conflict`, an error — the column would be NOT NULL with nothing writing it).
 
-**One .NET restriction.** EF Core registers a query filter on the **root** entity type only, so under TPH the .NET backend hosts every capability `filter` in the hierarchy on the root config (discriminator-guarded, name-prefixed). A subtype `filter` that reads a column the root does not declare cannot be hosted that way and is rejected (`loom.tph-filter-unsupported`): move the field to the base, switch to `ownTable`, or host the context off .NET.
+**.NET EF hosts TPH filters on the root.** EF Core registers a query filter on the **root** entity type only, so under TPH the .NET backend hosts every `filter` in the hierarchy on the root config — a subtype's own one type-guarded (`!(x is Car) || !((Car)x).IsDeleted`) and name-prefixed — and reads every concrete from the root set (`_db.Vehicles.OfType<Car>()`), where EF translates the guard. A subtype filter may read a column only that subtype declares.
 
 | Code | Fires when |
 |---|---|
@@ -470,7 +470,6 @@ Both strategies emit on **all five backends** (node/Hono, .NET, Phoenix, Python,
 | `loom.polymorphic-id-ref-mixed-strategy` | a `<Base> id` reference into a hierarchy with an `ownTable` override concrete |
 | `loom.es-tph-forced-own-table` | a `persistedAs: eventLog` / `shape: document` / `shape: embedded` concrete under a TPH base must declare `inheritanceUsing: ownTable` explicitly (the three non-relational shapes; D-ES-TPH + D-EMBEDDED-TPH) |
 | `loom.tph-own-override-unsupported` | a *voluntary* per-concrete `ownTable` override under a TPH base (mixed strategy) |
-| `loom.tph-filter-unsupported` | **.NET/EF only** (not the Dapper adapter — it splices predicates into raw SQL) — a TPH subtype `filter` reads a column the hierarchy root lacks |
 | `loom.tenancy-inherited-stance-conflict` | a subtype takes the opposite tenancy stance (`crossTenant`) from its `tenantOwned` base |
 | `loom.tph-backend-unsupported` | a TPH hierarchy whose context no TPH-capable backend deployable hosts (all five backends are TPH-capable, so in practice: no backend host at all) |
 

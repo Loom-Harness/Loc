@@ -60,6 +60,7 @@ import {
   checkIntrinsicCalls,
   checkLayout,
   checkLegacyConstructorCalls,
+  checkLetAnnotations,
   checkMacroExpansion,
   checkMatchExpressions,
   checkMatcherArity,
@@ -385,6 +386,8 @@ export class DddValidator {
     // Top-level functions: block-form rejection + recursion cycle
     // (loom.function-toplevel-block / loom.function-recursive).
     guard("toplevel-functions", model, () => checkTopLevelFunctions(model, accept));
+    // `let x: T = e` — the value against the declared type.
+    guard("let-annotations", model, () => checkLetAnnotations(model, accept));
     // The `extern` ↔ body pairing on commandHandler / queryHandler
     // (loom.extern-handler-has-body / loom.handler-missing-body).
     guard("handler-bodies", model, () => checkHandlerBodies(model, accept));

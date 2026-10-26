@@ -1535,26 +1535,6 @@ system S {
 
   // --- inheritance × capability (the TPH cluster) --------------------------
 
-  // A TPH SUBTYPE whose capability `filter` reads a column only that subtype
-  // declares.  EF Core registers a query filter on the hierarchy ROOT entity
-  // type only, and a root-typed lambda has no such member — the one shape of
-  // TPH filter .NET structurally cannot express.  Before the gate the whole
-  // filter list was replaced by `[]` for every TPH participant, so the read
-  // restriction vanished from the emitted queries with no error at all.
-  "loom.tph-filter-unsupported": `
-system S {
-  subdomain Fleet { context Vehicles {
-    criterion Live of Car = this.doors > 0
-    abstract aggregate Vehicle { name: string }
-    aggregate Car extends Vehicle with crudish { doors: int  filter Live }
-    repository Cars for Car { }
-  } }
-  api Api from Fleet
-  storage pg { type: postgres }
-  resource st { for: Vehicles, kind: state, use: pg }
-  deployable d { platform: dotnet contexts: [Vehicles] dataSources: [st] serves: Api port: 8080 }
-}`,
-
   // A subtype taking the OPPOSITE tenancy stance from the base it inherits.
   // The base's `tenantOwned` reaches the subtype, so it would be both tenant
   // data and shared data.
@@ -1998,6 +1978,7 @@ system P {
   // expression-form function (`toplevel-function.ts`) and the block-body
   // `return` (`types.ts`) — share this code.
   "loom.function-return-type-mismatch": orderOps('function bad(): int = "x"'),
+  "loom.let-type-mismatch": orderOps('operation bad() { let n: int = "x" }'),
   // Every other callable with a declared result type: an operation here; the
   // domain-service operation and handler arms share the check.
   "loom.return-type-mismatch": orderOps('operation bad(): int { return "x" }'),

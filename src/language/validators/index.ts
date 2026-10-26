@@ -33,6 +33,7 @@ export { checkGenericCarriers, checkSelfType } from "./generics.js";
 export { checkHandlerBodies } from "./handlers.js";
 export { checkUserVisibleConcat } from "./i18n-strings.js";
 export { checkInheritance } from "./inheritance.js";
+export { checkLetAnnotations } from "./let-annotation.js";
 export { checkMacroExpansion } from "./macros.js";
 export {
   checkExpectMatcher,

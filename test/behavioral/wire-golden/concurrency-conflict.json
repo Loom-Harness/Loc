@@ -151,7 +151,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "message": "Required",
+            "message": "text is required",
             "pointer": "/text"
           }
         ],

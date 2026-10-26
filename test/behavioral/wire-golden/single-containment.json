@@ -149,7 +149,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "message": "Required",
+            "message": "code is required",
             "pointer": "/code"
           }
         ],

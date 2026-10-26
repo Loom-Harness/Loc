@@ -137,7 +137,12 @@ export function mixLocalInstall(opts: { ifMissing?: boolean } = {}): string {
   // same archive fetched 25 times in a row, and a bounded retry against a rate
   // limit only spends its attempts — the pairwise elixir leg lost 17 of 25
   // cases that way while a single case passed in 81s.
-  const flags = opts.ifMissing ? "--if-missing" : "--force";
+  //
+  // `--if-missing` always travels WITH `--force`.  Alone it asks `Are you sure
+  // you want to install …? [Yn]` on stdin, and a container without stdin
+  // answers it with a closed stream — the install can silently not happen.
+  // Together, Mix skips the prompt and still skips an installed Hex.
+  const flags = opts.ifMissing ? "--if-missing --force" : "--force";
   return [
     retryChain(`mix local.hex ${flags}`, MIX_DEPS_GET_BACKOFF_S, MIX_DEPS_GET_ATTEMPTS),
     retryChain(`mix local.rebar ${flags}`, MIX_DEPS_GET_BACKOFF_S, MIX_DEPS_GET_ATTEMPTS),

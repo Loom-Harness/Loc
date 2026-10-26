@@ -26,6 +26,12 @@
 // leaves the other's arm unexercised.  The `embedded` shape is deliberately
 // absent — it reuses the relational row table, so its paged find was always
 // correct, and `embedded.ddd` already owns that shape.
+//
+// The compile legs catch a port/implementation arity split.  An in-memory
+// pager that slices before it filters, sorts after it slices, or counts the
+// page instead of the match compiles and answers plausible JSON, so the
+// `test e2e` block reads the PAGE back: the filtered items, `total` and
+// `totalPages` under a narrowed `pageSize`, on both carriers.
 system PagedNonRelational {
   subdomain S {
     context Ledger {
@@ -69,5 +75,43 @@ system PagedNonRelational {
     dataSources: [ledgerState, ledgerLog]
     serves: LedgerApi
     port: 4000
+  }
+
+  test e2e "a paged find over a document and an event-log carrier pages the filtered set" against d {
+    let i1 = api.invoices.create({ region: "EU", total: 30 })
+    api.invoices.create({ region: "EU", total: 10 })
+    api.invoices.create({ region: "EU", total: 20 })
+    api.invoices.create({ region: "NA", total: 5 })
+
+    let eu = api.invoices.inRegion({ region: "EU" })
+    expect(eu.items.length).toBe(3)
+    expect(eu.total).toBe(3)
+    // The window slices the SORTED match: page 2 of size 2 is the third row,
+    // and the counts still describe the whole match, not the page.
+    let second = api.invoices.inRegion({ region: "EU", page: 2, pageSize: 2, sort: "total", dir: "asc" })
+    expect(second.items.length).toBe(1)
+    expect(second.items.first().total).toBe(30)
+    expect(second.total).toBe(3)
+    expect(second.totalPages).toBe(2)
+    let first = api.invoices.inRegion({ region: "EU", page: 1, pageSize: 2, sort: "total", dir: "asc" })
+    expect(first.items.first().total).toBe(10)
+
+    // The derived document routes.
+    api.invoices.update(i1, { region: "NA", total: 31 })
+    expect(api.invoices.getById(i1).total).toBe(31)
+    expect(api.invoices.inRegion({ region: "EU" }).total).toBe(2)
+    expect(api.invoices.all().length).toBe(4)
+    api.invoices.destroy(i1)
+    expect(api.invoices.getById(i1)).toThrow(404)
+
+    let ada = api.accounts.create({ owner: "Ada" })
+    api.accounts.create({ owner: "Bob" })
+    let mine = api.accounts.byOwner({ owner: "Ada" })
+    expect(mine.items.length).toBe(1)
+    expect(mine.total).toBe(1)
+    expect(mine.items.first().owner).toBe("Ada")
+    expect(api.accounts.getById(ada).balance).toBe(0)
+    expect(api.accounts.byOwner({ owner: "Cy" }).total).toBe(0)
+    expect(api.accounts.all().length).toBe(2)
   }
 }

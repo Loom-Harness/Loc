@@ -516,7 +516,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "message": "Required",
+            "message": "seats is required",
             "pointer": "/seats"
           }
         ],

@@ -113,12 +113,10 @@ describe("settle — the rule every runner leg judges an expected failure by", (
     const e: Entry = {
       issue: "#2",
       expect: "error",
-      match: "loom\\.tph-filter-unsupported",
+      match: "loom\\.example-refusal",
       reason: "r",
     };
-    expect(settle(e, { kind: "error", message: "… loom.tph-filter-unsupported …" }).verdict).toBe(
-      "xfail",
-    );
+    expect(settle(e, { kind: "error", message: "… loom.example-refusal …" }).verdict).toBe("xfail");
     expect(settle(e, { kind: "error", message: "ECONNREFUSED" }).verdict).toBe("mismatch");
   });
 });

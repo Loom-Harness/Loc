@@ -51,6 +51,7 @@ import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
 import { TS_INTRINSIC_RENDERERS } from "./render-expr.js";
 import { associationsOf } from "./repository-associations-builder.js";
+import { tsNotFoundThrow } from "./wire-policy-ts.js";
 
 // SQL-side scalar-intrinsic snippets (src/util/intrinsics.ts) — how a
 // `queryable` intrinsic applied to a COLUMN renders inside a Drizzle
@@ -919,7 +920,7 @@ export function writeScopeGuardLines(
   ops.add("eq");
   return [
     `    const inScope = await this.db.select({ id: schema.${tableName}.id }).from(schema.${tableName}).where(and(eq(schema.${tableName}.id, id), ${pred})).limit(1);`,
-    `    if (inScope.length === 0) throw new AggregateNotFoundError(\`${agg.name} \${id} not found\`);`,
+    `    if (inScope.length === 0) ${tsNotFoundThrow(agg.name, "id")}`,
   ];
 }
 

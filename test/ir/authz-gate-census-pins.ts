@@ -408,6 +408,30 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "operation POST /api/drivers/{id}/update": R.sharedTenancyIdentity,
   },
 
+  // `find … ignoring` on both persistence shapes.  The ladder reads every
+  // seeded row back as a FOREIGN tenant — 404 on the by-id and clause-less
+  // finds, ABSENT from the collection, PRESENT under the two bypassing finds —
+  // so these surfaces' refusals are tenant-scoped, which only a second tenant
+  // can observe.
+  "corpus/find-bypass": {
+    "create POST /api/notes": R.sharedTenancyIdentity,
+    "create POST /api/orders": R.sharedTenancyIdentity,
+    "find GET /api/notes": R.sharedTenancyIdentity,
+    "find GET /api/notes/any_tenant_note": R.sharedTenancyIdentity,
+    "find GET /api/notes/unfiltered_note": R.sharedTenancyIdentity,
+    "find GET /api/orders": R.sharedTenancyIdentity,
+    "find GET /api/orders/any_tenant": R.sharedTenancyIdentity,
+    "find GET /api/orders/unfiltered": R.sharedTenancyIdentity,
+    "find GET /api/organizations": R.sharedTenancyIdentity,
+    "getById GET /api/organizations/{id}": R.sharedTenancyIdentity,
+    "operation POST /api/notes/{id}/restore": R.sharedTenancyIdentity,
+    "operation POST /api/notes/{id}/soft_delete": R.sharedTenancyIdentity,
+    "operation POST /api/notes/{id}/update": R.sharedTenancyIdentity,
+    "operation POST /api/orders/{id}/restore": R.sharedTenancyIdentity,
+    "operation POST /api/orders/{id}/soft_delete": R.sharedTenancyIdentity,
+    "operation POST /api/orders/{id}/update": R.sharedTenancyIdentity,
+  },
+
   // ── the showcase example — five `requires` and no runtime caller ─────────
   // `examples/showcase.ddd` is the repo's broadest sample and no runner boots
   // it, so its two guarded operations, two guarded workflow starters and one
@@ -456,5 +480,5 @@ export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   notABehaviouralCase: 11,
   importGateOnly: 1,
   principalFreeGate: 17,
-  sharedTenancyIdentity: 76,
+  sharedTenancyIdentity: 92,
 };
