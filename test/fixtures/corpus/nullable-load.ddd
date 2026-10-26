@@ -11,12 +11,17 @@
 system NullableLoad {
   subdomain D {
     context Shop {
-      aggregate Order with crudish {
+      aggregate Order {
         code: string
         status: string
+        create(code: string, status: string) {
+          code := code
+          status := status
+        }
       }
-      aggregate Note with crudish {
+      aggregate Note {
         text: string
+        create(text: string) { text := text }
       }
       repository Orders for Order {
         find byCode(c: string): Order? where this.code == c
@@ -64,6 +69,10 @@ system NullableLoad {
 
   test e2e "a nullable load is read behind its guard in every body" against d {
     let o = api.orders.create({ code: "A1", status: "open" })
+    expect(api.orders.getById(o).status).toBe("open")
+    expect(api.orders.byCode({ c: "A1" }).status).toBe("open")
+    expect(api.orders.byCode({ c: "ZZ" })).toThrow(404)
+    expect(api.orders.all().total).toBe(1)
 
     expect(api.shop.codeStatus("A1")).toBe("open")
     expect(api.shop.codeStatus("ZZ")).toBe("missing")
@@ -76,5 +85,8 @@ system NullableLoad {
     expect(notes.total).toBe(2)
     expect(notes.items.where(x => x.text == "missing").length).toBe(1)
     expect(notes.items.where(x => x.text == "open").length).toBe(1)
+
+    let direct = api.notes.create({ text: "direct" })
+    expect(api.notes.getById(direct).text).toBe("direct")
   }
 }

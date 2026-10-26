@@ -590,6 +590,8 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.debitOnce.run (no such aggregate)",
     "api.debitTwice.run (no such aggregate)",
   ],
+  // A workflow run (`POST /api/workflows/labeller`) — the `notLifted` class.
+  "corpus/nullable-load": ["api.labeller.run (no such aggregate)"],
   // Workflow runs (M-T6.98) — not a lifted route class.
   "corpus/workflow-two-handles-document-eventlog": [
     "api.hitSameTwice.run (no such aggregate)",
