@@ -1979,6 +1979,10 @@ system P {
   // expression-form function (`toplevel-function.ts`) and the block-body
   // `return` (`types.ts`) — share this code.
   "loom.function-return-type-mismatch": orderOps('function bad(): int = "x"'),
+  // Every other callable with a declared result type: an operation here; the
+  // domain-service operation and handler arms share the check.
+  "loom.return-type-mismatch": orderOps('operation bad(): int { return "x" }'),
+  "loom.return-missing": orderOps("operation bad(): int { if total > 0 { return 1 } }"),
   // An anonymous `retrieval { where: … }` whose `where` is a predicate rather
   // than the criterion reference this release admits.
   "loom.retrieval-where-not-criterion": `
