@@ -217,11 +217,11 @@ end
 
 `node scripts/codemod-find-to-findby.mjs [--add-unique] <path>` migrates every single-row find (`T?` / `T option`, `T` / `T envelope`, `T or <Error>` — a miss is `T?`) to one of three targets, deleting the declaration:
 
-- a key equal to a declared `unique (…)` tuple → `Repo.findBy(<col>: arg, …)` / `Repo.getBy(…)`, carrying the find's `ignoring`;
+- a key equal to a declared `unique (…)` tuple → `Repo.findBy(<col>: arg, …)` / `Repo.getBy(…)`, carrying the find's `ignoring` (as do `findById` and `find(C)`; `getById` does not);
 - the aggregate's `id` → the built-in `Repo.findById(arg)` / `Repo.getById(arg)`;
 - any other key or queryable `where` → a `criterion <Plural><Find>(params) of <Agg> = <where>` beside the repository (an existing criterion is reused when the `where` is exactly one), read with `Repo.find(<Criterion>(args))` — the first match, `T?`.
 
-A clause-less find binds its parameters to the fields they name, so it counts as that equality conjunction. A find is migrated only when every call site can take its target: a `T?` read (`findBy`, `findById`, `find(C)`) is accepted as an `if let` source or in a domain-service expression, never by a plain `let`; `findById` is not an `if let` source; and a must-exist (`T`) find over a non-unique key has no mechanical target, since no `else` statement answers a 404 today. Those call sites are reported and the find stays, as are a `T or <Error>` call site that matches on the error variant, a find with `ignoring` whose target cannot carry it, a `where` that reads `currentUser`, a find with neither `where` nor parameters, and a find whose route a client reads. `--add-unique` declares the key instead of writing a criterion; it never runs by default.
+A clause-less find binds its parameters to the fields they name, so it counts as that equality conjunction. A find is migrated only when every call site can take its target: a `T?` read (`findBy`, `findById`, `find(C)`) is accepted as an `if let` source or in a domain-service expression, never by a plain `let`; `findById` is not an `if let` source; and a must-exist (`T`) find over a non-unique key has no mechanical target, since no `else` statement answers a 404 today. Those call sites are reported and the find stays, as are a `T or <Error>` call site that matches on the error variant, a must-exist by-id find with `ignoring` (`getById` cannot carry it), a `where` that reads `currentUser`, a find with neither `where` nor parameters, and a find whose route a client reads. `--add-unique` declares the key instead of writing a criterion; it never runs by default.
 
 ## The queryable subset
 
@@ -590,13 +590,81 @@ end
 ```
 ::: end
 
-`ignoring` has exactly three homes, each read by a different lowerer; anywhere else it parses, binds to the wrong expression, is never read back — and is now an error (`loom.ignoring-clause-placement`):
+`ignoring` is read back only in these positions; anywhere else it parses, binds to the wrong expression, is never read back — and is an error (`loom.ignoring-clause-placement`):
 
 | Position | Spelling |
 |---|---|
 | a repository `find` | `find recent(): Order[] where … ignoring softDeletable` |
 | a query-time projection's `where` slot — **before** `join` / `group by` / `select` | `from Order as o ignoring softDeletable  group by …` |
-| an inline read bound by a `let` | `let xs = Orders.findAll(Big()) ignoring *` |
+| an inline read bound by a `let` (`findAll`, `run`, `getBy`, `findBy`) | `let xs = Orders.findAll(Big()) ignoring *` |
+| an `if let` source (`find(<Criterion>)`, `findBy`) | `if let o = Orders.find(ByRef(r)) ignoring softDeletable { … }` |
+| a single-row read in a `domainService` operation (`find(<Criterion>)`, `findById`, `getBy`, `findBy`) | `return Orders.findById(id) ignoring * != null` |
+
+### Widened single-row reads
+
+`find(<Criterion>)` and `findById` normally run against methods every other caller shares — the criterion's `findAllBy<C>` retrieval and the by-id load — so a widened read gets a repository method of its own, named for the read and its stance: `findFirst<Criterion>Ignoring<Caps>` / `findByIdIgnoring<Caps>` (`…IgnoringAll` for `ignoring *`). Like the natural-key methods it is derived from the calls in enrichment and has no HTTP route. A criterion read keeps `find(C)`'s meaning — the first match, in id order — even where the predicate matches many rows.
+
+```ddd
+criterion ProductsInRegion(region: string) of Product = this.region == region
+
+commandHandler ArchiveFirstInRegion(region: string): int {
+  if let p = Products.find(ProductsInRegion(region)) ignoring softDeletable { p.archive() }
+  return 0
+}
+
+domainService ProductQueries {
+  operation everExisted(id: Product id): bool {
+    return Products.findById(id) ignoring softDeletable != null
+  }
+}
+```
+
+::: tabs backend
+== node
+```ts
+async findFirstProductsInRegionIgnoringSoftDeletable(region: string): Promise<Product | null> {
+  const rootRows = await this.db.select().from(schema.products)
+    .where(productsInRegionCriterion(region)).orderBy(asc(schema.products.id)).limit(1);
+  …
+}
+// the plain read still filters: runFindAllByProductsInRegion … where(and(productsInRegionCriterion(region), not(eq(schema.products.isDeleted, true))))
+```
+== dotnet
+```csharp
+public async Task<Product?> FindByIdIgnoringSoftDeletable(ProductId id, CancellationToken cancellationToken = default)
+{
+    var result = await _db.Products.IgnoreQueryFilters(["IsDeletedFilter"]).Where(x => x.Id == id).FirstOrDefaultAsync(cancellationToken);
+    …
+}
+```
+== java
+```java
+@Query("select e from Product e where e.region = :region order by e.id")
+java.util.List<Product> findFirstProductsInRegionIgnoringSoftDeletable(@Param("region") String region, Pageable pageable);
+
+// ProductRepositoryImpl: the promoted softDeletable @Filter is disabled around the read
+__session.disableFilter("softDeletable");
+try {
+    var result = jpa.findFirstProductsInRegionIgnoringSoftDeletable(region, PageRequest.of(0, 1)).stream().findFirst().orElse(null);
+    …
+} finally {
+    __session.enableFilter("softDeletable");
+}
+```
+== python
+```python
+async def find_by_id_ignoring_soft_deletable(self, id: ProductId) -> Product | None:
+    row = (await self._session.execute(select(ProductRow).where((ProductRow.id == id)).execution_options(loom_ignoring=frozenset({"softDeletable"})))).scalars().first()
+    …
+```
+== elixir
+```elixir
+def find_first_products_in_region_ignoring_soft_deletable(region) do
+  query = from(record in ElixirApi.Catalog.Product, where: record.region == ^region)
+  {:ok, Repo.one(from(record in query, order_by: [asc: record.id], limit: 1))}
+end
+```
+::: end
 
 Naming a capability the aggregate does not implement is `loom.filter-bypass-unknown-capability`; naming one that contributes no filter (`ignoring auditable`) is `loom.filter-bypass-no-filter`; an `ignoring` over a workflow or projection source has nothing to bypass (`loom.projection-workflow-source-ignoring-no-effect` / `loom.projection-source-ignoring-no-effect`). See [chapter 11](11-capabilities-filters-stamps.md) for the `filter` capability that produces these predicates.
 

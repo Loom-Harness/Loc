@@ -143,7 +143,7 @@ describe("codemod-find-to-findby", () => {
     find locate(c: string): Order or OrderNotFound where this.code == c
     find maybe(oid: Order id): Order? where this.id == oid
     find latest(): Order?
-    find scoped(o: string): Order? where this.owner == o ignoring *
+    find mustById(oid: Order id): Order where this.id == oid ignoring *
   }
   workflow w {
     create(o: string, c: string, oid: Order id) {
@@ -152,6 +152,8 @@ describe("codemod-find-to-findby", () => {
       let l = Orders.locate(c)
       match l { Order x => { x.bump() } OrderNotFound e => { } }
       if let q = Orders.maybe(oid) { q.bump() }
+      let k = Orders.mustById(oid)
+      k.bump()
     }
   }
 }}}
@@ -165,7 +167,38 @@ describe("codemod-find-to-findby", () => {
     expect(byFind("locate")).toContain("matches on the error variant");
     expect(byFind("maybe")).toContain("is an 'if let' source, which findById is not");
     expect(byFind("latest")).toContain("it reads an arbitrary row");
-    expect(byFind("scoped")).toContain("Repo.find(<Criterion>) carries no 'ignoring'");
+    expect(byFind("mustById")).toContain("getById carries no 'ignoring'");
+  });
+
+  it("moves a criterion / by-id find's `ignoring` to the find(C) / findById call", async () => {
+    const src = `system S { subdomain M { context C {
+  aggregate Order with crudish, softDeletable {
+    owner: string
+    total: int
+    operation bump() { total := total + 1 }
+  }
+  repository Orders for Order {
+    find scoped(o: string): Order? where this.owner == o ignoring *
+    find anyById(oid: Order id): Order? where this.id == oid ignoring softDeletable
+  }
+  domainService Q {
+    operation had(oid: Order id): bool { return Orders.anyById(oid) != null }
+    operation owned(o: string): bool { return Orders.scoped(o) == null }
+  }
+  workflow w {
+    create(o: string) {
+      if let x = Orders.scoped(o) { x.bump() }
+    }
+  }
+}}}
+`;
+    const { text, report } = migrateSource(src, "m.ddd");
+    expect(report).toEqual([]);
+    expect(text).toContain("criterion OrdersScoped(o: string) of Order = this.owner == o");
+    expect(text).toContain("if let x = Orders.find(OrdersScoped(o)) ignoring * { x.bump() }");
+    expect(text).toContain("return Orders.find(OrdersScoped(o)) ignoring * == null");
+    expect(text).toContain("return Orders.findById(oid) ignoring softDeletable != null");
+    expect(await errorCodes(text)).toEqual([]);
   });
 
   it("migrates a must-exist find nothing calls", () => {

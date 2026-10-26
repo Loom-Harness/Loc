@@ -708,7 +708,14 @@ function renderFindFn(
   // (a find must honour the same soft-delete / scoping the CRUD reads do).
   whereExpr = combineWhere(whereExpr || null, cap) ?? "";
 
-  const fetchCall = (single ? `Repo.one(query)` : `Repo.all(query)`) + preload;
+  // A first-match read (`takeFirst`) may match many rows; `Repo.one` raises
+  // on a second, so it takes the first in id order.
+  const fetchCall =
+    (single
+      ? f.takeFirst
+        ? `Repo.one(from(record in query, order_by: [asc: record.id], limit: 1))`
+        : `Repo.one(query)`
+      : `Repo.all(query)`) + preload;
   const specTail = paged
     ? `{:ok, map()} | {:error, term()}`
     : single

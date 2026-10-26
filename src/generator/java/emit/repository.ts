@@ -504,6 +504,16 @@ export function renderJavaSpringDataRepository(
         ``,
       ];
     }
+    // A first-match read may match many rows, which a single-entity @Query
+    // answers with IncorrectResultSizeDataAccessException; it pages one row
+    // in id order instead and the impl takes the head.
+    if (f.takeFirst) {
+      return [
+        `    @${QUERY}("select e from ${agg.name} e${where} order by e.id")`,
+        `    java.util.List<${agg.name}> ${jid(f.name)}(${[...declaredParams, `${PAGEABLE} pageable`].join(", ")});`,
+        ``,
+      ];
+    }
     const ret = findReturn(f.returnType, ctx.basePkg);
     return [
       `    @${QUERY}("select e from ${agg.name} e${where}")`,
@@ -746,7 +756,9 @@ export function renderJavaRepositoryImpl(
       `    @Override`,
       `    public ${sig} {`,
       ...wrapBypass(findBypass, [
-        `        var result = jpa.${f.name}(${args});`,
+        f.takeFirst
+          ? `        var result = jpa.${f.name}(${[args, `${PAGE_REQUEST}.of(0, 1)`].filter(Boolean).join(", ")}).stream().findFirst().orElse(null);`
+          : `        var result = jpa.${f.name}(${args});`,
         findExecutedLog(f, rowsExpr),
         // A natural-key `getBy` answers the find-absence 404, never a null.
         ...(findRaisesNotFound(f)

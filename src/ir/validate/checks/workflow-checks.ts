@@ -1749,13 +1749,14 @@ function validateWorkflowStatements(
           });
           break;
         }
-        // A declared optional find: the lowerer only sets `findMethod` for a
-        // find the repository declares, so there is no criterion to resolve —
-        // only the branch op-calls to check.
+        // A declared optional find or a natural-key read sets `findMethod` and
+        // names no criterion, so there is no criterion to resolve — only the
+        // branch op-calls to check.  A widened `find(<Criterion>) ignoring …`
+        // sets both, and its criterion is checked like any other.
         const checkBranchOpCalls = (body: WorkflowStmtIR[]): void => {
           checkNestedBodyOpCalls(body, st.var, "if-let");
         };
-        if (st.findMethod) {
+        if (st.findMethod && !st.synthCriterion.name) {
           bindingAgg.set(st.var, st.aggName);
           checkBranchOpCalls(st.thenBody);
           bindingAgg.delete(st.var);

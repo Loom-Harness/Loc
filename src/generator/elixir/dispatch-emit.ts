@@ -1304,9 +1304,23 @@ function renderStmt(
       // then an `if` over the two branches.  Each branch is rendered by this
       // reactor's own `renderStmt` (so an `emit` re-enters the Dispatcher) and
       // ends in `{:ok, _}`, or in its first `{:error, _}`, which threads up the
-      // handler's with-chain.
-      const action = `run_${snake(st.retrievalName)}_${snake(st.aggName)}`;
-      const runArgs = [...st.retrievalArgs.map((a) => renderExpr(a, renderCtx)), "limit: 1"];
+      // handler's with-chain.  A source with its own method (`findMethod`: a
+      // declared optional find, a natural-key `findBy`, a widened
+      // `find(C) ignoring …`) calls that method's context delegate, which
+      // answers `{:ok, row | nil}`; a row is a struct, so `%{}` matches it
+      // and `nil` falls to the else branch.
+      const args = st.retrievalArgs.map((a) => renderExpr(a, renderCtx));
+      const lookup = st.findMethod
+        ? {
+            call: `${contextModule}.${elixirFindFacadeFn(st.findMethod, st.aggName)}(${args.join(", ")})`,
+            hit: "{:ok, %{} = ",
+            close: "}",
+          }
+        : {
+            call: `${contextModule}.run_${snake(st.retrievalName)}_${snake(st.aggName)}(${[...args, "limit: 1"].join(", ")})`,
+            hit: "{:ok, [",
+            close: " | _]}",
+          };
       const v = loopBindUsed(st.var, st.thenBody) ? snake(st.var) : `_${snake(st.var)}`;
       const branch = (body: WorkflowStmtIR[]): string[] =>
         renderReactorNestedBody(body, ctx, renderCtx, contextModule, channels, {
@@ -1318,8 +1332,8 @@ function renderStmt(
       // Continuation lines carry absolute indentation, as the `for-each` arm's
       // do: the with-chain assembler prefixes only a clause's FIRST line.
       const lines = [
-        `{:ok, _} <- (case ${contextModule}.${action}(${runArgs.join(", ")}) do`,
-        `               {:ok, [${v} | _]} ->`,
+        `{:ok, _} <- (case ${lookup.call} do`,
+        `               ${lookup.hit}${v}${lookup.close} ->`,
         ...branch(st.thenBody),
         `               _ ->`,
         ...branch(st.elseBody ?? []),
