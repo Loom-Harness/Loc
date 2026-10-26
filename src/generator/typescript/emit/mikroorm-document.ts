@@ -3,6 +3,7 @@
 // mikroorm.ts by packet 2.6 (wave-2) — mechanical move, no logic change.
 // -------------------------------------------------------------------------
 
+import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   EnrichedAggregateIR,
@@ -15,7 +16,6 @@ import {
 } from "../../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
-import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { synthProjectionFinds } from "../projection-finds.js";
@@ -57,7 +57,7 @@ export function renderMikroDocumentRepository(
 ): string {
   const row = rowClassOf(agg.name);
   const idVar = `Ids.${agg.name}Id`;
-  const versioned = aggregateIsVersioned(agg);
+  const versioned = rowVersionGuarded(agg);
   const emitsDelete = !!canonicalDestroy(agg);
   // Root rehydrate — a versioned root takes the authoritative `version` COLUMN
   // (the blob copy lags a write), matching the drizzle document path.

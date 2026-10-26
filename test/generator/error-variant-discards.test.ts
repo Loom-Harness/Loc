@@ -73,7 +73,7 @@ describe("an error variant discards the operation's writes", () => {
   it("node answers the error before repo.save", async () => {
     const src = await fileOf("node", EARLY, "api/http/account.routes.ts");
     const route = slice(src, "aggregate.withdraw(", "return c.json(result, 200)");
-    expectBefore(route, 'result.type === "InsufficientCredit"', "await repo.save(aggregate)");
+    expectBefore(route, 'result.type === "InsufficientCredit"', "await repo.save(aggregate");
   });
 
   it("python answers the error before repo.save", async () => {

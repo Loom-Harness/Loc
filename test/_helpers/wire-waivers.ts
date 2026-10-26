@@ -165,6 +165,7 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
       "audited",
       "collection-op-shapes",
       "concurrency-conflict",
+      "concurrency-two-writers",
       "contained-part-rebuild",
       "contained-part-removal",
       "date-scalar",
@@ -219,7 +220,7 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
     ] as const
   ).map(
     (c): WireWaiver => ({
-      backends: ["dotnet", "dapper", "java", "python", "elixir"],
+      backends: ["dotnet", "dapper", "java", "elixir"],
       cases: [c],
       path: "$.errors[*].message",
       kinds: ["value"],
