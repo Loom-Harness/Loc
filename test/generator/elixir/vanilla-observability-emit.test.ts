@@ -100,6 +100,18 @@ describe("vanilla — OpenTelemetry tracing (M-T7.1)", () => {
     expect(runtime).toContain("otlp_protocol: :http_protobuf");
   });
 
+  it("runtime.exs sets the :logger level from LOG_LEVEL (default info), validated, never String.to_atom", async () => {
+    const files = await load();
+    const runtime = files.get("api/config/runtime.exs")!;
+    expect(runtime).toContain('String.downcase(System.get_env("LOG_LEVEL") || "info")');
+    expect(runtime).toContain('"warn" -> :warning');
+    expect(runtime).toContain('"error" -> :error');
+    expect(runtime).toContain("_ -> :info");
+    expect(runtime).toContain("config :logger, level: log_level");
+    expect(runtime).not.toContain("to_existing_atom");
+    expect(runtime).not.toContain("String.to_atom");
+  });
+
   it("the RequestContext plug opens a SERVER span + threads trace_id/span_id onto metadata", async () => {
     const files = await load();
     const rc = files.get("api/lib/api/request_context.ex")!;
