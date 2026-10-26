@@ -123,10 +123,10 @@ export function validateContextFilterSupport(sys: SystemIR, diags: LoomDiagnosti
 // `@Filter`, which a bypassing read disables via
 // `session.disableFilter`/`enableFilter`; principal filters omit the JPQL
 // conjunct; document repos re-apply promoted caps per-find), and python
-// (SQLAlchemy has no global filter, so each read AND-s its capability
-// predicates explicitly via `contextFilterPredicate`; a bypassing find omits
-// the named conjunct statically, and a shared `run_<retrieval>` omits the union
-// of its inline call-sites' bypasses).  A new backend must OMIT the bypassed
+// (one `do_orm_execute` hook adds every restriction as `with_loader_criteria`;
+// a bypassing read carries the `loom_ignoring` execution option naming what it
+// drops, and a shared `run_<retrieval>` names the union of its inline
+// call-sites' bypasses).  A new backend must OMIT the bypassed
 // predicate before it ships — accepting `ignoring` while silently filtering is
 // the regression `backend-parity-gates.test.ts` pins against.
 // ---------------------------------------------------------------------------

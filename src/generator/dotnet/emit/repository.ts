@@ -20,6 +20,7 @@ import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
+import { efReadSource, efWriteSet } from "../ef-read-source.js";
 import { domainFindShape } from "../find-emit.js";
 import { csFindMethodName } from "../find-method-name.js";
 import { csLocalNamer, csReadOwnParams } from "../local-names.js";
@@ -194,7 +195,10 @@ export function renderRepositoryImpl(
   // find-emit.ts.
   const finds = (repo?.finds ?? []).map((f) => domainFindShape(f, agg.name));
   const anyFindUsesUser = finds.some(findUsesCurrentUser);
-  const setName = plural(upperFirst(agg.name));
+  // A TPH concrete reads from its root (`Vehicles.OfType<Car>()`) and writes
+  // through the root's set — see ef-read-source.ts.
+  const readSet = efReadSource(agg, pool);
+  const writeSet = efWriteSet(agg, pool);
   // Embedded aggregates persist their reference collections as a JSONB column
   // on the root (EF maps the `List<TargetId>` property directly), so there are
   // no join tables to load/save — drop the associations for join-sync purposes.
@@ -206,7 +210,7 @@ export function renderRepositoryImpl(
   // TS/Hono Drizzle implementation line-for-line (see
   // src/generator/typescript/repository-builder.ts).
   const loadByIdLines = buildLoadByIdLines(associations);
-  const loadManyByIdsLines = buildLoadManyByIdsLines(agg.name, setName, associations);
+  const loadManyByIdsLines = buildLoadManyByIdsLines(agg.name, readSet, associations);
   // A find returning aggregates hydrates their reference collections (`X id[]`
   // join rows) the way `GetByIdAsync` / `FindManyByIdsAsync` do.  Without it the
   // collection stayed null on every find — the paged `all` included — and the
@@ -315,18 +319,18 @@ export function renderRepositoryImpl(
         )
         .join("");
       const orderExpr = (asc: boolean): string =>
-        `_db.${setName}${ignore}${filter}.${asc ? "OrderBy" : "OrderByDescending"}(e => EF.Property<object>(e, ${L("sortColumn")}))`;
+        `_db.${readSet}${ignore}${filter}.${asc ? "OrderBy" : "OrderByDescending"}(e => EF.Property<object>(e, ${L("sortColumn")}))`;
       return [
         `    public async Task<${renderCsType(f.returnType)}> ${csFindMethodName(f.name)}(${renderParamsWithCt(f.params, usesUser, ["int page", "int pageSize", "string sort", "string dir"])})`,
         "    {",
         `        var ${L("offset")} = (page - 1) * pageSize;`,
         `        var ${L("sortColumn")} = sort switch { ${sortArms}${sortArms ? ", " : ""}_ => ${declaredOrder ? "(string?)null" : '"Id"'} };`,
-        `        var ${L("total")} = await _db.${setName}${ignore}${filter}.CountAsync(${ct});`,
+        `        var ${L("total")} = await _db.${readSet}${ignore}${filter}.CountAsync(${ct});`,
         `        var ${L("totalPages")} = pageSize > 0 ? (int)System.Math.Ceiling((double)${L("total")} / pageSize) : 0;`,
         declaredOrder
           ? // An unwhitelisted `sort` (the route's `""` default) takes the
             // read's declared order (`defaultSortOrder`).
-            `        var ${L("ordered")} = ${L("sortColumn")} is null ? _db.${setName}${ignore}${filter}${declaredOrder} : dir == "desc" ? ${orderExpr(false)} : ${orderExpr(true)};`
+            `        var ${L("ordered")} = ${L("sortColumn")} is null ? _db.${readSet}${ignore}${filter}${declaredOrder} : dir == "desc" ? ${orderExpr(false)} : ${orderExpr(true)};`
           : `        var ${L("ordered")} = dir == "desc" ? ${orderExpr(false)} : ${orderExpr(true)};`,
         `        var ${L("items")} = await ${L("ordered")}.Skip(${L("offset")}).Take(pageSize).ToListAsync(${ct});`,
         ...(associations.length > 0
@@ -347,7 +351,7 @@ export function renderRepositoryImpl(
     return [
       `    public async Task<${renderCsType(f.returnType)}> ${csFindMethodName(f.name)}(${renderParamsWithCt(f.params, usesUser)})`,
       "    {",
-      `        var ${L("result")} = await _db.${setName}${ignore}${filter}${projection};`,
+      `        var ${L("result")} = await _db.${readSet}${ignore}${filter}${projection};`,
       ...hydrate,
       `        ${renderDotnetLogCall("findExecuted", [
         { name: "aggregate", valueExpr: `"${agg.name}"` },
@@ -388,7 +392,9 @@ export function renderRepositoryImpl(
   // wins over an authored `ignoring *`), and then the droppable filters are
   // enumerated by name instead — or the branch disappears entirely when the
   // deny carve-out is the only filter.
-  const allBypassNames = hasNonBypassableFilter(agg) ? bypassableFilterNames(agg, pool) : null;
+  const allBypassNames = hasNonBypassableFilter(agg, pool)
+    ? bypassableFilterNames(agg, pool)
+    : null;
   // `q` is the method's IQueryable local (`__q` unless a retrieval param takes
   // that name — see csLocalNamer).
   const bypassAllLines = (q: string, bypass: string): string[] =>
@@ -433,7 +439,7 @@ export function renderRepositoryImpl(
       // to the base IQueryable BEFORE the spec composes its WHERE/ORDER.  The
       // domain `bypass` (capability names) is translated to EF filter names
       // adapter-side, above.
-      `        var ${L("__q")} = _db.${setName}.AsQueryable();`,
+      `        var ${L("__q")} = _db.${readSet}.AsQueryable();`,
       ...bypassBody(L("__q"), own.bypass),
       `        var ${L("result")} = await ${L("__q")}.WithSpecification(new ${upperFirst(r.name)}Spec(${specArgs})).ApplyPaging(${own.page}).ToListAsync(${own.ct});`,
       `        ${renderDotnetLogCall("findExecuted", [
@@ -492,8 +498,8 @@ export function renderRepositoryImpl(
       // into a fork (AppDbContext.Fork) instead of being handed back as the
       // SAME instance by EF's identity map, so a stale second handle's save
       // still trips the version guard → 409.
-      `        var __db = _db.${setName}.Local.Any(x => x.Id == id) ? _db.Fork() : _db;`,
-      `        var found = await __db.${setName}.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);`,
+      `        var __db = _db.${writeSet}.Local.Any(x => x.Id == id) ? _db.Fork() : _db;`,
+      `        var found = await __db.${readSet}.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);`,
       // aggregate_loaded (debug) — mirrors the Hono repo emission;
       // `found` is a bool so a downstream filter can grep failed loads
       // by (event="aggregate_loaded", Found=false).
@@ -518,7 +524,7 @@ export function renderRepositoryImpl(
         ? [
             `    public async Task<${agg.name}?> GetByIdForWriteAsync(${idClass} id, CancellationToken cancellationToken = default)`,
             "    {",
-            `        var inScope = await _db.${setName}.AnyAsync(x => x.Id == id && (${renderCsExpr(
+            `        var inScope = await _db.${readSet}.AnyAsync(x => x.Id == id && (${renderCsExpr(
               agg.writeScopeFilter,
               { thisName: "x", currentUserExpr: AMBIENT_CURRENT_USER, agg },
             )}), cancellationToken);`,
@@ -545,7 +551,7 @@ export function renderRepositoryImpl(
       "        var entry = __db.Entry(aggregate);",
       "        if (entry.State == EntityState.Detached)",
       "        {",
-      `            _db.${setName}.Add(aggregate);`,
+      `            _db.${writeSet}.Add(aggregate);`,
       "        }",
       ...versionGuardLines,
       ...saveDiffSyncLines,
@@ -631,7 +637,7 @@ export function renderRepositoryImpl(
             `    public async ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default)`,
             "    {",
             "        var __db = _db.TrackerOf(aggregate);",
-            `        __db.${setName}.Remove(aggregate);`,
+            `        __db.${writeSet}.Remove(aggregate);`,
             "        await _db.SaveChangesWithAsync(__db, cancellationToken);",
             "    }",
           ]
