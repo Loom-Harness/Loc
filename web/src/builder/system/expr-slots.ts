@@ -777,7 +777,7 @@ export async function memberCandidates(source: string, slot: ExprSlot): Promise<
 // ---------------------------------------------------------------------------
 
 function asEnumCases(t: ReturnType<typeof typeOf>): readonly string[] | null {
-  if (t.kind !== "enum") return null;
+  if (t.kind !== "enum" || !t.ref) return null;
   return t.ref.values.map((v) => v.name);
 }
 

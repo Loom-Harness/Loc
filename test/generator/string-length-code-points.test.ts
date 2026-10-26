@@ -194,9 +194,9 @@ describe("string .length is code points — elixir", () => {
     expect(changeset).toContain("|> validate_change(:code, fn _, value ->");
     expect(changeset).toContain("length(String.to_charlist(value)) >= 3");
     expect(changeset).toContain("length(String.to_charlist(value)) <= 16");
-    // Ecto's own error metadata is preserved, so the 422 body is unchanged.
+    // Ecto's error metadata is kept; the message is node's `singleFieldMessage`.
     expect(changeset).toContain(
-      '[{:code, {"should be at least %{count} character(s)", count: 3, validation: :length, kind: :min, type: :string}}]',
+      '[{:code, {"Code must be at least 3 characters", count: 3, validation: :length, kind: :min, type: :string}}]',
     );
     // The grapheme-counting forms are gone.
     expect(changeset).not.toContain("validate_length(");

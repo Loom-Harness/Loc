@@ -11,7 +11,7 @@ import type {
   Model,
   ValueObject,
 } from "../../../src/language/generated/ast.js";
-import { type DddType, membersOfType } from "../../../src/language/type-system.js";
+import { membersOfType, T, type Ty } from "../../../src/language/type-system.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const sales = readFileSync(path.join(here, "..", "..", "..", "examples", "sales.ddd"), "utf8");
@@ -38,7 +38,7 @@ describe("type-system — membersOfType (single source for member completion)", 
     }
     throw new Error(`no ${type} ${name}`);
   }
-  const names = (t: DddType): string[] => membersOfType(t).map((m) => m.name);
+  const names = (t: Ty): string[] => membersOfType(t).map((m) => m.name);
 
   beforeAll(async () => {
     model = await linkedModel(sales);
@@ -46,7 +46,7 @@ describe("type-system — membersOfType (single source for member completion)", 
 
   it("aggregate → id + properties / containments / derived / helpers", () => {
     const order = find<Aggregate>("Aggregate", "Order");
-    expect(names({ kind: "aggregate", ref: order })).toEqual(
+    expect(names(T.record(order))).toEqual(
       expect.arrayContaining([
         "id",
         "customerId",
@@ -61,12 +61,18 @@ describe("type-system — membersOfType (single source for member completion)", 
 
   it("value object → properties (no id) + the `equals` value-equality intrinsic", () => {
     const money = find<ValueObject>("ValueObject", "Money");
-    expect(names({ kind: "valueobject", ref: money })).toEqual(["amount", "currency", "equals"]);
+    expect(names({ kind: "valueobject", ref: money, name: money.name })).toEqual([
+      "amount",
+      "currency",
+      "equals",
+    ]);
   });
 
   it("array → the collection ops", () => {
     const money = find<ValueObject>("ValueObject", "Money");
-    expect(names({ kind: "array", element: { kind: "valueobject", ref: money } })).toEqual([
+    expect(
+      names({ kind: "array", element: { kind: "valueobject", ref: money, name: money.name } }),
+    ).toEqual([
       "count",
       "sum",
       "all",
@@ -116,7 +122,7 @@ describe("type-system — membersOfType (single source for member completion)", 
 
   it("enum → its values", () => {
     const status = find<EnumDecl>("EnumDecl", "OrderStatus");
-    expect(names({ kind: "enum", ref: status })).toEqual([
+    expect(names({ kind: "enum", ref: status, name: status.name })).toEqual([
       "Draft",
       "Confirmed",
       "Shipped",
@@ -126,23 +132,19 @@ describe("type-system — membersOfType (single source for member completion)", 
 
   it("X id → unwraps to the target's members (closes the LSP gap)", () => {
     const customer = find<Aggregate>("Aggregate", "Customer");
-    expect(names({ kind: "id", target: customer })).toEqual(
-      expect.arrayContaining(["id", "name", "email"]),
-    );
+    expect(names(T.id(customer))).toEqual(expect.arrayContaining(["id", "name", "email"]));
   });
 
   it("optional → unwraps the inner type", () => {
     const money = find<ValueObject>("ValueObject", "Money");
-    expect(names({ kind: "optional", inner: { kind: "valueobject", ref: money } })).toEqual([
-      "amount",
-      "currency",
-      "equals",
-    ]);
+    expect(
+      names({ kind: "optional", inner: { kind: "valueobject", ref: money, name: money.name } }),
+    ).toEqual(["amount", "currency", "equals"]);
   });
 
   it("entity part → its members", () => {
     const line = find<EntityPart>("EntityPart", "OrderLine");
-    expect(names({ kind: "entity", ref: line })).toEqual(
+    expect(names(T.record(line))).toEqual(
       expect.arrayContaining(["id", "productId", "quantity", "unitPrice", "subtotal"]),
     );
   });
