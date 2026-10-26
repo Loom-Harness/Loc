@@ -471,7 +471,12 @@ export const LOCATORS: Record<VariantId, Locator> = {
   dotnet: {
     files: (p) => p.endsWith(".cs") && !/(^|\/)(Tests?|Migrations)\//.test(p),
     openers: [CS_METHOD()],
-    reads: [/\b_db\.(\w+)\b(?!\.(?:Add|Remove|Update|Attach|Entry)\()/],
+    // A TPH concrete is read from its root set — `_db.Vehicles.OfType<Car>()`
+    // (also off the `__db` fork) — so the `OfType` argument names the storage.
+    reads: [
+      /\b_?_db\.\w+\.OfType<(\w+)>\(\)/,
+      /\b_db\.(\w+)\b(?!\.(?:Add|Remove|Update|Attach|Entry)\(|\.OfType<)/,
+    ],
     helpers: CS_HELPERS,
     classify: csClassify,
     carries: (f, site, agg, files) => {
@@ -656,6 +661,8 @@ function csClassify(label: string): ReadKind | undefined {
       "all",
       "list",
       "findall",
+      // The polymorphic base reader's paged list.
+      "findpage",
       "gethistory",
       "history",
     ].includes(l)
@@ -701,16 +708,25 @@ function efFilterName(
   agg: AggFacts,
   files: ReadonlyMap<string, string>,
 ): string | undefined {
+  // EF hosts a TPH concrete's filters on the hierarchy ROOT (`agg.table`): an
+  // inherited one unguarded, the concrete's own type-guarded
+  // (`!(x is Car) || (…)`).  A filter guarded to a SIBLING never applies here.
+  const hosts = [...new Set([agg.name, agg.table])];
   const all = [...files.entries()].filter(([p]) => /Infrastructure\/Persistence\//.test(p));
   for (const [p, text] of all) {
-    const own = p.endsWith(`/${agg.name}Configuration.cs`);
+    const own = hosts.some((h) => p.endsWith(`/${h}Configuration.cs`));
     const entityRe = new RegExp(
-      `Entity<${esc(agg.name)}>\\(\\)\\.HasQueryFilter\\("(\\w+)",\\s*x\\s*=>([^;]*)\\);`,
+      `Entity<(?:${hosts.map(esc).join("|")})>\\(\\)\\.HasQueryFilter\\("(\\w+)",\\s*x\\s*=>([^;]*)\\);`,
       "g",
     );
     const ownRe = /builder\.HasQueryFilter\("(\w+)",\s*x\s*=>([^;]*)\);/g;
     for (const m of text.matchAll(own ? ownRe : entityRe)) {
-      const body = m[2] ?? "";
+      let body = m[2] ?? "";
+      const guard = /^\s*!\(x is (\w+)\)\s*\|\|\s*\(([\s\S]*)\)\s*$/.exec(body);
+      if (guard) {
+        if (guard[1] !== agg.name) continue;
+        body = guard[2] ?? "";
+      }
       if (f.kind === "deny" && /^\s*false\s*$/.test(body)) return m[1];
       if (f.kind !== "deny" && /_currentUser|__SelfScope|CurrentUser/.test(body)) return m[1];
     }
