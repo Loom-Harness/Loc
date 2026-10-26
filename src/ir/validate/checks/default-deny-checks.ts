@@ -310,22 +310,26 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
       // demanding one is satisfiable.
       for (const proj of c.projections) {
         if (proj.query?.requires) continue;
-        // A MACRO-emitted projection has no declaration header, so the
-        // diagnostic's "add a `requires` after its declaration header" names a
-        // line the author cannot open — `scaffoldDashboard` emits one singleton
-        // totals projection per aggregate, which made `scaffold` and
-        // `denyByDefault` an uncompilable pair.  Exempt for the same stated
-        // reason the enrichment-injected `find all` is exempt one loop up: it
-        // is compiler-synthesized and has no author source line
-        // (`src/ir/util/read-gates.ts`).  Derived from the origin chain the
-        // lowering already records — nothing new is stamped.
-        if (isMacroEmitted(proj.origin)) continue;
+        // A MACRO-emitted projection has no declaration header, so "add a
+        // `requires` after its declaration header" names a line the author
+        // cannot open.  `scaffoldDashboard` copies the source aggregate's
+        // `policy { read X requires … }` gate onto each projection it emits,
+        // so an ungated one means that rule is missing — and the fix is to
+        // write it.  NOT exempt: unlike the injected `find all` (which fails
+        // closed at runtime), an ungated projection is SERVED, publishing the
+        // aggregate's totals to callers its rows refuse.
         diags.push({
           severity: "error",
           code: "loom.default-deny-ungated",
-          message: diagMessage("loom.default-deny-ungated#denybydefault-projection", {
-            name: proj.name,
-          }),
+          message: isMacroEmitted(proj.origin)
+            ? diagMessage("loom.default-deny-ungated#denybydefault-projection-macro", {
+                name: proj.name,
+                macroName: macroNameOf(proj.origin),
+                source: proj.query?.source ?? "<source>",
+              })
+            : diagMessage("loom.default-deny-ungated#denybydefault-projection", {
+                name: proj.name,
+              }),
           source: `projection/${proj.name}`,
           origin: proj.origin,
         });

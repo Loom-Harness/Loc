@@ -140,9 +140,11 @@ such flag.
   ```elixir
   rename table(:persons, prefix: "people"), :home, to: :residence
   ```
-- **Table / aggregate rename (M-T2.1).** A bare `OldName -> NewAggregate` step in
-  the same block renames a whole aggregate's table. Only the NEW aggregate is a
-  cross-reference (the old name is gone); the diff emits a `renameTable` for the
+- **Table / aggregate rename (M-T2.1).** A bare `OldName -> NewName` step in
+  the same block renames a whole aggregate's table (the same step renames a
+  workflow's or projection's table, and its qualified form moves tables to
+  another context — see
+  [Table steps](#table-steps--renames-and-cross-context-moves)); the diff emits a `renameTable` for the
   root table plus the full **owned-child cascade** — value-collection child
   tables and association join tables (each a `renameTable`), and the owner FK
   column on every child + contained-part table (each a `renameColumn`). The whole
@@ -244,9 +246,8 @@ such flag.
   ```
   ```sql
   ALTER TABLE "ops"."parts" DROP COLUMN "bin_code";
-  ALTER TABLE "ops"."parts" ADD COLUMN "supplier_ref" TEXT NULL;
-  UPDATE "ops"."parts" SET "supplier_ref" = 'NO-SUPPLIER' WHERE "supplier_ref" IS NULL;
-  ALTER TABLE "ops"."parts" ALTER COLUMN "supplier_ref" SET NOT NULL;
+  ALTER TABLE "ops"."parts" ADD COLUMN "supplier_ref" TEXT NOT NULL DEFAULT 'NO-SUPPLIER';
+  ALTER TABLE "ops"."parts" ALTER COLUMN "supplier_ref" DROP DEFAULT;
   ```
 
   The flag is doing exactly what it says — the old column's data is dropped,
@@ -265,8 +266,9 @@ such flag.
   disguise*: scale grows but integer digits shrink 15 → 11, so it is gated too.
 - **Required-column adds.** A NOT-NULL `addColumn` with no default on a
   previously-existing table fails on any populated table → blocked unless a
-  **backfill step** covers it (see § Data migrations — the safe sequence with
-  a real `UPDATE`, no flag needed), the field carries a **scalar-literal
+  **backfill step** covers it (see § Data migrations — add-with-DEFAULT for a
+  constant value, the safe sequence with a real `UPDATE` for an expression, no
+  flag needed either way), the field carries a **scalar-literal
   default** (below), or `migrate add` passes `--allow-destructive`.
   Under the flag it is rewritten into the safe sequence with a
   `-- TODO backfill …` comment in place of the `UPDATE`: add the column
@@ -399,6 +401,101 @@ it for the same reason as the backfill. A nullability difference (signal 1)
 never reaches the warning either — it raises
 `loom.migration-ambiguous-rename` instead, which is an error.
 
+## Table steps — renames and cross-context moves
+
+One step shape keeps a table's rows when the declaration that owns it is
+renamed, or moved to another bounded context. The left side names the
+declaration as it was, the right side as it is now:
+
+```ddd
+migration "evolve" {
+  Order -> PurchaseOrder             // rename in place (an aggregate)
+  Tracker -> Watcher                 // a workflow's correlation-state table
+  OrderTotal -> OrderSum             // a materialized projection's read model
+  Leases.LeaseLedger -> Ledgers.LeaseLedger   // move to another context
+  A.Note -> B.Memo                   // move and rename at once
+}
+```
+
+The qualified form qualifies **both** sides (`Ctx.Name -> Name` reads as a
+column rename). The right side may be an aggregate, a workflow or a projection,
+declared in any file of the project; it is resolved on the merged model, and a
+bad one is a phase-⑦ error:
+
+- **`loom.migration-step-unknown-context`** — the move names a context the model
+  does not declare.
+- **`loom.migration-step-target-missing`** — no aggregate, workflow or projection
+  of that name (in that context).
+- **`loom.migration-step-ambiguous`** — an unqualified name that more than one
+  context declares; qualify the step.
+- **`loom.migration-move-across-databases`** — a move between two modules where a
+  deployable applies the target module's migrations to a database that never held
+  the source module's tables (each `needsDb` deployable has its own database).
+
+What each target takes along:
+
+- **Aggregate** — the root table and its owned children (contained parts and
+  their value collections, value-collection child tables, association join
+  tables; a TPH base also its concretes' part and join tables). A rename also
+  renames the owner FK columns, the derived indexes, and a sibling join table's
+  `targetFk`, as above.
+- **Workflow** — its correlation-state table.
+- **Projection** — its read-model table when it is materialized (a query-time
+  projection has none). A fold projection that moves with its event-sourced
+  aggregate is a declaration of its own, so it takes its own step.
+- **Event-sourced aggregate or workflow** — no table of its own: its rows live in
+  the per-context `<ctx>_events` log under `stream_type = "<Name>"`. A rename
+  rewrites them (a ledgered `UPDATE`). A move takes the **whole log** along
+  (`SET SCHEMA` + rename to `<newctx>_events`, then the `stream_type` rewrite)
+  when no stream is left in the old log and the new context has none yet.
+  Otherwise it **copies** the stream's rows (`INSERT … SELECT … ORDER BY seq`,
+  then `DELETE`) — after the generation's DDL when the new log is created by it,
+  ahead of it when the old log is dropped by it. The drop of an old log is still
+  destructive-gated: it may hold streams the model no longer declares.
+
+A move renders as `ALTER TABLE … SET SCHEMA` (creating the target schema first,
+like a create-table) and then a rename in the new schema when the name changes
+too. Postgres carries the table's indexes, constraints and owned sequences
+along. The `renameTable` step records the old schema in `fromSchema`:
+
+```ddd
+migration "move-note" { A.Note -> B.Memo }
+```
+```sql
+CREATE SCHEMA IF NOT EXISTS "b";
+ALTER TABLE "a"."notes" SET SCHEMA "b";
+ALTER TABLE "b"."notes" RENAME TO "memos";
+CREATE SCHEMA IF NOT EXISTS "b";
+ALTER TABLE "a"."note_charges" SET SCHEMA "b";
+ALTER TABLE "b"."note_charges" RENAME TO "memo_charges";
+CREATE SCHEMA IF NOT EXISTS "b";
+ALTER TABLE "a"."lines" SET SCHEMA "b";
+ALTER TABLE "b"."lines" RENAME COLUMN "note_id" TO "memo_id";
+ALTER TABLE "b"."memo_charges" RENAME COLUMN "note_id" TO "memo_id";
+ALTER INDEX "b"."lines_note_id_idx" RENAME TO "lines_memo_id_idx";
+ALTER INDEX "b"."note_charges_note_id_idx" RENAME TO "memo_charges_memo_id_idx";
+```
+```elixir
+execute "CREATE SCHEMA IF NOT EXISTS b"
+execute("ALTER TABLE \"a\".\"notes\" SET SCHEMA \"b\"")
+rename table(:notes, prefix: "b"), to: table(:memos, prefix: "b")
+```
+
+**A move between modules is recorded in the target module's chain** — the
+module whose schema gains the tables. Its generation (an `Initial` when the
+module is new) carries the `SET SCHEMA` steps; on Ecto, a first generation that
+takes tables over writes them to a `<module>_take_over_tables` file ahead of
+its per-table creates. The source module records a generation too, holding one
+comment per table it hands off, so its schema in the chain stops listing them;
+it never drops them. A move can only find tables that a module still in the
+model records, so keep the source module (or its other contexts) in the model
+until the move is recorded.
+
+Without the step, a rename or a move is a drop + create, and the destructive
+gate refuses it. Its message names the table step as the remedy whenever a
+table is dropped. The step is ledger-inert like a column rename: once the
+baseline holds the new relation and not the old, it emits nothing.
+
 ## Data migrations (M-T2.3)
 
 Structural DDL moves the *schema*; the `migration` block's **data steps** move
@@ -415,14 +512,27 @@ full table is below; codes
 whenever the diff adds that column or flips it NOT NULL:
 
 ```ddd
-aggregate Order { placedAt: datetime  status: string }   // status added this generation
-migration "order-status" { Order.status = "pending" }
+aggregate Order { placedAt: datetime  qty: int  status: string  rank: int }   // status, rank added this generation
+migration "order-status" { Order.status = "pending"  Order.rank = qty + 1 }
 ```
 ```sql
-ALTER TABLE "sales"."orders" ADD COLUMN "status" TEXT NULL;
-UPDATE "sales"."orders" SET "status" = 'pending' WHERE "status" IS NULL;
-ALTER TABLE "sales"."orders" ALTER COLUMN "status" SET NOT NULL;
+ALTER TABLE "sales"."orders" ADD COLUMN "status" TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE "sales"."orders" ALTER COLUMN "status" DROP DEFAULT;
+ALTER TABLE "sales"."orders" ADD COLUMN "rank" INTEGER NULL;
+UPDATE "sales"."orders" SET "rank" = ("qty" + 1) WHERE "rank" IS NULL;
+ALTER TABLE "sales"."orders" ALTER COLUMN "rank" SET NOT NULL;
 ```
+
+The two shapes differ on purpose. A **constant** value — one that reads no
+column: a literal, an enum value, `now()`, constant arithmetic — is the same for
+every row, so the column is added carrying it as its DEFAULT and the default is
+dropped again in the same migration (the field-default pair). On PG11+ that ADD
+is catalog-only: existing rows read the stored default without being rewritten,
+and the column is NOT NULL from the moment it exists. An **expression** that
+reads a sibling column needs a real per-row `UPDATE`, so the column is added
+nullable, filled, then set NOT NULL. See § Locks on a populated table for what
+each costs on a live table. On a NULL → NOT NULL flip of a column that already
+exists, every backfill is an `UPDATE`.
 
 A duration is admitted in exactly one shape — a direct `days(n)` / `hours(n)` /
 `minutes(n)` operand of `+`/`-` on a datetime — and renders as Postgres
@@ -464,9 +574,8 @@ from `Laptop` to the TPC base `Asset`:
 migration "owner-moves-up" { Asset.owner = "it" }
 ```
 ```sql
-ALTER TABLE "hr"."phones" ADD COLUMN "owner" TEXT NULL;
-UPDATE "hr"."phones" SET "owner" = 'it' WHERE "owner" IS NULL;
-ALTER TABLE "hr"."phones" ALTER COLUMN "owner" SET NOT NULL;
+ALTER TABLE "hr"."phones" ADD COLUMN "owner" TEXT NOT NULL DEFAULT 'it';
+ALTER TABLE "hr"."phones" ALTER COLUMN "owner" DROP DEFAULT;
 ```
 
 `laptops` already has the column, so it gets nothing. The concrete spelling
@@ -614,10 +723,10 @@ SQL — a database that has not applied them yet still gets it.
 ### A unique index on a populated table — `loom.migration-unique-on-existing-table`
 
 A diff cannot see the data. Adding `unique (…)` to an aggregate whose table
-already exists in the baseline emits a `CREATE UNIQUE INDEX` that fails at boot
-if any stored rows collide — the migration rolls back (cleanly; every backend
-applies a generation in one transaction), the service does not come up, and
-every later generation queues behind the failing one. So `generate system`
+already exists in the baseline emits a `CREATE UNIQUE INDEX CONCURRENTLY` (§
+Locks on a populated table) that fails at boot if any stored rows collide — the
+generation's non-transactional unit fails and stays unrecorded, the service does
+not come up, and every later generation queues behind it. So `generate system`
 warns, at derivation time, beside the other phase-⑨ advisories:
 
 ```text
@@ -760,9 +869,83 @@ instead. The other way out — running the fix by hand
 restarting the service so the frozen generation re-runs — works, but leaves the
 fix outside the model.
 
+**A failed concurrent index is the exception.** An index added to an existing
+table is built in the generation's second, non-transactional unit (§ Locks on a
+populated table), so when *that* is what fails — the unique-index case on an
+existing table — the generation's transactional half has already committed and
+is recorded. Do not `migrate remove` it. Dedupe by hand and restart: the
+concurrent unit is unrecorded, so it runs again, and its leading
+`DROP INDEX CONCURRENTLY IF EXISTS` clears the INVALID index the failed build
+left behind before rebuilding it.
+
 **Down migrations are no-op by decision** (D-MIG-NO-DOWN): operators roll
 forward; recovery is backup + roll-forward. And data steps live in the DSL,
 not in per-backend stub files (D-MIG-DSL-STEPS) — one source, five backends.
+
+## Locks on a populated table
+
+Every backend's runner applies a generation inside a transaction, so a lock a
+statement takes is held until that transaction commits. Two statement shapes
+used to make that a full-table outage on a live system: at 1M rows, an UPDATE
+backfill plus two plain `CREATE INDEX` statements held the table for ~25 s, and
+every concurrent read and write of it waited. Both are now rendered so they hold
+no long lock:
+
+| Step | Rendered as | Lock held while it runs |
+|---|---|---|
+| Column add backfilled with a **constant** (also a field default, an empty collection, `softDeletable`'s `false`) | `ADD COLUMN … DEFAULT <c> NOT NULL` + `ALTER COLUMN … DROP DEFAULT` | ACCESS EXCLUSIVE for milliseconds: on PG11+ a non-volatile default is stored in the catalog, and no row is rewritten |
+| Column add backfilled with an **expression** | `ADD COLUMN … NULL` → `UPDATE … WHERE … IS NULL` → `SET NOT NULL` | ACCESS EXCLUSIVE for the whole UPDATE and the `SET NOT NULL` scan. Batched backfills are not implemented |
+| Index added to a table that **already exists** (`resource … index:`, `unique (…)`, an FK's covering index) | `DROP INDEX CONCURRENTLY IF EXISTS` + `CREATE [UNIQUE] INDEX CONCURRENTLY`, in a unit of its own | none that blocks reads or writes. The build waits for transactions already open on the table |
+| Index on a table **created** in the same generation | inline plain `CREATE INDEX` | none worth avoiding: the table is empty |
+
+```ddd
+aggregate Order { ref: string  status: OrderStatus  priority: int }   // priority + the index added this generation
+resource storeState { for: Store, kind: state, use: primary, index: [Order.status] }
+migration "priority" { Order.priority = 1 }
+```
+```sql
+-- <version>_<module>_priority.sql: applied in one transaction
+ALTER TABLE "store"."orders" ADD COLUMN "priority" INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE "store"."orders" ALTER COLUMN "priority" DROP DEFAULT;
+-- <version>_<module>_priority_concurrent.sql: applied outside any transaction
+DROP INDEX CONCURRENTLY IF EXISTS "store"."orders_status_idx";
+CREATE INDEX CONCURRENTLY "orders_status_idx" ON "store"."orders" ("status");
+```
+
+**The non-transactional unit.** Postgres refuses `CONCURRENTLY` inside a
+transaction block, and a multi-statement query counts as one. So the steps that
+need it (`addIndex` with `concurrently`, chosen once by
+`src/ir/util/migration-steps.ts`) leave the generation's file and become a
+second migration of the same generation. It is ordered right after the first,
+holds one statement per command, and goes into the runner's ledger on its own:
+
+| Backend | Second unit | How the runner applies it |
+|---|---|---|
+| Hono / Drizzle | `db/migrations/<tag>_concurrent.sql`, first line `-- loom:no-transaction`, its own journal entry | the generated `db/migrate.ts` (Drizzle's migrator with the same `drizzle.__drizzle_migrations` ledger and watermark) runs a marked file statement by statement outside a transaction, then writes its ledger row. Consecutive unmarked files still share one transaction. `npm run db:migrate` (`drizzle-kit migrate`) wraps everything in one transaction and cannot apply a marked file |
+| Python / FastAPI | `migrations/<tag>_concurrent.sql`, same marker | `run_migrations()` applies a marked file on an `AUTOCOMMIT` connection, then records its tag in `__loom_migrations`. Consecutive unmarked files share one transaction |
+| Java / Flyway | `V<v>.<n>.1__<Mod>_<Name>Concurrent.sql` | Flyway runs a script that holds only `CREATE`/`DROP INDEX CONCURRENTLY` statements without a transaction. It refuses a script that mixes them with transactional ones, which is why the unit is its own script |
+| .NET / EF Core | `Migrations/<slug>_Concurrent.cs` | one `migrationBuilder.Sql(…, suppressTransaction: true)` per statement |
+| .NET / Dapper | `Migrations/<slug>_Concurrent.cs`, `InTransaction => false` | `DbSchema.EnsureAsync` runs its statements without a transaction, then records its id |
+| Phoenix / Ecto | `<version + 1>_<module>_<name>_concurrent.exs` with `@disable_ddl_transaction true` and `@disable_migration_lock true` | `ecto.migrate`; `drop_if_exists index(…, concurrently: true)` + `create index(…, concurrently: true)` |
+
+Ecto orders and records files by an integer version, so the migration chain
+reserves `version + 1` after any generation that has such a unit: the next
+`migrate add` numbers its entry at least two above it, and a chain whose entry
+takes the reserved version is refused when it is read.
+
+**Recovery.** A concurrent build that fails (duplicate keys under a new unique
+index, a cancelled deploy) leaves an INVALID index of that name. It enforces
+nothing, but it would make a plain retry fail with `already exists`. The unit
+starts with `DROP INDEX CONCURRENTLY IF EXISTS`, and it is recorded only after
+its last statement, so the next boot drops the leftover and rebuilds. The
+generation's transactional half is already committed at that point; see
+§ Amending a generation that never applied.
+
+**Recorded generations do not change.** The `concurrently` flag is recorded
+with the step in `migrations/`. A generation recorded before the flag existed
+keeps its plain `CREATE INDEX` inside its one file, and keeps its UPDATE
+backfill, so a migration a database has already applied renders byte-identically
+and no Flyway checksum or Drizzle watermark moves.
 
 ## Reshape detection — the `loom.migration-shape-change` gate (M-T2.4)
 
@@ -1169,7 +1352,7 @@ seed SQL is bit-identical cross-backend).
 
 | Backend | Output path | Applied at boot via |
 |---|---|---|
-| Hono / Drizzle | `db/migrations/<tag>.sql` + `meta/_journal.json` | `migrate()` from `drizzle-orm/node-postgres/migrator` (also `npm run db:migrate`) |
+| Hono / Drizzle | `db/migrations/<tag>.sql` + `meta/_journal.json` | `migrate()` from the generated `db/migrate.ts` (Drizzle's migrator plus non-transactional files, § Locks on a populated table) |
 | .NET / EF Core | `Migrations/<slug>.cs` (`migrationBuilder.Sql(...)`) | `Database.Migrate()` → `__EFMigrationsHistory` |
 | .NET / Dapper | `Migrations/<slug>.cs` (a `LoomMigration` with its `Statements`) | `DbSchema.EnsureAsync` → `public.__loom_migrations` (see below) |
 | Phoenix / Ecto | `priv/repo/migrations/<ts>_create_<table>.exs` | `ecto.migrate` |
@@ -1255,7 +1438,8 @@ applies the same `MigrationsIR` chain EF applies
   `public.__loom_migrations` (the table python already keeps, already
   reset-preserved), and applies every pending migration in id order — an
   applied **set**, not a watermark — each in its own transaction with its
-  history row. Idempotent: a reboot applies nothing. The exactly-once
+  history row, except a `CREATE INDEX CONCURRENTLY` unit (`InTransaction =>
+  false`), which runs without one and records its id after its last statement. Idempotent: a reboot applies nothing. The exactly-once
   `appliedDataMigrations` ledger needs nothing new: a raw `sql` step is emitted
   into exactly one generation's file, and that file runs once. The runner never
   adopts tables it did not create: a database starts empty, and its `Initial`
@@ -1328,8 +1512,10 @@ The v1→v2 delta ([`test/e2e/fixtures/migration-evolution/{base,evolved}.ddd`](
 is deliberately gate-clean (explicit rename intent + a backfill make it
 non-destructive, so no `--allow-destructive`), exercising the three
 data-preserving move classes together: a value-preserving `renameColumn`, a
-back-filled NOT-NULL add (add-nullable → `UPDATE` → `SET NOT NULL`), and a plain
-nullable add.
+NOT-NULL add backfilled with a constant (add-WITH-DEFAULT → `DROP DEFAULT`), and
+a plain nullable add.  The unique-index leg (`unique-evo-base.ddd`) rebuilds an
+index on a populated table, so it is the runtime proof of every runner's
+non-transactional `CREATE INDEX CONCURRENTLY` unit.
 
 The shared harness ([`test/e2e/support/migration-evolution-harness.ts`](../test/e2e/support/migration-evolution-harness.ts))
 owns the Postgres lifecycle (one server, `chain` + `fresh` databases), the

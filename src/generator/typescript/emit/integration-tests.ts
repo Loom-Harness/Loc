@@ -183,7 +183,12 @@ function renderTest(t: TestIR, ctx: BoundedContextIR): string[] {
  *  that does not exist. */
 export function renderContextIntegrationTest(
   ctx: BoundedContextIR,
-  opts: { inProcessDispatcher: boolean },
+  opts: {
+    inProcessDispatcher: boolean;
+    /** Module `migrate` is imported from — the project's `db/migrate.ts` when
+     *  it ships one, else drizzle-orm's own migrator. */
+    migrator?: string;
+  },
 ): string | null {
   if (ctx.tests.length === 0) return null;
 
@@ -217,7 +222,9 @@ export function renderContextIntegrationTest(
   lines.push(...value.decimal);
   lines.push(`import { Pool } from "pg";`);
   lines.push(`import { drizzle } from "drizzle-orm/node-postgres";`);
-  lines.push(`import { migrate } from "drizzle-orm/node-postgres/migrator";`);
+  lines.push(
+    `import { migrate } from ${JSON.stringify(opts.migrator ?? "drizzle-orm/node-postgres/migrator")};`,
+  );
   lines.push(`import * as schema from "../db/schema";`);
   if (cascade) {
     lines.push(`import { createInProcessDispatcher } from "../http/workflows";`);

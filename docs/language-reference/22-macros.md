@@ -427,6 +427,8 @@ subdomain Sales {
 api SalesApi with scaffoldApi(of: Sales) from Sales   // … and this emits the routes onto them
 ```
 
+Both macros serve exactly the same aggregates (one shared predicate) and both expand after every aggregate-level `with` clause, so members spliced by `with crudish` (`create` / `update` / canonical `destroy`) get handlers and routes. An aggregate with no `repository` in the context cannot be loaded by id, so neither macro emits for it; when it declares a write surface (an operation, a `create`, a `destroy`, or the ones `with crudish` supplies) `scaffoldHandlers` raises the warning `loom.scaffold-aggregate-unserved`, naming the aggregate and the `repository <Plural> for <Agg> { }` that would serve it. A repository-less aggregate is legitimate (e.g. a tenant registry the API never exposes), so it is a warning, not an error.
+
 `scaffoldDashboard` (target `context`) emits one singleton query-time `projection` per aggregate — `<Agg>Totals` (a row count plus a sum per numeric/money field, aggregated in SQL) and, when the aggregate carries a date field, a per-day `<Agg>Series`. Aggregates it cannot aggregate over a real table (abstract bases, `persistedAs: eventLog` streams, `shape: document` blobs) are skipped. The ui-side `scaffold` derives the same projection names from [`_dashboard-shared.ts`](../../src/macros/stdlib/scaffold/_dashboard-shared.ts), so a Home `Stat` tile can only bind a projection this macro emitted:
 
 ::: tabs backend
@@ -464,6 +466,7 @@ Every macro diagnostic is raised by the expander in phase ②, so it points at y
 | `loom.macro-non-ast-result` | `expand` returned something that isn't an AST member or capability node |
 | `loom.macro-escapes-host` | an emitted node targets a destination outside the host's subtree — a macro may only modify its host or its descendants |
 | `loom.capability-host-invalid` | a capability name in a `with` clause on a `ui` or `api` host |
+| `loom.scaffold-aggregate-unserved` | warning — `scaffoldHandlers` on a context holding a repository-less aggregate that declares operations / `create` / `destroy` (e.g. `with crudish`); neither scaffold macro emits for it |
 | `loom.scaffold-unexpanded` | an unresolved scaffold primitive survives into IR validation |
 
 ```ddd

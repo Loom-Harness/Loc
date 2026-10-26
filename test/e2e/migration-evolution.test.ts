@@ -4,6 +4,7 @@ import {
   type BackendDriver,
   handleFor,
   type PgConn,
+  runCrossContextMoveGate,
   runFieldDefaultEvolutionGate,
   runJournalOrderingGate,
   runMigrationEvolutionGate,
@@ -75,6 +76,15 @@ describe.skipIf(!ENABLED)(
   () => {
     it("emits only the child table, applies to a populated db, and leaves INSERT working", async () => {
       await runValueCollectionEvolutionGate();
+    }, 240_000);
+  },
+);
+
+describe.skipIf(!ENABLED)(
+  "cross-context move gate — `A.Note -> B.Note` into a new module keeps the rows",
+  () => {
+    it("moves the tables and the event log with SET SCHEMA, rows intact, schema ≡ fresh", async () => {
+      await runCrossContextMoveGate();
     }, 240_000);
   },
 );

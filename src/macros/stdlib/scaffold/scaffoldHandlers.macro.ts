@@ -22,6 +22,7 @@ import {
   handlerTargets,
   idParamName,
   targetHandlerName,
+  unservedAggregateMessages,
 } from "./_handlers-shared.js";
 
 /** Emit an application-layer `commandHandler` / `queryHandler` for every
@@ -68,13 +69,17 @@ import {
 export default defineMacro({
   name: "scaffoldHandlers",
   target: "context",
+  late: true,
   apiVersion: 1,
   description:
     "Emits a commandHandler/queryHandler for every operation, create, find, and " +
     "get-by-id read of every aggregate in the context (load/construct via the " +
     "aggregate's repository or factory, then the op-call / find / return).",
-  expand({ target }) {
+  expand({ target, warn }) {
     const ctx = target as BoundedContext;
+    for (const message of unservedAggregateMessages(ctx)) {
+      warn?.("loom.scaffold-aggregate-unserved", message);
+    }
     // Contract records FIRST (readable `unfold` output: the API contract, then
     // the handlers that realise it), then the handlers.  The records are
     // additive + inert in PR1 — no handler references them yet, so generation is

@@ -71,6 +71,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.duplicate-resource": "14-apis-storage-resources-channels.md#resource",
   // --- src/language/validators/structural.ts (M-T9.56 drain) --------------
   "loom.audited-no-command": "22-macros.md#audit--the-built-in-capability-auditable",
+  "loom.scaffold-aggregate-unserved": "22-macros.md#scaffold-family--application--transport",
   "loom.duplicate-entity-part": "03-domain-modeling.md#entity-parts--contains",
   "loom.valueobject-contains-entity": "03-domain-modeling.md#valueobject",
   "loom.containment-optional-collection": "03-domain-modeling.md#entity-parts--contains",
@@ -509,6 +510,13 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.migration-block-applied":
     "../migrations.md#a-spent-block-says-so--loommigration-block-applied",
   "loom.migration-sql-placement": "../migrations.md#data-migrations-m-t23",
+  "loom.migration-step-unknown-context":
+    "../migrations.md#table-steps--renames-and-cross-context-moves",
+  "loom.migration-step-target-missing":
+    "../migrations.md#table-steps--renames-and-cross-context-moves",
+  "loom.migration-step-ambiguous": "../migrations.md#table-steps--renames-and-cross-context-moves",
+  "loom.migration-move-across-databases":
+    "../migrations.md#table-steps--renames-and-cross-context-moves",
   "loom.migration-chain-invalid":
     "../migrations.md#the-migration-chain--migrations-beside-the-source",
   "loom.diff-baseline-invalid": "../mcp.md#the-loom_-tool-catalog",

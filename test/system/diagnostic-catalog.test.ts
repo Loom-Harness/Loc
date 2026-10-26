@@ -71,6 +71,9 @@ function catalogedSources(): string[] {
   }
   out.push(path.join("src", "language", "ddd-validator.ts"));
   out.push(path.join("src", "macros", "expander.ts"));
+  // A stdlib macro's `warn(...)` text (`loom.scaffold-aggregate-unserved`) renders
+  // from the catalog at the macro, not from the expander.
+  out.push(path.join("src", "macros", "stdlib", "scaffold", "_handlers-shared.ts"));
   out.push(path.join("src", "api", "evolve.ts"));
   out.push(path.join("src", "api", "index.ts"));
   // QueryEmissionRefusal (§F2, Wave 2 packet 2.4) is a generation-time
