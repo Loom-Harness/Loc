@@ -68,13 +68,12 @@ describe("capability filter principal terms render on every backend", () => {
   });
 
   it("node / mikroorm: a constant raw condition per term", async () => {
-    const repo = await emitted(
-      "node { persistence: mikroorm }",
-      /db\/repositories\/ticket-repository\.ts$/,
-    );
+    // The filter is a default schema filter: its `cond` runs per query, so the
+    // principal's terms are decided when the query runs.
+    const repo = await emitted("node { persistence: mikroorm }", /db\/entities\.ts$/);
     expect(repo).toContain('[raw(requireCurrentUser().role === "agent" ? "1 = 1" : "1 = 0")]: []');
     expect(repo).toContain('[raw(requireCurrentUser().tier === "Gold" ? "1 = 1" : "1 = 0")]: []');
-    expect(repo).toContain('import { raw } from "@mikro-orm/core";');
+    expect(repo).toMatch(/import \{[^}]*\braw\b[^}]*\} from "@mikro-orm\/core";/);
   });
 
   it("dotnet / efcore: the term stays a C# closure read inside HasQueryFilter", async () => {

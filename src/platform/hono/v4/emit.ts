@@ -24,6 +24,7 @@ import {
   buildBaseReaderFile,
   buildBaseRoutesFile,
   buildBaseUnionFile,
+  buildMikroBaseReaderFile,
   buildTpcBaseReaderFile,
   routesPolymorphicRead,
 } from "../../../generator/typescript/base-reader-builder.js";
@@ -45,15 +46,14 @@ import {
 import { emitTypescriptMigrations } from "../../../generator/typescript/emit/migrations.js";
 import {
   MIKRO_INDEX_IMPORTS,
+  MIKRO_ORM_VERSION,
   mikroConnectionSetup,
-  renderMikroBaseReader,
   renderMikroConfig,
   renderMikroDocumentRepository,
   renderMikroEmbeddedRepository,
   renderMikroEntities,
   renderMikroEventSourcedRepository,
   renderMikroRepository,
-  renderMikroTpcBaseReader,
 } from "../../../generator/typescript/emit/mikroorm.js";
 import { emitMikroSeeds, emitTypescriptSeeds } from "../../../generator/typescript/emit/seed.js";
 import {
@@ -759,7 +759,7 @@ export function generateTypeScript(
 /** Does this deployable OWN at least one timerSource?  Ownership is derived (the
  *  subdomain's `migrationsOwner`), and it decides two things that must agree: the
  *  `scheduler.ts` emit and — on mikroorm — the `loom_timer_runs` watermark
- *  ENTITY, without which `updateSchema()` drops the table on the second boot.
+ *  ENTITY, without which `schema.update()` drops the table on the second boot.
  *  Shared so the two cannot drift. */
 function ownsTimers(system: { deployable: DeployableIR; sys: SystemIR } | undefined): boolean {
   if (!system) return false;
@@ -1006,7 +1006,7 @@ export function generateTypeScriptForContexts(
   // Persistence selection (D-REALIZATION-AXES `persistence:`): `mikroorm`
   // replaces the drizzle schema + per-aggregate drizzle repositories + drizzle
   // migrations with an EntitySchema persistence model + MikroORM repositories
-  // (schema owned by `orm.schema.updateSchema()` at startup).  The validator
+  // (schema owned by `orm.schema.update()` at startup).  The validator
   // gates mikroorm to the supported subset, so the drizzle-only branches below
   // stay byte-identical for the default `drizzle`.
   const usingMikro = system?.deployable.persistence === "mikroorm";
@@ -1026,7 +1026,7 @@ export function generateTypeScriptForContexts(
           outbox: durableEventTypes(merged).size > 0,
           // Timer-scheduler watermark Row — same condition as `scheduler.ts`
           // below (this deployable OWNS a timerSource).  It has to be an entity
-          // on this adapter or `updateSchema()` drops it on the second boot.
+          // on this adapter or `schema.update()` drops it on the second boot.
           timerRuns: ownsTimers(system),
         },
       ),
@@ -1385,12 +1385,12 @@ export function generateTypeScriptForContexts(
         "drizzle-repository",
         base.name,
         usingMikro
-          ? renderMikroBaseReader(base, concretes)
+          ? buildMikroBaseReaderFile(base, concretes, ctx, read)
           : buildBaseReaderFile(base, concretes, ctx, read),
         base.origin,
         baseConstruct,
       );
-      if (!usingMikro && routesPolymorphicRead(base, ctx)) {
+      if (routesPolymorphicRead(base, ctx)) {
         place(
           "http-routes",
           base.name,
@@ -1421,13 +1421,11 @@ export function generateTypeScriptForContexts(
       place(
         "drizzle-repository",
         base.name,
-        usingMikro
-          ? renderMikroTpcBaseReader(base, concretes)
-          : buildTpcBaseReaderFile(base, concretes, read),
+        buildTpcBaseReaderFile(base, concretes, read, usingMikro ? "mikroorm" : "drizzle"),
         base.origin,
         baseConstruct,
       );
-      if (!usingMikro && routesPolymorphicRead(base, ctx)) {
+      if (routesPolymorphicRead(base, ctx)) {
         place(
           "http-routes",
           base.name,
@@ -1474,7 +1472,7 @@ export function generateTypeScriptForContexts(
   // Per-module Postgres migrations + Drizzle journal — emitted whenever
   // the system orchestrator hands us a migrations slice.  Empty slice
   // (non-system entry points) → no-op.
-  // mikroorm owns its schema via `orm.schema.updateSchema()` at startup, so it
+  // mikroorm owns its schema via `orm.schema.update()` at startup, so it
   // emits no drizzle migration files and `hasMigrations` stays false (which
   // suppresses the boot-time `migrate(...)` call in index.ts).
   const hasMigrations = !usingMikro && !!(system?.migrations && system.migrations.length > 0);
@@ -1787,8 +1785,8 @@ function projectPackageJson(
   const dependencies = mikro
     ? {
         ...depsNoDrizzle,
-        "@mikro-orm/core": "6.6.17",
-        "@mikro-orm/postgresql": "6.6.17",
+        "@mikro-orm/core": MIKRO_ORM_VERSION,
+        "@mikro-orm/postgresql": MIKRO_ORM_VERSION,
       }
     : { ...pins.dependencies };
   const devDependencies = {
@@ -2148,7 +2146,10 @@ function renderProjectIndexTs(
   // whole subtree ladder collapses — a silent wrong answer on an adapter that
   // renders the subtree predicate.  The mikro branch reads the registry Row
   // through the EntityManager instead
-  // (`findOne(<Reg>Row, { id: claim })`), the same one-row lookup.
+  // (`findOne(<Reg>Row, { id: claim }, { filters: false })`), the same one-row
+  // lookup.  The registry Row carries the tenancy self-scope as a default
+  // filter that reads the principal — and this lookup runs to BUILD that
+  // principal, so it is the one read the filter must not scope.
   // The drizzle schema-table var (`orgs`) and the MikroORM Row entity class
   // (`OrgRow`) for the same registry aggregate — one name in, both spellings
   // derived here rather than at the call site, so the two persistence branches
@@ -2165,7 +2166,7 @@ function renderProjectIndexTs(
   const orgPathRegistration = !wireOrgPath
     ? ""
     : usingMikro
-      ? `${orgPathDoc}registerOrgPathResolver(async (claim) => {\n  const row = await db.fork().findOne(${orgPathRegistryRow}, { id: claim });\n  return row?.dataKey ?? null;\n});\n`
+      ? `${orgPathDoc}registerOrgPathResolver(async (claim) => {\n  const row = await db.fork().findOne(${orgPathRegistryRow}, { id: claim }, { filters: false });\n  return row?.dataKey ?? null;\n});\n`
       : `${orgPathDoc}registerOrgPathResolver(async (claim) => {\n  const rows = await db\n    .select({ dataKey: schema.${orgPathRegistryTable}.dataKey })\n    .from(schema.${orgPathRegistryTable})\n    .where(eq(schema.${orgPathRegistryTable}.id, claim))\n    .limit(1);\n  return rows[0]?.dataKey ?? null;\n});\n`;
   // Event-dispatch / relay / scheduler imports — SHARED by both persistence
   // branches — the mikro adapter emits the outbox relay too, so this block
@@ -2218,7 +2219,7 @@ import { shutdownTracing } from "./obs/tracing";`;
   const connectionBlock = usingMikro
     ? `// Persistence connection — owned by the mikroorm PersistenceAdapter\n// (MikroORM.init → dev schema bootstrap → EntityManager as \`db\`).\n${mikroConnectionSetup().join("\n")}`
     : `// Persistence connection — owned by the drizzle PersistenceAdapter\n// (DATABASE_URL guard → pg pool → pool-error logging → drizzle db).\n${DRIZZLE_CONNECTION_SETUP.join("\n")}`;
-  // mikroorm bootstraps its schema inside the connection block (updateSchema),
+  // mikroorm bootstraps its schema inside the connection block (schema.update),
   // so it never emits the drizzle boot-time migrate call.
   const effectiveMigCall = usingMikro ? "" : migCall;
   return `// Auto-generated.
@@ -2356,7 +2357,7 @@ process.on("SIGINT", () => void shutdown("SIGINT"));
 /** The runtime stage's copy of the drizzle migration folder.  Present iff the
  *  project emits `db/migrations` — the same `hasMigrations` predicate that
  *  emits the boot-time `migrate(...)` call in index.ts.  A mikroorm project
- *  (schema via `orm.schema.updateSchema()`) and a node deployable that owns no
+ *  (schema via `orm.schema.update()`) and a node deployable that owns no
  *  module's migrations emit none, and an unconditional `COPY` of a missing
  *  path fails `docker build` outright (`"/app/db/migrations": not found`). */
 const MIGRATIONS_COPY = `# Drizzle's runtime migrator reads migration SQL + meta/_journal.json

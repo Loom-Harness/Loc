@@ -60,13 +60,8 @@ import {
   partRowClassOf,
   rowClassOf,
 } from "./mikroorm-entities.js";
-import {
-  AMBIENT_PRINCIPAL,
-  mikroContextFilters,
-  mikroGetByIdLines,
-  whereToMikroFilter,
-  withContextFilters,
-} from "./mikroorm-filter.js";
+import { AMBIENT_PRINCIPAL, mikroGetByIdLines, whereToMikroFilter } from "./mikroorm-filter.js";
+import { mikroFilterOption } from "./mikroorm-schema-filters.js";
 import { maskUserImport, tsParamType, usesRawFragment } from "./mikroorm-shared.js";
 
 // ---------------------------------------------------------------------------
@@ -75,7 +70,7 @@ import { maskUserImport, tsParamType, usesRawFragment } from "./mikroorm-shared.
 // (hydrateRootExpr emits `${f.name}`), so each read loads the target-id list
 // from the pivot table into that local; the save does a full-list replace (set
 // semantics — delete every owner row, insert the current list).  Mirrors the
-// drizzle join-table path; no FK (MikroORM owns the schema via updateSchema),
+// drizzle join-table path; no FK (MikroORM owns the schema via schema.update),
 // so the aggregate delete also clears the owner's pivot rows.
 // ---------------------------------------------------------------------------
 
@@ -517,23 +512,25 @@ export function renderMikroRepository(
   repo: RepositoryIR | undefined,
   ctx: EnrichedBoundedContextIR,
 ): string {
-  // TPH (aggregate-inheritance.md, sharedTable): a concrete subtype has no Row
-  // of its own — it reads/writes the base's shared table, scoped to its `kind`
-  // discriminator on every read and stamping `kind` on every write.  The Row
-  // class + table are the base's; `kindClause` is ANDed into each read filter.
+  // TPH (aggregate-inheritance.md, sharedTable): a concrete subtype is a
+  // subclass schema of the base's single-table-inheritance root, so `row` is
+  // the concrete's own Row class — the ORM scopes every read, count and native
+  // write of it to its `kind` — while `tableRow` is the root the table belongs
+  // to.  The read scope (capability filters, tenancy, the TPH subtype guards)
+  // is declared once on the schema (mikroorm-schema-filters.ts), so no read
+  // below ANDs a predicate or a `kind` by hand; a read states its own `where`
+  // and, for `ignoring`, which named filters to switch off.  The discriminator
+  // value is only STAMPED on a write, which the ORM does not do for a native
+  // insert.
   const pool = ctx.aggregates;
   const kind = discriminatorValue(agg, pool);
-  const rowAgg = tableOwnerName(agg, pool);
-  const row = rowClassOf(rowAgg);
-  const kindClause = kind ? [`{ kind: ${JSON.stringify(kind)} }`] : [];
+  const row = rowClassOf(agg.name);
+  const tableRow = rowClassOf(tableOwnerName(agg, pool));
   const kindProjection = kind ? [{ fieldName: "kind", expr: JSON.stringify(kind) }] : [];
   const hydrate = (rowVar: string) => hydrateRootExpr(agg, rowVar, ctx);
-  // Capability `filter` predicates AND into every root read.  `baseFilters` is
-  // the no-`ignoring` set (findById / findManyByIds / retrievals); each find
-  // recomputes with its own `ignoring` bypass.  Empty when the aggregate has no
-  // `filter` capability, so the read FilterQuery stays byte-identical.  The TPH
-  // `kind` scope rides the same `$and` composition as a capability filter.
-  const baseFilters = [...mikroContextFilters(agg), ...kindClause];
+  /** `<where>[, <options>]` — the call tail of a read. */
+  const readArgs = (where: string, options: string | null): string =>
+    options ? `${where}, ${options}` : where;
   // `Id[]` reference collections persist in pivot tables, not columns, so they
   // are excluded from the aggregate-row save projection (synced separately).
   // Value-object collections (`<VO>[]`) fold onto one inline jsonb column each,
@@ -614,8 +611,10 @@ export function renderMikroRepository(
     ...provEntries,
     { fieldName: "version", expr: "1" },
   ]);
+  // The UPDATE never writes `kind`: the row's discriminator is fixed at insert,
+  // and the statement runs through the concrete's Row, which scopes it to that
+  // `kind` already.
   const updateData = projectionObject("aggregate", [
-    ...kindProjection,
     ...nonVersionEntries,
     ...valueCollEntries,
     ...provEntries,
@@ -625,14 +624,19 @@ export function renderMikroRepository(
   const updateSet = audited ? stampUpdateCall(agg, updateData) : updateData;
   const versionedSaveLines = [
     `    const expected = expectedVersion ?? aggregate.version;`,
-    // The existence probe stays unscoped (a primary-key question about the whole
-    // shared table); the kind guard belongs on the WRITE so a foreign-subtype id
-    // matches nothing and raises ConcurrencyError instead of rewriting that row.
-    `    const existing = await em.findOne(${row}, { id: aggregate.id as string });`,
+    // The save's statements are scoped by the row's id (and version) alone, so
+    // they bypass the read scope: an aggregate the caller loaded `ignoring` a
+    // filter must still be savable, and a soft-deleted row must still be found
+    // as existing (else the save would INSERT a duplicate key).  The probe asks
+    // a primary-key question about the whole table (the root's Row); the
+    // UPDATE goes through the concrete's Row, whose discriminator the ORM adds,
+    // so a foreign-subtype id matches nothing and raises ConcurrencyError
+    // instead of rewriting that row.
+    `    const existing = await em.findOne(${tableRow}, { id: aggregate.id as string }, { filters: false });`,
     `    if (existing === null) {`,
     `      await em.insert(${row}, ${insertValues});`,
     `    } else {`,
-    `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, version: expected${kind ? `, kind: ${JSON.stringify(kind)}` : ""} }, ${updateSet});`,
+    `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, version: expected }, ${updateSet}, { filters: false });`,
     `      if (affected === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
     `    }`,
   ];
@@ -657,24 +661,21 @@ export function renderMikroRepository(
     const baseParams = f.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
     const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
     let filter: string;
+    // The aggregate's scope applies by itself (schema filters); this read's
+    // `ignoring` clause switches off the named ones.
+    const ignoring = mikroFilterOption(agg, pool, {
+      bypassAll: f.bypassAll,
+      bypassCaps: f.bypassCaps,
+    });
     try {
-      // The find's own `where`, AND-ed with the aggregate's capability filters
-      // (dropping the ones this read's `ignoring` clause bypasses).
-      const caps = [
-        ...mikroContextFilters(agg, { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps }),
-        ...kindClause,
-      ];
       // The find's OWN predicate reads the declared `currentUser` parameter;
-      // the capability filters (`caps`) keep the ambient accessor, because they
-      // ride reads that have no such parameter.
-      // A clause-less find still filters — by its implicit key match.
+      // the schema filters keep the ambient accessor, because they ride reads
+      // that have no such parameter.  A clause-less find still filters — by its
+      // implicit key match.
       const own = effectiveFindFilter(f, agg);
-      filter = withContextFilters(
-        own
-          ? whereToMikroFilter(own, usesUser ? "currentUser" : AMBIENT_PRINCIPAL, agg.associations)
-          : "{}",
-        caps,
-      );
+      filter = own
+        ? whereToMikroFilter(own, usesUser ? "currentUser" : AMBIENT_PRINCIPAL, agg.associations)
+        : "{}";
     } catch {
       return lines(
         `  async ${name}(${paged ? `${params}${params ? ", " : ""}page: number, pageSize: number, sort: string, dir: string` : params}): Promise<${paged ? `{ items: ${agg.name}[]; page: number; pageSize: number; total: number; totalPages: number }` : ret}> {`,
@@ -718,9 +719,9 @@ export function renderMikroRepository(
         `    const ${L.sortable} = new Set<string>([${sortable}]);`,
         `    const ${L.sortField} = ${L.sortable}.has(sort) ? sort : ${declaredOrder ? "null" : '"id"'};`,
         `    const ${L.orderBy}: Record<string, "asc" | "desc"> = ${declaredOrder ? `${L.sortField} === null ? { ${declaredOrder} } : ` : ""}{ [${L.sortField}]: dir === "desc" ? "desc" : "asc" };`,
-        `    const ${L.total} = await em.count(${row}, ${filter});`,
+        `    const ${L.total} = await em.count(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
         `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
-        `    const rows = await em.find(${row}, ${filter}, { limit: pageSize, offset: (page - 1) * pageSize, ${L.orderBy === "orderBy" ? "orderBy" : `orderBy: ${L.orderBy}`} });`,
+        `    const rows = await em.find(${row}, ${filter}, { limit: pageSize, offset: (page - 1) * pageSize, ${L.orderBy === "orderBy" ? "orderBy" : `orderBy: ${L.orderBy}`}${ignoring ? `, ${ignoring}` : ""} });`,
         dbg(f.name, "rows.length"),
         ...assocHydrateBind(agg, ctx, "em", L.items, "const", "    "),
         `    return ${pagedEnvelopeLiteral(L)};`,
@@ -731,7 +732,7 @@ export function renderMikroRepository(
       return lines(
         `  async ${name}(${params}): Promise<${agg.name}[]> {`,
         `    const em = this.em.fork({ keepTransactionContext: true });`,
-        `    const rows = await em.find(${row}, ${filter});`,
+        `    const rows = await em.find(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
         dbg(f.name, "rows.length"),
         ...assocHydrateBind(agg, ctx, "em", "", "return", "    "),
         `  }`,
@@ -745,7 +746,7 @@ export function renderMikroRepository(
       return lines(
         `  async ${name}(${params}): Promise<${agg.name} | null> {`,
         `    const em = this.em.fork({ keepTransactionContext: true });`,
-        `    const row = await em.findOne(${row}, ${filter});`,
+        `    const row = await em.findOne(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
         `    if (row === null) return null;`,
         ...assocInlineLoadLines(agg, "em", "row.id", "    "),
         ...containInlineLoadLines(agg, ctx, "em", "row.id", "    "),
@@ -757,7 +758,7 @@ export function renderMikroRepository(
     return lines(
       `  async ${name}(${params}): Promise<${agg.name} | null> {`,
       `    const em = this.em.fork({ keepTransactionContext: true });`,
-      `    const row = await em.findOne(${row}, ${filter});`,
+      `    const row = await em.findOne(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
       `    return row === null ? null : ${hydrate("row")};`,
       `  }`,
     );
@@ -783,12 +784,9 @@ export function renderMikroRepository(
       const params = [...baseParams, "page?: { offset?: number; limit?: number }"].join(", ");
       let filter: string;
       try {
-        // Retrievals read the aggregate table, so the capability filters AND in
-        // too (no `ignoring` surface on retrievals — the no-bypass `baseFilters`).
-        filter = withContextFilters(
-          whereToMikroFilter(r.where, AMBIENT_PRINCIPAL, agg.associations),
-          baseFilters,
-        );
+        // Retrievals read the aggregate table, so the schema filters apply
+        // too (there is no `ignoring` surface on retrievals).
+        filter = whereToMikroFilter(r.where, AMBIENT_PRINCIPAL, agg.associations);
       } catch {
         return lines(
           `  async ${methodName}(${params}): Promise<${agg.name}[]> {`,
@@ -825,12 +823,12 @@ export function renderMikroRepository(
               `    await em.nativeDelete(${joinRowClassOf(a)}, { ${joinColumnName(a.ownerFk)}: id as string });`,
           ),
           ...containCascadeDeleteLines(agg, "em", "id as string", "    ", 0),
-          `    await em.nativeDelete(${row}, ${withContextFilters("{ id: id as string }", kindClause)});`,
+          `    await em.nativeDelete(${row}, { id: id as string }, { filters: false });`,
           `  }`,
         )
       : lines(
           `  async delete(id: Ids.${agg.name}Id): Promise<void> {`,
-          `    await this.em.fork({ keepTransactionContext: true }).nativeDelete(${row}, ${withContextFilters("{ id: id as string }", kindClause)});`,
+          `    await this.em.fork({ keepTransactionContext: true }).nativeDelete(${row}, { id: id as string }, { filters: false });`,
           `  }`,
         )
     : "";
@@ -851,7 +849,7 @@ export function renderMikroRepository(
     "",
     `  async findById(id: Ids.${agg.name}Id): Promise<${agg.name} | null> {`,
     `    const em = this.em.fork({ keepTransactionContext: true });`,
-    `    const row = await em.findOne(${row}, ${withContextFilters("{ id: id as string }", baseFilters)});`,
+    `    const row = await em.findOne(${row}, { id: id as string });`,
     `    if (row === null) {`,
     `      requestLog().debug({ event: "aggregate_loaded", aggregate: "${agg.name}", id: id as string, found: false });`,
     `      return null;`,
@@ -869,7 +867,7 @@ export function renderMikroRepository(
     `  async findManyByIds(ids: Ids.${agg.name}Id[]): Promise<${agg.name}[]> {`,
     `    if (ids.length === 0) return [];`,
     `    const em = this.em.fork({ keepTransactionContext: true });`,
-    `    const rows = await em.find(${row}, ${withContextFilters("{ id: { $in: ids as string[] } }", baseFilters)});`,
+    `    const rows = await em.find(${row}, { id: { $in: ids as string[] } });`,
     ...assocHydrateBind(agg, ctx, "em", "", "return", "    "),
     `  }`,
     "",
@@ -947,7 +945,7 @@ export function renderMikroRepository(
       // The aggregate Row + every `Id[]` association's pivot Row entity + each
       // contained entity part's child Row entity.
       `import { ${[
-        row,
+        ...new Set([row, ...(versioned ? [tableRow] : [])]),
         ...(agg.associations ?? []).map(joinRowClassOf),
         ...(agg.parts ?? []).map((p) => partRowClassOf(p.name)),
       ].join(", ")} } from "../entities";`,
@@ -964,97 +962,6 @@ export function renderMikroRepository(
       `import { requestLog } from "../../obs/als";`,
       "",
       body,
-      "",
-    ) + "\n"
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Polymorphic base readers (aggregate-inheritance.md) — MikroORM editions of
-// the drizzle `buildBaseReaderFile` / `buildTpcBaseReaderFile`.  An abstract
-// base owns no user repository (validator-forbidden), but polymorphic access
-// ("reference any PaymentMethod, query all of them") still needs a read home:
-// a `<Base>Repository` returning the `Concrete | …` tagged union.
-// ---------------------------------------------------------------------------
-
-/** TPH (`sharedTable`) read-only `<Base>Repository`.
- *
- *  DELEGATES to the per-concrete repositories, exactly like the TPC reader
- *  below.  It used to scan the shared Row itself (`em.find(<Base>Row, {})`) and
- *  hydrate by `kind`, which meant it saw that Row through NONE of the machinery
- *  the concrete repositories apply to it — no capability `filter`, no tenancy
- *  predicate, no contained parts.  That is a cross-tenant read the moment the
- *  polymorphic reader is wired to a route (`F2-CB-C12`, the drizzle twin of
- *  which `buildBaseReaderFile` fixes the same way). */
-
-export function renderMikroBaseReader(
-  base: EnrichedAggregateIR,
-  concretes: readonly EnrichedAggregateIR[],
-): string {
-  return renderMikroDelegatingBaseReader(base, concretes, "sharedTable");
-}
-
-/** TPC (`ownTable`) read-only `<Base>Repository` — each concrete is its own
- *  table with a full repository, so this DELEGATES: `findAll` unions each
- *  concrete's `all()`, `findById` tries each in turn.  Every aggregate loads
- *  its complete tree through the loader that already knows how (mirrors the
- *  drizzle `buildTpcBaseReaderFile`; N round-trips traded for reuse). */
-
-export function renderMikroTpcBaseReader(
-  base: EnrichedAggregateIR,
-  concretes: readonly EnrichedAggregateIR[],
-): string {
-  return renderMikroDelegatingBaseReader(base, concretes, "ownTable");
-}
-
-/** The polymorphic base reader for either layout: `findAll` unions each
- *  concrete's `all()`, `findById` tries each in turn.  N round-trips traded for
- *  reuse — and for filter correctness, since each concrete's own read path
- *  carries its capability predicates. */
-
-function renderMikroDelegatingBaseReader(
-  base: EnrichedAggregateIR,
-  concretes: readonly EnrichedAggregateIR[],
-  layout: "sharedTable" | "ownTable",
-): string {
-  const repoCtor = (c: EnrichedAggregateIR): string => `${c.name}Repository`;
-  const repoField = (c: EnrichedAggregateIR): string => `${lowerFirst(c.name)}Repo`;
-  return (
-    lines(
-      "// Auto-generated.  Do not edit by hand.",
-      `import { EntityManager } from "@mikro-orm/postgresql";`,
-      `import type { DomainEventDispatcher } from "../../domain/events";`,
-      `import * as Ids from "../../domain/ids";`,
-      ...concretes.map(
-        (c) => `import { ${repoCtor(c)} } from "./${lowerFirst(c.name)}-repository";`,
-      ),
-      `import type { ${base.name} } from "../../domain/${lowerFirst(base.name)}";`,
-      "",
-      `// Polymorphic ${base.name} reader (${layout === "ownTable" ? "TPC / ownTable" : "TPH / sharedTable"}): delegates to`,
-      `// each concrete repository so every aggregate loads its full tree — and`,
-      `// through its own capability filters — then unions the results.`,
-      `// Read-only; writes go through the per-concrete repos.`,
-      `export class ${base.name}Repository {`,
-      ...concretes.map((c) => `  private readonly ${repoField(c)}: ${repoCtor(c)};`),
-      `  constructor(em: EntityManager, events: DomainEventDispatcher) {`,
-      ...concretes.map((c) => `    this.${repoField(c)} = new ${repoCtor(c)}(em, events);`),
-      `  }`,
-      "",
-      `  async findById(id: Ids.${base.name}Id): Promise<${base.name} | null> {`,
-      ...concretes.flatMap((c) => [
-        `    const ${repoField(c)}Hit = await this.${repoField(c)}.findById(id as unknown as Ids.${c.name}Id);`,
-        `    if (${repoField(c)}Hit) return ${repoField(c)}Hit;`,
-      ]),
-      `    return null;`,
-      `  }`,
-      "",
-      `  async findAll(): Promise<${base.name}[]> {`,
-      `    const results = await Promise.all([`,
-      ...concretes.map((c) => `      this.${repoField(c)}.all(),`),
-      `    ]);`,
-      `    return results.flat();`,
-      `  }`,
-      `}`,
       "",
     ) + "\n"
   );

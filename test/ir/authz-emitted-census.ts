@@ -447,6 +447,13 @@ export const LOCATORS: Record<VariantId, Locator> = {
   },
 
   // ── Hono + MikroORM ───────────────────────────────────────────────────────
+  // The read scope is MODEL-level — a named `default: true` filter on the
+  // entity's `EntitySchema` (a TPH concrete's is hosted on its root's) — so a
+  // site carries a conjunct iff the schema declares it AND the site does not
+  // switch it off (`{ filters: { "<name>": false } }`).  A QueryBuilder read
+  // applies filters only through `qb.applyFilters(…)`.  A conjunct rendered at
+  // the site itself (a find's own principal `where`, the write-scope
+  // pre-guard, a document aggregate's in-app check) is read off the window.
   mikroorm: {
     files: TS_FILES,
     openers: [TS_METHOD, TS_FUNCTION, TS_ROUTE_PATH, TS_ROUTE_CALL, TS_REGISTER],
@@ -455,11 +462,19 @@ export const LOCATORS: Record<VariantId, Locator> = {
       /\.createQueryBuilder\((\w+)/,
     ],
     classify: tsClassify,
-    carries: (f, site) =>
-      f.kind === "deny"
-        ? /\{\s*id:\s*null\s*\},\s*\{\s*id:\s*\{\s*\$ne:\s*null\s*\}\s*\}/.test(site.window) ||
-          INAPP_FALSE.test(site.window)
-        : carriesClaims(site.window, f, NODE_PRINCIPAL),
+    carries: (f, site, _agg, files) => {
+      const inline =
+        f.kind === "deny"
+          ? /\{\s*id:\s*null\s*\},\s*\{\s*id:\s*\{\s*\$ne:\s*null\s*\}\s*\}/.test(site.window) ||
+            INAPP_FALSE.test(site.window)
+          : carriesClaims(site.window, f, NODE_PRINCIPAL);
+      if (inline) return true;
+      const name = mikroFilterName(f, site.storage, files);
+      if (name === undefined) return false;
+      if (/\bcreateQueryBuilder\(/.test(site.window) && !/\bapplyFilters\(/.test(site.window))
+        return false;
+      return !new RegExp(`"${esc(name)}"\\s*:\\s*false`).test(site.window);
+    },
   },
 
   // ── .NET + EF Core ────────────────────────────────────────────────────────
@@ -883,6 +898,38 @@ function javaPrincipalFilterNames(
     name = /\bclass\s+\w+\s+extends\s+(\w+)/.exec(entity)?.[1];
   }
   return out;
+}
+
+/** The MikroORM schema filter that renders conjunct `f` on the entity a read of
+ *  `storage` queries, read off the emitted `db/entities.ts`.  A TPH concrete
+ *  (`class CarRow extends VehicleRow`) is filtered by its ROOT's schema. */
+function mikroFilterName(
+  f: FilterFact,
+  storage: string,
+  files: ReadonlyMap<string, string>,
+): string | undefined {
+  const entities = [...files.entries()].find(([p]) => p.endsWith("db/entities.ts"))?.[1];
+  if (!entities) return undefined;
+  const cls = storage.split(/[.\s]/).filter(Boolean).pop() ?? storage;
+  const host = entities.match(new RegExp(`export class ${esc(cls)} extends (\\w+)`))?.[1] ?? cls;
+  const at = entities.indexOf(`export const ${host}Schema = new EntitySchema`);
+  if (at < 0) return undefined;
+  const next = entities.indexOf("\nexport const ", at + 1);
+  const schema = entities.slice(at, next < 0 ? entities.length : next);
+  const fAt = schema.indexOf("  filters: {");
+  if (fAt < 0) return undefined;
+  const block = schema.slice(fAt, schema.indexOf("\n  },", fAt));
+  const starts = [...block.matchAll(/^ {4}"([^"]+)": \{/gm)];
+  const entries = starts.map((m, i) => ({
+    name: m[1]!,
+    body: block.slice(m.index!, starts[i + 1]?.index ?? block.length),
+  }));
+  if (f.kind === "deny") return entries.find((e) => e.name === "loom.deny")?.name;
+  const principal = entries.filter((e) => /requireCurrentUser\(/.test(e.body));
+  const named = f.origin === undefined ? "loom.filter" : f.origin;
+  return (
+    principal.find((e) => e.name === named) ?? (f.origin === undefined ? principal[0] : undefined)
+  )?.name;
 }
 
 function javaEntityFile(agg: AggFacts, files: ReadonlyMap<string, string>): string | undefined {

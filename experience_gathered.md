@@ -6965,3 +6965,35 @@ Verified on SQLAlchemy 2.1.6 while moving python reads onto one `do_orm_execute`
   `session.get()` answers from the identity map without SQL. Subtype restrictions
   are hosted on the TPH root guarded by `kind`, and by-id reads run
   `select(...).execution_options(populate_existing=True)`.
+
+## 137. MikroORM filters are validated against the QUERIED entity, and a native insert stamps nothing (2026-10-26)
+
+Moving the MikroORM adapter onto 7.x native single-table inheritance with
+`default: true` schema filters (#3963) removed every hand-ANDed `kind` and
+capability conjunct from the repositories — and surfaced five facts a compile
+tier cannot see (each was a 500 or a leak before it was understood):
+
+- **A filter's condition must name only properties of the entity being queried.**
+  Hosting `Car`'s `filter this.seats > 0` on the root as `kind <> 'Car' OR
+  seats > 0` is not enough: `find(TruckRow)` throws "Trying to query by not
+  existing property TruckRow.seats" even though the guard makes it vacuous for
+  Truck. A root query validates against the root's meta (which includes every
+  subclass's properties); a subclass query only against its own. The `cond` is a
+  function that receives the queried entity's class name, and a concrete's
+  guarded condition joins only for the root or that concrete.
+- **A `cond` function with parameters demands filter args** ("No arguments
+  provided for filter"): declare `args: false` when it ignores them.
+- **`em.insert` / `em.upsert` do not set the discriminator**; only a managed
+  `persist` does. The `kind` stays in the write payload (and is declared as a
+  property so the payload type-checks), never in a read.
+- **Filters apply to `nativeUpdate` / `nativeDelete` and to a `findOne` probe.**
+  A versioned save's "does the row exist" probe went blind to a soft-deleted row
+  (so it INSERTed a duplicate key) and the tenant-registry lookup that BUILDS the
+  principal tripped its own principal-reading filter. Statements scoped by id
+  pass `{ filters: false }`.
+- **A QueryBuilder is not filtered by itself**: `await qb.applyFilters({…})`. The
+  discriminator of a subclass QB, unlike the filters, is automatic.
+
+`discriminatorMap` takes classes, not names, so every class of a hierarchy is
+declared before the first schema; `EntitySchema<Sub, Root>` takes the root class
+(not its schema) in `extends`.

@@ -45,10 +45,11 @@ async function emitFor(platform: string): Promise<string> {
   );
   return (
     [...files]
-      // python hosts every read restriction in its read-scope hook; java on the entity.
+      // python hosts every read restriction in its read-scope hook, java on the
+      // entity, MikroORM on its entity schemas.
       .filter(
         ([p]) =>
-          /repositor|JpaRepository|_repository|read_scope/i.test(p) ||
+          /repositor|JpaRepository|_repository|read_scope|db\/entities\.ts$/i.test(p) ||
           /\/features\/\w+\/\w+\.java$/.test(p),
       )
       .map(([, c]) => c)

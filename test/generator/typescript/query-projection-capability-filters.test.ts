@@ -146,17 +146,16 @@ describe("node/Hono query-projection aggregations apply the source capability fi
 
   it("the MikroORM adapter merges the same filters into the QueryBuilder WHERE", async () => {
     const r = await routes("node { persistence: mikroorm }");
-    // Filtered singleton: the projection's own filter AND both capability
-    // predicates, through the shared `whereToMikroFilter` lowering.
-    expect(r).toContain(
-      'qb.where({ $and: [{ status: "Confirmed" }, ' +
-        "{ tenantId: requireCurrentUser().tenantId }, { isDeleted: false }] });",
-    );
-    // Unfiltered singleton + grouped: capabilities only.
-    expect(r).toContain(
-      "qb.where({ $and: [{ tenantId: requireCurrentUser().tenantId }, { isDeleted: false }] });",
-    );
-    // `ignoring softDeletable` — one predicate left, so no `$and` wrapper.
-    expect(r).toContain("qb.where({ tenantId: requireCurrentUser().tenantId });");
+    // Filtered singleton: only the projection's OWN filter is spelled; the
+    // source's capability filters are default filters of the Order schema,
+    // which `qb.applyFilters` applies to the QueryBuilder.
+    expect(r).toContain('qb.where({ status: "Confirmed" });');
+    expect(r).not.toContain("requireCurrentUser");
+    expect(r).not.toContain("isDeleted");
+    // Unfiltered singleton + grouped read every filter…
+    expect(r).toContain("await qb.applyFilters({});");
+    // …and `ignoring softDeletable` switches that one off by name, keeping the
+    // tenant one.
+    expect(r).toContain('await qb.applyFilters({ "softDeletable": false });');
   });
 });

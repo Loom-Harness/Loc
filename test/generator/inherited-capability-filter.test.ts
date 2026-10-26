@@ -70,12 +70,18 @@ describe.each<Layout>(["sharedTable", "ownTable"])("inherited softDeletable — 
   });
 
   it("node (mikroorm)", async () => {
-    const repo = file(
-      await gen("node { persistence: mikroorm }", layout),
-      "db/repositories/truck-repository.ts",
+    const files = await gen("node { persistence: mikroorm }", layout);
+    const entities = file(files, "db/entities.ts");
+    const repo = file(files, "db/repositories/truck-repository.ts");
+    // The base's filter is a named default filter on the schema(s) the rows are
+    // read through: the one root schema under TPH, each concrete's under TPC.
+    const declared = entities.match(
+      /"softDeletable": \{ name: "softDeletable", cond: \(\) => \(\{ isDeleted: false \}\)/g,
     );
-    expect(lineWith(repo, "em.find(", "{ id: { $in: ids")).toContain("{ isDeleted: false }");
-    expect(lineWith(repo, "{ plate: plate }")).not.toContain("isDeleted");
+    expect(declared).toHaveLength(layout === "sharedTable" ? 1 : 2);
+    // So no read carries it by hand, and the bypassing find switches it off by name.
+    expect(lineWith(repo, "em.find(", "{ id: { $in: ids")).not.toContain("isDeleted");
+    expect(lineWith(repo, "{ plate: plate }")).toContain('{ filters: { "softDeletable": false } }');
   });
 
   it("python (sqlalchemy)", async () => {

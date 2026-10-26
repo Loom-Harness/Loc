@@ -136,18 +136,24 @@ describe("direct-table projection — node (Hono/Drizzle)", () => {
 describe("direct-table projection — node (Hono/MikroORM)", () => {
   const mikro = "node { persistence: mikroorm }";
 
-  it("ANDs the capability filter into the QueryBuilder WHERE", async () => {
+  it("applies the source's schema filters to the QueryBuilder read", async () => {
     const f = await fileContaining(softDeleteSystem(mikro), "query-projections");
-    // Two direct-table reads (whole-table + grouped), each carrying the filter.
-    expect([...f.matchAll(/qb\.where\(\{ isDeleted: false \}\);/g)].length).toBe(2);
+    // Two direct-table reads (whole-table + grouped), each applying the filters
+    // the Order schema declares — a QueryBuilder is not filtered by itself.
+    expect([...f.matchAll(/await qb\.applyFilters\(\{\}\);/g)].length).toBe(2);
+    expect(f).not.toContain("isDeleted");
+    const entities = await fileContaining(softDeleteSystem(mikro), "db/entities");
+    expect(entities).toContain('"softDeletable": { name: "softDeletable"');
   });
 
   it("scopes a tenantOwned source to the caller, and honours `ignoring *`", async () => {
     const f = await fileContaining(tenancySystem(mikro), "query-projections");
-    expect(f).toContain("qb.where({ tenantId: requireCurrentUser().tenantId });");
-    expect(f).toContain(`import { requireCurrentUser } from "../auth/middleware";`);
-    // The bypassed read emits no `where` at all.
-    expect([...f.matchAll(/qb\.where\(/g)].length).toBe(1);
+    // The scoped read applies every filter; the `ignoring *` read switches the
+    // tenant one off by name.
+    expect(f).toContain("await qb.applyFilters({});");
+    expect(f).toContain('await qb.applyFilters({ "tenantOwned": false });');
+    expect(f).not.toContain("requireCurrentUser");
+    expect(f).not.toContain("qb.where(");
   });
 });
 
