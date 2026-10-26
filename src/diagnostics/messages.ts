@@ -4623,6 +4623,16 @@ export const DIAGNOSTIC_MESSAGES = {
     `context '${p.name}' integration test '${p.testName}': a repository read inside ` +
     `'expect(...)' must be let-bound first — write \`let x = <Agg>.findById(...)\` then ` +
     `assert over \`x\` (the integration renderer awaits the read at statement level).`,
+  "loom.integration-repository-call": (p: {
+    name: unknown;
+    testName: unknown;
+    repo: unknown;
+    member: unknown;
+    agg: unknown;
+  }) =>
+    `context '${p.name}' integration test '${p.testName}': \`${p.repo}.${p.member}(…)\` calls the repository by name, ` +
+    `which an integration test body does not resolve. Root persistence reads at the aggregate instead — ` +
+    `\`let x = ${p.agg}.findById(...)\` — and let a factory \`let\` be saved for you.`,
   "loom.e2e-unsupported-statement": (p: { name: unknown; badKind: unknown; magicId: unknown }) =>
     `e2e test '${p.name}': '${p.badKind}' is not supported in an e2e test body. ` +
     `Only expect, expect-throws, let, expression, and ${p.magicId}.<...> calls are allowed.`,
