@@ -309,6 +309,14 @@ export const BEHAVIOURAL_XFAIL = {
     }),
   },
   elixir: {
+    // A value object nested inside another is cast as `:map`, so the nested
+    // VO's invariant never runs and the bad create commits.
+    "vo-root-kernel": {
+      issue: "#4017",
+      expect: "fail",
+      tests: { "a shared-kernel value object round-trips": "expected the call to reject, but it resolved" },
+      reason: "the root VO's invariant is not enforced where it is nested in a context-local VO (`route.origin`)",
+    },
     // The document-shape create demands the defaulted capability field, so
     // no `Note` can be written: the block and every document ladder seed 422.
     "find-bypass": {
