@@ -682,7 +682,6 @@ function inlineRunBypassesByRetrieval(
   };
   for (const wf of ctx.workflows) {
     for (const c of wf.creates) collect(c.statements);
-    for (const h of wf.handlers ?? []) collect(h.statements);
     for (const on of wf.subscriptions ?? []) collect(on.statements);
   }
   const out = new Map<string, FilterBypass>();

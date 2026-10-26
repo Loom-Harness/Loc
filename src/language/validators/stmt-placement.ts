@@ -56,7 +56,6 @@ import {
   isDomainServiceOperation,
   isForStmt,
   isFunctionDecl,
-  isHandleDecl,
   isIfLetStmt,
   isMatchStmt,
   isOnDecl,
@@ -75,7 +74,7 @@ import {
  *  `frontend` — a page / component / store action body (or a lambda block
  *  inside one): lowered by `lowerUiAction` and rendered by the six walker
  *  targets.
- *  `workflow` — a workflow `create` / `handle` / `on` body, or a top-level
+ *  `workflow` — a workflow `create` / `on` body, or a top-level
  *  `commandHandler` / `queryHandler`: lowered by `lowerWorkflowStatement`.
  *  `domain` — an aggregate / value-object member, a domain-service operation
  *  or a projection fold: lowered by `lowerStatement`.
@@ -90,13 +89,7 @@ export type Zone = "frontend" | "workflow" | "domain" | "unknown";
 export function zoneOf(node: AstNode): Zone {
   for (let c: AstNode | undefined = node.$container; c; c = c.$container) {
     if (isActionDecl(c) || isPage(c) || isComponent(c) || isStore(c) || isUi(c)) return "frontend";
-    if (
-      isWorkflowCreateDecl(c) ||
-      isHandleDecl(c) ||
-      isOnDecl(c) ||
-      isCommandHandler(c) ||
-      isQueryHandler(c)
-    ) {
+    if (isWorkflowCreateDecl(c) || isOnDecl(c) || isCommandHandler(c) || isQueryHandler(c)) {
       return "workflow";
     }
     if (
@@ -128,7 +121,7 @@ export function describeOwner(node: AstNode): string {
     if (isProjectionOn(c)) return "a projection 'on' fold";
     if (isCommandHandler(c)) return `commandHandler '${c.name}'`;
     if (isQueryHandler(c)) return `queryHandler '${c.name}'`;
-    if (isWorkflowCreateDecl(c) || isHandleDecl(c) || isOnDecl(c)) return "a workflow body";
+    if (isWorkflowCreateDecl(c) || isOnDecl(c)) return "a workflow body";
     if (isPage(c)) return `page '${c.name}'`;
     if (isComponent(c)) return `component '${c.name}'`;
     if (isStore(c)) return `store '${c.name}'`;

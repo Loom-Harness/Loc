@@ -103,17 +103,19 @@ describe("capability filter principal terms render on every backend", () => {
     expect(repo).toMatch(/WHERE id = @id AND \(\(@__pt_[0-9a-f]{8} OR @__pt_[0-9a-f]{8}\) OR/);
   });
 
-  it("java: a SpEL boolean in @Query and a Java-decided Criteria predicate", async () => {
-    const jpa = await emitted("java", /TicketJpaRepository\.java$/);
-    expect(jpa).toContain(
-      ":#{@currentUserAccessor.user() != null and (@currentUserAccessor.user().role() == 'agent')} = true",
+  it("java: a Java-decided Boolean @ParamDef in the entity @Filter", async () => {
+    const entity = await emitted("java", /features\/tickets\/Ticket\.java$/);
+    expect(entity).toMatch(/:__pt[0-9a-f]{8} = true/);
+    expect(entity).toMatch(/@ParamDef\(name = "__pt[0-9a-f]{8}", type = Boolean\.class/);
+    expect(entity).toContain(
+      'return (__cu != null && java.util.Objects.equals(__cu.role(), "agent"));',
     );
-    expect(jpa).toContain(
-      ":#{@currentUserAccessor.user() != null and (@currentUserAccessor.user().tier() == T(com.loom.api.domain.enums.Tier).Gold)} = true",
+    expect(entity).toContain(
+      "return (__cu != null && java.util.Objects.equals(__cu.tier(), com.loom.api.domain.enums.Tier.Gold));",
     );
-    const criteria = await emitted("java", /TicketCriteria\.java$/);
-    expect(criteria).toContain(
-      '((currentUser != null && java.util.Objects.equals(currentUser.role(), "agent")) ? cb.conjunction() : cb.disjunction())',
+    // No query re-decides it.
+    expect(await emitted("java", /TicketJpaRepository\.java$/)).not.toContain(
+      "currentUserAccessor",
     );
   });
 

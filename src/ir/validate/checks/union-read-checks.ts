@@ -111,8 +111,6 @@ export function validateUnionReads(loom: EnrichedLoomModel, diags: LoomDiagnosti
         lists.push({ source: `${s}/create(${c.name ?? ""})`, stmts: c.statements });
       for (const o of w.subscriptions ?? [])
         lists.push({ source: `${s}/on(${o.event})`, stmts: o.statements });
-      for (const h of w.handlers ?? [])
-        lists.push({ source: `${s}/${h.name}`, stmts: h.statements });
     }
     for (const h of ctx.commandHandlers ?? []) {
       lists.push({ source: `${ctx.name}/${h.name}`, stmts: h.statements });

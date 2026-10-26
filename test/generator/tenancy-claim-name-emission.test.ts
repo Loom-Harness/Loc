@@ -120,10 +120,11 @@ describe("tenancy claim name — emitted principal reads follow the declaration"
     expect(ctx).not.toContain("_currentUser.User.TenantId");
   });
 
-  it("java: the JPQL principal accessor reads the DECLARED claim", async () => {
-    const repo = await emitted("java", /InvoiceJpaRepository\.java$/);
-    expect(repo).toContain("e.tenantId = :#{@currentUserAccessor.user()?.orgId()}");
-    expect(repo).not.toContain("user()?.tenantId()");
+  it("java: the tenant filter's parameter resolver reads the DECLARED claim", async () => {
+    const entity = await emitted("java", /features\/invoices\/Invoice\.java$/);
+    expect(entity).toContain("tenant_id = :__cuOrgId");
+    expect(entity).toContain("return __cu == null ? null : __cu.orgId();");
+    expect(entity).not.toContain("__cu.tenantId()");
   });
 
   it("elixir: the Ecto filter reads the DECLARED claim", async () => {
@@ -178,7 +179,7 @@ describe("tenancy claim name — emitted principal reads follow the declaration"
         "requireCurrentUser().orgId",
       ],
       ["python", /app\/db\/read_scope\.py$/, "user.org_path", "user.org_id"],
-      ["java", /InvoiceJpaRepository\.java$/, "user()?.orgPath()", "user()?.orgId()"],
+      ["java", /features\/invoices\/Invoice\.java$/, "__cu.orgPath()", "__cu.orgId()"],
       ["dotnet", /AppDbContext\.cs$/, "_currentUser.User.OrgPath", "_currentUser.User.OrgId"],
     ];
     for (const [platform, file, anchor, tenant] of cases) {

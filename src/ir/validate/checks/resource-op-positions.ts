@@ -47,7 +47,7 @@ export type ResourceOpSitePolicy =
   | { readonly verdict: "refused"; readonly what: string }
   | {
       readonly verdict: "owned";
-      readonly code: "loom.projection-fold-impure" | "loom.workflow-handle-unsupported";
+      readonly code: "loom.projection-fold-impure";
     };
 
 const refused = (what: string): ResourceOpSitePolicy => ({ verdict: "refused", what });
@@ -68,8 +68,6 @@ export const RESOURCE_OP_SITES: Readonly<Record<string, ResourceOpSitePolicy>> =
   // --- owned by another check ---------------------------------------------
   // A fold must be a pure, replayable function of the event.
   "ProjectionOnIR.statements": { verdict: "owned", code: "loom.projection-fold-impure" },
-  // A named `handle` is emitted by no backend at all; the whole body is refused.
-  "HandleIR.statements": { verdict: "owned", code: "loom.workflow-handle-unsupported" },
   // --- refused: no resource client in scope -------------------------------
   "OperationIR.statements": refused("an aggregate operation / lifecycle body"),
   "OperationIR.when": refused("an operation `when` guard"),

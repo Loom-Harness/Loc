@@ -1274,7 +1274,7 @@ describe("validation", () => {
 
     it("accepts an event name as a workflow create parameter type", async () => {
       // Transport types (`event` / payload) are offered in scope only in a
-      // workflow `create`/`handle` parameter, so `create(e: PaymentReceived)`
+      // workflow `create` parameter, so `create(e: PaymentReceived)`
       // resolves where a bare event name elsewhere would not.
       const { errors } = await parse(`
         context T {
@@ -1289,14 +1289,14 @@ describe("validation", () => {
       expect(errors, errors.join("\n")).toEqual([]);
     });
 
-    it("accepts a payload (command) name as a workflow handle parameter type", async () => {
+    it("accepts a payload (command) name as a workflow create parameter type", async () => {
       const { errors } = await parse(`
         context T {
           aggregate Order { total: int }
           repository Orders for Order { }
           command SettleOrder { order: Order id, note: string }
           workflow Fulfillment {
-            handle settle(c: SettleOrder) { let n = c.note }
+            create(c: SettleOrder) { let n = c.note }
           }
         }
       `);

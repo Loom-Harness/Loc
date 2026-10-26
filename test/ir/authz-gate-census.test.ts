@@ -316,7 +316,7 @@ const workflowInstanceRoutes = (wf: WorkflowIR): { method: string; path: string 
 
 /** A workflow's client-reachable command entries — the same set
  *  `validateDefaultDeny`'s `workflowCommandEntries` walks (command-triggered
- *  creates + named `handle` continuations; event-triggered creates and `on(...)`
+ *  creates; event-triggered creates and `on(...)`
  *  reactors are never a client POST). */
 function workflowCommandGated(wf: WorkflowIR): boolean {
   const gated = (statements: { kind: string }[]): boolean =>
@@ -324,7 +324,6 @@ function workflowCommandGated(wf: WorkflowIR): boolean {
   for (const cr of wf.creates) {
     if (cr.triggerKind === "command" && gated(cr.statements)) return true;
   }
-  for (const h of wf.handlers ?? []) if (gated(h.statements)) return true;
   return false;
 }
 
@@ -423,7 +422,7 @@ function surfacesOf(model: LoomModel): Surfaces {
         const handler =
           (ctx.commandHandlers ?? []).find((h) => h.name === route.target.handler) ??
           (ctx.queryHandlers ?? []).find((h) => h.name === route.target.handler);
-        if (!handler) continue; // a workflow `handle` target — counted above
+        if (!handler) continue; // no handler of that name
         const gates: GateKind[] = handler.statements.some((s) => s.kind === "requires")
           ? ["requires"]
           : [];

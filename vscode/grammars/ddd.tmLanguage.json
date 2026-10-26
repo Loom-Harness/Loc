@@ -77,7 +77,7 @@
     },
     "member-keywords": {
       "name": "keyword.other.member.ddd",
-      "match": "\\b(derived|invariant|find|contains|create|destroy|apply|onCreate|onUpdate|handle|filter|stamp|implements|retrieval|precondition|requires|import)\\b"
+      "match": "\\b(derived|invariant|find|contains|create|destroy|apply|onCreate|onUpdate|filter|stamp|implements|retrieval|precondition|requires|import)\\b"
     },
     "control-keywords": {
       "name": "keyword.control.ddd",
