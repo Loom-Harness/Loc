@@ -97,6 +97,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.matcher-arity": "18-testing.md#matchers--the-expectactualmatcher-vocabulary",
   "loom.expect-requires-matcher": "18-testing.md#matchers--the-expectactualmatcher-vocabulary",
   "loom.matcher-e2e-only": "18-testing.md#matchers--the-expectactualmatcher-vocabulary",
+  "loom.integration-repository-call": "18-testing.md#context-integration-tests",
   "loom.tothrow-arity": "18-testing.md#tothrow--the-throw-assertion",
   "loom.tothrow-status-not-int": "18-testing.md#tothrow--the-throw-assertion",
   "loom.matches-arity": "05-expressions.md#scalar-intrinsics",
