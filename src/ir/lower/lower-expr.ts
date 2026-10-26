@@ -967,7 +967,9 @@ function applySuffixToRecv(
             resultType: bool,
           };
         }
-        return { recv: orExpr, recvType: bool };
+        // Parenthesised so a surrounding `&&` / comparison binds the whole
+        // closure, not just its last disjunct.
+        return { recv: { kind: "paren", inner: orExpr }, recvType: bool };
       }
     }
     // `<vo>.equals(other)` — VALUE equality, the value-object intrinsic
