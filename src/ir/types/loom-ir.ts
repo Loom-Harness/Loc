@@ -4381,7 +4381,8 @@ export function workflowCanAnswerNotFound(
     // body or an `if-let` branch counts; a hand-rolled recursion here is the
     // drifting copy `ir/util/walk.ts` exists to prevent.
     walkWorkflowStmtsDeep(top, (s) => {
-      if ((s.kind === "repo-let" && s.returnType.kind !== "optional") || s.kind === "not-found") canNotFound = true;
+      if ((s.kind === "repo-let" && s.returnType.kind !== "optional") || s.kind === "not-found")
+        canNotFound = true;
     });
     // Producer 2 — the expression form (a `reading` domain service's own
     // repository read).  `walkWorkflowStmtExprsDeep` already descends through
