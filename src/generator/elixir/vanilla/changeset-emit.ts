@@ -508,7 +508,54 @@ ${keyAliasPairs.join(",\n")}
       return `    |> validate_vo(:${snake(f.name)}, &${voMod}.new/1)`;
     })
     .filter((l): l is string => l !== null);
-  const voBlock = voFieldLines.length > 0 ? `\n${voFieldLines.join("\n")}` : "";
+  // A single value object is one jsonb `:map` column cast verbatim, so without
+  // this the REQUEST map was stored as sent: an undeclared key persisted, and a
+  // missing required one reached the aggregate invariants as nil (a 500).
+  // `__shape_vo/4` keeps the declared keys and refuses an absent required one
+  // at `/<field>/<key>`; it runs before the VO's constructor and the invariants.
+  const voShapeLines = allFields
+    .map((f) => {
+      const t = f.type.kind === "optional" ? f.type.inner : f.type;
+      if (t?.kind !== "valueobject") return null;
+      const vo = vosByName.get(t.name);
+      if (!vo) return null;
+      const keys = vo.fields.map((vf) => `:${snake(vf.name)}`);
+      const required = vo.fields
+        .filter((vf) => vf.type.kind !== "optional")
+        .map((vf) => `:${snake(vf.name)}`);
+      return `    |> __shape_vo(:${snake(f.name)}, [${keys.join(", ")}], [${required.join(", ")}])`;
+    })
+    .filter((l): l is string => l !== null);
+  const voBlock =
+    voShapeLines.length + voFieldLines.length > 0
+      ? `\n${[...voShapeLines, ...voFieldLines].join("\n")}`
+      : "";
+  const voShapeHelper =
+    voShapeLines.length > 0
+      ? `
+
+  # A value object persists as one jsonb \`:map\` column, cast verbatim, so the
+  # request map would be stored as sent.  Keep only its declared keys (an
+  # undeclared key is dropped, as the other backends' typed request bodies drop
+  # it) and refuse an absent required one at \`/<field>/<key>\` — before the VO's
+  # constructor and the aggregate invariants read it.
+  defp __shape_vo(changeset, field, keys, required) do
+    case fetch_change(changeset, field) do
+      {:ok, value} when is_map(value) and not is_struct(value) ->
+        names = Enum.map(keys, &Atom.to_string/1)
+        shaped = Map.filter(value, fn {k, _} -> to_string(k) in names end)
+
+        Enum.reduce(required, put_change(changeset, field, shaped), fn key, cs ->
+          if is_nil(Map.get(shaped, Atom.to_string(key), Map.get(shaped, key))),
+            do: add_error(cs, field, "can't be blank", validation: :required, loom_path: [key]),
+            else: cs
+        end)
+
+      _ ->
+        changeset
+    end
+  end`
+      : "";
   // A single VALUE OBJECT is a `field :<name>, :map` jsonb column — cast
   // verbatim, with no nested changeset to recurse through — so neither
   // `__normalize_keys/1` (top level only) nor `cast_assoc`/`cast_embed` reaches
@@ -876,7 +923,7 @@ defmodule ${changesetMod} do
     ${voKeyNormalizeLine}${valueCollections.length > 0 ? "attrs = prepare_vc_attrs(attrs)\n\n    " : ""}struct
     |> ${castLines("@all_fields", "@string_fields")}${createIngressLine}${defaultBlock}
     |> ${requireLines("@required_fields", "@required_strings")}${validatorBlock}${castEmbedBlock}${castAssocBlock}${voBlock}${uniqueBlock}${fkBlock}${invBlock}
-  end${updateChangesetBlock}${invariantFnBlock}${keyNormalizeHelper}${presenceHelper}${hasStrings ? renderRequirePresentHelper() : ""}${ingressHelper}${clearAbsentHelper}${defaultHelper}${moneyRangeHelper}${voHelper}${bodyVoHelper}${normalizeHelper}${ordinalHelper}
+  end${updateChangesetBlock}${invariantFnBlock}${keyNormalizeHelper}${presenceHelper}${hasStrings ? renderRequirePresentHelper() : ""}${ingressHelper}${clearAbsentHelper}${defaultHelper}${moneyRangeHelper}${voShapeHelper}${voHelper}${bodyVoHelper}${normalizeHelper}${ordinalHelper}
 
 ${actionHelpers}
 end

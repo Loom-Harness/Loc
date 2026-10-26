@@ -122,3 +122,22 @@ describe("loom.unknown-member — undefined field access", () => {
     expect(unknownMember(e), e.join("\n")).toHaveLength(0);
   });
 });
+
+describe("loom.unknown-member — qualified enum value", () => {
+  it("flags `Status.live` when the enum declares no `live`", async () => {
+    const e = await errs(`enum Status { draft, published }
+      aggregate Doc { status: Status
+        derived isLive: bool = status == Status.live
+        operation publish() { status := Status.live } }`);
+    expect(unknownMember(e), e.join("\n")).toHaveLength(2);
+    expect(e.join("\n")).toMatch(/'live' is not a member of 'Status'/);
+  });
+
+  it("accepts a declared enum value", async () => {
+    const e = await errs(`enum Status { draft, published }
+      aggregate Doc { status: Status
+        derived isLive: bool = status == Status.published
+        operation publish() { status := Status.published } }`);
+    expect(unknownMember(e), e.join("\n")).toHaveLength(0);
+  });
+});

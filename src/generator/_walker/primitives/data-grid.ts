@@ -33,13 +33,13 @@
 //
 // Unlike the `Table` sort/filter/pager seams, a missing seam here is NOT a
 // graceful degradation — a grid that renders nothing is a blank page region.
-// `loom.datagrid-unsupported-target` rejects `DataGrid` on any framework
+// `loom.target-unsupported#datagrid` rejects `DataGrid` on any framework
 // without the seam at IR-validate, so the sentinel below is unreachable from
 // valid input.
 
 import type { ExprIR } from "../../../ir/types/loom-ir.js";
 import { upperFirst } from "../../../util/naming.js";
-
+import { giveUp } from "../give-up.js";
 import {
   localizedChromeAriaAttr,
   localizedChromeAttr,
@@ -276,9 +276,16 @@ export function emitDataGrid(
     },
     ctx,
   );
-  // Unreachable from valid input — `loom.datagrid-unsupported-target` rejects a
-  // DataGrid on any framework without the seam.  Kept so the walker is total.
-  if (!child) return `{/* DataGrid: not supported on ${ctx.target.framework} */}`;
+  // Unreachable from valid input — `loom.target-unsupported#datagrid` rejects a
+  // DataGrid on any framework without the seam.  Kept so the walker is total,
+  // as a give-up so the output scan names it if the validator ever misses one.
+  if (!child) {
+    return giveUp(
+      ctx.target,
+      "loom.target-unsupported#datagrid",
+      `DataGrid: not supported on ${ctx.target.framework}`,
+    );
+  }
 
   if (child.moduleDecl !== undefined) {
     ctx.hoistedModuleDecls ??= [];

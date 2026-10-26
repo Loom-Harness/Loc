@@ -111,3 +111,16 @@ export function listShapedProjectionNames(
   }
   return names;
 }
+
+/** Names of every frontend-readable projection whose response is ONE object
+ *  (`projectionReadShape === "one"`: the whole-table aggregation).  A
+ *  `QueryView` over one binds a single record, never a row set. */
+export function recordProjectionNames(contexts: Iterable<BoundedContextIR>): ReadonlySet<string> {
+  const names = new Set<string>();
+  for (const ctx of contexts) {
+    for (const p of ctx.projections ?? []) {
+      if (isFrontendReadableProjection(p) && projectionReadShape(p) === "one") names.add(p.name);
+    }
+  }
+  return names;
+}

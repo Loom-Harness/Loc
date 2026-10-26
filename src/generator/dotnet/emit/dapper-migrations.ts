@@ -11,7 +11,12 @@ import type {
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
-import { collapseVoGroups, collapseVoSteps } from "../../_persistence/vo-json-columns.js";
+import {
+  collapseVoGroups,
+  collapseVoSteps,
+  voJsonKey,
+  voKeyRenameSteps,
+} from "../../_persistence/vo-json-columns.js";
 import { renderPgStep, splitPgStatements } from "../../sql-pg.js";
 
 // ---------------------------------------------------------------------------
@@ -37,6 +42,8 @@ import { renderPgStep, splitPgStatements } from "../../sql-pg.js";
 //   - a value-object field   → one `jsonb` column named for the field;
 //   - a scalar / enum list   → `jsonb` instead of `<type>[]`;
 //   - a value-object list    → `jsonb` on the parent instead of a child table;
+//   - a renamed value-object field → its key moved inside the jsonb (in the
+//     one object, or in every list element) instead of a column rename;
 //   - a value-object null-consistency CHECK → dropped (the column is the
 //     whole value object, so it cannot be half-null).
 //
@@ -144,7 +151,7 @@ export function dapperMigrationSteps(m: MigrationsIR): MigrationStep[] {
   const sch = (schema: string | undefined) => (schema !== undefined ? { schema } : {});
 
   const out: MigrationStep[] = [];
-  for (const step of collapseVoSteps(m)) {
+  for (const step of collapseVoSteps(m, "pascal")) {
     switch (step.op) {
       case "createTable": {
         const child = childOf(step.table.schema, step.table.name);
@@ -227,8 +234,30 @@ export function dapperMigrationSteps(m: MigrationsIR): MigrationStep[] {
         out.push(step);
         break;
       }
+      case "renameColumn": {
+        const child = childOf(step.schema, step.table);
+        if (!child) {
+          out.push(step);
+          break;
+        }
+        // A value-object list element's field was renamed: the elements live
+        // in the parent's jsonb array, so the key moves in every element.  The
+        // child's own key columns (parent FK, ordinal) are not element fields.
+        const keyCols = tableIn(m.baseline, step.schema, step.table)?.primaryKey ?? [];
+        if (keyCols.includes(step.from)) break;
+        out.push(
+          ...voKeyRenameSteps({
+            table: child.parentTable,
+            schema: child.schema,
+            column: child.column,
+            from: voJsonKey(step.from, "pascal"),
+            to: voJsonKey(step.to, "pascal"),
+            list: true,
+          }),
+        );
+        break;
+      }
       case "dropColumn":
-      case "renameColumn":
       case "alterColumnNullable":
       case "backfillColumn":
         if (!childOf(step.schema, step.table)) out.push(step);
@@ -310,31 +339,8 @@ export function dapperMigrationSlug(m: MigrationsIR): string {
 /** C# verbatim literal body (`@"…"`): only `"` needs escaping (doubled). */
 const verbatim = (s: string): string => s.replace(/"/g, '""');
 
-/** One migration class.  `createsTables` is set on a module's Initial only —
- *  the tables a database created by the pre-migration `DbSchema` bootstrap
- *  already holds, which the runner's legacy baseline checks for. */
-export function renderDapperMigrationClass(
-  ns: string,
-  id: string,
-  statements: readonly string[],
-  createsTables: readonly { schema: string | undefined; table: string }[] = [],
-): string {
-  const tables =
-    createsTables.length === 0
-      ? []
-      : [
-          "",
-          "    // The tables this Initial creates — what a database provisioned by the",
-          "    // pre-migration DbSchema bootstrap already holds (see DbSchema's baseline).",
-          "    public override global::System.Collections.Generic.IReadOnlyList<(string? Schema, string Table)> CreatesTables { get; } =",
-          "        new (string?, string)[]",
-          "        {",
-          ...createsTables.map(
-            (t) =>
-              `            (${t.schema === undefined ? "null" : JSON.stringify(t.schema)}, ${JSON.stringify(t.table)}),`,
-          ),
-          "        };",
-        ];
+/** One migration class: its history id and its single SQL statements. */
+function renderDapperMigrationClass(ns: string, id: string, statements: readonly string[]): string {
   return (
     lines(
       "// Auto-generated.  A versioned Dapper migration (persistence: dapper): the",
@@ -351,7 +357,6 @@ export function renderDapperMigrationClass(
       "        {",
       ...statements.map((s) => `            @"${verbatim(s)}",`),
       "        };",
-      ...tables,
       "}",
     ) + "\n"
   );
@@ -369,17 +374,8 @@ export function emitDapperMigrations(
   for (const m of migrations) {
     if (m.steps.length === 0) continue;
     const steps = dapperMigrationSteps(m);
-    const creates =
-      m.baseline === null
-        ? steps.flatMap((s) =>
-            s.op === "createTable" ? [{ schema: s.table.schema, table: s.table.name }] : [],
-          )
-        : [];
     const id = dapperMigrationSlug(m);
-    out.set(
-      `Migrations/${id}.cs`,
-      renderDapperMigrationClass(ns, id, dapperStatements(steps), creates),
-    );
+    out.set(`Migrations/${id}.cs`, renderDapperMigrationClass(ns, id, dapperStatements(steps)));
   }
 }
 
@@ -430,10 +426,6 @@ export function renderDapperMigrationRunner(ns: string): string {
       "",
       "    /// <summary>Single SQL statements, run in order inside one transaction.</summary>",
       "    public abstract IReadOnlyList<string> Statements { get; }",
-      "",
-      "    /// <summary>Set on a module's Initial only: the tables it creates.</summary>",
-      "    public virtual IReadOnlyList<(string? Schema, string Table)> CreatesTables { get; } =",
-      "        Array.Empty<(string?, string)>();",
       "}",
       "",
       "public static class DbSchema",
@@ -458,25 +450,12 @@ export function renderDapperMigrationRunner(ns: string): string {
       '        await conn.ExecuteAsync(new CommandDefinition("SELECT pg_advisory_lock(@k)", new { k = LockKey }, cancellationToken: cancellationToken));',
       "        try",
       "        {",
-      "            var hasHistory = await conn.ExecuteScalarAsync<bool>(new CommandDefinition(",
-      "                \"SELECT to_regclass('public.__loom_migrations') IS NOT NULL\", cancellationToken: cancellationToken));",
-      "            if (!hasHistory)",
-      "            {",
-      "                // First migration-aware boot of this database: create the history",
-      "                // table and, if the database was provisioned by the pre-migration",
-      "                // bootstrap, baseline it — in one transaction, so a failed baseline",
-      "                // leaves no history table and the next boot tries again.",
-      "                await using var baselineTx = await conn.BeginTransactionAsync(cancellationToken);",
-      "                await conn.ExecuteAsync(new CommandDefinition(HistoryDdl, transaction: baselineTx, cancellationToken: cancellationToken));",
-      "                await BaselineLegacyAsync(conn, baselineTx, migrations, _log, cancellationToken);",
-      "                await baselineTx.CommitAsync(cancellationToken);",
-      "            }",
+      "            await conn.ExecuteAsync(new CommandDefinition(HistoryDdl, cancellationToken: cancellationToken));",
       "            var applied = (await conn.QueryAsync<string>(new CommandDefinition(",
       '                "SELECT tag FROM public.__loom_migrations", cancellationToken: cancellationToken)))',
       "                .ToHashSet(StringComparer.Ordinal);",
       "            // An applied SET, not a watermark: a migration whose id sorts below one",
-      "            // already applied (a later module block, the year-2999 provenance",
-      "            // migration) still runs.",
+      "            // already applied (one this build no longer ships, say) still runs.",
       "            var pending = migrations.Where(m => !applied.Contains(m.Id)).ToList();",
       log(
         renderDotnetLogCall("migrationsStarting", [{ name: "count", valueExpr: "pending.Count" }]),
@@ -515,56 +494,6 @@ export function renderDapperMigrationRunner(ns: string): string {
       "        finally",
       "        {",
       '            await conn.ExecuteAsync(new CommandDefinition("SELECT pg_advisory_unlock(@k)", new { k = LockKey }, cancellationToken: CancellationToken.None));',
-      "        }",
-      "    }",
-      "",
-      "    /// <summary>",
-      "    /// Baseline a database the pre-migration bootstrap provisioned.  That bootstrap",
-      "    /// ran `CREATE TABLE IF NOT EXISTS` for the model of the first deploy, in the",
-      "    /// UNQUALIFIED (`public`) schema, and kept no history — which is exactly what",
-      "    /// a module's Initial migration creates, one schema over.  So for each Initial:",
-      "    /// every table present (in its own schema, or still in `public`) → the tables",
-      "    /// are moved into their schema and the Initial is recorded as applied without",
-      "    /// running; every table absent → a module the old bootstrap never saw, left",
-      "    /// pending; some of each → refuse, rather than guess.  Later migrations then",
-      "    /// apply normally, which is what brings the old database up to the model.",
-      "    /// </summary>",
-      "    private static async Task BaselineLegacyAsync(NpgsqlConnection conn, NpgsqlTransaction tx, IReadOnlyList<LoomMigration> migrations, ILogger _log, CancellationToken cancellationToken)",
-      "    {",
-      "        async Task<bool> Exists(string schema, string table) =>",
-      "            await conn.ExecuteScalarAsync<bool>(new CommandDefinition(",
-      "                \"SELECT to_regclass(format('%I.%I', @schema, @table)) IS NOT NULL\",",
-      "                new { schema, table }, tx, cancellationToken: cancellationToken));",
-      "        foreach (var initial in migrations.Where(m => m.CreatesTables.Count > 0))",
-      "        {",
-      "            var present = new List<(string? Schema, string Table, bool InPublic)>();",
-      "            var missing = new List<string>();",
-      "            foreach (var (schema, table) in initial.CreatesTables)",
-      "            {",
-      '                var home = schema ?? "public";',
-      "                if (await Exists(home, table)) present.Add((schema, table, false));",
-      '                else if (home != "public" && await Exists("public", table)) present.Add((schema, table, true));',
-      '                else missing.Add($"{home}.{table}");',
-      "            }",
-      "            if (present.Count == 0) continue;",
-      "            if (missing.Count > 0)",
-      "            {",
-      "                throw new InvalidOperationException(",
-      '                    $"Cannot baseline migration {initial.Id}: the database holds some of the tables it creates but not " +',
-      '                    $"{string.Join(", ", missing)}. It was not provisioned by this model\'s earlier DbSchema bootstrap; " +',
-      '                    "reconcile it by hand, or point the deployable at an empty database.");',
-      "            }",
-      "            foreach (var (schema, table, inPublic) in present)",
-      "            {",
-      "                if (!inPublic) continue;",
-      "                await conn.ExecuteAsync(new CommandDefinition(",
-      '                    $"CREATE SCHEMA IF NOT EXISTS \\"{schema}\\"", transaction: tx, cancellationToken: cancellationToken));',
-      "                await conn.ExecuteAsync(new CommandDefinition(",
-      '                    $"ALTER TABLE public.\\"{table}\\" SET SCHEMA \\"{schema}\\"", transaction: tx, cancellationToken: cancellationToken));',
-      "            }",
-      "            await conn.ExecuteAsync(new CommandDefinition(",
-      '                "INSERT INTO public.__loom_migrations (tag) VALUES (@tag)", new { tag = initial.Id }, tx, cancellationToken: cancellationToken));',
-      '            _log.LogInformation("Baselined {Id} on a database the DbSchema bootstrap provisioned ({Moved} table(s) moved out of public)", initial.Id, present.Count(p => p.InPublic));',
       "        }",
       "    }",
       "}",

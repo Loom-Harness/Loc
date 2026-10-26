@@ -105,6 +105,12 @@ export interface ColumnShape {
    *  `addColumnDefault`: no renderer reads it, the diff never compares it, and
    *  `canonicalSnapshot` strips it. */
   capability?: string;
+  /** Set on a co-located provenance lineage column (`total_provenance`): names
+   *  the `provenanced` field it backs.  Its one consumer is the add-column
+   *  diff, which renders the add as `ADD COLUMN IF NOT EXISTS` (see that
+   *  step's `ifNotExists`).  Derivation-only like `capability`: no renderer
+   *  reads it, the diff never compares it, and `canonicalSnapshot` strips it. */
+  lineageOf?: string;
 }
 
 export interface FKShape {
@@ -282,14 +288,14 @@ export type MigrationStep =
       schema?: string;
       column: ColumnShape;
       fk?: FKShape;
-      /** Render `ADD COLUMN IF NOT EXISTS`.  Set only by the LATE provenance
-       *  migration, which is re-derived from scratch on every generation rather
-       *  than diffed, so it can legitimately be re-applied against a database
-       *  that already carries some of its columns (see
-       *  `emitTypescriptProvenanceMigration`).  The diffed `MigrationsIR` steps
-       *  never set it — there a column that already exists is a derive bug, and
-       *  silently tolerating it would hide exactly the drift the
-       *  migrate-vs-create equivalence check exists to catch. */
+      /** Render `ADD COLUMN IF NOT EXISTS`.  Set only for a provenance lineage
+       *  column (`ColumnShape.lineageOf`).  Every backend once added those
+       *  columns in a hand-emitted late migration outside the chain, so a
+       *  database deployed then already holds them, and the generation that
+       *  first records them has to apply there as well.  No other step sets
+       *  it: for any other column, one that already exists is a derive bug,
+       *  and tolerating it would hide exactly the drift the migrate-vs-create
+       *  equivalence check exists to catch. */
       ifNotExists?: boolean;
     }
   | { op: "dropColumn"; table: string; schema?: string; name: string }

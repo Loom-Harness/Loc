@@ -603,7 +603,7 @@ describe("(e) audit-names — AUDIT_HISTORY_FIND has exactly one spelling", () =
     // page calling an endpoint that is not emitted.
     const consumers = [
       "src/macros/stdlib/scaffold/_body-builders.ts",
-      "src/generator/_walker/history-read.ts",
+      "src/ir/util/entity-history-read.ts",
       "src/generator/_frontend/api-module.ts",
       "src/generator/feliz/wire.ts",
       "src/generator/feliz/feliz-target.ts",

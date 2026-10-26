@@ -1,7 +1,7 @@
 // `DataGrid` presence in a page body — one predicate, two consumers.
 //
 // The IR validator gates `DataGrid` on frontends without a
-// `renderDataGridChild` seam (`loom.datagrid-unsupported-target`), and the
+// `renderDataGridChild` seam (`loom.target-unsupported#datagrid`), and the
 // Feliz emitter needs the same answer BEFORE walking a body, to decide whether
 // the emitted `package.json` carries `@tanstack/table-core`.  Two copies of a
 // "does this page use a grid" scan is one too many, so it lives here — in
@@ -26,7 +26,7 @@ export function bodyUsesDataGrid(body: ExprIR | undefined): boolean {
  *  unrenderable on a target without the seam as a grid written inline; a
  *  page-only scan let it through silently (flutter emitted
  *  `SizedBox.shrink()`, heex an unsupported-primitive comment).  Same body
- *  coverage as `validateChartSupport` / `validateUiProjectionReadFramework`. */
+ *  coverage as the `Chart` row / `validateUiProjectionReadFramework`. */
 export function dataGridHosts(ui: UiIR): string[] {
   return [
     ...ui.pages.filter((p) => bodyUsesDataGrid(p.body)).map((p) => `page '${p.name}'`),

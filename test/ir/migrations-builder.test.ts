@@ -2400,6 +2400,116 @@ system Fleet {
     expect(created).toEqual(["customers", "sponsors"]);
     expect(out.steps.some((s) => s.op === "dropTable")).toBe(false);
   });
+
+  // A relational aggregate keeps its parts and value collections in child
+  // tables; `shape: document` folds them into the root's `data` column, so the
+  // next schema has no child tables at all.  The children's rows are the
+  // aggregate's data as much as the root's, so they are backed up beside it.
+  const WITH_CHILDREN = (shape: string, extra = "") => `
+system Shop {
+  subdomain Sales {
+    context Orders {
+      valueobject Line { sku: string  qty: int }
+      aggregate Cart shape: ${shape} {
+        owner: string
+        lines: Line[]
+        contains items: Item[]
+        entity Item { name: string }
+      }
+      repository Carts for Cart { }
+      ${extra}
+    }
+  }
+  deployable api { platform: node, contexts: [Orders], port: 3000 }
+}`;
+  const ORDER = "aggregate Order { cart: Cart id }\n      repository Orders for Order { }";
+
+  it("backs up the owned child tables too (parts + value collections) — none is dropped", async () => {
+    const baseline = schemaFromModule(
+      (await buildLoomModel(WITH_CHILDREN("relational"))).systems[0]!.subdomains[0]!,
+    );
+    const sys = (await buildLoomModel(WITH_CHILDREN("document"))).systems[0]!;
+    const out = buildMigrations(sys, memorySnapshotStore({ Sales: baseline }), {
+      allowDestructive: true,
+    })[0]!;
+    const renames = out.steps
+      .filter((s): s is Extract<MigrationStep, { op: "renameTable" }> => s.op === "renameTable")
+      .map((s) => `${s.from}->${s.to}`)
+      .sort();
+    expect(renames).toEqual([
+      "cart_lines->cart_lines__pre_reshape",
+      "carts->carts__pre_reshape",
+      "items->items__pre_reshape",
+    ]);
+    expect(out.steps.some((s) => s.op === "dropTable")).toBe(false);
+    // One TODO recipe per backup, so the copy from each child is spelled out.
+    for (const t of ["carts", "cart_lines", "items"]) {
+      expect(
+        out.steps.some(
+          (s) => s.op === "sqlComment" && s.comment.includes(`copy data from ${t}__pre_reshape`),
+        ),
+      ).toBe(true);
+    }
+    // The written snapshot says what the database holds: the child backups'
+    // FKs follow the root's rename, as Postgres carries them.
+    const lines = out.next.tables.find((t) => t.name === "cart_lines__pre_reshape");
+    expect(lines?.foreignKeys.map((fk) => fk.refTable)).toEqual(["carts__pre_reshape"]);
+  });
+
+  it("the gate's listing names every owned child table it moves aside", async () => {
+    const baseline = schemaFromModule(
+      (await buildLoomModel(WITH_CHILDREN("relational"))).systems[0]!.subdomains[0]!,
+    );
+    const sys = (await buildLoomModel(WITH_CHILDREN("document"))).systems[0]!;
+    let err: MigrationShapeChangeError | undefined;
+    try {
+      buildMigrations(sys, memorySnapshotStore({ Sales: baseline }));
+    } catch (e) {
+      err = e as MigrationShapeChangeError;
+    }
+    expect(err).toBeInstanceOf(MigrationShapeChangeError);
+    expect(err!.reshapes).toEqual([
+      "carts: saving shape relational → document (owned child table(s) cart_lines, items backed up too)",
+    ]);
+    expect(err!.message).toContain("every owned child table the new shape drops");
+  });
+
+  it("the next generation's cleanup drops the child backups before the root backup", async () => {
+    const baseline = schemaFromModule(
+      (await buildLoomModel(WITH_CHILDREN("relational"))).systems[0]!.subdomains[0]!,
+    );
+    const sys = (await buildLoomModel(WITH_CHILDREN("document"))).systems[0]!;
+    const gen1 = buildMigrations(sys, memorySnapshotStore({ Sales: baseline }), {
+      allowDestructive: true,
+    })[0]!;
+    expect(() => buildMigrations(sys, memorySnapshotStore({ Sales: gen1.next }))).toThrow(
+      MigrationDestructiveError,
+    );
+    const gen2 = buildMigrations(sys, memorySnapshotStore({ Sales: gen1.next }), {
+      allowDestructive: true,
+    })[0]!;
+    const drops = gen2.steps
+      .filter((s): s is Extract<MigrationStep, { op: "dropTable" }> => s.op === "dropTable")
+      .map((s) => s.name);
+    expect(new Set(drops)).toEqual(
+      new Set(["cart_lines__pre_reshape", "items__pre_reshape", "carts__pre_reshape"]),
+    );
+    expect(drops.at(-1)).toBe("carts__pre_reshape");
+  });
+
+  it("another aggregate dropped in the same generation is not swept into the backup", async () => {
+    // `Order.cart: Cart id` is a `restrict` FK — a reference, not ownership —
+    // so removing Order while Cart reshapes stays an ordinary dropTable.
+    const baseline = schemaFromModule(
+      (await buildLoomModel(WITH_CHILDREN("relational", ORDER))).systems[0]!.subdomains[0]!,
+    );
+    const sys = (await buildLoomModel(WITH_CHILDREN("document"))).systems[0]!;
+    const out = buildMigrations(sys, memorySnapshotStore({ Sales: baseline }), {
+      allowDestructive: true,
+    })[0]!;
+    expect(out.steps.some((s) => s.op === "dropTable" && s.name === "orders")).toBe(true);
+    expect(out.steps.some((s) => s.op === "renameTable" && s.from === "orders")).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

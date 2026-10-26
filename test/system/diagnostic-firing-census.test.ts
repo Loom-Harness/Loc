@@ -516,6 +516,26 @@ const FIXTURE_HOST_OPTIONS: Record<string, ToolkitOptions> = {
 };
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // A construct its target's capability table refuses: `DataGrid` on Flutter
+  // (no JS runtime, so no TanStack row model).
+  "loom.target-unsupported": `
+system GridOnFlutter {
+  subdomain Sales { context Orders {
+    aggregate Customer with crudish { name: string }
+    repository Customers for Customer { }
+  } }
+  api SalesApi from Sales
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  ui WebApp {
+    framework: flutter
+    api Sales: SalesApi
+    page X { route: "/x"  body: QueryView { of: Sales.Customer.all, data: rows => DataGrid(
+      Column("Name", o => o.name, sortable: true), rows: rows) } }
+  }
+  deployable api { platform: node, contexts: [Orders], dataSources: [st], serves: SalesApi, port: 3000 }
+  deployable web { platform: flutter, targets: api, port: 3001, ui: WebApp { Sales: api } }
+}`,
   // An event-sourced workflow with only a command-triggered create and no
   // id-shaped state field: its event stream has no key, so it is refused even
   // though nothing consumes an event (the .NET / Java / Elixir ES emitters
@@ -1979,6 +1999,10 @@ system P {
   // expression-form function (`toplevel-function.ts`) and the block-body
   // `return` (`types.ts`) — share this code.
   "loom.function-return-type-mismatch": orderOps('function bad(): int = "x"'),
+  // Every other callable with a declared result type: an operation here; the
+  // domain-service operation and handler arms share the check.
+  "loom.return-type-mismatch": orderOps('operation bad(): int { return "x" }'),
+  "loom.return-missing": orderOps("operation bad(): int { if total > 0 { return 1 } }"),
   // An anonymous `retrieval { where: … }` whose `where` is a predicate rather
   // than the criterion reference this release admits.
   "loom.retrieval-where-not-criterion": `
@@ -2576,6 +2600,7 @@ system S {
   // `toThrow(<status>)` are wire-level and refused OUTSIDE a `test e2e`.
   "loom.matcher-e2e-only": matcherTest('expect("x").toBeSameInstant("y")'),
   "loom.tothrow-arity": matcherTest('expect("x").toThrow(404, 500)'),
+  "loom.not-throw-invalid": matcherTest('expect("x").not.toThrow()'),
   "loom.matches-arity": matcherTest('expect("x").matches("a", "b")'),
   "loom.matches-named-arg": matcherTest('expect("x").matches(pattern: "a")'),
   "loom.matches-not-literal": matcherTest('expect("x").matches(1)'),
@@ -4110,6 +4135,10 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // file drives the warning, its `sql before` silencing, and the rebuild /
   // new-table / first-generation exemptions.
   "loom.migration-unique-on-existing-table": "test/ir/migrations-sql-before.test.ts",
+  // Phase ⑨, same reason: an enum CHECK losing a member is judged against the
+  // BASELINE's value set. The pointed-at file drives the warning, its
+  // `sql before` silencing, and the widening / first-generation exemptions.
+  "loom.migration-enum-narrowed": "test/system/migration-enum-value-set.test.ts",
   // Phase ⑨, same reason: the destructive-change gate needs a BASELINE.  Its
   // catalog entries are the capability-column lines (a `tenantOwned` /
   // `auditable` column added to a populated table); the pointed-at file drives

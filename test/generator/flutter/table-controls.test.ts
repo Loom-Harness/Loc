@@ -3,7 +3,7 @@
 // Before this, `sortable:` / `page:` on a Flutter Table were silently dropped:
 // the target implemented neither `renderSortableHeader` nor `renderPager`, and
 // `primitives/table.ts` degrades to a plain header when the seam is absent.  So
-// `loom.datagrid-unsupported-target`'s advice — "use Table, it sorts and pages
+// `loom.target-unsupported#datagrid`'s advice — "use Table, it sorts and pages
 // on every frontend" — was untrue on the one target it is shown to most.
 //
 // These pin the emitted SHAPE.  Whether the controls actually move the state a

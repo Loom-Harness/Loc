@@ -1,4 +1,5 @@
 import { API_BASE_PATH } from "../util/api-base.js";
+import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import { dispatchFrontendProject } from "./frontend-dispatch.js";
 import {
   type ComposeServiceShape,
@@ -30,6 +31,7 @@ const sveltePlatform: PlatformSurface = {
   hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
   // Svelte generator only emits API call factories — no per-aggregate
   // repository class.  No find-name collisions are possible.
+  capabilities: TARGET_CAPABILITIES.svelte,
   emitProject({
     contexts,
     sys,

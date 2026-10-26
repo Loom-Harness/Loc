@@ -97,7 +97,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.matcher-arity": "18-testing.md#matchers--the-expectactualmatcher-vocabulary",
   "loom.expect-requires-matcher": "18-testing.md#matchers--the-expectactualmatcher-vocabulary",
   "loom.matcher-e2e-only": "18-testing.md#matchers--the-expectactualmatcher-vocabulary",
+  "loom.integration-repository-call": "18-testing.md#context-integration-tests",
   "loom.tothrow-arity": "18-testing.md#tothrow--the-throw-assertion",
+  "loom.not-throw-invalid": "18-testing.md#tothrow--the-throw-assertion",
   "loom.tothrow-status-not-int": "18-testing.md#tothrow--the-throw-assertion",
   "loom.matches-arity": "05-expressions.md#scalar-intrinsics",
   "loom.matches-named-arg": "05-expressions.md#scalar-intrinsics",
@@ -163,6 +165,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "10-repositories-and-queries.md#a-find-without-where--key-lookup-by-parameter-name",
   "loom.paged-query-handler-shape":
     "10-repositories-and-queries.md#reporun--the-paged-queryhandler",
+  "loom.return-type-mismatch": "06-behavior-and-statements.md#return--the-exception-less-outcome",
+  "loom.return-missing": "06-behavior-and-statements.md#return--the-exception-less-outcome",
   "loom.function-return-type-mismatch":
     "07-invariants-derived-functions.md#function--a-pure-helper",
   "loom.create-call-not-constructible":
@@ -377,8 +381,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "16-ui-walker-primitives.md#chart--grouped-projection-series-every-frontend",
   "loom.chart-of-not-grouped":
     "16-ui-walker-primitives.md#chart--grouped-projection-series-every-frontend",
-  "loom.chart-unsupported-target":
-    "16-ui-walker-primitives.md#chart--grouped-projection-series-every-frontend",
+  "loom.target-unsupported": "16-ui-walker-primitives.md#per-target-honest-gates",
   "loom.bindable-input-value-arg":
     "16-ui-walker-primitives.md#the-form-family--createform-operationform-workflowform-destroyform",
   "loom.page-form-locals-unsupported":
@@ -508,6 +511,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.diff-baseline-invalid": "../mcp.md#the-loom_-tool-catalog",
   "loom.migration-unique-on-existing-table":
     "../migrations.md#a-unique-index-on-a-populated-table--loommigration-unique-on-existing-table",
+  "loom.migration-enum-narrowed":
+    "../migrations.md#an-enum-that-loses-a-member--loommigration-enum-narrowed",
   "loom.unique-tpc-not-hierarchy-wide":
     "../inheritance.md#unique-keys-on-a-tpc-base--loomunique-tpc-not-hierarchy-wide",
 };
