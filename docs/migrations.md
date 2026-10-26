@@ -376,7 +376,8 @@ like every DDL step. Two steps exist, both deliberately minimal:
 **Backfill — `Agg.field = <expr>`** (keyword-free, like the `->` rename). The
 expression is validated against a SQL-renderable subset (literals, enum
 values, sibling *scalar* fields as column refs, arithmetic/comparison/boolean
-operators, `?:`, `now()`, and `datetime ± days/hours/minutes(n)`; codes
+operators, `?:`, `??`, `now()`, and `datetime ± days/hours/minutes(n)` — the
+full table is below; codes
 `loom.migration-expr-unsupported`,
 `loom.backfill-type-mismatch`, `loom.backfill-target-invalid`) and fires
 whenever the diff adds that column or flips it NOT NULL:
@@ -403,6 +404,63 @@ migration "sla-deadline" { Ticket.dueAt = createdAt + hours(24) }
 ```sql
 UPDATE "ticketing"."tickets" SET "due_at" = ("created_at" + make_interval(hours => 24)) WHERE "due_at" IS NULL;
 ```
+
+**A required column needs a non-NULL value.** The type check runs before
+anything is recorded, and it knows that NULL propagates through every SQL
+operator. A backfill into a required column that can return an optional
+sibling's NULL is refused with `loom.backfill-type-mismatch`, because the
+UPDATE would write the NULL and the `SET NOT NULL` after it would fail at boot.
+Give it a fallback with `??`, which renders as a `CASE`. A presence-tested
+ternary (`label == null ? "untitled" : label`) works the same way:
+
+```ddd
+aggregate Contract { label: string?  title: string }   // title added this generation
+migration "titles" { Contract.title = label ?? "untitled" }
+```
+```sql
+UPDATE "legal"."contracts" SET "title" = (CASE WHEN ("label" IS NULL) THEN 'untitled' ELSE "label" END) WHERE "title" IS NULL;
+```
+
+**Inherited fields are backfilled on the base.** Write the step on the
+aggregate that declares the field, and it reaches every table that stores the
+field. For a TPH base that is the one shared table. A TPC (`inheritanceUsing:
+ownTable`) base has no table, so the step fans out to every concrete's own
+table, and each UPDATE reads that table's sibling columns. Moving `owner` up
+from `Laptop` to the TPC base `Asset`:
+
+```ddd
+migration "owner-moves-up" { Asset.owner = "it" }
+```
+```sql
+ALTER TABLE "hr"."phones" ADD COLUMN "owner" TEXT NULL;
+UPDATE "hr"."phones" SET "owner" = 'it' WHERE "owner" IS NULL;
+ALTER TABLE "hr"."phones" ALTER COLUMN "owner" SET NOT NULL;
+```
+
+`laptops` already has the column, so it gets nothing. The concrete spelling
+(`Phone.owner = …`) is refused with `loom.backfill-unknown-field`, and the
+message names the base to write it on.
+
+**The backfill subset is a permanent limit.** A backfill runs as one SQL
+`UPDATE` per row, on every backend, so its expression is limited to what
+`src/generator/sql-pg-expr.ts` renders to Postgres. These are admitted:
+
+| Shape | Renders as |
+|---|---|
+| literals: string, int/long/decimal/money, bool, `null`, `now()` | the SQL constant (`now()` stays a call) |
+| enum value | its stored text |
+| a sibling scalar field (primitive / enum / `X id`) | the quoted column |
+| `( … )`, unary `-` / `!` | the same, `!` as `NOT` |
+| `+ - * / %`, comparisons, `&&` / `\|\|` | SQL operators. String `+` is `\|\|`, `int / int` is cast to `numeric`, and `== null` / `!= null` is `IS [NOT] NULL` |
+| `c ? a : b`, `a ?? b` | `CASE WHEN … THEN … ELSE … END` |
+| `datetime ± days/hours/minutes(n)` | `make_interval(…)` arithmetic |
+
+Everything else is refused with `loom.migration-expr-unsupported`, which names
+the offending kind. That covers calls and intrinsics, member access
+(value-object leaves included), constructors, list and object literals,
+`match`, conversions, `id`, `this`, and a bare duration. The workaround is a raw
+`sql` step. Widening is not on a roadmap: a new shape is added only when a real
+model needs it, and it comes with a migration-evolution e2e for that shape.
 
 Naturally **ledger-inert** like renames: once the column is baked into the
 baseline snapshot the step matches nothing. That inertness is the *only*

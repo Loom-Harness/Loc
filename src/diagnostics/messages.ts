@@ -792,6 +792,8 @@ export const DIAGNOSTIC_MESSAGES = {
     `Unknown sql step placement '${p.placement}' — the only placement is \`before\` (\`sql before "…"\` runs ahead of the generation's structural DDL); omit it to run after.`,
   "loom.backfill-unknown-field": (p: { field: unknown; agg: unknown }) =>
     `'${p.field}' is not a field of aggregate '${p.agg}' — a backfill targets a live field (it names the newly-added column).`,
+  "loom.backfill-unknown-field#inherited": (p: { field: unknown; agg: unknown; base: unknown }) =>
+    `'${p.field}' is inherited by '${p.agg}' from '${p.base}' — backfill it where it is declared: \`${p.base}.${p.field} = …\` fills it in every table that stores it.`,
   "loom.backfill-duplicate": (p: { key: unknown }) =>
     `Field '${p.key}' is backfilled more than once in this block — one backfill per column per block (ambiguous value).`,
 
@@ -2192,6 +2194,13 @@ export const DIAGNOSTIC_MESSAGES = {
     expected: unknown;
   }) =>
     `backfill '${p.aggregate}.${p.field}': expression type '${p.got}' does not fit the field's type '${p.expected}'.`,
+  "loom.backfill-type-mismatch#optional-source": (p: {
+    aggregate: unknown;
+    field: unknown;
+    sources: unknown;
+    example: unknown;
+  }) =>
+    `backfill '${p.aggregate}.${p.field}': the value can be null (it reads the optional field(s) ${p.sources}), but '${p.field}' is required — a row the UPDATE leaves NULL makes the following SET NOT NULL fail. Give it a fallback, e.g. \`${p.aggregate}.${p.field} = ${p.example} ?? <value>\`.`,
 
   // ----------------------------------------------------------------------
   // src/system/migrations-builder.ts — phase ⑨ (migration derivation)

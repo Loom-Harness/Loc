@@ -41,6 +41,7 @@ import { contextHasAuditedTarget } from "../ir/util/audit-capability.js";
 import { durableEventTypes } from "../ir/util/channels.js";
 import { directParentOf } from "../ir/util/containment-parent.js";
 import {
+  isTpcBase,
   isTpcConcrete,
   isTphBase,
   isTphConcrete,
@@ -48,6 +49,7 @@ import {
   ownUniqueKeysOf,
   rootBaseOf,
   tableOwnerName,
+  tpcConcretesOf,
   tphConcretesOf,
   uniqueKeyIndex,
 } from "../ir/util/inheritance.js";
@@ -2474,8 +2476,9 @@ function namingFixTableRenames(
 
 /** Resolve a model's backfill intents (M-T2.3) to physical columns + rendered
  *  SQL for ONE module.  Mirrors {@link resolveRenames}: filters to intents
- *  whose aggregate lives in this module, maps to the owning table (the TPH
- *  root's shared table for a TPH concrete) and snake-cased column, and
+ *  whose aggregate lives in this module, maps to the owning table(s) (the TPH
+ *  root's shared table for a TPH concrete; every concrete's table for a TPC
+ *  base) and snake-cased column, and
  *  renders the value expression with sibling scalar fields as column refs.
  *  Intents the phase-⑦ validator rejected (non-scalar target, unrenderable
  *  expression) are silently skipped — they were already reported. */
@@ -2510,12 +2513,21 @@ function resolveBackfills(
     } catch {
       continue; // outside the SQL subset — validator reported
     }
-    out.push({
-      table: plural(snake(tableOwnerName(agg, ctx.aggregates))),
-      schema: schemaOf(agg, ctx),
-      column: snake(bi.field),
-      valueSql,
-    });
+    // A TPC base owns no table: its fields live on every concrete's own
+    // table, under the same column names, so the step fans out to each of
+    // them with the one rendered value.  Anything else has exactly one
+    // owning table (a TPH concrete's is the root base's shared table).
+    const targets: readonly EnrichedAggregateIR[] = isTpcBase(agg, ctx.aggregates)
+      ? ctx.aggregates.filter((a) => tpcConcretesOf(agg, ctx.aggregates).includes(a))
+      : [agg];
+    for (const target of targets) {
+      out.push({
+        table: plural(snake(tableOwnerName(target, ctx.aggregates))),
+        schema: schemaOf(target, ctx),
+        column: snake(bi.field),
+        valueSql,
+      });
+    }
   }
   return out;
 }
