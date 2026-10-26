@@ -1,19 +1,22 @@
 // The optional THIRD argument of an e2e operation call —
-// `api.<aggs>.update(id, body, { ifMatch: <version> })` — which sends the
-// optimistic-concurrency `If-Match` precondition header (M-T6.91).
+// `api.<aggs>.<op>(id, body, { ifMatch: <version> })` — which sends the
+// optimistic-concurrency `If-Match` precondition header.
 //
 // One reading shared by the validator (`e2e-route-checks.ts`, which refuses any
 // other shape as `loom.e2e-call-options`) and the renderer
 // (`src/system/e2e-render.ts`, which turns it into the header), so the two can
-// never disagree about what the argument means.  Before this, a third argument
-// parsed, validated and was silently DROPPED by the renderer.
+// never disagree about what the argument means: a third argument the renderer
+// dropped would leave a test that MEANT to send a stale precondition sending
+// none.
 //
-// Scope is the `update` operation of a `versioned` aggregate: that is the one
-// route every backend reads `If-Match` on (elixir's named operations do not),
-// and the one `api-surface.ts` declares the `ConcurrencyConflict` 409 for.
+// Scope is every operation whose write-path contract reads `If-Match`
+// (`operationVersionCheck`, `ir/enrich/version-check.ts`) — each named
+// operation of a `versioned` aggregate.  A backend that does not honour it yet
+// fails the case under a tracked expected failure; the test still states the
+// contract.
 
+import { operationVersionCheck, readsIfMatch } from "../enrich/version-check.js";
 import type { AggregateIR, ExprIR } from "../types/loom-ir.js";
-import { aggregateIsVersioned } from "./versioned-capability.js";
 
 /** The one key the options object accepts. */
 export const E2E_IF_MATCH_OPTION = "ifMatch";
@@ -31,7 +34,8 @@ export function readE2eCallOptions(
   return { ifMatch: field.value };
 }
 
-/** Does every backend read `If-Match` on this operation's route? */
+/** Does this operation's route read `If-Match` (its write-path contract)? */
 export function e2eIfMatchApplies(agg: AggregateIR, opName: string): boolean {
-  return opName === "update" && aggregateIsVersioned(agg);
+  const op = agg.operations.find((o) => o.name === opName);
+  return op !== undefined && readsIfMatch(operationVersionCheck(agg, op));
 }

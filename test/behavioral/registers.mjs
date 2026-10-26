@@ -265,7 +265,17 @@ export const BEHAVIOURAL_XFAIL = {
     "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
   },
-  java: {},
+  java: {
+    // The guarded save flushes the dirty entity (its stale `version` included)
+    // before the `where version = :expected` bump, so two simultaneous writers
+    // carrying one `If-Match` both land.  The sequential stale tag is refused.
+    "concurrency-two-writers": {
+      issue: "#3521",
+      expect: "fail",
+      tests: { "two writers with the same If-Match": "pair \\d+: 204, 204" },
+      reason: "RS-46 — two simultaneous writers with one `If-Match` both answer 204 and one write is lost",
+    },
+  },
   python: {
     // A routed command handler's body model takes snake_case keys.
     "extern-handlers": {
@@ -281,6 +291,16 @@ export const BEHAVIOURAL_XFAIL = {
     }),
   },
   elixir: {
+    // Only the canonical `update` reads `If-Match`; a stale tag on any other
+    // operation answers 204 and overwrites the newer row.
+    "concurrency-two-writers": {
+      issue: "#3531",
+      expect: "fail",
+      tests: {
+        "a stale If-Match on a named operation is refused": "expected the call to reject, but it resolved",
+      },
+      reason: "RS-46 — a named operation ignores a stale `If-Match`",
+    },
     // A value object nested inside another is cast as `:map`, so the nested
     // VO's invariant never runs and the bad create commits.
     "vo-root-kernel": {
