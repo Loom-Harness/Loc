@@ -151,12 +151,23 @@ export function isDescendingSort(e: Extract<ExprIR, { kind: "method-call" }>): b
   return flag?.kind === "literal" && flag.lit === "bool" && flag.value === "true";
 }
 
+/** The projection a `QueryView`'s `of:` names — the bare `Totals` or the
+ *  api-handle spelling `S.Totals` — or undefined when it is anything else. */
+function projectionNamed(of: ExprIR | undefined): string | undefined {
+  if (of?.kind === "ref") return of.name;
+  if (of?.kind === "member") return of.member;
+  return undefined;
+}
+
 /** The `data:` lambda param a `QueryView` binds to a query's ROW SET, or
  *  undefined.
  *
- *  TWO forms bind something that is NOT a row set, and both must decline:
+ *  THREE forms bind something that is NOT a row set, and all must decline:
  *
  *    • `single: true` binds ONE record.
+ *    • `of:` a whole-table projection (`recordProjections`) binds ONE record
+ *      too — the read returns a single object, so `t.sum` is a field read on a
+ *      declared row field, not the `sum` collection op.
  *    • `paged: true` binds the `Paged<T>` ENVELOPE (`{items, page, pageSize,
  *      total, totalPages}`) — that is the whole point of the explicit flag, so
  *      the scaffold body can read `rows.items` and the pager can read
@@ -165,9 +176,14 @@ export function isDescendingSort(e: Extract<ExprIR, { kind: "method-call" }>): b
  *      different value elsewhere.  (AUTO-paged is not this: the walker unwraps
  *      that binding to `.items`, so it really is an array and is not excluded
  *      — it carries no `paged:` arg to see here.) */
-export function rowSetLambdaParam(e: ExprIR): string | undefined {
+export function rowSetLambdaParam(
+  e: ExprIR,
+  recordProjections?: ReadonlySet<string>,
+): string | undefined {
   if (e.kind !== "call" || e.name !== "QueryView") return undefined;
   if (isTrue(named(e, "single")) || isTrue(named(e, "paged"))) return undefined;
+  const projection = projectionNamed(named(e, "of"));
+  if (projection !== undefined && recordProjections?.has(projection)) return undefined;
   const data = named(e, "data");
   return data?.kind === "lambda" ? data.param : undefined;
 }

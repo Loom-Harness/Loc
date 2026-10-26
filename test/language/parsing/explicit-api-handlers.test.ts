@@ -31,6 +31,7 @@ const SRC = `
         }
         queryHandler GetOrder(id: Order id): Order {
           let o = Orders.getById(id)
+          return o
         }
       }
     }

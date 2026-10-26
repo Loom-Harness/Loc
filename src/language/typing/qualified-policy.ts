@@ -14,6 +14,24 @@ import {
   type PolicyDecl,
 } from "../generated/ast.js";
 
+/** Bounded contexts by name in document order, built once per root (a re-parse
+ *  yields a new root, so edits invalidate it). */
+const contextIndexByRoot = new WeakMap<AstNode, Map<string, BoundedContext[]>>();
+function contextsByName(root: AstNode): Map<string, BoundedContext[]> {
+  let idx = contextIndexByRoot.get(root);
+  if (!idx) {
+    idx = new Map();
+    for (const n of AstUtils.streamAllContents(root)) {
+      if (!isBoundedContext(n)) continue;
+      const list = idx.get(n.name);
+      if (list) list.push(n);
+      else idx.set(n.name, [n]);
+    }
+    contextIndexByRoot.set(root, idx);
+  }
+  return idx;
+}
+
 /** The policy a qualified call `qualifier.name(args)` names when `qualifier` is
  *  a bounded context OTHER than the one enclosing `at` and that context
  *  declares a function-form policy `name`.  Same-document only, like the bare
@@ -25,8 +43,7 @@ export function qualifiedOutOfScopePolicyCall(
 ): { decl: PolicyDecl; declaredIn: BoundedContext; usedIn: BoundedContext } | undefined {
   const usedIn = AstUtils.getContainerOfType(at, isBoundedContext);
   if (!usedIn || usedIn.name === qualifier) return undefined;
-  for (const node of AstUtils.streamAllContents(AstUtils.findRootNode(at))) {
-    if (!isBoundedContext(node) || node.name !== qualifier) continue;
+  for (const node of contextsByName(AstUtils.findRootNode(at)).get(qualifier) ?? []) {
     for (const m of node.members) {
       if (isPolicyDecl(m) && m.returnType !== undefined && m.name === name) {
         return { decl: m, declaredIn: node, usedIn };

@@ -141,8 +141,38 @@ export function validateContextIntegrationTests(
       repos.some((r) => r.finds.some((f) => f.name === e.member))
     );
   };
+  const repoNames = new Set(ctx.repositories.map((r) => r.name));
+  const aggNames = new Set(ctx.aggregates.map((a) => a.name));
   for (const test of ctx.tests) {
     checkMatcherSubjects(test.statements, `${ctx.name}.test:${test.name}`, diags);
+    // The integration vocabulary is aggregate-rooted (`Order.findById`); a call
+    // rooted at the repository's own name (`Orders.getById`) resolves nowhere in
+    // the emitted test, so it is refused instead of rendered verbatim.
+    const flagged = new Set<string>();
+    const visit = (e: ExprIR): void => {
+      if (e.kind !== "method-call" || e.receiver.kind !== "ref") return;
+      const recv = (e.receiver as { name: string }).name;
+      if (!repoNames.has(recv) || aggNames.has(recv) || flagged.has(`${recv}.${e.member}`)) return;
+      flagged.add(`${recv}.${e.member}`);
+      const repo = ctx.repositories.find((r) => r.name === recv);
+      diags.push({
+        severity: "error",
+        code: "loom.integration-repository-call",
+        message: diagMessage("loom.integration-repository-call", {
+          name: ctx.name,
+          testName: test.name,
+          repo: recv,
+          member: e.member,
+          agg: repo?.aggregateName ?? recv,
+        }),
+        source: `${ctx.name}.test:${test.name}`,
+        origin: ctx.origin,
+      });
+    };
+    for (const stmt of test.statements) {
+      if (stmt.kind === "expect" || stmt.kind === "expect-throws") walkExprDeep(stmt.expr, visit);
+      else walkStmtExprsDeep(stmt, visit);
+    }
     for (const stmt of test.statements) {
       if (stmt.kind !== "expect" && stmt.kind !== "expect-throws") continue;
       // `toThrow(<kind>)` is UNIT-TIER ONLY, and the context-integration rung is
