@@ -257,21 +257,75 @@ describe("codemod-find-to-findby", () => {
     expect(await errorCodes(text)).toEqual([]);
   });
 
-  it("keeps a find whose route a client reads", () => {
+  it("moves a find whose route an e2e test reads to scaffoldGet, repointing the read", async () => {
     const src = `system S {
   subdomain M { context C {
-    aggregate Order with crudish { code: string  unique (code) }
+    aggregate Order with crudish { code: string }
+    aggregate Item with crudish { sku: string  unique (sku) }
     repository Orders for Order { find byCode(c: string): Order? where this.code == c }
+    repository Items for Item { find bySku(sku: string): Item? where this.sku == sku }
   } }
   api A from M
-  deployable api { platform: node, contexts: [C], serves: A, port: 3000 }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node, contexts: [C], dataSources: [st], serves: A, port: 3000 }
   test e2e "reads" against api {
     let o = api.orders.byCode({ c: "x" })
+    expect(api.items.bySku({ sku: "s" }).sku).toBe("s")
   }
 }
 `;
-    const { changed, report } = migrateSource(src, "m.ddd");
-    expect(changed).toBe(0);
-    expect(report.join("\n")).toContain("reads its route, which goes with the declaration");
+    const { text, report } = migrateSource(src, "m.ddd");
+    expect(report).toEqual([]);
+    // A criterion named after the find keeps its path segment (`by_code`); a
+    // find named after a unique key whose params are its columns reads the key.
+    expect(text).toContain(
+      'context C with scaffoldGet(of: ByCode), scaffoldGet(of: Item, key: "sku") {',
+    );
+    expect(text).toContain("criterion ByCode(c: string) of Order = this.code == c");
+    expect(text).toContain(
+      'api A with scaffoldGetApi(of: ByCode), scaffoldGetApi(of: Item, key: "sku") from M',
+    );
+    expect(text).not.toMatch(/find by/);
+    // The e2e reads go to the handlers, positional in the find's param order.
+    expect(text).toContain('let o = api.c.getOrderByCode("x")');
+    expect(text).toContain('expect(api.c.getItemBySku("s").sku).toBe("s")');
+    expect(await errorCodes(text)).toEqual([]);
+    expect(migrateSource(text, "m.ddd").changed).toBe(0);
+  });
+
+  it("keeps a find whose route a page or a union-typed client reads", () => {
+    const page = `system S {
+  subdomain M { context C {
+    aggregate Order with crudish { code: string }
+    repository Orders for Order { find byCode(c: string): Order? where this.code == c }
+  } }
+  api A from M
+  ui W {
+    api Sales: A
+    page P(code: string) {
+      route: "/p/:code"
+      body: Text { Sales.Order.byCode(code).isLoading }
+    }
+  }
+}
+`;
+    const kept = migrateSource(page, "m.ddd");
+    expect(kept.changed).toBe(0);
+    expect(kept.report.join("\n")).toContain("only a 'test e2e' call is repointed");
+    const union = `system S {
+  subdomain M { context C {
+    error NotFound { resource: string }
+    aggregate Order with crudish { code: string }
+    repository Orders for Order { find byCode(c: string): Order or NotFound where this.code == c }
+  } }
+  api A from M
+  deployable api { platform: node, contexts: [C], serves: A, port: 3000 }
+  test e2e "reads" against api { let o = api.orders.byCode({ c: "x" }) }
+}
+`;
+    const u = migrateSource(union, "m.ddd");
+    expect(u.changed).toBe(0);
+    expect(u.report.join("\n")).toContain("its route's 404 carries the declared error");
   });
 });
