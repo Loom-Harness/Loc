@@ -39,7 +39,7 @@ const KNOWN_GAPS: Record<"field" | "enum" | "op" | "param", Record<string, strin
   field: {
     constructor:
       "ts: a field's getter cannot be named `constructor` (TS1341); escaping it moves every " +
-      "aggregate read site — M-T6.97",
+      "aggregate read site — #4213",
   },
   enum: {},
   op: {},
