@@ -198,22 +198,32 @@ async function waitForHealth(base, exited, timeoutMs = 180_000) {
   }
 }
 
-/** `npx playwright install --with-deps chromium`, retried: on CI runners the
- *  download sometimes stalls until the timeout kills it, and a fresh attempt
- *  succeeds.  The twin of `test/e2e/support/playwright-install.ts` (a `.mjs`
- *  runner cannot import it). */
+/** The Playwright Chromium download, retried, then its OS deps once: on CI
+ *  runners the download sometimes stalls until a timeout kills it, and a fresh
+ *  attempt succeeds.  The twin of `test/e2e/support/playwright-install.ts` (a
+ *  `.mjs` runner cannot import it), which carries the full rationale. */
 function installChromium(cwd) {
+  const bounded = (cmd, s) =>
+    `if command -v timeout >/dev/null 2>&1; then timeout -k 15 ${s} ${cmd}; else ${cmd}; fi`;
+  const run = (cmd, s) =>
+    execFileSync("sh", ["-c", bounded(cmd, s)], { cwd, stdio: "pipe", timeout: (s + 30) * 1000 });
+  const causeOf = (e) => {
+    const tail = e?.stderr ? String(e.stderr).trim().split("\n").pop() : "";
+    return String(e?.message ?? e).split("\n")[0] + (tail ? ` — ${tail}` : "");
+  };
   const backoffMs = [5_000, 20_000];
   const causes = [];
   for (let attempt = 1; attempt <= backoffMs.length + 1; attempt++) {
     try {
-      // GNU `timeout` signals the whole process group; a timeout on
-      // execFileSync alone leaves npm / playwright / apt-get holding the lock.
-      execFileSync("sh", ["-c", "if command -v timeout >/dev/null 2>&1; then timeout -k 15 240 npx playwright install --with-deps chromium; else npx playwright install --with-deps chromium; fi"], { cwd, stdio: "pipe", timeout: 270_000 });
+      run("npx playwright install chromium", 240);
+      try {
+        run("npx playwright install-deps chromium", 180);
+      } catch (e) {
+        log(`    playwright install-deps failed (${causeOf(e)}); continuing with the host's libraries`);
+      }
       return;
     } catch (e) {
-      const tail = e?.stderr ? String(e.stderr).trim().split("\n").pop() : "";
-      const cause = String(e?.message ?? e).split("\n")[0] + (tail ? ` — ${tail}` : "");
+      const cause = causeOf(e);
       causes.push(`attempt ${attempt}: ${cause}`);
       if (attempt > backoffMs.length) break;
       log(`    playwright install failed (${cause}); retrying in ${backoffMs[attempt - 1] / 1000}s`);
