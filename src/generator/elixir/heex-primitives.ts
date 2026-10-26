@@ -22,7 +22,8 @@ import {
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { findsOfAggregate, resolveAggregateRead } from "../../ir/util/page-read.js";
 import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
-import { elixirString, humanize, plural, snake } from "../../util/naming.js";
+import { elixirString, humanize, snake } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { iconA11yAttr } from "../_walker/a11y-emit.js";
 import { type DetectedApiCall, tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { giveUpText } from "../_walker/give-up.js";
@@ -52,7 +53,6 @@ import {
 } from "./heex-walker-core.js";
 import { elixirI18nString, formChromeAttr } from "./i18n.js";
 import { liveViewCallsOp, servesCanProbe } from "./vanilla/op-form.js";
-
 // ---------------------------------------------------------------------------
 // Scaffold expander primitive renderers.
 // Each function is called from renderCall when the primitive name matches.
@@ -1539,7 +1539,7 @@ export function renderIdLink(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkC
     const arg = expr.args[i]!;
     if (name === "of" && arg.kind === "ref") {
       target = arg.name;
-      aggName = snake(plural(arg.name));
+      aggName = routeSegmentFor(arg.name);
     }
   }
   const testidAttr = testIdAttr(expr, ctx);
@@ -2048,7 +2048,7 @@ export function renderDestroyForm(
     return `<!-- ${giveUpText("loom.page-ref-unreachable", `DestroyForm(of: ${ofName}): no canonical destroy — declare 'destroy { }' (or use 'with crudish')`)} -->`;
   }
   const eventName = `destroy_${snake(ofName)}`;
-  const thenRoute = `/${snake(plural(ofName))}`;
+  const thenRoute = `/${routeSegmentFor(ofName)}`;
   if (!ctx.actionBindings.some((b) => b.eventName === eventName)) {
     ctx.actionBindings.push({
       agg: ofName,

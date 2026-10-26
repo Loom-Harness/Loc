@@ -63,8 +63,9 @@ import {
 import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
 import { emissionSink } from "../../../util/emission-sink.js";
-import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { snake, upperFirst } from "../../../util/naming.js";
 import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
 import { isReserved } from "../../../util/target-identifiers.js";
 import {
   type RequestComponentOwner,
@@ -695,7 +696,7 @@ function renderApiSpec(
   // Plus per-op and per-find paths derived from the aggregate's
   // public operations and repository finds.
   for (const { ctx, agg } of allAggregates) {
-    const aggSlug = snake(plural(agg.name));
+    const aggSlug = routeSegmentFor(agg.name);
     // THE UNIFICATION SEAM (api-surface.ts): the documented paths and every
     // declared error set below come from the same derived list the router
     // mounts (api-emit.ts, via `servedOperationEntries`) — the spec can no

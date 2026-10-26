@@ -1,9 +1,9 @@
 import type { ProjectionIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
+import { tableNameFor } from "../../util/storage-names.js";
 import { csIdValueClrType } from "./dto-mapping.js";
 import { renderCsType } from "./render-expr.js";
-
 // ---------------------------------------------------------------------------
 // Persisted projection read-model row (.NET / EF Core) — the projection.md
 // read half, mirroring the saga-state persistence (`workflow-state-emit.ts`)
@@ -28,7 +28,7 @@ export function projectionRowClass(proj: ProjectionIR): string {
 
 /** The read-model row table name — matches `projectionTableShape`. */
 export function projectionRowTable(proj: ProjectionIR): string {
-  return plural(snake(proj.name));
+  return tableNameFor(proj.name);
 }
 
 /** The DbSet property name (`OrderBooks`) the fold + read controller go through. */

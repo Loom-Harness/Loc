@@ -10,7 +10,8 @@
 // without importing across platform folders (the one-directional layering
 // rule: `generator/<platform>` knows nothing about other platforms).
 
-import { plural, snake, uniqueIndexName } from "../../util/naming.js";
+import { snake, uniqueIndexName } from "../../util/naming.js";
+import { tableNameFor } from "../../util/storage-names.js";
 import type { AggregateIR, FieldIR, UniqueKeyIR } from "../types/loom-ir.js";
 
 /** The aggregate pool a base is resolved within — a context's aggregate
@@ -244,7 +245,7 @@ export function uniqueKeyIndex(
   uk: UniqueKeyIR,
   pool: AggPool,
 ): { table: string; name: string; columns: string[]; discriminator?: string } {
-  const table = plural(snake(tableOwnerName(agg, pool)));
+  const table = tableNameFor(tableOwnerName(agg, pool));
   const columns = uk.columns.map((c) => snake(c));
   const own =
     isTphConcrete(agg, pool) && !ancestorUniqueKeySet(agg, pool).has(uk.columns.join(","));

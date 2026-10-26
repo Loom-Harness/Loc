@@ -272,6 +272,10 @@ describe("typing differential: the pass against lowering (and the unknown ratche
   // validator that fails open on it).  Each carries its cause; per cause the
   // count may only SHRINK (same band as above, for fixtures other PRs add).
   // `not-a-value` is not a hole — it is the head name of `Orders.getById(…)`.
+  // `unresolved-member` grows with every fixture whose `test e2e` blocks call
+  // `api.<handle>` spellings the pass cannot resolve yet: snake-case and
+  // acronym handles and `api.<workflow>.instance` (#4325), and routed-handler
+  // calls (#4268).  Fixing those lowers its pin.
   it("the pass's unknowns do not grow, cause by cause", () => {
     for (const [cause, pinned] of Object.entries(BASELINE.unknownCauses)) {
       const allowed = Math.ceil(pinned * 1.02) + 25;

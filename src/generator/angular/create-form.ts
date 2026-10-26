@@ -1,6 +1,7 @@
 import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import type { ExprIR } from "../../ir/types/loom-ir.js";
-import { lowerFirst, plural, snake } from "../../util/naming.js";
+import { lowerFirst } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { giveUp } from "../_walker/give-up.js";
 import type { WalkContext } from "../_walker/walker-core.js";
 import {
@@ -14,7 +15,6 @@ import {
 } from "./form-fields.js";
 import { angularValidatorMap, applyAngularValidators } from "./form-validators.js";
 import { angularSink } from "./walker/sink.js";
-
 // ---------------------------------------------------------------------------
 // Angular `CreateForm(of: <Agg>)` renderer (angular-frontend-plan.md).
 //
@@ -87,7 +87,7 @@ export function renderAngularCreateForm(
   }
 
   const fields = createInputFields(agg);
-  const ns = `${snake(plural(agg.name))}-new`;
+  const ns = `${routeSegmentFor(agg.name)}-new`;
   const importFrom = `../../api/${lowerFirst(agg.name)}`;
   const requestType = `Create${agg.name}Request`;
   const mutationFn = `useCreate${agg.name}`;
@@ -147,7 +147,7 @@ export function renderAngularCreateForm(
     requestType,
     importFrom,
     submitMethod,
-    redirectSlug: snake(plural(agg.name)),
+    redirectSlug: routeSegmentFor(agg.name),
     controls: parts.flatControls,
     idTargets: parts.idTargets,
     fieldArrays: parts.fieldArrays,

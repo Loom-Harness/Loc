@@ -6,11 +6,11 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
 import { csIdValueClrType, projectEntityExpr } from "../dto-mapping.js";
 import { efSetName } from "../ef-read-source.js";
 import { csPagedQueryParams, dotnetNotFoundThrow } from "./common.js";
-
 // The polymorphic base read (aggregate-inheritance.md): a read of an abstract
 // base returns every row as its real subtype, filtered by each subtype's own
 // restrictions, in ONE global `Id` order, paged globally.  Rendered from the
@@ -230,7 +230,7 @@ export function renderBaseController(
 ): string {
   const B = base.name;
   const variants = variantsOf(read, ctx);
-  const route = `${routePrefix}${snake(plural(B))}`;
+  const route = `${routePrefix}${routeSegmentFor(B)}`;
   const [pageParam, pageSizeParam] = csPagedQueryParams();
   const idClr = csIdValueClrType(base.idValueType);
   // Most-derived arm first is moot (every concrete is a leaf), but a C#

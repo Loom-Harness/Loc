@@ -1,9 +1,9 @@
 import { createInputFields, emitsRestCreate } from "../../ir/enrich/wire-projection.js";
 import type { AggregateIR, BoundedContextIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
-import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { lowerFirst, upperFirst } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { unwrapOpt } from "./form-helpers.js";
-
 // ---------------------------------------------------------------------------
 // Page-object builder — emits Playwright page-object classes per
 // aggregate keyed off the data-testids sprinkled by pages-emitter.ts.
@@ -28,7 +28,7 @@ export function buildPageObjectModule(
   apiImportRoot = "../../src/api",
   selectStyle: SelectStyle = "combobox",
 ): string {
-  const slug = snake(plural(agg.name));
+  const slug = routeSegmentFor(agg.name);
   const aggCap = upperFirst(agg.name);
   // The New page (and its list "New" button + create() navigation) exists
   // only when the aggregate exposes a REST create surface — the SAME

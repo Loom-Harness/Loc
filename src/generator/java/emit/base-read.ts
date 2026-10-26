@@ -23,11 +23,11 @@
 import { type PolymorphicRead, polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
 import type { EnrichedAggregateIR, EnrichedBoundedContextIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
-import { plural, snake } from "../../../util/naming.js";
+import { plural } from "../../../util/naming.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaPagedQueryParams } from "./common.js";
 import { javaIdValueType } from "./wire.js";
-
 /** The polymorphic read of `base` when java routes it, else undefined.
  *
  *  The route answers every subtype's rows, so it exists only where each
@@ -75,7 +75,7 @@ export function renderJavaBaseReadController(
 ): string {
   const tph = read.layout === "sharedTable";
   const cls = `${plural(base.name)}Controller`;
-  const route = `${ctx.routePrefix ?? ""}/${snake(plural(base.name))}`;
+  const route = `${ctx.routePrefix ?? ""}/${routeSegmentFor(base.name)}`;
   const paged = javaRef(`${ctx.basePkg}.domain.common`, "Paged");
   const notFound = javaRef(`${ctx.basePkg}.domain.common`, "AggregateNotFoundException");
   const [pageParam, pageSizeParam] = javaPagedQueryParams();

@@ -12,6 +12,7 @@
 // doesn't consume it yet.
 // ---------------------------------------------------------------------------
 
+import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
 import {
   createInputFields,
   createOmissionValue,
@@ -28,17 +29,12 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { outboundReferenceFields } from "../../../ir/util/aggregate-flags.js";
-import {
-  baseOf,
-  ownFieldsOf,
-  tableOwnerName,
-  uniqueKeyIndex,
-} from "../../../ir/util/inheritance.js";
+import { baseOf, ownFieldsOf, uniqueKeyIndex } from "../../../ir/util/inheritance.js";
 import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { singleFieldConstraints } from "../../../ir/validate/invariant-classify.js";
 import { messageCode } from "../../../util/message-code.js";
-import { elixirString, plural, snake, upperFirst } from "../../../util/naming.js";
+import { elixirString, snake, upperFirst } from "../../../util/naming.js";
 import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { serverSeededFields } from "../../construction-default.js";
@@ -691,7 +687,7 @@ ${
   // The table the row actually lives in: a TPH concrete writes the SHARED base
   // table, so its unique index (inherited from the base) and its FKs are named
   // for that table, not for the concrete.
-  const uniqueTable = plural(snake(tableOwnerName(agg, ctx.aggregates)));
+  const uniqueTable = aggregateTableName(agg, ctx.aggregates);
   // A key the TPH concrete declares ITSELF is a separate, `kind`-partial index
   // with a discriminator-scoped name; `uniqueKeyIndex` names both shapes.
   const uniqueLines = (agg.uniqueKeys ?? []).map((uk) => {

@@ -29,14 +29,15 @@ import {
 import { findValueObjectInScope } from "../../../ir/util/reachable-types.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
-import { plural, snake, upperFirst, workflowStateTableName } from "../../../util/naming.js";
+import { snake, upperFirst, workflowStateTableName } from "../../../util/naming.js";
+import { tableNameFor } from "../../../util/storage-names.js";
 import { joinColumnName, joinTableConstName } from "../emit.js";
 import { isRefCollection } from "../repository-associations-builder.js";
 import { docFieldType } from "../repository-document-builder.js";
 
 /** Postgres table for an aggregate — lowercase plural (e.g. `orders`). */
 
-const tableOf = (aggName: string): string => plural(snake(aggName));
+const tableOf = (aggName: string): string => tableNameFor(aggName);
 
 /** Row-entity class name for an aggregate (the MikroORM persistence model). */
 
@@ -445,7 +446,7 @@ function renderPartRowEntity(
       "",
       `export const ${schemaName} = new EntitySchema<${cls}>({`,
       `  class: ${cls},`,
-      `  tableName: "${snake(plural(part.name))}",`,
+      `  tableName: "${tableNameFor(part.name)}",`,
       `  properties: {`,
       ...propLines,
       `  },`,
@@ -945,7 +946,7 @@ export function renderMikroEntities(
     if (!isMaterializedProjection(proj)) continue;
     const { block, schemaName } = renderRecordRowEntity(
       mikroProjectionRowClass(proj),
-      snake(plural(proj.name)),
+      tableNameFor(proj.name),
       projectionStateColumns(proj, ctx),
     );
     schemaNames.push(schemaName);
