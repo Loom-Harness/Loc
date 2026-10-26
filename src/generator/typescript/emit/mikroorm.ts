@@ -10,6 +10,7 @@
 export {
   MIKRO_DEPS,
   MIKRO_INDEX_IMPORTS,
+  MIKRO_ORM_VERSION,
   mikroConnectionSetup,
   renderMikroConfig,
 } from "./mikroorm-config.js";
@@ -33,3 +34,4 @@ export {
   renderMikroRepository,
   renderMikroTpcBaseReader,
 } from "./mikroorm-relational.js";
+export { mikroBypassedFilters } from "./mikroorm-schema-filters.js";

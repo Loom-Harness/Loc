@@ -3684,7 +3684,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `Deployable '${p.name}' selects 'persistence: mikroorm', but the model declares ` +
     `${p.count} migration step(s) it can never apply (first: '${p.step}' in migration ` +
     `'${p.migration}'). The MikroORM adapter emits no migration chain — it syncs its schema ` +
-    `with 'orm.schema.updateSchema()' at boot, which has no rename intent to consult and ` +
+    `with 'orm.schema.update()' at boot, which has no rename intent to consult and ` +
     `resolves a rename as DROP + ADD, destroying the column's data. Use ` +
     `'persistence: drizzle' on this deployable, or host these contexts elsewhere.`,
   // The second consequence of self-provisioning (F2-ADP-3): the same
@@ -3742,7 +3742,7 @@ export const DIAGNOSTIC_MESSAGES = {
   // array column (M-T6.23).  The CODE stays live through the three
   // migration-checks.ts variants above (`#migrations`, `#schema-split`,
   // `#schema-ignored`) — the self-provisioning limits this adapter's
-  // `orm.schema.updateSchema()` boot-time schema owner genuinely cannot
+  // `orm.schema.update()` boot-time schema owner genuinely cannot
   // express.)
   "loom.resource-missing-capability": (p: {
     name: unknown;

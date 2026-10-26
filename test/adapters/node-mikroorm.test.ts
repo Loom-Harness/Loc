@@ -89,11 +89,11 @@ describe("mikroorm persistence adapter — node/hono (Phase 5d)", () => {
     expect(files.get("api/package.json")).toContain("@mikro-orm/postgresql");
     expect(files.get("api/package.json")).not.toContain("drizzle");
     expect(files.get("api/index.ts")).toContain("MikroORM.init");
-    // Safe mode, not the bare call: `updateSchema()` defaults to
+    // Safe mode, not the bare call: `schema.update()` defaults to
     // `dropTables: true` over an unpruned introspection, which destroys every
     // table outside the entity metadata on the SECOND boot (the timer watermark,
     // `__loom_seed`, pg-boss's schema).  See node-mikroorm-timers.test.ts.
-    expect(files.get("api/index.ts")).toContain("orm.schema.updateSchema({ safe: true })");
+    expect(files.get("api/index.ts")).toContain("orm.schema.update({ safe: true })");
   });
 
   it("the drizzle default is unchanged (drizzle schema, no entities)", async () => {
@@ -135,7 +135,7 @@ system D {
     expect(entities).toContain('tableName: "o_events"');
     expect(entities).toContain('streamType: { type: "string", primary: true }');
     // `seq` is a real Postgres `bigserial` (sequence-backed DB default), NOT a
-    // bare `bigint autoincrement`: MikroORM's `updateSchema()` only turns an
+    // bare `bigint autoincrement`: MikroORM's `schema.update()` only turns an
     // autoincrement PRIMARY into a serial, so on this non-PK column a bare
     // `bigint` ships with no default and every event insert (which omits `seq`)
     // fails the not-null constraint at runtime (caught by the mikroorm
@@ -555,7 +555,7 @@ describe("mikroorm — `seed` data", () => {
     expect(cli).toContain('import { MikroORM } from "@mikro-orm/postgresql";');
     // …and the seed CLI is non-destructive for the same reason — it would
     // otherwise drop the `__loom_seed` marker it is about to write.
-    expect(cli).toContain("await orm.schema.updateSchema({ safe: true });");
+    expect(cli).toContain("await orm.schema.update({ safe: true });");
     expect(cli).toContain("await runSeeds(orm.em);");
     // Boot path runs the seeds after schema update.
     expect(files.get("api/index.ts")).toContain("await runSeeds(db);");

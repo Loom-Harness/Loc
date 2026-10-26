@@ -115,7 +115,7 @@ in-process — no docker, no separate Postgres) and runs the suites Loom
   features + shared systems), with ONE source transform — a `persistence:
   mikroorm` realization clause injected onto the `platform: node` deployable
   before `generate system` — so the drained MikroORM adapter gets the SAME
-  runtime coverage as drizzle (schema applies via `orm.schema.updateSchema()`
+  runtime coverage as drizzle (schema applies via `orm.schema.update()`
   at boot, CRUD round-trips), not merely tsc-compile coverage. Only the api
   tier gates (the unit tier is pure-domain / persistence-independent, already
   covered by `run.mjs`). Its own `behavioral-e2e-mikroorm.yml` workflow (a

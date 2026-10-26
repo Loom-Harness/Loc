@@ -150,7 +150,7 @@ interface MikroRawFragment {
  *  bound: a FilterQuery key names entity PROPERTIES, but a raw fragment is SQL
  *  and is past the mapping layer.  Only VALUES bind — which is why a RESERVED
  *  name (`end`, `order`, `limit`, …) has to be quoted here: MikroORM's own
- *  `updateSchema()` quotes it when it creates the column, so the table is fine
+ *  `schema.update()` quotes it when it creates the column, so the table is fine
  *  and only this fragment would be a runtime syntax error (F2-ADP-6).  The
  *  escaping is trivial on this backend — the fragment is `JSON.stringify`d into
  *  a TS string literal, so the `"` needs no further treatment (unlike Dapper's
@@ -708,62 +708,21 @@ function orBranches(e: Extract<ExprIR, { kind: "binary" }>): ExprIR[] {
 }
 
 // ---------------------------------------------------------------------------
-// Capability `filter` predicates (`filter <expr>` → AggregateIR.contextFilters).
+// Capability `filter` predicates (`filter <expr>` → AggregateIR.contextFilters)
+// are NOT rendered per read.  MikroORM has global query filters: the read scope
+// of an aggregate is declared once on its `EntitySchema` as named
+// `default: true` filters (mikroorm-schema-filters.ts), which the ORM applies
+// to every `find` / `count` / `nativeUpdate` / `nativeDelete`.  This file only
+// supplies the predicate lowering those filters (and each find's own `where`)
+// share: `whereToMikroFilter`, with `currentUser.<claim>` rendered against the
+// ambient `requireCurrentUser()` accessor.
 //
-// MikroORM has no global query filter (EF Core's `HasQueryFilter`), so — like
-// drizzle — the repository ANDs each capability predicate into every root read.
-// A NON-principal predicate lowers to a FilterQuery via `whereToMikroFilter`
-// (guaranteed in-subset by `firstNonQueryablePredicate`).  A
-// PRINCIPAL-referencing filter (tenancy: `this.tenantId == currentUser.tenantId`)
-// is applied too: `currentUser.<claim>` lowers against the ambient
-// `requireCurrentUser()` accessor (exactly as the drizzle repository), so the
-// tenant scope IS enforced on every mikro read.  A read's `ignoring *` /
-// `ignoring <Cap>` bypass drops the capability-origin predicates it names.
+// A principal filter is not gated for FilterQuery-lowerability (the phase-⑦
+// predicate gate skips it), so a shape that cannot lower reaches the schema
+// emitter — and DROPPING a tenancy predicate is not a degraded read, it is NO
+// tenant predicate, i.e. every tenant's rows on every read.  An unlowerable one
+// therefore THROWS at generation; a crash there is the strictly safer failure.
 // ---------------------------------------------------------------------------
-
-interface FilterBypass {
-  bypassAll?: boolean;
-  bypassCaps?: string[];
-}
-
-/** The applicable capability filters for an aggregate as MikroORM FilterQuery
- *  object-literal strings, honoring a read's `ignoring` bypass. */
-
-export function mikroContextFilters(agg: EnrichedAggregateIR, bypass?: FilterBypass): string[] {
-  const filters = agg.contextFilters ?? [];
-  const origins = agg.contextFilterOrigins ?? [];
-  const out: string[] = [];
-  filters.forEach((pred, i) => {
-    const origin = origins[i];
-    // Only capability-origin (`undefined` = bare/hand-written) filters are
-    // bypassable; `ignoring *` drops every origin, a named `ignoring` the match.
-    if (origin !== undefined && (bypass?.bypassAll || (bypass?.bypassCaps ?? []).includes(origin)))
-      return;
-    // A principal filter takes the SAME path as any other: lower it, and let an
-    // unlowerable one THROW.
-    //
-    // Deliberately NOT wrapped in a `try { … } catch { /* drop */ }`.  A
-    // principal filter is not gated for FilterQuery-lowerability
-    // (the phase-⑦ predicate gate skips it), so a shape that cannot
-    // lower reaches here — and DROPPING a tenancy predicate is not a degraded
-    // read, it is NO tenant predicate, i.e. every tenant's rows on every read.
-    // A crash at generation is the strictly safer failure.  With
-    // `authzFilterEntry` rendering the subtree sentinel there is no known
-    // shape left to crash on.
-    out.push(whereToMikroFilter(pred, AMBIENT_PRINCIPAL, agg.associations));
-  });
-  return out;
-}
-
-/** Merge a base FilterQuery object-literal with the aggregate's applicable
- *  capability filters (`$and`).  No filters → the base unchanged (byte-
- *  identical to the pre-filter output); a `{}` base is dropped from the AND. */
-
-export function withContextFilters(base: string, caps: string[]): string {
-  if (caps.length === 0) return base;
-  const parts = base === "{}" ? caps : [base, ...caps];
-  return parts.length === 1 ? parts[0]! : `{ $and: [${parts.join(", ")}] }`;
-}
 
 // ---------------------------------------------------------------------------
 // Write-scope pre-guard (authorization / deny-write).
