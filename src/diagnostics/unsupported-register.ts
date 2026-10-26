@@ -763,7 +763,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.handler-load-nullable-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/api-checks.ts:166",
+    site: "src/ir/validate/checks/api-checks.ts:131",
     what: "command/query handler load of a nullable result — v1 is single non-nullable",
     mission: "#3376",
     verified: true,
@@ -771,7 +771,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1594",
+    site: "src/ir/validate/checks/workflow-checks.ts:1546",
     what: "workflow load of an array result — v1 is single non-nullable",
     mission: "#3376",
     verified: true,
@@ -795,7 +795,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-nullable-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1608",
+    site: "src/ir/validate/checks/workflow-checks.ts:1560",
     what: "workflow load of a nullable result — v1 is single non-nullable",
     mission: "#3376",
     verified: true,
