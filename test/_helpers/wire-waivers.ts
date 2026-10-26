@@ -94,6 +94,32 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
         "#4023 — RS-1: a value object nested in a folded projection's read model keeps its snake_case leaf keys on elixir",
     }),
   ),
+  // MikroORM's folded projection hands its `money` column to the wire without
+  // the scale-4 formatting its aggregate fields get (RS-12).
+  {
+    backends: ["mikroorm"],
+    cases: ["projection-fold-statements"],
+    request: "GET /api/projections/account_board/*",
+    path: "$.charged",
+    kinds: ["value"],
+    reason:
+      "#4214 — RS-12: a folded projection's money column reaches the wire unscaled on mikroorm",
+  },
+  // .NET's request validator applies a value object's invariant one level
+  // deep, so a breach inside a VO nested in a VO reaches the domain constructor
+  // and answers its domain-error 422 (no `errors[]` pointer) instead of the
+  // field-validation one.  Status agrees.
+  ...(["$.title", "$.detail", "$.errors[*].pointer"] as const).map(
+    (path): WireWaiver => ({
+      backends: ["dotnet"],
+      cases: ["vo-root-kernel"],
+      request: "POST /api/shipments",
+      path,
+      kinds: ["value"],
+      reason:
+        "#4215 — a nested value object's invariant is not checked by .NET's request validator; the 422 comes from the domain",
+    }),
+  ),
   // node/drizzle orders every read with no declared order by `id` (the
   // read-scope order).  The other legs still answer Postgres's physical order,
   // which moves a row an `update` rewrote to the end, so the three reads below

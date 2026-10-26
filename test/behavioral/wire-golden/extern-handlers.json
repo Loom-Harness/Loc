@@ -1,0 +1,84 @@
+{
+  "case": "extern-handlers",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "GET",
+      "path": "/api/quotes/SKU-1",
+      "status": 500,
+      "body": {
+        "detail": "internal",
+        "instance": "/api/quotes/SKU-1",
+        "status": 500,
+        "title": "Internal Server Error",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/orders",
+      "status": 500,
+      "body": {
+        "detail": "internal",
+        "instance": "/api/orders",
+        "status": 500,
+        "title": "Internal Server Error",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/orders",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 4,
+      "method": "PATCH",
+      "path": "/api/orders",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/orders",
+        "instance": "/api/orders",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    }
+  ]
+}
