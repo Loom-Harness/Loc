@@ -479,8 +479,12 @@ const MAX_OPEN_GAPS = 18;
  *  code).  Gone: paged-query-handler / projection query-time /
  *  whole-table-aggregation / group-by / workflow-source / projection-source,
  *  event-sourced-workflow, generic-carrier, union, when, operation-return,
- *  remote-api-op and filter-bypass. */
-const LATENT_SEAMS = 14;
+ *  remote-api-op and filter-bypass.
+ *
+ *  14 -> 13: `loom.chart-unsupported-target` and `loom.datagrid-unsupported-
+ *  target` folded into the capability table's one code,
+ *  `loom.target-unsupported`. */
+const LATENT_SEAMS = 13;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {

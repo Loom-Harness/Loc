@@ -320,6 +320,7 @@ function renderNumericParamHelpers(
   needsInt: boolean,
   needsInt32: boolean,
   needsDate = false,
+  needsVo = false,
 ): string {
   // Emitted SEPARATELY, not as one block: `mix compile --warnings-as-errors`
   // rejects an unused private function, so a context whose ops take an `int`
@@ -408,10 +409,37 @@ function renderNumericParamHelpers(
   defp __loom_date_param(record, field, value),
     do: {:error, __loom_param_error(record, field, value, "Invalid date")}
 `;
+  // A value-object param is cast against its declared fields; each member error
+  // keeps its own key on `loom_path`, so the 422 points at `/<param>/<member>`.
+  const vo = `
+  defp __loom_vo_param(_record, _field, nil, _types, _required), do: {:ok, nil}
+
+  defp __loom_vo_param(record, field, value, types, required)
+       when is_map(value) and not is_struct(value) do
+    attrs = Map.new(value, fn {k, v} -> {Macro.underscore(to_string(k)), v} end)
+
+    cs =
+      {%{}, types}
+      |> Ecto.Changeset.cast(attrs, Map.keys(types), empty_values: [])
+      |> Ecto.Changeset.validate_required(required)
+
+    if cs.valid? do
+      {:ok, Ecto.Changeset.apply_changes(cs)}
+    else
+      {:error,
+       Enum.reduce(cs.errors, Ecto.Changeset.change(record, %{}), fn {key, {msg, opts}}, acc ->
+         Ecto.Changeset.add_error(acc, field, msg, Keyword.put(opts, :loom_path, [key]))
+       end)}
+    end
+  end
+
+  defp __loom_vo_param(record, field, value, _types, _required),
+    do: {:error, __loom_param_error(record, field, value, "Invalid value")}
+`;
   return `  # Wire-format guards for operation params (M-T6.48).  Each returns
   # \`{:ok, value}\` or \`{:error, changeset}\` — the latter renders as the
   # standard 422 with a \`/<param>\` pointer.
-${err}${needsDecimal ? dec : ""}${needsInt ? int : ""}${needsInt32 ? int32 : ""}${needsDate ? date : ""}`;
+${err}${needsDecimal ? dec : ""}${needsInt ? int : ""}${needsInt32 ? int32 : ""}${needsDate ? date : ""}${needsVo ? vo : ""}`;
 }
 
 function renderContextModule(
@@ -1044,9 +1072,10 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
   const needsIntParam = assembledBody.includes("__loom_int_param(");
   const needsInt32Param = assembledBody.includes("__loom_int32_param(");
   const needsDateParam = assembledBody.includes("__loom_date_param(");
+  const needsVoParam = assembledBody.includes("__loom_vo_param(");
   const numericParamHelpers =
-    needsDecimalParam || needsIntParam || needsInt32Param || needsDateParam
-      ? `\n${renderNumericParamHelpers(needsDecimalParam, needsIntParam, needsInt32Param, needsDateParam)}`
+    needsDecimalParam || needsIntParam || needsInt32Param || needsDateParam || needsVoParam
+      ? `\n${renderNumericParamHelpers(needsDecimalParam, needsIntParam, needsInt32Param, needsDateParam, needsVoParam)}`
       : "";
 
   return `# Auto-generated.
@@ -1508,7 +1537,7 @@ function renderNamedOpFunction(
   // As in the extern renderer: a guarded param is bound by its with-clause, so
   // it must not also be bound flat ahead of it (M-T6.48).
   const paramBinds = usedParams
-    .filter((p) => paramGuardClause(p.name, p.type) == null)
+    .filter((p) => paramGuardClause(p.name, p.type, ctx) == null)
     .map(
       (p) =>
         `    ${elixirLocal(p.name)} = ${coerceOpParam(`Map.get(params, ${JSON.stringify(p.name)})`, p.type)}`,
@@ -1580,7 +1609,7 @@ function renderNamedOpFunction(
     // `with` layout, which is exactly the point: the refusal needs somewhere to
     // short-circuit to.
     ...usedParams
-      .map((p) => paramGuardClause(p.name, p.type))
+      .map((p) => paramGuardClause(p.name, p.type, ctx))
       .filter((c): c is string => c != null),
     ...collectOpGuardClauses(agg.name, op, rc),
   ];

@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
 import { generateSystems } from "../../../src/system/index.js";
+import { generateEvolvedSystemFiles } from "../../_helpers/generate.js";
 
 async function build(source: string): Promise<Model> {
   const services = createDddServices(NodeFileSystem);
@@ -106,22 +107,38 @@ describe("java provenance runtime", () => {
     expect(repo.indexOf("jpa.save(aggregate)")).toBeLessThan(repo.indexOf("drainProv"));
   });
 
-  it("adds the co-located column in a late migration and takes the history table from MigrationsIR", async () => {
+  it("takes the co-located column and the history table from the MigrationsIR chain", async () => {
     const f = await files();
-    const key = [...f.keys()].find((k) => /db\/migration\/V\d+\.\d+__Provenance\.sql$/.test(k));
-    expect(key).toBeDefined();
-    const mig = f.get(key!)!;
-    // schema-qualified to the resolved dataSource schema (matching the JPA @Table).
-    expect(mig).toContain(
-      "ALTER TABLE ordering.orders ADD COLUMN IF NOT EXISTS total_provenance jsonb;",
+    const migrations = [...f.keys()].filter((k) => /db\/migration\/V[^/]+\.sql$/.test(k));
+    // Only the chain's own generation — no far-future late migration for
+    // Flyway to find out of order.
+    expect(migrations).toEqual([expect.stringMatching(/__Core_Initial\.sql$/)]);
+    const initial = f.get(migrations[0]!)!;
+    // In the resolved dataSource schema (matching the JPA @Table).
+    expect(initial).toMatch(
+      /CREATE TABLE "ordering"\."orders" \([^;]*"total_provenance" JSONB NULL/,
     );
-    // The history table's DDL moved to the shared MigrationsIR
-    // (`provenanceTableShape`), so it is NOT hand-written here — it arrives in
-    // the ordinary module migration like the outbox and audit tables.
-    expect(mig).not.toContain("CREATE TABLE");
-    const initial = [...f.entries()].find(([k]) => /__Core_Initial\.sql$/.test(k))?.[1];
     expect(initial).toContain('CREATE TABLE "provenance_records"');
     expect(initial).toContain('CREATE INDEX "provenance_records_correlation_idx"');
+  });
+
+  it("marking an existing field `provenanced` adds its column in a NEW Flyway version", async () => {
+    const v2 = SOURCE.replace("discount: int\n", "discount: int provenanced\n");
+    const before = await generateEvolvedSystemFiles([SOURCE]);
+    const after = await generateEvolvedSystemFiles([SOURCE, v2]);
+    const migs = (m: Map<string, string>) =>
+      [...m.keys()].filter((k) => /db\/migration\/V[^/]+\.sql$/.test(k)).sort();
+    const [initial] = migs(before);
+    // The applied V-file is untouched (Flyway checksums it) …
+    expect(after.get(initial!)).toBe(before.get(initial!));
+    const added = migs(after).filter((k) => k !== initial);
+    expect(added).toHaveLength(1);
+    // … and the new one sorts above it.
+    const version = (k: string) => BigInt(/\/V(\d+)\./.exec(k)![1]!);
+    expect(version(added[0]!) > version(initial!)).toBe(true);
+    expect(after.get(added[0]!)).toContain(
+      'ALTER TABLE "ordering"."orders" ADD COLUMN IF NOT EXISTS "discount_provenance" JSONB NULL;',
+    );
   });
 });
 
@@ -132,7 +149,9 @@ describe("java provenance — no-op without a provenanced field", () => {
     const model = await build(PLAIN);
     const f = generateSystems(model).files;
     expect([...f.keys()].some((k) => k.endsWith("/domain/common/ProvLineage.java"))).toBe(false);
-    expect([...f.keys()].some((k) => /V\d+\.\d+__Provenance\.sql$/.test(k))).toBe(false);
+    const ddl = [...f.entries()].filter(([k]) => /db\/migration\/V[^/]+\.sql$/.test(k));
+    expect(ddl.length).toBeGreaterThan(0);
+    expect(ddl.some(([, sql]) => sql.includes("provenance"))).toBe(false);
     const repo = f.get([...f.keys()].find((k) => k.endsWith("/OrderRepositoryImpl.java"))!)!;
     expect(repo).not.toContain("drainProv");
     expect(repo).not.toContain("provenanceRecords");

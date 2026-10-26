@@ -182,17 +182,13 @@ describe("Hono ERP-bundle generator regressions", () => {
     expect(del, "delete must NOT target the subtype table").not.toContain("schema.personContacts");
   });
 
-  it("the TPH base reader delegates to the concrete repositories rather than reading the shared table", async () => {
-    // Two bugs, one shape.  The reader used to hand-roll `select().from(
-    // schema.products)` + a `kind` switch, which meant (a) it applied NONE of
-    // the machinery the concrete repositories apply to that same table — no
-    // capability `filter`, no tenancy predicate, no contained parts (F2-CB-C12,
-    // a cross-tenant read the moment the reader is routed) — and (b) its
-    // inline hydration emitted `new Decimal(...)` for a concrete whose only
-    // money use is inside a VALUE OBJECT, while the import gate keyed on the
-    // shallow `aggregateUsesMoney`, so `Decimal` was used unimported (TS2304).
-    // Delegating deletes both: the reader hydrates nothing and filters nothing
-    // itself; the concrete loader that already knows how does all of it.
+  it("the TPH base reader hydrates a VO-nested money field with what it imports", async () => {
+    // The reader selects the shared table once and hydrates each row inline as
+    // its `kind`.  A concrete whose only money use is inside a VALUE OBJECT
+    // still hydrates `new Decimal(...)`, so the import gate must look through
+    // the value object (`aggregateUsesMoneyDeep`), or `Decimal` is used
+    // unimported (TS2304).  The restrictions it applies are pinned in
+    // `hono-tph-capability-filter.test.ts`.
     const files = await genHosted(`
       valueobject Money { amount: money  currency: string }
       system Sys {
@@ -219,17 +215,22 @@ describe("Hono ERP-bundle generator regressions", () => {
     `);
     const baseReader = files.get("db/repositories/product-repository.ts") ?? "";
     expect(baseReader, "TPH base reader emitted").not.toEqual("");
-    expect(baseReader, "base reader delegates to the concrete repositories").toContain(
-      "new CarRepository(db, events)",
-    );
-    expect(baseReader, "findAll unions the concretes' own reads").toContain("this.carRepo.all()");
-    // The two consequences of delegating, asserted as absences: no direct read
-    // of the shared table (so nothing bypasses the concrete's filters), and no
-    // inline hydration (so the Decimal-import gate has nothing to get wrong).
-    expect(baseReader, "base reader must NOT read the shared table itself").not.toContain(
+    // The reader is ONE select over the shared table that hydrates each row as
+    // its `kind`; a VO-nested money field hydrates inline, so the reader must
+    // import what that hydration names.
+    expect(baseReader, "base reader reads the shared table once per read").toContain(
       "from(schema.products)",
     );
-    expect(baseReader, "base reader must NOT hydrate inline").not.toContain("new Decimal(");
+    expect(baseReader, "base reader dispatches on kind").toContain(
+      'case "Car": return [Car._rehydrate(',
+    );
+    expect(baseReader, "inline hydration of a VO's money uses Decimal").toContain("new Decimal(");
+    expect(baseReader, "and the reader imports decimal.js").toContain(
+      'import Decimal from "decimal.js";',
+    );
+    expect(baseReader, "and the value object it constructs").toMatch(
+      /import \{ Money \} from "\.\.\/\.\.\/domain\/value-objects";/,
+    );
     // The concrete repository is where the VO's money is hydrated, and it must
     // still carry its own decimal.js import.
     const carRepo = files.get("db/repositories/car-repository.ts") ?? "";

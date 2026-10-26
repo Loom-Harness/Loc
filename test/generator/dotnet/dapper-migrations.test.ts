@@ -8,7 +8,7 @@
 //     classes (the id EF gives the same migration), rendered by `sql-pg.ts`;
 //   - the `CREATE TABLE IF NOT EXISTS` bootstrap is gone — `DbSchema.cs` is the
 //     runner: `public.__loom_migrations`, one transaction per migration, an
-//     advisory lock, the legacy baseline;
+//     advisory lock, and no legacy-bootstrap baseline;
 //   - the steps are projected onto the Dapper column layout — a value object is
 //     ONE jsonb column, a list is jsonb, a value-object list has no child table
 //     — because that is what the repositories read and write;
@@ -25,7 +25,7 @@ import type {
   SchemaSnapshot,
   TableShape,
 } from "../../../src/ir/types/migrations-ir.js";
-import { generateSystemFiles } from "../../_helpers/generate.js";
+import { generateEvolvedSystemFiles, generateSystemFiles } from "../../_helpers/generate.js";
 
 const SOURCE = (persistence: string) => `
 system Dm {
@@ -69,16 +69,20 @@ describe("Dapper: the migration chain, emitted", () => {
       "public sealed class M20260101000000_Sales_Initial : global::D.Infrastructure.Persistence.LoomMigration",
     );
     expect(initial).toContain('public override string Id => "20260101000000_Sales_Initial";');
-    // The Initial names the tables it creates, for the legacy baseline.
-    expect(initial).toContain('("orders", "orders"),');
+    // No database predates the chain, so nothing is baselined: an Initial
+    // carries no table list and the runner never adopts existing tables.
+    expect(initial).not.toContain("CreatesTables");
 
     const runner = files.get("d/Infrastructure/Persistence/DbSchema.cs")!;
     expect(runner).not.toContain("CREATE TABLE IF NOT EXISTS orders");
     expect(runner).toContain("public.__loom_migrations");
     expect(runner).toContain("pg_advisory_lock");
+    expect(runner).toContain("pg_advisory_unlock");
     expect(runner).toContain("BeginTransactionAsync");
-    expect(runner).toContain("BaselineLegacyAsync");
-    expect(runner).toContain("SET SCHEMA");
+    expect(runner).toContain("INSERT INTO public.__loom_migrations (tag) VALUES (@tag)");
+    expect(runner).not.toContain("BaselineLegacyAsync");
+    expect(runner).not.toContain("CreatesTables");
+    expect(runner).not.toContain("SET SCHEMA");
 
     const program = files.get("d/Program.cs")!;
     expect(program).toContain('SearchPath = "public,orders"');
@@ -115,6 +119,25 @@ describe("Dapper: the migration chain, emitted", () => {
     const ef = files.get("d/Migrations/20260101000000_Sales_Initial.cs")!;
     expect(ef).toContain("migrationBuilder.Sql(");
     expect(unverb(ef)).toContain('"total_amount"');
+  });
+
+  it("a field added to a live aggregate is an ALTER in the next generation's file", async () => {
+    // Generation 1 deploys `Order`; generation 2 adds `note: string = ""`.
+    // The deployed database only ever sees the second file's statements, so
+    // the column must arrive as an ALTER with the declared default — editing
+    // the Initial's CREATE TABLE would leave the live table without it.
+    const before = SOURCE("dapper");
+    const after = before.replace("code: string\n", 'code: string\n        note: string = ""\n');
+    expect(after).not.toBe(before);
+    const files = await generateEvolvedSystemFiles([before, after]);
+    const migrations = [...files.keys()].filter((p) => p.startsWith("d/Migrations/")).sort();
+    expect(migrations).toHaveLength(2);
+    const initial = unverb(files.get(migrations[0]!)!);
+    const gen1 = unverb(files.get(migrations[1]!)!);
+    expect(initial).not.toContain('"note"');
+    expect(gen1).toContain(
+      `ALTER TABLE "orders"."orders" ADD COLUMN "note" TEXT NOT NULL DEFAULT '';`,
+    );
   });
 });
 
@@ -224,6 +247,82 @@ describe("Dapper: delta steps on the jsonb layout", () => {
     );
     expect(dapperStatements(dapperMigrationSteps(m))).toEqual([
       'ALTER TABLE "s"."orders" RENAME COLUMN "price" TO "cost";',
+    ]);
+  });
+
+  it("a renamed value-object leaf moves its PascalCase key in the jsonb, guarded", () => {
+    const leaf = (sub: string) => ({
+      name: `price_${sub}`,
+      type: { kind: "text" as const },
+      nullable: false,
+      voGroup: "price",
+    });
+    const m = delta(
+      [ORDERS([leaf("amount"), leaf("currency_code")])],
+      [ORDERS([leaf("amount"), leaf("iso_code")])],
+      [
+        {
+          op: "renameColumn",
+          table: "orders",
+          schema: "s",
+          from: "price_currency_code",
+          to: "price_iso_code",
+          type: { kind: "text" },
+        },
+      ],
+    );
+    expect(dapperStatements(dapperMigrationSteps(m))).toEqual([
+      `DO $$ BEGIN IF EXISTS (SELECT 1 FROM "s"."orders" WHERE jsonb_typeof("price") = 'object' AND "price" -> 'CurrencyCode' IS NULL AND "price" -> 'IsoCode' IS NULL) THEN RAISE EXCEPTION 'value-object key CurrencyCode not found in s.orders.price; move it with a sql migration step'; END IF; END $$;`,
+      `UPDATE "s"."orders" SET "price" = ("price" - 'CurrencyCode') || jsonb_build_object('IsoCode', "price" -> 'CurrencyCode') WHERE jsonb_typeof("price") = 'object' AND "price" -> 'CurrencyCode' IS NOT NULL;`,
+    ]);
+  });
+
+  it("a renamed value-object list field moves the key in every element of the parent's jsonb", () => {
+    const parentCol = {
+      name: "charges",
+      type: { kind: "json" as const },
+      nullable: false,
+      valueArrayChildTable: "order_charges",
+    };
+    const child = (field: string): TableShape => ({
+      name: "order_charges",
+      ownerModule: "M",
+      schema: "s",
+      columns: [
+        { name: "order_id", type: { kind: "uuid" }, nullable: false },
+        { name: "ordinal", type: { kind: "int" }, nullable: false },
+        { name: field, type: { kind: "int" }, nullable: false },
+      ],
+      primaryKey: ["order_id", "ordinal"],
+      foreignKeys: [],
+      indexes: [],
+    });
+    const m = delta(
+      [ORDERS([parentCol]), child("amount")],
+      [ORDERS([parentCol]), child("cents")],
+      [
+        {
+          op: "renameColumn",
+          table: "order_charges",
+          schema: "s",
+          from: "amount",
+          to: "cents",
+          type: { kind: "int" },
+        },
+        // A key column of the child is no element field: nothing to move.
+        {
+          op: "renameColumn",
+          table: "order_charges",
+          schema: "s",
+          from: "order_id",
+          to: "purchase_id",
+          type: { kind: "uuid" },
+        },
+      ],
+    );
+    expect(dapperStatements(dapperMigrationSteps(m))).toEqual([
+      `DO $$ BEGIN IF EXISTS (SELECT 1 FROM "s"."orders", jsonb_array_elements(CASE WHEN jsonb_typeof("charges") = 'array' THEN "charges" ELSE '[]'::jsonb END) AS e(v) WHERE jsonb_typeof(e.v) = 'object' AND e.v -> 'Amount' IS NULL AND e.v -> 'Cents' IS NULL) THEN RAISE EXCEPTION 'value-object key Amount not found in s.orders.charges; move it with a sql migration step'; END IF; END $$;`,
+      `UPDATE "s"."orders" SET "charges" = (SELECT jsonb_agg(CASE WHEN jsonb_typeof(e.v) = 'object' AND e.v -> 'Amount' IS NOT NULL THEN (e.v - 'Amount') || jsonb_build_object('Cents', e.v -> 'Amount') ELSE e.v END ORDER BY e.o) FROM jsonb_array_elements("charges") WITH ORDINALITY AS e(v, o)) WHERE jsonb_typeof("charges") = 'array' AND "charges" <> '[]'::jsonb;`,
     ]);
   });
 

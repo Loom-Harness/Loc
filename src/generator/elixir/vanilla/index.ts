@@ -551,14 +551,14 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   apiRoutes.push(...openApiRoutes);
 
   // Provenance runtime — the `<App>.Provenance` SDK (trace buffer + history
-  // flush + the `Json` Ecto type + `Record` schema) plus the migration that
-  // adds the co-located `<field>_provenance` columns + the `provenance_records`
-  // table.  No-op unless a provenanced field exists (DEBT-06).
-  emitVanillaProvenance(appName, appModule, contexts, out, sys);
+  // flush + the `Json` Ecto type + `Record` schema).  Its DDL — the co-located
+  // `<field>_provenance` columns + the `provenance_records` table — is ordinary
+  // MigrationsIR.  No-op unless a provenanced field exists.
+  emitVanillaProvenance(appName, appModule, contexts, out);
 
   // Audit runtime — the `<App>.Audit` sink (Record schema + the `Json` Ecto
-  // type + the transactional `record/2` insert) plus the late migration that
-  // creates `audit_records`.  No-op unless an aggregate carries an audited
+  // type + the transactional `record/2` insert); `audit_records` is
+  // MigrationsIR DDL too.  No-op unless an aggregate carries an audited
   // command action (operation / create / destroy) (audit-and-logging.md).
   emitVanillaAudit(appName, appModule, contexts, out, sys);
 

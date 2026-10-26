@@ -377,8 +377,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "16-ui-walker-primitives.md#chart--grouped-projection-series-every-frontend",
   "loom.chart-of-not-grouped":
     "16-ui-walker-primitives.md#chart--grouped-projection-series-every-frontend",
-  "loom.chart-unsupported-target":
-    "16-ui-walker-primitives.md#chart--grouped-projection-series-every-frontend",
+  "loom.target-unsupported": "16-ui-walker-primitives.md#per-target-honest-gates",
   "loom.bindable-input-value-arg":
     "16-ui-walker-primitives.md#the-form-family--createform-operationform-workflowform-destroyform",
   "loom.page-form-locals-unsupported":
@@ -508,6 +507,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.diff-baseline-invalid": "../mcp.md#the-loom_-tool-catalog",
   "loom.migration-unique-on-existing-table":
     "../migrations.md#a-unique-index-on-a-populated-table--loommigration-unique-on-existing-table",
+  "loom.migration-enum-narrowed":
+    "../migrations.md#an-enum-that-loses-a-member--loommigration-enum-narrowed",
   "loom.unique-tpc-not-hierarchy-wide":
     "../inheritance.md#unique-keys-on-a-tpc-base--loomunique-tpc-not-hierarchy-wide",
 };

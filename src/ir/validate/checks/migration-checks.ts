@@ -1,7 +1,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import type { AggregateIR, EnrichedLoomModel, ExprIR, TypeIR } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
-import { sqlRenderableExpr } from "../../util/sql-renderable-expr.js";
+import { sqlRenderableExpr, sqlTemporalArith } from "../../util/sql-renderable-expr.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // ---------------------------------------------------------------------------
@@ -93,7 +93,27 @@ export function validateMigrationDataSteps(loom: EnrichedLoomModel, diags: LoomD
     }
 
     const fit = backfillTypeFits(field.type, intent.value);
-    if (fit !== true) {
+    // A required column cannot take a value that may be NULL: the UPDATE
+    // writes the NULL and the `SET NOT NULL` that follows it fails on that
+    // row at boot.  The family check above strips `?`, so this is its own
+    // test — over every optional sibling the expression can return as-is.
+    const nullableFrom =
+      fit === true && field.type.kind !== "optional"
+        ? nullableSources(intent.value, (name) => agg.fields.find((f) => f.name === name)?.type)
+        : [];
+    if (nullableFrom.length > 0) {
+      diags.push({
+        severity: "error",
+        code: "loom.backfill-type-mismatch",
+        message: diagMessage("loom.backfill-type-mismatch#optional-source", {
+          aggregate: intent.aggregate,
+          field: intent.field,
+          sources: nullableFrom.map((n) => `'${n}'`).join(", "),
+          example: nullableFrom[0],
+        }),
+        source,
+      });
+    } else if (fit !== true) {
       diags.push({
         severity: "error",
         code: "loom.backfill-type-mismatch",
@@ -482,6 +502,87 @@ export function validateSelfProvisioningSchemaSupport(
       }
     }
   }
+}
+
+/** The optional sibling fields whose NULL a backfill expression can return
+ *  unchanged — empty when the expression always yields a value.  Mirrors the
+ *  SQL the renderer emits: NULL propagates through every operator and
+ *  comparison, a `CASE` returns whichever branch it takes, and only an
+ *  `x == null` / `x != null` presence test both yields a non-NULL boolean and
+ *  narrows `x` in the branch that follows it (`label ?? "x"` lowers to
+ *  `label == null ? "x" : label`, so its `label` is never NULL).  A `null`
+ *  literal is not reported here: the family check already names it. */
+function nullableSources(
+  e: ExprIR,
+  fieldType: (name: string) => TypeIR | undefined,
+  nonNull: ReadonlySet<string> = new Set(),
+): string[] {
+  const rec = (x: ExprIR, nn: ReadonlySet<string> = nonNull) => nullableSources(x, fieldType, nn);
+  switch (e.kind) {
+    case "ref": {
+      if (e.refKind !== "this-prop" || nonNull.has(e.name)) return [];
+      return fieldType(e.name)?.kind === "optional" ? [e.name] : [];
+    }
+    case "paren":
+      return rec(e.inner);
+    case "unary":
+      return rec(e.operand);
+    case "binary": {
+      if (presenceTest(e)) return [];
+      const temporal = sqlTemporalArith(e);
+      if (temporal) return uniq([...rec(temporal.datetime), ...rec(temporal.duration.amount)]);
+      return uniq([...rec(e.left), ...rec(e.right)]);
+    }
+    case "ternary": {
+      const test = presenceTest(e.cond);
+      const narrowed = (branch: "then" | "otherwise"): ReadonlySet<string> => {
+        if (!test) return nonNull;
+        const isNullBranch = test.op === "==" ? "then" : "otherwise";
+        return branch === isNullBranch ? nonNull : new Set([...nonNull, test.name]);
+      };
+      return uniq([...rec(e.then, narrowed("then")), ...rec(e.otherwise, narrowed("otherwise"))]);
+    }
+    // Literals carry their own value (`null` is the family check's case);
+    // every other kind is refused by `sqlRenderableExpr` before this runs.
+    case "literal":
+    case "action-ref":
+    case "authz-filter":
+    case "call":
+    case "convert":
+    case "duration":
+    case "i18nFormat":
+    case "id":
+    case "lambda":
+    case "list":
+    case "match":
+    case "member":
+    case "method-call":
+    case "new":
+    case "object":
+    case "this":
+      return [];
+    default: {
+      const _exhaustive: never = e;
+      void _exhaustive;
+      return [];
+    }
+  }
+}
+
+/** `<sibling> == null` / `<sibling> != null` (either operand order): the
+ *  sibling it tests and the operator, or undefined. */
+function presenceTest(e: ExprIR): { name: string; op: "==" | "!=" } | undefined {
+  const inner = e.kind === "paren" ? e.inner : e;
+  if (inner.kind !== "binary" || (inner.op !== "==" && inner.op !== "!=")) return undefined;
+  const isNull = (x: ExprIR) => x.kind === "literal" && x.lit === "null";
+  const other = isNull(inner.right) ? inner.left : isNull(inner.left) ? inner.right : undefined;
+  const ref = other?.kind === "paren" ? other.inner : other;
+  if (ref?.kind !== "ref" || ref.refKind !== "this-prop") return undefined;
+  return { name: ref.name, op: inner.op };
+}
+
+function uniq(xs: string[]): string[] {
+  return [...new Set(xs)];
 }
 
 function typeFamily(t: TypeIR): string | undefined {

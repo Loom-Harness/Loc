@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
 import { generateSystems } from "../../../src/system/index.js";
+import { generateEvolvedSystemFiles } from "../../_helpers/generate.js";
 
 async function build(source: string): Promise<Model> {
   const services = createDddServices(NodeFileSystem);
@@ -215,26 +216,38 @@ describe("dotnet provenance runtime", () => {
     );
   });
 
-  it("adds the co-located column in a migration and takes the history table from MigrationsIR", async () => {
+  it("takes the co-located column and the history table from the MigrationsIR chain", async () => {
     const f = await files();
-    const key = [...f.keys()].find((k) => /api\/Migrations\/.*ProvenanceAudit\.cs$/.test(k));
-    expect(key).toBeDefined();
-    const mig = f.get(key!)!;
-    // schema-qualified to the resolved dataSource schema (matching ToTable)
-    expect(mig).toContain(
-      "ALTER TABLE ordering.orders ADD COLUMN IF NOT EXISTS total_provenance jsonb;",
+    const migrations = [...f.keys()].filter((k) => /^api\/Migrations\/.*\.cs$/.test(k));
+    // Only the chain's own generation — no out-of-chain late migration.
+    expect(migrations).toEqual([expect.stringMatching(/_Core_Initial\.cs$/)]);
+    const initial = f.get(migrations[0]!)!;
+    // In the resolved dataSource schema (matching ToTable), as a column of the
+    // aggregate's own CREATE TABLE.
+    expect(initial).toMatch(
+      /CREATE TABLE ""ordering"".""orders"" \([^;]*""total_provenance"" JSONB NULL/,
     );
-    // The history table's DDL moved to the shared MigrationsIR
-    // (`provenanceTableShape`).  The copy that used to live here had already
-    // drifted — it created only the `(target_type, field)` index and omitted
-    // the `correlation_id` one every sibling emitted; the shared shape carries
-    // both.
-    expect(mig).not.toContain("CREATE TABLE");
-    const initial = [...f.entries()].find(([k]) =>
-      /api\/Migrations\/.*_Core_Initial\.cs$/.test(k),
-    )?.[1];
     expect(initial).toContain('CREATE TABLE ""provenance_records""');
     expect(initial).toContain('CREATE INDEX ""provenance_records_correlation_idx""');
+    // The EF mapping names the same column.
+    const cfg = [...f.entries()].find(([k]) => k.endsWith("OrderConfiguration.cs"))?.[1];
+    expect(cfg).toContain('HasColumnName("total_provenance").HasColumnType("jsonb")');
+  });
+
+  it("marking an existing field `provenanced` adds its column in a NEW EF migration", async () => {
+    const v1 = SOURCE;
+    const v2 = SOURCE.replace("discount: int\n", "discount: int provenanced\n");
+    const before = await generateEvolvedSystemFiles([v1]);
+    const after = await generateEvolvedSystemFiles([v1, v2]);
+    const migs = (m: Map<string, string>) =>
+      [...m.keys()].filter((k) => /^api\/Migrations\/.*\.cs$/.test(k)).sort();
+    const [initial] = migs(before);
+    expect(after.get(initial!)).toBe(before.get(initial!));
+    const added = migs(after).filter((k) => k !== initial);
+    expect(added).toHaveLength(1);
+    expect(after.get(added[0]!)).toContain(
+      'ALTER TABLE ""ordering"".""orders"" ADD COLUMN IF NOT EXISTS ""discount_provenance"" JSONB NULL;',
+    );
   });
 });
 
@@ -333,9 +346,8 @@ describe("dotnet per-operation audit runtime", () => {
     );
   });
 
-  // The DDL moved to the shared MigrationsIR (`auditTableShape`), so it is
-  // rendered by the ordinary module-migration emitter rather than being appended
-  // to the hand-written ProvenanceAudit migration.
+  // The DDL is shared MigrationsIR (`auditTableShape`), rendered by the
+  // ordinary module-migration emitter.
   it("creates the audit_records table through the shared migration emitter", async () => {
     const f = await files();
     const mig = [...f.entries()].find(
