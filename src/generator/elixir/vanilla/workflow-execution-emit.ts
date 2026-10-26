@@ -94,6 +94,7 @@ import {
 } from "../../../ir/util/walk.js";
 import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { lineCount, type SourceMapRecorder } from "../../_trace/sourcemap.js";
 import {
@@ -526,10 +527,18 @@ function lowerStatement(
       // (`renderCtx.tagGetByIdMiss`): the explicit-handler and mutating
       // domain-service paths share this lowering, and their dispatchers know
       // only the bare term.
+      // A natural-key `getBy` miss is the find-absence 404 — the `not_found`
+      // token a declared find's route answers (RS-27) — tagged the same way.
+      const missDetail =
+        st.op === "load"
+          ? `"${upperFirst(st.aggName)} #{${argList}} not found"`
+          : st.op === "load-by-key"
+            ? JSON.stringify(FIND_ABSENT_DETAIL)
+            : undefined;
       const call =
-        st.op === "load" && renderCtx.tagGetByIdMiss
+        missDetail && renderCtx.tagGetByIdMiss
           ? `(case ${contextModule}.${action}(${argList}) do
-           {:error, :not_found} -> {:error, {:not_found, "${upperFirst(st.aggName)} #{${argList}} not found"}}
+           {:error, :not_found} -> {:error, {:not_found, ${missDetail}}}
            found -> found
          end)`
           : `${contextModule}.${action}(${argList})`;
@@ -845,8 +854,13 @@ function lowerStatement(
         );
         return [...stmtLines, result];
       };
+      // A guard — an empty then-branch over an `else` that answers the 404 —
+      // keeps the hit bound for the statements after it (a handler's
+      // `if let o = … { return o } else { notFound }`), so the clause binds
+      // the branch's `{:ok, o}` instead of discarding it.
+      const guard = st.thenBody.length === 0 && st.elseBody?.at(-1)?.kind === "not-found";
       const lines = [
-        `{:ok, _} <- (`,
+        `{:ok, ${guard ? v : "_"}} <- (`,
         `           ${v} = case ${lookup.call} do`,
         `             ${lookup.hit} -> hit`,
         `             _ -> nil`,
@@ -858,7 +872,7 @@ function lowerStatement(
         `           end`,
         `         )`,
       ];
-      return [{ kind: "with-clause", text: lines.join("\n"), bindName: undefined }];
+      return [{ kind: "with-clause", text: lines.join("\n"), bindName: guard ? v : undefined }];
     }
     default: {
       // CR1-f (wave CR1, audit row P0-2b): all 14 `WorkflowStmtIR` kinds are
@@ -1961,6 +1975,15 @@ end
 
 /** Does any body of this workflow load through `getById` or answer `notFound`
  *  (at any depth)?  Gates the dispatcher's `{:not_found, detail}` arm. */
+/** A statement whose miss reaches the dispatcher as the detail-carrying
+ *  `{:not_found, detail}` term: a by-id or natural-key load (tagged under
+ *  `tagGetByIdMiss`), or `notFound` itself. */
+export function tagsNotFoundMiss(s: WorkflowStmtIR): boolean {
+  return (
+    (s.kind === "repo-let" && (s.op === "load" || s.op === "load-by-key")) || s.kind === "not-found"
+  );
+}
+
 function workflowLoadsById(wf: WorkflowIR): boolean {
   const lists: readonly (readonly WorkflowStmtIR[])[] = [
     wf.statements,
@@ -1971,7 +1994,7 @@ function workflowLoadsById(wf: WorkflowIR): boolean {
   for (const list of lists) {
     for (const top of list) {
       walkWorkflowStmtsDeep(top, (s) => {
-        if ((s.kind === "repo-let" && s.op === "load") || s.kind === "not-found") found = true;
+        if (tagsNotFoundMiss(s)) found = true;
       });
     }
   }

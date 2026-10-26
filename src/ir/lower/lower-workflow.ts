@@ -33,6 +33,7 @@ import {
   isReturnStmt,
   isWorkflowCreateDecl,
 } from "../../language/generated/ast.js";
+import { handlerReturnGuard } from "../../language/handler-return.js";
 import { upperFirst } from "../../util/naming.js";
 import { namedRepoCallOp, repoVerbEffect } from "../../util/repository-contract.js";
 import { findVerb } from "../resource-verbs.js";
@@ -401,9 +402,12 @@ export function lowerQueryHandler(
 /** Lower a `commandHandler` / `queryHandler` body: every non-return statement
  *  through the shared workflow-statement lowerer, and the terminal `return
  *  <expr>` as a distinct `returnValue` (the workflow statement vocabulary has
- *  no return form).  A return may only appear as the LAST statement — the
- *  validator/grammar don't yet forbid a mid-body return, so a defensive guard
- *  keeps the last-return semantics (an earlier return would be dead code). */
+ *  no return form).  `loom.handler-return-not-last` keeps every other return
+ *  out, with one shape besides a last top-level return: a trailing
+ *  `if let x = <lookup> { return <expr> } else { …; notFound }`
+ *  (`handlerReturnGuard`).  Its `else` cannot fall through, so it lowers as a
+ *  GUARD — an `if-let` with an empty then-branch, after which `x` stays bound
+ *  — and its `return` becomes the `returnValue`, read with `x` in scope. */
 function lowerHandlerBody(
   body: readonly Statement[],
   env: Env,
@@ -415,12 +419,19 @@ function lowerHandlerBody(
   const statements: WorkflowStmtIR[] = [];
   let returnValue: ExprIR | undefined;
   let inner = env;
+  const guard = handlerReturnGuard(body);
   for (const s of body) {
     if (isReturnStmt(s)) {
       returnValue = lowerExpr(s.value, inner);
       continue;
     }
     const l = lowerWorkflowStatement(s, inner, aggsByName, reposByName, repoForAgg, saveResolver);
+    if (guard && s === guard.ifLet && l.stmt?.kind === "if-let") {
+      statements.push({ ...l.stmt, thenBody: [], savesInThen: [] });
+      const bound = withLocal(inner, l.stmt.var, "let", { kind: "entity", name: l.stmt.aggName });
+      returnValue = lowerExpr(guard.ret.value, bound);
+      continue;
+    }
     if (l.stmt) statements.push(l.stmt);
     inner = l.envAfter;
   }

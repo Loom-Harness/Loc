@@ -2603,6 +2603,17 @@ export function honoWorkflowStmtTarget(
       const elseSaves = st.savesInElse.map(
         (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,
       );
+      // A guard — nothing on a hit, the 404 on a miss — reads as one negated
+      // branch; the binding stays narrowed to non-null after it.
+      if (thenLines.length === 0 && thenSaves.length === 0 && elseLines.length > 0) {
+        return [
+          `${indent}const ${escapeTsIdent(st.var)} = ${lookup};`,
+          `${indent}if (${escapeTsIdent(st.var)} === null) {`,
+          ...elseLines,
+          ...elseSaves,
+          `${indent}}`,
+        ];
+      }
       const out = [
         `${indent}const ${escapeTsIdent(st.var)} = ${lookup};`,
         `${indent}if (${escapeTsIdent(st.var)} !== null) {`,
