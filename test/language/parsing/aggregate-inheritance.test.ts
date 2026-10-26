@@ -549,7 +549,9 @@ system Sys {
     expect(reader).toMatch(/public sealed class PartyRepository : IPartyRepository/);
     expect(reader).toMatch(/ICustomerRepository/);
     expect(reader).toMatch(/ISupplierRepository/);
-    expect(reader).toMatch(/result\.AddRange\(\(await _customerRepo\.All\(cancellationToken\)\)\.Select\(/);
+    expect(reader).toMatch(
+      /result\.AddRange\(\(await _customerRepo\.All\(cancellationToken\)\)\.Select\(/,
+    );
     expect(reader).not.toMatch(/SaveAsync/);
     // EF excludes the base from the model so each concrete maps standalone.
     expect(get("Infrastructure/Persistence/AppDbContext.cs")).toMatch(
