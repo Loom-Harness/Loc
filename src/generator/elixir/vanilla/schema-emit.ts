@@ -524,9 +524,13 @@ function singleValueObjectName(t: TypeIR): string | null {
 /** Render a simple literal default to its Ecto `default:` value, or `null`
  *  for a non-literal default (skipped — keeps the field's struct default
  *  unset rather than emitting an expression Ecto can't evaluate at compile
- *  time).  Shared with the DOCUMENT embed (`document-emit.ts`), whose
- *  `<Agg>.Data` fields need the same treatment for the same reason. */
+ *  time), except an enum case, which is an atom.  Shared with the DOCUMENT
+ *  embed (`document-emit.ts`), whose `<Agg>.Data` fields need the same
+ *  treatment for the same reason. */
 export function renderEctoDefault(e: ExprIR): string | null {
+  // An enum case is an `Ecto.Enum` atom in its declared casing — the same
+  // spelling as the field's `values:` list.
+  if (e.kind === "ref" && e.refKind === "enum-value") return `:${e.name}`;
   if (e.kind !== "literal") return null;
   switch (e.lit) {
     case "string":
