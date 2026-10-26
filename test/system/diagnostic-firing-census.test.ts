@@ -2596,6 +2596,7 @@ system S {
   // `toThrow(<status>)` are wire-level and refused OUTSIDE a `test e2e`.
   "loom.matcher-e2e-only": matcherTest('expect("x").toBeSameInstant("y")'),
   "loom.tothrow-arity": matcherTest('expect("x").toThrow(404, 500)'),
+  "loom.not-throw-invalid": matcherTest('expect("x").not.toThrow()'),
   "loom.matches-arity": matcherTest('expect("x").matches("a", "b")'),
   "loom.matches-named-arg": matcherTest('expect("x").matches(pattern: "a")'),
   "loom.matches-not-literal": matcherTest('expect("x").matches(1)'),

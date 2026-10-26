@@ -585,3 +585,54 @@ describe("loom.frontend-collection-op-unsupported — store surfaces", () => {
     ).not.toContain(CODE);
   });
 });
+
+describe("loom.frontend-collection-op-unsupported — a projection row field named like an op", () => {
+  const projectionSystem = (projection: string, ui: string) => `
+system Demo {
+  subdomain S {
+    context C {
+      aggregate Invoice { total: money  status: string  create() { } }
+      repository Invoices for Invoice { }
+      ${projection}
+    }
+  }
+  api A from S
+  ui Web {
+    api C: A
+    ${ui}
+  }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api { platform: node  contexts: [C]  dataSources: [st]  serves: A  port: 3000 }
+  deployable web { platform: static  targets: api  ui: Web { C: api }  port: 3001 }
+}`;
+
+  async function projectionCodes(projection: string, ui: string): Promise<string[]> {
+    const { model, errors } = await parseString(projectionSystem(projection, ui));
+    if (errors.length) throw new Error(`unexpected parse/validation errors:\n${errors.join("\n")}`);
+    return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? "");
+  }
+
+  const wholeTable =
+    "projection Totals { sum: money  from Invoice as i  select sum = sum(i.total) }";
+  const grouped =
+    "projection ByStatus { status: string  sum: money  from Invoice as i  group by i.status  select status = i.status, sum = sum(i.total) }";
+
+  it("accepts `t.sum` off a whole-table projection — the binding is ONE record", async () => {
+    expect(
+      await projectionCodes(
+        wholeTable,
+        `page P { route: "/"  body: QueryView { of: C.Totals, data: t => Stat("Total", Money(t.sum)) } }`,
+      ),
+    ).not.toContain(CODE);
+  });
+
+  it("still refuses an unsupported op off a GROUPED projection — that binding is a row set", async () => {
+    expect(
+      await projectionCodes(
+        grouped,
+        `page P { route: "/"  body: QueryView { of: C.ByStatus, data: rows => Stat("Total", rows.first) } }`,
+      ),
+    ).toContain(CODE);
+  });
+});

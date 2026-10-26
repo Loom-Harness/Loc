@@ -173,7 +173,7 @@ describe("Sales (integration)", () => {
 });
 ```
 
-> A repository call spelled the workflow way (`Orders.save(o)` / `Orders.getById(…)`) is **not** part of this vocabulary and is currently rendered verbatim (an unresolved identifier in the emitted test) without a diagnostic — use `<Agg>.findById` and let the factory save.
+> A repository call spelled the workflow way (`Orders.save(o)` / `Orders.getById(…)`) is **not** part of this vocabulary and is refused with `loom.integration-repository-call` — use `<Agg>.findById` and let the factory save.
 
 ## `test e2e "…" against <Deployable>` — a live end-to-end test
 

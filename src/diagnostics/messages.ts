@@ -1565,6 +1565,8 @@ export const DIAGNOSTIC_MESSAGES = {
     "'toThrow(<status>)' pins an HTTP status and is only valid in a 'test e2e' block; use a bare 'toThrow()' in an in-process test.",
   "loom.tothrow-arity": (p: { got: unknown }) =>
     `'toThrow' takes at most one argument (an HTTP status), got ${p.got}.`,
+  "loom.not-throw-invalid":
+    "'.not.toThrow()' is not supported — 'toThrow' has no negated form. Call the operation directly; an unexpected throw already fails the test.",
   "loom.tothrow-status-not-int":
     "'toThrow(<status>)' requires an integer HTTP status literal, e.g. toThrow(404).",
   // The four `matches(<regex>)` rules stay four codes: arity, named-argument,
@@ -4654,6 +4656,16 @@ export const DIAGNOSTIC_MESSAGES = {
     `context '${p.name}' integration test '${p.testName}': a repository read inside ` +
     `'expect(...)' must be let-bound first — write \`let x = <Agg>.findById(...)\` then ` +
     `assert over \`x\` (the integration renderer awaits the read at statement level).`,
+  "loom.integration-repository-call": (p: {
+    name: unknown;
+    testName: unknown;
+    repo: unknown;
+    member: unknown;
+    agg: unknown;
+  }) =>
+    `context '${p.name}' integration test '${p.testName}': \`${p.repo}.${p.member}(…)\` calls the repository by name, ` +
+    `which an integration test body does not resolve. Root persistence reads at the aggregate instead — ` +
+    `\`let x = ${p.agg}.findById(...)\` — and let a factory \`let\` be saved for you.`,
   "loom.e2e-unsupported-statement": (p: { name: unknown; badKind: unknown; magicId: unknown }) =>
     `e2e test '${p.name}': '${p.badKind}' is not supported in an e2e test body. ` +
     `Only expect, expect-throws, let, expression, and ${p.magicId}.<...> calls are allowed.`,

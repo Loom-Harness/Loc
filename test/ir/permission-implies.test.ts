@@ -2,6 +2,11 @@
 // to accept a broader permission (authorization.md §6, M-T3.2 item 7).
 
 import { describe, expect, it } from "vitest";
+import { renderCsExpr } from "../../src/generator/dotnet/render-expr.js";
+import { renderExpr as renderExUnit } from "../../src/generator/elixir/render-expr.js";
+import { renderJavaExpr } from "../../src/generator/java/render-expr.js";
+import { renderPyExpr } from "../../src/generator/python/render-expr.js";
+import { renderTsExpr } from "../../src/generator/typescript/render-expr.js";
 import type { ExprIR, StmtIR } from "../../src/ir/types/loom-ir.js";
 import { buildLoomModel } from "../_helpers/ir.js";
 
@@ -13,7 +18,10 @@ system P {
     context C {
       aggregate Order with crudish {
         status: string
+        amt: int
+        cap: int
         operation viewIt() requires currentUser.permissions.contains(permissions.read) { status := "x" }
+        operation guarded() requires currentUser.permissions.contains(permissions.read) && amt <= cap { status := "x" }
       }
     }
   }
@@ -57,5 +65,43 @@ describe("permission implies — IR closure + gate expansion", () => {
     expect(lits.has("m.read")).toBe(true);
     expect(lits.has("m.edit")).toBe(true);
     expect(lits.has("m.approve")).toBe(true);
+  });
+
+  it("groups the implies expansion so a following `&&` binds the whole closure", async () => {
+    const ir = await buildLoomModel(SRC);
+    const op = ir.systems[0]!.subdomains[0]!.contexts[0]!.aggregates[0]!.operations.find(
+      (o) => o.name === "guarded",
+    )!;
+    const gate = (op.statements.find((s: StmtIR) => s.kind === "requires") as { expr: ExprIR })
+      .expr;
+    expect(gate.kind).toBe("binary");
+    const bin = gate as Extract<ExprIR, { kind: "binary" }>;
+    expect(bin.op).toBe("&&");
+    expect(bin.left.kind).toBe("paren");
+    const inner = (bin.left as Extract<ExprIR, { kind: "paren" }>).inner;
+    expect(inner.kind).toBe("binary");
+    expect((inner as Extract<ExprIR, { kind: "binary" }>).op).toBe("||");
+
+    // Every backend renders the group: the `||` chain sits inside parentheses
+    // that close before the `&&` / `and`.
+    const rendered = {
+      ts: renderTsExpr(gate),
+      cs: renderCsExpr(gate),
+      py: renderPyExpr(gate),
+      java: renderJavaExpr(gate),
+      ex: renderExUnit(gate),
+    };
+    for (const [target, out] of Object.entries(rendered)) {
+      expect(out.startsWith("("), target).toBe(true);
+      let depth = 0;
+      let close = -1;
+      for (let k = 0; k < out.length && close < 0; k++) {
+        if (out[k] === "(") depth++;
+        else if (out[k] === ")" && --depth === 0) close = k;
+      }
+      const group = out.slice(0, close + 1);
+      expect(group, target).toMatch(/\|\||\bor\b/);
+      expect(out.slice(close + 1).trimStart(), target).toMatch(/^(&&|and\b)/);
+    }
   });
 });
