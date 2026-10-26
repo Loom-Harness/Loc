@@ -81,11 +81,23 @@ describe("callable returns", () => {
   it("accepts a read handler returning the aggregate as its `<Agg>Response` record", async () => {
     const c = await codes(
       "",
-      `response AccountResponse { id: Account id  balance: int }
-       queryHandler get(id: Account id): AccountResponse { let a = Accounts.getById(id)  return a }
+      `response AccountResponse { balance: int }
+       queryHandler get(accountId: Account id): AccountResponse {
+         let a = Accounts.getById(accountId)
+         return a
+       }
        queryHandler all(): AccountResponse[] { let r = Accounts.findAll()  return r }`,
     );
     expect(c).not.toContain(MISMATCH);
+    // The model must reach validation for that to mean anything.
+    const wrong = await codes(
+      "",
+      `queryHandler get(accountId: Account id): Snap {
+         let a = Accounts.getById(accountId)
+         return a
+       }`,
+    );
+    expect(wrong).toContain(MISMATCH);
   });
 
   it("leaves an operation without a declared result alone", async () => {
