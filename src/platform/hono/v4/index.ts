@@ -9,6 +9,7 @@ import type {
   PlatformAdapterDefaults,
   PlatformAdapters,
 } from "../../../generator/_adapters/index.js";
+import { TARGET_CAPABILITIES } from "../../../util/target-capabilities.js";
 import {
   type ComposeServiceShape,
   type PlatformSurface,
@@ -35,6 +36,7 @@ export function makeHonoPlatform(pins: BackendPins): PlatformSurface {
     // Static-asset host (static middleware): serves any static-bundle
     // framework.  D-PHOENIX-SURFACE.
     hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
+    capabilities: TARGET_CAPABILITIES.node,
     emitProject({
       contexts,
       deployable,

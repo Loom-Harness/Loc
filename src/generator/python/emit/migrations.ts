@@ -1,13 +1,7 @@
-import type { BoundedContextIR, SystemIR } from "../../../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../../../ir/types/migrations-ir.js";
 import { snake } from "../../../util/naming.js";
 import { BOOT_DB_RETRY } from "../../_obs/boot-db-retry.js";
 import { renderPgStep, splitPgStatements } from "../../sql-pg.js";
-import {
-  provenancedAggregates,
-  provenanceMigrationTag,
-  renderPyProvenanceMigration,
-} from "./provenance.js";
 
 // ---------------------------------------------------------------------------
 // Python migration emitter — the Drizzle-runtime-migrator pattern with
@@ -46,25 +40,6 @@ export function emitPythonMigrations(migrations: MigrationsIR[], out: Map<string
     out.set(`migrations/${tag}.sql`, `${statements.join(`\n${STATEMENT_BREAKPOINT}\n`)}\n`);
   }
 }
-
-/** The LATE provenance migration (provenance.md): hand-emitted — provenance is
- *  NOT in the shared MigrationsIR.  Adds the co-located `<field>_provenance`
- *  jsonb column per provenanced table + creates `provenance_records`.  The
- *  version sorts after every module migration, so the columns/table land last.
- *  No-op (byte-identical) when no aggregate declares a provenanced field. */
-export function emitPythonProvenanceMigration(
-  contexts: BoundedContextIR[],
-  out: Map<string, string>,
-  sys?: SystemIR,
-): void {
-  const provAggs = provenancedAggregates(contexts, sys);
-  if (provAggs.length === 0) return;
-  out.set(`migrations/${provenanceMigrationTag()}.sql`, renderPyProvenanceMigration(provAggs));
-}
-
-// NOTE: no LATE audit migration here.  The `audit_records` DDL lives in the
-// shared MigrationsIR (`auditTableShape`) so all five backends derive it from
-// one place.
 
 export const MIGRATE_PY = `"""Boot-time migration runner.  Auto-generated.
 

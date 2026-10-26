@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles } from "../../_helpers/generate.js";
+import { generateEvolvedSystemFiles, generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Provenance runtime on the Python (FastAPI / SQLAlchemy 2 async) backend — W2.
@@ -131,25 +131,41 @@ describe("python provenance runtime (W2)", () => {
     expect(repo).not.toContain("session.begin()");
   });
 
-  it("emits the LATE provenance migration (co-located ALTER only)", async () => {
+  it("takes the co-located column and the history table from the MigrationsIR chain", async () => {
     const files = await generateSystemFiles(SOURCE);
-    const mig = file(files, "_provenance.sql");
-    // The orders table lives in the `ordering` schema — the ALTER is qualified.
-    expect(mig).toContain('ALTER TABLE "ordering".orders ADD COLUMN "total_provenance" jsonb;');
-    // The history table's DDL moved to the shared MigrationsIR
-    // (`provenanceTableShape`), so it arrives in the ordinary module migration
-    // like the outbox and audit tables — not hand-written here.
-    expect(mig).not.toContain("CREATE TABLE");
-    const initial = file(files, "_ordering_initial.sql");
+    const sql = [...files.keys()].filter((k) => /\/migrations\/[^/]+\.sql$/.test(k));
+    // Only the chain's own generation — no out-of-chain late migration.
+    expect(sql).toEqual([expect.stringMatching(/_ordering_initial\.sql$/)]);
+    const initial = files.get(sql[0]!)!;
+    // The orders table lives in the `ordering` schema.
+    expect(initial).toMatch(
+      /CREATE TABLE "ordering"\."orders" \([^;]*"total_provenance" JSONB NULL/,
+    );
     expect(initial).toContain('CREATE TABLE "provenance_records"');
     expect(initial).toContain('CREATE INDEX "provenance_records_correlation_idx"');
+  });
+
+  it("marking an existing field `provenanced` adds its column in a NEW migration", async () => {
+    const v2 = SOURCE.replace("discount: int\n", "discount: int provenanced\n");
+    const before = await generateEvolvedSystemFiles([SOURCE]);
+    const after = await generateEvolvedSystemFiles([SOURCE, v2]);
+    const migs = (m: Map<string, string>) =>
+      [...m.keys()].filter((k) => /\/migrations\/[^/]+\.sql$/.test(k)).sort();
+    const [initial] = migs(before);
+    expect(after.get(initial!)).toBe(before.get(initial!));
+    const added = migs(after).filter((k) => k !== initial);
+    expect(added).toHaveLength(1);
+    expect(after.get(added[0]!)).toBe(
+      'ALTER TABLE "ordering"."orders" ADD COLUMN IF NOT EXISTS "discount_provenance" JSONB NULL;\n',
+    );
   });
 
   it("is gated: no SDK / migration / capture / column when nothing is provenanced", async () => {
     const files = await generateSystemFiles(PLAIN);
     expect([...files.keys()].some((k) => k.endsWith("/app/domain/provenance.py"))).toBe(false);
     expect([...files.keys()].some((k) => k.endsWith("/app/db/provenance.py"))).toBe(false);
-    expect([...files.keys()].some((k) => k.endsWith("_provenance.sql"))).toBe(false);
+    const ddl = [...files.entries()].filter(([k]) => /\/migrations\/[^/]+\.sql$/.test(k));
+    expect(ddl.some(([, sql]) => sql.includes("provenance"))).toBe(false);
     const agg = file(files, "/app/domain/item.py");
     expect(agg).not.toContain("record(");
     expect(agg).not.toContain("ProvLineage");

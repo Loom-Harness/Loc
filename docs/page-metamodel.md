@@ -824,7 +824,7 @@ the table below is the map.
 | `ProvenanceInfo(of:, field:)` | A "?" disclosure over a `provenanced` field's lineage (a native `<details>`/`<summary>`; [provenance.md](provenance.md)). Reads the co-located `<field>_provenance` lineage; scaffolded onto a provenanced field's detail row. Renders on **five of the six frontends** (all but Flutter) plus the Phoenix/HEEx server render — React/Vue/Svelte/Angular/Feliz off the JSON wire sibling; HEEx reads the string-keyed jsonb struct field server-side (`<%= if … %>`/`<%= for … %>`). |
 | `CodeBlock` | Syntax-highlighted code block. The highlighter is **vendored, not CDN-loaded**: a deployable with at least one `CodeBlock` gains a `highlight.js` dependency plus an emitted `src/lib/highlight.ts` (the 36-language `lib/common` bundle), so the app builds and runs air-gapped. It is loaded **lazily**: the module dynamic-imports the highlighter the first time an unhighlighted `pre code` appears, so it ships as its own chunk and a page with no code block never fetches it. An app without a `CodeBlock` gains neither, and a `language:` outside the bundled set degrades to plain text. `title:` is a user-visible slot — a caption above the sample, translated through the message catalog. The code SOURCE deliberately is not: translating code breaks it, so an untitled block leaves a page string-less. |
 | `Table`, `Column` | Tabular display (data lambda accessors). `Column` is the sub-element of `Table`/`DataGrid`. `filter: <state>` binds a client-side search box above the table; it renders on the six `walkBody` frontends and on a CLIENT-paged table only. On HEEx there is no filter seam (`loom.table-filter-unsupported`), and a server-paged table's rows are one server window, so a client filter there would narrow that page rather than the result set (`loom.table-filter-server-paged`) — note the auto-paged rewrite turns the simplest hand-written `Table { rows: rows, filter: q }` over a paged `.all` into the server-paged shape. |
-| `DataGrid` | **React, Vue, Svelte, Angular, Feliz.** Interactive grid over the same `Column` children — multi-column sort, per-column filters, column-visibility toggles, client pagination, optional row selection. Backed by [TanStack Table](https://tanstack.com/table); see §9.1 below. Sort, filter and pagination all run over the `rows:` it was handed — the grid issues no server read of its own. Using it on HEEx or Flutter is a permanent compile error (`loom.datagrid-unsupported-target`) — use `Table`, which sorts and pages on every frontend (its client `filter:` is the six `walkBody` frontends, client-paged only — see the `Table` row). |
+| `DataGrid` | **React, Vue, Svelte, Angular, Feliz.** Interactive grid over the same `Column` children — multi-column sort, per-column filters, column-visibility toggles, client pagination, optional row selection. Backed by [TanStack Table](https://tanstack.com/table); see §9.1 below. Sort, filter and pagination all run over the `rows:` it was handed — the grid issues no server read of its own. Using it on HEEx or Flutter is a permanent compile error (`loom.target-unsupported#datagrid`) — use `Table`, which sorts and pages on every frontend (its client `filter:` is the six `walkBody` frontends, client-paged only — see the `Table` row). |
 | `For { each: T[], empty?: markup, item => markup }` | List comprehension — emits the item lambda's markup once per element. TSX lowers to a keyed `.map` + `<Fragment>`, Vue to `<template v-for :key>`, Svelte to a keyed `{#each}`, Angular to an `@for (… ; track …)` block, Phoenix LiveView to a `for … do … end` block. A child primitive (nest inside a layout container — it isn't a standalone page body); the list key is the loop index. The optional `empty:` arm is rendered when the collection is empty — Svelte's native `{:else}`, a TSX `length === 0 ? … : .map(…)` ternary, a Vue `v-if` sibling `<template>`, Angular's `@for`/`@empty` block, a HEEx `Enum.empty?/1` guard. |
 | `QueryView { of:, loading:, error:, empty:, data:, single?:, paged?: }` | 4-arm query-state branching (collection or single-record). The `data:` binding also exposes the paged envelope's page metadata — see §9.2. |
 
@@ -984,7 +984,7 @@ write on Feliz (Elmish state lives in `update`), so the grid dispatches a
 `SetSelectedIds` Msg like any other bound input.
 
 The two remaining targets are honest gaps, not silent ones, and both are
-**permanent**. `loom.datagrid-unsupported-target` rejects a `DataGrid` on
+**permanent**. `loom.target-unsupported#datagrid` rejects a `DataGrid` on
 **Flutter** and on **HEEx**, under one rule: `DataGrid` is a TanStack row model,
 so a target can host it only if it can host TanStack *without forking its own
 contract*.
@@ -1706,7 +1706,7 @@ renderer and optionally a `heex` one — so coverage has one source of truth and
 `test/generator/elixir/heex-parity.test.ts` freezes the gap:
 
 - **The pinned gap list holds exactly one entry today: `DataGrid`** — a TanStack
-  client row model has no LiveView analogue (`loom.datagrid-unsupported-target`;
+  client row model has no LiveView analogue (`loom.target-unsupported#datagrid`;
   use `Table`, which is server-driven with real sort + pagination on HEEx).
 - Everything else the TSX walker renders now has a HEEx renderer, including the
   standalone input family (which writes bound page state back through a hoisted

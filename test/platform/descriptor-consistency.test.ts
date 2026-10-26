@@ -34,5 +34,7 @@ describe("descriptor table pinned to the live surfaces", () => {
     expect(d.mountsUi).toBe(surface.mountsUi);
     expect(d.isFrontend).toBe(surface.isFrontend);
     expect([...d.hostableFrameworks].sort()).toEqual([...surface.hostableFrameworks].sort());
+    // The capability table is the SAME object the validator reads, not a copy.
+    expect(d.capabilities).toBe(surface.capabilities);
   });
 });

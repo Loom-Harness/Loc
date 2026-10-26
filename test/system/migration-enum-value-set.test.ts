@@ -29,7 +29,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { SchemaSnapshot } from "../../src/ir/types/migrations-ir.js";
-import { buildMigrations } from "../../src/system/migrations-builder.js";
+import { buildMigrations, type MigrationWarning } from "../../src/system/migrations-builder.js";
 import { memorySnapshotStore } from "../../src/system/snapshot.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { buildLoomModel } from "../_helpers/index.js";
@@ -175,5 +175,70 @@ describe("an enum's value set reaches the schema", () => {
     expect(mig![1]).toContain(
       String.raw`create constraint(:appts, :appts_skill_enum, check: "\"skill\" IN ('physio', 'gp', 'dentist')", prefix: "c")`,
     );
+  });
+});
+
+// Removing a member while rows still hold it.  The re-added CHECK is
+// `NOT VALID`, so the deploy succeeds — and then every backend that maps the
+// stored string onto the enum fails to load such a row, while any UPDATE of it
+// is refused by the new check.  The diff cannot see the rows, so it announces
+// the narrowing and names the remap that fixes it; a `sql before` step for the
+// generation is read as that remap and silences it.
+describe("loom.migration-enum-narrowed", () => {
+  async function evolveWarnings(v1: string, v2: string): Promise<MigrationWarning[]> {
+    const first = buildMigrations((await buildLoomModel(v1)).systems[0]!, memorySnapshotStore());
+    const store = memorySnapshotStore(
+      Object.fromEntries(first.map((m) => [m.module, m.next])) as Record<string, SchemaSnapshot>,
+    );
+    const warnings: MigrationWarning[] = [];
+    const next = await buildLoomModel(v2);
+    buildMigrations(next.systems[0]!, store, { sqlSteps: next.sqlMigrationSteps, warnings });
+    return warnings;
+  }
+
+  it("warns when an enum on a populated table loses a member, naming the remap", async () => {
+    const warnings = await evolveWarnings(
+      NODE(ENUM3, "Skill"),
+      NODE("enum Skill { physio, gp }", "Skill"),
+    );
+    expect(warnings.map((w) => w.code)).toEqual(["loom.migration-enum-narrowed"]);
+    const msg = warnings[0]!.message;
+    expect(msg).toContain("enum check appts_skill_enum on existing table c.appts");
+    expect(msg).toContain("no longer admits 'dentist' in column skill");
+    expect(msg).toContain(
+      `sql before "UPDATE c.appts SET skill = <one of 'physio', 'gp'> WHERE skill IN ('dentist')"`,
+    );
+  });
+
+  it("a RENAMED member is a removal too (the stored rows hold the old spelling)", async () => {
+    const warnings = await evolveWarnings(
+      NODE(ENUM3, "Skill"),
+      NODE("enum Skill { physio, gp, dental }", "Skill"),
+    );
+    expect(warnings.map((w) => w.code)).toEqual(["loom.migration-enum-narrowed"]);
+    expect(warnings[0]!.message).toContain("no longer admits 'dentist'");
+  });
+
+  it("is silenced by a `sql before` remap in the same generation", async () => {
+    const v2 = `${NODE("enum Skill { physio, gp }", "Skill")}
+migration "remap-dentist" { sql before "UPDATE c.appts SET skill = 'gp' WHERE skill = 'dentist'" }`;
+    expect(await evolveWarnings(NODE(ENUM3, "Skill"), v2)).toEqual([]);
+  });
+
+  it("a WIDENING (a member added) does not warn", async () => {
+    expect(
+      await evolveWarnings(NODE("enum Skill { physio, gp }", "Skill"), NODE(ENUM3, "Skill")),
+    ).toEqual([]);
+  });
+
+  it("an unchanged enum and a first generation do not warn", async () => {
+    expect(await evolveWarnings(NODE(ENUM3, "Skill"), NODE(ENUM3, "Skill"))).toEqual([]);
+    const warnings: MigrationWarning[] = [];
+    buildMigrations(
+      (await buildLoomModel(NODE(ENUM3, "Skill"))).systems[0]!,
+      memorySnapshotStore(),
+      { warnings },
+    );
+    expect(warnings).toEqual([]);
   });
 });

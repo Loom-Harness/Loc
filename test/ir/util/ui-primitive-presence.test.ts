@@ -7,8 +7,8 @@ import { bodyUsesDataGrid, dataGridHosts, uiUsesDataGrid } from "../../../src/ir
 // pair.  M-T9.17 slice 5 — no test calls any of the five exports.
 //
 // Each answers one question for TWO consumers: the IR validator gates the
-// primitive on targets that cannot render it (`loom.chart-unsupported-target` /
-// `loom.datagrid-unsupported-target`), and an emitter asks the same question to
+// primitive on targets that cannot render it (`loom.target-unsupported#chart` /
+// `loom.target-unsupported#datagrid`), and an emitter asks the same question to
 // decide whether the generated `package.json` carries the dependency
 // (`@mantine/charts` for react, `@tanstack/table-core` for feliz).  A false
 // negative therefore has two distinct shapes: a page that silently renders
@@ -109,7 +109,7 @@ describe("uiUsesChart / uiUsesDataGrid — pages AND components", () => {
 
 describe("dataGridHosts — the diagnostic's host labels", () => {
   // Only `data-grid` carries this; `chart` reports presence alone.  The labels
-  // are what `loom.datagrid-unsupported-target` names, so an author with one
+  // are what `loom.target-unsupported#datagrid` names, so an author with one
   // grid in one component gets pointed at that component rather than told
   // "somewhere in this ui".
   it("is empty when nothing uses a grid", () => {

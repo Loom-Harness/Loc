@@ -244,7 +244,7 @@ const CELLS: readonly Cell[] = [
 const REFUSED: Readonly<Record<string, { cells: readonly string[]; code: string }>> = {
   DataGrid: {
     cells: ["flutter", "heex/coreComponents", "heex/daisyui"],
-    code: "loom.datagrid-unsupported-target",
+    code: "loom.target-unsupported",
   },
 };
 
