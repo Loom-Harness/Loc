@@ -441,7 +441,18 @@ function outboxTableShape(ownerModule: string): TableShape {
     ],
     primaryKey: ["id"],
     foreignKeys: [],
-    indexes: [],
+    // The relay's poll is `WHERE dispatched_at IS NULL AND attempts < max
+    // ORDER BY occurred_at`; dispatched rows accumulate, so index only the
+    // pending ones — the scan stays proportional to the backlog, not the table.
+    indexes: [
+      {
+        name: "__loom_outbox_pending_idx",
+        table: "__loom_outbox",
+        columns: ["occurred_at"],
+        unique: false,
+        predicate: "dispatched_at IS NULL",
+      },
+    ],
   };
 }
 

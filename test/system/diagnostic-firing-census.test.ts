@@ -1345,6 +1345,12 @@ system S {
   "loom.macro-arg-duplicate": uiWith("scaffoldAggregate(of: Thing, of: Thing)"),
   "loom.macro-arg-kind-mismatch": uiWith(`scaffoldAggregate(of: "Thing")`),
   "loom.capability-host-invalid": uiWith("auditable"),
+  "loom.scaffold-aggregate-unserved": `
+system S {
+  subdomain Sub { context C with scaffoldHandlers {
+    aggregate Thing with crudish { name: string }
+  } }
+}`,
 
   // --- handler body (#2659) -----------------------------------------------
   // An OPTIONAL repository read bound in a handler body.  The shared workflow
