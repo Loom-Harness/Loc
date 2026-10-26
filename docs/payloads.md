@@ -219,17 +219,16 @@ payload OrderEvent = OrderPlaced | OrderCancelled | OrderShipped
 differs: an anonymous union is **structural on its variant set** (associative-
 commutative — `A or B` ≡ `B or A`); a named union is **nominal** (by its name).
 
-### `option` — the third blessed postfix carrier
+### `option` — a deprecated spelling of `T?`
 
 ```
-find findByCode(code: string): Order option       # Order or none
+find findByCode(code: string): Order option       # Order? — warns, the fix writes `Order?`
 ```
 
-`T option` is sugar for the 2-variant union `union[T, none]` — it flows through
-the same union machinery. (`option` is distinct from `T?`/`optional`, which is
-a nullable field rather than a tagged variant.) As a **find** return, `option`
-takes the untagged find path below — `findByCode` responds `200 OrderResponse`
-or `404`, not a tagged `{ type: "none" }` body.
+`T option` lowers to `T?` (D-ABSENCE-MODEL), so it is the nullable shape in
+every position: a find answers `200 OrderResponse` or `404`, and a payload
+field is `null` when absent. `loom.option-deprecated` warns on the keyword and
+its quick fix rewrites it.
 
 ### The tagged wire
 
@@ -240,7 +239,8 @@ data:
   its fields) flattens its fields alongside `type`:
   `{ "type": "Order", "id": …, "code": …, "region": … }`;
 - a **scalar variant** (primitive / `id`) carries a single `value` field;
-- the **`none`** unit is bare: `{ "type": "none" }`.
+- the **`none`** unit is bare: `{ "type": "none" }` — only in a union of two or
+  more present variants, since `T or none` is `T?`.
 
 The variant **tag** is the variant type's name (`Order`, `NotFound`, `none`, …).
 All five backends derive this shape from one resolver, so the wire is identical
@@ -364,8 +364,9 @@ generated on every backend. The two surfaces differ in who selects the variant:
   … }`, exhaustiveness-checked, narrowed per backend) and reading a union
   without it is refused (`loom.union-read-undiscriminated`); the statement form
   is frontend-only today (`loom.variant-match-placement`).
-- **`option` PATCH** semantics ([`partial-update`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/partial-update.md)).
+- **Merge-patch update** semantics (presence is the generated update's rule,
+  not an `option` type — D-ABSENCE-MODEL, #4109).
   (Exception-less **operation returns** of unions have shipped — see §5.)
-- **User-declared generic payloads** beyond the blessed `paged` / `envelope` /
-  `option` set.
+- **User-declared generic payloads** beyond the blessed `paged` / `envelope`
+  set.
 - **Multi-arg generics** and row polymorphism over payloads.

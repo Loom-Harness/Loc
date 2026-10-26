@@ -166,6 +166,32 @@ describe("fix-hints", () => {
     expect(errors).toEqual([]);
   });
 
+  it("option-deprecated: `T option` becomes `T?` (round-trip clean)", async () => {
+    const OPT = `context Sales {
+  aggregate Order { code: string }
+  repository Orders for Order {
+    find byCode(code: string): Order option where this.code == code
+  }
+}`;
+    const { doc, model, diagnostics } = await parseString(OPT);
+    const report = buildValidateReport({
+      modelPath: "m.ddd",
+      langiumDiagnostics: diagnostics,
+      doc,
+      irDiagnostics: [],
+      model,
+    });
+    const hint = report.diagnostics.find((d) => d.code === "loom.option-deprecated");
+    expect(hint?.severity).toBe("warning");
+    expect(hint?.fixHint?.kind).toBe("replace-text");
+    const applied = await applyPatches(OPT, [hint?.fixHint?.patch as ModelPatch]);
+    expect(applied.ok).toBe(true);
+    expect(applied.text).toContain("find byCode(code: string): Order? where this.code == code");
+    const { diagnostics: after, errors } = await parseString(applied.text);
+    expect(after.some((d) => d.code === "loom.option-deprecated")).toBe(false);
+    expect(errors).toEqual([]);
+  });
+
   it("react-deployable-missing-ui: appends `ui: <Name>` (single ui, round-trip clean)", async () => {
     const SYS = `system S {
   context Sales { aggregate Order { total: int } }

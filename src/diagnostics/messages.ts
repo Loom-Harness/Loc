@@ -2043,6 +2043,9 @@ export const DIAGNOSTIC_MESSAGES = {
     `context '${p.name}': ${p.kind} '${p.hName}' has a parameter named 'id', which is ` +
     `reserved — a bare 'id' in a handler body resolves to the current entity's implicit id, ` +
     `not the parameter. Rename it (e.g. 'orderId').`,
+  "loom.option-deprecated":
+    "`T option` is deprecated: it means `T?`, the one way to say a value may be missing. " +
+    "Write `T?` instead — the quick fix rewrites it.",
   "loom.query-handler-saves": (p: { name: unknown; qName: unknown }) =>
     `context '${p.name}': queryHandler '${p.qName}' mutates state (a save, op-call, emit, ` +
     `create, or assignment). A queryHandler must be read-only — use a commandHandler or a ` +

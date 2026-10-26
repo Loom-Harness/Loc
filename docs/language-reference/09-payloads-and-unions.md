@@ -170,13 +170,13 @@ So whatever the host-language representation — a Zod discriminated union, a `J
 
 ## Union finds — the untagged exception
 
-A repository `find` may return a union, but only in the constrained **absence** shape: exactly two variants, the repository's own aggregate plus one absent variant — `none` (spelled `Order option`) or an `error` payload carrying at most `resource: string`. Anything else is `loom.union-find-shape-unsupported`.
+A repository `find` may return a union, but only in the constrained **absence** shape: exactly two variants, the repository's own aggregate plus an `error` payload carrying at most `resource: string`. (`Order or none` is `Order?`, the plain nullable find.) Anything else is `loom.union-find-shape-unsupported`.
 
 ```ddd
 error NotFound { resource: string }
 repository Orders for Order {
   find byCode(code: string): Order or NotFound where this.code == code
-  find maybe(code: string):  Order option     where this.code == code
+  find maybe(code: string):  Order?           where this.code == code
 }
 ```
 
@@ -311,9 +311,9 @@ payload OrderEvent = OrderPlaced | OrderCancelled
 
 It lowers to one `PayloadIR` with `variants` (no fields) and rides the same union machinery as `A or B`, so a consumer that receives it sees the identical tagged wire (`{ "type": "OrderPlaced", … }`). A repeated variant (`payload F = A | A`) is `loom.union-duplicate-variant`. Its reach is that of any payload (§[Where a record resolves](#where-a-record-resolves-as-a-type)): a named union is admitted as a **variant of an inline union** (`OrderEvent or string`) and in a **handler contract**, but not by bare name as a field type, a `find` return, or an `operation` return — those positions do not resolve it. Like any unreferenced record it emits no DTO until a transport position names it.
 
-### `option` — `T option` is `T or none`
+### `option` — a deprecated spelling of `T?`
 
-`T option` is the third blessed postfix carrier — sugar for the 2-variant union `union[T, none]`, flowing through the same union path (not the nullable `T?` field path). On a **find** it is the untagged absence shape above (`maybe` → 404); as a payload field or operation return the `none` unit serializes bare: `{ "type": "none" }`. The full `paged` / `envelope` / `option` carrier surface, including the discriminated `option` output across backends, lives in [The type system → generic carriers](04-type-system.md#generic-carriers--paged-envelope-option).
+`T option` and `T or none` lower to `T?` (D-ABSENCE-MODEL): on a **find** it is the absence shape above (`maybe` → 404), and as a payload field it is `null` when absent. The keyword warns (`loom.option-deprecated`) with a quick fix to `T?`. A `none` stays a tagged `{ "type": "none" }` variant only beside two or more present variants. See [The type system → `option`](04-type-system.md#option).
 
 ## `error` & `httpStatus` — exception-less ProblemDetails
 
@@ -410,6 +410,6 @@ A union's *wire contract* — its DTO/schema and the tagged serialization — is
 - **Union finds** are fully derived — presence → the aggregate at `200`, absence → the `none`/`error` status. No stub.
 - **Operation returns** (`reserve(): string or OutOfStock`) are producer-selected: the domain body returns the variant it chose, and the route maps it to the tagged wire (success) or a ProblemDetails (error). Shipped on all five backends.
 
-Still deferred: consumer-side narrowing over a union, `option` PATCH semantics, user-declared generics beyond `paged` / `envelope` / `option` — see [`../payloads.md`](../payloads.md) § "What's deferred".
+Still deferred: consumer-side narrowing over a union, merge-patch update semantics (#4109), user-declared generics beyond `paged` / `envelope` — see [`../payloads.md`](../payloads.md) § "What's deferred".
 
 > **Don't `match` a union in a domain body.** The `match` *statement* ([chapter 6](06-behavior-and-statements.md)) is a **frontend** construct — page bodies only. A `match` over a union value inside an `operation` / handler body parses and passes validation with zero diagnostics, then **crashes codegen on every backend** (`Error: variant-match statement is frontend-only; it must not reach the <X> backend`), because no `loom.*` gate covers it. Branch on the tag instead (`if result.type == "OutOfStock" { … }`), or return the union and let the route map it.

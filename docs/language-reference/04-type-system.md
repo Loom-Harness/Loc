@@ -591,7 +591,7 @@ A projection or workflow state field `refs: Order id[]` is stored as one `jsonb`
 
 ## Options — `T?`
 
-A trailing `?` makes the field nullable: a `NULL`-able column and an optional/nullable host member and wire field. (`T?` is distinct from the `option` *carrier* below.) A `token` field may not be nullable (`loom.token-nullable`).
+A trailing `?` makes the field nullable: a `NULL`-able column and an optional/nullable host member and wire field. (`T option` is a deprecated spelling of the same type — see [§ `option`](#option).) A `token` field may not be nullable (`loom.token-nullable`).
 
 ```ddd
 aggregate Order {
@@ -675,23 +675,23 @@ In a `ui` or `component` body a *field* read off a nullable record or value obje
 
 ## Generic carriers — `paged`, `envelope`, `option`
 
-Three **carrier-bounded generic payloads** are built in, instantiated ML-postfix (the keyword follows its argument): `T paged`, `T envelope`, `T option`. A carrier may appear only in a **transport position** — a repository `find` return type, a `queryHandler` return type, or a payload field — never as a stored aggregate property (`loom.generic-position`: *A generic carrier ('paged') is a transport shape*). The argument must itself be a carrier (a primitive, an `X id`, an enum, a value object, or an aggregate, which projects through its `<Agg>Wire`); nesting two constructors (`Order envelope paged`) or a `slot` argument is rejected (`loom.generic-arg-not-carrier`). The pinned shapes — note that `envelope` is the odd one out: it is a *read cardinality*, not a wire wrapper (see [§ `envelope`](#envelope)):
+Three **carrier-bounded generic payloads** are built in, instantiated ML-postfix (the keyword follows its argument): `T paged`, `T envelope`, `T option`. `paged` and `envelope` may appear only in a **transport position** — a repository `find` return type, a `queryHandler` return type, or a payload field — never as a stored aggregate property (`loom.generic-position`: *A generic carrier ('paged') is a transport shape*). The argument must itself be a carrier (a primitive, an `X id`, an enum, a value object, or an aggregate, which projects through its `<Agg>Wire`); nesting two constructors (`Order envelope paged`) or a `slot` argument is rejected (`loom.generic-arg-not-carrier`). The pinned shapes — note that `envelope` is the odd one out: it is a *read cardinality*, not a wire wrapper (see [§ `envelope`](#envelope)):
 
 ```
 paged(T)    → { items: T[]; page: int; pageSize: int; total: int; totalPages: int }   # 1-based
 envelope(T) → T                                    # a SINGLE-ROW find: the bare body, 404 when absent
-option(T)   → the 2-variant union  union[T, none]  (an untagged 200 / 404 as a find return)
+option(T)   → T?                                 # deprecated spelling (see § `option`)
 ```
 
 ```ddd
 repository OrderRepo for Order {
   find all(): Order paged
   find audit(): Order envelope
-  find byRef(ref: string): Order option where this.ref == ref
+  find byRef(ref: string): Order? where this.ref == ref
 }
 ```
 
-> A list-shaped `find` (`Order paged`, `Order[]`) other than `find all` is an **error** (`loom.list-find-removed`): a list read is a `criterion` passed to `Repo.run(…)` or a named `retrieval` — see [Repositories & queries](10-repositories-and-queries.md#retrieval). A single-row reconstitution find (`Order` / `Order?` / `Order option`) stays first-class. The carrier shapes below are unchanged by where the query is declared.
+> A list-shaped `find` (`Order paged`, `Order[]`) other than `find all` is an **error** (`loom.list-find-removed`): a list read is a `criterion` passed to `Repo.run(…)` or a named `retrieval` — see [Repositories & queries](10-repositories-and-queries.md#retrieval). A single-row reconstitution find (`Order` / `Order?`) stays first-class. The carrier shapes below are unchanged by where the query is declared.
 
 ### `paged`
 
@@ -817,7 +817,16 @@ def audit(), do: {:ok, Repo.one(from(record in ApiElixir.Orders.Order))}
 
 ### `option`
 
-`T option` is sugar for the 2-variant union `union[T, none]` and flows through the same machinery as `A or B`. Where that union lands decides its wire: as a **payload field** or an **operation return** it is the tagged `{ "type": "Order", … }` / `{ "type": "none" }` shape ([Payloads & unions](09-payloads-and-unions.md)); as a **find return** it takes the untagged absence path — the success variant is returned **directly** at `200` and `none` is a `404` ProblemDetails, wire-identical to `Order?`. All five backends agree by construction:
+`T option` is a deprecated spelling of `T?` (D-ABSENCE-MODEL). It lowers to the one nullable shape, so `Order option`, `Order or none` and `Order?` are the same type, and `T?` is legal in every position `option` was. The keyword warns (`loom.option-deprecated`) and the quick fix rewrites it:
+
+```ddd
+repository OrderRepo for Order {
+  find byRef(ref: string): Order option where this.ref == ref   // warning: write `Order?`
+  find byRef(ref: string): Order? where this.ref == ref         // the fix
+}
+```
+
+As a find return it answers the success body at `200` and a `404` ProblemDetails on a miss. As a payload field it is `null` when absent, never a tagged `{ "type": "none" }` object. A `none` stays a tagged variant only beside two or more present variants (`string or int option` is `union[string, int, none]`).
 
 ::: tabs backend
 == node
@@ -827,36 +836,20 @@ const result = await repo.byRef(params.ref);
 if (result == null) throw new AggregateNotFoundError("not_found");
 return c.json(repo.toWire(result) as z.infer<typeof OrderResponse>, 200);
 ```
-== dotnet
-```csharp
-// Application/Orders/Queries/ByRefQuery.cs
-public sealed record ByRefQuery(string Ref) : IQuery<OrderResponse?>;
-// Api/OrdersController.cs
-var result = await _mediator.Send(new ByRefQuery(@ref));
-if (result is null) throw new AggregateNotFoundException("not_found");
-return Ok(result);
+== python
+```python
+# app/http/order_routes.py
+found = await repo.by_ref(ref)
+if found is None:
+    raise AggregateNotFoundError("not_found")
+return repo.to_wire(found)
 ```
 == java
 ```java
 // features/orders/OrdersController.java
-var r = service.byRef(ref);
-if (r == null) { throw new AggregateNotFoundException("not_found"); }
-return ResponseEntity.ok(r);
-```
-== python
-```python
-# app/http/order_routes.py
-if (found := await repo.by_ref(ref)) is None:
-    raise AggregateNotFoundError("not_found")
-return repo.to_wire(found)
-```
-== elixir
-```elixir
-# lib/api_elixir_web/controllers/order_controller.ex
-case Orders.by_ref_order(params["ref"]) do
-  {:ok, nil} -> ProblemDetails.problem_response(conn, 404, "Not Found", "not_found")
-  {:ok, record} -> json(conn, serialize(record))
-end
+var response = service.byRef(ref);
+if (response == null) throw new AggregateNotFoundException("not_found");
+return ResponseEntity.ok(response);
 ```
 ::: end
 

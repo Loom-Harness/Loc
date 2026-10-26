@@ -32,6 +32,9 @@
 //   `: T option`   route         controller    ctrl     route    ctrl
 //   `: T envelope` repository    repository    ctrl     route    ctrl
 //
+// `: T option` lowers to `: T?` (D-ABSENCE-MODEL), so its row is the `T?` arm;
+// it stays in the matrix while the deprecated spelling still parses.
+//
 // A gate that read one carrier would have been green on node through the whole
 // regression (the `T?` arm was always right), and a gate that read one backend
 // could not see the split at all.  So the matrix is written out in full: 5
@@ -295,7 +298,7 @@ const SITES: Record<string, Site> = {
     file: "features/orders/OrdersController.java",
     anchor: "byOptnOrder(",
     boundaries: CTRL_JAVA,
-    raises: ["if (r == null) {", 'throw new AggregateNotFoundException("not_found");'],
+    raises: ['if (response == null) throw new AggregateNotFoundException("not_found");'],
     forbidden: [SPACE_SPELLING, "ResponseEntity.notFound().build()"],
   },
   "java `: T envelope`": {
@@ -333,10 +336,7 @@ const SITES: Record<string, Site> = {
     file: "http/order_routes.py",
     anchor: 'operation_id="byOptnOrder"',
     boundaries: ROUTES_PY,
-    raises: [
-      "if (found := await repo.by_optn(code)) is None:",
-      'raise AggregateNotFoundError("not_found")',
-    ],
+    raises: ["if found is None:", 'raise AggregateNotFoundError("not_found")'],
     forbidden: [SPACE_SPELLING, "status_code=404"],
   },
   "python `: T envelope`": {

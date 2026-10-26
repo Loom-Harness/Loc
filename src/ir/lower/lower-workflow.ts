@@ -892,7 +892,7 @@ function lowerWorkflowStatementInner(
         // aggregate-or-absent, never the tagged wire.  Mark the local so a
         // variant-`match` over it lowers to a presence check.
         envAfter: withLocal(env, stmt.name, "let", localType, {
-          absenceUnion: returnType.kind === "union",
+          absenceUnion: returnType.kind === "union" || returnType.kind === "optional",
         }),
         binding: { name: stmt.name, aggName, repoName: repo.name },
       };
@@ -912,7 +912,9 @@ function lowerWorkflowStatementInner(
     // body that never carries a `type` discriminator — the arm silently never
     // matches, which no compiler can see.
     const remoteAbsenceUnion =
-      exprIR.kind === "call" && exprIR.callKind === "remote-api-op" && t.kind === "union";
+      exprIR.kind === "call" &&
+      exprIR.callKind === "remote-api-op" &&
+      (t.kind === "union" || t.kind === "optional");
     return {
       stmt: { kind: "expr-let", name: stmt.name, type: t, expr: exprIR },
       envAfter: withLocal(env, stmt.name, "let", t, {

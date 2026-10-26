@@ -93,6 +93,9 @@ export function canonicalUnion(variants: TypeIR[]): TypeIR {
   const flat: TypeIR[] = [];
   for (const v of variants) {
     if (v.kind === "union") flat.push(...v.variants);
+    // Inside a union, a `T?` member contributes `T` and `none`: `string or
+    // int option` is `union[string, int, none]`.
+    else if (v.kind === "optional" && variants.length > 1) flat.push(v.inner, OPTION_NONE);
     else flat.push(v);
   }
   return absenceOf(flat) ?? { kind: "union", variants: flat };

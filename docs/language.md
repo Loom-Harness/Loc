@@ -1219,7 +1219,7 @@ Pragmatic core, similar to a subset of TypeScript / C# expressions.
 | `a ?? b` | Nullish coalescing — `a` unless it is null, else `b`.  Binds LOOSER than `\|\|` and TIGHTER than `? :`, and is RIGHT-associative (`a ?? b ?? c` is `a ?? (b ?? c)`).  Pure sugar: it lowers to `a == null ? b : a`, so it works on every backend and every frontend the ternary does.  NOTE the left operand is evaluated TWICE (once in the test, once as the value) — bind an effectful one with `let` first. |
 | `cond ? a : b` | Ternary (`loom.ternary-condition` / `loom.ternary-branches`). A direct null test on `cond` narrows the proven branch — see [Null narrowing](#null-narrowing). |
 | `match { cond => value, …, else => value }` | Predicate-arms expression — the first true arm wins; `else` is the fallthrough. |
-| `match subject { Variant [b] => value, …, else => value }` | Variant match over an `A or B` / `T option` union scrutinee, optionally binding the narrowed variant.  The subject must be a simple ref / member read, not a call — except `match await <call> { … }` in a page `action`, which awaits a remote command and matches its Result ([`actions.md`](actions.md)). |
+| `match subject { Variant [b] => value, …, else => value }` | Variant match over an `A or B` union or a `T?` scrutinee (a presence check), optionally binding the narrowed variant.  The subject must be a simple ref / member read, not a call — except `match await <call> { … }` in a page `action`, which awaits a remote command and matches its Result ([`actions.md`](actions.md)). |
 | `x => expr` / `(a, b) => expr` | Lambda (a collection-op argument or a page-DSL handler value). |
 | `f(name: value, …)` | Named call arguments (page primitives, macro-style calls). |
 | `PartName { field: expr, … }` | Construct a contained part; `id` and parent `parentId` are auto-injected. |
@@ -1982,7 +1982,7 @@ repository Orders for Order {
 criterion OrdersActiveForCustomer(forCustomer: Customer id) of Order = this.customerId == forCustomer && this.status == Draft
 ```
 
-The full form is `find name(params): T | T? | T or NotFound | T option | T[] | T paged
+The full form is `find name(params): T | T? | T or NotFound | T[] | T paged
 [where Expr] [ignoring Cap, … | ignoring *]` — a find carries no authorization
 gate (who may read the aggregate is `policy { read X requires Expr }`, which
 covers every find), and `ignoring` bypasses a capability's contributed query
@@ -2044,7 +2044,7 @@ answers a bare JSON array.  The list is gated by the context's
 row and answer the declared **404** when it is not there — on the GET route,
 an operation route and a workflow step alike (the not-found-on-load policy;
 the binding is a plain `T`).  To BRANCH on the absent row instead, declare the
-find `: T or NotFound` / `: T option` and read the binding through a variant
+find `: T or NotFound` (or `: T?`) and read the binding through a variant
 `match` (`match r { Order o => o.code, NotFound => "–" }`).  Reading such a
 binding straight through — `r.code`, `r.touch()` — is refused with
 `loom.union-read-undiscriminated`; a `: T?` find stays a native nullable and is

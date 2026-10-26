@@ -1386,8 +1386,11 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
       // stamp it so backends render a presence check instead of a
       // discriminator probe (payloads.md §Union finds).  Only lowering
       // knows the find origin; renderers must never re-derive this.
+      // A `T?` subject has no tagged form at all, so it is always a presence
+      // check (D-ABSENCE-MODEL).
       const absenceSubject =
-        subject.kind === "ref" && env.locals.get(subject.name)?.absenceUnion === true;
+        subjectType?.kind === "optional" ||
+        (subject.kind === "ref" && env.locals.get(subject.name)?.absenceUnion === true);
       return {
         kind: "match",
         subject,

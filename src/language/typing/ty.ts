@@ -113,6 +113,7 @@ export const Ty = {
     const flat: Ty[] = [];
     for (const v of variants) {
       if (v.kind === "union") flat.push(...v.variants);
+      else if (v.kind === "optional" && variants.length > 1) flat.push(v.inner, Ty.none);
       else flat.push(v);
     }
     // `T or none` is `T?` (D-ABSENCE-MODEL), as in the IR's `canonicalUnion`.
