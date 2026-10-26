@@ -64,7 +64,10 @@ const CASES: [string, string[]][] = [
     "java",
     [
       "var c = customersRepository.runFindAllByByEmail(e, null, 1).stream().findFirst().orElse(null);",
-      // `findById` answers `Optional<Order>`.
+      // `findById` answers `Optional<Order>` — in a workflow `let`, an
+      // `if let` source and a domain-service read alike.
+      "var again = ordersRepository.findById(c.oid()).orElse(null);",
+      "var o = ordersRepository.findById(c.oid()).orElse(null);",
       "var o = ordersRepository.findById(oid).orElse(null);",
       "var o = x;",
     ],

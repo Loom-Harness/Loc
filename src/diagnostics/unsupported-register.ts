@@ -766,7 +766,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // `lower-domain-service.ts`) retires this row.
     code: "loom.domain-service-read-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/domain-service-checks.ts:274",
+    site: "src/ir/validate/checks/domain-service-checks.ts:200",
     what: "a repository read used as a MEMBER RECEIVER in a domainService body — v1 binds it first",
     mission: "#3375",
     verified: true,
