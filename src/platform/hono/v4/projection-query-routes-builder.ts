@@ -13,7 +13,6 @@ import {
 } from "../../../generator/typescript/raw-row-wire.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
 import {
-  allContextFilterEntries,
   DRIZZLE_INTRINSIC_SQL,
   drizzleScopeCall,
   drizzleScopeFnName,
