@@ -183,6 +183,20 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "state-gate", title: "`when` canCommand state gate + GET can-query companion", doc: "criterion", backends: ALL },
   { id: "operation-returns", title: "exception-less `T or Error` operation returns", doc: "payloads", backends: ALL },
   { id: "union-find-absence", title: "union-returning finds (`Order or NotFound`, `Order option`)", doc: "payloads", backends: ALL },
+  {
+    id: "scaffold-get",
+    title:
+      "`scaffoldGet` / `scaffoldGetApi` — a single-row read route (criterion first match, unique key) with no declared find: the row or 404",
+    doc: "scaffold-macros",
+    backends: ALL,
+    note: "paired with `scaffold-get-find`, the same system read through declared finds: `scaffold-get-wire.test.ts` holds the two wire goldens request-for-request equal, which is the wire a find's replacement must keep",
+  },
+  {
+    id: "scaffold-get-find",
+    title: "the declared-find original of `scaffold-get` — `find byCode` / `find bySku` routes over the same requests",
+    doc: "scaffold-macros",
+    backends: ALL,
+  },
   { id: "paged", title: "pagination — `find ... paged` Paged<T> envelope", doc: "payloads", backends: ALL },
   {
     id: "implicit-find-filter",

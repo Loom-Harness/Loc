@@ -21,7 +21,12 @@
 // is genuinely not client-evaluable stays so after inlining, and the page-gate
 // diagnostic still refuses it.
 
-import type { BoundedContext, Expression, PolicyDecl } from "../../../language/generated/ast.js";
+import {
+  type BoundedContext,
+  type Expression,
+  isPolicyDecl,
+  type PolicyDecl,
+} from "../../../language/generated/ast.js";
 import { cloneExpr } from "../../api/index.js";
 
 type Node = Record<string, unknown> & { $type: string };
@@ -157,4 +162,17 @@ function inlineCall(
     $type: "ParenExpr",
     inner: rewrite(policy.body, policies, bound, [...stack, name]),
   };
+}
+
+/** The gate of the context's `policy { read <aggName> requires … }` rule — the
+ *  one place an author says who may read the aggregate.  First rule wins, as in
+ *  enrichment (a second is `loom.policy-duplicate-target`). */
+export function policyReadGate(ctx: BoundedContext, aggName: string): Expression | undefined {
+  for (const m of ctx.members) {
+    if (!isPolicyDecl(m)) continue;
+    for (const r of m.rules) {
+      if (r.effect === "read" && r.target === aggName && r.gate) return r.gate;
+    }
+  }
+  return undefined;
 }

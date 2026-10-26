@@ -133,11 +133,13 @@ carry `origin` metadata.  The full surface is `src/macros/api/`:
 | `thisRef()` | The expression `this`. |
 | `idRef(name)` | An identifier expression. |
 | `nameRef(name)` | A bare name reference (for `magic` identifiers like `currentUser`). |
-| `memberAccess(receiver, member, opts?)` | A `recv.member` expression; pass `call: true` for `recv.member()` calls. |
+| `memberAccess(receiver, member, opts?)` | A `recv.member` expression; pass `call: true` for `recv.member()` calls.  An `args` entry `{ name, value }` is a named argument (`Items.getBy(sku: s)`). |
 | `not(expr)` | The expression `!e`. |
 | `nullLit()` | The literal `null`. |
 | `assignStmt(target, value)` | `target := value` (target is a single identifier). |
 | `assignStmtPath(path, value)` | `path := value` for a path expression. |
+| `ifLetStmt(name, source, thenBody, elseBody)` | `if let <name> = <source> { … } else { … }` — the single-row lookup that binds its hit in the then-branch. |
+| `notFoundStmt(detail?)` | `notFound` / `notFound "<detail>"` — ends a workflow / handler body with the standard 404. |
 | `requiresStmt(expr)` | `requires <expr>` — the in-body 403 authorization gate.  The ONLY surface a macro-emitted aggregate `create` / `destroy` has for one: neither carries a header `requires` clause.  Pair it with `callExpr(policyName, [])` for `requires <Policy>()`. |
 | `contextFilter(expr, opts?)` | A context-scope `filter` declaration; `opts.capability` adds the `for "<name>"` qualifier. |
 | `contextStamp(event, assignments, opts?)` | A context-scope `stamp` declaration; same `opts.capability` rule. |

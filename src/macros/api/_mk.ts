@@ -41,6 +41,7 @@ import type {
   FilterDecl,
   HandlerRef,
   IdType,
+  IfLetStmt,
   ImplementsDecl,
   IntLit,
   Lambda,
@@ -53,6 +54,7 @@ import type {
   MenuMetaEntry,
   NamedType,
   NameRef,
+  NotFoundStmt,
   NowExpr,
   NullLit,
   ObjectFieldInit,
@@ -186,6 +188,14 @@ export function mkReturnStmt(shape: AstLiteral<ReturnStmt>): ReturnStmt {
 
 export function mkRequiresStmt(shape: AstLiteral<RequiresStmt>): RequiresStmt {
   return mkAst<RequiresStmt>(shape);
+}
+
+export function mkIfLetStmt(shape: AstLiteral<IfLetStmt>): IfLetStmt {
+  return mkAst<IfLetStmt>(shape);
+}
+
+export function mkNotFoundStmt(shape: AstLiteral<NotFoundStmt>): NotFoundStmt {
+  return mkAst<NotFoundStmt>(shape);
 }
 
 // ---------------------------------------------------------------------------
