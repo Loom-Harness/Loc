@@ -1238,7 +1238,10 @@ function printTestStatement(node: TestStatement): string {
 function printMigration(node: import("../generated/ast.js").Migration): string {
   return block(`migration ${JSON.stringify(node.name)}`, () =>
     node.steps.map((s) => {
-      if (s.$type === "TableRename") return `${s.fromTable} -> ${s.toAggregate.$refText}`;
+      if (s.$type === "TableRename")
+        return s.fromContext !== undefined
+          ? `${s.fromContext}.${s.fromTable} -> ${s.toContext}.${s.to}`
+          : `${s.fromTable} -> ${s.to}`;
       if (s.$type === "SqlStep")
         return `sql ${s.placement ? `${s.placement} ` : ""}${JSON.stringify(s.sql)}`;
       // ColumnStep — rename (`renamedTo`) or backfill (`value`), M-T2.3.
