@@ -227,6 +227,82 @@ describe("Dapper: delta steps on the jsonb layout", () => {
     ]);
   });
 
+  it("a renamed value-object leaf moves its PascalCase key in the jsonb, guarded", () => {
+    const leaf = (sub: string) => ({
+      name: `price_${sub}`,
+      type: { kind: "text" as const },
+      nullable: false,
+      voGroup: "price",
+    });
+    const m = delta(
+      [ORDERS([leaf("amount"), leaf("currency_code")])],
+      [ORDERS([leaf("amount"), leaf("iso_code")])],
+      [
+        {
+          op: "renameColumn",
+          table: "orders",
+          schema: "s",
+          from: "price_currency_code",
+          to: "price_iso_code",
+          type: { kind: "text" },
+        },
+      ],
+    );
+    expect(dapperStatements(dapperMigrationSteps(m))).toEqual([
+      `DO $$ BEGIN IF EXISTS (SELECT 1 FROM "s"."orders" WHERE jsonb_typeof("price") = 'object' AND "price" -> 'CurrencyCode' IS NULL AND "price" -> 'IsoCode' IS NULL) THEN RAISE EXCEPTION 'value-object key CurrencyCode not found in s.orders.price; move it with a sql migration step'; END IF; END $$;`,
+      `UPDATE "s"."orders" SET "price" = ("price" - 'CurrencyCode') || jsonb_build_object('IsoCode', "price" -> 'CurrencyCode') WHERE jsonb_typeof("price") = 'object' AND "price" -> 'CurrencyCode' IS NOT NULL;`,
+    ]);
+  });
+
+  it("a renamed value-object list field moves the key in every element of the parent's jsonb", () => {
+    const parentCol = {
+      name: "charges",
+      type: { kind: "json" as const },
+      nullable: false,
+      valueArrayChildTable: "order_charges",
+    };
+    const child = (field: string): TableShape => ({
+      name: "order_charges",
+      ownerModule: "M",
+      schema: "s",
+      columns: [
+        { name: "order_id", type: { kind: "uuid" }, nullable: false },
+        { name: "ordinal", type: { kind: "int" }, nullable: false },
+        { name: field, type: { kind: "int" }, nullable: false },
+      ],
+      primaryKey: ["order_id", "ordinal"],
+      foreignKeys: [],
+      indexes: [],
+    });
+    const m = delta(
+      [ORDERS([parentCol]), child("amount")],
+      [ORDERS([parentCol]), child("cents")],
+      [
+        {
+          op: "renameColumn",
+          table: "order_charges",
+          schema: "s",
+          from: "amount",
+          to: "cents",
+          type: { kind: "int" },
+        },
+        // A key column of the child is no element field: nothing to move.
+        {
+          op: "renameColumn",
+          table: "order_charges",
+          schema: "s",
+          from: "order_id",
+          to: "purchase_id",
+          type: { kind: "uuid" },
+        },
+      ],
+    );
+    expect(dapperStatements(dapperMigrationSteps(m))).toEqual([
+      `DO $$ BEGIN IF EXISTS (SELECT 1 FROM "s"."orders", jsonb_array_elements(CASE WHEN jsonb_typeof("charges") = 'array' THEN "charges" ELSE '[]'::jsonb END) AS e(v) WHERE jsonb_typeof(e.v) = 'object' AND e.v -> 'Amount' IS NULL AND e.v -> 'Cents' IS NULL) THEN RAISE EXCEPTION 'value-object key Amount not found in s.orders.charges; move it with a sql migration step'; END IF; END $$;`,
+      `UPDATE "s"."orders" SET "charges" = (SELECT jsonb_agg(CASE WHEN jsonb_typeof(e.v) = 'object' AND e.v -> 'Amount' IS NOT NULL THEN (e.v - 'Amount') || jsonb_build_object('Cents', e.v -> 'Amount') ELSE e.v END ORDER BY e.o) FROM jsonb_array_elements("charges") WITH ORDINALITY AS e(v, o)) WHERE jsonb_typeof("charges") = 'array' AND "charges" <> '[]'::jsonb;`,
+    ]);
+  });
+
   it("plain column steps, raw sql and index flips pass through unchanged", () => {
     const code = [{ name: "code", type: { kind: "text" as const }, nullable: false }];
     const idx = { name: "orders_code_uq", table: "orders", columns: ["code"], unique: true };
