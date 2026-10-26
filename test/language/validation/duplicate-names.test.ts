@@ -140,8 +140,8 @@ describe("validator: duplicate names — negatives", () => {
   });
 });
 
-// Application-layer handler names share one route-target namespace with
-// workflow `handle`s (unfoldable-api-derivation.md, Layers 3-4): a
+// Application-layer handler names share one route-target namespace
+// (unfoldable-api-derivation.md, Layers 3-4): a
 // `route -> Context.<name>` resolves the bare name against their union, so a
 // collision silently deduplicates and the route dispatches ambiguously.
 describe("validator: duplicate handler names — negatives (loom.duplicate-handler)", () => {
@@ -173,20 +173,6 @@ describe("validator: duplicate handler names — negatives (loom.duplicate-handl
     ).toBe(true);
   });
 
-  it("flags a commandHandler colliding with a workflow handle name", async () => {
-    const { errors } = await parse(`
-      system S { subdomain M { context C {
-        aggregate Order { code: string }
-        workflow W { handle Ship(code: string) { } }
-        commandHandler Ship(code: string) { }
-      } } }
-    `);
-    expect(
-      errors.some((e) => /Duplicate handler 'Ship' in context 'C'/.test(e)),
-      errors.join("\n"),
-    ).toBe(true);
-  });
-
   it("flags a duplicate commandHandler / queryHandler parameter (loom.duplicate-parameter)", async () => {
     const { errors } = await parse(`
       system S { subdomain M { context C {
@@ -207,18 +193,14 @@ describe("validator: duplicate handler names — negatives (loom.duplicate-handl
 });
 
 describe("validator: duplicate names — positives", () => {
-  it("allows a commandHandler and queryHandler with distinct names; two workflows may reuse a handle name", async () => {
+  it("allows a commandHandler and queryHandler with distinct names", async () => {
     const { errors } = await parse(`
       system S { subdomain M { context C {
         aggregate Order { code: string }
         commandHandler Place(code: string) { }
         queryHandler Get(code: string): Order { }
-        workflow W1 { handle confirm(code: string) { } }
-        workflow W2 { handle confirm(code: string) { } }
       } } }
     `);
-    // The explicit handlers don't collide; workflow-handle reuse across
-    // workflows is not newly policed by loom.duplicate-handler.
     expect(
       errors.some((e) => /Duplicate handler/.test(e)),
       errors.join("\n"),

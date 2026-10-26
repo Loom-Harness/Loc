@@ -1,4 +1,4 @@
-import type { InvariantIR } from "../../ir/types/loom-ir.js";
+import type { ExprIR, InvariantIR } from "../../ir/types/loom-ir.js";
 import type { SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
 import { takeSingleFieldChain } from "../zod-refine.js";
 
@@ -159,6 +159,22 @@ export function fsVerbatim(s: string): string {
   return `@"${s.replace(/"/g, '""')}"`;
 }
 
+/** `f == null || <rule>` → `<rule>`, with `f`: every cell rule here already
+ *  skips an empty cell, so the guard adds nothing the rule lacks, and an
+ *  invariant over an optional field has to be written with it (a member of a
+ *  `T?` is refused unguarded).  The caller keeps the rule only when it is
+ *  about `f`. */
+function unguardedOptional(inv: InvariantIR): { inv: InvariantIR; field?: string } {
+  const e = inv.expr;
+  if (e.kind !== "binary" || e.op !== "||" || e.left.kind !== "binary" || e.left.op !== "==")
+    return { inv };
+  const isNull = (x: ExprIR) => x.kind === "literal" && x.lit === "null";
+  const { left: a, right: b } = e.left;
+  const tested = isNull(b) ? a : isNull(a) ? b : undefined;
+  if (tested?.kind !== "ref") return { inv };
+  return { inv: { ...inv, expr: e.right }, field: tested.name };
+}
+
 /** The rules an aggregate's invariants imply for one form cell.  `available`
  *  is the form's own field set, so a constraint on a field the form does not
  *  carry is dropped (the shared gate's `ctx.available` check). */
@@ -170,8 +186,9 @@ export function felizFieldRules(
   const out = new Map<string, FelizFieldRule[]>();
   const ctx = { available };
   for (const inv of invariants) {
-    const taken = takeSingleFieldChain(inv, ctx);
-    if (!taken) continue;
+    const guarded = unguardedOptional(inv);
+    const taken = takeSingleFieldChain(guarded.inv, ctx);
+    if (!taken || (guarded.field !== undefined && taken.field !== guarded.field)) continue;
     const rules = rulesForPattern(taken.pattern, accessFor(taken.field));
     if (rules.length === 0) continue;
     out.set(taken.field, [...(out.get(taken.field) ?? []), ...rules]);

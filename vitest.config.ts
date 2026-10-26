@@ -40,6 +40,7 @@ import { defineConfig } from "vitest/config";
 
 /** Files that `vi.mock()` a src module — keep per-file isolation. */
 const MOCKED = [
+  "test/e2e/support/mix-workspace.test.ts",
   "test/language/validation/validator-fault-isolation.test.ts",
   "test/platform/pack-render-reachability.test.ts",
   "test/playground/expr-hints-cache.test.ts",

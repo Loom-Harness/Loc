@@ -44,7 +44,7 @@ export type CallableFeature = CallableModifier | CallableClause;
 
 /** The AST property each feature is parsed into, and the keyword an author
  *  wrote to get it there.  `requires` lands on `gate` because that property
- *  predates the fragment (`Operation` / `HandleDecl` / `WorkflowCreateDecl`
+ *  predates the fragment (`Operation` / `WorkflowCreateDecl`
  *  already spelled it that way); renaming it would be a churn with no reader. */
 export const CALLABLE_FEATURE_PROPERTY: Readonly<Record<CallableFeature, string>> = {
   private: "private",
@@ -166,20 +166,13 @@ export const CALLABLE_SITES = {
     clauses: [],
     why: "domain-service",
   },
-  // Workflow members: `create` and `handle` are command entries and carry the
-  // auth gate; `on` is an event reactor with no caller to authorize.  None of
-  // the three is an aggregate method, so `when` (a canCommand gate over a
-  // loaded instance) has nothing to evaluate against.
+  // Workflow members: `create` is the command entry and carries the auth
+  // gate; `on` is an event reactor with no caller to authorize.  Neither is
+  // an aggregate method, so `when` (a canCommand gate over a loaded instance)
+  // has nothing to evaluate against.
   WorkflowCreateDecl: {
     keyword: "create",
     label: "a workflow create",
-    modifiers: [],
-    clauses: ["requires"],
-    why: "workflow",
-  },
-  HandleDecl: {
-    keyword: "handle",
-    label: "a workflow handle",
     modifiers: [],
     clauses: ["requires"],
     why: "workflow",

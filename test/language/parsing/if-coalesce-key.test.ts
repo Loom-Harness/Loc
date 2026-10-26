@@ -241,7 +241,7 @@ ${body}
     criterion Busy of Task = this.count > 0
     repository Tasks for Task {}
     workflow W {
-      handle go() {
+      create go() {
         if let t = Tasks.find(Busy) {
           count := 1
         } else {

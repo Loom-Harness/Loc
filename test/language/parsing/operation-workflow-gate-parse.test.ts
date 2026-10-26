@@ -1,12 +1,11 @@
 // Parsing: the optional `requires <expr>` authorization gate (authorization.md
-// §11.3) on an aggregate `operation`, a workflow `create` starter, and a
-// workflow `handle` command — the write-side twin of the find / view gate.
+// §11.3) on an aggregate `operation` and a workflow `create` starter — the
+// write-side twin of the find / view gate.
 // On `operation` it sits after the return type, before `when`.
 
 import { describe, expect, it } from "vitest";
 import type {
   ContextMember,
-  HandleDecl,
   Model,
   Operation,
   Workflow,
@@ -15,7 +14,6 @@ import type {
 import {
   isAggregate,
   isBoundedContext,
-  isHandleDecl,
   isOperation,
   isSubdomain,
   isSystem,
@@ -63,16 +61,6 @@ function firstCreate(model: Model): WorkflowCreateDecl {
   throw new Error("no workflow create");
 }
 
-function firstHandle(model: Model): HandleDecl {
-  for (const m of contextMembers(model)) {
-    if (isWorkflow(m)) {
-      const h = m.members.find(isHandleDecl);
-      if (h) return h;
-    }
-  }
-  throw new Error("no workflow handle");
-}
-
 const wrap = (body: string) => `system Sys {
   user { id: string  role: string }
   subdomain S {
@@ -85,9 +73,6 @@ const wrap = (body: string) => `system Sys {
       workflow Triage {
         create open(subject: string) requires currentUser.role == "admin" {
           precondition subject.length > 0
-        }
-        handle escalate(id: Ticket id) requires currentUser.role == "agent" {
-          let t = Tickets.byId(id)
         }
       }
     }
@@ -127,13 +112,7 @@ describe("operation / workflow requires gate parsing", () => {
     expect(firstCreate(model).gate).toBeDefined();
   });
 
-  it("parses a `requires` gate on a workflow handle command", async () => {
-    const { model, errors } = await parseString(wrap("operation close() { open := false }"));
-    expect(errors).toEqual([]);
-    expect(firstHandle(model).gate).toBeDefined();
-  });
-
-  // The workflow HEADER gate (M-T3.15 A2) — distinct from the create/handle
+  // The workflow HEADER gate (M-T3.15 A2) — distinct from the create
   // body gates above.  It guards the compiler-derived INSTANCE READS
   // (`/workflows/<wf>/instances[/{id}]`), which had no author surface to gate
   // until this clause existed; the command entries keep their own gates, so a

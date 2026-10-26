@@ -52,6 +52,7 @@ import {
   reservedDeclarationName,
   ruleParserOf,
   sourceTextOf,
+  workflowHandleRemoved,
 } from "./parse-errors.js";
 import { storageConfigKey } from "./storage-config-key.js";
 
@@ -105,6 +106,7 @@ export class DddDocumentValidator extends DefaultDocumentValidator {
       storageConfigKey(first, text) ??
       reservedDeclarationName(first, text) ??
       findRequiresMoved(first, text) ??
+      workflowHandleRemoved(first, text) ??
       accessModifierAfterDefault(first, text) ??
       misplacedDeclaration(first, text);
     if (!refined) return;

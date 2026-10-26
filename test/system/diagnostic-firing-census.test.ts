@@ -1328,16 +1328,15 @@ system S {
       select orders = count
     }`),
 
-  // --- scalar intrinsics on a NULLABLE receiver ---------------------------
-  // `checkIntrinsicCalls` used to test `recvType.kind === "primitive"`, which a
-  // `T?` receiver never satisfies, so the ENTIRE catalogue check was skipped on
-  // one.  A real intrinsic on a `T?` is an unguarded deref every backend emits
-  // bare (`this.path.trim()` over a `string | null`).  The guarded form —
-  // `this.path != null ? this.path.trim() : ""` — narrows and passes.
-  "loom.intrinsic-nullable-receiver": repoOnly(`    aggregate Thing with crudish {
+  // --- a member of a NULLABLE receiver ------------------------------------
+  // Every member of a `T?` (field, property, intrinsic, collection op) is an
+  // unguarded deref every backend emits bare (`this.path.length` over a
+  // `string | null`).  The guarded form —
+  // `this.path != null ? this.path.length : 0` — narrows and passes.
+  "loom.nullable-receiver": repoOnly(`    aggregate Thing with crudish {
       path: string?
-      label: string
-      operation relabel() { label := this.path.trim() }
+      size: int
+      operation measure() { size := this.path.length }
     }
     repository Things for Thing { }`),
 
@@ -1954,7 +1953,7 @@ system P {
   ),
   "loom.when-not-bool": orderOps("operation p() when name { total := total + 1 }"),
   // The `requires` gate at the OPERATION site.  Its four siblings — the in-body
-  // `requires` statement, the workflow create/handle gate (`structural.ts`),
+  // `requires` statement, the workflow create gate (`structural.ts`),
   // the read-path find/projection gate (`repository.ts`) and the handler-body
   // statement (`types.ts`) — share this code, so one fixture covers the family.
   "loom.requires-not-bool": orderOps("operation p() requires name { total := total + 1 }"),
@@ -3782,26 +3781,9 @@ system S {
     domainService Calc {
       operation twice(x: int = 3): int { return x * 2 }
     }`),
-  // --- M-T5.34: the four rulings (#2864 D5/D6/G2, #2850 case B) ------------
+  // --- M-T5.34: the rulings (#2864 D6/G2, #2850 case B) ---------------
   // Each fixture is minimal and ISOLATING — it raises its own code and no
   // sibling from the packet, so a future regression names one gate.
-  //
-  // `handle` on a workflow whose command create DOES supply the correlation
-  // key ('doc'), so `loom.workflow-create-correlation-unsupplied` stays quiet
-  // and this fixture is about the handler alone.
-  "loom.workflow-handle-unsupported": `
-system S {
-  subdomain D { context Ops {
-    aggregate Doc { title: string }
-    repository Docs for Doc { }
-    workflow Review {
-      doc: Doc id
-      st: string
-      create(doc: Doc id) { st := "Filed" }
-      handle approve() { st := "Approved" }
-    }
-  } }
-}`,
   // An entity-part-typed parameter on a PUBLIC operation.  The value-object
   // spelling of the very same model is the passing sibling (it emits
   // `z.array(LineSchema)` + `new Line(e.sku, e.qty)`), pinned in

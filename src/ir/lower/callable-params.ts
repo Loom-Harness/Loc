@@ -3,7 +3,7 @@
 //
 // Every callable site in the language — aggregate `operation` / `create` /
 // `destroy`, `function`, `commandHandler` / `queryHandler`, a `domainService`
-// operation, a workflow `create` / `handle` — lowers its parameter list the
+// operation, a workflow `create` — lowers its parameter list the
 // same way: lower each declared type, push a `ParamIR`, and bind the name as a
 // `param` local so the body resolves it.  That loop was written SEVEN times
 // across three lowerers, which is the `lower/` half of the finding M-T5.21's

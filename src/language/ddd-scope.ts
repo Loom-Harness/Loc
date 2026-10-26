@@ -124,7 +124,7 @@ export class DddScopeProvider extends DefaultScopeProvider {
     // `tenancy by user.<claim> of <Registry>` — the claim resolves against the
     // enclosing system's `user { … }` block fields, and ONLY in that position
     // (the same targeted-scoping trick that keeps EventDecl/PayloadDecl visible
-    // only in workflow create/handle params): user fields are not globally
+    // only in workflow create params): user fields are not globally
     // exported, so without this arm the cross-ref could never link — and with
     // it a user-field name stays out of scope everywhere else.  The `registry`
     // slot needs no arm: aggregates are exported to the global scope by bare
@@ -198,8 +198,8 @@ export class DddScopeProvider extends DefaultScopeProvider {
   private localTypeScope(context: ReferenceInfo): Scope | undefined {
     // Transport types (`event` / `command` / `query` / `response` / `error`)
     // are only offered as a type in a TRANSPORT-BOUNDARY position — a workflow
-    // `create`/`handle` parameter (`create(e: PaymentReceived) by …`,
-    // `handle settle(c: SettleOrder)`), a union variant, or an application-layer
+    // `create` parameter (`create(e: PaymentReceived) by …`,
+    // `create(c: SettleOrder)`), a union variant, or an application-layer
     // `commandHandler`/`queryHandler` contract (its record param and its
     // response return — `queryHandler GetOrder(query: GetOrderQuery):
     // OrderResponse`).  Everywhere else they stay out of scope, so a stray event
@@ -207,7 +207,7 @@ export class DddScopeProvider extends DefaultScopeProvider {
     // to nothing (a clear error) rather than silently typing as a transport
     // record.
     const allowTransport =
-      inWorkflowCommandParam(context.container) ||
+      inWorkflowCreateParam(context.container) ||
       inUnionVariant(context.container) ||
       inHandlerContract(context.container);
     const aggregate = enclosingAggregate(context.container);
@@ -218,7 +218,7 @@ export class DddScopeProvider extends DefaultScopeProvider {
     // channel).  Events aren't globally exported, so widen here with the same
     // targeted-arm shape as the OnDecl/ProjectionOn/timerSource arms; the
     // local (same-document) declaration still wins via the default scope.
-    // Payloads (`handle` commands) and union variants deliberately stay
+    // Payloads (command params) and union variants deliberately stay
     // context-local — the widening gates on the create-param position
     // itself, not the broader `allowTransport`.
     const systemEventDescs = (): AstNodeDescription[] => {
@@ -411,28 +411,17 @@ function isTransportType(type: string): boolean {
 }
 
 /** True when `namedType` (a `NamedType` AST node) sits directly in a workflow
- *  `create` / `handle` parameter's type — `create(e: Event)` / `handle h(c:
- *  Command)`.  The container chain is NamedType → TypeRef → Parameter →
- *  WorkflowCreateDecl | HandleDecl; we match it positionally so a `NamedType`
- *  elsewhere inside the workflow (a `let x: T` annotation, say) does not also
- *  pull transport types into scope. */
-/** True when `namedType` is the declared type of a workflow `create(...)`
- *  parameter specifically — the event-subscription position the M-T4.4
- *  system-wide event widening applies to.  Narrower than
- *  `inWorkflowCommandParam` (which also covers `handle` params). */
+ *  `create` parameter's type — `create(e: Event)` / `create(c: Command)`.  The
+ *  container chain is NamedType → TypeRef → Parameter → WorkflowCreateDecl; we
+ *  match it positionally so a `NamedType` elsewhere inside the workflow (a
+ *  `let x: T` annotation, say) does not also pull transport types into scope.
+ *  It is also the event-subscription position the M-T4.4 system-wide event
+ *  widening applies to. */
 function inWorkflowCreateParam(namedType: AstNode | undefined): boolean {
   const typeRef = namedType?.$container;
   const param = typeRef?.$container;
   if (param?.$type !== "Parameter") return false;
   return param.$container?.$type === "WorkflowCreateDecl";
-}
-
-function inWorkflowCommandParam(namedType: AstNode | undefined): boolean {
-  const typeRef = namedType?.$container;
-  const param = typeRef?.$container;
-  if (param?.$type !== "Parameter") return false;
-  const owner = param.$container?.$type;
-  return owner === "WorkflowCreateDecl" || owner === "HandleDecl";
 }
 
 /** True when `namedType` sits in an application-layer handler's CONTRACT — the
@@ -446,7 +435,7 @@ function inWorkflowCommandParam(namedType: AstNode | undefined): boolean {
  *  deserialises into, and the response record the route serialises out — which
  *  is exactly what `src/ir/util/handler-contracts.ts` (`requestRecordFor` /
  *  `normalizeHandlerReturn`) reads, and what `scaffoldHandlers` synthesises.
- *  Deliberately positional (the same shape as `inWorkflowCommandParam`), so the
+ *  Deliberately positional (the same shape as `inWorkflowCreateParam`), so the
  *  widening reaches these two slots and nothing else: an aggregate field, an
  *  operation / find / workflow-function param, and a UI page param all keep
  *  resolving a stray transport name to nothing.

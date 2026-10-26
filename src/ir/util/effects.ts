@@ -19,7 +19,7 @@ import { walkExprDeep, walkWorkflowStmtOwnExprsDeep } from "./walk.js";
 
 type SaveIR = { name: string; aggName: string; repoName: string };
 
-/** Any lowered body with exit saves: a workflow create / handle / on, or a
+/** Any lowered body with exit saves: a workflow create / on, or a
  *  command / query handler. */
 export interface EffectBodyIR {
   readonly statements: readonly WorkflowStmtIR[];
