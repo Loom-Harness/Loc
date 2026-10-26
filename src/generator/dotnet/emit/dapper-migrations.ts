@@ -459,8 +459,7 @@ export function renderDapperMigrationRunner(ns: string): string {
       '                "SELECT tag FROM public.__loom_migrations", cancellationToken: cancellationToken)))',
       "                .ToHashSet(StringComparer.Ordinal);",
       "            // An applied SET, not a watermark: a migration whose id sorts below one",
-      "            // already applied (a later module block, the year-2999 provenance",
-      "            // migration) still runs.",
+      "            // already applied (one this build no longer ships, say) still runs.",
       "            var pending = migrations.Where(m => !applied.Contains(m.Id)).ToList();",
       log(
         renderDotnetLogCall("migrationsStarting", [{ name: "count", valueExpr: "pending.Count" }]),
