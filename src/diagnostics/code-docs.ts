@@ -437,6 +437,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.page-gate-not-client-evaluable": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.ui-gate-expr-unsupported": "15-ui-pages-structure.md#page--route-title-body",
   "loom.ui-this-unbound": "15-ui-pages-structure.md#page--route-title-body",
+  "loom.lambda-param-type-unknown": "15-ui-pages-structure.md#page--route-title-body",
   "loom.sensitive-wire-unsupported": "17-auth.md#sensitive--field-tagging",
   "loom.duplicate-user-block": "17-auth.md#user--the-principal-claim-shape",
   "loom.user-duplicate-field": "17-auth.md#user--the-principal-claim-shape",
