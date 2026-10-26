@@ -115,6 +115,13 @@ export const Ty = {
       if (v.kind === "union") flat.push(...v.variants);
       else flat.push(v);
     }
+    // `T or none` is `T?` (D-ABSENCE-MODEL), as in the IR's `canonicalUnion`.
+    if (flat.length === 2) {
+      const [a, b] = flat as [Ty, Ty];
+      const present = a.kind === "none" ? b : b.kind === "none" ? a : undefined;
+      if (present && present.kind !== "none")
+        return present.kind === "optional" ? present : { kind: "optional", inner: present };
+    }
     return { kind: "union", variants: flat };
   },
 };
