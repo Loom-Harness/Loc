@@ -5024,6 +5024,36 @@ export const DIAGNOSTIC_MESSAGES = {
     `workflow has no id-shaped state field to correlate on, so no instance row is kept and no ` +
     `later step could ever read the value. Either declare one id-shaped state field (for example ` +
     `'orderId: Order id') and pass it to the create, or drop the state and the assignment.`,
+  // The read twin of the rule above: the create reads state the workflow keeps
+  // no row for, so there is no instance to read it from.
+  "loom.workflow-uncorrelated-state-read": (p: { name: unknown; fields: unknown }) =>
+    `workflow '${p.name}': the command 'create' reads workflow state (${p.fields}), but the ` +
+    `workflow has no id-shaped state field to correlate on, so no instance row is kept and ` +
+    `there is no instance to read the value from. Either declare one id-shaped state field (for ` +
+    `example 'orderId: Order id') and pass it to the create, or drop the state and pass the ` +
+    `value in as a parameter.`,
+  // A factory call in a workflow / handler body that is not the one-record form.
+  "loom.workflow-positional-create": (p: { agg: unknown; owner: unknown }) =>
+    `'${p.agg}.create(…)' in ${p.owner} must take one record argument, ` +
+    `'${p.agg}.create({ field: value, … })'. The factory's input is a record keyed by field ` +
+    `name on every backend, so a positional, named or empty argument list has no field to ` +
+    `land on, and the created '${p.agg}' would never be saved. Write the fields as a record.`,
+  // A body mutates an aggregate that none of its saves covers (effect IR: a
+  // `mutate` with no `persist` of the same local in an enclosing scope).
+  "loom.workflow-mutation-unsaved": (p: { owner: unknown; call: unknown; name: unknown }) =>
+    `${p.owner}: '${p.call}' mutates '${p.name}', but no save covers '${p.name}', so the ` +
+    `change would never be written. A body saves an aggregate it created, or loaded from a ` +
+    `repository, and then mutated through a bare call statement; binding the result of a ` +
+    `mutating call ('let r = ${p.call}(…)') is not saved yet. Write the call as its own ` +
+    `statement, and load '${p.name}' with a repository read if it is not one.`,
+  "loom.workflow-mutation-unsaved#unbound": (p: {
+    owner: unknown;
+    call: unknown;
+    aggName: unknown;
+  }) =>
+    `${p.owner}: '${p.call}' mutates the '${p.aggName}' passed to it, but that argument is an ` +
+    `expression rather than a bound local, so nothing can save the change. Bind the ` +
+    `'${p.aggName}' with 'let' first and pass the local.`,
   // A workflow that declares `on(…)` reactors but no `create(…)` starter.
   // Sibling of `loom.reactor-event-uncarried` above, which performs this class
   // of check for a different cause (no channel carries the event).  Here the

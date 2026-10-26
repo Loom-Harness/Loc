@@ -14,6 +14,7 @@ import {
   omittableCreateInputs,
 } from "../../enrich/wire-projection.js";
 import { verbsForKind } from "../../resource-verbs.js";
+import type { EffectKind } from "../../types/effect-ir.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -25,6 +26,7 @@ import type {
   WorkflowStmtIR,
 } from "../../types/loom-ir.js";
 import { findUsesCurrentUser } from "../../types/loom-ir.js";
+import { contextSaveResolver } from "../../util/domain-service-tier.js";
 import { bodyEffects } from "../../util/effects.js";
 import {
   walkExprDeep,
@@ -39,6 +41,7 @@ import {
   facadeCreate,
   workflowBodyUsesOwnState,
 } from "../../util/workflow-own-state.js";
+import { validateWorkflowEffectVocabulary } from "./body-effect-vocabulary.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { foreignRepositoryOwners } from "./shared.js";
 
@@ -213,7 +216,7 @@ export function validateWorkflows(
     validateWorkflowUnresolvedNames(ctx, wf, foreignRepos, projectionNames, declaredNames, diags);
     validateWorkflowCorrelation(ctx, wf, diags, allEvents);
     validateWorkflowOwnStateAddressable(ctx, wf, diags);
-    validateWorkflowUncorrelatedStateWrite(ctx, wf, diags);
+    validateWorkflowEffectVocabulary(ctx, wf, diags);
     validateWorkflowCreates(wf, diags, ctx.name);
     validateWorkflowFunctions(wf, diags, ctx.name);
     validateWorkflowHandlers(wf, diags, ctx.name);
@@ -419,8 +422,10 @@ function validateWorkflowInlineRepoCalls(
 // A name that IS a declaration is NOT flagged, even though lowering leaves it
 // `refKind: "unknown"` too: `let c = Category.create(name: label)` (the
 // named-argument factory spelling) lowers to a `method-call` on an unresolved
-// `Category` ref, and every backend renders it as the real class.  Only a name
-// that binds to NOTHING model-wide — or to a projection — is a defect here.
+// `Category` ref.  That spelling has its own phase-④ refusal
+// (`loom.workflow-positional-create`: only the record form is created and
+// saved), so it is not this gate's to report.  Only a name that binds to
+// NOTHING model-wide — or to a projection — is a defect here.
 // ---------------------------------------------------------------------------
 
 /** Every name a workflow body may legitimately mention as a type / receiver:
@@ -829,9 +834,9 @@ function validateWorkflowCorrelation(
 // claim that they are fine:
 //
 //   * a workflow with `Property` members and NO id-shaped field at all.  A
-//     command create that WRITES that state is refused by its own rule
-//     (`validateWorkflowUncorrelatedStateWrite`, below): with no row key no
-//     later step could ever read the write.
+//     command create that writes or reads that state is refused by the body
+//     vocabulary (`body-effect-vocabulary.ts`): with no row key there is no
+//     instance to write to or read from.
 //   * a command create whose body does NOT touch own state: it emits fine, but
 //     still creates no row, so an `on` reactor for the same key logs
 //     `event_unrouted` forever (the reactor path loads, it does not allocate).
@@ -878,42 +883,6 @@ function validateWorkflowOwnStateAddressable(
     origin: wf.origin,
     code: "loom.workflow-create-correlation-unsupplied",
   });
-}
-
-// An UNCORRELATED workflow — state fields but no id-shaped one, not
-// event-sourced — keeps no instance row: there is no key to store one under or
-// to find it by.  A command `create` that assigns that state therefore writes a
-// value no later step could ever address, and the backends disagreed on what
-// to make of it (an unbound `this` / `state` on node, .NET, java and elixir; a
-// request-scoped scratch that persisted nothing on python).  Refused, so the
-// author correlates the workflow or drops the state.  The write is read off the
-// body's effects (`ir/util/effects.ts`), at any nesting depth.
-function validateWorkflowUncorrelatedStateWrite(
-  ctx: BoundedContextIR,
-  wf: WorkflowIR,
-  diags: LoomDiagnostic[],
-): void {
-  const stateFields = wf.stateFields ?? [];
-  if (stateFields.length === 0 || wf.eventSourced) return;
-  if (stateFields.some((f) => f.type.kind === "id")) return;
-  for (const c of wf.creates) {
-    if (c.triggerKind !== "command") continue;
-    const written = new Set<string>();
-    for (const e of bodyEffects(c)) {
-      if (e.kind === "mutate" && e.target.kind === "state") written.add(e.target.field);
-    }
-    if (written.size === 0) continue;
-    diags.push({
-      severity: "error",
-      code: "loom.workflow-uncorrelated-state-write",
-      message: diagMessage("loom.workflow-uncorrelated-state-write", {
-        name: wf.name,
-        fields: [...written].map((f) => `'${f}'`).join(", "),
-      }),
-      source: `${ctx.name}/${wf.name}`,
-      origin: wf.origin,
-    });
-  }
 }
 
 /** A create param whose PAYLOAD type declares a field named `corr` — the
@@ -1126,37 +1095,23 @@ function workflowBodies(wf: {
   ];
 }
 
-/** Does this ONE statement (not its children) write state or publish?  An
- *  aggregate operation call, an event `emit`, a factory `let` (an INSERT), a
- *  repository delete and an own-state `assign` are effects; guards, reads,
- *  resource/domain-service calls and the two nesting kinds are not (their
- *  nested statements are judged on their own by the deep walk).  Exhaustive,
- *  so a new `WorkflowStmtIR` kind has to be ruled on here. */
-function isWorkflowEffect(s: WorkflowStmtIR): boolean {
-  switch (s.kind) {
-    case "op-call":
-    case "emit":
-    case "factory-let":
-    case "repo-delete":
-    case "assign":
-      return true;
-    case "precondition":
-    case "requires":
-    case "repo-let":
-    case "expr-let":
-    case "repo-run":
-    case "resource-call":
-    case "domain-service-call":
-    case "for-each":
-    case "if-let":
-      return false;
-    default: {
-      const _exhaustive: never = s;
-      void _exhaustive;
-      return false;
-    }
-  }
-}
+/** The effects that make a `transactional` keyword meaningful: a write (an
+ *  aggregate or own-state mutation, a create, a delete, a save) or a publish.
+ *  A table over the closed effect kinds, so a new kind has to be ruled on. */
+const WRITE_EFFECT_KIND = {
+  mutate: true,
+  create: true,
+  delete: true,
+  persist: true,
+  emit: true,
+  load: false,
+  "read-state": false,
+  call: false,
+  return: false,
+} as const satisfies Record<EffectKind, boolean>;
+const WRITE_EFFECTS: ReadonlySet<EffectKind> = new Set(
+  (Object.keys(WRITE_EFFECT_KIND) as EffectKind[]).filter((k) => WRITE_EFFECT_KIND[k]),
+);
 
 function validateWorkflowBody(
   ctx: BoundedContextIR,
@@ -1210,15 +1165,13 @@ function validateWorkflowBody(
   // one level of nesting.  So a `transactional` workflow whose only effect
   // sits inside a loop drew a false `transactional-no-effect` (eval item 44).
   // Whether a body has an effect is a question about EVERY reachable
-  // statement, so it rides the census-sanctioned deep walk.
+  // statement, and about what its callees declare (a `let`-bound mutating
+  // service call writes too), so it reads the body's effects.
   if (!mutated) {
-    for (const body of workflowBodies(wf)) {
-      for (const top of body) {
-        walkWorkflowStmtsDeep(top, (s) => {
-          if (isWorkflowEffect(s)) mutated = true;
-        });
-      }
-    }
+    const resolver = contextSaveResolver(ctx);
+    mutated = workflowBodies(wf).some((statements) =>
+      bodyEffects({ statements, savesAtExit: [] }, resolver).some((e) => WRITE_EFFECTS.has(e.kind)),
+    );
   }
 
   if (wf.transactional && !mutated) {

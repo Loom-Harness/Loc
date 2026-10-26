@@ -392,7 +392,21 @@ has) — return the id and read the record back, or use a `commandHandler`.
 - **State needs a key.**  A command `create` that assigns workflow state
   on a workflow with no id-shaped state field is an error,
   `loom.workflow-uncorrelated-state-write`: without a correlation key no
-  instance row is kept, so no later step could read the write.
+  instance row is kept, so no later step could read the write.  Reading
+  that state (`precondition total == 0`) is an error for the same reason,
+  `loom.workflow-uncorrelated-state-read`: there is no instance to read.
+- **A mutation needs a save.**  Every aggregate a body mutates must be one
+  the exit save (or a loop's / branch's save) writes.  A mutating call
+  whose result is bound — `let r = a.withdraw(x)`, or
+  `let r = Transfer.run(src, dst, x)` on a `mutating` domain service — is
+  not saved yet, so it is an error, `loom.workflow-mutation-unsaved`;
+  write the call as its own statement.  The same code refuses a mutation
+  of a local that is neither created nor loaded from a repository, and an
+  aggregate passed to a mutating service as an expression rather than a
+  bound local.
+- **One way to create.**  `Agg.create({ field: value, … })` is the only
+  factory form in a body; a positional, named or empty argument list
+  (`Agg.create(a, b)`) is `loom.workflow-positional-create`.
 - **Aggregate-level events** (raised inside an operation via `emit`)
   drain through the aggregate's repository save.  In a
   non-transactional workflow each save commits on its own, so its

@@ -1916,6 +1916,34 @@ system P {
       total: int
       create(n: int) { total := n }
     }`),
+  // The read twin: the create reads state the workflow keeps no row for.
+  "loom.workflow-uncorrelated-state-read":
+    repoOnly(`    aggregate Order with crudish { name: string }
+    repository Orders for Order { }
+    workflow Tally {
+      total: int
+      create(n: int) { precondition total == 0 }
+    }`),
+  // A let-bound mutating call: `a.rename` mutates `o`, but no save covers it.
+  "loom.workflow-mutation-unsaved": repoOnly(`    aggregate Order with crudish {
+      name: string
+      operation rename(n: string): string { name := n  return n }
+    }
+    repository Orders for Order { }
+    workflow W {
+      create(oid: Order id) {
+        let o = Orders.getById(oid)
+        let r = o.rename("x")
+      }
+    }`),
+  // A positional factory call: the factory input is a record.
+  "loom.workflow-positional-create": repoOnly(`    aggregate Order with crudish { name: string }
+    repository Orders for Order { }
+    workflow W {
+      create(n: string) {
+        let o = Order.create(n)
+      }
+    }`),
   // An explicit persistence statement in a workflow body: the body persists at
   // its exit, so `Orders.save(o)` is refused rather than reinterpreted.
   "loom.workflow-explicit-save": repoOnly(`    aggregate Order with crudish {

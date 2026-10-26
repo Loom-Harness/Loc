@@ -39,9 +39,18 @@ export type CallTargetIR =
   | { kind: "remote-api"; resource: string; api: string; operationId: string };
 
 /** What a `mutate` effect writes: an aggregate held by a local (through one of
- *  its operations), or a field of the workflow's own state. */
+ *  its operations), or a field of the workflow's own state.
+ *
+ *  An aggregate mutation is the callee's DECLARED effect, whatever the
+ *  statement shape: `a.withdraw(x)` as a statement, `let r = a.withdraw(x)`,
+ *  and `Transfer.run(a, b, x)` (a `mutating` domain service that calls a
+ *  mutating operation on the aggregate passed for that parameter) all mutate
+ *  `a`.  `service` names the domain service when the mutation happens inside
+ *  one; `op` is then the service operation.  `name` is empty when the mutated
+ *  value is not a bound local (an argument written as an expression), which no
+ *  save can cover. */
 export type MutateTargetIR =
-  | { kind: "aggregate"; name: string; aggName: string; op: string }
+  | { kind: "aggregate"; name: string; aggName: string; op: string; service?: string }
   | { kind: "state"; field: string };
 
 interface EffectBase {
@@ -62,6 +71,9 @@ export type EffectIR =
   /** An aggregate constructed through its factory, bound to `binds`. */
   | (EffectBase & { kind: "create"; aggName: string; binds: string })
   | (EffectBase & { kind: "mutate"; target: MutateTargetIR })
+  /** A read of one of the workflow's own state fields (`total` in
+   *  `precondition total == 0`). */
+  | (EffectBase & { kind: "read-state"; field: string })
   /** A derived save: the aggregate held by `name` is written at the end of the
    *  effect's scope. */
   | (EffectBase & { kind: "persist"; name: string; aggName: string; repoName: string })
@@ -70,3 +82,67 @@ export type EffectIR =
   | (EffectBase & { kind: "call"; target: CallTargetIR })
   /** The body's result value (`create(…): T` / a handler's `return`). */
   | (EffectBase & { kind: "return"; value: ExprIR });
+
+export type EffectKind = EffectIR["kind"];
+
+/** The key a body position's vocabulary is stated over: an effect's kind, with
+ *  `mutate` split by what it writes and `call` by what it calls.  A position
+ *  can admit writing an aggregate but not its own state, or a resource call
+ *  but not a service call, so the kind alone is too coarse. */
+export type EffectSort =
+  | "load"
+  | "create"
+  | "mutate-aggregate"
+  | "mutate-state"
+  | "read-state"
+  | "persist"
+  | "delete"
+  | "emit"
+  | "call-service"
+  | "call-resource"
+  | "call-remote-api"
+  | "return";
+
+const CALL_SORT: Readonly<Record<CallTargetIR["kind"], EffectSort>> = {
+  "domain-service": "call-service",
+  resource: "call-resource",
+  "remote-api": "call-remote-api",
+};
+
+export function effectSort(e: EffectIR): EffectSort {
+  switch (e.kind) {
+    case "mutate":
+      return e.target.kind === "state" ? "mutate-state" : "mutate-aggregate";
+    case "call":
+      return CALL_SORT[e.target.kind];
+    case "load":
+    case "create":
+    case "read-state":
+    case "persist":
+    case "delete":
+    case "emit":
+    case "return":
+      return e.kind;
+    default: {
+      const _exhaustive: never = e;
+      return _exhaustive;
+    }
+  }
+}
+
+/** A body that lowers to `WorkflowStmtIR`, named by where it sits.  The
+ *  position, not the statement shape, decides which effects the body may have
+ *  (`ir/validate/checks/body-effect-vocabulary.ts`).
+ *
+ *  `workflow-command-create-uncorrelated` is a command `create` of a workflow
+ *  that has state fields but no id-shaped one: such a workflow keeps no
+ *  instance row, so nothing in the create can address its state.
+ *  `workflow-reactor` is an event-triggered `create … by` or an `on`
+ *  subscription. */
+export type BodyPosition =
+  | "workflow-command-create"
+  | "workflow-command-create-uncorrelated"
+  | "workflow-reactor"
+  | "workflow-handle"
+  | "command-handler"
+  | "query-handler";

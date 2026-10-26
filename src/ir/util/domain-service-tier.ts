@@ -114,6 +114,19 @@ export function aggregateOpResolver(ctx: {
   };
 }
 
+/** A {@link SaveResolver} over a context's lowered aggregates and domain
+ *  services. */
+export function contextSaveResolver(ctx: {
+  aggregates: Parameters<typeof aggregateOpResolver>[0]["aggregates"];
+  domainServices: readonly { name: string; operations: DomainServiceOperationIR[] }[];
+}): SaveResolver {
+  const byName = new Map(ctx.domainServices.map((s) => [s.name, s]));
+  return {
+    resolveAggOp: aggregateOpResolver(ctx),
+    resolveServiceOp: (service, op) => byName.get(service)?.operations.find((o) => o.name === op),
+  };
+}
+
 /** Derive the {@link DomainServiceTier} of a domain-service operation from its
  *  lowered body.  Mutation outranks reading outranks pure (a body that both
  *  reads and mutates is `mutating`).
