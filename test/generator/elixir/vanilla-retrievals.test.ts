@@ -88,7 +88,9 @@ describe("vanilla — retrieval modules under lib/<app>/<ctx>/retrievals/", () =
     const body = files.get([...files.keys()].find((k) => k.endsWith("/retrievals/by_status.ex"))!)!;
     // The predicate is rendered against Api.Orders.Order with `record` as
     // the Ecto binding (matching the existing vanilla view-emit shape).
-    expect(body).toMatch(/from\(record in Api\.Orders\.Order\.base_query\(\), where: record\.status == \^s\)/);
+    expect(body).toMatch(
+      /from\(record in Api\.Orders\.Order\.base_query\(\), where: record\.status == \^s\)/,
+    );
   });
 
   it("renders a declared param as Ecto's `^name` pin (NOT Ash's `^arg(:name)`)", async () => {

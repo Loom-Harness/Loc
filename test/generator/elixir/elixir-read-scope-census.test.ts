@@ -18,9 +18,9 @@
 //      a TPH root also hosts its subtypes' own, kind-guarded.
 
 import { describe, expect, it } from "vitest";
-import { readFilterRestrictions, readScopeFor } from "../../../src/ir/enrich/read-scope.js";
 import { renderEctoRestriction } from "../../../src/generator/elixir/vanilla/capability-filter.js";
 import { ectoReadScope } from "../../../src/generator/elixir/vanilla/read-scope-emit.js";
+import { readFilterRestrictions, readScopeFor } from "../../../src/ir/enrich/read-scope.js";
 import { upperFirst } from "../../../src/util/naming.js";
 import { buildLoomModel, enrichedContexts } from "../../_helpers/ir.js";
 import { corpusSourceFor, generateCorpusCase } from "../../fixtures/corpus/harness.js";
@@ -99,7 +99,10 @@ describe("elixir read-scope census (#3964)", () => {
     const loom = await buildLoomModel(corpusSourceFor(id, "vanilla"));
     const schemaOf = (agg: string): [string, string] | undefined =>
       [...files].find(
-        ([p, t]) => p.endsWith(".ex") && isScopedSchema(t) && new RegExp(`^defmodule \\S+\\.${upperFirst(agg)} do$`, "m").test(t),
+        ([p, t]) =>
+          p.endsWith(".ex") &&
+          isScopedSchema(t) &&
+          new RegExp(`^defmodule \\S+\\.${upperFirst(agg)} do$`, "m").test(t),
       );
     for (const ctx of enrichedContexts(loom)) {
       const pool = ctx.aggregates;
@@ -107,9 +110,10 @@ describe("elixir read-scope census (#3964)", () => {
         const hit = schemaOf(agg.name);
         if (!hit) continue;
         const [path, schema] = hit;
-        const contextModule = new RegExp(`^defmodule (\\S+)\\.${upperFirst(agg.name)} do$`, "m").exec(
-          schema,
-        )![1]!;
+        const contextModule = new RegExp(
+          `^defmodule (\\S+)\\.${upperFirst(agg.name)} do$`,
+          "m",
+        ).exec(schema)![1]!;
         const scope = ectoReadScope(agg, pool, contextModule);
         const hosted = hostedPredicates(schema).join("\n");
         if (scope.baseWhere) expect(hosted, `${path}: base_query`).toContain(scope.baseWhere);

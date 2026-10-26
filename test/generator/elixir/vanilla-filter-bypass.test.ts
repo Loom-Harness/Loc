@@ -77,15 +77,15 @@ describe("vanilla ignoring filter-bypass — skip_filters on the read", () => {
   it("the schema hosts the capability filter as a prepare_query clause", async () => {
     const schema = file(await gen(), "/shop/order.ex");
     expect(schema).toContain("def __loom_filters__, do: [{:soft_deletable, false}]");
-    expect(schema).toContain(
-      "do: Ecto.Query.where(query, [record], record.is_deleted == false)",
-    );
+    expect(schema).toContain("do: Ecto.Query.where(query, [record], record.is_deleted == false)");
   });
 
   it("`ignoring <Cap>` skips exactly that capability on that find", async () => {
     const repo = file(await gen(), "/shop/order_repository.ex");
     const recent = defBody(repo, "recent");
-    expect(recent).toContain("from(record in Api.Shop.Order.base_query(), where: record.total > 0)");
+    expect(recent).toContain(
+      "from(record in Api.Shop.Order.base_query(), where: record.total > 0)",
+    );
     expect(recent).toContain("Repo.all(query, skip_filters: [:soft_deletable])");
     expect(recent).not.toContain("is_deleted");
   });
@@ -125,4 +125,3 @@ describe("vanilla ignoring filter-bypass — skip_filters on the read", () => {
     expect(wf).toContain("run_find_all_by_big_orders_order(skip_filters: :all)");
   });
 });
-

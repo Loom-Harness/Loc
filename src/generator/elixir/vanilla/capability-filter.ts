@@ -1,26 +1,22 @@
 // ---------------------------------------------------------------------------
-// Vanilla capability-filter helper.
+// Vanilla capability-filter rendering.
 //
-// A `filter <expr>` capability (`contextFilters` on the aggregate) must be
-// AND-ed into EVERY root read of the aggregate.  Plain Ecto has no global
-// query filter, so the generated repository / retrieval modules must
-// conjoin each predicate into every `from(record in <Agg>, where: …)` read site —
-// exactly the Hono/Drizzle situation (half-applying a soft-delete filter would
-// be a correctness hole).
+// A `filter <expr>` capability (`contextFilters` on the aggregate) restricts
+// EVERY read of the aggregate.  On the relational path each restriction is
+// rendered here once (`renderEctoRestriction`) and hosted on the schema module
+// — `base_query/0` or a `Repo.prepare_query/3` clause (read-scope-emit.ts) — so
+// no read site splices one.  The write-scope load (`vanillaWriteScopeFilter`)
+// and the `shape: document` in-app path below render their own.
 //
 // Predicates render under the `record` Ecto binding (`!this.isDeleted` →
 // `not record.is_deleted`).  A `filter <Criterion>` reference inlines its
 // predicate directly.
 //
-// **Principal (tenancy) filters** (`this.tenantId == currentUser.tenantId`) are
-// emitted only when the caller threads the request actor (`{ actor: true }`).
+// **Principal (tenancy) filters** (`this.tenantId == currentUser.tenantId`):
 // `currentUser.tenantId` lowers to `current_user.tenant_id`; inside an Ecto
-// `where:` the principal side must be PINNED, and it must stay fail-closed when
-// no actor is present (an unauthenticated / workflow-internal read), so it
-// renders as `^(current_user && current_user.tenant_id)` — a pinned `nil` makes
-// the comparison match no rows (Ecto binds `= NULL`, never `IS NULL`), giving an
-// empty result.  Callers that pass `{ actor: true }` MUST bind a `current_user`
-// variable in scope.
+// `where:` the principal side must be PINNED and fail-closed, so it renders as
+// `^(current_user && current_user.tenant_id)` — a pinned `nil` matches no rows
+// (Ecto binds `= NULL`, never `IS NULL`).
 // ---------------------------------------------------------------------------
 
 import type { AggregateIR, ExprIR } from "../../../ir/types/loom-ir.js";
@@ -119,57 +115,6 @@ function isFilterBypassed(origin: string | undefined, bypass: FilterBypass | und
   return (bypass.bypassCaps ?? []).includes(origin);
 }
 
-/** The aggregate's capability filters as a single Ecto predicate (conjoined
- *  with the infix `and`, each parenthesised), or null when it has none.
- *  `contextModule` feeds the shared `renderExpr` (enum / type vocab).
- *
- *  Without `{ actor: true }` only NON-principal predicates are emitted (the
- *  no-actor read sites — and the byte-identical default).  With `{ actor: true }`
- *  the principal predicates are included too, pinned against a `current_user`
- *  the caller must have threaded into scope.
- *
- *  When `opts.bypass` is supplied (the read carried an `ignoring` clause), the
- *  capability filters whose `contextFilterOrigins[i]` the bypass names are
- *  OMITTED from the conjunction — for that read only. */
-export function vanillaCapabilityFilter(
-  agg: AggregateIR,
-  contextModule: string,
-  opts?: { actor?: boolean; bypass?: FilterBypass },
-): string | null {
-  // `filterArgs: true` — these predicates are spliced into `from(... where: ...)`
-  // Ecto queries, where money/decimal/datetime are data-layer-native (Postgres
-  // columns), NOT `Decimal`/`DateTime` structs.  Without it a money/datetime
-  // comparison renders the in-memory `Decimal.compare(...)` struct API, which is
-  // not a valid Ecto query expression → `mix compile` fails.  (bool/id/string/enum
-  // render identically in both modes.)
-  const ctx: RenderCtx = {
-    thisName: "record",
-    contextModule,
-    filterArgs: true,
-  };
-  const preds = (agg.contextFilters ?? [])
-    .filter((_, i) => !isFilterBypassed(agg.contextFilterOrigins?.[i], opts?.bypass))
-    .filter((p) => opts?.actor || !exprUsesCurrentUser(p))
-    .map((p) =>
-      // The `deep` sentinel renders its own fail-closed pinned fragment — do
-      // NOT run it through `pinPrincipal` (it already pins).  BOTH claims have
-      // to be threaded: the anchor (`orgPath`/`rootOrg`) AND the system's
-      // declared tenancy claim, which the NULL-`data_key` floor compares
-      // against.  `renderDeepScopeEcto` defaults the latter to `tenantId`, so
-      // omitting it emits `current_user.tenant_id` under `tenancy by
-      // user.<other>` — a claim the principal does not carry (`KeyError` on
-      // every deep/global read).  See `deepScopeTenantClaim`.
-      isDeepScopeFilter(p)
-        ? renderDeepScopeEcto(ctx.thisName, deepScopeAnchorClaim(p), deepScopeTenantClaim(p))
-        : renderPrincipalFilter(p, ctx),
-    );
-  if (preds.length === 0) return null;
-  // `and` is a reserved word in Elixir — the infix form is the only valid one
-  // inside `where:`.  Parenthesise each so a low-precedence operator inside one
-  // (`a or b`) can't bind across the join.
-  return preds.length === 1 ? preds[0]! : preds.map((p) => `(${p})`).join(" and ");
-}
-
 /** The aggregate's `writeScopeFilter` (authorization — the WRITE
  *  ladder) as a single Ecto `where:` predicate, or null when the aggregate has
  *  no write-scope narrowing.  Rendered exactly like a principal capability read
@@ -188,44 +133,6 @@ export function vanillaWriteScopeFilter(agg: AggregateIR, contextModule: string)
   return isDeepScopeFilter(p)
     ? renderDeepScopeEcto(ctx.thisName, deepScopeAnchorClaim(p), deepScopeTenantClaim(p))
     : renderPrincipalFilter(p, ctx);
-}
-
-/** Conjoin a capability-filter predicate with an existing `where:` predicate.
- *  Either side may be null (no existing filter / no capability filter). */
-export function combineWhere(existing: string | null, cap: string | null): string | null {
-  if (!cap) return existing;
-  if (!existing) return cap;
-  return `(${existing}) and (${cap})`;
-}
-
-/** One capability-filter predicate paired with its capability origin name —
- *  used by the retrieval emitter to apply each cap as a separately-gated Ecto
- *  `where` pipe stage so a call-site `ignoring` bypass can skip individual
- *  origins at runtime.  Mirrors `vanillaCapabilityFilter`'s rendering exactly
- *  (same principal pinning / actor gating), but keyed per filter rather than
- *  conjoined into one string.  A filter whose origin is `undefined`
- *  (bare/hand-written) renders with `origin: undefined` and is never bypassable. */
-export function vanillaCapabilityFilterParts(
-  agg: AggregateIR,
-  contextModule: string,
-  opts?: { actor?: boolean },
-): { origin: string | undefined; pred: string }[] {
-  // See `vanillaCapabilityFilter`: rendered into an Ecto `where:` pipe, so
-  // money/decimal/datetime must use the native-query form (`filterArgs: true`).
-  const ctx: RenderCtx = {
-    thisName: "record",
-    contextModule,
-    filterArgs: true,
-  };
-  const parts: { origin: string | undefined; pred: string }[] = [];
-  (agg.contextFilters ?? []).forEach((p, i) => {
-    if (!opts?.actor && exprUsesCurrentUser(p)) return;
-    const pred = isDeepScopeFilter(p)
-      ? renderDeepScopeEcto(ctx.thisName, deepScopeAnchorClaim(p), deepScopeTenantClaim(p))
-      : renderPrincipalFilter(p, ctx);
-    parts.push({ origin: agg.contextFilterOrigins?.[i], pred });
-  });
-  return parts;
 }
 
 // ---------------------------------------------------------------------------

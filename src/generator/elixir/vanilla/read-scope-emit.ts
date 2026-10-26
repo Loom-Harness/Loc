@@ -39,7 +39,7 @@ import { renderEctoRestriction } from "./capability-filter.js";
 
 /** The `prepare_query` clause key of the restrictions no `ignoring` can drop
  *  but that read the principal (a bare `filter` over `currentUser`). */
-export const UNSKIPPABLE_FILTER_KEY = "loom_filter";
+const UNSKIPPABLE_FILTER_KEY = "loom_filter";
 
 /** One `__loom_filter__/3` clause: every restriction sharing a key, conjoined. */
 export interface EctoFilterClause {
@@ -60,7 +60,7 @@ export interface EctoReadScope {
 }
 
 /** The `skip_filters:` key a capability name lowers to. */
-export function skipFilterKey(capability: string): string {
+function skipFilterKey(capability: string): string {
   return snake(capability);
 }
 
@@ -111,12 +111,6 @@ export function ectoReadScope(
       return { key, predicate, principal: readsPrincipal(predicate) };
     }),
   };
-}
-
-/** True when the aggregate's schema module carries a read scope worth a
- *  `base_query/0` / `__loom_filters__/0` (anything beyond a bare `from`). */
-export function hasEctoReadScope(scope: EctoReadScope): boolean {
-  return scope.baseWhere !== null || scope.clauses.length > 0;
 }
 
 /** The read-scope functions appended to an aggregate's schema module. */
