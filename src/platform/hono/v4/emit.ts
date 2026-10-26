@@ -1378,6 +1378,10 @@ export function generateTypeScriptForContexts(
       inProcessDispatcher: /^export function createInProcessDispatcher\(/m.test(
         out.get("http/workflows.ts") ?? "",
       ),
+      // The project's own runner whenever it ships one (see `hasMigrations`).
+      ...(!usingMikro && (system?.migrations?.length ?? 0) > 0
+        ? { migrator: "../db/migrate" }
+        : {}),
     });
     if (integrationTests) {
       out.set(`test/${lowerFirst(ctx.name)}.integration.test.ts`, integrationTests);
@@ -2039,11 +2043,11 @@ function renderHonoBootMigrate(): string {
   const { maxAttempts, baseDelayMs, maxDelayMs } = BOOT_DB_RETRY;
   return lines(
     "",
-    "// Apply pending schema migrations before serving traffic.  Drizzle's",
-    "// runtime migrator reads db/migrations/meta/_journal.json + each",
+    "// Apply pending schema migrations before serving traffic.  The runtime",
+    "// migrator (db/migrate.ts) reads db/migrations/meta/_journal.json + each",
     "// referenced .sql file, tracking state in `__drizzle_migrations`;",
     "// idempotent across boots.  Bracketed with the catalog migration",
-    "// lifecycle events (observability.md) — drizzle's migrator runs the",
+    "// lifecycle events (observability.md) — the migrator runs the",
     "// whole batch in one opaque call, so there's no per-migration",
     "// `migration_applied` seam (Hono limitation; Python/.NET emit it).",
     "// A database that is not reachable YET (refused / DNS / starting up) is",
@@ -2128,9 +2132,9 @@ function renderProjectIndexTs(
   // queue / api) so their clients instantiate at boot.  Empty for
   // deployables with no such resources — byte-identical to before.
   const resourceImportBlock = resourceImports.length > 0 ? `${resourceImports.join("\n")}\n` : "";
-  const migImport = runMigrationsAtBoot
-    ? `import { migrate } from "drizzle-orm/node-postgres/migrator";\n`
-    : "";
+  // `db/migrate.ts` — Drizzle's migrator plus the non-transactional files a
+  // `CREATE INDEX CONCURRENTLY` needs (`emitTypescriptMigrations`).
+  const migImport = runMigrationsAtBoot ? `import { migrate } from "./db/migrate";\n` : "";
   const seedImport = runSeedsAtBoot ? `import { runSeeds } from "./db/seed";\n` : "";
   const seedCall = runSeedsAtBoot
     ? `\n// Apply first-boot seed data after migrations (database-seeding.md).\n// Ship-once per dataset via the __loom_seed marker; idempotent across boots.\nawait runSeeds(db);\n`

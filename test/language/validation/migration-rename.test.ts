@@ -71,8 +71,8 @@ migration "b" { Order.quantity -> amount }`);
   });
 });
 
-// Table/aggregate renames (`OldName -> NewAggregate`) — the `toAggregate` side
-// is a live cross-reference; `fromTable` is a bare (now-absent) name.
+// Table steps (`OldName -> NewName`, `A.Name -> B.Name`) — both sides are bare
+// names; only their structure is checked at this layer.
 const tableCodes = async (migration: string): Promise<string[]> =>
   (
     await parseString(`
@@ -119,10 +119,18 @@ migration "b" { Ancient -> Order }`);
     expect(found).toContain("loom.rename-duplicate-target");
   });
 
-  it("an unknown live aggregate on the target side is a linking error", async () => {
+  it("an unknown target is left to the IR check, not flagged structurally", async () => {
     const found = await tableCodes(`migration "x" { Legacy -> Nonexistent }`);
-    // Langium's linker reports the bad cross-reference; the structural checks
-    // do not re-flag it.
+    // The target is a bare name, resolved on the merged IR
+    // (`loom.migration-step-target-missing`, test/ir/migration-table-steps.test.ts).
     expect(found.filter((c) => c.startsWith("loom.rename"))).toEqual([]);
+  });
+
+  it("a move keeps its context: `A.Order -> Orders.Order` is no self-rename", async () => {
+    const found = await tableCodes(`migration "m" { Legacy.Order -> Orders.Order }`);
+    expect(found.filter((c) => c.startsWith("loom.rename"))).toEqual([]);
+    expect(await tableCodes(`migration "m" { Orders.Order -> Orders.Order }`)).toContain(
+      "loom.rename-to-self",
+    );
   });
 });

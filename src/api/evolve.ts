@@ -26,7 +26,8 @@ import { diagMessage } from "../diagnostics/messages.js";
 import { renderPgStep } from "../generator/sql-pg.js";
 import { enrichLoomModel } from "../ir/enrich/enrichments.js";
 import { lowerModel, mergeLoomModels } from "../ir/lower/lower.js";
-import type { EnrichedLoomModel } from "../ir/types/loom-ir.js";
+import { allContexts, type EnrichedLoomModel } from "../ir/types/loom-ir.js";
+import { resolveTableStepTarget, tableStepFromContext } from "../ir/util/table-step-target.js";
 import { createDddServices } from "../language/ddd-module.js";
 import type { Model } from "../language/generated/ast.js";
 import { captureSnapshots } from "../system/loomsnap.js";
@@ -257,18 +258,20 @@ function foldDeclaredRenames(
       to: r.to,
     });
   }
+  const contexts = allContexts(cur);
   for (const r of cur.tableRenameIntents) {
+    const resolved = resolveTableStepTarget(contexts, r);
+    if (!resolved.ok || resolved.target.kind !== "aggregate") continue;
+    const toCtx = resolved.target.ctx.name;
+    const fromCtx = tableStepFromContext(r, resolved.target);
     const removed = out.find(
       (c) =>
         c.bucket === "aggregates" &&
         c.kind === "entity-removed" &&
-        isAgg(c.entity, r.fromAggregate, r.context),
+        isAgg(c.entity, r.from, fromCtx),
     );
     const added = out.find(
-      (c) =>
-        c.bucket === "aggregates" &&
-        c.kind === "entity-added" &&
-        isAgg(c.entity, r.toAggregate, r.context),
+      (c) => c.bucket === "aggregates" && c.kind === "entity-added" && isAgg(c.entity, r.to, toCtx),
     );
     if (!removed || !added) continue;
     replacePair(removed, added, {
@@ -276,7 +279,7 @@ function foldDeclaredRenames(
       breaking: true,
       bucket: "aggregates",
       entity: added.entity,
-      detail: `aggregate '${removed.entity}' renamed to '${added.entity}' (declared in migration "${r.migration}")`,
+      detail: `aggregate '${removed.entity}' ${r.fromContext !== undefined ? "moved" : "renamed"} to '${added.entity}' (declared in migration "${r.migration}")`,
       from: removed.entity,
       to: added.entity,
     });

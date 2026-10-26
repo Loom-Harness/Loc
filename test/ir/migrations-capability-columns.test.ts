@@ -80,9 +80,14 @@ describe("a capability added to a populated table", () => {
       src("with crudish"),
       `${src("with softDeletable, crudish")}\nmigration "soft" { Account.isDeleted = true }`,
     );
-    const backfill = steps.find((s) => s.op === "backfillColumn" && s.column === "is_deleted");
-    expect(backfill).toMatchObject({ valueSql: "TRUE" });
-    expect(steps.some((s) => s.op === "alterColumnDefault" && s.name === "is_deleted")).toBe(false);
+    // A constant block value rides the same add-WITH-DEFAULT pair, carrying the
+    // block's value instead of the capability's.
+    const add = steps.find((s) => s.op === "addColumn" && s.column.name === "is_deleted");
+    expect(add).toMatchObject({ column: { default: "TRUE", nullable: false } });
+    expect(steps.some((s) => s.op === "backfillColumn")).toBe(false);
+    expect(steps.filter((s) => s.op === "alterColumnDefault" && s.name === "is_deleted")).toEqual([
+      expect.objectContaining({ from: "TRUE", to: undefined }),
+    ]);
   });
 
   it("the capability stamp never reaches the committed snapshot, and a fresh CREATE has no default", async () => {

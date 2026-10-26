@@ -1,0 +1,42 @@
+// Cross-context move gate — the BASE model (v1).
+//
+// Paired with move-evolved.ddd (v2), which moves the relational `Note` (with
+// its contained `Line` parts) and the event-sourced `Ledger` out of context
+// `A` (module Notes) into context `B` of a NEW module, Archive, through one
+// `migration "…" { A.Note -> B.Note  A.Ledger -> B.Ledger }` block.  The gate
+// seeds rows into v1's tables and proves they come out of v2's.
+//
+// `__PLATFORM__` is swapped per backend by the harness.  Deployable name `d`
+// matches the other e2e fixtures.
+system MoveEvo {
+  subdomain Notes {
+    context A {
+      aggregate Keep with crudish { name: string }
+      repository Keeps for Keep { }
+      aggregate Note with crudish {
+        text: string
+        contains lines: Line[]
+        entity Line { sku: string }
+      }
+      repository Notes for Note { }
+      event Charged { ledgerId: Ledger id, amount: int }
+      aggregate Ledger persistedAs: eventLog {
+        balance: int
+        operation charge(amount: int) { emit Charged { ledgerId: id, amount: amount } }
+        apply(e: Charged) { balance := balance + e.amount }
+      }
+      repository Ledgers for Ledger { }
+    }
+  }
+  api NotesApi from Notes
+  storage primary { type: postgres }
+  resource aState { for: A, kind: state, use: primary }
+  resource aLog { for: A, kind: eventLog, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [A]
+    dataSources: [aState, aLog]
+    serves: NotesApi
+    port: 4000
+  }
+}

@@ -1,7 +1,9 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { descriptorFor } from "../../../platform/metadata.js";
 import type { AggregateIR, EnrichedLoomModel, ExprIR, TypeIR } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
 import { sqlRenderableExpr, sqlTemporalArith } from "../../util/sql-renderable-expr.js";
+import { resolveTableStepTarget } from "../../util/table-step-target.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // ---------------------------------------------------------------------------
@@ -283,8 +285,11 @@ export function validateMigrationAdapterSupport(
   };
   for (const r of loom.renameIntents)
     add(r.context, r.migration, `rename ${r.aggregate}.${r.from}`);
-  for (const t of loom.tableRenameIntents)
-    add(t.context, t.migration, `rename ${t.fromAggregate} -> ${t.toAggregate}`);
+  const contexts = allContexts(loom);
+  for (const t of loom.tableRenameIntents) {
+    const r = resolveTableStepTarget(contexts, t);
+    if (r.ok) add(r.target.ctx.name, t.migration, `rename ${t.from} -> ${t.to}`);
+  }
   for (const b of loom.backfillIntents)
     add(b.context, b.migration, `backfill ${b.aggregate}.${b.field}`);
   const sqlSteps = loom.sqlMigrationSteps.map((s) => ({
@@ -621,4 +626,106 @@ function backfillTypeFits(
   if (expected.startsWith("enum:") && got === "string") return true;
   if (expected === "id" && got === "string") return true;
   return { expected, got };
+}
+
+// ---------------------------------------------------------------------------
+// Migration table steps (`Old -> New`, `A.Old -> B.New`) — phase ⑦.
+//
+// The step's new side is a bare name (an aggregate, workflow or projection,
+// possibly declared in another file), so it is resolved here on the merged
+// model, by the same `resolveTableStepTarget` the phase-⑨ builder uses:
+//
+//   - `loom.migration-step-unknown-context` — the move names a context the
+//     model does not declare.
+//   - `loom.migration-step-target-missing`  — no aggregate, workflow or
+//     projection of that name (in that context).
+//   - `loom.migration-step-ambiguous`       — several declarations answer to
+//     the unqualified name; qualify the step.
+//   - `loom.migration-move-across-databases` — a move between two modules
+//     where some database that receives the target module's migrations never
+//     held the source module's tables (every `needsDb` deployable has its own
+//     database, and hosts the modules whose contexts it serves).
+// ---------------------------------------------------------------------------
+
+export function validateTableSteps(loom: EnrichedLoomModel, diags: LoomDiagnostic[]): void {
+  if (loom.tableRenameIntents.length === 0) return;
+  const contexts = allContexts(loom);
+  for (const step of loom.tableRenameIntents) {
+    const source = `migration/${step.migration}`;
+    const shown =
+      step.toContext !== undefined
+        ? `${step.fromContext}.${step.from} -> ${step.toContext}.${step.to}`
+        : `${step.from} -> ${step.to}`;
+    const r = resolveTableStepTarget(contexts, step);
+    if (!r.ok) {
+      if (r.reason === "unknown-context") {
+        diags.push({
+          severity: "error",
+          code: "loom.migration-step-unknown-context",
+          message: diagMessage("loom.migration-step-unknown-context", {
+            step: shown,
+            context: r.context,
+          }),
+          source,
+          origin: step.origin,
+        });
+      } else if (r.reason === "missing") {
+        diags.push({
+          severity: "error",
+          code: "loom.migration-step-target-missing",
+          message: diagMessage("loom.migration-step-target-missing", {
+            step: shown,
+            name: step.toContext !== undefined ? `${step.toContext}.${step.to}` : step.to,
+          }),
+          source,
+          origin: step.origin,
+        });
+      } else {
+        diags.push({
+          severity: "error",
+          code: "loom.migration-step-ambiguous",
+          message: diagMessage("loom.migration-step-ambiguous", {
+            step: shown,
+            name: step.to,
+            candidates: r.candidates.join(", "),
+          }),
+          source,
+          origin: step.origin,
+        });
+      }
+      continue;
+    }
+    if (step.fromContext === undefined) continue;
+    for (const sys of loom.systems) {
+      const moduleOf = (ctx: string) =>
+        sys.subdomains.find((m) => m.contexts.some((c) => c.name === ctx));
+      const toModule = moduleOf(r.target.ctx.name);
+      const fromModule = moduleOf(step.fromContext);
+      // A source context the model no longer declares leaves nothing to
+      // compare: the builder finds its tables in whichever module's chain
+      // still records them.
+      if (!toModule || !fromModule || toModule === fromModule) continue;
+      const hosts = (m: typeof toModule) =>
+        sys.deployables.filter(
+          (d) =>
+            descriptorFor(d.platform).needsDb &&
+            m.contexts.some((c) => d.contextNames.includes(c.name)),
+        );
+      const fromHosts = new Set(hosts(fromModule).map((d) => d.name));
+      const stranded = hosts(toModule).filter((d) => !fromHosts.has(d.name));
+      if (stranded.length === 0) continue;
+      diags.push({
+        severity: "error",
+        code: "loom.migration-move-across-databases",
+        message: diagMessage("loom.migration-move-across-databases", {
+          step: shown,
+          from: fromModule.name,
+          to: toModule.name,
+          deployables: stranded.map((d) => d.name).join(", "),
+        }),
+        source,
+        origin: step.origin,
+      });
+    }
+  }
 }

@@ -68,10 +68,28 @@ context C {
     const block = model.members.find(isMigration);
     const step = block?.steps[0];
     expect(step?.$type).toBe("TableRename");
-    // `fromTable` is a bare (uncross-referenced) old name; `toAggregate` is the
-    // live aggregate cross-reference.
+    // Both sides are bare names: the target is resolved on the merged IR.
     expect(step && "fromTable" in step ? step.fromTable : undefined).toBe("Legacy");
-    expect(step && "toAggregate" in step ? step.toAggregate.$refText : undefined).toBe("Order");
+    expect(step && "fromTable" in step ? step.to : undefined).toBe("Order");
+    expect(step && "fromTable" in step ? step.fromContext : "?").toBeUndefined();
+  });
+
+  it("parses a qualified table move (`A.Name -> B.Name`), not a column rename", async () => {
+    const { model, errors } = await parseString(
+      MODEL(`migration "move-order" {
+  Legacy.Order -> Orders.Order
+  Order.qty -> quantity
+}`),
+    );
+    expect(errors).toEqual([]);
+    const block = model.members.find(isMigration);
+    expect(block?.steps.map((r) => r.$type)).toEqual(["TableRename", "ColumnStep"]);
+    const move = block?.steps[0];
+    expect(
+      move?.$type === "TableRename"
+        ? `${move.fromContext}.${move.fromTable} -> ${move.toContext}.${move.to}`
+        : undefined,
+    ).toBe("Legacy.Order -> Orders.Order");
   });
 
   it("mixes column and table rename steps in one block", async () => {

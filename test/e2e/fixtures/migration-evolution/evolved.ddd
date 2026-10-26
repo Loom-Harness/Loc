@@ -5,8 +5,8 @@
 //   • `price` renamed to `unitPrice`  — explicit `migration` rename intent, so
 //     the diff emits `renameColumn` (value preserved), not drop+add.
 //   • `sku: string` added NOT NULL    — covered by the `Product.sku = "SEED"`
-//     backfill, so the add is the safe add-nullable → UPDATE → SET NOT NULL
-//     sequence (M-T2.3), no flag needed.
+//     backfill, a constant, so the column is added `DEFAULT 'SEED'` and the
+//     default dropped again (catalog-only on PG11+), no flag needed.
 //   • `description: string?` added     — a plain nullable column.
 //   • `status: string` narrowed to `status: Status` — same TEXT column, new
 //     value set.  Non-destructive: the constraint is added `NOT VALID`, so the
