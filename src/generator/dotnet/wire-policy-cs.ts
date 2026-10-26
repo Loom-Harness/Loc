@@ -68,7 +68,7 @@ export function csFindAbsentException(ns: string | null = null): string {
 
 /** `[ProducesResponseType(typeof(ProblemDetails), <status>)]` for an
  *  already-resolved status. */
-export function csProducesStatus(status: number, indent = "    "): string {
+function csProducesStatus(status: number, indent = "    "): string {
   return `${indent}[ProducesResponseType(typeof(ProblemDetails), ${status})]`;
 }
 
@@ -107,7 +107,7 @@ export function csFieldInvalidProblem(
 
 /** `new ObjectResult(<problemExpr>) { StatusCode = …, ContentTypes = … }` at a
  *  status the fact resolved.  The first line carries no indent. */
-export function csObjectResult(problemExpr: string, status: number, indent: string): string {
+function csObjectResult(problemExpr: string, status: number, indent: string): string {
   return [
     `new ObjectResult(${problemExpr})`,
     `{`,
@@ -147,12 +147,6 @@ export function csMoneyRangeMessage(): string {
   return fieldValuePrefix("money-range");
 }
 
-/** The `ProblemDetails` members of a declared `error` variant (RS-19/RS-30):
- *  its `/errors/<kebab>` type, humanized name as title and detail, mapped status. */
-export function csErrorVariant(name: string, overrides?: Overrides) {
-  return errorVariantResponse(name, overrides);
-}
-
 const RESOLVED_CLASS: Readonly<Record<string, WireRejectionClass>> = {
   ReferencedInUse: "referenced-in-use",
   DomainError: "domain-floor",
@@ -168,7 +162,10 @@ const RESOLVED_CLASS: Readonly<Record<string, WireRejectionClass>> = {
 export function wireStatusResolver(overrides?: Overrides): (name: string) => number {
   return (name) => {
     const cls = RESOLVED_CLASS[name];
-    if (cls === undefined) throw new Error(`wirePolicy: no rejection class for rung '${name}'`);
-    return wireStatus(cls, overrides);
+    // A name with no rejection class is a declared `error` variant: its status
+    // is the fact's variant mapping (the override, else the stdlib default).
+    return cls === undefined
+      ? errorVariantResponse(name, overrides).status
+      : wireStatus(cls, overrides);
   };
 }
