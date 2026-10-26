@@ -201,7 +201,8 @@ export function valueProperties(members: readonly AstNode[]): Property[] {
   return members.filter((m): m is Property => isProperty(m) && !isInferredContainment(m));
 }
 
-export function lowerDerived(d: DerivedProp, env: Env): DerivedIR {
+export function lowerDerived(d: DerivedProp, outer: Env): DerivedIR {
+  const env = domainBodyEnv(outer);
   // Contextual lowering: a numeric literal RHS of a money-typed
   // derivation lowers as a money IR literal (so backends see
   // `new Decimal("373.34")`, not the raw decimal literal).  See
@@ -214,7 +215,14 @@ export function lowerDerived(d: DerivedProp, env: Env): DerivedIR {
   };
 }
 
-export function lowerInvariant(i: Invariant, env: Env): InvariantIR {
+/** The env for a domain-logic body, where `this.<prop>` lowers to the bare
+ *  `this-prop` ref (see `Env.thisPropRead`). */
+function domainBodyEnv(env: Env): Env {
+  return env.thisPropRead ? env : { ...env, thisPropRead: true };
+}
+
+export function lowerInvariant(i: Invariant, outer: Env): InvariantIR {
+  const env = domainBodyEnv(outer);
   return {
     expr: lowerExpr(i.expr, env),
     guard: i.guard ? lowerExpr(i.guard, env) : undefined,
@@ -241,7 +249,8 @@ export function lowerUnique(u: Unique): UniqueKeyIR {
  *  clause on a Property.  Inline-check sugar — the synthesised
  *  invariant appears in the parent's `invariants` list so the existing
  *  wire-validator + domain-floor pipelines pick it up uniformly. */
-export function lowerPropertyChecks(props: Property[], env: Env): InvariantIR[] {
+export function lowerPropertyChecks(props: Property[], outer: Env): InvariantIR[] {
+  const env = domainBodyEnv(outer);
   const out: InvariantIR[] = [];
   for (const p of props) {
     if (!p.check) continue;
@@ -256,7 +265,8 @@ export function lowerPropertyChecks(props: Property[], env: Env): InvariantIR[] 
   return out;
 }
 
-export function lowerFunction(f: FunctionDecl, env: Env): FunctionIR {
+export function lowerFunction(f: FunctionDecl, outer: Env): FunctionIR {
+  const env = domainBodyEnv(outer);
   // A `function` parameter carries no default today (the pure-helper surface
   // never grew one), so the shared binder is asked not to lower one.
   const { params, env: inner } = lowerCallableParams(f.params, env, { defaults: false });
@@ -290,7 +300,8 @@ export function lowerFunction(f: FunctionDecl, env: Env): FunctionIR {
   };
 }
 
-export function lowerOperation(op: Operation, env: Env): OperationIR {
+export function lowerOperation(op: Operation, outer: Env): OperationIR {
+  const env = domainBodyEnv(outer);
   const ir = lowerActionBody(
     {
       kind: "mutate",
@@ -303,7 +314,7 @@ export function lowerOperation(op: Operation, env: Env): OperationIR {
       audited: !!op.audited,
       returnType: op.returnType ? lowerType(op.returnType, env) : undefined,
     },
-    env,
+    outer,
   );
   // `when Expr` lowers in the AGGREGATE env (not the body env) — operation
   // params are deliberately out of scope (criterion.md: arg-aware checks
@@ -407,7 +418,9 @@ function lowerActionBody(spec: ActionSpec, env: Env): OperationIR {
   // surrounding `this`-carrying env — see `lowerCallableParams`.
   const bound = lowerCallableParams(spec.params, env, { defaults: true });
   const params = bound.params;
-  let inner = bound.env;
+  // Param defaults were lowered above against the caller's env (a default may
+  // read `this.<prop>` as a form-prefill seam); only the BODY is a domain-logic body.
+  let inner = domainBodyEnv(bound.env);
   // A union-returning operation threads its variants into the env so each
   // `return <expr>` can tag its value with the matching variant (producer).
   if (spec.returnType?.kind === "union") {

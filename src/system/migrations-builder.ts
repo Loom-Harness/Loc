@@ -2249,6 +2249,14 @@ export interface BuildMigrationsOptions {
    *  one: the guess is still made either way, and being unable to hear about it
    *  was the whole defect. */
   warnings?: MigrationWarning[];
+  /** Sink for the refusals the destructive gate raises with
+   *  `allowDestructive` off.  When given, a module the gate refuses — a
+   *  destructive step or a reshape — does not throw: its error is pushed here
+   *  and that module is derived as under `allowDestructive`, so the caller
+   *  learns EVERY refusing module (and still sees the steps) instead of only
+   *  the first.  This is how `ddd diff` reads breaking-for-data from the gate
+   *  without re-deciding it. */
+  destructiveRefusals?: (MigrationDestructiveError | MigrationShapeChangeError)[];
 }
 
 /** One resolved column rename (M-T2.1).  `from`/`to` are already snake-cased
@@ -2380,12 +2388,18 @@ export function buildMigrations(
     const reshapes = detectReshapes(baseline, next);
     const reshapeTableRenames: ResolvedTableRename[] = [];
     const reshapeComments: MigrationStep[] = [];
+    // Per-module, because a `destructiveRefusals` sink records a refusal and
+    // derives just that module as if the flag were on.
+    let moduleAllowDestructive = allowDestructive;
     if (reshapes.length > 0) {
-      if (!allowDestructive) {
-        throw new MigrationShapeChangeError(
+      if (!moduleAllowDestructive) {
+        const refusal = new MigrationShapeChangeError(
           m.name,
           reshapes.map((r) => r.description),
         );
+        if (!options.destructiveRefusals) throw refusal;
+        options.destructiveRefusals.push(refusal);
+        moduleAllowDestructive = true;
       }
       // --allow-destructive: rename each old table to a `__pre_reshape` backup
       // (kept, NOT dropped) + inject it into `next` so it pairs with its renamed
@@ -2448,20 +2462,28 @@ export function buildMigrations(
     // Backfills (M-T2.3): woven into the policy pass so a NOT-NULL add /
     // flip with a declared backfill is the safe sequence, not a gate trip.
     const backfills = resolveBackfills(m, options.backfillIntents ?? [], schemaOf);
-    const structuralSteps = applyDestructivePolicy(
-      diffSchema(baseline, next, allRenames, [
-        ...tableRenamePlan.tableRenames,
-        ...reshapeTableRenames,
-        ...namingFixTableRenames(m, next),
-      ]),
-      baseline,
-      {
-        allowDestructive,
+    const rawSteps = diffSchema(baseline, next, allRenames, [
+      ...tableRenamePlan.tableRenames,
+      ...reshapeTableRenames,
+      ...namingFixTableRenames(m, next),
+    ]);
+    const policy = (allow: boolean, warnings: MigrationWarning[] | undefined) =>
+      applyDestructivePolicy(rawSteps, baseline, {
+        allowDestructive: allow,
         module: m.name,
         backfills,
-        warnings: options.warnings,
-      },
-    );
+        warnings,
+      });
+    let structuralSteps: MigrationStep[];
+    try {
+      structuralSteps = policy(moduleAllowDestructive, options.warnings);
+    } catch (err) {
+      if (!(err instanceof MigrationDestructiveError) || !options.destructiveRefusals) throw err;
+      options.destructiveRefusals.push(err);
+      // The refused pass already announced its warnings; the re-derivation
+      // would repeat them.
+      structuralSteps = policy(true, undefined);
+    }
     // Raw sql steps + ledgered data fix-ups (M-T2.3): emitted exactly once —
     // the baseline's `appliedDataMigrations` records each emitted key — after
     // the generation's structural steps, in declaration order.  A

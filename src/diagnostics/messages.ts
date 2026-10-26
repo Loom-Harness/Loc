@@ -1565,6 +1565,8 @@ export const DIAGNOSTIC_MESSAGES = {
     "'toThrow(<status>)' pins an HTTP status and is only valid in a 'test e2e' block; use a bare 'toThrow()' in an in-process test.",
   "loom.tothrow-arity": (p: { got: unknown }) =>
     `'toThrow' takes at most one argument (an HTTP status), got ${p.got}.`,
+  "loom.not-throw-invalid":
+    "'.not.toThrow()' is not supported — 'toThrow' has no negated form. Call the operation directly; an unexpected throw already fails the test.",
   "loom.tothrow-status-not-int":
     "'toThrow(<status>)' requires an integer HTTP status literal, e.g. toThrow(404).",
   // The four `matches(<regex>)` rules stay four codes: arity, named-argument,
@@ -1750,6 +1752,12 @@ export const DIAGNOSTIC_MESSAGES = {
   // it separately: the top-level expression-form function here, and the member
   // function's expression body and block-body `return` in `types.ts`.  Same
   // rule, one sentence, three call sites (M-T9.56).
+  "loom.return-type-mismatch": (p: { label: unknown; actual: unknown; declared: unknown }) =>
+    `${p.label} returns '${p.actual}' but is declared to return '${p.declared}'.`,
+  "loom.return-missing": (p: { label: unknown; declared: unknown }) =>
+    `${p.label} is declared to return '${p.declared}' but not every path ends in a \`return\`. ` +
+    `End each branch with \`return <value>\` (an \`if\` needs an \`else\` that returns too).`,
+
   "loom.function-return-type-mismatch": (p: {
     name: unknown;
     actual: unknown;
@@ -2809,6 +2817,12 @@ export const DIAGNOSTIC_MESSAGES = {
     `render (deployable '${p.dName}'): a page, component or store has no aggregate ` +
     `instance in scope. Bind the record through a page param, \`state\`, or a QueryView ` +
     `\`data:\` lambda, and read its fields off that name.`,
+  "loom.lambda-param-type-unknown": (p: { param: unknown; where: unknown; uiName: unknown }) =>
+    `Lambda parameter '${p.param}' in ${p.where} on ui '${p.uiName}' has no known type, so a ` +
+    `member read off it cannot be typed. A lambda parameter is typed by the collection it ` +
+    `iterates (\`For { each: xs, … }\`, \`Table { rows: xs, … }\`, a collection op) or by the ` +
+    `read it plots or displays (\`Chart { of: … }\`, \`QueryView { of: …, data: … }\`); bind ` +
+    `the lambda inside one of those, or read the value through a typed name instead.`,
   "loom.ui-gate-expr-unsupported": (p: {
     where: unknown;
     kind: unknown;
@@ -4654,6 +4668,16 @@ export const DIAGNOSTIC_MESSAGES = {
     `context '${p.name}' integration test '${p.testName}': a repository read inside ` +
     `'expect(...)' must be let-bound first — write \`let x = <Agg>.findById(...)\` then ` +
     `assert over \`x\` (the integration renderer awaits the read at statement level).`,
+  "loom.integration-repository-call": (p: {
+    name: unknown;
+    testName: unknown;
+    repo: unknown;
+    member: unknown;
+    agg: unknown;
+  }) =>
+    `context '${p.name}' integration test '${p.testName}': \`${p.repo}.${p.member}(…)\` calls the repository by name, ` +
+    `which an integration test body does not resolve. Root persistence reads at the aggregate instead — ` +
+    `\`let x = ${p.agg}.findById(...)\` — and let a factory \`let\` be saved for you.`,
   "loom.e2e-unsupported-statement": (p: { name: unknown; badKind: unknown; magicId: unknown }) =>
     `e2e test '${p.name}': '${p.badKind}' is not supported in an e2e test body. ` +
     `Only expect, expect-throws, let, expression, and ${p.magicId}.<...> calls are allowed.`,

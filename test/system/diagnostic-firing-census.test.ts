@@ -1999,6 +1999,10 @@ system P {
   // expression-form function (`toplevel-function.ts`) and the block-body
   // `return` (`types.ts`) — share this code.
   "loom.function-return-type-mismatch": orderOps('function bad(): int = "x"'),
+  // Every other callable with a declared result type: an operation here; the
+  // domain-service operation and handler arms share the check.
+  "loom.return-type-mismatch": orderOps('operation bad(): int { return "x" }'),
+  "loom.return-missing": orderOps("operation bad(): int { if total > 0 { return 1 } }"),
   // An anonymous `retrieval { where: … }` whose `where` is a predicate rather
   // than the criterion reference this release admits.
   "loom.retrieval-where-not-criterion": `
@@ -2596,6 +2600,7 @@ system S {
   // `toThrow(<status>)` are wire-level and refused OUTSIDE a `test e2e`.
   "loom.matcher-e2e-only": matcherTest('expect("x").toBeSameInstant("y")'),
   "loom.tothrow-arity": matcherTest('expect("x").toThrow(404, 500)'),
+  "loom.not-throw-invalid": matcherTest('expect("x").not.toThrow()'),
   "loom.matches-arity": matcherTest('expect("x").matches("a", "b")'),
   "loom.matches-named-arg": matcherTest('expect("x").matches(pattern: "a")'),
   "loom.matches-not-literal": matcherTest('expect("x").matches(1)'),
@@ -3207,6 +3212,28 @@ system P {
       state { label: string = "" }
       action again() { label := string(this) }
       body: Stack { Button { "Again", onClick: again } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+
+  // A member read off an event-handler parameter nothing types (`e.count`): the
+  // member would type as a guessed `string`.
+  "loom.lambda-param-type-unknown": `
+system P {
+  subdomain D { context C {
+    aggregate Order with crudish { customerId: string }
+  } }
+  api Api from D
+  ui WebApp {
+    api C: Api
+    page Home {
+      route: "/"
+      state { count: int = 0 }
+      body: Stack { Button { "Go", onClick: e => { precondition e.count >= 0 } } }
     }
   }
   storage pg { type: postgres }

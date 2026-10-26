@@ -272,10 +272,6 @@ function describePredicateLeaf(e: ExprIR): string {
 
 /** Options for {@link firstNonQueryablePredicate}. */
 export type PredicateGateOptions = {
-  /** Set by a call site whose predicate was lowered WITHOUT an aggregate to
-   *  resolve `this` against, so `memberType` is a placeholder rather than the
-   *  column's type.  Today that is the context-level `filter` capability. */
-  readonly thisTypesUnresolved?: boolean;
   /** Set by the capability-`filter` call site: a column-free `==` / `!=` over
    *  principal-side values (`currentUser.role == "agent"`) is admitted there,
    *  because every backend's filter renderer evaluates it against the request
@@ -354,15 +350,6 @@ export function firstNonQueryablePredicate(
   }
   if (inner.kind === "authz-filter") return null;
   if (isColumnRootedBool(inner)) return null;
-  // A CONTEXT-LEVEL `filter` is lowered without an aggregate to resolve `this`
-  // against, so its member accesses carry a fall-through `string` type rather
-  // than the column's real one (measured: `filter !this.isDeleted` over a
-  // declared `isDeleted: bool` lowers with `memberType: primitive string`).
-  // Judging the leaf's TYPE there would refuse every context-level boolean
-  // filter, so the caller says so and the gate checks STRUCTURE only — the
-  // column still has to exist, which `firstUnknownColumnRef` has already
-  // established per propagated aggregate before this gate runs.
-  if (opts.thisTypesUnresolved && isColumnRef(inner)) return null;
   if (inner.kind === "method-call") {
     // `this.<refColl>.contains(x)` membership and a bool-returning queryable
     // intrinsic are both whole predicates; `firstNonQueryableNode` owns the

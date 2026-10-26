@@ -84,14 +84,10 @@ const PINNED: Record<string, Pin> = {
     reason:
       "WeakMap keyed by the AST root it types; reassigned empty by `invalidateTyping` on every `DocumentBuilder.onUpdate`.",
   },
-  "src/language/typing/shared.ts:workspaces": {
-    discipline: "keyed-cache",
-    reason:
-      "WeakRefs to the registered Langium workspaces (one per `createDddServices`); dead refs are pruned on each registration, and a lookup only answers for a root its own workspace holds.",
-  },
   "src/language/typing/shared.ts:composedRootsOf": {
     discipline: "keyed-cache",
-    reason: "WeakMap keyed by a registered workspace's shared services object.",
+    reason:
+      "WeakMap keyed by a parsed AST root, bound to its workspace's import-closure lookup at the Parsed build phase; a lookup only answers for a root its workspace still holds.",
   },
   "src/ir/lower/lower-expr.ts:lowerExprObserver": {
     discipline: "scoped-restore",
@@ -115,6 +111,18 @@ const PINNED: Record<string, Pin> = {
     reason:
       "WeakMap keyed by the AST ROOT node the index was built from; a re-parse " +
       "produces a fresh root, so the entry dies with the document version it describes.",
+  },
+  "src/language/validators/types.ts:ENUM_VALUES_BY_ROOT": {
+    discipline: "keyed-cache",
+    reason: "WeakMap keyed by the AST root node; a re-parse produces a fresh root.",
+  },
+  "src/language/validators/statements.ts:storeIndexByModel": {
+    discipline: "keyed-cache",
+    reason: "WeakMap keyed by the Model root node; a re-parse produces a fresh root.",
+  },
+  "src/language/typing/qualified-policy.ts:contextIndexByRoot": {
+    discipline: "keyed-cache",
+    reason: "WeakMap keyed by the AST root node; a re-parse produces a fresh root.",
   },
   "src/language/print/print-expr.ts:printStatement": {
     discipline: "wiring-injection",

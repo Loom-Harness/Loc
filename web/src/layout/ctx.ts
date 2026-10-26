@@ -22,6 +22,7 @@ import type { Diagnostic } from "../lsp/protocol";
 import type {
   ApiSurfaceView,
   EvolutionResult,
+  RecordMigrationResult,
   GenerateOk,
   GenerateResult,
   LoomSourceMap,
@@ -602,6 +603,12 @@ export interface LayoutCtx {
    *  and run the diff — the one-click "diff against this milestone" from
    *  the History tab (and the Migrations tab's own baseline picker). */
   pinEvolutionBaseline: (ref: string) => void;
+  /** Record the live edit's schema changes as the next entries of the
+   *  workspace's `migrations/` chain — the playground's `ddd migrate add`.
+   *  `name` is kebab-case.  Resolves to the worker's result (the new chain
+   *  files, or the refusal's diagnostics), or `null` when there is no build
+   *  worker or no workspace store to write to. */
+  recordMigration: (name: string, allowDestructive: boolean) => Promise<RecordMigrationResult | null>;
   /** Result of the last provenance-snapshot capture, or null. */
   snapshotResult: SnapshotResult | null;
   snapshotRunning: boolean;

@@ -295,6 +295,20 @@ function isMigrationName(name: string): boolean {
   return /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(name);
 }
 
+/** The current UTC instant as `YYYYMMDDHHMMSS` — the clock `migrate add`
+ *  numbers a generation from. */
+export function utcVersionNow(date: Date = new Date()): string {
+  const p = (n: number, w = 2) => String(n).padStart(w, "0");
+  return (
+    p(date.getUTCFullYear(), 4) +
+    p(date.getUTCMonth() + 1) +
+    p(date.getUTCDate()) +
+    p(date.getUTCHours()) +
+    p(date.getUTCMinutes()) +
+    p(date.getUTCSeconds())
+  );
+}
+
 /** Number this run's non-empty deltas as the next entries of `chain`.
  *  `now` is the caller's clock as `YYYYMMDDHHMMSS`; a number at or below the
  *  head's is moved above it, so the chain stays strictly increasing whatever

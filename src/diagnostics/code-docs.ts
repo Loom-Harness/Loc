@@ -97,7 +97,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.matcher-arity": "18-testing.md#matchers--the-expectactualmatcher-vocabulary",
   "loom.expect-requires-matcher": "18-testing.md#matchers--the-expectactualmatcher-vocabulary",
   "loom.matcher-e2e-only": "18-testing.md#matchers--the-expectactualmatcher-vocabulary",
+  "loom.integration-repository-call": "18-testing.md#context-integration-tests",
   "loom.tothrow-arity": "18-testing.md#tothrow--the-throw-assertion",
+  "loom.not-throw-invalid": "18-testing.md#tothrow--the-throw-assertion",
   "loom.tothrow-status-not-int": "18-testing.md#tothrow--the-throw-assertion",
   "loom.matches-arity": "05-expressions.md#scalar-intrinsics",
   "loom.matches-named-arg": "05-expressions.md#scalar-intrinsics",
@@ -163,6 +165,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "10-repositories-and-queries.md#a-find-without-where--key-lookup-by-parameter-name",
   "loom.paged-query-handler-shape":
     "10-repositories-and-queries.md#reporun--the-paged-queryhandler",
+  "loom.return-type-mismatch": "06-behavior-and-statements.md#return--the-exception-less-outcome",
+  "loom.return-missing": "06-behavior-and-statements.md#return--the-exception-less-outcome",
   "loom.function-return-type-mismatch":
     "07-invariants-derived-functions.md#function--a-pure-helper",
   "loom.create-call-not-constructible":
@@ -433,6 +437,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.page-gate-not-client-evaluable": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.ui-gate-expr-unsupported": "15-ui-pages-structure.md#page--route-title-body",
   "loom.ui-this-unbound": "15-ui-pages-structure.md#page--route-title-body",
+  "loom.lambda-param-type-unknown": "15-ui-pages-structure.md#page--route-title-body",
   "loom.sensitive-wire-unsupported": "17-auth.md#sensitive--field-tagging",
   "loom.duplicate-user-block": "17-auth.md#user--the-principal-claim-shape",
   "loom.user-duplicate-field": "17-auth.md#user--the-principal-claim-shape",

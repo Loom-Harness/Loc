@@ -591,7 +591,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.ui-gate-expr-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:1070",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:1122",
     what:
       "a page `requires <expr>` gate outside the client-evaluable subset all THREE closed gate " +
       "renderers implement (`_frontend/gate-expr.ts` for React/Vue/Svelte/Angular, " +
@@ -719,7 +719,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // drain backlog.  THIS row is the half that IS work.
     code: "loom.throw-kind-integration-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/test-checks.ts:157",
+    site: "src/ir/validate/checks/test-checks.ts:189",
     what:
       "`toThrow(precondition|invariant)` is refused in a CONTEXT-INTEGRATION test.  Unlike the " +
       "e2e half this is not a semantic limit — that rung runs in-process against a real DB and " +
@@ -745,7 +745,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.e2e-unsupported-statement",
     kind: "scope",
-    site: "src/ir/validate/checks/test-checks.ts:341",
+    site: "src/ir/validate/checks/test-checks.ts:373",
     what: "e2e bodies accept a closed statement set (expect/let/expression/…)",
     mission: "#3378",
     verified: true,

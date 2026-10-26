@@ -139,7 +139,6 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
     const filters = (agg as EnrichedAggregateIR).contextFilters ?? [];
     for (const predicate of filters) {
       const offending = firstNonQueryablePredicate(predicate, {
-        thisTypesUnresolved: true,
         admitPrincipalTerms: true,
       });
       if (offending) {
@@ -160,9 +159,8 @@ export function validateQueryableWheres(ctx: BoundedContextIR, diags: LoomDiagno
       // tenancy registry self-scope (`this.id == currentUser.<claim>`,
       // is exactly this shape.
       //
-      // A context-level filter carries `thisTypesUnresolved`, so the shape
-      // gate accepted every column leaf above and this is what catches a
-      // column that does not exist.
+      // The shape gate above judges the column leaf's type against the host
+      // aggregate; this catches a column the host does not declare.
       const unknown = firstUnknownColumnRef(predicate, agg, ctx, { allowSelfId: true });
       if (unknown) {
         diags.push({
