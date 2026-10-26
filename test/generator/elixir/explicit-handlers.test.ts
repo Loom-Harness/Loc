@@ -2,20 +2,25 @@
 // (`commandHandler` / `queryHandler` → `<App>.<Ctx>.Handlers.<Name>` `run/1`
 // modules + one `<Api>RoutesController` spliced into `scope "/api"`).
 //
-// M-T9.42 slice 2: the RUNTIME claims this file used to pin as emitted text —
-// the handler modules' with-chains (load → mutate → return), the controller
-// dispatching each route through `run/1` and `respond/2` — are now driven on
-// all five backends by the corpus fixtures `handler-aggregate-ops` (a live row)
-// and `handler-triad` (an empty table) against one wire golden.  That golden
-// found two defects this file's `respond/2` assertions had pinned as correct: a
-// void handler answered `200 "ok"` (now 204), and a `getById` miss answered the
-// generic "Resource not found" (now "Order <id> not found").  What stays here is
-// what no booted request can observe:
+// The runtime claims — load → mutate → save → return, the router under `/api`,
+// path/body param binding with a value-object body, an aggregate return
+// projected to its response, a repository delete, the not-found rung, and a
+// paged `queryHandler` over `run(<Criterion>)` answering its filtered envelope —
+// are driven on every backend by the corpus fixtures `handler-aggregate-ops`
+// (a live row), `handler-triad` (an empty table) and `handler-paged-run`,
+// against one wire golden each.  What stays here is what no booted request
+// can observe:
 //   • route ORDER in router.ex (ahead of the derived routes) and the root-scoped
-//     scaffold-duplicate DELETE — collisions neither fixture declares;
-//   • the `extern` scaffold-once impl (a user-owned stub that raises by design);
-//   • scaffolded record-param flattening and the paged-run shape, which neither
-//     fixture declares (the next promotion candidates, not covered yet).
+//     scaffold-duplicate DELETE — collisions no fixture declares;
+//   • the `extern` scaffold-once impl: `extern-handlers` proves the routed
+//     handler fails loudly, but a 500 cannot tell the stub's throw from any
+//     other server error, so the delegation stays pinned here;
+//   • scaffolded record-param flattening: a `scaffoldApi` create answers a
+//     bare id where the derived create answered `{ id }` (#4299), so no
+//     `test e2e` block can hold the row it creates;
+//   • the paged route's `page`/`pageSize`/`sort`/`dir` binding and bounds — a
+//     routed handler's e2e arguments are its declared params only — and that
+//     the synthesized find gets no route of its own.
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
@@ -308,13 +313,10 @@ system S {
 }
 `;
 describe("elixir — paged-run queryHandler over run(criterion)", () => {
-  it("the routes controller action calls the synthesized paged FIND and renders the envelope", async () => {
+  it("the routes controller action bounds page/pageSize from the query string", async () => {
     const m = await generateSystemFiles(PAGED_SRC);
     const ctrl = fileEndingWith(m, "lib/d_web/controllers/a_routes_controller.ex");
-    expect(ctrl).toContain("def list_in_region(conn, params) do");
-    expect(ctrl).toContain("D.Orders.find_all_by_in_region_order(");
     expect(ctrl).toContain('page_param(params, "page", 1, 1000000)');
-    expect(ctrl).toContain("json(conn, %{result | items: Enum.map(result.items, &serialize/1)})");
     expect(ctrl).toContain("defp page_param(params, key, default, limit) do");
   });
 

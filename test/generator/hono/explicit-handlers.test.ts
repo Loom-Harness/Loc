@@ -1,15 +1,16 @@
 // Hono/TS emission for the explicit application/transport layer
 // (`commandHandler` / `queryHandler` + `route <M> "<path>" -> <Ctx>.<Handler>`).
 //
-// M-T9.42 slice 2: the RUNTIME claims this file used to pin as emitted text —
-// load → mutate → save → return, a scalar or aggregate return projected through
-// `toWire`, a value-object body param, a repository delete, the RFC 7807 404,
-// and the router mounted under `/api` — are now driven on all five backends by
-// the corpus fixtures `handler-aggregate-ops` (a live row) and `handler-triad`
-// (an empty table), each read back through a different route against one wire
-// golden.  What stays here is what no booted request can observe:
-//   • the M-T5.10 200-schema typing (an OpenAPI/tsc contract, not a value);
-//   • the `extern` scaffold-once impl (a user-owned stub that throws by design).
+// The runtime claims — load → mutate → save → return, a scalar or aggregate
+// return projected through `toWire`, a value-object body param, a repository
+// delete, the RFC 7807 404, and the router mounted under `/api` — are driven
+// on every backend by the corpus fixtures `handler-aggregate-ops` (a live
+// row) and `handler-triad` (an empty table) against one wire golden each.
+// What stays here is what no booted request can observe:
+//   • the 200-schema typing (an OpenAPI/tsc contract, not a value);
+//   • the `extern` scaffold-once impl: `extern-handlers` proves the routed
+//     handler fails loudly, but a 500 cannot tell the stub's throw from any
+//     other server error, so the delegation stays pinned here.
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 

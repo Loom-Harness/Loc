@@ -2,17 +2,23 @@
 // (`commandHandler` / `queryHandler` → `app/application/<name>.py`, and
 // `route <M> "<path>" -> <Ctx>.<Handler>` → one APIRouter per served api).
 //
-// M-T9.42 slice 2: the RUNTIME claims this file used to pin as emitted text —
-// the handler modules (load → mutate → save → return), the router registered
-// under `/api` in main.py, the `<Handler>Body` model carrying non-path params
-// incl. a value object, and an aggregate return projected through `to_wire` —
-// are now driven on all five backends by the corpus fixtures
-// `handler-aggregate-ops` (a live row) and `handler-triad` (an empty table)
-// against one wire golden.  What stays here is what no booted request can
-// observe:
-//   • the `extern` scaffold-once impl (a user-owned stub that raises by design);
-//   • scaffolded record-param flattening and the paged-run shape, which neither
-//     fixture declares (the next promotion candidates, not covered yet).
+// The runtime claims — load → mutate → save → return, the router under `/api`,
+// path/body param binding with a value-object body, an aggregate return
+// projected to its response, a repository delete, the not-found rung, and a
+// paged `queryHandler` over `run(<Criterion>)` answering its filtered envelope —
+// are driven on every backend by the corpus fixtures `handler-aggregate-ops`
+// (a live row), `handler-triad` (an empty table) and `handler-paged-run`,
+// against one wire golden each.  What stays here is what no booted request
+// can observe:
+//   • the `extern` scaffold-once impl: `extern-handlers` proves the routed
+//     handler fails loudly, but a 500 cannot tell the stub's throw from any
+//     other server error, so the delegation stays pinned here;
+//   • scaffolded record-param flattening: a `scaffoldApi` create answers a
+//     bare id where the derived create answered `{ id }` (#4299), so no
+//     `test e2e` block can hold the row it creates;
+//   • the paged route's `page`/`pageSize`/`sort`/`dir` binding and bounds — a
+//     routed handler's e2e arguments are its declared params only — and that
+//     the synthesized find gets no route of its own.
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
@@ -181,20 +187,6 @@ system S {
 }
 `;
 describe("python — paged-run queryHandler over run(criterion)", () => {
-  it("emits a paged handler module returning the wire envelope", async () => {
-    const m = await generateSystemFiles(PAGED_SRC);
-    const handler = fileEndingWith(m, "app/application/list_in_region.py");
-    expect(handler).toContain(
-      "async def list_in_region(session: AsyncSession, rgn: str, page: int, page_size: int, sort: str, dir: str) -> dict[str, object]:",
-    );
-    expect(handler).toContain(
-      "result = await orders.find_all_by_in_region(rgn, page, page_size, sort, dir)",
-    );
-    expect(handler).toContain('"items": [orders.to_wire(__e) for __e in result.items]');
-    expect(handler).toContain('"pageSize": result.page_size');
-    expect(handler).toContain('"totalPages": result.total_pages');
-  });
-
   it("the route exposes page/pageSize/sort/dir query params and calls the handler", async () => {
     const m = await generateSystemFiles(PAGED_SRC);
     const routes = fileEndingWith(m, "app/http/a_routes.py");

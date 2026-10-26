@@ -2,20 +2,23 @@
 // (`commandHandler` / `queryHandler` + `route <M> "<path>" -> <Ctx>.<Handler>`
 // onto a `@Service` bean per handler and one `@RestController` per served api).
 //
-// M-T9.42 slice 2: the RUNTIME claims this file used to pin as emitted text —
-// the handler beans (load → mutate → save → return), the controller dispatching
-// each route under `/api`, the {token} → @PathVariable / rest → @RequestBody
-// split with a value-object body, an aggregate return projected through
-// `<Agg>Response.from`, and the scalar/id return — are now driven on all five
-// backends by the corpus fixtures `handler-aggregate-ops` (a live row) and
-// `handler-triad` (an empty table) against one wire golden.  The id return is
-// the proof the promotion was worth it: this file asserted it as
-// `ResponseEntity.ok(result)`, which Jackson serialised as `{"value": "…"}` —
-// the only backend not answering the bare id.  What stays here is what no
-// booted request can observe:
-//   • the `extern` scaffold-once impl (a user-owned stub that throws by design);
-//   • scaffolded record-param flattening and the paged-run shape, which neither
-//     fixture declares (the next promotion candidates, not covered yet).
+// The runtime claims — load → mutate → save → return, the router under `/api`,
+// path/body param binding with a value-object body, an aggregate return
+// projected to its response, a repository delete, the not-found rung, and a
+// paged `queryHandler` over `run(<Criterion>)` answering its filtered envelope —
+// are driven on every backend by the corpus fixtures `handler-aggregate-ops`
+// (a live row), `handler-triad` (an empty table) and `handler-paged-run`,
+// against one wire golden each.  What stays here is what no booted request
+// can observe:
+//   • the `extern` scaffold-once impl: `extern-handlers` proves the routed
+//     handler fails loudly, but a 500 cannot tell the stub's throw from any
+//     other server error, so the delegation stays pinned here;
+//   • scaffolded record-param flattening: a `scaffoldApi` create answers a
+//     bare id where the derived create answered `{ id }` (#4299), so no
+//     `test e2e` block can hold the row it creates;
+//   • the paged route's `page`/`pageSize`/`sort`/`dir` binding and bounds — a
+//     routed handler's e2e arguments are its declared params only — and that
+//     the synthesized find gets no route of its own.
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
@@ -176,16 +179,6 @@ system S {
 }
 `;
 describe("java — paged-run queryHandler over run(criterion)", () => {
-  it("the handler bean delegates to the synthesized paged FIND repo method", async () => {
-    const h = fileEndingWith(await generateSystemFiles(PAGED_SRC), "ListInRegionHandler.java");
-    expect(h).toContain(
-      "public Paged<Order> handle(String rgn, int page, int pageSize, String sort, String dir)",
-    );
-    expect(h).toContain(
-      "return ordersRepository.findAllByInRegion(rgn, page, pageSize, sort, dir);",
-    );
-  });
-
   it("the controller action exposes page/pageSize/sort/dir and returns the projected envelope", async () => {
     const ctrl = fileEndingWith(await generateSystemFiles(PAGED_SRC), "ARoutesController.java");
     expect(ctrl).toContain('@GetMapping("/api/orders/projections/in_region")');
