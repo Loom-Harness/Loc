@@ -1326,6 +1326,77 @@ export function uniqueOnExistingTableWarnings(
   return out;
 }
 
+/** The member values an `enumValues` CHECK admits, read back off its
+ *  expression (`"col" IN ('a', 'b')`, optionally behind `"col" IS NULL OR`).
+ *  The expression is the only place a stored snapshot records the value set,
+ *  so the baseline side of a narrowing can only be recovered from it.  Returns
+ *  `undefined` for an expression of any other form. */
+function enumCheckValues(expression: string): string[] | undefined {
+  const m = /\bIN \((.*)\)$/.exec(expression);
+  if (!m) return undefined;
+  const values = [...m[1]!.matchAll(/'((?:[^']|'')*)'/g)].map((v) => v[1]!.replaceAll("''", "'"));
+  return values.length > 0 ? values : undefined;
+}
+
+/** An enum CHECK on a table the BASELINE already has, whose value set LOST a
+ *  member this generation (the member was deleted or renamed in the `enum`).
+ *
+ *  The re-added constraint is `NOT VALID`, so the deploy itself succeeds — but
+ *  the rows already holding a removed value stay, and every backend loads an
+ *  enum column by mapping the stored string onto the enum: python's pydantic,
+ *  java's `@Enumerated`, EF's string conversion and `Ecto.Enum` all fail on the
+ *  unknown value (a list route that reads the row errors as a whole), node
+ *  serves it off-contract, and any UPDATE of the row is refused by the new
+ *  CHECK.  The diff cannot see which rows hold what, so this is a WARNING
+ *  pointing at the fix the author controls: a `sql before` UPDATE remapping
+ *  the removed values in the same generation.  Declaring one (any `before`
+ *  step for the module this generation) is read as "handled" and silences it,
+ *  the same rule `uniqueOnExistingTableWarnings` uses.
+ *
+ *  Matched by constraint NAME on both sides, so a check whose table or column
+ *  was renamed this generation is not compared (its name changed with it), and
+ *  a WIDENING (members only added) never warns. */
+export function enumNarrowingWarnings(
+  steps: readonly MigrationStep[],
+  baseline: SchemaSnapshot | null,
+  module: string,
+): MigrationWarning[] {
+  if (baseline === null) return [];
+  const prevChecks = new Map<string, CheckShape>();
+  for (const t of baseline.tables) {
+    for (const c of t.checks ?? []) {
+      if (c.kind === "enumValues") prevChecks.set(`${qkey(t.schema, t.name)}.${c.name}`, c);
+    }
+  }
+  const out: MigrationWarning[] = [];
+  for (const s of steps) {
+    if (s.op !== "addCheck" || s.check.kind !== "enumValues") continue;
+    const before = prevChecks.get(`${qkey(s.schema, s.check.table)}.${s.check.name}`);
+    if (!before) continue;
+    const oldValues = enumCheckValues(before.expression);
+    const newValues = enumCheckValues(s.check.expression);
+    if (!oldValues || !newValues) continue;
+    const kept = new Set(newValues);
+    const removed = oldValues.filter((v) => !kept.has(v));
+    if (removed.length === 0) continue;
+    const column = /^"((?:[^"]|"")+)"/.exec(s.check.expression)?.[1] ?? "<column>";
+    const table = qualifiedName(s.schema, s.check.table);
+    out.push({
+      code: "loom.migration-enum-narrowed",
+      module,
+      message: diagMessage("loom.migration-enum-narrowed", {
+        module,
+        table,
+        column,
+        check: s.check.name,
+        removed: removed.map(sqlStringLiteral).join(", "),
+        kept: newValues.map(sqlStringLiteral).join(", "),
+      }),
+    });
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Destructive-change gate (audit finding 19).
 // ---------------------------------------------------------------------------
@@ -1953,10 +2024,50 @@ const RESHAPE_BACKUP_SUFFIX = "__pre_reshape";
 
 /** One detected reshape — a saving-shape or inheritance-strategy flip. */
 interface ReshapeEvent {
-  /** Human-readable summary for the error message / TODO recipe. */
+  /** Human-readable summary for the error message: the flip, plus the owned
+   *  child tables it backs up. */
   description: string;
-  /** The BASELINE tables to preserve as `__pre_reshape` backups. */
+  /** The flip alone, for the per-table TODO recipe. */
+  summary: string;
+  /** The BASELINE tables to preserve as `__pre_reshape` backups: the reshaped
+   *  root table(s) first, then every owned child table the new shape no
+   *  longer has (see {@link ownedChildBackups}). */
   backups: TableShape[];
+}
+
+/** The baseline tables OWNED by `roots` that the next schema no longer has:
+ *  part tables, value-collection child tables and association join tables —
+ *  every dropped table holding an `ON DELETE CASCADE` FK to a root, or
+ *  (transitively) to another such child.  A reshape that folds the children
+ *  into the root (`shape: document` / `embedded`) leaves them in the
+ *  `dropped` set, and their rows are as much the aggregate's data as the
+ *  root's, so they are backed up alongside it rather than dropped.  The
+ *  cascade test is what makes a table OWNED: an `X id` cross-aggregate FK is
+ *  `restrict`, so another aggregate dropped in the same generation is not
+ *  swept in.  FK targets resolve within the child's own schema, matching
+ *  `orderTablesByFkDependency`. */
+function ownedChildBackups(
+  roots: readonly TableShape[],
+  dropped: readonly TableShape[],
+): TableShape[] {
+  const owners = new Set(roots.map((t) => qkey(t.schema, t.name)));
+  const out: TableShape[] = [];
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const t of dropped) {
+      const self = qkey(t.schema, t.name);
+      if (owners.has(self)) continue;
+      const owned = t.foreignKeys.some(
+        (fk) => fk.onDelete === "cascade" && owners.has(qkey(t.schema, fk.refTable)),
+      );
+      if (!owned) continue;
+      owners.add(self);
+      out.push(t);
+      grew = true;
+    }
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Raised when a delta reshapes a table — a saving-shape flip
@@ -1975,7 +2086,8 @@ export class MigrationShapeChangeError extends Error {
         reshapes.map((r) => `  - ${r}`).join("\n") +
         `\nA shape/strategy flip is a full-table data move the column diff can't express. ` +
         `Record it with \`ddd migrate add <name> <file.ddd> --allow-destructive\` for the safe reshape: the ` +
-        `old table is renamed to <table>${RESHAPE_BACKUP_SUFFIX} (kept, NOT dropped) and the ` +
+        `old table and every owned child table the new shape drops (parts, value collections, ` +
+        `join tables) are renamed to <table>${RESHAPE_BACKUP_SUFFIX} (kept, NOT dropped) and the ` +
         `new shape is created empty, with a TODO recipe to copy the data across (INSERT … ` +
         `SELECT). The backup's cleanup drop is destructive-gated on the next generation.`,
     );
@@ -2014,10 +2126,13 @@ export function detectReshapes(
       nextT.savingShape !== undefined &&
       prev.savingShape !== nextT.savingShape
     ) {
-      events.push({
-        description: `${qualifiedName(prev.schema, prev.name)}: saving shape ${prev.savingShape} → ${nextT.savingShape}`,
-        backups: [prev],
-      });
+      events.push(
+        reshapeEvent(
+          `${qualifiedName(prev.schema, prev.name)}: saving shape ${prev.savingShape} → ${nextT.savingShape}`,
+          [prev],
+          dropped,
+        ),
+      );
     }
   }
 
@@ -2039,13 +2154,28 @@ export function detectReshapes(
   for (const [base, g] of droppedByBase) {
     const toStrategy = createdStrategyByBase.get(base);
     if (toStrategy && toStrategy !== g.strategy) {
-      events.push({
-        description: `inheritance "${base}": ${g.strategy} → ${toStrategy}`,
-        backups: g.tables,
-      });
+      events.push(
+        reshapeEvent(`inheritance "${base}": ${g.strategy} → ${toStrategy}`, g.tables, dropped),
+      );
     }
   }
   return events;
+}
+
+/** One reshape event: `roots` plus their dropped owned children, all backed
+ *  up.  The description names the children so the gate's listing says every
+ *  table the reshape moves aside, not just the root. */
+function reshapeEvent(
+  summary: string,
+  roots: readonly TableShape[],
+  dropped: readonly TableShape[],
+): ReshapeEvent {
+  const children = ownedChildBackups(roots, dropped);
+  const description =
+    children.length === 0
+      ? summary
+      : `${summary} (owned child table(s) ${children.map((c) => qualifiedName(c.schema, c.name)).join(", ")} backed up too)`;
+  return { description, summary, backups: [...roots, ...children] };
 }
 
 export interface BuildMigrationsOptions {
@@ -2235,21 +2365,34 @@ export function buildMigrations(
       // carries no indexes (frees the names the new shape reuses) and no reshape
       // stamp, so next generation it is a plain dropTable — its cleanup is
       // destructive-gated.  A TODO recipe marks the data move the operator runs.
+      //
+      // A backed-up child's FK keeps pointing at its (renamed) owner — Postgres
+      // and Ecto carry an FK across a table rename — so the injected copy's
+      // `refTable` names the owner's backup: the snapshot then says what the
+      // database holds, and next generation's FK-ordered cleanup drops the
+      // children before the root backup they reference.
       const injected: TableShape[] = [];
       for (const r of reshapes) {
+        const backupOf = new Map(
+          r.backups.map((b) => [qkey(b.schema, b.name), `${b.name}${RESHAPE_BACKUP_SUFFIX}`]),
+        );
         for (const b of r.backups) {
           const backupName = `${b.name}${RESHAPE_BACKUP_SUFFIX}`;
           reshapeTableRenames.push({ from: b.name, to: backupName, schema: b.schema });
           injected.push({
             ...b,
             name: backupName,
+            foreignKeys: b.foreignKeys.map((fk) => ({
+              ...fk,
+              refTable: backupOf.get(qkey(b.schema, fk.refTable)) ?? fk.refTable,
+            })),
             indexes: [],
             savingShape: undefined,
             inheritance: undefined,
           });
           reshapeComments.push({
             op: "sqlComment",
-            comment: `TODO reshape (${r.description}): copy data from ${qualifiedName(b.schema, backupName)} into the new shape (e.g. INSERT … SELECT), then drop the backup under --allow-destructive`,
+            comment: `TODO reshape (${r.summary}): copy data from ${qualifiedName(b.schema, backupName)} into the new shape (e.g. INSERT … SELECT), then drop the backup under --allow-destructive`,
           });
         }
       }
@@ -2324,8 +2467,11 @@ export function buildMigrations(
     });
     // B-20b — announce a `unique (…)` landing on a populated table, unless the
     // author already declared a `sql before` step for this generation.
+    // An enum CHECK losing a member on a populated table is announced on the
+    // same terms: a `sql before` remap is the declared fix.
     if (options.warnings && !newData.some((d) => d.before)) {
       options.warnings.push(...uniqueOnExistingTableWarnings(structuralSteps, baseline, m.name));
+      options.warnings.push(...enumNarrowingWarnings(structuralSteps, baseline, m.name));
     }
     const steps: MigrationStep[] = [
       ...newData.filter((d) => d.before).map(toExec),

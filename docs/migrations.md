@@ -635,6 +635,54 @@ unique narrowed to a partial one). A NEW partial unique (`softDeletable`'s
 `WHERE is_deleted = false`) still warns — it is a uniqueness claim over the
 live rows. A warning never changes the exit code.
 
+### An enum that loses a member — `loom.migration-enum-narrowed`
+
+Deleting (or renaming) a member of an `enum` that a persisted field uses
+narrows the column's [value-set `CHECK`](#how-ir-maps-to-tables). The re-added
+constraint is `NOT VALID`, so the migration itself always applies — but the rows
+already holding the removed value stay, and the app cannot live with them:
+python, java, .NET and elixir map the stored string onto the enum when they load
+a row, so one such row fails the whole list route that reads it; node serves it
+off-contract; and any `UPDATE` of the row is refused by the new check.
+
+The rule is the one a `unique (…)` on a populated table follows, because it is
+the same situation — a new constraint that rows already stored may violate, and
+a diff that cannot see the rows. It is a **warning**, not a destructive-change
+refusal: nothing is dropped and nothing fails at apply time (that is what puts
+a NULL→NOT NULL flip behind `--allow-destructive`), and the fix is a data step
+the author writes, not a flag:
+
+```ddd
+enum EmploymentType { permanent }          // was { permanent, contractor }
+aggregate Employee { kind: EmploymentType }
+```
+
+```text
+loom.migration-enum-narrowed warning: migration for module "Hr": enum check employees_kind_enum on existing table employees no longer admits 'contractor' in column kind. Rows already stored may still hold a removed value. … Remap the removed values AHEAD of the check in this same generation (declaring one silences this warning):
+    migration "remap-…" { sql before "UPDATE employees SET kind = <one of 'permanent'> WHERE kind IN ('contractor')" }
+```
+
+```ddd
+migration "remap-contractor" {
+  sql before "UPDATE employees SET kind = 'permanent' WHERE kind = 'contractor'"
+}
+```
+
+```sql
+UPDATE employees SET kind = 'permanent' WHERE kind = 'contractor';
+ALTER TABLE "employees" DROP CONSTRAINT IF EXISTS "employees_kind_enum";
+-- NOT VALID: already-stored rows are not re-checked. To verify them, run ALTER TABLE "employees" VALIDATE CONSTRAINT "employees_kind_enum"
+ALTER TABLE "employees" ADD CONSTRAINT "employees_kind_enum" CHECK ("kind" IN ('permanent')) NOT VALID;
+```
+
+As with the unique-index warning, any `sql before` step for the module in the
+same generation silences it, and a trailing `sql` step does not (it runs after
+the check). Not raised for a widening (members only added), a module's first
+generation, or a table created this generation. The check is matched by name, so
+a narrowing that lands in the same generation as a rename of its table or
+column is not compared. Turning a plain `string` column into an enum adds a
+check with no baseline value set to compare against, so it does not warn either.
+
 ### A unique index follows a `softDeletable` flip (partial ↔ full)
 
 Under `softDeletable` the `unique (…)` index is **partial** (`WHERE is_deleted =
@@ -738,11 +786,38 @@ move), the new shape is created empty, and a `-- TODO reshape …` recipe marks 
 `INSERT … SELECT` the operator runs. The backup is recorded in the written
 snapshot, so its cleanup drop is destructive-gated the *next* generation.
 
+The same goes for every **owned child table** the new shape no longer has. A
+relational aggregate keeps its parts, value collections and `X id[]` join tables
+in tables of their own; `shape: document` / `embedded` folds them into the root,
+so they fall out of the next schema. Each one holding an `ON DELETE CASCADE` FK
+to a backed-up table (directly, or through another child) is renamed to
+`<table>__pre_reshape` beside the root, with its own TODO recipe; the gate's
+listing names them. Its FK follows the root's rename (Postgres and Ecto carry an
+FK across `RENAME`), so the backups still join to each other for the copy, and
+the next generation's cleanup drops the children before the root. An `X id`
+reference is a `restrict` FK, not ownership, so another aggregate removed in the
+same generation is still an ordinary `DROP TABLE`.
+
+```ddd
+aggregate Cart shape: document {   // was relational
+  owner: string
+  lines: Line[]                    // value collection → cart_lines
+  contains items: Item[]           // part → items
+  entity Item { name: string }
+}
+```
+
 ```sql
 -- relational Cart → `shape: document` Cart, under --allow-destructive
+DROP INDEX "cart_lines_cart_id_idx";
+DROP INDEX "items_cart_id_idx";
 ALTER TABLE "carts" RENAME TO "carts__pre_reshape";
+ALTER TABLE "cart_lines" RENAME TO "cart_lines__pre_reshape";
+ALTER TABLE "items" RENAME TO "items__pre_reshape";
 CREATE TABLE "carts" ("id" UUID NOT NULL, "data" JSONB NOT NULL, "version" INTEGER NOT NULL, PRIMARY KEY ("id"));
--- TODO reshape (…): copy data from "carts__pre_reshape" into the new shape (e.g. INSERT … SELECT), then drop the backup under --allow-destructive
+-- TODO reshape (carts: saving shape relational → document): copy data from carts__pre_reshape into the new shape (e.g. INSERT … SELECT), then drop the backup under --allow-destructive
+-- TODO reshape (carts: saving shape relational → document): copy data from cart_lines__pre_reshape into the new shape (e.g. INSERT … SELECT), then drop the backup under --allow-destructive
+-- TODO reshape (carts: saving shape relational → document): copy data from items__pre_reshape into the new shape (e.g. INSERT … SELECT), then drop the backup under --allow-destructive
 ```
 
 ## The migration chain — `migrations/` beside the source
@@ -962,7 +1037,11 @@ The same `NOT VALID` rule as above is what makes this safe to land on a
 populated database: the `ALTER` leaves already-stored rows alone (so narrowing
 an enum can never fail a deploy) while refusing every future write of a removed
 value; the emitted comment names the `VALIDATE CONSTRAINT` an operator runs to
-audit the old rows deliberately.
+audit the old rows deliberately. The deploy surviving is not the app surviving,
+though: a row still holding a removed value fails to load on most backends, so
+a narrowing on a populated table raises
+[`loom.migration-enum-narrowed`](#an-enum-that-loses-a-member--loommigration-enum-narrowed)
+until a `sql before` remap is declared.
 
 Covered: a scalar enum column, at either nullability, on the aggregate root, a
 TPH shared table (where a concrete's column is forced nullable, so it gains the
