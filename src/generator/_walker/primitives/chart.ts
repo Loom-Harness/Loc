@@ -28,8 +28,8 @@
 // shared from data-grid.ts), which is what the chart library keys on.
 //
 // Unsupported targets are a COMPILE ERROR, not a blank slot:
-// `loom.chart-unsupported-target` (system-checks.ts) rejects `Chart` off
-// react + mantine@v9, and the arg gates in ui-checks.ts
+// `loom.target-unsupported#chart` rejects `Chart` on a framework the
+// capability table does not mark supported, and the arg gates in ui-checks.ts
 // (`loom.chart-of-not-grouped` / `-kind-invalid` / `-accessor-not-field`)
 // make the fallbacks below unreachable from valid input.
 

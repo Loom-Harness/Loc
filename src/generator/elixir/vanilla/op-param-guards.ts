@@ -4,8 +4,10 @@
 // (`document-emit.ts`, which `context-emit.ts` imports) share one spelling
 // without an import cycle.  The `defp`s these clauses call are appended to the
 // context module on demand by `context-emit.ts` (`renderNumericParamHelpers`).
-import type { TypeIR } from "../../../ir/types/loom-ir.js";
+import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import { enumPool } from "../../../ir/util/reachable-types.js";
 import { elixirLocal, snake } from "../../../util/naming.js";
+import { voEctoType } from "./changeset-validators.js";
 
 /** Op params whose WIRE form can be malformed, and which therefore have to be
  *  REFUSED rather than coerced-and-hoped.  `coerceOpParam` (`context-emit.ts`) makes the
@@ -21,11 +23,32 @@ import { elixirLocal, snake } from "../../../util/naming.js";
  *
  *  `null` for a param that needs no guard, so an op with none keeps the flat
  *  bind layout byte-identical. */
-export function paramGuardClause(wireName: string, type: TypeIR | undefined): string | null {
+export function paramGuardClause(
+  wireName: string,
+  type: TypeIR | undefined,
+  /** The op's context — a VALUE-OBJECT param is guarded only when its
+   *  declaration can be looked up here. */
+  ctx?: BoundedContextIR,
+): string | null {
   const t = type?.kind === "optional" ? type.inner : type;
-  if (t?.kind !== "primitive") return null;
   const access = `Map.get(params, ${JSON.stringify(wireName)})`;
   const field = `:${snake(wireName)}`;
+  // A value-object param arrives as the raw wire map, and the op body reads its
+  // members directly, so a missing or mistyped member crashed there (a 500).
+  // It is cast against the value object's declared fields instead: the 422 at
+  // `/<param>/<member>`, and the body receives the declared members only.
+  if (t?.kind === "valueobject" && ctx) {
+    const vo = ctx.valueObjects.find((v) => v.name === t.name);
+    if (!vo) return null;
+    const enums = new Map(enumPool(ctx).map((e) => [e.name, e]));
+    const types = vo.fields.map((f) => `${snake(f.name)}: ${voEctoType(f.type, enums)}`).join(", ");
+    const required = vo.fields
+      .filter((f) => f.type.kind !== "optional")
+      .map((f) => `:${snake(f.name)}`)
+      .join(", ");
+    return `{:ok, ${elixirLocal(wireName)}} <- __loom_vo_param(record, ${field}, ${access}, %{${types}}, [${required}])`;
+  }
+  if (t?.kind !== "primitive") return null;
   switch (t.name) {
     case "money":
     case "decimal":

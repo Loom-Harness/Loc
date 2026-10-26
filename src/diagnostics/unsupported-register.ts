@@ -40,12 +40,12 @@
 // `verified` marks rows whose classification a human has confirmed against the
 // emission site.  Rows land `false` and are promoted on review.
 //
-// LATENT ROWS — the `seam` kind.  Some gates' Sets (CHART_FRAMEWORKS,
-// PROJECTION_READ_FRAMEWORKS, …) name every shipping FRONTEND, so the gate
+// LATENT ROWS — the `seam` kind.  Some gates' Sets (PROJECTION_READ_FRAMEWORKS,
+// TABLE_FILTER_FRAMEWORKS, …) name every shipping FRONTEND, so the gate
 // fires for nothing that exists; and some backend gates fire only for a
 // context no backend deployable hosts at all.  The frontend gates are kept as
 // the seam the NEXT frontend gates on until it ports, the pattern
-// CHART_FRAMEWORKS documents at system-checks.ts.  (There is deliberately no
+// PROJECTION_READ_FRAMEWORKS documents at ui-framework-checks.ts.  (There is deliberately no
 // BACKEND support set naming all five backends: such a set gates nothing, and
 // when partial support appears the validator code is the honest place for
 // it.  A backend gate that remains does so for its reachable no-backend arm.)
@@ -145,18 +145,9 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.auth-ui-unsupported-framework",
     kind: "seam",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:380",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:276",
     what: "`auth: ui` ships on every frontend; the seam a NEW one gates on",
     mission: "#3328",
-  },
-  {
-    code: "loom.chart-unsupported-target",
-    kind: "seam",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:266",
-    what:
-      "`Chart` renders on every shipping frontend (CHART_FRAMEWORKS names all seven) — latent " +
-      "seam a NEW framework gates on until it ports",
-    mission: "#3319",
   },
   {
     code: "loom.context-test-unsupported",
@@ -188,7 +179,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.component-children-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:641",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:539",
     what:
       "an EXTERN user component invoked WITH CHILDREN on angular.  The WALKED half DRAINED in " +
       "wave C2 packet 2h: Loom emits that class and stamps its selector, so its call site is " +
@@ -210,7 +201,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.page-form-locals-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:681",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:579",
     what:
       "two forms on ONE page whose generated page-local bindings collide.  Every JS frontend " +
       "splices a form's mutation hook + form handle in as page-scope consts named by the design " +
@@ -226,19 +217,21 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     mission: "#3317",
   },
   {
-    code: "loom.datagrid-unsupported-target",
+    // ONE code for every row of the per-target capability table
+    // (`src/util/target-capabilities.ts`); each refused row carries its own
+    // reason as `loom.target-unsupported#<slug>`.  The table, not this row,
+    // classifies each cell — `test/system/target-capability-table.test.ts`
+    // proves every supported cell renders and every refused one is raised.
+    code: "loom.target-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:75",
+    site: "src/ir/validate/checks/target-capability-checks.ts:164",
     what:
-      "`DataGrid` (a TanStack row model) outside DATA_GRID_FRAMEWORKS.  LATENT seam for a NEW " +
-      "frontend: both non-members are settled nevers under D-DATAGRID-TARGETS' one rule (ships " +
-      "iff it can run TanStack itself) — flutter because its native build has no JS runtime, " +
-      "phoenixLiveView because both roads open to it (a hand-rolled Elixir row model, or a " +
-      "phx-hook island LiveView must not patch) FORK the semantics the renderDataGridChild seam " +
-      "shares.  It was carried as 'the open leg' until the pin was re-examined; the blocker that " +
-      "framing rested on (multi-column ORDER BY in `list/4`) was never on DataGrid's path — it " +
-      "drives no server read on any target",
-    mission: "#3317",
+      "a construct × position its target cannot render, per the capability table.  LATENT: " +
+      "every refused cell today is a settled never — `DataGrid` on flutter and phoenixLiveView " +
+      "(D-DATAGRID-TARGETS: it ships iff the target can run TanStack itself) — and `Chart` and " +
+      "the entity-history read are supported on every shipping frontend, so the remaining " +
+      "refusals are the seam a NEW frontend gates on until it ports",
+    mission: "#3592",
     verified: true,
   },
   {
@@ -365,7 +358,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.flutter-primitive-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:585",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:483",
     what:
       "every page primitive now renders on Flutter — FLUTTER_UNRENDERED_PRIMITIVES " +
       "(src/util/flutter-deferred-primitives.ts) is EMPTY, so the gate is a dormant re-arm net",
@@ -374,7 +367,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.flutter-action-body-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:780",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:678",
     what:
       "ONE Flutter action-body shape left, down from two: a `match await` on one of the five " +
       "STANDARD aggregate ops (the async-effect emitter resolves its op through " +
@@ -392,7 +385,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.frontend-prop-type-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:115",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:76",
     what:
       "a declared `component` param / `extern` function signature type the shared TypeScript " +
       "prop layer has no spelling for. The three shapes this row was opened for — `money`, " +
@@ -511,7 +504,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "this check) lists all three SavingShape values, so `supported.includes(shape)` cannot " +
       "fail for any of them — and a platform NOT yet in the map is SKIPPED " +
       "(`if (!base) continue`), not flagged, so this isn't even the seam a brand-new backend " +
-      "gates on the way CHART_FRAMEWORKS-shaped rows are.  An unreachable backstop for the day " +
+      "gates on the way PROJECTION_READ_FRAMEWORKS-shaped rows are.  An unreachable backstop for the day " +
       "a platform is registered with a genuinely partial shape list",
     mission: "#3388",
   },
@@ -598,7 +591,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.ui-gate-expr-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:1229",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:1122",
     what:
       "a page `requires <expr>` gate outside the client-evaluable subset all THREE closed gate " +
       "renderers implement (`_frontend/gate-expr.ts` for React/Vue/Svelte/Angular, " +
@@ -652,7 +645,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.ui-projection-read-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:334",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:229",
     what:
       "a KEYED or FOLDED projection read from a page/component — not ui-consumable on ANY target " +
       "(ui-checks.ts:1538).  The per-framework half is fully ported: PROJECTION_READ_FRAMEWORKS " +
@@ -662,7 +655,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.ui-realtime-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:529",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:427",
     what:
       "an `on <channel>.<Event>` handler on a ui whose FRAMEWORK has no realtime consumption — " +
       "latent: `SSE_REALTIME_FRONTENDS` names react/vue/svelte/angular/feliz/flutter/static and " +

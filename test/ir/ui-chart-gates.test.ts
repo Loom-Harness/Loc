@@ -4,10 +4,9 @@
 //
 // Two gate families, mirroring the DataGrid/projection-read split:
 //
-//   - `loom.chart-unsupported-target` (system-checks.ts) — per-PACK, not
-//     per-framework: `Chart` renders through the active pack's
-//     `primitive-chart` template + a pack-specific chart dependency, and only
-//     react + mantine@v9 (the lead pack) ships both today.
+//   - `loom.target-unsupported#chart` — the capability table's
+//     `primitive:Chart@body` row (`src/util/target-capabilities.ts`), which
+//     marks `Chart` supported on every shipping frontend.
 //   - `loom.chart-of-not-grouped` / `-kind-invalid` / `-accessor-not-field`
 //     (ui-checks.ts) — the arg shapes: `of:` must name a readable GROUPED
 //     projection (a singleton has one object — nothing to plot), `kind:` is
@@ -17,7 +16,7 @@
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
-import { CHART_FRAMEWORKS } from "../../src/ir/validate/checks/system-checks.js";
+import { validateTargetCapabilities } from "../../src/ir/validate/checks/target-capability-checks.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { parseValid } from "../_helpers/index.js";
 
@@ -71,31 +70,33 @@ system S {
 }
 `;
 
-describe("loom.chart-unsupported-target (per-pack gate)", () => {
+describe("loom.target-unsupported#chart", () => {
   // EVERY shipping frontend renders a chart now, so there is no framework left
   // to assert a rejection on — and that is exactly when a gate stops being
   // checkable from the outside: "the check works" and "the check is
-  // unreachable" look identical.  The honest test is therefore to REMOVE a
-  // framework from the Set and watch the diagnostic come back, which is the
-  // discipline `PROJECTION_READ_FRAMEWORKS` already uses one gate over.
-  it("still fires for a framework without a chart renderer", async () => {
-    CHART_FRAMEWORKS.delete("angular");
-    try {
-      const diags = await diagsOf(sys({ framework: "angular" }));
-      const hit = diags.find((d) => d.code === "loom.chart-unsupported-target");
-      expect(hit).toBeDefined();
-      expect(hit?.severity).toBe("error");
-      // The message must point at the alternative that actually works.
-      expect(hit?.message).toContain("Table");
-    } finally {
-      CHART_FRAMEWORKS.add("angular");
-    }
+  // unreachable" look identical.  The honest test is therefore to REFUSE the
+  // row for one framework and watch the diagnostic come back.
+  it("still fires for a framework whose Chart row is refused", async () => {
+    const sysIr = enrichLoomModel(lowerModel(await parseValid(sys({ framework: "angular" }))));
+    const diags: Parameters<typeof validateTargetCapabilities>[1] = [];
+    validateTargetCapabilities(sysIr.systems[0]!, diags, {
+      ui: (fw, c) =>
+        fw === "angular" && c === "primitive:Chart@body"
+          ? { verdict: "refused", slug: "chart" }
+          : { verdict: "supported" },
+      backend: () => undefined,
+    });
+    const hit = diags.find((d) => d.code === "loom.target-unsupported");
+    expect(hit).toBeDefined();
+    expect(hit?.severity).toBe("error");
+    // The message must point at the alternative that actually works.
+    expect(hit?.message).toContain("Table");
   });
 
   for (const framework of ["vue", "svelte", "angular"]) {
     it(`accepts Chart on a ${framework} frontend`, async () => {
       const diags = await diagsOf(sys({ framework }));
-      expect(diags.find((d) => d.code === "loom.chart-unsupported-target")).toBeUndefined();
+      expect(diags.find((d) => d.code === "loom.target-unsupported")).toBeUndefined();
     });
   }
 
