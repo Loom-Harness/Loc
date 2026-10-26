@@ -11,6 +11,11 @@
 // download (a broken `npx`, a bad cwd) still surfaces — after the last attempt,
 // with every attempt's cause in the message.
 //
+// The attempt runs under GNU `timeout`, which signals its whole process group.
+// A timeout on `execSync` alone kills only the `/bin/sh` wrapper: npm, the
+// playwright CLI and its `apt-get` keep running, keep the install lock, and
+// every retry then fails in seconds against it.
+//
 // Scope: the browser FETCH only.  Running the specs must keep failing fast.
 // ---------------------------------------------------------------------------
 
@@ -29,9 +34,25 @@ export const PLAYWRIGHT_INSTALL_CMD = "npx playwright install --with-deps chromi
 
 type Exec = (cmd: string, opts: { cwd: string; timeout: number }) => void;
 
+/** `cmd` under GNU `timeout` (group-wide kill, then SIGKILL 15 s later) where
+ *  the host has it; the outer `execSync` timeout is the backstop. */
+export function boundedCommand(cmd: string, timeoutMs: number): string {
+  const s = Math.ceil(timeoutMs / 1000);
+  return `if command -v timeout >/dev/null 2>&1; then timeout -k 15 ${s} ${cmd}; else ${cmd}; fi`;
+}
+
 const defaultExec: Exec = (cmd, { cwd, timeout }) => {
-  execSync(cmd, { cwd, stdio: "pipe", timeout });
+  execSync(boundedCommand(cmd, timeout), { cwd, stdio: "pipe", timeout: timeout + 30_000 });
 };
+
+/** The first line of the error plus the last line of the child's stderr. */
+function causeOf(e: unknown): string {
+  if (!(e instanceof Error)) return String(e);
+  const head = e.message.split("\n")[0]!;
+  const stderr = (e as { stderr?: Buffer | string }).stderr;
+  const tail = stderr ? String(stderr).trim().split("\n").pop() : undefined;
+  return tail ? `${head} — ${tail}` : head;
+}
 
 function sleep(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -52,7 +73,7 @@ export function installPlaywrightChromium(
       exec(PLAYWRIGHT_INSTALL_CMD, { cwd, timeout: PLAYWRIGHT_INSTALL_TIMEOUT_MS });
       return;
     } catch (e) {
-      const cause = e instanceof Error ? e.message.split("\n")[0]! : String(e);
+      const cause = causeOf(e);
       causes.push(`attempt ${attempt}: ${cause}`);
       if (attempt === PLAYWRIGHT_INSTALL_ATTEMPTS) break;
       const backoff = PLAYWRIGHT_INSTALL_BACKOFF_MS[attempt - 1]!;
