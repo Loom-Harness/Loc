@@ -1,5 +1,5 @@
 // AST validation of the `requires <expr>` authorization gate (authorization.md
-// §11.3) on operations + workflow create/handle. The gate types to bool exactly
+// §11.3) on operations + workflow create. The gate types to bool exactly
 // like the in-body `requires` statement it lowers to; a non-bool gate is
 // rejected, and a gate on a `private` operation (no HTTP entry point) warns.
 
@@ -21,7 +21,7 @@ const wrap = (body: string) => `
   }
 `;
 
-const wrapWf = (createGate: string, handleGate: string) => `
+const wrapWf = (createGate: string) => `
   system Sys {
     user { id: string  role: string }
     subdomain S {
@@ -31,9 +31,6 @@ const wrapWf = (createGate: string, handleGate: string) => `
         workflow Triage {
           create open(subject: string) ${createGate} {
             precondition subject.length > 0
-          }
-          handle escalate(id: Ticket id) ${handleGate} {
-            let t = Tickets.byId(id)
           }
         }
       }
@@ -69,23 +66,12 @@ describe("operation / workflow requires gate — AST validation", () => {
   });
 
   it("rejects a non-boolean workflow create gate", async () => {
-    const { errors } = await parseString(
-      wrapWf("requires subject", 'requires currentUser.role == "agent"'),
-    );
+    const { errors } = await parseString(wrapWf("requires subject"));
     expect(errors.some((e) => /'requires' must be of type 'bool'/.test(e))).toBe(true);
   });
 
-  it("rejects a non-boolean workflow handle gate", async () => {
-    const { errors } = await parseString(
-      wrapWf('requires currentUser.role == "admin"', "requires id"),
-    );
-    expect(errors.some((e) => /'requires' must be of type 'bool'/.test(e))).toBe(true);
-  });
-
-  it("accepts boolean workflow create + handle gates", async () => {
-    const { errors } = await parseString(
-      wrapWf('requires currentUser.role == "admin"', 'requires currentUser.role == "agent"'),
-    );
+  it("accepts a boolean workflow create gate", async () => {
+    const { errors } = await parseString(wrapWf('requires currentUser.role == "admin"'));
     expect(errors).toEqual([]);
   });
 });

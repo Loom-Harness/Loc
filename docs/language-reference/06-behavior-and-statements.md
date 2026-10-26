@@ -843,7 +843,7 @@ Vue / Svelte / Angular / Feliz / Flutter emit the same try-match shape through t
 
 ## Handler bodies — `commandHandler` / `queryHandler`
 
-`[extern] commandHandler Name(params) [: Return] { … }` and `[extern] queryHandler Name(params): Return { … }` are context-level, application-layer handlers — a single-aggregate workflow `handle` lifted out, routable from an `api { route POST "/…" -> Ctx.Name }` body. Their body is the **workflow vocabulary** (`lower-workflow.ts`, see [Workflows](13-workflows.md#body-vocabulary)): `let x = Repo.getById(id)` / a single non-nullable `find`, `if let x = Repo.<find>(args) { … } else { … }` over a nullable one, an operation call on the binding, `Repo.delete(x)`, `precondition` / `requires`, `emit`, `return`. A loaded aggregate is saved automatically when an operation was invoked on it — you don't write the save. Gates: a non-`extern` handler needs a body (`loom.handler-missing-body`) and an `extern` one must be bodyless `;` (`loom.extern-handler-has-body`); a parameter may not be named `id` (`loom.handler-param-reserved-id`); a nullable load may not be `let`-bound (`loom.handler-load-nullable-unsupported` — use `getById`, or `if let`); a `queryHandler` may not mutate (`loom.query-handler-saves`) and a `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`).
+`[extern] commandHandler Name(params) [: Return] { … }` and `[extern] queryHandler Name(params): Return { … }` are context-level, application-layer handlers — the named entry points of a context, routable from an `api { route POST "/…" -> Ctx.Name }` body. Their body is the **workflow vocabulary** (`lower-workflow.ts`, see [Workflows](13-workflows.md#body-vocabulary)): `let x = Repo.getById(id)` / a single non-nullable `find`, `if let x = Repo.<find>(args) { … } else { … }` over a nullable one, an operation call on the binding, `Repo.delete(x)`, `precondition` / `requires`, `emit`, `return`. A loaded aggregate is saved automatically when an operation was invoked on it — you don't write the save. Gates: a non-`extern` handler needs a body (`loom.handler-missing-body`) and an `extern` one must be bodyless `;` (`loom.extern-handler-has-body`); a parameter may not be named `id` (`loom.handler-param-reserved-id`); a nullable load may not be `let`-bound (`loom.handler-load-nullable-unsupported` — use `getById`, or `if let`); a `queryHandler` may not mutate (`loom.query-handler-saves`) and a `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`).
 
 ```ddd
 context Accounts {
@@ -951,8 +951,8 @@ Pick by *what the body must be allowed to touch*, not by what feels natural to w
 | aggregate `apply` (`persistedAs: eventLog` only) | Pure fold of one emitted event into state | `this`; assignments and `let` only | None — runs when events are appended and replayed | No | No | No | `apply(e: OrderPlaced) { status := Status.Placed }` |
 | `function` (aggregate / entity / workflow / value object) | Reusable pure calculation | No | None | No | No | No | `function isDraft(): bool = status == Status.Draft` |
 | `domainService` `operation` | Cross-aggregate calculation or decision | Only the aggregates passed in, and only in the `mutating` tier | None — the calling orchestrator owns the commit | No | No | No | `operation withTax(base: int): int { return base + base.divTrunc(5) }` |
-| workflow `create` / `handle` | Use-case that spans aggregates | Via aggregate operations (`:=` is rejected in the body) | Per save; one DB transaction with `transactional` | `POST /api/workflows/<wf>…` | Yes — not inside a `transactional` span | Yes (orchestration-level `emit`) | `create(target: Order id) by target { … }` |
-| workflow `on(e: Event)` | React to an event (saga step) | As `handle` | As `handle` | No — driven by the event | As `handle` | Yes | `on(paid: PaymentReceived) by paid.order { … }` |
+| workflow `create` | Use-case that spans aggregates | Via aggregate operations (`:=` is rejected in the body) | Per save; one DB transaction with `transactional` | `POST /api/workflows/<wf>…` | Yes — not inside a `transactional` span | Yes (orchestration-level `emit`) | `create(target: Order id) by target { … }` |
+| workflow `on(e: Event)` | React to an event (saga step) | As `create` | As `create` | No — driven by the event | As `create` | Yes | `on(paid: PaymentReceived) by paid.order { … }` |
 | `commandHandler` | One-aggregate use-case without a workflow | One aggregate (`loom.command-handler-multi-aggregate`); save is implied | The one aggregate save | Only through an explicit `api { route … -> Ctx.Name }` | Yes | Yes | `commandHandler PlaceOrder(orderId: Order id): Order { … }` |
 | `queryHandler` | One-aggregate read with a typed result | No (`loom.query-handler-saves`) | None | Only through an explicit `route` | Yes | No | `queryHandler GetOrder(orderId: Order id): Order { … }` |
 | page / component `action` | Client-side event handler | Page `state` / `store` only | None — it runs in the browser | No (it *calls* routes, via `match await`) | No | No (UI effects such as `navigate` / `toast`) | `action bump() { count += 1 }` |
@@ -1042,7 +1042,7 @@ Since M-T5.21 the grammar accepts the **whole** surface at every one of those si
 | `function` | — | — | — | — | — |
 | `commandHandler` / `queryHandler` | — | yes | — | — | — |
 | `domainService` `operation` | — | — | — | — | — |
-| workflow `create` / `handle` | — | — | — | yes | — |
+| workflow `create` | — | — | — | yes | — |
 | workflow `on` | — | — | — | — | — |
 | page / component `action` | — | — | — | — | — |
 
@@ -1067,7 +1067,7 @@ The two callable-*shaped* declarations that are deliberately **not** rows: `crit
 
 ### Parameter defaults
 
-`param: T = <expr>` parses at every callable site (one shared `Parameter` rule), but only an aggregate `operation` / `create` / `destroy` and a workflow `create` lower the default so the generated signature carries it. A `domainService` operation, a workflow `handle`, a `commandHandler` / `queryHandler` and a `function` drop it — so a caller omitting the argument would reach a signature that still requires it. A default there is **`loom.param-default-unsupported`**:
+`param: T = <expr>` parses at every callable site (one shared `Parameter` rule), but only an aggregate `operation` / `create` / `destroy` and a workflow `create` lower the default so the generated signature carries it. A `domainService` operation, a `commandHandler` / `queryHandler` and a `function` drop it — so a caller omitting the argument would reach a signature that still requires it. A default there is **`loom.param-default-unsupported`**:
 
 ```ddd
 domainService Pricing {

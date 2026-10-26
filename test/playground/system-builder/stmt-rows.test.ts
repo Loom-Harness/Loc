@@ -100,7 +100,7 @@ const SRC = `system Shop {
       create retry(again: int) {
         let b = again
       }
-      handle settle(amount: decimal) {
+      create settle(amount: decimal) {
         let c = amount
       }
       on(p: Paid) {
@@ -594,12 +594,12 @@ describe("statement rows — the span helpers the UI rows splice with", () => {
 });
 
 describe("workflow body reach — every statement-bearing member", () => {
-  it("enumerates creates / handles / ons / applies with stable keys", () => {
+  it("enumerates creates / ons / applies with stable keys", () => {
     const wf = contextMembersOf(parse(SRC)).find((m) => m.$type === "Workflow");
     expect(listBodies(wf as never).map((b) => b.key)).toEqual([
       "create",
       "create:retry",
-      "handle:settle",
+      "create:settle",
       "on:Paid",
       "apply:Paid",
     ]);
@@ -612,16 +612,16 @@ describe("workflow body reach — every statement-bearing member", () => {
     expect(listStatements(parse(SRC), { ...place, member: "create:retry" })).toEqual([
       "let b = again",
     ]);
-    expect(listStatements(parse(SRC), { ...place, member: "handle:settle" })).toEqual([
+    expect(listStatements(parse(SRC), { ...place, member: "create:settle" })).toEqual([
       "let c = amount",
     ]);
     expect(listStatements(parse(SRC), { ...place, member: "on:Paid" })).toEqual(["let d = p"]);
     expect(listStatements(parse(SRC), { ...place, member: "apply:Paid" })).toEqual(["total := 1"]);
-    expect(listStatements(parse(SRC), { ...place, member: "handle:nope" })).toBeNull();
+    expect(listStatements(parse(SRC), { ...place, member: "create:nope" })).toBeNull();
   });
 
-  it("structures a handle / on / apply body like any other", () => {
-    expect(listStatementViews(parse(SRC), { ...place, member: "handle:settle" })).toEqual([
+  it("structures a named create / on / apply body like any other", () => {
+    expect(listStatementViews(parse(SRC), { ...place, member: "create:settle" })).toEqual([
       { kind: "let", name: "c", value: "amount" },
     ]);
     expect(listStatementViews(parse(SRC), { ...place, member: "apply:Paid" })).toEqual([
@@ -629,10 +629,10 @@ describe("workflow body reach — every statement-bearing member", () => {
     ]);
   });
 
-  it("edits / adds / deletes inside a handle, an on and an apply body", () => {
+  it("edits / adds / deletes inside a named create, an on and an apply body", () => {
     expectHunk(
       SRC,
-      editStatement(SRC, { ...place, member: "handle:settle" }, 0, "let c = amount * 2"),
+      editStatement(SRC, { ...place, member: "create:settle" }, 0, "let c = amount * 2"),
       ["        let c = amount"],
       ["        let c = amount * 2"],
     );
@@ -656,7 +656,7 @@ describe("workflow body reach — every statement-bearing member", () => {
   it("binds each member's own parameters for expression-slot scoping", () => {
     const wf = contextMembersOf(parse(SRC)).find((m) => m.$type === "Workflow") as never;
     expect(workflowBodyParamNames(wf)).toEqual(["orderId"]);
-    expect(workflowBodyParamNames(wf, "handle:settle")).toEqual(["amount"]);
+    expect(workflowBodyParamNames(wf, "create:settle")).toEqual(["amount"]);
     expect(workflowBodyParamNames(wf, "on:Paid")).toEqual(["p"]);
     expect(workflowBodyParamNames(wf, "apply:Paid")).toEqual(["q"]);
     expect(workflowBodyStatements(wf, "create:retry").length).toBe(1);
@@ -668,13 +668,13 @@ describe("workflow body reach — every statement-bearing member", () => {
     expect(options.map((o) => o.value)).toEqual([
       "wf:0",
       "wf@create:retry:0",
-      "wf@handle:settle:0",
+      "wf@create:settle:0",
       "wf@on:Paid:0",
       "wf@apply:Paid:0",
     ]);
     // Each member's slot resolves to that member's own expression.
-    const handle = options.find((o) => o.value === "wf@handle:settle:0")!;
-    expect(slotExpr(parse(SRC), handle.slot)?.$cstNode?.text).toBe("amount");
+    const named = options.find((o) => o.value === "wf@create:settle:0")!;
+    expect(slotExpr(parse(SRC), named.slot)?.$cstNode?.text).toBe("amount");
     expect(slotExpr(parse(SRC), options[0]!.slot)?.$cstNode?.text).toBe("orderId");
   });
 });

@@ -1,7 +1,7 @@
 // Event- and payload-typed workflow command parameters
 // (workflow-and-applier.md A2-S5f — `create(event: E) by …` /
-// `handle h(c: Command)`).  An `event` or `payload`/`command` name resolves as
-// a parameter type only in a workflow `create`/`handle` position; the param
+// `create(c: Command)`).  An `event` or `payload`/`command` name resolves as
+// a parameter type only in a workflow `create` position; the param
 // binds as an `entity`-marked local (transport types aren't a distinct TypeIR
 // kind) so a body access (`e.field`) type-resolves through the event/payload
 // field set, mirroring `on`/`apply` event params.

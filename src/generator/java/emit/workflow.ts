@@ -260,8 +260,8 @@ export function reposUsed(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string
 }
 
 /** Repositories the EVENT-DISPATCH path of a workflow touches — every `on`
- *  reactor, every `create` starter (the event-triggered ones the dispatcher
- *  renders included) and every named `handle` body, with their saves.
+ *  reactor and every `create` starter (the event-triggered ones the dispatcher
+ *  renders included), with their saves.
  *
  *  `<Ctx>Dispatcher` renders those bodies, and it used to size its injected
  *  repository set with `reposUsed` — i.e. from `wf.statements`, the PRIMARY
@@ -273,12 +273,10 @@ export function reactorReposUsed(wf: WorkflowIR, ctx: EnrichedBoundedContextIR):
   const bodies = [
     ...(wf.creates ?? []).map((c) => c.statements),
     ...(wf.subscriptions ?? []).map((o) => o.statements),
-    ...(wf.handlers ?? []).map((h) => h.statements),
   ];
   const saves = [
     ...(wf.creates ?? []).flatMap((c) => c.savesAtExit),
     ...(wf.subscriptions ?? []).flatMap((o) => o.savesAtExit),
-    ...(wf.handlers ?? []).flatMap((h) => h.savesAtExit),
   ];
   return reposInBodies(bodies, saves, ctx);
 }

@@ -1,7 +1,7 @@
 // An explicit `Repo.save(x)` (or insert / update / add / commit) statement in
 // a workflow or handler body.
 //
-// A workflow `create` / `handle` / `on` body and a `commandHandler` /
+// A workflow `create` / `on` body and a `commandHandler` /
 // `queryHandler` body persist at their EXIT: every aggregate the body created,
 // or loaded and mutated through one of its operations, is written once on the
 // way out (a `for` iteration and an `if let` branch save at their own end).

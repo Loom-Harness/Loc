@@ -2,15 +2,14 @@
 // Java backend — a repository `find … ignoring <Cap>` / `ignoring *` drops the
 // PRINCIPAL (tenancy) conjunct too, on BOTH java read surfaces (M-T6.54 F18).
 //
-// Java installs a non-principal capability filter as a Hibernate named @Filter
-// (`generator-java-filter-bypass.test.ts` covers that triage).  A PRINCIPAL
-// filter has no static form, so it is AND-ed into each read at request time:
+// Java installs every capability filter — the principal (tenancy) one too —
+// as an auto-enabled Hibernate named @Filter on the entity, and the document
+// shape (no entity) as an in-app predicate over the rehydrated jsonb blob:
 //
-//   * relational — a SpEL conjunct inside the Spring Data `@Query` JPQL
-//     (`emit/repository.ts`'s `jpqlWhere` / `principalJpqlClause`), and
-//   * document   — an in-app predicate over the rehydrated jsonb blob
-//     (`emit/document-store.ts`), which every declared find used to inherit
-//     from the SHARED `findAll()`.
+//   * relational — a bypassing read's impl method `disableFilter`s exactly the
+//     filters its `ignoring` names (`emit/repository.ts`'s `wrapBypass`), and
+//   * document   — an in-app predicate (`emit/document-store.ts`), which every
+//     declared find used to inherit from the SHARED `findAll()`.
 //
 // Neither honoured the read's own `ignoring` clause: `find … ignoring
 // tenantOwned` still returned only the caller's tenant, with no diagnostic,
@@ -43,39 +42,44 @@ function bodyOf(impl: string, method: string): string {
   return impl.slice(start, end);
 }
 
-const TENANT_JPQL = "e.tenantId = :#{@currentUserAccessor.user()?.tenantId()}";
 const TENANT_INAPP = "Objects.equals(x.tenantId(), currentUser.tenantId())";
 const DELETED_INAPP = "!x.isDeleted()";
 
 describe("java — `find … ignoring` drops the principal conjunct (M-T6.54 F18)", () => {
-  describe("relational read surface (@Query JPQL)", () => {
-    it("a find with NO `ignoring` keeps the tenant conjunct", async () => {
-      const jpa = (await generateSystemFiles(SRC)).get(`${ROOT}/orders/OrderJpaRepository.java`)!;
-      const q = jpqlOf(jpa, "scoped");
-      expect(q).toContain("e.code = :c");
-      expect(q).toContain(TENANT_JPQL);
+  describe("relational read surface (entity @Filter, disabled per read)", () => {
+    const impl = async (): Promise<string> =>
+      (await generateSystemFiles(SRC)).get(`${ROOT}/orders/OrderRepositoryImpl.java`)!;
+
+    it("the tenant restriction is the entity's filter, in no @Query", async () => {
+      const files = await generateSystemFiles(SRC);
+      expect(files.get(`${ROOT}/orders/Order.java`)!).toContain(
+        '@Filter(name = "Order_tenantOwned", condition = "tenant_id = :__cuTenantId")',
+      );
+      const jpa = files.get(`${ROOT}/orders/OrderJpaRepository.java`)!;
+      expect(jpqlOf(jpa, "scoped")).toBe("select e from Order e where e.code = :c");
+      expect(jpa).not.toMatch(/tenantId|currentUserAccessor/);
     });
 
-    it("`ignoring tenantOwned` drops the tenant conjunct and keeps the find's own filter", async () => {
-      const jpa = (await generateSystemFiles(SRC)).get(`${ROOT}/orders/OrderJpaRepository.java`)!;
-      const q = jpqlOf(jpa, "anyTenant");
-      expect(q).toContain("e.code = :c");
-      // THE assertion: the conjunct is GONE, not merely "the filter is present".
-      expect(q).not.toContain("tenantId");
-      expect(q).not.toContain("currentUserAccessor");
+    it("a find with NO `ignoring` disables nothing", async () => {
+      expect(bodyOf(await impl(), "scoped")).not.toContain("disableFilter");
     });
 
-    it("`ignoring *` drops the tenant conjunct too", async () => {
-      const jpa = (await generateSystemFiles(SRC)).get(`${ROOT}/orders/OrderJpaRepository.java`)!;
-      const q = jpqlOf(jpa, "unfiltered");
-      expect(q).toContain("e.code = :c");
-      expect(q).not.toContain("tenantId");
+    it("`ignoring tenantOwned` disables ONLY the tenant filter", async () => {
+      const body = bodyOf(await impl(), "anyTenant");
+      expect(body).toContain('__session.disableFilter("Order_tenantOwned");');
+      expect(body).not.toContain('disableFilter("softDeletable")');
     });
 
-    it("the root findAll / findById overrides keep the tenant conjunct regardless", async () => {
-      const jpa = (await generateSystemFiles(SRC)).get(`${ROOT}/orders/OrderJpaRepository.java`)!;
-      expect(jpqlOf(jpa, "findAll")).toContain(TENANT_JPQL);
-      expect(jpqlOf(jpa, "findById")).toContain(TENANT_JPQL);
+    it("`ignoring *` disables the tenant filter too", async () => {
+      const body = bodyOf(await impl(), "unfiltered");
+      expect(body).toContain('__session.disableFilter("Order_tenantOwned");');
+      expect(body).toContain('__session.disableFilter("softDeletable");');
+    });
+
+    it("the root findAll / findById disable nothing", async () => {
+      const i = await impl();
+      expect(bodyOf(i, "findAll")).not.toContain("disableFilter");
+      expect(bodyOf(i, "findById")).not.toContain("disableFilter");
     });
   });
 

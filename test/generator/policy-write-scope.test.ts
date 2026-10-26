@@ -111,17 +111,22 @@ describe("policy write scope — Python (FastAPI/SQLAlchemy)", () => {
 });
 
 describe("policy write scope — Java (Spring/JPA)", () => {
-  it("emits a findByIdForWrite @Query; getById loads through it", async () => {
+  it("emits a write-scope filter the command load (getById) enables", async () => {
     const text = await allText("java", DEEP_WRITE_LOCAL);
-    expect(text).toContain("findByIdForWrite");
-    // Floor JPQL predicate on tenantId via the SpEL principal.
-    expect(text).toContain("e.tenantId = :#{@currentUserAccessor.user()?.tenantId()}");
-    expect(text).toContain("jpa.findByIdForWrite(id)");
+    expect(text).toMatch(
+      /@FilterDef\(name = "Account_writeScope", autoEnabled = false, applyToLoadByKey = true, parameters/,
+    );
+    // The floor predicate on tenant_id, the claim a resolved parameter.
+    expect(text).toMatch(
+      /@Filter\(name = "Account_writeScope", condition = "[^"]*tenant_id = :__cuTenantId/,
+    );
+    expect(text).toContain('__session.enableFilter("Account_writeScope");');
+    expect(text).not.toContain("findByIdForWrite");
   });
 
-  it("no findByIdForWrite without a narrowing", async () => {
+  it("no write-scope filter without a narrowing", async () => {
     const text = await allText("java", "");
-    expect(text).not.toContain("findByIdForWrite");
+    expect(text).not.toContain("_writeScope");
   });
 });
 

@@ -46,7 +46,6 @@ function collectEmittedEvents(ctx: BoundedContextIR): Set<string> {
   for (const wf of ctx.workflows ?? []) {
     for (const c of wf.creates) for (const s of c.statements) scanWfStmt(s);
     for (const on of wf.subscriptions ?? []) for (const s of on.statements) scanWfStmt(s);
-    for (const h of wf.handlers ?? []) for (const s of h.statements) scanWfStmt(s);
     for (const s of wf.statements) scanWfStmt(s);
   }
   return out;
