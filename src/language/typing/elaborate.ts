@@ -925,6 +925,13 @@ export class Elaborator {
       const el = source ? elementOf(this.synth(source.value, scope)) : undefined;
       if (el) body = scope.child({ rowElem: el });
     }
+    // `Chart { of: <read>, x: r => …, y: r => … }` — the accessors bind one ROW of
+    // the read the chart plots.
+    if (name === "Chart") {
+      const read = this.queryResultType(entries, scope);
+      const el = read ? elementOf(read) : undefined;
+      if (el) body = scope.child({ rowElem: el });
+    }
     let queryResult = name === "QueryView" ? this.queryResultType(entries, scope) : undefined;
     // `paged: true` — the read answers one page: the `data:` lambda binds the
     // `Paged<T>` envelope (`rows.items`, `rows.totalPages`), not the list.
@@ -1713,6 +1720,9 @@ function declaresDataMember(agg: Aggregate, name: string): boolean {
 
 function elementOf(t: Ty): Ty | undefined {
   const bare = t.kind === "optional" ? t.inner : t;
+  // A `T paged` envelope (an explicitly paged `find`, or `paged: true`) is
+  // iterated through its page rows, so its row element is the carrier argument.
+  if (bare.kind === "generic" && bare.ctor === "paged") return bare.arg;
   return bare.kind === "array" ? bare.element : undefined;
 }
 

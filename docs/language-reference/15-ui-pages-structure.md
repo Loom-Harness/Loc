@@ -283,6 +283,7 @@ export default function Counter() {
 | Code | Rejects (on every frontend) |
 |---|---|
 | `loom.ui-this-unbound` | `this` — a ui body has no aggregate instance in scope |
+| `loom.lambda-param-type-unknown` (warning) | a member read off a lambda parameter no source typed (`e => e.count` outside a `For` / `Table` / `Chart` / `QueryView` / collection op) — the member would type as a guessed `string` |
 | `loom.ui-assign-not-state` | `:=` / `+=` / `-=` on a name that is not the host's own `state` field (a `let`, a param, another store's field) |
 | `loom.intrinsic-unknown` / `loom.unknown-member` | a method the stdlib does not define on a `state` / action-param / store value or a row (`s.indexOf(…)`, `xs.reverse()`, `xs.filter(…)` — write `.where(…)`), or a value-object `function` |
 | `loom.ui-find-call-arity` | a find read called with a different number of arguments than the find declares |
