@@ -611,6 +611,8 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.debitOnce.run (no such aggregate)",
     "api.debitThenOverdraw.run (no such aggregate)",
   ],
+  // A workflow run whose `if let` else answers `notFound` — same class.
+  "corpus/not-found-statement": ["api.escalateFirst.run (no such aggregate)"],
   // `api.orders.history(...)` reads the entity-history endpoint over
   // `audit_records` (#2378) — a machinery read `deriveContextOperations` does
   // not lift (same class as projection reads).  Lifting it would make this
