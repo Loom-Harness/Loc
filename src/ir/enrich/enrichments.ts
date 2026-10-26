@@ -75,7 +75,6 @@ import {
   isDenyFilter,
   TENANCY_SELF_SCOPE_ORIGIN,
   TENANT_OWNED_CAPABILITY,
-  TENANT_OWNED_TENANT_ID_FIELD,
   tenancyClaimBinding,
   tenancyPrincipalClaim,
 } from "../util/tenant-stance.js";
@@ -271,10 +270,6 @@ function enrichSystem(
   // declaration.  See `applyRegistrySelfScope` below.
   const subdomainsScoped = subdomainsWithSiblings
     .map((m) => applyRegistrySelfScope(m, sys))
-    // Bind the `tenantOwned` capability's hardcoded principal claim to the
-    // system's declared one.  BEFORE the read-level passes, so they see (and
-    // rebuild from) a correctly-bound floor.  See `bindTenancyClaim`.
-    .map((m) => bindTenancyClaim(m, sys))
     .map((m) => applyPolicyReadLevels(m, sys))
     .map((m) => applyPolicyWriteLevels(m, sys))
     // DENY WINS: runs AFTER the allow read/write-level passes, so an
@@ -504,87 +499,6 @@ function applyRegistrySelfScope(m: EnrichedSubdomainIR, sys: SystemIR): Enriched
             buildRegistrySelfScopeFilter(agg, tenancy.claimField, claimType),
           ],
           contextFilterOrigins: [...origins, TENANCY_SELF_SCOPE_ORIGIN],
-        };
-      }),
-    })),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Tenancy claim binding — the principal side of the `tenantOwned` capability.
-//
-// `tenancy by user.<claim> of <Registry>` lets the author name the claim that
-// carries the tenant.  The registry half honours it (`applyRegistrySelfScope`
-// passes `tenancy.claimField` straight into the derived self-scope filter).
-// The `tenantOwned` half could not: the capability is a PRELUDE definition
-// (`src/macros/prelude.ts`), built once at language-module init with no system
-// in scope — so it hardcodes `currentUser.tenantId` in both its read filter and
-// its create stamp.
-//
-// That is the right place for the macro to give up and the right place for
-// enrichment to take over: phase ⑥ is where per-system facts get bound onto
-// otherwise system-agnostic IR, exactly as the registry self-scope already is.
-// This pass rewrites the capability's two principal references to the declared
-// claim.
-//
-// It rewrites ONLY capability-derived nodes — the `tenantOwned`-origin
-// `contextFilters` entry (its RHS; the LHS is the row column the capability
-// owns), and a stamp assignment whose TARGET is that same column and whose
-// SOURCE is `currentUser.tenantId`.  An author's own `currentUser.tenantId` —
-// in a `requires`, a hand-written filter, a `find … where` — is left alone:
-// under a system whose claim is `orgId`, a principal may still legitimately
-// carry an unrelated `tenantId` field.
-//
-// Byte-neutral for every model that declares no tenancy, or declares the claim
-// as `tenantId` — which is every fixture that predates `tenancy-claim-name`.
-// ---------------------------------------------------------------------------
-
-/** True when `e` reads `currentUser.<TENANT_OWNED_TENANT_ID_FIELD>` — the
- *  capability's hardcoded principal reference, and the only thing this pass
- *  rebinds. */
-function isHardcodedTenantClaimRead(e: ExprIR): boolean {
-  return (
-    e.kind === "member" &&
-    e.member === TENANT_OWNED_TENANT_ID_FIELD &&
-    e.receiver.kind === "ref" &&
-    e.receiver.refKind === "current-user"
-  );
-}
-
-function bindTenancyClaim(m: EnrichedSubdomainIR, sys: SystemIR): EnrichedSubdomainIR {
-  const claim = tenancyPrincipalClaim(sys);
-  if (claim === TENANT_OWNED_TENANT_ID_FIELD) return m;
-  const rebind = (e: ExprIR): ExprIR => (e.kind === "member" ? { ...e, member: claim } : e);
-  return {
-    ...m,
-    contexts: m.contexts.map((ctx) => ({
-      ...ctx,
-      aggregates: ctx.aggregates.map((agg) => {
-        if (!hasTenantOwned(agg)) return agg;
-        // (1) the read filter — the `tenantOwned`-origin entry, RHS only.
-        const filters = agg.contextFilters ?? [];
-        const origins = agg.contextFilterOrigins ?? filters.map(() => undefined);
-        const i = origins.indexOf(TENANT_OWNED_CAPABILITY);
-        const floor = i >= 0 ? filters[i] : undefined;
-        let nextFilters = filters;
-        if (floor?.kind === "binary" && isHardcodedTenantClaimRead(floor.right)) {
-          nextFilters = [...filters];
-          nextFilters[i] = { ...floor, right: rebind(floor.right) };
-        }
-        // (2) the create stamp — `this.tenantId := currentUser.tenantId`.
-        const stamps = agg.contextStamps;
-        const nextStamps = stamps?.map((s) => ({
-          ...s,
-          assignments: s.assignments.map((a) =>
-            a.field === TENANT_OWNED_TENANT_ID_FIELD && isHardcodedTenantClaimRead(a.value)
-              ? { ...a, value: rebind(a.value) }
-              : a,
-          ),
-        }));
-        return {
-          ...agg,
-          ...(nextFilters === filters ? {} : { contextFilters: nextFilters }),
-          ...(nextStamps ? { contextStamps: nextStamps } : {}),
         };
       }),
     })),

@@ -302,17 +302,14 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
         // declare the claim in `user { }`, not to correct a typo on a domain
         // record, and the message has to say so.
         //
-        // SOURCE-WRITTEN ACCESSES ONLY (`ms.$cstNode`).  The `tenantOwned`
-        // prelude capability splices `currentUser.tenantId` as a PLACEHOLDER —
-        // the claim it really binds is `tenancy by user.<claim>`, and the
-        // rewrite happens in phase ⑥ (`bindTenancyClaim`), long after this
-        // validator runs.  Under `tenancy by user.orgId`, that placeholder is
-        // by construction not a declared claim, and reporting it would fail
-        // every hierarchical-tenancy model in the corpus at 1:1 with a
-        // diagnostic naming text the author never wrote.  A capability /
-        // macro splice carries no CST node; a hand-written access always does,
-        // and where a macro CLONES a user expression the original still
-        // carries its own CST and is reported exactly once.
+        // SOURCE-WRITTEN ACCESSES ONLY (`ms.$cstNode`).  A capability / macro
+        // splice carries no CST node, and a claim it reads is not text the
+        // author wrote: the `tenantOwned` capability reads the claim
+        // `tenancy by user.<claim>` declares, or `tenantId` when the workspace
+        // declares no tenancy, and the tenancy checks own that pairing.  A
+        // hand-written access always has a CST node, and where a macro CLONES
+        // a user expression the original still carries its own CST and is
+        // reported exactly once.
         const claims = ms.$cstNode ? absentUserClaim(recvType, ms.member) : undefined;
         if (claims) {
           accept(
