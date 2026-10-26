@@ -101,6 +101,10 @@ export function principalParamName(entry: string): string {
     const accessor = entry.slice(CLAIM_IS_NULL_BIND.length);
     return `__cuIsNull${accessor.charAt(0).toUpperCase()}${accessor.slice(1)}`;
   }
+  if (entry.startsWith(ENUM_NAME_BIND)) {
+    const accessor = entry.slice(ENUM_NAME_BIND.length);
+    return `__cuName${accessor.charAt(0).toUpperCase()}${accessor.slice(1)}`;
+  }
   const derived = entry.startsWith(SUBTREE_LIKE_BIND);
   const accessor = derived ? entry.slice(SUBTREE_LIKE_BIND.length) : entry;
   const cap = `${accessor.charAt(0).toUpperCase()}${accessor.slice(1)}`;
@@ -119,6 +123,10 @@ export function principalBindExpr(entry: string, principalVar: string): string {
   if (entry.startsWith(CLAIM_IS_NULL_BIND)) {
     const accessor = entry.slice(CLAIM_IS_NULL_BIND.length);
     return `${principalVar} != null && ${principalVar}.${accessor}() == null`;
+  }
+  if (entry.startsWith(ENUM_NAME_BIND)) {
+    const accessor = entry.slice(ENUM_NAME_BIND.length);
+    return `${principalVar} == null || ${principalVar}.${accessor}() == null ? null : ${principalVar}.${accessor}().name()`;
   }
   if (entry.startsWith(SUBTREE_LIKE_BIND)) {
     const accessor = entry.slice(SUBTREE_LIKE_BIND.length);
@@ -375,6 +383,38 @@ const HQL_DURATION_UNIT: Record<DurationUnit, string> = {
   hours: "hour",
   minutes: "minute",
 };
+
+/** The recorded binding entry for a whole principal term, decided in Java
+ *  (`principalBindExpr` turns it back into the Boolean expression). */
+export function principalTermBindEntry(pt: PrincipalTerm, enumsPkg: string): string | null {
+  const test = javaPrincipalTest(
+    pt,
+    PRINCIPAL_VAR_HOLE,
+    (enumName, value) => `${enumsPkg}.${enumName}.${value}`,
+  );
+  return test === null ? null : `${PRINCIPAL_TERM_BIND}${test}`;
+}
+
+/** The recorded binding entry for "an actor is present and its nullable claim
+ *  `member` is null" — a Boolean. */
+export function claimIsNullBindEntry(member: string): string {
+  return `${CLAIM_IS_NULL_BIND}${member}`;
+}
+
+/** The recorded binding entry for an enum claim read as its name (a String):
+ *  the enum column stores the `.ddd` spelling as text. */
+export function enumNameBindEntry(member: string): string {
+  return `${ENUM_NAME_BIND}${member}`;
+}
+
+/** Marker prefix for a recorded binding that is an enum claim's name. */
+const ENUM_NAME_BIND = "enumName:";
+
+/** The recorded binding entry for the deep/global subtree LIKE pattern built
+ *  from the claim `accessor` — a String. */
+export function subtreeLikeBindEntry(accessor: string): string {
+  return `${SUBTREE_LIKE_BIND}${accessor}`;
+}
 
 /** Marker prefix for a recorded `principalAccessors` binding that is a whole
  *  principal term, decided in Java: the rest of the entry is the boolean

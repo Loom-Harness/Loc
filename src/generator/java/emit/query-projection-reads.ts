@@ -28,9 +28,9 @@ import { joinReadFieldNames } from "../../_projection/join-read.js";
 import { MONEY_WIRE_ZERO } from "../../money-scale.js";
 import {
   bypassDrops,
-  bypassedPromotedCaps,
+  bypassedFilterNames,
+  bypassFilterNames,
   type FilterBypass,
-  promotedCapabilities,
 } from "../capability-filter.js";
 import {
   javaLocals,
@@ -213,15 +213,15 @@ function filterBypassOf(p: ProjectionIR): FilterBypass | undefined {
  *  other read of the same table excludes.  The two halves land differently on
  *  Java, exactly as they do on the row path:
  *
- *  - NON-principal filters ride the entity's `@SQLRestriction` (or an
- *    `autoEnabled` promoted `@Filter`), which Hibernate applies to this query
- *    too — nothing to add, but a read that `ignoring`s a PROMOTED capability
- *    must DISABLE that named filter for the query (`disableCaps`).
- *  - PRINCIPAL (tenancy) filters have no static SQL form, so they are AND-ed
- *    into the JPQL here.  The repository's `@Query` spells the principal as
- *    Spring Data SpEL; `createQuery` has no SpEL layer, so the claims bind as
- *    ordinary named parameters off the static `CurrentUserAccessor` (`binds`) —
- *    a missing principal binds null, which is the same fail-closed `= NULL`. */
+ *  - Over an ENTITY every restriction, tenancy included, is the entity's
+ *    `@SQLRestriction` or an auto-enabled `@Filter`, which Hibernate applies to
+ *    this query too — nothing to add, but a read that `ignoring`s a capability
+ *    must DISABLE its named filters for the query (`disableCaps`).
+ *  - A NATIVE read over a `shape: document` table has no entity and so no
+ *    filter: the PRINCIPAL (tenancy) filters are AND-ed into the query here,
+ *    their claims bound as named parameters off the static
+ *    `CurrentUserAccessor` (`binds`) — a missing principal binds null, the
+ *    fail-closed `= NULL`. */
 interface AggregationScope {
   /** ` where …`, already prefixed, or `""`. */
   where: string;
@@ -235,6 +235,7 @@ function aggregationScope(
   proj: ProjectionIR,
   ctx: EnrichedBoundedContextIR,
   enumsPkg: string,
+  native: boolean,
 ): AggregationScope {
   const principalAccessors = new Set<string>();
   // `EntityManager.createQuery` mode (§F2, Wave 2 packet 2.4): this read runs
@@ -254,7 +255,7 @@ function aggregationScope(
   const bypass = filterBypassOf(proj);
   const origins = sourceAgg?.contextFilterOrigins ?? [];
   for (const [i, pred] of (sourceAgg?.contextFilters ?? []).entries()) {
-    if (!exprUsesCurrentUser(pred)) continue;
+    if (!native || !exprUsesCurrentUser(pred)) continue;
     const origin = origins[i];
     if (origin !== undefined && bypassDrops(origin, bypass)) continue;
     capWheres.push(`(${renderJpqlWhere(pred, jpqlCtx)})`);
@@ -270,9 +271,9 @@ function aggregationScope(
   return {
     where: conjuncts.length > 0 ? ` where ${conjuncts.join(" and ")}` : "",
     binds: [...principalAccessors],
-    disableCaps: sourceAgg
-      ? bypassedPromotedCaps(new Set(promotedCapabilities(sourceAgg, ctx)), bypass)
-      : [],
+    // A native document read has no entity, so no filter to disable.
+    disableCaps:
+      sourceAgg && !native ? bypassedFilterNames(bypassFilterNames(sourceAgg, ctx), bypass) : [],
   };
 }
 
@@ -501,7 +502,12 @@ export function renderJavaQueryProjections(
       // The projection's own `where` AND the source aggregate's capability
       // filters — the read reads the table directly, so nothing else applies
       // them (see `aggregationScope`).
-      const scope = aggregationScope(proj, ctx, `${qpctx.basePkg}.domain.enums`);
+      const scope = aggregationScope(
+        proj,
+        ctx,
+        `${qpctx.basePkg}.domain.enums`,
+        docTable !== undefined,
+      );
       const jpql =
         `select ${[...keyCols, ...aggCols].join(", ")} from ${docTable ?? source} e${scope.where}` +
         ` group by ${groupCols.join(", ")} order by ${groupCols.join(", ")}`;
@@ -570,7 +576,12 @@ export function renderJavaQueryProjections(
         .map((a) => jpqlAggregate(a.aggregate, srcAgg, ctx, docTable !== undefined))
         .join(", ");
       // Same scoping as the grouped arm — see `aggregationScope`.
-      const scope = aggregationScope(proj, ctx, `${qpctx.basePkg}.domain.enums`);
+      const scope = aggregationScope(
+        proj,
+        ctx,
+        `${qpctx.basePkg}.domain.enums`,
+        docTable !== undefined,
+      );
       const jpql = `select ${cols} from ${docTable ?? source} e${scope.where}`;
       // `getSingleResult()` returns an `Object[]` only for a MULTI-column
       // selection; a SINGLE `select` (`select total = count()`) hands back the
