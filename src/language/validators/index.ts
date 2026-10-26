@@ -108,5 +108,5 @@ export {
   checkUi,
 } from "./ui.js";
 export { checkUnions } from "./unions.js";
+export { checkWorkflowCreateArgs } from "./workflow-create-args.js";
 export { checkWorkflowExplicitSave } from "./workflow-explicit-save.js";
-export { checkWorkflowPositionalCreate } from "./workflow-positional-create.js";

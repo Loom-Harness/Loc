@@ -1,3 +1,4 @@
+import { factoryArgs } from "../../language/factory-call.js";
 import type {
   Aggregate,
   BoundedContext,
@@ -24,7 +25,6 @@ import {
   isLetStmt,
   isMemberSuffix,
   isNameRef,
-  isObjectLit,
   isOnDecl,
   isPostfixChain,
   isPreconditionStmt,
@@ -1173,19 +1173,15 @@ function matchFactoryCall(
   if (s.member !== "create") return undefined;
   const recv = expr.head;
   if (!isNameRef(recv)) return undefined;
-  if (!aggsByName.has(recv.name)) return undefined;
-  if (s.args.length !== 1) return undefined;
-  const argWrap = s.args[0];
-  // Factory calls take a single object literal positional
-  // arg.  Reject the named-arg form here; the caller falls through
-  // to a generic call lowering rather than the factory shape.
-  if (!argWrap || argWrap.name) return undefined;
-  const arg = argWrap.value;
-  if (!isObjectLit(arg)) return undefined;
-  return {
-    aggName: recv.name,
-    fields: arg.fields.map((f) => ({ name: f.name, value: f.value })),
-  };
+  const agg = aggsByName.get(recv.name);
+  if (!agg) return undefined;
+  // The record, positional and named shapes all mean one record keyed by
+  // field name (`language/factory-call.ts`).  An argument list that maps onto
+  // no record is refused at phase ④ (`loom.workflow-create-args`); it falls
+  // through to the generic `let` here.
+  const mapped = factoryArgs(agg, s.args);
+  if (mapped.kind !== "fields") return undefined;
+  return { aggName: recv.name, fields: mapped.fields };
 }
 
 /** Lower a structural `LoadPath` AST node (`lines[].product`) to its

@@ -59,7 +59,7 @@ system Ops {
       repository WorkOrders for WorkOrder { }
       workflow scheduleWorkOrder {
         create(workOrder: string, technician: string) {
-          let w = WorkOrder.create({ title: workOrder, tech: technician })
+          let w = WorkOrder.create(title: workOrder, tech: technician)
         }
       }
     }
@@ -92,7 +92,7 @@ system Ops {
       repository WorkOrders for WorkOrder { }
       workflow workOrder {
         create(summary: string) {
-          let w = WorkOrder.create({ title: summary, tech: "unassigned" })
+          let w = WorkOrder.create(title: summary, tech: "unassigned")
         }
       }
     }
@@ -130,7 +130,7 @@ system Ops {
       repository WorkOrders for WorkOrder { }
       workflow bulkImport {
         create(source: string) {
-          let w = WorkOrder.create({ title: source, tech: "unassigned" })
+          let w = WorkOrder.create(title: source, tech: "unassigned")
         }
       }
     }

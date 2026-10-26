@@ -285,7 +285,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.workflow-explicit-save": "13-workflows.md#body-vocabulary",
   "loom.workflow-uncorrelated-state-read": "13-workflows.md#workflow--state",
   "loom.workflow-mutation-unsaved": "13-workflows.md#body-vocabulary",
-  "loom.workflow-positional-create": "13-workflows.md#body-vocabulary",
+  "loom.workflow-create-args": "13-workflows.md#body-vocabulary",
   "loom.channel-key-missing-field": "14-apis-storage-resources-channels.md#channel--channelsource",
   "loom.reserved-not-emitted": "14-apis-storage-resources-channels.md#connection-sources",
   "loom.channelsource-incompatible":

@@ -469,27 +469,67 @@ describe("a mutation needs a save (#3618)", () => {
   });
 });
 
-describe("loom.workflow-positional-create (#3301)", () => {
-  for (const call of [`Item.create(n, 0)`, `Item.create(name: n, count: 0)`, `Item.create()`]) {
-    it(`refuses \`${call}\` in a workflow create and a command handler`, async () => {
-      expect(await codes(`workflow W { create(n: string) { let x = ${call} } }`)).toContain(
-        "loom.workflow-positional-create",
+/** The first body's `factory-let`, rendered `Agg{field=<ref or literal>,…}`. */
+async function factoryLet(members: string): Promise<string> {
+  const st = (await firstBody(members)).statements[0];
+  if (st?.kind !== "factory-let") return `not a factory-let: ${st?.kind}`;
+  const v = (e: { kind: string; name?: string; value?: unknown }) =>
+    e.kind === "ref" ? String(e.name) : e.kind === "literal" ? String(e.value) : e.kind;
+  return `${st.aggName}{${st.fields.map((f) => `${f.name}=${v(f.value as never)}`).join(",")}}`;
+}
+
+/** A second aggregate whose declared `create(…)` lists its inputs in a
+ *  different order from its properties. */
+const POLL = `
+  aggregate Poll {
+    item: Item id
+    label: string
+    create(label: string, item: Item id) { }
+  }
+  repository Polls for Poll { }`;
+
+describe("workflow factory calls: positional, named and record are one create (#3301)", () => {
+  it("lowers all three spellings to the same saved factory-let", async () => {
+    for (const call of [
+      `Item.create(n, 0)`,
+      `Item.create(name: n, count: 0)`,
+      `Item.create(count: 0, name: n)`,
+      `Item.create({ name: n, count: 0 })`,
+    ]) {
+      const wf = `workflow W { create(n: string) { let x = ${call} } }`;
+      expect(await factoryLet(wf), call).toBe("Item{name=n,count=0}");
+      await expectEffects(wf, ["create Item → x", "persist x"]);
+      expect(await codes(wf), call).toStrictEqual([]);
+    }
+  });
+
+  it("binds positions to a declared create's parameters, in a command handler too", async () => {
+    const h = `${POLL}
+      commandHandler mk(i: Item id) { let p = Poll.create("x", i) }`;
+    expect(await factoryLet(h)).toBe("Poll{label=x,item=i}");
+    expect(await codes(h)).toStrictEqual([]);
+  });
+
+  it("leaves out trailing inputs only as far as the missing-field gate allows", async () => {
+    const wf = `workflow W { create(n: string) { let x = Item.create(n) } }`;
+    expect(await factoryLet(wf)).toBe("Item{name=n}");
+    expect(await codes(wf)).toStrictEqual(["loom.workflow-create-missing-field"]);
+  });
+
+  for (const [call, needle] of [
+    [`Item.create(n, 0, 1)`, "passes 3 positional argument(s), but 'Item' has 2"],
+    [`Item.create(n, count: 0)`, "mixes positional and named arguments"],
+    [`Item.create(title: n)`, "names 'title', which is not a create input"],
+    [`Item.create(name: n, name: n)`, "passes 'name' twice"],
+  ] as const) {
+    it(`refuses \`${call}\` with loom.workflow-create-args`, async () => {
+      const { diagnostics } = await parseString(
+        src(`workflow W { create(n: string) { let x = ${call} } }`),
+        { validate: true },
       );
-      expect(await codes(`commandHandler mk(n: string) { let x = ${call} }`)).toContain(
-        "loom.workflow-positional-create",
-      );
+      const hit = diagnostics.filter((d) => d.code === "loom.workflow-create-args");
+      expect(hit.map((d) => d.message).join("\n")).toContain(needle);
+      expect(hit).toHaveLength(1);
     });
   }
-
-  it("admits the record form, which is created and saved", async () => {
-    expect(
-      await codes(
-        `workflow W { create(n: string) { let x = Item.create({ name: n, count: 0 }) } }`,
-      ),
-    ).toStrictEqual([]);
-    await expectEffects(
-      `workflow W { create(n: string) { let x = Item.create({ name: n, count: 0 }) } }`,
-      ["create Item → x", "persist x"],
-    );
-  });
 });

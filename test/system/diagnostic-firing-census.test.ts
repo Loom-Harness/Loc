@@ -1911,12 +1911,12 @@ system P {
         let r = o.rename("x")
       }
     }`),
-  // A positional factory call: the factory input is a record.
-  "loom.workflow-positional-create": repoOnly(`    aggregate Order with crudish { name: string }
+  // A factory call with more positions than the create input has.
+  "loom.workflow-create-args": repoOnly(`    aggregate Order with crudish { name: string }
     repository Orders for Order { }
     workflow W {
       create(n: string) {
-        let o = Order.create(n)
+        let o = Order.create(n, n)
       }
     }`),
   // An explicit persistence statement in a workflow body: the body persists at

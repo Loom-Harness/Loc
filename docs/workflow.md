@@ -404,14 +404,16 @@ has) — return the id and read the record back, or use a `commandHandler`.
   of a local that is neither created nor loaded from a repository, and an
   aggregate passed to a mutating service as an expression rather than a
   bound local.
-- **One way to create.**  `Agg.create({ field: value, … })` is the only
-  factory form in a body; a positional, named or empty argument list
-  (`Agg.create(a, b)`) is `loom.workflow-positional-create`.
-  `node scripts/codemod-workflow-create-record.mjs <path>` (`--check` /
-  `--list` write nothing) rewrites a project to the record form, mapping
-  positions onto the declared `create(…)` parameters or else the
-  client-writable properties in order; a call it cannot map faithfully is
-  left in place with a marker comment, and the run exits non-zero.
+- **Three spellings, one create.**  `Agg.create(a, b)` (positional),
+  `Agg.create(x: a, y: b)` (named) and `Agg.create({ x: a, y: b })`
+  (record) are the same factory call, created and saved alike.  Positions
+  bind to the aggregate's create input in order: the parameters of its
+  declared `create(…)` (`with crudish` declares one from the writable
+  fields), else its properties minus the `managed` / `token` / `internal`
+  ones; trailing inputs may be left out when they are optional or
+  defaulted.  More positions than inputs, positional and named arguments
+  mixed, a name that is not an input, or a name given twice is
+  `loom.workflow-create-args`.
 - **Aggregate-level events** (raised inside an operation via `emit`)
   drain through the aggregate's repository save.  In a
   non-transactional workflow each save commits on its own, so its

@@ -100,8 +100,8 @@ import {
   checkUnknownMemberAccess,
   checkUnknownNameRefs,
   checkUserVisibleConcat,
+  checkWorkflowCreateArgs,
   checkWorkflowExplicitSave,
-  checkWorkflowPositionalCreate,
 } from "./validators/index.js";
 
 /** Collapse whitespace/newlines so an error message stays one line
@@ -209,8 +209,8 @@ export class DddValidator {
     // A workflow / handler body persists at its exit, so an explicit
     // `Repo.save(x)` statement is refused rather than reinterpreted.
     guard("workflow-explicit-save", model, () => checkWorkflowExplicitSave(model, accept));
-    // …and creates an aggregate only through the one-record factory form.
-    guard("workflow-positional-create", model, () => checkWorkflowPositionalCreate(model, accept));
+    // …and a factory call whose arguments map onto a create-input record.
+    guard("workflow-create-args", model, () => checkWorkflowCreateArgs(model, accept));
     // Match expressions: warn on a missing `else` arm.
     // Type-checking arm conditions is best-effort here (the lowering's
     // type system is the source of truth); structural checks run

@@ -5069,13 +5069,31 @@ export const DIAGNOSTIC_MESSAGES = {
     `there is no instance to read the value from. Either declare one id-shaped state field (for ` +
     `example 'orderId: Order id') and pass it to the create, or drop the state and pass the ` +
     `value in as a parameter.`,
-  // A factory call in a workflow / handler body that is not the one-record form.
-  "loom.workflow-positional-create": (p: { agg: unknown; owner: unknown }) =>
-    `'${p.agg}.create(…)' in ${p.owner} must take one record argument, ` +
-    `'${p.agg}.create({ field: value, … })'. The factory's input is a record keyed by field ` +
-    `name on every backend, so a positional, named or empty argument list has no field to ` +
-    `land on, and the created '${p.agg}' would never be saved. Write the fields as a record ` +
-    `('node scripts/codemod-workflow-create-record.mjs <path>' rewrites a project).`,
+  // A factory call in a workflow / handler body whose arguments map onto no
+  // create-input record (`language/factory-call.ts`).
+  "loom.workflow-create-args": (p: {
+    agg: unknown;
+    owner: unknown;
+    given: unknown;
+    count: unknown;
+    inputs: unknown;
+  }) =>
+    `'${p.agg}.create(…)' in ${p.owner} passes ${p.given} positional argument(s), but ` +
+    `'${p.agg}' has ${p.count} create input(s), in order: ${p.inputs}. Positions bind to ` +
+    `those inputs in order; drop the extra arguments, or name each one.`,
+  "loom.workflow-create-args#mixed": (p: { agg: unknown; owner: unknown }) =>
+    `'${p.agg}.create(…)' in ${p.owner} mixes positional and named arguments. Pass every ` +
+    `input by position (in the create input's order) or every one by name.`,
+  "loom.workflow-create-args#unknown-name": (p: {
+    agg: unknown;
+    owner: unknown;
+    name: unknown;
+    inputs: unknown;
+  }) =>
+    `'${p.agg}.create(…)' in ${p.owner} names '${p.name}', which is not a create input of ` +
+    `'${p.agg}'. Its inputs are: ${p.inputs}.`,
+  "loom.workflow-create-args#duplicate": (p: { agg: unknown; owner: unknown; name: unknown }) =>
+    `'${p.agg}.create(…)' in ${p.owner} passes '${p.name}' twice. Pass each input once.`,
   // A body mutates an aggregate that none of its saves covers (effect IR: a
   // `mutate` with no `persist` of the same local in an enclosing scope).
   "loom.workflow-mutation-unsaved": (p: { owner: unknown; call: unknown; name: unknown }) =>

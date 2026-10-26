@@ -24,7 +24,7 @@ system Bank {
       repository Accounts for Account { }
       workflow closeBooks transactional {
         create() {
-          let a = Account.create({ name: "closing", balance: 0 })
+          let a = Account.create(name: "closing", balance: 0)
         }
       }
     }

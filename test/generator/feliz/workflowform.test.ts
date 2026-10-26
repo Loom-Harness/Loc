@@ -19,7 +19,7 @@ system Bank {
       workflow openAccount transactional {
         create(name: string, initial: money) {
           precondition initial >= 0
-          let a = Account.create({ name: name, balance: initial })
+          let a = Account.create(name: name, balance: initial)
         }
       }
     }

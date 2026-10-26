@@ -419,13 +419,12 @@ function validateWorkflowInlineRepoCalls(
 //   * a repository of ANOTHER context → `loom.workflow-cross-context-repository`;
 //   * the `__bad__` placeholder `let` → `loom.workflow-unrecognised-statement`.
 //
-// A name that IS a declaration is NOT flagged, even though lowering leaves it
-// `refKind: "unknown"` too: `let c = Category.create(name: label)` (the
-// named-argument factory spelling) lowers to a `method-call` on an unresolved
-// `Category` ref.  That spelling has its own phase-④ refusal
-// (`loom.workflow-positional-create`: only the record form is created and
-// saved), so it is not this gate's to report.  Only a name that binds to
-// NOTHING model-wide — or to a projection — is a defect here.
+// A name that IS a declaration is NOT flagged, even where lowering leaves it
+// `refKind: "unknown"`: a factory call whose arguments map onto no record
+// (`Category.create(name: x, label)`) lowers to a `method-call` on an
+// unresolved `Category` ref, and has its own phase-④ refusal
+// (`loom.workflow-create-args`).  Only a name that binds to NOTHING
+// model-wide — or to a projection — is a defect here.
 // ---------------------------------------------------------------------------
 
 /** Every name a workflow body may legitimately mention as a type / receiver:
