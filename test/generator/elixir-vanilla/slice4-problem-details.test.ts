@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
-// Slice 4 of docs/old/plans/vanilla-foundation-tdd-plan.md — exception-less
+// Slice 4 of https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/vanilla-foundation-tdd-plan.md — exception-less
 // alignment: per-variant `with`-block / `case` dispatch + shared
 // `<App>Web.ProblemDetails` module emitting RFC 7807 envelopes
 // byte-aligned with the Ash backend's helper module (and Hono / .NET).

@@ -41,9 +41,8 @@ Run it across **all five surfaces** — missing one is how the tail re-accretes:
    old model even after the assertions are correct (the `walker-primitive-expander.test.ts`
    → `scaffold-page-bodies.test.ts` rename). A green test with a stale name still teaches
    the wrong concept.
-3. **`docs/` — reference docs + proposals.** The proposal that introduced the concept,
-   any reference doc that documented it, and the `docs/old/proposals/README.md` /
-   `global-implementation-plan.md` status rows.
+3. **`docs/` — reference docs.** Every reference doc (incl. `docs/language-reference/`
+   and `docs/decisions.md`) that documented the concept.
 4. **`CLAUDE.md`.** The architecture summary names phases and concepts directly (it
    describes the ten-phase pipeline, `classifyPage`, the lack of a phase ⑤c) — a removal
    that touched the pipeline shape almost certainly has a CLAUDE.md line to update.

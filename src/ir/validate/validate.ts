@@ -83,14 +83,12 @@ import {
   validateAuth,
   validateAuthUiFramework,
   validateChannelWiring,
-  validateChartSupport,
   validateColumnlessProjectionSources,
   validateComponentChildrenSupport,
   validateComposeUniqueness,
   validateContextFilterSupport,
   validateCurrentUserNeedsAuthUi,
   validateDapperSupport,
-  validateDataGridFramework,
   validateDataSourceCoverage,
   validateDataSourceUnwiredKnobs,
   validateDefaultDeny,
@@ -107,8 +105,8 @@ import {
   validateFormLocalCollisions,
   validateFrontendPropTypes,
   validateGuardPrincipalWithoutAuth,
-  validateHeexComponentHostState,
   validateInheritanceStorage,
+  validateLambdaParamTypes,
   validateLiveViewHoisting,
   validateNeedCapabilities,
   validatePagedQueryHandlerShape,
@@ -123,7 +121,6 @@ import {
   validateStorageTypeBinding,
   validateSystem,
   validateTenancyFilterBypass,
-  validateTphFilterExpressibility,
   validateUiBodyStatementKinds,
   validateUiProjectionReadFramework,
   validateUiRealtimeSupport,
@@ -131,6 +128,7 @@ import {
   validateVanillaDocumentScope,
 } from "./checks/system-checks.js";
 import { validatePersistedTableCollisions } from "./checks/table-name-checks.js";
+import { validateTargetCapabilities } from "./checks/target-capability-checks.js";
 import { validateTenancy } from "./checks/tenancy-checks.js";
 import {
   validateAggregateTestBodies,
@@ -248,7 +246,6 @@ export function validateLoomModel(
     validateStampSupport(sys, diags);
     validateGuardPrincipalWithoutAuth(sys, diags);
     validateDapperSupport(sys, diags);
-    validateTphFilterExpressibility(sys, diags);
     validateNeedCapabilities(sys, diags);
     validateResourceConfig(sys, diags);
     validateApiResourceBindings(sys, diags);
@@ -266,8 +263,9 @@ export function validateLoomModel(
     // (typically a `scaffold(subdomains: …)` selecting an unserved subdomain)
     // is refused here rather than failing on a generated page.
     validateUiReadsServed(sys, diags);
-    validateDataGridFramework(sys, diags);
-    validateHeexComponentHostState(sys, diags);
+    // Every construct × position a deployable's target cannot render, read off
+    // the capability table (`src/util/target-capabilities.ts`).
+    validateTargetCapabilities(sys, diags);
     validateLiveViewHoisting(sys, diags);
     validateFrontendPropTypes(sys, diags);
     validateFlutterActionBodies(sys, diags);
@@ -275,10 +273,10 @@ export function validateLoomModel(
     validateUiBodyRules(sys, diags);
     validateUiBodyVocabulary(sys, diags);
     validateUiThisUnbound(sys, diags);
+    validateLambdaParamTypes(sys, diags);
     validatePageGateExprs(sys, diags);
     validateFormLocalCollisions(sys, diags);
     validateComponentChildrenSupport(sys, diags);
-    validateChartSupport(sys, diags);
     validateUiRealtimeSupport(sys, diags);
     validateUiProjectionReadFramework(sys, diags);
     // Flutter defers the interactive input / form primitive family; a page

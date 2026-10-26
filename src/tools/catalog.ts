@@ -13,7 +13,7 @@
 // NAVIGATIONAL family (§4b) over the LSP providers, addressed by symbol name:
 // the read verbs (find_symbol / references / hover) and the rewrite verbs
 // (rename / quickfix / unfold_macro) — the latter RETURN edits, never applying
-// them (contract §3).  See docs/old/proposals/agent-tools-and-mcp.md §4b.
+// them (contract §3).  See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/agent-tools-and-mcp.md §4b.
 // ---------------------------------------------------------------------------
 
 import {
@@ -69,6 +69,25 @@ function optString(args: Record<string, unknown>, key: string): string | undefin
   if (v === undefined) return undefined;
   if (typeof v !== "string") throw new Error(`'${key}' must be a string`);
   return v;
+}
+
+function optFiles(
+  args: Record<string, unknown>,
+  key: string,
+): { name: string; content: string }[] | undefined {
+  const v = args[key];
+  if (v === undefined) return undefined;
+  const ok =
+    Array.isArray(v) &&
+    v.every(
+      (f) =>
+        typeof f === "object" &&
+        f !== null &&
+        typeof (f as { name?: unknown }).name === "string" &&
+        typeof (f as { content?: unknown }).content === "string",
+    );
+  if (!ok) throw new Error(`'${key}' must be an array of { name, content } strings`);
+  return v as { name: string; content: string }[];
 }
 
 /** `{ source, symbol }` schema shared by the read-navigation tools. */
@@ -281,7 +300,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "loom_diff",
     description:
-      "The evolution diff between a previous `.ddd` source (`baseline`) and the new one (`source`) — the same signals the playground's Migrations dock surfaces for a human. Returns (a) the schema migrations the change implies per module, rendered to Postgres SQL, with each migration's `destructive` data-loss flag (the `--allow-destructive` gate), and (b) the wire-contract delta classified breaking vs additive. `breaking` is true on ANY breaking wire change or destructive migration. Omit `baseline` to derive the first-run (\"Initial\") migration with the wire diff skipped. A broken `source` returns ok:false with diagnostics — repair with loom_validate first.",
+      "The evolution diff between a previous `.ddd` source (`baseline`) and the new one (`source`) — the same signals the playground's Migrations dock surfaces for a human. Returns (a) the schema migrations the change implies per module, rendered to Postgres SQL, with each migration's `destructive` data-loss flag (the `--allow-destructive` gate), and (b) the wire-contract delta classified breaking vs additive. `breaking` is true on ANY breaking wire change or destructive migration; each change's `class` (compatible / breaking-for-clients / breaking-for-data) and the report's `breakingForClients` / `breakingForData` say who it breaks — the same verdict `ddd diff` gives. Omit `baseline` to derive the first-run (\"Initial\") migration with the wire diff skipped. A broken `source` returns ok:false with diagnostics — repair with loom_validate first.",
     inputSchema: {
       type: "object",
       properties: {
@@ -292,13 +311,25 @@ export const TOOLS: ToolDef[] = [
         baseline: {
           type: "string",
           description:
-            "The PREVIOUS .ddd model source to diff against. Omit for the first-run migration (everything reads 'Initial', wire diff skipped).",
+            "The PREVIOUS .ddd model source to diff against. Omit for the first-run migration (everything reads 'Initial', wire diff skipped). A baseline that does not parse or validate fails the call (ok:false) rather than reading as absent.",
+        },
+        migrations: {
+          type: "array",
+          description:
+            "The files of the model's committed migrations/ directory ({ name, content } each). When given, the chain's head is the schema baseline, so the migrations reported are exactly what `ddd migrate add` would record; the wire diff still needs `baseline`.",
+          items: {
+            type: "object",
+            properties: { name: { type: "string" }, content: { type: "string" } },
+            required: ["name", "content"],
+            additionalProperties: false,
+          },
         },
       },
       required: ["source"],
       additionalProperties: false,
     },
-    handler: (args) => diff(reqString(args, "source"), optString(args, "baseline")),
+    handler: (args) =>
+      diff(reqString(args, "source"), optString(args, "baseline"), optFiles(args, "migrations")),
   },
 ];
 

@@ -180,6 +180,8 @@ The dock's **Runtime** tab has four sub-views once the backend is booted: **API*
 
 The **Migrations** tab compares the live source with a baseline (*Last save* by default, or any commit pinned from History) and draws the schema as a table diagram tinted by the pending migration — added green, changed amber, removed red, untouched dimmed (`web/src/layout/migration-tint.ts` over the evolution worker's `tables` + per-step `table`) — beside the migration SQL. A destructive change renders as the gate `ddd migrate add` raises: the `--allow-destructive` flag and the data it would drop. The comparison runs when the tab opens; **Refresh** re-runs it.
 
+The workspace holds the committed migration chain in the same format the CLI keeps on disk: `migrations/*.json` beside the entry `.ddd` (`/workspace/migrations/` for `main.ddd`, see [migrations.md § The migration chain](migrations.md#the-migration-chain--migrations-beside-the-source)). When the chain exists, generate renders it whole, like `ddd generate system`. A chain that does not read as one list, or a model with schema changes the chain does not record, fails the generate with a diagnostic. The Migrations tab then uses the chain's head as the schema baseline, so the SQL it shows is exactly what `ddd migrate add` would record. The baseline source still drives the wire-contract diff. Every diff passes the model's `migration { … }` intents, so a declared rename shows as a `RENAME COLUMN`, not a drop and add. A status line under the baseline picker gives the chain's entry count, its head, and the unrecorded steps. On two heads it names both files and says to run `ddd migrate rebase` locally. **Record migration** takes a kebab-case name and is the playground's `ddd migrate add`, numbered from the browser's UTC clock. A destructive change also needs its `--allow-destructive` box ticked. Recording writes the new entries into the workspace's working tree like any other edit, then re-runs the diff and the generate. With no chain yet, the first recording starts one with each module's `Initial`. The diff core is `evolveSystem` (`src/system/migration-diff.ts`), which the toolkit's `loom_diff` shares.
+
 The **Tests** tab's requirement verdicts read *Verified / Failing / Untested / Unverified* with a one-line legend; a discovery failure (in a sandbox with no registry: `Failed to resolve module specifier "uuidv7"`) shows one line of interpretation with the raw text folded behind *Show details*, and discovery reports per-suite progress with a *Cancel*.
 
 ## The `.loom/` bundle as views, and source ↔ output correspondence
@@ -282,6 +284,24 @@ installs without registry round-trips, builds, and stages `web/dist/` under
 `docs/_site/playground/` for GitHub Pages — deployed on every push to
 `main` that touches `web/**`. The Playwright e2e specs (`web/e2e/`) gate the
 production-built playground; see `web/e2e/README.md`.
+
+## Conventions for changing the playground
+
+- **One UI vocabulary.** Every user-visible string comes from
+  `web/src/layout/vocabulary.ts` (the RUNTIME / GENERATE / BUNDLE / BOOT / RUN
+  labels, pipeline-stage labels, pane names). A new literal such as "Backend
+  logs" in a `.tsx` is a review reject; `test/playground/runtime-views.test.ts`
+  asserts the copy comes from the vocabulary.
+- **Test ids are a public contract.** The Playwright specs under `web/e2e/`
+  address controls by id (`btn-generate`, `btn-bundle`, `btn-boot`,
+  `devtools-tab-*`, `mobile-tab-*`, `output-stream-select`, `doc-tab-*`, …).
+  Moving a control keeps its id on the new element; removing one lists the specs
+  it edited.
+- **Gates.** The no-network Playwright lane plus the headless
+  `test/playground/*.test.ts` suites gate a change. Anything that bundles or
+  boots runs in the heavy, network-gated lane and must not be the only proof.
+- **No server.** The playground is a static site: no short links, GitHub push,
+  telemetry or multiplayer.
 
 ## One source of truth
 

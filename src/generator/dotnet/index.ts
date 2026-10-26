@@ -121,7 +121,6 @@ import {
 import {
   dapperSearchPath,
   emitDapperMigrations,
-  renderDapperMigrationClass,
   renderDapperMigrationRunner,
 } from "./emit/dapper-migrations.js";
 import { renderDapperConnectionLease } from "./emit/dapper-session.js";
@@ -139,12 +138,7 @@ import { renderExternHookImpl } from "./emit/extern.js";
 import { renderId } from "./emit/ids.js";
 import { CS_MESSAGES_PATH, renderCsMessages } from "./emit/messages.js";
 import { renderHttpMetrics } from "./emit/metrics.js";
-import {
-  DOTNET_PROV_AUDIT_MIGRATION_ID,
-  dotnetProvenanceColumnStatements,
-  emitDotnetMigrations,
-  emitDotnetProvenanceAuditMigration,
-} from "./emit/migrations.js";
+import { emitDotnetMigrations } from "./emit/migrations.js";
 import { OP_UNION_FILTER_PATH, renderOpUnionResponsesFilter } from "./emit/op-union-filter.js";
 import {
   renderOutboxDelivery,
@@ -534,7 +528,11 @@ function emitProjectFromContexts(
     for (const agg of ctx.aggregates) {
       emitAggregate(agg, ctx, ns, out, routePrefix, emitTrace, emitCtx, sourcemap, sourceTexts);
     }
-    emitBaseReaders(ctx, ns, out, sourcemap);
+    emitBaseReaders(ctx, ns, out, sourcemap, {
+      dapper: system?.deployable.persistence === "dapper",
+      routePrefix,
+      emitCtx,
+    });
     // Domain services (domain-services.md) — stateless pure calculators, one
     // `public static class` per `domainService` + its `or`-union return records.
     emitDomainServices(ctx, ns, out);
@@ -1074,28 +1072,12 @@ function emitProjectFromContexts(
   // `Database.Migrate()` (Program.cs branches on `usingDapper` first).
   if (usingDapper && system?.migrations && system.migrations.length > 0) {
     emitDapperMigrations(system.migrations, ns, out);
-    const provStmts = dotnetProvenanceColumnStatements(contexts, system?.sys, {
-      provenance: hasProvenance,
-    });
-    if (provStmts.length > 0) {
-      out.set(
-        `Migrations/${DOTNET_PROV_AUDIT_MIGRATION_ID}.cs`,
-        renderDapperMigrationClass(ns, DOTNET_PROV_AUDIT_MIGRATION_ID, provStmts),
-      );
-    }
   }
+  // The co-located `<field>_provenance` columns are ordinary MigrationsIR
+  // columns, so both runners pick them up from the chain's own generations.
   const hasMigrations = !usingDapper && !!(system?.migrations && system.migrations.length > 0);
   if (hasMigrations) {
     emitDotnetMigrations(system!.migrations!, ns, out);
-    // The provenance/audit DDL ships as one extra migration sorting after every
-    // module's initial migration (so the aggregate tables exist for the
-    // co-located-column ALTERs).  Feature-local — not part of MigrationsIR.
-    if (hasProvenance || hasAudit) {
-      emitDotnetProvenanceAuditMigration(contexts, system?.sys, ns, out, {
-        provenance: hasProvenance,
-        audit: hasAudit,
-      });
-    }
   }
   // First-boot seed data (database-seeding.md) — emits
   // Infrastructure/Persistence/Seed.cs when the served contexts declare any
@@ -1412,7 +1394,7 @@ function emitAggregate(
    *  call.  Byte-identical because the adapter wraps the same
    *  `emitCqrs` underneath. */
   emitCtx?: EmitCtx,
-  /** Source-map recorder (docs/old/plans/source-map-debug-kickoff.md) — present
+  /** Source-map recorder (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/source-map-debug-kickoff.md) — present
    *  only in system-mode emit, same discipline as `emitCtx`.  No-op when
    *  absent (legacy single-context path), so output stays byte-identical. */
   sourcemap?: SourceMapRecorder,

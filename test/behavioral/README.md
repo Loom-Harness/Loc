@@ -33,7 +33,7 @@ in-process — no docker, no separate Postgres) and runs the suites Loom
   Its own `behavioral-e2e-python.yml` workflow (a `services: postgres`
   sidecar) — the A6.2 second backend for the runtime-semantics RS-rules (see
   `docs/conformance-semantics.md` and
-  `docs/old/plans/a6.2-behavioral-tier-second-backend.md`). Needs `uv` + a
+  [`docs/old/plans/a6.2-behavioral-tier-second-backend.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/a6.2-behavioral-tier-second-backend.md)). Needs `uv` + a
   reachable `DATABASE_URL`; run: `node run-python.mjs`. `LOOM_BH_PY_BASE`
   dispatches the api tier at an already-running server (and skips `uv sync`,
   so the unit tier is skipped too).
@@ -45,7 +45,7 @@ in-process — no docker, no separate Postgres) and runs the suites Loom
   backend-agnostic api suite at it. Its own `behavioral-e2e-dotnet.yml`
   workflow (a `services: postgres` sidecar) — the RST-2 third backend for the
   runtime-semantics RS-rules (see
-  `docs/old/plans/runtime-semantics-tier-followups.md`). Needs the .NET SDK
+  [`docs/old/plans/runtime-semantics-tier-followups.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/runtime-semantics-tier-followups.md)). Needs the .NET SDK
   (`dotnet`) + a reachable `ConnectionStrings__Default`; run:
   `node run-dotnet.mjs`. `LOOM_BH_DOTNET_BASE` dispatches at an
   already-running server (skips the boot).
@@ -70,7 +70,7 @@ in-process — no docker, no separate Postgres) and runs the suites Loom
   real DB, re-pointing the backend-agnostic api suite at it. Its own
   `behavioral-e2e-java.yml` workflow (a `services: postgres` sidecar) — the
   RST-3 fourth backend for the runtime-semantics RS-rules (see
-  `docs/old/plans/runtime-semantics-tier-followups.md`). Needs JDK 21 + Gradle
+  [`docs/old/plans/runtime-semantics-tier-followups.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/runtime-semantics-tier-followups.md)). Needs JDK 21 + Gradle
   (`gradle`) + a reachable `SPRING_DATASOURCE_URL`; run: `node run-java.mjs`.
   `LOOM_BH_JAVA_BASE` dispatches at an already-running server (skips the boot).
 - **elixir** — the SAME emitted api e2e, run against a booted **generated
@@ -81,7 +81,7 @@ in-process — no docker, no separate Postgres) and runs the suites Loom
   against a real DB and re-points the backend-agnostic api suite at it. Its own
   `behavioral-e2e-elixir.yml` workflow (a `services: postgres` sidecar) — the
   M-T9.3 FIFTH and final backend on the behavioral tier (see
-  `docs/new-plan/T9-toolchain-health.md`). Needs Erlang/OTP + Elixir (`mix`) +
+  [`docs/new-plan/T9-toolchain-health.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T9-toolchain-health.md)). Needs Erlang/OTP + Elixir (`mix`) +
   a reachable `DATABASE_URL` (ecto:// form); run: `node run-elixir.mjs`.
   `LOOM_BH_ELIXIR_BASE` dispatches at an already-running server (skips the
   boot). Behind a TLS-fingerprint-allowlisting egress proxy, `mix deps.get`
@@ -232,7 +232,7 @@ LOOM_SCHEMATHESIS=1 node run-schemathesis.mjs storefront-system   # one case
 
 Known findings are **ratcheting root-cause rules** in
 `schemathesis-waivers.json`, explained in
-[`docs/audits/schemathesis-findings-2026-08.md`](../../docs/audits/schemathesis-findings-2026-08.md):
+[`docs/audits/schemathesis-findings-2026-08.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md):
 a finding no rule matches fails the run, and a rule that stops reproducing
 fails it too, so a fix deletes its rule in the same PR. Nightly in CI
 (`schemathesis.yml`), or on demand via the `run-schemathesis` label.
@@ -244,6 +244,68 @@ exactly one `platform: node` (Hono) deployable, so dispatch
 (host-agnostic, path-matched, like the playground) is unambiguous.
 Multi-backend systems (`examples/showcase.ddd`, `examples/acme.ddd`)
 stay in the docker `conformance-full` leg.
+
+## Every fixture on every backend — tracked expected failures (#3595)
+
+Every behavioural corpus fixture runs on **all five** backends. A cell a
+backend gets wrong is **booted anyway**, as a tracked expected failure in
+`BEHAVIOURAL_XFAIL` (`registers.mjs`), keyed by runner leg (`node`,
+`mikroorm`, `dotnet`, `dapper`, `java`, `python`, `elixir`) and linked to
+the issue that fixes it. It is never dropped from the leg:
+
+```js
+dotnet: {
+  // fails to build — `match` pins the error
+  "projection-valueobject-row": { issue: "#4023", expect: "error", match: "dotnet build", reason: "…" },
+  // runtime — `tests` pins the EXACT failing set, test-name fragment → message regex
+  "inheritance-base-reads": {
+    issue: "#3956, #3959", expect: "fail",
+    tests: { "TPC: a base capability narrows every subtype": "expected the call to reject, but it resolved", … },
+    reason: "…",
+  },
+},
+```
+
+`case-loop.mjs` (the one per-case loop all seven legs share) settles each
+such cell:
+
+| observed | leg |
+|---|---|
+| fails as recorded (same kind; `match` / every `tests` pin claims a failure and every failure is claimed) | green — `⊘ failed as expected (#NNNN)` |
+| **passes** | **red** — `XPASS … delete its BEHAVIOURAL_XFAIL entry` |
+| fails any other way (another kind, another message, a recorded block now passing, a new block failing) | **red** — `MISMATCH …` |
+
+A fix's PR therefore deletes its own entry, and a half-landed fix narrows
+it. A fixture node itself fails has no golden yet (goldens are captured
+from node) and needs none until it passes. When an adapter passes a cell
+its backend's default adapter fails, arm the cell in `ADAPTER_ONLY_CASES`
+instead. The Dapper leg passes the two TPH-filter fixtures EF refuses, and
+the ratchet found that the first time it booted them.
+
+The fast suite (`expected-failures.test.ts`, no boot) pins three things:
+the settling rule; the register's shape (real case, real leg, `#NNNN`
+issue, a well-formed pin); and the matrix itself. A behavioural fixture
+with a backend that neither declares it nor boots it as an expected
+failure fails there by name (`tph-crossings × dotnet`).
+
+**Adding a fixture:** drop the `.ddd`, add a manifest row, capture the
+golden (`LOOM_WIRE_UPDATE=1 node run.mjs <case>`), then boot it on each
+leg. Where a leg fails, add the entry its `MISMATCH` line describes,
+linked to an issue (file one if none exists).
+
+**Running every leg locally.** Docker only needs the SDKs, and the host's
+node is mounted. Give each leg its own database and port when legs run
+side by side (`docs/tools.md` → "Port collision"):
+
+```bash
+docker run -d --name bhpg -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:17
+docker exec bhpg createdb -U postgres app        # one db per concurrent leg
+# .NET / Dapper (mcr.microsoft.com/dotnet/sdk:10.0) and Java (gradle:9-jdk25):
+docker run --rm --network host -v $PWD/../..:$PWD/../.. -v /opt/node22:/opt/node22:ro \
+  -e PATH=/opt/node22/bin:/usr/bin:/bin -w $PWD mcr.microsoft.com/dotnet/sdk:10.0 node run-dotnet.mjs <case…>
+# Python and MikroORM run on the host (uv); Elixir runs in hexpm/elixir, behind
+# LOOM_HEX_MIRROR's loopback mirror where the egress proxy fingerprints TLS.
+```
 
 ## Definition-of-Done rollup
 

@@ -14,6 +14,7 @@ export {
   checkLegacyConstructorCalls,
 } from "./builder-call.js";
 export { checkBypassPlacement } from "./bypass-placement.js";
+export { checkCallableBodies } from "./callable-bodies.js";
 export { checkCallableSites } from "./callable-sites.js";
 export { checkChannels } from "./channel.js";
 export { checkProjectSingletons, checkTopLevelDomainComposition } from "./composition.js";
@@ -32,6 +33,7 @@ export { checkGenericCarriers, checkSelfType } from "./generics.js";
 export { checkHandlerBodies } from "./handlers.js";
 export { checkUserVisibleConcat } from "./i18n-strings.js";
 export { checkInheritance } from "./inheritance.js";
+export { checkLetAnnotations } from "./let-annotation.js";
 export { checkMacroExpansion } from "./macros.js";
 export {
   checkExpectMatcher,

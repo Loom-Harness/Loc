@@ -23,6 +23,7 @@
 // so it is computed on demand at each emission site rather than stored as an
 // IR field that a construction site could forget to set.
 
+import { backendsSupporting } from "../../util/target-capabilities.js";
 import {
   type ExprIR,
   exprUsesCurrentUser,
@@ -256,8 +257,11 @@ export function workflowNeedsCurrentUser(
 // ---------------------------------------------------------------------------
 
 /** Backend platforms on which an event-sourced `create`'s `requires` gate is
- *  ENFORCEABLE (the gate is hoisted to a caller that binds a principal). */
-export const ES_CREATE_GATE_BACKENDS: ReadonlySet<string> = new Set(["elixir"]);
+ *  ENFORCEABLE (the gate is hoisted to a caller that binds a principal).  Read
+ *  off the capability table's `stmt:requires@event-sourced-create` row. */
+export const ES_CREATE_GATE_BACKENDS: ReadonlySet<string> = backendsSupporting(
+  "stmt:requires@event-sourced-create",
+);
 
 /** The hosting backends that would render an ES create gate into a principal-less
  *  `_init` — empty when every host can enforce it.  Sorted, for stable wording. */

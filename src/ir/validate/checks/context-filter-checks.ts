@@ -32,7 +32,7 @@ import type { LoomDiagnostic } from "./diagnostic.js";
 //      currentUser.tenantId`).  Binding the request principal into the
 //      always-on read path is deferred (Hono: thread through findById +
 //      callers; Phoenix: an actor-bound Ecto `where:`) — see
-//      docs/old/proposals/criterion-everywhere.md.
+//      https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/criterion-everywhere.md.
 //   2. Non-relational shapes (`shape: document` / `shape: embedded`).
 //      Fields live inside a jsonb column, so `this.isDeleted` is not a
 //      top-level column the predicate can reference without JSON-path
@@ -123,10 +123,10 @@ export function validateContextFilterSupport(sys: SystemIR, diags: LoomDiagnosti
 // `@Filter`, which a bypassing read disables via
 // `session.disableFilter`/`enableFilter`; principal filters omit the JPQL
 // conjunct; document repos re-apply promoted caps per-find), and python
-// (SQLAlchemy has no global filter, so each read AND-s its capability
-// predicates explicitly via `contextFilterPredicate`; a bypassing find omits
-// the named conjunct statically, and a shared `run_<retrieval>` omits the union
-// of its inline call-sites' bypasses).  A new backend must OMIT the bypassed
+// (one `do_orm_execute` hook adds every restriction as `with_loader_criteria`;
+// a bypassing read carries the `loom_ignoring` execution option naming what it
+// drops, and a shared `run_<retrieval>` names the union of its inline
+// call-sites' bypasses).  A new backend must OMIT the bypassed
 // predicate before it ships — accepting `ignoring` while silently filtering is
 // the regression `backend-parity-gates.test.ts` pins against.
 // ---------------------------------------------------------------------------

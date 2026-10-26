@@ -1,37 +1,28 @@
-// The THREE-WAY typing differential (M-T5.47 slice 2, shadow mode).
+// The typing differential: the single typing pass against lowering.
 //
-// Loom types each expression by hand-kept copies: the language layer
-// (`typeOf` over `envForNode`, read by the validators and the LSP) and the IR
-// layer (`inferExprType` over the lowering `Env`, read by lowering). The single
-// typing pass (`src/language/typing/`) is meant to replace both. Before any
-// consumer moves to it, this differential asks all three the same question for
-// every expression in the fleet and classifies each answer:
+// Validators and the LSP read the single typing pass (`src/language/typing/`)
+// directly. Lowering copies the pass's types too, but through `inferExprType`
+// over the lowering `Env`, and turns every type it cannot express into the
+// `string` placeholder. This differential asks both the same question for every
+// expression in the fleet and classifies each answer:
 //
-//   - `agree`          all three give the same type.
-//   - `nobody-knows`   both old checkers fall open (language `unknown`, IR
-//                      `string` placeholder) and so does the pass.
-//   - `new-only`       both old checkers fall open; only the pass has a type.
-//   - `new=ir`         the pass agrees with the IR; the language layer differs.
-//                      Almost always the language layer failing open (`unknown`),
-//                      i.e. a validator gate that is OFF on that expression today.
-//   - `new=lang`       the pass agrees with the language layer; the IR differs —
-//                      usually the IR's `string` fallback, or a deliberate IR
-//                      representation choice (design §D7).
-//   - `new-differs`    the old checkers agree and the pass does not: a pass bug
-//                      until triaged otherwise.
-//   - `conflict`       three different answers, at least two of them concrete.
-//   - `not-lowered`    lowering never lowered the expression (no IR answer);
-//                      compared against the language layer only.
+//   - `agree`            the pass and lowering give the same type.
+//   - `nobody-knows`     the pass has no type and lowering falls back to its
+//                        `string` placeholder.
+//   - `ir-differs`       the pass has a type and lowering gives another one —
+//                        usually the `string` fallback, or a deliberate IR
+//                        representation choice (design §D7).
+//   - `not-lowered`      lowering never lowered the expression (no IR answer).
 //   - `declaration-name` the node is the head NAME of a chain whose head is a
-//                      declaration, not a value (`Orders` in `Orders.getById(…)`,
-//                      `Text` in `Text(…)`): it has no type by design.
-//   - `unreached`      the pass's walk never typed the node: always a pass bug.
+//                        declaration, not a value (`Orders` in `Orders.getById(…)`,
+//                        `Text` in `Text(…)`): it has no type by design.
+//   - `unreached`        the pass's walk never typed the node: always a pass bug.
 //
 // The fleet is every tracked `.ddd` (corpus, e2e fixtures, examples,
-// web/src/examples, journey, eval repros, docs models) plus every whole `.ddd`
+// web/src/examples, journey, the eval-models fixtures, docs models) plus every whole `.ddd`
 // document written inline in a test file. Multi-file projects are parsed one
 // file at a time (as #3125's census does), so cross-file names are unresolved
-// for all three checkers alike.
+// for both alike.
 //
 // The IR answer comes from an observer on `lowerExpr` that sees each
 // expression with the exact lowering `Env` it was lowered in — the hook is
@@ -39,7 +30,7 @@
 //
 // Diagnosis: `LOOM_TYPING_DIFF_REPORT=/tmp/r.json npx vitest run <this file>`
 // writes every class count, the per-`$type` breakdown, the pass's `unknown`
-// causes and samples per (class, $type, lang, ir, new) cell.
+// causes and samples per (class, $type, ir, new) cell.
 
 import * as fs from "node:fs";
 import { type AstNode, AstUtils } from "langium";
@@ -55,8 +46,6 @@ import {
   isPostfixChain,
   type Model,
 } from "../../src/language/generated/ast.js";
-import type { DddType } from "../../src/language/type-system.js";
-import { envForNode, typeOf } from "../../src/language/type-system.js";
 import { tyKey, typingSession } from "../../src/language/typing/index.js";
 import { dddSourceOf, inlineDddDocuments, trackedDddFiles } from "../_helpers/ddd-corpus.js";
 import { parseString } from "../_helpers/index.js";
@@ -71,42 +60,8 @@ const BASELINE = JSON.parse(
   unknownCauses: Record<string, number>;
 };
 
-/** Classes pinned exactly / pinned as a ceiling (see the two gates below). */
-const EXACT = ["unreached", "new-differs"] as const;
-const CEILING = ["conflict", "nobody-knows", "new=lang", "not-lowered-differ"] as const;
-
-/** The language layer's answer, in the shared key space (#3125's). */
-function langKey(t: DddType | undefined): string {
-  if (!t) return "unknown";
-  switch (t.kind) {
-    case "primitive":
-      return `p:${t.name}`;
-    case "id":
-      return `id:${t.target.name}`;
-    case "enum":
-      return `enum:${t.ref.name}`;
-    case "valueobject":
-      return `vo:${t.ref.name}`;
-    case "aggregate":
-    case "entity":
-    case "payload":
-      return `rec:${t.ref.name}`;
-    case "userclaim":
-      return "rec:__User__";
-    case "array":
-      return `[${langKey(t.element)}]`;
-    case "optional":
-      return `${langKey(t.inner)}?`;
-    case "action":
-      return t.arg ? `action(${langKey(t.arg)})` : "action";
-    case "any":
-    case "unknown":
-      return "unknown";
-    case "slot":
-    case "never":
-      return t.kind;
-  }
-}
+/** Classes pinned as a ceiling (see the gate below). */
+const CEILING = ["nobody-knows", "ir-differs"] as const;
 
 /** The IR layer's answer, in the shared key space. */
 function irKey(t: TypeIR | undefined): string {
@@ -142,13 +97,8 @@ type Klass =
   | "declaration-name"
   | "agree"
   | "nobody-knows"
-  | "new-only"
-  | "new=ir"
-  | "new=lang"
-  | "new-differs"
-  | "conflict"
-  | "not-lowered-agree"
-  | "not-lowered-differ"
+  | "ir-differs"
+  | "not-lowered"
   | "unreached";
 
 interface Tally {
@@ -220,12 +170,6 @@ async function differential(): Promise<Tally> {
     for (const node of AstUtils.streamAst(model)) {
       if (!isExpression(node)) continue;
       tally.expressions++;
-      let lang: string;
-      try {
-        lang = langKey(typeOf(node, envForNode(node)));
-      } catch {
-        lang = "(throws)";
-      }
       const nt = session.synthAt(node);
       const neu = nt ? tyKey(nt) : "(unreached)";
       if (nt?.kind === "unknown") {
@@ -256,21 +200,14 @@ async function differential(): Promise<Tally> {
           `UNREACHED ${node.$type} ${src.name} ${node.$container?.$type}`,
         );
       } else if (nt.kind === "unknown" && nt.cause === "not-a-value") klass = "declaration-name";
-      else if (irk === undefined) klass = neu === lang ? "not-lowered-agree" : "not-lowered-differ";
-      else if (neu === lang && neu === irk) klass = "agree";
-      else if (lang === "unknown" && irk === "p:string" && neu !== "p:string") {
-        // Both old checkers fell open (the language layer's `unknown`, the IR's
-        // `string` placeholder): the pass either fails too, or is the only one
-        // that knows.
-        klass = neu === "unknown" ? "nobody-knows" : "new-only";
-      } else if (neu === irk) klass = "new=ir";
-      else if (neu === lang) klass = "new=lang";
-      else if (lang === irk) klass = "new-differs";
-      else klass = "conflict";
+      else if (irk === undefined) klass = "not-lowered";
+      else if (neu === irk) klass = "agree";
+      else if (nt.kind === "unknown" && irk === "p:string") klass = "nobody-knows";
+      else klass = "ir-differs";
       bump(tally.byClass, klass);
       bump(tally.byClassType, `${klass} ${node.$type}`);
-      if (klass !== "agree" && klass !== "not-lowered-agree" && klass !== "declaration-name") {
-        const cell = `${klass} | ${node.$type} | lang=${shape(lang)} ir=${shape(irk ?? "-")} new=${shape(neu)}`;
+      if (klass !== "agree" && klass !== "not-lowered" && klass !== "declaration-name") {
+        const cell = `${klass} | ${node.$type} | ir=${shape(irk ?? "-")} new=${shape(neu)}`;
         tally.samples[cell] ??= [];
         const list = tally.samples[cell];
         if (list.length < 4)
@@ -281,7 +218,7 @@ async function differential(): Promise<Tally> {
   return tally;
 }
 
-describe("M-T5.47 — three-way typing differential (and the unknown ratchet)", () => {
+describe("typing differential: the pass against lowering (and the unknown ratchet)", () => {
   let tally: Tally;
 
   it("runs over the whole fleet", async () => {
@@ -316,17 +253,9 @@ describe("M-T5.47 — three-way typing differential (and the unknown ratchet)", 
     expect(tally.byClass.unreached ?? 0).toBe(0);
   });
 
-  // `new-differs` rows are each TRIAGED (the PR that pins a count names what
-  // the rows are), so the count is exact: a new one is a pass bug or a new
-  // defect, and one that disappears must lower the pin.
-  it("the triaged classes match their pinned counts exactly", () => {
-    for (const k of EXACT)
-      expect({ [k]: tally.byClass[k] ?? 0 }).toEqual({ [k]: BASELINE.classes[k] });
-  });
-
   // The failure classes may not GROW. A band absorbs fixtures other PRs add
   // (every `.ddd` added anywhere adds expressions to every class); a real
-  // regression in one of the three checkers moves a class by far more.
+  // regression in either typing moves a class by far more.
   it("the failure classes do not grow", () => {
     for (const k of CEILING) {
       const pinned = BASELINE.classes[k] ?? 0;

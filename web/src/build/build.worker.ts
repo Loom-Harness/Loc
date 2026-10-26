@@ -25,7 +25,17 @@ import { captureSnapshots } from "../../../src/system/loomsnap.js";
 // postMessage.  It pulls the schema-migration deriver / SQL renderer / wire-
 // spec differ (all browser-safe siblings of `system/index`, so the bundle-
 // boundary test stays green).
-import { runEvolution } from "./evolution.js";
+import { recordMigration, runEvolution } from "./evolution.js";
+// The committed migration chain — pure format + rules, no generator, so a
+// static import keeps the bundle boundary.
+import { diagMessage } from "../../../src/diagnostics/messages.js";
+import {
+  type MigrationChain,
+  MigrationChainError,
+  MigrationDriftError,
+  parseChain,
+} from "../../../src/system/migration-chain.js";
+import { readChainFiles } from "./chain-files.js";
 // The playground's legacy single-context build targets the default Hono
 // backend and supplies that package's pins to the shared emitter.
 import { generateTypeScript } from "../../../src/platform/hono/v4/emit.js";
@@ -187,12 +197,44 @@ async function handleGenerateFromPath(
 ): Promise<GenerateResult> {
   const parsed = await parseProject(entryPath);
   if (!parsed.loom) return { ok: false, diagnostics: parsed.diagnostics };
+  // The chain beside the entry, read the way `ddd generate system` reads
+  // `migrations/`: rendered whole, and a model that moved past its head is
+  // refused.  No chain files ⇒ unchanged (each module's initial migration).
+  const chainFiles = readChainFiles(workerVfs, entryPath);
+  let migrationChain: MigrationChain | undefined;
+  if (chainFiles) {
+    try {
+      migrationChain = parseChain(chainFiles);
+    } catch (err) {
+      if (!(err instanceof MigrationChainError)) throw err;
+      return { ok: false, diagnostics: [...parsed.diagnostics, migrationRefusal(err)] };
+    }
+  }
   return generateFromLoom({
     loom: parsed.loom,
     diagnostics: parsed.diagnostics,
     sourcemap,
     sourceTexts: parsed.sourceTexts,
+    migrationChain,
   });
+}
+
+/** A migration-chain refusal as the diagnostic the Problems pane shows —
+ *  a chain that does not read, or a model with unrecorded schema changes. */
+function migrationRefusal(err: MigrationChainError | MigrationDriftError): BuildDiagnostic {
+  if (err instanceof MigrationChainError) {
+    return {
+      severity: "error",
+      code: "loom.migration-chain-invalid",
+      message: diagMessage("loom.migration-chain-invalid", { detail: err.message }),
+      source: "loom-migrations",
+    };
+  }
+  return {
+    severity: "error",
+    message: `${err.message} In the playground: Migrations tab → Record migration.`,
+    source: "loom-migrations",
+  };
 }
 
 /** Single-document generation path.  Keeps the legacy single-file
@@ -252,13 +294,19 @@ async function generateFromAst(input: {
  *  Source Map v3 / JSR-45 sidecar loops entirely, so no `.ts.map` is
  *  emitted and no `.ts` gains a trailing `sourceMappingURL` directive.
  *  Every other emitted byte is identical with the recorder on or off. */
-function systemOptions(input: { sourcemap?: boolean; sourceTexts?: Map<string, string> }): {
+function systemOptions(input: {
+  sourcemap?: boolean;
+  sourceTexts?: Map<string, string>;
+  migrationChain?: MigrationChain;
+}): {
   sourcemap: true;
   sourceTexts?: ReadonlyMap<string, string>;
   inlineSources: true;
+  migrationChain?: MigrationChain;
 } {
   return {
     sourcemap: true,
+    ...(input.migrationChain ? { migrationChain: input.migrationChain } : {}),
     sourceTexts: input.sourcemap ? input.sourceTexts : undefined,
     // The playground has no filesystem behind `sources`, so the sidecars must
     // carry the `.ddd` text itself or devtools has nothing to show.  The CLI
@@ -333,6 +381,7 @@ async function generateFromLoom(input: {
   diagnostics: BuildDiagnostic[];
   sourcemap?: boolean;
   sourceTexts?: Map<string, string>;
+  migrationChain?: MigrationChain;
 }): Promise<GenerateResult> {
   let loom: EnrichedLoomModel;
   try {
@@ -414,6 +463,9 @@ function wrapGenerate(
       ...(parts.api ? { api: parts.api } : {}),
     };
   } catch (err) {
+    if (err instanceof MigrationDriftError || err instanceof MigrationChainError) {
+      return { ok: false, diagnostics: [...parseDiags, ...irDiags, migrationRefusal(err)] };
+    }
     return {
       ok: false,
       diagnostics: [
@@ -531,6 +583,10 @@ self.onmessage = async (ev: MessageEvent<BuildRpcRequest>) => {
       }
       case "evolution": {
         response.result = await runEvolution(req.params);
+        break;
+      }
+      case "migrate.record": {
+        response.result = await recordMigration(req.params);
         break;
       }
       case "vfs.write": {

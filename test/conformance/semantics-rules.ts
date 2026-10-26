@@ -1273,7 +1273,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // in doubles — also handed off.
     conforms: ["node", "dotnet", "java", "python", "elixir"],
     provenance: [
-      "ruled as D-DECIMAL-EXACT-MOMENT (docs/decisions.md; the owner's ruling 2026-09-07); raised by the numeric-types audit F11 (docs/audits/numeric-types-audit-2026-08-23.md); built as mission M-T5.22, wave C5 moment 5a",
+      "ruled as D-DECIMAL-EXACT-MOMENT (docs/decisions.md; the owner's ruling 2026-09-07); raised by the numeric-types audit F11 (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/numeric-types-audit-2026-08-23.md); built as mission M-T5.22, wave C5 moment 5a",
       "the witness is test/fixtures/corpus/decimal-exact.ddd — a unit `test` block (all five unit tiers) and a `test e2e` block whose golden is test/behavioral/wire-golden/decimal-exact.json; proven RED on node and python before the fix (`expected 0.30000000000000004 to be 0.3`, api and unit tiers) and green on every leg after",
       "numbered RS-37 rather than the RS-38 D-DECIMAL-EXACT-MOMENT's text names: this moment landed before the datetime wire rule D-ABSENT-JOIN-DATETIME-WIRE had reserved RS-37 for, and the registry's gap-free gate refuses RS-38 without an RS-37 — the datetime rule takes the next free number when it lands",
     ],
@@ -1334,7 +1334,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     trigger:
       "`operation confirm() when status == Requested { … }` → `POST /api/<aggs>/{id}/confirm`, and a workflow started with no input (`create() { … }` → `POST /api/workflows/<wf>`), each called with NO body and no Content-Type, with `Content-Type: application/json` and zero bytes, with `{}`, with malformed JSON, and with `{}` under `text/plain`",
     observable:
-      'no body / zero JSON bytes / `{}` all answer exactly as `{}` does (2xx for the parameterless command; on a command WITH required fields, the 422 `errors[]` a `{}` earns); malformed JSON is 400 `Malformed JSON in request body`; any body under a foreign Content-Type — `text/plain`, `application/x-www-form-urlencoded` — and content with no Content-Type is 415 `Content-Type must be application/json`, even when the body is empty. A REQUIRED parameter left out (by an empty body or by `{}`) is 422 with one `errors[]` entry per absent key, `{ pointer: "/<key>", message: "Required" }`, answered before the row is loaded — on operations, workflows and `route`d handlers alike. The OpenAPI `requestBody` of a parameterless command, and of a `create` with no input fields, is not `required`.',
+      'no body / zero JSON bytes / `{}` all answer exactly as `{}` does (2xx for the parameterless command; on a command WITH required fields, the 422 `errors[]` a `{}` earns); malformed JSON is 400 `Malformed JSON in request body`; any body under a foreign Content-Type — `text/plain`, `application/x-www-form-urlencoded` — and content with no Content-Type is 415 `Content-Type must be application/json`, even when the body is empty. A REQUIRED parameter left out (by an empty body or by `{}`) is 422 with one `errors[]` entry per absent key, `{ pointer: "/<key>", message: "<key> is required" }` (the `wirePolicy` sentence; node renders it, the other four still send `"Required"` until they do, #3881), answered before the row is loaded — on operations, workflows and `route`d handlers alike. The OpenAPI `requestBody` of a parameterless command, and of a `create` with no input fields, is not `required`.',
     // The split when measured (booted against Postgres, the booking trial's
     // `confirm()`): node 415 (no body) / 400 (JSON, 0 bytes); python 422 for
     // both and for EVERY foreign media type (FastAPI never answered 415);
@@ -1349,11 +1349,12 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // The `require_command_params` controller plug refuses it first. The absent-field
     // sentence was each framework's own ("expected string, received
     // undefined" / "Field required" / "The reason field is required." / "must
-    // not be null"); it is one word, `MISSING_FIELD_MESSAGE`, on all five.
+    // not be null"); it is the `wirePolicy` sentence `missingFieldMessage` on
+    // node and the word `MISSING_FIELD_MESSAGE` on the other four (#3881).
     conforms: ["node", "dotnet", "java", "python", "elixir"],
     provenance: [
       "the booking DX trial: `curl -X POST …/appointments/{id}/confirm` answered 415 on node, and 400 with `Content-Type: application/json`; only `-d '{}'` worked",
-      "test/generator/empty-command-body.test.ts pins each backend's seam; the wire-golden `__emptyCommandBodyProbes` (test/behavioral/wire-differential.mjs) replays the first instance command each case POSTs `{}` to, against an absent id, three ways (404 / 404 / 415), and re-sends `{}` to the first instance command the tier sent a one-key body to (422 `Required`), on all seven wire-gated legs",
+      "test/generator/empty-command-body.test.ts pins each backend's seam; the wire-golden `__emptyCommandBodyProbes` (test/behavioral/wire-differential.mjs) replays the first instance command each case POSTs `{}` to, against an absent id, three ways (404 / 404 / 415), and re-sends `{}` to the first instance command the tier sent a one-key body to (422 `<key> is required`), on all seven wire-gated legs",
     ],
     // BEHAVIORAL: what a request with no body is answered is only observable on
     // a booted backend; the static half is the generator test above.
@@ -1395,7 +1396,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // event-sourced CREATE arm, whose conflict has no id in the path.
     conforms: ["node", "dotnet", "java", "python", "elixir"],
     provenance: [
-      "M-T6.91 (docs/new-plan/T6-backend-parity.md), found by #3224's `transactional-workflow-event-rollback` golden",
+      "M-T6.91 (#3858), found by #3224's `transactional-workflow-event-rollback` golden",
       "the witness is test/fixtures/corpus/concurrency-conflict.ddd, whose golden is test/behavioral/wire-golden/concurrency-conflict.json — a stale `If-Match` driven through the e2e call's `{ ifMatch: v }` third argument (loom.e2e-call-options)",
     ],
     tier: "behavioral",
@@ -1423,7 +1424,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     conforms: ["node", "dotnet", "java", "python"],
     targets: ["elixir"],
     provenance: [
-      "M-T6.95 + M-T6.98 (docs/new-plan/archive/T6-done.md), #3285",
+      "M-T6.95 + M-T6.98, #3285",
       "the witness is test/fixtures/corpus/workflow-two-handles-document-eventlog.ddd, whose golden is test/behavioral/wire-golden/workflow-two-handles-document-eventlog.json",
     ],
     tier: "behavioral",
@@ -1457,8 +1458,9 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       'the wire `errors[].message` is node\'s: `singleFieldMessage` for a single-field shape ("Amount must be at least 1", "Code is not in the expected format"), `Invariant violated: <source>` at the `pickErrorPath` pointer otherwise; no `errors[].code`',
     // D-MESSAGELESS-DEFAULT (proposed, wave C3F): extends
     // D-MESSAGELESS-RULE-WIRE-MESSAGE from python to every backend. Elixir is a
-    // TARGET, not a conformer: its operation rung follows the rule, its
-    // create/update changeset still sends Ecto's text (M-T6.96).
+    // TARGET, not a conformer: its operation rung and its create/update
+    // changeset both emit the sentence, but no elixir leg witnesses the
+    // create path yet, so it stays a target until one does.
     conforms: ["node", "dotnet", "java", "python"],
     targets: ["elixir"],
     provenance: [
@@ -1507,7 +1509,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // `actor/0` over the principal the Auth plug stashes.
     conforms: ["node", "dotnet", "java", "python", "elixir"],
     provenance: [
-      "wave C3 packet 3d hand-off D1 (docs/new-plan/waves/handoffs/wave-c3-3d-promote.md); fixed in wave C3F packet F5",
+      "wave C3 packet 3d hand-off D1; fixed in wave C3F packet F5",
       "the witness is test/fixtures/corpus/field-mask.ddd, whose golden test/behavioral/wire-golden/field-mask.json records the three history entries and their actors; the auth-less null actor is test/behavioral/wire-golden/audit-history.json",
     ],
     // BEHAVIORAL: the stored actor is only observable through a booted

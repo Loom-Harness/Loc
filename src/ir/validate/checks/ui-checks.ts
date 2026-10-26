@@ -21,7 +21,11 @@ import type { AggregateIR, EnrichedLoomModel, FindIR, ProjectionIR } from "../..
 import { allAggregates, allContexts } from "../../types/loom-ir.js";
 import { classifyPage } from "../../util/page-kind.js";
 import { pagedFindRoutes } from "../../util/paged-find-routes.js";
-import { groupedProjectionNames, readableProjectionNames } from "../../util/projection-read.js";
+import {
+  groupedProjectionNames,
+  readableProjectionNames,
+  recordProjectionNames,
+} from "../../util/projection-read.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import {
   type BodyCheckCtx,
@@ -93,6 +97,7 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
   // The `Chart` arg gates need the GROUPED subset plus each projection's
   // resolved row shape (`wireShape`) to validate the accessor lambdas against.
   const groupedReadable = groupedProjectionNames(allContexts(loom));
+  const recordProjections = recordProjectionNames(allContexts(loom));
   const projectionsByIrName = new Map<string, ProjectionIR>();
   for (const c of allContexts(loom)) {
     for (const p of c.projections) projectionsByIrName.set(p.name, p);
@@ -243,7 +248,7 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
         checkInstanceEffectRouteId(page, aggNames, apiParamNames, diags);
         checkOpFormRouteId(page, diags);
         checkDestroyFormOf(page, pageWhere(page), aggByName, diags);
-        checkFrontendCollectionOps(page, pageWhere(page), diags);
+        checkFrontendCollectionOps(page, pageWhere(page), diags, recordProjections);
         // Audit D3 / D4 — two shapes that validate clean and then break the
         // generated frontend's own typecheck.
         checkMarkupInCollectionLambda(page, pageWhere(page), diags);
@@ -337,7 +342,7 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
         for (const d of comp.derived) checkBody(d.expr, ctx, diags);
         checkActionBodies(comp.actions, ctx, diags);
         checkDestroyFormOf(comp, `component '${comp.name}'`, aggByName, diags);
-        checkFrontendCollectionOps(comp, `component '${comp.name}'`, diags);
+        checkFrontendCollectionOps(comp, `component '${comp.name}'`, diags, recordProjections);
         checkMarkupInCollectionLambda(comp, `component '${comp.name}'`, diags);
         checkMoneyInTextSlot(comp, `component '${comp.name}'`, moneySlotCtx, diags);
         checkUnknownPageElements(comp, `component '${comp.name}'`, callableNames, diags);
@@ -400,7 +405,7 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
       // (`state.tags.distinct()`) on Flutter — from a `.ddd` that validated
       // clean.  Same vocabulary gap, same gate.
       for (const store of ui.stores) {
-        checkFrontendCollectionOps(store, `store '${store.name}'`, diags);
+        checkFrontendCollectionOps(store, `store '${store.name}'`, diags, recordProjections);
         checkMarkupInCollectionLambda(store, `store '${store.name}'`, diags);
         // A store action body is an action body like a page's: a bare call
         // that resolves to no sibling action, ui function or view effect is an

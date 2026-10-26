@@ -545,6 +545,12 @@ export const UNCALLED_PINS: Record<string, Record<string, string>> = {
   // the aggregate's two collection reads.  These two are what is left: `Order`
   // declares no `crudish` and no author-declared create, so there is no
   // `POST /api/orders` and no row to address.  See `R.noCreateRoute`.
+  // The #3954 fixture's tenant registry exists only so `tenancy … of
+  // Organization` resolves; it declares no create, so its collection read is
+  // driven (empty) and the id-taking read has no row to address.
+  "corpus/inheritance-read-restrictions": {
+    getOrganizationById: R.noCreateRoute,
+  },
   "corpus/handler-triad": {
     getOrderById: R.noCreateRoute,
     cancelOrder: R.noCreateRoute,
@@ -573,6 +579,7 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // read model is read through `GET /api/projections/order_board/{key}`, which
   // `deriveContextOperations` lists under `apiSurfaceCoverage.notLifted`.
   "corpus/projection-valueobject-row": ["api.orderBoard.byKey (no such aggregate)"],
+  "corpus/projection-fold-statements": ["api.accountBoard.byKey (no such aggregate)"],
   // A workflow run (`POST /api/workflows/drop_via`) — the not-yet-lifted
   // workflow-run class, like `corpus/vo-invariant-in-body`'s `api.bump.run`.
   "corpus/contained-part-removal": ["api.dropVia.run (no such aggregate)"],
@@ -672,6 +679,13 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   "corpus/datetime-wire": ["api.slotBoard.list (no such aggregate)"],
   // Eval items 10 + 14b: the direct-table arms over a TPH concrete and over a
   // value-object leaf.  All three are projection READS — the `notLifted` class.
+  // The polymorphic base reads of #3954 / #3959: a TPH base's by-id read has
+  // no derived operation (the base owns no repository — nothing routes it on
+  // node yet), and the projection read is the not-yet-lifted route class.
+  "corpus/inheritance-base-reads": [
+    "api.equipment.getById (no derived operation)",
+    "api.equipmentCount.list (no such aggregate)",
+  ],
   "corpus/projection-tph-source": [
     "api.autoClaimVolume.list (no such aggregate)",
     "api.autoClaimsByStatus.list (no such aggregate)",
@@ -779,43 +793,6 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
 // classes decide the ORDER of the remaining drain, and re-deriving them costs
 // the next agent an hour (#2517).
 export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
-  // FIXTURE-SHAPE AUDIT (docs/audits/2026-09-29-fixture-shape-coverage.md) — three
-  // value-object SHAPES no model in the repo had, and a fourth class of reason for
-  // being e2e-less: not "needs a sidecar", "needs a second deployable" or "needs a
-  // fixture change", but **at least one backend cannot boot this shape at all**, so
-  // there is no stack to record a wire golden from and capturing one would enshrine
-  // the defect as the reviewed answer key.  Each broken backend is excluded by name
-  // from its row's `backends:` in the corpus manifest (not skip-listed — a
-  // generate-only cell is refused by gate-ledger).  All three are real tier gaps and
-  // each fixture header writes down the runtime assertion it wants, so the drain
-  // reads it off the file rather than re-deriving it.  M-T9.13 order: fix the
-  // emitter, return the backend key, add the block, capture the golden, delete the
-  // entry — one PR each.
-  //
-  // A VO resolved from a SIBLING context.  TWO backends fail it for ONE root cause —
-  // the call site comes from the aggregate's wire shape (which spans contexts), the
-  // definition from the context's own VO list (which does not).  python's repository
-  // builder binds and reads the UNFLATTENED `ship_to` while its own schema and
-  // migration create `ship_to_line1`/`ship_to_geo_lat`/`ship_to_geo_lng`, so every
-  // read and write of the consuming aggregate fails; elixir's
-  // `receipt_controller.ex` calls `serialize_addr/1` and defines neither it nor the
-  // nested `serialize_geo/1` (`** (CompileError)`), while the owning context's
-  // controller defines both.  The evaluation's F-008.
-  "vo-cross-context",
-  // A ROOT-LEVEL (shared-kernel) VO nested in a context-local one.  node emits the
-  // context-local zod const before the root-level one it initialises from (TS2448 +
-  // TS2454 — a TDZ read, fatal at module evaluation, so the API never starts);
-  // python emits `class Outer` before `class UnLocode` (ruff F821 ×4).  The
-  // evaluation's F-007, with its frontend half already fixed and both backend halves
-  // open — one emission-order bug reached from one shape on two backends.
-  "vo-root-kernel",
-  // A `.matches(<regex>)` VO invariant — the regex is lifted into the wire/request
-  // validator beside the domain class, so two emitted files' import lists must agree.
-  // python's `wire_models.py` calls `re.search` with no `import re` (ruff F821) while
-  // the domain half imports it correctly.  F-013's defect class, fixed on .NET and
-  // live on python.  The runtime half is genuinely wanted here (422 at the wire
-  // boundary, not 500 and not silently stored) — see the fixture header.
-  "vo-regex-invariant",
   // COMPILE-TIER WITNESS (the "Assure" dev-experience evaluation) — a durable
   // broker channel + a workflow + NO reactor.  The cell the corpus never
   // paired: its sibling `channels-broker` is the same producer WITHOUT a
@@ -916,21 +893,11 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // the fixture exposes are the ones `core-domain` already boots.  Reasoned
   // permanent entry.
   "foreign-id-field",
-  // COMPILE-TIER WITNESS (audit F57 / M-T6.57) — the `envelope` carrier, which
-  // NO `.ddd` in the repo instantiated before this fixture, so every compile
-  // gate was blind to it and java/dotnet emitted output that did not build.
-  // The oracle is a COMPILE one (the five corpus compile legs) plus the
-  // byte-identity gate in `test/generator/envelope-carrier.test.ts`: `envelope`
-  // is ratified as a single-row find, so `T envelope` must emit exactly what
-  // `T` emits, and a behavioural block would add no oracle the compile tier and
-  // that gate do not already give.
-  //
-  // It would also mint a wire golden across a divergence this PR did not drain:
-  // the find-miss 404 `detail` is `"not found"` on node and `"not_found"` on the
-  // other four (dotnet's own `projectionClauseFor` comment calls `"not_found"`
-  // "the canonical find-miss detail token on every backend").  A golden captured
-  // on the node leg would therefore redden the other four legs on main.  Author
-  // the block once THAT is ruled.
+  // COMPILE-TIER by design — the `envelope` carrier.  The oracle is the five
+  // corpus compile legs plus the byte-identity gate in
+  // `test/generator/envelope-carrier.test.ts`: `T envelope` emits exactly what
+  // `T` emits, so a behavioural block would replay a single-row find other
+  // cases already boot.
   "envelope",
   // `vo-id-reference` DRAINED (wave C3 packet 3g, defect D4): java overrides
   // the VO's `X id` column at `ship.value`, elixir no longer indexes the
@@ -953,26 +920,6 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // operand shapes back over HYDRATED values — a mutation that leaves the
   // `numeric` column undecoded keeps the in-memory unit block green and turns
   // the booted `sameAsGoal` true arm false.
-  // COMPILE-TIER WITNESS (M-T6.54 F18), for the same reason `projection-agg-
-  // filters` carried until wave-3 row 3.3 drained it — same capabilities, same
-  // missing harness.  (It is no longer "directly above": it left this register
-  // when its tenant conjunct turned out to be the only part still blocked.)  The assertion this fixture wants is "a SECOND tenant's rows
-  // appear under `ignoring tenantOwned` and are absent without it", which needs
-  // two principals; the behavioural runners authenticate as one
-  // (`DEV_CLAIMS`), so the caller could only ever read its own rows and both
-  // spellings would return the same set — a green e2e over a retained conjunct,
-  // which is exactly the failure mode this fixture exists to catch.  The
-  // structural proof is `test/generator/java/generator-java-find-bypass-principal.test.ts`
-  // (paired presence + ABSENCE per conjunct, per read surface).  Drain: the
-  // two-principal harness `tenancy-e2e.yml` owns — the same one
-  // `projection-agg-filters`'s tenant conjunct still waits on, which is why
-  // that fixture drained on its `softDeletable` conjunct alone.
-  // RE-CHECKED in wave C3 packet 3a: still blocked, and the harness it waits on
-  // is now CLAIMED — #2976 (draft) builds "a second principal inside one
-  // `test e2e` block".  `DEV_CLAIMS_OTHER_TENANT` (the cross-tenant ladder
-  // rung) does not substitute: the ladder asserts STATUS, and a leaking
-  // `ignoring` read answers 200 either way.  Drain with #2976.
-  "find-bypass",
   // UNIT-TIER WITNESS (M-T6.55 F14/F15/F24), the `numeric-operands` shape: it
   // carries a DOMAIN `test` block and no `test e2e`, so the behavioural runners
   // do run it (unit tier) and the gate ledger scores its cells `behavioural` —
@@ -1042,26 +989,6 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // different sentences across node / python / .NET), recorded in the hand-off
   // note as D5.
 
-  // `extern-handlers` shares the fixture-shape blocker above but NOT its exit.
-  // Its whole surface is two ROUTED extern handlers (`route POST "/orders" ->
-  // Sales.PlaceOrder`, `route GET "/quotes/{sku}" -> Sales.GetQuote`), and a
-  // `test e2e` block cannot address a routed handler — see the measured
-  // `loom.e2e-unknown-aggregate` refusal recorded on `handler-triad` below.
-  // `extern`'s own drain is unaffected, because the half it names is aggregate
-  // OPERATIONS (`confirm` / `flag` / `cancel`), which `api.orders.<op>()`
-  // reaches once a row can be minted.
-  //
-  // RE-CHECKED in wave C3 packet 3a (`extern` drained beside it).  The
-  // addressing refusal above is STALE — #2984 lifted routed handlers onto the
-  // e2e surface (`api.sales.placeOrder(…)`).  Two blockers remain, both real:
-  // (1) the two routes mount at different paths across the five backends until
-  // #3024 (M-T6.73, open) lands the `/api` prefix + bare-value agreement, and
-  // (2) unlike `extern`, these handlers carry NO precondition — the whole body
-  // is the scaffold-once user hook, so every call answers the honest
-  // not-implemented fail-fast and a golden would pin the scaffold.  A reasoned
-  // permanent entry for the corpus tier: the generator-owned half (route →
-  // hook) is what #3024's `handler-triad` drain proves on implemented handlers.
-  "extern-handlers",
   // SIDECAR-BOUND, like `channels-broker`/`outbox`: the two routed handlers
   // exist precisely to issue objectStore / queue / mailer I/O, and the node
   // behavioural leg boots in-process on PGlite with no minio, no rabbitmq and
@@ -1249,14 +1176,6 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // Green on all seven legs.  (3a's 422 probe for a missing `amount` was
   // dropped: its body is each framework's DEFAULT message — D5's class — and
   // java also points it at `/amount` rather than `/c/amount`; see the note.)
-  // WAVE C1 PACKET 1e-i (ledger rows F2-XB-4 / F2-CB-C1) — both fixtures exist
-  // for the COMPILE tier: a dropped fold-body `let` is CS0103 / "cannot find
-  // symbol", and the paged × non-relational carrier is CS0535 + CS0029, so the
-  // gate that mattered is the corpus compile leg plus the two conformance
-  // matrices named in `BEHAVIOURAL_ABSENT`.  A runtime `test e2e` is owed and
-  // is the drain condition recorded there.
-  "projection-fold-statements",
-  "paged-nonrelational",
   // `projection-implicit-sub` DRAINED (wave C3 packet 3g, defect D8): an
   // optional `datetime` saga-state field is typed as its inner type
   // (`Loom.Datetime`, RS-38) on elixir, so the reactor's write no longer
@@ -1301,5 +1220,5 @@ export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   // routes with it.  A pin count that goes UP is not a regression when the
   // POPULATION grows (the header's own rule); the fixture went from zero
   // censused routes to seven driven and two pinned.
-  noCreateRoute: 2,
+  noCreateRoute: 3,
 };

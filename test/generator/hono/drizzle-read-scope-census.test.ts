@@ -32,7 +32,11 @@ function drizzleSources(): string[] {
     .readdirSync(path.join(ROOT, dir))
     .filter((f) => /^repository-.*\.ts$/.test(f))
     .map((f) => `${dir}/${f}`);
-  return [...repoBuilders, "src/platform/hono/v4/projection-query-routes-builder.ts"].sort();
+  return [
+    ...repoBuilders,
+    `${dir}/base-reader-builder.ts`,
+    "src/platform/hono/v4/projection-query-routes-builder.ts",
+  ].sort();
 }
 
 /** Source with comments blanked, so prose that NAMES a forbidden symbol

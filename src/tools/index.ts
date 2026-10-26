@@ -1,4 +1,4 @@
-// The Loom agent-tool catalog — see docs/old/proposals/agent-tools-and-mcp.md and
+// The Loom agent-tool catalog — see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/agent-tools-and-mcp.md and
 // D-AGENT-TOOLS.  Transport-neutral: imported by the MCP server, the playground
 // chat, and any future host.
 

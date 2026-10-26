@@ -3,7 +3,7 @@ import { applyPatches } from "../../src/language/model-patch.js";
 import { parseString } from "../_helpers/parse.js";
 
 // ---------------------------------------------------------------------------
-// Model-patch applier (docs/old/proposals/ai-authoring-loop.md §4).  Node-addressed
+// Model-patch applier (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/ai-authoring-loop.md §4).  Node-addressed
 // edits over `.ddd` source: add/replace/remove, atomic batches, untouched bytes
 // preserved, and the round-trip property (the patched output re-parses).
 // ---------------------------------------------------------------------------

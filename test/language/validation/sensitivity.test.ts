@@ -1,19 +1,19 @@
 // Phase 1 of the sensitivity feature — grammar slot, type-system
 // propagation, isAssignable narrowing, and FieldIR capture.  See
-// `docs/old/proposals/sensitivity-and-compliance.md`.
+// `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/sensitivity-and-compliance.md`.
 
 import { AstUtils, EmptyFileSystem, URI } from "langium";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Aggregate, Model, Property } from "../../../src/language/generated/ast.js";
 import {
-  type DddType,
   envForNode,
   isAssignable,
   mergeTags,
   propertySensitivity,
   sensitivityNarrows,
   T,
+  type Ty,
   tagsSubset,
   typeOf,
   typeToString,
@@ -154,9 +154,9 @@ describe("sensitivity — type-system propagation", () => {
   });
 
   it("typeToString surfaces tags for diagnostics", () => {
-    const t: DddType = { kind: "primitive", name: "string", sensitivity: ["pii"] };
+    const t: Ty = { kind: "primitive", name: "string", sensitivity: ["pii"] };
     expect(typeToString(t)).toBe("string!{pii}");
-    const u: DddType = { kind: "primitive", name: "string", sensitivity: ["cred", "pii"] };
+    const u: Ty = { kind: "primitive", name: "string", sensitivity: ["cred", "pii"] };
     expect(typeToString(u)).toBe("string!{cred,pii}");
   });
 });

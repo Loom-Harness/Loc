@@ -1,0 +1,881 @@
+{
+  "case": "inheritance-read-restrictions",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "GET",
+      "path": "/api/organizations",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/cars",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/cars",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/trucks",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/cars",
+      "status": 200,
+      "body": [
+        {
+          "deletedAt": null,
+          "id": "<volatile:key>",
+          "plate": "C-1",
+          "seats": 4,
+          "version": 1
+        }
+      ]
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/cars/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Car {id} not found",
+        "instance": "/api/cars/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/cars/by_plate?p=C-0",
+      "status": 404,
+      "body": {
+        "detail": "not_found",
+        "instance": "/api/cars/by_plate",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/trucks",
+      "status": 200,
+      "body": [
+        {
+          "id": "<volatile:key>",
+          "payloadKg": 900,
+          "plate": "T-1",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/trucks/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "payloadKg": 900,
+        "plate": "T-1",
+        "version": 1
+      }
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/cars/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/cars/{id}",
+      "status": 200,
+      "body": {
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "plate": "C-1",
+        "seats": 5,
+        "version": 2
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/trucks/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/trucks/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "payloadKg": 950,
+        "plate": "T-1",
+        "version": 2
+      }
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/cars/{id}/soft_delete",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/cars/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Car {id} not found",
+        "instance": "/api/cars/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/api/cars/by_plate?p=C-1",
+      "status": 404,
+      "body": {
+        "detail": "not_found",
+        "instance": "/api/cars/by_plate",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/cars",
+      "status": 200,
+      "body": []
+    },
+    {
+      "seq": 17,
+      "method": "GET",
+      "path": "/api/cars/by_plate_all?p=C-1",
+      "status": 200,
+      "body": {
+        "deletedAt": "<timestamp>",
+        "id": "<volatile:key>",
+        "plate": "C-1",
+        "seats": 5,
+        "version": 3
+      }
+    },
+    {
+      "seq": 18,
+      "method": "GET",
+      "path": "/api/cars/by_plate_all?p=C-0",
+      "status": 404,
+      "body": {
+        "detail": "not_found",
+        "instance": "/api/cars/by_plate_all",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 19,
+      "method": "GET",
+      "path": "/api/cars/by_plate_any_tenant?p=C-1",
+      "status": 404,
+      "body": {
+        "detail": "not_found",
+        "instance": "/api/cars/by_plate_any_tenant",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 20,
+      "method": "POST",
+      "path": "/api/cars/{id}/restore",
+      "status": 404,
+      "body": {
+        "detail": "Car {id} not found",
+        "instance": "/api/cars/{id}/restore",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 21,
+      "method": "GET",
+      "path": "/api/trucks",
+      "status": 200,
+      "body": [
+        {
+          "id": "<volatile:key>",
+          "payloadKg": 950,
+          "plate": "T-1",
+          "version": 2
+        }
+      ]
+    },
+    {
+      "seq": 22,
+      "method": "DELETE",
+      "path": "/api/trucks/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 23,
+      "method": "GET",
+      "path": "/api/trucks/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Truck {id} not found",
+        "instance": "/api/trucks/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 24,
+      "method": "GET",
+      "path": "/api/trucks",
+      "status": 200,
+      "body": []
+    },
+    {
+      "seq": 25,
+      "method": "POST",
+      "path": "/api/drivers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 26,
+      "method": "POST",
+      "path": "/api/dispatchers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 27,
+      "method": "GET",
+      "path": "/api/drivers/by_name?n=Ada",
+      "status": 200,
+      "body": {
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "licence": "L-1",
+        "name": "Ada",
+        "version": 1
+      }
+    },
+    {
+      "seq": 28,
+      "method": "POST",
+      "path": "/api/drivers/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 29,
+      "method": "POST",
+      "path": "/api/drivers/{id}/soft_delete",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 30,
+      "method": "GET",
+      "path": "/api/drivers/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Driver {id} not found",
+        "instance": "/api/drivers/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 31,
+      "method": "GET",
+      "path": "/api/drivers/by_name?n=Ada",
+      "status": 404,
+      "body": {
+        "detail": "not_found",
+        "instance": "/api/drivers/by_name",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 32,
+      "method": "GET",
+      "path": "/api/drivers",
+      "status": 200,
+      "body": []
+    },
+    {
+      "seq": 33,
+      "method": "GET",
+      "path": "/api/drivers/by_name_all?n=Ada",
+      "status": 200,
+      "body": {
+        "deletedAt": "<timestamp>",
+        "id": "<volatile:key>",
+        "licence": "L-2",
+        "name": "Ada",
+        "version": 3
+      }
+    },
+    {
+      "seq": 34,
+      "method": "POST",
+      "path": "/api/drivers/{id}/restore",
+      "status": 404,
+      "body": {
+        "detail": "Driver {id} not found",
+        "instance": "/api/drivers/{id}/restore",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 35,
+      "method": "GET",
+      "path": "/api/dispatchers",
+      "status": 200,
+      "body": [
+        {
+          "desk": 3,
+          "id": "<volatile:key>",
+          "name": "Bob",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "seq": 36,
+      "method": "POST",
+      "path": "/api/dispatchers/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 37,
+      "method": "GET",
+      "path": "/api/dispatchers/{id}",
+      "status": 200,
+      "body": {
+        "desk": 4,
+        "id": "<volatile:key>",
+        "name": "Bob",
+        "version": 2
+      }
+    },
+    {
+      "seq": 38,
+      "method": "DELETE",
+      "path": "/api/dispatchers/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 39,
+      "method": "GET",
+      "path": "/api/dispatchers",
+      "status": 200,
+      "body": []
+    },
+    {
+      "seq": 40,
+      "method": "PATCH",
+      "path": "/api/organizations",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/organizations",
+        "instance": "/api/organizations",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 41,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 42,
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "tenantId": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 43,
+      "method": "POST",
+      "path": "/api/cars/{id}/soft_delete",
+      "status": 404,
+      "body": {
+        "detail": "Car {id} not found",
+        "instance": "/api/cars/{id}/soft_delete",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 44,
+      "method": "POST",
+      "path": "/api/cars/{id}/soft_delete",
+      "status": 404,
+      "body": {
+        "detail": "Car {id} not found",
+        "instance": "/api/cars/{id}/soft_delete",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 45,
+      "method": "POST",
+      "path": "/api/cars/{id}/soft_delete",
+      "status": 415,
+      "body": {
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/cars/{id}/soft_delete",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 46,
+      "method": "POST",
+      "path": "/api/cars/{id}/update",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "message": "seats is required",
+            "pointer": "/seats"
+          }
+        ],
+        "instance": "/api/cars/{id}/update",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 47,
+      "method": "POST",
+      "path": "/api/cars",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 48,
+      "method": "GET",
+      "path": "/api/cars/{id}",
+      "status": 200,
+      "body": {
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "plate": "LADDER-C",
+        "seats": 2,
+        "version": 1
+      }
+    },
+    {
+      "seq": 49,
+      "method": "GET",
+      "path": "/api/cars/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Car {id} not found",
+        "instance": "/api/cars/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 50,
+      "method": "GET",
+      "path": "/api/cars/{id}",
+      "status": 200,
+      "body": {
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "plate": "LADDER-C",
+        "seats": 2,
+        "version": 1
+      }
+    },
+    {
+      "seq": 51,
+      "method": "GET",
+      "path": "/api/cars",
+      "status": 200,
+      "body": [
+        {
+          "deletedAt": null,
+          "id": "<volatile:key>",
+          "plate": "LADDER-C",
+          "seats": 2,
+          "version": 1
+        }
+      ]
+    },
+    {
+      "seq": 52,
+      "method": "GET",
+      "path": "/api/cars",
+      "status": 200,
+      "body": []
+    },
+    {
+      "seq": 53,
+      "method": "GET",
+      "path": "/api/cars",
+      "status": 200,
+      "body": [
+        {
+          "deletedAt": null,
+          "id": "<volatile:key>",
+          "plate": "LADDER-C",
+          "seats": 2,
+          "version": 1
+        }
+      ]
+    },
+    {
+      "seq": 54,
+      "method": "GET",
+      "path": "/api/cars/by_plate?p=LADDER-C",
+      "status": 200,
+      "body": {
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "plate": "LADDER-C",
+        "seats": 2,
+        "version": 1
+      }
+    },
+    {
+      "seq": 55,
+      "method": "GET",
+      "path": "/api/cars/by_plate?p=LADDER-C",
+      "status": 404,
+      "body": {
+        "detail": "not_found",
+        "instance": "/api/cars/by_plate",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 56,
+      "method": "GET",
+      "path": "/api/cars/by_plate?p=LADDER-C",
+      "status": 200,
+      "body": {
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "plate": "LADDER-C",
+        "seats": 2,
+        "version": 1
+      }
+    },
+    {
+      "seq": 57,
+      "method": "GET",
+      "path": "/api/cars/by_plate_any_tenant?p=LADDER-C",
+      "status": 200,
+      "body": {
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "plate": "LADDER-C",
+        "seats": 2,
+        "version": 1
+      }
+    },
+    {
+      "seq": 58,
+      "method": "GET",
+      "path": "/api/cars/by_plate_any_tenant?p=LADDER-C",
+      "status": 200,
+      "body": {
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "plate": "LADDER-C",
+        "seats": 2,
+        "version": 1
+      }
+    },
+    {
+      "seq": 59,
+      "method": "GET",
+      "path": "/api/cars/by_plate_any_tenant?p=LADDER-C",
+      "status": 200,
+      "body": {
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "plate": "LADDER-C",
+        "seats": 2,
+        "version": 1
+      }
+    },
+    {
+      "seq": 60,
+      "method": "POST",
+      "path": "/api/trucks",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 61,
+      "method": "GET",
+      "path": "/api/trucks",
+      "status": 200,
+      "body": [
+        {
+          "id": "<volatile:key>",
+          "payloadKg": 1,
+          "plate": "LADDER-T",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "seq": 62,
+      "method": "GET",
+      "path": "/api/trucks",
+      "status": 200,
+      "body": []
+    },
+    {
+      "seq": 63,
+      "method": "GET",
+      "path": "/api/trucks",
+      "status": 200,
+      "body": [
+        {
+          "id": "<volatile:key>",
+          "payloadKg": 1,
+          "plate": "LADDER-T",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "seq": 64,
+      "method": "POST",
+      "path": "/api/trucks",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 65,
+      "method": "POST",
+      "path": "/api/trucks/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 66,
+      "method": "POST",
+      "path": "/api/trucks/{id}/update",
+      "status": 404,
+      "body": {
+        "detail": "Truck {id} not found",
+        "instance": "/api/trucks/{id}/update",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 67,
+      "method": "POST",
+      "path": "/api/trucks/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 68,
+      "method": "POST",
+      "path": "/api/drivers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 69,
+      "method": "GET",
+      "path": "/api/drivers/{id}",
+      "status": 200,
+      "body": {
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "licence": "L-9",
+        "name": "LADDER-D",
+        "version": 1
+      }
+    },
+    {
+      "seq": 70,
+      "method": "GET",
+      "path": "/api/drivers/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Driver {id} not found",
+        "instance": "/api/drivers/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 71,
+      "method": "GET",
+      "path": "/api/drivers/{id}",
+      "status": 200,
+      "body": {
+        "deletedAt": null,
+        "id": "<volatile:key>",
+        "licence": "L-9",
+        "name": "LADDER-D",
+        "version": 1
+      }
+    },
+    {
+      "seq": 72,
+      "method": "POST",
+      "path": "/api/drivers",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 73,
+      "method": "GET",
+      "path": "/api/drivers",
+      "status": 200,
+      "body": [
+        {
+          "deletedAt": null,
+          "id": "<volatile:key>",
+          "licence": "L-9",
+          "name": "LADDER-D",
+          "version": 1
+        },
+        {
+          "deletedAt": null,
+          "id": "<volatile:key>",
+          "licence": "L-8",
+          "name": "LADDER-D2",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "seq": 74,
+      "method": "GET",
+      "path": "/api/drivers",
+      "status": 200,
+      "body": []
+    },
+    {
+      "seq": 75,
+      "method": "GET",
+      "path": "/api/drivers",
+      "status": 200,
+      "body": [
+        {
+          "deletedAt": null,
+          "id": "<volatile:key>",
+          "licence": "L-9",
+          "name": "LADDER-D",
+          "version": 1
+        },
+        {
+          "deletedAt": null,
+          "id": "<volatile:key>",
+          "licence": "L-8",
+          "name": "LADDER-D2",
+          "version": 1
+        }
+      ]
+    }
+  ]
+}

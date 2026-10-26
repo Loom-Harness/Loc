@@ -14,7 +14,7 @@ import type { StmtIR } from "../../../src/ir/types/loom-ir.js";
 // The shared `StmtIR` spine (`renderStmtsWith` / `renderStmtChunksWith`) owns
 // the ONLY dispatch for the Hono/.NET/Java/Python operation-body statement
 // renderers — a bug here breaks four backends at once (audit finding C1,
-// docs/audits/generator-code-review-2026-08-17.md).
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/generator-code-review-2026-08-17.md).
 //
 // Two things are gated:
 //   1. COVERAGE — every `StmtIR` kind is either a `StmtTarget` method or the

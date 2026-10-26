@@ -270,7 +270,7 @@ const BOTH: readonly MenuShape[] = ["explicit", "derived"];
  *
  *  `defect` — the key is dead because the target renders the text some other
  *  way (raw English, or not at all) where it should read the key; handed off in
- *  `docs/new-plan/waves/handoffs/wave-c3-3f-coverage.md` as D-I18N-n.
+ *  `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-c3-3f-coverage.md` as D-I18N-n.
  *  `over-merge` — the DESIGN residue `_walker/i18n-chrome.ts` documents (the
  *  app-shell / form / table-controls chrome is merged under the ui-wide i18n
  *  gate, so a target whose shell or pack renders only one of a pair, or a

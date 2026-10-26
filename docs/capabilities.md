@@ -5,8 +5,8 @@ bundle of **fields + `filter` + `stamp`** that an aggregate opts into
 with `with <Cap>` / `implements <Cap>`.  It is the typed successor to the
 stringly-typed surface (`implements "X"` / `filter for "X"` /
 `stamp for "X"`), which was **removed** — see
-[`proposals/typed-capabilities.md`](old/proposals/typed-capabilities.md) and
-[`plans/typed-capabilities-implementation.md`](old/plans/typed-capabilities-implementation.md).
+[`proposals/typed-capabilities.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/typed-capabilities.md) and
+[`plans/typed-capabilities-implementation.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/typed-capabilities-implementation.md).
 
 ```ddd
 capability softDeletable {
@@ -160,7 +160,7 @@ the query as a constant:
 | .NET / EF Core | `_currentUser.User.Role == "agent"` inside `HasQueryFilter` (EF binds it as a parameter) |
 | .NET / Dapper | `@__pt_<hash>`, bound to `(RequestContext.Current!.CurrentUser!.Role == "agent")` |
 | Java / JPA | `:#{@currentUserAccessor.user() != null and (@currentUserAccessor.user().role() == 'agent')} = true` (`cb.conjunction()` / `cb.disjunction()` in a Criteria `Specification`) |
-| Python / SQLAlchemy | `literal(require_current_user().role == "agent")` |
+| Python / SQLAlchemy | `literal(user.role == "agent")`, built in the read-scope hook from the request principal |
 | Phoenix / Ecto | `^(not is_nil(current_user) and current_user.role == "agent")` |
 
 Null semantics are Loom's on every backend (a null claim equals `null` and
@@ -213,12 +213,12 @@ and elixir has no `document` shape at all.  See *Deferred cases* below.
   hierarchy ROOT** — EF accepts a filter nowhere else.  A filter the root
   declares is registered there once and reaches every subtype, so a subtype's
   `ignoring <rootCap>` names the root's filter; a subtype's own filter is
-  registered on the root config, guarded by the `kind` discriminator
-  (`EF.Property<string>(x, "kind") != "Car" || (…)`) and prefixed
-  (`"Car_LiveFilter"`) so two subtypes carrying the same capability keep
-  distinct keys.  A subtype filter reading a column only that subtype declares
-  is the one shape EF cannot express and is gated
-  (`loom.tph-filter-unsupported`, docs/inheritance.md).  EF Core resolves the
+  registered on the root config, type-guarded
+  (`!(x is Car) || (!((Car)x).IsDeleted)`) — so it may read a column only that
+  subtype declares — and prefixed (`"Car_IsDeletedFilter"`) so two subtypes
+  carrying the same capability keep distinct keys.  Every read of a TPH
+  concrete starts from the root set (`_db.Vehicles.OfType<Car>()`), the source
+  over which EF translates the guard (docs/inheritance.md).  EF Core resolves the
   DI-scoped principal and queries jsonb transparently, so .NET has no other
   deferred cases.  See
   `src/generator/dotnet/emit/efcore.ts`.
@@ -230,6 +230,16 @@ and elixir has no `document` shape at all.  See *Deferred cases* below.
   DI-resolved principal); a **non-relational** aggregate filters in-app
   over the rehydrated `document`, or AND-s into the SQL read for an
   `embedded` root (whose scalars are real columns).
+- **Python / SQLAlchemy** — SQLAlchemy's native global-criteria hook: one
+  `do_orm_execute` listener (`app/db/read_scope.py`,
+  `src/generator/python/read-scope-builder.ts`) adds each restriction to every
+  ORM SELECT as `with_loader_criteria(<Row>, …)`, so no repository read
+  spells one.  `ignoring` is the `loom_ignoring` execution option.  A
+  **principal** predicate is built from the request principal on each
+  execution (`false()` with none); a TPH subtype's own filter is hosted on
+  the root row class, guarded by `kind`; by-id reads run a `select` with
+  `populate_existing` so the identity map cannot answer for the hook.  A
+  `document` aggregate filters in-app over the rehydrated instance.
 - **Java / Hibernate** — a static `@SQLRestriction("…")` on the
   entity for the non-principal predicate (`src/generator/java/emit/entity.ts`);
   a **principal** predicate instead AND-s a SpEL-principal JPQL clause

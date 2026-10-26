@@ -9,7 +9,7 @@ import { installGeneratedProject } from "./support/npm-install.js";
 import { limiter, PARALLELISM, sh } from "./support/parallel.js";
 
 // ---------------------------------------------------------------------------
-// Slice 6 of docs/old/plans/vanilla-foundation-tdd-plan.md — CI gate for
+// Slice 6 of https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/vanilla-foundation-tdd-plan.md — CI gate for
 // the vanilla emit subtree.  Parallel to test/e2e/generated-elixir-ash-
 // build.test.ts but exercises `foundation: vanilla` deployables and
 // expects no Ash deps in the generated mix.exs.
@@ -61,6 +61,7 @@ async function runMixCompile(projDir: string): Promise<void> {
 // or a behaviourally wrong assertion (the `mix compile --warnings-as-errors`
 // gate above is MIX_ENV=prod and never compiles `test/`).
 async function runMixTest(projDir: string): Promise<void> {
+  await mix.ready();
   await sh(mix.dockerRun(`-v ${projDir}:/app`, "", `${mixDepsGet()} && mix test`), {
     timeout: 600_000,
   });

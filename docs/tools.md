@@ -32,6 +32,10 @@ ddd generate ts <file.ddd> -o <outdir>            # emit a single TypeScript pro
 ddd generate dotnet <file.ddd> -o <outdir>        # emit a single .NET project (legacy)
 ddd generate system <file.ddd> -o <outdir>        # emit every deployable + docker-compose.yml
 ddd migrate add <name> <file.ddd>                 # record schema changes in migrations/ (see Migrations workflow)
+ddd migrate status <file.ddd> [--json]            # each module's recorded head and its unrecorded changes
+ddd migrate remove <file.ddd>                     # delete the newest recorded migration
+ddd migrate rebase <file.ddd>                     # after a merge leaves two heads, re-record one on top of the other
+ddd diff <file.ddd> [--baseline <old.ddd> | --git <ref>] [--json]  # classify changes as compatible / breaking-for-clients / breaking-for-data; exit 1 on breaking
 ddd verify <file.ddd> --results <results.json>    # join test results onto the requirements graph
 ddd verify <file.ddd> --from-vitest <report.json> # …the same, straight from `vitest run --reporter=json`
 ddd verify <file.ddd> --from-vitest unit.json --from-vitest e2e.json --from-playwright ui.json  # every flag repeatable — one per runner report
@@ -40,6 +44,13 @@ ddd patch <file.ddd> --patches <patches.json>     # apply node-addressed model p
 ddd trace <logfile>                               # translate a runtime stack-trace back to .ddd source
 ddd breakpoints <file.ddd> --line <n>             # resolve a .ddd source line to the generated file:line(s), or file:line:col when the construct maps to a fine expression region — the reverse of `trace`
 ```
+
+`generate system` also accepts `--verify-ir`: it runs the IR verifier
+(`src/ir/verify/verify-ir.ts` — the compiler checking its own lowering/enrichment
+output, e.g. an `enum-value` ref that lost its `enumName`) before phase ⑦ and exits
+non-zero, listing each violation, if any invariant is broken. A violation is a
+compiler bug, never a model error; off by default. The same check is
+`GenerateSystemOptions.verifyIr` for in-process callers (throws).
 
 `generate system` additionally accepts `--sourcemap`, which also emits
 `.loom/sourcemap.json` (construct- and statement-granular `.ddd` ↔ generated-line
@@ -72,13 +83,13 @@ print as separate targets. A line with no mapping prints an informative
 message and still exits 0 — a future editor/DAP integration's primitive for
 translating "set a breakpoint on this `.ddd` line" into the real
 backend-native breakpoint(s) to arm. See
-[`docs/old/plans/dap-node-debug.md`](old/plans/dap-node-debug.md).
+[`docs/old/plans/dap-node-debug.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md).
 
 ### `patch` — apply node-addressed model patches
 
 `ddd patch <file.ddd> --patches <patches.json>` applies a list of
 node-addressed model patches (the protocol from
-[`proposals/ai-authoring-loop.md`](old/proposals/ai-authoring-loop.md) §4 —
+[`proposals/ai-authoring-loop.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/ai-authoring-loop.md) §4 —
 the same patch shape that `parse --json` / `generate --json`
 diagnostics carry in their `fixHint`). `--patches -` reads the JSON
 from stdin; the file may be a bare array or `{ "patches": [...] }`.
@@ -142,7 +153,7 @@ reachable document with the Langium workspace, and produces a single
 project from the merged model.  See
 [`language.md`](language.md#multi-file-projects-import-and-root-level-shared-types)
 for the language surface; the original design rationale is preserved
-at [`plans/multi-file-source.md`](old/plans/multi-file-source.md).
+at [`plans/multi-file-source.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-file-source.md).
 
 `generate ts` / `generate dotnet` remain single-file: they read just
 the file you point them at, no import-graph walking.
@@ -313,6 +324,41 @@ none; from the run after that they are recorded.
 
 ---
 
+## i18n translator workflow (`ddd i18n`)
+
+User-visible strings in generated UIs route through a `t(key, default)` catalog.
+`ddd i18n` is the translator side: `git merge` for strings, backed by the pure
+three-way merge core in `src/i18n/merge.ts` (CLI in `src/cli/i18n/`).
+
+| Command | What it does |
+|---|---|
+| `ddd i18n extract <file> [-o out]` | write the fresh source catalog to `<out>/.loom/messages.en.json` (front of the pipeline only, no codegen) |
+| `ddd i18n init <file> <locale>` | scaffold `locales/<locale>.json` (every key as `TODO:`) and the source lock if absent |
+| `ddd i18n sync <file> [--locale l] [--keep-stale]` | three-way merge every locale, then advance the lock; `--keep-stale` keeps source-deleted keys as `_stale.<key>` |
+| `ddd i18n status <file>` | what `sync` would do; exits non-zero if any locale has pending changes |
+| `ddd i18n check <file> [--strict]` | report `TODO:` values, unresolved conflict markers and missing keys; `--strict` exits non-zero on any finding (the CI gate) |
+| `ddd i18n prune <file>` | delete keys the source no longer emits (deliberate, never automatic) |
+
+The translator tree defaults to `locales/` next to the `.ddd` file (`--dir`
+overrides it; `generate system --locales <dir>` reads the same tree):
+
+- **BASE** — `locales/.loom/source.lock.json`, the source catalog as of the last
+  successful sync;
+- **OURS** — `locales/<locale>.json`, owned by the translator;
+- **THEIRS** — the fresh extraction.
+
+**Why `sync` is a separate, deliberate step.** Codegen stays idempotent on the
+source tree and never writes under `locales/`; reconciling translations is a
+commit-worthy intent (like a migration), and conflicts need a human. The lock
+advances only after every locale has reconciled: rewriting it on every codegen
+would make BASE equal THEIRS, and the merge would have nothing to act on.
+
+**What ships.** `generate system` emits each locale it finds into every frontend
+with a translation runtime, but drops values the translator has not finished
+(`TODO:` values, unresolved conflict markers, `_stale.*` shadows), so `t(key,
+default)` falls back to the source-language default per key. A locale created by
+`init` is registered even while its catalog is still empty.
+
 ## Watch mode
 
 Useful during model design — every save of the `.ddd` file triggers a
@@ -377,6 +423,52 @@ data-losing drop+add.  An undeclared single drop+add of the same type
 on one table is collapsed into a rename too, and announced with
 `loom.migration-rename-inferred`.  See [`migrations.md`](migrations.md)
 § Destructive changes.
+
+### `diff` — is this change compatible?
+
+`ddd diff` compares the model with a baseline and classifies every change
+by who it breaks:
+
+| Class | Raised by | Examples |
+|---|---|---|
+| `breaking-for-clients` | the wire contract (`.loom/wire-spec.json`) moved under an existing client | a field dropped or renamed, a type changed (an enum member removed, a carrier narrowed such as `decimal` → `int`), optional → required, a newly required field |
+| `breaking-for-data` | the destructive migration gate — the same one `migrate add` applies without `--allow-destructive` | a column or table drop, a NOT NULL add with no default or backfill, a narrowing column type, a reshape |
+| `compatible` | everything else | a new optional field, required → optional, a new aggregate, a declared `RENAME COLUMN` |
+
+```bash
+ddd diff model.ddd --baseline old/model.ddd   # against another file
+ddd diff model.ddd --git origin/main          # against the entry as committed at a ref
+ddd diff model.ddd                            # against the committed migrations/ chain
+```
+
+`--git <ref>` reads every `.ddd` of that commit, so the old entry's `import`s
+resolve to the old files and a multi-file project diffs as a whole. With no
+flag the committed `migrations/` chain is the baseline; the chain records a
+schema, not a wire contract, so that run classifies only the data side.
+
+A rename declared in a `migration` block is reported as one
+`property-renamed` (or `entity-renamed`) change, not as a dropped field plus
+an added one. Its data side is a `RENAME COLUMN`, which is compatible. Its
+wire side is still `breaking-for-clients`, because no backend keeps serving
+the old field name.
+
+```text
+Diff against old/model.ddd:
+  breaking-for-clients  property 'qty' on Order renamed to 'quantity' (declared in migration "rename-qty")
+  breaking-for-clients  property 'status' on Order changed type: enum(New|Paid|Lost) → enum(New|Paid)
+  breaking-for-data     module Sales: 4 schema step(s), refused by the destructive gate without --allow-destructive
+      ALTER TABLE "sales"."orders" DROP COLUMN "note";
+      …
+BREAKING for clients and data.
+```
+
+The exit code is the gate: `0` compatible, `1` breaking, `2` when it cannot
+diff (the model or the baseline does not load, or there is no baseline at
+all). `--json` prints the toolkit's `DiffReport` (the shape `loom_diff`
+returns; the CLI and the MCP tool share one core, `diffModels` in
+`src/api/evolve.ts`), plus a `baseline` field naming where the baseline came
+from. Each wire change and migration carries `class`, and the report carries
+`breakingForClients` and `breakingForData`.
 
 ### Cross-backend data migrations
 

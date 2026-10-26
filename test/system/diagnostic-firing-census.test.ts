@@ -28,7 +28,7 @@ import { COVERED_ELSEWHERE, UNCOVERED } from "./diagnostic-firing-census.data.js
 //
 // WHY THIS SHAPE, AND NOT A GREP.  Both static censuses were measured against
 // the dynamic one on 2026-08-13 and both are wrong, in both directions
-// (`docs/audits/test-coverage-audit-2026-08-13.md` §3.1):
+// (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/test-coverage-audit-2026-08-13.md` §3.1):
 //
 //   code named nowhere under test/                         131 "uncovered"
 //   …and no ≥14-char fragment of its message either        111 "uncovered"
@@ -516,6 +516,26 @@ const FIXTURE_HOST_OPTIONS: Record<string, ToolkitOptions> = {
 };
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // A construct its target's capability table refuses: `DataGrid` on Flutter
+  // (no JS runtime, so no TanStack row model).
+  "loom.target-unsupported": `
+system GridOnFlutter {
+  subdomain Sales { context Orders {
+    aggregate Customer with crudish { name: string }
+    repository Customers for Customer { }
+  } }
+  api SalesApi from Sales
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  ui WebApp {
+    framework: flutter
+    api Sales: SalesApi
+    page X { route: "/x"  body: QueryView { of: Sales.Customer.all, data: rows => DataGrid(
+      Column("Name", o => o.name, sortable: true), rows: rows) } }
+  }
+  deployable api { platform: node, contexts: [Orders], dataSources: [st], serves: SalesApi, port: 3000 }
+  deployable web { platform: flutter, targets: api, port: 3001, ui: WebApp { Sales: api } }
+}`,
   // An event-sourced workflow with only a command-triggered create and no
   // id-shaped state field: its event stream has no key, so it is refused even
   // though nothing consumes an event (the .NET / Java / Elixir ES emitters
@@ -1516,26 +1536,6 @@ system S {
 
   // --- inheritance × capability (the TPH cluster) --------------------------
 
-  // A TPH SUBTYPE whose capability `filter` reads a column only that subtype
-  // declares.  EF Core registers a query filter on the hierarchy ROOT entity
-  // type only, and a root-typed lambda has no such member — the one shape of
-  // TPH filter .NET structurally cannot express.  Before the gate the whole
-  // filter list was replaced by `[]` for every TPH participant, so the read
-  // restriction vanished from the emitted queries with no error at all.
-  "loom.tph-filter-unsupported": `
-system S {
-  subdomain Fleet { context Vehicles {
-    criterion Live of Car = this.doors > 0
-    abstract aggregate Vehicle { name: string }
-    aggregate Car extends Vehicle with crudish { doors: int  filter Live }
-    repository Cars for Car { }
-  } }
-  api Api from Fleet
-  storage pg { type: postgres }
-  resource st { for: Vehicles, kind: state, use: pg }
-  deployable d { platform: dotnet contexts: [Vehicles] dataSources: [st] serves: Api port: 8080 }
-}`,
-
   // A subtype taking the OPPOSITE tenancy stance from the base it inherits.
   // The base's `tenantOwned` reaches the subtype, so it would be both tenant
   // data and shared data.
@@ -1713,31 +1713,6 @@ system S {
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
   deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
-}`,
-
-  // A form inside a `component` on Phoenix LiveView.  A HEEx function component
-  // is a pure render function, so the form's `@form` assign and its
-  // `handle_event` clause must come from the host page's LiveView — and only a
-  // component's `state`/`action`s are lifted there (#2646).  The emitted project
-  // compiled and then 500'd on page load; the gate refuses it instead.
-  "loom.heex-component-host-state-unsupported": `
-system S {
-  subdomain Sub { context C {
-    aggregate Thing with crudish { name: string }
-    repository Things for Thing { }
-  } }
-  api Api from Sub
-  ui WebApp {
-    api C: Api
-    component NewThing() { body: CreateForm { of: Thing } }
-    page Home { route: "/"  body: NewThing() }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable app {
-    platform: elixir contexts: [C] dataSources: [st] serves: Api
-    ui: WebApp { C: app } port: 4000
-  }
 }`,
 
   // --- backend-capability gates, driven by their UNHOSTED arm --------------
@@ -2032,6 +2007,11 @@ system P {
   // expression-form function (`toplevel-function.ts`) and the block-body
   // `return` (`types.ts`) — share this code.
   "loom.function-return-type-mismatch": orderOps('function bad(): int = "x"'),
+  "loom.let-type-mismatch": orderOps('operation bad() { let n: int = "x" }'),
+  // Every other callable with a declared result type: an operation here; the
+  // domain-service operation and handler arms share the check.
+  "loom.return-type-mismatch": orderOps('operation bad(): int { return "x" }'),
+  "loom.return-missing": orderOps("operation bad(): int { if total > 0 { return 1 } }"),
   // An anonymous `retrieval { where: … }` whose `where` is a predicate rather
   // than the criterion reference this release admits.
   "loom.retrieval-where-not-criterion": `
@@ -2629,6 +2609,7 @@ system S {
   // `toThrow(<status>)` are wire-level and refused OUTSIDE a `test e2e`.
   "loom.matcher-e2e-only": matcherTest('expect("x").toBeSameInstant("y")'),
   "loom.tothrow-arity": matcherTest('expect("x").toThrow(404, 500)'),
+  "loom.not-throw-invalid": matcherTest('expect("x").not.toThrow()'),
   "loom.matches-arity": matcherTest('expect("x").matches("a", "b")'),
   "loom.matches-named-arg": matcherTest('expect("x").matches(pattern: "a")'),
   "loom.matches-not-literal": matcherTest('expect("x").matches(1)'),
@@ -3240,6 +3221,28 @@ system P {
       state { label: string = "" }
       action again() { label := string(this) }
       body: Stack { Button { "Again", onClick: again } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
+  deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 }
+}`,
+
+  // A member read off an event-handler parameter nothing types (`e.count`): the
+  // member would type as a guessed `string`.
+  "loom.lambda-param-type-unknown": `
+system P {
+  subdomain D { context C {
+    aggregate Order with crudish { customerId: string }
+  } }
+  api Api from D
+  ui WebApp {
+    api C: Api
+    page Home {
+      route: "/"
+      state { count: int = 0 }
+      body: Stack { Button { "Go", onClick: e => { precondition e.count >= 0 } } }
     }
   }
   storage pg { type: postgres }
@@ -3906,7 +3909,7 @@ const UNREACHABLE_PINS: Record<string, string> = {
     "put in a child slot has an explicit arm above it, so the default is the exhaustiveness " +
     "backstop, not an authorable condition.  Re-test when the walker grows a new " +
     "child-position arm; see M-T9.55's hand-off H3 " +
-    "(docs/new-plan/waves/handoffs/wave-c1-1d-giveup-drain.md).",
+    "(https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-c1-1d-giveup-drain.md).",
   // (The backend-capability gates whose SUPPORTED set listed all five backend
   // families — query-time / paged / aggregation / group-by / workflow-source /
   // projection-source projections, unions, generic carriers, `when`, union
@@ -4105,6 +4108,12 @@ const LATENT_GATES: ReadonlyArray<{
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 const DRIVEN_ELSEWHERE: Record<string, string> = {
+  // `loom_diff`'s refusals: they judge the diff's INPUTS (a previous model
+  // that does not load, a `migrations/` directory that does not read), which
+  // `validate()` of one source never sees.  The pointed-at file drives both
+  // through the tool catalog and asserts each code.
+  "loom.diff-baseline-invalid": "test/tools/catalog.test.ts",
+  "loom.migration-chain-invalid": "test/tools/catalog.test.ts",
   "loom.macro-threw": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-non-ast-result": "test/macro/misbehaving-macro-diagnostics.test.ts",
   "loom.macro-escapes-host": "test/macro/misbehaving-macro-diagnostics.test.ts",
@@ -4157,6 +4166,10 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // file drives the warning, its `sql before` silencing, and the rebuild /
   // new-table / first-generation exemptions.
   "loom.migration-unique-on-existing-table": "test/ir/migrations-sql-before.test.ts",
+  // Phase ⑨, same reason: an enum CHECK losing a member is judged against the
+  // BASELINE's value set. The pointed-at file drives the warning, its
+  // `sql before` silencing, and the widening / first-generation exemptions.
+  "loom.migration-enum-narrowed": "test/system/migration-enum-value-set.test.ts",
   // Phase ⑨, same reason: the destructive-change gate needs a BASELINE.  Its
   // catalog entries are the capability-column lines (a `tenantOwned` /
   // `auditable` column added to a populated table); the pointed-at file drives

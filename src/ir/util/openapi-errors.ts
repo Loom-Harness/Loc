@@ -36,7 +36,7 @@
 // two places a non-optional read happens without one — a non-optional `find`
 // route, and a workflow body that loads.  Both answered an undeclared 404 for
 // as long as this table keyed the rung on shape alone (F10 + F13 in
-// docs/audits/schemathesis-findings-2026-08.md); `findSingle` therefore
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md); `findSingle` therefore
 // declares it like `findOptional` does, and `workflow` declares it under the
 // body predicate `workflowCanAnswerNotFound` (loom-ir.ts) that the five
 // backends thread in as `opts.readsAggregate`.
@@ -50,7 +50,7 @@
 // read/delete route carries no body, so it declares none.
 //
 // 422 (Unprocessable Entity) is the validation-failure code declared per
-// docs/old/proposals/validation-error-extension.md —.  Body carries the
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md —.  Body carries the
 // §3.2 `errors[]` extension array (per-field `{ pointer, message }`)
 // consumed by the frontend ACL's `applyServerErrors` (#769).  500 is the
 // universal fallback every route can produce; like most specs we don't
@@ -86,9 +86,10 @@ export const UNSUPPORTED_MEDIA_TYPE = 415;
  *  the refusal reads the same whichever framework layer raised it. */
 export const UNSUPPORTED_MEDIA_TYPE_DETAIL = "Content-Type must be application/json";
 
-/** The `errors[].message` every backend sends for a REQUIRED request field the
- *  body leaves out (RS-39) — one word, so the 422 for an absent field reads the
- *  same whichever framework noticed the absence. */
+/** The `errors[].message` .NET, java, python and elixir send for a REQUIRED
+ *  request field the body leaves out (RS-39).  The ruled sentence is the
+ *  `wirePolicy` fact's `missingFieldMessage` (`"<field> is required"`), which
+ *  node renders; each other backend moves onto it and stops reading this. */
 export const MISSING_FIELD_MESSAGE = "Required";
 
 /** The wire-validation tier every route that PARSES a request part answers on
@@ -270,7 +271,7 @@ export function errorStatuses(
     // backend's emitted repository method THROWS the shared not-found carrier
     // and the aggregate router renders it as `notFound`.  Same status, same
     // ProblemDetails body, and until this arm it was published by exactly one
-    // of the two (F13 in docs/audits/schemathesis-findings-2026-08.md).
+    // of the two (F13 in https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md).
     case "findSingle":
       return guarded ? set(forbidden, notFound) : [notFound];
     // `list` is the auto-`findAll`, which carries no `requires` of its own.

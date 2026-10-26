@@ -18,7 +18,7 @@ The boundary is the same shape as the CLI: `src/cli/` and `src/mcp/` are both No
 
 ## The `loom_*` tool catalog
 
-Ten tools (`src/tools/catalog.ts`), in two families. Every tool is a **pure function of its inputs** — model `source` in, report or new-source out. There is no server-side model state and no filesystem side effect: the host owns the working model and threads it through each call. The rewrite verbs (`rename`, `quickfix`, `unfold_macro`) **return edits, never apply them** — the host applies them to its buffer.
+The tools (`src/tools/catalog.ts`) come in three families. Every tool is a **pure function of its inputs** — model `source` in, report or new-source out. There is no server-side model state and no filesystem side effect: the host owns the working model and threads it through each call. The rewrite verbs (`rename`, `quickfix`, `unfold_macro`) **return edits, never apply them** — the host applies them to its buffer.
 
 **Generative family** — the authoring/repair loop, pure functions of `source`:
 
@@ -39,6 +39,13 @@ Ten tools (`src/tools/catalog.ts`), in two families. Every tool is a **pure func
 | `loom_rename` | `{ source, symbol, newName }` | The text edits to rename everywhere (declaration + every use site), **without applying them**. |
 | `loom_quickfix` | `{ source, code, at? }` | The fix-hint edits for a diagnostic code (from `loom_validate`), **without applying them**. `at` disambiguates when several diagnostics share the code. |
 | `loom_unfold_macro` | `{ source, macro, on }` | Expand a `with <macro>(...)` clause on a host into its source — the refactor edits, **without applying them**. |
+
+**Evolution family** — what a change does to the database and the wire:
+
+| Tool | Input | What it does |
+|---|---|---|
+| `loom_snapshot` | `{ source }` | Capture the provenance rule snapshots `ddd snapshot` writes. Returns the files; writes nothing. |
+| `loom_diff` | `{ source, baseline?, migrations? }` | The schema migrations and the wire-contract delta from `baseline` (the previous `.ddd`) to `source`, with `breaking` set on any breaking wire change or destructive migration. Each change carries a `class` (`compatible` / `breaking-for-clients` / `breaking-for-data`) and the report splits `breaking` into `breakingForClients` and `breakingForData`, exactly as `ddd diff` reports it (one core, `diffModels`). `migrations` — the `{ name, content }` files of the committed `migrations/` directory — makes the chain's head the schema baseline, so the migrations reported are exactly what `ddd migrate add` would record. A `baseline` that does not load (`loom.diff-baseline-invalid`) or a chain that does not read (`loom.migration-chain-invalid`) fails the call with `ok: false`; neither is ever read as "no baseline". |
 
 A symbol address uses the same dotted space as `loom_outline` and the diagnostic `node` fields — short form `Order.customerId` when unambiguous, fully qualified `Sales.Order.customerId` otherwise.
 
@@ -104,4 +111,4 @@ This loop is the in-browser playground chat's intended driver (the playground re
 
 - [api-toolkit.md](api-toolkit.md) — the `src/api/` toolkit the catalog sits on (validate / generate / applyPatches + the navigation verbs and their wire shapes).
 - [decisions.md → D-AGENT-TOOLS](decisions.md#d-agent-tools--one-tool-catalog-over-the-toolkit-mcp-and-in-browser-are-transports) and D-API-TOOLKIT — why one catalog over one toolkit.
-- `docs/old/proposals/agent-tools-and-mcp.md` — the originating proposal (aspirational; this doc is the shipped subset).
+- [`docs/old/proposals/agent-tools-and-mcp.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/agent-tools-and-mcp.md) — the originating proposal (aspirational; this doc is the shipped subset).

@@ -375,6 +375,63 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "operation POST /api/organizations/{id}/update": R.sharedTenancyIdentity,
   },
 
+  // The #3954 inheritance fixture.  Every gate is the tenant floor and there is
+  // no `requires`, so the in-tenant unauthorized principal is correctly
+  // ALLOWED.  Its tenancy statements are the ladder's cross-tenant rungs — a
+  // 404 by id, and the seeded row ABSENT from a 2xx collection read
+  // (`rowVisible`) — which this census does not count as refusals.
+  "corpus/inheritance-read-restrictions": {
+    "create POST /api/cars": R.sharedTenancyIdentity,
+    "create POST /api/dispatchers": R.sharedTenancyIdentity,
+    "create POST /api/drivers": R.sharedTenancyIdentity,
+    "create POST /api/trucks": R.sharedTenancyIdentity,
+    "destroy DELETE /api/dispatchers/{id}": R.sharedTenancyIdentity,
+    "destroy DELETE /api/trucks/{id}": R.sharedTenancyIdentity,
+    "find GET /api/cars": R.sharedTenancyIdentity,
+    "find GET /api/cars/by_plate_any_tenant": R.sharedTenancyIdentity,
+    "find GET /api/cars/by_plate_all": R.sharedTenancyIdentity,
+    "find GET /api/dispatchers": R.sharedTenancyIdentity,
+    "find GET /api/drivers": R.sharedTenancyIdentity,
+    "find GET /api/drivers/by_name": R.sharedTenancyIdentity,
+    "find GET /api/drivers/by_name_all": R.sharedTenancyIdentity,
+    "find GET /api/organizations": R.sharedTenancyIdentity,
+    "find GET /api/trucks": R.sharedTenancyIdentity,
+    "getById GET /api/dispatchers/{id}": R.sharedTenancyIdentity,
+    "getById GET /api/organizations/{id}": R.sharedTenancyIdentity,
+    "getById GET /api/trucks/{id}": R.sharedTenancyIdentity,
+    "operation POST /api/cars/{id}/restore": R.sharedTenancyIdentity,
+    "operation POST /api/cars/{id}/soft_delete": R.sharedTenancyIdentity,
+    "operation POST /api/cars/{id}/update": R.sharedTenancyIdentity,
+    "operation POST /api/dispatchers/{id}/update": R.sharedTenancyIdentity,
+    "operation POST /api/drivers/{id}/restore": R.sharedTenancyIdentity,
+    "operation POST /api/drivers/{id}/soft_delete": R.sharedTenancyIdentity,
+    "operation POST /api/drivers/{id}/update": R.sharedTenancyIdentity,
+  },
+
+  // `find … ignoring` on both persistence shapes.  The ladder reads every
+  // seeded row back as a FOREIGN tenant — 404 on the by-id and clause-less
+  // finds, ABSENT from the collection, PRESENT under the two bypassing finds —
+  // so these surfaces' refusals are tenant-scoped, which only a second tenant
+  // can observe.
+  "corpus/find-bypass": {
+    "create POST /api/notes": R.sharedTenancyIdentity,
+    "create POST /api/orders": R.sharedTenancyIdentity,
+    "find GET /api/notes": R.sharedTenancyIdentity,
+    "find GET /api/notes/any_tenant_note": R.sharedTenancyIdentity,
+    "find GET /api/notes/unfiltered_note": R.sharedTenancyIdentity,
+    "find GET /api/orders": R.sharedTenancyIdentity,
+    "find GET /api/orders/any_tenant": R.sharedTenancyIdentity,
+    "find GET /api/orders/unfiltered": R.sharedTenancyIdentity,
+    "find GET /api/organizations": R.sharedTenancyIdentity,
+    "getById GET /api/organizations/{id}": R.sharedTenancyIdentity,
+    "operation POST /api/notes/{id}/restore": R.sharedTenancyIdentity,
+    "operation POST /api/notes/{id}/soft_delete": R.sharedTenancyIdentity,
+    "operation POST /api/notes/{id}/update": R.sharedTenancyIdentity,
+    "operation POST /api/orders/{id}/restore": R.sharedTenancyIdentity,
+    "operation POST /api/orders/{id}/soft_delete": R.sharedTenancyIdentity,
+    "operation POST /api/orders/{id}/update": R.sharedTenancyIdentity,
+  },
+
   // ── the showcase example — five `requires` and no runtime caller ─────────
   // `examples/showcase.ddd` is the repo's broadest sample and no runner boots
   // it, so its two guarded operations, two guarded workflow starters and one
@@ -423,5 +480,5 @@ export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   notABehaviouralCase: 11,
   importGateOnly: 1,
   principalFreeGate: 17,
-  sharedTenancyIdentity: 51,
+  sharedTenancyIdentity: 92,
 };

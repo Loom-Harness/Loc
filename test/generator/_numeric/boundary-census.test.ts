@@ -133,7 +133,7 @@ const BACKENDS: BackendCensus[] = [
         file: "src/platform/hono/v4/projection-builder.ts",
         contains: "new Decimal(${cur} ?? 0).${verb}(${value}).toString()",
         reason:
-          "projection-state ACCUMULATE (read-modify-WRITE of persisted state) — not one of the five read boundaries; handed off, see docs/new-plan/waves/handoffs/wave-2-numeric-codec.md",
+          "projection-state ACCUMULATE (read-modify-WRITE of persisted state) — not one of the five read boundaries; handed off, see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-2-numeric-codec.md",
       },
     ],
   },
@@ -297,12 +297,6 @@ const BACKENDS: BackendCensus[] = [
         file: "src/generator/elixir/render-expr.ts",
         contains: '"money.ceil": (recv) => `Decimal.round(${recv}, 0, :ceiling)`,',
         reason: "ExprTarget money.ceil() stdlib intrinsic, not a read boundary",
-      },
-      {
-        file: "src/generator/elixir/heex-walker-core.ts",
-        contains: "Decimal.to_integer(Decimal.round(${v}, 0, :down))",
-        reason:
-          "HEEx walker's int-convert intrinsic (parallels render-expr.ts), not a read boundary",
       },
       {
         file: "src/generator/elixir/liveview-emit.ts",

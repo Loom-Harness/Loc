@@ -61,7 +61,7 @@ describe("aggregate persistedAs (truth kind, D-DOCUMENT-AXIS)", () => {
     // `ids guid` was a single-value no-op; `ids int|long|string` were removed
     // earlier as a footgun. The aggregate id is always a guid Loom mints, so
     // the whole `ids` clause is gone — even `ids guid` no longer parses.
-    // See docs/old/plans/non-guid-id-http-params.md.
+    // See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/non-guid-id-http-params.md.
     for (const kind of ["guid", "int", "long", "string"]) {
       const { errors } = await parse(`
         context T {

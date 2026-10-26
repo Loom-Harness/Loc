@@ -66,10 +66,13 @@ import type {
   EvolutionResult,
   GenerateOk,
   GenerateResult,
+  RecordMigrationResult,
   SnapshotResult,
   VfsEntry,
   VirtualFile,
 } from "./build/protocol";
+import { chainDir, isChainFile } from "./build/chain-files";
+import { utcVersionNow } from "../../src/system/migration-chain.js";
 import { inlineSourcemapArtifacts, overlaySourcemapArtifacts } from "./build/strip-sourcemap";
 import { type Band, correspondenceAt, sourceBands, sourceSpanFor } from "./build/correspondence";
 import { diffGenerated, type OutputDiff } from "./build/output-diff";
@@ -1280,6 +1283,26 @@ export default function App(): JSX.Element {
     mapped: GenerateOk | null;
   }
 
+  /** Chain files (`migrations/*.json`) the build worker received on the last
+   *  generate — what a later generate must delete when the workspace drops
+   *  one. */
+  const pushedChainPathsRef = useRef<Set<string>>(new Set());
+
+  /** The workspace's committed migration chain beside `entryPath`, read from
+   *  the git store's working tree; empty without a store or a chain. */
+  async function readWorkspaceChain(entryPath: string): Promise<VfsEntry[]> {
+    const store = workspace.store;
+    if (!store) return [];
+    const dir = chainDir(entryPath);
+    const out: VfsEntry[] = [];
+    for (const path of await store.list(`${dir}/`)) {
+      if (!isChainFile(dir, path)) continue;
+      const content = await store.readFile(path);
+      if (content != null) out.push({ kind: "file", path, content });
+    }
+    return out;
+  }
+
   async function runGenerateStep(): Promise<GenerateCycle | null> {
     const client = buildClientRef.current;
     if (!client) return null;
@@ -1316,6 +1339,17 @@ export default function App(): JSX.Element {
       entries.push({ kind: "file", path, content });
     }
     entries.push({ kind: "file", path: entryPath, content: sourceRef.current });
+    // The committed migration chain beside the entry rides along, so the
+    // worker renders it the way `ddd generate system` does.  Chain files the
+    // worker holds from an earlier generate but the workspace no longer has
+    // are removed first, or a deleted entry would keep being rendered.
+    const chain = await readWorkspaceChain(entryPath);
+    const stale = [...pushedChainPathsRef.current].filter(
+      (p) => !chain.some((e) => e.path === p),
+    );
+    if (stale.length > 0) await client.vfsDelete(stale);
+    pushedChainPathsRef.current = new Set(chain.map((e) => e.path));
+    entries.push(...chain);
     await client.vfsWrite(entries);
     // The flag-OFF generate — unchanged from before this feature existed,
     // so it's what drives the Files pane / persist, and byte-identical
@@ -1966,14 +2000,7 @@ export default function App(): JSX.Element {
       // (which may be ahead of the persisted mirror).  Mirrors the generate
       // flow's VFS seed (all files, active last) so the diff sees exactly
       // what a generate would.
-      const s = sourcesRef.current.controller.snapshot();
-      const entryPath = s.activePath;
-      const currentFiles: VfsEntry[] = [];
-      for (const [path, content] of s.files) {
-        if (path === entryPath) continue;
-        currentFiles.push({ kind: "file", path, content });
-      }
-      currentFiles.push({ kind: "file", path: entryPath, content: sourceRef.current });
+      const { entryPath, files: currentFiles } = await currentEvolutionTree();
 
       // Baseline = the whole `/workspace` `.ddd` tree at `ref` — `HEAD` (last
       // save) by default, or any commit pinned from the picker / History.
@@ -2003,6 +2030,50 @@ export default function App(): JSX.Element {
     } finally {
       setEvolutionRunning(false);
     }
+  }
+
+  /** The live tree the Migrations tab diffs and records from: every
+   *  workspace `.ddd` source from the controller snapshot, the active file
+   *  carrying the editor's live text (which may be ahead of the persisted
+   *  mirror), plus the committed migration chain beside the entry. */
+  async function currentEvolutionTree(): Promise<{ entryPath: string; files: VfsEntry[] }> {
+    const s = sourcesRef.current.controller.snapshot();
+    const entryPath = s.activePath;
+    const files: VfsEntry[] = [];
+    for (const [path, content] of s.files) {
+      if (path === entryPath) continue;
+      files.push({ kind: "file", path, content });
+    }
+    files.push({ kind: "file", path: entryPath, content: sourceRef.current });
+    files.push(...(await readWorkspaceChain(entryPath)));
+    return { entryPath, files };
+  }
+
+  // Record the live edit's schema changes as the next chain entries — the
+  // playground's `ddd migrate add`.  The worker derives and numbers them
+  // (browser clock, UTC); the files land in the workspace's working tree
+  // like any other edit, then the diff and the generate re-run against the
+  // new head.
+  async function recordMigration(
+    name: string,
+    allowDestructive: boolean,
+  ): Promise<RecordMigrationResult | null> {
+    const client = buildClientRef.current;
+    const store = workspace.store;
+    if (!client || !store) return null;
+    const current = await currentEvolutionTree();
+    const result = await client.recordMigration({
+      current,
+      name,
+      now: utcVersionNow(),
+      allowDestructive,
+    });
+    if (result.ok && result.files.length > 0) {
+      for (const f of result.files) await store.writeFile(f.path, f.content);
+      void runEvolutionDiff(evolutionBaselineRef);
+      void runGenerate();
+    }
+    return result;
   }
 
   // Pin `ref` as the evolution baseline, reveal the Migrations dock tab, and
@@ -2713,6 +2784,7 @@ export default function App(): JSX.Element {
     runFull: (): void => void runFull(),
     runEvolutionDiff: (ref?: string): void => void runEvolutionDiff(ref),
     pinEvolutionBaseline,
+    recordMigration,
     runCaptureSnapshot: (): void => void runCaptureSnapshot(),
     runDownloadZip,
     setCorrespondenceLine,

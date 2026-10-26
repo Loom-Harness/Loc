@@ -32,6 +32,7 @@ import { collectEnums, collectValueObjects } from "./repository-imports-builder.
 import { repoPortImportLine, repoPortName } from "./repository-port-builder.js";
 import { saveMethod } from "./repository-save-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "./repository-wire-builder.js";
+import { tsNotFoundThrow } from "./wire-policy-ts.js";
 
 // ---------------------------------------------------------------------------
 // Generates the TypeScript repository file for an aggregate.
@@ -175,7 +176,7 @@ export function buildRepositoryFile(
     `export class ${agg.name}Repository implements ${repoPortName(agg.name)} {`,
     // Explicit field declarations + constructor assignments, not
     // parameter properties — the latter is non-erasable sugar Node's
-    // type stripping rejects; see docs/old/plans/dap-node-debug.md
+    // type stripping rejects; see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md
     // "Non-erasable syntax" and emit/value-objects.ts's renderValueObject.
     `  private readonly db: Db;`,
     `  private readonly events: DomainEventDispatcher;`,
@@ -298,7 +299,7 @@ function getByIdMethod(
     `  async getById(id: Ids.${agg.name}Id): Promise<${agg.name}> {`,
     ...writeScopeGuardLines(agg, tableName, ctx, drizzleOps),
     `    const found = await this.findById(id);`,
-    `    if (!found) throw new AggregateNotFoundError(\`${agg.name} \${id} not found\`);`,
+    `    if (!found) ${tsNotFoundThrow(agg.name, "id")}`,
     `    return found;`,
     `  }`,
   );

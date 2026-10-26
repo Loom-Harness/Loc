@@ -46,10 +46,10 @@ import {
   type WorkflowCreateDecl,
 } from "../generated/ast.js";
 import {
-  type DddType,
   envForNode,
   isAssignable,
   resolveTypeRef,
+  type Ty,
   typeOf,
   typeToString,
 } from "../type-system.js";
@@ -360,7 +360,7 @@ function checkWorkflow(wf: Workflow, accept: ValidationAcceptor): void {
  *  (`"…"` / integer / `true|false`).  An aggregate / payload / value-object /
  *  decimal / money / datetime result needs a per-backend wire projection the
  *  workflow route does not have yet — refused honestly, not mis-serialised. */
-function isSupportedWorkflowResult(t: DddType): boolean {
+function isSupportedWorkflowResult(t: Ty): boolean {
   if (t.kind === "id") return true;
   return (
     t.kind === "primitive" &&
@@ -547,7 +547,7 @@ function checkEventSourcedDiscipline(agg: Aggregate, accept: ValidationAcceptor)
   // same source with and without `shape: document` generates byte-identical
   // output and `ddd parse --json` reports `errors: 0, warnings: 0`.  Snapshot
   // rehydration in a document/embedded shape is a deferred feature
-  // (docs/new-plan/T2-data-evolution.md) — but a deferral that ACCEPTS the
+  // (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T2-data-evolution.md) — but a deferral that ACCEPTS the
   // syntax and silently emits the OTHER shape is a silent gap, not a deferral,
   // which is exactly the case the sibling `loom.unique-on-event-sourced` gate
   // below already refuses.

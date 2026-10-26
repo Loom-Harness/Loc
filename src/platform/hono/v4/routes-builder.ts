@@ -45,6 +45,7 @@ import {
   canonicalIsoExpr,
 } from "../../../generator/typescript/repository-wire-builder.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
+import { tsNotFoundThrow } from "../../../generator/typescript/wire-policy-ts.js";
 import {
   chainSingleFieldNative,
   openapiLengthMeta,
@@ -53,6 +54,16 @@ import {
   refineClauseFor,
   takeSingleFieldChain,
 } from "../../../generator/zod-refine.js";
+import {
+  errorVariantResponse,
+  FIND_ABSENT_DETAIL,
+  fieldFixedMessage,
+  noneVariantResponse,
+  reasonPhrase,
+  wireFixedDetail,
+  wireStatus,
+  wireTitle,
+} from "../../../ir/enrich/wire-policy.js";
 import {
   createInputFields,
   emitsRestCreate,
@@ -119,12 +130,6 @@ import {
   operationGatesUseCurrentUser,
 } from "../../../ir/util/op-gates.js";
 import {
-  DANGLING_REFERENCE_DETAIL,
-  problemTitle,
-  UNIQUE_CONFLICT_DETAIL,
-  UNPROCESSABLE_ENTITY,
-} from "../../../ir/util/openapi-errors.js";
-import {
   camelId,
   opCreate,
   opDestroy,
@@ -148,14 +153,7 @@ import type {
   ClassifyContext,
   SingleFieldPattern,
 } from "../../../ir/validate/invariant-classify.js";
-import {
-  defaultErrorStatus,
-  errorTitle,
-  errorTypeUri,
-  resolveErrorStatus,
-} from "../../../util/error-defaults.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
-import { INTEGER_RANGE_MESSAGE } from "../../../util/numeric-range.js";
 import { escapeTargetMember } from "../../../util/target-identifiers.js";
 
 // ---------------------------------------------------------------------------
@@ -203,7 +201,7 @@ const DECIMAL_IMPORT_PLACEHOLDER = "/* __LOOM_DECIMAL_IMPORT__ */";
  *  like the generic 500 fallback: it is not part of the operation's declared
  *  error contract (filling the seam in makes it unreachable), so it stays out of
  *  `openapi-errors.ts`'s declared status sets. */
-const NOT_IMPLEMENTED_STATUS = 501;
+const NOT_IMPLEMENTED_STATUS = wireStatus("not-implemented");
 
 /** Transaction wrapper for the audit / provenance history flush.  drizzle:
  *  `db.transaction`; mikroorm: the EntityManager's `db.transactional` (which
@@ -251,13 +249,15 @@ function emitHistoryRoute(
   agg: EnrichedAggregateIR,
   find: FindIR,
   usingMikro: boolean,
-  /** The `httpStatus`-resolved `NotFound` rung.  This route's declared set is
+  /** The context's `httpStatus` overrides.  This route's declared set is
    *  hand-rolled (the history find is `synthesized`, so `deriveContextOperations`
-   *  skips it — see `apiSurfaceCoverage.notLifted`), which is exactly why the
-   *  status has to be passed in rather than left a literal: the runtime answer
-   *  comes from the router's shared `AggregateNotFoundError` arm, which resolves. */
-  notFoundStatus: number,
+   *  skips it — see `apiSurfaceCoverage.notLifted`), so it resolves the
+   *  `forbidden` / `not-found` rungs here: the runtime answer comes from the
+   *  router's shared arms, which resolve the same map. */
+  statuses: Record<string, number> | undefined,
 ): string[] {
+  const notFoundStatus = wireStatus("not-found", statuses);
+  const forbiddenStatus = wireStatus("forbidden", statuses);
   const out: string[] = [];
   const aggSlug = snake(plural(agg.name));
   out.push(`app.openapi(`);
@@ -273,18 +273,18 @@ function emitHistoryRoute(
   );
   if (find.requires) {
     out.push(
-      `      403: { description: "Forbidden", content: { "application/problem+json": { schema: ProblemDetails } } },`,
+      `      ${forbiddenStatus}: { description: ${JSON.stringify(reasonPhrase(forbiddenStatus))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
     );
   }
   out.push(
-    `      ${notFoundStatus}: { description: ${JSON.stringify(httpStatusText(notFoundStatus))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
+    `      ${notFoundStatus}: { description: ${JSON.stringify(reasonPhrase(notFoundStatus))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
   );
   // The `{id}` uuid parse — same wire-validation tier every other `{id}` route
   // declares.  Hand-rolled here (history is `apiSurfaceCoverage.notLifted`),
   // but the SET is `errorStatuses("getById")`, which is literally what the
   // .NET and python history routes render — so it moves with them.
   out.push(
-    `      ${UNPROCESSABLE_ENTITY}: { description: ${JSON.stringify(problemTitle(UNPROCESSABLE_ENTITY))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
+    `      ${wireStatus("field-invalid")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("field-invalid")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
   );
   out.push(`    },`);
   out.push(`  }),`);
@@ -311,9 +311,7 @@ function emitHistoryRoute(
   // message by CALLING `repo.get_by_id` for exactly this reachability probe
   // (`python/routes-builder.ts` historyRoute); Hono probes with `findById`, so
   // it has to spell the message itself.
-  out.push(
-    `    if (!__target) throw new AggregateNotFoundError(\`${agg.name} \${id} not found\`);`,
-  );
+  out.push(`    if (!__target) ${tsNotFoundThrow(agg.name, "id")}`);
   // Fail-closed principal for the mask pass: unauthenticated → null → every
   // masked field's change entry is dropped.  Bound only when there is a mask;
   // otherwise the mapper takes no principal (and the project need not carry an
@@ -373,7 +371,7 @@ function honoPath(entry: ApiOperationIR): string {
  *  (base matrix + when/versioned conflicts + union error arms + the gated
  *  403s), so the route renders it verbatim.  THE UNIFICATION SEAM: the
  *  numbers come from `deriveAggregateOperations`; only the line idiom
- *  (description text via `httpStatusText`, ProblemDetails content) is
+ *  (description text via `reasonPhrase`, ProblemDetails content) is
  *  Hono's. */
 function problemResponseLines(
   entry: ApiOperationIR,
@@ -387,7 +385,7 @@ function problemResponseLines(
     const schema = arms.length
       ? `z.union([ProblemDetails, ${arms.map((a) => a.problemName).join(", ")}])`
       : "ProblemDetails";
-    return `${pad}${s}: { description: ${JSON.stringify(httpStatusText(s))}, content: { "application/problem+json": { schema: ${schema} } } },`;
+    return `${pad}${s}: { description: ${JSON.stringify(reasonPhrase(s))}, content: { "application/problem+json": { schema: ${schema} } } },`;
   });
 }
 
@@ -453,8 +451,8 @@ function emitStaticSubpathMethodGuard(statics: Record<string, string[]>): string
     "      : undefined;",
     "    if (allow && !allow.includes(c.req.method)) {",
     "      return c.body(",
-    "        frameworkProblemBody(405, `method ${c.req.method} is not supported for ${c.req.path}`, c.req.path),",
-    "        405,",
+    `        frameworkProblemBody(${wireStatus("method-not-allowed")}, \`method \${c.req.method} is not supported for \${c.req.path}\`, c.req.path),`,
+    `        ${wireStatus("method-not-allowed")},`,
     '        { "content-type": "application/problem+json", allow: allow.join(", ") },',
     "      );",
     "    }",
@@ -997,7 +995,7 @@ export function buildRoutesFile(
   // `applyServerErrors`).  Imported above so OpenAPI route declarations
   // resolve the same Zod schema instance and the cross-backend wire
   // contract stays byte-identical.  See
-  // docs/old/proposals/validation-error-extension.md.
+  // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md.
   lines.push("");
 
   // The router.  Audited / provenanced aggregates also receive `db` +
@@ -1136,7 +1134,7 @@ export function buildRoutesFile(
     if (emitTrace) {
       // wire_out — outbound payload shape (keys only).  Bound to a const
       // so `c.json` doesn't re-evaluate the payload expression alongside
-      // Object.keys.  See docs/old/proposals/observability.md.
+      // Object.keys.  See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/observability.md.
       lines.push(`      const out = { id: created.id as string };`);
       lines.push(
         `      ${renderHonoLogCall("wireOut", "keys: Object.keys(out as Record<string, unknown>)")}`,
@@ -1216,12 +1214,9 @@ export function buildRoutesFile(
   // one-segment find can; registered here anyway to keep the reads together.
   if (historyFind) {
     lines.push(
-      ...emitHistoryRoute(
-        agg,
-        historyFind,
-        usingMikro,
-        resolveErrorStatus("NotFound", ctx.structuralErrorStatuses),
-      ).map((l) => `  ${l}`),
+      ...emitHistoryRoute(agg, historyFind, usingMikro, ctx.structuralErrorStatuses).map(
+        (l) => `  ${l}`,
+      ),
     );
     lines.push("");
   }
@@ -1269,9 +1264,7 @@ export function buildRoutesFile(
     // what the bypassed producer would have said, which is also what
     // python/java/elixir/.NET emit.  (An OPTIONAL FIND's 404 keeps the
     // `"not_found"` token — that class agrees across backends already.)
-    lines.push(
-      `      if (!found) throw new AggregateNotFoundError(\`${agg.name} \${id} not found\`);`,
-    );
+    lines.push(`      if (!found) ${tsNotFoundThrow(agg.name, "id")}`);
     lines.push(...maskUserBind(agg, "      "));
     // The ETag half of optimistic concurrency (`versioned`).  The update route
     // has always READ `If-Match` — but nothing ever SENT an entity-tag, so the
@@ -1318,10 +1311,7 @@ export function buildRoutesFile(
     // (M-T3.4a) — `ReferencedInUse`, 409 by default; the RUNTIME arm below
     // still resolves it locally, the DECLARED set is the derived one (which
     // resolved the same map), so they can't drift.
-    const referencedInUseStatus = resolveErrorStatus(
-      "ReferencedInUse",
-      ctx.structuralErrorStatuses,
-    );
+    const referencedInUseStatus = wireStatus("referenced-in-use", ctx.structuralErrorStatuses);
     lines.push(`  app.openapi(`);
     lines.push(`    createRoute({`);
     lines.push(`      method: "${derivedDestroy.method}",`);
@@ -1426,7 +1416,7 @@ export function buildRoutesFile(
       `        if (err && typeof err === "object" && ${referencedSqlstates}.includes(((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) as string)) {`,
     );
     lines.push(
-      `          return c.body(JSON.stringify({ type: "about:blank", title: ${JSON.stringify(httpStatusText(referencedInUseStatus))}, status: ${referencedInUseStatus}, detail: "${agg.name} is still referenced and cannot be deleted.", instance: c.req.path }), ${referencedInUseStatus}, { "content-type": "application/problem+json" });`,
+      `          return c.body(JSON.stringify({ type: "about:blank", title: ${JSON.stringify(wireTitle("referenced-in-use", ctx.structuralErrorStatuses))}, status: ${referencedInUseStatus}, detail: "${agg.name} is still referenced and cannot be deleted.", instance: c.req.path }), ${referencedInUseStatus}, { "content-type": "application/problem+json" });`,
     );
     lines.push(`        }`);
     lines.push(`        throw err;`);
@@ -1481,9 +1471,9 @@ export function buildRoutesFile(
   // `problem` helper's status union widens to the set actually used — with no
   // override every value is 409, so the union stays `400 | 403 | 404 | 409 | 500`
   // (byte-identical); an override adds its code.
-  const disallowedStatus = resolveErrorStatus("Disallowed", ctx.structuralErrorStatuses);
-  const uniquenessStatus = resolveErrorStatus("UniquenessConflict", ctx.structuralErrorStatuses);
-  const concurrencyStatus = resolveErrorStatus("ConcurrencyConflict", ctx.structuralErrorStatuses);
+  const disallowedStatus = wireStatus("state-gate", ctx.structuralErrorStatuses);
+  const uniquenessStatus = wireStatus("unique-conflict", ctx.structuralErrorStatuses);
+  const concurrencyStatus = wireStatus("version-conflict", ctx.structuralErrorStatuses);
   // The domain floor and the `requires` denial resolve through the api's
   // `httpStatus` map exactly like the structural conflicts above; the defaults
   // are the 422 / 403 literals. `denialOverridesFor`-equivalent merge: neither
@@ -1492,13 +1482,13 @@ export function buildRoutesFile(
   // are read — `errorStatusOverrides` for a directly-declared name,
   // `structuralErrorStatuses` for the app-wide fold M-T5.20 widened to carry
   // every mapped name, not just the four structural conflicts.
-  const domainStatus = resolveErrorStatus("DomainError", ctx.structuralErrorStatuses);
-  const forbiddenStatus = resolveErrorStatus("Forbidden", ctx.structuralErrorStatuses);
+  const domainStatus = wireStatus("domain-floor", ctx.structuralErrorStatuses);
+  const forbiddenStatus = wireStatus("forbidden", ctx.structuralErrorStatuses);
   // The domain NOT-FOUND rung — the last literal of the ladder (M-T5.20 final
   // slice).  Resolved here and read by BOTH the `AggregateNotFoundError` arm
   // below and the declared response sets, which come off the shared
   // `errorStatuses` table and now resolve the same name.
-  const notFoundStatus = resolveErrorStatus("NotFound", ctx.structuralErrorStatuses);
+  const notFoundStatus = wireStatus("not-found", ctx.structuralErrorStatuses);
   // The status literals this router's `problem()` helper is actually called
   // with — the always-present base set plus each structural-conflict status
   // whose arm is emitted (gated exactly as the arms below). With no override
@@ -1507,7 +1497,7 @@ export function buildRoutesFile(
     forbiddenStatus,
     notFoundStatus,
     domainStatus,
-    500,
+    wireStatus("internal"),
     disallowedStatus,
   ]);
   if ((agg.uniqueKeys?.length ?? 0) > 0) emittedProblemStatuses.add(uniquenessStatus);
@@ -1553,7 +1543,7 @@ export function buildRoutesFile(
   // `err.detail`, not `err.message` (ruling D4, #20): the log line above keeps
   // the gate's source text; the body echoes it only under the dev-stub verifier.
   lines.push(
-    `      return problem(${forbiddenStatus}, ${JSON.stringify(problemTitle(forbiddenStatus))}, err.detail);`,
+    `      return problem(${forbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail);`,
   );
   lines.push(`    }`);
   lines.push(`    if (err instanceof DisallowedError) {`);
@@ -1561,7 +1551,9 @@ export function buildRoutesFile(
     `      ${renderHonoLogCall("disallowed", `aggregate: "${agg.name}", message: err.message, status: ${disallowedStatus}`)}`,
   );
   lines.push(`      recordDomainFault("disallowed");`);
-  lines.push(`      return problem(${disallowedStatus}, "Disallowed", err.message);`);
+  lines.push(
+    `      return problem(${disallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message);`,
+  );
   lines.push(`    }`);
   lines.push(`    if (err instanceof DomainError) {`);
   lines.push(
@@ -1569,7 +1561,7 @@ export function buildRoutesFile(
   );
   lines.push(`      recordDomainFault("domain_error");`);
   lines.push(
-    `      return ${domainFloorAnswer(hasDomainFloorAnswer(ctx), domainStatus, problemTitle(domainStatus), `problem(${domainStatus}, ${JSON.stringify(problemTitle(domainStatus))}, err.message)`)};`,
+    `      return ${domainFloorAnswer(hasDomainFloorAnswer(ctx), domainStatus, wireTitle("domain-floor", ctx.structuralErrorStatuses), `problem(${domainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message)`)};`,
   );
   lines.push(`    }`);
   lines.push(`    if (err instanceof AggregateNotFoundError) {`);
@@ -1578,7 +1570,7 @@ export function buildRoutesFile(
   );
   lines.push(`      recordDomainFault("not_found");`);
   lines.push(
-    `      return problem(${notFoundStatus}, ${JSON.stringify(problemTitle(notFoundStatus))}, err.message);`,
+    `      return problem(${notFoundStatus}, ${JSON.stringify(wireTitle("not-found", ctx.structuralErrorStatuses))}, err.message);`,
   );
   lines.push(`    }`);
   // PG foreign_key_violation (SQLSTATE 23503) reaching the SHARED onError is the
@@ -1600,11 +1592,11 @@ export function buildRoutesFile(
       `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === ${JSON.stringify(PG_FOREIGN_KEY_VIOLATION)})) {`,
     );
     lines.push(
-      `      ${renderHonoLogCall("domainError", `aggregate: "${agg.name}", message: ${JSON.stringify(DANGLING_REFERENCE_DETAIL)}, status: ${domainStatus}`)}`,
+      `      ${renderHonoLogCall("domainError", `aggregate: "${agg.name}", message: ${JSON.stringify(wireFixedDetail("dangling-reference"))}, status: ${domainStatus}`)}`,
     );
     lines.push(`      recordDomainFault("domain_error");`);
     lines.push(
-      `      return problem(${domainStatus}, ${JSON.stringify(problemTitle(domainStatus))}, ${JSON.stringify(DANGLING_REFERENCE_DETAIL)});`,
+      `      return problem(${domainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, ${JSON.stringify(wireFixedDetail("dangling-reference"))});`,
     );
     lines.push(`    }`);
   }
@@ -1628,7 +1620,7 @@ export function buildRoutesFile(
     );
     lines.push(`      recordDomainFault("disallowed");`);
     lines.push(
-      `      return problem(${uniquenessStatus}, "Conflict", ${JSON.stringify(UNIQUE_CONFLICT_DETAIL)});`,
+      `      return problem(${uniquenessStatus}, ${JSON.stringify(wireTitle("unique-conflict"))}, ${JSON.stringify(wireFixedDetail("unique-conflict"))});`,
     );
     lines.push(`    }`);
   }
@@ -1648,7 +1640,9 @@ export function buildRoutesFile(
       `      ${renderHonoLogCall("conflict", `aggregate: "${agg.name}", message: err.message, status: ${concurrencyStatus}`)}`,
     );
     lines.push(`      recordDomainFault("conflict");`);
-    lines.push(`      return problem(${concurrencyStatus}, "Conflict", err.message);`);
+    lines.push(
+      `      return problem(${concurrencyStatus}, ${JSON.stringify(wireTitle("version-conflict"))}, err.message);`,
+    );
     lines.push(`    }`);
   }
   // An `extern` operation whose scaffold-once body is still the generated stub.
@@ -1662,7 +1656,9 @@ export function buildRoutesFile(
     lines.push(
       `      ${renderHonoLogCall("internalError", `error: err.message, status: ${NOT_IMPLEMENTED_STATUS}`)}`,
     );
-    lines.push(`      return problem(${NOT_IMPLEMENTED_STATUS}, "Not Implemented", err.message);`);
+    lines.push(
+      `      return problem(${NOT_IMPLEMENTED_STATUS}, ${JSON.stringify(wireTitle("not-implemented"))}, err.message);`,
+    );
     lines.push(`    }`);
   }
   lines.push(`    if (err instanceof ExternHandlerError) {`);
@@ -1672,7 +1668,9 @@ export function buildRoutesFile(
   // RS-28 — sanitized.  The log call above already carries aggregate + op +
   // the inner message for the operator; the wire gets the same "internal" every
   // other 500 arm sends, on every backend.
-  lines.push(`      return problem(500, "Internal Server Error", "internal");`);
+  lines.push(
+    `      return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))});`,
+  );
   lines.push(`    }`);
   // FRAMEWORK fault, not a domain one — hono raises `HTTPException` for the
   // faults it detects itself (a malformed JSON body is the common one, at
@@ -1687,9 +1685,11 @@ export function buildRoutesFile(
   );
   lines.push(`    }`);
   lines.push(
-    `    ${renderHonoLogCall("internalError", "error: err instanceof Error ? err.message : String(err), status: 500")}`,
+    `    ${renderHonoLogCall("internalError", `error: err instanceof Error ? err.message : String(err), status: ${wireStatus("internal")}`)}`,
   );
-  lines.push(`    return problem(500, "Internal Server Error", "internal");`);
+  lines.push(
+    `    return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))});`,
+  );
   lines.push(`  });`);
   lines.push("");
   lines.push(`  return app;`);
@@ -2120,7 +2120,7 @@ function emitOperationRoute(
     out.push(`    const aggregate = await repo.getById(Ids.${agg.name}Id(id));`);
     if (isVersionedUpdate) {
       // `If-Match` carries the client's expected version
-      // (docs/old/plans/optimistic-concurrency-versioned.md /
+      // (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/optimistic-concurrency-versioned.md /
       // updatePreconditions); absent header falls back to the version just
       // loaded, so an unaware client still gets a coherent guarded write.
       //
@@ -2168,16 +2168,6 @@ function isErrorVariant(v: TypeIR, ctx: BoundedContextIR): boolean {
   return ctx.payloads.some((p) => p.name === v.name && p.kind === "error");
 }
 
-/** RFC reason phrase for the HTTP statuses a route can emit — used for the
- *  OpenAPI response `description`.
- *
- *  This was a SECOND copy of the shared `problemTitle` table (identical entry
- *  for entry, same `"Error"` fallback), so a status added to the shared one
- *  silently described itself as `"Error"` here — which is how the newly
- *  declared 415 first surfaced.  Delegating removes the drift: one table, five
- *  backends, and Hono's own routes agreeing with it. */
-const httpStatusText = problemTitle;
-
 /** The exception-less operation route (`operation foo(): X or NotFound`).  Calls
  *  the aggregate method (which now returns its tagged `or`-union), saves, then
  *  translates: an `error`-variant result → an RFC-7807 ProblemDetails (404 in
@@ -2215,7 +2205,7 @@ function emitReturningOperationRoute(
   // The HTTP status an error variant maps to: the api's `httpStatus` override
   // for this context (exception-less.md A1) if present, else the stdlib default.
   const statusFor = (tag: string): number =>
-    ctx.errorStatusOverrides?.[tag] ?? defaultErrorStatus(tag);
+    errorVariantResponse(tag, ctx.errorStatusOverrides).status;
   const out: string[] = [];
   out.push(`app.openapi(`);
   out.push(`  createRoute({`);
@@ -2304,7 +2294,7 @@ function emitReturningOperationRoute(
     const status = statusFor(tag);
     out.push(`    if (result.type === ${JSON.stringify(tag)}) {`);
     out.push(
-      `      return c.json({ ...result, type: ${JSON.stringify(errorTypeUri(tag))}, title: ${JSON.stringify(errorTitle(tag))}, status: ${status}, detail: ${JSON.stringify(errorTitle(tag))}, instance: c.req.path }, ${status}, { "content-type": "application/problem+json" });`,
+      `      return c.json({ ...result, type: ${JSON.stringify(errorVariantResponse(tag).type)}, title: ${JSON.stringify(errorVariantResponse(tag).title)}, status: ${status}, detail: ${JSON.stringify(errorVariantResponse(tag).detail)}, instance: c.req.path }, ${status}, { "content-type": "application/problem+json" });`,
     );
     out.push(`    }`);
   }
@@ -2385,9 +2375,8 @@ function emitFindRoute(
   const unionSpec = findUnionSpec(find.returnType, agg.name, ctx);
   const unionAbsentStatus = unionSpec
     ? unionSpec.absent.kind === "none"
-      ? 404
-      : (ctx.errorStatusOverrides?.[unionSpec.absent.tag] ??
-        defaultErrorStatus(unionSpec.absent.tag))
+      ? noneVariantResponse().status
+      : errorVariantResponse(unionSpec.absent.tag, ctx.errorStatusOverrides).status
     : undefined;
   // The derived declared set — the gated 403 and the absence status (the
   // union-absent's httpStatus-resolved one included), sorted.  The unionSpec
@@ -2449,16 +2438,18 @@ function emitFindRoute(
     // becomes an RFC-7807 ProblemDetails at its mapped status (title/type from
     // the stdlib defaults), carrying `resource: "<Agg>"` when declared.
     if (unionSpec.absent.kind === "none") {
-      out.push(`    if (result == null) throw new AggregateNotFoundError("not_found");`);
+      out.push(
+        `    if (result == null) throw new AggregateNotFoundError(${JSON.stringify(FIND_ABSENT_DETAIL)});`,
+      );
     } else {
       const tag = unionSpec.absent.tag;
-      const st = unionAbsentStatus ?? defaultErrorStatus(tag);
+      const st = unionAbsentStatus ?? errorVariantResponse(tag).status;
       const resourceExt = unionSpec.absent.hasResource
         ? `resource: ${JSON.stringify(agg.name)}, `
         : "";
       out.push(`    if (result == null) {`);
       out.push(
-        `      return c.json({ ${resourceExt}type: ${JSON.stringify(errorTypeUri(tag))}, title: ${JSON.stringify(errorTitle(tag))}, status: ${st}, detail: ${JSON.stringify(errorTitle(tag))}, instance: c.req.path }, ${st}, { "content-type": "application/problem+json" });`,
+        `      return c.json({ ${resourceExt}type: ${JSON.stringify(errorVariantResponse(tag).type)}, title: ${JSON.stringify(errorVariantResponse(tag).title)}, status: ${st}, detail: ${JSON.stringify(errorVariantResponse(tag).detail)}, instance: c.req.path }, ${st}, { "content-type": "application/problem+json" });`,
       );
       out.push(`    }`);
     }
@@ -2476,7 +2467,9 @@ function emitFindRoute(
       `    return c.json(result.map((r) => ${wireResp(agg, "repo", "r")}) as z.infer<typeof ${agg.name}Response>[], 200);`,
     );
   } else if (find.returnType.kind === "optional") {
-    out.push(`    if (result == null) throw new AggregateNotFoundError("not_found");`);
+    out.push(
+      `    if (result == null) throw new AggregateNotFoundError(${JSON.stringify(FIND_ABSENT_DETAIL)});`,
+    );
     if (emitTrace) {
       out.push(`    const wire = ${wireResp(agg, "repo", "result")};`);
       out.push(
@@ -2700,7 +2693,7 @@ const PLAIN_STRING_BASE = "z.string()";
  *  zod's own text, which is both framework-worded and zod-major-specific
  *  ("Too big: expected number to be <=…" on 4, "Number must be less than or
  *  equal to …" on 3). */
-const INT32_RANGE = `.min(${INT32_MIN}, ${JSON.stringify(INTEGER_RANGE_MESSAGE)}).max(${INT32_MAX}, ${JSON.stringify(INTEGER_RANGE_MESSAGE)})`;
+const INT32_RANGE = `.min(${INT32_MIN}, ${JSON.stringify(fieldFixedMessage("integer-range"))}).max(${INT32_MAX}, ${JSON.stringify(fieldFixedMessage("integer-range"))})`;
 /** `long`'s enforced-but-unpublished safe-integer bound — see the block comment
  *  above.  A `.refine` is invisible to the OpenAPI emitter, so the published
  *  shape stays the plain integer every other backend publishes while this
@@ -2728,7 +2721,7 @@ const QUERY_PRIMITIVE: Record<WirePrimitive, string> = {
   File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
 };
 
-const BODY_PRIMITIVE: Record<WirePrimitive, string> = {
+export const BODY_PRIMITIVE: Record<WirePrimitive, string> = {
   int: `z.number().int()${INT32}`,
   long: `z.number().int()${LONG_SAFE}`,
   decimal: "z.number()",

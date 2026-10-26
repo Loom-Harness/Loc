@@ -2,7 +2,7 @@
 // mailer (smtp → Swoosh) adapter alongside a state store, so
 // `mix compile --warnings-as-errors` covers the emitted Swoosh mailer
 // module + the `swoosh`/`gen_smtp` hex deps.  See
-// docs/old/proposals/email-resource-kind.md (M-T4.6).
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/email-resource-kind.md (M-T4.6).
 system Notify {
   subdomain Sales {
     context Orders {

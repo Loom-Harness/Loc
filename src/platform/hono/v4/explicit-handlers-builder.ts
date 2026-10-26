@@ -1,4 +1,10 @@
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
+import {
+  reasonPhrase,
+  wireFixedDetail,
+  wireStatus,
+  wireTitle,
+} from "../../../ir/enrich/wire-policy.js";
 
 // ---------------------------------------------------------------------------
 // Explicit application/transport layer → Hono emission
@@ -76,7 +82,6 @@ import {
   aggregatesNeedConcurrency,
 } from "../../../ir/util/aggregate-flags.js";
 import { normalizeHandlerReturn, requestRecordFor } from "../../../ir/util/handler-contracts.js";
-import { problemTitle, UNIQUE_CONFLICT_DETAIL } from "../../../ir/util/openapi-errors.js";
 import {
   pagedRunFindName,
   pagedRunGates,
@@ -91,7 +96,6 @@ import {
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
 import { walkExprDeep, walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
-import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { escapeTsIdent, lowerFirst, plural, snake } from "../../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
 import { emitWireSchema, QUERY_BOOL, wireToDomainExpr, zodFor } from "./routes-builder.js";
@@ -244,11 +248,11 @@ function emitPagedRunHandler(
     `      200: { description: "OK", content: { "application/json": { schema: z.unknown() } } },`,
   );
   out.push(
-    `      400: { description: "Bad Request", content: { "application/problem+json": { schema: ProblemDetails } } },`,
+    `      ${wireStatus("malformed-body")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("malformed-body")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
   );
   out.push(
-    `      ${resolveErrorStatus("NotFound", ctx.structuralErrorStatuses)}: { description: ${JSON.stringify(
-      problemTitle(resolveErrorStatus("NotFound", ctx.structuralErrorStatuses)),
+    `      ${wireStatus("not-found", ctx.structuralErrorStatuses)}: { description: ${JSON.stringify(
+      wireTitle("not-found", ctx.structuralErrorStatuses),
     )}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
   );
   out.push(`    },`);
@@ -404,11 +408,11 @@ function emitRouteHandler(
     out.push(`      204: { description: "No content" },`);
   }
   out.push(
-    `      400: { description: "Bad Request", content: { "application/problem+json": { schema: ProblemDetails } } },`,
+    `      ${wireStatus("malformed-body")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("malformed-body")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
   );
   out.push(
-    `      ${resolveErrorStatus("NotFound", ctx.structuralErrorStatuses)}: { description: ${JSON.stringify(
-      problemTitle(resolveErrorStatus("NotFound", ctx.structuralErrorStatuses)),
+    `      ${wireStatus("not-found", ctx.structuralErrorStatuses)}: { description: ${JSON.stringify(
+      wireTitle("not-found", ctx.structuralErrorStatuses),
     )}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
   );
   // 415 only where there IS a body to refuse — declared under exactly the
@@ -416,7 +420,7 @@ function emitRouteHandler(
   // so the declared set stays in ascending status order.
   if (bodySlots.length > 0) {
     out.push(
-      `      415: { description: ${JSON.stringify(problemTitle(415))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
+      `      ${wireStatus("unsupported-media-type")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("unsupported-media-type")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
     );
   }
   out.push(`    },`);
@@ -694,8 +698,8 @@ export function buildExplicitRoutesFile(
   // possibly several contexts; every context carries the SAME app-wide fold, so
   // the first one is representative. Defaults 422 / 403 ⇒ byte-identical.
   const structuralMap = contexts[0]?.structuralErrorStatuses;
-  const exDomainStatus = resolveErrorStatus("DomainError", structuralMap);
-  const exForbiddenStatus = resolveErrorStatus("Forbidden", structuralMap);
+  const exDomainStatus = wireStatus("domain-floor", structuralMap);
+  const exForbiddenStatus = wireStatus("forbidden", structuralMap);
   // ── the CONFLICT rungs (M-T6.28) ──────────────────────────────────────
   // This router is a WRITE path (`POST /api/place` — an extern `commandHandler`
   // that loads an aggregate, invokes an operation and `save`s it), and its
@@ -714,20 +718,20 @@ export function buildExplicitRoutesFile(
   const exAggregates = contexts.flatMap((c) => c.aggregates);
   const exNeedsConcurrency = aggregatesNeedConcurrency(exAggregates);
   const exHasUniqueKeys = aggregatesHaveUniqueKeys(exAggregates);
-  const exDisallowedStatus = resolveErrorStatus("Disallowed", structuralMap);
-  const exUniquenessStatus = resolveErrorStatus("UniquenessConflict", structuralMap);
-  const exConcurrencyStatus = resolveErrorStatus("ConcurrencyConflict", structuralMap);
+  const exDisallowedStatus = wireStatus("state-gate", structuralMap);
+  const exUniquenessStatus = wireStatus("unique-conflict", structuralMap);
+  const exConcurrencyStatus = wireStatus("version-conflict", structuralMap);
   // The domain not-found rung — an extern/explicit handler that loads by id
   // raises the same `AggregateNotFoundError` the aggregate routes do, so it
   // must answer the same `httpStatus`-resolved status.
-  const exNotFoundStatus = resolveErrorStatus("NotFound", structuralMap);
+  const exNotFoundStatus = wireStatus("not-found", structuralMap);
   const exStatuses = new Set<number>([
-    400,
+    wireStatus("malformed-body"),
     exForbiddenStatus,
     exNotFoundStatus,
-    422,
+    wireStatus("field-invalid"),
     exDomainStatus,
-    500,
+    wireStatus("internal"),
     exDisallowedStatus,
   ]);
   if (exHasUniqueKeys) exStatuses.add(exUniquenessStatus);
@@ -739,7 +743,7 @@ export function buildExplicitRoutesFile(
   body.push(
     // Ruling D4 (#20): the gate's source text goes to the `forbidden` log line;
     // the body carries `err.detail` (echoed only under the dev-stub verifier).
-    `    if (err instanceof ForbiddenError) { ${renderHonoLogCall("forbidden", `message: err.message, status: ${exForbiddenStatus}`)} return problem(${exForbiddenStatus}, ${JSON.stringify(problemTitle(exForbiddenStatus))}, err.detail); }`,
+    `    if (err instanceof ForbiddenError) { ${renderHonoLogCall("forbidden", `message: err.message, status: ${exForbiddenStatus}`)} return problem(${exForbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", structuralMap))}, err.detail); }`,
   );
   body.push(
     // The state-gate rung.  Ordered before `DomainError` exactly as in the
@@ -749,25 +753,25 @@ export function buildExplicitRoutesFile(
     // this arm answers that refusal — plus any `DisallowedError` a user-authored
     // extern impl raises.  (Before M-T6.38 the gate was route-only, so a write
     // driven from here landed unrefused.)
-    `    if (err instanceof DisallowedError) return problem(${exDisallowedStatus}, "Disallowed", err.message);`,
+    `    if (err instanceof DisallowedError) return problem(${exDisallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message);`,
   );
   body.push(
-    `    if (err instanceof DomainError) return ${domainFloorAnswer(contexts.some(hasDomainFloorAnswer), exDomainStatus, problemTitle(exDomainStatus), `problem(${exDomainStatus}, ${JSON.stringify(problemTitle(exDomainStatus))}, err.message)`)};`,
+    `    if (err instanceof DomainError) return ${domainFloorAnswer(contexts.some(hasDomainFloorAnswer), exDomainStatus, wireTitle("domain-floor", structuralMap), `problem(${exDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", structuralMap))}, err.message)`)};`,
   );
   body.push(
-    `    if (err instanceof AggregateNotFoundError) return problem(${exNotFoundStatus}, ${JSON.stringify(problemTitle(exNotFoundStatus))}, err.message);`,
+    `    if (err instanceof AggregateNotFoundError) return problem(${exNotFoundStatus}, ${JSON.stringify(wireTitle("not-found", structuralMap))}, err.message);`,
   );
   if (exHasUniqueKeys) {
     body.push(
       // PG unique_violation — drizzle wraps the driver error, so the SQLSTATE
       // rides `err.cause` under v5 and `err` under older drizzle; read both, as
       // the aggregate router does.
-      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505")) return problem(${exUniquenessStatus}, "Conflict", ${JSON.stringify(UNIQUE_CONFLICT_DETAIL)});`,
+      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505")) return problem(${exUniquenessStatus}, ${JSON.stringify(wireTitle("unique-conflict"))}, ${JSON.stringify(wireFixedDetail("unique-conflict"))});`,
     );
   }
   if (exNeedsConcurrency) {
     body.push(
-      `    if (err instanceof ConcurrencyError) return problem(${exConcurrencyStatus}, "Conflict", err.message);`,
+      `    if (err instanceof ConcurrencyError) return problem(${exConcurrencyStatus}, ${JSON.stringify(wireTitle("version-conflict"))}, err.message);`,
     );
   }
   body.push(
@@ -775,7 +779,7 @@ export function buildExplicitRoutesFile(
     // interpolates the INNER exception the user handler threw — driver text,
     // URLs, connection strings — into a public body.  op + aggregate already
     // reach the operator via the `extern_handler_threw` catalog event.
-    `    if (err instanceof ExternHandlerError) { console.error(err); return problem(500, "Internal Server Error", "internal"); }`,
+    `    if (err instanceof ExternHandlerError) { console.error(err); return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))}); }`,
   );
   body.push(
     // FRAMEWORK fault, not a domain one — hono raises `HTTPException` for the
@@ -785,7 +789,9 @@ export function buildExplicitRoutesFile(
     `    if (err instanceof HTTPException) { ${renderHonoLogCall("clientError", "error: err.message, status: err.status")} return c.body(frameworkProblemBody(err.status, err.message, c.req.path), err.status, { "content-type": "application/problem+json", "x-request-id": trace_id }); }`,
   );
   body.push(`    console.error(err);`);
-  body.push(`    return problem(500, "Internal Server Error", "internal");`);
+  body.push(
+    `    return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))});`,
+  );
   body.push(`  });`);
   body.push("");
   body.push(`  return app;`);

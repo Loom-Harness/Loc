@@ -13,7 +13,7 @@
 //   2. `confirmReduce` + `canConfirm`: the arm → confirm / cancel state
 //      machine, including the type-to-confirm gate.
 //
-// Audit H8 (`docs/audits/playground-ux-review-2026-09.md` §3.2): seven native
+// Audit H8 (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/playground-ux-review-2026-09.md` §3.2): seven native
 // dialogs, three destructive actions with no confirm at all, and a confirm on
 // the one cosmetic action (layout reset).  Mission M-T8.17 slice 1.
 // ---------------------------------------------------------------------------

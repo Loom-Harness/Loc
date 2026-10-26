@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 //
 // THE RULE IS BUMP-TO-GROW, NOT ONLY-FALLS.  A hard "may only fall" ceiling
 // was rejected on evidence: of the 42 scenarios duplicated across target dirs,
-// 39 have no corpus fixture (docs/audits/verification-architecture-2026-08-31.md
+// 39 have no corpus fixture (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/verification-architecture-2026-08-31.md
 // §5), so their string tests are the ONLY gate they have.  A ceiling that
 // forces a deletion per addition would delete those — the tier shrinks and the
 // coverage goes with it.  The tier is reduced by PROMOTION instead (a corpus
@@ -89,7 +89,7 @@ const CEILINGS: Record<string, number> = {
   _workflow: 200,
   angular: 1000,
   dotnet: 2500, // 2300 → 2500 (#3249): the EF identity-parity pins assert the emitted C# (tracker fork, 409 path) per leg
-  elixir: 3400,
+  elixir: 3500, // the Ecto delta-migration pins assert the emitted create/rename/key-move per step; runtime proof is migration-evolution-elixir
   "elixir-vanilla": 500,
   feliz: 1500,
   flutter: 1200,

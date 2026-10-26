@@ -129,6 +129,14 @@ export interface RenderedVariantMatch {
  * across backends and handled directly in `renderExprWith`.
  */
 export interface ExprTarget<Ctx extends ExprCtxBase> {
+  /** Optional whole-node override, consulted before the kind dispatch at EVERY
+   *  node (including nested ones).  Returns the rendered text, or `undefined`
+   *  to fall through to the leaves.  For a target whose node rendering needs
+   *  the raw node and its own context-dependent recursion (the HEEx page
+   *  walker: hoisted lambdas, position-dependent refs, markup-vs-term
+   *  children) while still sharing the structural arms with the other
+   *  Elixir targets. */
+  intercept?(e: ExprIR, ctx: Ctx): string | undefined;
   /** Escape and quote a `.ddd`-authored string for this backend's own
    *  double-quoted string-literal syntax — the escape-funnel seam every site
    *  that splices author text into generated source is meant to reach
@@ -247,6 +255,8 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
   t: ExprTarget<Ctx>,
   ctx: Ctx,
 ): string {
+  const intercepted = t.intercept?.(e, ctx);
+  if (intercepted !== undefined) return intercepted;
   const r = (x: ExprIR): string => renderExprWith(x, t, ctx);
   switch (e.kind) {
     case "literal":
@@ -612,7 +622,7 @@ export function refuseOutOfVocabulary(mode: QueryEmissionMode, what: string): ne
 
 // ---------------------------------------------------------------------------
 // Span-tracking emission — the marks-carrying twin of `renderExprWith`
-// (docs/old/plans/span-tracking-emission.md).
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/span-tracking-emission.md).
 //
 // LEVEL-WISE ANCHORING: `renderExprWith` already renders every child via its
 // local `r` BEFORE handing the child STRINGS to the leaf method, so the

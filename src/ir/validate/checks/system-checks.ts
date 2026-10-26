@@ -53,7 +53,6 @@ export {
   validateFieldMask,
   validateInheritanceStorage,
   validateProvenancedStorage,
-  validateTphFilterExpressibility,
 } from "./storage-inheritance-checks.js";
 export {
   validateChannelWiring,
@@ -62,18 +61,15 @@ export {
   validateSystem,
 } from "./system-compose-channel-checks.js";
 export {
-  CHART_FRAMEWORKS,
   PROJECTION_READ_FRAMEWORKS,
   validateAuthUiFramework,
-  validateChartSupport,
   validateComponentChildrenSupport,
   validateCurrentUserNeedsAuthUi,
-  validateDataGridFramework,
   validateFlutterActionBodies,
   validateFlutterPrimitiveSupport,
   validateFormLocalCollisions,
   validateFrontendPropTypes,
-  validateHeexComponentHostState,
+  validateLambdaParamTypes,
   validateLiveViewHoisting,
   validatePageGateExprs,
   validateUiBodyStatementKinds,

@@ -1,0 +1,56 @@
+// The polymorphic base read (`GET /api/<bases>`, docs/inheritance.md), on
+// both layouts, with a restriction on the base AND on every subtype.
+//
+// `polymorphic-read.mjs` boots this, creates rows of every subtype — some of
+// them filtered by the base's restriction, some by their own subtype's — and
+// asserts the base read answers exactly the visible rows, each tagged with its
+// subtype, in ONE global order and paged globally.  The emitted DSL `test e2e`
+// cannot express it: the abstract base has no `api.<bases>` accessor.
+
+system PolymorphicRead {
+  subdomain Fleet {
+    context Fleet {
+      // TPH: one shared `vehicles` table, discriminated by `kind`.
+      abstract aggregate Vehicle inheritanceUsing: sharedTable {
+        name: string
+        capacity: int
+        filter this.capacity > 0
+      }
+      aggregate Car extends Vehicle with crudish {
+        doors: int
+        filter this.doors > 0
+      }
+      aggregate Truck extends Vehicle with crudish {
+        payloadKg: int
+        filter this.payloadKg < 10000
+      }
+      repository Cars for Car { }
+      repository Trucks for Truck { }
+
+      // TPC: one table per concrete, no base table.
+      abstract aggregate Party inheritanceUsing: ownTable {
+        name: string
+      }
+      aggregate Person extends Party with crudish {
+        age: int
+        filter this.age > 0
+      }
+      aggregate Company extends Party with crudish {
+        employees: int
+        filter this.employees < 100
+      }
+      repository People for Person { }
+      repository Companies for Company { }
+    }
+  }
+
+  storage primary { type: postgres }
+  resource fleetState { for: Fleet, kind: state, use: primary }
+
+  deployable api {
+    platform: node
+    contexts: [Fleet]
+    dataSources: [fleetState]
+    port: 3000
+  }
+}

@@ -1,5 +1,5 @@
 // Domain `test "..."` blocks → ExUnit emission (Phoenix/Elixir parity, F1 of
-// docs/audits/test-parity-generated-backends.md).
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/test-parity-generated-backends.md).
 //
 // The two foundations diverge because their domain models do:
 //   * VANILLA emits a pure domain core on the aggregate (`create/1` via
@@ -153,7 +153,9 @@ system G {
     const vo = findFile(files, /van_api\/lib\/van_api\/selling\/money\.ex$/);
     expect(vo).toContain("defmodule VanApi.Selling.Money do");
     expect(vo).toContain("@types %{amount: :decimal, currency: :string}");
-    expect(vo).toContain("|> validate_number(:amount, greater_than_or_equal_to: 0)");
+    expect(vo).toContain(
+      '|> validate_number(:amount, greater_than_or_equal_to: 0, message: "Amount must be at least 0")',
+    );
     expect(vo).toContain("def new(attrs) when is_map(attrs) do");
     expect(vo).toContain("apply_action(changeset(attrs), :insert)");
     // The aggregate create/update path runs the VO constructor over the price

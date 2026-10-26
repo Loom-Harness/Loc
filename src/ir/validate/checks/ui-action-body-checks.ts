@@ -260,7 +260,7 @@ const EFFECT_STMT_TOKEN: Record<string, string> = {
  *  body (`onClick: e => { count := count + 1 }`).  Named actions
  *  (named-actions-and-stores.md) are the only home for an effect; this makes the
  *  language uniform (one effect-handler form) and, for the MVU/Elmish study
- *  (`docs/old/proposals/fable-elmish-frontend.md` §8), keeps the `Model → Html` view
+ *  (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/fable-elmish-frontend.md` §8), keeps the `Model → Html` view
  *  pure so `Msg`/`update` project straight off the `ActionIR` list.  Fires only
  *  through `checkBody`'s `lambda` arm — an `action` body is walked via
  *  `checkActionBodies` and never reaches here, so effects there are untouched.

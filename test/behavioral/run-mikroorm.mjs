@@ -40,6 +40,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, resetDatabase, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
 import { optInTestReset, stopServer, waitForPort, waitForPortFree } from "./proc.mjs";
+import { makeCaseLoop } from "./case-loop.mjs";
 import { makeWireGate, recorderPreamble } from "./wire-differential.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
 
@@ -341,7 +342,7 @@ const only = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 // the api tier gates here: the unit tier is pure-domain (persistence-independent)
 // and already covered by run.mjs.  A case that emits no `test e2e` suite is
 // skipped (nothing for the api tier to dispatch).
-const allCases = [...(await featureCases("node", "node", WORK)), ...sharedSystemCases("node")];
+const allCases = [...(await featureCases("node", "node", WORK, "mikroorm")), ...sharedSystemCases("node")];
 const corpus = allCases.filter((c) => only.length === 0 || only.includes(c.name));
 
 // Ratchet on the register itself: a MIKRO_SKIP key that names no COLLECTED case
@@ -377,48 +378,18 @@ if (active.some((c) => /\n\s*auth\s*\{/.test(c.source))) {
   oidc = await startMockIssuer();
 }
 
-let pass = 0;
-let fail = 0;
-/** Ladder rungs this system's auth flavour cannot express — NOT `skipped`,
- *  which above is the list of whole cases MIKRO_SKIP holds back. */
-let skippedRungs = 0;
-let errored = 0;
 // Cross-backend runtime wire differential (M-T9.11).  The persistence adapter
 // must not change the WIRE: this leg is byte-compared against the SAME
 // canonical golden the default-adapter legs are, so an adapter that serializes
 // a decimal/absence/enum differently fails here, per-PR.
 const wire = makeWireGate("mikroorm", WORK);
+const loop = makeCaseLoop("mikroorm", wire);
 for (const c of active) {
-  process.stdout.write(`\n▶ ${c.name}  [mikroorm → ${BASE}]\n`);
-  let out;
-  try {
-    out = await runCase(c);
-  } catch (err) {
-    errored++;
-    process.stdout.write(`  ERROR booting/running: ${err?.message ?? err}\n`);
-    continue;
-  }
-  for (const r of out.results) {
-    // `skip` is a THIRD outcome, not a quiet pass and not a failure — see the
-    // authz ladder's unavailable rungs.
-    if (r.status === "skip") {
-      skippedRungs++;
-      process.stdout.write(`  ○ [${r.tier ?? "api"}] ${r.name}\n`);
-      continue;
-    }
-    const ok = r.status === "pass";
-    ok ? pass++ : fail++;
-    process.stdout.write(`  ${ok ? "✓" : "✗"} [${r.tier ?? "api"}] ${r.name}\n`);
-    if (!ok && r.error) process.stdout.write(`      ${String(r.error).split("\n")[0]}\n`);
-  }
-  // Unit-only cases record no wire (the early return above) — keep them out
-  // of the differential instead of gating an empty recording on a golden.
-  if (declaresE2e(c.source)) await wire.check(c.name, out.wire, out.results);
+  await loop.run(c, runCase, { header: `mikroorm → ${BASE}`, compareWire: declaresE2e(c.source) });
 }
 
 await oidc?.stop();
 
 const wireBad = await wire.finish();
 
-process.stdout.write(`\n${pass} passed, ${fail} failed${skippedRungs ? `, ${skippedRungs} skipped` : ""}${errored ? `, ${errored} cases errored` : ""}\n`);
-process.exit(fail > 0 || errored > 0 || wireBad > 0 ? 1 : 0);
+process.exit(loop.finish(wireBad));

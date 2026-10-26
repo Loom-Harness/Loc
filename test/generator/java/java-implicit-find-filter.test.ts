@@ -3,7 +3,7 @@
 // argument.  Java must filter by that implicit key match on every persistence
 // shape — a JPA `@Query` with no `where` returns some other row with a 200 on a
 // miss (and a non-unique 500 once two rows exist), validating clean, compiling,
-// and passing `gradle test` (docs/audits/2026-10-04-testability-reaudit.md, N2).
+// and passing `gradle test` (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-10-04-testability-reaudit.md, N2).
 //
 // The pairing rule is the one every backend shares (`implicitFindMatches`):
 // same-named field, or the field whose `<field>Id` spelling the param is.

@@ -39,6 +39,7 @@ import {
   DEMO_TENANT_ID,
   demoTenantClaim,
 } from "../ir/util/demo-tenant.js";
+import { assertLoomModelVerifies } from "../ir/verify/verify-ir.js";
 import type { Model } from "../language/generated/ast.js";
 import { platformFor } from "../platform/registry.js";
 import { hasAdapters, resolveLayout, resolveStyle } from "../platform/resolve-adapters.js";
@@ -68,11 +69,8 @@ import {
   MigrationDriftError,
   unrecordedMigrations,
 } from "./migration-chain.js";
-import {
-  buildMigrations,
-  type MigrationDelta,
-  type MigrationWarning,
-} from "./migrations-builder.js";
+import { migrationIntents } from "./migration-diff.js";
+import { buildMigrations, type MigrationWarning } from "./migrations-builder.js";
 import { renderSystemReadme } from "./readme.js";
 import { renderSmap } from "./smap.js";
 import { memorySnapshotStore } from "./snapshot.js";
@@ -120,6 +118,11 @@ export interface SystemEmission {
 
 export interface GenerateSystemOptions {
   emitTrace?: boolean;
+  /** Run the IR verifier (`verifyLoomModel`) over the enriched model before any
+   *  emission and throw on a violation.  Off by default: a violation is a bug in
+   *  lowering/enrichment, never in the `.ddd`, so the check is a self-test of the
+   *  compiler (the CLI `--verify-ir` flag), not part of normal generation. */
+  verifyIr?: boolean;
   /** When true, additionally emit a Helm chart (`helm/`) and the raw
    *  manifests it renders to (`k8s/`) ALONGSIDE the always-present
    *  `docker-compose.yml`.  Opt-in (the CLI `--k8s` flag); off keeps the
@@ -136,7 +139,7 @@ export interface GenerateSystemOptions {
    *  `.loom/sourcemap.json` mapping generated file regions back to the
    *  `.ddd` spans (or macro-call sites) that produced them.  Off by
    *  default so byte-identical output is preserved for every existing
-   *  fixture/gate.  See docs/old/plans/source-map-debug-kickoff.md. */
+   *  fixture/gate.  See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/source-map-debug-kickoff.md. */
   sourcemap?: boolean;
   /** `.ddd` source text for every path an `OriginRef` can resolve to
    *  (`SourceRef.path` — a Langium `URI.path`), keyed the same way.  Feeds
@@ -150,7 +153,7 @@ export interface GenerateSystemOptions {
    *  browser-safe (no `fs`), so the CLI/playground supply the text; a
    *  mapped file with no entry here is skipped (no sidecar), never guessed.
    *  No effect unless `sourcemap` is also true.  See
-   *  docs/old/proposals/source-map-and-debugging.md §8. */
+   *  https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/source-map-and-debugging.md §8. */
   sourceTexts?: ReadonlyMap<string, string>;
   /** Inline each `.ddd`'s FULL text into every Source Map v3 sidecar as
    *  `sourcesContent`.  OFF by default: one sidecar per generated file, each
@@ -196,6 +199,7 @@ export function generateSystemsFromLoom(
   loom: EnrichedLoomModel,
   options: GenerateSystemOptions = {},
 ): SystemEmission {
+  if (options.verifyIr) assertLoomModelVerifies(loom, "generateSystemsFromLoom");
   const out = emissionSink("system/index");
   // One recorder for the whole model — systems share one flat output map
   // (same pattern as traceability below), so a single recorder's paths
@@ -361,7 +365,7 @@ function emitSystem(
   // sibling of docker-compose.yml, `--sourcemap`-gated.  Each surface owns
   // its own naming (assembly / main-class FQN); the system layer only
   // collects the results in deployable order.  See
-  // docs/old/plans/dap-node-debug.md and src/system/launch-config.ts.
+  // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md and src/system/launch-config.ts.
   if (options.sourcemap) {
     const debugConfigs = sys.deployables
       .map((d) =>
@@ -392,7 +396,7 @@ function emitSystem(
   // Source-language (English) i18n message catalog — every user-visible string
   // extracted from the system's UIs, keyed by content-hash (D-I18N-KEY).  The
   // diff surface `ddd i18n sync` merges each locale against.  See
-  // `i18n-catalog.ts` and docs/old/proposals/i18n.md.
+  // `i18n-catalog.ts` and https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/i18n.md.
   out.set(".loom/messages.en.json", renderMessageCatalog(sys));
   // Mermaid views of the IR — a domain class diagram and a per-workflow
   // call flowchart.  The playground previews them inline; GitHub renders
@@ -657,32 +661,7 @@ function emitDeployable(
   out.copyFrom(files, `${sub}/`);
 }
 
-/** The schema changes `loom` has made since `chain`'s head — one delta per
- *  owning module of every system, empty where nothing changed.  What
- *  `ddd migrate add` records, and what `generate system` refuses to render
- *  past.  Pure: the caller reads the chain and writes the entries. */
-export function pendingMigrations(
-  loom: EnrichedLoomModel,
-  chain: MigrationChain,
-  options: { allowDestructive?: boolean; warnings?: MigrationWarning[] } = {},
-): MigrationDelta[] {
-  return loom.systems.flatMap((sys) =>
-    buildMigrations(sys, headSnapshots(chain), {
-      ...migrationIntents(loom),
-      allowDestructive: options.allowDestructive,
-      warnings: options.warnings,
-    }),
-  );
-}
-
-function migrationIntents(loom: EnrichedLoomModel) {
-  return {
-    renameIntents: loom.renameIntents,
-    tableRenameIntents: loom.tableRenameIntents,
-    backfillIntents: loom.backfillIntents,
-    sqlSteps: loom.sqlMigrationSteps,
-  };
-}
+export { pendingMigrations } from "./migration-diff.js";
 
 /** The migrations every backend renders for `sys`.  With a committed chain:
  *  the whole chain, after checking the model has not moved past its head.

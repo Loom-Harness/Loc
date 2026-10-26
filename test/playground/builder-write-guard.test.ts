@@ -16,7 +16,7 @@ import { renameByAstType } from "../../web/src/builder/system-v2/rename-extra.js
 // already broken — all landed in the editor, handing the user a file they never
 // typed and which the builders then refuse to reopen (they gate on
 // `parserErrors`).  Audit defect #12,
-// `docs/audits/playground-file-mgmt-review-2026-07.md`.
+// `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/playground-file-mgmt-review-2026-07.md`.
 //
 // The rule these pin: a write-back re-parses its candidate and returns null
 // rather than committing.  Every call site already treats null as "nothing

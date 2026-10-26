@@ -11,19 +11,19 @@
 //
 //   1. Which cells are held up by GENERATION ALONE?  A cell that emits and is
 //      never compiled or booted is the silent-gap surface — the class
-//      `docs/audits/quality-audit-2026-08.md` §3 measures as found by episodic
+//      `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/quality-audit-2026-08.md` §3 measures as found by episodic
 //      audit (~58%) rather than by a gate.  Joining the registers turns that
 //      sweep into a per-PR check.
 //   2. Which cells are covered by something STRONGER than a string assertion?
 //      That is the deletion authority for the string-tier drain
-//      (`docs/audits/verification-architecture-2026-08-31.md` §2): a per-target
+//      (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/verification-architecture-2026-08-31.md` §2): a per-target
 //      `toContain` test may be deleted when — and only when — its cell is named
 //      here at `compile` or `behavioural`, because then a stronger gate already
 //      watches the same cell.  Nothing is deleted on judgement.
 //
 // IT ADDS NO REGISTER OF ITS OWN.  Every fact below is READ from the register
 // that already owns it; this module holds a join and no data.  That is
-// deliberate: `docs/audits/gated-features-inventory.md` is the cautionary tale
+// deliberate: `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/gated-features-inventory.md` is the cautionary tale
 // — a hand-maintained matrix of the same shape, now carrying three "Superseded"
 // banners and still cited.  A derived ledger cannot rot, and it fails the day a
 // register moves out from under it.
@@ -32,7 +32,12 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { BEHAVIOURAL_SKIP, declaresE2e, hasBehaviouralBlock } from "../behavioral/registers.mjs";
+import {
+  BEHAVIOURAL_SKIP,
+  declaresE2e,
+  expectedFailure,
+  hasBehaviouralBlock,
+} from "../behavioral/registers.mjs";
 import { BACKENDS, type Backend, PLATFORM_CLAUSE } from "../fixtures/corpus/backends.js";
 import { corpusSource } from "../fixtures/corpus/harness.js";
 import { CORPUS } from "../fixtures/corpus/manifest.js";
@@ -124,6 +129,10 @@ export interface Cell {
   readonly declaresE2e: boolean;
   /** A committed `wire-golden/<feature>.json` exists to compare against. */
   readonly golden: boolean;
+  /** The backend's default-adapter leg boots this cell as a TRACKED expected
+   *  failure (`BEHAVIOURAL_XFAIL`) — booted, known wrong, and ratcheted by its
+   *  own entry rather than signed off in `BEHAVIOURAL_ABSENT`. */
+  readonly expectedFailure: boolean;
   /** Boots, and — where it declares e2e — is compared against a reviewed
    *  answer key.  Both halves matter: a wire recording with nothing to compare
    *  against is the "silently-off gate" `registers.mjs` names. */
@@ -137,7 +146,9 @@ export interface Ledger {
   readonly generateOnly: readonly Cell[];
   /** Cells that compile but are never booted — string tests here still carry
    *  runtime-behaviour claims nothing else checks, so they are the cells the
-   *  drain must NOT touch and the behavioural tier should reach next. */
+   *  drain must NOT touch and the behavioural tier should reach next.  An
+   *  expected-failure cell is not one of them: it is booted, and its own
+   *  register entry is what accounts for it. */
   readonly compileOnly: readonly Cell[];
   /** Backends with no compile leg registered at all. */
   readonly backendsWithoutCompileLeg: readonly Backend[];
@@ -149,6 +160,15 @@ const goldenExists = (feature: string): boolean =>
 
 const skipSetFor = (clause: string): Record<string, string> =>
   (BEHAVIOURAL_SKIP as Record<string, Record<string, string>>)[clause] ?? {};
+
+/** The default-adapter runner leg of each backend (the `BEHAVIOURAL_XFAIL` key). */
+const DEFAULT_LEG: Record<Backend, string> = {
+  node: "node",
+  dotnet: "dotnet",
+  java: "java",
+  python: "python",
+  vanilla: "elixir",
+};
 
 /** Join the registers into one per-cell view.  Pure apart from the reads. */
 export function buildGateLedger(): Ledger {
@@ -173,7 +193,8 @@ export function buildGateLedger(): Ledger {
       if (!f.backends.includes(b)) continue;
       const compiles = skips.has(b) && !skips.get(b)?.has(f.id);
       const boots = hasBlock && !(f.id in skipSetFor(PLATFORM_CLAUSE[b]));
-      const behavioural = boots && (!e2e || golden);
+      const xfail = boots && expectedFailure(DEFAULT_LEG[b], f.id) !== null;
+      const behavioural = boots && !xfail && (!e2e || golden);
       const strongest: Tier = behavioural ? "behavioural" : compiles ? "compile" : "generate";
       cells.push({
         feature: f.id,
@@ -183,6 +204,7 @@ export function buildGateLedger(): Ledger {
         boots,
         declaresE2e: e2e,
         golden,
+        expectedFailure: xfail,
         behavioural,
         strongest,
       });
@@ -195,7 +217,7 @@ export function buildGateLedger(): Ledger {
   return {
     cells,
     generateOnly: cells.filter((c) => c.strongest === "generate"),
-    compileOnly: cells.filter((c) => c.strongest === "compile"),
+    compileOnly: cells.filter((c) => c.strongest === "compile" && !c.expectedFailure),
     backendsWithoutCompileLeg: noLeg,
     counts,
   };

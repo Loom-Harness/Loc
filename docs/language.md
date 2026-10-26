@@ -230,7 +230,7 @@ Rules:
 
 See [`tools.md`](tools.md) for the CLI side; the original design
 rationale (stages, work items, deferred cross-context features) is
-preserved at [`plans/multi-file-source.md`](old/plans/multi-file-source.md).
+preserved at [`plans/multi-file-source.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-file-source.md).
 
 ### Inside a `system`
 
@@ -373,7 +373,7 @@ non-guid primary key, so declaring one produced an app that collided on the
 second insert), and the no-op `ids guid` spelling was removed with the rest of
 the header normalization (M-T5.17). `aggregate Order ids guid { … }` is a
 parse error; write `aggregate Order { … }`. See
-[`docs/old/plans/non-guid-id-http-params.md`](old/plans/non-guid-id-http-params.md).
+[`docs/old/plans/non-guid-id-http-params.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/non-guid-id-http-params.md).
 
 #### Reference collections — `X id[]`
 
@@ -391,12 +391,13 @@ No grammar keyword switches it on — any aggregate field whose type is
 `X id[]` is a reference collection.  **Semantically it is a set of
 references**: the same target appears at most once per owner (the join
 table's composite `(owner_id, target_id)` primary key enforces this),
-and **iteration order is not part of the contract** — different
-backends may return the list in different orders, even across reads
-of the same row.  If a position is part of the domain (e.g. a battle
-slot number where slot 1 attacks first), model it as a separate
-ordinal field on a dedicated child aggregate rather than relying on
-list order.
+and **no position is stored** — the join table has no ordinal column.
+Every backend reads the list back sorted by target id, so the order is
+stable across reads and backends, but it is an id order, not one the
+domain chose: a `+=` lands wherever its id sorts.  If a position is
+part of the domain (e.g. a battle slot number where slot 1 attacks
+first), model it as a separate ordinal field on a dedicated child
+aggregate rather than relying on list order.
 
 Mutate the collection from operations with `+=` / `-=`:
 
@@ -613,7 +614,7 @@ Storage emission ships on **node, .NET, Python, Java, and Phoenix** (plain
 Ecto/Phoenix): an event-sourced aggregate persists to an append-only
 `<agg>_events` table, constructs and mutates through emitted events, and
 rehydrates by folding the stream on load. See `generators.md` for the
-per-backend matrix and `docs/old/proposals/workflow-and-applier.md` for the roadmap.
+per-backend matrix and [`docs/old/proposals/workflow-and-applier.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/workflow-and-applier.md) for the roadmap.
 
 #### Provenanced fields
 
@@ -940,7 +941,7 @@ It maps to Postgres `JSONB` (Drizzle `jsonb`, EF `System.Text.Json.JsonElement`,
 Ecto `:map`), TS `unknown`, Zod `z.unknown()`, and a freeform `object`
 in the OpenAPI/wire spec (a leaf — never expanded or structurally
 diffed).  Reach for a `valueobject` instead when the shape is known.
-See [`document-and-json-hierarchies.md`](old/proposals/document-and-json-hierarchies.md)
+See [`document-and-json-hierarchies.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/document-and-json-hierarchies.md)
 (D-DOCUMENT-AXIS).
 
 A bare `Identifier` in type position must resolve to one of:
@@ -1168,7 +1169,7 @@ Current prelude:
 The full library — the ambient prelude, the Layer-0 scalar intrinsics, and the
 collection operations — is catalogued in [`stdlib.md`](stdlib.md) (generated from
 the registries). The set grows over subsequent stdlib slices; see
-`docs/old/plans/stdlib.md` → Phase C.
+[`docs/old/plans/stdlib.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md) → Phase C.
 
 ---
 
@@ -1255,7 +1256,7 @@ get label(): string { return "Order #" + String(this._quantity) + " for " + this
   type (a `date` on anything but a `datetime` or `date`, a `time` on a
   non-`datetime`, a `number` on a non-numeric, a `select`
   on a non-string/enum) is `loom.interp-hole-type`.  These drive the i18n
-  string catalog — see [`new-plan/archive/T1-done.md`](new-plan/archive/T1-done.md) § M-T1.11.
+  string catalog — see [`new-plan/archive/T1-done.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/archive/T1-done.md) § M-T1.11.
   **Formats only render in a `ui` page slot** (on the JS/TS frontends; LiveView
   drops the number/date formatting — `D-HEEX-I18N-FORMAT`).  In backend domain code (a
   `derived`, `function` or `operation` body) every backend renders a formatted
@@ -1425,6 +1426,7 @@ decimal`.
 | `coll -= value` | Remove from a contained collection. |
 | `emit EventName { field: expr, … }` | Raise a domain event; drained by the repository on `save`. |
 | `let name = Expression` | Local binding for the rest of the body. |
+| `let name: Type = Expression` | The same, with a declared type: the value must fit it (a bare literal promotes, a narrower number widens). |
 | `helperName(args)` / `this.op(args)` | Call a helper `function` or `private operation` of the same aggregate (`loom.call-arg-count` / `loom.call-arg-type`). |
 | `return Expression` | The designed-in outcome of an operation / handler declared with an `or`-union return type — an `error` variant maps to a ProblemDetails status, a success variant to 200.  See [`payloads.md`](payloads.md).  Also the result of a workflow `create(…): T` — last top-level statement only, answered as the `POST`'s 200 body (`loom.workflow-return-*`; [`workflow.md`](workflow.md#returning-a-result--createt)). |
 | `match subject { Variant [b] => { … }, else => { … } }` | Statement-form variant match — arms run statements (state writes, `navigate(...)`) rather than yield a value.  In a page `action`, `match await Agg.op(...) { Ok r => …, Err e => … }` is how a remote command is awaited and its Result handled — a remote mutating call *without* the marker is `loom.missing-effect-marker`; `loom.match-await*` gates the awaited call's shape ([`actions.md`](actions.md)). |
@@ -1800,7 +1802,7 @@ body those methods cannot carry).  An aggregate verb always wins, so a
 context whose name slugs like an aggregate changes no existing call.
 
 The projection verbs read a folded `projection`'s read model (see
-[`projection.md`](old/proposals/projection.md)), so a `test e2e` can
+[`projection.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/projection.md)), so a `test e2e` can
 assert the state an operation's events fold into (drive an operation,
 then `byKey` the row and `expect` its columns).
 

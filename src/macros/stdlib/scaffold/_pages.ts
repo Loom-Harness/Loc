@@ -44,7 +44,7 @@ function firstApiHandle(ui: Ui): string | undefined {
  *  scoped to the area, and the `area` is authoritative for `emitPath`
  *  (`src/pages/orders/list.tsx`).  The emitted component / module identifiers
  *  are the aggregate-qualified `OrderList` form via `pageEmitName`.  See
- *  docs/old/proposals/unfoldable-page-scaffolding.md. */
+ *  https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/unfoldable-page-scaffolding.md. */
 export function areaForAggregate(agg: Aggregate, ui: Ui): Area {
   return area(plural(agg.name), pagesForAggregate(agg, ui));
 }

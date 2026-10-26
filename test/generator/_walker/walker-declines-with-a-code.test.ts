@@ -136,7 +136,7 @@ async function refusedCodes(name: string): Promise<readonly string[]> {
 
 /** The primitives that REACH the walker on a given target: start from the
  *  target-independent set, then drop whatever that target's own phase-⑦ gates
- *  refuse (`loom.datagrid-unsupported-target` on flutter / phoenixLiveView is
+ *  refuse (`loom.target-unsupported#datagrid` on flutter / phoenixLiveView is
  *  the live example).  A fixpoint over the combined body rather than 58 more
  *  single-primitive validations — same answer, a fraction of the cost.
  *

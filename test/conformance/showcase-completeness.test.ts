@@ -105,7 +105,7 @@ const ALLOWLIST = new Set<string>([
   // Tenancy is covered by its dedicated corpus fixtures
   // (test/fixtures/corpus/tenancy-owned.ddd + tenancy-filter.ddd) instead.
   // Tenancy-izing the showcase is a deliberate follow-up, not a drive-by
-  // (docs/old/plans/multi-tenancy-implementation.md).
+  // (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-tenancy-implementation.md).
   "TenancyDecl",
   // Folded projections (materialized read models folded from events) now emit
   // on ALL FIVE backends — read-model row schema, migration, pure `on(e){…}`
@@ -268,7 +268,7 @@ const SHOWCASE_EXCLUDED_PRIMITIVES: ReadonlySet<string> = new Set([
   // Remove this entry if/when Feliz and Flutter gain a DataGrid.
   "DataGrid",
   // Chart (M-T1.3 Phase 4) — excluded for BOTH reasons at once.  It ships on
-  // react + mantine@v9 only (`loom.chart-unsupported-target` staged rollout),
+  // react + mantine@v9 only (`loom.target-unsupported#chart` staged rollout),
   // so the cross-frontend fixture can't carry one; and its `of:` requires a
   // readable GROUPED projection served by a backend, while `showcase.ddd`'s
   // `Console` ui is the frontend-only render-matrix fixture.  Covered by its

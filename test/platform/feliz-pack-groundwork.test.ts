@@ -43,7 +43,7 @@ describe("feliz pack format groundwork", () => {
     // same drop as Angular).  Unlike Angular, Feliz keeps `primitive-modal`.
     // `primitive-chart` is TSX-ONLY (M-T1.3 Phase 5): each react pack binds its
     // own charting library, and no feliz pack ships a chart template — `Chart`
-    // stays an honest `loom.chart-unsupported-target` gap here.
+    // stays an honest `loom.target-unsupported#chart` gap here.
     tsx.delete("primitive-chart");
     for (const name of tsx) {
       // The TSX form-pipeline surface has no procedural analogue: Feliz builds

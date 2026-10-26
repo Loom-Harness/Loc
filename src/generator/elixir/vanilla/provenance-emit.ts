@@ -15,26 +15,19 @@
 //   - `<App>.Provenance.Record` — the append-only history schema, mirroring the
 //     Hono `provenance_records` Drizzle table / the .NET `ProvenanceRecord` EF
 //     entity column-for-column (governance stamps included).
-//   - An extra migration (`…_create_provenance.exs`, a high timestamp so it
-//     sorts after every module's initial migration) that adds the co-located
-//     `<field>_provenance` jsonb columns + creates `provenance_records`.
+//
+// The DDL — the co-located `<field>_provenance` jsonb columns and the
+// `provenance_records` table — is ordinary MigrationsIR, rendered by
+// `elixir/migrations-emit.ts` with every other step.
 //
 // The per-write capture (the trace buffer push + the co-located column
 // `put_change`) is wired by `operation-returns-emit.ts` / `context-emit.ts`;
 // this module owns the shared runtime + history table.
 // ---------------------------------------------------------------------------
 
-import type {
-  AggregateIR,
-  BoundedContextIR,
-  EnrichedAggregateIR,
-  ExprIR,
-  FieldIR,
-  SystemIR,
-} from "../../../ir/types/loom-ir.js";
+import type { AggregateIR, BoundedContextIR, ExprIR, FieldIR } from "../../../ir/types/loom-ir.js";
 import { type ProvStmt, stmtHasProv } from "../../../ir/util/prov-id.js";
-import { resolveDataSourceConfig } from "../../../ir/util/resolve-datasource.js";
-import { plural, snake } from "../../../util/naming.js";
+import { snake } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { collectLeaves, type ProvLeaf } from "../../_stmt/leaves.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
@@ -45,63 +38,30 @@ export function provenancedFieldsOf(agg: AggregateIR): FieldIR[] {
   return agg.fields.filter((f) => f.provenanced);
 }
 
-/** Every provenanced aggregate across the given contexts, with the Postgres
- *  schema its state table lives in (so the migration ALTER TABLE targets the
- *  right `<schema>.<table>`, not `public`).  `schema` is undefined for the
- *  default (`public`) schema. */
-export function provenancedAggregates(
-  contexts: BoundedContextIR[],
-  sys?: SystemIR,
-): Array<{ agg: AggregateIR; fields: FieldIR[]; schema?: string }> {
-  const out: Array<{ agg: AggregateIR; fields: FieldIR[]; schema?: string }> = [];
-  for (const ctx of contexts) {
-    for (const agg of ctx.aggregates) {
-      const fields = provenancedFieldsOf(agg);
-      if (fields.length === 0) continue;
-      const schema = sys
-        ? resolveDataSourceConfig(agg as EnrichedAggregateIR, ctx, sys)?.schema
-        : undefined;
-      out.push({ agg, fields, schema });
-    }
-  }
-  return out;
-}
-
 /** True iff any aggregate in the given contexts declares a `provenanced`
- *  field — gates the whole runtime (helper module + migration + capture). */
+ *  field — gates the whole runtime (helper module + capture). */
 export function contextsHaveProvenanced(contexts: BoundedContextIR[]): boolean {
-  return provenancedAggregates(contexts).length > 0;
+  return contexts.some((ctx) => ctx.aggregates.some((agg) => provenancedFieldsOf(agg).length > 0));
 }
 
 /** Snake-cased name of the co-located backing column for a provenanced field
- *  (`total` → `total_provenance`).  Shared by the schema, the op-body capture,
- *  the persist `put_change`, and the migration so all four agree. */
+ *  (`total` → `total_provenance`).  Shared by the schema, the op-body capture
+ *  and the persist `put_change`, so all three agree with the column
+ *  `withLineageColumns` (migrations-builder.ts) derives. */
 export function provColumn(fieldName: string): string {
   return `${snake(fieldName)}_provenance`;
 }
 
-// A timestamp far in the future so this migration sorts after every module's
-// initial + delta migrations (parity with the .NET `29991231235959` provenance
-// migration), regardless of how many modules the system has.
-const PROVENANCE_MIGRATION_VERSION = "29991231000000";
-
-/** Emit the provenance runtime + migration when any provenanced field exists.
- *  No-op otherwise (keeps non-provenance projects byte-identical). */
+/** Emit the provenance runtime when any provenanced field exists.  No-op
+ *  otherwise (keeps non-provenance projects byte-identical). */
 export function emitVanillaProvenance(
   appName: string,
   appModule: string,
   contexts: BoundedContextIR[],
   out: Map<string, string>,
-  sys?: SystemIR,
 ): void {
-  const provAggs = provenancedAggregates(contexts, sys);
-  if (provAggs.length === 0) return;
-  const appSnake = appName;
-  out.set(`lib/${appSnake}/provenance.ex`, renderProvenanceModule(appModule));
-  out.set(
-    `priv/repo/migrations/${PROVENANCE_MIGRATION_VERSION}_create_provenance.exs`,
-    renderProvenanceMigration(appModule, provAggs),
-  );
+  if (!contextsHaveProvenanced(contexts)) return;
+  out.set(`lib/${appName}/provenance.ex`, renderProvenanceModule(appModule));
 }
 
 /** `<App>.Provenance` + the nested `Json` type + `Record` schema. */
@@ -216,34 +176,6 @@ defmodule ${appModule}.Provenance do
     end
 
     :ok
-  end
-end
-`;
-}
-
-/** The ALTER TABLE (co-located columns) migration — each ALTER carries the
- *  owning aggregate's `prefix:` so it targets the right schema.  The
- *  `provenance_records` history table is NOT created here: it is a shared
- *  MigrationsIR companion table (`provenanceTableShape`), rendered by
- *  `elixir/migrations-emit.ts` like the outbox and the audit log — and skipped
- *  in that emitter's `timestamps()` bundling, since the flush inserts plain
- *  maps and a NOT NULL `inserted_at` would reject every provenanced write. */
-function renderProvenanceMigration(
-  appModule: string,
-  provAggs: Array<{ agg: AggregateIR; fields: FieldIR[]; schema?: string }>,
-): string {
-  const alters = provAggs.map(({ agg, fields, schema }) => {
-    const table = snake(plural(agg.name));
-    const prefix = schema ? `, prefix: ${JSON.stringify(schema)}` : "";
-    const cols = fields.map((f) => `      add :${provColumn(f.name)}, :map`).join("\n");
-    return `    alter table(:${table}${prefix}) do\n${cols}\n    end`;
-  });
-
-  return `defmodule ${appModule}.Repo.Migrations.CreateProvenance do
-  use Ecto.Migration
-
-  def change do
-${alters.join("\n\n")}
   end
 end
 `;

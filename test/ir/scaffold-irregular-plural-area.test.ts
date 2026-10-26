@@ -3,7 +3,7 @@
 // consumes — so a scaffolded page's area matches the classifier's expectation
 // for IRREGULAR plurals.
 //
-// From `docs/audits/repo-code-review-2026-07.md` C3: the scaffold macro carried
+// From `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/repo-code-review-2026-07.md` C3: the scaffold macro carried
 // hand-copied `plural`/`snake` helpers that had drifted from `util/naming`
 // (`Box` → `Boxs` instead of `Boxes`, no `x/z/ch/sh` rule; `Day` → `Daies`
 // instead of `Days`; no consecutive-capitals rule for `APIKey`).  Because

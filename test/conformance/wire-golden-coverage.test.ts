@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   BEHAVIOURAL_SKIP,
   declaresE2e,
+  expectedFailure,
   GOLDEN_OPT_OUT,
   goldenPath,
   hasBehaviouralBlock,
@@ -98,7 +99,12 @@ const exampleCasesRun = (
   .filter(runsSomewhere);
 
 const recorded = [...featureCasesRun, ...sharedCasesRun, ...exampleCasesRun].sort();
-const required = recorded.filter((name) => !optedOut.has(name));
+// A case the node ORACLE is a tracked expected failure on has no answer key to
+// capture yet (goldens are captured from node); its `BEHAVIOURAL_XFAIL` entry
+// fails the node leg the day it passes, and the golden lands with that fix.
+const required = recorded.filter(
+  (name) => !optedOut.has(name) && expectedFailure("node", name) === null,
+);
 
 describe("wire-golden coverage — every recorded case has an answer key", () => {
   it("the tier records a non-trivial number of cases (non-vacuity)", () => {

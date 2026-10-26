@@ -1,6 +1,6 @@
 // `policy { deny [write] on <Aggregate> }` — the DENY-WINS carve-out
 // (authorization Phase 4, docs/auth.md; design record in
-// docs/old/plans/authorization-phase4-deny.md).
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/authorization-phase4-deny.md).
 //
 // Deny is ALL-OR-NOTHING at the aggregate — no level word — and, unlike the
 // `allow` read ladder, it is NOT restricted to tenant-owned aggregates.  The

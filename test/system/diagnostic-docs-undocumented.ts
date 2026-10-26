@@ -1,6 +1,6 @@
 // The `loom.*` codes with NO language-reference anchor yet (minted by M-T8.18,
 // now done; the drain of this list is owned by M-T8.26 —
-// docs/new-plan/T8-dx-tooling-ai.md).
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T8-dx-tooling-ai.md).
 //
 // A RATCHET, pinned by `test/system/diagnostic-docs-anchors.test.ts`: the
 // list may only shrink.  Documenting a code means adding it to
@@ -71,7 +71,6 @@ export const UNDOCUMENTED_CODES: readonly string[] = [
   "loom.dapper-unsupported",
   "loom.datagrid-selection-not-array",
   "loom.datagrid-selection-not-state",
-  "loom.datagrid-unsupported-target",
   "loom.datasource-knob-unwired",
   "loom.datasource-unused",
   "loom.deployable-channel-unrelated",
@@ -139,7 +138,6 @@ export const UNDOCUMENTED_CODES: readonly string[] = [
   "loom.handler-load-nullable-unsupported",
   "loom.handler-missing-body",
   "loom.handler-param-reserved-id",
-  "loom.heex-component-host-state-unsupported",
   "loom.if-stmt-page-body-unsupported",
   "loom.iflet-bad-source",
   "loom.index-suggestion",
@@ -308,7 +306,6 @@ export const UNDOCUMENTED_CODES: readonly string[] = [
   "loom.toast-message-unsupported",
   "loom.top-level-domain-needs-single-system",
   "loom.tph-backend-unsupported",
-  "loom.tph-filter-unsupported",
   "loom.tph-own-override-unsupported",
   "loom.transactional-with-continuations",
   "loom.ui-binding-unmountable-platform",

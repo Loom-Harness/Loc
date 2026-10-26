@@ -3,7 +3,7 @@
 // what each means and how it may change.
 
 /** Codes some test in the suite RAISES today, established by the one-off
- *  instrumented census of 2026-08-13 (docs/audits/test-coverage-audit-2026-08-13.md
+ *  instrumented census of 2026-08-13 (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/test-coverage-audit-2026-08-13.md
  *  §3.1: `diagMessage` recorded over a full `vitest run`).  Frozen: a code may
  *  leave this list only by gaining a fixture in FIRING_FIXTURES or by being
  *  deleted from the catalogue.  A NEW code may never be added here — that is
@@ -60,7 +60,6 @@ export const COVERED_ELSEWHERE: readonly string[] = [
   "loom.chart-accessor-not-field",
   "loom.chart-kind-invalid",
   "loom.chart-of-not-grouped",
-  "loom.chart-unsupported-target",
   "loom.collection-op-in-ui",
   "loom.command-handler-multi-aggregate",
   "loom.component-missing-body",
@@ -92,7 +91,6 @@ export const COVERED_ELSEWHERE: readonly string[] = [
   "loom.dapper-unsupported",
   "loom.datagrid-selection-not-array",
   "loom.datagrid-selection-not-state",
-  "loom.datagrid-unsupported-target",
   "loom.datasource-knob-unwired",
   "loom.datasource-unused",
   "loom.default-deny-ungated",
@@ -173,6 +171,7 @@ export const COVERED_ELSEWHERE: readonly string[] = [
   "loom.inheritance-modifier-misplaced",
   "loom.instance-effect-needs-route-id",
   "loom.integration-find-must-bind",
+  "loom.integration-repository-call",
   "loom.interp-format-unknown",
   "loom.interp-hole-type",
   "loom.intrinsic-arg-type",

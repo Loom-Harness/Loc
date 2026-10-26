@@ -381,8 +381,14 @@ export class Elaborator {
   private visitBlock(nodes: readonly AstNode[], block: Scope): void {
     for (const n of nodes) {
       this.visit(n, block);
-      if (isLetStmt(n))
-        block.bind(n.name, this.types.get(n.expr) ?? Ty.unknown("no-rule"), n, "let");
+      if (isLetStmt(n)) {
+        // A declared type is the binding's type; the value is checked against
+        // it by the validator (`loom.let-type-mismatch`).
+        const t = n.type
+          ? this.resolveType(n.type, block)
+          : (this.types.get(n.expr) ?? Ty.unknown("no-rule"));
+        block.bind(n.name, t, n, "let");
+      }
     }
   }
 
@@ -680,13 +686,15 @@ export class Elaborator {
     // The principal — unshadowable when the unit declares a claim block.
     const user = this.index.userBlock();
     if (name === "currentUser" && user) return Ty.record({ of: "principal", ref: user });
-    // Ambient resource handles serving this context — unshadowable.
-    const res = this.index.resourcesFor(f.ctx).find((r) => r.name === name);
-    if (res) return Ty.record({ of: "resource", ref: res });
     if (f.candidateAlias && name === f.candidateAlias)
       return this.thisType(scope) ?? Ty.unknown("unresolved-name");
     const local = scope.lookup(name);
     if (local) return local.ty;
+    // Ambient resource handles serving this context — after the lexical
+    // binders (ruling D7: a param or `let` named like a resource shadows it,
+    // as lowering resolves it), ahead of the enclosing record's fields.
+    const res = this.index.resourcesFor(f.ctx).find((r) => r.name === name);
+    if (res) return Ty.record({ of: "resource", ref: res });
     // `test e2e` call roots are resolved at render time against the target
     // deployable; typing them is cutover family 3f's (a pass gap, not an
     // author error).
@@ -923,6 +931,13 @@ export class Elaborator {
         entries.find((x) => x.name === rowArg) ??
         entries.find((x) => !x.name && !isLambda(x.value));
       const el = source ? elementOf(this.synth(source.value, scope)) : undefined;
+      if (el) body = scope.child({ rowElem: el });
+    }
+    // `Chart { of: <read>, x: r => …, y: r => … }` — the accessors bind one ROW of
+    // the read the chart plots.
+    if (name === "Chart") {
+      const read = this.queryResultType(entries, scope);
+      const el = read ? elementOf(read) : undefined;
       if (el) body = scope.child({ rowElem: el });
     }
     let queryResult = name === "QueryView" ? this.queryResultType(entries, scope) : undefined;
@@ -1713,6 +1728,9 @@ function declaresDataMember(agg: Aggregate, name: string): boolean {
 
 function elementOf(t: Ty): Ty | undefined {
   const bare = t.kind === "optional" ? t.inner : t;
+  // A `T paged` envelope (an explicitly paged `find`, or `paged: true`) is
+  // iterated through its page rows, so its row element is the carrier argument.
+  if (bare.kind === "generic" && bare.ctor === "paged") return bare.arg;
   return bare.kind === "array" ? bare.element : undefined;
 }
 
@@ -1844,8 +1862,32 @@ function stringifiable(t: Ty): boolean {
   return false;
 }
 
-// Ternary null-narrowing: `<path> != null ? <path is T> : …` (see the long
-// rationale in `type-system.ts` above `simplePathKey`; this is the same rule).
+// Ternary null-narrowing (`x != null ? <x is T> : <x is T?>`).
+//
+// The null test sits in the ternary's condition, so every backend's `ternary`
+// leaf already renders a safe branch; narrowing only tells the checker so.
+//
+// SCOPE, deliberately tight:
+//   • Only a DIRECT null comparison on the ternary's OWN condition:
+//     `<path> != null` / `null != <path>` narrows the THEN branch,
+//     `<path> == null` / `null == <path>` narrows the ELSE branch.
+//   • Only a SIMPLE PATH — a `this` / bare-name head plus plain member
+//     accesses.  `f().x` names no stable storage location, so it never narrows
+//     even when spelled identically twice.
+//   • No flow analysis: `&&` chains, `!`-negated tests, `precondition` guards,
+//     `let`-propagation and early-return guards do not narrow.
+//
+// SOUNDNESS.  Narrowing is sound only if the value cannot change between the
+// test and the use.  An assignment is a statement and a branch is an
+// expression, so no assignment runs inside a branch — but a branch CAN call a
+// sibling `operation`, and an operation body assigns freely:
+//
+//     this.path != null ? this.bump() + this.path : ""
+//
+// with `private operation bump(): string { path := null }` nulls the field
+// between the test and the use.  (A `function` cannot: it is gated pure by
+// `loom.function-block-impure`.)  So `branchBlocksNarrowing` refuses to narrow
+// any branch carrying a call it cannot prove pure.
 
 function simplePathKey(e: AstNode | undefined): string | undefined {
   if (!e) return undefined;

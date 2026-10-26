@@ -18,13 +18,14 @@ import type { SourceMapRecorder } from "../../../generator/_trace/sourcemap.js";
 import {
   MONEY_INTEGER_DIGITS,
   MONEY_PRECISION,
-  MONEY_RANGE_MESSAGE,
   MONEY_WIRE_SCALE,
 } from "../../../generator/money-scale.js";
 import {
   buildBaseReaderFile,
+  buildBaseRoutesFile,
   buildBaseUnionFile,
   buildTpcBaseReaderFile,
+  routesPolymorphicRead,
 } from "../../../generator/typescript/base-reader-builder.js";
 import { addTsExtensionsForNodeDebug } from "../../../generator/typescript/debug-imports.js";
 import {
@@ -41,10 +42,7 @@ import {
   MESSAGES_MODULE_PATH,
   renderMessagesModule,
 } from "../../../generator/typescript/emit/messages.js";
-import {
-  emitTypescriptMigrations,
-  emitTypescriptProvenanceMigration,
-} from "../../../generator/typescript/emit/migrations.js";
+import { emitTypescriptMigrations } from "../../../generator/typescript/emit/migrations.js";
 import {
   MIKRO_INDEX_IMPORTS,
   mikroConnectionSetup,
@@ -85,6 +83,18 @@ import {
   renderRepositoryPortsFile,
 } from "../../../generator/typescript/repository-port-builder.js";
 import { deriveEventSubscriptions, enrichLoomModel } from "../../../ir/enrich/enrichments.js";
+import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
+import {
+  fieldFixedMessage,
+  fieldSentenceSuffix,
+  fieldValuePrefix,
+  frameworkReasonPhrase,
+  REASON_PHRASE_STATUSES,
+  wireFixedDetail,
+  wireSentence,
+  wireStatus,
+  wireTitle,
+} from "../../../ir/enrich/wire-policy.js";
 import { lowerModel } from "../../../ir/lower/lower.js";
 import {
   type BoundedContextIR,
@@ -128,11 +138,6 @@ import {
   tphConcretesOf,
 } from "../../../ir/util/inheritance.js";
 import { mergeContexts } from "../../../ir/util/merge-contexts.js";
-import {
-  CONCURRENCY_CONFLICT_SUFFIX,
-  MISSING_FIELD_MESSAGE,
-  UNSUPPORTED_MEDIA_TYPE_DETAIL,
-} from "../../../ir/util/openapi-errors.js";
 import { contextsHaveProvenancedField } from "../../../ir/util/prov-id.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import {
@@ -149,7 +154,7 @@ import { lines } from "../../../util/code-builder.js";
 // Hono-framework builders now live in this package (P2b) — siblings.
 import { emissionSink } from "../../../util/emission-sink.js";
 import { lowerFirst, plural } from "../../../util/naming.js";
-import { UUID_WIRE_MESSAGE, UUID_WIRE_REGEX_LITERAL } from "../../../util/uuid-wire.js";
+import { UUID_WIRE_REGEX_LITERAL } from "../../../util/uuid-wire.js";
 import { emitApiClientModule } from "./adapters/api-client.js";
 import {
   byLayerLayoutAdapter,
@@ -284,7 +289,7 @@ export function domainFloorProblem(c: Context, err: unknown, status: number, tit
   const entry = { pointer: ${pointer}, message: ${message}, ...(err.code ? { code: err.code } : {}) };
   return c.body(
     JSON.stringify({ type: "about:blank", title, status, detail: err.message, instance: c.req.path, errors: [entry] }),
-    status as 422,
+    status as ${wireStatus("field-invalid")},
     { "content-type": "application/problem+json", "x-request-id": trace_id },
   );
 }
@@ -383,7 +388,7 @@ ${
  *  apart via the \`conflict\` vs \`disallowed\` log event. */
 export class ConcurrencyError extends Error {
   constructor(aggregate: string, id: string) {
-    super(\`\${aggregate} \${id} ${CONCURRENCY_CONFLICT_SUFFIX}\`);
+    super(\`\${aggregate} \${id} ${wireSentence("version-conflict").suffix}\`);
     this.name = "ConcurrencyError";
   }
 }
@@ -394,7 +399,7 @@ export class ConcurrencyError extends Error {
 
 /** Shared HTTP error shape — RFC 7807 ProblemDetails with the §3.2 `errors[]`
  *  extension for per-field validation failures.  See
- *  docs/old/proposals/validation-error-extension.md.
+ *  https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md.
  *
  *  Emitted once per project at `http/problem-details.ts`; the three router
  *  files (`http/<agg>.ts`, `http/workflows.ts`) import the
@@ -442,20 +447,19 @@ ${errorImports.length > 0 ? `import { ${errorImports.join(", ")} } from "../doma
  *  \`pattern\`, which is what Python already published, so the two specs now
  *  agree where they previously differed.
  *
- *  A miss answers \`${UUID_WIRE_MESSAGE}\` — the regex itself never
+ *  A miss answers \`${fieldFixedMessage("malformed-id")}\` — the regex itself never
  *  reaches the client. */
 export const UuidString = z
   .string()
-  .regex(${UUID_WIRE_REGEX_LITERAL}, ${JSON.stringify(UUID_WIRE_MESSAGE)})
+  .regex(${UUID_WIRE_REGEX_LITERAL}, ${JSON.stringify(fieldFixedMessage("malformed-id"))})
   .openapi({ format: "uuid" });
 
 /** RFC 7807 ProblemDetails body — the base 5 spec fields plus the §3.2
  *  \`errors[]\` extension (per-field \`{ pointer, message }\` array) that
  *  the runtime emits on 422 validation responses.  Consumed by the
- *  frontend ACL's \`applyServerErrors\` (see docs/old/proposals/frontend-acl.md).
+ *  frontend ACL's \`applyServerErrors\`.
  *  All fields nullable / optional — base 5 per the spec core; \`errors\` is
- *  only present on 422 validation responses.  See
- *  docs/old/proposals/validation-error-extension.md — all three backends
+ *  only present on 422 validation responses.  All three backends
  *  (Hono / .NET / Phoenix) declare the same shape in lockstep so the
  *  cross-backend parity gate stays green. */
 export const ProblemDetails = z.object({
@@ -480,7 +484,7 @@ function pointerOf(path: ReadonlyArray<PropertyKey>): string {
 }
 
 /** Is the issue's path ABSENT from the request input?  An absent required
- *  field answers the one word every backend sends for it (RS-39) instead of
+ *  field answers the sentence every backend sends for it (RS-39) instead of
  *  zod's type-mismatch sentence ("expected string, received undefined"). */
 function isAbsent(input: unknown, path: ReadonlyArray<PropertyKey>): boolean {
   if (path.length === 0) return false;
@@ -492,13 +496,18 @@ function isAbsent(input: unknown, path: ReadonlyArray<PropertyKey>): boolean {
   return node !== null && typeof node === "object" && !(path[path.length - 1]! in node);
 }
 
+/** \`"<field> ${fieldSentenceSuffix("missing")}"\` for an absent key — the field is the
+ *  path's last segment, the key \`isAbsent\` found missing. */
+function missingFieldMessage(path: ReadonlyArray<PropertyKey>): string {
+  return \`\${String(path[path.length - 1])} ${fieldSentenceSuffix("missing")}\`;
+}
+
 
 /** Default Zod-validation hook.  When a route's request validator
  *  rejects input, this fires before the handler runs and produces a 422
  *  ProblemDetails with the per-field \`errors[]\` extension.  The shape
  *  is the contract consumed by the frontend ACL — see
- *  docs/old/proposals/frontend-acl.md and apply-server-errors.ts in the
- *  generated React project.
+ *  apply-server-errors.ts in the generated React project.
  *
  *  Validation failures get 422 (Unprocessable Entity, RFC 7807 standard
  *  for input-shape errors).  Domain-rule violations carried by
@@ -522,8 +531,8 @@ export function defaultHook(result: { success: boolean; data?: unknown; error?: 
     // authored text the refine carries.  Resolved HERE rather than in the refine
     // because a zod "message" is fixed when the schema is CONSTRUCTED (module
     // load), where no request — and so no locale — exists yet.
-    message: isAbsent(result.data, issue.path) ? ${JSON.stringify(MISSING_FIELD_MESSAGE)} : localizeMessage(issue.params?.loomCode, issue.message),`
-        : `message: isAbsent(result.data, issue.path) ? ${JSON.stringify(MISSING_FIELD_MESSAGE)} : issue.message,`
+    message: isAbsent(result.data, issue.path) ? missingFieldMessage(issue.path) : localizeMessage(issue.params?.loomCode, issue.message),`
+        : `message: isAbsent(result.data, issue.path) ? missingFieldMessage(issue.path) : issue.message,`
     }
     // A messaged invariant/precondition carries a stable content-hash code (via
     // the refine's params.loomCode) so a client can localise the error;
@@ -533,13 +542,13 @@ export function defaultHook(result: { success: boolean; data?: unknown; error?: 
   return c.body(
     JSON.stringify({
       type: "about:blank",
-      title: "Validation failed",
-      status: 422,
-      detail: "One or more fields are invalid.",
+      title: ${JSON.stringify(wireTitle("field-invalid"))},
+      status: ${wireStatus("field-invalid")},
+      detail: ${JSON.stringify(wireFixedDetail("field-invalid"))},
       instance: c.req.path,
       errors,
     }),
-    422,
+    ${wireStatus("field-invalid")},
     { "content-type": "application/problem+json", "x-request-id": trace_id },
   );
 }
@@ -574,8 +583,8 @@ export function parseIfMatch(header: string | undefined, current: number): numbe
   if (raw === "*") return current;
   const match = /^(?:W\\/)?(?:"(\\d+)"|(\\d+))$/.exec(raw);
   if (match === null) {
-    throw new HTTPException(400, {
-      message: \`Malformed If-Match header: \${header}\`,
+    throw new HTTPException(${wireStatus("malformed-if-match")}, {
+      message: \`${wireSentence("malformed-if-match").prefix}\${header}\`,
     });
   }
   return Number(match[1] ?? match[2]);
@@ -606,15 +615,7 @@ export function newApp(): OpenAPIHono {
  *  The values are node's verbatim.  A status outside this set falls back to
  *  "Error", as node's own table does for a code it doesn't carry. */
 const REASON_PHRASES: Record<number, string> = {
-  400: "Bad Request",
-  401: "Unauthorized",
-  403: "Forbidden",
-  404: "Not Found",
-  405: "Method Not Allowed",
-  409: "Conflict",
-  415: "Unsupported Media Type",
-  422: "Unprocessable Entity",
-  500: "Internal Server Error",
+${REASON_PHRASE_STATUSES.map((st) => `  ${st}: ${JSON.stringify(frameworkReasonPhrase(st))},`).join("\n")}
 };
 
 /** RFC 7807 body for a fault the FRAMEWORK raised — one no domain error class
@@ -629,7 +630,7 @@ export function frameworkProblemBody(status: number, detail: string, instance: s
   const title = REASON_PHRASES[status] ?? "Error";
   // A 415 reads the same whether hono's own media-type gate or
   // \`requireJsonContentType\` raised it (RS-39).
-  const said = status === 415 ? ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)} : detail;
+  const said = status === ${wireStatus("unsupported-media-type")} ? ${JSON.stringify(wireFixedDetail("unsupported-media-type"))} : detail;
   return JSON.stringify({ type: "about:blank", title, status, detail: said, instance });
 }
 
@@ -660,7 +661,7 @@ const JSON_MEDIA_TYPE = /^application\\/([a-z-.]+\\+)?json(;\\s*[a-zA-Z0-9\\-]+=
 export function requireJsonContentType(c: Context): void {
   const contentType = c.req.header("Content-Type");
   if (contentType && JSON_MEDIA_TYPE.test(contentType)) return;
-  throw new HTTPException(415, { message: ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)} });
+  throw new HTTPException(${wireStatus("unsupported-media-type")}, { message: ${JSON.stringify(wireFixedDetail("unsupported-media-type"))} });
 }
 
 /** Does this request carry no content at all?  Read from the framing headers
@@ -1364,12 +1365,14 @@ export function generateTypeScriptForContexts(
     // TPH (aggregate-inheritance.md): each `sharedTable` base owns the shared
     // table but has no per-concrete repo/routes.  Emit its polymorphic read
     // home — the `<Base>` discriminated union + a read-only `<Base>Repository`
-    // (findById / findAll dispatching on `kind`) — so `find all <Base>` and
-    // polymorphic `<Base> id` dereferences resolve to a tagged union.
+    // (one select over the shared table, dispatching on `kind`) — so `find all
+    // <Base>` and polymorphic `<Base> id` dereferences resolve to a tagged
+    // union, and on drizzle the paged `GET /api/<bases>` route that serves it.
     for (const base of ctx.aggregates) {
       if (!isTphBase(base, ctx.aggregates)) continue;
       const concretes = tphConcretesOf(base, ctx.aggregates) as typeof ctx.aggregates;
-      if (concretes.length === 0) continue;
+      const read = polymorphicReadFor(base, ctx.aggregates);
+      if (!read) continue;
       const baseConstruct = `${ctx.name}.${base.name}`;
       place(
         "domain-aggregate",
@@ -1381,21 +1384,32 @@ export function generateTypeScriptForContexts(
       place(
         "drizzle-repository",
         base.name,
-        usingMikro ? renderMikroBaseReader(base, concretes) : buildBaseReaderFile(base, concretes),
+        usingMikro
+          ? renderMikroBaseReader(base, concretes)
+          : buildBaseReaderFile(base, concretes, ctx, read),
         base.origin,
         baseConstruct,
       );
+      if (!usingMikro && routesPolymorphicRead(base, ctx)) {
+        place(
+          "http-routes",
+          base.name,
+          buildBaseRoutesFile(base, read),
+          base.origin,
+          baseConstruct,
+        );
+      }
     }
     // TPC (aggregate-inheritance.md, ownTable): the base owns no table, but is
     // the read home for the polymorphic `find all <Base>`.  Emit the `<Base>`
-    // discriminated union + a read-only `<Base>Repository` that delegates to
-    // the concrete repositories (findAll = union of each concrete's `all()`;
-    // findById tries each).  The concretes are full standalone tables, so this
-    // reuses their loaders rather than hand-rolling a column-aligned unionAll.
+    // discriminated union + a read-only `<Base>Repository` that merges each
+    // concrete repository's own read in the one global order (findById tries
+    // each), and on drizzle the paged `GET /api/<bases>` route.
     for (const base of ctx.aggregates) {
       if (!isTpcBase(base, ctx.aggregates)) continue;
       const concretes = tpcConcretesOf(base, ctx.aggregates) as typeof ctx.aggregates;
-      if (concretes.length === 0) continue;
+      const read = polymorphicReadFor(base, ctx.aggregates);
+      if (!read) continue;
       const baseConstruct = `${ctx.name}.${base.name}`;
       place(
         "domain-aggregate",
@@ -1409,10 +1423,19 @@ export function generateTypeScriptForContexts(
         base.name,
         usingMikro
           ? renderMikroTpcBaseReader(base, concretes)
-          : buildTpcBaseReaderFile(base, concretes),
+          : buildTpcBaseReaderFile(base, concretes, read),
         base.origin,
         baseConstruct,
       );
+      if (!usingMikro && routesPolymorphicRead(base, ctx)) {
+        place(
+          "http-routes",
+          base.name,
+          buildBaseRoutesFile(base, read),
+          base.origin,
+          baseConstruct,
+        );
+      }
     }
   }
 
@@ -1455,19 +1478,11 @@ export function generateTypeScriptForContexts(
   // emits no drizzle migration files and `hasMigrations` stays false (which
   // suppresses the boot-time `migrate(...)` call in index.ts).
   const hasMigrations = !usingMikro && !!(system?.migrations && system.migrations.length > 0);
-  // The LATE provenance migration rides the same drizzle-runtime-migrator
-  // journal as the platform-neutral migrations above, so it must be folded
-  // into the SAME journal write (a `.sql` file absent from the journal is
-  // never applied).  mikroorm owns its own schema sync, so it's skipped
-  // there too — `renderMikroEntities` above already threads `provenance` into
-  // the EntitySchema instead.
-  const provenanceHistory: Array<{ version: string; tag: string }> = [];
-  if (!usingMikro && emitProvenance) {
-    const emitted = emitTypescriptProvenanceMigration(contexts, system?.sys, out);
-    if (emitted) provenanceHistory.push(emitted);
-  }
-  if (hasMigrations || provenanceHistory.length > 0) {
-    emitTypescriptMigrations(system?.migrations ?? [], out, provenanceHistory);
+  // The co-located `<field>_provenance` columns are ordinary MigrationsIR
+  // columns (`withLineageColumns` in migrations-builder.ts), so they ride the
+  // chain's own generations like any other column.
+  if (hasMigrations) {
+    emitTypescriptMigrations(system?.migrations ?? [], out);
   }
   // First-boot seed data (database-seeding.md) — emits `db/seed.ts`
   // when the served contexts declare any `seed` block.  Through the domain
@@ -1698,7 +1713,7 @@ export function generateTypeScriptForContexts(
   // project so the moved modules still resolve.  No-op (byte-identical) for the
   // byLayer default, where `moved` is empty.
   rewriteRelativeImports(out, moved);
-  // (Node debug wiring, docs/old/plans/dap-node-debug.md):
+  // (Node debug wiring, https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md):
   // ONLY under `--sourcemap` — suffix every relative import with its real
   // `.ts`/`.tsx` extension so plain `node --enable-source-maps index.ts`
   // (no tsx/tsup loader) can resolve the whole module graph, chaining
@@ -1752,7 +1767,7 @@ function projectPackageJson(
      *  `addTsExtensionsForNodeDebug` import rewrite (this file's caller) —
      *  both are gated on the SAME `--sourcemap` flag, so they always ship
      *  together.  Targets the docker image's node:24 (unflagged type
-     *  stripping); see docs/old/plans/dap-node-debug.md for why
+     *  stripping); see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md for why
      *  `--experimental-strip-types` is deliberately NOT included. */
     debugScript?: boolean;
   },
@@ -1887,7 +1902,7 @@ export const moneySchema = z.string().transform((s: string, ctx: any) => {
   if (!/^-?\\d+(\\.\\d+)?$/.test(s)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: \`Invalid decimal: \${JSON.stringify(s)}\`,
+      message: \`${fieldValuePrefix("money-grammar")}: \${JSON.stringify(s)}\`,
     });
     return z.NEVER;
   }
@@ -1900,7 +1915,7 @@ export const moneySchema = z.string().transform((s: string, ctx: any) => {
   if (s.replace(/^-/, "").split(".")[0]!.replace(/^0+(?=\\d)/, "").length > ${MONEY_INTEGER_DIGITS}) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: \`${MONEY_RANGE_MESSAGE}: \${JSON.stringify(s)}\`,
+      message: \`${fieldValuePrefix("money-range")}: \${JSON.stringify(s)}\`,
     });
     return z.NEVER;
   }
@@ -1909,7 +1924,7 @@ export const moneySchema = z.string().transform((s: string, ctx: any) => {
   } catch {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: \`Invalid decimal: \${JSON.stringify(s)}\`,
+      message: \`${fieldValuePrefix("money-grammar")}: \${JSON.stringify(s)}\`,
     });
     return z.NEVER;
   }
@@ -1922,7 +1937,7 @@ export const moneySchema = z.string().transform((s: string, ctx: any) => {
  *  own `typecheck` script) rejects them with TS5097 ("An import path can
  *  only end with a '.ts' extension when 'allowImportingTsExtensions' is
  *  enabled") unless that option is set — confirmed empirically, see
- *  docs/old/plans/dap-node-debug.md. `noEmit` (already set below) is the other
+ *  https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md. `noEmit` (already set below) is the other
  *  half of that flag's precondition. Flag-off keeps this field absent, so
  *  the emitted tsconfig.json is byte-identical to before. */
 function projectTsconfigJson(debugImports: boolean): string {

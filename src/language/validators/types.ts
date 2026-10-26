@@ -38,6 +38,7 @@ import {
   isCriterion,
   isDerivedProp,
   isDestroy,
+  isEnumDecl,
   isFunctionDecl,
   isIfStmt,
   isLambda,
@@ -61,7 +62,6 @@ import {
   absentRecordMember,
   absentUserClaim,
   comparable,
-  type DddType,
   type Env,
   envForNode,
   isAssignable,
@@ -69,11 +69,11 @@ import {
   resolveTypeRef,
   suffixType,
   T,
+  type Ty,
   ternaryJoin,
   typeOf,
   typeToString,
 } from "../type-system.js";
-import { toDddType } from "../typing/adapt.js";
 import { typingFor } from "../typing/shared.js";
 import {
   canPromoteLiteralTo,
@@ -89,7 +89,7 @@ import { checkConstructionArgTypes, checkExprCallArgs } from "./statements.js";
 // Binary operand-compatibility check.
 //
 // Loom's type-system layer (`typeOf`) already detects invalid
-// binary expressions — `arithmeticResult` returns `T.unknown` for
+// binary expressions — the typing pass's fold types them `unknown` for
 // mixes like `string + int`, `bool + decimal`, `money + decimal` —
 // but every downstream gate that consumes a typed expression
 // (`checkDerived`, `checkAssignOrCall`, etc.) suppresses errors
@@ -104,7 +104,7 @@ import { checkConstructionArgTypes, checkExprCallArgs } from "./statements.js";
 // rejects (rather than letting the unknown propagate into the
 // suppression).  Three classes:
 //
-//   • Arithmetic (`+ - * / %`)  — `arithmeticResult(l, r, op)` is
+//   • Arithmetic (`+ - * / %`)  — the fold's result is
 //     unknown.  Covers numeric / string mismatches, money / non-
 //     money mixes outside the closed rules, etc.
 //   • Comparison (`== != < <= > >=`) — operand types aren't
@@ -200,6 +200,42 @@ const BARE_REJECTED_COLLECTION_ACCESSORS: ReadonlySet<string> = new Set([
   "max",
 ]);
 
+/** A chain `E.m` whose head is a bare name that is not a typed binding but
+ *  names enum(s) declared in this document, none of which declares `m`.
+ *  Fail-open: several same-named enums count as the union of their values, and
+ *  a name with no enum in the document is never reported here. */
+function absentQualifiedEnumValue(
+  chain: PostfixChain,
+  headType: Ty,
+): { suffix: MemberSuffix; member: string; enumName: string } | undefined {
+  if (!isNameRef(chain.head) || headType.kind !== "unknown") return undefined;
+  const first = chain.suffixes[0];
+  if (!first || !isMemberSuffix(first) || first.call) return undefined;
+  const enumName = chain.head.name;
+  const values = enumValuesByName(AstUtils.findRootNode(chain)).get(enumName);
+  if (!values || values.has(first.member)) return undefined;
+  return { suffix: first, member: first.member, enumName };
+}
+
+/** Per-root index of enum name → the union of its declared values, built
+ *  once per document root so the check stays linear in model size (a
+ *  re-parse yields a new root, which invalidates the entry). */
+const ENUM_VALUES_BY_ROOT = new WeakMap<AstNode, Map<string, Set<string>>>();
+function enumValuesByName(root: AstNode): Map<string, Set<string>> {
+  let index = ENUM_VALUES_BY_ROOT.get(root);
+  if (!index) {
+    index = new Map();
+    for (const n of AstUtils.streamAllContents(root)) {
+      if (!isEnumDecl(n)) continue;
+      const values = index.get(n.name) ?? new Set<string>();
+      for (const v of n.values) values.add(v.name);
+      index.set(n.name, values);
+    }
+    ENUM_VALUES_BY_ROOT.set(root, index);
+  }
+  return index;
+}
+
 export function checkUnknownMemberAccess(model: Model, accept: ValidationAcceptor): void {
   for (const node of AstUtils.streamAllContents(model)) {
     if (!isPostfixChain(node)) continue;
@@ -215,6 +251,22 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
     if (AstUtils.getContainerOfType(chain, isTestE2E)) continue;
     const env = envForNode(chain);
     let recvType = typeOf(chain.head, env);
+    // `Status.live` — a qualified enum value whose member the enum does not
+    // declare.  The head `Status` is a bare name (no type), so the record
+    // gate below never sees it; the lowerer then leaves the access
+    // unresolved and the backends emit a non-existent member.
+    const absentEnumValue = absentQualifiedEnumValue(chain, recvType);
+    if (absentEnumValue) {
+      accept(
+        "error",
+        diagMessage("loom.unknown-member", {
+          member: absentEnumValue.member,
+          record: absentEnumValue.enumName,
+        }),
+        { node: absentEnumValue.suffix, property: "member", code: "loom.unknown-member" },
+      );
+      continue;
+    }
     for (const suffix of chain.suffixes) {
       if (isMemberSuffix(suffix)) {
         const ms = suffix as MemberSuffix;
@@ -455,12 +507,12 @@ export function checkAvgProjection(model: Model, accept: ValidationAcceptor): vo
  *  reported (the caller stops walking the chain). */
 function checkValueObjectEquals(
   ms: MemberSuffix,
-  recvType: DddType,
-  vo: Extract<DddType, { kind: "valueobject" }>,
+  recvType: Ty,
+  vo: Extract<Ty, { kind: "valueobject" }>,
   env: Env,
   accept: ValidationAcceptor,
 ): boolean {
-  const signature = valueObjectEqualsSignature(vo.ref.name);
+  const signature = valueObjectEqualsSignature(vo.name);
   if (!ms.call) {
     accept(
       "error",
@@ -549,6 +601,7 @@ export function checkIntrinsicCalls(model: Model, accept: ValidationAcceptor): v
       if (
         isMemberSuffix(suffix) &&
         bare.kind === "valueobject" &&
+        bare.ref !== undefined &&
         isValueObjectEqualsIntrinsic(bare.ref.members, (suffix as MemberSuffix).member)
       ) {
         if (checkValueObjectEquals(suffix as MemberSuffix, recvType, bare, env, accept)) break;
@@ -693,9 +746,9 @@ function bareOperandName(e: Expression | undefined): string | undefined {
  *  form (`Status.Open`) the author can always fall back to. */
 function shadowedEnumCase(
   operand: Expression | undefined,
-  other: DddType,
+  other: Ty,
 ): { name: string; enumName: string } | undefined {
-  if (other.kind !== "enum") return undefined;
+  if (other.kind !== "enum" || !other.ref) return undefined;
   const name = bareOperandName(operand);
   if (!name) return undefined;
   return other.ref.values.some((v) => v.name === name)
@@ -733,8 +786,8 @@ export function checkSingleBinaryOperands(chain: BinaryChain, accept: Validation
     const rhsExpr = chain.rest[i]!;
     const fold = folds[i];
     if (!fold) continue;
-    const lt = toDddType(fold.left);
-    const rt = toDddType(fold.right);
+    const lt = fold.left;
+    const rt = fold.right;
     // Cascade suppression — broken upstream already reports.
     if (lt.kind === "unknown" || rt.kind === "unknown") {
       leftExprForPromotion = undefined;
@@ -799,7 +852,7 @@ export function checkSingleBinaryOperands(chain: BinaryChain, accept: Validation
       continue;
     }
     // Arithmetic: the fold's result is `unknown` for an invalid combination.
-    const result = toDddType(fold.result);
+    const result = fold.result;
     if (result.kind === "unknown") {
       const isMoney = (t: typeof lt) => t.kind === "primitive" && t.name === "money";
       const moneyHint =
@@ -943,7 +996,7 @@ export function checkSinglePrimitiveConversion(
   // `X id` to its underlying primitive form.  The conversion
   // vocabulary calls these "implicitly stringifiable" sources;
   // they're also the set the `string + X` implicit-concat rule
-  // admits (see `arithmeticResult.isImplicitlyStringifiable`).
+  // admits (see `isImplicitlyStringifiable`).
   if (target === "string" && (valueType.kind === "enum" || valueType.kind === "id")) {
     return;
   }
@@ -951,15 +1004,16 @@ export function checkSinglePrimitiveConversion(
   // in `string(x)` — lowers to a member access on the display derived.
   // Without one, the aggregate has no canonical string form and we
   // reject (forces an explicit `derived display` decision).
-  if (target === "string" && valueType.kind === "aggregate") {
-    if (valueType.ref.members.some((m) => isDerivedProp(m) && m.name === "display")) {
+  if (target === "string" && valueType.kind === "record" && valueType.shape.of === "aggregate") {
+    const agg = valueType.shape.ref;
+    if (agg.members.some((m) => isDerivedProp(m) && m.name === "display")) {
       return;
     }
     accept(
       "error",
       diagMessage("loom.convert-aggregate-no-display", {
-        name: valueType.ref.name,
-        lower: valueType.ref.name.toLowerCase(),
+        name: agg.name,
+        lower: agg.name.toLowerCase(),
       }),
       { node, property: "value", code: "loom.convert-aggregate-no-display" },
     );
@@ -1417,7 +1471,7 @@ export function checkFunction(
 function checkFunctionBlock(
   stmts: readonly Statement[],
   fn: FunctionDecl,
-  declared: DddType,
+  declared: Ty,
   env: Env,
   accept: ValidationAcceptor,
   top: boolean,
@@ -1439,7 +1493,7 @@ function checkFunctionBlock(
     }
     if (isLetStmt(stmt)) {
       const t = typeOf(stmt.expr, blockEnv);
-      const next = new Map<string, { type: DddType; origin: AstNode }>();
+      const next = new Map<string, { type: Ty; origin: AstNode }>();
       next.set(stmt.name, { type: t, origin: stmt });
       blockEnv = makeEnv(blockEnv, next);
       continue;
@@ -1497,7 +1551,7 @@ function checkFunctionBlock(
 function checkIfStmt(
   stmt: IfStmt,
   fn: FunctionDecl,
-  declared: DddType,
+  declared: Ty,
   env: Env,
   accept: ValidationAcceptor,
 ): boolean {
@@ -1514,6 +1568,6 @@ function checkIfStmt(
   return thenReturns && elseReturns;
 }
 
-// Re-export DddType so consumers don't have to chase the type-system
+// Re-export Ty so consumers don't have to chase the type-system
 // import surface.
-export type { AstNode, DddType, Env };
+export type { AstNode, Env, Ty };

@@ -1356,7 +1356,7 @@ CapabilityMember:
 // rules (`for` required when hoisted, forbidden when nested) are enforced by
 // the validator (`loom.test-needs-target` / `loom.test-redundant-for`), not the
 // grammar, so a misplaced test surfaces a themed diagnostic rather than a parse
-// error.  See `docs/old/proposals/test-placement.md`.
+// error.  See `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/test-placement.md`.
 // The subjects a unit `test` may anchor to via `for` (test-placement.md).  A
 // declared union so one `[TestSubject:ID]` cross-reference resolves an aggregate
 // (Phase 1), a value object / domain service (Phase 2), or a bounded context
@@ -2360,8 +2360,10 @@ RequiresStmt:
 // A binding a body can READ back, so it admits exactly the words a bare
 // name-ref does (`NameRefIdent`'s shared core): `let event = …` then
 // `event.amount`.
+// `let x = e` takes the expression's type; `let x: T = e` declares it, and the
+// value is checked against (and a bare literal promoted to) `T`.
 LetStmt:
-    'let' name=(ID | CommonSoftKeywords) '=' expr=Expression;
+    'let' name=(ID | CommonSoftKeywords) (':' type=TypeRef)? '=' expr=Expression;
 
 EmitStmt:
     'emit' event=[EventDecl:ID] '{'

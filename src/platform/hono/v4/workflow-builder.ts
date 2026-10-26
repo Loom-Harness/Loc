@@ -32,6 +32,13 @@ import {
 import { renderTsExpr, renderTsType } from "../../../generator/typescript/render-expr.js";
 import { renderTsStatements } from "../../../generator/typescript/render-stmt.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
+import { tsNotFoundThrow } from "../../../generator/typescript/wire-policy-ts.js";
+import {
+  reasonPhrase,
+  wireFixedDetail,
+  wireStatus,
+  wireTitle,
+} from "../../../ir/enrich/wire-policy.js";
 import {
   type AggregateIR,
   type BoundedContextIR,
@@ -62,11 +69,6 @@ import {
   operationGatesUseCurrentUser,
 } from "../../../ir/util/op-gates.js";
 import {
-  problemTitle,
-  UNIQUE_CONFLICT_DETAIL,
-  UNPROCESSABLE_ENTITY,
-} from "../../../ir/util/openapi-errors.js";
-import {
   camelId,
   opOperation,
   opWorkflow,
@@ -90,7 +92,6 @@ import {
 import { commandCreateResult, emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../../ir/util/workflow-instances.js";
 import { LOOM_OUTBOX_ORIGIN_KEY } from "../../../util/channels.js";
-import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import {
   escapeTsIdent,
   lowerFirst,
@@ -364,8 +365,8 @@ export function buildWorkflowsFile(
       ...emitInstanceRoutes(
         wf,
         usingMikro,
-        resolveErrorStatus("Forbidden", ctx.structuralErrorStatuses),
-        resolveErrorStatus("NotFound", ctx.structuralErrorStatuses),
+        wireStatus("forbidden", ctx.structuralErrorStatuses),
+        wireStatus("not-found", ctx.structuralErrorStatuses),
       ).map((l) => `  ${l}`),
     );
     body.push("");
@@ -396,8 +397,8 @@ export function buildWorkflowsFile(
   // M-T5.20 — the workflow router's denial ladder resolves through the api's
   // `httpStatus` map, exactly like the aggregate router's. Defaults 422 / 403
   // (with the reason-phrase titles the literals used) ⇒ byte-identical.
-  const wfDomainStatus = resolveErrorStatus("DomainError", ctx.structuralErrorStatuses);
-  const wfForbiddenStatus = resolveErrorStatus("Forbidden", ctx.structuralErrorStatuses);
+  const wfDomainStatus = wireStatus("domain-floor", ctx.structuralErrorStatuses);
+  const wfForbiddenStatus = wireStatus("forbidden", ctx.structuralErrorStatuses);
   // ── the CONFLICT rungs (M-T6.28) ──────────────────────────────────────
   // A workflow step loads an aggregate, invokes an operation and `save`s it, so
   // this router raises exactly the conflicts the aggregate router does — and
@@ -413,22 +414,19 @@ export function buildWorkflowsFile(
   // byte-identical file.
   const wfNeedsConcurrency = aggregatesNeedConcurrency(ctx.aggregates);
   const wfHasUniqueKeys = aggregatesHaveUniqueKeys(ctx.aggregates);
-  const wfDisallowedStatus = resolveErrorStatus("Disallowed", ctx.structuralErrorStatuses);
-  const wfUniquenessStatus = resolveErrorStatus("UniquenessConflict", ctx.structuralErrorStatuses);
-  const wfConcurrencyStatus = resolveErrorStatus(
-    "ConcurrencyConflict",
-    ctx.structuralErrorStatuses,
-  );
+  const wfDisallowedStatus = wireStatus("state-gate", ctx.structuralErrorStatuses);
+  const wfUniquenessStatus = wireStatus("unique-conflict", ctx.structuralErrorStatuses);
+  const wfConcurrencyStatus = wireStatus("version-conflict", ctx.structuralErrorStatuses);
   // A workflow step's `Repo.getById(...)` miss and an instance-by-id miss are
   // both the domain `NotFound` rung, so both follow the api's override.
-  const wfNotFoundStatus = resolveErrorStatus("NotFound", ctx.structuralErrorStatuses);
+  const wfNotFoundStatus = wireStatus("not-found", ctx.structuralErrorStatuses);
   const wfStatuses = new Set<number>([
-    400,
+    wireStatus("malformed-body"),
     wfForbiddenStatus,
     wfNotFoundStatus,
-    422,
+    wireStatus("field-invalid"),
     wfDomainStatus,
-    500,
+    wireStatus("internal"),
     wfDisallowedStatus,
   ]);
   if (wfHasUniqueKeys) wfStatuses.add(wfUniquenessStatus);
@@ -441,7 +439,7 @@ export function buildWorkflowsFile(
   body.push(
     // Ruling D4 (#20): the gate's source text goes to the `forbidden` log line;
     // the body carries `err.detail` (echoed only under the dev-stub verifier).
-    `    if (err instanceof ForbiddenError) { ${renderHonoLogCall("forbidden", `message: err.message, status: ${wfForbiddenStatus}`)} return problem(${wfForbiddenStatus}, ${JSON.stringify(problemTitle(wfForbiddenStatus))}, err.detail); }`,
+    `    if (err instanceof ForbiddenError) { ${renderHonoLogCall("forbidden", `message: err.message, status: ${wfForbiddenStatus}`)} return problem(${wfForbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail); }`,
   );
   body.push(
     // The state-gate rung, ordered before `DomainError` as in the aggregate
@@ -452,24 +450,24 @@ export function buildWorkflowsFile(
     // from user-authored code.  (Before M-T6.38 the gate was route-only and a
     // workflow-step write landed unrefused; this arm was then unreachable from
     // generated code.)
-    `    if (err instanceof DisallowedError) return problem(${wfDisallowedStatus}, "Disallowed", err.message);`,
+    `    if (err instanceof DisallowedError) return problem(${wfDisallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message);`,
   );
   body.push(
-    `    if (err instanceof DomainError) return ${domainFloorAnswer(hasDomainFloorAnswer(ctx), wfDomainStatus, problemTitle(wfDomainStatus), `problem(${wfDomainStatus}, ${JSON.stringify(problemTitle(wfDomainStatus))}, err.message)`)};`,
+    `    if (err instanceof DomainError) return ${domainFloorAnswer(hasDomainFloorAnswer(ctx), wfDomainStatus, wireTitle("domain-floor", ctx.structuralErrorStatuses), `problem(${wfDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message)`)};`,
   );
   body.push(
-    `    if (err instanceof AggregateNotFoundError) return problem(${wfNotFoundStatus}, ${JSON.stringify(problemTitle(wfNotFoundStatus))}, err.message);`,
+    `    if (err instanceof AggregateNotFoundError) return problem(${wfNotFoundStatus}, ${JSON.stringify(wireTitle("not-found", ctx.structuralErrorStatuses))}, err.message);`,
   );
   if (wfHasUniqueKeys) {
     body.push(
       // PG unique_violation — SQLSTATE read off `err` AND `err.cause` (drizzle
       // v5 wraps the driver error), same as the aggregate router.
-      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505")) return problem(${wfUniquenessStatus}, "Conflict", ${JSON.stringify(UNIQUE_CONFLICT_DETAIL)});`,
+      `    if (err && typeof err === "object" && (((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505")) return problem(${wfUniquenessStatus}, ${JSON.stringify(wireTitle("unique-conflict"))}, ${JSON.stringify(wireFixedDetail("unique-conflict"))});`,
     );
   }
   if (wfNeedsConcurrency) {
     body.push(
-      `    if (err instanceof ConcurrencyError) return problem(${wfConcurrencyStatus}, "Conflict", err.message);`,
+      `    if (err instanceof ConcurrencyError) return problem(${wfConcurrencyStatus}, ${JSON.stringify(wireTitle("version-conflict"))}, err.message);`,
     );
   }
   body.push(
@@ -478,7 +476,7 @@ export function buildWorkflowsFile(
     // (`extern_handler_threw`); this one used to `console.error` the whole
     // exception object to raw stderr instead — same fault class, two different
     // log surfaces on the same backend.
-    `    if (err instanceof ExternHandlerError) { ${renderHonoLogCall("externHandlerThrew", "aggregate: err.aggName, op: err.opName, error: err.message")} return problem(500, "Internal Server Error", "internal"); }`,
+    `    if (err instanceof ExternHandlerError) { ${renderHonoLogCall("externHandlerThrew", "aggregate: err.aggName, op: err.opName, error: err.message")} return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))}); }`,
   );
   body.push(
     // FRAMEWORK fault, not a domain one — hono raises `HTTPException` for the
@@ -491,9 +489,11 @@ export function buildWorkflowsFile(
   // aggregate router's (`internal_error`), so both routers' 500s land in one
   // stream with one schema rather than one structured line and one raw dump.
   body.push(
-    `    ${renderHonoLogCall("internalError", "error: err instanceof Error ? err.message : String(err), status: 500")}`,
+    `    ${renderHonoLogCall("internalError", `error: err instanceof Error ? err.message : String(err), status: ${wireStatus("internal")}`)}`,
   );
-  body.push(`    return problem(500, "Internal Server Error", "internal");`);
+  body.push(
+    `    return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))});`,
+  );
   body.push(`  });`);
   body.push("");
   body.push(`  return app;`);
@@ -917,9 +917,9 @@ function emitWorkflowRoute(
   // workflow → 400 (domain) + 422 (validation, ProblemDetails with §3.2
   // `errors[]` extension emitted by the shared defaultHook), per the
   // openapi-errors matrix.  See
-  // docs/old/proposals/validation-error-extension.md.
+  // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md.
   out.push(
-    `      400: { description: "Bad Request", content: { "application/problem+json": { schema: ProblemDetails } } },`,
+    `      ${wireStatus("malformed-body")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("malformed-body")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
   );
   // The DOMAIN not-found rung, declared only when the body can raise it — a
   // `repo-let` (or a `reading` service's named read) throws on an absent row
@@ -928,10 +928,10 @@ function emitWorkflowRoute(
   // send it; `workflowCanAnswerNotFound` is the shared predicate the other four
   // backends thread into `errorStatuses("workflow", …, { readsAggregate })`.
   if (workflowCanAnswerNotFound(wf, ctx.repositories)) {
-    const wfRouteNotFoundStatus = resolveErrorStatus("NotFound", ctx.structuralErrorStatuses);
+    const wfRouteNotFoundStatus = wireStatus("not-found", ctx.structuralErrorStatuses);
     out.push(
       `      ${wfRouteNotFoundStatus}: { description: ${JSON.stringify(
-        problemTitle(wfRouteNotFoundStatus),
+        wireTitle("not-found", ctx.structuralErrorStatuses),
       )}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
     );
   }
@@ -942,26 +942,29 @@ function emitWorkflowRoute(
   // equality against the shared table for a corpus of workflow shapes, so the
   // "keep the two in step" above is a gate rather than a request.
   out.push(
-    `      415: { description: ${JSON.stringify(problemTitle(415))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
+    `      ${wireStatus("unsupported-media-type")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("unsupported-media-type")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
   );
   out.push(
-    `      422: { description: "Unprocessable Entity", content: { "application/problem+json": { schema: ProblemDetails } } },`,
+    `      ${wireStatus("field-invalid")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("field-invalid")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
   );
   // M-T5.20 — the domain floor's DECLARED status is the resolved value the
   // router's onError arm answers with (default 422 ⇒ collapses into the line
   // above, byte-identical).
-  const wfRouteDomainStatus = resolveErrorStatus("DomainError", ctx.structuralErrorStatuses);
-  if (wfRouteDomainStatus !== 400 && wfRouteDomainStatus !== 422) {
+  const wfRouteDomainStatus = wireStatus("domain-floor", ctx.structuralErrorStatuses);
+  if (
+    wfRouteDomainStatus !== wireStatus("malformed-body") &&
+    wfRouteDomainStatus !== wireStatus("field-invalid")
+  ) {
     out.push(
-      `      ${wfRouteDomainStatus}: { description: ${JSON.stringify(problemTitle(wfRouteDomainStatus))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
+      `      ${wfRouteDomainStatus}: { description: ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
     );
   }
   // A `requires` guard denies with 403 (ForbiddenError → onError) — declare
   // it so the published contract documents the authorization outcome.
   if (workflowIsGuarded(wf)) {
-    const wfRouteForbiddenStatus = resolveErrorStatus("Forbidden", ctx.structuralErrorStatuses);
+    const wfRouteForbiddenStatus = wireStatus("forbidden", ctx.structuralErrorStatuses);
     out.push(
-      `      ${wfRouteForbiddenStatus}: { description: ${JSON.stringify(problemTitle(wfRouteForbiddenStatus))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
+      `      ${wfRouteForbiddenStatus}: { description: ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
     );
   }
   out.push(`    },`);
@@ -1298,7 +1301,7 @@ function emitInstanceRoutes(
     return gl;
   };
   const forbiddenResponse = `      ${forbiddenStatus}: { description: ${JSON.stringify(
-    problemTitle(forbiddenStatus),
+    reasonPhrase(forbiddenStatus),
   )}, content: { "application/problem+json": { schema: ProblemDetails } } },`;
   const slug = snake(wf.name);
   const table = `schema.${lowerFirst(plural(wf.name))}`;
@@ -1354,7 +1357,7 @@ function emitInstanceRoutes(
   // The param schema derives from the correlation id's value type — guid →
   // uuid-format string, int/long → coerced integer, string → plain — so the
   // parity gate's path-param dimension agrees with .NET / Java / Python /
-  // Phoenix by construction (docs/old/plans/non-guid-id-http-params.md).
+  // Phoenix by construction (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/non-guid-id-http-params.md).
   const corrVt = workflowCorrIdValueType(wf);
   const idParamZod =
     corrVt === "guid"
@@ -1372,7 +1375,7 @@ function emitInstanceRoutes(
   if (gate) out.push(forbiddenResponse);
   out.push(
     `      ${notFoundStatus}: { description: ${JSON.stringify(
-      problemTitle(notFoundStatus),
+      reasonPhrase(notFoundStatus),
     )}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
   );
   // The correlation-id param is PARSED (uuid / coerced integer above), so a
@@ -1380,7 +1383,7 @@ function emitInstanceRoutes(
   // `errorStatuses("getById")` publishes, which is exactly what the java and
   // elixir emitters render for this route.
   out.push(
-    `      ${UNPROCESSABLE_ENTITY}: { description: ${JSON.stringify(problemTitle(UNPROCESSABLE_ENTITY))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
+    `      ${wireStatus("field-invalid")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("field-invalid")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
   );
   out.push(`    },`);
   out.push(`  }),`);
@@ -1397,19 +1400,17 @@ function emitInstanceRoutes(
     // 404 carries the same sentence the aggregate getById route does.  Main's
     // fix covered the aggregate routes; these two surfaces were left on the
     // machine token.
-    out.push(
-      `    if (__stream.length === 0) throw new AggregateNotFoundError(\`${T} \${id} not found\`);`,
-    );
+    out.push(`    if (__stream.length === 0) ${tsNotFoundThrow(T, "id")}`);
     out.push(`    const row = ${helpers.fold}(${idAsKey}, __stream);`);
   } else if (usingMikro) {
     out.push(`    const row = await db.findOne(${rowClass}, { ${corr}: id });`);
-    out.push(`    if (!row) throw new AggregateNotFoundError(\`${T} \${id} not found\`);`);
+    out.push(`    if (!row) ${tsNotFoundThrow(T, "id")}`);
   } else {
     out.push(
       `    const rows = await db.select().from(${table}).where(eq(${table}.${corr}, id)).limit(1);`,
     );
     out.push(`    const row = rows[0];`);
-    out.push(`    if (!row) throw new AggregateNotFoundError(\`${T} \${id} not found\`);`);
+    out.push(`    if (!row) ${tsNotFoundThrow(T, "id")}`);
   }
   out.push(
     `    return httpCtx.json(${rawRowWireExpr("row", instants)} as unknown as z.infer<typeof ${T}InstanceResponse>, 200);`,

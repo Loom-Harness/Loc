@@ -19,7 +19,7 @@ import { CORPUS } from "../fixtures/corpus/manifest.js";
 // layer and must appear for all five backends.  Domain `test "…"` (unit) blocks
 // emit per-backend files (xUnit / JUnit / ExUnit / pytest / vitest); their
 // per-backend artifact predicate is added with the first corpus fixture that
-// carries a unit block (see docs/old/plans/global-test-coverage-plan.md, Phase 4).
+// carries a unit block (see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/global-test-coverage-plan.md, Phase 4).
 //
 // `hasE2EBlock` mirrors run.mjs's `hasBehaviouralBlock` — keep the two in sync.
 // ---------------------------------------------------------------------------

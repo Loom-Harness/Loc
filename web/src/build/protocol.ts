@@ -181,12 +181,35 @@ export interface WireChangeView {
   detail: string;
 }
 
+/** The workspace's committed migration chain (`migrations/` beside the
+ *  entry `.ddd`), as the Migrations tab's status line reads it — the
+ *  playground's `ddd migrate status`. */
+export interface ChainStatusView {
+  /** Number of recorded entries. */
+  entries: number;
+  /** The newest entry; `null` when the chain has two heads. */
+  head: { version: string; module: string; name: string } | null;
+  /** Steps the model has that the chain does not record yet — what
+   *  "Record migration" would record, summed over modules. */
+  unrecordedSteps: number;
+  /** The two head entries' file names, when two branches each recorded a
+   *  migration on top of the same entry.  Nothing reads such a chain until
+   *  `ddd migrate rebase` re-records one on top of the other. */
+  forkHeads?: [string, string];
+}
+
 export interface EvolutionOk {
   ok: true;
-  /** False when the baseline parses to no system (first commit / brand-new
-   *  source) — the current source is then the initial version, and every
-   *  migration reads `"Initial"`. */
+  /** False when there is nothing to diff the schema against: no chain and
+   *  no baseline system (first commit / brand-new source) — the current
+   *  source is then the initial version, and every migration reads
+   *  `"Initial"`. */
   hasBaseline: boolean;
+  /** The committed chain, or `null` when the workspace has none.  A chain
+   *  that reads as one list is the SCHEMA baseline — the migrations listed
+   *  are then exactly what `ddd migrate add` would record — while the
+   *  baseline source still drives the wire diff. */
+  chain: ChainStatusView | null;
   migrations: MigrationView[];
   /** Every table the current source describes, across modules — including
    *  the untouched ones, which is what lets the diagram dim them (audit
@@ -231,6 +254,28 @@ export interface EvolutionParams {
   baseline: EvolutionTree | null;
   current: EvolutionTree;
 }
+
+/** `migrate.record` — the playground's `ddd migrate add`.  Diffs `current`
+ *  (whose `files` carry the chain's `migrations/*.json` beside the entry)
+ *  against the chain's head and numbers the result as the next entries. */
+export interface RecordMigrationParams {
+  current: EvolutionTree;
+  /** Kebab-case migration name, e.g. `add-order-status`. */
+  name: string;
+  /** The browser's clock as `YYYYMMDDHHMMSS` UTC. */
+  now: string;
+  allowDestructive?: boolean;
+}
+
+export interface RecordMigrationOk {
+  ok: true;
+  /** The new chain files (absolute VFS paths); empty when the model has no
+   *  change to record. */
+  files: { path: string; content: string }[];
+  diagnostics: BuildDiagnostic[];
+}
+
+export type RecordMigrationResult = RecordMigrationOk | EvolutionFail;
 
 /** A single VFS entry shipped over the wire — file entries carry
  *  `content`, directory entries carry only their `path`.  Re-exports
@@ -284,6 +329,7 @@ export type BuildRpcRequest =
   | { id: number; method: "generate"; params: GenerateParams }
   | { id: number; method: "snapshot"; params: GenerateParams }
   | { id: number; method: "evolution"; params: EvolutionParams }
+  | { id: number; method: "migrate.record"; params: RecordMigrationParams }
   | { id: number; method: "vfs.write"; params: { entries: VfsEntry[] } }
   | { id: number; method: "vfs.delete"; params: { paths: string[] } };
 
@@ -293,6 +339,7 @@ export interface BuildRpcResponse {
     | GenerateResult
     | SnapshotResult
     | EvolutionResult
+    | RecordMigrationResult
     | VfsWriteResult
     | VfsDeleteResult;
   error?: { message: string };

@@ -1,6 +1,6 @@
 // `dataKey := currentUser.orgPath` — the `tenantOwned` capability's second
 // stamp assignment (multi-tenancy Phase 2, plan P2.3 —
-// docs/old/plans/multi-tenancy-phase2.md), across all five backends that execute
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-tenancy-phase2.md), across all five backends that execute
 // domain logic. Rides the exact `contextStamps` pipeline `tenantId :=
 // currentUser.tenantId` already uses — same expression renderer, same
 // lifecycle-stamp emission per backend — so each backend needs no new code,

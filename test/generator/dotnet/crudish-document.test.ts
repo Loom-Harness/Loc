@@ -1,4 +1,4 @@
-// B12 (docs/audits/behavioral-parity-bugs-2026-07.md): `with crudish` on a
+// B12 (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/behavioral-parity-bugs-2026-07.md): `with crudish` on a
 // `shape: document` aggregate adds a canonical `destroy`, so `I<Agg>Repository`
 // declares `DeleteAsync`.  The document-shape repository IMPL must emit a
 // matching `DeleteAsync` body — otherwise the generated project fails CS0535

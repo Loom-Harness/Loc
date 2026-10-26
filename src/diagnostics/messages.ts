@@ -687,7 +687,7 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   "loom.user-visible-concat": (p: { type: unknown }) =>
     `String concatenation in a user-visible '${p.type}' slot won't translate to languages with different word order, plural rules, or formatting. ` +
-    'Use a backtick template interpolation — e.g. `Order {order.id}` rather than "Order " + order.id. See docs/old/proposals/i18n-strings.md.',
+    'Use a backtick template interpolation — e.g. `Order {order.id}` rather than "Order " + order.id.',
 
   // ----------------------------------------------------------------------
   // src/language/validators/inheritance.ts
@@ -792,6 +792,8 @@ export const DIAGNOSTIC_MESSAGES = {
     `Unknown sql step placement '${p.placement}' — the only placement is \`before\` (\`sql before "…"\` runs ahead of the generation's structural DDL); omit it to run after.`,
   "loom.backfill-unknown-field": (p: { field: unknown; agg: unknown }) =>
     `'${p.field}' is not a field of aggregate '${p.agg}' — a backfill targets a live field (it names the newly-added column).`,
+  "loom.backfill-unknown-field#inherited": (p: { field: unknown; agg: unknown; base: unknown }) =>
+    `'${p.field}' is inherited by '${p.agg}' from '${p.base}' — backfill it where it is declared: \`${p.base}.${p.field} = …\` fills it in every table that stores it.`,
   "loom.backfill-duplicate": (p: { key: unknown }) =>
     `Field '${p.key}' is backfilled more than once in this block — one backfill per column per block (ambiguous value).`,
 
@@ -1563,6 +1565,8 @@ export const DIAGNOSTIC_MESSAGES = {
     "'toThrow(<status>)' pins an HTTP status and is only valid in a 'test e2e' block; use a bare 'toThrow()' in an in-process test.",
   "loom.tothrow-arity": (p: { got: unknown }) =>
     `'toThrow' takes at most one argument (an HTTP status), got ${p.got}.`,
+  "loom.not-throw-invalid":
+    "'.not.toThrow()' is not supported — 'toThrow' has no negated form. Call the operation directly; an unexpected throw already fails the test.",
   "loom.tothrow-status-not-int":
     "'toThrow(<status>)' requires an integer HTTP status literal, e.g. toThrow(404).",
   // The four `matches(<regex>)` rules stay four codes: arity, named-argument,
@@ -1748,6 +1752,14 @@ export const DIAGNOSTIC_MESSAGES = {
   // it separately: the top-level expression-form function here, and the member
   // function's expression body and block-body `return` in `types.ts`.  Same
   // rule, one sentence, three call sites (M-T9.56).
+  "loom.let-type-mismatch": (p: { name: unknown; actual: unknown; declared: unknown }) =>
+    `'let ${p.name}' is declared '${p.declared}' but its value is '${p.actual}'.`,
+  "loom.return-type-mismatch": (p: { label: unknown; actual: unknown; declared: unknown }) =>
+    `${p.label} returns '${p.actual}' but is declared to return '${p.declared}'.`,
+  "loom.return-missing": (p: { label: unknown; declared: unknown }) =>
+    `${p.label} is declared to return '${p.declared}' but not every path ends in a \`return\`. ` +
+    `End each branch with \`return <value>\` (an \`if\` needs an \`else\` that returns too).`,
+
   "loom.function-return-type-mismatch": (p: {
     name: unknown;
     actual: unknown;
@@ -2192,6 +2204,13 @@ export const DIAGNOSTIC_MESSAGES = {
     expected: unknown;
   }) =>
     `backfill '${p.aggregate}.${p.field}': expression type '${p.got}' does not fit the field's type '${p.expected}'.`,
+  "loom.backfill-type-mismatch#optional-source": (p: {
+    aggregate: unknown;
+    field: unknown;
+    sources: unknown;
+    example: unknown;
+  }) =>
+    `backfill '${p.aggregate}.${p.field}': the value can be null (it reads the optional field(s) ${p.sources}), but '${p.field}' is required — a row the UPDATE leaves NULL makes the following SET NOT NULL fail. Give it a fallback, e.g. \`${p.aggregate}.${p.field} = ${p.example} ?? <value>\`.`,
 
   // ----------------------------------------------------------------------
   // src/system/migrations-builder.ts — phase ⑨ (migration derivation)
@@ -2258,6 +2277,21 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `migration for module "${p.module}": adds unique index ${p.index} on existing table ${p.table} (${p.columns})${p.partial}. Rows already stored may violate it — a duplicate fails CREATE UNIQUE INDEX at boot, the migration rolls back, and later generations queue behind it. If the table can hold duplicates, dedupe them AHEAD of the index in this same generation (declaring one silences this warning):\n` +
     `    migration "dedupe-…" { sql before "UPDATE <schema>.<table> SET … WHERE …" }`,
+  /** An enum CHECK on an existing table lost a member (deleted or renamed in
+   *  the `enum`).  The constraint lands NOT VALID, so the deploy succeeds, but
+   *  rows still holding a removed value fail to load on every backend and
+   *  cannot be updated.  Silenced by declaring a `sql before` step for the
+   *  module in the same generation. */
+  "loom.migration-enum-narrowed": (p: {
+    module: unknown;
+    table: unknown;
+    column: unknown;
+    check: unknown;
+    removed: unknown;
+    kept: unknown;
+  }) =>
+    `migration for module "${p.module}": enum check ${p.check} on existing table ${p.table} no longer admits ${p.removed} in column ${p.column}. Rows already stored may still hold a removed value. The constraint lands NOT VALID, so the deploy succeeds, but such a row fails to load on every backend except node (python/java/.NET/elixir map the stored string onto the enum; a list route that reads it fails as a whole), node serves it off-contract, and any UPDATE of it is refused by the new check. Remap the removed values AHEAD of the check in this same generation (declaring one silences this warning):\n` +
+    `    migration "remap-…" { sql before "UPDATE ${p.table} SET ${p.column} = <one of ${p.kept}> WHERE ${p.column} IN (${p.removed})" }`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/projection-checks.ts
@@ -2785,6 +2819,12 @@ export const DIAGNOSTIC_MESSAGES = {
     `render (deployable '${p.dName}'): a page, component or store has no aggregate ` +
     `instance in scope. Bind the record through a page param, \`state\`, or a QueryView ` +
     `\`data:\` lambda, and read its fields off that name.`,
+  "loom.lambda-param-type-unknown": (p: { param: unknown; where: unknown; uiName: unknown }) =>
+    `Lambda parameter '${p.param}' in ${p.where} on ui '${p.uiName}' has no known type, so a ` +
+    `member read off it cannot be typed. A lambda parameter is typed by the collection it ` +
+    `iterates (\`For { each: xs, … }\`, \`Table { rows: xs, … }\`, a collection op) or by the ` +
+    `read it plots or displays (\`Chart { of: … }\`, \`QueryView { of: …, data: … }\`); bind ` +
+    `the lambda inside one of those, or read the value through a typed name instead.`,
   "loom.ui-gate-expr-unsupported": (p: {
     where: unknown;
     kind: unknown;
@@ -2828,7 +2868,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `\`operation\`s, and the five standard ops (all / byId / create / update / delete) are not ` +
     `among them, so the whole effect — the request, the error reification and every arm body — ` +
     `would be replaced by a comment. Await a declared \`operation\` that returns a union, or ` +
-    `host this ui on another frontend. Tracked as M-T1.32 in docs/new-plan/T1-ui-frontend.md.`,
+    `host this ui on another frontend.`,
   // The Riverpod emitter's internal floor — it replaces the three
   // `// TODO(flutter full-parity)` comments that used to be emitted INTO the
   // Dart, where they compiled fine and left the action doing nothing.
@@ -2894,26 +2934,14 @@ export const DIAGNOSTIC_MESSAGES = {
     aggName: unknown;
   }) =>
     `queryHandler '${p.name}' pages retrieval '${p.retrieval}', whose \`sort:\` is the page's default order — but '${p.aggName}' is not a single-table relational aggregate, and its paged read is taken in memory without that order. Drop the retrieval's \`sort:\` (the client orders through the route's \`sort\`/\`dir\`), or page a criterion instead.`,
-  "loom.datagrid-unsupported-target": (p: { what: unknown; dName: unknown; fw: unknown }) =>
+  "loom.target-unsupported#datagrid": (p: { what: unknown; dName: unknown; target: unknown }) =>
     `${p.what} uses 'DataGrid', which deployable '${p.dName}' can't render ` +
-    `(frontend '${p.fw}'). DataGrid is a TanStack row model, so it ships wherever ` +
+    `(frontend '${p.target}'). DataGrid is a TanStack row model, so it ships wherever ` +
     `TanStack can run: react, vue, svelte, angular and feliz. It is a permanent gap on flutter ` +
     `(the native target has no JS runtime) and on heex (LiveView could only re-implement the ` +
     `row model, forking its sort, filter and pagination semantics). Use 'Table' — it supports ` +
     `column sort and pagination on every frontend, server-driven on Phoenix and Flutter — or ` +
     `host this page on one of the five above.`,
-  "loom.heex-component-host-state-unsupported": (p: {
-    component: unknown;
-    primitive: unknown;
-    dName: unknown;
-  }) =>
-    `component '${p.component}' uses '${p.primitive}', which deployable '${p.dName}' ` +
-    `(Phoenix LiveView) cannot render inside a component. A HEEx function component is a pure ` +
-    `render function with no process of its own, so '${p.primitive}' needs the host page's ` +
-    `LiveView to supply its assign, upload or handle_event clause — and only a component's ` +
-    `'state { … }' and named 'action's are lifted there today. The emitted project compiles, ` +
-    `then fails at request time on the assign that was never made. Move '${p.primitive}' into ` +
-    `the page body; the component can keep its layout, display, 'state' and 'action's.`,
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/ui-framework-checks.ts — a declared component
   // param / extern-function signature type the shared TypeScript prop layer
@@ -3025,12 +3053,21 @@ export const DIAGNOSTIC_MESSAGES = {
     `so Loom emits the component itself — a WALKED component is invoked by its own tag ` +
     `('<app-x …>children</app-x>') and projects children into '<ng-content>' — or pass the ` +
     `content as a declared parameter, or host this page on another frontend.`,
-  "loom.chart-unsupported-target": (p: { what: unknown; name: unknown; uiFramework: unknown }) =>
-    `${p.what} uses 'Chart', which deployable '${p.name}' can't render ` +
-    `(frontend '${p.uiFramework}'). Chart ships on every shipping frontend — react, vue, ` +
+  "loom.target-unsupported#chart": (p: { what: unknown; dName: unknown; target: unknown }) =>
+    `${p.what} uses 'Chart', which deployable '${p.dName}' can't render ` +
+    `(frontend '${p.target}'). Chart ships on every shipping frontend — react, vue, ` +
     `svelte, angular, feliz, flutter and phoenixLiveView — so this names a frontend the ` +
     `chart renderer has not been written for yet. Bind the grouped projection to 'Table' ` +
     `meanwhile: it renders the same rows on every frontend.`,
+  "loom.target-unsupported#entity-history-read": (p: {
+    what: unknown;
+    dName: unknown;
+    target: unknown;
+  }) =>
+    `${p.what} reads an entity's audit history (\`QueryView { of: <Agg>.history(id) }\`), ` +
+    `which deployable '${p.dName}' can't serve (frontend '${p.target}'): its read layer does ` +
+    `not collect the history read or render 'Timeline'. Host this page on a frontend that does, ` +
+    `or read the history through a backend query.`,
   "loom.ui-projection-read-unsupported#frontend-has-no-client": (p: {
     what: unknown;
     name: unknown;
@@ -3774,16 +3811,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `emission target. Host the context on a backend deployable, or declare ` +
     `'inheritanceUsing: ownTable' to use the per-concrete (TPC) layout. ` +
     `Tracked in aggregate-inheritance.md I2/I3.`,
-  "loom.tph-filter-unsupported": (p: { name: unknown; fields: unknown; root: unknown }) =>
-    `aggregate '${p.name}' declares a capability 'filter' reading ${p.fields}, which ` +
-    `'${p.root}' does not declare. Under sharedTable (TPH) inheritance the .NET backend must ` +
-    `register every query filter in the hierarchy on the ROOT entity type '${p.root}' — ` +
-    `EF Core allows a filter "only on the root entity type" — and a root-hosted filter ` +
-    `cannot read a column that exists on one subtype alone (both workarounds fail when the ` +
-    `query source is a SIBLING subtype: a CLR downcast has no coercion operator, and ` +
-    `EF.Property names a property the sibling does not have). Move the field(s) to the ` +
-    `abstract base '${p.root}', declare 'inheritanceUsing: ownTable' (TPC — each concrete ` +
-    `owns its table, filters unrestricted), or host this context off the .NET backend.`,
   "loom.event-sourcing-backend-unsupported": (p: { name: unknown }) =>
     `aggregate '${p.name}' is persistedAs: eventLog, but no backend deployable hosts this ` +
     `context, so there is no event-sourced storage emission target. Host the context on a ` +
@@ -4633,6 +4660,16 @@ export const DIAGNOSTIC_MESSAGES = {
     `context '${p.name}' integration test '${p.testName}': a repository read inside ` +
     `'expect(...)' must be let-bound first — write \`let x = <Agg>.findById(...)\` then ` +
     `assert over \`x\` (the integration renderer awaits the read at statement level).`,
+  "loom.integration-repository-call": (p: {
+    name: unknown;
+    testName: unknown;
+    repo: unknown;
+    member: unknown;
+    agg: unknown;
+  }) =>
+    `context '${p.name}' integration test '${p.testName}': \`${p.repo}.${p.member}(…)\` calls the repository by name, ` +
+    `which an integration test body does not resolve. Root persistence reads at the aggregate instead — ` +
+    `\`let x = ${p.agg}.findById(...)\` — and let a factory \`let\` be saved for you.`,
   "loom.e2e-unsupported-statement": (p: { name: unknown; badKind: unknown; magicId: unknown }) =>
     `e2e test '${p.name}': '${p.badKind}' is not supported in an e2e test body. ` +
     `Only expect, expect-throws, let, expression, and ${p.magicId}.<...> calls are allowed.`,
@@ -5388,6 +5425,10 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.ir-internal#evolve-lowering": "Lowering the current source failed.",
   "loom.ir-internal#migration-derivation": (p: { message: unknown }) =>
     `Migration derivation failed: ${p.message}`,
+  "loom.diff-baseline-invalid": (p: { detail: unknown }) =>
+    `The baseline source does not load (${p.detail}), so there is nothing to diff against. Pass the previous model as it was, or omit \`baseline\` for a first-run diff.`,
+  "loom.migration-chain-invalid": (p: { detail: unknown }) =>
+    `The migration chain does not read as one list: ${p.detail}`,
   "loom.no-system":
     "Source has no `system` block — schema migrations and the wire contract are derived per system, so there is nothing to evolve yet.",
 

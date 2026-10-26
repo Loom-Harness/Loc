@@ -1,7 +1,6 @@
 import type { BoundedContextIR, FieldIR } from "../../../ir/types/loom-ir.js";
 import { deriveContextOperations, staticSubpathRoutes } from "../../../ir/util/api-surface.js";
 import { readPortsForOperation } from "../../../ir/util/domain-service-read-ports.js";
-import { isTphBase } from "../../../ir/util/inheritance.js";
 import { UNSUPPORTED_MEDIA_TYPE_DETAIL } from "../../../ir/util/openapi-errors.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
@@ -22,6 +21,7 @@ import { BOOT_DB_RETRY } from "../../_obs/boot-db-retry.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
 import { OTEL_ENDPOINT_ENV, OTEL_SERVICE_NAME_ENV } from "../../_obs/tracing.js";
 import type { SchemaIdOverride } from "../schema-ids.js";
+import { emitsBaseReader } from "./base-reader.js";
 import { DAPPER_PROJECT_DEPS, renderDapperConnectionSetup } from "./dapper.js";
 
 // Program.cs is top-level statements, not a class — so the renderer's
@@ -585,11 +585,11 @@ ${
 `;
   const emitTrace = !!options?.emitTrace;
   const repoRegistrations = ctx.aggregates
-    // A TPH (`sharedTable`) base owns the shared table but emits no repository
-    // of its own (only its concretes do; reads route through their DbSets),
-    // so it has no I<Base>Repository / <Base>Repository to register.  A TPC
-    // base, by contrast, has a base-reader repository — kept.
-    .filter((a) => !isTphBase(a, ctx.aggregates))
+    // An abstract base registers its polymorphic reader exactly when one is
+    // emitted (`emitsBaseReader`): every TPC base, and a TPH root on EF.
+    .filter(
+      (a) => !a.isAbstract || emitsBaseReader(a, ctx.aggregates, options?.usingDapper ?? false),
+    )
     .map(
       (a) =>
         `builder.Services.AddScoped<${ns}.Domain.${plural(a.name)}.I${a.name}Repository, ${ns}.Infrastructure.Repositories.${a.name}Repository>();`,
@@ -1523,8 +1523,7 @@ export function renderCsproj(
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>${ns}</RootNamespace>
-    <!-- Roslyn analyzer level — see docs/old/proposals/cross-stack-static-analysis.md.
-         latest-recommended brings in ~200 high-signal CA-prefixed rules
+    <!-- Roslyn analyzer level: latest-recommended brings in ~200 high-signal CA-prefixed rules
          on top of the compiler warnings the existing CI /warnaserror gates. -->
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <!-- CA1707: \`_Create\` factory uses an underscore prefix intentionally
@@ -1653,7 +1652,7 @@ export function nugetAuditSuppressItemGroup(resourceNugetDeps: Record<string, st
   if (!("MailKit" in resourceNugetDeps)) return "";
   return `\n  <ItemGroup>
     <!-- MailKit/MimeKit: moderate transitive (BouncyCastle) advisory on every
-         version; SMTP send path only.  See docs/old/proposals/email-resource-kind.md. -->
+         version; SMTP send path only. -->
     <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-9j88-vvj5-vhgr" />
     <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-g7hc-96xr-gvvx" />
   </ItemGroup>`;

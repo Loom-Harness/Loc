@@ -35,6 +35,7 @@ import {
   checkBindableInputArgs,
   checkBuilderCallType,
   checkBypassPlacement,
+  checkCallableBodies,
   checkCallableSites,
   checkChannels,
   checkComponent,
@@ -59,6 +60,7 @@ import {
   checkIntrinsicCalls,
   checkLayout,
   checkLegacyConstructorCalls,
+  checkLetAnnotations,
   checkMacroExpansion,
   checkMatchExpressions,
   checkMatcherArity,
@@ -272,7 +274,7 @@ export class DddValidator {
     // Project composition: a top-level `subdomain` (declared outside any
     // `system { }`) folds into the project's single system — enforce that
     // exactly one system exists across the import graph.  See
-    // docs/old/proposals/implicit-system-composition.md.
+    // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/implicit-system-composition.md.
     guard("top-level-domain-composition", model, () =>
       checkTopLevelDomainComposition(model, accept, this.services),
     );
@@ -343,7 +345,7 @@ export class DddValidator {
     guard("action-type-position", model, () => checkActionTypePosition(model, accept));
     // Binary operand compatibility: every binary expression's
     // operands must agree with the operator's semantics.
-    // Arithmetic uses `arithmeticResult` (numeric widening, closed
+    // Arithmetic uses the typing pass's fold (numeric widening, closed
     // money rules, string concat); comparison uses `comparable`
     // (same type / numeric-chain / money / optional-unwrap);
     // logical requires bool.  Replaces the per-feature suppression
@@ -384,9 +386,14 @@ export class DddValidator {
     // Top-level functions: block-form rejection + recursion cycle
     // (loom.function-toplevel-block / loom.function-recursive).
     guard("toplevel-functions", model, () => checkTopLevelFunctions(model, accept));
+    // `let x: T = e` — the value against the declared type.
+    guard("let-annotations", model, () => checkLetAnnotations(model, accept));
     // The `extern` ↔ body pairing on commandHandler / queryHandler
     // (loom.extern-handler-has-body / loom.handler-missing-body).
     guard("handler-bodies", model, () => checkHandlerBodies(model, accept));
+    // Every callable's `return`s against its declared result type, and the
+    // expression checks for the bodies the aggregate statement walk never visits.
+    guard("callable-bodies", model, () => checkCallableBodies(model, accept));
     // Unresolved bare-identifier heads (`total := amout`, `let x = amout`):
     // a `NameRef` is not a cross-reference, so an unresolvable head types as
     // `T.unknown` and every downstream gate suppresses on it — the finding-1

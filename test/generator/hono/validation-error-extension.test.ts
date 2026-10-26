@@ -2,8 +2,8 @@
 //
 // Verifies that the Hono backend emits the RFC 7807 §3.2 `errors[]`
 // extension shape consumed by the frontend ACL's `applyServerErrors`
-// (see docs/old/proposals/frontend-acl.md +
-// docs/old/proposals/validation-error-extension.md).
+// (see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/frontend-acl.md +
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md).
 //
 // What this protects (Phase A — runtime only):
 //  - A single shared `http/problem-details.ts` module is emitted (not
@@ -87,7 +87,7 @@ describe("Hono validation-error extension — emission", () => {
     // §3.2 errors[] extension is now declared on the OpenAPI component
     // schema (Phase D — all three backends move in lockstep so the
     // cross-backend parity gate stays green).  See
-    // docs/old/proposals/validation-error-extension.md.
+    // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md.
     expect(src).toMatch(
       /errors:\s*z\.array\(z\.object\(\{\s*pointer:\s*z\.string\(\),\s*message:\s*z\.string\(\),\s*code:\s*z\.string\(\)\.nullish\(\)\s*\}\)\)\.nullish\(\)/,
     );
@@ -126,9 +126,9 @@ describe("Hono validation-error extension — emission", () => {
     // splats it into the JSON.stringify body.
     expect(src).toMatch(/const errors = \(result\.error\?\.issues \?\? \[\]\)\.map/);
     expect(src).toMatch(/pointer:\s*pointerOf\(issue\.path\)/);
-    // An absent required field reads the shared word instead (RS-39).
+    // An absent required field reads the wirePolicy sentence instead (RS-39).
     expect(src).toMatch(
-      /message:\s*isAbsent\(result\.data, issue\.path\) \? "Required" : issue\.message/,
+      /message:\s*isAbsent\(result\.data, issue\.path\) \? missingFieldMessage\(issue\.path\) : issue\.message/,
     );
     // The shorthand `errors` (= the local const) is included in the
     // emitted JSON body — that's the field the frontend ACL reads.
@@ -183,7 +183,7 @@ describe("Hono validation-error extension — emission", () => {
     // Phase D shipped: all three backends now declare 422 in lockstep via
     // the central matrix in src/ir/util/openapi-errors.ts.  Hono's
     // create / operation / workflow routes declare 422 ProblemDetails
-    // alongside 400.  See docs/old/proposals/validation-error-extension.md.
+    // alongside 400.  See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md.
     const { files } = generateSystems(await buildAcme());
     const root = honoRootOf(files);
     const customerSrc = files.get(`${root}/http/customer.routes.ts`)!;

@@ -1,9 +1,8 @@
 // -------------------------------------------------------------------------
-// System-level UI-framework support gates: data grid, HEEx component host
-// state, chart, projection-read framework, current-user-needs-auth-ui,
-// realtime, flutter primitive, and the auth-ui-framework guard.  Split out
-// of system-checks.ts by packet 2.6 (wave-2) — mechanical move, no logic
-// change.
+// System-level UI-framework support gates: HEEx component host state,
+// projection-read framework, current-user-needs-auth-ui, realtime, flutter
+// primitive, and the auth-ui-framework guard.  (`DataGrid` and `Chart` are
+// rows of the capability table — `target-capability-checks.ts`.)
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
@@ -18,17 +17,15 @@ import type {
 } from "../../types/loom-ir.js";
 import { exprUsesCurrentUser, stmtUsesCurrentUser } from "../../types/loom-ir.js";
 import type { OriginRef } from "../../types/origin.js";
-import { bodyUsesChart } from "../../util/chart.js";
 import { componentChildrenHosts } from "../../util/component-children.js";
-import { dataGridHosts } from "../../util/data-grid.js";
 import { FORM_LOCAL_FRAMEWORKS, formLocalCollisionHosts } from "../../util/form-locals.js";
 import {
   unsupportedFrontendParamType,
   unsupportedFrontendPropType,
 } from "../../util/frontend-prop-type.js";
-import { heexComponentHostStateUses } from "../../util/heex-component-host-state.js";
 import { liveViewHandlerCollisions, liveViewStatefulReuse } from "../../util/liveview-hoisting.js";
 import { readableProjectionNames } from "../../util/projection-read.js";
+import { UNRESOLVED_LAMBDA_PARAM_SHAPE } from "../../util/unresolved-lambda-param.js";
 import {
   walkExprDeep,
   walkExprStmtsDeep,
@@ -49,90 +46,6 @@ import { walkExpr } from "./shared.js";
 // is absent would otherwise silently emit no guard at all.
 
 const AUTH_UI_FRAMEWORKS = new Set(["react", "vue", "svelte", "angular", "feliz", "flutter"]);
-
-/** Frontends whose walker emits the `DataGrid` primitive.
- *
- *  The membership rule is D-DATAGRID-TARGETS: a frontend ships `DataGrid` iff
- *  it can run **TanStack Table** itself — not iff it emits JSX, and not iff its
- *  UI kit happens to have a grid widget.  `DataGrid` IS a TanStack row model
- *  behind the `renderDataGridChild` seam, so any other way of satisfying it
- *  forks the behaviour the seam exists to share.  Feliz qualifies because Fable
- *  compiles F# to JavaScript (it binds `@tanstack/table-core` directly, as the
- *  Svelte target does); Flutter never will, because its shipping target is a
- *  native build with no JS runtime.
- *
- *  Using it elsewhere is a COMPILE ERROR rather than a silently missing grid:
- *  the page would otherwise render an empty slot (or a "not supported" comment
- *  on HEEx) and the author would only find out by looking at the running app. */
-
-const DATA_GRID_FRAMEWORKS = new Set<string>(["react", "vue", "svelte", "angular", "feliz"]);
-
-/** `DataGrid` on a frontend that can't render it (M-T1.1 follow-on). */
-
-export function validateDataGridFramework(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  for (const d of sys.deployables) {
-    for (const { ui, fw } of mountedUis(sys, d)) {
-      if (DATA_GRID_FRAMEWORKS.has(fw)) continue;
-      // Pages AND components — a grid moved into a component is just as
-      // unrenderable, and `dataGridHosts` is the same scan the Feliz emitter
-      // uses to decide whether to ship `@tanstack/table-core`.
-      for (const what of dataGridHosts(ui)) {
-        diags.push({
-          severity: "error",
-          code: "loom.datagrid-unsupported-target",
-          message: diagMessage("loom.datagrid-unsupported-target", {
-            what,
-            dName: d.name,
-            fw: fw || "unknown",
-          }),
-          source: `${ui.name}/${what}`,
-        });
-      }
-    }
-  }
-}
-
-/** A page-body primitive that needs HOST-LIVEVIEW state, written inside a
- *  `component`, on a phoenixLiveView ui.
- *
- *  A HEEx function component is a pure render function with no process of its
- *  own, so its `state { … }` and named `action`s are LIFTED into the host page's
- *  LiveView (#2646).  That hoisting was never extended to the walker's form /
- *  query / upload / table-control accumulators, so these primitives emit their
- *  markup inside the component while the host gets no assign, no
- *  `allow_upload/3` and no `handle_event/3`.
- *
- *  It is a COMPILE ERROR rather than a documented degrade because the emitted
- *  project passes `mix compile --warnings-as-errors` and then dies at REQUEST
- *  time on the missing assign — a page that raises on load, or a form whose submit
- *  silently does nothing.  A gate the author reads is strictly better than a
- *  crash they meet in the running app.  The workaround is exact and local: move
- *  the primitive into the page body (components may still hold layout, display,
- *  `state` and `action`s).
- *
- *  Drains when the four accumulators hoist the way state and actions already do
- *  — the same `ComponentActionInfo` + `gather*` seam, plus the multi-instance
- *  question `componentUses` exists to answer for state. */
-
-export function validateHeexComponentHostState(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  for (const d of sys.deployables) {
-    for (const { ui, fw } of mountedUis(sys, d)) {
-      if (fw !== "phoenixLiveView") continue;
-      for (const { component, primitive } of heexComponentHostStateUses(ui)) {
-        diags.push({
-          severity: "error",
-          code: "loom.heex-component-host-state-unsupported",
-          message: diagMessage("loom.heex-component-host-state-unsupported", {
-            component,
-            primitive,
-            dName: d.name,
-          }),
-          source: `${ui.name}/${component}`,
-        });
-      }
-    }
-  }
-}
 
 /** Frontends whose component props and extern-function signatures are emitted
  *  as TYPESCRIPT, through the two shared `_frontend/` modules
@@ -253,81 +166,6 @@ export function mountedUis(sys: SystemIR, d: DeployableIR): { ui: UiIR; fw: stri
     if (ui) out.push({ ui, fw: ui.framework ?? d.uiFramework ?? "" });
   }
   return out;
-}
-
-/** Frontends that can render `Chart`.
- *
- *  react reaches a charting LIBRARY through its design pack; the other three
- *  need none — see the rollout note on the gate below. */
-/** `Chart` on a target that can't render it.
- *
- *  `primitive-chart` is in `REQUIRED_PRIMITIVES.tsx.core`, so a react pack
- *  missing it is a pack-LOAD failure rather than something to re-check here.
- *  This gate is the per-FRAMEWORK rule, exactly like
- *  `validateDataGridFramework`.
- *
- *  Phoenix, Feliz and Flutter join react by rendering the chart THEMSELVES —
- *  inline SVG (HEEx, Feliz) and a `CustomPainter` (Flutter), computed from rows
- *  the client (or the LiveView socket) has already decoded, with no charting
- *  library and no dependency added.  None of the three has a `.hbs` pack matrix
- *  to backfill, so unlike the tsx leg there was no per-pack library to choose —
- *  which is what made them the cheap legs.  Vue, Svelte and Angular have no
- *  chart renderer and would render an unsupported-primitive comment, so they
- *  stay honest gaps.
- *
- *  NOTE for the sibling ports: this Set is edited by every frontend's chart PR,
- *  so it conflicts on rebase.  Resolve by keeping EVERY framework already
- *  present plus yours — never by taking one side wholesale.
- *
- *  The Set names every shipping framework, so the gate fires for nothing that
- *  exists today — it is the seam a NEW frontend
- *  gates on until it ports, not dead code.  EXPORTED so its own test can prove
- *  it still bites: with nothing left to gate, "the check works" and "the check
- *  is unreachable" are indistinguishable from the outside, and the only honest
- *  way to tell them apart is to remove a framework and watch the diagnostic
- *  come back (`ui-chart-gates.test.ts`) — the same discipline
- *  `PROJECTION_READ_FRAMEWORKS` already uses one gate over. */
-
-export const CHART_FRAMEWORKS = new Set([
-  "react",
-  "phoenixLiveView",
-  "feliz",
-  "flutter",
-  "vue",
-  "svelte",
-  "angular",
-]);
-
-export function validateChartSupport(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  for (const d of sys.deployables) {
-    for (const { ui, fw } of mountedUis(sys, d)) {
-      if (CHART_FRAMEWORKS.has(fw)) continue;
-      // Components render into pages, so a chart moved into one must not slip
-      // the gate — same body coverage as `validateUiProjectionReadFramework`.
-      const bodies: Array<{ what: string; body: ExprIR | undefined; origin?: OriginRef }> = [
-        ...ui.pages.map((p) => ({ what: `page '${p.name}'`, body: p.body, origin: p.origin })),
-        ...ui.components.map((c) => ({
-          what: `component '${c.name}'`,
-          body: c.body,
-          origin: c.origin,
-        })),
-      ];
-      for (const { what, body, origin } of bodies) {
-        if (!bodyUsesChart(body)) continue;
-        diags.push({
-          severity: "error",
-          code: "loom.chart-unsupported-target",
-          message: diagMessage("loom.chart-unsupported-target", {
-            what,
-            name: d.name,
-            uiFramework: fw || "unknown",
-          }),
-          source: `${ui.name}/${what}`,
-          origin,
-        });
-      }
-    }
-  }
 }
 
 // Frontends whose generated client can READ a query-time projection
@@ -983,6 +821,57 @@ function stmtsUseThis(stmts: readonly StmtIR[]): boolean {
     });
   }
   return found;
+}
+
+/** A member read off a lambda parameter no source typed (`UNRESOLVED_LAMBDA_PARAM_SHAPE`):
+ *  the member would type as a guessed `string`, which selects string
+ *  concatenation for `r.qty + 1` and renders a typo'd field verbatim. */
+function unresolvedParamReads(visit: (f: (e: ExprIR) => void) => void): string[] {
+  const names: string[] = [];
+  visit((n) => {
+    const recv = n.kind === "member" || n.kind === "method-call" ? n.receiver : undefined;
+    if (
+      recv?.kind === "ref" &&
+      recv.refKind === "lambda" &&
+      recv.type?.kind === "entity" &&
+      recv.type.name === UNRESOLVED_LAMBDA_PARAM_SHAPE
+    ) {
+      names.push(recv.name);
+    }
+  });
+  return names;
+}
+
+export function validateLambdaParamTypes(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  for (const ui of sys.uis) {
+    const flag = (where: string, visit: (f: (e: ExprIR) => void) => void): void => {
+      for (const param of new Set(unresolvedParamReads(visit))) {
+        diags.push({
+          severity: "warning",
+          code: "loom.lambda-param-type-unknown",
+          message: diagMessage("loom.lambda-param-type-unknown", { param, where, uiName: ui.name }),
+          source: `${ui.name}/${where}`,
+        });
+      }
+    };
+    const exprIn = (e: ExprIR | undefined) => (f: (e: ExprIR) => void) => walkExprDeep(e, f);
+    const stmtsIn = (stmts: readonly StmtIR[]) => (f: (e: ExprIR) => void) => {
+      for (const st of stmts) walkStmtExprsDeep(st, f);
+    };
+    const hosts = [
+      ...ui.pages.map((p) => ({ label: `page '${p.name}'`, h: p })),
+      ...ui.components.map((c) => ({ label: `component '${c.name}'`, h: c })),
+    ];
+    for (const { label, h } of hosts) {
+      flag(`${label} body`, exprIn(h.body));
+      for (const a of h.actions) flag(`${label} action '${a.name}'`, stmtsIn(a.body));
+      for (const dv of h.derived) flag(`${label} derived '${dv.name}'`, exprIn(dv.expr));
+      for (const f of h.state) flag(`${label} state '${f.name}'`, exprIn(f.init));
+    }
+    for (const st of ui.stores) {
+      for (const a of st.actions) flag(`store '${st.name}' action '${a.name}'`, stmtsIn(a.body));
+    }
+  }
 }
 
 export function validateUiThisUnbound(sys: SystemIR, diags: LoomDiagnostic[]): void {

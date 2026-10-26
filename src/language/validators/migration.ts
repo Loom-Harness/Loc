@@ -1,5 +1,4 @@
-// Migration-block checks (M-T2.1, docs/new-plan/missions/
-// M-T2.1-migration-surface-design.md).
+// Migration-block checks (M-T2.1, https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/missions/M-T2.1-migration-surface-design.md).
 //
 // A top-level `migration "<name>" { rename Agg.old -> new }` block is a
 // permanent, ledger-style record whose `rename` steps disambiguate the derived
@@ -25,7 +24,7 @@
 
 import { AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
-import type { Migration, Model } from "../generated/ast.js";
+import type { Aggregate, Migration, Model } from "../generated/ast.js";
 import { isMigration, isProperty, isSqlStep, isTableRename } from "../generated/ast.js";
 
 export function checkMigrations(model: Model, accept: ValidationAcceptor): void {
@@ -133,11 +132,21 @@ function checkMigration(
       // fit are IR-level checks — phase ⑦ — where the lowered ExprIR exists.)
       const fields = step.aggregate.ref?.members.filter(isProperty).map((p) => p.name) ?? [];
       if (step.aggregate.ref && !fields.includes(step.field)) {
-        accept("error", diagMessage("loom.backfill-unknown-field", { field: step.field, agg }), {
-          node: step,
-          property: "field",
-          code: "loom.backfill-unknown-field",
-        });
+        // An inherited field is backfilled where it is declared: the base's
+        // step reaches every table that stores it (the shared TPH table, or
+        // each TPC concrete's own), so one spelling covers every layout.
+        const base = declaringAncestor(step.aggregate.ref, step.field);
+        accept(
+          "error",
+          base
+            ? diagMessage("loom.backfill-unknown-field#inherited", {
+                field: step.field,
+                agg,
+                base,
+              })
+            : diagMessage("loom.backfill-unknown-field", { field: step.field, agg }),
+          { node: step, property: "field", code: "loom.backfill-unknown-field" },
+        );
       }
       const key = `${agg}.${step.field}`;
       if (seenBackfill.has(key)) {
@@ -181,4 +190,17 @@ function checkMigration(
       seenTarget.add(targetKey);
     }
   }
+}
+
+/** The nearest `extends` ancestor of `agg` that declares the property
+ *  `field`, or undefined.  A `seen` guard keeps a malformed cycle finite. */
+function declaringAncestor(agg: Aggregate, field: string): string | undefined {
+  const seen = new Set<Aggregate>([agg]);
+  let cur = agg.superType?.ref;
+  while (cur && !seen.has(cur)) {
+    if (cur.members.some((m) => isProperty(m) && m.name === field)) return cur.name;
+    seen.add(cur);
+    cur = cur.superType?.ref;
+  }
+  return undefined;
 }

@@ -257,9 +257,13 @@ user can hand-write — and vice versa.
   (`deployable.ts`, `auth.ts`, `criterion.ts`, `composition.ts`, …),
   barrelled through `validators/index.ts`.  The previous ~2.5k-LOC
   monolith was split here; `ddd-validator.ts` owns no check logic.
-- `src/language/type-system.ts` — `DddType` + AST-walk helpers
+- `src/language/typing/` — the single typing pass: `Ty` (the one type
+  representation), the elaborator that types every expression, and the type
+  relations validators judge with (`relations.ts`: `isAssignable`,
+  `comparable`, `ternaryJoin`, `typeToString`).
+- `src/language/type-system.ts` — AST-walk helpers over `Ty`
   (`typeOf`, `lookupRootMember`, `stepInto`, `findFunction`,
-  `findOperation`, etc.).
+  `findOperation`, etc.), shared by the validators and the LSP.
 
 **Inputs**
 - Linked AST from phase ③ (after macro expansion + linking).
@@ -297,6 +301,33 @@ user can hand-write — and vice versa.
   in many places: malformed input would have errored out earlier.
 
 ---
+
+### The single typing pass (`src/language/typing/`)
+
+Expression types come from ONE elaboration pass, shared by the validators and
+the lowering. `typingSession(models)` (`src/language/typing/index.ts`) builds a
+declaration index (`decl-index.ts`) and elaborates the whole compilation unit
+once (`elaborate.ts`, types in `ty.ts`); `typingFor(node)` (`shared.ts`) returns
+the cached session for a node's document, invalidated on every workspace update
+(`ddd-module.ts`). A session answers:
+
+- `typeAt(node)` / `synthAt(node)` — an expression's elaborated / synthesized
+  type;
+- `synthAtFor(node, host)` — a CONTEXT-level filter or stamp typed against the
+  aggregate it lands on;
+- `bindingAt(node, name)`, `scopeAt(node)`, `foldsAt(chain)`,
+  `lvalueStepsAt(lv)`, `resolveType(typeRef)`.
+
+`src/language/type-system.ts`'s `typeOf` and friends delegate to the session for
+the expression kinds the pass owns and convert with `toDddType`; lowering copies
+`toTypeIR(typeAt(node))` (`src/ir/lower/lower-expr.ts`), so the validator and the
+IR cannot disagree about a type. An emission choice that differs from the type
+(e.g. a bare `null` or an empty list literal carrying a `string` placeholder) is a
+named REPRESENTATION rule at the lowering seam (`irType`), not a typing rule.
+
+The pass replaced separately maintained typers — one that fell back to `unknown`
+(and so silently suppressed gates) and ones that fell back to `string` — which
+between them knew the type of fewer than half of all expressions (57.8 % were known to neither).
 
 ## Phase ⑤ — Lowering (AST → Loom IR)
 

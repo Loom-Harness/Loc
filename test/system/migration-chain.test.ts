@@ -6,12 +6,14 @@ import {
   chainMigrations,
   EMPTY_CHAIN,
   entryFileName,
+  entryId,
   headSnapshots,
   INITIAL_RESERVATION,
   type MigrationChain,
   MigrationChainError,
   MigrationDriftError,
   parseChain,
+  parseForkedChain,
   recordGeneration,
   serializeEntry,
 } from "../../src/system/migration-chain.js";
@@ -57,7 +59,7 @@ describe("recordGeneration — numbering", () => {
       "20261025120000",
       String(20261025120000n + INITIAL_RESERVATION),
     ]);
-    expect(entries.map((e) => e.parent)).toEqual([null, "20261025120000"]);
+    expect(entries.map((e) => e.parent)).toEqual([null, "20261025120000_a_initial"]);
     expect(entries.map((e) => e.name)).toEqual(["Initial", "Initial"]);
   });
 
@@ -72,7 +74,7 @@ describe("recordGeneration — numbering", () => {
       now: "20200101000000",
     });
     expect(BigInt(next!.version)).toBe(20261025120000n + INITIAL_RESERVATION);
-    expect(next!.parent).toBe("20261025120000");
+    expect(next!.parent).toBe("20261025120000_a_initial");
     expect(next!.name).toBe("AddB");
   });
 
@@ -154,14 +156,42 @@ describe("parseChain — one list", () => {
     expect(() => parseChain(files({ entries: [root, child, sibling] }))).toThrow(/two heads/);
   });
 
+  it("reads two branches' migrations as a fork, even when they drew the same version", () => {
+    // Both branches recorded on top of the same Initial with the clock behind
+    // its reservation, so both entries are numbered the same.
+    const chain = twoGenerations();
+    const [root, child] = chain.entries as [ChainEntry, ChainEntry];
+    const sibling: ChainEntry = { ...child, name: "AddC" };
+    const fork = parseForkedChain(files({ entries: [root, child, sibling] }));
+    expect(fork?.base.map(entryId)).toEqual([entryId(root)]);
+    expect(fork?.tails.map((t) => t.map((e) => e.name))).toEqual([["AddB"], ["AddC"]]);
+    // …and the one-list reader says how to resolve it.
+    expect(() => parseChain(files({ entries: [root, child, sibling] }))).toThrow(
+      /ddd migrate rebase/,
+    );
+  });
+
+  it("reads a linear chain as no fork", () => {
+    expect(parseForkedChain(files(twoGenerations()))).toBeNull();
+  });
+
+  it("refuses a chain that splits three ways", () => {
+    const [root, child] = twoGenerations().entries as [ChainEntry, ChainEntry];
+    const c: ChainEntry = { ...child, name: "AddC" };
+    const d: ChainEntry = { ...child, name: "AddD" };
+    expect(() => parseForkedChain(files({ entries: [root, child, c, d] }))).toThrow(
+      /more than two ways/,
+    );
+  });
+
   it("refuses a parent that is not in the directory", () => {
     const [, child] = twoGenerations().entries as [ChainEntry, ChainEntry];
-    expect(() => parseChain(files({ entries: [child] }))).toThrow(/names parent/);
+    expect(() => parseChain(files({ entries: [child] }))).toThrow(/which is not in migrations/);
   });
 
   it("refuses an entry numbered at or below its parent", () => {
     const [root, child] = twoGenerations().entries as [ChainEntry, ChainEntry];
-    const bad: ChainEntry = { ...child, version: root.version, parent: root.version };
+    const bad: ChainEntry = { ...child, version: root.version, parent: entryId(root) };
     expect(() =>
       parseChain([
         { name: entryFileName(root), content: serializeEntry(root) },

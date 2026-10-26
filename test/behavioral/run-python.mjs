@@ -5,7 +5,7 @@
 // the GENERATED FastAPI backend as a real process against a real Postgres
 // (DATABASE_URL) and HTTP-dispatches the SAME emitted `test e2e` api suite at
 // it — the emitted suite is written against the HTTP contract, so it is
-// backend-agnostic (see docs/old/plans/a6.2-behavioral-tier-second-backend.md).
+// backend-agnostic (see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/a6.2-behavioral-tier-second-backend.md).
 //
 // Two tiers gate (mirroring the node tier's api + unit):
 //   - unit: the generated pure-domain pytest suite (`tests/test_<agg>.py`,
@@ -37,6 +37,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, resetDatabase, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
 import { stopServer, waitForPort, waitForPortFree } from "./proc.mjs";
+import { makeCaseLoop } from "./case-loop.mjs";
 import { makeWireGate, recorderPreamble } from "./wire-differential.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
 
@@ -295,7 +296,7 @@ async function runCase(c) {
 
 const only = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 // Manifest-derived corpus features (python) + shared tokenized systems.
-const corpus = [...(await featureCases("python", "python", WORK)), ...sharedSystemCases("python")].filter(
+const corpus = [...(await featureCases("python", "python", WORK, "python")), ...sharedSystemCases("python")].filter(
   (c) => only.length === 0 || only.includes(c.name),
 );
 
@@ -304,53 +305,18 @@ if (corpus.some((c) => /\n\s*auth\s*\{/.test(c.source))) {
   oidc = await startMockIssuer();
 }
 
-let pass = 0;
-let fail = 0;
-let skipped = 0;
-let errored = 0;
 // Cross-backend runtime wire differential (M-T9.11): every request this tier
 // makes is recorded at the dispatch chokepoint and compared to the committed
 // canonical golden (test/behavioral/wire-golden/), so a runtime-VALUE drift
 // this backend alone introduces fails HERE, per-PR — not in a nightly report.
 const wire = makeWireGate("python", WORK);
+const loop = makeCaseLoop("python", wire);
 for (const c of corpus) {
-  process.stdout.write(`\n▶ ${c.name}  [python → ${BASE}]\n`);
-  let out;
-  try {
-    out = await runCase(c);
-  } catch (err) {
-    // generate / findDeployable / uv sync failure — nothing ran.
-    errored++;
-    process.stdout.write(`  ERROR booting/running: ${err?.message ?? err}\n`);
-    continue;
-  }
-  for (const r of out.results) {
-    // `skip` is a THIRD outcome, not a quiet pass and not a failure: the authz
-    // ladder reports an arm its auth flavour cannot express (a dev-stub system
-    // has no anonymous caller) as skipped, so the gap stays visible in the log
-    // instead of being counted as a rung that held — or as one that broke.
-    if (r.status === "skip") {
-      skipped++;
-      process.stdout.write(`  ○ [${r.tier ?? "api"}] ${r.name}\n`);
-      continue;
-    }
-    const ok = r.status === "pass";
-    ok ? pass++ : fail++;
-    process.stdout.write(`  ${ok ? "✓" : "✗"} [${r.tier ?? "api"}] ${r.name}\n`);
-    if (!ok && r.error) process.stdout.write(`      ${String(r.error).split("\n")[0]}\n`);
-  }
-  // An api-tier boot/infra failure is an errored case, but the unit results
-  // above still counted — a domain failure is never masked by a flaky DB.
-  if (out.error) {
-    errored++;
-    process.stdout.write(`  ERROR booting/running [api]: ${out.error.split("\n")[0]}\n`);
-  }
-  await wire.check(c.name, out.wire, out.results);
+  await loop.run(c, runCase, { header: `python → ${BASE}` });
 }
 
 await oidc?.stop();
 
 const wireBad = await wire.finish();
 
-process.stdout.write(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped` : ""}${errored ? `, ${errored} cases errored` : ""}\n`);
-process.exit(fail > 0 || errored > 0 || wireBad > 0 ? 1 : 0);
+process.exit(loop.finish(wireBad));

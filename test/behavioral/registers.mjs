@@ -66,7 +66,7 @@ export function mountsFileRoutes(src) {
  *  tracked gap there.  Honest and documented (not a silent drop) — the case still
  *  runs on every other backend, the gate (behavioural-coverage.test.ts) still
  *  requires it to EMIT everywhere, and each entry cites its bug in
- *  docs/audits/behavioral-parity-bugs-2026-07.md.  Removing an entry is how a fix
+ *  https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/behavioral-parity-bugs-2026-07.md.  Removing an entry is how a fix
  *  re-arms the boot.  Keyed by platform clause; applies to BOTH featureCases and
  *  sharedSystemCases (a case name is either a corpus feature id or a systems/ file). */
 /** Exported so the fast-suite golden-coverage gate
@@ -137,7 +137,201 @@ export const BEHAVIOURAL_SKIP = {
  * exit landed, delete the entry), names a missing corpus case, or carries no
  * mission / PR id.  Empty is the target state.
  */
-export const ADAPTER_ONLY_CASES = {};
+export const ADAPTER_ONLY_CASES = {
+  "dotnet { persistence: dapper }": {
+    // EF loses the re-hosted nested parts (#4136); Dapper's explicit SQL
+    // deletes and re-inserts them and passes.
+    "contained-part-rebuild":
+      "#4136 — EF loses a rebuilt part's nested owned children (M-T6.96); the Dapper adapter passes it",
+  },
+};
+
+/** The behavioural runner LEGS — the wire-gate backend labels, one per runner
+ *  (`run.mjs` is `node`, `run-mikroorm.mjs` is `mikroorm`, …).  The two
+ *  persistence-adapter legs are legs of their own because an adapter can fail
+ *  a case its backend's default adapter passes. */
+export const LEGS = ["node", "mikroorm", "dotnet", "dapper", "java", "python", "elixir"];
+
+/** The manifest backend key each leg boots (cases.mjs `featureCases`). */
+export const LEG_BACKEND = {
+  node: "node",
+  mikroorm: "node",
+  dotnet: "dotnet",
+  dapper: "dotnet",
+  java: "java",
+  python: "python",
+  elixir: "vanilla",
+};
+
+/** A folded projection's `valueobject` field: the migration spreads it into
+ *  leaf columns, the response nests it, and only node bridges the two.  How
+ *  each backend breaks is pinned per leg. */
+const projectionVoRow = (pin) => ({
+  issue: "#4023",
+  ...pin,
+  reason: "the read model does not bridge the flat VO leaf columns to the nested wire shape",
+});
+
+/** The blocks of `inheritance-base-reads` and how a leg that has not been
+ *  fixed fails each one. */
+const BASE_READS_TESTS = {
+  tphBaseCap: ["TPH: a base capability narrows every subtype", "expected the call to reject, but it resolved"],
+  tpcBaseCap: ["TPC: a base capability narrows every subtype", "expected the call to reject, but it resolved"],
+  polymorphic: ["TPH: the polymorphic base reads", "GET \\S+/api/equipments/\\S+ → 404 .*no route for GET"],
+};
+
+/** `inheritance-base-reads` — the base capability (#3956) and the polymorphic
+ *  base reads (#3959) of epic #3954, as each leg's EXACT failing set, so a leg
+ *  where half the fix lands goes red and narrows its own entry.  `passes`
+ *  names the blocks a leg already gets right; `pins` overrides a block's
+ *  message regex where that leg fails it differently. */
+function baseReads({ passes = [], pins = {} } = {}) {
+  const tests = {};
+  for (const [key, [name, re]] of Object.entries(BASE_READS_TESTS)) {
+    if (!passes.includes(key)) tests[name] = pins[key] ?? re;
+  }
+  return {
+    issue: "#3956, #3959",
+    expect: "fail",
+    tests,
+    reason:
+      "a capability on the abstract base is not inherited by its subtypes (#3956), and the TPH base by-id read is not routed (#3959)",
+  };
+}
+
+/**
+ * TRACKED EXPECTED FAILURES — per (leg, case) cells that are BOOTED on that leg
+ * and known to fail there, each linked to the issue that fixes it.
+ *
+ * This is how a corpus fixture runs on ALL five backends (#3595) while some of
+ * them are still wrong: the cell is not dropped from the leg (the shape
+ * `BEHAVIOURAL_SKIP` and a backend missing from a manifest row both have), it
+ * runs, and `case-loop.mjs` settles it:
+ *
+ *   - it fails as recorded → the leg stays green.  `expect` is the outcome
+ *     kind: `error` (refused at generate, failed to build or boot — `match`
+ *     must find the error message), `fail` (tests or ladder rungs failed —
+ *     `tests` maps a test-name fragment to a message regex and must claim
+ *     EXACTLY the failing set), or `wire` (every test passed, the recording
+ *     diverged from the golden);
+ *   - it PASSES → the leg goes red until the entry is deleted (the fix's PR
+ *     deletes its own entry, like every waiver register here);
+ *   - it fails any OTHER way — another kind, another message, one more or one
+ *     fewer failing test → the leg goes red: an entry vouches for one known
+ *     defect, not for whatever else breaks in the same case.
+ *
+ * Cases enter a leg from here even when the manifest row does not declare that
+ * backend — a backend that REFUSES a crossing at generate is absent from the
+ * row (the generation gate requires every declared cell to generate cleanly)
+ * and still owes the crossing; this is where the debt is booted.  A case node
+ * fails has no golden (node is the oracle it is captured from), and needs none
+ * until it passes.
+ *
+ * `test/behavioral/expected-failures.test.ts` (fast suite) keeps the register
+ * honest without booting: every entry names a real case and leg, an `#NNNN`
+ * issue and a well-formed pin, and every behavioural corpus fixture is
+ * accounted for on every one of the five backends.
+ */
+export const BEHAVIOURAL_XFAIL = {
+  node: {},
+  mikroorm: {
+    "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
+  },
+  dotnet: {
+    "contained-part-rebuild": {
+      issue: "#4136",
+      expect: "fail",
+      tests: { "a nested child removed by rebuilding its parent is gone": "expected 0 to be 1" },
+      reason:
+        "M-T6.96 — an EF owned entity cannot move between owners, so deleting the old line deletes the notes the rebuilt line holds",
+    },
+    // EF maps the VO as a scalar onto a column the migration never creates; the
+    // emitted project does not build.
+    "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
+  },
+  dapper: {
+    // The document-shape read path keeps the filters an `ignoring` clause names;
+    // the relational `Order` on the same leg honours both clauses.
+    "find-bypass": {
+      issue: "#4223",
+      expect: "fail",
+      tests: {
+        "a bypassing find drops exactly the conjuncts it names": "unfiltered_note\\?b=N-2 → 404",
+        "document — `ignoring tenantOwned` lets a foreign tenant see the row — cross-tenant → 200": "expected 200, got 404",
+        "document — `ignoring *` lets a foreign tenant see the row — cross-tenant → 200": "expected 200, got 404",
+      },
+      reason: "`find … ignoring` on a `shape: document` aggregate still applies the filters it names on Dapper",
+    },
+    "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
+    "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
+  },
+  java: {
+    "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
+  },
+  python: {
+    // A routed command handler's body model takes snake_case keys.
+    "extern-handlers": {
+      issue: "#4211",
+      expect: "fail",
+      tests: { "a routed extern handler is mounted and fails loudly": "POST [^ ]*/api/orders → 422" },
+      reason: "the explicit-route body model declares `customer_id`, so the camelCase wire key is refused (RS-1)",
+    },
+    // `{"st": row.st}` against a model whose only attributes are the leaves.
+    "projection-valueobject-row": projectionVoRow({
+      expect: "fail",
+      tests: { "a value object on a folded read model": "/place → 500" },
+    }),
+  },
+  elixir: {
+    // A value object nested inside another is cast as `:map`, so the nested
+    // VO's invariant never runs and the bad create commits.
+    "vo-root-kernel": {
+      issue: "#4017",
+      expect: "fail",
+      tests: { "a shared-kernel value object round-trips": "expected the call to reject, but it resolved" },
+      reason: "the root VO's invariant is not enforced where it is nested in a context-local VO (`route.origin`)",
+    },
+    // The document-shape create demands the defaulted capability field, so
+    // no `Note` can be written: the block and every document ladder seed 422.
+    "find-bypass": {
+      issue: "#4224",
+      expect: "fail",
+      tests: {
+        "a bypassing find drops exactly the conjuncts it names": "POST [^ ]*/api/notes → 422",
+        "document — ": "seed POST /api/notes → 422",
+      },
+      reason: "an author-declared create on a `shape: document` + `softDeletable` aggregate answers 422 `Required /data/isDeleted`",
+    },
+    "workflow-two-handles-containment": {
+      issue: "#3838",
+      expect: "wire",
+      reason: "the workflow 409 `detail` names no aggregate or id (M-T6.94's removal half is fixed)",
+    },
+    // Every test passes; the recording diverges from the golden in five
+    // values — the 409 `detail` names no aggregate/id (#3838), and each op call
+    // inside the workflow is persisted, so a document's `version` reads one
+    // higher (#4089).
+    "workflow-two-handles-document-eventlog": {
+      issue: "#3838, #4089",
+      expect: "wire",
+      reason:
+        "the workflow 409 `detail` names no aggregate or id, and per-call persistence bumps the document `version` twice",
+    },
+    // Elixir passes every block, the routed TPH base by-id read included; the
+    // case has no wire golden until the node oracle routes that read too.
+    "inheritance-base-reads": {
+      issue: "#3959",
+      expect: "wire",
+      reason:
+        "every block passes on elixir, but its routed TPH base by-id read answers the base fields only — no `type` tag and no concrete's own columns, where node answers the tagged concrete row",
+    },
+  },
+};
+
+/** The expected-failure entry for one cell, or null. */
+export function expectedFailure(leg, caseName) {
+  return BEHAVIOURAL_XFAIL[leg]?.[caseName] ?? null;
+}
 
 /** The shared `systems/*.ddd` cases, DERIVED from the directory rather than a
  *  hand-list — a new shared system is gated the moment it lands, and a golden

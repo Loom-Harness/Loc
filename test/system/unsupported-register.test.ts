@@ -449,7 +449,7 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  verbatim in F# / Dart).  Drains row by row as an emitter learns a feature —
  *  the census then asks for the table row to grow — and the row goes when the
  *  table names every frontend in every row. */
-const MAX_OPEN_GAPS = 19;
+const MAX_OPEN_GAPS = 18;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live
@@ -479,8 +479,12 @@ const MAX_OPEN_GAPS = 19;
  *  code).  Gone: paged-query-handler / projection query-time /
  *  whole-table-aggregation / group-by / workflow-source / projection-source,
  *  event-sourced-workflow, generic-carrier, union, when, operation-return,
- *  remote-api-op and filter-bypass. */
-const LATENT_SEAMS = 14;
+ *  remote-api-op and filter-bypass.
+ *
+ *  14 -> 13: `loom.chart-unsupported-target` and `loom.datagrid-unsupported-
+ *  target` folded into the capability table's one code,
+ *  `loom.target-unsupported`. */
+const LATENT_SEAMS = 13;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -657,50 +661,16 @@ describe("`*-unsupported` register (M-T9.27)", () => {
     ).toEqual([]);
   });
 
-  it("resolves every cited legacy mission to exactly one heading in docs/new-plan/", () => {
-    // A `mission` pointing at a missing OR duplicated id is worse than none: the
-    // first is a dangling reference, the second sends two readers to different
-    // work.  T6 carried three duplicate ids when this check was written (two
-    // separate renumbering attempts had each collided) — that is the failure
-    // this pins, and it is why the field is validated rather than trusted.
-    const planDir = path.join(repoRoot, "docs", "new-plan");
-    const headings = new Map<string, number>();
-    const scan = (dir: string): void => {
-      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-        const p = path.join(dir, e.name);
-        if (e.isDirectory()) scan(p);
-        else if (e.name.endsWith(".md")) {
-          for (const line of fs.readFileSync(p, "utf8").split("\n")) {
-            const m = line.match(/^##\s+(M-T\d+\.\d+)\b/);
-            if (m) headings.set(m[1], (headings.get(m[1]) ?? 0) + 1);
-          }
-        }
-      }
-    };
-    scan(planDir);
-
-    // An issue reference (`#NNNN`) lives on GitHub, not in the tree, so only
-    // the legacy `M-Tx.y` ids resolve against headings; anything else is a typo.
+  it("cites every owner as a GitHub issue or PR ref", () => {
+    // Work state lives on GitHub, so the only well-formed owner is `#NNNN`;
+    // anything else is a typo or a pointer into a plan that no longer exists.
     const owners = [
       ...new Set(UNSUPPORTED_REGISTER.flatMap((e) => (e.mission ? [e.mission] : []))),
     ];
-    const malformed = owners.filter((m) => !/^(#\d+|M-T\d+\.\d+)$/.test(m));
-    expect(
-      malformed,
-      "Register `mission` must be an issue ref `#NNNN` or a legacy `M-Tx.y` id.",
-    ).toEqual([]);
-    const cited = owners.filter((m) => m.startsWith("M-T"));
-    const missing = cited.filter((m) => !headings.has(m));
-    const ambiguous = cited.filter((m) => (headings.get(m) ?? 0) > 1);
-
-    expect(
-      missing,
-      "Register cites mission id(s) with no `## <id>` heading in docs/new-plan/.",
-    ).toEqual([]);
-    expect(
-      ambiguous.map((m) => `${m} (${headings.get(m)} headings)`),
-      "Register cites mission id(s) that appear more than once — renumber the duplicates so " +
-        "the reference is unambiguous.",
-    ).toEqual([]);
+    expect(owners.length, "no row cites an owner; the check stopped reaching them").toBeGreaterThan(
+      10,
+    );
+    const malformed = owners.filter((m) => !/^#\d+$/.test(m));
+    expect(malformed, "Register `mission` must be an issue/PR ref `#NNNN`.").toEqual([]);
   });
 });

@@ -453,12 +453,15 @@ system Sys {
     // Inherited base fields ride along on the concrete's table.
     expect(all).toMatch(/text\("email"\)/);
     expect(all).toMatch(/numeric\("credit_limit"\)/);
-    // The abstract base contributes no TABLE and no HTTP routes/mount…
+    // The abstract base contributes no TABLE, but it is the polymorphic read
+    // home: a read-only routes file and mount for `GET /api/parties`.
     const paths = [...files.keys()];
     expect(paths.some((p) => /customer/i.test(p))).toBe(true);
-    expect(paths.some((p) => /party\.routes/i.test(p))).toBe(false);
+    expect(paths.some((p) => /party\.routes/i.test(p))).toBe(true);
     const idx = files.get("api/http/index.ts") ?? "";
-    expect(idx).not.toMatch(/app\.route\("\/api\/parties"/);
+    expect(idx).toMatch(
+      /app\.route\("\/api\/parties", partyRoutes\(new PartyRepository\(db, events\)\)\)/,
+    );
     // …but on Hono it DOES emit the polymorphic read home: the `Party` union
     // + a read-only `PartyRepository` that delegates to the concrete repos
     // (the `find all Party` reader — covered in detail below).
@@ -546,7 +549,9 @@ system Sys {
     expect(reader).toMatch(/public sealed class PartyRepository : IPartyRepository/);
     expect(reader).toMatch(/ICustomerRepository/);
     expect(reader).toMatch(/ISupplierRepository/);
-    expect(reader).toMatch(/result\.AddRange\(await _customerRepo\.All\(cancellationToken\)\)/);
+    expect(reader).toMatch(
+      /result\.AddRange\(\(await _customerRepo\.All\(cancellationToken\)\)\.Select\(/,
+    );
     expect(reader).not.toMatch(/SaveAsync/);
     // EF excludes the base from the model so each concrete maps standalone.
     expect(get("Infrastructure/Persistence/AppDbContext.cs")).toMatch(
@@ -647,18 +652,20 @@ system Sys {
     expect(repo).toMatch(/Number\(root\.creditLimit!\)/);
   });
 
-  it("mounts only concrete routers; the abstract base has no HTTP routes/mount", async () => {
+  it("mounts the concrete routers, and the abstract base only as a read-only polymorphic read", async () => {
     const { files } = generateSystems(await parseValid(TPH));
     const paths = [...files.keys()];
     expect(paths).toContain("api/http/customer.routes.ts");
     expect(paths).toContain("api/http/supplier.routes.ts");
-    // The abstract base is never instantiated → no routes file, no mount. (It
-    // DOES get a read-only base reader + union — covered by the base-reader
-    // test below — but those are read-side data plumbing, not HTTP surface.)
-    expect(paths.some((p) => /party\.routes/i.test(p))).toBe(false);
+    // The abstract base is never instantiated, so its router is read-only: the
+    // paged list and (TPH) the by-id read, no write route.
+    const baseRoutes = files.get("api/http/party.routes.ts") ?? "";
+    expect(baseRoutes).toMatch(/method: "get",\s+path: "\/",/);
+    expect(baseRoutes).toMatch(/method: "get",\s+path: "\/\{id\}",/);
+    expect(baseRoutes).not.toMatch(/method: "(post|put|patch|delete)"/);
     const idx = files.get("api/http/index.ts") ?? "";
     expect(idx).toMatch(/app\.route\("\/api\/customers"/);
-    expect(idx).not.toMatch(/app\.route\("\/api\/parties"/);
+    expect(idx).toMatch(/app\.route\("\/api\/parties"/);
   });
 
   it("emits a matching shared-table migration (no per-concrete tables)", async () => {
@@ -689,21 +696,20 @@ system Sys {
     // The abstract base's discriminated-union type.
     const union = files.get("api/domain/party.ts") ?? "";
     expect(union).toMatch(/export type Party = Customer \| Supplier;/);
-    // A read-only repository that DELEGATES to the concrete repositories.  It
-    // used to scan the shared table and dispatch on `kind` itself, which read
-    // that table through none of the machinery the concrete repositories apply
-    // to it — no capability `filter`, no tenancy predicate, no contained parts
-    // (F2-CB-C12).  `docs/inheritance.md` has always described the reader as
-    // delegating; only the TPH arm on node diverged.
+    // A read-only repository that reads the shared table ONCE per read and
+    // hydrates each row as its `kind` — one global order and page window.  The
+    // restrictions it applies are pinned in hono-tph-capability-filter.test.ts.
     const reader = files.get("api/db/repositories/party-repository.ts") ?? "";
     expect(reader).toMatch(/export class PartyRepository/);
     expect(reader).toMatch(/async findById\(id: Ids\.PartyId\): Promise<Party \| null>/);
     expect(reader).toMatch(/async findAll\(\): Promise<Party\[\]>/);
-    expect(reader).toMatch(/new CustomerRepository\(db, events\)/);
-    expect(reader).toMatch(/new SupplierRepository\(db, events\)/);
-    expect(reader).toMatch(/this\.customerRepo\.all\(\)/);
-    expect(reader, "no direct read of the shared table").not.toMatch(/from\(schema\.parties\)/);
-    expect(reader, "no inline kind dispatch").not.toMatch(/switch \(row\.kind\)/);
+    expect(reader).toMatch(/async findPage\(page: number, pageSize: number\)/);
+    expect(reader).toMatch(
+      /from\(schema\.parties\)[^;]*\.orderBy\(asc\(schema\.parties\.id\)\)\.limit\(pageSize\)\.offset\(offset\)/,
+    );
+    expect(reader).toMatch(/switch \(root\.kind\)/);
+    expect(reader).toMatch(/case "Customer": return \[Customer\._rehydrate\(/);
+    expect(reader, "no per-subtype read concatenated").not.toMatch(/this\.customerRepo\.all\(\)/);
   });
 
   it("rejects a polymorphic 'Party id' ref to an ownTable (TPC) base (ambiguous FK)", async () => {

@@ -2,7 +2,7 @@
 //
 // A `provenanced` field ships its value and the lineage of the write that
 // produced it as ONE wire object — `{ value: T, lineage: ProvLineage | null }`
-// (docs/provenance.md, `docs/old/proposals/provenanced-wire-pair.md`).
+// (docs/provenance.md, `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/provenanced-wire-pair.md`).
 //
 // These two strings are read at FOUR pipeline layers, so they live in `src/util/`
 // — the layer every consumer can reach without an upward import (CLAUDE.md,

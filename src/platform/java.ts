@@ -5,6 +5,7 @@ import { jpaPersistenceAdapter } from "../generator/java/adapters/jpa-persistenc
 import { layeredStyleAdapter } from "../generator/java/adapters/layered-style.js";
 import { generateJavaForContexts } from "../generator/java/index.js";
 import { basePackageFor, javaPackageSegment } from "../generator/java/naming.js";
+import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import {
   type ComposeServiceShape,
   EMBEDDABLE_FRAMEWORKS,
@@ -17,7 +18,7 @@ import {
 // turns the deployable into a fullstack host serving an embedded React
 // SPA from Spring's static resources.  All project emission lives under
 // `../generator/java/`; this module is the thin `PlatformSurface` wiring.
-// See docs/old/plans/java-backend-implementation.md for the slice plan.
+// See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/java-backend-implementation.md for the slice plan.
 // ---------------------------------------------------------------------------
 
 const javaPlatform: PlatformSurface = {
@@ -39,6 +40,7 @@ const javaPlatform: PlatformSurface = {
   // dotnet-fable stage for Feliz) into the serving dir.  EMBEDDABLE_FRAMEWORKS,
   // not static-only.
   hostableFrameworks: EMBEDDABLE_FRAMEWORKS,
+  capabilities: TARGET_CAPABILITIES.java,
   emitProject({
     contexts,
     deployable,

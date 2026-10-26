@@ -1,5 +1,5 @@
 // The `startsWith` PREFIX-MATCH filter operator, per backend
-// (`docs/old/proposals/tenancy-authorization-final-surface.md` decision 2 — the
+// (`https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/tenancy-authorization-final-surface.md` decision 2 — the
 // one genuinely-new operator the reconciled tenancy surface asks for; catalogue
 // row in `src/util/intrinsics.ts`).
 //
@@ -82,7 +82,8 @@ describe("startsWith — the queryable prefix-match operator", () => {
   it("python/sqlalchemy emits func.strpos == 1", async () => {
     const out = await emitAll("python");
     expect(out).toContain("func.strpos(DocRow.path, prefix) == 1");
-    expect(out).toContain('func.strpos(DocRow.path, "root") == 1');
+    // The filter is a read-scope hook criterion over the lambda's `cls`.
+    expect(out).toContain('func.strpos(cls.path, "root") == 1');
     expect(out).not.toContain("DocRow.path.startswith(");
   });
 

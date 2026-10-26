@@ -329,6 +329,45 @@ Phoenix.PubSub.broadcast(ExApi.PubSub, "events", loom_event_0)
 ```
 ::: end
 
+`let name: Type = Expr` declares the local's type instead of taking the expression's. The value must fit it (`loom.let-type-mismatch`): a bare numeric literal promotes (`let fee: money = 5`), and a narrower numeric value widens (`int` → `long` / `decimal`, `long` → `decimal`) through the same explicit conversion `long(n)` lowers to, so a backend that infers a local from its initializer still gets the declared type.
+
+```ddd
+operation addLines(n: int) {
+  let fee: money = 5
+  let count: long = n
+  subtotal := subtotal + fee
+  lines := lines + count
+}
+```
+
+::: tabs backend
+== node
+```ts
+const fee = new Decimal("5");
+const count = n;
+```
+== dotnet
+```csharp
+var fee = 5m;
+var count = (long)n;
+```
+== java
+```java
+var fee = new BigDecimal("5");
+var count = (long) n;
+```
+== python
+```python
+fee = Decimal("5")
+count = int(n)
+```
+== elixir
+```elixir
+fee = Decimal.new("5")
+count = n
+```
+::: end
+
 On an event-sourced aggregate (`persistedAs: eventLog`), `emit` does **double duty** — it records the event *and* folds it immediately via `_apply`, so the in-memory aggregate reflects the transition before the command returns. There, command bodies may *only* `emit`; the state change lives in the `apply` block (below). The event-sourced `emit` becomes `{ const __ev: Events.DomainEvent = { type: "Deposited", … }; this._events.push(__ev); this._apply(__ev); }` (node), `{ var __ev = new Deposited(…); _domainEvents.Add(__ev); _Apply(__ev); }` (.NET), the same three-step block on Java, and `__ev = Deposited(…)` / `self._events.append(__ev)` / `self._apply(__ev)` on Python.
 
 ## Assignment — `:=`, `+=`, `-=`
@@ -911,7 +950,7 @@ Pick by *what the body must be allowed to touch*, not by what feels natural to w
 | aggregate `create` / `destroy` | Factory / terminator of the root | `create`: the new instance; `destroy`: nothing | One aggregate save | `POST /api/<aggs>` / `DELETE /api/<aggs>/{id}` | No | `create`: yes; `destroy`: no (body is `requires` only) | `create(total: int) { emit OrderPlaced { order: id } }` |
 | aggregate `apply` (`persistedAs: eventLog` only) | Pure fold of one emitted event into state | `this`; assignments and `let` only | None — runs when events are appended and replayed | No | No | No | `apply(e: OrderPlaced) { status := Status.Placed }` |
 | `function` (aggregate / entity / workflow / value object) | Reusable pure calculation | No | None | No | No | No | `function isDraft(): bool = status == Status.Draft` |
-| `domainService` `operation` | Cross-aggregate calculation or decision | Only the aggregates passed in, and only in the `mutating` tier | None — the calling orchestrator owns the commit | No | No | No | `operation withTax(base: int): int { return base + base / 5 }` |
+| `domainService` `operation` | Cross-aggregate calculation or decision | Only the aggregates passed in, and only in the `mutating` tier | None — the calling orchestrator owns the commit | No | No | No | `operation withTax(base: int): int { return base + base.divTrunc(5) }` |
 | workflow `create` / `handle` | Use-case that spans aggregates | Via aggregate operations (`:=` is rejected in the body) | Per save; one DB transaction with `transactional` | `POST /api/workflows/<wf>…` | Yes — not inside a `transactional` span | Yes (orchestration-level `emit`) | `create(target: Order id) by target { … }` |
 | workflow `on(e: Event)` | React to an event (saga step) | As `handle` | As `handle` | No — driven by the event | As `handle` | Yes | `on(paid: PaymentReceived) by paid.order { … }` |
 | `commandHandler` | One-aggregate use-case without a workflow | One aggregate (`loom.command-handler-multi-aggregate`); save is implied | The one aggregate save | Only through an explicit `api { route … -> Ctx.Name }` | Yes | Yes | `commandHandler PlaceOrder(orderId: Order id): Order { … }` |
@@ -942,7 +981,7 @@ system Shop {
       repository Orders for Order { }
 
       domainService Pricing {
-        operation withTax(base: int): int { return base + base / 5 }
+        operation withTax(base: int): int { return base + base.divTrunc(5) }
       }
 
       workflow checkout transactional {

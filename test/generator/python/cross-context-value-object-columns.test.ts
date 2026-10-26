@@ -96,7 +96,7 @@ describe("python — a sibling-context value object on a TPH concrete and an eve
     expect(SRC.indexOf("valueobject Code")).toBeGreaterThan(SRC.indexOf("context A"));
     expect(SRC.indexOf("valueobject Code")).toBeLessThan(SRC.indexOf("context B"));
     // …and B's consumers really took the TPH and event-sourced paths.
-    expect(schema).not.toContain("class ShipperRow(");
+    expect(schema).not.toContain("class ShipperRow(Base)");
     expect(declaredColumns(schema, "PartyRow")).toContain("kind");
     expect(pick(files, "app/db/repositories/ledger_repository.py")).toContain("_events");
   });

@@ -1,0 +1,112 @@
+// Host-LiveView bindings written INSIDE user `component`s on the vanilla Phoenix
+// LiveView backend: CreateForm / WorkflowForm / DestroyForm / OperationForm /
+// QueryView / Table / FileUpload / Chart.  A HEEx function component cannot
+// supply an assign, an `allow_upload/3` or a `handle_event/3` clause, so the
+// walker inlines such a component into its caller and the bindings register on
+// the host page's LiveView.  Compiling this under `mix compile
+// --warnings-as-errors` proves the hoisted mount assigns, loaders, upload
+// consumer and event clauses are valid Elixir; it covers a component nested in
+// another, a component rendered twice, a param substituted from a QueryView
+// row, and `Slot()` children.
+system ComponentHostBindings {
+  subdomain Sales {
+    context Sales {
+      aggregate Customer with crudish {
+        name: string
+        operation rename(n: string) { name := n }
+      }
+      repository Customers for Customer { }
+      projection ByName {
+        name: string
+        n: int
+        from Customer as c
+        group by c.name
+        select name = c.name, n = count()
+      }
+      workflow Signup { create(n: string) { let c = Customer.create({ name: n }) } }
+    }
+  }
+
+  api SalesApi from Sales
+  storage primary { type: postgres }
+  storage blobs { type: localDisk }
+  resource salesState { for: Sales, kind: state, use: primary }
+  resource salesBlobs { for: Sales, kind: objectStore, use: blobs }
+
+  ui Admin {
+    api S: SalesApi
+
+    // Stateless, rendered twice on one page: its bindings are identical, so the
+    // host emits one load and one submit clause.
+    component NewCustomerCard(label: string) {
+      body: Card {
+        Heading { label, level: 3 },
+        CreateForm { of: Customer }
+      }
+    }
+
+    // Stateful (a File state cell) and fed by a QueryView row: the row reaches
+    // the OperationForm through the `customer` param.
+    component CustomerPanel(customer: Customer) {
+      state { avatar: File }
+      body: Stack {
+        Text { customer.name },
+        Modal { OperationForm { customer.rename }, trigger: Button { "Rename" }, title: "Rename" },
+        FileUpload { "Avatar", bind: avatar },
+        WorkflowForm { runs: Signup },
+        Slot()
+      }
+    }
+
+    // Renders a stateful component: itself inlined transitively.
+    component Wrapper() {
+      body: QueryView {
+        of: Customer.all,
+        data: rows => Table { rows: rows }
+      }
+    }
+
+    component Dashboard() {
+      body: Stack {
+        Chart { kind: "bar", of: S.ByName, x: r => r.name, y: r => r.n },
+        Wrapper()
+      }
+    }
+
+    page Home {
+      route: "/customers/new"
+      body: Stack {
+        NewCustomerCard { label: "First" },
+        NewCustomerCard { label: "Second" },
+        Dashboard()
+      }
+    }
+
+    page CustomerDetail(id: Customer id) {
+      route: "/customers/:id"
+      body: Stack {
+        QueryView {
+          of: Customer.byId(id),
+          single: true,
+          loading: Loader {},
+          empty: Empty { "Not found" },
+          data: data => CustomerPanel { data, Text { "child content" } }
+        },
+        DetailActions()
+      }
+    }
+
+    component DetailActions() {
+      body: DestroyForm { of: Customer }
+    }
+  }
+
+  deployable phoenixApp {
+    platform: elixir
+    contexts: [Sales]
+    dataSources: [salesState, salesBlobs]
+    serves: SalesApi
+    ui: Admin { S: phoenixApp }
+    port: 4000
+  }
+}

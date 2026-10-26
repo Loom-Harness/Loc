@@ -13,6 +13,7 @@ import {
   allContextFilterEntries,
   DRIZZLE_INTRINSIC_SQL,
   drizzleDiscriminatorEq,
+  drizzleGuardedSubtypePredicates,
   type FilterBypass,
   lowerToDrizzle,
 } from "../../../generator/typescript/repository-find-predicate.js";
@@ -21,6 +22,7 @@ import {
   wireProjectionValue,
 } from "../../../generator/typescript/repository-wire-builder.js";
 import { readDiscriminator, readScopeFor } from "../../../ir/enrich/read-scope.js";
+import { wireFixedDetail, wireStatus, wireTitle } from "../../../ir/enrich/wire-policy.js";
 import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
@@ -34,7 +36,6 @@ import {
   queryProjectionUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
 import { projectionSourceTable } from "../../../ir/util/inheritance.js";
-import { problemTitle } from "../../../ir/util/openapi-errors.js";
 import {
   type AggregateSelect,
   aggregateCoercion,
@@ -56,7 +57,6 @@ import {
   enumPool,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
-import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
 import { wireToDomainExpr, zodFor } from "./routes-builder.js";
 
@@ -403,11 +403,18 @@ export function buildQueryProjectionsFile(
   //
   // `denial-ladder-override-parity` is the fixture that covers it — an
   // override fixture with no projection cannot.
-  const projDomainStatus = resolveErrorStatus("DomainError", ctx.structuralErrorStatuses);
-  const projForbiddenStatus = resolveErrorStatus("Forbidden", ctx.structuralErrorStatuses);
-  const projNotFoundStatus = resolveErrorStatus("NotFound", ctx.structuralErrorStatuses);
+  const projDomainStatus = wireStatus("domain-floor", ctx.structuralErrorStatuses);
+  const projForbiddenStatus = wireStatus("forbidden", ctx.structuralErrorStatuses);
+  const projNotFoundStatus = wireStatus("not-found", ctx.structuralErrorStatuses);
   const projProblemUnion = [
-    ...new Set<number>([400, projForbiddenStatus, projNotFoundStatus, 422, projDomainStatus, 500]),
+    ...new Set<number>([
+      wireStatus("malformed-body"),
+      projForbiddenStatus,
+      projNotFoundStatus,
+      wireStatus("field-invalid"),
+      projDomainStatus,
+      wireStatus("internal"),
+    ]),
   ]
     .sort((a, b) => a - b)
     .join(" | ");
@@ -417,17 +424,17 @@ export function buildQueryProjectionsFile(
   lines.push(
     // Ruling D4 (#20): the gate's source text goes to the `forbidden` log line;
     // the body carries `err.detail` (echoed only under the dev-stub verifier).
-    `    if (err instanceof ForbiddenError) { ${renderHonoLogCall("forbidden", `message: err.message, status: ${projForbiddenStatus}`)} return problem(${projForbiddenStatus}, ${JSON.stringify(problemTitle(projForbiddenStatus))}, err.detail); }`,
+    `    if (err instanceof ForbiddenError) { ${renderHonoLogCall("forbidden", `message: err.message, status: ${projForbiddenStatus}`)} return problem(${projForbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail); }`,
   );
   lines.push(
-    `    if (err instanceof DomainError) return problem(${projDomainStatus}, ${JSON.stringify(problemTitle(projDomainStatus))}, err.message);`,
+    `    if (err instanceof DomainError) return problem(${projDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message);`,
   );
   lines.push(
-    `    if (err instanceof AggregateNotFoundError) return problem(${projNotFoundStatus}, ${JSON.stringify(problemTitle(projNotFoundStatus))}, err.message);`,
+    `    if (err instanceof AggregateNotFoundError) return problem(${projNotFoundStatus}, ${JSON.stringify(wireTitle("not-found", ctx.structuralErrorStatuses))}, err.message);`,
   );
   lines.push(
     // RS-28 — sanitized; the inner exception reaches the log, not the wire.
-    `    if (err instanceof ExternHandlerError) { console.error(err); return problem(500, "Internal Server Error", "internal"); }`,
+    `    if (err instanceof ExternHandlerError) { console.error(err); return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))}); }`,
   );
   lines.push(
     // FRAMEWORK fault, not a domain one — hono raises `HTTPException` for the
@@ -437,7 +444,9 @@ export function buildQueryProjectionsFile(
     `    if (err instanceof HTTPException) { ${renderHonoLogCall("clientError", "error: err.message, status: err.status")} return c.body(frameworkProblemBody(err.status, err.message, c.req.path), err.status, { "content-type": "application/problem+json", "x-request-id": trace_id }); }`,
   );
   lines.push(`    console.error(err);`);
-  lines.push(`    return problem(500, "Internal Server Error", "internal");`);
+  lines.push(
+    `    return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))});`,
+  );
   lines.push(`  });`);
   lines.push("");
   lines.push(`  return app;`);
@@ -965,6 +974,9 @@ function drizzleCapabilityPredicates(
     for (const op of l.ops) ops.add(op);
     out.push(l.expr);
   }
+  // A projection `from <TPH base>` reads the whole hierarchy: every concrete's
+  // own restrictions apply too, each guarded by its discriminator.
+  out.push(...drizzleGuardedSubtypePredicates(agg, ctx, ops, projectionBypass(p)));
   return out;
 }
 

@@ -327,12 +327,15 @@ describe(".NET generator", () => {
     );
   });
 
-  it("EF configuration emits HasIndex for find-referenced columns", async () => {
+  it("EF configuration emits HasIndex for exactly the migration's FK indexes", async () => {
+    // `customerId` is an `X id` column — the migration creates its FK covering
+    // index.  `status` is only find-filtered: no migration indexes it
+    // (D-INDEX-SUGGEST), so the EF model must not either.
     const model = await buildModel("examples/sales.ddd");
     const files = generateDotnet(model);
     const cfg = files.get("Infrastructure/Persistence/Configurations/OrderConfiguration.cs")!;
     expect(cfg).toMatch(/builder\.HasIndex\(x => x\.CustomerId\)/);
-    expect(cfg).toMatch(/builder\.HasIndex\(x => x\.Status\)/);
+    expect(cfg).not.toMatch(/builder\.HasIndex\(x => x\.Status\)/);
   });
 
   it("re-homes an extern operation to a domain partial-method hook + scaffold-once impl", async () => {
@@ -1768,7 +1771,7 @@ describe(".NET generator", () => {
       // extension carried on `Extensions["errors"]`, status 422.
       // Shape matches Hono's defaultHook so the frontend ACL's
       // `applyServerErrors` works against either backend.  See
-      // docs/old/proposals/validation-error-extension.md.
+      // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md.
       expect(filter).toMatch(/Title = "Validation failed"/);
       expect(filter).toMatch(/Status = 422/);
       expect(filter).toMatch(/problem\.Extensions\["errors"\] = fv\.Errors/);

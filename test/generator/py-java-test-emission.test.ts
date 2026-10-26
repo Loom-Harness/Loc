@@ -1,6 +1,6 @@
 // Dedicated unit coverage for the Python and Java domain-`test` emitters
 // (`renderPyTestsFile` / `renderJavaTestsFile`) — the F4 backfill of
-// docs/audits/test-parity-generated-backends.md.  The TS + .NET emitters have
+// https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/test-parity-generated-backends.md.  The TS + .NET emitters have
 // `create-in-test-emission.test.ts`; before this, Python and Java were only
 // exercised incidentally if a build-gated corpus example happened to carry
 // `test` blocks.  These pin their distinctive lowering directly.

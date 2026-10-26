@@ -1,6 +1,6 @@
 name: Quality delta (weekly)
 
-# M-T9.31 lane 1 — the mechanical half of docs/audits/quality-audit-2026-08.md,
+# M-T9.31 lane 1 — the mechanical half of https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/quality-audit-2026-08.md,
 # appended weekly so its §3 ratio becomes a SERIES instead of a snapshot.
 #
 # The audit's most important table ("how the bugs are actually found") took an

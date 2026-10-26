@@ -61,23 +61,17 @@ const PLAIN = SYSTEM(`
 const build = (src: string): Promise<Map<string, string>> => generateSystemFiles(src);
 
 describe("python TPH write paths carry the kind discriminator", () => {
-  it("delete scopes by kind as well as id", async () => {
+  it("delete goes through the mapped subclass, which scopes it to its kind", async () => {
     const files = await build(TPH);
     const car = files.get("api/app/db/repositories/car_repository.py") ?? "";
     const truck = files.get("api/app/db/repositories/truck_repository.py") ?? "";
     expect(car, "concrete repository emitted").not.toEqual("");
-
-    const carDelete = car.split("\n").find((l) => l.includes("delete(VehicleRow)")) ?? "";
-    expect(carDelete).toContain("VehicleRow.id == id");
-    expect(carDelete).toContain('VehicleRow.kind == "Car"');
-    expect(carDelete).toContain("and_(");
-
-    // …and the sibling concrete scopes to ITS OWN kind, not the first one.
-    const truckDelete = truck.split("\n").find((l) => l.includes("delete(VehicleRow)")) ?? "";
-    expect(truckDelete).toContain('VehicleRow.kind == "Truck"');
-
-    // `and_` must actually be imported, or the module fails at import time.
-    expect(car).toMatch(/^from sqlalchemy import .*\band_\b/m);
+    // An ORM DELETE of a single-table subclass carries `kind IN ('Car')`.
+    expect(car).toContain("await self._session.execute(delete(CarRow).where(CarRow.id == id))");
+    expect(truck).toContain(
+      "await self._session.execute(delete(TruckRow).where(TruckRow.id == id))",
+    );
+    expect(car).not.toContain("delete(VehicleRow)");
   });
 
   it("the guarded upsert's DO UPDATE branch scopes by kind", async () => {

@@ -13,33 +13,28 @@ import { type TypingSession, typingSession } from "./index.js";
 
 let sessions = new WeakMap<AstNode, TypingSession>();
 
-/** The workspaces a document can belong to, each with how to find the other
- *  documents of a root's import closure (`registerTypingWorkspace`, called by
- *  `createDddServices`).  Held weakly: a dropped services instance (one per
- *  unit test) must not be kept alive by its registration. */
-const workspaces: WeakRef<object>[] = [];
-const composedRootsOf = new WeakMap<object, (root: Model) => Model[] | undefined>();
+/** How to find the other documents of a root's import closure, keyed by the
+ *  root itself (`registerTypingRoot`, called by `createDddServices` as each
+ *  document is parsed).  Keyed weakly by the root, so a dropped document or
+ *  services instance (one per unit test, one per toolkit `validate()` call) is
+ *  collectable.  A list of `WeakRef`s to each workspace would not be: every
+ *  `deref()` pins its target until the microtask queue drains, and a run of
+ *  awaited `validate()` calls never drains it — each call kept every earlier
+ *  call's services alive, ~6 MB apiece. */
+const composedRootsOf = new WeakMap<Model, (root: Model) => Model[] | undefined>();
 
-/** Register a workspace: `composed(root)` returns the other roots of `root`'s
- *  import closure, or `undefined` when `root` is not one of its documents. */
-export function registerTypingWorkspace(
-  key: object,
+/** Bind a freshly parsed root to its workspace: `composed(root)` returns the
+ *  other roots of `root`'s import closure, or `undefined` when `root` is no
+ *  longer one of the workspace's documents. */
+export function registerTypingRoot(
+  root: Model,
   composed: (root: Model) => Model[] | undefined,
 ): void {
-  for (let i = workspaces.length - 1; i >= 0; i--) {
-    if (!workspaces[i]?.deref()) workspaces.splice(i, 1);
-  }
-  workspaces.push(new WeakRef(key));
-  composedRootsOf.set(key, composed);
+  composedRootsOf.set(root, composed);
 }
 
 function composedFor(root: Model): Model[] {
-  for (const ref of workspaces) {
-    const key = ref.deref();
-    const found = key ? composedRootsOf.get(key)?.(root) : undefined;
-    if (found) return found;
-  }
-  return [];
+  return composedRootsOf.get(root)?.(root) ?? [];
 }
 
 /** The session typing `node`'s document. Validators and lowering both type per

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 // ---------------------------------------------------------------------------
 // M-T9.84 — the hand-predicated import census
-// (docs/new-plan/missions/M-T9.84-derived-imports.md §7).
+// (https://github.com/Loom-Harness/Loc/blob/35354de7c61ecac7622d9dbdac9f326bcf7023fd/docs/new-plan/missions/M-T9.84-derived-imports.md §7).
 //
 // The defect class: an emitter decides a module's import block with a
 // hand-written predicate (`needsX ? "from x import X" : null`) computed
@@ -67,7 +67,7 @@ const COLLECTOR_LITERAL: Partial<Record<Backend, RegExp>> = {
 /** Live count per backend — lower it in the PR that removes sites. */
 const CEILING: Record<Backend, number> = {
   python: 0,
-  typescript: 235,
+  typescript: 234,
   dotnet: 40,
   java: 2,
   elixir: 2,
@@ -116,7 +116,7 @@ describe("hand-predicated import census (M-T9.84)", () => {
       expect(
         n,
         n > CEILING[backend]
-          ? `${backend} grew a hand-predicated import (${n} > ${CEILING[backend]}). Write the usage through ref(sym) so the import is derived (docs/new-plan/missions/M-T9.84-derived-imports.md) instead of adding a predicate.`
+          ? `${backend} grew a hand-predicated import (${n} > ${CEILING[backend]}). Write the usage through ref(sym) so the import is derived (https://github.com/Loom-Harness/Loc/blob/35354de7c61ecac7622d9dbdac9f326bcf7023fd/docs/new-plan/missions/M-T9.84-derived-imports.md) instead of adding a predicate.`
           : `${backend} dropped to ${n} predicated import sites — lower CEILING.${backend} to ${n} in this PR.`,
       ).toBe(CEILING[backend]);
     });

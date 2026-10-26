@@ -230,7 +230,7 @@ exactly like the compose sidecars (design §7):
   `Deployable`), per-platform workload defaults, in-cluster postgres,
   HPA/autoscaling, NetworkPolicy, securityContext hardening, Kustomize
   overlays, CI pipeline generation. See
-  [`proposals/kubernetes-helm.md`](old/proposals/kubernetes-helm.md) §6.
+  [`proposals/kubernetes-helm.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/kubernetes-helm.md) §6.
 
 ## Testing
 

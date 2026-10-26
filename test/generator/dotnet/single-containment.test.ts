@@ -1,4 +1,4 @@
-// B8 (docs/audits/behavioral-parity-bugs-2026-07.md): a single (non-collection)
+// B8 (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/behavioral-parity-bugs-2026-07.md): a single (non-collection)
 // `contains` is mapped to its OWN table by the migration (same as a collection
 // part), so its EF owned-entity config must fully map the strongly-typed
 // `<Part>Id` key + `ParentId` back-reference + table/schema — NOT a bare

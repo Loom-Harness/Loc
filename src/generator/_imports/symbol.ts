@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Imports derived from use — the language-neutral half (M-T9.84; design:
-// docs/new-plan/missions/M-T9.84-derived-imports.md).
+// https://github.com/Loom-Harness/Loc/blob/35354de7c61ecac7622d9dbdac9f326bcf7023fd/docs/new-plan/missions/M-T9.84-derived-imports.md).
 //
 // An emitter writes a reference to an importable symbol through `ref(sym)`.
 // The result is a MARKER — a private-use-area token carrying the symbol — not

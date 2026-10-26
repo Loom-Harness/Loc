@@ -1,7 +1,7 @@
 // Project composition — top-level system declarations (a `subdomain`, or
 // the deployment shape: `deployable` / `storage` / `resource` / `ui` /
 // `theme` / `user` / `api` / `layout` / `test e2e`) fold into the project's
-// single `system { }` block (docs/old/proposals/implicit-system-composition.md).
+// single `system { }` block (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/implicit-system-composition.md).
 // This check enforces the "exactly one system" precondition so a stray
 // top-level declaration fails with a friendly message instead of silently
 // generating nothing.

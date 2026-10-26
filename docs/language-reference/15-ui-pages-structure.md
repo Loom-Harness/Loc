@@ -95,7 +95,7 @@ export default function Home() {
 ```
 ::: end
 
-(User-visible strings route through the `t()` catalog — see the i18n layer in [`../new-plan/archive/T1-done.md`](../new-plan/archive/T1-done.md) § M-T1.11.)
+(User-visible strings route through the `t()` catalog — see [the i18n translator workflow](../tools.md#i18n-translator-workflow-ddd-i18n).)
 
 Other `PageProp`s: `title:` (an expression, so it may interpolate), `requires <expr>` (auth gate — renders a client-side `<Forbidden/>` guard on `auth: ui` frontends; see [`../auth.md`](../auth.md)), `state { … }` / `derived` / `action` (below), `menu { … }` (per-page sidebar metadata — keys `section`, `label`, `order`, `hidden`), `layout: <Name|default|none>`, and the SEO props `description:` / `ogImage:` / `canonical:` (plain string literals, projected into `index.html`).
 
@@ -225,7 +225,7 @@ export default function Panel({ title, children }: PanelProps) {
 
 A component with no `body:` (and no `extern from "…"`) is rejected by `loom.component-missing-body`; `extern from "path"` declares a hand-written component the generator references (emitting a `<Name>.props.ts` typed-props interface) but does not itself emit — declaring both is `loom.extern-component-has-body`.
 
-> **Honest gaps — components that a target defers.** Angular and Feliz each **defer** component shapes their emitters can't render, and `loom.user-component-deferred-target` names the exact shape rather than letting the component vanish: on Angular, a body whose api read takes an `@Input()` as an argument (the hoisted read runs in the constructor, before Angular sets inputs); on Feliz, a body that needs a route id, reads a `store`, or issues a `<Agg>.byId(…)` read (whose fetch a *page* fires on route entry). Flutter drops a component carrying an async effect (`loom.flutter-async-effect-unsupported`), and Phoenix/HEEx rejects primitives inside a component that need the host page's LiveView process — assigns, uploads, `handle_event` clauses (`loom.heex-component-host-state-unsupported`).
+> **Honest gaps — components that a target defers.** Angular and Feliz each **defer** component shapes their emitters can't render, and `loom.user-component-deferred-target` names the exact shape rather than letting the component vanish: on Angular, a body whose api read takes an `@Input()` as an argument (the hoisted read runs in the constructor, before Angular sets inputs); on Feliz, a body that needs a route id, reads a `store`, or issues a `<Agg>.byId(…)` read (whose fetch a *page* fires on route entry). Flutter drops a component carrying an async effect (`loom.flutter-async-effect-unsupported`). Phoenix/HEEx has no gap here: a component that renders a form, `QueryView`, `Table`, `FileUpload` or `Chart` needs the host page's LiveView process (assigns, uploads, `handle_event` clauses), so the walker inlines it into each caller — its params are the caller's argument expressions, its `Slot()` the call's children — and the bindings register on the host LiveView. Two instances on one page register identical bindings once and share the host assigns, so give them reads that do not depend on a differing param (two same-named reads on one page already collide the same way).
 
 ## `state` / `derived` / `action`
 
@@ -283,6 +283,7 @@ export default function Counter() {
 | Code | Rejects (on every frontend) |
 |---|---|
 | `loom.ui-this-unbound` | `this` — a ui body has no aggregate instance in scope |
+| `loom.lambda-param-type-unknown` (warning) | a member read off a lambda parameter no source typed (`e => e.count` outside a `For` / `Table` / `Chart` / `QueryView` / collection op) — the member would type as a guessed `string` |
 | `loom.ui-assign-not-state` | `:=` / `+=` / `-=` on a name that is not the host's own `state` field (a `let`, a param, another store's field) |
 | `loom.intrinsic-unknown` / `loom.unknown-member` | a method the stdlib does not define on a `state` / action-param / store value or a row (`s.indexOf(…)`, `xs.reverse()`, `xs.filter(…)` — write `.where(…)`), or a value-object `function` |
 | `loom.ui-find-call-arity` | a find read called with a different number of arguments than the find declares |

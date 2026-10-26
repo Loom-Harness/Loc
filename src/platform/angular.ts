@@ -1,4 +1,5 @@
 import { API_BASE_PATH } from "../util/api-base.js";
+import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import { dispatchFrontendProject } from "./frontend-dispatch.js";
 import {
   type ComposeServiceShape,
@@ -18,7 +19,7 @@ import {
 //
 // Deployable contract mirrors `react`: `targets:` a backend, inherits its
 // contexts via enrichment, owns no database.
-// See docs/old/plans/angular-frontend-plan.md.
+// See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/angular-frontend-plan.md.
 // ---------------------------------------------------------------------------
 
 const angularPlatform: PlatformSurface = {
@@ -33,6 +34,7 @@ const angularPlatform: PlatformSurface = {
   hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
   // Angular generator only emits API call services — no per-aggregate
   // repository class.  No find-name collisions are possible.
+  capabilities: TARGET_CAPABILITIES.angular,
   emitProject({
     contexts,
     sys,

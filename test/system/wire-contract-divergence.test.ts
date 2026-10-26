@@ -34,7 +34,7 @@
 //
 // The baseline is exact per node: a row that stops diverging must be removed,
 // and a node that starts diverging fails.  See
-// `docs/new-plan/waves/handoffs/wave-c4-4e-wireshape.md` for the class-by-class
+// `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-c4-4e-wireshape.md` for the class-by-class
 // reading of the rows below.
 
 import { describe, expect, it } from "vitest";
@@ -110,6 +110,21 @@ const BASELINE: Record<string, Divergence> = {
   "tph.ddd Fleet.Truck": "missing-in-record",
   "tph-crossings.ddd Depot.Parcel": "missing-in-record",
   "tph-crossings.ddd Depot.Crate": "missing-in-record",
+  // The #3954 fixtures (#3595): the same A2 class, over both layouts and a
+  // capability on the abstract base (whose fields the record walk also misses).
+  "inheritance-base-reads.ddd Fleet.Vehicle": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Car": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Truck": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Equipment": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Crane": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Forklift": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Crew": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Driver": "missing-in-record",
+  "inheritance-base-reads.ddd Fleet.Dispatcher": "missing-in-record",
+  "inheritance-read-restrictions.ddd Fleet.Car": "missing-in-record",
+  "inheritance-read-restrictions.ddd Fleet.Truck": "missing-in-record",
+  "inheritance-read-restrictions.ddd Fleet.Driver": "missing-in-record",
+  "inheritance-read-restrictions.ddd Fleet.Dispatcher": "missing-in-record",
   // One more A2 witness from a NEW fixture, not a regression: the crossed-axes
   // widening of `vo-cross-context` gives `Shipper extends Party` an inherited
   // `label`, so enrichment merges it into the concrete's wire shape and the
@@ -200,6 +215,30 @@ function corpusFixtures(): { name: string; source: string }[] {
     }));
 }
 
+/** Injected handlers the validator refuses, per fixture: `scaffoldHandlers`
+ *  declares a read handler over a `paged` / `option` / `or` find as a single
+ *  `<Agg>Response`, and that handler's emitted code does not serve its declared
+ *  shape (#4262). The refusal is the honest answer, so these errors are
+ *  expected; every other error still fails, and an entry that stops firing must
+ *  be deleted. */
+const INJECTED_HANDLER_REFUSALS: Record<string, readonly string[]> = {
+  "api-call.ddd": ["queryHandler 'ByCodeOrder' returns 'Order option'"],
+  "implicit-find-filter.ddd": ["queryHandler 'InRegionWorkOrder' returns 'WorkOrder paged'"],
+  "paged-nonrelational.ddd": [
+    "queryHandler 'InRegionInvoice' returns 'Invoice paged'",
+    "queryHandler 'ByOwnerAccount' returns 'Account paged'",
+  ],
+  "paged.ddd": [
+    "queryHandler 'RecentOrder' returns 'Order paged'",
+    "queryHandler 'InRegionOrder' returns 'Order paged'",
+  ],
+  "tph-crossings.ddd": ["queryHandler 'ByCourierParcel' returns 'Parcel paged'"],
+  "union-find-absence.ddd": [
+    "queryHandler 'ByCodeOrder' returns 'Order or NotFound'",
+    "queryHandler 'MaybeFirstOrder' returns 'Order option'",
+  ],
+};
+
 async function census(): Promise<{
   found: Record<string, Divergence>;
   nodes: number;
@@ -212,7 +251,15 @@ async function census(): Promise<{
     const { model, errors } = await parseString(source, { validate: true });
     // Injection must never break a fixture — a fixture that stops parsing would
     // silently leave the census, which is how a denominator rots.
-    expect(errors, `${name}: scaffoldHandlers injection must parse`).toEqual([]);
+    const refused = INJECTED_HANDLER_REFUSALS[name] ?? [];
+    for (const r of refused) {
+      expect(
+        errors.some((e) => e.includes(r)),
+        `${name}: the expected refusal "${r}" no longer fires — delete it from INJECTED_HANDLER_REFUSALS`,
+      ).toBe(true);
+    }
+    const unexpected = errors.filter((e) => !refused.some((r) => e.includes(r)));
+    expect(unexpected, `${name}: scaffoldHandlers injection must parse`).toEqual([]);
     const enriched = enrichLoomModel(lowerModel(model));
     const contexts: BoundedContextIR[] = [...enriched.contexts];
     for (const sys of enriched.systems)

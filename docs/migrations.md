@@ -66,8 +66,10 @@ The result is a `MigrationDelta` — a `MigrationsIR` without a version. Only th
 chain numbers a generation, when `ddd migrate add` records it (see
 [The migration chain](#the-migration-chain--migrations-beside-the-source)).
 
-`diffSchema` emits an **FK-safe global order**: drop indexes/columns (which
-unblocks table drops) → drop tables in **reverse-topological (child-first)** order
+`diffSchema` emits an **FK-safe global order**: rename tables first (the diff
+pairs a renamed table with its new self, so every later step — a dropped
+`CHECK`, column or index included — names it by its NEW name) → drop
+indexes/columns (which unblocks table drops) → drop tables in **reverse-topological (child-first)** order
 so a parent is never dropped while a child still references it → create tables in
 **topological (parent-first)** order (Kahn's sort with an alphabetical tiebreak) so
 an inline `REFERENCES` never points at a not-yet-created table → add columns (their
@@ -104,7 +106,7 @@ such flag.
   rename), so no separate applied-history file is needed. Structural checks reject
   a self-rename and duplicate rename source/target (`loom.rename-*`,
   `loom.migration-duplicate-name`). See
-  [`docs/new-plan/missions/M-T2.1-migration-surface-design.md`](new-plan/missions/M-T2.1-migration-surface-design.md).
+  [#3340](https://github.com/Loom-Harness/Loc/issues/3340).
 
   ```ddd
   migration "rename-order-qty" {
@@ -115,6 +117,28 @@ such flag.
   ```sql
   ALTER TABLE "orders" RENAME COLUMN "qty" TO "quantity";
   ALTER TABLE "orders" RENAME COLUMN "shipped_at" TO "fulfilled_at";
+  ```
+
+  A **value-object field** renames by its field name too. The relational
+  backends store it as one column per leaf, so the rename becomes one
+  `renameColumn` per leaf (`home_road → residence_road`, …); Ecto and Dapper
+  store it as one json column, so they rename that column. A leaf the value
+  object gained in the same generation is an add. The per-leaf spelling
+  (`Person.homeRoad -> residenceRoad`) renames that one leaf column and still
+  works, but the field form is the one to write.
+
+  ```ddd
+  valueobject Address { road: string  city: string }
+  aggregate Person { name: string  residence: Address }   // was `home: Address`
+
+  migration "res" { Person.home -> residence }
+  ```
+  ```sql
+  ALTER TABLE "people"."persons" RENAME COLUMN "home_road" TO "residence_road";
+  ALTER TABLE "people"."persons" RENAME COLUMN "home_city" TO "residence_city";
+  ```
+  ```elixir
+  rename table(:persons, prefix: "people"), :home, to: :residence
   ```
 - **Table / aggregate rename (M-T2.1).** A bare `OldName -> NewAggregate` step in
   the same block renames a whole aggregate's table. Only the NEW aggregate is a
@@ -152,9 +176,17 @@ such flag.
   ```elixir
   rename table(:orders), to: table(:purchase_orders)
   ```
-  Renaming an aggregate that is the *target* of a sibling aggregate's reference
-  collection (`Other.xs: Order id[]`) is not yet cascaded — that sibling join
-  table's `targetFk` change falls under the destructive gate (never silent).
+  The `renameTable` steps lead the generation, so anything else the diff emits
+  for the renamed table runs against its new name. An enum field's `CHECK` is
+  named after the table, so it is dropped under its old name on the renamed
+  relation and re-added under the new one:
+
+  ```sql
+  ALTER TABLE "people"."employees" RENAME TO "staffs";
+  ALTER TABLE "people"."staffs" DROP CONSTRAINT IF EXISTS "employees_grade_enum";
+  -- …
+  ALTER TABLE "people"."staffs" ADD CONSTRAINT "staffs_grade_enum" CHECK (…) NOT VALID;
+  ```
 - **Rename detection (heuristic fallback).** With no explicit block, a table with
   *exactly one* `dropColumn` and *one* `addColumn` of **identical type *and*
   nullability** is an unambiguous rename → the pair collapses into a single non-destructive
@@ -376,7 +408,8 @@ like every DDL step. Two steps exist, both deliberately minimal:
 **Backfill — `Agg.field = <expr>`** (keyword-free, like the `->` rename). The
 expression is validated against a SQL-renderable subset (literals, enum
 values, sibling *scalar* fields as column refs, arithmetic/comparison/boolean
-operators, `?:`, `now()`, and `datetime ± days/hours/minutes(n)`; codes
+operators, `?:`, `??`, `now()`, and `datetime ± days/hours/minutes(n)` — the
+full table is below; codes
 `loom.migration-expr-unsupported`,
 `loom.backfill-type-mismatch`, `loom.backfill-target-invalid`) and fires
 whenever the diff adds that column or flips it NOT NULL:
@@ -403,6 +436,63 @@ migration "sla-deadline" { Ticket.dueAt = createdAt + hours(24) }
 ```sql
 UPDATE "ticketing"."tickets" SET "due_at" = ("created_at" + make_interval(hours => 24)) WHERE "due_at" IS NULL;
 ```
+
+**A required column needs a non-NULL value.** The type check runs before
+anything is recorded, and it knows that NULL propagates through every SQL
+operator. A backfill into a required column that can return an optional
+sibling's NULL is refused with `loom.backfill-type-mismatch`, because the
+UPDATE would write the NULL and the `SET NOT NULL` after it would fail at boot.
+Give it a fallback with `??`, which renders as a `CASE`. A presence-tested
+ternary (`label == null ? "untitled" : label`) works the same way:
+
+```ddd
+aggregate Contract { label: string?  title: string }   // title added this generation
+migration "titles" { Contract.title = label ?? "untitled" }
+```
+```sql
+UPDATE "legal"."contracts" SET "title" = (CASE WHEN ("label" IS NULL) THEN 'untitled' ELSE "label" END) WHERE "title" IS NULL;
+```
+
+**Inherited fields are backfilled on the base.** Write the step on the
+aggregate that declares the field, and it reaches every table that stores the
+field. For a TPH base that is the one shared table. A TPC (`inheritanceUsing:
+ownTable`) base has no table, so the step fans out to every concrete's own
+table, and each UPDATE reads that table's sibling columns. Moving `owner` up
+from `Laptop` to the TPC base `Asset`:
+
+```ddd
+migration "owner-moves-up" { Asset.owner = "it" }
+```
+```sql
+ALTER TABLE "hr"."phones" ADD COLUMN "owner" TEXT NULL;
+UPDATE "hr"."phones" SET "owner" = 'it' WHERE "owner" IS NULL;
+ALTER TABLE "hr"."phones" ALTER COLUMN "owner" SET NOT NULL;
+```
+
+`laptops` already has the column, so it gets nothing. The concrete spelling
+(`Phone.owner = …`) is refused with `loom.backfill-unknown-field`, and the
+message names the base to write it on.
+
+**The backfill subset is a permanent limit.** A backfill runs as one SQL
+`UPDATE` per row, on every backend, so its expression is limited to what
+`src/generator/sql-pg-expr.ts` renders to Postgres. These are admitted:
+
+| Shape | Renders as |
+|---|---|
+| literals: string, int/long/decimal/money, bool, `null`, `now()` | the SQL constant (`now()` stays a call) |
+| enum value | its stored text |
+| a sibling scalar field (primitive / enum / `X id`) | the quoted column |
+| `( … )`, unary `-` / `!` | the same, `!` as `NOT` |
+| `+ - * / %`, comparisons, `&&` / `\|\|` | SQL operators. String `+` is `\|\|`, `int / int` is cast to `numeric`, and `== null` / `!= null` is `IS [NOT] NULL` |
+| `c ? a : b`, `a ?? b` | `CASE WHEN … THEN … ELSE … END` |
+| `datetime ± days/hours/minutes(n)` | `make_interval(…)` arithmetic |
+
+Everything else is refused with `loom.migration-expr-unsupported`, which names
+the offending kind. That covers calls and intrinsics, member access
+(value-object leaves included), constructors, list and object literals,
+`match`, conversions, `id`, `this`, and a bare duration. The workaround is a raw
+`sql` step. Widening is not on a roadmap: a new shape is added only when a real
+model needs it, and it comes with a migration-evolution e2e for that shape.
 
 Naturally **ledger-inert** like renames: once the column is baked into the
 baseline snapshot the step matches nothing. That inertness is the *only*
@@ -545,6 +635,54 @@ unique narrowed to a partial one). A NEW partial unique (`softDeletable`'s
 `WHERE is_deleted = false`) still warns — it is a uniqueness claim over the
 live rows. A warning never changes the exit code.
 
+### An enum that loses a member — `loom.migration-enum-narrowed`
+
+Deleting (or renaming) a member of an `enum` that a persisted field uses
+narrows the column's [value-set `CHECK`](#how-ir-maps-to-tables). The re-added
+constraint is `NOT VALID`, so the migration itself always applies — but the rows
+already holding the removed value stay, and the app cannot live with them:
+python, java, .NET and elixir map the stored string onto the enum when they load
+a row, so one such row fails the whole list route that reads it; node serves it
+off-contract; and any `UPDATE` of the row is refused by the new check.
+
+The rule is the one a `unique (…)` on a populated table follows, because it is
+the same situation — a new constraint that rows already stored may violate, and
+a diff that cannot see the rows. It is a **warning**, not a destructive-change
+refusal: nothing is dropped and nothing fails at apply time (that is what puts
+a NULL→NOT NULL flip behind `--allow-destructive`), and the fix is a data step
+the author writes, not a flag:
+
+```ddd
+enum EmploymentType { permanent }          // was { permanent, contractor }
+aggregate Employee { kind: EmploymentType }
+```
+
+```text
+loom.migration-enum-narrowed warning: migration for module "Hr": enum check employees_kind_enum on existing table employees no longer admits 'contractor' in column kind. Rows already stored may still hold a removed value. … Remap the removed values AHEAD of the check in this same generation (declaring one silences this warning):
+    migration "remap-…" { sql before "UPDATE employees SET kind = <one of 'permanent'> WHERE kind IN ('contractor')" }
+```
+
+```ddd
+migration "remap-contractor" {
+  sql before "UPDATE employees SET kind = 'permanent' WHERE kind = 'contractor'"
+}
+```
+
+```sql
+UPDATE employees SET kind = 'permanent' WHERE kind = 'contractor';
+ALTER TABLE "employees" DROP CONSTRAINT IF EXISTS "employees_kind_enum";
+-- NOT VALID: already-stored rows are not re-checked. To verify them, run ALTER TABLE "employees" VALIDATE CONSTRAINT "employees_kind_enum"
+ALTER TABLE "employees" ADD CONSTRAINT "employees_kind_enum" CHECK ("kind" IN ('permanent')) NOT VALID;
+```
+
+As with the unique-index warning, any `sql before` step for the module in the
+same generation silences it, and a trailing `sql` step does not (it runs after
+the check). Not raised for a widening (members only added), a module's first
+generation, or a table created this generation. The check is matched by name, so
+a narrowing that lands in the same generation as a rename of its table or
+column is not compared. Turning a plain `string` column into an enum adds a
+check with no baseline value set to compare against, so it does not warn either.
+
 ### A unique index follows a `softDeletable` flip (partial ↔ full)
 
 Under `softDeletable` the `unique (…)` index is **partial** (`WHERE is_deleted =
@@ -611,8 +749,8 @@ transaction on Postgres (Drizzle, EF `Database.Migrate()`, Flyway, Ecto, the
 python runner's `__loom_migrations`), so a failure leaves no history row — and
 it is therefore safe to **replace it**, as long as no database has applied it:
 
-1. Delete the failed generation's file(s) from `migrations/` (the newest
-   entries — the chain refuses a gap).
+1. `ddd migrate remove app.ddd` — once per entry the failed generation
+   recorded (one per module it changed); each run deletes the newest.
 2. Amend the `.ddd` (e.g. add the `sql before` dedupe).
 3. `ddd migrate add <name>` again, then `ddd generate system`.
 
@@ -648,11 +786,38 @@ move), the new shape is created empty, and a `-- TODO reshape …` recipe marks 
 `INSERT … SELECT` the operator runs. The backup is recorded in the written
 snapshot, so its cleanup drop is destructive-gated the *next* generation.
 
+The same goes for every **owned child table** the new shape no longer has. A
+relational aggregate keeps its parts, value collections and `X id[]` join tables
+in tables of their own; `shape: document` / `embedded` folds them into the root,
+so they fall out of the next schema. Each one holding an `ON DELETE CASCADE` FK
+to a backed-up table (directly, or through another child) is renamed to
+`<table>__pre_reshape` beside the root, with its own TODO recipe; the gate's
+listing names them. Its FK follows the root's rename (Postgres and Ecto carry an
+FK across `RENAME`), so the backups still join to each other for the copy, and
+the next generation's cleanup drops the children before the root. An `X id`
+reference is a `restrict` FK, not ownership, so another aggregate removed in the
+same generation is still an ordinary `DROP TABLE`.
+
+```ddd
+aggregate Cart shape: document {   // was relational
+  owner: string
+  lines: Line[]                    // value collection → cart_lines
+  contains items: Item[]           // part → items
+  entity Item { name: string }
+}
+```
+
 ```sql
 -- relational Cart → `shape: document` Cart, under --allow-destructive
+DROP INDEX "cart_lines_cart_id_idx";
+DROP INDEX "items_cart_id_idx";
 ALTER TABLE "carts" RENAME TO "carts__pre_reshape";
+ALTER TABLE "cart_lines" RENAME TO "cart_lines__pre_reshape";
+ALTER TABLE "items" RENAME TO "items__pre_reshape";
 CREATE TABLE "carts" ("id" UUID NOT NULL, "data" JSONB NOT NULL, "version" INTEGER NOT NULL, PRIMARY KEY ("id"));
--- TODO reshape (…): copy data from "carts__pre_reshape" into the new shape (e.g. INSERT … SELECT), then drop the backup under --allow-destructive
+-- TODO reshape (carts: saving shape relational → document): copy data from carts__pre_reshape into the new shape (e.g. INSERT … SELECT), then drop the backup under --allow-destructive
+-- TODO reshape (carts: saving shape relational → document): copy data from cart_lines__pre_reshape into the new shape (e.g. INSERT … SELECT), then drop the backup under --allow-destructive
+-- TODO reshape (carts: saving shape relational → document): copy data from items__pre_reshape into the new shape (e.g. INSERT … SELECT), then drop the backup under --allow-destructive
 ```
 
 ## The migration chain — `migrations/` beside the source
@@ -678,11 +843,19 @@ migrations/
 ```bash
 ddd migrate add initial app.ddd             # first recorded generation: each module's Initial
 ddd migrate add rename-order-qty app.ddd    # every later schema change, kebab-case name
+ddd migrate status app.ddd [--json]         # each module's head, and what is not recorded yet
+ddd migrate remove app.ddd                  # delete the newest entry (one no database has applied)
+ddd migrate rebase app.ddd                  # after a merge leaves two heads, re-record one on top of the other
 ddd generate system app.ddd -o out          # renders the chain; never records anything
 ```
 
 **Commit `migrations/`.** It is the record a database's migration history
 is checked against.
+
+**The playground keeps the same files** in its workspace, beside the entry
+`.ddd`. Its generate renders the chain and refuses drift the same way. Its
+Migrations tab shows the status and records new entries (`migrate add`); see
+[playground.md](playground.md).
 
 **A model with no `migrations/` has nothing recorded.** `generate system`
 then emits each owning module's initial migration, derived from the model and
@@ -701,14 +874,20 @@ modules and strictly increasing along the chain, and every backend's migrator
 (Drizzle's watermark, Flyway's out-of-order refusal, Ecto's per-file versions)
 sees a new generation above everything it already applied.
 
-**One list.** Every entry names its parent — the entry recorded just before it,
-of any module. Two entries naming the same parent are **two heads**: what two
-branches that each recorded a migration look like once merged. The chain then
-refuses to be read (`MigrationChainError`) until one of them is deleted and
-recorded again with `migrate add` on top of the other. The same error covers a
-missing parent, an entry numbered at or below its parent, a file name that does
-not match its contents, two entries of one module sharing a name, and
-unparseable JSON (an unresolved merge conflict).
+**One list.** Every entry names the entry recorded just before it, of any
+module, by id (`<version>_<module>_<name>`, its file name without `.json`) —
+an id rather than a version, because two branches recording on top of the same
+head can draw the same version. Two entries naming the same predecessor are
+**two heads**: what two branches that each recorded a migration look like once
+merged. `generate system` and `migrate status` then refuse the chain
+(`MigrationChainError`) and point at `ddd migrate rebase`, which deletes the
+later-recorded branch's entries (`--move <version>` picks the other) and
+records the merged model's changes again on top of the remaining head, under the
+moved migration's name (`--name` to change it) and with its
+`--allow-destructive` decision. The same error covers a missing predecessor, an
+entry numbered at or below the one it follows, a file name that does not match
+its contents, two entries of one module sharing a name, and unparseable JSON (an
+unresolved merge conflict).
 
 ## `migrationsOwner` — one backend per module owns schema
 
@@ -774,6 +953,31 @@ sort guarantees the parent is created first even though `pipelines` sorts before
 `price_amount`, `price_currency` (recursively for nested VOs), each tagged with a
 `voGroup` so Phoenix/Ecto can regroup them into a single `:map`. Relational
 backends emit the columns as-is.
+
+**Renaming a value-object field moves its json key.** Where a value object is
+ONE json column (Phoenix's `:map`, Dapper's `jsonb`), a leaf rename
+(`street` → `road`) renames no column, but every stored document still holds
+the old key. The delta therefore rewrites the key in every row — snake on
+Phoenix (`'street'`), the PascalCase property name on Dapper (`'Street'`) — and,
+on Dapper, in every element of a value-object list's jsonb array:
+
+```ddd
+valueobject Address { street: string  city: string }   // v1
+valueobject Address { road: string    city: string }   // v2
+aggregate Person with crudish { name: string  home: Address  past: Address[] }
+```
+
+```elixir
+rename table(:person_past, prefix: "c"), :street, to: :road
+execute("DO $$ BEGIN IF EXISTS (SELECT 1 FROM \"c\".\"persons\" WHERE jsonb_typeof(\"home\") = 'object' AND \"home\" -> 'street' IS NULL AND \"home\" -> 'road' IS NULL) THEN RAISE EXCEPTION '…'; END IF; END $$")
+execute("UPDATE \"c\".\"persons\" SET \"home\" = (\"home\" - 'street') || jsonb_build_object('road', \"home\" -> 'street') WHERE jsonb_typeof(\"home\") = 'object' AND \"home\" -> 'street' IS NOT NULL")
+```
+
+The key is read off the column name, which cannot tell a field of a nested
+value object (`home.geo.lat`) from a flat one (`home.geoLat`), or recover an
+acronym's casing. So the first statement checks the data: when a stored value
+has neither the old key nor the new one, the migration stops with an error
+rather than moving nothing. Write that rename as a `sql` step instead.
 
 **An OPTIONAL value object carries a null-consistency `CHECK`.** Flattening an
 optional VO makes N *independent* nullable columns, but every backend reads the
@@ -863,7 +1067,11 @@ The same `NOT VALID` rule as above is what makes this safe to land on a
 populated database: the `ALTER` leaves already-stored rows alone (so narrowing
 an enum can never fail a deploy) while refusing every future write of a removed
 value; the emitted comment names the `VALIDATE CONSTRAINT` an operator runs to
-audit the old rows deliberately.
+audit the old rows deliberately. The deploy surviving is not the app surviving,
+though: a row still holding a removed value fails to load on most backends, so
+a narrowing on a populated table raises
+[`loom.migration-enum-narrowed`](#an-enum-that-loses-a-member--loommigration-enum-narrowed)
+until a `sql before` remap is declared.
 
 Covered: a scalar enum column, at either nullability, on the aggregate root, a
 TPH shared table (where a concrete's column is forced nullable, so it gains the
@@ -881,8 +1089,10 @@ single backend whose database still accepted a deleted value.
 
 **Reference collections → join tables.** A `X id[]` field never produces a column.
 Enrichment derives one `AssociationIR` per such field, and the builder lays down a
-join table keyed by `(owner_fk, target_fk)` with both FKs `ON DELETE CASCADE` plus
-an `ordinal` column (nullable, default `0`).
+join table keyed by `(owner_fk, target_fk)` with both FKs `ON DELETE CASCADE`, and
+nothing else: `X id[]` is a set, so the composite primary key is the whole row and
+there is no `ordinal` column. Read-back order is a read-time projection — every
+backend orders the rows by the target FK id.
 
 ```ddd
 aggregate Order { items: Product id[] }
@@ -892,7 +1102,6 @@ aggregate Order { items: Product id[] }
 CREATE TABLE order_items (
   order_id UUID NOT NULL,
   product_id UUID NOT NULL,
-  ordinal INTEGER NULL DEFAULT 0,
   PRIMARY KEY (order_id, product_id),
   FOREIGN KEY (order_id) REFERENCES orders ON DELETE CASCADE,
   FOREIGN KEY (product_id) REFERENCES products ON DELETE CASCADE
@@ -901,8 +1110,11 @@ CREATE INDEX order_items_product_id_idx ON order_items (product_id);
 ```
 
 A VO *array* (`charges: Money[]`) produces an id-less child table
-(`<parent>_<field>`) of flattened VO columns keyed by `(parent_fk, ordinal)`;
-Phoenix skips it (it stores the array inline as `{:array, :map}`).
+(`<parent>_<field>`) of flattened VO columns keyed by `(parent_fk, ordinal)`.
+Phoenix creates the same child table plus a synthetic `id` uuid primary key (the
+Ecto `has_many` row identity `cast_assoc` needs) and no timestamps — the same
+table whether it arrives in the initial generation or in a later delta. Dapper
+has no child table: the list is one `jsonb` column on the parent.
 
 **Inheritance.** TPC (`inheritanceUsing: ownTable`): the abstract base emits **no
 table**, each concrete is standalone with the merged field set. TPH
@@ -918,8 +1130,12 @@ containment; `persistedAs: eventLog` and `eventSourced` workflows → an append-
 workflows get a state table; a durable channel adds the shared `__loom_outbox`
 table.
 
-**Optimistic concurrency (`versioned`).** An aggregate `with versioned` gains a
-`version INTEGER NOT NULL DEFAULT 1` state column. Every backend's save path emits
+**Optimistic concurrency (`versioned`).** Every aggregate is versioned by
+default — the macro layer splices the `versioned` capability into each one that
+is not event-sourced (`persistedAs: eventLog`, whose `(stream_id, version)`
+stream already is its concurrency control) — so a plain aggregate gains a
+`version INTEGER NOT NULL DEFAULT 1` state column; writing `with versioned` is
+redundant. Every backend's save path emits
 a guarded `UPDATE … WHERE id = $1 AND version = $2` (bumping `version`) and returns
 HTTP **409** when zero rows match — a lost-update guard. See
 [`capabilities.md`](capabilities.md).
@@ -976,11 +1192,34 @@ feature. They are machinery, not domain: cross-context (rows carry a
 deliberate — each was once hand-written per backend, and both consolidations
 turned up live defects the duplicated copies had been hiding.
 
-What *is* still feature-local and hand-emitted per backend is the
-**per-aggregate** half of provenance: the co-located `<field>_provenance` jsonb
-columns, which `ALTER` tables the module migration owns and so ship as a *late*
-migration (a far-future version like `29991231235959`) sorting after every
-generation of the chain.
+The **per-aggregate** half of provenance is ordinary schema too: each
+`provenanced` root field's co-located `<field>_provenance` column (nullable
+`JSONB`) is derived onto its aggregate's root table by `withLineageColumns` in
+the same file. No backend hand-emits provenance or audit DDL, and nothing sits
+at a fixed far-future version outside the chain. Like any other column, the
+lineage column is versioned, diffed and recorded, so the rules are the usual
+ones:
+
+- **Marking a field `provenanced`** on a live system records an `addColumn` in a
+  new generation, which sorts above every applied one. The applied migrations
+  stay byte-identical, so no runner re-checks or skips anything (no Flyway
+  checksum mismatch, no stale Drizzle watermark).
+- **That add renders `ADD COLUMN IF NOT EXISTS`** (Ecto: `add_if_not_exists`).
+  It is the one diffed step that does. Databases deployed while these columns
+  came from a hand-emitted per-backend migration already hold them, and the
+  first generation that records them has to apply there too. The column carries
+  a derivation-only `lineageOf` stamp, which is what selects this rendering;
+  `canonicalSnapshot` strips it, so the committed chain stores a plain column.
+- **Dropping `provenanced`** drops the column, and its lineage, as a destructive
+  step that needs `--allow-destructive`.
+
+A database whose Flyway history still holds the retired `29991231235959`
+provenance migration has a "future" applied version. Flyway skips that row, but
+it still treats every later chain version as out of order, so that database
+needs `spring.flyway.out-of-order=true` once. On Drizzle the retired entry's
+odd journal slot sits below the next generation's even slot, so nothing is
+hidden. The applied-set runners (EF, Dapper, Ecto, the python runner) just
+ignore the stale row.
 
 ### `persistence: dapper` — the same chain, on the jsonb layout (M-T2.17)
 
@@ -993,8 +1232,7 @@ applies the same `MigrationsIR` chain EF applies
 
 - **Emission.** One `Migrations/<version>_<Module>_<Name>.cs` per generation —
   the id EF gives the same migration — rendered by `renderPgStep` and split into
-  single statements (`splitPgStatements`, shared with the python runner). The
-  late provenance-column migration is the same statements EF's carries.
+  single statements (`splitPgStatements`, shared with the python runner).
 - **One projection, not a third DDL copy.** The Dapper repositories store a
   value object as ONE `jsonb` column, a scalar/enum list as `jsonb`, and a
   value-object list as `jsonb` on the parent, where the canonical IR flattens /
@@ -1002,7 +1240,9 @@ applies the same `MigrationsIR` chain EF applies
   rendering — through the same `collapseVoGroups` / `collapseVoSteps`
   ([`_persistence/vo-json-columns.ts`](../src/generator/_persistence/vo-json-columns.ts))
   the Ecto emitter uses for its `:map` value objects. Value-object
-  null-consistency CHECKs drop out (the column is the whole value object).
+  null-consistency CHECKs drop out (the column is the whole value object). A
+  renamed value-object field moves its jsonb key instead of renaming a column
+  (see "Renaming a value-object field moves its json key" above).
 - **Placement.** Tables land in the binding's schema exactly as on EF
   (`snake(<context>)` by default). The repositories keep naming tables
   unqualified; the Npgsql data source sets `SearchPath = public,<schemas>`.
@@ -1017,28 +1257,11 @@ applies the same `MigrationsIR` chain EF applies
   applied **set**, not a watermark — each in its own transaction with its
   history row. Idempotent: a reboot applies nothing. The exactly-once
   `appliedDataMigrations` ledger needs nothing new: a raw `sql` step is emitted
-  into exactly one generation's file, and that file runs once.
+  into exactly one generation's file, and that file runs once. The runner never
+  adopts tables it did not create: a database starts empty, and its `Initial`
+  migrations create every table.
 
-#### Databases the old bootstrap provisioned
-
-**At boot — baselining the database** (`BaselineLegacyAsync` in `DbSchema.cs`).
-A database with no `__loom_migrations` table is examined once, inside one
-transaction with the creation of that table. For each `Initial` (each carries
-the list of tables it creates):
-
-- every table present — in its schema, or still in `public` where the old
-  bootstrap put it → the `public` ones are moved (`ALTER TABLE … SET SCHEMA`)
-  and the `Initial` is recorded as applied **without running**;
-- every table absent → a module the old bootstrap never saw; left pending;
-- some of each → refuse to boot, naming the missing tables, rather than guess.
-
-Later migrations then apply normally. The decision rests on the old bootstrap
-having provisioned the `Initial`'s shape. That holds column-for-column; it does
-not hold for constraints the old DDL never had (the FKs, enum CHECKs,
-`DEFAULT 1` on `version`, and money's `NUMERIC(19,4)` bounds), which stay absent
-on a baselined database until a later migration touches them.
-
-Compose and k8s need nothing for this. The per-deployable `db-bootstrap`
+Compose and k8s need nothing for the runner. The per-deployable `db-bootstrap`
 service (#3141) only ever creates the database; the schema inside it is the
 app's to migrate at boot, on every adapter. The chart runs no migration job
 either: each app migrates itself at boot, and the advisory lock makes that safe
@@ -1049,9 +1272,10 @@ with more than one replica.
 Drizzle is the only backend in the table above whose migrator is a **watermark**
 rather than an applied-set: `migrate()` reads the single highest
 `__drizzle_migrations.created_at` and applies a journal entry only when
-`lastApplied.created_at < entry.when`, strictly. EF, Flyway, Alembic and Ecto all
-record *each* applied migration by identity, so for them an inserted migration is
-simply pending and nothing can renumber.
+`lastApplied.created_at < entry.when`, strictly. EF, Flyway, Ecto and the
+`__loom_migrations` runner (Python, and .NET on `persistence: dapper`) all record
+*each* applied migration by identity, so for them an inserted migration is simply
+pending and nothing can renumber.
 
 That makes `when` load-bearing in a way a filename is not. Three requirements:
 
@@ -1065,13 +1289,11 @@ That makes `when` load-bearing in a way a filename is not. Three requirements:
 `when` is therefore the entry's **position in chain order**:
 `when = epochMillis(BASE_VERSION) + ordinal * 2`. The chain only grows at its
 head, with a version above every existing one, so an entry's position never
-moves (2) and a new entry always lands last (1, 3). Entries take the even slots;
-the odd slot just above the newest one carries the always-last provenance
-migration, so it sorts after its own generation without sitting above the next
-one. The late provenance migration is emitted with `ADD COLUMN IF NOT EXISTS`
-because it is re-derived from scratch each generation rather than diffed, so
-re-applying it is a no-op — and a field newly marked `provenanced` actually
-receives its column. The runtime gate is the `journal-ordering` leg of
+moves (2) and a new entry always lands last (1, 3). Entries take the even slots.
+The factor of two stays because deployed databases already carry these values,
+and a database that applied the retired out-of-chain provenance migration holds
+it at the odd slot just above its then-newest entry, which the next generation's
+even slot still clears. The runtime gate is the `journal-ordering` leg of
 `migration-evolution-e2e`.
 
 ## Migration-evolution gate — proving migrations evolve *on data* (M-T2.13)
@@ -1182,6 +1404,18 @@ Two change records sit side by side and are easy to conflate:
   aggregate's `wireShape` — the network contract, not the database schema. Both are
   diffable change detectors, but they describe different surfaces (the JSON over the
   wire vs. the tables on disk).
+
+`ddd diff <file.ddd> [--baseline <old.ddd> | --git <ref>]` reads both at once and
+classifies each change: a wire change that moves the contract under an existing
+client is `breaking-for-clients`; a migration the destructive gate above refuses
+(including a reshape) is `breaking-for-data`. That verdict comes from the gate
+itself, through `buildMigrations`' `destructiveRefusals` sink, which records every
+refusing module and derives it as under `--allow-destructive` instead of throwing
+on the first. Everything else is `compatible`. A rename declared in a `migration`
+block is one rename on both sides: a compatible `RENAME COLUMN`, and a single
+`property-renamed` wire change, which is still breaking for clients. With no flag
+the committed chain is the schema baseline. The command exits `1` on a breaking
+change; see [`tools.md`](tools.md) § `diff`.
 
 See [`loom-artifacts.md`](loom-artifacts.md) for the full `.loom/` bundle and
 [`technical.md`](technical.md) § Phase ⑨ for the orchestration walk-through.

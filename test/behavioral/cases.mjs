@@ -18,7 +18,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import pg from "pg";
 // The pure registers live in a dependency-free module so the fast suite can
 // read them without test/behavioral/node_modules (see registers.mjs).
-import { ADAPTER_ONLY_CASES, BEHAVIOURAL_SKIP, declaresE2e, hasBehaviouralBlock, mountsFileRoutes } from "./registers.mjs";
+import { ADAPTER_ONLY_CASES, BEHAVIOURAL_SKIP, BEHAVIOURAL_XFAIL, declaresE2e, hasBehaviouralBlock, mountsFileRoutes } from "./registers.mjs";
 
 export { BEHAVIOURAL_SKIP, declaresE2e, hasBehaviouralBlock, mountsFileRoutes };
 
@@ -80,14 +80,18 @@ export async function loadCorpusFeatures(workDir) {
 
 /** Corpus-feature cases for one backend: every manifest feature that declares
  *  `backendKey` and carries a behavioural block, source-swapped to
- *  `platformClause` (e.g. key "vanilla" → clause "elixir"). */
-export async function featureCases(backendKey, platformClause, workDir) {
+ *  `platformClause` (e.g. key "vanilla" → clause "elixir") — plus every case
+ *  `leg` boots as a tracked expected failure (`BEHAVIOURAL_XFAIL`), declared or
+ *  not. */
+export async function featureCases(backendKey, platformClause, workDir, leg) {
   const cases = [];
   const skip = BEHAVIOURAL_SKIP[platformClause] ?? {};
   // Armed on this ADAPTER's leg beyond the manifest's backend set (registers.mjs).
   const armed = ADAPTER_ONLY_CASES[platformClause] ?? {};
+  const xfail = BEHAVIOURAL_XFAIL[leg] ?? {};
+  if (!(leg in BEHAVIOURAL_XFAIL)) throw new Error(`featureCases: unknown runner leg ${JSON.stringify(leg)}`);
   for (const f of await loadCorpusFeatures(workDir)) {
-    if (!f.backends.includes(backendKey) && !(f.id in armed)) continue;
+    if (!f.backends.includes(backendKey) && !(f.id in armed) && !(f.id in xfail)) continue;
     if (f.id in skip) continue; // known runtime gap on this backend — see the bug register
     const raw = readFileSync(join(CORPUS_DIR, `${f.id}.ddd`), "utf8");
     if (!hasBehaviouralBlock(raw)) continue;
@@ -723,6 +727,168 @@ export const AUTHZ_LADDERS = {
         path: "/api/invoices/{id}",
         note: "same-tenant caller has no requires to fail - its DELETE would succeed and make the cross-tenant 404 after it meaningless",
         arms: { anonymous: null, unauthorized: null, otherTenant: 404, authorized: 204 },
+      },
+    ],
+    arms: { anonymous: null, unauthorized: 200, authorized: 200 },
+    anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",
+  },
+
+  /** The tenant floor on BOTH inheritance layouts (#3954): every read path of a
+   *  TPH subtype (the restricted `Car`, the plain sibling `Truck`) and of a TPC
+   *  subtype (`Driver`), re-read as tenant `globex` after `acme` seeds.  A
+   *  collection read answers 200 either way, so its arm asserts the seeded row
+   *  is ABSENT from the body; `byPlateAnyTenant` is the one surface that
+   *  `ignoring tenantOwned`, so there the foreign tenant must SEE it — the
+   *  control that proves the absent arms can fail. */
+  "inheritance-read-restrictions": {
+    seed: { path: "/api/cars", body: { plate: "LADDER-C", seats: 2 } },
+    gated: [
+      {
+        label: "TPH subtype — a foreign tenant's by-id read",
+        method: "GET",
+        path: "/api/cars/{id}",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 404, authorized: 200 },
+      },
+      {
+        label: "TPH subtype — a foreign tenant's collection read",
+        method: "GET",
+        path: "/api/cars",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 200, authorized: 200 },
+        rowVisible: { otherTenant: false, authorized: true },
+      },
+      {
+        label: "TPH subtype — a foreign tenant's declared find",
+        method: "GET",
+        path: "/api/cars/by_plate?p=LADDER-C",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 404, authorized: 200 },
+      },
+      {
+        label: "TPH subtype — `ignoring tenantOwned` lets a foreign tenant see the row",
+        method: "GET",
+        path: "/api/cars/by_plate_any_tenant?p=LADDER-C",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 200, authorized: 200 },
+        rowVisible: { otherTenant: true, authorized: true },
+      },
+      {
+        label: "TPH sibling — a foreign tenant's collection read",
+        seed: { path: "/api/trucks", body: { plate: "LADDER-T", payloadKg: 1 } },
+        method: "GET",
+        path: "/api/trucks",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 200, authorized: 200 },
+        rowVisible: { otherTenant: false, authorized: true },
+      },
+      {
+        label: "TPH sibling — a foreign tenant's update",
+        seed: { path: "/api/trucks", body: { plate: "LADDER-T2", payloadKg: 2 } },
+        method: "POST",
+        path: "/api/trucks/{id}/update",
+        body: { payloadKg: 3 },
+        arms: { anonymous: null, unauthorized: 204, otherTenant: 404, authorized: 204 },
+      },
+      {
+        label: "TPC subtype — a foreign tenant's by-id read",
+        seed: { path: "/api/drivers", body: { name: "LADDER-D", licence: "L-9" } },
+        method: "GET",
+        path: "/api/drivers/{id}",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 404, authorized: 200 },
+      },
+      {
+        label: "TPC subtype — a foreign tenant's collection read",
+        seed: { path: "/api/drivers", body: { name: "LADDER-D2", licence: "L-8" } },
+        method: "GET",
+        path: "/api/drivers",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 200, authorized: 200 },
+        rowVisible: { otherTenant: false, authorized: true },
+      },
+    ],
+    arms: { anonymous: null, unauthorized: 200, authorized: 200 },
+    anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",
+  },
+
+  /** The TENANT half of `find … ignoring` on both persistence shapes: `acme`
+   *  seeds a row and tenant `globex` reads it back.  Every clause-less read
+   *  hides it (404 by id and by find; ABSENT from the 2xx collection), and the
+   *  two bypassing finds return it — the control that proves the absent arms
+   *  can fail.  The not-deleted half needs one tenant and is the case's own
+   *  `test e2e` block. */
+  "find-bypass": {
+    seed: { path: "/api/orders", body: { code: "LADDER-O", total: "1.00" } },
+    gated: [
+      {
+        label: "relational — a foreign tenant's by-id read",
+        seed: { path: "/api/orders", body: { code: "LADDER-O1", total: "1.00" } },
+        method: "GET",
+        path: "/api/orders/{id}",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 404, authorized: 200 },
+      },
+      {
+        label: "relational — a foreign tenant's collection read",
+        seed: { path: "/api/orders", body: { code: "LADDER-O2", total: "1.00" } },
+        method: "GET",
+        path: "/api/orders",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 200, authorized: 200 },
+        rowVisible: { otherTenant: false, authorized: true },
+      },
+      {
+        label: "relational — a foreign tenant's clause-less find",
+        seed: { path: "/api/orders", body: { code: "LADDER-O3", total: "1.00" } },
+        method: "GET",
+        path: "/api/orders/scoped?c=LADDER-O3",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 404, authorized: 200 },
+      },
+      {
+        label: "relational — `ignoring tenantOwned` lets a foreign tenant see the row",
+        seed: { path: "/api/orders", body: { code: "LADDER-O4", total: "1.00" } },
+        method: "GET",
+        path: "/api/orders/any_tenant?c=LADDER-O4",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 200, authorized: 200 },
+        rowVisible: { otherTenant: true, authorized: true },
+      },
+      {
+        label: "relational — `ignoring *` lets a foreign tenant see the row",
+        seed: { path: "/api/orders", body: { code: "LADDER-O5", total: "1.00" } },
+        method: "GET",
+        path: "/api/orders/unfiltered?c=LADDER-O5",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 200, authorized: 200 },
+        rowVisible: { otherTenant: true, authorized: true },
+      },
+      {
+        label: "document — a foreign tenant's by-id read",
+        seed: { path: "/api/notes", body: { body: "LADDER-N1" } },
+        method: "GET",
+        path: "/api/notes/{id}",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 404, authorized: 200 },
+      },
+      {
+        label: "document — a foreign tenant's collection read",
+        seed: { path: "/api/notes", body: { body: "LADDER-N2" } },
+        method: "GET",
+        path: "/api/notes",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 200, authorized: 200 },
+        rowVisible: { otherTenant: false, authorized: true },
+      },
+      {
+        label: "document — a foreign tenant's clause-less find",
+        seed: { path: "/api/notes", body: { body: "LADDER-N3" } },
+        method: "GET",
+        path: "/api/notes/scoped_note?b=LADDER-N3",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 404, authorized: 200 },
+      },
+      {
+        label: "document — `ignoring tenantOwned` lets a foreign tenant see the row",
+        seed: { path: "/api/notes", body: { body: "LADDER-N4" } },
+        method: "GET",
+        path: "/api/notes/any_tenant_note?b=LADDER-N4",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 200, authorized: 200 },
+        rowVisible: { otherTenant: true, authorized: true },
+      },
+      {
+        label: "document — `ignoring *` lets a foreign tenant see the row",
+        seed: { path: "/api/notes", body: { body: "LADDER-N5" } },
+        method: "GET",
+        path: "/api/notes/unfiltered_note?b=LADDER-N5",
+        arms: { anonymous: null, unauthorized: 200, otherTenant: 200, authorized: 200 },
+        rowVisible: { otherTenant: true, authorized: true },
       },
     ],
     arms: { anonymous: null, unauthorized: 200, authorized: 200 },

@@ -89,6 +89,7 @@ import type {
 } from "../types/loom-ir.js";
 import { lit } from "../types/loom-ir.js";
 import { snapshotIdFor } from "../util/prov-id.js";
+import { UNRESOLVED_LAMBDA_PARAM_SHAPE } from "../util/unresolved-lambda-param.js";
 import { lowerStatement } from "./lower-stmt.js";
 import {
   cstText,
@@ -967,7 +968,9 @@ function applySuffixToRecv(
             resultType: bool,
           };
         }
-        return { recv: orExpr, recvType: bool };
+        // Parenthesised so a surrounding `&&` / comparison binds the whole
+        // closure, not just its last disjunct.
+        return { recv: { kind: "paren", inner: orExpr }, recvType: bool };
       }
     }
     // `<vo>.equals(other)` — VALUE equality, the value-object intrinsic
@@ -1135,6 +1138,10 @@ function applySuffixToRecv(
   // but track the next type using `memberType` so chained access
   // through array.count etc. continues to type correctly.
   const stepType = passType(suffix, env);
+  if (recv.kind === "this") {
+    const own = thisDataRef(ms.member, env);
+    if (own) return { recv: own, recvType: stepType };
+  }
   const memberIR: ExprIR = {
     kind: "member",
     receiver: recv,
@@ -1169,8 +1176,8 @@ export function isErrorVariantTag(tag: string, env: Env): boolean {
 }
 
 /** Lower a lambda body, binding its parameter at `paramType` in a fresh
- *  local scope.  `paramType` is the string placeholder for a bare lambda
- *  and the receiver's ELEMENT type for a collection-op lambda arg
+ *  local scope.  `paramType` is the unresolved-param marker for a bare lambda
+ *  the pass could not type, and the receiver's ELEMENT type for a collection-op lambda arg
  *  (`lines.any(l => l.price > total)` → `l` typed at the line element), so
  *  member accesses and binaries inside the body get the right
  *  receiver/member/left types — backends never re-resolve. */
@@ -1211,6 +1218,7 @@ function lowerLambda(expr: Lambda, env: Env, paramType: TypeIR): ExprIR {
 
 function collectionElementType(t: TypeIR): TypeIR | undefined {
   const unwrapped = t.kind === "optional" ? t.inner : t;
+  if (unwrapped.kind === "genericInstance" && unwrapped.ctor === "paged") return unwrapped.arg;
   return unwrapped.kind === "array" ? unwrapped.element : undefined;
 }
 
@@ -1228,7 +1236,7 @@ function collectionElementType(t: TypeIR): TypeIR | undefined {
  *
  *  `originFor` walks `$container` / `getDocument` from the AST node (a
  *  shallow 5-10 hop root-walk per node) — accepted per-node cost, no
- *  cache; see docs/old/plans/source-map-debug-kickoff.md. */
+ *  cache; see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/source-map-debug-kickoff.md. */
 export function lowerExpr(expr: Expression | undefined, env: Env): ExprIR {
   const lowered = lowerExprInner(expr, env);
   const out = { ...lowered, origin: lowered.origin ?? originFor(expr) };
@@ -1341,15 +1349,20 @@ function lowerExprInner(expr: Expression | undefined, env: Env): ExprIR {
     };
   }
   if (isLambda(expr)) {
-    // A bare lambda outside a collection-op call site has no known param
-    // type — the string placeholder matches the legacy behaviour.  The
-    // collection-op path lowers its lambda arg through `lowerLambda`
-    // directly with the receiver's element type (see `applySuffixToRecv`).
-    // Inside a row-shaped walker primitive (`For`/`Table`/`DataGrid`) the ROW
-    // element type is known and threaded on the env, so the item lambda —
-    // and a nested `Column { field: r => … }` — binds at the real type
-    // instead (Env.rowElem).
-    return lowerLambda(expr, env, env.rowElem ?? { kind: "primitive", name: "string" });
+    // A bare lambda outside a collection-op call site takes its parameter type
+    // from the typing pass (see `lowerLambda`).  The collection-op path lowers
+    // its lambda arg through `lowerLambda` directly with the receiver's element
+    // type (see `applySuffixToRecv`).  Inside a row-shaped walker primitive
+    // (`For`/`Table`/`DataGrid`) the ROW element type is threaded on the env, so
+    // the item lambda — and a nested `Column { field: r => … }` — binds at the
+    // real type (Env.rowElem).  With no source at all the parameter is typed by
+    // the unresolved-param marker, never a guessed `string`; reading a member of
+    // it is rejected at IR validation (`loom.lambda-param-type-unknown`).
+    return lowerLambda(
+      expr,
+      env,
+      env.rowElem ?? { kind: "entity", name: UNRESOLVED_LAMBDA_PARAM_SHAPE },
+    );
   }
   if (isMatchExpr(expr)) {
     // Variant form (`match SUBJECT { VariantType binding => value }`,
@@ -2160,6 +2173,65 @@ export function ambientResourceKind(name: string, env: Env): DataSourceKind | un
   return env.resources?.get(name);
 }
 
+/** The enclosing entity / value object / workflow / projection a bare name or `this.` read resolves against. */
+function ownerOfEnv(env: Env) {
+  return env.part ?? env.aggregate ?? env.valueObject ?? env.workflow ?? env.projection;
+}
+
+/**
+ * The owner's members as a bare name sees them.  An aggregate's `this`-props
+ * include the ones it inherits through `extends` — the base's members are
+ * merged onto the subtype at ENRICH time, which is after this pass, so the
+ * chain has to be walked here (see `memberOwnerChain`).  Own members shadow
+ * the base's.
+ */
+function ownerMembersOf(owner: NonNullable<ReturnType<typeof ownerOfEnv>>, env: Env) {
+  return owner === env.aggregate && isAggregate(owner)
+    ? memberOwnerChain(owner).flatMap((o) => o.members)
+    : owner.members;
+}
+
+/**
+ * The `this`-property ref for member `m` when it is the data member called
+ * `name` (property / containment / derived).  The one place a property read is
+ * given its IR shape: the bare spelling (`total`) and the dotted spelling
+ * (`this.total`) both come through here, so every backend sees a single node.
+ */
+function dataMemberRef(m: AstNode, name: string, isVo: boolean): ExprIR | undefined {
+  if (isProperty(m) && m.name === name) {
+    return {
+      kind: "ref",
+      name,
+      refKind: isVo ? "this-vo-prop" : "this-prop",
+      type: lowerType(m.type),
+    };
+  }
+  if (isContainment(m) && m.name === name) {
+    const partName = m.partType?.ref?.name ?? "Unknown";
+    const t: TypeIR = m.collection
+      ? { kind: "array", element: { kind: "entity", name: partName } }
+      : { kind: "entity", name: partName };
+    return { kind: "ref", name, refKind: "this-prop", type: t };
+  }
+  if (isDerivedProp(m) && m.name === name) {
+    return { kind: "ref", name, refKind: "this-derived", type: lowerType(m.type) };
+  }
+  return undefined;
+}
+
+/** `this.<name>` resolved against the enclosing owner, or undefined outside domain-logic bodies or when `name` is not one of its data members. */
+function thisDataRef(name: string, env: Env): ExprIR | undefined {
+  if (!env.thisPropRead) return undefined;
+  const owner = ownerOfEnv(env);
+  if (!owner) return undefined;
+  const isVo = !!env.valueObject;
+  for (const m of ownerMembersOf(owner, env)) {
+    const r = dataMemberRef(m, name, isVo);
+    if (r) return r;
+  }
+  return undefined;
+}
+
 function resolveNameRef(name: string, env: Env, node?: AstNode): ExprIR {
   // Criterion-parameter substitution — while inlining a criterion body, a
   // bare reference to one of its parameters resolves to the caller's
@@ -2224,41 +2296,12 @@ function resolveNameRef(name: string, env: Env, node?: AstNode): ExprIR {
   // Property of enclosing entity / value object / workflow.  A workflow is a
   // state-bearing entity (workflow-and-applier.md A2): its `Property` members
   // resolve as `this`-props exactly like aggregate fields.
-  const owner = env.part ?? env.aggregate ?? env.valueObject ?? env.workflow ?? env.projection;
+  const owner = ownerOfEnv(env);
   if (owner) {
     const isVo = !!env.valueObject;
-    // An aggregate's `this`-props include the ones it inherits through
-    // `extends` — the base's members are merged onto the subtype at ENRICH
-    // time, which is after this pass, so the chain has to be walked here (see
-    // `memberOwnerChain`).  Own members shadow the base's.
-    const ownerMembers =
-      owner === env.aggregate && isAggregate(owner)
-        ? memberOwnerChain(owner).flatMap((o) => o.members)
-        : owner.members;
-    for (const m of ownerMembers) {
-      if (isProperty(m) && m.name === name) {
-        return {
-          kind: "ref",
-          name,
-          refKind: isVo ? "this-vo-prop" : "this-prop",
-          type: lowerType(m.type),
-        };
-      }
-      if (isContainment(m) && m.name === name) {
-        const partName = m.partType?.ref?.name ?? "Unknown";
-        const t: TypeIR = m.collection
-          ? { kind: "array", element: { kind: "entity", name: partName } }
-          : { kind: "entity", name: partName };
-        return { kind: "ref", name, refKind: "this-prop", type: t };
-      }
-      if (isDerivedProp(m) && m.name === name) {
-        return {
-          kind: "ref",
-          name,
-          refKind: "this-derived",
-          type: lowerType(m.type),
-        };
-      }
+    for (const m of ownerMembersOf(owner, env)) {
+      const dataRef = dataMemberRef(m, name, isVo);
+      if (dataRef) return dataRef;
       if (isFunctionDecl(m) && m.name === name) {
         // A workflow `function` is a per-workflow-scoped module helper, not a
         // `this`-method — carry the workflow name so a bare (nullary) reference
@@ -2444,7 +2487,7 @@ export function inferExprType(expr: Expression | undefined, env: Env): TypeIR {
 }
 
 /**
- * IR-layer mirror of `type-system.ts`'s `arithmeticResult`/comparison
+ * IR-layer mirror of the typing pass's `arithmetic`/comparison
  * logic, but operating on `TypeIR` and dispatching on the operator.
  *
  * Used to populate `leftType`/`resultType` on binary IR nodes so
@@ -2504,6 +2547,26 @@ export function lowerExprInContext(
   // enum this slot expects (F-022).  Field / param defaults, `:=` RHSs and
   // `emit` fields all reach the lowerer through here, so they all get it.
   return retargetEnumValue(lowerExpr(expr, env), expected);
+}
+
+/** `expr` as a value of the declared type (`let x: T = expr`): the contextual
+ *  lowering above, plus an explicit numeric widening (`int` → `long` /
+ *  `decimal`, `long` → `decimal`) of a non-literal value. A backend that infers
+ *  a local's type from its initializer (`var` in C# and Java) then gets the
+ *  declared type, so a later `/` divides as a `decimal`, not an `int`. */
+export function lowerExprAsDeclared(
+  expr: Expression | undefined,
+  declared: TypeIR,
+  env: Env,
+): ExprIR {
+  const value = lowerExprInContext(expr, declared, env);
+  if (declared.kind !== "primitive" || value.kind === "literal") return value;
+  const from = inferExprType(expr, env);
+  if (from.kind !== "primitive") return value;
+  const widens =
+    (from.name === "int" && (declared.name === "long" || declared.name === "decimal")) ||
+    (from.name === "long" && declared.name === "decimal");
+  return widens ? { kind: "convert", target: declared.name, from: from.name, value } : value;
 }
 
 /** Lower an `emit E { f: <expr>, … }` field list, promoting a bare numeric
@@ -2577,7 +2640,7 @@ function tryPromoteNumericLit(expr: Expression, target: PrimitiveName): ExprIR |
  *  emit the same to-string form they'd produce for an explicit
  *  `string(x)` source-level call.  Used by the lowering binary
  *  handler for implicit `string + X` concat — the validator has
- *  already accepted the combination via `arithmeticResult`.
+ *  already accepted the combination (the typing pass's `arithmetic`).
  *
  *  `from` is derived from the operand's source type — same primitive
  *  name for primitives, `"enum"`/`"id"` sentinels for the non-
@@ -2675,7 +2738,7 @@ function lowerTemplateString(expr: TemplateStr, env: Env): ExprIR {
 }
 
 /** Mirror of `type-system.ts`'s `isImplicitlyStringifiable`, on
- *  `TypeIR` instead of `DddType`.  Same set: numeric primitives,
+ *  `TypeIR` instead of `Ty`.  Same set: numeric primitives,
  *  bool, enum, `X id`, plus aggregates that declare a
  *  `derived display: string`.  Used by the lowering binary handler
  *  to decide whether to inject a `convert` node (primitives / enum /

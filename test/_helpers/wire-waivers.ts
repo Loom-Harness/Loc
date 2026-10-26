@@ -68,6 +68,68 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
     reason:
       "#3838 — the elixir workflow dispatcher's conflict 409 names no aggregate/id (its {:error, :conflict} term carries neither); the other four serve `<Aggregate> <id> was modified by another request`",
   },
+  // 2026-10-25 — #3595's #3954 fixture: java's `softDelete` does not bump
+  // `version`, visible through the `ignoring softDeletable` read-back (RS-20).
+  ...(["GET /api/cars/by_plate_all?*", "GET /api/drivers/by_name_all?*"] as const).map(
+    (request): WireWaiver => ({
+      backends: ["java"],
+      cases: ["inheritance-read-restrictions"],
+      request,
+      path: "$.version",
+      kinds: ["value"],
+      reason: "#4035 — RS-20: a soft delete leaves java's version counter where the create put it",
+    }),
+  ),
+  // The same java gap on `find-bypass`: the soft-deleted row read back through
+  // `ignoring *` carries the version the update left.
+  {
+    backends: ["java"],
+    cases: ["find-bypass"],
+    request: "GET /api/orders/unfiltered?*",
+    path: "$.version",
+    kinds: ["value"],
+    reason: "#4035 — RS-20: a soft delete leaves java's version counter where the update put it",
+  },
+  // 2026-10-25 — #3595 booted `projection-valueobject-row` on elixir for the
+  // first time: the read model round-trips, but a nested value object's keys
+  // reach the wire in their column spelling (`at_time`), not camelCase (RS-1).
+  ...(["**.atTime", "**.at_time"] as const).map(
+    (path): WireWaiver => ({
+      backends: ["elixir"],
+      cases: ["projection-valueobject-row"],
+      request: "GET /api/projections/order_board/*",
+      path,
+      kinds: ["key-set"],
+      reason:
+        "#4023 — RS-1: a value object nested in a folded projection's read model keeps its snake_case leaf keys on elixir",
+    }),
+  ),
+  // MikroORM's folded projection hands its `money` column to the wire without
+  // the scale-4 formatting its aggregate fields get (RS-12).
+  {
+    backends: ["mikroorm"],
+    cases: ["projection-fold-statements"],
+    request: "GET /api/projections/account_board/*",
+    path: "$.charged",
+    kinds: ["value"],
+    reason:
+      "#4214 — RS-12: a folded projection's money column reaches the wire unscaled on mikroorm",
+  },
+  // The .NET and java request validators apply a value object's invariant one
+  // level deep, so a breach inside a VO nested in a VO reaches the domain constructor
+  // and answers its domain-error 422 (no `errors[]` pointer) instead of the
+  // field-validation one.  Status agrees.
+  ...(["$.title", "$.detail", "$.errors[*].pointer"] as const).map(
+    (path): WireWaiver => ({
+      backends: ["dotnet", "dapper", "java"],
+      cases: ["vo-root-kernel"],
+      request: "POST /api/shipments",
+      path,
+      kinds: ["value"],
+      reason:
+        "#4215 — a nested value object's invariant is not checked by the .NET / java request validator; the 422 comes from the domain",
+    }),
+  ),
   // node/drizzle orders every read with no declared order by `id` (the
   // read-scope order).  The other legs still answer Postgres's physical order,
   // which moves a row an `update` rewrote to the end, so the three reads below
@@ -88,6 +150,80 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
       kinds: ["ordering"],
       reason:
         "#3438 — only node/drizzle orders an unordered read by `id` yet; the other legs answer physical (heap) order",
+    }),
+  ),
+  // node answers an absent required field with the `wirePolicy` sentence
+  // `"<field> is required"` (`missingFieldMessage`); the other legs still send
+  // the one word `"Required"`.  Status, pointer and the rest of the body agree.
+  // Each backend deletes its name here when it renders the fact's sentence.
+  ...(
+    [
+      "absent-optional",
+      "audit-history-guarded",
+      "audit-history",
+      "audited",
+      "collection-op-shapes",
+      "concurrency-conflict",
+      "contained-part-rebuild",
+      "contained-part-removal",
+      "date-scalar",
+      "datetime-wire",
+      "decimal-exact",
+      "domain-floor-messages",
+      "domain-services",
+      "embedded-optional",
+      "embedded",
+      "enum-collection",
+      "event-sourcing",
+      "field-mask",
+      "file-download",
+      "find-bypass",
+      "inheritance-base-reads",
+      "inheritance",
+      "inheritance-read-restrictions",
+      "java-reserved-words",
+      "ledger",
+      "lifecycle-guard",
+      "numeric-operands",
+      "optional-reference",
+      "payments",
+      "policy-deny",
+      "projection-groupby",
+      "projection-tph-source",
+      "projection-valueobject-row",
+      "provenance",
+      "python-reserved-words",
+      "scaffold-macros",
+      "shapes",
+      "single-containment",
+      "stamps-principal",
+      "stamps",
+      "storefront-system",
+      "tph-crossings",
+      "tph",
+      "transactional-workflow-event-rollback",
+      "transactional-workflow-post-commit-dispatch",
+      "union-find-absence",
+      "validation-messages",
+      "vo-cross-context",
+      "vo-id-reference",
+      "vo-invariant-in-body",
+      "wire-contract",
+      "wire-ingress",
+      "workflow-command-payload",
+      "workflow-create-result",
+      "workflow-enum-state",
+      "workflow-two-handles-containment",
+      "workflow-two-handles-document-eventlog",
+    ] as const
+  ).map(
+    (c): WireWaiver => ({
+      backends: ["dotnet", "dapper", "java", "python", "elixir"],
+      cases: [c],
+      path: "$.errors[*].message",
+      kinds: ["value"],
+      reason:
+        '#3881 — only node renders the wirePolicy missing-field sentence `"<field> is required"` yet; the other legs send `"Required"`',
     }),
   ),
 ];

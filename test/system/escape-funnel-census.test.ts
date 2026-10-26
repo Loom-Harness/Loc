@@ -3,7 +3,7 @@
 //
 // `elixirString`/`elixirRegexBody` (src/util/naming.ts) are the Elixir
 // escape funnel — but per the Wave 1 elixir hand-off
-// (docs/new-plan/waves/handoffs/wave-1-elixir.md), they have NO ENFORCEMENT:
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/waves/handoffs/wave-1-elixir.md), they have NO ENFORCEMENT:
 // nine live injection sites were found only by a human reading every call
 // site twice. A lint rule closes that gap for good: this test scans
 // `src/generator/**` for every `JSON.stringify(` call and classifies it by

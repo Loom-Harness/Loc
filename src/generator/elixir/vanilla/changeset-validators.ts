@@ -5,6 +5,7 @@ import {
 } from "../../../ir/validate/invariant-classify.js";
 import { messageCode } from "../../../util/message-code.js";
 import { elixirRegexBody, elixirString, snake } from "../../../util/naming.js";
+import { singleFieldMessage } from "../../zod-refine.js";
 import { opBodyStmtsDeep } from "../domain/predicates.js";
 import { LOOM_DATETIME_MODULE } from "./datetime-type-emit.js";
 
@@ -17,15 +18,6 @@ import { LOOM_DATETIME_MODULE } from "./datetime-type-emit.js";
 // `validate_length` / `validate_format` pipe lines.
 // ---------------------------------------------------------------------------
 
-/** Ecto's own default message for each `validate_length/3` failure kind — kept
- *  verbatim (interpolation placeholder included) so a hand-rolled length error
- *  renders exactly like the native one through the app's error translator. */
-const LENGTH_MESSAGE: Readonly<Record<"min" | "max" | "is", string>> = {
-  min: "should be at least %{count} character(s)",
-  max: "should be at most %{count} character(s)",
-  is: "should be %{count} character(s)",
-};
-
 type LengthArm = { cmp: "<" | ">" | "!="; bound: number; kind: "min" | "max" | "is" };
 
 /** A CODE-POINT length rule as an Ecto `validate_change/3` closure.
@@ -35,11 +27,11 @@ type LengthArm = { cmp: "<" | ">" | "!="; bound: number; kind: "min" | "max" | "
  *  returned error tuple is Ecto's own — same message text, same `count` /
  *  `validation: :length` / `kind` / `type: :string` metadata — so ProblemDetails
  *  and any Gettext translator see no difference. */
-function lengthValidator(field: string, arms: readonly LengthArm[], message?: string): string {
+function lengthValidator(field: string, arms: readonly LengthArm[], message: string): string {
   const error = (a: LengthArm): string =>
     // Through the shared escaping funnel: the author's `message "…"` is `.ddd`
     // text, and a raw `#{` in it would INTERPOLATE when the closure runs.
-    `[{:${field}, {${elixirString(message ?? LENGTH_MESSAGE[a.kind])}, count: ${a.bound}, validation: :length, kind: :${a.kind}, type: :string}}]`;
+    `[{:${field}, {${elixirString(message)}, count: ${a.bound}, validation: :length, kind: :${a.kind}, type: :string}}]`;
   const count = "length(String.to_charlist(value))";
   if (arms.length === 1) {
     const a = arms[0] as LengthArm;
@@ -72,7 +64,10 @@ export function ectoValidator(field: string, p: SingleFieldPattern, message?: st
   // surfaces the author text (VOs have no residual carrier to route to). A
   // message-less rule is byte-identical.
   // Same funnel as the length arm above — author text, never spliced raw.
-  const m = message ? `, message: ${elixirString(message)}` : "";
+  // A message-less rule answers node's `singleFieldMessage` sentence, not Ecto's
+  // own text (D-MESSAGELESS-DEFAULT), so the 422 reads the same on every backend.
+  const text = message ?? singleFieldMessage(field, p);
+  const m = `, message: ${elixirString(text)}`;
   switch (p.kind) {
     case "min":
       // Exclusive (`weight > 0.5` on a decimal/money field) → Ecto's strict
@@ -95,11 +90,11 @@ export function ectoValidator(field: string, p: SingleFieldPattern, message?: st
     // text, `count`, `validation: :length`, `kind`, `type`) so the 422 body and
     // the changeset error metadata stay byte-identical to the native validator.
     case "len-min":
-      return lengthValidator(field, [{ cmp: "<", bound: p.n, kind: "min" }], message);
+      return lengthValidator(field, [{ cmp: "<", bound: p.n, kind: "min" }], text);
     case "len-max":
-      return lengthValidator(field, [{ cmp: ">", bound: p.n, kind: "max" }], message);
+      return lengthValidator(field, [{ cmp: ">", bound: p.n, kind: "max" }], text);
     case "len-eq":
-      return lengthValidator(field, [{ cmp: "!=", bound: p.n, kind: "is" }], message);
+      return lengthValidator(field, [{ cmp: "!=", bound: p.n, kind: "is" }], text);
     case "len-range":
       return lengthValidator(
         field,
@@ -107,7 +102,7 @@ export function ectoValidator(field: string, p: SingleFieldPattern, message?: st
           { cmp: "<", bound: p.lo, kind: "min" },
           { cmp: ">", bound: p.hi, kind: "max" },
         ],
-        message,
+        text,
       );
     case "regex":
       return `    |> validate_format(:${field}, ~r/${elixirRegexBody(p.pattern)}/${m})`;

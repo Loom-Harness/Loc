@@ -58,6 +58,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { type EnrichedAggregateIR, exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { isDescendingSort } from "../../ir/util/collection-op-site.js";
+import { hostStatefulComponents } from "../../ir/util/heex-component-host-state.js";
 import {
   listShapedProjectionNames,
   readableProjectionNames,
@@ -65,8 +66,8 @@ import {
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { elixirString, humanize, snake, upperFirst } from "../../util/naming.js";
-import { DURATION_UNIT_MS, type DurationUnit } from "../../util/temporal.js";
 import { USER_VISIBLE_SLOTS } from "../../util/user-visible-slots.js";
+import { type ExprCtxBase, type ExprTarget, renderExprWith } from "../_expr/target.js";
 import { tryRenderGate } from "../_frontend/gate-expr.js";
 import { PROVENANCE_VALUE_FIELD, provenancedFieldNames } from "../_payload/provenanced-wire.js";
 import { giveUpText } from "../_walker/give-up.js";
@@ -74,7 +75,11 @@ import { icuFromConcat, messageKey } from "../_walker/i18n-extract.js";
 import { WALKER_PRIMITIVES } from "../_walker/registry.js";
 import { heexTarget, renderHeexStoreActionCall, renderHeexStoreFieldRead } from "./heex-target.js";
 import { elixirI18nString } from "./i18n.js";
-import { ELIXIR_INTRINSIC_RENDERERS, renderExpr as renderDomainExpr } from "./render-expr.js";
+import {
+  ELIXIR_CTX_FREE_LEAVES,
+  ELIXIR_INTRINSIC_RENDERERS,
+  renderExpr as renderDomainExpr,
+} from "./render-expr.js";
 
 export type RenderPosition = "template" | "handler";
 
@@ -410,6 +415,16 @@ export interface WalkContext {
    *  cannot call one `handle_event` clause from another, so a parameterised
    *  sibling action is inlined with its arguments substituted. */
   actionArgSubst?: ReadonlyMap<string, string>;
+  /** Parameters of a component INLINED into its caller (see
+   *  `renderInlinedComponent`): param name -> the caller's argument expression
+   *  with the caller's context.  A `ref` to the param re-renders that argument
+   *  in the CURRENT position (template `@x` vs handler `socket.assigns.x`), so a
+   *  query/form argument built from a component param stays valid inside the
+   *  host's `handle_params` and `handle_event` bodies. */
+  inlineParams?: ReadonlyMap<string, { expr: ExprIR; ctx: WalkContext }>;
+  /** Renders the children of an INLINED component call, in the caller's scope,
+   *  for the component's `Slot()`. */
+  inlineSlot?: () => string;
   /** Shared box flag set by `Slot()` rendering — boxed so the mutation
    *  survives the `{...ctx}` shallow copies nested renders make (like the
    *  Set/array accumulators above). */
@@ -635,6 +650,35 @@ export function walkBodyToHeex(
     i18nPrefix,
   };
 
+  seedHoistedHandlers(ctx, page, body);
+
+  const heex = body ? renderExpr(body, ctx) : `<!-- empty body -->`;
+
+  return {
+    heex,
+    handlers: ctx.handlers,
+    formBindings: ctx.formBindings,
+    queryBindings: ctx.queryBindings,
+    actionBindings: ctx.actionBindings,
+    usedComponents: [...ctx.usedComponents],
+    componentUses: ctx.componentUses,
+    usesSlot: ctx.slotUsed.value,
+    usesChart: ctx.chartUsed.value,
+    usesTableHelpers: ctx.tableHelpersUsed.value,
+    idOptionsBindings: [...ctx.idOptionsBindings],
+    refLabelBindings: [...ctx.refLabelBindings],
+    usedStores: [...ctx.usedStores],
+    uploadBindings: ctx.uploadBindings,
+    tableControls: ctx.tableControls,
+  };
+}
+
+/** Pre-hoist the handlers a body's markup refers to by name: its declared
+ *  `action`s and its bare store-action handler refs.  Runs before the body
+ *  renders so synthesized lambda events number after them: a component walked
+ *  standalone and the same component inlined into a page therefore name their
+ *  lambda handlers identically. */
+function seedHoistedHandlers(ctx: WalkContext, page: PageIR, body: ExprIR | undefined): void {
   // Hoist named page `action`s (named-actions-and-stores.md, Proposal A
   // Stage 1) into `handle_event` clauses named `snake(action.name)`, so a
   // bare `onClick: next` reference — lowered to an `action-ref` ExprIR that
@@ -682,26 +726,6 @@ export function walkBodyToHeex(
       ],
     });
   }
-
-  const heex = body ? renderExpr(body, ctx) : `<!-- empty body -->`;
-
-  return {
-    heex,
-    handlers: ctx.handlers,
-    formBindings: ctx.formBindings,
-    queryBindings: ctx.queryBindings,
-    actionBindings: ctx.actionBindings,
-    usedComponents: [...ctx.usedComponents],
-    componentUses: ctx.componentUses,
-    usesSlot: ctx.slotUsed.value,
-    usesChart: ctx.chartUsed.value,
-    usesTableHelpers: ctx.tableHelpersUsed.value,
-    idOptionsBindings: [...ctx.idOptionsBindings],
-    refLabelBindings: [...ctx.refLabelBindings],
-    usedStores: [...ctx.usedStores],
-    uploadBindings: ctx.uploadBindings,
-    tableControls: ctx.tableControls,
-  };
 }
 
 /** The `handle_event` name of a bare store-action handler (`onClick:
@@ -744,139 +768,87 @@ function collectStoreActionRefs(root: ExprIR | undefined): { store: string; acti
 // ---------------------------------------------------------------------------
 
 export function renderExpr(expr: ExprIR, ctx: WalkContext): string {
-  switch (expr.kind) {
-    case "literal":
-      return renderLiteral(expr.lit, expr.value);
-    case "this":
-      // Outside an aggregate body — `this` in a page context refers to
-      // the page's primary data binding.  v0: emit as `@record` and
-      // rely on the LiveView's mount to assign it.
-      return ctx.position === "template" ? "@record" : "socket.assigns.record";
-    case "id":
-      return ctx.position === "template" ? "@id" : "socket.assigns.id";
-    case "ref":
-      return renderRef(expr, ctx);
-    case "member":
-      return renderMember(expr, ctx);
-    case "method-call":
-      return renderMethodCall(expr, ctx);
-    case "call":
-      return renderCall(expr, ctx);
-    case "lambda":
-      // Lambdas only appear as argument values (onSubmit, onClick, etc.).
-      // The walker hoists each lambda into a handle_event clause and
-      // returns the phx-event name to wire into the parent attribute.
-      return hoistLambdaToHandler(expr, ctx);
-    case "object":
-      return renderObjectLiteral(expr, ctx);
-    case "new":
-      return renderNew(expr, ctx);
-    case "paren":
-      return `(${renderExpr(expr.inner, ctx)})`;
-    case "unary":
-      if (expr.op === "!") return `not ${renderExpr(expr.operand, ctx)}`;
-      return `-${renderExpr(expr.operand, ctx)}`;
-    case "binary":
-      return renderBinary(expr, ctx);
-    case "ternary":
-      return `if ${renderExpr(expr.cond, ctx)}, do: ${renderExpr(expr.then, ctx)}, else: ${renderExpr(expr.otherwise, ctx)}`;
-    case "convert": {
-      // Phoenix HEEx conversion — mirror the renderExpr emit in
-      // `elixir/render-expr.ts`.  HEEx pages embed Elixir
-      // expressions verbatim inside `<%= … %>`, so the same Elixir
-      // idioms apply (Decimal.to_string for money, to_string for
-      // primitives, Decimal.new for the inverse).
-      const v = renderExpr(expr.value, ctx);
-      // money AND decimal are Decimal structs here — mirror render-expr.ts's
-      // `renderElixirConvert` exactly.
-      const fromDecimal = expr.from === "money" || expr.from === "decimal";
-      if (expr.target === "string") {
-        if (fromDecimal) return `Decimal.to_string(${v})`;
-        return `to_string(${v})`;
-      }
-      if (expr.target === "long" || expr.target === "int") {
-        if (fromDecimal) return `Decimal.to_integer(Decimal.round(${v}, 0, :down))`;
-        return v;
-      }
-      if (expr.target === "decimal" || expr.target === "money") {
-        if (fromDecimal) return v;
-        return `Decimal.new(${v})`;
-      }
-      return v;
-    }
-    case "duration":
-      // A5 temporal — an absolute duration is plain integer MILLISECONDS
-      // (mirrors the domain renderer, `render-expr.ts`).  Duration values
-      // rarely reach a page body (they mostly arise in domain expressions),
-      // but a page-level `dt + days(n)` is valid DSL.
-      return renderDuration(expr.unit, renderExpr(expr.amount, ctx));
-    case "i18nFormat":
-      // Transparent i18n wrapper — LiveView has no client-side i18n
-      // runtime, so the format is dropped: render the wrapped operand, exactly
-      // as a format-less hole would render.
-      return renderExpr(expr.inner, ctx);
-    case "match":
-      return renderMatch(expr, ctx);
-    case "list":
-      // List literals are walker-config sugar (e.g. responsive Grid cols).
-      // No HEEx page-body emit path consumes one today; emit a literal
-      // Elixir list so unexpected uses produce valid Elixir.
-      return `[${expr.elements.map((el) => renderExpr(el, ctx)).join(", ")}]`;
-    case "action-ref":
-      // Named-action reference (named-actions-and-stores.md, Proposal A
-      // Stage 1).  A handler-arg referencing a named page `action`.  Returns
-      // the bare phx-event name — `snake(actionName)` — exactly like the
-      // inline-lambda hoist (`hoistLambdaToHandler` returns `event_N`); the
-      // matching `handle_event` clause is hoisted from `page.actions` at the
-      // top of `walkBodyToHeex`.  (Component-level actions, like component-
-      // level lambdas, do not hoist to the host LiveView — a pre-existing
-      // HEEx limitation tracked by the parity gate.)  A STORE action ref
-      // (`Cart.clear`) names its own synthesized clause.
-      if (expr.storeName) return storeActionEvent(expr.storeName, expr.actionName);
-      return snake(expr.actionName);
-    case "authz-filter":
-      // Authorization/tenancy filter sentinel — a query-filter node,
-      // never a page-body expression.  Reaching the HEEx page renderer means it
-      // leaked from a filter position; throw rather than emit invalid markup.
-      throw new Error("heex renderExpr: 'authz-filter' is not a page-body expression");
-    default: {
-      // EXHAUSTIVENESS.  Every arm above returns or throws, so this is already
-      // unreachable — and a NEW `ExprIR.kind` was already a compile error, but
-      // only as a TS2366 ("function lacks ending return statement") pointing at
-      // the function header rather than at the missing arm.  The explicit
-      // `never` makes the same guarantee legible (and the error message
-      // useful), and is the form the walk census reads.
-      const _exhaustive: never = expr;
-      return _exhaustive;
-    }
-  }
+  // `thisName` is never read: `this` is intercepted (its text is position-
+  // dependent, and `ctx.position` changes under spread).
+  return renderExprWith(expr, HEEX_TARGET, ctx as HeexExprCtx);
 }
 
-function renderLiteral(kind: string, value: string): string {
-  switch (kind) {
-    case "string":
-      // value already has source quoting stripped; re-quote for Elixir,
-      // escaping `#{` so a `.ddd` string can't inject Elixir interpolation.
-      return elixirString(value);
-    case "int":
-      return value;
-    case "decimal":
-    case "money":
-      // Both decimal and money literals are Decimal structs; emit a
-      // `Decimal.new("…")` call.  The HEEx template embeds it via
-      // `<%= … %>` so the precise value is rendered as the canonical
-      // decimal string at request time.
-      return `Decimal.new(${JSON.stringify(value)})`;
-    case "bool":
-      return value === "true" ? "true" : "false";
-    case "null":
-      return "nil";
-    case "now":
-      return "DateTime.utc_now()";
-    default:
-      return value;
-  }
+type HeexExprCtx = WalkContext & ExprCtxBase;
+
+/** Per-kind whole-node renderers for the arms whose text depends on the raw
+ *  node and the walker's own context (page state, hoisting, markup position).
+ *  The structural arms (`paren`/`unary`/`binary`/`ternary`/`convert`/
+ *  `duration`/`i18nFormat`/`list`/`literal`/`id`) ride the shared dispatcher
+ *  through `HEEX_TARGET`'s leaves. */
+const HEEX_NODE_RENDERERS: {
+  [K in ExprIR["kind"]]?: (e: Extract<ExprIR, { kind: K }>, ctx: WalkContext) => string;
+} = {
+  // Outside an aggregate body — `this` in a page context refers to
+  // the page's primary data binding.  v0: emit as `@record` and
+  // rely on the LiveView's mount to assign it.
+  this: (_e, ctx) => (ctx.position === "template" ? "@record" : "socket.assigns.record"),
+  ref: renderRef,
+  member: renderMember,
+  "method-call": renderMethodCall,
+  call: renderCall,
+  // Lambdas only appear as argument values (onSubmit, onClick, etc.).
+  // The walker hoists each lambda into a handle_event clause and
+  // returns the phx-event name to wire into the parent attribute.
+  lambda: hoistLambdaToHandler,
+  object: renderObjectLiteral,
+  new: renderNew,
+  match: renderMatch,
+  // Named-action reference (named-actions-and-stores.md, Proposal A
+  // Stage 1).  A handler-arg referencing a named page `action`.  Returns
+  // the bare phx-event name — `snake(actionName)` — exactly like the
+  // inline-lambda hoist (`hoistLambdaToHandler` returns `event_N`); the
+  // matching `handle_event` clause is hoisted from `page.actions` at the
+  // top of `walkBodyToHeex`.  (Component-level actions, like component-
+  // level lambdas, do not hoist to the host LiveView — a pre-existing
+  // HEEx limitation tracked by the parity gate.)  A STORE action ref
+  // (`Cart.clear`) names its own synthesized clause.
+  "action-ref": (e) =>
+    e.storeName ? storeActionEvent(e.storeName, e.actionName) : snake(e.actionName),
+  // Authorization/tenancy filter sentinel — a query-filter node,
+  // never a page-body expression.  Reaching the HEEx page renderer means it
+  // leaked from a filter position; throw rather than emit invalid markup.
+  "authz-filter": rejectAuthzFilter,
+};
+
+function rejectAuthzFilter(): never {
+  throw new Error("heex renderExpr: 'authz-filter' is not a page-body expression");
 }
+
+/** A leaf for a kind `HEEX_NODE_RENDERERS` intercepts before dispatch. */
+function interceptedKind(kind: string): never {
+  throw new Error(`heex renderExpr: '${kind}' is rendered by HEEX_NODE_RENDERERS`);
+}
+
+const HEEX_TARGET: ExprTarget<HeexExprCtx> = {
+  ...ELIXIR_CTX_FREE_LEAVES,
+  intercept(e, ctx) {
+    const render = HEEX_NODE_RENDERERS[e.kind] as
+      | ((e: ExprIR, ctx: WalkContext) => string)
+      | undefined;
+    return render?.(e, ctx);
+  },
+  id: (ctx) => (ctx.position === "template" ? "@id" : "socket.assigns.id"),
+  unary: (op, operand) => (op === "!" ? `not ${operand}` : `-${operand}`),
+  binary: renderBinary,
+  ternary: (cond, then, otherwise) => `if ${cond}, do: ${then}, else: ${otherwise}`,
+  ref: () => interceptedKind("ref"),
+  member: () => interceptedKind("member"),
+  methodCall: () => interceptedKind("method-call"),
+  call: () => interceptedKind("call"),
+  domainServiceCall: () => interceptedKind("call"),
+  lambda: () => interceptedKind("lambda"),
+  newPart: () => interceptedKind("new"),
+  object: () => interceptedKind("object"),
+  match: () => interceptedKind("match"),
+  matchVariant: () => interceptedKind("match"),
+  bindingRefText: () => interceptedKind("match"),
+  absenceCheck: () => interceptedKind("match"),
+};
 
 function renderRef(expr: Extract<ExprIR, { kind: "ref" }>, ctx: WalkContext): string {
   // Parameter of an INLINED sibling action (`go() { setLabel("hi") }`) — the
@@ -884,6 +856,8 @@ function renderRef(expr: Extract<ExprIR, { kind: "ref" }>, ctx: WalkContext): st
   // so substituting an operator expression into a larger one stays safe.
   const subst = ctx.actionArgSubst?.get(expr.name);
   if (subst !== undefined) return `(${subst})`;
+  const inlined = ctx.inlineParams?.get(expr.name);
+  if (inlined) return `(${renderExpr(inlined.expr, { ...inlined.ctx, position: ctx.position })})`;
   // Store-field read — `Cart.count` (Stage 5).  Resolved at lowering into a
   // `ref` carrying `refKind: "store-field"` + the declaring `storeName`.  In a
   // page/component body it reads the store's per-page assign
@@ -1058,6 +1032,107 @@ function renderMethodCall(
   return `${recv}.${snake(expr.member)}(${args.join(", ")})`;
 }
 
+/** Record a host-LiveView binding (form / query / upload / table control).
+ *
+ *  Inside an INLINED component every instance of the component registers the
+ *  same bindings again; an identical one is dropped so the host emits one
+ *  assign, one load and one `handle_event` clause per distinct binding rather
+ *  than a duplicated clause head (which Elixir rejects).  Page-level
+ *  registration is untouched. */
+export function registerBinding<T>(ctx: WalkContext, list: T[], item: T): void {
+  if (ctx.inlineParams) {
+    const key = JSON.stringify(item);
+    if (list.some((x) => JSON.stringify(x) === key)) return;
+  }
+  list.push(item);
+}
+
+/** Bind a component call's arguments to its params: a named argument binds by
+ *  name; a positional one binds to the next param NOT already bound by name;
+ *  a positional with no param left is a child (the component's `Slot()`). */
+function bindCallArgs(
+  expr: Extract<ExprIR, { kind: "call" }>,
+  comp: ComponentIR,
+): { params: Map<string, ExprIR>; children: ExprIR[] } {
+  const named = new Set((expr.argNames ?? []).filter((n): n is string => !!n));
+  const free = comp.params.map((p) => p.name).filter((n) => !named.has(n));
+  const params = new Map<string, ExprIR>();
+  const children: ExprIR[] = [];
+  let pos = 0;
+  for (let i = 0; i < expr.args.length; i++) {
+    const argName = expr.argNames?.[i];
+    const paramName = argName ?? free[pos++];
+    if (!paramName) children.push(expr.args[i]!);
+    else params.set(paramName, expr.args[i]!);
+  }
+  return { params, children };
+}
+
+/** A call to a component whose body needs host-LiveView state, rendered INLINE.
+ *
+ *  The component body is walked again under a context that shares the caller's
+ *  binding accumulators (`formBindings`, `queryBindings`, `uploadBindings`,
+ *  `tableControls`, option/label sets, the chart/table/tab counters), so the
+ *  assigns, `allow_upload/3` and `handle_event` clauses its primitives need land
+ *  in the host page's LiveView by construction.  What stays per-walk is what the
+ *  component-level hoisting already owns (`handlers`, `actionBindings`,
+ *  `usedComponents`, `usedStores`, `slotUsed`): those reach the host through
+ *  `ComponentActionInfo`, and a fresh set here makes the lambda handler names this
+ *  walk mints match the ones that hoisting emits.
+ *
+ *  Params are substituted by the caller's argument expressions (re-rendered per
+ *  position, see `WalkContext.inlineParams`), and the `Slot()` renders the call's
+ *  children in the caller's scope.  Rendering a component twice registers its
+ *  bindings twice; the emitters dedupe identical bindings. */
+function renderInlinedComponent(
+  expr: Extract<ExprIR, { kind: "call" }>,
+  comp: ComponentIR,
+  ctx: WalkContext,
+): string {
+  const bound = bindCallArgs(expr, comp);
+  const children = bound.children;
+  const params = new Map<string, { expr: ExprIR; ctx: WalkContext }>(
+    [...bound.params].map(([name, arg]) => [name, { expr: arg, ctx }]),
+  );
+  const page = {
+    name: comp.name,
+    params: comp.params,
+    state: comp.state,
+    derived: comp.derived,
+    actions: comp.actions,
+    body: comp.body,
+  } as PageIR;
+  const instanceTypes = new Map<string, string>();
+  for (const p of comp.params) {
+    if (p.type.kind === "entity" && ctx.aggregatesByName.has(p.type.name)) {
+      instanceTypes.set(p.name, p.type.name);
+    }
+  }
+  const inner: WalkContext = {
+    ...ctx,
+    page,
+    stateNames: new Set(comp.state.map((f) => snake(f.name))),
+    stateFields: new Map(comp.state.map((f) => [snake(f.name), f] as const)),
+    stateOwner: comp.name,
+    instanceTypes,
+    i18nPrefix: ctx.i18nPrefix ? `component.${comp.name}` : undefined,
+    inlineParams: params,
+    inlineSlot: () => children.map((c) => renderChild(c, ctx)).join(""),
+    varRemapping: undefined,
+    actionArgSubst: undefined,
+    rowTypes: undefined,
+    listTypes: undefined,
+    handlers: [],
+    actionBindings: [],
+    usedComponents: new Set(),
+    componentUses: new Map(),
+    usedStores: new Set(),
+    slotUsed: { value: false },
+  };
+  seedHoistedHandlers(inner, page, comp.body);
+  return comp.body ? renderExpr(comp.body, inner) : "<!-- empty body -->";
+}
+
 /** A call to a user-defined `component` → a fully-qualified HEEx
  *  function-component invocation.  Positional args bind to the
  *  component's declared params in order; named args bind by name.
@@ -1069,20 +1144,21 @@ function renderUserComponent(
 ): string {
   ctx.usedComponents.add(comp.name);
   ctx.componentUses.set(comp.name, (ctx.componentUses.get(comp.name) ?? 0) + 1);
+  // A component that (transitively) renders a form / QueryView / Table /
+  // FileUpload / Chart needs the HOST LiveView to supply its assigns, uploads
+  // and `handle_event` clauses, which a function component cannot — so it is
+  // rendered inline, into the caller, rather than invoked.
+  if (!comp.extern && hostStatefulComponents(ctx.ui).has(comp.name)) {
+    return renderInlinedComponent(expr, comp, ctx);
+  }
   const attrs: string[] = [];
   // A positional argument with no param left to land on is a CHILD: it renders
   // between the open and close tags, into the component's `Slot {}`
   // (`render_slot(@inner_block)`).
-  const children: ExprIR[] = [];
-  let pos = 0;
-  for (let i = 0; i < expr.args.length; i++) {
-    const argName = expr.argNames?.[i];
-    const paramName = argName ?? comp.params[pos++]?.name;
-    if (!paramName) {
-      children.push(expr.args[i]!);
-      continue;
-    }
-    const value = renderExpr(expr.args[i]!, { ...ctx, position: "template" });
+  const bound = bindCallArgs(expr, comp);
+  const children = bound.children;
+  for (const [paramName, arg] of bound.params) {
+    const value = renderExpr(arg, { ...ctx, position: "template" });
     attrs.push(`${snake(paramName)}={${value}}`);
   }
   // Extern component (extern-component-escape-hatch.md) → a hand-written
@@ -1311,9 +1387,7 @@ function renderCall(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): 
   return `${snake(expr.name)}(${args})`;
 }
 
-function renderBinary(expr: Extract<ExprIR, { kind: "binary" }>, ctx: WalkContext): string {
-  const l = renderExpr(expr.left, ctx);
-  const r = renderExpr(expr.right, ctx);
+function renderBinary(l: string, r: string, expr: Extract<ExprIR, { kind: "binary" }>): string {
   // String concatenation: Elixir uses `<>`.  Decide on the IR TYPE stamps the
   // way the domain renderer does (`render-expr.ts` `elixirOp(op, leftIsString)`)
   // — `who + other` between two string state cells carries no string LITERAL
@@ -1365,17 +1439,6 @@ function isStringConcat(expr: Extract<ExprIR, { kind: "binary" }>): boolean {
 // A5 temporal (page bodies) — the same in-memory representation as the
 // domain renderer (`render-expr.ts`): an absolute duration is plain integer
 // MILLISECONDS.
-
-function renderDuration(unit: DurationUnit, amount: string): string {
-  switch (unit) {
-    case "days":
-      return `((${amount}) * ${DURATION_UNIT_MS.days})`;
-    case "hours":
-      return `((${amount}) * ${DURATION_UNIT_MS.hours})`;
-    case "minutes":
-      return `((${amount}) * ${DURATION_UNIT_MS.minutes})`;
-  }
-}
 
 /** The datetime-involving `+`/`-` arms, or null to fall through to native
  *  operator rendering — dispatch off the lowering's `leftType`/`resultType`
@@ -1442,6 +1505,11 @@ function gateIsHandlerSafe(cond: ExprIR, ctx: WalkContext): boolean {
     if (ctx.varRemapping?.has(snake(e.name))) return;
     if (ctx.stateNames.has(snake(e.name))) return;
     if (ctx.page.derived?.some((d) => snake(d.name) === snake(e.name))) return;
+    const inlined = ctx.inlineParams?.get(e.name);
+    if (inlined) {
+      if (!gateIsHandlerSafe(inlined.expr, inlined.ctx)) safe = false;
+      return;
+    }
     if (ctx.page.params.some((p) => p.name === e.name)) return;
     // Not a page-scope name at all — an enum value or the principal renders the
     // same in both positions.

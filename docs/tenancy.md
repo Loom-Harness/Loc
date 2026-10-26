@@ -12,8 +12,8 @@ report — see [`ignoring` and the tenant filter](#ignoring-and-the-tenant-filte
 below).  It is not silent: every read that drops a tenancy filter raises
 `loom.tenancy-filter-bypass`, in every `auth { enforcement: }` mode.
 
-Design record: [`proposals/multi-tenancy-design-note.md`](old/proposals/multi-tenancy-design-note.md)
-(R1–R5); implementation plan: [`plans/multi-tenancy-implementation.md`](old/plans/multi-tenancy-implementation.md).
+Design record: [`proposals/multi-tenancy-design-note.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/multi-tenancy-design-note.md)
+(R1–R5); implementation plan: [`plans/multi-tenancy-implementation.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/multi-tenancy-implementation.md).
 
 ## Surface
 
@@ -186,7 +186,7 @@ runtime-gated by the isolation e2e):
 | node (Hono/Drizzle) | `eq(schema.organizations.id, requireCurrentUser().tenantId)` AND-ed into every root read, behind a UUID-shape ternary | falls to the always-false term (`and(isNull(id), isNotNull(id))`) |
 | .NET (EF Core) | `HasQueryFilter("IdFilter", x => x.Id == __SelfScopeId_Organization_0)`, a hoisted `OrganizationId?` member | `Guid.TryParse(…) ? new OrganizationId(g) : null` → `= NULL` |
 | elixir (Ecto) | `fragment("? = ?", record.id, ^…)` — cast in Elixir, compared on the uuid column so the PK index still serves it | `Ecto.UUID.cast/1` → `nil` → `= NULL` |
-| python (SQLAlchemy) | `OrganizationRow.id == require_current_user().guid_claim("tenant_id")` | `guid_claim` → `None` → `IS NULL` |
+| python (SQLAlchemy) | `OrganizationRow.id == user.guid_claim("tenant_id")`, a `with_loader_criteria` the read-scope hook (`app/db/read_scope.py`) builds from the request principal on every ORM read (`false()` with no principal) | `guid_claim` → `None` → `IS NULL` |
 | java (Spring/JPA) | `e.id.value = :#{@currentUserAccessor.user()?.tenantIdAsUuid()}` scoped `@Query` overrides on findAll/findById + every find (and the same accessor in the `tenantScope(User)` Specification a reified retrieval uses) | `<claim>AsUuid()` → `null` → `= NULL` |
 
 The derived filter is provenance-tagged `tenancy` in
@@ -313,7 +313,7 @@ half follows the declaration while the row column stays `tenantId`.
 | node (Hono/Drizzle) | `.where(and(…, eq(t.tenantId, requireCurrentUser().tenantId)))` on every repository read | `stampInsert` copies both claims off the ambient principal — `tenantId: currentUser.tenantId, dataKey: currentUser.orgPath` (no-op for system/seed saves) |
 | .NET (EF Core) | `HasQueryFilter(x => x.TenantId == RequestContext.Current!.CurrentUser!.TenantId)` | `SaveChangesInterceptor` sets both on `Added` — `x.TenantId` off `…CurrentUser!.TenantId`, `x.DataKey` off `…CurrentUser!.OrgPath` |
 | elixir (Ecto) | fail-closed `^(current_user && current_user.tenant_id)` match in every read | `put_change(:tenant_id, current_user && current_user.tenant_id) \|> put_change(:data_key, current_user && current_user.org_path)` |
-| python (FastAPI/SQLAlchemy) | `.where(...)` on every read | `self._tenant_id = current_user.tenant_id` + `self._data_key = current_user.org_path` in the create factory |
+| python (FastAPI/SQLAlchemy) | one `do_orm_execute` hook (`app/db/read_scope.py`) adds `with_loader_criteria(<Row>, <Row>.tenant_id == user.tenant_id)` to every ORM read; `false()` with no principal | `self._tenant_id = current_user.tenant_id` + `self._data_key = current_user.org_path` in the create factory |
 | java (Spring/JPA) | principal predicate composed into the repository specification | `@PrePersist` hook reading `CurrentUserAccessor.currentOrNull()`, setting `this.tenantId = currentUser.tenantId()` and `this.dataKey = currentUser.orgPath()` |
 
 Frontends need nothing: enforcement is server-side, and neither `tenantId` nor
@@ -425,7 +425,7 @@ five backends**, each through its own request-scoped principal seam:
 
 A `policy {}` context member selects a per-aggregate **read reachability level**
 for tenant-owned aggregates — the directional ladder from
-[`proposals/authorization.md`](old/proposals/authorization.md) §3 (`Self` /
+[`proposals/authorization.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/authorization.md) §3 (`Self` /
 `Descendants` / `All` ≈ `local` / `deep` / `global`). It is the read side of the
 hierarchy: P2.1–P2.3 wrote `dataKey`; P2.4 reads by it.
 
@@ -443,7 +443,7 @@ context Ledger {
 Each rule rewrites the aggregate's `tenantOwned` capability filter (its
 `contextFilters` entry), riding the exact per-backend query seams the flat
 tenant floor already uses (Drizzle `.where`, EF `HasQueryFilter`, SQLAlchemy
-conjunction, JPA `@Query`/`Specification`, pinned Ecto `where:`) — no new backend
+`with_loader_criteria` hook, JPA `@Query`/`Specification`, pinned Ecto `where:`) — no new backend
 plumbing. The levels:
 
 | Level | Emitted scope |
@@ -516,7 +516,7 @@ Generated `deep` filter, one line per backend (for `allow deep on Account`):
 levels lower to an `authz-filter { kind: "scope" }` node that each backend
 renders natively — see `buildDeepScopeFilter` / `buildGlobalScopeFilter` in
 [`src/ir/util/tenant-stance.ts`](../src/ir/util/tenant-stance.ts). The reconciled
-surface ([tenancy-authorization-final-surface](old/proposals/tenancy-authorization-final-surface.md)
+surface ([tenancy-authorization-final-surface](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/tenancy-authorization-final-surface.md)
 decision 2) retires that sentinel in favour of an ordinary `filter` written in
 the language, and its **prefix operator now ships**: `startsWith` is queryable
 on every backend ([`stdlib.md`](stdlib.md) → `string`), lowering to an anchored
@@ -543,9 +543,9 @@ through `currentUser.orgPath` — their own org. `organizationContext` is the
 **operating scope**: the org this request acts *in*. The two coincide unless the
 request asks to operate in a descendant org, by sending an `x-org-context`
 header carrying that org's materialized path. Design record:
-[organization-context](old/proposals/organization-context.md); reconciled
+[organization-context](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/organization-context.md); reconciled
 surface decisions 3–5 of
-[tenancy-authorization-final-surface](old/proposals/tenancy-authorization-final-surface.md).
+[tenancy-authorization-final-surface](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/tenancy-authorization-final-surface.md).
 
 It has exactly one member, `organizationContext.orgPath`, and its first use is
 the tenant **write** stamp — an admin at `org_a` creating a row that belongs to

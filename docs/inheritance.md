@@ -6,7 +6,7 @@ base; concrete aggregates `extends` it; the `inheritanceUsing: …` header modif
 picks how the hierarchy maps to tables.
 
 > Design rationale, the full strategy comparison, and the deferred patterns live
-> in [`proposals/aggregate-inheritance.md`](old/proposals/aggregate-inheritance.md).
+> in [`proposals/aggregate-inheritance.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/aggregate-inheritance.md).
 > This page is the reference for what ships today.
 
 ## Declaration surface
@@ -66,23 +66,32 @@ The default is `sharedTable`, so a hierarchy with no `inheritanceUsing: …` is 
 
 Both strategies provide a polymorphic read home that returns the union of all
 concrete subtypes. The abstract base owns no repository, so the reader is emitted
-per backend as infrastructure that **delegates to the concrete loaders** (so
-contained parts and `X id[]` associations load correctly) rather than a flat
-column union:
+per backend as infrastructure.
 
-This holds for **both** layouts. It used to be a TPC-only property on
-node/Hono: the TPH reader hand-rolled `select().from(schema.<base>)` + a `kind`
-switch, which meant it read the shared table through none of the machinery the
-concrete repositories apply to it — no capability `filter`, no tenancy
-predicate, no contained parts. Under `tenantOwned` that is a cross-tenant read
-as soon as the reader is routed. Both layouts now delegate.
+The contract is **one native read**: every row comes back as
+its real subtype, a row filtered by the base's restriction or by its own
+subtype's is absent, and the order (`id`) and the page window are global across
+subtypes — never per-subtype reads concatenated. The IR fact every backend
+renders is `polymorphicReadFor` (`src/ir/enrich/read-scope.ts`): under TPH the
+root's restrictions plus each concrete's own, root-hosted and guarded by its
+discriminator (`kind <> 'Car' OR <pred>`); under TPC each concrete's full scope,
+unioned or merged in the global order.
+
+On the wire the read is `GET /api/<bases>?page=&pageSize=` answering the paged
+envelope (`items`, `page`, `pageSize`, `total`, `totalPages`), each item the
+tagged-union shape of [`payloads.md`](payloads.md): `{ "type": "Car", …Car's own
+wire fields }`. Under TPH `GET /api/<bases>/{id}` answers one tagged row, or 404
+when a restriction hides it. The route is served only where every concrete's own
+list read is open — a concrete whose `all` carries a `requires` gate (including
+the `denyByDefault` one) or whose wire masks a field keeps the reader unrouted.
 
 | Backend (`platform:`) | polymorphic base reader |
 |---|---|
-| `node` (Hono / Drizzle) | a read-only `<Base>Repository` whose `findAll()` concatenates each concrete repo's `all()`; a `<Base>` discriminated-union response type |
-| `dotnet` (.NET / EF Core) | `public abstract class <Base>` carrying the shared fields; concretes declare `: <Base>` and inherit them; EF excludes the base via `modelBuilder.Ignore<<Base>>()` so each concrete maps standalone; a read-only `I<Base>Repository` / `<Base>Repository` whose `FindAllAsync()` returns `IReadOnlyList<<Base>>` |
+| `node` (Hono / Drizzle) | a read-only `<Base>Repository`. TPH: one select over the shared table carrying the root's and every subtype's kind-guarded restrictions, ordered by `id`, paged in SQL, each row hydrated as its `kind`. TPC: each concrete repo's own read, merged in `id` order, then paged. Routed as `GET /api/<bases>` (+ `/{id}` under TPH) with a `<Base>Response` discriminated union. A query-time projection `from <TPH base>` applies the same guarded subtype restrictions |
+| `node` (Hono / MikroORM) | a read-only `<Base>Repository` whose `findAll()` concatenates each concrete repo's `all()`; not routed |
+| `dotnet` (.NET / EF Core) | a read-only `I<Base>Repository` / `<Base>Repository`. TPH: one query over `DbSet<Base>`, where EF applies the root's filters and every subtype's type-guarded ones, `OrderBy(Id)` + `Skip`/`Take`, each row materialised as its concrete type. TPC (the base excluded via `modelBuilder.Ignore<<Base>>()`): each concrete repo's own read, merged in `Id` order, then paged. Routed as `GET /api/<bases>` (+ `/{id}` under TPH), each item the concrete's `<Concrete>Response` plus `type`. EF only — the Dapper adapter keeps the TPC reader and no route |
 | `phoenix` (Ecto) | a read-only `<Base>Repository` whose `list` concatenates each concrete repository's `list` (draining a paged concrete's pages) and whose `find_by_id` tries each concrete in turn; the context's `list_<bases>` / `get_<base>` delegate to it and take `current_user \\ nil` whenever a concrete read does. TPH included: the `kind` conjunct and every capability / inline filter live in the concrete repositories. A `shape: document` concrete is flattened (`row.data`) before the base serializer runs |
-| `python` (FastAPI / SQLAlchemy) | a read-only `<Base>` repository whose `find_all` concatenates each concrete repo's reads; a `<Base>` union response type |
+| `python` (FastAPI / SQLAlchemy) | native SQLAlchemy single-table inheritance: the root row class is mapped `polymorphic_on` its `kind` (`polymorphic_abstract`), each concrete is a mapped subclass with its `polymorphic_identity`, and every restriction rides the read-scope hook (`app/db/read_scope.py`, a `do_orm_execute` listener adding `with_loader_criteria`), each subtype's own root-hosted and kind-guarded. TPH: a read-only `<Base>Repository` whose reads are one `select(<Base>Row)` ordered by `id` and paged in SQL, each row hydrated as its subclass. TPC: each concrete repo's own read, merged in `id` order, then paged. Routed as `GET /api/<bases>` (+ `/{id}` under TPH) with a `<Base>Response` discriminated union. A query-time projection `from <TPH base>` gets the guarded subtype restrictions from the same hook |
 | `java` (Spring Boot / JPA) | a read-only `<Base>Repository` whose `findAll()` concatenates each concrete repo's reads; a `<Base>` union response type |
 
 Under TPC, identity stays **per-concrete** (each concrete keeps its own
@@ -197,7 +206,6 @@ the 409 and the cross-concrete 201 on all five SQL backends.
 | `loom.polymorphic-id-ref-unsupported` | a `<Base> id` reference to an `ownTable` (TPC) base |
 | `loom.unique-tpc-not-hierarchy-wide` | **warning** — an `ownTable` (TPC) base with two or more concretes declares `unique (…)`. Each concrete table enforces the key on its own, but nothing spans the sibling tables (see [below](#unique-keys-on-a-tpc-base--loomunique-tpc-not-hierarchy-wide)) |
 | `loom.es-tph-forced-own-table` | event-sourced / document / embedded opt-out forces `ownTable` on a TPH member (D-EMBEDDED-TPH) |
-| `loom.tph-filter-unsupported` | **.NET only** — a TPH *subtype* carries a capability `filter` whose predicate reads a column the hierarchy ROOT does not declare (see below) |
 | `loom.tenancy-inherited-stance-conflict` | a subtype declares the opposite tenancy stance from the base it inherits it from (`abstract … with tenantOwned` + `… extends … crossTenant`) |
 | (storage gate) | a `sharedTable` (TPH) hierarchy whose context has no node/Hono, .NET, Phoenix, Python, or Java host |
 
@@ -237,30 +245,42 @@ repository Trucks for Truck {
   !this.retired` works when `retired` lives on the abstract base — the predicate
   is typed and lowered against the merged field set on every backend.
 
-### The one .NET restriction
+### How .NET EF hosts TPH filters (D-EF-TPH-ROOT-READS)
 
 EF Core registers a query filter on the **root** entity type of a hierarchy
 only. Loom therefore hosts every TPH filter on the root config. A filter the
 root declares (and every subtype inherits) is registered once, unguarded, and
 an `ignoring` on any subtype names that root filter. A subtype's own filter is
-guarded with the discriminator so it constrains that subtype's rows alone, and
-prefixed (`Car_LiveFilter`) so two subtypes carrying the same capability cannot
-overwrite each other's key:
+type-guarded so it constrains that subtype's rows alone — its predicate may read
+a column only that subtype has — and prefixed (`Car_IsDeletedFilter`) so two
+subtypes carrying the same capability cannot overwrite each other's key. Every
+read of a concrete starts from the root set, the one query source over which EF
+translates the guard; the `AppDbContext` exposes no `DbSet<Car>` at all, so a
+read naming one does not compile.
 
-```csharp
-// VehicleConfiguration.cs — `abstract … with softDeletable` + `criterion Live of Car = !this.retired`
-builder.HasQueryFilter("IsDeletedFilter", x => !x.IsDeleted);
-builder.HasQueryFilter("Car_LiveFilter", x => EF.Property<string>(x, "kind") != "Car" || (!x.Retired));
-// TruckRepository.cs — `ignoring softDeletable`
-_db.Trucks.IgnoreQueryFilters(["IsDeletedFilter"])
+```ddd
+abstract aggregate Vehicle inheritanceUsing: sharedTable with tenantOwned { plate: string }
+aggregate Car extends Vehicle with softDeletable, softDelete { seats: int }
+repository Cars for Car {
+  find byPlateAll(p: string): Car? where this.plate == p ignoring softDeletable
+}
 ```
 
-A predicate reading a **subtype-only** column cannot be hosted that way at all
-(the root-typed lambda has no such member, and both workarounds — a CLR downcast
-and `EF.Property` — fail as soon as the query source is a sibling subtype), so
-it is rejected with `loom.tph-filter-unsupported`. Move the field to the
-abstract base, switch to `inheritanceUsing: ownTable`, or host the context off
-.NET. The other four backends have no such restriction.
+```csharp
+// VehicleConfiguration.cs — Car's own filter, hosted on the root
+builder.HasQueryFilter("Car_IsDeletedFilter", x => !(x is Car) || (!((Car)x).IsDeleted));
+// AppDbContext.cs — the base's tenancy filter, per request
+modelBuilder.Entity<Vehicle>().HasQueryFilter("TenantIdFilter", x => x.TenantId == _currentUser.User.TenantId);
+// CarRepository.cs — every Car read starts from the root; `ignoring` names the filter
+_db.Vehicles.OfType<Car>().IgnoreQueryFilters(["Car_IsDeletedFilter"]).Where(x => x.Plate == p)
+```
+
+```sql
+WHERE v."TenantId" = @tenant AND (v.kind <> 'Car' OR NOT (v."IsDeleted")) AND v.kind = 'Car' AND v.plate = @p
+```
+
+TPC hierarchies keep `modelBuilder.Ignore<Base>()`: each concrete is a
+standalone entity type with filters of its own.
 
 ## Deferred (gated, not emitted)
 

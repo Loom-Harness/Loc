@@ -9,7 +9,9 @@ import type {
   SnapshotReport,
   ValidateReport,
 } from "../../src/api/index.js";
+import { entryFileName, serializeEntry } from "../../src/system/migration-chain.js";
 import { callTool, TOOLS, TOOLS_BY_NAME } from "../../src/tools/index.js";
+import { recordChain } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // The agent-tool catalog (src/tools/, D-AGENT-TOOLS) — the one tool set every
@@ -147,6 +149,56 @@ describe("agent-tool catalog", () => {
     const first = (await callTool("loom_diff", { source: v2 })) as DiffReport;
     expect(first.hasBaseline).toBe(false);
     expect(first.migrations.every((m) => m.name === "Initial")).toBe(true);
+  });
+
+  it("loom_diff refuses a baseline that does not load instead of reading it as absent", async () => {
+    // Mutation-checked: restoring the old "absent baseline" fallthrough makes
+    // this answer ok:true, hasBaseline:false, breaking:false.
+    const source = `system Shop {
+  storage primary { type: postgres }
+  resource st { for: Sales, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Sales], dataSources: [st] }
+  subdomain Selling { context Sales {
+    aggregate Order with crudish { reference: string }
+    repository Orders for Order { }
+  } }
+}
+`;
+    const r = (await callTool("loom_diff", { source, baseline: "garbage{" })) as DiffReport;
+    expect(r.ok).toBe(false);
+    expect(r.hasBaseline).toBe(true);
+    expect(r.breaking).toBe(false);
+    expect(r.diagnostics.map((d) => d.code)).toContain("loom.diff-baseline-invalid");
+  });
+
+  it("loom_diff takes the committed chain as the schema baseline", async () => {
+    const v1 = `system Shop {
+  storage primary { type: postgres }
+  resource st { for: Sales, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Sales], dataSources: [st] }
+  subdomain Selling { context Sales {
+    aggregate Order with crudish { reference: string }
+    repository Orders for Order { }
+  } }
+}
+`;
+    const v2 = v1.replace("reference: string", "reference: string\n    note: string?");
+    const chain = await recordChain([v1]);
+    const migrations = chain.entries.map((e) => ({
+      name: entryFileName(e),
+      content: serializeEntry(e),
+    }));
+    const r = (await callTool("loom_diff", { source: v2, migrations })) as DiffReport;
+    expect(r.ok).toBe(true);
+    expect(r.hasBaseline).toBe(true);
+    expect(r.migrations.map((m) => m.steps.map((s) => s.op))).toEqual([["addColumn"]]);
+
+    const broken = (await callTool("loom_diff", {
+      source: v2,
+      migrations: [{ name: "x.json", content: "<<<<<<<" }],
+    })) as DiffReport;
+    expect(broken.ok).toBe(false);
+    expect(broken.diagnostics.map((d) => d.code)).toContain("loom.migration-chain-invalid");
   });
 
   it("loom_snapshot captures nothing for a model with no provenanced field", async () => {

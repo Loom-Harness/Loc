@@ -61,9 +61,9 @@ validator gate sets in `src/ir/validate/checks/` and frozen against drift by
 [`test/platform/backend-parity-gates.test.ts`](../test/platform/backend-parity-gates.test.ts)
 (a backend can't be silently *ungated-and-unemitting* — the F1 class of bug).
 The dated baseline write-up is
-[`audits/backend-feature-parity-2026-06.md`](audits/backend-feature-parity-2026-06.md);
+[`audits/backend-feature-parity-2026-06.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/backend-feature-parity-2026-06.md);
 remaining gaps + sequencing are in
-[`plans/backend-parity-plan.md`](old/plans/backend-parity-plan.md).
+[`plans/backend-parity-plan.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/backend-parity-plan.md).
 
 | Feature | node | dotnet | java | python | elixir | Gate |
 | --- | :-: | :-: | :-: | :-: | :-: | --- |
@@ -107,7 +107,7 @@ and `test/platform/backend-parity-gates.test.ts` pins the emission per backend. 
 former open gaps (principal Python filters W1b, per-op/lifecycle `audited`
 beyond node/dotnet W3, event-sourced workflow on Elixir W4) are **closed**. The
 gaps that remain are language-level rather than per-backend — see
-[`audits/language-gaps-2026-08.md`](audits/language-gaps-2026-08.md).
+[`audits/language-gaps-2026-08.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/language-gaps-2026-08.md).
 
 | Construct | TypeScript (Hono + Drizzle) | .NET (ASP.NET + EF + Mediator) | React (Vite + RQ + Mantine) |
 | --- | --- | --- | --- |
@@ -119,7 +119,7 @@ gaps that remain are language-level rather than per-backend — see
 | `abstract aggregate` + `extends` / `inheritanceUsing` | **TPC** (`ownTable`): standalone Drizzle table per concrete; a read-only `<Base>Repository.findAll()` union reader + `<Base>` discriminated-union type. **TPH** (`sharedTable`, default): one shared table + `kind` discriminator + nullable per-concrete columns; `<Base> id` refs + base reader supported. | **TPC**: `abstract class <Base>` carrying shared fields, concretes `: <Base>`, EF `Ignore<<Base>>()` (each concrete maps standalone); read-only `I<Base>Repository` / `<Base>Repository` → `IReadOnlyList<<Base>>`. **TPH** (`sharedTable`): one shared table via EF Core native `HasDiscriminator<string>("kind")`; the abstract base owns the shared `Id` and `DbSet<<Base>>`, concretes inherit it (own columns only); `<Base> id` refs + base reader supported. | Concrete subtypes carry the merged base fields in their wire shape; no base-specific page. |
 | `persistedAs: eventLog` + `apply(...)` (event sourcing) | Append-only `<agg>_events` stream table (`stream_id, version, type, data, occurred_at`); appliers render as a `_apply(ev)` fold + `_fromEvents(id, events)` rehydrator; `emit` records **and** folds; `create` builds an empty shell + runs its emit-only body (POST body = create params); repository folds the stream on load and appends pending events on save (fold-from-zero MVP). Both node persistences supported — **Drizzle** (default) and **MikroORM** (EntityManager event store + `<agg>_events` `EntitySchema`). | EF Core **and** Dapper supported — `<agg>_events` table (on the `DbContext` / raw Npgsql), C# `_Apply<Event>` methods + `_FromEvents` rehydrator + `_Apply` dispatch switch; EF-only, **not** a dedicated Marten backend (D-DOCUMENT-AXIS). The persistence-agnostic fold + CQRS create chain are reused across both. | (n/a — wire shape unchanged) |
 | `contains` (collection) | Drizzle table with `parent_id` FK; auto-loaded in repo | EF owned-collection; auto-loaded by tracker | Sub-table on detail; not editable in the create form |
-| `X id[]` (reference collection) | Auto-derived many-to-many **join table** (composite PK enforces set semantics); save diff-syncs join rows, `.contains(param)` lowers to an `inArray` subquery against the join table. The join table also carries an `ordinal` column written on every `+=`, but the wire contract is unordered — see "What the generators don't do" below. | EF Core join entity + `DbSet<JoinEntity>` (composite PK + `Ordinal`); `GetByIdAsync` loads via the join entity, `SaveAsync` diff-syncs, `.contains(param)` lowers to `_db.<JoinDbSet>.Any(...)`. (Phoenix/Ecto backend: a `many_to_many` association through the `<join>` table + the id-array wire shape projected from the loaded association, set on create/update via `put_assoc`; `.contains` lowers to an `EXISTS` subquery against the join table.) | `X id[]` appears in the wire shape as `string[]`; populated/displayed via the response, but no first-class editor yet |
+| `X id[]` (reference collection) | Auto-derived many-to-many **join table** (composite PK enforces set semantics); save diff-syncs join rows, `.contains(param)` lowers to an `inArray` subquery against the join table. The join table is just the composite key — no `ordinal` column; reads come back sorted by target id — see "What the generators don't do" below. | EF Core join entity + `DbSet<JoinEntity>` (composite PK); `GetByIdAsync` loads via the join entity, `SaveAsync` diff-syncs, `.contains(param)` lowers to `_db.<JoinDbSet>.Any(...)`. (Phoenix/Ecto backend: a `many_to_many` association through the `<join>` table + the id-array wire shape projected from the loaded association, set on create/update via `put_assoc`; `.contains` lowers to an `EXISTS` subquery against the join table.) | `X id[]` appears in the wire shape as `string[]`; populated/displayed via the response, but no first-class editor yet |
 | `derived` | Getter that calls into the expression | Computed property that calls into the expression | Read-only field on detail; included in the response Zod schema |
 | `invariant` | Private `_assertInvariants()` called at the end of every mutator | Private `AssertInvariants()` called at the end of every mutator | (enforced server-side; surfaces as 422 in the UI) |
 | `provenanced` property | `domain/provenance.ts` SDK + `recordTrace(...)` after each write; `ddd snapshot` captures rule snapshots to `.loom/snapshots/*.loomsnap.json` | `Domain/Common/ProvLineage.cs` SDK + inline lineage capture after each write; co-located `<field>_provenance` jsonb column; `provenance_records` flushed in the EF save transaction; current lineage exposed on `<Agg>Response`. **Elixir** emits the same shape — the `<App>.Provenance` SDK (process-dictionary trace buffer + `flush/1`), a co-located `<field>_provenance` jsonb column, inline capture at each named-op write site, and a `provenance_records` flush inside the save `Repo.transaction`. | (n/a — wire shape unaffected) |
@@ -834,7 +834,7 @@ markup walker (`src/generator/_walker/`) through `vueTarget` and the
 SAME `_frontend/` api/workflows module builders (only the
 TanStack Query import specifier differs).  Design packs: `vuetify`
 (default) and `shadcnVue` (reka-ui + Tailwind 4, source-copy).  See
-[D-VUE-FRONTEND](decisions.md) and `docs/old/plans/vue-frontend-plan.md`.
+[D-VUE-FRONTEND](decisions.md) and `[docs/old/plans/vue-frontend-plan.md](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/vue-frontend-plan.md)`.
 
 ### File map (deltas vs the React project)
 
@@ -912,7 +912,7 @@ Angular 22 SPA** per angular deployable — `bootstrapApplication` + `appConfig`
 the same `vite preview`-style way as the other SPAs in docker.  Pages flow
 through the **same shared markup walker** the React / Vue / Svelte generators use
 (`src/generator/_walker/walker-core.ts`) with `angularTarget` + the
-`angularMaterial` design pack.  See `docs/old/plans/angular-frontend-plan.md`.
+`angularMaterial` design pack.  See [`docs/old/plans/angular-frontend-plan.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/angular-frontend-plan.md).
 
 Angular renders **idiomatic Angular**, not a transliterated React app: standalone
 `@Component`s, signals/`computed` for view state, typed Reactive Forms, and —
@@ -946,7 +946,7 @@ The fifth frontend generator (`src/generator/feliz/`).  Emits a **Feliz
 the one frontend whose embedded language is **F#, not JS**, so instead of
 consuming the wire shape only, it supplies its own F# expression leaves
 (`src/generator/feliz/fs-expr.ts`, the `FS_LEAVES` table) through the shared
-`emitExpr` dispatcher.  See `docs/old/plans/feliz-frontend-build.md`.
+`emitExpr` dispatcher.  See [`docs/old/plans/feliz-frontend-build.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/feliz-frontend-build.md).
 
 | Concern | Emission |
 |---|---|
@@ -988,7 +988,7 @@ seam because Dart list literals are comma-separated.
 | Data / reads | `QueryView` resolves to a Riverpod `FutureProvider` (`reads-emit.ts`) that `GET`s the collection (unwrapping the paged `{items}` envelope) or a `FutureProvider.family` for byId; the widget renders `AsyncValue.when(loading/error/data)` with `empty:` folded in.  `For` lowers to `.map(...).toList()`. |
 | Forms | `CreateForm`/`OperationForm`/`DestroyForm` render self-contained `StatefulWidget`s in `lib/forms.dart` (`forms-emit.ts`) — typed field widgets by wire type (`TextFormField`/`SwitchListTile`/`DropdownButtonFormField`/`showDatePicker`, value objects flattened), a foreign-key `X id` becomes a runtime-loaded dropdown (`initState` GETs `/<target-collection>`, options labelled by the target's derived `display`), `GlobalKey<FormState>` validation, `http` POST/PUT/DELETE via `apiUri`, pop-on-success. |
 | Design | The procedural **flutterMaterial** pack (`src/generator/flutter/pack.ts`, Feliz-`pack.ts` model — emits Material widget trees, no `.hbs`). |
-| CI | `generated-flutter-build.yml` — real `flutter analyze` + `flutter build web` on an interactive showcase (state + reads + forms + routing). **Web only** — no gate compiles the native `apk`/`ipa` surface, so native-only regressions aren't caught per-PR (tracked in `docs/new-plan/T1-…` / the Flutter parity proposal). |
+| CI | `generated-flutter-build.yml` — real `flutter analyze` + `flutter build web` on an interactive showcase (state + reads + forms + routing). **Web only** — no gate compiles the native `apk`/`ipa` surface, so native-only regressions aren't caught per-PR (tracked in GitHub issues, `area:frontend`). |
 
 `Modal { trigger: Button(…), OperationForm(of:, op:) }` renders as a trigger `ElevatedButton` whose `onPressed` opens an `AlertDialog` wrapping the op-form widget (`showDialog`); the op-form pops its own route on success, dismissing the dialog.  `WorkflowForm(runs: <wf>)` renders as a `StatefulWidget` (like `CreateForm`) that POSTs the workflow params to the command route `/workflows/<wf>`.
 
@@ -1010,7 +1010,7 @@ A user `component Foo(params) { body }` emits a Dart widget into `lib/components
 
 An array-of-value-object form field (`lines: LineItem[]`) renders each row as a group of `TextFormField`s over the VO's scalar sub-fields (a `List<List<TextEditingController>>` in state), submitting a `{sub: value, …}` map per row — when every sub-field is text/numeric (a bool/enum/datetime/nested sub-field defers the whole array).
 
-Known frontier: VO-array fields with non-scalar sub-fields, and the remaining user-component variants (extern / derived / stateful-plus-read / byId-read / store-read / async-effect actions), are deferred (fall back to a diagnostic comment — never broken Dart).  Inline `:=` state writes in render-tree lambdas are rejected upstream (`loom.effect-in-lambda`); named-action writes emit through the Riverpod Notifier — a nested target (`draft.address.zip := v`) folds into an immutable `copyWith` chain (`state.draft.copyWith(address: state.draft.address.copyWith(zip: v))`), so every wire model carries a `copyWith`.  (End-to-end record-typed page state additionally needs the `VO.create({…})` state initializer, a separate universal gap — see `docs/old/proposals/nested-state-writes-copywith-frontends.md`.)  See `docs/old/plans/flutter-mobile-implementation.md`.
+Known frontier: VO-array fields with non-scalar sub-fields, and the remaining user-component variants (extern / derived / stateful-plus-read / byId-read / store-read / async-effect actions), are deferred (fall back to a diagnostic comment — never broken Dart).  Inline `:=` state writes in render-tree lambdas are rejected upstream (`loom.effect-in-lambda`); named-action writes emit through the Riverpod Notifier — a nested target (`draft.address.zip := v`) folds into an immutable `copyWith` chain (`state.draft.copyWith(address: state.draft.address.copyWith(zip: v))`), so every wire model carries a `copyWith`.  (End-to-end record-typed page state additionally needs the `VO.create({…})` state initializer, a separate universal gap — see [`docs/old/proposals/nested-state-writes-copywith-frontends.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/nested-state-writes-copywith-frontends.md).)  See [`docs/old/plans/flutter-mobile-implementation.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/flutter-mobile-implementation.md).
 
 ## Phoenix LiveView fullstack (`platform: elixir`)
 
@@ -1091,14 +1091,14 @@ Aggregate IR maps onto Ecto/Phoenix:
 | `repository finds: find byCustomer(...) where ...` | a context query function `def by_customer(customer_id) = Repo.all(from … where: …)` |
 | `workflow placeOrder(...) { ... }` | a context function wrapping `Repo.transaction(fn -> with … end)` |
 | `emit OrderConfirmed { … }` | `Phoenix.PubSub.broadcast(<App>.PubSub, "events", %Events.OrderConfirmed{…})`; inside an in-process dispatch handler, `emit` re-enters `<Ctx>.Dispatcher.dispatch(%Events.OrderConfirmed{…})` so choreography chains run. |
-| `on(e: Event)` reactor / event-triggered `create(e: Event) by …` (channel-carried) | one `<Ctx>.Workflows.<Wf>.On<Event>` / `.Start<Event>` module with `handle(event)`, routed by a per-context `<Ctx>.Dispatcher` that pattern-matches each event struct. Correlation persists through a `<Wf>State` `Ecto.Schema` keyed by the correlation field (`create` loads-or-allocates, `on` routes-or-drops + logs `event_unrouted`). An event-triggered-only workflow emits no `run/2` / HTTP route / UI form page. See [`workflow.md`](workflow.md) §Triggers and [`channels.md`](old/proposals/channels.md). |
+| `on(e: Event)` reactor / event-triggered `create(e: Event) by …` (channel-carried) | one `<Ctx>.Workflows.<Wf>.On<Event>` / `.Start<Event>` module with `handle(event)`, routed by a per-context `<Ctx>.Dispatcher` that pattern-matches each event struct. Correlation persists through a `<Wf>State` `Ecto.Schema` keyed by the correlation field (`create` loads-or-allocates, `on` routes-or-drops + logs `event_unrouted`). An event-triggered-only workflow emits no `run/2` / HTTP route / UI form page. See [`workflow.md`](workflow.md) §Triggers and [`channels.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/channels.md). |
 | `channel X { delivery: broadcast }` (realtime SSE, for an SPA frontend) | `<App>Web.RealtimeController` — a chunked `text/event-stream` response at `GET /api/realtime/events`, subscribed to the SAME `"events"` PubSub topic every `emit` above already broadcasts on (so no dispatcher decorator is needed, unlike Hono's `realtimeTee`). One `frame/1` clause per carried event → `event: <Type>` + camelCase JSON `data:` carrying `type`; a 15s `event: ping` keep-alive. Routed through its own `:sse` router pipeline — the `:api` pipeline's `plug :accepts, ["json"]` would 406 an `EventSource`. A tenant-scoped event degrades to a refetch ticket (`type` + `<Agg> id` refs only). `queue`-only ⇒ nothing emitted (`vanilla/realtime-emit.ts`). |
 | `abstract aggregate Party` + `extends` (TPC) | base emits no schema; each concrete is a standalone `Ecto.Schema` on its own table; the context module gains `list_parties/0` (the union of the concrete `list_<concrete>/0` reads). |
-| `abstract aggregate Party` + `inheritanceUsing: sharedTable` (TPH) | the concretes share one table: each concrete `Ecto.Schema` declares `schema "<base_plural>"`, a `:kind` string field defaulted to its own name, and every read self-filters on `where: c.kind == "<Concrete>"` so it reads/writes only its rows. The base owns no schema; the context module gains the same polymorphic `list_parties/0` union reader. See [`phoenix-tph-emission.md`](old/proposals/phoenix-tph-emission.md). |
+| `abstract aggregate Party` + `inheritanceUsing: sharedTable` (TPH) | the concretes share one table: each concrete `Ecto.Schema` declares `schema "<base_plural>"`, a `:kind` string field defaulted to its own name, and every read self-filters on `where: c.kind == "<Concrete>"` so it reads/writes only its rows. The base owns no schema; the context module gains the same polymorphic `list_parties/0` union reader. See [`phoenix-tph-emission.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/phoenix-tph-emission.md). |
 | `persistedAs: eventLog` + `apply(...)` (event sourcing) | **Supported** (`src/generator/elixir/vanilla/eventsourced-emit.ts`): an append-only `<agg>_events` stream + `apply` fold + rehydrator, the elixir sibling of the node/.NET/python/java event stores. |
 | `shape: document` persistence | **Supported (CRUD + finds/ops — DEBT-07; Route A)** — `src/generator/elixir/vanilla/document-emit.ts`: the whole aggregate persists as one jsonb blob in an `(id, data, version)` table, where `data` is a **typed `embeds_one :data, <Agg>.Data` embed** cast via `cast_embed` (the same `validate_required` / invariant validators the relational `base_changeset` runs); reads merge `data` back over the id. **Custom finds** filter in memory (`Repo.all |> Enum.filter`), **named operations** run their body, pure **`function`s** compile, and **returning ops** (`: A or B`) emit the tagged tuple — all in **struct mode** over the loaded `row.data` struct (Route A slices 1–2 deleted the old string-keyed `docMap` fork), incl. value-object-subfield reads. The residual (audited/provenanced ops, collection mutation, derived / dereferenced-entity / collection-method reads, paged/union finds) stays gated (`loom.vanilla-document-unsupported`). `shape: embedded` (DEBT-32, `src/generator/elixir/vanilla/schema-emit.ts`): each entity part is an Ecto `embedded_schema` module the root `embeds_many`s (a value-object field is a `Loom.ValueObject` jsonb value, cast and loaded in the constructor's atom-keyed shape), stored inline in the parent's jsonb column — a containment-mutating op (`lines += Line{…}`) appends the struct + `put_embed`s. `contains` on a *relational*-shape aggregate persists as child TABLES (§11c): each part is a table-backed schema the owner `has_many`s + `cast_assoc`s + preloads, INCLUDING **deep part-in-part** (M-T6.2 Drain C — a part's own `contains` becomes a `has_many` on its grandchild table, FK'd to the direct parent; the migration emitter's part tier now emits grandchild tables and the read/update preload nests `[lines: :tags]`; boot-verified). The `loom.vanilla-containment-unsupported` gate is **fully retired**. |
-| `test "…" { … }` | **ExUnit** → `test/<ctx>/<agg>_test.exs` (`use ExUnit.Case, async: true`) + a once-per-project `test/test_helper.exs`. (`src/generator/elixir/vanilla/tests-emit.ts`) ports the full Loom idiom onto a **pure domain core** emitted on the aggregate module (`domain-core-emit.ts`): `def create(attrs) = base_changeset \|> Ecto.Changeset.apply_action(:insert)` and `def <op>(record, params)` = precondition + in-memory mutation — both Repo-free. So `Agg.create({…})` → `{:ok, p} = Agg.create(%{…})`, `expect(create({bad})).toThrow()` → `assert {:error, _} = …`, `o.op(x)` → `o = Agg.op(o, %{…})`, precondition `toThrow` → `assert_raise`, field reads → `assert ==` (money/decimal via `Decimal`). Verified green under `mix test` with no DB. A **value-object construction invariant** (`expect(Money{…}).toThrow()`) lowers to the VO's validating constructor — `assert {:error, _} = Money.new(%{…})` (F5; `valueobject-emit.ts` emits `<VO>.new/1`, and the aggregate `base_changeset` runs it via `validate_vo` so the invariant is enforced at the real create/update path, not just in tests). A `config/test.exs` is emitted so `mix test` can load (never copied into the prod image). See [`docs/audits/test-parity-generated-backends.md`](audits/test-parity-generated-backends.md). |
-| `seed [name] [raw] { … }` | **Supported** (`src/generator/elixir/vanilla/seed-emit.ts`, M-T6.37) — one `<Ctx>.Seeds` module per context that declares a `seed` block, run at boot after migrating and also reachable manually via the emitted `priv/repo/seeds.exs` (`mix run priv/repo/seeds.exs`). Domain-path rows go through `<Agg>Repository.insert(%{…})` so the aggregate's `base_changeset` invariants run (a bad seed fails at boot rather than writing a corrupt row); `raw` rows bypass the domain and emit the shared cross-backend INSERT via `renderSeedRowInsert`, **schema-qualified** because Phoenix aggregates live in per-context Postgres schemas. Idempotent per D-SEED-IDEMPOTENCY: a `__loom_seed` marker table records each applied dataset (ship-once), `default` always runs and other datasets opt in via the `LOOM_SEED` env var. Closes [B19](audits/behavioral-parity-bugs-2026-07.md#b19--elixir--seed-datasets-emit-no-seeder-at-all-silently-dropped) — the last silent gap in this table (verified 2026-08-23). |
+| `test "…" { … }` | **ExUnit** → `test/<ctx>/<agg>_test.exs` (`use ExUnit.Case, async: true`) + a once-per-project `test/test_helper.exs`. (`src/generator/elixir/vanilla/tests-emit.ts`) ports the full Loom idiom onto a **pure domain core** emitted on the aggregate module (`domain-core-emit.ts`): `def create(attrs) = base_changeset \|> Ecto.Changeset.apply_action(:insert)` and `def <op>(record, params)` = precondition + in-memory mutation — both Repo-free. So `Agg.create({…})` → `{:ok, p} = Agg.create(%{…})`, `expect(create({bad})).toThrow()` → `assert {:error, _} = …`, `o.op(x)` → `o = Agg.op(o, %{…})`, precondition `toThrow` → `assert_raise`, field reads → `assert ==` (money/decimal via `Decimal`). Verified green under `mix test` with no DB. A **value-object construction invariant** (`expect(Money{…}).toThrow()`) lowers to the VO's validating constructor — `assert {:error, _} = Money.new(%{…})` (F5; `valueobject-emit.ts` emits `<VO>.new/1`, and the aggregate `base_changeset` runs it via `validate_vo` so the invariant is enforced at the real create/update path, not just in tests). A `config/test.exs` is emitted so `mix test` can load (never copied into the prod image). See [`docs/audits/test-parity-generated-backends.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/test-parity-generated-backends.md). |
+| `seed [name] [raw] { … }` | **Supported** (`src/generator/elixir/vanilla/seed-emit.ts`, M-T6.37) — one `<Ctx>.Seeds` module per context that declares a `seed` block, run at boot after migrating and also reachable manually via the emitted `priv/repo/seeds.exs` (`mix run priv/repo/seeds.exs`). Domain-path rows go through `<Agg>Repository.insert(%{…})` so the aggregate's `base_changeset` invariants run (a bad seed fails at boot rather than writing a corrupt row); `raw` rows bypass the domain and emit the shared cross-backend INSERT via `renderSeedRowInsert`, **schema-qualified** because Phoenix aggregates live in per-context Postgres schemas. Idempotent per D-SEED-IDEMPOTENCY: a `__loom_seed` marker table records each applied dataset (ship-once), `default` always runs and other datasets opt in via the `LOOM_SEED` env var. Closes [B19](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/behavioral-parity-bugs-2026-07.md#b19--elixir--seed-datasets-emit-no-seeder-at-all-silently-dropped) — the last silent gap in this table (verified 2026-08-23). |
 
 ### Per-page detail
 
@@ -1182,7 +1182,7 @@ capability filter on a non-relational aggregate**
 (`loom.context-filter-no-principal` — each half ships alone; only the
 actor + jsonb intersection is deferred), and provenance/audited (gated —
 no runtime emitted; the node and .NET backends do implement these).  See
-`docs/old/plans/java-backend-implementation.md` for the execution record.
+[`docs/old/plans/java-backend-implementation.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/java-backend-implementation.md) for the execution record.
 
 **Value-object read-model fields ARE implemented.** A VO-typed
 workflow-instance field or projection row field emits
@@ -1373,7 +1373,7 @@ module, the TypeScript scanner's reserved-word range).
 | elixir | `elixirLocal(name)` for every parameter / bound op input (`do_`); `elixirOpAction(name)` for a controller action (`def do_`, and `show` / `index` step aside to `show_op` from the CRUD read actions); an OpenApiSpex schema with a reserved property key opts out of the derived struct (`struct?: false`) |
 | java | already clean through `jid` (M-T6.36) |
 
-**Not covered yet** — tracked by M-T6.97: a FIELD named `constructor` on node
+**Not covered yet** — tracked by #4213: a FIELD named `constructor` on node
 (its getter cannot carry that name), TYPE names that shadow a target's
 globals / BCL / framework types (`valueobject Promise` / `String` / `Symbol` on
 node; `.NET` handles `Task`-like names via `dotnet-bcl-type-collision`), and the
@@ -1544,21 +1544,17 @@ Out of scope for v1 (intentional):
   out of scope is a **server-side** typeahead: the picker loads the
   target's list, so a target with more rows than a page is not
   searchable beyond what it loaded.
-- **Ordering on `X id[]` collections**: the wire contract is
-  unordered — a relational join table is naturally a set, and the five
-  backends realise that differently.  TS/Drizzle and .NET/EF happen to
-  write a per-row `ordinal` and load `ORDER BY ordinal`.  Phoenix/Ecto,
-  Java/JPA, and Python/SQLAlchemy treat `Target id[]` as a set with no
-  ordinal column at all (Java: `@ElementCollection` join table, no
-  `@OrderColumn`, `jpa-annotations.ts:158`; Python: the ref-collection
-  join table carries no ordinal, `repository-builder.ts:60`), returning
-  rows in whatever order Postgres yields.  Either way the contract is
-  unordered — treat `party[0]` as "some
-  element of `party`," not "the first element of `party`."  When
-  position is part of the domain (a battle slot, a draft pick
-  number), model it as an explicit ordinal field on a separate child
-  aggregate instead of relying on collection order — that's the
-  honest spelling and aligns with set semantics across all backends.
+- **Ordering on `X id[]` collections**: `Target id[]` is a set
+  ([D-REFCOLL-SET](decisions.md)).  On all five backends the join table
+  is only the composite `(owner, target)` key — no `ordinal` column —
+  and every backend reads the rows back sorted by the target FK id
+  (Drizzle/EF/Dapper/SQLAlchemy `ORDER BY` it, JPA's argument-less
+  `@OrderBy`, Ecto's `preload_order: [asc: :id]`).  So the order is
+  stable, but it is an id order the domain never chose: treat
+  `party[0]` as "some element of `party`," not "the first element of
+  `party`."  When position is part of the domain (a battle slot, a
+  draft pick number), model it as an explicit ordinal field on a
+  separate child aggregate instead of relying on collection order.
 - **Server-side rendering**: client-only Vite.  Next.js variant
   would be a separate platform.
 - **Generated CI pipelines**: project-init concerns, not derived from

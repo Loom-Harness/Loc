@@ -12,10 +12,16 @@
 // THE RULE: outside `src/language/typing/`, no function may map an AST node
 // to a type.  The scan finds every function in the language layer and in the
 // IR lowerers whose parameters name an AST node type and whose result is a
-// type (`TypeIR` / `DddType` / `Ty`).  The only ones allowed are the
+// type (`TypeIR` / `Ty`).  The only ones allowed are the
 // delegators listed in ALLOWED, each with what makes it a read rather than an
 // inference.  A new one fails here; a listed one that disappears fails too
 // (the list ratchets — delete the entry in the same change).
+//
+// THE SECOND RULE: there is one type vocabulary (`Ty`) and one set of type
+// relations (`src/language/typing/relations.ts`).  A validator judging
+// assignability on its own view of a type is how a union came to be checked
+// as its first variant; the last block below keeps such a view from coming
+// back.
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -30,15 +36,12 @@ const EXEMPT_DIRS = ["src/language/typing", "src/language/generated"];
  *  function an inference over the AST. */
 const AST_PARAM =
   /\b(Expression|PostfixSuffix|MemberSuffix|CallSuffix|PostfixChain|AstNode|Lambda|BuilderCall|NameRef|LValue|MatchExpr|ListLit|BinaryChain|TernaryExpr)\b/;
-const FN = /^(?:export )?function (\w+)\(([^)]*)\)\s*:\s*(?:TypeIR|DddType|Ty)(?:\[\])?\b/gm;
+const FN = /^(?:export )?function (\w+)\(([^)]*)\)\s*:\s*(?:TypeIR|Ty)(?:\[\])?\b/gm;
 
 /** file:function → why it is a READ of the pass, not a second inference. */
 const ALLOWED: Record<string, string> = {
-  "src/language/type-system.ts:typeOf":
-    "delegates to typeOfExpr, then applies null-guard narrowing to the pass's answer",
-  "src/language/type-system.ts:typeOfExpr": "`typingFor(expr).synthAt(expr)` through `toDddType`",
-  "src/language/type-system.ts:suffixType":
-    "`typingFor(suffix).synthAt(suffix)` through `toDddType`",
+  "src/language/type-system.ts:typeOf": "`typingFor(expr).synthAt(expr)`",
+  "src/language/type-system.ts:suffixType": "`typingFor(suffix).synthAt(suffix)`",
   "src/language/lsp/member-refs.ts:receiverTypeForSuffix":
     "the head's `typeOf` or the previous suffix's `suffixType` — both the pass's",
   "src/language/validators/statements.ts:lvalueType":
@@ -57,7 +60,7 @@ const ALLOWED: Record<string, string> = {
 /** The delegators must actually reach the pass — a census that only checked
  *  names would pass a delegator rewritten into a checker of its own. */
 const MUST_READ_THE_PASS = [
-  "src/language/type-system.ts:typeOfExpr",
+  "src/language/type-system.ts:typeOf",
   "src/language/type-system.ts:suffixType",
   "src/language/validators/statements.ts:lvalueType",
   "src/ir/lower/lower-expr.ts:passSynth",
@@ -133,5 +136,50 @@ describe("M-T5.47 — one typing pass: no second type-inference path", () => {
         /typingFor\(|passSynth\(/,
       );
     }
+  });
+});
+
+/** The relations the validators judge with — defined in `typing/relations.ts`
+ *  and nowhere else. */
+const RELATIONS = [
+  "typesEqual",
+  "isAssignable",
+  "comparable",
+  "ternaryJoin",
+  "typeToString",
+  "sensitivityNarrows",
+];
+
+describe("one type vocabulary, one set of type relations", () => {
+  const files = SCANNED.flatMap((d) => tsFiles(join(ROOT, d)));
+  const relationsFile = join(ROOT, "src/language/typing/relations.ts");
+
+  it("the scan reaches the real code", () => {
+    expect(files.length).toBeGreaterThan(50);
+    const rel = readFileSync(relationsFile, "utf8");
+    for (const r of RELATIONS) expect(rel).toMatch(new RegExp(`^export function ${r}\\(`, "m"));
+  });
+
+  it("no second type vocabulary is declared outside the pass", () => {
+    // A union of `{ kind: "primitive"; … }` arms is a type vocabulary; the
+    // IR's `TypeIR` (in src/ir/types, not scanned) is the only other one.
+    const decl = /^export type \w+ =\s*\n?\s*\|?\s*\{\s*kind: "primitive"/m;
+    const hits = files
+      .filter((f) => decl.test(readFileSync(f, "utf8")))
+      .map((f) => relative(ROOT, f));
+    expect(hits, "Type values are the pass's `Ty` (src/language/typing/ty.ts)").toEqual([]);
+  });
+
+  it("no relation is re-implemented outside typing/relations.ts", () => {
+    const hits: string[] = [];
+    for (const f of files) {
+      const src = readFileSync(f, "utf8");
+      for (const r of RELATIONS) {
+        if (new RegExp(`^(?:export )?function ${r}\\(`, "m").test(src)) {
+          hits.push(`${relative(ROOT, f)}:${r}`);
+        }
+      }
+    }
+    expect(hits, "Import the relation from src/language/typing/relations.ts").toEqual([]);
   });
 });

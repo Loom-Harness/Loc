@@ -88,7 +88,9 @@ describe("vanilla shape: document persistence (DEBT-07)", () => {
     expect(schema).toContain("|> cast(attrs, [:reference, :status, :subtotal, :item_count])");
     expect(schema).toContain("|> validate_required([:reference, :status, :subtotal, :item_count])");
     // The same invariant-derived validator the relational path emits.
-    expect(schema).toContain("validate_number(:item_count, greater_than_or_equal_to: 0)");
+    expect(schema).toContain(
+      'validate_number(:item_count, greater_than_or_equal_to: 0, message: "Item Count must be at least 0")',
+    );
     // The root changeset casts attrs INTO the embed + stamps version.
     const cs = file(await generateSystemFiles(DOC), "/carts/cart_changeset.ex");
     expect(cs).toContain("def document_changeset(%Api.Carts.Cart{} = record, attrs, version)");
@@ -689,7 +691,7 @@ system Shop {
 // a leading `with ensure(...)` chain — an expected denial returns a typed tuple
 // the controller maps to 403 / 422, instead of raising an ArgumentError (500).
 // A guard-free document op stays byte-identical.
-// (docs/old/plans/phoenix-op-guards-403-422.md)
+// (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/phoenix-op-guards-403-422.md)
 // ---------------------------------------------------------------------------
 const DOC_GUARDS = `
 system S {

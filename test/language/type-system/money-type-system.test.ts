@@ -414,7 +414,7 @@ describe("money — array.avg types money-aware", () => {
 
 describe("money — isAssignable", () => {
   // No DSL source needed — exercise the function directly with crafted
-  // DddType values.  Same-type assignment OK; cross-type with decimal
+  // `Ty` values.  Same-type assignment OK; cross-type with decimal
   // forbidden in both directions; the existing numeric-widening chain
   // (int → long → decimal) is unaffected.
 

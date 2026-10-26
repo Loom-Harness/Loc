@@ -805,7 +805,7 @@ the conforming backends, and the fix that established it.
 - **Provenance.** Found 2026-08-01 by the M-T9.11 gate on the elixir leg
   (`value-collections` `$.lineItems[*].amount`); extended to .NET by #2563/#2575;
   amended 2026-08-24 for java by the numeric-types audit
-  ([F9](audits/numeric-types-audit-2026-08-23.md), register #2644) → M-T6.46.
+  ([F9](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/numeric-types-audit-2026-08-23.md), register #2644) → M-T6.46.
   Extended 2026-10-11 to the elixir **query-time projection** select (a joined
   `decimal` shipped `"2.5"`; wave C3 3d's D19), which now rides the same shared
   `__decimal_num/1` — `corpus/datetime-wire`'s `venueFee`.
@@ -1262,7 +1262,7 @@ nothing and the test passes vacuously.
 
 > **Claimable follow-up tickets** (parallel-agent-ready — RS-9 gating, more
 > backends, the diffable spec artifact, corpus breadth) are enumerated in
-> [`plans/runtime-semantics-tier-followups.md`](old/plans/runtime-semantics-tier-followups.md).
+> [`plans/runtime-semantics-tier-followups.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/runtime-semantics-tier-followups.md).
 
 - **v1 (this doc):** the registry + well-formedness gate + the T0-tier rules
   gated statically across all five backends — **RS-2** (`enum-casing-parity`),
@@ -1756,7 +1756,7 @@ nothing and the test passes vacuously.
   lands.
 - **Conforms.** node, dotnet, java, python, elixir.
 - **Provenance.** Raised by the numeric-types audit
-  ([F11](audits/numeric-types-audit-2026-08-23.md)); ruled as
+  ([F11](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/numeric-types-audit-2026-08-23.md)); ruled as
   D-DECIMAL-EXACT-MOMENT; built as M-T5.22 (wave C5 moment 5a). Tier:
   **behavioral** — the witness's unit `test` block runs on all five unit tiers
   and its `test e2e` block records `test/behavioral/wire-golden/decimal-exact.json`,
@@ -1897,14 +1897,18 @@ nothing and the test passes vacuously.
 - **An absent required field is one 422 everywhere.** A command WITH
   parameters that receives an empty body (≡ `{}`) or a `{}` missing one answers
   422 with one `errors[]` entry per absent key —
-  `{ "pointer": "/reason", "message": "Required" }` — before the row is
-  loaded, on operations, workflows and `route`d handlers. Elixir used to hand
+  `{ "pointer": "/reason", "message": "reason is required" }` — before the
+  row is loaded, on operations, workflows and `route`d handlers. Elixir used to hand
   the nil to the operation body and answer **500**; the `require_command_params`
   controller plug refuses it first. The sentence was each framework's own
   (node `Invalid input: expected string, received undefined`, python `Field
-  required`, .NET `The reason field is required.`, java `must not be null`); it
-  is now `MISSING_FIELD_MESSAGE` (`src/ir/util/openapi-errors.ts`) on all five,
-  create and update included. A `create` with no input fields publishes an
+  required`, .NET `The reason field is required.`, java `must not be null`).
+  The owner ruling (#3881) fixes it as `"<field> is required"`, the field being
+  the pointer's last key: `missingFieldMessage` in the `wirePolicy` fact
+  (`src/ir/enrich/wire-policy.ts`), create and update included. Node renders
+  it; .NET, java, python and elixir still send the one word `"Required"`
+  (`MISSING_FIELD_MESSAGE`), waived per golden in `test/_helpers/wire-waivers.ts`
+  until each renders the fact. A `create` with no input fields publishes an
   optional `requestBody` like a parameterless command does.
 - **Conforms.** node, dotnet, java, python, elixir.
 - **Provenance.** The booking DX trial. Tier: **behavioral** — the wire-golden
@@ -2076,10 +2080,9 @@ nothing and the test passes vacuously.
   sentence already names the field's label without the server's regex, and a
   code is the i18n key of AUTHORED text only.
 - **Not part of the guarantee (named).** A MISSING required field's sentence is
-  still each framework's (`M-T6.93`). Elixir's create/update CHANGESET still
-  carries Ecto's text for a message-less single-field rule
-  (`validate_number(:seats, greater_than_or_equal_to: 1)` → "must be greater
-  than or equal to 1", `M-T6.96`), and applies `validate_required` before the
+  still each framework's (`M-T6.93`). Elixir's create/update changeset sends
+  node's sentence for a message-less single-field rule (`validate_number(:seats,
+  greater_than_or_equal_to: 1, message: "Seats must be at least 1")`), and applies `validate_required` before the
   invariant, so a whitespace-only string is "can't be blank" there until wave
   C3F packet F1's D14 fix lands.
 - **Conforms.** node, dotnet, dapper, java, python; elixir on the operation
