@@ -47,12 +47,14 @@ const SERVER_OWNED: ReadonlySet<string> = new Set(["managed", "token", "internal
 
 /** The parameters of the aggregate's unnamed `create(…)` when the author
  *  declares one with parameters: they ARE the create input.  A macro-emitted
- *  create (`with crudish`) narrows nothing — the input stays the full writable
- *  field set, capability fields included — exactly as `declaredCreateParamNames`
- *  (`ir/enrich/wire-projection.ts`) decides for the emitted factory. */
+ *  create (`with crudish`) and an event-sourced one narrow nothing — the input
+ *  stays the full writable field set, capability fields included — exactly as
+ *  `declaredCreateParamNames` (`ir/enrich/wire-projection.ts`) decides for the
+ *  emitted factory. */
 export function declaredCreateParams(agg: Aggregate): readonly Parameter[] | undefined {
   const declared = agg.members.find((m) => isCreate(m) && !m.name);
   if (!declared || !isCreate(declared) || declared.params.length === 0) return undefined;
+  if (agg.persistedAs === "eventLog") return undefined;
   return originOf(declared) ? undefined : declared.params;
 }
 
