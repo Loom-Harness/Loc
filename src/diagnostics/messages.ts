@@ -5379,6 +5379,10 @@ export const DIAGNOSTIC_MESSAGES = {
     "Macro emitted a node targeting a destination outside the host's subtree.  " +
     "Macros may only modify their host or its descendants (e.g. a context-level macro " +
     "may invoke an aggregate-level macro against an aggregate inside the context).",
+  "loom.scaffold-aggregate-unserved": (p: { agg: unknown; context: unknown; repo: unknown }) =>
+    `scaffoldHandlers/scaffoldApi skip aggregate '${p.agg}' in context '${p.context}': it has no ` +
+    `repository, so nothing can load it by id and no handlers or routes are emitted for its ` +
+    `operations, create, or destroy.  Add \`repository ${p.repo} for ${p.agg} { }\` to serve it.`,
   "loom.macro-arg-duplicate": (p: { name: unknown; macroName: unknown }) =>
     `Duplicate argument '${p.name}' in call to macro '${p.macroName}'.`,
   "loom.macro-arg-unknown": (p: { name: unknown; macroName: unknown; spec: unknown }) =>

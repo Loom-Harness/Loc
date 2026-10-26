@@ -16,6 +16,7 @@
 //
 // `destroy` is deliberately NOT emitted here — see the note on `handlerTargets`.
 
+import { diagMessage } from "../../../diagnostics/messages.js";
 import type {
   Aggregate,
   BoundedContext,
@@ -103,10 +104,53 @@ function canonicalDestroyOf(agg: Aggregate): Destroy | undefined {
   return (agg.members ?? []).filter(isDestroy).find((d) => d.name == null);
 }
 
-/** Every eligible source in `ctx` that has a repository to load its aggregate
- * by id.  An aggregate with no repository is skipped (nothing to `getById`
- * through), which keeps `scaffoldHandlers` and `scaffoldApi` in lock-step —
- * neither emits for a source the other can't.
+/** Aggregates of `ctx` split by whether `scaffoldHandlers` / `scaffoldApi` can
+ * serve them: `served` pairs each aggregate with the repository that loads it by
+ * id; `unserved` are repository-less aggregates that DO declare a write surface
+ * (a public operation, a `create`, a canonical `destroy` — incl. those
+ * `with crudish` supplies), i.e. the ones an author would expect handlers for.
+ * A repository-less aggregate has nothing to `getById` through, so neither macro
+ * emits for it — and a repository-less aggregate is legitimate (a tenant
+ * registry the API never exposes), so this is reported, not refused.
+ *
+ * The ONE eligibility predicate both macros (and the contract records) route
+ * through, so they can never disagree. */
+function partitionAggregates(ctx: BoundedContext): {
+  readonly served: readonly { readonly agg: Aggregate; readonly repo: Repository }[];
+  readonly unserved: readonly Aggregate[];
+} {
+  const members = ctx.members ?? [];
+  const repos = members.filter(isRepository);
+  const served: { agg: Aggregate; repo: Repository }[] = [];
+  const unserved: Aggregate[] = [];
+  for (const agg of members.filter(isAggregate)) {
+    const repo = repos.find((r) => r.aggregate?.$refText === agg.name);
+    if (repo) {
+      served.push({ agg, repo });
+      continue;
+    }
+    const hasWriteSurface =
+      (agg.members ?? []).some((m) => isCreate(m) || (isOperation(m) && !m.private)) ||
+      canonicalDestroyOf(agg) != null;
+    if (hasWriteSurface) unserved.push(agg);
+  }
+  return { served, unserved };
+}
+
+/** The repository-less aggregates with a write surface that `scaffoldHandlers`
+ * reports as skipped (see `partitionAggregates`), each with the message naming
+ * it and the `repository` declaration that would make it served. */
+export function unservedAggregateMessages(ctx: BoundedContext): string[] {
+  return partitionAggregates(ctx).unserved.map((agg) =>
+    diagMessage("loom.scaffold-aggregate-unserved", {
+      agg: agg.name,
+      context: ctx.name,
+      repo: plural(agg.name),
+    }),
+  );
+}
+
+/** Every eligible source in `ctx`, one per `served` entry of `partitionAggregates`.
  *
  * Emitted kinds: `getById` (one per aggregate), `create` (every `create`
  * factory action), `operation` (public operations), `find` (every declared
@@ -122,12 +166,8 @@ function canonicalDestroyOf(agg: Aggregate): Destroy | undefined {
  * entirely — so a `route DELETE ...` is never emitted for a delete verb the
  * backend didn't generate. */
 export function handlerTargets(ctx: BoundedContext): HandlerTarget[] {
-  const members = ctx.members ?? [];
-  const repos = members.filter(isRepository);
   const out: HandlerTarget[] = [];
-  for (const agg of members.filter(isAggregate)) {
-    const repo = repos.find((r) => r.aggregate?.$refText === agg.name);
-    if (!repo) continue;
+  for (const { agg, repo } of partitionAggregates(ctx).served) {
     // Read side first: get-by-id, then each declared find.
     out.push({ kind: "getById", agg, repo });
     for (const find of repo.finds ?? []) {
