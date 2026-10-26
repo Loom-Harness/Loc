@@ -95,17 +95,6 @@ export class ProductRepository implements ProductRepositoryPort {
     return { items, page, pageSize, total, totalPages };
   }
 
-  async bySku(sku: string): Promise<Product | null> {
-    const rootRows = await this.db.select().from(schema.products).where(eq(schema.products.sku, sku)).orderBy(asc(schema.products.id)).limit(1);
-    if (rootRows.length === 0) {
-      requestLog().debug({ event: "find_executed", aggregate: "Product", find: "bySku", rows: 0 });
-      return null;
-    }
-    const result = Product._rehydrate({ id: Ids.ProductId(rootRows[0]!.id), sku: rootRows[0]!.sku, price: new Money(Number(rootRows[0]!.price_amount), rootRows[0]!.price_currency), version: rootRows[0]!.version });
-    requestLog().debug({ event: "find_executed", aggregate: "Product", find: "bySku", rows: 1 });
-    return result;
-  }
-
   toWire(root: Product): unknown {
     return { id: root.id as string, sku: root.sku, price: { amount: root.price.amount, currency: root.price.currency }, version: root.version, display: root.display };
   }

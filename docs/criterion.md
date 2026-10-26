@@ -45,7 +45,9 @@ guards.
 > `unique (…)` key it needs no declaration at all — `Repo.getBy(<col>: v)` /
 > `Repo.findBy(…)` read it ([D-REPO-KEY-LOOKUP](decisions.md);
 > `node scripts/codemod-find-to-findby.mjs` migrates the finds).  A key that is
-> not unique is a query: a criterion, read with `Repo.find(<Criterion>)`.  The
+> not unique is a query: a criterion, read with `Repo.find(<Criterion>)` — the
+> same codemod writes `criterion <Plural><Find>` for such a find and points its
+> call sites at `find(C)`.  The
 > single-result `Repo.find(<Criterion>)` is **shipped on every backend** as the
 > source of an `if let` workflow statement — `if let x = Repo.find(<Criterion>)
 > { … } else { … }` — which binds the first match (non-null) in the then-branch

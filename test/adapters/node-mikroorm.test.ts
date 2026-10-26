@@ -1616,9 +1616,8 @@ describe("mikroorm — workflow (saga) correlation store is persistence-neutral"
         status: string
         operation markTracked() { status := "Tracked" }
       }
-      repository Shipments for Shipment {
-        find byOrder(order: Order id): Shipment? where this.orderRef == order
-      }
+      repository Shipments for Shipment { }
+      criterion ShipmentsByOrder(order: Order id) of Shipment = this.orderRef == order
       event OrderPlaced { order: Order id, at: datetime }
       event ShipmentRequested { shipment: Shipment id, order: Order id, at: datetime }
       channel Lifecycle {

@@ -69,30 +69,115 @@ describe("codemod-find-to-findby", () => {
     expect(twice.text).toBe(once);
   });
 
-  it("reports what it cannot map, and leaves it in place", () => {
+  it("turns a non-unique key or any query into a criterion read with find(C)", async () => {
     const src = `system S { subdomain M { context C {
   error OrderNotFound { code: string }
-  aggregate Order with crudish { code: string  total: int  owner: string }
+  aggregate Order with crudish { code: string  total: int  owner: string
+    operation bump() { total := total + 1 } }
+  criterion Big(t: int) of Order = this.total > t
   repository Orders for Order {
-    find locate(c: string): Order or OrderNotFound where this.code == c
+    // An order of an owner.
     find byOwner(o: string): Order? where this.owner == o
-    find big(t: int): Order? where this.total > t
-    find byId2(id: Order id): Order?
+    find big(t: int): Order? where Big(t)
+    find above(t: int): Order option where this.total > t
+    find locate(c: string): Order or OrderNotFound where this.code == c
+  }
+  domainService Q {
+    operation owns(o: string): bool { return Orders.byOwner(o) != null }
+  }
+  workflow w {
+    create(o: string, t: int) {
+      if let x = Orders.byOwner(o) { x.bump() }
+      if let y = Orders.big(t) { y.bump() }
+      if let z = Orders.above(t) { z.bump() }
+    }
+  }
+}}}
+`;
+    const { text, report } = migrateSource(src, "m.ddd");
+    expect(report).toEqual([]);
+    expect(text).toContain("repository Orders for Order { }");
+    expect(text).toContain(
+      "  // An order of an owner.\n  criterion OrdersByOwner(o: string) of Order = this.owner == o",
+    );
+    // `where Big(t)` is exactly a criterion: reused, not copied.
+    expect(text).not.toContain("criterion OrdersBig");
+    expect(text).toContain("criterion OrdersAbove(t: int) of Order = this.total > t");
+    // `T or <Error>`: a miss is T? — the same target.
+    expect(text).toContain("criterion OrdersLocate(c: string) of Order = this.code == c");
+    expect(text).toContain("return Orders.find(OrdersByOwner(o)) != null");
+    expect(text).toContain("if let x = Orders.find(OrdersByOwner(o)) { x.bump() }");
+    expect(text).toContain("if let y = Orders.find(Big(t)) { y.bump() }");
+    expect(text).toContain("if let z = Orders.find(OrdersAbove(t)) { z.bump() }");
+    expect(await errorCodes(text)).toEqual([]);
+  });
+
+  it("rewrites a by-id find to the built-in by-id reads", async () => {
+    const src = `system S { subdomain M { context C {
+  aggregate Order with crudish { total: int  operation bump() { total := total + 1 } }
+  repository Orders for Order {
+    find byId2(id: Order id): Order
+    find maybe(oid: Order id): Order? where this.id == oid
+  }
+  domainService Q {
+    operation has(oid: Order id): bool { return Orders.maybe(oid) != null }
+  }
+  workflow w { create(oid: Order id) { let o = Orders.byId2(oid)
+    o.bump() } }
+}}}
+`;
+    const { text, report } = migrateSource(src, "m.ddd");
+    expect(report).toEqual([]);
+    expect(text).toContain("let o = Orders.getById(oid)");
+    expect(text).toContain("return Orders.findById(oid) != null");
+    expect(await errorCodes(text)).toEqual([]);
+  });
+
+  it("keeps a find a call site cannot migrate, and reports why", () => {
+    const src = `system S { subdomain M { context C {
+  error OrderNotFound { code: string }
+  aggregate Order with crudish { code: string  total: int  owner: string
+    operation bump() { total := total + 1 } }
+  repository Orders for Order {
+    find mustOwner(o: string): Order where this.owner == o
+    find locate(c: string): Order or OrderNotFound where this.code == c
+    find maybe(oid: Order id): Order? where this.id == oid
     find latest(): Order?
+    find scoped(o: string): Order? where this.owner == o ignoring *
+  }
+  workflow w {
+    create(o: string, c: string, oid: Order id) {
+      let m = Orders.mustOwner(o)
+      m.bump()
+      let l = Orders.locate(c)
+      match l { Order x => { x.bump() } OrderNotFound e => { } }
+      if let q = Orders.maybe(oid) { q.bump() }
+    }
   }
 }}}
 `;
     const { text, changed, report } = migrateSource(src, "m.ddd");
     expect(changed).toBe(0);
     expect(text).toBe(src);
-    const byFind = (name: string) => report.filter((r) => r.includes(`Orders.${name} —`));
-    expect(byFind("locate")[0]).toContain("returns a declared error: dropped (2026-10-25 ruling");
-    expect(byFind("byOwner")[0]).toContain(
-      "its key (owner) is not a declared unique key of 'Order'; declare 'unique (owner)'",
-    );
-    expect(byFind("big")[0]).toContain("is not an equality conjunction over fields");
-    expect(byFind("byId2")[0]).toContain("a by-id find: read it with findById(id)");
-    expect(byFind("latest")[0]).toContain("parameters bind no key");
+    const byFind = (name: string) =>
+      report.filter((r) => r.includes(`Orders.${name} —`)).join("\n");
+    expect(byFind("mustOwner")).toContain("no else-branch statement answers a 404");
+    expect(byFind("locate")).toContain("matches on the error variant");
+    expect(byFind("maybe")).toContain("is an 'if let' source, which findById is not");
+    expect(byFind("latest")).toContain("it reads an arbitrary row");
+    expect(byFind("scoped")).toContain("Repo.find(<Criterion>) carries no 'ignoring'");
+  });
+
+  it("migrates a must-exist find nothing calls", () => {
+    const src = `context C {
+  aggregate Order { owner: string }
+  repository Orders for Order { find mustOwner(o: string): Order envelope where this.owner == o }
+}
+`;
+    const { text, report } = migrateSource(src, "m.ddd");
+    expect(report).toEqual([]);
+    expect(text).toContain("repository Orders for Order { }");
+    expect(text).toContain("criterion OrdersMustOwner(o: string) of Order = this.owner == o");
   });
 
   it("with --add-unique, declares the key and migrates", async () => {

@@ -74,14 +74,13 @@ describe("shared walker migration — repo-read inside a match arm", () => {
         aggregate Account {
           holder: string
         }
-        repository Accounts for Account {
-          find byHolder(holder: string): Account? where this.holder == holder
-        }
+        repository Accounts for Account { }
+        criterion AccountsByHolder(holder: string) of Account = this.holder == holder
         domainService Lookup {
           operation pick(holder: string, useAlt: bool): Account? {
             return match {
-              (useAlt) => Accounts.byHolder(holder),
-              else => Accounts.byHolder(holder)
+              (useAlt) => Accounts.find(AccountsByHolder(holder)),
+              else => Accounts.find(AccountsByHolder(holder))
             }
           }
         }

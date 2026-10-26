@@ -83,10 +83,4 @@ public sealed class CustomerRepository : ICustomerRepository
         _log.LogDebug("{Event} aggregate={Aggregate} find={Find} rows={Rows}", "find_executed", "Customer", "all", items.Count);
         return new Paged<Customer>(items, page, pageSize, total, totalPages);
     }
-    public async Task<Customer?> ByEmail(string email, CancellationToken cancellationToken = default)
-    {
-        var result = await _db.Customers.Where(x => x.Email == email).FirstOrDefaultAsync(cancellationToken);
-        _log.LogDebug("{Event} aggregate={Aggregate} find={Find} rows={Rows}", "find_executed", "Customer", "byEmail", result == null ? 0 : 1);
-        return result;
-    }
 }

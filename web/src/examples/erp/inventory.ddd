@@ -108,12 +108,11 @@ subdomain Inventory {
     }
 
     repository Products for Product {
-      find bySku(sku: string): Product? where this.sku == sku
       find active(): Product[] where this.active == true
     }
-    repository Warehouses for Warehouse {
-      find byCode(code: string): Warehouse? where this.code == code
-    }
+    criterion ProductsBySku(sku: string) of Product = this.sku == sku
+    repository Warehouses for Warehouse { }
+    criterion WarehousesByCode(code: string) of Warehouse = this.code == code
     repository StockItems for StockItem {
       find byProduct(productId: Product id): StockItem[] where this.productId == productId
       find byWarehouse(warehouseId: Warehouse id): StockItem[] where InWarehouse(warehouseId)

@@ -549,9 +549,7 @@ app.UseSwagger(c => c.RouteTemplate = "{documentName}.json");
 // UseStatusCodePages above, so this shares the framework 405's exact envelope.
 var staticSubpathMethods = new Dictionary<string, string[]>(StringComparer.Ordinal)
 {
-    ["/api/customers/by_email"] = new[] { "GET" },
     ["/api/orders/by_customer"] = new[] { "GET" },
-    ["/api/products/by_sku"] = new[] { "GET" },
 };
 app.Use(async (HttpContext http, RequestDelegate next) =>
 {

@@ -212,7 +212,13 @@ end
 ```
 ::: end
 
-`node scripts/codemod-find-to-findby.mjs [--add-unique] <path>` migrates the finds this replaces: a single-row find (`T?` / `T option` → `findBy`; `T` / `T envelope` → `getBy`) whose `where` is an equality conjunction over a declared `unique (…)` tuple — or a clause-less find whose parameters bind fields by name — is deleted, and each `Repo.<find>(args)` call becomes `Repo.findBy(<col>: arg, …)` / `Repo.getBy(…)`, carrying the find's `ignoring`. A find over an undeclared key is reported, or with `--add-unique` gets its `unique (…)` added. It also reports, instead of rewriting, a `T or <Error>` find (dropped: a miss is `T?`, a `getBy` miss the standard 404), a by-id find, a find whose `where` is a query rather than a key, and a find whose route a client reads.
+`node scripts/codemod-find-to-findby.mjs [--add-unique] <path>` migrates every single-row find (`T?` / `T option`, `T` / `T envelope`, `T or <Error>` — a miss is `T?`) to one of three targets, deleting the declaration:
+
+- a key equal to a declared `unique (…)` tuple → `Repo.findBy(<col>: arg, …)` / `Repo.getBy(…)`, carrying the find's `ignoring`;
+- the aggregate's `id` → the built-in `Repo.findById(arg)` / `Repo.getById(arg)`;
+- any other key or queryable `where` → a `criterion <Plural><Find>(params) of <Agg> = <where>` beside the repository (an existing criterion is reused when the `where` is exactly one), read with `Repo.find(<Criterion>(args))` — the first match, `T?`.
+
+A clause-less find binds its parameters to the fields they name, so it counts as that equality conjunction. A find is migrated only when every call site can take its target: a `T?` read (`findBy`, `findById`, `find(C)`) is accepted as an `if let` source or in a domain-service expression, never by a plain `let`; `findById` is not an `if let` source; and a must-exist (`T`) find over a non-unique key has no mechanical target, since no `else` statement answers a 404 today. Those call sites are reported and the find stays, as are a `T or <Error>` call site that matches on the error variant, a find with `ignoring` whose target cannot carry it, a `where` that reads `currentUser`, a find with neither `where` nor parameters, and a find whose route a client reads. `--add-unique` declares the key instead of writing a criterion; it never runs by default.
 
 ## The queryable subset
 

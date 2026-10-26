@@ -1264,9 +1264,8 @@ describe("validation", () => {
       const { errors } = await parse(`
         context T {
           aggregate Customer { name: string  derived display: string = name }
-          repository Customers for Customer {
-            find byName(n: string): Customer? where this.name == n
-          }
+          repository Customers for Customer { }
+          criterion CustomersByName(n: string) of Customer = this.name == n
         }
       `);
       expect(errors, errors.join("\n")).toEqual([]);

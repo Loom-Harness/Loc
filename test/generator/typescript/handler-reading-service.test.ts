@@ -25,14 +25,13 @@ system S {
   subdomain D {
     context C {
       aggregate Account with crudish { holder: string  balance: int }
-      repository Accounts for Account {
-        find byHolder(holder: string): Account? where this.holder == holder
-      }
+      repository Accounts for Account { }
+      criterion AccountsByHolder(holder: string) of Account = this.holder == holder
 
       // reading tier — takes a read port.
       domainService Registration {
         operation isHolderFree(holder: string): bool {
-          return Accounts.byHolder(holder) == null
+          return Accounts.find(AccountsByHolder(holder)) == null
         }
       }
       // pure tier — takes none, so it must stay byte-identical (no await,

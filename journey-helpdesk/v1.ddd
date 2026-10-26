@@ -112,9 +112,8 @@ system Helpdesk {
 
       repository Customers for Customer { }
       repository Agents for Agent { }
-      repository Tickets for Ticket {
-        find byNumber(number: string): Ticket?
-      }
+      repository Tickets for Ticket { }
+      criterion TicketsByNumber(number: string) of Ticket = this.number == number
     }
   }
 

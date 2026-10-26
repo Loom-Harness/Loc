@@ -1,22 +1,46 @@
-// Codemod for natural-key reads (D-REPO-KEY-LOOKUP).
+// Codemod for the removal of single-row repository finds (D-REPO-KEY-LOOKUP).
 //
-// A single-row repository `find` whose `where` is an equality conjunction over a
-// declared `unique (…)` tuple is a natural-key read: its declaration is deleted
-// and each `Repo.<find>(args)` call site reads through the contract instead —
-// `findBy` for an absence-returning find (`T?`, `T option`), `getBy` for a
-// row-or-404 one (`T`, `T envelope`):
+// Every single-row `find` (a `T?` / `T option`, `T` / `T envelope`, or
+// `T or <Error>` return) is migrated to the repository contract, or reported.
+// The target depends on the find's key:
 //
-//   aggregate Product { sku: string  unique (sku) }
-//   repository Products for Product {          repository Products for Product { }
-//     find bySku(s: string): Product?    →
-//       where this.sku == s
+//   1. a declared `unique (…)` tuple → `Repo.findBy(<col>: v, …)` (absence
+//      returning) / `Repo.getBy(…)` (must exist);
+//   2. the aggregate's `id` → the built-in `Repo.findById(v)` / `getById(v)`;
+//   3. anything else — a key no `unique (…)` declares, or any queryable
+//      `where` — is a specification query: a `criterion <Plural><Find>(params)
+//      of <Agg> = <where>` beside the repository (an existing criterion is
+//      reused when the `where` is exactly one), read with
+//      `Repo.find(<Criterion>(args))` — the first match, `T?`.
+//
+//   repository Customers for Customer {       repository Customers for Customer { }
+//     find byEmail(e: string): Customer?   →  criterion CustomersByEmail(e: string) of Customer =
+//       where this.email == e                    this.email == e
 //   }
-//   … Products.bySku(x) …                →     … Products.findBy(sku: x) …
+//   if let c = Customers.byEmail(e) { … }  →  if let c = Customers.find(CustomersByEmail(e)) { … }
 //
 // A clause-less find binds each parameter to the field it names (the field of
-// the same name, or the one its `<field>Id` spelling names — the convention
-// every backend applies), so it counts as that equality conjunction.  A find's
-// `ignoring …` moves to each call site.
+// the same name, or the one its `<field>Id` spelling names), so it counts as
+// that equality conjunction.  A `T or <Error>` find is absence-shaped: a miss
+// is `T?` (2026-10-25 ruling), so it takes the `findBy` / `findById` /
+// `find(C)` target.
+//
+// A find is migrated only when EVERY call site can take its target; otherwise
+// it stays declared and the call sites that block it are reported.  Where each
+// target is accepted:
+//
+//   - `findBy` / `getBy` / `getById` — wherever the find was called;
+//   - `findById` — anywhere but an `if let` source (not an `if let` source
+//     today);
+//   - `find(<Criterion>)` — an `if let` source, or an expression in a
+//     `domainService` operation (`Repo.find(C(x)) != null`).  Not a `let`:
+//     a `T?` read bound by a `let` is refused in every body.
+//
+// A must-exist (`T` / `T envelope`) find with no unique or id key has no
+// mechanical target: `find(C)` answers absence, and no statement in an `else`
+// branch answers a 404 today (`precondition` is a 422, `requires` a 403), so
+// each of its call sites is reported.  A `T or <Error>` call site that matches
+// on the error variant is reported too.
 //
 //   node scripts/codemod-find-to-findby.mjs [--check] [--list] [--add-unique] <path>...
 //
@@ -25,103 +49,56 @@
 //                 .loom).  Defaults to `.`.
 //   --check       write nothing; exit 1 when any find would be migrated.
 //   --list        write nothing; print the files that would change.
-//   --add-unique  a find whose key matches no declared tuple gets one: the
-//                 codemod adds `unique (<key>)` to the aggregate (which also
-//                 derives the DB unique index and the 409 on a duplicate) and
-//                 migrates the find.  Without it the find is reported.
+//   --add-unique  a key that no declared tuple covers gets one: the codemod adds
+//                 `unique (<key>)` to the aggregate (which also derives the DB
+//                 unique index and the 409 on a duplicate) and takes target 1.
+//                 Never the default.
 //
 // `.ddd` files are rewritten whole.  In `.md` files every ```ddd fence is a
 // snippet, and in `.ts` files every template literal is one; a snippet that
 // does not parse as a model, nor as the member list of a context, is left
 // alone.  Splices are textual, so formatting and comments outside the rewritten
-// find and call survive byte-for-byte.  Idempotent: a migrated source has no
-// matching find left.
+// find and call survive byte-for-byte.  Idempotent.
 //
-// What it does not rewrite is reported, never guessed:
-//   - a `T or <Error>` find — the 2026-10-25 ruling drops it (a miss is `T?`,
-//     a `getBy` miss the standard 404), so its call sites need a human;
-//   - a find whose `where` is not an equality conjunction over plain fields;
-//   - a find whose key is the aggregate's `id` (the by-id read: `getById` /
-//     `findById`, which the read-gate surface treats specially);
-//   - a find whose key matches no declared `unique (…)` tuple (unless
-//     `--add-unique`);
-//   - a find something other than a repository call reads — a client route
-//     read (`api.<plural>.<find>(…)` in a `test e2e`), a page read
-//     (`<Ctx>.<Agg>.<find>`) — since its route goes with the declaration;
-//   - a find with `ignoring` called where the clause cannot follow (anywhere
-//     but a `let` / `if let` source).
+// Also reported, never guessed: a find with `ignoring` whose target cannot
+// carry it (`findById`, `find(C)`), a `where` that reads `currentUser` (a
+// criterion takes no principal), a find with neither a `where` nor a
+// parameter (it reads an arbitrary row), a find whose route a client reads
+// (`api.<plural>.<find>(…)` in a `test e2e`, a page's `<Ctx>.<Agg>.<find>`),
+// and a find whose aggregate is not in the same source.
 //
 // Needs the compiled toolchain (`npm run build`) for the parser.
 
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { AstUtils, EmptyFileSystem } from "langium";
-import { createDddServices } from "../out/language/ddd-module.js";
+import { AstUtils } from "langium";
+import { upperFirst as pascal, plural, snake } from "../out/util/naming.js";
+import {
+  aggregateChain,
+  aggregateFieldNames,
+  aggregateOf,
+  applyEdits,
+  conventionBody,
+  ignoringText,
+  indentAt,
+  lineStart,
+  parseSources,
+  removalRange,
+  reusedCriterion,
+  tidyEmptyRepos,
+  walkFiles,
+} from "./codemod-find-shared.mjs";
 
-const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "out", ".loom"]);
-
-let parserSingleton;
-function parser() {
-  parserSingleton ??= createDddServices(EmptyFileSystem).Ddd.parser.LangiumParser;
-  return parserSingleton;
-}
-
-/** `__PLATFORM__` corpus placeholders, replaced by a same-length keyword so
- *  every offset in the parsed text is an offset in the original. */
-function maskPlaceholders(src) {
-  return src.replace(/__PLATFORM__/g, "node        ");
-}
-
-/** Parse `src` as a model; failing that, as the members of a context. */
-function parseSnippet(src) {
-  const masked = maskPlaceholders(src);
-  const whole = parser().parse(masked);
-  if (whole.parserErrors.length === 0 && whole.lexerErrors.length === 0) {
-    return { ast: whole.value, shift: 0 };
-  }
-  const head = "context __Codemod {\n";
-  const wrapped = parser().parse(`${head}${masked}\n}`);
-  if (wrapped.parserErrors.length === 0 && wrapped.lexerErrors.length === 0) {
-    return { ast: wrapped.value, shift: head.length };
-  }
-  return undefined;
-}
-
-/** `findBy` / `getBy` / `list` / `union` / `undefined` for a find's return. */
+/** `optional` (`T?`, `T option`) / `row` (`T`, `T envelope`) / `union`
+ *  (`T or <Error>`) / `list` / `undefined` for a find's return. */
 function findShape(fd) {
   const rt = fd.returnType;
   if (!rt || fd.name === "all") return undefined;
   if (rt.array || (rt.ctors ?? []).includes("paged")) return "list";
   if ((rt.alternatives ?? []).length > 0) return "union";
-  if (rt.optional || (rt.ctors ?? []).includes("option")) return "findBy";
-  return "getBy";
-}
-
-/** The aggregate node a repository targets, in this snippet. */
-function aggregateOf(ast, name) {
-  for (const n of AstUtils.streamAst(ast)) if (n.$type === "Aggregate" && n.name === name) return n;
-  return undefined;
-}
-
-/** The aggregate's `extends` chain, root-most first, resolved by name (the
- *  snippet is parsed without a document, so references do not link). */
-function aggregateChain(ast, agg) {
-  const chain = [];
-  const seen = new Set();
-  for (let a = agg; a && !seen.has(a); a = aggregateOf(ast, a.superType?.$refText ?? "")) {
-    seen.add(a);
-    chain.unshift(a);
-  }
-  return chain;
-}
-
-function aggregateFieldNames(ast, agg) {
-  const out = new Set();
-  for (const a of aggregateChain(ast, agg)) {
-    for (const m of a.members ?? []) if (typeof m.name === "string") out.add(m.name);
-  }
-  return out;
+  if (rt.optional || (rt.ctors ?? []).includes("option")) return "optional";
+  return "row";
 }
 
 /** Declared `unique (…)` tuples, inherited ones included. */
@@ -133,7 +110,7 @@ function declaredTuples(ast, agg) {
 }
 
 function unparen(e) {
-  while (e?.$type === "ParenExpr") e = e.expr ?? e.inner ?? e.value;
+  while (e?.$type === "ParenExpr") e = e.inner;
   return e;
 }
 
@@ -197,48 +174,34 @@ function conventionPairs(fd, fields) {
   return out;
 }
 
-function lineStart(text, offset) {
-  return text.lastIndexOf("\n", offset - 1) + 1;
+/** The key a find's pairs spell, when params and fields are one-to-one. */
+function keyOf(fd, pairs) {
+  if (!pairs || pairs.length === 0) return undefined;
+  const cols = [...new Set(pairs.map(([, f]) => f))];
+  if (new Set(pairs.map(([p]) => p)).size !== fd.params.length || cols.length !== pairs.length)
+    return undefined;
+  return { cols, colOfParam: fd.params.map((p) => pairs.find(([pp]) => pp === p.name)[1]) };
 }
 
-function indentAt(text, offset) {
-  return /^[\t ]*/.exec(text.slice(lineStart(text, offset)))[0];
-}
-
-/** The removal range of a find: its own lines plus the contiguous `//`
- *  comment lines directly above it (they describe the find). */
-function findRemovalRange(text, start, end) {
-  const ls = lineStart(text, start);
-  const onlyWsBefore = text.slice(ls, start).trim() === "";
-  let le = text.indexOf("\n", end);
-  if (le < 0) le = text.length;
-  const tail = text.slice(end, le).trim();
-  const onlyWsAfter = tail === "" || tail.startsWith("//");
-  if (!onlyWsBefore || !onlyWsAfter) return [start, end];
-  let cs = ls;
-  for (;;) {
-    if (cs === 0) break;
-    const prevStart = lineStart(text, cs - 1);
-    const line = text.slice(prevStart, cs - 1);
-    if (!line.trim().startsWith("//")) break;
-    cs = prevStart;
-  }
-  return [cs, Math.min(le + 1, text.length)];
-}
-
-function ignoringText(fd) {
-  const t = fd.$cstNode.text;
-  const at = t.search(/\bignoring\b/);
-  return at < 0 ? "" : t.slice(at).trim();
+function readsCurrentUser(node) {
+  if (!node) return false;
+  for (const n of AstUtils.streamAst(node))
+    if (n.$type === "NameRef" && n.name === "currentUser") return true;
+  return false;
 }
 
 /** Every find name something other than a `Repo.<find>(…)` call reads in this
  *  snippet: `api.<plural>.<find>(…)`, `<Ctx>.<Agg>.<find>`. */
 function nonCallReads(ast) {
   const out = new Map();
+  const repos = new Set(
+    [...AstUtils.streamAst(ast)].filter((n) => n.$type === "Repository").map((n) => n.name),
+  );
   for (const n of AstUtils.streamAst(ast)) {
     if (n.$type !== "PostfixChain" || n.head?.$type !== "NameRef") continue;
-    for (let i = 1; i < n.suffixes.length; i++) {
+    // `<resource>.<operationId>(…)` reads at the first suffix; a repository
+    // call there is the call the codemod rewrites, not a route read.
+    for (let i = repos.has(n.head.name) ? 1 : 0; i < n.suffixes.length; i++) {
       const s = n.suffixes[i];
       if (s.$type === "MemberSuffix" && !out.has(s.member))
         out.set(s.member, n.$cstNode.text.split("\n")[0]);
@@ -247,237 +210,209 @@ function nonCallReads(ast) {
   return out;
 }
 
-/** Plan the finds of one snippet: which migrate (with their call-site
- *  rewrite) and which are reported. */
-function planFinds(ast, text, shift, known, report, where, addUnique) {
-  const edits = [];
+/** Plan each single-row find of one snippet: its target and its own edits
+ *  (the declaration removal, a criterion, a `unique`), all tentative until the
+ *  call sites are known.  Reports go to `report` straight away for a find no
+ *  target fits. */
+function planFinds(ast, text, shift, report, where, addUnique) {
+  const plans = [];
   const routeReads = nonCallReads(ast);
-  const uniquesToAdd = new Map();
+  const takenByCtx = new Map();
   for (const repo of AstUtils.streamAst(ast)) {
     if (repo.$type !== "Repository") continue;
+    const ctx = repo.$container?.$type === "BoundedContext" ? repo.$container : undefined;
+    if (ctx && !takenByCtx.has(ctx))
+      takenByCtx.set(ctx, new Set(ctx.members.map((m) => m.name).filter(Boolean)));
+    const taken = ctx ? takenByCtx.get(ctx) : new Set();
     const aggName = repo.aggregate?.$refText ?? "";
     const agg = aggregateOf(ast, aggName);
     for (const fd of repo.finds) {
       const shape = findShape(fd);
       if (!shape || shape === "list") continue;
       const label = `${where}: ${repo.name}.${fd.name}`;
-      if (shape === "union") {
-        report.push(
-          `${label} — '${fd.returnType.$cstNode.text}' returns a declared error: dropped (2026-10-25 ruling — a miss is T?, a getBy miss the standard 404); migrate its call sites by hand to findBy / getBy`,
-        );
-        continue;
-      }
       if (!agg) {
         report.push(`${label} — its aggregate '${aggName}' is not in this source; migrate by hand`);
         continue;
       }
+      // A client reads the route by the find's name (`api.<plural>.<find>`) or,
+      // through a typed in-system api resource, by its operation id
+      // (`<find><Agg>`).
+      const routeRead = routeReads.get(fd.name) ?? routeReads.get(`${fd.name}${aggName}`);
+      if (routeRead) {
+        report.push(
+          `${label} — '${routeRead}' reads its route, which goes with the declaration; expose a routed queryHandler and repoint that read by hand`,
+        );
+        continue;
+      }
       const fields = aggregateFieldNames(ast, agg);
       const params = new Set(fd.params.map((p) => p.name));
-      const pairs = fd.filter ? equalityPairs(fd.filter, params) : conventionPairs(fd, fields);
-      if (!pairs || pairs.length === 0) {
-        report.push(
-          `${label} — its ${fd.filter ? "'where' is not an equality conjunction over fields" : "parameters bind no key"}; it is a query, not a key lookup (a criterion + Repo.find(C) / run)`,
-        );
-        continue;
-      }
-      const boundParams = new Set(pairs.map(([p]) => p));
-      const keyCols = [...new Set(pairs.map(([, f]) => f))];
-      if (
-        boundParams.size !== fd.params.length ||
-        keyCols.length !== pairs.length ||
-        keyCols.some((c) => !fields.has(c) && c !== "id")
-      ) {
-        report.push(`${label} — its parameters and key fields are not one-to-one; migrate by hand`);
-        continue;
-      }
-      if (keyCols.includes("id")) {
-        report.push(
-          `${label} — a by-id find: read it with ${shape === "findBy" ? "findById" : "getById"}(id); migrate by hand`,
-        );
-        continue;
-      }
-      const tuples = declaredTuples(ast, agg);
-      const keySet = new Set(keyCols);
-      let tuple = tuples.find((t) => t.length === keySet.size && t.every((c) => keySet.has(c)));
-      if (!tuple) {
-        if (!addUnique) {
+      const key = keyOf(
+        fd,
+        fd.filter ? equalityPairs(fd.filter, params) : conventionPairs(fd, fields),
+      );
+      const ignoring = ignoringText(fd);
+      const absent = shape !== "row"; // a miss is a value (`T?`, `T option`, `T or <Error>`)
+      const [rs, re, comment] = removalRange(
+        text,
+        fd.$cstNode.offset - shift,
+        fd.$cstNode.end - shift,
+      );
+      const plan = {
+        key: `${repo.name}.${fd.name}`,
+        label,
+        shape,
+        repo,
+        edits: [{ start: rs, end: re, text: "" }],
+        criterionDecl: undefined,
+        unique: undefined,
+      };
+      // Target 2 — the aggregate's id.
+      if (key && key.cols.length === 1 && key.cols[0] === "id") {
+        if (ignoring) {
           report.push(
-            `${label} — its key (${keyCols.join(", ")}) is not a declared unique key of '${aggName}'; declare 'unique (${keyCols.join(", ")})' (or rerun with --add-unique)`,
+            `${label} — a by-id find with '${ignoring}': the built-in by-id read carries no 'ignoring'; migrate by hand`,
           );
           continue;
         }
-        tuple = keyCols;
-        const pending = uniquesToAdd.get(agg) ?? [];
-        if (!pending.some((t) => t.join(",") === tuple.join(","))) pending.push(tuple);
-        uniquesToAdd.set(agg, pending);
+        plans.push({ ...plan, target: { kind: "by-id", verb: absent ? "findById" : "getById" } });
+        continue;
       }
-      const routeRead = routeReads.get(fd.name);
-      if (routeRead) {
+      // Target 1 — a declared (or, opted in, an added) unique tuple.
+      if (key?.cols.every((c) => fields.has(c))) {
+        const keySet = new Set(key.cols);
+        const declared = declaredTuples(ast, agg).find(
+          (t) => t.length === keySet.size && t.every((c) => keySet.has(c)),
+        );
+        const tuple = declared ?? (addUnique ? key.cols : undefined);
+        if (tuple) {
+          plans.push({
+            ...plan,
+            unique: declared ? undefined : { agg, cols: tuple },
+            target: {
+              kind: "key",
+              verb: absent ? "findBy" : "getBy",
+              cols: key.colOfParam,
+              ignoring,
+            },
+          });
+          continue;
+        }
+      }
+      // Target 3 — a criterion, read with `find(C)`.
+      if (ignoring) {
         report.push(
-          `${label} — '${routeRead}' reads its route, which goes with the declaration; expose a routed queryHandler over ${repo.name}.${shape}(…) and repoint that read by hand`,
+          `${label} — '${ignoring}': Repo.find(<Criterion>) carries no 'ignoring'; declare the key unique (findBy keeps it) or migrate by hand`,
         );
         continue;
       }
-      known.set(`${repo.name}.${fd.name}`, {
-        verb: shape,
-        // Column per call-site argument position.
-        cols: fd.params.map((p) => pairs.find(([pp]) => pp === p.name)[1]),
-        ignoring: ignoringText(fd),
-        label,
+      if (readsCurrentUser(fd.filter)) {
+        report.push(
+          `${label} — its 'where' reads currentUser, which a criterion cannot; migrate by hand`,
+        );
+        continue;
+      }
+      const reused = reusedCriterion(fd, ctx);
+      const body = fd.filter ? fd.filter.$cstNode.text : conventionBody(fd, fields);
+      if (!reused && !body) {
+        report.push(
+          `${label} — no 'where' and no parameter names a field: it reads an arbitrary row; migrate by hand`,
+        );
+        continue;
+      }
+      let name = reused;
+      if (!name) {
+        const base = `${pascal(plural(aggName))}${pascal(fd.name)}`;
+        name = base;
+        for (let i = 2; taken.has(name); i++) name = `${base}${i}`;
+        taken.add(name);
+      }
+      const ps = fd.params.map((p) => p.$cstNode.text).join(", ");
+      plans.push({
+        ...plan,
+        criterionDecl: reused
+          ? undefined
+          : { comment, text: `criterion ${name}${ps ? `(${ps})` : ""} of ${aggName} = ${body}` },
+        target: { kind: "criterion", name, mustExist: !absent },
       });
-      const [rs, re] = findRemovalRange(text, fd.$cstNode.offset - shift, fd.$cstNode.end - shift);
-      edits.push({ start: rs, end: re, text: "" });
     }
   }
-  for (const [agg, tuples] of uniquesToAdd) {
-    const end = agg.$cstNode.end - shift;
-    const close = end - 1;
-    const ind = `${indentAt(text, agg.$cstNode.offset - shift)}  `;
-    const decls = tuples.map((t) => `unique (${t.join(", ")})`);
-    const ls = lineStart(text, close);
-    if (text.slice(ls, close).trim() === "") {
-      edits.push({ start: ls, end: ls, text: decls.map((d) => `${ind}${d}\n`).join("") });
-    } else {
-      let open = close;
-      while (open > 0 && text[open - 1] === " ") open--;
-      edits.push({ start: open, end: open, text: decls.map((d) => `  ${d}`).join("") });
-    }
-  }
-  return edits;
+  return plans;
 }
 
-/** Call sites `Repo.<find>(args)` → `Repo.findBy(<col>: arg, …)`. */
-function planCalls(ast, shift, scope, report, where) {
-  const edits = [];
-  for (const n of AstUtils.streamAst(ast)) {
-    if (n.$type !== "PostfixChain" || n.head?.$type !== "NameRef") continue;
-    const s0 = n.suffixes[0];
-    if (s0?.$type !== "MemberSuffix" || !s0.call) continue;
-    const hit = scope.get(`${n.head.name}.${s0.member}`);
-    if (!hit) continue;
-    const args = s0.args ?? [];
-    if (args.length !== hit.cols.length || args.some((a) => a.name)) {
-      report.push(
-        `${where}: '${n.$cstNode.text}' does not pass ${hit.label}'s parameters positionally; migrate by hand`,
-      );
-      continue;
+/** Where a call `Repo.<find>(…)` sits: an `if let` source, a `let`, an
+ *  expression in a domain-service operation, or elsewhere. */
+function callPosition(n) {
+  const parent = n.$container;
+  if (parent?.$type === "IfLetStmt" && n.$containerProperty === "source") return "if-let";
+  if (parent?.$type === "LetStmt" && n.$containerProperty === "expr") return "let";
+  if (AstUtils.getContainerOfType(n, (x) => x.$type === "DomainServiceOperation")) return "service";
+  return "other";
+}
+
+/** A `let`-bound union read whose binding a `match` narrows on. */
+function matchesOnVariant(n) {
+  const let_ = n.$container;
+  if (let_?.$type !== "LetStmt") return false;
+  const body = let_.$container;
+  for (const m of AstUtils.streamAst(body)) {
+    if ((m.$type === "MatchStmt" || m.$type === "MatchExpr") && m.varArms?.length) {
+      const s = unparen(m.subject);
+      if (s?.$type === "NameRef" && s.name === let_.name) return true;
     }
-    const named = args.map((a, i) => `${hit.cols[i]}: ${a.value.$cstNode.text}`).join(", ");
-    const start = s0.$cstNode.offset - shift;
-    const end = s0.$cstNode.end - shift;
-    edits.push({ start, end, text: `.${hit.verb}(${named})` });
-    if (hit.ignoring && !/\bignoring\b/.test(n.$cstNode.text)) {
-      const parent = n.$container;
-      const bound =
-        n.suffixes.length === 1 &&
-        ((parent?.$type === "LetStmt" && n.$containerProperty === "expr") ||
-          (parent?.$type === "IfLetStmt" && n.$containerProperty === "source"));
-      if (!bound) {
-        report.push(
-          `${where}: '${n.$cstNode.text}' reads ${hit.label} (${hit.ignoring}) where 'ignoring' cannot follow; bind it with let / if let by hand`,
-        );
-        edits.pop();
-        continue;
-      }
+  }
+  return false;
+}
+
+/** The rewrite of one call site under `plan`, or a reason it cannot take it. */
+function rewriteCall(n, plan, shift) {
+  const s0 = n.suffixes[0];
+  const args = s0.args ?? [];
+  const start = s0.$cstNode.offset - shift;
+  const end = s0.$cstNode.end - shift;
+  const t = plan.target;
+  if (args.some((a) => a.name)) return { blocked: "passes named arguments" };
+  const argText = args.map((a) => a.value.$cstNode.text);
+  const pos = callPosition(n);
+  if (n.suffixes.length !== 1) return { blocked: "reads past the result in one chain" };
+  if (plan.shape === "union" && matchesOnVariant(n))
+    return {
+      blocked: "matches on the error variant; a miss is T? now — rewrite the match by hand",
+    };
+  // An absence-returning read (`findBy`, `findById`, `find(C)`) is a `T?`,
+  // which only an `if let` source or a domain-service expression can take.
+  const absentVerb =
+    (t.kind === "key" && t.verb === "findBy") ||
+    (t.kind === "by-id" && t.verb === "findById") ||
+    (t.kind === "criterion" && !t.mustExist);
+  if (absentVerb && pos !== "if-let" && pos !== "service")
+    return {
+      blocked: `is a ${pos === "let" ? "'let'" : "position"} a T? read cannot take (only an 'if let' source or a domain-service expression)`,
+    };
+  if (t.kind === "key") {
+    if (args.length !== t.cols.length) return { blocked: "does not pass every parameter" };
+    const edits = [
+      { start, end, text: `.${t.verb}(${argText.map((a, i) => `${t.cols[i]}: ${a}`).join(", ")})` },
+    ];
+    if (t.ignoring && !/\bignoring\b/.test(n.$cstNode.text)) {
+      if (pos !== "let" && pos !== "if-let")
+        return { blocked: `sits where '${t.ignoring}' cannot follow (bind it with let / if let)` };
       const chainEnd = n.$cstNode.end - shift;
-      edits.push({ start: chainEnd, end: chainEnd, text: ` ${hit.ignoring}` });
+      edits.push({ start: chainEnd, end: chainEnd, text: ` ${t.ignoring}` });
     }
+    return { edits };
   }
-  return edits;
-}
-
-function applyEdits(text, edits) {
-  const sorted = [...edits].sort((a, b) => b.start - a.start || b.end - a.end);
-  let out = text;
-  for (const e of sorted) out = out.slice(0, e.start) + e.text + out.slice(e.end);
-  return out;
-}
-
-/** A repository body the codemod emptied (it spans lines) collapses to
- *  `{ }`; a body written empty is left as written. */
-function tidyEmptyRepos(text) {
-  return text.replace(/(\brepository\s+\w+\s+for\s+\w+\s*)\{[ \t]*\n\s*\}/g, "$1{ }");
-}
-
-/** The snippets of one file: [start, end) ranges of migratable source. */
-function snippetsOf(file, src) {
-  if (file.endsWith(".ddd")) return [[0, src.length]];
-  if (file.endsWith(".md")) {
-    const out = [];
-    const re = /```ddd[^\n]*\n([\s\S]*?)```/g;
-    for (let m = re.exec(src); m; m = re.exec(src)) {
-      const start = m.index + m[0].indexOf("\n") + 1;
-      out.push([start, start + m[1].length]);
-    }
-    return out;
+  if (t.kind === "by-id") {
+    if (t.verb === "findById" && pos === "if-let")
+      return { blocked: "is an 'if let' source, which findById is not" };
+    return { edits: [{ start, end, text: `.${t.verb}(${argText.join(", ")})` }] };
   }
-  if (file.endsWith(".ts")) return templateLiterals(src);
-  return [];
-}
-
-/** Template-literal bodies of a TS source. */
-function templateLiterals(src) {
-  const out = [];
-  let i = 0;
-  while (i < src.length) {
-    const c = src[i];
-    if (c === "/" && src[i + 1] === "/") {
-      while (i < src.length && src[i] !== "\n") i++;
-    } else if (c === "/" && src[i + 1] === "*") {
-      const e = src.indexOf("*/", i + 2);
-      i = e < 0 ? src.length : e + 2;
-    } else if (c === '"' || c === "'") {
-      i++;
-      while (i < src.length && src[i] !== c && src[i] !== "\n") i += src[i] === "\\" ? 2 : 1;
-      i++;
-    } else if (c === "`") {
-      const start = i + 1;
-      let j = start;
-      let depth = 0;
-      while (j < src.length) {
-        if (src[j] === "\\") {
-          j += 2;
-          continue;
-        }
-        if (depth === 0 && src[j] === "`") break;
-        if (src[j] === "$" && src[j + 1] === "{") {
-          depth++;
-          j += 2;
-          continue;
-        }
-        if (depth > 0 && src[j] === "}") depth--;
-        j++;
-      }
-      out.push([start, j]);
-      i = j + 1;
-    } else i++;
-  }
-  return out;
-}
-
-/** Same-length mask of `${…}` holes, so the snippet parses without them. */
-function maskHoles(snippet) {
-  const holes = [];
-  let out = "";
-  let i = 0;
-  while (i < snippet.length) {
-    if (snippet[i] === "$" && snippet[i + 1] === "{") {
-      let depth = 1;
-      let j = i + 2;
-      while (j < snippet.length && depth > 0) {
-        if (snippet[j] === "{") depth++;
-        else if (snippet[j] === "}") depth--;
-        j++;
-      }
-      holes.push([i, j]);
-      out += " ".repeat(j - i);
-      i = j;
-    } else {
-      out += snippet[i];
-      i++;
-    }
-  }
-  return { masked: out, holes };
+  // criterion
+  if (t.mustExist)
+    return {
+      blocked:
+        "needs the row (a must-exist find over a non-unique key): no else-branch statement answers a 404 — declare the key unique (getBy) or rewrite by hand",
+    };
+  return { edits: [{ start, end, text: `.find(${t.name}(${argText.join(", ")}))` }] };
 }
 
 /** Migrate a set of sources together (call sites may sit in another `.ddd`
@@ -485,29 +420,137 @@ function maskHoles(snippet) {
  *  report: string[] }`. */
 export function migrateSources(sources, opts = {}) {
   const addUnique = opts.addUnique === true;
-  const known = new Map();
   const report = [];
-  const parsed = [];
-  for (const { file, text } of sources) {
-    const snippets = [];
-    for (const [s, e] of snippetsOf(file, text)) {
-      const raw = text.slice(s, e);
-      if (!/\bfind\b/.test(raw) && !/\.\w+\(/.test(raw)) continue;
-      const { masked, holes } = file.endsWith(".ts") ? maskHoles(raw) : { masked: raw, holes: [] };
-      const p = parseSnippet(masked);
-      if (!p) continue;
-      snippets.push({ start: s, raw, masked, holes, ...p });
-    }
-    parsed.push({ file, text, snippets });
-  }
-  const perSnippet = new Map();
+  const parsed = parseSources(sources, (raw) => /\bfind\b/.test(raw) || /\.\w+\(/.test(raw));
+  // Pass 1 — every find's tentative plan.
+  const plansBySnippet = new Map();
+  const known = new Map(); // `<Repo>.<find>` → plan, for `.ddd` cross-file calls
   for (const { file, snippets } of parsed) {
     for (const sn of snippets) {
-      const local = new Map();
-      const edits = planFinds(sn.ast, sn.masked, sn.shift, local, report, file, addUnique);
-      if (file.endsWith(".ddd"))
-        for (const [k, v] of local) known.set(k, { ...v, dir: path.dirname(file) });
-      perSnippet.set(sn, { edits, local });
+      const plans = planFinds(sn.ast, sn.masked, sn.shift, report, file, addUnique);
+      for (const p of plans) {
+        p.file = file;
+        p.sn = sn;
+        p.dir = path.dirname(file);
+        p.callEdits = [];
+        p.blocked = [];
+      }
+      plansBySnippet.set(sn, plans);
+      if (file.endsWith(".ddd")) for (const p of plans) known.set(p.key, p);
+    }
+  }
+  // Pass 2 — every call site, against its snippet's own finds or (for a
+  // `.ddd` file) a related `.ddd` file's.
+  for (const { file, snippets } of parsed) {
+    for (const sn of snippets) {
+      const local = new Map(plansBySnippet.get(sn).map((p) => [p.key, p]));
+      const ownRepos = new Set(
+        [...AstUtils.streamAst(sn.ast)].filter((n) => n.$type === "Repository").map((n) => n.name),
+      );
+      const dir = path.dirname(file);
+      const related = (d) => d === dir || d.startsWith(`${dir}/`) || dir.startsWith(`${d}/`);
+      for (const n of AstUtils.streamAst(sn.ast)) {
+        if (n.$type !== "PostfixChain" || n.head?.$type !== "NameRef") continue;
+        const s0 = n.suffixes[0];
+        if (s0?.$type !== "MemberSuffix" || !s0.call) continue;
+        const k = `${n.head.name}.${s0.member}`;
+        let plan = local.get(k);
+        if (!plan && file.endsWith(".ddd") && !ownRepos.has(n.head.name)) {
+          const foreign = known.get(k);
+          if (foreign && related(foreign.dir)) plan = foreign;
+        }
+        if (!plan) continue;
+        const r = rewriteCall(n, plan, sn.shift);
+        if (r.blocked)
+          plan.blocked.push(`${file}: '${n.$cstNode.text.split("\n")[0]}' ${r.blocked}`);
+        else plan.callEdits.push({ sn, edits: r.edits });
+      }
+    }
+  }
+  // Pass 2b — a find named anywhere the codemod does not rewrite stays
+  // declared.  In a `.ts` / `.md` file a model is often split over several
+  // snippets (or asserted on by name: `toContain("byEmail")`), and in any file
+  // the emitted spellings (`by_email`, `ByEmail`) may be read back; a caller
+  // can also veto a find (`opts.keep`, e.g. a test asserting on a fixture's
+  // find by name).
+  const textOf = new Map(parsed.map((p) => [p.file, p.text]));
+  for (const plans of plansBySnippet.values()) {
+    for (const p of plans) {
+      const name = p.key.split(".")[1];
+      const vetoed = opts.keep?.(p.file, p.repo.name, name);
+      if (vetoed) {
+        p.blocked.push(`${p.file}: ${vetoed}`);
+        continue;
+      }
+      if (p.file.endsWith(".ddd")) continue;
+      const text = textOf.get(p.file);
+      const count = (re) => (text.match(re) ?? []).length;
+      const own = count(new RegExp(`\\b${name}\\b`, "g"));
+      const rewritten = p.callEdits.filter((c) => c.sn.file === p.file).length;
+      const variants = [snake(name), pascal(name)].filter((v) => v !== name);
+      if (own > 1 + rewritten || variants.some((v) => count(new RegExp(`\\b${v}\\b`, "g")) > 0))
+        p.blocked.push(
+          `${p.file}: is named elsewhere in the file (another snippet or an assertion)`,
+        );
+    }
+  }
+  // Pass 3 — a find with a blocked call site stays declared.
+  const editsBySnippet = new Map();
+  const add = (sn, e) => {
+    const list = editsBySnippet.get(sn) ?? [];
+    list.push(...e);
+    editsBySnippet.set(sn, list);
+  };
+  for (const plans of plansBySnippet.values()) {
+    const accepted = [];
+    for (const p of plans) {
+      if (p.blocked.length > 0) {
+        for (const b of p.blocked) report.push(`${p.label} — kept: its call ${b}`);
+        continue;
+      }
+      accepted.push(p);
+      add(p.sn, p.edits);
+      for (const c of p.callEdits) add(c.sn, c.edits);
+    }
+    // Criteria go after their repository; uniques into their aggregate.
+    const byRepo = new Map();
+    for (const p of accepted) {
+      if (!p.criterionDecl) continue;
+      const list = byRepo.get(p.repo) ?? [];
+      list.push(p.criterionDecl);
+      byRepo.set(p.repo, list);
+    }
+    for (const [repo, decls] of byRepo) {
+      const sn = accepted[0].sn;
+      const text = sn.masked;
+      const repoEnd = repo.$cstNode.end - sn.shift;
+      const ind = indentAt(text, repo.$cstNode.offset - sn.shift);
+      const block = decls
+        .map((d) => [...d.comment.map((l) => `${ind}${l}`), `${ind}${d.text}`].join("\n"))
+        .join("\n");
+      add(sn, [{ start: repoEnd, end: repoEnd, text: `\n${block}` }]);
+    }
+    const uniques = new Map();
+    for (const p of accepted) {
+      if (!p.unique) continue;
+      const list = uniques.get(p.unique.agg) ?? [];
+      if (!list.some((t) => t.join(",") === p.unique.cols.join(","))) list.push(p.unique.cols);
+      uniques.set(p.unique.agg, list);
+    }
+    for (const [agg, tuples] of uniques) {
+      const sn = accepted[0].sn;
+      const text = sn.masked;
+      const close = agg.$cstNode.end - sn.shift - 1;
+      const ind = `${indentAt(text, agg.$cstNode.offset - sn.shift)}  `;
+      const decls = tuples.map((t) => `unique (${t.join(", ")})`);
+      const ls = lineStart(text, close);
+      if (text.slice(ls, close).trim() === "") {
+        add(sn, [{ start: ls, end: ls, text: decls.map((d) => `${ind}${d}\n`).join("") }]);
+      } else {
+        let open = close;
+        while (open > 0 && text[open - 1] === " ") open--;
+        add(sn, [{ start: open, end: open, text: decls.map((d) => `  ${d}`).join("") }]);
+      }
     }
   }
   const results = [];
@@ -515,25 +558,9 @@ export function migrateSources(sources, opts = {}) {
     let out = text;
     let changed = 0;
     for (const sn of [...snippets].sort((a, b) => b.start - a.start)) {
-      const { edits: findEdits, local } = perSnippet.get(sn);
-      // A call into another file's find is taken only when this model declares
-      // no repository of that name and the two files sit in one directory tree
-      // (a multi-file system), never across unrelated systems.
-      const ownRepos = new Set(
-        [...AstUtils.streamAst(sn.ast)].filter((n) => n.$type === "Repository").map((n) => n.name),
-      );
-      const dir = path.dirname(file);
-      const related = (d) => d === dir || d.startsWith(`${dir}/`) || dir.startsWith(`${d}/`);
-      const foreign = file.endsWith(".ddd")
-        ? [...known].filter(([k, v]) => !ownRepos.has(k.split(".")[0]) && related(v.dir))
-        : [];
-      const scope = new Map([...foreign, ...local]);
-      const edits = [...findEdits, ...planCalls(sn.ast, sn.shift, scope, report, file)];
+      const edits = editsBySnippet.get(sn) ?? [];
       if (edits.length === 0) continue;
-      const touchesHole = edits.some((e) =>
-        sn.holes.some(([hs, he]) => e.start < he && e.end > hs),
-      );
-      if (touchesHole) {
+      if (edits.some((e) => sn.holes.some(([hs, he]) => e.start < he && e.end > hs))) {
         report.push(
           `${file}: a template literal's rewrite touches a \${…} hole — migrate it by hand`,
         );
@@ -554,18 +581,6 @@ export function migrateSource(text, file = "input.ddd", opts = {}) {
   return { text: results[0].text, changed: results[0].changed, report };
 }
 
-async function* walk(p) {
-  const st = await fs.stat(p);
-  if (st.isFile()) {
-    if (/\.(ddd|md|ts)$/.test(p)) yield p;
-    return;
-  }
-  for (const e of await fs.readdir(p, { withFileTypes: true })) {
-    if (e.isDirectory() && SKIP_DIRS.has(e.name)) continue;
-    yield* walk(path.join(p, e.name));
-  }
-}
-
 async function main() {
   const args = process.argv.slice(2);
   const check = args.includes("--check");
@@ -573,7 +588,8 @@ async function main() {
   const addUnique = args.includes("--add-unique");
   const roots = args.filter((a) => !a.startsWith("--"));
   const files = [];
-  for (const root of roots.length ? roots : ["."]) for await (const f of walk(root)) files.push(f);
+  for (const root of roots.length ? roots : ["."])
+    for await (const f of walkFiles(root)) files.push(f);
   files.sort();
   const sources = [];
   for (const file of files) sources.push({ file, text: await fs.readFile(file, "utf8") });

@@ -520,12 +520,14 @@ function renderCall(
       // the synthesized retrieval method (`run<RetrievalName>`), exactly as the
       // workflow `repo-run` does — so the criterion actually filters the query
       // instead of being dropped for the whole-table read.  A single-result
-      // `find` takes the first row (`[0] ?? null`), mirroring the if-let render.
+      // `find` takes the first row (`((…)[0] ?? null)`), mirroring the if-let render.
       const read = e.repoRead!;
       const handle = lowerFirst(read.repo);
       if (read.retrievalName) {
         const call = `${handle}.run${upperFirst(read.retrievalName)}(${argList})`;
-        return read.op === "select-one" ? `(await ${call})[0] ?? null` : `(await ${call})`;
+        // Parenthesised whole: `??` binds looser than `===`, so a bare
+        // `(await …)[0] ?? null === null` would compare `null === null`.
+        return read.op === "select-one" ? `((await ${call})[0] ?? null)` : `(await ${call})`;
       }
       return `(await ${handle}.${read.method}(${argList}))`;
     }

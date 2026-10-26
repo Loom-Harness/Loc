@@ -5321,20 +5321,27 @@ first (`loom.single-row-find-not-unique` was only advisory). And
   not-found where node and .NET already did for a `T` find.
 - `T or <Error>` finds are dropped: a miss is `T?`, and a `getBy` miss is the
   standard 404. `T option` maps like `T?`, `T envelope` like `T`.
-- `scripts/codemod-find-to-findby.mjs` deletes each single-row find whose
-  `where` is an equality conjunction over a declared tuple (a clause-less find
-  binding its parameters by name counts) and rewrites its call sites,
-  carrying the find's `ignoring`. A find over an undeclared key is reported,
-  or with `--add-unique` gets its `unique (…)`. `T or <Error>` finds, by-id
-  finds, query-shaped `where`s and finds whose route a client reads are
-  reported, never guessed.
+- `findBy` / `getBy` stay unique-only (owner ruling, 2026-10-25, second
+  comment): they promise zero-or-one, and only a declared `unique (…)` makes
+  that true. A single-row find over any other key is a specification query —
+  a `criterion` read with `Repo.find(<Criterion>)` (first match, `T?`).
+- `scripts/codemod-find-to-findby.mjs` migrates every single-row find: a
+  declared tuple → `findBy` / `getBy` (carrying `ignoring`); the `id` →
+  `findById` / `getById`; anything else → `criterion <Plural><Find>` beside
+  the repository (an existing one reused) and `Repo.find(<Criterion>(args))`.
+  A clause-less find binding its parameters by name counts as the equality
+  conjunction. A find moves only when every call site takes its target; a
+  `T?` read is accepted as an `if let` source or in a domain-service
+  expression, and a must-exist find over a non-unique key has no target (no
+  `else` statement answers a 404), so those call sites are reported and the
+  find stays. `--add-unique` declares the key instead; never by default.
 
 **Consequences.** A natural-key read no longer needs a repository body. The
 synthesised method is not on the wire: a client that read a find's route
-needs a routed `queryHandler` over `getBy`. Most single-row finds in the
-corpus key on fields no `unique (…)` covers; they stay finds until their
-authors declare the key (or the codemod runs with `--add-unique`), and the
-`FindDecl` removal has to settle them.
+needs a routed `queryHandler` over the read. What the codemod reports (route
+reads, must-exist finds over non-unique keys, variant matches on a
+`T or <Error>` read, row-less finds) is what the `FindDecl` removal still has
+to settle by hand.
 
 ## D-TARGET-MATRIX-FROZEN — no new backends or frontends: the target set is five backends and six frontends
 

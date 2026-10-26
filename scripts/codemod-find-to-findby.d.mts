@@ -15,6 +15,9 @@ export interface MigrateOptions {
   /** Add `unique (<key>)` to the aggregate of a find whose key matches no
    *  declared tuple, and migrate it (the `--add-unique` flag). */
   addUnique?: boolean;
+  /** Veto a find: return a reason to keep it declared (reported), e.g. a test
+   *  that asserts on the fixture's find by name. */
+  keep?: (file: string, repo: string, find: string) => string | undefined;
 }
 
 /** Migrate several sources together — a `.ddd` file's call sites may name a

@@ -9,7 +9,9 @@
 //     declared order (both spellings reach ONE method, `findByRegionAndName`);
 //   - `ignoring *` widening a read past the `softDeletable` filter (its own
 //     method);
-//   - a `domainService` reading op (`findBy(…) != null`).
+//   - a `domainService` reading op (`findBy(…) != null`, `find(C) == null`);
+//   - a criterion read with `Repo.find(<Criterion>)`, the target for a key no
+//     `unique (…)` declares.
 // Compiled by each backend's `LOOM_*_BUILD` gate.
 system KeyShop {
   subdomain Sales {
@@ -27,9 +29,22 @@ system KeyShop {
       }
       repository Products for Product { }
 
+      // A key no `unique (…)` declares is a criterion, read with `find(C)`
+      // (the codemod's target for a non-unique single-row find).
+      criterion ProductsInRegion(region: string) of Product = this.region == region
+
       domainService ProductQueries {
         operation skuTaken(sku: string): bool {
           return Products.findBy(sku: sku) != null
+        }
+        operation regionEmpty(region: string): bool {
+          return Products.find(ProductsInRegion(region)) == null
+        }
+      }
+
+      workflow repriceFirstInRegion {
+        create(region: string, to: int) {
+          if let p = Products.find(ProductsInRegion(region)) { p.reprice(to) }
         }
       }
 
