@@ -10,7 +10,9 @@
 // There is no implicit propagation.
 //
 // Test and `ui` bodies are not judged: a test asserts on what it cares about,
-// and a page handles a result through `match await`.
+// and a page handles a result through `match await`. Neither is a statement a
+// macro synthesized (it has no CST node): its author cannot fix it in place,
+// so the macro has to handle the result itself.
 
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
@@ -32,6 +34,7 @@ import type { Ty } from "../typing/ty.js";
 
 function exempt(node: AstNode): boolean {
   return (
+    node.$cstNode === undefined ||
     AstUtils.getContainerOfType(node, isTestE2E) !== undefined ||
     AstUtils.getContainerOfType(node, isTestBlock) !== undefined ||
     AstUtils.getContainerOfType(node, isUi) !== undefined ||

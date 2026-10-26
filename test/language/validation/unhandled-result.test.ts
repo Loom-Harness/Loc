@@ -60,4 +60,13 @@ describe("loom.unhandled-result", () => {
   ])("admits %s", async (_what, op) => {
     expect(await codes(op)).toEqual([]);
   });
+
+  it("leaves a statement a macro synthesized to the macro", async () => {
+    // `scaffoldHandlers` mints `o.withdraw(…)` for the operation's handler.
+    const { diagnostics } = await parseString(
+      ctx("").replace("context C {", "context C with scaffoldHandlers {"),
+      { validate: true },
+    );
+    expect(lspCodes(diagnostics)).not.toContain(CODE);
+  });
 });
