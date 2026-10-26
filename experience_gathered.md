@@ -6968,7 +6968,7 @@ Verified on SQLAlchemy 2.1.6 while moving python reads onto one `do_orm_execute`
 
 ## 137. Fleet coordination: label writes replace the set, and the migration harness's own postgres races (2026-10-26)
 
-Two traps that cost a fleet coordinator a cleanup pass each:
+Three lessons from one fleet coordination pass:
 
 - The GitHub MCP `issue_write` call with `labels` **replaces** the issue's whole
   label set. A worker that "adds `in-progress`" by passing `["in-progress"]` wipes
