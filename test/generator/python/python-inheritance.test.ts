@@ -36,26 +36,40 @@ describe("python TPH inheritance", () => {
     // Concrete-own columns forced nullable.
     expect(schema).toContain("    credit_limit: Mapped[int | None] = mapped_column(Integer)");
     expect(schema).toContain("    rating: Mapped[int | None] = mapped_column(Integer)");
-    expect(schema).not.toContain("class CustomerRow");
-    expect(schema).not.toContain("class VendorRow");
   });
 
-  it("concrete repos kind-scope reads, stamp kind on save, assert-narrow own fields", async () => {
+  it("maps the hierarchy natively: polymorphic_on the root, one identity per concrete", async () => {
+    const schema = (await build()).get("api/app/db/schema.py")!;
+    expect(schema).toContain(
+      '    __mapper_args__ = {"polymorphic_on": "kind", "polymorphic_abstract": True}',
+    );
+    expect(schema).toContain(
+      'class CustomerRow(PartyRow):\n    __mapper_args__ = {"polymorphic_identity": "Customer"}',
+    );
+    expect(schema).toContain(
+      'class VendorRow(PartyRow):\n    __mapper_args__ = {"polymorphic_identity": "Vendor"}',
+    );
+  });
+
+  it("concrete repos read their mapped subclass, stamp kind on save, assert-narrow own fields", async () => {
     const files = await build();
     const repo = files.get("api/app/db/repositories/customer_repository.py")!;
-    expect(repo).toContain('PartyRow.kind == "Customer"');
+    // SQLAlchemy adds `kind IN ('Customer')` to every `select(CustomerRow)`.
+    expect(repo).toContain("select(CustomerRow).where((CustomerRow.email == email))");
+    expect(repo).not.toMatch(/\.kind == "Customer"\)\)\)/);
+    // The upsert writes the shared table and keeps its write-path guard.
     expect(repo).toContain('"kind": "Customer",');
     expect(repo).toContain("assert row.credit_limit is not None");
-    // Finds scope too.
-    expect(repo).toContain('and_((PartyRow.email == email), PartyRow.kind == "Customer")');
   });
 
-  it("the TPH base reader dispatches on kind through the concrete repos", async () => {
+  it("the TPH base reader is one polymorphic select, hydrating each row as its subclass", async () => {
     const files = await build();
     const reader = files.get("api/app/db/repositories/party_repository.py")!;
     expect(reader).toContain("class PartyRepository:");
-    expect(reader).toContain('if row.kind == "Customer":');
-    expect(reader).toContain('elif row.kind == "Vendor":');
+    expect(reader).toContain("select(PartyRow).order_by(PartyRow.id.asc())");
+    expect(reader).toContain("if isinstance(row, CustomerRow):");
+    expect(reader).toContain("if isinstance(row, VendorRow):");
+    expect(reader).not.toContain("row.kind ==");
     const union = files.get("api/app/domain/party.py")!;
     expect(union).toContain("Party = Customer | Vendor");
   });

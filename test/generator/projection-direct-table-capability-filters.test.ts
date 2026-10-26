@@ -157,22 +157,31 @@ describe("direct-table projection — node (Hono/MikroORM)", () => {
 });
 
 describe("direct-table projection — python (FastAPI/SQLAlchemy)", () => {
-  it("ANDs the capability filter into both aggregation selects", async () => {
-    const f = await fileContaining(softDeleteSystem("python"), "query_projections_routes");
-    expect(f).toContain(
-      "select(func.count()).select_from(OrderRow).where(not_(OrderRow.is_deleted))",
+  // The read-scope hook adds the source's restrictions to every ORM SELECT of
+  // its row class, the aggregation's `select_from` included.
+  it("hosts the capability filter in the read-scope hook the aggregation selects ride", async () => {
+    const files = await generateSystemFiles(softDeleteSystem("python"));
+    const pick = (n: string): string => [...files].find(([k]) => k.includes(n))?.[1] ?? "";
+    expect(pick("app/db/read_scope.py")).toContain(
+      "with_loader_criteria(OrderRow, lambda cls: not_(cls.is_deleted), include_aliases=True)",
     );
-    expect(f).toContain(".select_from(OrderRow).where(not_(OrderRow.is_deleted))");
+    const f = pick("query_projections_routes");
+    expect(f).toContain("select(func.count()).select_from(OrderRow))).one()");
+    expect(f).not.toContain("is_deleted");
   });
 
   it("scopes a tenantOwned source to the caller, and honours `ignoring *`", async () => {
-    const f = await fileContaining(tenancySystem("python"), "query_projections_routes");
-    expect(f).toContain(
-      "select(func.count()).select_from(OrderRow).where((OrderRow.tenant_id == require_current_user().tenant_id))",
+    const files = await generateSystemFiles(tenancySystem("python"));
+    const pick = (n: string): string => [...files].find(([k]) => k.includes(n))?.[1] ?? "";
+    expect(pick("app/db/read_scope.py")).toContain(
+      "with_loader_criteria(OrderRow, (OrderRow.tenant_id == user.tenant_id), include_aliases=True)",
     );
-    expect(f).toContain("from app.auth.user import require_current_user");
-    // The bypassed read keeps the bare select.
+    const f = pick("query_projections_routes");
     expect(f).toContain("select(func.count()).select_from(OrderRow))).one()");
+    // The bypassed read names the wildcard the hook drops it for.
+    expect(f).toContain(
+      'select(func.count()).select_from(OrderRow).execution_options(loom_ignoring=frozenset({"*"}))',
+    );
   });
 });
 

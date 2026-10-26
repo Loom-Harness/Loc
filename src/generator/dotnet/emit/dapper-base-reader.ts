@@ -24,14 +24,11 @@
 // (`Polymorphic`), the same discipline as the per-aggregate scope helper
 // (dapper-scope.ts): no statement here spells a `kind` or capability predicate.
 //
-// Routed as `GET /api/<bases>?page=&pageSize=` (the paged envelope of tagged
-// rows) and `GET /api/<bases>/{id}`; see `renderDapperBaseController`.
+// The `I<Base>Repository` port and the routed `<Bases>Controller` are the shared
+// ones (`base-reader.ts`): `GET /api/<bases>?page=&pageSize=` (the paged envelope
+// of tagged rows) and `GET /api/<bases>/{id}`.
 
-import {
-  type PolymorphicRead,
-  polymorphicReadFor,
-  polymorphicReadRouted,
-} from "../../../ir/enrich/read-scope.js";
+import { type PolymorphicRead, polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
 import type {
   AggregateIR,
   EnrichedAggregateIR,
@@ -39,8 +36,7 @@ import type {
   ExprIR,
 } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
-import { escapeCsharpIdent, lowerFirst, plural, snake } from "../../../util/naming.js";
-import { csIdValueClrType, projectEntityExpr } from "../dto-mapping.js";
+import { escapeCsharpIdent, lowerFirst, plural } from "../../../util/naming.js";
 import {
   claimGuidHelperLines,
   collectFilterPrincipalRefs,
@@ -57,40 +53,6 @@ import { csStateHolderOf } from "./state-holder.js";
 
 const AMBIENT = "RequestContext.Current!.CurrentUser!";
 
-/** The TPH bases of `ctx` whose polymorphic read the Dapper adapter renders and
- *  routes: a `sharedTable` root with concretes, every concrete's own list read
- *  ungated and unmasked (`polymorphicReadRouted`). */
-export function dapperRoutedTphBases(ctx: EnrichedBoundedContextIR): EnrichedAggregateIR[] {
-  return ctx.aggregates.filter((a) => {
-    if (!a.isAbstract) return false;
-    const read = polymorphicReadFor(a, ctx.aggregates);
-    return read?.layout === "sharedTable" && polymorphicReadRouted(a, ctx);
-  });
-}
-
-/** The `I<Base>Repository` read port of a TPH base (Domain layer). */
-export function renderDapperBaseReaderInterface(base: EnrichedAggregateIR, ns: string): string {
-  return (
-    lines(
-      "// Auto-generated.",
-      "using System.Threading;",
-      "using System.Threading.Tasks;",
-      `using ${ns}.Domain.Common;`,
-      `using ${ns}.Domain.Ids;`,
-      "",
-      `namespace ${ns}.Domain.${plural(base.name)};`,
-      "",
-      `// Read-only polymorphic reader for the abstract TPH base ${base.name}: every row`,
-      "// as its real subtype, in one global `id` order, under each subtype's own restrictions.",
-      `public interface I${base.name}Repository`,
-      "{",
-      `    Task<${base.name}?> FindByIdAsync(${base.name}Id id, CancellationToken cancellationToken = default);`,
-      `    Task<Paged<${base.name}>> FindPageAsync(int page, int pageSize, CancellationToken cancellationToken = default);`,
-      "}",
-    ) + "\n"
-  );
-}
-
 interface ConcreteShape {
   agg: EnrichedAggregateIR;
   /** The row-hydration columns, or undefined when the concrete cannot hydrate from its root row. */
@@ -98,7 +60,7 @@ interface ConcreteShape {
 }
 
 /** The `<Base>Repository` implementation (Infrastructure layer). */
-export function renderDapperBaseReaderImpl(
+export function renderDapperTphBaseReaderImpl(
   base: EnrichedAggregateIR,
   concretes: readonly EnrichedAggregateIR[],
   ctx: EnrichedBoundedContextIR,
@@ -276,7 +238,7 @@ export function renderDapperBaseReaderImpl(
     "        return items.Where(x => x is not null).Select(x => x!).ToList();",
     "    }",
     "",
-    `    public async Task<${base.name}?> FindByIdAsync(${idClass} id, CancellationToken cancellationToken = default)`,
+    `    public async Task<${base.name}?> GetByIdAsync(${idClass} id, CancellationToken cancellationToken = default)`,
     "    {",
     `        ${dapperOpenConn(ns)}`,
     `        await using var reader = (System.Data.Common.DbDataReader)await conn.ExecuteReaderAsync(new CommandDefinition(${csSqlLiteral(`SELECT ${colList} FROM ${table} WHERE id = @id${andWhere}`)}, new { id = id.Value${princSuffix} }, cancellationToken: cancellationToken));`,
@@ -296,8 +258,8 @@ export function renderDapperBaseReaderImpl(
     ...(sqls.length > 0
       ? [
           "",
-          "/// <summary>The read scope of this polymorphic base — the root's restrictions and each",
-          "/// subtype's own, kind-guarded; rendered once from the IR read fact.</summary>",
+          "/// <summary>The read scope of this aggregate: the polymorphic base's — the root's restrictions and",
+          "/// each subtype's own, kind-guarded; rendered once from the IR read fact.</summary>",
           `internal static class ${scopeClass}`,
           "{",
           `    public const string Polymorphic = "${sqls.join(" AND ")}";`,
@@ -306,122 +268,4 @@ export function renderDapperBaseReaderImpl(
       : []),
   );
   return `${body}\n`;
-}
-
-/** Per-concrete `<Concrete>Wire.ToResponse(domain)` — the concrete's own
- *  GET-by-id response record, built from its domain object.  Lives beside that
- *  concrete's `Responses` so the value-object / enum responses it names resolve
- *  without clashing with a sibling concrete's identically-named ones. */
-export function renderDapperConcreteWire(
-  agg: EnrichedAggregateIR,
-  ctx: EnrichedBoundedContextIR,
-  ns: string,
-): string {
-  return (
-    lines(
-      "// Auto-generated.",
-      "using System;",
-      "using System.Collections.Generic;",
-      "using System.Linq;",
-      `using ${ns}.Domain.${plural(agg.name)};`,
-      `using ${ns}.Domain.Ids;`,
-      `using ${ns}.Domain.ValueObjects;`,
-      `using ${ns}.Domain.Enums;`,
-      `using ${ns}.Domain.Common;`,
-      "",
-      `namespace ${ns}.Application.${plural(agg.name)}.Responses;`,
-      "",
-      `// The wire body of a ${agg.name} read through its TPH base's polymorphic reader.`,
-      `public static class ${agg.name}Wire`,
-      "{",
-      `    public static ${agg.name}Response ToResponse(${agg.name} d) => ${projectEntityExpr("d", agg, ctx)};`,
-      "}",
-    ) + "\n"
-  );
-}
-
-/** `Api/<Bases>Controller.cs` — `GET /api/<bases>` (paged envelope of tagged
- *  rows) and `GET /api/<bases>/{id}`.  Each item is the concrete's own
- *  GET-by-id body plus the wire `type` tag (docs/payloads.md): the response
- *  record is serialised with the MVC JSON options (so it is byte-for-byte the
- *  body the concrete's own route answers) and the tag added to the object. */
-export function renderDapperBaseController(
-  base: EnrichedAggregateIR,
-  concretes: readonly EnrichedAggregateIR[],
-  ns: string,
-  routePrefix: string,
-): string {
-  const idClr = csIdValueClrType(base.idValueType);
-  const route = `${routePrefix}${snake(plural(base.name))}`;
-  const className = `${plural(base.name)}Controller`;
-  const usings = [
-    ...new Set(
-      concretes.flatMap((c) => [
-        `using ${ns}.Application.${plural(c.name)}.Responses;`,
-        `using ${ns}.Domain.${plural(c.name)};`,
-      ]),
-    ),
-  ].sort();
-  return (
-    lines(
-      "// Auto-generated.",
-      "using System;",
-      "using System.ComponentModel.DataAnnotations;",
-      "using System.Linq;",
-      "using System.Text.Json;",
-      "using System.Text.Json.Nodes;",
-      "using System.Threading.Tasks;",
-      "using Microsoft.AspNetCore.Mvc;",
-      "using Microsoft.Extensions.Options;",
-      `using ${ns}.Domain.${plural(base.name)};`,
-      ...usings,
-      `using ${ns}.Domain.Common;`,
-      `using ${ns}.Domain.Ids;`,
-      "",
-      `namespace ${ns}.Api;`,
-      "",
-      "[ApiController]",
-      `[Route("${route}")]`,
-      `public sealed class ${className} : ControllerBase`,
-      "{",
-      `    private readonly I${base.name}Repository _repo;`,
-      "    private readonly JsonSerializerOptions _json;",
-      `    public ${className}(I${base.name}Repository repo, IOptions<Microsoft.AspNetCore.Mvc.JsonOptions> json) { _repo = repo; _json = json.Value.JsonSerializerOptions; }`,
-      "",
-      "    [HttpGet]",
-      "    [ProducesResponseType(typeof(Paged<JsonObject>), 200)]",
-      "    [ProducesResponseType(typeof(ProblemDetails), 422)]",
-      `    public async Task<ActionResult<Paged<JsonObject>>> All${base.name}([FromQuery] [Range(1, 1000000)] int page = 1, [FromQuery] [Range(1, 500)] int pageSize = 20)`,
-      "    {",
-      "        var result = await _repo.FindPageAsync(page, pageSize, HttpContext.RequestAborted);",
-      "        return Ok(new Paged<JsonObject>(result.Items.Select(Wire).ToList(), result.Page, result.PageSize, result.Total, result.TotalPages));",
-      "    }",
-      "",
-      '    [HttpGet("{id}")]',
-      "    [ProducesResponseType(typeof(JsonObject), 200)]",
-      "    [ProducesResponseType(typeof(ProblemDetails), 404)]",
-      "    [ProducesResponseType(typeof(ProblemDetails), 422)]",
-      `    public async Task<ActionResult<JsonObject>> Get${base.name}ById([FromRoute] ${idClr} id)`,
-      "    {",
-      `        var found = await _repo.FindByIdAsync(new ${base.name}Id(id), HttpContext.RequestAborted);`,
-      `        if (found is null) throw new global::${ns}.Domain.Common.AggregateNotFoundException($"${base.name} {id} not found");`,
-      "        return Ok(Wire(found));",
-      "    }",
-      "",
-      `    private JsonObject Wire(${base.name} row)`,
-      "    {",
-      "        (string Tag, object Response) pair = row switch",
-      "        {",
-      ...concretes.map(
-        (c) => `            ${c.name} __x => ("${c.name}", ${c.name}Wire.ToResponse(__x)),`,
-      ),
-      `            _ => throw new InvalidOperationException($"unmapped ${base.name} subtype {row.GetType().Name}"),`,
-      "        };",
-      "        var node = JsonSerializer.SerializeToNode(pair.Response, pair.Response.GetType(), _json)!.AsObject();",
-      '        node["type"] = pair.Tag;',
-      "        return node;",
-      "    }",
-      "}",
-    ) + "\n"
-  );
 }

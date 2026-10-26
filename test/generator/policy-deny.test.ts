@@ -376,9 +376,13 @@ describe("policy deny write — MikroORM blob shapes (document / event-sourced)"
 
 describe("policy deny — Python (FastAPI/SQLAlchemy)", () => {
   it("renders the and_(is_(None), isnot(None)) contradiction", async () => {
-    const secret = await fileContaining("python", "secret_repository");
+    // Deny READ is a read-scope hook criterion no `ignoring` gates; deny WRITE
+    // stays inline in the command load's pre-guard.
+    const scope = await fileContaining("python", "app/db/read_scope.py");
     const account = await fileContaining("python", "account_repository");
-    expect(secret).toContain("and_(SecretRow.id.is_(None), SecretRow.id.isnot(None))");
+    expect(scope).toContain(
+      "    # policy deny\n    out.append(with_loader_criteria(SecretRow, lambda cls: and_(cls.id.is_(None), cls.id.isnot(None)), include_aliases=True))",
+    );
     expect(account).toContain("and_(AccountRow.id.is_(None), AccountRow.id.isnot(None))");
   });
 });

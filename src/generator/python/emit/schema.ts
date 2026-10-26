@@ -11,6 +11,7 @@ import { isQueryTimeProjection } from "../../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../../ir/util/channels.js";
 import { directParentName } from "../../../ir/util/containment-parent.js";
 import {
+  discriminatorValue,
   isTphBase,
   isTphConcrete,
   ownFieldsOf,
@@ -647,12 +648,31 @@ function renderTphModel(
       cols.push(...columnsForFields([{ ...f, optional: true }], ctx));
     }
   }
+  // SQLAlchemy's native single-table inheritance: the root maps the shared
+  // table with `kind` as its `polymorphic_on` column, and is abstract (no row
+  // is ever a bare base).  Each concrete is a mapped subclass with its
+  // `polymorphic_identity`, so `select(CarRow)` — a get, an `in_` load, a
+  // count `select_from(CarRow)`, an ORM `delete(CarRow)` — carries
+  // `kind IN ('Car')` without the repository spelling it, and `select(BaseRow)`
+  // loads every row as the subclass its `kind` names.  Every column stays on
+  // the root: two concretes may declare a same-named own field, which
+  // subclass-declared columns would map twice onto one table column.
+  const concreteRows = tphConcretesOf(base, ctx.aggregates).map((concrete) =>
+    lines(
+      "",
+      "",
+      `class ${rowClassName(concrete.name)}(${rowClassName(base.name)}):`,
+      `    __mapper_args__ = {"polymorphic_identity": ${JSON.stringify(discriminatorValue(concrete, ctx.aggregates))}}`,
+    ),
+  );
   return lines(
     `class ${rowClassName(base.name)}(Base):`,
     `    __tablename__ = "${tableName}"`,
     schema ? ["    __table_args__ = (", `        {"schema": "${schema}"},`, "    )"] : null,
+    `    __mapper_args__ = {"polymorphic_on": "kind", "polymorphic_abstract": True}`,
     "",
     cols.map(renderColumn),
+    ...concreteRows,
   );
 }
 

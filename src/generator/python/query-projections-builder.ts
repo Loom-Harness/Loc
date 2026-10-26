@@ -7,7 +7,6 @@ import type {
   WireField,
 } from "../../ir/types/loom-ir.js";
 import { isQueryTimeProjection, queryProjectionUsesCurrentUser } from "../../ir/types/loom-ir.js";
-import { projectionSourceTable, tableOwnerName } from "../../ir/util/inheritance.js";
 import {
   type AggregateSelect,
   aggregateCoercion,
@@ -28,7 +27,6 @@ import { numericEncode } from "../_numeric/target.js";
 import { joinReadFieldNames } from "../_projection/join-read.js";
 import { paramPyType, responsePyType } from "./emit/http-models.js";
 import {
-  contextFilterPredicate,
   lowerProjectionFilterToSqlAlchemy,
   lowerToSqlAlchemy,
   lowerWorkflowFilterToSqlAlchemy,
@@ -38,20 +36,10 @@ import {
 import { PY_NUMERIC } from "./numeric-codec.js";
 import { rowClassName } from "./py-columns.js";
 import { PY } from "./py-symbols.js";
+import { pyIgnoringOption } from "./read-scope-builder.js";
 import { renderPyExpr, renderPyNegatedGuard } from "./render-expr.js";
 import { wireValue } from "./repository-builder.js";
 import { pyWireToDomain } from "./routes-builder.js";
-
-/** Conjoin a projection's own `where` with the source aggregate's capability
- *  filters — either may be absent; two present become one `and_(...)`. */
-function conjoinPy(own: PyPredicate | null, caps: PyPredicate | null): PyPredicate | null {
-  if (!own) return caps;
-  if (!caps) return own;
-  return {
-    expr: `${pyRef("sqlalchemy", "and_")}(${own.expr}, ${caps.expr})`,
-    ops: new Set<string>([...own.ops, ...caps.ops, "and_"]),
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Query-time projection routes — `app/http/query_projections_routes.py`,
@@ -142,12 +130,11 @@ export function buildPyQueryProjectionsFile(
   // Its `where` lowers here so a filtered aggregation keeps its filter
   // (mirrors `rowLowered` above).
   //
-  // The source aggregate's CAPABILITY filters ride along: they are what the
-  // repository-sourced arm applies for free (it reads through the synthesised
-  // find), so without them a `count()` over an aggregate answers a DIFFERENT
-  // number than its `.all` — soft-deleted rows counted, foreign tenants'
-  // counted.  A silent wrong answer, not a broken build.  A read's `ignoring`
-  // clause drops the capability predicates it names, as on the repository arm.
+  // The source aggregate's read restrictions — its capability filters, its
+  // tenancy, a TPH base's every subtype filter — are the read-scope hook's,
+  // which reaches the `select_from(<Row>)` of an aggregation like any other
+  // read, so a `count()` answers the same rows its `.all` lists.  A read's
+  // `ignoring` clause rides the hook's execution option (`aggIgnoring`).
   const aggLowered = new Map<string, PyPredicate | null>();
   for (const p of projections) {
     if ((!wholeTableAggregates(p) && !groupedAggregates(p)) || !p.query?.source) continue;
@@ -155,20 +142,7 @@ export function buildPyQueryProjectionsFile(
     const own = p.query.filter
       ? requireLowered(p, agg ? lowerToSqlAlchemy(p.query.filter, agg, ctx) : null)
       : null;
-    const caps = agg
-      ? contextFilterPredicate(agg, ctx, {
-          bypassAll: p.query.bypassAll,
-          bypassCaps: p.query.bypassCaps,
-        })
-      : null;
-    // A TPH (`sharedTable`) concrete reads its root's shared table, so the
-    // `kind` discriminator must scope it — without it every sibling
-    // concrete's rows enter the aggregate (eval item 10: silent wrong data).
-    const { tableOwner, kind } = projectionSourceTable(p.query.source, ctx.aggregates);
-    const kindPred: PyPredicate | null = kind
-      ? { expr: `${rowClassName(tableOwner)}.kind == ${JSON.stringify(kind)}`, ops: new Set() }
-      : null;
-    aggLowered.set(p.name, conjoinPy(kindPred, conjoinPy(own, caps)));
+    aggLowered.set(p.name, own);
   }
   const routeBlocks = projections.map((p) => {
     const grouped = groupedAggregates(p);
@@ -399,15 +373,15 @@ function aggregateProjectionRoute(
   const aggregates = wholeTableAggregates(proj)!;
   const source = proj.query!.source!;
   const agg = ctx.aggregates.find((a) => a.name === source);
-  // TPH concretes query the base's shared table — the same owner rule the
-  // filter lowering uses, so the `where` and the `select_from` can't disagree.
-  const row = schemaRow(rowClassName(agg ? tableOwnerName(agg, ctx.aggregates) : source));
+  // The source's own row class — a TPH concrete's mapped subclass carries its
+  // discriminator — the same row the filter lowering names.
+  const row = schemaRow(rowClassName(source));
   const fn = snake(proj.name);
   const gate = proj.query!.requires;
   const needsUser = queryProjectionUsesCurrentUser(proj) || !!gate;
   const sig = [...(needsUser ? [`request: ${REQUEST}`] : []), "session: SessionDep"].join(", ");
   const cols = aggregates.map((s) => pyAggregate(s.aggregate, row, agg, ctx)).join(", ");
-  const where = pred ? `.where(${pred.expr})` : "";
+  const where = `${pred ? `.where(${pred.expr})` : ""}${pyIgnoringOption(proj.query)}`;
   const out: string[] = [
     `@router.get("/${fn}", response_model=${proj.name}Response, operation_id="projection${proj.name}")`,
     `async def ${fn}_projection(${sig}) -> dict[str, object]:`,
@@ -491,9 +465,9 @@ function groupedProjectionRoute(
 ): string {
   const source = proj.query!.source!;
   const agg = ctx.aggregates.find((a) => a.name === source);
-  // TPH concretes query the base's shared table — the same owner rule the
-  // filter lowering uses, so the `where` and the `select_from` can't disagree.
-  const row = schemaRow(rowClassName(agg ? tableOwnerName(agg, ctx.aggregates) : source));
+  // The source's own row class — a TPH concrete's mapped subclass carries its
+  // discriminator — the same row the filter lowering names.
+  const row = schemaRow(rowClassName(source));
   const fn = snake(proj.name);
   const gate = proj.query!.requires;
   const needsUser = queryProjectionUsesCurrentUser(proj) || !!gate;
@@ -527,7 +501,7 @@ function groupedProjectionRoute(
   // GROUP BY and ORDER BY exactly the declared grouping columns — a superset of
   // the selected keys (a column may be grouped without being selected).
   const byCols = grouped.groupBy.map(keyCol).join(", ");
-  const where = pred ? `.where(${pred.expr})` : "";
+  const where = `${pred ? `.where(${pred.expr})` : ""}${pyIgnoringOption(proj.query)}`;
   const out: string[] = [
     `@router.get("/${fn}", response_model=${proj.name}Response, operation_id="projection${proj.name}")`,
     `async def ${fn}_projection(${sig}) -> list[dict[str, object]]:`,

@@ -1,25 +1,25 @@
+import { polymorphicReadFor } from "../../ir/enrich/read-scope.js";
 import type {
   BoundedContextIR,
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
 } from "../../ir/types/loom-ir.js";
-import {
-  isTpcBase,
-  isTpcConcrete,
-  isTphBase,
-  isTphConcrete,
-  rootBaseOf,
-  tphConcretesOf,
-} from "../../ir/util/inheritance.js";
-import { plural } from "../../util/naming.js";
+import { isTphBase, isTphConcrete, rootBaseOf, tphConcretesOf } from "../../ir/util/inheritance.js";
+import { effectiveSavingShape, resolveDataSourceConfig } from "../../ir/util/resolve-datasource.js";
+import { plural, upperFirst } from "../../util/naming.js";
+import type { EmitCtx } from "../_adapters/index.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import {
-  dapperRoutedTphBases,
-  renderDapperBaseController,
-  renderDapperBaseReaderImpl,
-  renderDapperBaseReaderInterface,
-  renderDapperConcreteWire,
-} from "./emit/dapper-base-reader.js";
+  byLayerLayoutAdapter,
+  type DotnetArtifact,
+  type DotnetArtifactCategory,
+} from "./adapters/by-layer-layout.js";
+import {
+  emitsBaseReader,
+  renderBaseController,
+  routesPolymorphicRead,
+} from "./emit/base-reader.js";
+import { renderDapperTphBaseReaderImpl } from "./emit/dapper-base-reader.js";
 import {
   renderAuditableInterceptor,
   renderBaseReaderImpl,
@@ -179,65 +179,78 @@ export function emitDispatcher(
   }
 }
 
-/** Polymorphic read home for each abstract TPC (`ownTable`) base in the
- *  context: a read-only `I<Base>Repository` / `<Base>Repository` pair that
- *  delegates to the concrete repositories and concatenates (aggregate-
- *  inheritance.md, `find all <Base>`).  Emits nothing when the context has no
- *  TPC base. */
+/** True when a Dapper TPH concrete hydrates from its root row alone: the relational
+ *  shape with no contained parts or `X id[]` references (anything else is loaded
+ *  through the concrete's own repository). */
+function dapperHydratesFromRow(
+  a: EnrichedAggregateIR,
+  ctx: EnrichedBoundedContextIR,
+  emitCtx: EmitCtx | undefined,
+): boolean {
+  const ds = emitCtx ? resolveDataSourceConfig(a, ctx, emitCtx.sys) : undefined;
+  return (
+    a.persistedAs !== "eventLog" &&
+    effectiveSavingShape(a, ds) === "relational" &&
+    a.contains.length === 0 &&
+    (a.associations ?? []).length === 0
+  );
+}
+
+/** The polymorphic read home of each abstract base in the context that has
+ *  one (`polymorphicReadFor`: a TPH root or a TPC base, with a concrete): a
+ *  read-only `I<Base>Repository` / `<Base>Repository` pair, and — when the read
+ *  is routed — `Api/<Bases>Controller.cs` (`GET /api/<bases>`, plus the TPH
+ *  by-id read).  The TPH reader queries the root `DbSet`, so it is EF-only; a
+ *  Dapper project keeps only the TPC reader, which delegates to the concrete
+ *  repositories.  Emits nothing when the context has no such base. */
 export function emitBaseReaders(
   ctx: EnrichedBoundedContextIR,
   ns: string,
   out: Map<string, string>,
   sourcemap?: SourceMapRecorder,
-  /** `persistence: dapper` only: a TPH base also gets its polymorphic read home —
-   *  the reader, its concretes' wire mappers and the routed controller. */
-  dapperTph?: {
-    routePrefix: string;
-    /** True when the concrete hydrates from its root row alone. */
-    isFlat: (agg: EnrichedAggregateIR) => boolean;
-  },
+  opts: { dapper?: boolean; routePrefix?: string; emitCtx?: EmitCtx } = {},
 ): void {
-  for (const base of dapperTph ? dapperRoutedTphBases(ctx) : []) {
-    const concretes = tphConcretesOf(base, ctx.aggregates) as EnrichedAggregateIR[];
+  for (const base of ctx.aggregates) {
+    if (!emitsBaseReader(base, ctx.aggregates)) continue;
+    const read = polymorphicReadFor(base, ctx.aggregates)!;
     const construct = `${ctx.name}.${base.name}`;
-    const put = (path: string, content: string): void => {
+    // Placed through the deployable's layout adapter, like the base's own
+    // entity file, so a `directoryLayout: byFeature` project keeps the reader
+    // in the base's feature folder (and its namespace rewrite reaches it).
+    const layout = opts.emitCtx?.layoutAdapter ?? byLayerLayoutAdapter;
+    const place = (name: string, category: DotnetArtifactCategory, content: string): void => {
+      const path = layout.pathFor(
+        { name, content, category, aggregateName: base.name } as DotnetArtifact,
+        opts.emitCtx ?? ({} as EmitCtx),
+      );
       out.set(path, content);
       sourcemap?.file(path, content, base.origin, construct);
     };
-    put(
-      `Domain/${plural(base.name)}/I${base.name}Repository.cs`,
-      renderDapperBaseReaderInterface(base, ns),
+    place(
+      `I${base.name}Repository.cs`,
+      "repository-interface",
+      renderBaseReaderInterface(base, read, ns),
     );
-    put(
-      `Infrastructure/Repositories/${base.name}Repository.cs`,
-      renderDapperBaseReaderImpl(base, concretes, ctx, ns, dapperTph!.isFlat),
+    place(
+      `${base.name}Repository.cs`,
+      "repository-impl",
+      opts.dapper && read.layout === "sharedTable"
+        ? renderDapperTphBaseReaderImpl(
+            base,
+            tphConcretesOf(base, ctx.aggregates) as EnrichedAggregateIR[],
+            ctx,
+            ns,
+            (a) => dapperHydratesFromRow(a, ctx, opts.emitCtx),
+          )
+        : renderBaseReaderImpl(base, read, ctx, ns),
     );
-    for (const c of concretes) {
-      put(
-        `Application/${plural(c.name)}/Responses/${c.name}Wire.cs`,
-        renderDapperConcreteWire(c, ctx, ns),
+    if (opts.routePrefix !== undefined && routesPolymorphicRead(read, ctx)) {
+      place(
+        `${plural(upperFirst(base.name))}Controller.cs`,
+        "controller",
+        renderBaseController(base, read, ctx, ns, opts.routePrefix),
       );
     }
-    put(
-      `Api/${plural(base.name)}Controller.cs`,
-      renderDapperBaseController(base, concretes, ns, dapperTph!.routePrefix),
-    );
-  }
-  for (const base of ctx.aggregates) {
-    if (!isTpcBase(base, ctx.aggregates)) continue;
-    const concretes = ctx.aggregates.filter(
-      (a) => a.extendsAggregate === base.name && isTpcConcrete(a, ctx.aggregates),
-    );
-    if (concretes.length === 0) continue;
-    const construct = `${ctx.name}.${base.name}`;
-    const ifacePath = `Domain/${plural(base.name)}/I${base.name}Repository.cs`;
-    const ifaceContent = renderBaseReaderInterface(base, ns);
-    out.set(ifacePath, ifaceContent);
-    sourcemap?.file(ifacePath, ifaceContent, base.origin, construct);
-    const implPath = `Infrastructure/Repositories/${base.name}Repository.cs`;
-    const implContent = renderBaseReaderImpl(base, concretes, ns);
-    out.set(implPath, implContent);
-    sourcemap?.file(implPath, implContent, base.origin, construct);
   }
 }
 

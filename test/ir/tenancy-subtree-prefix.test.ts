@@ -44,10 +44,13 @@ async function emitFor(platform: string): Promise<string> {
   const files = await generateSystemFiles(
     corpusSource("tenancy-hierarchy").replaceAll("__PLATFORM__", platform),
   );
-  return [...files]
-    .filter(([p]) => /repositor|JpaRepository|_repository/i.test(p))
-    .map(([, c]) => inlineDrizzleScope(files, inlineDapperScope(c)))
-    .join("\n");
+  return (
+    [...files]
+      // python hosts every read restriction in its read-scope hook.
+      .filter(([p]) => /repositor|JpaRepository|_repository|read_scope/i.test(p))
+      .map(([, c]) => inlineDrizzleScope(files, inlineDapperScope(c)))
+      .join("\n")
+  );
 }
 
 /** Every spelling of "this LIKE has an escape character bound to it".  A LIKE
@@ -75,11 +78,7 @@ describe("hierarchical tenancy — the subtree test is anchored; any LIKE is an 
       'strpos(${schema.accounts.dataKey}, ${requireCurrentUser().orgPath + "."}) = 1',
       'requireCurrentUser().orgPath + ".%"',
     ],
-    [
-      "python",
-      'func.strpos(AccountRow.data_key, require_current_user().org_path + ".") == 1',
-      ".startswith(",
-    ],
+    ["python", 'func.strpos(AccountRow.data_key, user.org_path + ".") == 1', ".startswith("],
     [
       "java",
       "locate(concat(:#{@currentUserAccessor.user()?.orgPath()}, '.'), e.dataKey) = 1",

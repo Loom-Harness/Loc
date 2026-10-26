@@ -40,6 +40,7 @@ import { collectEnums, collectValueObjects } from "./repository-imports-builder.
 import { repoPortImportLine, repoPortName } from "./repository-port-builder.js";
 import { projectFieldEntries } from "./repository-save-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "./repository-wire-builder.js";
+import { tsNotFoundThrow } from "./wire-policy-ts.js";
 
 // ---------------------------------------------------------------------------
 // Embedded-children (`shape: embedded`) repository for the Hono/Drizzle
@@ -207,7 +208,7 @@ export function buildEmbeddedRepositoryFile(
     // (F2-ADP-5); nothing is emitted when the write scope does not narrow.
     ...writeScopeGuardLines(agg, tableName, ctx, drizzleOps),
     `    const found = await this.findById(id);`,
-    `    if (!found) throw new AggregateNotFoundError(\`${agg.name} \${id} not found\`);`,
+    `    if (!found) ${tsNotFoundThrow(agg.name, "id")}`,
     `    return found;`,
     `  }`,
     "",

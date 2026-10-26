@@ -58,7 +58,7 @@ const cases: Record<string, [RegExp, RegExp]> = {
     /(_currentUser\.User|CurrentUser!)\.OrgPath/,
   ],
   // Python: computed `@property org_path`, read via `.org_path`.
-  python: [/def org_path\(self\) -> str:/, /require_current_user\(\)\.org_path/],
+  python: [/def org_path\(self\) -> str:/, /\buser\.org_path\b/],
   // Java: record accessor `orgPath()`, read via `.orgPath()` in the SpEL query.
   java: [/public String orgPath\(\) \{/, /\.orgPath\(\)/],
   // Elixir: `put_org_path/1` derivation step, read via `current_user.org_path`.

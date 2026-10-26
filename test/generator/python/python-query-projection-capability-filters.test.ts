@@ -1,17 +1,14 @@
-// Python/FastAPI — a query-time projection AGGREGATION carries the source
-// aggregate's capability filters (audit A1).
+// Python/FastAPI — a query-time projection AGGREGATION applies the source
+// aggregate's read restrictions (audit A1).
 //
 // The aggregation shapes read the source TABLE directly (`select(func.count())
-// .select_from(OrderRow)`), never through the repository that ANDs
-// `tenantOwned` / `softDeletable` / any `filter <expr>` into every root read —
-// so the emitted read applied only the projection's own `where`: a cross-tenant
-// COUNT/SUM with `tenantOwned`, a plain wrong number with `softDeletable`.
-//
-// `mypy --strict` + `ruff` prove the module is well-formed; a missing WHERE
-// conjunct is invisible to both.  What is pinned here is that the aggregation
-// read carries the SAME predicate the repository carries in the same run,
-// including the ambient `require_current_user()` binding and the `ignoring`
-// bypass.
+// .select_from(OrderRow)`), never through a repository.  The read-scope hook
+// (`app/db/read_scope.py`) adds the aggregate's restrictions to every ORM
+// SELECT of its row class — a `select_from` included — so the aggregation
+// counts the rows its `.all` lists: no cross-tenant COUNT under
+// `tenantOwned`, no soft-deleted rows under `softDeletable`.  Pinned here: the
+// aggregation spells only its own `where`, the hook hosts the restrictions,
+// and `ignoring` rides the hook's execution option.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
@@ -88,44 +85,40 @@ async function routes(): Promise<string> {
   return f.get(k!)!;
 }
 
-// The two predicates the source aggregate contributes, as the SQLAlchemy
-// repository spells them.
-const PY_CAPS =
-  "and_((OrderRow.tenant_id == require_current_user().tenant_id), not_(OrderRow.is_deleted))";
-
-describe("python query-projection aggregations apply the source capability filters", () => {
-  it("the WHOLE-TABLE aggregation ANDs the capability filters into the same query as its `where`", async () => {
+describe("python query-projection aggregations ride the read-scope hook", () => {
+  it("the WHOLE-TABLE aggregation spells only its own `where`", async () => {
     const r = await routes();
     expect(r).toContain(
       "select(func.count(), func.sum(OrderRow.total)).select_from(OrderRow)" +
-        `.where(and_((OrderRow.status == OrderStatus.Confirmed), ${PY_CAPS}))`,
+        ".where((OrderRow.status == OrderStatus.Confirmed))",
     );
+    expect(r).not.toContain("tenant_id");
+    expect(r).not.toContain("is_deleted");
   });
 
-  it("an UNFILTERED aggregation gets the capability filters as its entire WHERE", async () => {
+  it("an UNFILTERED aggregation and the GROUPED one carry no WHERE of their own", async () => {
     const r = await routes();
-    expect(r).toContain(`select(func.count()).select_from(OrderRow).where(${PY_CAPS})`);
-  });
-
-  it("the GROUPED aggregation carries them too", async () => {
-    const r = await routes();
-    expect(r).toContain(`.select_from(OrderRow).where(${PY_CAPS})`);
+    expect(r).toContain("select(func.count()).select_from(OrderRow))).one()");
     expect(r).toContain(".group_by(OrderRow.status)");
   });
 
-  it("`ignoring softDeletable` drops that conjunct and KEEPS the tenant one", async () => {
+  it("`ignoring softDeletable` names the capability the hook drops", async () => {
     const r = await routes();
     expect(r).toContain(
-      "select(func.count()).select_from(OrderRow)" +
-        ".where((OrderRow.tenant_id == require_current_user().tenant_id))",
+      'select(func.count()).select_from(OrderRow).execution_options(loom_ignoring=frozenset({"softDeletable"}))',
     );
   });
 
-  it("imports the ambient accessor the repository binds the principal through", async () => {
+  it("the hook hosts the tenant floor and the soft-delete filter, each bypassable by its own name", async () => {
     const f = await files();
-    const r = await routes();
-    expect(r).toContain("from app.auth.user import require_current_user");
-    const repo = [...f.keys()].find((k) => k.endsWith("repositories/order_repository.py"));
-    expect(f.get(repo!)!).toContain(PY_CAPS);
+    const scope = f.get([...f.keys()].find((k) => k.endsWith("app/db/read_scope.py"))!)!;
+    expect(scope).toContain('if not _bypassed("tenantOwned", ignoring):');
+    expect(scope).toContain(
+      "with_loader_criteria(OrderRow, (OrderRow.tenant_id == user.tenant_id), include_aliases=True)",
+    );
+    expect(scope).toContain('if not _bypassed("softDeletable", ignoring):');
+    expect(scope).toContain(
+      "with_loader_criteria(OrderRow, lambda cls: not_(cls.is_deleted), include_aliases=True)",
+    );
   });
 });

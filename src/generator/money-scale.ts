@@ -41,13 +41,9 @@ export const MONEY_INTEGER_DIGITS = MONEY_PRECISION - MONEY_WIRE_SCALE;
  *  strictly less than this for the value to fit `NUMERIC(19,4)`. */
 export const MONEY_MAX_EXCLUSIVE = `1${"0".repeat(MONEY_INTEGER_DIGITS)}`;
 
-/** The refusal message every backend renders for an out-of-range money value.
- *
- *  One text, because the wire-golden differential compares bodies ACROSS
- *  backends — a divergent message is a real divergence.  Shaped like the
- *  format guard's `Invalid decimal: "12,50"` so a client sees one family of
- *  wire refusals rather than two. */
-export const MONEY_RANGE_MESSAGE = "Money out of range";
+/** The refusal message for an out-of-range money value — owned by the
+ *  `wirePolicy` fact, re-exported for the backends that read it from here. */
+export { MONEY_RANGE_MESSAGE } from "../ir/enrich/wire-policy.js";
 
 /** Money zero ON THE WIRE — `"0.0000"`, not `"0"`.
  *

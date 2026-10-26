@@ -39,32 +39,6 @@ const ALL: readonly Backend[] = BACKENDS;
 const IN_APP_DOCUMENT_FILTER: readonly Backend[] = ALL;
 
 
-/** The backends that can express a capability `filter` over a TPH
- *  (`sharedTable`) concrete — i.e. a predicate reading a column that exists on
- *  only ONE subtype of the shared table.
- *
- *  `dotnet` is absent, and this is the NAME of that exclusion.  EF Core applies
- *  a query filter to the ROOT entity type of a hierarchy only ("A filter may
- *  only be applied to the root entity type"), and a root-hosted filter must
- *  typecheck against the root for EVERY concrete — so a predicate over a
- *  sibling-only column is not expressible: a CLR downcast raises "No coercion
- *  operator is defined between types", and `EF.Property<T>(x, "…")` raises "the
- *  specified property does not exist on the entity type" (both reproduced
- *  against EF Core 10.0.10; see `nonRootFilterFields`, src/ir/util/inheritance.ts).
- *  Refused honestly by `loom.tph-filter-unsupported`, not silently dropped; the
- *  key returns the day that gate closes. */
-const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotnet");
-
-/** `inheritance-read-restrictions` — the #3954 answer key — minus the one
- *  backend that cannot build it today.  It still boots the case on its
- *  behavioural leg as a tracked expected failure, so its key returns here with
- *  the fix that turns that leg red:
- *
- *  - `dotnet` (EF): refused at validation by `loom.tph-filter-unsupported`
- *    (the `TPH_CAPABILITY_FILTER` exclusion); #3960 lifts it.  The Dapper
- *    adapter passes the case and is armed by `ADAPTER_ONLY_CASES`. */
-const INHERITANCE_READ_RESTRICTIONS: readonly Backend[] = TPH_CAPABILITY_FILTER;
-
 /** The backends whose transactional workflow dispatches an aggregate event only
  *  AFTER its transaction commits — the one runtime-distinguishable half of
  *  banking-eval B-04 (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T4-eventing-temporal.md, M-T4.3 item 6).
@@ -173,11 +147,11 @@ const PROJECTION_VO_ROW: readonly Backend[] = ["node", "java", "vanilla"];
 const PART_REBUILD: readonly Backend[] = ALL.filter((b) => b !== "dotnet");
 
 // #3959: the polymorphic base read (`GET /<bases>/{id}`, a projection `from
-// <Base>`) passes on node/drizzle only.  The other legs boot the case as a
+// <Base>`) passes on node/drizzle, python/SQLAlchemy and .NET EF.  The other legs boot the case as a
 // tracked expected failure (`BEHAVIOURAL_XFAIL`), each fixed by its own
 // sub-issue of #3954 (#3960–#3965); each fix adds its backend here, and the
 // row becomes ALL when the last one lands.
-const BASE_READS: readonly Backend[] = ["node"];
+const BASE_READS: readonly Backend[] = ["node", "python", "dotnet"];
 
 export interface CorpusFeature {
   /** Matches `<id>.ddd` in this directory. */
@@ -292,7 +266,7 @@ export const CORPUS: readonly CorpusFeature[] = [
     title:
       "TPH (sharedTable) × a CAPABILITY — a `softDeletable` concrete whose filter reads a column the shared table made nullable",
     doc: "inheritance",
-    backends: TPH_CAPABILITY_FILTER,
+    backends: ALL,
     note: "Minted by pairwise F15.  `tph.ddd`'s concretes carry no capability, so nothing in the curated corpus crossed inheritance with a capability `filter` — and the crossing is where it broke: sharing a table makes a subtype's OWN columns nullable, so `softDeletable`'s `is_deleted` types as `bool | None` and python's `not_(Row.is_deleted)` stopped being a `ColumnElement[bool]` (4 × `mypy --strict` arg-type, once per emitted read).  The sibling crossing `shape: embedded` × TPH (pairwise F13) is deliberately NOT here, as the fixture's header says: under D-EMBEDDED-TPH an `embedded` concrete of a `sharedTable` base is refused at phase ④ (`loom.es-tph-forced-own-table`, src/language/validators/inheritance.ts), so the crossing no longer validates and has nothing to compile.",
   },
   {
@@ -300,8 +274,8 @@ export const CORPUS: readonly CorpusFeature[] = [
     title:
       "inheritance (TPH + TPC) × a subtype capability × a subtype-only-column filter × `ignoring` × polymorphic base reads × `tenantOwned` across two tenants",
     doc: "inheritance",
-    backends: INHERITANCE_READ_RESTRICTIONS,
-    note: "The behavioural answer key of epic #3954, which every backend's ORM-native rework (#3960–#3965) is proven against.  Two backends are absent from the row, and both still BOOT the case on their behavioural legs as tracked expected failures (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs) — see `INHERITANCE_READ_RESTRICTIONS`.",
+    backends: ALL,
+    note: "The behavioural answer key of epic #3954, which every backend's ORM-native rework (#3960–#3965) is proven against.  Every backend builds it; a leg that still gets a crossing wrong boots it as a tracked expected failure (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs).",
   },
   {
     id: "inheritance-base-reads",
@@ -309,7 +283,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "inheritance (TPH + TPC) × a capability on the ABSTRACT BASE × polymorphic base reads (`GET /<base>/{id}`, a projection `from <Base>`)",
     doc: "inheritance",
     backends: BASE_READS,
-    note: "The half of epic #3954's behavioural fixture: base capabilities (#3956) and the polymorphic base reads (#3959).  node/drizzle passes it and is the oracle its wire golden is captured from; the Dapper leg passes it too (#3965) — armed through `ADAPTER_ONLY_CASES` (test/behavioral/registers.mjs) because it is an ADAPTER of the dotnet backend, whose default EF leg still boots it as a tracked expected failure; every other leg does the same, pinned to the assertion it fails on (`BEHAVIOURAL_XFAIL`), until its #3954 sub-issue (#3960–#3964) lands and adds the backend to `BASE_READS`.",
+    note: "The half of epic #3954's behavioural fixture: base capabilities (#3956) and the polymorphic base reads (#3959).  node/drizzle, python/SQLAlchemy and .NET (EF and Dapper) pass it (node is the oracle its wire golden is captured from); every other leg boots it as a tracked expected failure pinned to the assertion it fails on (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs) until its #3954 sub-issue (#3960–#3965) lands and adds the backend to `BASE_READS`.",
   },
   { id: "event-sourcing", title: "`persistedAs: eventLog` — append-only stream + appliers", doc: "workflow", backends: ALL },
   { id: "eventsourced-workflow", title: "event-sourced saga folding its own emitted events", doc: "workflow", backends: ALL },

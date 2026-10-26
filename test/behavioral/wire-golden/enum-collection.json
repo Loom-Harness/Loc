@@ -174,7 +174,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "message": "Required",
+            "message": "next is required",
             "pointer": "/next"
           }
         ],

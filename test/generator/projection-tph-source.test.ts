@@ -7,11 +7,13 @@
 //   node/drizzle   `.from(schema.autoClaims)` — no such export (TS2339)
 //   node/mikroorm  `createQueryBuilder(AutoClaimRow, …)` — no such entity
 //   python         `select_from(ClaimRow)` with NO `kind` filter — counted
-//                  every sibling concrete's rows (silent wrong data)
+//                  every sibling concrete's rows (silent wrong data); it now
+//                  reads the concrete's mapped subclass, whose
+//                  `polymorphic_identity` SQLAlchemy turns into `kind IN (…)`
 //   elixir         `from(record in Api…AutoClaim, …)` over schema "claims"
 //                  with NO `kind` conjunct — same silent wrong data
 //
-// All four now read the OWNER table (`projectionSourceTable`,
+// The other three read the OWNER table (`projectionSourceTable`,
 // src/ir/util/inheritance.ts) and AND the `kind` discriminator in.  The
 // runtime half (the numbers) is the e2e block in
 // test/fixtures/corpus/projection-tph-source.ddd.
@@ -60,11 +62,14 @@ describe("projection over a TPH concrete reads the shared table, scoped by `kind
     expect(src.match(/qb\.where\(\{ kind: "AutoClaim" \}\);/g)?.length).toBe(2);
   }, 120_000);
 
-  it("python: the kind conjunct on both direct-table arms", async () => {
+  it("python: both direct-table arms read the concrete's mapped subclass", async () => {
     const src = await projectionSource("python", /query_projections_routes\.py$/);
-    expect(
-      src.match(/\.select_from\(ClaimRow\)\.where\(ClaimRow\.kind == "AutoClaim"\)/g)?.length,
-    ).toBe(2);
+    expect(src.match(/\.select_from\(AutoClaimRow\)/g)?.length).toBe(2);
+    expect(src).not.toContain("select_from(ClaimRow)");
+    const schema = await projectionSource("python", /app\/db\/schema\.py$/);
+    expect(schema).toContain(
+      'class AutoClaimRow(ClaimRow):\n    __mapper_args__ = {"polymorphic_identity": "AutoClaim"}',
+    );
   }, 120_000);
 
   it("elixir: the kind conjunct on both direct-table arms", async () => {

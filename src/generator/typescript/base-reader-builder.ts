@@ -21,7 +21,8 @@
 //     (which applies that concrete's whole scope) and merges them in the one
 //     global order before it pages.
 
-import { type PolymorphicRead, polymorphicReadRouted } from "../../ir/enrich/read-scope.js";
+import { type PolymorphicRead, polymorphicReadFor } from "../../ir/enrich/read-scope.js";
+import { reasonPhrase, wireStatus } from "../../ir/enrich/wire-policy.js";
 import type { EnrichedAggregateIR, EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
 import { isValueCollectionType } from "../../ir/util/value-collections.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
@@ -37,6 +38,8 @@ import {
   repoTableName,
 } from "./repository-find-predicate.js";
 import { collectEnums, collectValueObjects } from "./repository-imports-builder.js";
+import { aggHasFieldMask } from "./repository-wire-builder.js";
+import { tsNotFoundThrow } from "./wire-policy-ts.js";
 
 /** The `<Base> = Concrete | …` discriminated-union type (TS structural union
  *  of the concrete domain classes). Lives in `domain/<base>.ts`.  `layout`
@@ -64,12 +67,27 @@ export function buildBaseUnionFile(
 }
 
 /** True when `base`'s polymorphic read is routed (`GET /api/<bases>`) on the
- *  drizzle adapter — the shared gate (`polymorphicReadRouted`). */
+ *  drizzle adapter.
+ *
+ *  The route answers every subtype's rows, so it may only exist where every
+ *  subtype's own list read is open to the same caller: a concrete whose `all`
+ *  carries a `requires` gate (author-written, or the `denyByDefault`
+ *  synthesised one) or whose wire masks a field would have that gate or mask
+ *  bypassed by the base route.  Those hierarchies keep the reader but get no
+ *  route until the base read carries the gates itself. */
 export function routesPolymorphicRead(
   base: EnrichedAggregateIR,
   ctx: EnrichedBoundedContextIR,
 ): boolean {
-  return polymorphicReadRouted(base, ctx);
+  const read = polymorphicReadFor(base, ctx.aggregates);
+  if (!read) return false;
+  return read.variants.every((v) => {
+    const concrete = ctx.aggregates.find((a) => a.name === v.aggregate);
+    const all = ctx.repositories
+      .find((r) => r.aggregateName === v.aggregate)
+      ?.finds.find((f) => f.name === "all");
+    return !!concrete && !!all && !all.requires && !aggHasFieldMask(concrete);
+  });
 }
 
 /** True when a concrete hydrates from its root row alone — no contained part,
@@ -355,7 +373,7 @@ export function buildBaseRoutesFile(base: EnrichedAggregateIR, read: Polymorphic
     `      request: { query: ${B}PageQuery },`,
     `      responses: {`,
     `        200: { description: "OK", content: { "application/json": { schema: ${B}Paged } } },`,
-    `        422: { description: "Unprocessable Entity", content: { "application/problem+json": { schema: ProblemDetails } } },`,
+    `        ${wireStatus("field-invalid")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("field-invalid")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
     `      },`,
     `    }),`,
     `    async (c) => {`,
@@ -411,14 +429,14 @@ function byIdRouteLines(B: string): string[] {
     `      request: { params: z.object({ id: UuidString }) },`,
     `      responses: {`,
     `        200: { description: "OK", content: { "application/json": { schema: ${B}Response } } },`,
-    `        404: { description: "Not Found", content: { "application/problem+json": { schema: ProblemDetails } } },`,
-    `        422: { description: "Unprocessable Entity", content: { "application/problem+json": { schema: ProblemDetails } } },`,
+    `        ${wireStatus("not-found")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("not-found")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
+    `        ${wireStatus("field-invalid")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("field-invalid")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
     `      },`,
     `    }),`,
     `    async (c) => {`,
     `      const { id } = c.req.valid("param");`,
     `      const found = await repo.findById(Ids.${B}Id(id));`,
-    `      if (!found) throw new AggregateNotFoundError(\`${B} \${id} not found\`);`,
+    `      if (!found) ${tsNotFoundThrow(B, "id")}`,
     `      return c.json(repo.toWire(found) as z.infer<typeof ${B}Response>, 200);`,
     `    },`,
     `  );`,

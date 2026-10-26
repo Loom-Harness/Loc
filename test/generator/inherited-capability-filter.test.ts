@@ -82,9 +82,19 @@ describe.each<Layout>(["sharedTable", "ownTable"])("inherited softDeletable — 
   });
 
   it("python (sqlalchemy)", async () => {
-    const repo = file(await gen("python", layout), "db/repositories/truck_repository.py");
-    expect(lineWith(repo, ".id == id")).toContain(".is_deleted)");
-    expect(lineWith(repo, ".plate == plate")).not.toContain("is_deleted");
+    const files = await gen("python", layout);
+    // The read-scope hook hosts the base's filter: on the root row class
+    // under TPH (it reaches every subclass), on Truck's own row under TPC.
+    const host = layout === "sharedTable" ? "VehicleRow" : "TruckRow";
+    const scope = file(files, "app/db/read_scope.py");
+    expect(scope).toContain(
+      `out.append(with_loader_criteria(${host}, lambda cls: not_(cls.is_deleted), include_aliases=True))`,
+    );
+    expect(scope).toContain('if not _bypassed("softDeletable", ignoring):');
+    const repo = file(files, "db/repositories/truck_repository.py");
+    expect(lineWith(repo, ".plate == plate")).toContain(
+      'loom_ignoring=frozenset({"softDeletable"})',
+    );
   });
 
   it("elixir (ecto)", async () => {

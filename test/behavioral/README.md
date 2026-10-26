@@ -255,8 +255,8 @@ the issue that fixes it. It is never dropped from the leg:
 
 ```js
 dotnet: {
-  // refused at generate — `match` pins the error
-  "tph-crossings": { issue: "#3960", expect: "error", match: "loom\\.tph-filter-unsupported", reason: "…" },
+  // fails to build — `match` pins the error
+  "projection-valueobject-row": { issue: "#4023", expect: "error", match: "dotnet build", reason: "…" },
   // runtime — `tests` pins the EXACT failing set, test-name fragment → message regex
   "inheritance-base-reads": {
     issue: "#3956, #3959", expect: "fail",
