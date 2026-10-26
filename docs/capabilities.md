@@ -90,9 +90,11 @@ rather than decide:
 | an operation of a `persistedAs: eventLog` aggregate | `handle` (the stream version the fold reached) | the `(stream_id, version)` key (RS-41) |
 | a workflow / handler save of a row or stream the body **loaded** | `handle` | as above |
 | a `create`, or a workflow save of a row the body **created** | `none` (an insert) | the primary key |
-| the canonical `destroy` | `none` — no backend conditions a delete on a version | — |
+| the canonical `destroy` | `none` today; **ruled** `if-match` for a `versioned` row (recorded as `pending`, implemented by #4341) | the row's `version` column, once implemented |
 
-Two simultaneous writers carrying the same tag yield exactly one 2xx and one
+A write that loses its check answers 409 whether or not it carried a tag; the
+client decides whether to retry, and the server never re-runs the command on its
+own. Two simultaneous writers carrying the same tag yield exactly one 2xx and one
 409 (RS-46). Node renders the fact (a census, `node-version-check-census.test.ts`,
 keeps it that way); the other backends' gaps are tracked expected failures of
 the `concurrency-two-writers` corpus case.

@@ -2159,7 +2159,9 @@ nothing and the test passes vacuously.
   writers that send the same tag at the same moment get exactly one 2xx and one
   409, and the version moves by one: the loser is refused by the header check
   when the winner committed first, and by the guarded save when both loaded
-  before either saved. A `create` and the canonical `destroy` check no version;
+  before either saved. A lost check is a 409 the client may retry; the server
+  never re-runs the command. A `create` and (until it is implemented, though
+  ruled `if-match`) the canonical `destroy` check no version;
   a workflow or handler save is checked against the version its handle loaded
   (RS-41).
 - **Trigger.** `test/fixtures/corpus/concurrency-two-writers.ddd`: stale tags on
@@ -2174,7 +2176,11 @@ nothing and the test passes vacuously.
   and then saved without the version guard, so two simultaneous writers both
   landed (#3521).
 - **Conforms.** node, dotnet, python. Targets: java (#3521), elixir (#3531),
-  each a tracked expected failure of the case (`BEHAVIOURAL_XFAIL`).
+  each a tracked expected failure of the case (`BEHAVIOURAL_XFAIL`). Java's
+  entry is a `race` entry: the lost write needs both requests to load before
+  either saves, which only the server's timing decides, so a run whose pairs all
+  serialise passes and still settles as expected. `race` is allowed only on the
+  two-writer probe, and every other leg judges the probe strictly.
 - **Provenance.** #3593 item 6. Tier: **behavioral**:
   `test/behavioral/wire-golden/concurrency-two-writers.json`, diffed by every
   wire-gated leg.

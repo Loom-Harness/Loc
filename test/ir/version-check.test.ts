@@ -120,6 +120,17 @@ describe("checksVersion — route write paths", () => {
     }
   });
 
+  it("a versioned row's destroy carries the ruled If-Match contract as pending; a stream's does not", async () => {
+    const { agg } = await context();
+    for (const n of ["Doc", "Memo"]) {
+      expect(destroyVersionCheck(agg(n))).toMatchObject({
+        checksVersion: "none",
+        pending: { checksVersion: "if-match", guard: "row-version", issue: "#4341" },
+      });
+    }
+    expect(destroyVersionCheck(agg("Account"))).not.toHaveProperty("pending");
+  });
+
   it("enumerates every route write path with its contract", async () => {
     const { agg } = await context();
     const paths = writePathsFor(agg("Doc")).map(

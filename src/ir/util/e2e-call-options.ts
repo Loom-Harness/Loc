@@ -11,9 +11,10 @@
 //
 // Scope is every operation whose write-path contract reads `If-Match`
 // (`operationVersionCheck`, `ir/enrich/version-check.ts`) — each named
-// operation of a `versioned` aggregate.  A backend that does not honour it yet
-// fails the case under a tracked expected failure; the test still states the
-// contract.
+// operation of a `versioned` aggregate, refused on an event-sourced one (its
+// stream version is checked, never the header).  A backend that does not
+// honour it yet fails the case under a tracked expected failure; the test still
+// states the contract.
 
 import { operationVersionCheck, readsIfMatch } from "../enrich/version-check.js";
 import type { AggregateIR, ExprIR } from "../types/loom-ir.js";

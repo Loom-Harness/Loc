@@ -232,6 +232,10 @@ function baseReads({ passes = [], pins = {} } = {}) {
  * issue and a well-formed pin, and every behavioural corpus fixture is
  * accounted for on every one of the five backends.
  */
+/** The two-writer probe's test name (`__twoWriterProbe`, wire-differential.mjs) —
+ *  the one test a `race` entry may pin: only a race can show what it measures. */
+export const RACE_PROBE_TEST = "two writers with the same If-Match";
+
 export const BEHAVIOURAL_XFAIL = {
   node: {},
   mikroorm: {
@@ -272,7 +276,9 @@ export const BEHAVIOURAL_XFAIL = {
     "concurrency-two-writers": {
       issue: "#3521",
       expect: "fail",
-      tests: { "two writers with the same If-Match": "pair \\d+: 204, 204" },
+      tests: { [RACE_PROBE_TEST]: "pair \\d+: 204, 204" },
+      race:
+        "the lost write needs both requests to load before either saves, which only the server's own timing decides; a run whose pairs all serialise passes",
       reason: "RS-46 — two simultaneous writers with one `If-Match` both answer 204 and one write is lost",
     },
   },

@@ -28,11 +28,18 @@
 //                  absent).  An event-sourced stream: `handle` (the stream
 //                  version the fold reached; `If-Match` on a stream is #3994).
 //                  Otherwise `none`.
-//   destroy      — `none` on every backend today: no backend reads `If-Match`
-//                  on DELETE, and the delete is not conditioned on a version.
+//   destroy      — RULED `if-match` for a `versioned` row, like an operation;
+//                  `none` until the backends implement it (no backend reads
+//                  `If-Match` on DELETE or conditions the delete on a version
+//                  yet), so the contract carries the ruling as `pending`.
 //   persist      — a workflow / handler save: `handle` for a row or stream the
 //                  body LOADED; `none` for one it CREATED (an insert).  A body
 //                  is not a request about one row, so it never reads `If-Match`.
+//
+// A write that loses its check answers 409, and the CLIENT decides whether to
+// retry — with or without `If-Match`.  The server never re-runs domain logic on
+// its own: a silent retry would apply a command against state the caller never
+// saw.  Owner rulings: https://github.com/Loom-Harness/Loc/issues/3593#issuecomment-6417721869
 
 import type { EffectIR } from "../types/effect-ir.js";
 import type { AggregateIR, OperationIR, SavingShape } from "../types/loom-ir.js";
@@ -45,7 +52,8 @@ import { aggregateIsVersioned } from "../util/versioned-capability.js";
  *
  *   - `if-match` — the client's `If-Match` entity-tag; with the header absent,
  *                  the version the handle was loaded at (so the write-time
- *                  guard always runs).
+ *                  guard always runs).  Either way a lost check is a 409 the
+ *                  client may retry; the server does not.
  *   - `handle`   — the version the saving handle was loaded at, only.
  *   - `none`     — the save is not checked against any version. */
 export type ChecksVersion = "if-match" | "handle" | "none";
@@ -64,13 +72,27 @@ export type UncheckedReason =
   | "insert"
   /** The aggregate carries no version to check (not `versioned`, not a stream). */
   | "unversioned"
-  /** A delete: no backend conditions it on a version. */
+  /** A delete: no backend conditions it on a version yet (see `pending`). */
   | "destroy";
+
+/** A ruled contract the backends do not implement yet: what the path WILL
+ *  check, and the issue that moves every backend onto it. */
+export interface PendingVersionCheck {
+  checksVersion: Exclude<ChecksVersion, "none">;
+  guard: VersionGuard;
+  issue: string;
+}
 
 /** One write path's concurrency contract. */
 export type VersionCheck =
   | { checksVersion: Exclude<ChecksVersion, "none">; guard: VersionGuard; store: WriteStore }
-  | { checksVersion: "none"; reason: UncheckedReason; store: WriteStore };
+  | {
+      checksVersion: "none";
+      reason: UncheckedReason;
+      store: WriteStore;
+      /** Set when the path is ruled to check a version but no backend does yet. */
+      pending?: PendingVersionCheck;
+    };
 
 /** A write path of an aggregate. */
 export type WritePath =
@@ -117,9 +139,21 @@ export function operationVersionCheck(agg: AggregateIR, _op?: OperationIR): Vers
   return { checksVersion: "none", reason: "unversioned", store };
 }
 
-/** The contract of the canonical `destroy` route. */
+/** The issue that moves every backend's DELETE onto the ruled contract. */
+const DESTROY_IF_MATCH_ISSUE = "#4341";
+
+/** The contract of the canonical `destroy` route: unchecked today; ruled to
+ *  read `If-Match` on a `versioned` row, which `pending` records. */
 export function destroyVersionCheck(agg: AggregateIR): VersionCheck {
-  return { checksVersion: "none", reason: "destroy", store: writeStoreFor(agg) };
+  const store = writeStoreFor(agg);
+  return rowVersionGuarded(agg)
+    ? {
+        checksVersion: "none",
+        reason: "destroy",
+        store,
+        pending: { checksVersion: "if-match", guard: "row-version", issue: DESTROY_IF_MATCH_ISSUE },
+      }
+    : { checksVersion: "none", reason: "destroy", store };
 }
 
 /** Every route write path of an aggregate, each with its contract, in
