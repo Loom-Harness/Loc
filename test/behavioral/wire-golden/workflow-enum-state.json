@@ -257,7 +257,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "message": "Required",
+            "message": "reference is required",
             "pointer": "/reference"
           }
         ],

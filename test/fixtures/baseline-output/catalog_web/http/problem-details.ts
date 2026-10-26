@@ -86,7 +86,7 @@ function pointerOf(path: ReadonlyArray<PropertyKey>): string {
 }
 
 /** Is the issue's path ABSENT from the request input?  An absent required
- *  field answers the one word every backend sends for it (RS-39) instead of
+ *  field answers the sentence every backend sends for it (RS-39) instead of
  *  zod's type-mismatch sentence ("expected string, received undefined"). */
 function isAbsent(input: unknown, path: ReadonlyArray<PropertyKey>): boolean {
   if (path.length === 0) return false;
@@ -96,6 +96,12 @@ function isAbsent(input: unknown, path: ReadonlyArray<PropertyKey>): boolean {
     node = (node as Record<PropertyKey, unknown>)[seg];
   }
   return node !== null && typeof node === "object" && !(path[path.length - 1]! in node);
+}
+
+/** `"<field> is required"` for an absent key — the field is the
+ *  path's last segment, the key `isAbsent` found missing. */
+function missingFieldMessage(path: ReadonlyArray<PropertyKey>): string {
+  return `${String(path[path.length - 1])} is required`;
 }
 
 
@@ -117,7 +123,7 @@ export function defaultHook(result: { success: boolean; data?: unknown; error?: 
   const trace_id = c.get("requestId") ?? "";
   const errors = (result.error?.issues ?? []).map((issue) => ({
     pointer: pointerOf(issue.path),
-    message: isAbsent(result.data, issue.path) ? "Required" : issue.message,
+    message: isAbsent(result.data, issue.path) ? missingFieldMessage(issue.path) : issue.message,
     // A messaged invariant/precondition carries a stable content-hash code (via
     // the refine's params.loomCode) so a client can localise the error;
     // structural zod errors (type/min) have none.

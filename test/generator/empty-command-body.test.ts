@@ -19,6 +19,7 @@
 // are the EMITTED-CODE assertions that keep each backend's seam in place.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { fieldSentenceSuffix } from "../../src/ir/enrich/wire-policy.js";
 import { commandBodyOptional } from "../../src/ir/util/command-body.js";
 import {
   MISSING_FIELD_MESSAGE,
@@ -196,10 +197,14 @@ describe("RS-39 — an empty request body is `{}`; a parameterless command's bod
 });
 
 describe("RS-39 — an absent required field: one 422 everywhere; a create with no input is optional", () => {
-  it("node: the hook answers MISSING_FIELD_MESSAGE for an absent key; Ticket's create body is optional", async () => {
+  it("node: the hook answers the wirePolicy `<field> is required` sentence for an absent key; Ticket's create body is optional", async () => {
     const m = await files("node");
-    expect(fileEndingWith(m, "http/problem-details.ts")).toContain(
-      `isAbsent(result.data, issue.path) ? ${JSON.stringify(MISSING_FIELD_MESSAGE)}`,
+    const problem = fileEndingWith(m, "http/problem-details.ts");
+    expect(problem).toContain(
+      "isAbsent(result.data, issue.path) ? missingFieldMessage(issue.path)",
+    );
+    expect(problem).toContain(
+      `return \`\${String(path[path.length - 1])} ${fieldSentenceSuffix("missing")}\`;`,
     );
     expect(
       lineWith(fileEndingWith(m, "http/ticket.routes.ts"), "CreateTicketRequest } }"),
