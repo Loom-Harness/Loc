@@ -152,7 +152,7 @@ describe("filter-capability selectability validation", () => {
           aggregate Customer { name: string }
           aggregate Ticket { subject: string  customer: Customer id }
           repository Tickets for Ticket {
-            find mine(): Ticket[] where currentUser.role == "agent" || customer == currentUser.customerId
+            find mine(): Ticket? where currentUser.role == "agent" || customer == currentUser.customerId
           }
         }}
       }

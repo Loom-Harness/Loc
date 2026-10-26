@@ -24,7 +24,7 @@ system Pokedex {
         party: Pokemon id[]
       }
       repository Trainers for Trainer {
-        find holdingInParty(pokemon: Pokemon id): Trainer[]
+        find holdingInParty(pokemon: Pokemon id): Trainer?
             where this.party.contains(pokemon)
       }
     }

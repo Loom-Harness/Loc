@@ -62,15 +62,20 @@ system PythonReservedWords {
         invariant lambda >= 0
       }
 
-      repository Things for Thing {
-        // A find parameter is a QUERY PARAMETER on the wire and a python
-        // keyword argument on the repository.
-        find byDef(def: string, elif: int): Thing[] where this.def == def && this.lambda >= elif
+      repository Things for Thing { }
+      // A find parameter is a QUERY PARAMETER on the wire and a python
+      // keyword argument on the repository.
+      criterion ThingsByDef(def: string, elif: int) of Thing = this.def == def && this.lambda >= elif
+      queryHandler ListThingsByDef(def: string, elif: int): Thing[] {
+        let r = Things.run(ThingsByDef(def, elif))
+        return r
       }
     }
   }
 
-  api SalesApi from Sales
+  api SalesApi from Sales {
+    route GET "/things/by_def/{def}/{elif}" -> Things.ListThingsByDef
+  }
   storage pg { type: postgres }
   resource thingState { for: Things, kind: state, use: pg, index: [Thing.label] }
   deployable d {
@@ -126,7 +131,7 @@ system PythonReservedWords {
     expect(updated.raise).toBe(10)
 
     // The find's query-parameter names are the `.ddd` spellings.
-    let found = api.things.byDef({ def: "d2", elif: 1 })
+    let found = api.things.listThingsByDef("d2", 1)
     expect(found.count()).toBe(1)
     expect(found.first().label).toBe("beta")
 

@@ -67,7 +67,7 @@ describe("python shape: document capability filter", () => {
     // the capability predicate with its own where, so bypass can drop a conjunct.
     expect(r).toContain("items = [_article_from_doc(r.data, r.version) for r in rows]");
     expect(r).toContain(
-      "result = [x for x in items if ((not x.archived) and " +
+      "matches = [x for x in items if ((not x.archived) and " +
         "(x.tenant_id == current_user.tenant_id)) and (x.view_count >= min)]",
     );
   });

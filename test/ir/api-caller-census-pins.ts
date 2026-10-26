@@ -369,7 +369,8 @@ export const R = {
    * bodies against a recording, so any caller would be green on the run that
    * captured it and red on every later one.
    *
-   * The one pin: `temporal`'s `dueWithin(n: int)`, declared so the compile tier
+   * DRAINED — `temporal`'s `dueWithin(n: int)` was the one pin; as a criterion
+   * with no handler it has no route, so nothing is left to call.  It was declared so the compile tier
    * covers the shape that needs a BOUND parameter inside a SQL interval
    * (`this.dueDate - hours(n)`) rather than a literal — the interval's other
    * arms are all driven by the same fixture's e2e, and the parameterised one is
@@ -454,10 +455,6 @@ export const R = {
 /** `<case key> → { <derived operationId>: reason }`.  Case keys match
  *  `POPULATION` in `api-caller-census.test.ts`. */
 export const UNCALLED_PINS: Record<string, Record<string, string>> = {
-  // ── THE CLOCK-DEPENDENT FIND ─────────────────────────────────────────────
-  "corpus/temporal": {
-    dueWithinInvoice: R.clockDependentFind,
-  },
   // ── THE TENANT REGISTRIES ────────────────────────────────────────────────
   // Many pins, one cause: the derived self-scope filter narrows every read
   // (and every write's load-before-save) to the row whose id IS the principal's
@@ -1214,7 +1211,6 @@ export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   tenantRegistryRow: 20,
   seededListReadUnwritten: 2,
   gateProbe: 2,
-  clockDependentFind: 1,
   // +2 — `corpus/handler-triad` joined the census when the routed-handler call
   // form made its api addressable, and brought its aggregate's two id-taking
   // routes with it.  A pin count that goes UP is not a regression when the

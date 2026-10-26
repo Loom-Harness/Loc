@@ -70,10 +70,10 @@ describe("java generator — shape: document", () => {
       "doc_api/src/main/java/com/loom/docapi/features/articles/ArticleRepositoryImpl.java",
     )!;
     expect(impl).toContain(
-      "var result = findAll().stream().filter(x -> x.viewCount() >= min).toList();",
+      "var result = findAll().stream().filter(x -> x.viewCount() >= min).findFirst().orElse(null);",
     );
     expect(impl).toContain(
-      'CatalogLog.event("find_executed", "debug", "aggregate", "Article", "find", "popular", "rows", result.size());',
+      'CatalogLog.event("find_executed", "debug", "aggregate", "Article", "find", "popular", "rows", result == null ? 0 : 1);',
     );
   });
 });

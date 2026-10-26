@@ -56,14 +56,14 @@ describe("ignoring filter-bypass clause parses", () => {
     expect(
       parseErrorsOf(
         wrap(`repository R for Order {
-        find recent(): Order[] where this.total > 0 ignoring softDeletable
+        find recent(): Order? where this.total > 0 ignoring softDeletable
       }`),
       ),
     ).toEqual([]);
     const f = await findDecl(
       "recent",
       wrap(`repository R for Order {
-        find recent(): Order[] where this.total > 0 ignoring softDeletable
+        find recent(): Order? where this.total > 0 ignoring softDeletable
       }`),
     );
     expect(f.bypass).toEqual(["softDeletable"]);
@@ -74,7 +74,7 @@ describe("ignoring filter-bypass clause parses", () => {
     const f = await findDecl(
       "allRows",
       wrap(`repository R for Order {
-        find allRows(): Order[] ignoring *
+        find allRows(): Order? ignoring *
       }`),
     );
     expect(f.bypassAll).toBe(true);
@@ -85,7 +85,7 @@ describe("ignoring filter-bypass clause parses", () => {
     const f = await findDecl(
       "multi",
       wrap(`repository R for Order {
-        find multi(): Order[] where this.total > 0 ignoring softDeletable, auditable
+        find multi(): Order? where this.total > 0 ignoring softDeletable, auditable
       }`),
     );
     expect(f.bypass).toEqual(["softDeletable", "auditable"]);

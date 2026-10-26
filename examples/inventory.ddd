@@ -34,7 +34,6 @@ context Inventory {
     }
   }
 
-  repository Warehouses for Warehouse {
-    find byCode(code: string): Warehouse?
-  }
+  repository Warehouses for Warehouse { }
+  criterion WarehousesByCode(code: string) of Warehouse = this.code == code
 }

@@ -79,7 +79,7 @@ system Shop {
         destroy { }
       }
       repository Orders for Order {
-        find byStatus(status: string): Order[] where this.status == status
+        find byStatus(status: string): Order where this.status == status
       }
     }
   }
@@ -300,7 +300,7 @@ describe("D-EXPLICIT-ROUTE-WINS — an explicit route owns its slot; the derived
       )
       .replace(
         "repository Orders for Order { }",
-        "repository Orders for Order { find byStatus(status: string): Order[] where this.status == status }",
+        "repository Orders for Order { find byStatus(status: string): Order where this.status == status }",
       )
       .replace(
         'route POST "/echo/{text}" -> Sales.Echo',

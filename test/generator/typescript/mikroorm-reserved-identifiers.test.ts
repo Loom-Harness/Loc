@@ -31,10 +31,10 @@ system ReservedSys {
         total: int
       }
       repository Tickets for Ticket {
-        find rooted(p: string): Ticket[] where this.end.startsWith(p)
-        find trimmed(g: string): Ticket[] where this.group.trim() == g
-        find capped(n: int): Ticket[] where this.limit.abs() == n
-        find totalled(n: int): Ticket[] where this.total.abs() == n
+        find rooted(p: string): Ticket? where this.end.startsWith(p)
+        find trimmed(g: string): Ticket? where this.group.trim() == g
+        find capped(n: int): Ticket? where this.limit.abs() == n
+        find totalled(n: int): Ticket? where this.total.abs() == n
       }
     }
   }

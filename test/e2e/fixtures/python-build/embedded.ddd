@@ -25,7 +25,7 @@ system EmbSys {
         operation retotal(amount: money) { total := amount }
       }
       repository Orders for Order {
-        find byCustomer(name: string): Order[] where this.customer == name
+        find byCustomer(name: string): Order? where this.customer == name
       }
     }
   }

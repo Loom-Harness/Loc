@@ -79,8 +79,10 @@ import {
 } from "./lower-types.js";
 import { originFor } from "./origin.js";
 import {
+  keyLookupIR,
   matchFindAllCall,
   matchFindCall,
+  matchKeyLookupCall,
   matchOptionalFindCall,
   matchRepoCall,
   matchRetrievalRunCall,
@@ -619,11 +621,19 @@ function lowerWorkflowStatementInner(
     // env; `var` (the unwrapped match) is in scope only in `thenBody`, never
     // in `elseBody`.
     const findCall = matchFindCall(stmt.source, reposByName);
-    const declaredFind = findCall
-      ? undefined
-      : matchOptionalFindCall(stmt.source, reposByName, env);
+    // A natural-key `Repo.findBy(…)` is the third source form: the backends
+    // call its synthesised nullable method exactly like a declared optional
+    // find's.  (`getBy` never answers absence, so it is not an `if let`
+    // source — it falls through to `loom.iflet-bad-source`.)
+    const keyFind = findCall ? undefined : matchKeyLookupCall(stmt.source, reposByName);
+    const keySource = keyFind?.op === "load-by-key-optional" ? keyFind : undefined;
+    const declaredFind =
+      findCall || keyFind ? undefined : matchOptionalFindCall(stmt.source, reposByName, env);
     const repo =
-      findCall?.repo ?? declaredFind?.repo ?? matchRepoCall(stmt.source, reposByName)?.repo;
+      findCall?.repo ??
+      keyFind?.repo ??
+      declaredFind?.repo ??
+      matchRepoCall(stmt.source, reposByName)?.repo;
     const aggName = repo?.aggregate?.ref?.name ?? "Unknown";
     const repoName = repo?.name ?? "";
     const saveRepoName = repoForAgg.get(aggName) ?? plural(aggName);
@@ -659,15 +669,16 @@ function lowerWorkflowStatementInner(
       stmt: {
         kind: "if-let",
         var: stmt.var,
-        op: declaredFind ? "declared-find" : "select-one",
+        op: keySource ? "load-by-key-optional" : declaredFind ? "declared-find" : "select-one",
         repoName,
         aggName,
         retrievalName: findCall ? `findAllBy${findCall.criterionName}` : "",
-        retrievalArgs: (findCall?.criterionArgs ?? declaredFind?.args ?? []).map((a) =>
-          lowerExpr(a, env),
+        retrievalArgs: (findCall?.criterionArgs ?? keySource?.args ?? declaredFind?.args ?? []).map(
+          (a) => lowerExpr(a, env),
         ),
         synthCriterion: { name: findCall?.criterionName ?? "" },
         ...(declaredFind ? { findMethod: declaredFind.method } : {}),
+        ...(keySource ? { findMethod: keySource.method, key: keyLookupIR(keySource) } : {}),
         thenBody,
         ...(elseBody.length > 0 ? { elseBody } : {}),
         savesInThen,
@@ -815,6 +826,29 @@ function lowerWorkflowStatementInner(
           returnType: arrayType,
         },
         envAfter: withLocal(env, stmt.name, "let", arrayType),
+      };
+    }
+    // repo-let over a natural-key read: `Repo.getBy(sku: s)` /
+    // `Repo.findBy(…)`.  Its arguments follow the matched tuple's column
+    // order, and it calls the method enrichment synthesises from `key`.
+    const keyCall = matchKeyLookupCall(expr, reposByName);
+    if (keyCall) {
+      const aggName = keyCall.repo.aggregate?.ref?.name ?? "Unknown";
+      const returnType: TypeIR = inferExprType(stmt.expr, env);
+      return {
+        stmt: {
+          kind: "repo-let",
+          name: stmt.name,
+          repoName: keyCall.repo.name,
+          aggName,
+          op: keyCall.op,
+          method: keyCall.method,
+          args: keyCall.args.map((a) => lowerExpr(a, env)),
+          returnType,
+          key: keyLookupIR(keyCall),
+        },
+        envAfter: withLocal(env, stmt.name, "let", returnType),
+        binding: { name: stmt.name, aggName, repoName: keyCall.repo.name },
       };
     }
     // repo-let: `Repo.method(args)`

@@ -1,5 +1,5 @@
 // The policy read gate on a find route, Java/Spring (D-AUTH-OIDC / default-deny).  A
-// `policy { read T requires <expr> }` over a `find f(): T[] where <pred>` emits a 403 gate at the top of
+// `policy { read T requires <expr> }` over a `find f(…): T? where <pred>` emits a 403 gate at the top of
 // the find's controller action — the read-side twin of the view gate —
 // evaluated against the request's currentUser before delegating to the service.
 // ForbiddenException maps to 403 via the controller advice.  Ungated → no gate.
@@ -10,7 +10,7 @@ function src(findClause: string): string {
   return `system S { user { id: string  role: string } subdomain Sales { context Tickets {
     aggregate Ticket { subject: string  open: bool }
     repository Tickets for Ticket {
-      find openOnes(): Ticket[] where open == true${findClause ? `\n}\npolicy { read Ticket ${findClause}` : ""}
+      find bySubject(s: string): Ticket? where this.subject == s${findClause ? `\n}\npolicy { read Ticket ${findClause}` : ""}
     }
   } } api A from Sales storage pg { type: postgres }
   resource ticketsState { for: Tickets, kind: state, use: pg }
@@ -32,10 +32,10 @@ describe("java find requires gate", () => {
     expect(ctrl).toContain("private final CurrentUserAccessor currentUserAccessor;");
     expect(ctrl).toContain("var currentUser = currentUserAccessor.user();");
     expect(ctrl).toContain(
-      'if (!(Objects.equals(currentUser.role(), "agent"))) throw new ForbiddenException("Forbidden: find openOnes");',
+      'if (!(Objects.equals(currentUser.role(), "agent"))) throw new ForbiddenException("Forbidden: find bySubject");',
     );
     const gateIdx = ctrl.indexOf("throw new ForbiddenException");
-    const queryIdx = ctrl.indexOf("service.openOnes()");
+    const queryIdx = ctrl.indexOf("service.bySubject(");
     expect(gateIdx).toBeGreaterThan(0);
     expect(queryIdx).toBeGreaterThan(gateIdx);
   });
@@ -49,7 +49,7 @@ describe("java find requires gate", () => {
   it("`requires true` emits an always-pass gate without injecting the accessor", async () => {
     const ctrl = await controller("requires true ");
     expect(ctrl).toContain(
-      'if (!(true)) throw new ForbiddenException("Forbidden: find openOnes");',
+      'if (!(true)) throw new ForbiddenException("Forbidden: find bySubject");',
     );
     expect(ctrl).not.toContain("var currentUser = currentUserAccessor.user();");
   });

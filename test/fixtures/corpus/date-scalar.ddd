@@ -48,13 +48,18 @@ system DateScalar {
         }
       }
 
-      repository Patients for Patient {
-        find bornBefore(cutoff: date): Patient[] where this.birthDate < cutoff
+      repository Patients for Patient { }
+      criterion PatientsBornBefore(cutoff: date) of Patient = this.birthDate < cutoff
+      queryHandler ListPatientsBornBefore(cutoff: date): Patient[] {
+        let r = Patients.run(PatientsBornBefore(cutoff))
+        return r
       }
     }
   }
 
-  api ClinicApi from Care
+  api ClinicApi from Care {
+    route GET "/patients/born_before/{cutoff}" -> Clinic.ListPatientsBornBefore
+  }
 
   storage primary { type: postgres }
   resource clinicState { for: Clinic, kind: state, use: primary, index: [Patient.birthDate] }
@@ -88,12 +93,12 @@ system DateScalar {
     // A date in a SQL comparison — the column against a bound date parameter.
     // Each cutoff answers at most one row (a `find` has no order, so a
     // two-row answer would be compared in whatever order each backend reads).
-    let older = api.patients.bornBefore({ cutoff: "2000-01-01" })
+    let older = api.clinic.listPatientsBornBefore("2000-01-01")
     expect(older.count()).toBe(1)
     expect(older.first().name).toBe("Bob")
     // Strict `<` at the day boundary: Ada (2026-01-01) is not before 2026-01-01.
-    expect(api.patients.bornBefore({ cutoff: "2026-01-01" }).count()).toBe(1)
-    expect(api.patients.bornBefore({ cutoff: "1999-12-31" }).count()).toBe(0)
+    expect(api.clinic.listPatientsBornBefore("2026-01-01").count()).toBe(1)
+    expect(api.clinic.listPatientsBornBefore("1999-12-31").count()).toBe(0)
 
     // The update ingress path.
     api.patients.update(bob, { name: "Bob", birthDate: "2000-02-29", nextVisit: null })

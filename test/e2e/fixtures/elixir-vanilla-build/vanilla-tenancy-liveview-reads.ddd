@@ -1,6 +1,6 @@
-// The LiveView twin of `vanilla-tenancy.ddd`: every scaffolded LiveView read
-// over a principal-filtered aggregate — the paged list, the by-id detail and
-// the declared find behind the list's filter bar — threads the socket's
+// The LiveView twin of `vanilla-tenancy.ddd`: every LiveView read over a
+// principal-filtered aggregate — the scaffolded paged list and by-id detail,
+// and a hand-written page reading a declared find — threads the socket's
 // `current_user` into its context function, so `mix compile
 // --warnings-as-errors` checks every call against the arity the context
 // module declares.
@@ -30,7 +30,7 @@ system TenancyShopLive {
       }
       // A custom find exercises the threaded-actor find path.
       repository Accounts for Account {
-        find byMinBalance(min: int): Account[] where this.balance >= min
+        find byMinBalance(min: int): Account? where this.balance >= min
       }
     }
   }
@@ -39,7 +39,13 @@ system TenancyShopLive {
   resource ledgerState { for: Ledger, kind: state, use: primary, index: [Account.tenantId, Account.balance] }
 
   api LedgerApi from Core
-  ui Web with scaffold(subdomains: [Core]) { }
+  ui Web with scaffold(subdomains: [Core]) {
+    page Rich {
+      route: "/rich"
+      state { min: int = 0 }
+      body: QueryView { of: Account.byMinBalance(min), data: a => Text { a.tenantId } }
+    }
+  }
   deployable api {
     platform: elixir
     contexts: [Ledger]

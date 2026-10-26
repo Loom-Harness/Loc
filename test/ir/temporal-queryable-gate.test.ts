@@ -24,7 +24,7 @@ const sys = (pred: string) => `
   context Billing {
     aggregate Invoice { dueDate: datetime }
     repository Invoices for Invoice {
-      find w(q: datetime): Invoice[] where ${pred}
+      find w(q: datetime): Invoice? where ${pred}
     }
   }
 `;

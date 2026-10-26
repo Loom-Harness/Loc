@@ -125,9 +125,8 @@ system S {
     aggregate Org with crudish { name: string }
     aggregate Catalog crossTenant, with softDeletable, crudish { sku: string }
     repository Orgs for Org { }
-    repository Catalogs for Catalog {
-      find bySku(sku: string): Catalog[] where this.sku == sku ignoring *
-    }
+    repository Catalogs for Catalog { }
+    criterion CatalogsBySku(sku: string) of Catalog = this.sku == sku
   } }
   api Api from Ops
   storage pg { type: postgres }
@@ -143,9 +142,8 @@ system S {
 system S {
   subdomain Ops { context Work {
     aggregate WorkOrder with softDeletable, crudish { ref: string }
-    repository WorkOrders for WorkOrder {
-      find byRef(ref: string): WorkOrder[] where this.ref == ref ignoring *
-    }
+    repository WorkOrders for WorkOrder { }
+    criterion WorkOrdersByRef(ref: string) of WorkOrder = this.ref == ref
   } }
   api Api from Ops
   storage pg { type: postgres }

@@ -14,7 +14,7 @@
     {
       "seq": 1,
       "method": "GET",
-      "path": "/api/invoices/by_number?n=INV-1",
+      "path": "/api/invoices/by_number/INV-1",
       "status": 200,
       "body": [
         {
@@ -160,7 +160,7 @@
     {
       "seq": 13,
       "method": "GET",
-      "path": "/api/invoices/by_number?n=INV-1B",
+      "path": "/api/invoices/by_number/INV-1B",
       "status": 200,
       "body": []
     },

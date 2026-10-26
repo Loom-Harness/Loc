@@ -52,8 +52,8 @@ system Sales {
         find requireByEmail(email: string): Customer where this.email == email
       }
       repository Orders for Order {
-        find byCustomer(customerId: Customer id): Order[]
-        find byStatus(s: OrderStatus): Order[] where this.status == s
+        find byCustomer(customerId: Customer id): Order?
+        find byStatus(s: OrderStatus): Order? where this.status == s
       }
 
       workflow tagFirstByEmail {
@@ -99,18 +99,10 @@ describe("vanilla — custom find functions on the repository module", () => {
     );
   });
 
-  it("an array-return find uses `Repo.all(query)`", async () => {
-    const files = await load();
-    const order = files.get([...files.keys()].find((k) => k.endsWith("/order_repository.ex"))!)!;
-    expect(order).toContain(
-      "def by_status(s) do\n    query = from(record in Api.Orders.Order, where: record.status == ^s)\n    {:ok, Repo.all(query)}\n  end",
-    );
-  });
-
   it("a convention-find (no explicit `where`) generates per-param equality predicates", async () => {
     const files = await load();
     const order = files.get([...files.keys()].find((k) => k.endsWith("/order_repository.ex"))!)!;
-    // `find byCustomer(customerId: Customer id): Order[]` — no where clause,
+    // `find byCustomer(customerId: Customer id): Order?` — no where clause,
     // so the predicate is per-param `record.<name> == ^<name>`.
     expect(order).toMatch(
       /def by_customer\(customer_id\) do\n\s+query = from\(record in Api\.Orders\.Order, where: record\.customer_id == \^customer_id\)/,

@@ -149,8 +149,8 @@ const FIND_SRC = `
     aggregate Customer { active: bool  region: string  name: string }
     criterion InRegion(rgn: string) of Customer = region == rgn
     repository Customers for Customer {
-      find byRegion(rgn: string): Customer[] where InRegion(rgn)
-      find byName(name: string): Customer[] where this.name == name
+      find byRegion(rgn: string): Customer? where InRegion(rgn)
+      find byName(name: string): Customer? where this.name == name
     }
   }
 `;

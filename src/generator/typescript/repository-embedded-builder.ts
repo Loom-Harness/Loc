@@ -28,6 +28,8 @@ import {
   buildFindWhereClause,
   hydrateRootExpr,
   readFilterPred,
+  reifiableCriterion,
+  renderCriterionFn,
 } from "./repository-find-builder.js";
 import {
   combinePredicate,
@@ -178,6 +180,18 @@ export function buildEmbeddedRepositoryFile(
   const findMethods = [...(repo?.finds ?? []), ...synthProjectionFinds(agg.name, ctx)].map((find) =>
     embeddedFindMethod(agg, find, ctx, filterPred),
   );
+  // A find whose `where` is exactly one named criterion (every
+  // `findAllBy<Criterion>` a `Repo.run` reads) calls the reified module-level
+  // predicate fn `buildFindWhereClause` names, so the fn is emitted here as on
+  // the relational builder — the root columns are real columns on both.
+  const criterionFnByName = new Map<string, string>();
+  for (const find of repo?.finds ?? []) {
+    const c = reifiableCriterion(find.criterionRef, ctx, tableName);
+    if (c && !criterionFnByName.has(c.name)) {
+      criterionFnByName.set(c.name, renderCriterionFn(c, tableName, ctx));
+    }
+  }
+  const criterionFns = [...criterionFnByName.values()];
 
   const bodyStr = lines(
     `export class ${agg.name}Repository implements ${repoPortName(agg.name)} {`,
@@ -273,8 +287,12 @@ export function buildEmbeddedRepositoryFile(
     ...agg.parts.flatMap((p) => [entityFromDocFn(p, false, agg.name, ctx), ""]),
   );
 
+  // Everything this module emits: the criterion fns sit outside the class but
+  // render Drizzle operators, so they are part of what the imports must cover.
+  const renderedBody =
+    criterionFns.length > 0 ? `${criterionFns.join("\n")}\n\n${bodyStr}` : bodyStr;
   // Import narrowing — mirror buildRepositoryFile.
-  const bodyScan = stripStringLiterals(bodyStr);
+  const bodyScan = stripStringLiterals(renderedBody);
   const voOrEnumImports = [...collectValueObjects(agg, ctx), ...collectEnums(agg, ctx)];
   const isValueUsed = (n: string): boolean =>
     new RegExp(`new\\s+${n}\\(|\\b${n}\\.\\w`).test(bodyScan);
@@ -298,7 +316,7 @@ export function buildEmbeddedRepositoryFile(
     // The paged find's sort-column allowlist is typed `AnyPgColumn` (as on the
     // relational builder); absent from a repository with no paged find.
     /\bAnyPgColumn\b/.test(bodyScan) && `import type { AnyPgColumn } from "drizzle-orm/pg-core";`,
-    drizzleImportLine(bodyStr),
+    drizzleImportLine(renderedBody),
     `import * as schema from "../schema";`,
     repoUsesUser && `import type { User } from "../../auth/user-types";`,
     `import { ${domainImports} } from "../../domain/${lowerFirst(agg.name)}";`,
@@ -319,7 +337,7 @@ export function buildEmbeddedRepositoryFile(
     "",
     `type Db = NodePgDatabase<typeof schema>;`,
     "",
-    bodyStr,
+    renderedBody,
     "",
   );
 }

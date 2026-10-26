@@ -219,8 +219,10 @@ const A32 = `
           operation cancel() { status := "cancelled" }
           destroy { }
         }
+        // NON-optional: a handler body cannot bind an optional find
+        // (loom.handler-load-nullable-unsupported), and list finds are removed.
         repository Orders for Order {
-          find byStatus(status: string): Order[] where this.status == status
+          find byStatus(status: string): Order where this.status == status
         }
       }
     }
@@ -255,7 +257,7 @@ describe("scaffoldHandlers + scaffoldApi — A3.2 create / find source kinds", (
     expect(cmd.returnType?.base.$type).toBe("IdType");
   });
 
-  it("emits a ByStatusOrder queryHandler running the repository find, returning Order[]", async () => {
+  it("emits a ByStatusOrder queryHandler running the repository find, returning Order", async () => {
     const { model } = await parseString(A32, { validate: false });
     const q = [...AstUtils.streamAllContents(model)]
       .filter(isQueryHandler)
@@ -267,9 +269,9 @@ describe("scaffoldHandlers + scaffoldApi — A3.2 create / find source kinds", (
       "ByStatusOrderQuery",
     );
     expect(q.body.map((s) => s.$type)).toEqual(["LetStmt", "ReturnStmt"]);
-    // A find over the aggregate declares `<Agg>Response[]` (the wire is already
+    // A find over the aggregate declares `<Agg>Response` (the wire is already
     // that shape via transport projection).
-    expect(q.returnType.array).toBe(true);
+    expect(q.returnType.array).toBe(false);
     expect((q.returnType.base as { target: { $refText: string } }).target.$refText).toBe(
       "OrderResponse",
     );

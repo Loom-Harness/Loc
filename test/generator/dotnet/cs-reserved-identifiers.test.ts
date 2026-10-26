@@ -27,7 +27,7 @@ const SRC = (persistence: string) => `
         lock: string
       }
       repository Tickets for Ticket {
-        find byCase(case: string): Ticket[] where this.case == case
+        find byCase(case: string): Ticket? where this.case == case
       }
       projection Volume {
         tickets: int

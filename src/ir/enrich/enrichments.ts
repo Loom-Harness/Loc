@@ -1,6 +1,7 @@
 import { descriptorFor } from "../../platform/metadata.js";
 import { defaultErrorStatus, STRUCTURAL_CONFLICT_ERRORS } from "../../util/error-defaults.js";
 import { plural, snake } from "../../util/naming.js";
+import { isKeyLookupOp } from "../../util/repository-contract.js";
 import { defaultInterfaceFor } from "../../util/source-types.js";
 import {
   forEachGenericInstance,
@@ -84,6 +85,7 @@ import { applyDefaultDenyReads } from "./default-deny-reads.js";
 import { applyDemoTenantSeed } from "./demo-tenant.js";
 import { bindFindParams } from "./find-param-bindings.js";
 import { inheritBaseCapabilities } from "./inherited-capabilities.js";
+import { type KeyLookupRead, synthesizeKeyLookupFinds } from "./key-lookup-finds.js";
 import { applyPolicyReadGates } from "./policy-read-gates.js";
 import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
 
@@ -982,19 +984,23 @@ export function enrichContext(
   // so the aggregate router does NOT auto-expose it (the queryHandler's own
   // route is the exposure).
   const repositories = bindFindParams(
-    synthesizePagedQueryHandlerFinds(
-      // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
-      // find's gate + `ignoring` stance, so the implicit `all` must exist first.
-      // `applyPolicyReadGates` sits between them: it puts the
-      // `policy { read X requires … }` gate on the injected `all` (and every
-      // declared find), which history then copies.
-      ensureHistoryFind(
-        aggregates,
-        applyPolicyReadGates(ensureFindAll(aggregates, ctx.repositories), ctx.policyReadGates),
+    synthesizeKeyLookupFinds(
+      synthesizePagedQueryHandlerFinds(
+        // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
+        // find's gate + `ignoring` stance, so the implicit `all` must exist first.
+        // `applyPolicyReadGates` sits between them: it puts the
+        // `policy { read X requires … }` gate on the injected `all` (and every
+        // declared find), which history then copies.
+        ensureHistoryFind(
+          aggregates,
+          applyPolicyReadGates(ensureFindAll(aggregates, ctx.repositories), ctx.policyReadGates),
+        ),
+        ctx.queryHandlers,
+        ctx.criteria,
+        ctx.retrievals,
       ),
-      ctx.queryHandlers,
-      ctx.criteria,
-      ctx.retrievals,
+      aggregates,
+      keyLookupReads(ctx),
     ),
     aggregates,
   );
@@ -1093,6 +1099,43 @@ function allWorkflowStmts(wf: WorkflowIR): WorkflowStmtIR[] {
     }
   };
   for (const r of roots) walk(r);
+  return out;
+}
+
+/** Every natural-key read (`Repo.getBy(…)` / `Repo.findBy(…)`) the context's
+ *  bodies make — workflows, explicit handlers and domain-service operations,
+ *  the three bodies a repository read lowers in.  Each names the method
+ *  `synthesizeKeyLookupFinds` adds to its repository. */
+function keyLookupReads(ctx: BoundedContextIR): KeyLookupRead[] {
+  const out: KeyLookupRead[] = [];
+  const noteStmt = (st: WorkflowStmtIR): void => {
+    if (st.kind === "repo-let" && st.key && isKeyLookupOp(st.op)) {
+      out.push({ repoName: st.repoName, op: st.op, method: st.method, key: st.key });
+    } else if (st.kind === "if-let" && st.key && st.findMethod) {
+      out.push({
+        repoName: st.repoName,
+        op: st.op as KeyLookupRead["op"],
+        method: st.findMethod,
+        key: st.key,
+      });
+    }
+  };
+  for (const wf of ctx.workflows) for (const st of allWorkflowStmts(wf)) noteStmt(st);
+  for (const h of [...(ctx.queryHandlers ?? []), ...(ctx.commandHandlers ?? [])]) {
+    for (const st of flattenHandlerStmts(h.statements)) noteStmt(st);
+  }
+  for (const svc of ctx.domainServices ?? []) {
+    for (const op of svc.operations) {
+      for (const stmt of op.body) {
+        walkStmtExprsDeep(stmt, (e) => {
+          const read = e.kind === "call" && e.callKind === "repo-read" ? e.repoRead : undefined;
+          if (read?.key && isKeyLookupOp(read.op)) {
+            out.push({ repoName: read.repo, op: read.op, method: read.method, key: read.key });
+          }
+        });
+      }
+    }
+  }
   return out;
 }
 

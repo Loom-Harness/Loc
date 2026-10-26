@@ -88,7 +88,7 @@
     {
       "seq": 6,
       "method": "GET",
-      "path": "/api/tickets/by_label?final=false&label=beta",
+      "path": "/api/tickets/by_label/false/beta",
       "status": 200,
       "body": [
         {

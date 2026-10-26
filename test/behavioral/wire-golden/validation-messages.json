@@ -204,7 +204,7 @@
     {
       "seq": 12,
       "method": "GET",
-      "path": "/api/products/by_name?n=Widget",
+      "path": "/api/products/by_name/Widget",
       "status": 200,
       "body": [
         {

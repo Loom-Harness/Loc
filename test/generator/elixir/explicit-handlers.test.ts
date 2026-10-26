@@ -155,9 +155,8 @@ system HandlerScaffold {
         operation cancel() { status := "cancelled" }
         destroy { }
       }
-      repository Orders for Order {
-        find byStatus(status: string): Order[] where this.status == status
-      }
+      repository Orders for Order { }
+      criterion OrdersByStatus(status: string) of Order = this.status == status
     }
   }
   api SalesApi with scaffoldApi(of: Sales)
@@ -212,17 +211,6 @@ describe("elixir — scaffolded record-param handlers flatten wire-preservingly"
     // The body returns the raw entity (returnType is OrderResponse — normalised
     // back to the entity); the boundary projects it via the controller serialize.
     expect(h).toContain("{:ok, o}");
-    expect(h).not.toContain("query");
-  });
-
-  it("find read: query record flattens; the collection result is bound and returned", async () => {
-    const h = fileEndingWith(
-      await generateSystemFiles(SCAFFOLD_SRC),
-      "lib/api/ordering/handlers/by_status_order.ex",
-    );
-    expect(h).toContain('%{"status" => status} = params');
-    expect(h).toContain("with {:ok, r} <- Context.by_status_order(status) do");
-    expect(h).toContain("{:ok, r}");
     expect(h).not.toContain("query");
   });
 

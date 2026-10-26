@@ -60,9 +60,8 @@ system InheritanceSystem {
       // Concrete subtypes get ordinary repositories; the abstract base
       // does not (it owns no table).  The polymorphic union reader is
       // emitted automatically as infrastructure.
-      repository CreditCards for CreditCard {
-        find byNetwork(network: CardNetwork): CreditCard[] where this.network == network
-      }
+      repository CreditCards for CreditCard { }
+      criterion CreditCardsByNetwork(network: CardNetwork) of CreditCard = this.network == network
       repository BankAccounts for BankAccount { }
 
       // --- Event sourcing (persistedAs: eventLog) ------------------------

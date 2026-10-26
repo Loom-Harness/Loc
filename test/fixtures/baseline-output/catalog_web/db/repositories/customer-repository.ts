@@ -94,17 +94,6 @@ export class CustomerRepository implements CustomerRepositoryPort {
     return { items, page, pageSize, total, totalPages };
   }
 
-  async byEmail(email: string): Promise<Customer | null> {
-    const rootRows = await this.db.select().from(schema.customers).where(eq(schema.customers.email, email)).orderBy(asc(schema.customers.id)).limit(1);
-    if (rootRows.length === 0) {
-      requestLog().debug({ event: "find_executed", aggregate: "Customer", find: "byEmail", rows: 0 });
-      return null;
-    }
-    const result = Customer._rehydrate({ id: Ids.CustomerId(rootRows[0]!.id), username: rootRows[0]!.username, email: rootRows[0]!.email, age: rootRows[0]!.age, version: rootRows[0]!.version });
-    requestLog().debug({ event: "find_executed", aggregate: "Customer", find: "byEmail", rows: 1 });
-    return result;
-  }
-
   toWire(root: Customer): unknown {
     return { id: root.id as string, username: root.username, email: root.email, age: root.age, version: root.version, display: root.display };
   }

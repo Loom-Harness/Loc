@@ -33,18 +33,17 @@ system HRC {
   subdomain D {
     context Sales {
       aggregate Order with crudish { name: string }
-      repository Orders for Order {
-        find byName(name: string): Order[] where this.name == name
-      }
+      repository Orders for Order { }
+      criterion OrdersByName(name: string) of Order = this.name == name
       commandHandler ArchiveOrder(name: string): int {
-        let matches = Orders.byName(name)
+        let matches = Orders.run(OrdersByName(name))
         salesFiles.put("orders/" + name, name)
         salesJobs.enqueue(name)
         mail.send(name, "Order archived", "gone")
         return matches.count
       }
       queryHandler PeekArchive(name: string): int {
-        let matches = Orders.byName(name)
+        let matches = Orders.run(OrdersByName(name))
         let archived = salesFiles.get("orders/" + name)
         return matches.count
       }
@@ -100,9 +99,10 @@ system Plain {
   subdomain D {
     context Sales {
       aggregate Order with crudish { name: string }
-      repository Orders for Order { find byName(name: string): Order[] where this.name == name }
+      repository Orders for Order { }
+      criterion OrdersByName(name: string) of Order = this.name == name
       queryHandler Count(name: string): int {
-        let matches = Orders.byName(name)
+        let matches = Orders.run(OrdersByName(name))
         return matches.count
       }
     }

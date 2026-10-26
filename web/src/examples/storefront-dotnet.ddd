@@ -120,15 +120,12 @@ system StorefrontDotnet {
         }
       }
 
-      repository Customers for Customer {
-        find byEmail(email: string): Customer? where this.email == email
-      }
+      repository Customers for Customer { }
+      criterion CustomersByEmail(email: string) of Customer = this.email == email
       repository Products for Product { }
-      repository Wallets for Wallet {
-        find byOwner(owner: Customer id): Wallet[] where this.ownerId == owner
-        find openByOwner(owner: Customer id): Wallet[]
-          where this.ownerId == owner && this.status == Open
-      }
+      repository Wallets for Wallet { }
+      criterion WalletsByOwner(owner: Customer id) of Wallet = this.ownerId == owner
+      criterion WalletsOpenByOwner(owner: Customer id) of Wallet = this.ownerId == owner && this.status == Open
       repository Orders for Order { }
 
       // EF Core's pipeline keeps the order creation + wallet debit in

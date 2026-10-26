@@ -1,5 +1,5 @@
 // The policy read gate on a find route, Phoenix (D-AUTH-OIDC / default-deny).  A
-// `policy { read T requires <expr> }` over a `find f(): T[] where <pred>` emits a 403 gate at the top of
+// `policy { read T requires <expr> }` over a `find f(…): T? where <pred>` emits a 403 gate at the top of
 // the find's controller action — the read-side twin of the view gate —
 // evaluated against `conn.assigns.current_user` before the query.  A failure
 // returns an RFC-7807 403 ProblemDetails; an ungated find emits no gate.
@@ -16,7 +16,7 @@ system Acme {
     context Tickets {
       aggregate Ticket { subject: string  open: bool }
       repository Tickets for Ticket {
-        find openOnes(): Ticket[] where open == true${findClause ? `\n}\npolicy { read Ticket ${findClause}` : ""}
+        find bySubject(s: string): Ticket? where this.subject == s${findClause ? `\n}\npolicy { read Ticket ${findClause}` : ""}
       }
     }
   }
@@ -48,10 +48,10 @@ describe("phoenix — find requires gate", () => {
     expect(ctrl).toContain("current_user = Map.get(conn.assigns, :current_user)");
     expect(ctrl).toContain('if not (current_user.role == "agent") do');
     expect(ctrl).toContain(
-      'ApiWeb.ProblemDetails.problem_response(conn, 403, "Forbidden", "Forbidden: find openOnes")',
+      'ApiWeb.ProblemDetails.problem_response(conn, 403, "Forbidden", "Forbidden: find bySubject")',
     );
     const gateIdx = ctrl.indexOf("problem_response(conn, 403");
-    const queryIdx = ctrl.indexOf("Tickets.open_ones_ticket(");
+    const queryIdx = ctrl.indexOf("Tickets.by_subject_ticket(");
     expect(gateIdx).toBeGreaterThan(0);
     expect(queryIdx).toBeGreaterThan(gateIdx);
   });
@@ -84,7 +84,7 @@ describe("phoenix — find requires gate", () => {
     expect(ctrl).not.toContain("if not (true)");
     expect(ctrl).not.toContain("problem_response(conn, 403");
     // …and the find itself is still emitted and still reachable.
-    expect(ctrl).toContain("Tickets.open_ones_ticket(");
+    expect(ctrl).toContain("Tickets.by_subject_ticket(");
     // Byte-identical to the ungated spelling — the guard is absent, not inverted.
     expect(await controller("requires true ")).toBe(await controller(""));
   });

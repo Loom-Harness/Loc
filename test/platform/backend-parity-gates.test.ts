@@ -62,7 +62,7 @@ system Crit {
         filter !this.archived
       }
       repository Orders for Order {
-        find recent(): Order[] where this.code == "x"
+        find recent(): Order? where this.code == "x"
       }
     }
   }
@@ -402,7 +402,7 @@ system GC {
   subdomain Sales {
     context Shop {
       aggregate Order { ref: string }
-      repository Orders for Order { find recent(): Order paged }
+      repository Orders for Order { find all(): Order paged }
     }
   }
   api A from Sales
@@ -496,8 +496,8 @@ system BypassShop {
         price: int
       }
       repository Products for Product {
-        find recent(): Product[] where this.name != "" ignoring softDeletable
-        find normal(): Product[] where this.name != ""
+        find recent(): Product? where this.name != "" ignoring softDeletable
+        find normal(): Product? where this.name != ""
       }
     }
   }
@@ -743,13 +743,13 @@ const FEATURES: readonly Feature[] = [
     name: "generic carrier (`paged` find return)",
     ddd: genericCarrierDdd,
     marker: {
-      node: "async recent(page: number, pageSize: number, sort: string, dir: string): Promise<{ items: Order[]; page: number; pageSize: number; total: number; totalPages: number }>",
+      node: "async all(page: number, pageSize: number, sort: string, dir: string): Promise<{ items: Order[]; page: number; pageSize: number; total: number; totalPages: number }>",
       dotnet:
-        "public async Task<Paged<Order>> Recent(int page, int pageSize, string sort, string dir, CancellationToken cancellationToken = default)",
-      java: "Paged<Order> recent(int page, int pageSize, String sort, String dir);",
+        "public async Task<Paged<Order>> All(int page, int pageSize, string sort, string dir, CancellationToken cancellationToken = default)",
+      java: "Paged<Order> findAllPaged(int page, int pageSize, String sort, String dir);",
       python:
-        "async def recent(self, page: int, page_size: int, sort: str, dir: str) -> PagedResult[Order]:",
-      elixir: 'def recent(page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc") do',
+        "async def all(self, page: int, page_size: int, sort: str, dir: str) -> PagedResult[Order]:",
+      elixir: 'def list(page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc") do',
     },
   },
   {
@@ -800,7 +800,7 @@ const FEATURES: readonly Feature[] = [
     // the exact regression the gate-set comment warns about, and the one a
     // "does it compile" check can never see.
     marker: {
-      node: '.from(schema.products).where(ne(schema.products.name, "")).orderBy(asc(schema.products.id));',
+      node: '.from(schema.products).where(ne(schema.products.name, "")).orderBy(asc(schema.products.id)).limit(1);',
       dotnet: '_db.Products.IgnoreQueryFilters(["IsDeletedFilter"]).Where(x => x.Name != "")',
       // ^ the SINGLETON list is load-bearing: it also pins that the model under
       // test carries exactly one capability filter (see the fixture note above).

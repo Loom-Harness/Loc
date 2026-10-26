@@ -67,10 +67,10 @@ const SRC = `system Shop {
     // Reads over the order book.
     repository Orders for Order {
       // one customer's own orders
-      find byCustomer(customerId: Customer id): Order[]
+      find byCustomer(customerId: Customer id): Order?
       /* the whole book */
       find all(): Order[]
-      find drafts(forCustomer: Customer id): Order[]
+      find drafts(forCustomer: Customer id): Order?
         where this.customerId == forCustomer
     }
   }
@@ -241,8 +241,8 @@ describe("builder lossless edits — repository find params", () => {
     expectHunk(
       SRC,
       out,
-      ["      find byCustomer(customerId: Customer id): Order[]"],
-      ["      find byCustomer(customerId: Customer id, since: datetime): Order[]"],
+      ["      find byCustomer(customerId: Customer id): Order?"],
+      ["      find byCustomer(customerId: Customer id, since: datetime): Order?"],
     );
     expectCommentsIntact(out);
   });
@@ -258,8 +258,8 @@ describe("builder lossless edits — repository find params", () => {
     expectHunk(
       SRC,
       out,
-      ["      find byCustomer(customerId: Customer id): Order[]"],
-      ["      find byCustomer(): Order[]"],
+      ["      find byCustomer(customerId: Customer id): Order?"],
+      ["      find byCustomer(): Order?"],
     );
     expectCommentsIntact(out);
   });
@@ -267,10 +267,10 @@ describe("builder lossless edits — repository find params", () => {
   it("deleteFindParam takes the separating comma with it", () => {
     const two = addFindParam(SRC, "Orders", "byCustomer", "since", prim("datetime")) as string;
     expect(deleteFindParam(two, "Orders", "byCustomer", 0)).toContain(
-      "find byCustomer(since: datetime): Order[]",
+      "find byCustomer(since: datetime): Order?",
     );
     expect(deleteFindParam(two, "Orders", "byCustomer", 1)).toContain(
-      "find byCustomer(customerId: Customer id): Order[]",
+      "find byCustomer(customerId: Customer id): Order?",
     );
   });
 
@@ -278,8 +278,8 @@ describe("builder lossless edits — repository find params", () => {
     expectHunk(
       SRC,
       retypeFindParam(SRC, "Orders", "byCustomer", 0, prim("string")),
-      ["      find byCustomer(customerId: Customer id): Order[]"],
-      ["      find byCustomer(customerId: string): Order[]"],
+      ["      find byCustomer(customerId: Customer id): Order?"],
+      ["      find byCustomer(customerId: string): Order?"],
     );
     expectHunk(
       SRC,
@@ -288,7 +288,7 @@ describe("builder lossless edits — repository find params", () => {
         array: false,
         optional: false,
       }),
-      ["      find byCustomer(customerId: Customer id): Order[]"],
+      ["      find byCustomer(customerId: Customer id): Order?"],
       ["      find byCustomer(customerId: Customer id): Order"],
     );
   });
@@ -299,10 +299,10 @@ describe("builder lossless edits — repository find params", () => {
       SRC,
       out,
       [
-        "      find drafts(forCustomer: Customer id): Order[]",
+        "      find drafts(forCustomer: Customer id): Order?",
         "        where this.customerId == forCustomer",
       ],
-      ["      find drafts(cust: Customer id): Order[]", "        where this.customerId == cust"],
+      ["      find drafts(cust: Customer id): Order?", "        where this.customerId == cust"],
     );
     expectCommentsIntact(out);
   });

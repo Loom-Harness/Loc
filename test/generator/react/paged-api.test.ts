@@ -1,8 +1,9 @@
-// React API-client coverage for paged finds (payload-transport-layer.md, P3b
-// emission — React slice).  A `find x(): <Agg> paged` emits a `<Agg>Paged`
-// response schema, adds 1-based `page`/`pageSize` to the find's query schema,
-// and the generated React Query hook parses the paged envelope — so a
-// hono-served react frontend consumes the same wire shape the backend emits.
+// React API-client coverage for the paged list read (payload-transport-layer.md,
+// P3b emission — React slice).  A paged `all` (the auto-findAll, or a declared
+// `find all(): <Agg> paged`) emits a `<Agg>Paged` response schema, adds 1-based
+// `page`/`pageSize` to its query schema, and the generated React Query hook
+// parses the paged envelope — so a hono-served react frontend consumes the same
+// wire shape the backend emits.
 
 import { describe, expect, it } from "vitest";
 import { buildApiModule } from "../../../src/generator/_frontend/api-module.js";
@@ -15,8 +16,7 @@ const SRC = `
   context Inventory {
     aggregate Warehouse { code: string  region: string }
     repository Warehouses for Warehouse {
-      find recent(): Warehouse paged
-      find inRegion(region: string): Warehouse paged where this.region == region
+      find all(): Warehouse paged
     }
   }
 `;
@@ -30,7 +30,7 @@ async function apiModule(): Promise<string> {
   return buildApiModule(agg, repo, ctx);
 }
 
-describe("react api-builder — paged finds (P3b)", () => {
+describe("react api-builder — the paged list read (P3b)", () => {
   it("emits a <Agg>Paged response schema reusing the carrier's response", async () => {
     const api = await apiModule();
     expect(api).toContain(
@@ -39,32 +39,27 @@ describe("react api-builder — paged finds (P3b)", () => {
     expect(api).toContain("export type WarehousePaged = z.infer<typeof WarehousePaged>;");
   });
 
-  it("adds 1-based page/pageSize to the paged find's query schema", async () => {
+  it("adds 1-based page/pageSize to the paged read's query schema", async () => {
     const api = await apiModule();
-    // RecentQuery exists (paged find with no domain params still gets a query).
-    expect(api).toContain("export const RecentQuery = z.object({");
+    expect(api).toContain("export const AllQuery = z.object({");
     expect(api).toContain("page: z.coerce.number().int().min(1).max(1000000).default(1),");
     expect(api).toContain("pageSize: z.coerce.number().int().min(1).max(500).default(20),");
-    // The domain param survives alongside the paging controls.
-    expect(api).toMatch(/export const InRegionQuery = z\.object\(\{[\s\S]*region:/);
   });
 
   it("exposes the caller-facing z.input alias for a paged query (page/pageSize optional)", async () => {
     const api = await apiModule();
     // z.output (z.infer) makes the defaulted page/pageSize required; the
     // input alias is what a caller actually supplies — they may omit them.
-    expect(api).toContain("export type RecentQueryInput = z.input<typeof RecentQuery>;");
-    expect(api).toContain("export type InRegionQueryInput = z.input<typeof InRegionQuery>;");
+    expect(api).toContain("export type AllQueryInput = z.input<typeof AllQuery>;");
   });
 
-  it("the find hook accepts the input shape and parses the paged envelope", async () => {
+  it("the hook accepts the input shape and parses the paged envelope", async () => {
     const api = await apiModule();
-    // `recent()` takes no parameters, so the query argument is DEFAULTED — a
-    // page reading it emits `useRecentWarehouse()` with nothing to put in the
-    // bag, which was "Expected 1 arguments, but got 0" until the default
-    // landed.  `{}` satisfies `RecentQueryInput` because the input alias makes
-    // every paged control optional (that is the assertion just above).
-    expect(api).toContain("export function useRecentWarehouse(query: RecentQueryInput = {}) {");
+    // The list read takes no domain parameters, so the query argument is
+    // DEFAULTED — a page reading it with nothing to put in the bag type-checks.
+    // `{}` satisfies `AllQueryInput` because the input alias makes every paged
+    // control optional (that is the assertion just above).
+    expect(api).toContain("export function useAllWarehouses(query: AllQueryInput = {}) {");
     expect(api).toContain("return WarehousePaged.parse(r);");
   });
 });

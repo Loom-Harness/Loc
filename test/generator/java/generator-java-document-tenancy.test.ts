@@ -52,7 +52,9 @@ describe("java document principal (tenancy) capability filter (DEBT-02 Slice B)"
 
   it("leaves custom finds reading through the (now scoped) findAll", async () => {
     const r = await repo();
-    expect(r).toContain("findAll().stream().filter(x -> x.balance() >= min).toList();");
+    expect(r).toContain(
+      "findAll().stream().filter(x -> x.balance() >= min).findFirst().orElse(null);",
+    );
   });
 
   it("emits the CurrentUserAccessor / User the accessor resolves through", async () => {

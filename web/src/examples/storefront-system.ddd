@@ -184,10 +184,16 @@ system StorefrontSystem {
         find byEmail(email: string): Customer? where this.email == email
       }
       repository Products for Product { }
-      repository Wallets for Wallet {
-        find byOwner(owner: Customer id): Wallet[] where this.ownerId == owner
-        find openByOwner(owner: Customer id): Wallet[]
-          where this.ownerId == owner && this.status == Open
+      repository Wallets for Wallet { }
+      criterion WalletsByOwner(owner: Customer id) of Wallet = this.ownerId == owner
+      criterion WalletsOpenByOwner(owner: Customer id) of Wallet = this.ownerId == owner && this.status == Open
+      queryHandler ListWalletsByOwner(owner: Customer id): Wallet[] {
+        let r = Wallets.run(WalletsByOwner(owner))
+        return r
+      }
+      queryHandler ListWalletsOpenByOwner(owner: Customer id): Wallet[] {
+        let r = Wallets.run(WalletsOpenByOwner(owner))
+        return r
       }
       repository Orders for Order { }
 
@@ -216,12 +222,19 @@ system StorefrontSystem {
   ui WebApp with scaffold(subdomains: [Storefront]) {
   }
 
+  // A criterion has no route of its own: the two owner-scoped reads the e2e
+  // drives are routed queryHandlers over them.
+  api StorefrontApi from Storefront {
+    route GET "/wallets/by_owner/{owner}" -> Storefront.ListWalletsByOwner
+    route GET "/wallets/open_by_owner/{owner}" -> Storefront.ListWalletsOpenByOwner
+  }
+
   storage primary { type: postgres }
   resource storefrontState { for: Storefront, kind: state, use: primary }
 
   deployable api {
     platform: node, contexts: [Storefront],
-    dataSources: [storefrontState], port: 3000
+    dataSources: [storefrontState], serves: StorefrontApi, port: 3000
   }
   deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
 
@@ -325,11 +338,11 @@ system StorefrontSystem {
     let readWallet = api.wallets.getById(wallet)
     expect(readWallet.balance.amount).toBe(25.0)
     expect(readWallet.status).toBe("Open")
-    // The two declared finds over the columns the update just wrote — one
+    // The two criterion reads over the columns the update just wrote — one
     // owner-scoped, one additionally status-scoped, so the pair discriminates.
-    let owned = api.wallets.byOwner({ owner: cust.id })
+    let owned = api.storefront.listWalletsByOwner(cust.id)
     expect(owned.length).toBe(1)
-    let open = api.wallets.openByOwner({ owner: cust.id })
+    let open = api.storefront.listWalletsOpenByOwner(cust.id)
     expect(open.length).toBe(1)
     // The debit half of the banking pair (topUp is driven above), then the
     // state transition that takes the wallet out of `openByOwner`.
@@ -339,9 +352,9 @@ system StorefrontSystem {
     api.wallets.freeze(wallet, { reason: "audit" })
     let frozen = api.wallets.getById(wallet)
     expect(frozen.status).toBe("Frozen")
-    let stillOwned = api.wallets.byOwner({ owner: cust.id })
+    let stillOwned = api.storefront.listWalletsByOwner(cust.id)
     expect(stillOwned.length).toBe(1)
-    let noneOpen = api.wallets.openByOwner({ owner: cust.id })
+    let noneOpen = api.storefront.listWalletsOpenByOwner(cust.id)
     expect(noneOpen.length).toBe(0)
 
     // Order: created, lined and confirmed through the api (the checkout
@@ -377,9 +390,9 @@ system StorefrontSystem {
     let walletsLeft = api.wallets.all()
     expect(walletsLeft.items.length).toBe(1)
     expect(walletsLeft.total).toBe(1)
-    // The owner-scoped find must lose the deleted wallet too — a delete that
+    // The owner-scoped read must lose the deleted wallet too — a delete that
     // only stopped the by-id read would keep answering here.
-    let ownedAfter = api.wallets.byOwner({ owner: cust.id })
+    let ownedAfter = api.storefront.listWalletsByOwner(cust.id)
     expect(ownedAfter.length).toBe(0)
 
     // Orders: the aggregate with a CONTAINMENT, so its delete has to cascade

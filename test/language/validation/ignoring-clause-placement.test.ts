@@ -60,9 +60,9 @@ const LEGAL_READS = `
       criterion BigOrders() of Order = this.total > 0
       aggregate Order with softDeletable { total: int }
       repository OrderRepo for Order {
-        find recent(): Order[] where this.total > 0 ignoring softDeletable
-        find allRows(): Order[] ignoring *
+        find all(): Order[] ignoring *
       }
+      criterion OrdersRecent of Order = this.total > 0
       workflow Sweep {
         create(x: int) {
           let xs = OrderRepo.findAll(BigOrders()) ignoring softDeletable

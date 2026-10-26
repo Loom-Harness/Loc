@@ -49,12 +49,11 @@ const SRC = `
         return d
       }
     }
-    repository Orders for Order {
-      find byName(name: string): Order[] where this.name == name
-    }
+    repository Orders for Order { }
+    criterion OrdersByName(name: string) of Order = this.name == name
     commandHandler Archive(oid: Order id, label: string): int {
       let o = Orders.getById(oid)
-      let all = Orders.byName(label)
+      let all = Orders.run(OrdersByName(label))
       return all.count
     }
     queryHandler Lookup(oid: Order id): int {
@@ -129,7 +128,7 @@ const withMember = (where: "agg" | "cmd" | "qry", member: string) => `
       }
     }
     repository Orders for Order {
-      find byName(name: string): Order[] where this.name == name
+      find byName(name: string): Order? where this.name == name
     }
     ${where === "cmd" ? `commandHandler Probe(oid: Order id): bool { let o = Orders.getById(oid)  return o.${member} != null }` : ""}
     ${where === "qry" ? `queryHandler Probe(oid: Order id): bool { let o = Orders.getById(oid)  return o.${member} != null }` : ""}

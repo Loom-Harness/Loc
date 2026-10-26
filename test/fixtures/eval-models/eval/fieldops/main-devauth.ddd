@@ -295,10 +295,8 @@ system FieldOps {
       policy { read Customer requires currentUser.role != "none" }
       repository Sites for Site {}
       policy { read Site requires currentUser.role != "none" }
-      repository Assets for Asset {
-        find bySerial(serial: string): Asset?
-          where this.serial == serial
-      }
+      repository Assets for Asset { }
+      criterion AssetsBySerial(serial: string) of Asset = this.serial == serial
       policy { read Asset requires currentUser.role != "none" }
       repository Technicians for Technician {}
       policy { read Technician requires currentUser.role != "none" }
@@ -409,10 +407,8 @@ system FieldOps {
       criterion UsageForOrder(wo: WorkOrder id) of PartUsage = this.workOrderId == wo
       criterion PartBySku(s: string) of Part = this.sku == s
 
-      repository Parts for Part {
-        find bySku(sku: string): Part?
-          where this.sku == sku
-      }
+      repository Parts for Part { }
+      criterion PartsBySku(sku: string) of Part = this.sku == sku
       policy { read Part requires currentUser.role != "none" }
       repository PartUsages for PartUsage {}
       policy { read PartUsage requires currentUser.role != "none" }
@@ -457,10 +453,8 @@ system FieldOps {
         destroy { requires currentUser.permissions.contains(permissions.platformAdmin) }
       }
 
-      repository Invoices for Invoice {
-        find byNumber(number: string): Invoice?
-          where this.number == number
-      }
+      repository Invoices for Invoice { }
+      criterion InvoicesByNumber(number: string) of Invoice = this.number == number
       policy { read Invoice requires currentUser.role != "none" }
     }
   }

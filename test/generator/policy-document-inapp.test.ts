@@ -48,7 +48,7 @@ const system = (platform: string) => `
           body: string
         }
         repository Things for Thing {
-          find byLabel(l: string): Thing[] where this.label == l
+          find byLabel(l: string): Thing? where this.label == l
         }
         repository Notes for Note { }
         policy {
@@ -97,7 +97,7 @@ describe("policy × shape: document — node (Hono/Drizzle)", () => {
     // The principal is bound fail-closed from the ambient accessor.
     expect(thing).toContain("const currentUser = requireCurrentUser();");
     // ... and the same predicate narrows the declared find, not just findById.
-    expect(thing).toContain(".filter((x) => x.label === l)");
+    expect(thing).toContain(".find((x) => x.label === l) ?? null");
   });
 
   it("renders deny as the always-false in-app conjunct", async () => {
