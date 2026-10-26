@@ -95,33 +95,10 @@ export function renderJavaCriteriaClasses(
         ``,
       ];
     });
-    // Tenancy scope — a PRINCIPAL capability filter
-    // (`this.tenantId == currentUser.tenantId`) is AND-ed into the @Query reads
-    // (see emit/repository.ts), but a reified retrieval reads via
-    // JpaSpecificationExecutor.findAll(spec), which bypasses those.  Emit a
-    // `tenantScope(User)` Specification factory the repository impl ANDs into
-    // the reified findAll so it honours the same row scoping.  Takes the actor
-    // as a param (the request principal isn't reachable from a static factory);
-    // the predicate renders it null-safe (fail-closed).
-    const principalFilters = (agg.contextFilters ?? []).filter(exprUsesCurrentUser);
-    const tenantScope =
-      principalFilters.length > 0
-        ? (() => {
-            const preds = principalFilters.map((p) =>
-              renderCriteriaPredicate(p, { agg, voLookup }),
-            );
-            const body = preds.length === 1 ? preds[0]! : `cb.and(${preds.join(", ")})`;
-            return [
-              `    /** Tenancy scope (principal capability filter) — AND-ed into reified`,
-              `     *  retrievals so they honour the same row scoping as the @Query reads. */`,
-              `    public static Specification<${self}> tenantScope(${javaRef(`${basePkg}.auth`, "User")} currentUser) {`,
-              `        return (root, query, cb) -> ${body};`,
-              `    }`,
-              ``,
-            ];
-          })()
-        : [];
-    const allFactories = [...factories, ...tenantScope];
+    // No tenancy factory: the tenant restriction is a Hibernate filter on the
+    // entity, which applies to `JpaSpecificationExecutor.findAll(spec)` like
+    // every other query (capability-filter.ts `restrictionHostFor`).
+    const allFactories = [...factories];
     while (allFactories[allFactories.length - 1] === "") allFactories.pop();
     out.push({
       name: `${agg.name}Criteria.java`,
