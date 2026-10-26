@@ -8,6 +8,7 @@ import {
   wrapArgList,
   wrapBraced,
 } from "./print-expr.js";
+import { printTypeRef } from "./print-type.js";
 
 // ---------------------------------------------------------------------------
 // AST → `.ddd` source printer for statements (lambda block bodies;
@@ -38,7 +39,7 @@ export function printStmt(node: Statement): string {
     case "RequiresStmt":
       return `requires ${printExpr(node.expr)}`;
     case "LetStmt":
-      return `let ${node.name} = ${printExpr(node.expr)}`;
+      return `let ${node.name}${node.type ? `: ${printTypeRef(node.type)}` : ""} = ${printExpr(node.expr)}`;
     case "EmitStmt": {
       const fields = withIndent(() => node.fields.map((f) => `${f.name}: ${printExpr(f.value)}`));
       return wrapBraced(`emit ${node.event.$refText} `, fields);

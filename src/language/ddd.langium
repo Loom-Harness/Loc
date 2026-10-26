@@ -2360,8 +2360,10 @@ RequiresStmt:
 // A binding a body can READ back, so it admits exactly the words a bare
 // name-ref does (`NameRefIdent`'s shared core): `let event = …` then
 // `event.amount`.
+// `let x = e` takes the expression's type; `let x: T = e` declares it, and the
+// value is checked against (and a bare literal promoted to) `T`.
 LetStmt:
-    'let' name=(ID | CommonSoftKeywords) '=' expr=Expression;
+    'let' name=(ID | CommonSoftKeywords) (':' type=TypeRef)? '=' expr=Expression;
 
 EmitStmt:
     'emit' event=[EventDecl:ID] '{'
