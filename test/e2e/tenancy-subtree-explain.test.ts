@@ -21,8 +21,9 @@ import { freePort, hasDocker } from "./support/tenancy-isolation-harness.js";
 // What it runs is the emitter's own output, not a hand-written approximation:
 //   * the schema is the migration SQL `generate system` emits (including the
 //     `data_key text_pattern_ops` index the tenancy derivation adds), and
-//   * the predicate is lifted verbatim out of a generated repository — the
-//     MikroORM `raw("…")` fragment and the Ecto `fragment("…")` call, the two
+//   * the predicate is lifted verbatim out of the generated code — the
+//     `raw("…")` fragment of the MikroORM entity's `tenantOwned` schema filter
+//     and the Ecto `fragment("…")` call, the two
 //     backends whose emitters produce literal SQL.  All five backends emit the
 //     same two-term shape (`policy-deep-scope.test.ts` pins that), so what the
 //     planner says about this text is what it says about the family.
@@ -264,14 +265,20 @@ describe.skipIf(!ENABLED)(
            ANALYZE "books"."accounts";`,
         );
 
-        // --- 3. the predicate, lifted out of a generated repository ---------
+        // --- 3. the predicate, lifted out of the Account entity's filter ----
+        // MikroORM declares the read scope once, as a `default: true` schema
+        // filter on the entity, so the fragment lives in `db/entities.ts`.
         const mikroDir = generate("node { persistence: mikroorm }", "mikro");
-        const repo = [...readAll(mikroDir)].find(([p]) =>
-          p.endsWith(`db${path.sep}repositories${path.sep}account-repository.ts`),
+        const entities = [...readAll(mikroDir)].find(([p]) =>
+          p.endsWith(`db${path.sep}entities.ts`),
         );
-        expect(repo, "mikroorm account repository not emitted").toBeDefined();
-        const frag = /raw\("((?:[^"\\]|\\.)*)",\s*\[/.exec(repo![1]);
-        expect(frag, "no raw() SQL fragment in the emitted repository").not.toBeNull();
+        expect(entities, "mikroorm entities not emitted").toBeDefined();
+        const start = entities![1].indexOf("export class AccountRow");
+        expect(start, "no AccountRow entity in the emitted entities").toBeGreaterThanOrEqual(0);
+        const next = entities![1].indexOf("export class ", start + 1);
+        const repo = [entities![0], entities![1].slice(start, next < 0 ? undefined : next)] as const;
+        const frag = /raw\("((?:[^"\\]|\\.)*)",\s*\[/.exec(repo[1]);
+        expect(frag, "no raw() SQL fragment in the Account entity's filter").not.toBeNull();
         const emitted = JSON.parse(`"${frag![1]}"`) as string;
         // Guard against measuring the wrong thing: this must be the subtree
         // predicate, not some other raw() the emitter happened to add.
@@ -286,7 +293,7 @@ describe.skipIf(!ENABLED)(
         // `strpos`-only form — into a failure of THIS line, so the EXPLAIN
         // assertion below would never run and the proof would be vacuous.
         const paramList = splitArgs(
-          balancedSlice(repo![1], (frag!.index ?? 0) + frag![0].length - 1),
+          balancedSlice(repo[1], (frag!.index ?? 0) + frag![0].length - 1),
         );
         expect(paramList.length, "placeholder/param mismatch in the emitted fragment").toBe(n);
         const binds = paramList.map(bindFor);
