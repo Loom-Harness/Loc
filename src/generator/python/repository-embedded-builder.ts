@@ -13,13 +13,15 @@ import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
 import { PY_IMPORTS } from "../_imports/python.js";
 import { renderPyHistoryRepoMethod } from "./emit/audit-history.js";
-import { contextFilterPredicate, writeScopePredicate } from "./find-predicate.js";
+import { writeScopePredicate } from "./find-predicate.js";
 import { isRefCollectionField, isValueCollectionField, rowClassName } from "./py-columns.js";
 import { PY, pyIdType } from "./py-symbols.js";
 import {
   aggHasFieldMask,
+  aggHasReadRestrictions,
   aggRef,
-  allFindCapabilityFilter,
+  allFindIgnoring,
+  byIdReadLine,
   declaredAllFilterPredicate,
   emittableFinds,
   hydrateField,
@@ -28,10 +30,10 @@ import {
   R,
   recordAuditMethod,
   relationalFindMethod,
-  rootWhere,
   schemaRow,
   toWireMaskedMethod,
   toWireMethod,
+  whereClause,
   writeGuardMethod,
 } from "./repository-builder.js";
 import { entityFromDoc, entityToDoc } from "./repository-document-builder.js";
@@ -61,17 +63,9 @@ export function buildPyEmbeddedRepositoryFile(
   // `repo.delete(id)`).  One row — containments / ref-collections fold into the
   // row's jsonb.  (The embedded `save` is already versioned.)
   const emitsDelete = !!canonicalDestroy(agg);
-  // An embedded aggregate's root scalars are real columns, so a capability
-  // `filter` AND-s into every root read exactly like the relational path
-  // (DEBT-02 tail).  Non-principal AND principal predicates are wired — the
-  // latter renders `current_user.<claim>` against the ambient
-  // `require_current_user()` accessor (`contextFilterPredicate` is shape-agnostic).
-  // `document` shapes never reach here (gated by `validateContextFilterSupport`).
-  // Null when the aggregate has no capability filter — emission stays
-  // byte-identical (`rootWhere(null, …)` → no `.where(...)`).
-  const filterPred = contextFilterPredicate(agg, ctx);
+  // An embedded aggregate's root scalars are real columns, so its read
+  // restrictions ride the read-scope hook exactly like the relational path's.
   const allPred = declaredAllFilterPredicate(agg, repo, ctx);
-  const allFilterPred = allFindCapabilityFilter(agg, repo, ctx, filterPred);
 
   const body = lines(
     `class ${agg.name}Repository:`,
@@ -80,14 +74,7 @@ export function buildPyEmbeddedRepositoryFile(
     "        self._events = events",
     "",
     `    async def find_by_id(self, id: ${pyIdType(agg.name)}) -> ${aggRef(agg)} | None:`,
-    filterPred
-      ? `        row = (await self._session.execute(${R.select}(${row})${rootWhere(
-          { expr: `${row}.id == id`, ops: new Set() },
-          row,
-          undefined,
-          filterPred,
-        )})).scalars().first()`
-      : `        row = await self._session.get(${row}, id)`,
+    byIdReadLine(row, aggHasReadRestrictions(agg, ctx)),
     "        if row is None:",
     "            return None",
     "        return await self._hydrate(row)",
@@ -108,24 +95,16 @@ export function buildPyEmbeddedRepositoryFile(
     // A DECLARED `find all(): X[] where <pred>` keeps its predicate (B-A1 —
     // the embedded half of eval item 2): the root scalars are real columns, so
     // it AND-s into the SQL `where` exactly as the relational `all()` does,
-    // and its `ignoring` stance narrows the capability filter the same way.
-    `        rows = (await self._session.execute(${R.select}(${row})${rootWhere(allPred, row, undefined, allFilterPred)})).scalars().all()`,
+    // and its `ignoring` stance drops the restrictions it names the same way.
+    `        rows = (await self._session.execute(${R.select}(${row})${whereClause(allPred)}${allFindIgnoring(repo)})).scalars().all()`,
     "        return [await self._hydrate(row) for row in rows]",
     // `false`: the embedded repo loads the whole aggregate from one jsonb column
     // (no per-row child SELECT), so it emits no `_hydrate_many` — find methods
     // must stay on the per-row `_hydrate` comprehension.
-    ...emittableFinds(repo).flatMap((f) => [
-      "",
-      relationalFindMethod(agg, f, ctx, filterPred, false),
-    ]),
+    ...emittableFinds(repo).flatMap((f) => ["", relationalFindMethod(agg, f, ctx, false)]),
     "",
     `    async def find_many_by_ids(self, ids: list[${pyIdType(agg.name)}]) -> list[${aggRef(agg)}]:`,
-    `        rows = (await self._session.execute(${R.select}(${row})${rootWhere(
-      { expr: `${row}.id.in_(list(ids))`, ops: new Set() },
-      row,
-      undefined,
-      filterPred,
-    )})).scalars().all()`,
+    `        rows = (await self._session.execute(${R.select}(${row}).where(${row}.id.in_(list(ids))))).scalars().all()`,
     "        return [await self._hydrate(row) for row in rows]",
     "",
     saveMethod(agg, ctx),

@@ -1897,14 +1897,18 @@ nothing and the test passes vacuously.
 - **An absent required field is one 422 everywhere.** A command WITH
   parameters that receives an empty body (≡ `{}`) or a `{}` missing one answers
   422 with one `errors[]` entry per absent key —
-  `{ "pointer": "/reason", "message": "Required" }` — before the row is
-  loaded, on operations, workflows and `route`d handlers. Elixir used to hand
+  `{ "pointer": "/reason", "message": "reason is required" }` — before the
+  row is loaded, on operations, workflows and `route`d handlers. Elixir used to hand
   the nil to the operation body and answer **500**; the `require_command_params`
   controller plug refuses it first. The sentence was each framework's own
   (node `Invalid input: expected string, received undefined`, python `Field
-  required`, .NET `The reason field is required.`, java `must not be null`); it
-  is now `MISSING_FIELD_MESSAGE` (`src/ir/util/openapi-errors.ts`) on all five,
-  create and update included. A `create` with no input fields publishes an
+  required`, .NET `The reason field is required.`, java `must not be null`).
+  The owner ruling (#3881) fixes it as `"<field> is required"`, the field being
+  the pointer's last key: `missingFieldMessage` in the `wirePolicy` fact
+  (`src/ir/enrich/wire-policy.ts`), create and update included. Node renders
+  it; .NET, java, python and elixir still send the one word `"Required"`
+  (`MISSING_FIELD_MESSAGE`), waived per golden in `test/_helpers/wire-waivers.ts`
+  until each renders the fact. A `create` with no input fields publishes an
   optional `requestBody` like a parameterless command does.
 - **Conforms.** node, dotnet, java, python, elixir.
 - **Provenance.** The booking DX trial. Tier: **behavioral** — the wire-golden

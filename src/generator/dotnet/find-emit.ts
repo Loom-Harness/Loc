@@ -31,7 +31,7 @@ export function ignoreFiltersClause(
   pool: AggPool,
   bypass: { bypassAll?: boolean; bypassCaps?: string[] },
 ): string {
-  if (bypass.bypassAll && !hasNonBypassableFilter(agg)) return ".IgnoreQueryFilters()";
+  if (bypass.bypassAll && !hasNonBypassableFilter(agg, pool)) return ".IgnoreQueryFilters()";
   const names = bypassedFilterNames(agg, pool, bypass);
   if (names.length === 0) return "";
   return `.IgnoreQueryFilters([${names.map((n) => JSON.stringify(n)).join(", ")}])`;

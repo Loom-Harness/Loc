@@ -387,8 +387,14 @@ export class Elaborator {
   private visitBlock(nodes: readonly AstNode[], block: Scope): void {
     for (const n of nodes) {
       this.visit(n, block);
-      if (isLetStmt(n))
-        block.bind(n.name, this.types.get(n.expr) ?? Ty.unknown("no-rule"), n, "let");
+      if (isLetStmt(n)) {
+        // A declared type is the binding's type; the value is checked against
+        // it by the validator (`loom.let-type-mismatch`).
+        const t = n.type
+          ? this.resolveType(n.type, block)
+          : (this.types.get(n.expr) ?? Ty.unknown("no-rule"));
+        block.bind(n.name, t, n, "let");
+      }
     }
   }
 

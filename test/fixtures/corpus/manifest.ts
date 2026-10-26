@@ -39,32 +39,6 @@ const ALL: readonly Backend[] = BACKENDS;
 const IN_APP_DOCUMENT_FILTER: readonly Backend[] = ALL;
 
 
-/** The backends that can express a capability `filter` over a TPH
- *  (`sharedTable`) concrete — i.e. a predicate reading a column that exists on
- *  only ONE subtype of the shared table.
- *
- *  `dotnet` is absent, and this is the NAME of that exclusion.  EF Core applies
- *  a query filter to the ROOT entity type of a hierarchy only ("A filter may
- *  only be applied to the root entity type"), and a root-hosted filter must
- *  typecheck against the root for EVERY concrete — so a predicate over a
- *  sibling-only column is not expressible: a CLR downcast raises "No coercion
- *  operator is defined between types", and `EF.Property<T>(x, "…")` raises "the
- *  specified property does not exist on the entity type" (both reproduced
- *  against EF Core 10.0.10; see `nonRootFilterFields`, src/ir/util/inheritance.ts).
- *  Refused honestly by `loom.tph-filter-unsupported`, not silently dropped; the
- *  key returns the day that gate closes. */
-const TPH_CAPABILITY_FILTER: readonly Backend[] = ALL.filter((b) => b !== "dotnet");
-
-/** `inheritance-read-restrictions` — the #3954 answer key — minus the one
- *  backend that cannot build it today.  It still boots the case on its
- *  behavioural leg as a tracked expected failure, so its key returns here with
- *  the fix that turns that leg red:
- *
- *  - `dotnet` (EF): refused at validation by `loom.tph-filter-unsupported`
- *    (the `TPH_CAPABILITY_FILTER` exclusion); #3960 lifts it.  The Dapper
- *    adapter passes the case and is armed by `ADAPTER_ONLY_CASES`. */
-const INHERITANCE_READ_RESTRICTIONS: readonly Backend[] = TPH_CAPABILITY_FILTER;
-
 /** The backends whose transactional workflow dispatches an aggregate event only
  *  AFTER its transaction commits — the one runtime-distinguishable half of
  *  banking-eval B-04 (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T4-eventing-temporal.md, M-T4.3 item 6).
@@ -173,11 +147,11 @@ const PROJECTION_VO_ROW: readonly Backend[] = ["node", "java", "vanilla"];
 const PART_REBUILD: readonly Backend[] = ALL.filter((b) => b !== "dotnet");
 
 // #3959: the polymorphic base read (`GET /<bases>/{id}`, a projection `from
-// <Base>`) passes on node/drizzle only.  The other legs boot the case as a
+// <Base>`) passes on node/drizzle, python/SQLAlchemy and .NET EF.  The other legs boot the case as a
 // tracked expected failure (`BEHAVIOURAL_XFAIL`), each fixed by its own
 // sub-issue of #3954 (#3960–#3965); each fix adds its backend here, and the
 // row becomes ALL when the last one lands.
-const BASE_READS: readonly Backend[] = ["node"];
+const BASE_READS: readonly Backend[] = ["node", "python", "dotnet"];
 
 export interface CorpusFeature {
   /** Matches `<id>.ddd` in this directory. */
@@ -292,7 +266,7 @@ export const CORPUS: readonly CorpusFeature[] = [
     title:
       "TPH (sharedTable) × a CAPABILITY — a `softDeletable` concrete whose filter reads a column the shared table made nullable",
     doc: "inheritance",
-    backends: TPH_CAPABILITY_FILTER,
+    backends: ALL,
     note: "Minted by pairwise F15.  `tph.ddd`'s concretes carry no capability, so nothing in the curated corpus crossed inheritance with a capability `filter` — and the crossing is where it broke: sharing a table makes a subtype's OWN columns nullable, so `softDeletable`'s `is_deleted` types as `bool | None` and python's `not_(Row.is_deleted)` stopped being a `ColumnElement[bool]` (4 × `mypy --strict` arg-type, once per emitted read).  The sibling crossing `shape: embedded` × TPH (pairwise F13) is deliberately NOT here, as the fixture's header says: under D-EMBEDDED-TPH an `embedded` concrete of a `sharedTable` base is refused at phase ④ (`loom.es-tph-forced-own-table`, src/language/validators/inheritance.ts), so the crossing no longer validates and has nothing to compile.",
   },
   {
@@ -300,8 +274,8 @@ export const CORPUS: readonly CorpusFeature[] = [
     title:
       "inheritance (TPH + TPC) × a subtype capability × a subtype-only-column filter × `ignoring` × polymorphic base reads × `tenantOwned` across two tenants",
     doc: "inheritance",
-    backends: INHERITANCE_READ_RESTRICTIONS,
-    note: "The behavioural answer key of epic #3954, which every backend's ORM-native rework (#3960–#3965) is proven against.  Two backends are absent from the row, and both still BOOT the case on their behavioural legs as tracked expected failures (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs) — see `INHERITANCE_READ_RESTRICTIONS`.",
+    backends: ALL,
+    note: "The behavioural answer key of epic #3954, which every backend's ORM-native rework (#3960–#3965) is proven against.  Every backend builds it; a leg that still gets a crossing wrong boots it as a tracked expected failure (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs).",
   },
   {
     id: "inheritance-base-reads",
@@ -309,7 +283,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "inheritance (TPH + TPC) × a capability on the ABSTRACT BASE × polymorphic base reads (`GET /<base>/{id}`, a projection `from <Base>`)",
     doc: "inheritance",
     backends: BASE_READS,
-    note: "The half of epic #3954's behavioural fixture: base capabilities (#3956) and the polymorphic base reads (#3959).  node/drizzle passes it and is the oracle its wire golden is captured from; every other leg boots it as a tracked expected failure pinned to the assertion it fails on (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs) until its #3954 sub-issue (#3960–#3965) lands and adds the backend to `BASE_READS`.",
+    note: "The half of epic #3954's behavioural fixture: base capabilities (#3956) and the polymorphic base reads (#3959).  node/drizzle, python/SQLAlchemy and .NET EF pass it (node is the oracle its wire golden is captured from); every other leg boots it as a tracked expected failure pinned to the assertion it fails on (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs) until its #3954 sub-issue (#3960–#3965) lands and adds the backend to `BASE_READS`.",
   },
   { id: "event-sourcing", title: "`persistedAs: eventLog` — append-only stream + appliers", doc: "workflow", backends: ALL },
   { id: "eventsourced-workflow", title: "event-sourced saga folding its own emitted events", doc: "workflow", backends: ALL },
@@ -423,7 +397,9 @@ export const CORPUS: readonly CorpusFeature[] = [
     title:
       "repository `find … ignoring <Cap>` / `ignoring *` — the capability-filter bypass on the ROW-shaped read path, crossed with a principal (`tenantOwned`) and a non-principal (`softDeletable`) filter, on a relational AND a `shape: document` aggregate",
     doc: "tenancy",
-    backends: ALL,
+    // elixir's document create demands the defaulted `isDeleted` (#4224); its
+    // leg boots the case as a tracked expected failure until that lands.
+    backends: ALL.filter((b) => b !== "vanilla"),
     note: "minted by M-T6.54 F18.  `projection-agg-filters` witnesses `ignoring` on a query-time PROJECTION and the tenancy fixtures witness the filters with no bypass anywhere, so `find … ignoring` over a PRINCIPAL filter had no fixture at all — and java kept the tenant conjunct on both of its read surfaces (relational @Query JPQL and the document `findAll()`) while the (since-deleted) `ignoring` backend gate's family list certified it as honouring the clause.  Every assertion over it is paired presence + ABSENCE: the failure mode is a RETAINED conjunct, invisible to a presence-only check.  Also pins the fail-OPEN direction — the root `findAll`/by-id reads carry no `ignoring` clause, so no OTHER find's bypass may widen them.  Since F-005 this fixture is also the corpus' only source of `loom.tenancy-filter-bypass` — four warnings, one per `ignoring`-bearing find over a `tenantOwned` aggregate, all TRUE positives (that crossing is the fixture's subject), and the only trips a full-corpus `ddd parse` sweep reports for that code.",
   },
   {
@@ -625,7 +601,9 @@ export const CORPUS: readonly CorpusFeature[] = [
     title:
       "a ROOT-LEVEL (ambient / shared-kernel) value object nested inside a CONTEXT-LOCAL one — the third VO lookup pool, and the emission ORDER it forces",
     doc: "language",
-    backends: ALL,
+    // elixir accepts a breach of the root VO's invariant when it is nested in
+    // `Outer` (#4017); its leg boots the case as a tracked expected failure.
+    backends: ALL.filter((b) => b !== "vanilla"),
     note: "Minted by the fixture-shape audit (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-29-fixture-shape-coverage.md).  A root-level VO is the documented shared kernel and the third pool a name resolves through (`ctx.valueObjects`, `siblingValueObjects`, then `rootValueObjects` folded in at enrichment).  Only FOUR models in the repo declared one, all under `web/src/examples/`, and all four are MULTI-FILE — while `react-build-cases.ts` is single-file-only by construction, so NO compile gate on any backend or frontend had ever seen a shared kernel, and the corpus had none.  Carries both nesting directions because different code emits them: root VO -> aggregate field (`Shipment.tag`, the direction the examples had) and root VO -> CONTEXT-LOCAL VO field (`Outer.origin`, which nothing had, and which is the ordering-sensitive one).  This is the evaluation's F-007, whose halves have since diverged: react/vue/svelte are FIXED (the frontend api module emits the root VO's schema first), while NODE IS STILL BROKEN — `http/shipment.routes.ts` emits the context-local `OuterSchema` before the root-level `UnLocodeSchema` it initialises from, a temporal-dead-zone read (`TS2448` + `TS2454`).  Same defect the evaluation reported on the frontends, surviving on the backend after the frontend half was fixed, which is why the SHAPE and not the symptom is what a fixture must carry.  PYTHON IS BROKEN THE SAME WAY, in two more files: `app/domain/value_objects.py` and `app/http/wire_models.py` both emit `class Outer` (annotating `origin: UnLocode`) before `class UnLocode`, so ruff reports `F821 Undefined name 'UnLocode'` four times.  ONE emission-order bug, TWO backends — which is the argument for carrying the shape in the shared corpus rather than per-backend.  RESOLVED (F-007 backend halves): node's four `<Vo>Schema`-emitting builders (routes, workflow, projection, explicit handlers) and python's two class emitters (`emit/value-objects.ts`, `emit/http-models.ts`) now route through `orderValueObjectsByDependency` (src/ir/util/reachable-types.ts) — the helper the frontends already used — so node and python rejoined `backends:` and the named exclusion was deleted.  dotnet/java are free (declarations hoist — a record/class has no initialisation order) and elixir is free (a VO is one `:map` cell, no schema const); all three ride as the contrast.",
   },
   {
@@ -661,7 +639,13 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Promoted from five per-backend string tests (M-T9.42, 813 LOC) that asserted the RENDERED arithmetic — `((this._gracePeriod) * 86400000) + ((30) * 60000)` on node, `make_interval(days => 30)` in the repository, a `java.time.Duration` spelling on java.  Each pinned one emitter's spelling of a unit conversion and none could tell whether the conversion was CORRECT.  Every value the e2e asserts is chosen to FLIP when a unit is wrong, and none depends on the datetime wire format (no corpus e2e pins a datetime read-back; that shape is a separate contract with its own RS rules).  IT IMMEDIATELY EARNED ITS KEEP, on FIVE emitters: the VALUE-side arm (`this.dueDate < q + days(2)`) 500s on node and elixir, because the bound datetime reaches Postgres untyped and `unknown + interval` resolves it to `interval` — and the deleted node test asserted that exact broken spelling, character for character, and passed.  It also found that BOTH alternate-persistence adapters (mikroorm, dapper) emitted a runtime-throwing stub for every `datetime \u00b1 duration` predicate while `find-predicate-capability.ts` declared both shapes lowerable \u2014 a silent gap nothing had driven, now closed on both.  The six arms the e2e drives are: column-side interval, value-side interval, the same predicate through a reified criterion, `dt − dt` vs composed units, duration × int, `datetime − duration`, and the commuted `duration + datetime`.  What did NOT survive the deletion, named rather than dropped silently: the phase-⑦ rejection gate (kept, deduplicated, as `test/ir/temporal-queryable-gate.test.ts` — a behavioural test cannot observe a program the compiler refuses); .NET's `not.toContain(\"TimeSpan.From\")` (an EF-translatability claim, which EF Core now enforces by THROWING on an untranslatable `Where`, so the elixir/dotnet behavioural legs make it); and python's `not.toContain(\"python-dateutil\")` (a dependency-manifest claim, not a temporal one — and one whose failure mode is a deliberate act, not a regression).",
   },
   { id: "extern", title: "extern operations — preconditions gate a user handler", doc: "extern", backends: ALL },
-  { id: "extern-handlers", title: "extern commandHandler / queryHandler — bodyless, scaffold-once user impl", backends: ALL },
+  {
+    id: "extern-handlers",
+    title: "extern commandHandler / queryHandler — bodyless, scaffold-once user impl",
+    // python's routed-handler body takes snake_case keys (#4211); its leg boots
+    // the case as a tracked expected failure until that lands.
+    backends: ALL.filter((b) => b !== "python"),
+  },
   {
     id: "handler-resource-ops",
     title:

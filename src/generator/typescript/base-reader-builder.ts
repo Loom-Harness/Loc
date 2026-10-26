@@ -22,6 +22,7 @@
 //     global order before it pages.
 
 import { type PolymorphicRead, polymorphicReadFor } from "../../ir/enrich/read-scope.js";
+import { reasonPhrase, wireStatus } from "../../ir/enrich/wire-policy.js";
 import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
@@ -43,6 +44,7 @@ import {
 } from "./repository-find-predicate.js";
 import { collectEnums, collectValueObjects } from "./repository-imports-builder.js";
 import { aggHasFieldMask } from "./repository-wire-builder.js";
+import { tsNotFoundThrow } from "./wire-policy-ts.js";
 
 /** The `<Base> = Concrete | …` discriminated-union type (TS structural union
  *  of the concrete domain classes). Lives in `domain/<base>.ts`.  `layout`
@@ -397,7 +399,7 @@ export function buildBaseRoutesFile(base: EnrichedAggregateIR, read: Polymorphic
     `      request: { query: ${B}PageQuery },`,
     `      responses: {`,
     `        200: { description: "OK", content: { "application/json": { schema: ${B}Paged } } },`,
-    `        422: { description: "Unprocessable Entity", content: { "application/problem+json": { schema: ProblemDetails } } },`,
+    `        ${wireStatus("field-invalid")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("field-invalid")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
     `      },`,
     `    }),`,
     `    async (c) => {`,
@@ -453,14 +455,14 @@ function byIdRouteLines(B: string): string[] {
     `      request: { params: z.object({ id: UuidString }) },`,
     `      responses: {`,
     `        200: { description: "OK", content: { "application/json": { schema: ${B}Response } } },`,
-    `        404: { description: "Not Found", content: { "application/problem+json": { schema: ProblemDetails } } },`,
-    `        422: { description: "Unprocessable Entity", content: { "application/problem+json": { schema: ProblemDetails } } },`,
+    `        ${wireStatus("not-found")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("not-found")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
+    `        ${wireStatus("field-invalid")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("field-invalid")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
     `      },`,
     `    }),`,
     `    async (c) => {`,
     `      const { id } = c.req.valid("param");`,
     `      const found = await repo.findById(Ids.${B}Id(id));`,
-    `      if (!found) throw new AggregateNotFoundError(\`${B} \${id} not found\`);`,
+    `      if (!found) ${tsNotFoundThrow(B, "id")}`,
     `      return c.json(repo.toWire(found) as z.infer<typeof ${B}Response>, 200);`,
     `    },`,
     `  );`,

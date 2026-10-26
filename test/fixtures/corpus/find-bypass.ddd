@@ -31,14 +31,20 @@
 //     out of the shared read is how a soft-deleted row becomes visible through
 //     `GET /<plural>` because some unrelated find said `ignoring`.
 //
-// COMPILE-TIER ONLY — no `test e2e` block, for the same reason
-// `projection-agg-filters.ddd` has none: the assertion this fixture wants (a
-// second tenant's rows APPEAR under `ignoring tenantOwned` and are ABSENT
-// without it) needs a two-principal harness the behavioural runners do not
-// have, and its wire goldens cannot be captured without one.  The proof is
-// carried by per-backend generator tests asserting the presence AND ABSENCE of
-// each conjunct in the emitted read — a retained conjunct is invisible to a
-// presence-only assertion, which is how this survived.
+// `softDelete` gives the not-deleted conjunct an api write, so each arm is
+// observable at runtime:
+//
+//   * the `test e2e` block below runs as ONE tenant and pins the
+//     not-deleted half — after a soft delete, the clause-less reads and
+//     `ignoring tenantOwned` hide the row, `ignoring *` returns it;
+//   * the authz ladder (`AUTHZ_LADDERS["find-bypass"]`,
+//     test/behavioral/cases.mjs) seeds a row as that tenant and reads it as
+//     ANOTHER — the row is absent from the clause-less finds, the collection
+//     and the by-id read, and present under `ignoring tenantOwned` and
+//     `ignoring *`.
+//
+// The per-backend generator tests still assert the presence AND ABSENCE of
+// each conjunct in the emitted read.
 system FindBypass {
   user { id: guid  tenantId: string }
 
@@ -48,16 +54,25 @@ system FindBypass {
     context Orders {
       // RELATIONAL: the predicates are columns, so each backend pushes them
       // into the query it emits for the find.
-      aggregate Order with tenantOwned, softDeletable, crudish {
+      // `softDelete` owns the destroy, so `crudish` drops to `updateOnly`
+      // and the create is author-declared.
+      aggregate Order with tenantOwned, crudish(updateOnly: true), softDeletable, softDelete {
         code: string
         total: money
+        create(code: string, total: money) {
+          code := code
+          total := total
+        }
       }
 
       // DOCUMENT: one jsonb blob, no queryable columns — every predicate is
       // evaluated in-app over the rehydrated aggregate, and the bypassing find
       // needs an unfiltered rehydrate that is NOT the scoped root read.
-      aggregate Note shape: document with tenantOwned, softDeletable, crudish {
+      aggregate Note shape: document with tenantOwned, crudish(updateOnly: true), softDeletable, softDelete {
         body: string
+        create(body: string) {
+          body := body
+        }
       }
 
       repository Orders for Order {
@@ -76,7 +91,9 @@ system FindBypass {
       }
     }
     context Accounts {
-      aggregate Organization with crudish {
+      // The tenant registry only has to exist for `tenancy … of Organization`;
+      // it serves only its collection read.
+      aggregate Organization {
         name: string
       }
     }
@@ -94,5 +111,39 @@ system FindBypass {
     serves: OrdersApi
     port: 4000
     auth: required
+  }
+
+  test e2e "a bypassing find drops exactly the conjuncts it names, on both persistence shapes" against d {
+    let o = api.orders.create({ code: "O-1", total: "5.00" })
+    expect(api.orders.scoped({ c: "O-1" }).code).toBe("O-1")
+    expect(api.orders.anyTenant({ c: "O-1" }).code).toBe("O-1")
+    expect(api.orders.unfiltered({ c: "O-1" }).code).toBe("O-1")
+    api.orders.update(o, { code: "O-2", total: "6.00" })
+    expect(api.orders.getById(o).code).toBe("O-2")
+
+    api.orders.softDelete(o)
+    expect(api.orders.scoped({ c: "O-2" })).toThrow(404)
+    // `ignoring tenantOwned` keeps the not-deleted conjunct…
+    expect(api.orders.anyTenant({ c: "O-2" })).toThrow(404)
+    // …`ignoring *` drops it…
+    expect(api.orders.unfiltered({ c: "O-2" }).code).toBe("O-2")
+    // …and the clause-less root reads keep it whatever another find bypasses.
+    expect(api.orders.getById(o)).toThrow(404)
+    expect(api.orders.all().items.length).toBe(0)
+    expect(api.orders.restore(o)).toThrow(404)
+
+    let n = api.notes.create({ body: "N-1" })
+    expect(api.notes.scopedNote({ b: "N-1" }).body).toBe("N-1")
+    api.notes.update(n, { body: "N-2" })
+    api.notes.softDelete(n)
+    expect(api.notes.scopedNote({ b: "N-2" })).toThrow(404)
+    expect(api.notes.anyTenantNote({ b: "N-2" })).toThrow(404)
+    expect(api.notes.unfilteredNote({ b: "N-2" }).body).toBe("N-2")
+    expect(api.notes.getById(n)).toThrow(404)
+    expect(api.notes.all().length).toBe(0)
+    expect(api.notes.restore(n)).toThrow(404)
+
+    expect(api.organizations.all().total).toBe(0)
+    expect(api.organizations.getById("00000000-0000-4000-8000-000000000001")).toThrow(404)
   }
 }

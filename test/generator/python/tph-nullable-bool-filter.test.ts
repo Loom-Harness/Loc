@@ -67,13 +67,15 @@ system S {
 }
 `;
 
-async function repo(name: string): Promise<string> {
+async function file(suffix: string): Promise<string> {
   const all = await generateSystemFiles(src);
-  const suffix = `app/db/repositories/${name}_repository.py`;
   const key = [...all.keys()].find((k) => k.endsWith(suffix));
   expect(key, `${suffix} not emitted`).toBeDefined();
   return all.get(key as string) as string;
 }
+
+/** The read-scope hook, where every read restriction is rendered once. */
+const scope = (): Promise<string> => file("app/db/read_scope.py");
 
 describe("a TPH-nullable bool column in boolean position (F15)", () => {
   it("the schema really declares the column nullable — the premise, not an assumption", async () => {
@@ -85,43 +87,37 @@ describe("a TPH-nullable bool column in boolean position (F15)", () => {
   });
 
   it("a negated nullable bool renders .is_(False), never not_()", async () => {
-    const py = await repo("negated");
-    expect(py).toContain("ThingBaseRow.archived.is_(False)");
-    expect(py).not.toContain("not_(ThingBaseRow.archived)");
+    const py = await scope();
+    expect(py).toContain('or_(cls.kind != "Negated", cls.archived.is_(False))');
+    expect(py).not.toContain("not_(cls.archived.");
   });
 
   it("an && operand renders .is_(True) beside the comparison it conjoins", async () => {
-    const py = await repo("conjoined");
-    expect(py).toContain("ThingBaseRow.live.is_(True)");
-    expect(py).toContain("(ThingBaseRow.rank > 0)");
+    const py = await scope();
+    expect(py).toContain("cls.live.is_(True)");
+    expect(py).toContain("(cls.rank > 0)");
     // The comparison is already a ColumnElement[bool] — it must NOT be wrapped.
     expect(py).not.toContain("> 0).is_(");
   });
 
-  it("the bare top-level filter renders .is_(True) in the where itself", async () => {
-    const py = await repo("bare");
-    expect(py).toContain("ThingBaseRow.visible.is_(True)");
+  it("the bare top-level filter renders .is_(True)", async () => {
+    expect(await scope()).toContain('or_(cls.kind != "Bare", cls.visible.is_(True))');
   });
 
-  it("EVERY read of a TPH concrete carries the coerced predicate", async () => {
-    // The sweep: the capability filter AND-s into every root read site, and the
-    // one that got missed would be the one that does not compile.  Each `select(
-    // ThingBaseRow)` in the module is a read, and every one must carry it.
-    const py = await repo("negated");
-    const reads = py.split("\n").filter((l) => l.includes("select(ThingBaseRow)"));
+  it("no read of a TPH concrete spells the predicate — the hook applies it to every one", async () => {
+    const py = await file("app/db/repositories/negated_repository.py");
+    const reads = py.split("\n").filter((l) => l.includes("select(NegatedRow)"));
     expect(reads.length, "no reads emitted — the sweep would be vacuous").toBeGreaterThan(2);
-    for (const line of reads) {
-      expect(line, "a read with no soft-delete predicate").toContain("archived.is_(False)");
-    }
+    for (const line of reads) expect(line).not.toContain("archived");
   });
 
-  it("a NON-TPH aggregate keeps the byte-identical not_() spelling", async () => {
+  it("a NON-TPH aggregate keeps the not_() spelling", async () => {
     // The coercion is scoped to columns the shared table actually made
-    // nullable; on a plain table `Mapped[bool]` is already a
-    // ColumnElement[bool], and widening the rewrite would churn every
-    // relational repository in the corpus for nothing.
-    const py = await repo("flat");
-    expect(py).toContain("not_(FlatRow.archived)");
-    expect(py).not.toContain("FlatRow.archived.is_(");
+    // nullable; on a plain table `Mapped[bool]` is already a ColumnElement[bool].
+    const py = await scope();
+    expect(py).toContain(
+      "with_loader_criteria(FlatRow, lambda cls: not_(cls.archived), include_aliases=True)",
+    );
+    expect(py).not.toContain("cls.archived.is_(True)");
   });
 });

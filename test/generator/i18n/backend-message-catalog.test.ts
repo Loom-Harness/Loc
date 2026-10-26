@@ -96,7 +96,7 @@ describe("node/Hono — http/messages.ts + defaultHook resolution", () => {
     const problem = bySuffix(await filesFor("node"), "http/problem-details.ts")!;
     expect(problem).toContain('import { localizeMessage } from "./messages"');
     expect(problem).toContain(
-      'message: isAbsent(result.data, issue.path) ? "Required" : localizeMessage(issue.params?.loomCode, issue.message)',
+      "message: isAbsent(result.data, issue.path) ? missingFieldMessage(issue.path) : localizeMessage(issue.params?.loomCode, issue.message)",
     );
   });
 });
@@ -277,7 +277,7 @@ describe("cross-backend parity", () => {
     }
     // …and the resolution sites keep their pre-catalog form.
     expect(bySuffix(await filesFor("node", NO_MESSAGES), "http/problem-details.ts")).toContain(
-      'message: isAbsent(result.data, issue.path) ? "Required" : issue.message,',
+      "message: isAbsent(result.data, issue.path) ? missingFieldMessage(issue.path) : issue.message,",
     );
     expect(bySuffix(await filesFor("python", NO_MESSAGES), "app/http/problem.py")).not.toContain(
       "localize_message",

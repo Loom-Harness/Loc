@@ -301,7 +301,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "message": "Required",
+            "message": "courier is required",
             "pointer": "/courier"
           }
         ],

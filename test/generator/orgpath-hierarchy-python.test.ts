@@ -68,9 +68,9 @@ describe("currentUser.orgPath — registry data_key read under hierarchy (python
     expect(userMod).toMatch(/^ {4}org_path = ""$/m);
     expect(userMod).not.toMatch(/def org_path\(self\) -> str:/);
 
-    // The use-site (`filter this.owner == currentUser.orgPath`) still renders
-    // through the ambient principal accessor — unchanged from P2.1.
+    // The use-site (`filter this.owner == currentUser.orgPath`) renders in the
+    // read-scope hook, against the principal it reads on each execution.
     const all = [...files.values()].join("\n\n");
-    expect(all).toMatch(/require_current_user\(\)\.org_path/);
+    expect(all).toMatch(/\buser\.org_path\b/);
   });
 });

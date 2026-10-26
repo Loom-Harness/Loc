@@ -493,7 +493,7 @@ const __emptyCommandBodyProbes = async (dispatch) => {
   // The missing-parameter probe: the first instance command the tier sent a
   // ONE-key body to, re-sent \`{}\` against an absent id.  A required parameter
   // left out is refused at the wire — 422 with one \`errors[]\` entry,
-  // \`{ pointer: "/<key>", message: "Required" }\`, before the row is loaded — on
+  // \`{ pointer: "/<key>", message: "<key> is required" }\`, before the row is loaded — on
   // every backend; elixir used to hand the nil to the operation body and answer
   // 500.  One key, so the entry list has one order on every backend.
   for (let i = 0; i < __wire.length; i++) {

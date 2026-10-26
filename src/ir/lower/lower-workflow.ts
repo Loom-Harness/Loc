@@ -67,6 +67,7 @@ import {
   inferExprType,
   lowerEmitFields,
   lowerExpr,
+  lowerExprAsDeclared,
   lowerExprInContext,
   passType,
 } from "./lower-expr.js";
@@ -906,9 +907,10 @@ function lowerWorkflowStatementInner(
         binding: { name: stmt.name, aggName, repoName: repo.name },
       };
     }
-    // expr-let: scalar / generic expression
-    const exprIR = lowerExpr(stmt.expr, env);
-    const t = inferExprType(stmt.expr, env);
+    // expr-let: scalar / generic expression.  A declared type is the binding's
+    // type, and the value lowers against it (literal promotion).
+    const t = stmt.type ? lowerType(stmt.type, env) : inferExprType(stmt.expr, env);
+    const exprIR = stmt.type ? lowerExprAsDeclared(stmt.expr, t, env) : lowerExpr(stmt.expr, env);
     // A typed in-system api call (M-T4.8) whose callee declares a union find
     // carries the SAME runtime shape as a local one: the callee answers the
     // success body directly at 200 and rides the absent variant on its own

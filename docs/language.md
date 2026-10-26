@@ -1430,6 +1430,7 @@ decimal`.
 | `coll -= value` | Remove from a contained collection. |
 | `emit EventName { field: expr, … }` | Raise a domain event; drained by the repository on `save`. |
 | `let name = Expression` | Local binding for the rest of the body. |
+| `let name: Type = Expression` | The same, with a declared type: the value must fit it (a bare literal promotes, a narrower number widens). |
 | `helperName(args)` / `this.op(args)` | Call a helper `function` or `private operation` of the same aggregate (`loom.call-arg-count` / `loom.call-arg-type`). |
 | `return Expression` | The designed-in outcome of an operation / handler declared with an `or`-union return type — an `error` variant maps to a ProblemDetails status, a success variant to 200.  See [`payloads.md`](payloads.md).  Also the result of a workflow `create(…): T` — last top-level statement only, answered as the `POST`'s 200 body (`loom.workflow-return-*`; [`workflow.md`](workflow.md#returning-a-result--createt)). |
 | `match subject { Variant [b] => { … }, else => { … } }` | Statement-form variant match — arms run statements (state writes, `navigate(...)`) rather than yield a value.  In a page `action`, `match await Agg.op(...) { Ok r => …, Err e => … }` is how a remote command is awaited and its Result handled — a remote mutating call *without* the marker is `loom.missing-effect-marker`; `loom.match-await*` gates the awaited call's shape ([`actions.md`](actions.md)). |

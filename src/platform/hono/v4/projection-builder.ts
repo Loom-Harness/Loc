@@ -10,6 +10,8 @@ import {
 } from "../../../generator/typescript/raw-row-wire.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
 import { isFlattenedValueObject, voLeaves } from "../../../generator/typescript/vo-flatten.js";
+import { tsNotFoundThrow } from "../../../generator/typescript/wire-policy-ts.js";
+import { wireFixedDetail, wireStatus, wireTitle } from "../../../ir/enrich/wire-policy.js";
 import type {
   EnrichedBoundedContextIR,
   ProjectionIR,
@@ -19,14 +21,12 @@ import type {
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, isMaterializedProjection } from "../../../ir/types/loom-ir.js";
-import { problemTitle } from "../../../ir/util/openapi-errors.js";
 import {
   collectReachableTypes,
   enumPool,
   orderValueObjectsByDependency,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
-import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { escapeTsIdent, lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
 import { emitWireSchema, zodFor, zodForResponse } from "./routes-builder.js";
 
@@ -552,11 +552,11 @@ function emitProjectionRoutes(
   usingMikro: boolean,
   ctx: EnrichedBoundedContextIR,
 ): string[] {
-  const forbiddenStatus = resolveErrorStatus("Forbidden", ctx.structuralErrorStatuses);
+  const forbiddenStatus = wireStatus("forbidden", ctx.structuralErrorStatuses);
   // RS-27: a projection row read by its correlation KEY is a by-id read, so its
   // absence is the domain `NotFound` rung and follows a `httpStatus NotFound ->
   // <code>` override — declaration and `onError` arm off the same resolved value.
-  const notFoundStatus = resolveErrorStatus("NotFound", ctx.structuralErrorStatuses);
+  const notFoundStatus = wireStatus("not-found", ctx.structuralErrorStatuses);
   const anyGate = projections.some((p) => p.query?.requires);
   const out = [
     `export function projectionsRoutes(db: ${projDbType(usingMikro)}): OpenAPIHono {`,
@@ -581,7 +581,7 @@ function emitProjectionRoutes(
     const wireOne = (rowExpr: string): string =>
       nest ? rawRowWireObject(rowExpr, p.wireShape ?? [], ctx) : rawRowWireExpr(rowExpr, instants);
     const forbiddenResponse = `        ${forbiddenStatus}: { description: ${JSON.stringify(
-      problemTitle(forbiddenStatus),
+      wireTitle("forbidden", ctx.structuralErrorStatuses),
     )}, content: { "application/problem+json": { schema: ProblemDetails } } },`;
     // List.
     out.push(`  app.openapi(`);
@@ -637,7 +637,7 @@ function emitProjectionRoutes(
     if (gated) out.push(forbiddenResponse);
     out.push(
       `        ${notFoundStatus}: { description: ${JSON.stringify(
-        problemTitle(notFoundStatus),
+        wireTitle("not-found", ctx.structuralErrorStatuses),
       )}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
     );
     out.push(`      },`);
@@ -657,7 +657,7 @@ function emitProjectionRoutes(
     }
     // RS-27 extends here — a projection row read by its correlation KEY is a
     // by-id read.
-    out.push(`      if (!row) throw new AggregateNotFoundError(\`${T} \${key} not found\`);`);
+    out.push(`      if (!row) ${tsNotFoundThrow(T, "key")}`);
     out.push(
       `      return httpCtx.json(${wireOne("row")} as unknown as z.infer<typeof ${T}Response>, 200);`,
     );
@@ -675,7 +675,7 @@ function emitProjectionRoutes(
   out.push(`  app.onError((err, c) => {`);
   out.push(`    const trace_id = c.get("requestId") ?? "";`);
   out.push(
-    `    const problem = (status: ${[...new Set(anyGate ? [forbiddenStatus, notFoundStatus, 500] : [notFoundStatus, 500])].sort((a, b) => a - b).join(" | ")}, title: string, detail: string) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
+    `    const problem = (status: ${[...new Set(anyGate ? [forbiddenStatus, notFoundStatus, wireStatus("internal")] : [notFoundStatus, wireStatus("internal")])].sort((a, b) => a - b).join(" | ")}, title: string, detail: string) => c.body(JSON.stringify({ type: "about:blank", title, status, detail, instance: c.req.path }), status, { "content-type": "application/problem+json", "x-request-id": trace_id });`,
   );
   if (anyGate) {
     // Ruling D4 (#20): the gate's source text goes to the `forbidden` log line;
@@ -684,18 +684,20 @@ function emitProjectionRoutes(
       `    if (err instanceof ForbiddenError) { ${renderHonoLogCall(
         "forbidden",
         `message: err.message, status: ${forbiddenStatus}`,
-      )} return problem(${forbiddenStatus}, ${JSON.stringify(problemTitle(forbiddenStatus))}, err.detail); }`,
+      )} return problem(${forbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail); }`,
     );
   }
   out.push(
     `    if (err instanceof AggregateNotFoundError) return problem(${notFoundStatus}, ${JSON.stringify(
-      problemTitle(notFoundStatus),
+      wireTitle("not-found", ctx.structuralErrorStatuses),
     )}, err.message);`,
   );
   // Same tail as the query-projection router: an unexpected fault is logged and
   // answered as problem+json, never as hono's text/plain default.
   out.push(`    console.error(err);`);
-  out.push(`    return problem(500, "Internal Server Error", "internal");`);
+  out.push(
+    `    return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))});`,
+  );
   out.push(`  });`);
   out.push("");
   out.push(`  return app;`);
