@@ -165,6 +165,10 @@ function guidStringBridge(a: PrimitiveName, b: PrimitiveName): boolean {
  *  Sensitivity narrowing (`string!{pii}` → `string`) is allowed here and
  *  reported separately by `sensitivityNarrows`. */
 export function isAssignable(value: Ty, target: Ty): boolean {
+  // `T envelope` is a single-row read of `T` and nothing more (D-ENVELOPE-RATIFY).
+  if (value.kind === "generic" && value.ctor === "envelope") return isAssignable(value.arg, target);
+  if (target.kind === "generic" && target.ctor === "envelope")
+    return isAssignable(value, target.arg);
   if (typesEqual(value, target)) return true;
   if (value.kind === "any" || target.kind === "any") return true;
   if (enumCandidateFits(value, target)) return true;
