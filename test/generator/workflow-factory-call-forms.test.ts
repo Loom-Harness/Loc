@@ -1,12 +1,14 @@
 // A workflow factory call in its two spellings — positional
 // `Survey.create(a, b)` and named `Survey.create(ticket: a, note: b)` — is ONE
 // create: the same saved `factory-let`, so byte-identical generated output on
-// every backend.  The
-// positional one is the reported shape (an event-triggered starter that built
-// a `Survey` nobody ever saved, and that did not typecheck on node).
+// every backend.  Positions bind to a declared `create(…)` signature, so each
+// aggregate here declares one.  The positional one is the reported shape (an
+// event-triggered starter that built a `Survey` nobody ever saved, and that did
+// not typecheck on node).
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
+import { extractErrors, parseString } from "../_helpers/index.js";
 
 const sys = (platform: string, call: string, poll = "") => `
 system S {
@@ -21,6 +23,7 @@ system S {
       aggregate Survey {
         ticket: Ticket id
         note: string
+        create(ticket: Ticket id, note: string) { }
       }
       repository Surveys for Survey { }
       aggregate Poll {
@@ -119,6 +122,24 @@ describe("unit-test factory call — positional and named are one create", () =>
       expect(differing(named, positional)).toStrictEqual([]);
     });
   }
+
+  it("refuses positions in a unit test when the aggregate declares no create", async () => {
+    const undeclared = unit("node", `Order.create("a", 2)`).replace(
+      "create(code: string, qty: int) { }",
+      "",
+    );
+    const { diagnostics } = await parseString(undeclared, { validate: true });
+    const hit = diagnostics.filter((d) => d.code === "loom.create-args");
+    expect(hit.map((d) => d.message)).toStrictEqual([
+      expect.stringContaining("Name each argument, 'Order.create(code: …, qty: …)'"),
+    ]);
+    const named = unit("node", `Order.create(code: "a", qty: 2)`).replace(
+      "create(code: string, qty: int) { }",
+      "",
+    );
+    const ok = await parseString(named, { validate: true });
+    expect(extractErrors(ok.diagnostics)).toStrictEqual([]);
+  });
 
   it("node: the test builds the factory's input record", async () => {
     const files = await generateSystemFiles(unit("node", `Order.create("a", 2)`));

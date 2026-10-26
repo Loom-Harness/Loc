@@ -2,16 +2,17 @@
 // (`loom.create-args`, `loom.create-record-form`).
 //
 // An aggregate's `create` is a lifecycle method, called like any other method:
-// positional (`Agg.create(a, b)`) or named (`Agg.create(x: a)`).  Both lower,
-// in every position — a domain body, a workflow or handler, a unit test, a
-// seed — to the one create-input record every backend's factory takes,
-// positions in the create input's order (`language/factory-call.ts`).
+// named (`Agg.create(x: a)`), or positional (`Agg.create(a, b)`) against an
+// author-declared `create(x, y)` signature.  Both lower, in every position — a
+// domain body, a workflow or handler, a unit test — to the one create-input
+// record every backend's factory takes (`language/factory-call.ts`).
 //
 // Two shapes are refused here, wherever the call sits:
 //   - the record form `Agg.create({ x: a })`, which leaked the create-command
 //     wire record into the domain language (D-CREATE-CALL-STYLE); the message
 //     names the call form and the codemod that rewrites it;
-//   - an argument list that names no record: more positions than inputs,
+//   - an argument list that names no record: positions with no declared
+//     `create(…)` signature to bind them, more positions than parameters,
 //     positional and named arguments mixed, a name that is not an input, or
 //     the same name twice.
 //
@@ -52,7 +53,12 @@ export function checkCreateArgs(model: Model, accept: ValidationAcceptor): void 
       continue;
     }
     const mapped = factoryArgs(agg, call.args);
-    const inputs = mapped.kind === "arity" || mapped.kind === "unknown-name" ? mapped.inputs : [];
+    const inputs =
+      mapped.kind === "arity" ||
+      mapped.kind === "unknown-name" ||
+      mapped.kind === "positional-without-create"
+        ? mapped.inputs
+        : [];
     const list = inputs.length > 0 ? inputs.map((n) => `'${n}'`).join(", ") : "(none)";
     switch (mapped.kind) {
       case "fields":
@@ -62,6 +68,21 @@ export function checkCreateArgs(model: Model, accept: ValidationAcceptor): void 
           node,
           code: "loom.create-args",
         });
+        continue;
+      case "positional-without-create":
+        accept(
+          "error",
+          diagMessage("loom.create-args#positional-without-create", {
+            agg: agg.name,
+            owner,
+            example: mapped.inputs
+              .slice(0, Math.max(1, Math.min(2, call.args.length)))
+              .map((n) => `${n}: …`)
+              .join(", "),
+            inputs: list,
+          }),
+          { node, code: "loom.create-args" },
+        );
         continue;
       case "arity":
         accept(
