@@ -959,52 +959,6 @@ describe(".NET generator", () => {
     expect(handler).toMatch(/rank: 3/);
   });
 
-  it("emits a transactional workflow with BeginTransactionAsync + Commit + Rollback", async () => {
-    const { parseHelper } = await import("langium/test");
-    const services = createDddServices(NodeFileSystem);
-    const helper = parseHelper(services.Ddd);
-    const doc = await helper(
-      `
-      context T {
-        aggregate Customer {
-          name: string
-          derived display: string = name
-          creditLimit: decimal
-          operation addCredit(amount: decimal) {
-            precondition amount > 0
-            creditLimit := creditLimit + amount
-          }
-        }
-        repository Customers for Customer { }
-        workflow topUp transactional {
-      create(customerId: Customer id, amount: decimal) {
-          precondition amount > 0
-          let c = Customers.getById(customerId)
-          c.addCredit(amount)
-        }
-    }
-      }
-    `,
-      { validation: true },
-    );
-    const files = generateDotnet(doc.parseResult.value as Model);
-    const handler = files.get("Application/Workflows/TopUpHandler.cs")!;
-    // Transaction via the domain IUnitOfWork port (audit S7 Slice C), `global::`-
-    // anchored so a deployable named `api` (root ns `Api`) doesn't mis-resolve
-    // the leading segment against the enclosing namespace.
-    expect(handler).toMatch(/private readonly global::T\.Domain\.Common\.IUnitOfWork _uow;/);
-    expect(handler).toMatch(
-      /await using var tx = await _uow\.BeginTransactionAsync\(cancellationToken\);/,
-    );
-    expect(handler).toMatch(/await tx\.CommitAsync\(cancellationToken\);/);
-    expect(handler).toMatch(/await tx\.RollbackAsync\(cancellationToken\);/);
-    // Save inside the try block, before commit.
-    const trySaveIdx = handler.indexOf("await _customers.SaveAsync(c, cancellationToken);");
-    const commitIdx = handler.indexOf("await tx.CommitAsync(cancellationToken);");
-    expect(trySaveIdx).toBeGreaterThan(0);
-    expect(commitIdx).toBeGreaterThan(trySaveIdx);
-  });
-
   it("workflow op-call to a parameterless extern calls the aggregate method directly", async () => {
     // extern (b) Phase 2: an extern op is an ordinary aggregate method (it runs
     // preconditions, calls its `<Op>Core` hook, re-asserts invariants), so a
@@ -1228,22 +1182,14 @@ describe(".NET generator", () => {
     expect(program).toMatch(/c\.SchemaFilter<RequiredFromCtorParamFilter>\(\)/);
   });
 
-  it("DomainExceptionFilter catches unhandled exceptions as sanitized 500", async () => {
+  it("DomainExceptionFilter answers a NotFoundException with its message as the 404 detail", async () => {
+    // The sanitized 500, the 422 domain-floor detail and the 7807 envelope are
+    // asserted by value on the booted .NET leg (`corpus/extern-handlers`,
+    // `corpus/domain-floor-messages`); a corpus 404 comes from the controller's
+    // own not-found result, so the exception arm is pinned here.
     const model = await buildModel("examples/sales.ddd");
     const files = generateDotnet(model);
     const filter = files.get("Api/DomainExceptionFilter.cs")!;
-    expect(filter).toMatch(/ILogger<DomainExceptionFilter>/);
-    // Generic fallback → sanitized 500 ProblemDetails ("internal", no leak).
-    expect(filter).toMatch(
-      /Problem\(context, 500, "Internal Server Error", "internal", trace_id\)/,
-    );
-    // The Problem helper builds an RFC 7807 ProblemDetails with the status.
-    expect(filter).toMatch(/new ProblemDetails/);
-    expect(filter).toMatch(/ContentTypes = \{ "application\/problem\+json" \}/);
-    // Domain-specific paths still mapped (422 / 404).
-    expect(filter).toMatch(
-      /Problem\(context, 422, "Unprocessable Entity", de\.Message, trace_id\)/,
-    );
     expect(filter).toMatch(/Problem\(context, 404, "Not Found", nf\.Message, trace_id\)/);
   });
 
@@ -1711,19 +1657,6 @@ describe(".NET generator", () => {
       expect(load).toBeLessThan(gate);
       expect(gate).toBeLessThan(call);
     });
-
-    it("DomainExceptionFilter maps ForbiddenException to 403", async () => {
-      const files = await emitForAuthSystem(SRC_REQUIRES);
-      const filter = files.get("Api/DomainExceptionFilter.cs")!;
-      expect(filter).toMatch(/is ForbiddenException/);
-      expect(filter).toMatch(/Problem\(context, 403, "Forbidden", fe\.Message, trace_id\)/);
-    });
-
-    it("Domain.Common emits ForbiddenException", async () => {
-      const files = await emitForAuthSystem(SRC_REQUIRES);
-      const common = files.get("Domain/Common/DomainException.cs")!;
-      expect(common).toMatch(/public sealed class ForbiddenException/);
-    });
   });
 
   // -------------------------------------------------------------------
@@ -1760,32 +1693,6 @@ describe(".NET generator", () => {
       // translatable.  Product (in sales.ddd) has no invariants
       // either.  CreateOrder has no validator file.
       expect(files.has("Application/Orders/Commands/CreateOrderCommandValidator.cs")).toBe(false);
-    });
-
-    it("DomainExceptionFilter has a FluentValidation.ValidationException arm", async () => {
-      const model = await buildModel("examples/sales.ddd");
-      const files = generateDotnet(model);
-      const filter = files.get("Api/DomainExceptionFilter.cs")!;
-      expect(filter).toMatch(/is FluentValidation\.ValidationException fv/);
-      // Envelope: RFC 7807 ProblemDetails with the §3.2 `errors[]`
-      // extension carried on `Extensions["errors"]`, status 422.
-      // Shape matches Hono's defaultHook so the frontend ACL's
-      // `applyServerErrors` works against either backend.  See
-      // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/validation-error-extension.md.
-      expect(filter).toMatch(/Title = "Validation failed"/);
-      expect(filter).toMatch(/Status = 422/);
-      expect(filter).toMatch(/problem\.Extensions\["errors"\] = fv\.Errors/);
-      expect(filter).toMatch(/\["pointer"\] = ValidationProblem\.PointerOf\(e\.PropertyName\)/);
-      expect(filter).toMatch(/\["message"\] = e\.ErrorMessage/);
-      expect(filter).toMatch(/StatusCode = 422/);
-      expect(filter).toMatch(/ContentTypes = \{ "application\/problem\+json" \}/);
-      // The PointerOf helper encodes RFC 6901 JSON pointers.  It lives in
-      // Api/ValidationProblem.cs (shared with MVC's invalid-model-state
-      // factory, which needs the same conversion); see
-      // validation-error-extension.test.ts for the assertions on its source.
-      expect(files.get("Api/ValidationProblem.cs")).toMatch(
-        /public static string PointerOf\(string propertyName\)/,
-      );
     });
 
     it("skips the FluentValidation gate entirely when no aggregate has wire-translatable invariants", async () => {
@@ -1924,87 +1831,10 @@ describe(".NET generator", () => {
   });
 
   describe("reference-collection join tables (.NET)", () => {
-    // Mirrors `test/generator/join-table.test.ts` (TS/Hono).  Pins the
-    // .NET emission seams: join entity + configuration, DbContext
-    // wiring, `builder.Ignore` on the aggregate, internal setter, repository
-    // load + save diff-sync, and the `this.<refColl>.contains(...)`
-    // → subquery lowering.
-
-    it("emits a join entity + EF configuration per Id<T>[] field", async () => {
-      const model = await buildModel("examples/roster.ddd");
-      const files = generateDotnet(model);
-      // Join entity class shape — one per association.
-      const tp = files.get("Infrastructure/Persistence/JoinTables/TrainerParty.cs")!;
-      expect(tp).toMatch(/public sealed class TrainerParty/);
-      expect(tp).toMatch(/public TrainerId TrainerId \{ get; set; \}/);
-      expect(tp).toMatch(/public PokemonId PokemonId \{ get; set; \}/);
-      // `Id<T>[]` is a set (membership only, no order): the composite
-      // (owner, target) PK is the whole row — no Ordinal payload property.
-      expect(tp).not.toMatch(/Ordinal/);
-      expect(files.has("Infrastructure/Persistence/JoinTables/TrainerCaught.cs")).toBe(true);
-      // EF configuration: composite PK + index on target FK + HasConversion on both ids.
-      const cfg = files.get(
-        "Infrastructure/Persistence/Configurations/TrainerPartyConfiguration.cs",
-      )!;
-      expect(cfg).toMatch(/builder\.ToTable\("trainer_party"\)/);
-      expect(cfg).toMatch(/builder\.HasKey\(x => new \{ x\.TrainerId, x\.PokemonId \}\)/);
-      expect(cfg).toMatch(/builder\.HasIndex\(x => x\.PokemonId\)/);
-      expect(cfg).toMatch(/HasConversion\(v => v\.Value, v => new TrainerId\(v\)\)/);
-      expect(cfg).toMatch(/HasConversion\(v => v\.Value, v => new PokemonId\(v\)\)/);
-    });
-
-    it("DbContext exposes a DbSet per join entity and applies its configuration", async () => {
-      const model = await buildModel("examples/roster.ddd");
-      const files = generateDotnet(model);
-      const ctx = files.get("Infrastructure/Persistence/AppDbContext.cs")!;
-      expect(ctx).toMatch(/public DbSet<TrainerParty> TrainerParties => Set<TrainerParty>\(\);/);
-      expect(ctx).toMatch(/public DbSet<TrainerCaught> TrainerCaughts => Set<TrainerCaught>\(\);/);
-      expect(ctx).toMatch(
-        /ApplyConfiguration\(new Configurations\.TrainerPartyConfiguration\(\)\)/,
-      );
-    });
-
-    it("ignores ref-collection properties on the owning aggregate's configuration", async () => {
-      const model = await buildModel("examples/roster.ddd");
-      const files = generateDotnet(model);
-      const trainerCfg = files.get(
-        "Infrastructure/Persistence/Configurations/TrainerConfiguration.cs",
-      )!;
-      // EF auto-mapping of List<PokemonId> as a JSON column would defeat
-      // the relational join — explicit Ignore is the load-bearing line.
-      expect(trainerCfg).toMatch(/builder\.Ignore\(x => x\.Party\)/);
-      expect(trainerCfg).toMatch(/builder\.Ignore\(x => x\.Caught\)/);
-    });
-
-    it("widens the entity's ref-collection setters to internal for repo hydration", async () => {
-      const model = await buildModel("examples/roster.ddd");
-      const files = generateDotnet(model);
-      const trainer = files.get("Domain/Trainers/Trainer.cs")!;
-      expect(trainer).toMatch(/public List<PokemonId> Party \{ get; internal set; \}/);
-      expect(trainer).toMatch(/public List<PokemonId> Caught \{ get; internal set; \}/);
-    });
-
-    it("repository GetByIdAsync hydrates ref collections ordered by the target FK id", async () => {
-      const model = await buildModel("examples/roster.ddd");
-      const files = generateDotnet(model);
-      const repo = files.get("Infrastructure/Repositories/TrainerRepository.cs")!;
-      expect(repo).toMatch(
-        /found\.Party = await _db\.TrainerParties\s+\.Where\(j => j\.TrainerId == id\)\s+\.OrderBy\(j => j\.PokemonId\)\s+\.Select\(j => j\.PokemonId\)\s+\.ToListAsync\(cancellationToken\);/,
-      );
-      expect(repo).toMatch(/found\.Caught = await _db\.TrainerCaughts/);
-    });
-
-    it("repository SaveAsync diff-syncs join rows by membership (no ordinal)", async () => {
-      const model = await buildModel("examples/roster.ddd");
-      const files = generateDotnet(model);
-      const repo = files.get("Infrastructure/Repositories/TrainerRepository.cs")!;
-      // Delete removed pairs.
-      expect(repo).toMatch(/_db\.TrainerParties\.Remove\(__stale\)/);
-      // Set semantics: add the pair only when absent; no Ordinal anywhere.
-      expect(repo).not.toMatch(/Ordinal/);
-      expect(repo).toMatch(/if \(!__existingParty\.Any\(x => x\.PokemonId == __tid\)\)/);
-      expect(repo).toMatch(/_db\.TrainerParties\.Add\(new TrainerParty\(aggregate\.Id, __tid\)\)/);
-    });
+    // The join entity, its DbContext wiring, `builder.Ignore` on the owner,
+    // and the repository's load + membership diff-sync are asserted by value
+    // on the booted .NET leg (`corpus/contained-part-removal`'s tags).  No
+    // corpus find filters on membership, so the `contains(...)` lowering stays.
 
     it("lowers `this.<refColl>.contains(param)` to a join-table subquery", async () => {
       const model = await buildModel("examples/roster.ddd");

@@ -140,7 +140,7 @@ const PINNED_DOTNET: Readonly<Record<string, number>> = {
   "test/generator/dotnet/dotnet-tracing.test.ts": 3,
   "test/generator/dotnet/dotnet-transitive-vo-nested.test.ts": 1,
   "test/generator/dotnet/dotnet-workflow-instances.test.ts": 1,
-  "test/generator/dotnet/generator-dotnet.test.ts": 58,
+  "test/generator/dotnet/generator-dotnet.test.ts": 50,
   "test/generator/dotnet/intrinsic-math.test.ts": 5,
   "test/generator/dotnet/intrinsic-strings.test.ts": 3,
   "test/generator/dotnet/intrinsic-trim.test.ts": 1,
