@@ -1026,28 +1026,11 @@ applies the same `MigrationsIR` chain EF applies
   applied **set**, not a watermark — each in its own transaction with its
   history row. Idempotent: a reboot applies nothing. The exactly-once
   `appliedDataMigrations` ledger needs nothing new: a raw `sql` step is emitted
-  into exactly one generation's file, and that file runs once.
+  into exactly one generation's file, and that file runs once. The runner never
+  adopts tables it did not create: a database starts empty, and its `Initial`
+  migrations create every table.
 
-#### Databases the old bootstrap provisioned
-
-**At boot — baselining the database** (`BaselineLegacyAsync` in `DbSchema.cs`).
-A database with no `__loom_migrations` table is examined once, inside one
-transaction with the creation of that table. For each `Initial` (each carries
-the list of tables it creates):
-
-- every table present — in its schema, or still in `public` where the old
-  bootstrap put it → the `public` ones are moved (`ALTER TABLE … SET SCHEMA`)
-  and the `Initial` is recorded as applied **without running**;
-- every table absent → a module the old bootstrap never saw; left pending;
-- some of each → refuse to boot, naming the missing tables, rather than guess.
-
-Later migrations then apply normally. The decision rests on the old bootstrap
-having provisioned the `Initial`'s shape. That holds column-for-column; it does
-not hold for constraints the old DDL never had (the FKs, enum CHECKs,
-`DEFAULT 1` on `version`, and money's `NUMERIC(19,4)` bounds), which stay absent
-on a baselined database until a later migration touches them.
-
-Compose and k8s need nothing for this. The per-deployable `db-bootstrap`
+Compose and k8s need nothing for the runner. The per-deployable `db-bootstrap`
 service (#3141) only ever creates the database; the schema inside it is the
 app's to migrate at boot, on every adapter. The chart runs no migration job
 either: each app migrates itself at boot, and the advisory lock makes that safe
