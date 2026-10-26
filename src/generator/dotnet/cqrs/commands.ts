@@ -542,8 +542,10 @@ export function emitOperationCommandAndHandler(
     // An error variant leaves no trace (D-FAILURE-MODEL): the handler returns
     // it before the audit row is staged and before the save, so the mutated
     // aggregate and its pending events are dropped with the unit of work.
-    // The variant records are named in full — an audited handler also imports
-    // the same-named wire union from `Responses`.
+    // The variant records are named from `global::` — an audited handler also
+    // imports the same-named wire union from `Responses`, and a namespace
+    // segment equal to the root (`Orders.Application.Orders`) would capture a
+    // bare `Orders.Domain…`.
     const variants = op.returnType?.kind === "union" ? op.returnType.variants : [];
     const errorTags = unionMembers(variants, ctx)
       .filter((_, i) => {
@@ -556,7 +558,7 @@ export function emitOperationCommandAndHandler(
     const errorGuard =
       returnUnion && errorTags.length > 0
         ? `        if (result is ${errorTags
-            .map((t) => `${ns}.Domain.${plural(agg.name)}.${returnUnion}_${t}`)
+            .map((t) => `global::${ns}.Domain.${plural(agg.name)}.${returnUnion}_${t}`)
             .join(" or ")}) return result;\n`
         : "";
     const handlerBody = returnUnion

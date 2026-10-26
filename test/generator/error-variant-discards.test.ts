@@ -86,7 +86,7 @@ describe("an error variant discards the operation's writes", () => {
     const handler = await fileOf("dotnet", EARLY, "Commands/WithdrawHandler.cs");
     expectBefore(
       handler,
-      "if (result is Api.Domain.Accounts.AccountOrInsufficientCredit_InsufficientCredit) return result;",
+      "if (result is global::Api.Domain.Accounts.AccountOrInsufficientCredit_InsufficientCredit) return result;",
       "await _repo.SaveAsync(aggregate",
     );
   });
