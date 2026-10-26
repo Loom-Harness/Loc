@@ -8,7 +8,6 @@ import type {
   SortTermIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
-import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import { findRaisesNotFound } from "../../../ir/util/key-lookup.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
@@ -18,10 +17,10 @@ import { upperFirst } from "../../../util/naming.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import {
-  bypassDrops,
-  bypassedPromotedCaps,
+  bypassedFilterNames,
   type FilterBypass,
   wrapWithFilterBypass,
+  writeScopeFilterName,
 } from "../capability-filter.js";
 import { isMangled, javaLocals, jid, localOf, movedLocalOrUndefined } from "../java-ident.js";
 import { J } from "../java-symbols.js";
@@ -96,6 +95,14 @@ export interface JavaRepoCtx {
    *  entity (capability-filter.ts).  A find / retrieval that drops one of
    *  these is wrapped with `session.disableFilter`/`enableFilter` in the impl. */
   promotedCaps?: ReadonlySet<string>;
+  /** The Hibernate named filters a read of this aggregate runs under, by
+   *  capability (capability-filter.ts `bypassFilterNames`) — under TPH they
+   *  are hosted on the root, so a concrete's bypass names the root's filters. */
+  bypassFilters?: ReadonlyMap<string, readonly string[]>;
+  /** True when this aggregate's entity host declares a static restriction
+   *  (capability-filter.ts `hasStaticRestriction`): its `findById` is then a
+   *  JPQL query, so a row already in the session is still re-checked in SQL. */
+  staticRestriction?: boolean;
   /** §11.6: per-retrieval-name UNION bypass spec, drawn from the inline
    *  `Repo.run(<Retrieval>(…)) ignoring …` call-sites in the context's workflows.
    *  A retrieval's `run<Name>` impl method is SHARED across call-sites, so its
@@ -468,24 +475,14 @@ export function renderJavaSpringDataRepository(
   const retrievals = ctx.retrievals ?? [];
   const anyReified = retrievals.some((r) => ctx.isReified?.(r));
   const enumsPkg = `${ctx.basePkg}.domain.enums`;
-  // A principal (tenancy) `filter` (`this.tenantId == currentUser.tenantId`)
-  // renders to JPQL with a SpEL accessor for the ambient request principal —
-  // unlike a non-principal filter (which rides the entity's static
-  // `@SQLRestriction`), it must be AND-ed into every query that can return a
-  // row: each find/retrieval below, plus `findAll`/`findById` (which JPA
-  // derives, so we override them with a scoped @Query).  `null` when the
-  // aggregate has no principal filter — every other repository stays identical.
-  const principalClause = principalJpqlClause(agg, enumsPkg);
-  // The per-read form: a read carrying `ignoring <Cap>` / `ignoring *` drops the
-  // principal conjuncts that cap contributed.  The root
-  // `findAll`/`findById` overrides below keep the unconditional
-  // `principalClause` — they are the canonical scoped reads and carry no
-  // `ignoring` clause of their own.
-  const jpqlWhere = (base: string | null, bypass?: FilterBypass): string => {
-    const clause = bypass ? principalJpqlClause(agg, enumsPkg, bypass) : principalClause;
-    const combined = base && clause ? `(${base}) and ${clause}` : (base ?? clause);
-    return combined ? ` where ${combined}` : "";
-  };
+  // Every read restriction — tenancy included — is a Hibernate filter or
+  // `@SQLRestriction` on the entity (capability-filter.ts `restrictionHostFor`),
+  // which Hibernate applies to every query below and to Spring Data's own
+  // derived ones (`findAll`, `count`, `existsById`, the `bumpVersion` update).
+  // So a query names only the read's own predicate; an `ignoring` read
+  // disables the filters it drops in the impl (`wrapBypass`).
+  const jpqlWhere = (base: string | null, _bypass?: FilterBypass): string =>
+    base ? ` where ${base}` : "";
   const methodLines = finds.flatMap((f) => {
     // A clause-less find (`find byReference(reference: string)`) still filters
     // — by its implicit key match.  Without it the @Query selects every row:
@@ -536,36 +533,16 @@ export function renderJavaSpringDataRepository(
         ``,
       ];
     });
-  // Scope the JPA-derived `findAll`/`findById` by re-declaring them with a
-  // principal @Query — otherwise an unauthenticated-scope read or a guessed id
-  // on another tenant's row would leak (the static @SQLRestriction can't carry
-  // the runtime principal).
+  // `JpaRepository.findById` is `EntityManager.find`: for a row the session
+  // already manages it answers from the persistence context, with no SQL and
+  // so no `@SQLRestriction` / `@Filter` — a row soft-deleted earlier in the
+  // same transaction, or loaded under another principal, reads back.  A query
+  // flushes and re-filters.
   const principalOverrides: string[] = [];
-  if (principalClause) {
+  if (ctx.staticRestriction) {
     principalOverrides.push(
-      `    @${QUERY}("select e from ${agg.name} e where ${principalClause}")`,
-      `    ${J.List}<${agg.name}> findAll();`,
-      ``,
-      `    @${QUERY}("select e from ${agg.name} e where e.id = :id and ${principalClause}")`,
+      `    @${QUERY}("select e from ${agg.name} e where e.id = :id")`,
       `    ${OPTIONAL}<${agg.name}> findById(@${PARAM}("id") ${idClass} id);`,
-      ``,
-    );
-  }
-  // Command-load path (authorization): a WRITE-scope-narrowed
-  // `findByIdForWrite` the impl's `getById` loads through when the aggregate's
-  // write scope is narrower than its read scope.  Same SpEL-principal @Query
-  // shape as the read override, but with the write predicate — a row a caller
-  // may READ but not WRITE reads as empty → 404 (no existence leak).
-  const writeOverride: string[] = [];
-  if (agg.writeScopeFilter) {
-    const writeClause = renderJpqlWhere(agg.writeScopeFilter, {
-      alias: "e",
-      enumsPkg,
-      mode: "jpql-spring-data",
-    });
-    writeOverride.push(
-      `    @${QUERY}("select e from ${agg.name} e where e.id = :id and ${writeClause}")`,
-      `    ${OPTIONAL}<${agg.name}> findByIdForWrite(@${PARAM}("id") ${idClass} id);`,
       ``,
     );
   }
@@ -576,9 +553,8 @@ export function renderJavaSpringDataRepository(
   // still subject to the entity's static @SQLRestriction.
   const pagedAllLines: string[] = [];
   if (isPagedAutoAll(repo)) {
-    const where = principalClause ? ` where ${principalClause}` : "";
     pagedAllLines.push(
-      `    @${QUERY}("select e from ${agg.name} e${where}")`,
+      `    @${QUERY}("select e from ${agg.name} e")`,
       `    ${PAGE}<${agg.name}> findAllPaged(${PAGEABLE} pageable);`,
       ``,
     );
@@ -607,7 +583,6 @@ export function renderJavaSpringDataRepository(
   }
   const allMethodLines = [
     ...principalOverrides,
-    ...writeOverride,
     ...pagedAllLines,
     ...versionBump,
     ...methodLines,
@@ -630,40 +605,6 @@ export function renderJavaSpringDataRepository(
   );
 }
 
-/** The aggregate's PRINCIPAL (tenancy) capability filters as a single JPQL
- *  predicate (each parenthesised, AND-ed) under the `e` alias, or null when it
- *  has none.  Non-principal filters are excluded — they ride the entity's
- *  static `@SQLRestriction` (see `emit/entity.ts`); only principal filters need
- *  the per-query SpEL-principal form.
- *
- *  `bypass` is the READ's own `ignoring` clause.  A principal
- *  predicate contributed by a CAPABILITY (`contextFilterOrigins[i] !== undefined`,
- *  e.g. `with tenantOwned`) that the read names — or that `ignoring *` drops —
- *  is omitted, exactly as node drops the conjunct and .NET emits
- *  `IgnoreQueryFilters`.  A BARE `filter … currentUser …` (undefined origin) is
- *  never bypassable, matching `capability-filter.ts`'s triage rule.  AND-ing
- *  the clause unconditionally would make `find … ignoring tenantOwned` silently
- *  keep returning only the caller's own tenant — the same `.ddd`, a different
- *  row set on Java, while the validator certifies `ignoring` as honored.
- *  The aggregation path in `emit/query-projection-reads.ts` (`aggregationScope`)
- *  is the line-for-line template this mirrors. */
-function principalJpqlClause(
-  agg: EnrichedAggregateIR,
-  enumsPkg: string,
-  bypass?: FilterBypass,
-): string | null {
-  const origins = agg.contextFilterOrigins ?? [];
-  const preds = (agg.contextFilters ?? []).filter((p, i) => {
-    if (!exprUsesCurrentUser(p)) return false;
-    const origin = origins[i];
-    return !(origin !== undefined && bypassDrops(origin, bypass));
-  });
-  if (preds.length === 0) return null;
-  return preds
-    .map((p) => `(${renderJpqlWhere(p, { alias: "e", enumsPkg, mode: "jpql-spring-data" })})`)
-    .join(" and ");
-}
-
 export function renderJavaRepositoryImpl(
   agg: EnrichedAggregateIR,
   repo: RepositoryIR | undefined,
@@ -672,54 +613,23 @@ export function renderJavaRepositoryImpl(
 ): string {
   const finds = declaredFinds(repo).map((f) => unionFindAsOptionalTwin(f, agg.name));
   const retrievals = ctx.retrievals ?? [];
-  const anyReified = retrievals.some((r) => ctx.isReified?.(r));
   // Same-package types (the default layouts) resolve without an import line.
   const persistencePkg = ctx.persistencePkg ?? ctx.infraPkg;
   const criteria = javaRef(ctx.criteriaPkg ?? ctx.infraPkg, `${agg.name}Criteria`);
   const offsetLimitPageRequest = javaRef(persistencePkg, "OffsetLimitPageRequest");
-  const accessorType = javaRef(`${ctx.basePkg}.auth`, "CurrentUserAccessor");
   const requestContext = javaRef(`${ctx.basePkg}.config`, "RequestContext");
-  // A reified retrieval reads via JpaSpecificationExecutor.findAll(spec), which
-  // bypasses the scoped findAll/findById @Query overrides — so a PRINCIPAL
-  // (tenancy) filter must be AND-ed in as a `tenantScope(User)` Specification,
-  // which needs the request actor.  Inject CurrentUserAccessor only then.
-  const principalScoped = (agg.contextFilters ?? []).some(exprUsesCurrentUser);
-  const injectAccessor = anyReified && principalScoped;
   const provenance = !!ctx.provenance;
   const versioned = aggregateIsVersioned(agg);
   const versionField = versionFieldName(agg);
-  // `tenantScope(User)` is one factory over ALL of the aggregate's principal
-  // predicates, so a read can only take it whole or leave it whole: a retrieval
-  // whose `ignoring` drops EVERY principal capability omits it (matching the
-  // `jpqlWhere` arm above).  A PARTIAL drop — two principal
-  // capabilities, `ignoring` naming one — keeps the whole scope, i.e. it
-  // over-restricts rather than widening; splitting the factory per capability
-  // belongs in `emit/criteria.ts`.
-  const principalCapOrigins = new Set(
-    (agg.contextFilterOrigins ?? []).filter(
-      (o, i): o is string => o != null && exprUsesCurrentUser((agg.contextFilters ?? [])[i]!),
-    ),
-  );
-  const dropsEveryPrincipalCap = (bypass: FilterBypass | undefined): boolean =>
-    principalCapOrigins.size > 0 &&
-    (agg.contextFilters ?? []).every((p, i) => {
-      if (!exprUsesCurrentUser(p)) return true;
-      const o = (agg.contextFilterOrigins ?? [])[i];
-      return o != null && bypassDrops(o, bypass);
-    });
-  const tenantScopeAndFor = (bypass: FilterBypass | undefined): string =>
-    injectAccessor && !dropsEveryPrincipalCap(bypass)
-      ? `.and(${criteria}.tenantScope(currentUserAccessor.user()))`
-      : "";
-  // §11.6 selective bypass: a find / retrieval read that `ignoring`s a
-  // PROMOTED capability runs with that cap's Hibernate named @Filter DISABLED.
-  // The impl wraps the delegate body with `session.disableFilter/enableFilter`;
-  // the @SQLRestriction-resident caps + principal filters are unaffected here
-  // (the latter omit the conjunct in the JpaRepository @Query instead).
-  const promotedCaps = ctx.promotedCaps ?? new Set<string>();
+  // Selective bypass: a find / retrieval read that `ignoring`s a capability
+  // runs with that capability's Hibernate named filters DISABLED — tenancy's
+  // included.  The impl wraps the delegate body with
+  // `session.disableFilter/enableFilter`; the never-bypassed restrictions in
+  // `@SQLRestriction` are untouched.
+  const bypassFilters = ctx.bypassFilters ?? new Map<string, readonly string[]>();
   let needsEntityManager = false;
   const wrapBypass = (bypass: FilterBypass | undefined, body: string[]): string[] => {
-    const caps = bypassedPromotedCaps(promotedCaps, bypass);
+    const caps = bypassedFilterNames(bypassFilters, bypass);
     if (caps.length === 0) return body;
     needsEntityManager = true;
     return wrapWithFilterBypass(caps, body);
@@ -748,7 +658,7 @@ export function renderJavaRepositoryImpl(
       const args = r.criterionRef.args.map((a) =>
         renderJavaExpr(a, { thisName: "this", ...inMemoryParamExpr(locals) }),
       );
-      const spec = `${criteria}.${r.criterionRef.name}(${args.join(", ")})${tenantScopeAndFor(retrievalBypass)}`;
+      const spec = `${criteria}.${r.criterionRef.name}(${args.join(", ")})`;
       return [
         `    @Override`,
         `    public List<${agg.name}> run${upperFirst(r.name)}(${params}) {`,
@@ -858,6 +768,9 @@ export function renderJavaRepositoryImpl(
   // the Hibernate Session (`independentHandleLines` below).
   if (versioned) needsEntityManager = true;
   const pagedAll = isPagedAutoAll(repo);
+  // The command load enables the entity's write-scope filter around its query.
+  const writeScope = writeScopeFilterName(agg);
+  if (writeScope) needsEntityManager = true;
   const pagedAllSortWhitelist = pagedAll
     ? sortableFields(agg)
         .map((wf) => JSON.stringify(wf))
@@ -865,10 +778,6 @@ export function renderJavaRepositoryImpl(
     : "";
   const ctorParams = [`${agg.name}JpaRepository jpa`];
   const ctorAssigns = [`        this.jpa = jpa;`];
-  if (injectAccessor) {
-    ctorParams.push(`${accessorType} currentUserAccessor`);
-    ctorAssigns.push("        this.currentUserAccessor = currentUserAccessor;");
-  }
   if (provenance) {
     ctorParams.push(`${javaRef(persistencePkg, "ProvenanceRecordRepository")} provenanceRecords`);
     ctorAssigns.push("        this.provenanceRecords = provenanceRecords;");
@@ -889,7 +798,6 @@ export function renderJavaRepositoryImpl(
     `@Repository`,
     `public class ${agg.name}RepositoryImpl implements ${javaRef(ctx.domainPkg, `${agg.name}Repository`)} {`,
     `    private final ${agg.name}JpaRepository jpa;`,
-    injectAccessor ? `    private final ${accessorType} currentUserAccessor;` : null,
     provenance
       ? `    private final ${javaRef(persistencePkg, "ProvenanceRecordRepository")} provenanceRecords;`
       : null,
@@ -973,16 +881,27 @@ export function renderJavaRepositoryImpl(
     ``,
     `    @Override`,
     `    public ${agg.name} getById(${idClass} id) {`,
-    // Command load (authorization): when the aggregate's write
-    // scope is narrower than its read scope, load through the write-scoped
-    // `findByIdForWrite` @Query — a readable-but-not-writable (or missing) row
-    // → 404.  Otherwise the ordinary read-scoped `findById` (byte-identical).
+    // Command load (authorization): when the aggregate's write scope is
+    // narrower than its read scope, the by-id query runs with the entity's
+    // `<Agg>_writeScope` filter enabled on top of the read filters — a
+    // readable-but-not-writable (or missing) row → 404.
     // M-T6.93: whether an earlier load in this transaction already holds the
     // row is read BEFORE the load — the scoped load still runs (its 404 / write
     // scope is the authority), and only then is a shared instance swapped for
     // an independent handle.
     versioned ? `        var __shared = _isManaged(id);` : null,
-    `        var found = jpa.${agg.writeScopeFilter ? "findByIdForWrite" : "findById"}(id);`,
+    ...(writeScope
+      ? [
+          `        var __session = em.unwrap(org.hibernate.Session.class);`,
+          `        __session.enableFilter(${JSON.stringify(writeScope)});`,
+          `        ${OPTIONAL}<${agg.name}> found;`,
+          `        try {`,
+          `            found = jpa.findById(id);`,
+          `        } finally {`,
+          `            __session.disableFilter(${JSON.stringify(writeScope)});`,
+          `        }`,
+        ]
+      : [`        var found = jpa.findById(id);`]),
     // aggregate_loaded (debug) — mirrors the Hono/.NET repo emission; `found` is
     // a bool so a downstream filter can grep failed loads by
     // (event="aggregate_loaded", found=false).

@@ -104,19 +104,18 @@ describe.each<Layout>(["sharedTable", "ownTable"])("inherited softDeletable — 
     const files = await gen("java", layout);
     // Truck has a read that bypasses the filter, so it renders as a named,
     // auto-enabled Hibernate filter rather than an unconditional restriction.
-    expect(file(files, "trucks/Truck.java")).toContain(
-      '@Filter(name = "softDeletable", condition = "not (is_deleted)")',
-    );
+    // Under TPH it is hosted on the root, where Hibernate applies it to every
+    // read of the table — `from Vehicle` and `find(Vehicle.class, id)` too; a
+    // subclass `@Filter` reaches only queries of that subclass.
+    const host = tph ? file(files, "vehicles/Vehicle.java") : file(files, "trucks/Truck.java");
+    expect(host).toContain('@Filter(name = "softDeletable", condition = "not (is_deleted)")');
+    if (tph) expect(file(files, "trucks/Truck.java")).not.toContain("@Filter");
     const impl = file(files, "trucks/TruckRepositoryImpl.java");
     expect(impl).toContain('__session.disableFilter("softDeletable");');
-    // Car never bypasses it: an unconditional restriction, kind-guarded on the
-    // shared table under TPH.
-    const carHost = tph ? file(files, "vehicles/Vehicle.java") : file(files, "cars/Car.java");
-    expect(carHost).toContain(
-      tph
-        ? `@SQLRestriction("(kind <> 'Car' or (not (is_deleted)))")`
-        : `@SQLRestriction("not (is_deleted)")`,
-    );
+    // Car never bypasses it: under TPC an unconditional restriction on its own
+    // table; under TPH the root's one filter already covers Car's rows.
+    if (!tph) expect(file(files, "cars/Car.java")).toContain(`@SQLRestriction("not (is_deleted)")`);
+    else expect(file(files, "cars/Car.java")).not.toContain("@SQLRestriction");
   });
 
   it(".NET (dapper)", async () => {

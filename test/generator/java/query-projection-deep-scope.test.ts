@@ -1,21 +1,15 @@
 // ---------------------------------------------------------------------------
-// Java — the deep/global-scope SARGABLE PREFILTER must not leak Spring Data
-// SpEL into a raw `EntityManager.createQuery` string (audit 2026-08-24, A8).
+// Java — the deep/global tenancy scope as an entity filter.
 //
-// `render-jpql.ts` has two parameter modes and the `scope` arm rendered its
-// LIKE pattern in only one of them:
-//
-//   - `@Query` (Spring Data repositories) — SpEL parameters, `:#{…}`.
-//   - `principalAccessors` (query-time projection AGGREGATIONS, which build
-//     JPQL directly and hand it to `EntityManager.createQuery`) — plain named
-//     parameters bound at the call site, because createQuery has NO SpEL layer.
-//     `:#{` is not a legal HQL parameter name there: Hibernate throws at parse
-//     and EVERY projection read over a deep/global-scoped aggregate 500s — so
-//     `scaffold + hierarchical tenancy + java` shipped a dead dashboard.
-//
-// Every OTHER claim in the same predicate already rendered as a bound
-// parameter in that mode; only the prefilter pattern was unconditional.  The
-// .NET twin of the same PR got the split right (it gates on `ctx.efQuery`).
+// `policy { allow deep on Doc }` widens the tenant floor to the caller's org
+// and its descendants (materialized `data_key` paths), with the NULL-dataKey
+// fallback to the flat tenant.  It is one auto-enabled Hibernate `@Filter` on
+// the entity: the anchored `position(...) = 1` test decides the row, and the
+// prefix `like` in front of it is the sargable prefilter the `data_key`
+// text_pattern_ops index serves.  Each claim — and the LIKE pattern built
+// from the anchor, escaped in Java — is a `@ParamDef` resolved per query.  No
+// query names it: not the repository's `@Query`, not the projection
+// aggregation's `createQuery` (which once 500ed on a leaked SpEL `:#{`).
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
@@ -65,32 +59,28 @@ system JavaHierarchy {
 
 const VIEWS = "api1/src/main/java/com/loom/api1/application/views/CQueryProjections.java";
 const DOC_REPO = "api1/src/main/java/com/loom/api1/features/docs/DocJpaRepository.java";
+const DOC = "api1/src/main/java/com/loom/api1/features/docs/Doc.java";
 
-describe("java query-projection aggregation — deep-scope prefilter parameter mode", () => {
-  it("binds the subtree LIKE pattern as a named parameter — no SpEL in createQuery", async () => {
-    const files = await generateSystemFiles(SRC);
-    const views = files.get(VIEWS)!;
-    // The whole point: Hibernate parses this string, and `:#{` is not HQL.
-    expect(views).not.toContain(":#{");
-    // The prefilter reads a bound parameter beside the plain claim params.
-    expect(views).toContain("e.dataKey like :__cuSubtreeOrgPath escape '!'");
-    expect(views).toContain('.setParameter("__cuOrgPath", __cu == null ? null : __cu.orgPath())');
-    // …whose value is the escape chain, computed in JAVA at the bind site.
-    expect(views).toContain(
-      '.setParameter("__cuSubtreeOrgPath", __cu == null || __cu.orgPath() == null ? null : ' +
-        '__cu.orgPath().replace("!", "!!").replace("%", "!%").replace("_", "!_") + ".%")',
+describe("java — deep-scope tenancy is the entity's filter", () => {
+  it("renders the descendant-or-self scope with the NULL-dataKey fallback", async () => {
+    const doc = (await generateSystemFiles(SRC)).get(DOC)!;
+    expect(doc).toContain(
+      `@Filter(name = "Doc_tenantOwned", condition = "((data_key is not null and (data_key = :__cuOrgPath or (data_key like :__cuSubtreeOrgPath escape '!' and position(concat(:__cuOrgPath, '.') in data_key) = 1))) or (data_key is null and tenant_id = :__cuTenantId))")`,
     );
-    // Fail-closed on an absent principal, matching the SpEL chain's `?.`: a
-    // null pattern makes `like null` UNKNOWN, so no row passes the prefilter.
-    expect(views).toContain("__cu == null || __cu.orgPath() == null ? null :");
   });
 
-  it("leaves the Spring Data @Query path on SpEL (that mode DOES have one)", async () => {
-    const files = await generateSystemFiles(SRC);
-    const repo = files.get(DOC_REPO)!;
-    expect(repo).toContain(
-      "e.dataKey like :#{@currentUserAccessor.user()?.orgPath()?.replace('!', '!!')" +
-        "?.replace('%', '!%')?.replace('_', '!_')?.concat('.%')} escape '!'",
+  it("escapes the LIKE pattern in Java, null without a principal (fail-closed)", async () => {
+    const doc = (await generateSystemFiles(SRC)).get(DOC)!;
+    expect(doc).toContain(
+      'return __cu == null || __cu.orgPath() == null ? null : __cu.orgPath().replace("!", "!!").replace("%", "!%").replace("_", "!_") + ".%";',
     );
+    expect(doc).toContain("return __cu == null ? null : __cu.orgPath();");
+  });
+
+  it("no query names the scope — no SpEL anywhere", async () => {
+    const files = await generateSystemFiles(SRC);
+    for (const f of [VIEWS, DOC_REPO]) {
+      expect(files.get(f)!).not.toMatch(/dataKey|tenantId|:#\{/);
+    }
   });
 });

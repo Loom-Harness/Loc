@@ -611,7 +611,7 @@ const WAIVERS: Record<string, Waiver> = {
   // `loom.context-filter-no-principal`, which refuses the one shape the
   // `authz-filter` arm cannot render statically (a principal-referencing
   // `scope` filter).
-  "src/generator/java/render-sql-restriction.ts#renderSqlRestriction": STANDING_QUERYABLE_SUBSET,
+  "src/generator/java/render-sql-restriction.ts#renderSql": STANDING_QUERYABLE_SUBSET,
   // Migration backfill expressions, not find predicates: bounded by
   // `loom.migration-expr-unsupported` (migration-checks.ts) BEFORE phase ⑨
   // renders them, and the residue routes through `refuseOutOfVocabulary`, so
