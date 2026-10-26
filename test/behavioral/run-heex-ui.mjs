@@ -207,10 +207,13 @@ function installChromium(cwd) {
   const causes = [];
   for (let attempt = 1; attempt <= backoffMs.length + 1; attempt++) {
     try {
-      execFileSync(npx, ["playwright", "install", "--with-deps", "chromium"], { cwd, stdio: "pipe", timeout: 240_000 });
+      // GNU `timeout` signals the whole process group; a timeout on
+      // execFileSync alone leaves npm / playwright / apt-get holding the lock.
+      execFileSync("sh", ["-c", "if command -v timeout >/dev/null 2>&1; then timeout -k 15 240 npx playwright install --with-deps chromium; else npx playwright install --with-deps chromium; fi"], { cwd, stdio: "pipe", timeout: 270_000 });
       return;
     } catch (e) {
-      const cause = String(e?.message ?? e).split("\n")[0];
+      const tail = e?.stderr ? String(e.stderr).trim().split("\n").pop() : "";
+      const cause = String(e?.message ?? e).split("\n")[0] + (tail ? ` — ${tail}` : "");
       causes.push(`attempt ${attempt}: ${cause}`);
       if (attempt > backoffMs.length) break;
       log(`    playwright install failed (${cause}); retrying in ${backoffMs[attempt - 1] / 1000}s`);

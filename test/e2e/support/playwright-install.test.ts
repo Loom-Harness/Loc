@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  boundedCommand,
   installPlaywrightChromium,
   PLAYWRIGHT_INSTALL_ATTEMPTS,
   PLAYWRIGHT_INSTALL_BACKOFF_MS,
@@ -44,5 +45,24 @@ describe("installPlaywrightChromium", () => {
       /failed 3 times:\nattempt 1: spawnSync \/bin\/sh ETIMEDOUT\nattempt 2: .*\nattempt 3: /,
     );
     expect(h.calls).toHaveLength(PLAYWRIGHT_INSTALL_ATTEMPTS);
+  });
+
+  it("names the child's last stderr line in the cause", () => {
+    const exec = () => {
+      throw Object.assign(new Error("Command failed: npx playwright install"), {
+        stderr: "Downloading Chromium\nError: lock held by another process\n",
+      });
+    };
+    expect(() =>
+      installPlaywrightChromium("/tmp/e2e", { exec, wait: () => {}, log: () => {} }),
+    ).toThrow(
+      /attempt 1: Command failed: npx playwright install — Error: lock held by another process/,
+    );
+  });
+
+  it("bounds the attempt with GNU timeout, which signals the whole process group", () => {
+    expect(boundedCommand(PLAYWRIGHT_INSTALL_CMD, 240_000)).toBe(
+      `if command -v timeout >/dev/null 2>&1; then timeout -k 15 240 ${PLAYWRIGHT_INSTALL_CMD}; else ${PLAYWRIGHT_INSTALL_CMD}; fi`,
+    );
   });
 });
