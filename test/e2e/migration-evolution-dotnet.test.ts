@@ -21,8 +21,7 @@ import {
 //     versioned `Migrations/*.cs`, applied at boot by `DbSchema.EnsureAsync`
 //     (`public.__loom_migrations`).  Opt-in: LOOM_MIGRATION_E2E_DAPPER=1 (its
 //     own CI matrix cell).  Every gate the EF leg runs, the Dapper leg runs
-//     too, plus the transition case only Dapper has: baselining a database
-//     its old `CREATE TABLE IF NOT EXISTS` bootstrap provisioned.
+//     too.
 //
 // Needs the .NET SDK + docker (postgres sidecar) or LOOM_MIGRATION_PG_URL, plus
 // host `psql`.

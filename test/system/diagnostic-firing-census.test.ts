@@ -4130,6 +4130,10 @@ const DRIVEN_ELSEWHERE: Record<string, string> = {
   // file drives the warning, its `sql before` silencing, and the rebuild /
   // new-table / first-generation exemptions.
   "loom.migration-unique-on-existing-table": "test/ir/migrations-sql-before.test.ts",
+  // Phase ⑨, same reason: an enum CHECK losing a member is judged against the
+  // BASELINE's value set. The pointed-at file drives the warning, its
+  // `sql before` silencing, and the widening / first-generation exemptions.
+  "loom.migration-enum-narrowed": "test/system/migration-enum-value-set.test.ts",
   // Phase ⑨, same reason: the destructive-change gate needs a BASELINE.  Its
   // catalog entries are the capability-column lines (a `tenantOwned` /
   // `auditable` column added to a populated table); the pointed-at file drives

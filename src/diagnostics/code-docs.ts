@@ -507,6 +507,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.diff-baseline-invalid": "../mcp.md#the-loom_-tool-catalog",
   "loom.migration-unique-on-existing-table":
     "../migrations.md#a-unique-index-on-a-populated-table--loommigration-unique-on-existing-table",
+  "loom.migration-enum-narrowed":
+    "../migrations.md#an-enum-that-loses-a-member--loommigration-enum-narrowed",
   "loom.unique-tpc-not-hierarchy-wide":
     "../inheritance.md#unique-keys-on-a-tpc-base--loomunique-tpc-not-hierarchy-wide",
 };

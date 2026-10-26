@@ -185,7 +185,6 @@ import {
 } from "./emit/projection-state.js";
 import {
   contextsHaveProvenance,
-  emitJavaProvenanceMigration,
   provenancedFieldsOf,
   renderProvenancedCarrier,
   renderProvenanceRecordEntity,
@@ -613,8 +612,8 @@ function emitProjectFromContexts(
   // append-only history table.  Emitted only when a context declares a
   // `provenanced` field (gated on the field, not a backend allowlist).  The
   // co-located column + per-write capture + flush are wired per aggregate
-  // (entity.ts / render-stmt.ts / repository.ts); the late migration lands in
-  // the migrations block below.  The lineage records ride a jsonb column, so
+  // (entity.ts / render-stmt.ts / repository.ts); the column itself is an
+  // ordinary MigrationsIR column.  The lineage records ride a jsonb column, so
   // the Hibernate JSON FormatMapper config is forced on too.
   const hasProvenance = contextsHaveProvenance(contexts);
   if (hasProvenance) {
@@ -1489,12 +1488,10 @@ function emitProjectFromContexts(
   // files still need Flyway to run them.
   const allMigrations = system?.migrations ?? [];
   emitJavaMigrations(allMigrations, out);
-  // Provenance DDL (provenance.md) ships as one extra late Flyway migration
-  // sorting after every module migration (the aggregate tables must exist for
-  // the co-located-column ALTERs).  Feature-local — not part of MigrationsIR.
-  // Gated on a `provenanced` field, not a backend allowlist.
-  emitJavaProvenanceMigration(contexts, system?.sys, out);
-  // Per-operation audit DDL (audit-and-logging.md): one extra late Flyway
+  // The provenance and audit DDL (the `<field>_provenance` columns, the
+  // `provenance_records` / `audit_records` tables) is ordinary MigrationsIR, so
+  // it rides the chain's own generations; a provenance or audit runtime keeps
+  // Flyway wired either way.
   const hasMigrations =
     allMigrations.some((m) => m.steps.length > 0 || m.baseline !== null) ||
     hasProvenance ||
