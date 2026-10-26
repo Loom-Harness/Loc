@@ -96,14 +96,13 @@ function buildSoftDeletable(): Capability {
  * tenant, every create is stamped with it, and `internal` keeps both
  * `tenantId` and `dataKey` out of client create/update inputs.
  *
- * NOTE: the stamp/filter claim field is spelled `tenantId` here because a
+ * NOTE: the stamp/filter claim is spelled `currentUser.tenantId` here because a
  * capability is a PRELUDE definition — built once at language-module init,
  * with no system in scope — so it cannot read the system's `tenancy by
- * user.<claim>` declaration.  It is not the final binding: enrichment
- * (`bindTenancyClaim`, phase ⑥) rewrites the principal side of both the stamp
- * and the filter to the DECLARED claim, exactly as it already derives the
- * registry self-scope.  Edit the two in step — the name here is a placeholder
- * that pass keys on, not a contract.
+ * user.<claim>` declaration.  The expander binds it when it splices the
+ * capability (`resolveTenancyClaim` in `src/macros/expander.ts`): the spliced
+ * stamp and filter read the DECLARED claim, and `tenantId` survives only when
+ * the workspace declares no tenancy.  Edit the two in step.
  *
  * The `tenantId` on the LEFT of the filter (and the stamp's target field) is a
  * different thing and stays put: that is the ROW column this capability
