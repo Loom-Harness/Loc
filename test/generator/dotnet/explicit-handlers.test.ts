@@ -2,17 +2,23 @@
 // (`commandHandler` / `queryHandler` + `route <M> "<path>" -> <Ctx>.<Handler>`
 // onto the source-generated martinothamar/Mediator seam).
 //
-// M-T9.42 slice 2: the RUNTIME claims this file used to pin as emitted text —
-// the ICommand/IQuery records + handlers (load → mutate → SaveAsync → return),
-// the controller dispatching each route under `/api` via `_mediator.Send`, the
-// path-vs-[FromBody] param split with a value-object body, an aggregate return
-// projected to `<Agg>Response`, and the repository delete — are now driven on
-// all five backends by the corpus fixtures `handler-aggregate-ops` (a live row)
-// and `handler-triad` (an empty table) against one wire golden, and compiled by
-// the corpus .NET leg.  What stays here is what no booted request can observe:
-//   • the `extern` scaffold-once impl (a user-owned stub that throws by design);
-//   • scaffolded record-param flattening and the paged-run shape, which neither
-//     fixture declares (the next promotion candidates, not covered yet).
+// The runtime claims — load → mutate → save → return, the router under `/api`,
+// path/body param binding with a value-object body, an aggregate return
+// projected to its response, a repository delete, the not-found rung, and a
+// paged `queryHandler` over `run(<Criterion>)` answering its filtered envelope —
+// are driven on every backend by the corpus fixtures `handler-aggregate-ops`
+// (a live row), `handler-triad` (an empty table) and `handler-paged-run`,
+// against one wire golden each.  What stays here is what no booted request
+// can observe:
+//   • the `extern` scaffold-once impl: `extern-handlers` proves the routed
+//     handler fails loudly, but a 500 cannot tell the stub's throw from any
+//     other server error, so the delegation stays pinned here;
+//   • scaffolded record-param flattening: a `scaffoldApi` create answers a
+//     bare id where the derived create answered `{ id }` (#4299), so no
+//     `test e2e` block can hold the row it creates;
+//   • the paged route's `page`/`pageSize`/`sort`/`dir` binding and bounds — a
+//     routed handler's e2e arguments are its declared params only — and that
+//     the synthesized find gets no route of its own.
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
@@ -143,21 +149,6 @@ system S {
 }
 `;
 describe("dotnet — paged-run queryHandler over run(criterion)", () => {
-  it("the Query returns Paged<AggResponse> and the handler calls the paged FIND repo method", async () => {
-    const m = await generateSystemFiles(PAGED_SRC);
-    const rec = fileEndingWith(m, "Application/Orders/Queries/ListInRegionQuery.cs");
-    expect(rec).toContain(
-      "public sealed record ListInRegionQuery(string Rgn, int Page, int PageSize, string Sort, string Dir) : IQuery<Paged<OrderResponse>>;",
-    );
-    const h = fileEndingWith(m, "Application/Orders/Queries/ListInRegionHandler.cs");
-    expect(h).toContain(
-      "var domain = await _orders.FindAllByInRegion(query.Rgn, query.Page, query.PageSize, query.Sort, query.Dir, cancellationToken);",
-    );
-    expect(h).toContain(
-      "return new Paged<OrderResponse>(domain.Items.Select(d => new OrderResponse(",
-    );
-  });
-
   it("the controller action exposes [FromQuery] page/pageSize/sort/dir and dispatches the Query", async () => {
     const ctrl = fileEndingWith(await generateSystemFiles(PAGED_SRC), "Api/ARoutesController.cs");
     expect(ctrl).toContain('[HttpGet("/api/orders/projections/in_region")]');
