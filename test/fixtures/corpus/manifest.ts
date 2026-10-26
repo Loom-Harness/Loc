@@ -262,6 +262,14 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "inheritance", title: "aggregate inheritance — TPH (sharedTable) + TPC (ownTable)", doc: "inheritance", backends: ALL },
   { id: "tph", title: "TPH-only (sharedTable) hierarchy — Vehicle/Car/Truck canonical fixture", doc: "inheritance", backends: ALL },
   {
+    id: "acronym-names",
+    title:
+      "acronym-named aggregate, part, TPH base, join table, projection and workflow — one table name and one route segment per name",
+    doc: "migrations",
+    backends: ALL,
+    note: "Minted for #3450.  `plural(snake(n))` and `snake(plural(n))` disagree for a name ending in an acronym (`ProductSKU` → `product_skus` vs `product_sk_us`); the migrations created the first while drizzle, EF Core, SQLAlchemy and Ecto mapped the second, so the first read of any such table failed.  `test/conformance/acronym-storage-names.test.ts` holds every ORM mapping and every router to the migration's spelling.",
+  },
+  {
     id: "tph-crossings",
     title:
       "TPH (sharedTable) × a CAPABILITY — a `softDeletable` concrete whose filter reads a column the shared table made nullable",

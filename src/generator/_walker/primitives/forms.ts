@@ -18,6 +18,7 @@ import {
   snake,
   upperFirst,
 } from "../../../util/naming.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
 import { typeReachesMoney } from "../../_frontend/api-module.js";
 import {
   idTargetHookVar,
@@ -197,7 +198,7 @@ export function emitDestroyForm(
     thenJs = emitActionThen(thenArg, ctx);
   } else {
     ctx.usesNavigate = true;
-    thenJs = `navigate(${JSON.stringify(`/${snake(plural(agg.name))}`)})`;
+    thenJs = `navigate(${JSON.stringify(`/${routeSegmentFor(agg.name)}`)})`;
   }
   // Both the prompt and the button label are user-visible English the EMITTER
   // builds from the aggregate name, so neither the content-hash extraction pass
@@ -208,7 +209,7 @@ export function emitDestroyForm(
   const entity = { name: "entity", expr: JSON.stringify(humanize(agg.name)) };
   const confirmMsg = localizedPageChromeValue(ctx, "deleteConfirm", [entityLower]);
   const onClick = `() => { if (window.confirm(${confirmMsg})) void ${localVar}.mutateAsync(id ?? "").then(() => { ${thenJs}; }); }`;
-  const testidNamespace = stringNamed(call, "testid") ?? `${snake(plural(agg.name))}-destroy`;
+  const testidNamespace = stringNamed(call, "testid") ?? `${routeSegmentFor(agg.name)}-destroy`;
   ctx.collectedTestids.add(testidNamespace);
   return renderPrimitive(ctx, "primitive-button", {
     label: localizedPageChromeText(ctx, "deleteEntity", [entity]),
@@ -372,7 +373,8 @@ function emitFormOfOperationByName(
   }
   const fields = op.params;
   const fieldsForHelpers = fields.map((f) => ({ ...f, optional: false }));
-  const testidNamespace = stringNamed(call, "testid") ?? `${snake(plural(agg.name))}-op-${op.name}`;
+  const testidNamespace =
+    stringNamed(call, "testid") ?? `${routeSegmentFor(agg.name)}-op-${op.name}`;
   registerOperationFormChrome(ctx);
   const prepared = prepareFormFields(ctx, fields, fieldsForHelpers, bc, testidNamespace);
   addImport(
@@ -664,7 +666,7 @@ function emitFormOfAggregate(
   // optional fields surface via update-flow operations on the detail
   // page.
   const fields = createInputFields(agg).filter((f) => !f.optional);
-  const testidNamespace = stringNamed(call, "testid") ?? `${snake(plural(agg.name))}-new`;
+  const testidNamespace = stringNamed(call, "testid") ?? `${routeSegmentFor(agg.name)}-new`;
   // The pack's `primitive-form-of` imports cover the form-shell
   // components (Stack/Button/Group on Mantine, equivalents elsewhere).
   addImportsForPrimitive(ctx, "primitive-form-of");
@@ -719,7 +721,7 @@ function emitFormOfAggregate(
     onSubmitJs,
     hasServerDefaults,
   });
-  const slug = snake(plural(agg.name));
+  const slug = routeSegmentFor(agg.name);
   return renderFormOfPrimitive(ctx, call, depth, testidNamespace, prepared.fieldHtmls, onSubmitJs, {
     mutationCall: "const out = await create.mutateAsync(vals);",
     successMessage: `${humanize(agg.name)} created`,
@@ -882,7 +884,8 @@ function emitFormOfOperation(
     ctx.pack.manifest.seedsOpFormRecord === true &&
     fieldsForHelpers.some((f) => defaultUsesThis(f.default));
   const seedRecordVar = wantsRecord ? "record" : undefined;
-  const testidNamespace = stringNamed(call, "testid") ?? `${snake(plural(agg.name))}-op-${op.name}`;
+  const testidNamespace =
+    stringNamed(call, "testid") ?? `${routeSegmentFor(agg.name)}-op-${op.name}`;
   registerOperationFormChrome(ctx);
   const prepared = prepareFormFields(
     ctx,

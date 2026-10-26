@@ -52,7 +52,8 @@
 
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
-import { plural, snake } from "../../util/naming.js";
+import { snake } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { emitsRestCreate, emitsRestDestroy } from "../enrich/wire-projection.js";
 import { pagedReturn } from "../stdlib/generics.js";
 import {
@@ -78,7 +79,6 @@ import {
 } from "./openapi-ids.js";
 import { byIdRouteFind } from "./read-gates.js";
 import { aggregateIsVersioned } from "./versioned-capability.js";
-
 /** HTTP method, lowercase — the form every backend's route table uses. */
 export type ApiMethod = "get" | "post" | "put" | "patch" | "delete";
 
@@ -189,9 +189,9 @@ export const apiSurfaceCoverage = {
 } as const;
 
 /** The URL segment an aggregate's routes mount under — `Order` → `orders`.
- *  Matches every backend's `snake(plural(agg.name))`. */
+ *  Every backend mounts under `routeSegmentFor` (src/util/storage-names.ts). */
 export function aggregateSegment(aggName: string): string {
-  return snake(plural(aggName));
+  return routeSegmentFor(aggName);
 }
 
 /** The router slot a method + ABSOLUTE path occupies: `"get /api/orders/{}"`.

@@ -29,6 +29,7 @@ import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-
 import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import {
   aggregateHasProvenanced,
   clientFinds,
@@ -351,7 +352,7 @@ export function buildAngularApiModule(
   const serviceName = `${single}Service`;
   const responseName = `${single}Response`;
   const createName = `Create${single}Request`;
-  const tag = snake(plural(single));
+  const tag = routeSegmentFor(single);
   const oneTag = snake(single);
   const allFn = `useAll${plural(single)}`;
   const allVar = `${lowerFirst(single)}All`;

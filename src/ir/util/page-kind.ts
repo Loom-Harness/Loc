@@ -1,6 +1,6 @@
-import { plural, snake, upperFirst } from "../../util/naming.js";
+import { upperFirst } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import type { PageIR } from "../types/loom-ir.js";
-
 /** The classification of a page by what the scaffold synthesised it as — an
  *  aggregate's list/new/detail, a workflow's form/instance pages, the
  *  singleton index pages, or a hand-written `custom` page.
@@ -54,7 +54,7 @@ export function classifyPage(page: Pick<PageIR, "name" | "area">, ctx: PageNameC
   const last = area[area.length - 1];
   if (last !== undefined) {
     for (const aggName of ctx.aggregateNames) {
-      if (last !== snake(plural(aggName))) continue;
+      if (last !== routeSegmentFor(aggName)) continue;
       if (name === "List")
         return { kind: "aggregate-list", aggregateName: aggName, contextName: "" };
       if (name === "New") return { kind: "aggregate-new", aggregateName: aggName, contextName: "" };

@@ -1,0 +1,118 @@
+// Acronym-named declarations: one table name and one route segment per name.
+//
+// A table name is `plural(snake(name))` and a route segment the same spelling
+// (`src/util/storage-names.ts`).  The two orders of `snake` and `plural` agree
+// for most names but not for one that ENDS in an acronym:
+//
+//   ProductSKU   plural(snake(…)) = product_skus   snake(plural(…)) = product_sk_us
+//
+// so a backend that spelled the ORM mapping one way while the migration
+// created the table the other way answered `relation "product_sk_us" does not
+// exist` on its first read.  Every storage kind that carries a name is crossed
+// here with a trailing-acronym name:
+//   - an aggregate root (`ProductSKU`), its route and its table;
+//   - an entity part (`VariantSKU`) — its own child table, FK'd to the root;
+//   - a reference collection (`aliases: URLAlias id[]`) — a join table whose
+//     two FKs name both aggregates' tables;
+//   - a TPH hierarchy (`CatalogSKU` ← `PhysicalSKU`, `DigitalSKU`) — the
+//     shared table is the BASE's, the routes are the concretes';
+//   - a folded projection (`StockPerSKU`) — its read-model table;
+//   - a workflow (`RestockSKU`) — its persisted correlation-state table.
+// `HTTPLog` and `URLAlias` lead with an acronym: both orders agree there, and
+// they pin that the leading-acronym spelling (`http_logs`, `url_aliases`) does
+// not move.
+system AcronymNames {
+  subdomain Catalog {
+    context Catalog {
+      aggregate URLAlias with crudish { path: string }
+      repository URLAliases for URLAlias { }
+
+      aggregate HTTPLog with crudish { status: int }
+      repository HTTPLogs for HTTPLog { }
+
+      aggregate ProductSKU with crudish {
+        code: string
+        qty: int
+        aliases: URLAlias id[]
+        contains variants: VariantSKU[]
+        entity VariantSKU { label: string }
+
+        operation addVariant(label: string) { variants += VariantSKU { label: label } }
+        operation addAlias(a: URLAlias id) { aliases += a }
+        operation restock(n: int) {
+          qty := qty + n
+          emit StockedSKU { sku: id, qty: qty }
+        }
+      }
+      repository ProductSKUs for ProductSKU { }
+
+      abstract aggregate CatalogSKU { title: string }
+      aggregate PhysicalSKU extends CatalogSKU with crudish { weightGrams: int }
+      aggregate DigitalSKU extends CatalogSKU with crudish { sizeBytes: int }
+      repository PhysicalSKUs for PhysicalSKU { }
+      repository DigitalSKUs for DigitalSKU { }
+
+      event StockedSKU { sku: ProductSKU id, qty: int }
+      channel Stock {
+        carries: StockedSKU
+        delivery: broadcast
+        retention: ephemeral
+      }
+
+      projection StockPerSKU keyed by sku {
+        sku: ProductSKU id
+        qty: int
+        on(e: StockedSKU) { sku := e.sku  qty := e.qty }
+      }
+
+      workflow RestockSKU {
+        skuId: ProductSKU id
+        restocks: int
+        create(e: StockedSKU) by e.sku { restocks := e.qty }
+      }
+    }
+  }
+  api CatalogApi from Catalog
+  storage pg { type: postgres }
+  resource catalogState { for: Catalog, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Catalog]
+    dataSources: [catalogState]
+    serves: CatalogApi
+    port: 4000
+  }
+
+  // Each read below goes through the ORM mapping of a table the migration
+  // created — a mapping spelled differently from the migration fails here.
+  test e2e "acronym-named aggregates, parts and join rows round-trip" against d {
+    let alias = api.url_aliases.create({ path: "/a" })
+    let log = api.http_logs.create({ status: 200 })
+    let readLog = api.http_logs.getById(log)
+    expect(readLog.status).toBe(200)
+
+    let sku = api.productSKUs.create({ code: "P-1", qty: 1, aliases: [] })
+    api.productSKUs.addVariant(sku, { label: "red" })
+    api.productSKUs.addAlias(sku, { a: alias.id })
+    let read = api.productSKUs.getById(sku)
+    expect(read.code).toBe("P-1")
+    expect(read.variants.length).toBe(1)
+    expect(read.aliases.length).toBe(1)
+    let all = api.productSKUs.all()
+    expect(all.total).toBe(1)
+  }
+
+  test e2e "acronym-named TPH concretes share the base table" against d {
+    let p = api.physicalSKUs.create({ title: "Box", weightGrams: 500 })
+    let dg = api.digitalSKUs.create({ title: "Ebook", sizeBytes: 1024 })
+    expect(api.physicalSKUs.getById(p).weightGrams).toBe(500)
+    expect(api.digitalSKUs.getById(dg).sizeBytes).toBe(1024)
+  }
+
+  test e2e "acronym-named projection and workflow state tables are written" against d {
+    let sku = api.productSKUs.create({ code: "P-2", qty: 1, aliases: [] })
+    api.productSKUs.restock(sku, { n: 2 })
+    let saga = api.restockSKU.instance(sku)
+    expect(saga.restocks).toBe(3)
+  }
+}

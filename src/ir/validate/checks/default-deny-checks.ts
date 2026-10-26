@@ -6,14 +6,13 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { descriptorFor } from "../../../platform/metadata.js";
-import { plural, snake } from "../../../util/naming.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
 import type { SystemIR, WorkflowIR, WorkflowStmtIR } from "../../types/loom-ir.js";
 import { isMacroEmitted, macroNameOf } from "../../types/origin.js";
 import { deriveContextOperations, isAllFind } from "../../util/api-surface.js";
 import { esCreateGateUnsupportedOn } from "../../util/op-gates.js";
 import { aggregateIsEventSourced } from "../../util/resolve-datasource.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
-
 // Page/component `derived name: T = expr` bindings are supported on every
 // frontend now — React/Vue/Svelte/Angular hoist a reactive computed
 // (`useMemo` / `computed` / `$derived` / `computed`); Phoenix/HEEx
@@ -114,7 +113,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
                 message: diagMessage("loom.default-deny-es-create-ungateable", {
                   name: a.name,
                   opName: op.name,
-                  path: `/api/${plural(snake(a.name))}`,
+                  path: `/api/${routeSegmentFor(a.name)}`,
                 }),
                 source: `${a.name}/${op.name}`,
                 origin: op.origin,
@@ -293,7 +292,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
             code: "loom.audit-history-ungated",
             message: diagMessage("loom.audit-history-ungated", {
               aggregateName: repo.aggregateName,
-              aggregateName2: snake(plural(repo.aggregateName)),
+              aggregateName2: routeSegmentFor(repo.aggregateName),
             }),
             source: `find/${repo.name}.history`,
             origin: repo.origin,

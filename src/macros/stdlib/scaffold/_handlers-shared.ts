@@ -33,8 +33,9 @@ import {
   isOperation,
   isRepository,
 } from "../../../language/generated/ast.js";
-import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import { lowerFirst, snake, upperFirst } from "../../../util/naming.js";
 
+import { routeSegmentFor } from "../../../util/storage-names.js";
 /** The id parameter name a generated handler takes: `<agg>Id` (`Order` →
  * `orderId`).  Deliberately NOT `id` — a bare `id` handler param is reserved
  * (`loom.handler-param-reserved-id`). */
@@ -45,7 +46,7 @@ export function idParamName(aggName: string): string {
 /** The plural-snake collection path segment for an aggregate: `Order` →
  * `/orders`.  The base of every create / find / get-by-id route. */
 export function collectionPath(aggName: string): string {
-  return `/${snake(plural(aggName))}`;
+  return `/${routeSegmentFor(aggName)}`;
 }
 
 /** Handler name for an operation on an aggregate: `<Op><Agg>` (`cancel` on

@@ -19,8 +19,9 @@ import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import type { ApiOperationIR } from "../../../ir/util/api-surface.js";
 import { enumPool } from "../../../ir/util/reachable-types.js";
 import { defaultErrorStatus, errorTitle, errorTypeUri } from "../../../util/error-defaults.js";
-import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { snake, upperFirst } from "../../../util/naming.js";
 import { integralWireRange } from "../../../util/numeric-range.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
 import type { ApiRoute } from "../api-emit.js";
 import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { renderExpr } from "../render-expr.js";
@@ -35,7 +36,6 @@ import {
   PAGE_WITH_CLAUSES,
   pagingElseArm,
 } from "./page-param.js";
-
 /** Non-`all` custom finds an aggregate's repository declares — the ones that
  *  earn an HTTP `GET /<plural>/<find>` endpoint (`all` is the
  *  enrichment-synthesized list, served by `GET /<plural>` already).  The
@@ -101,7 +101,7 @@ export function findRoutes(
    *  read-only finds (if any) fall back to the legacy spelling. */
   derivedOps: readonly ApiOperationIR[] = [],
 ): ApiRoute[] {
-  const aggsPath = snake(plural(agg.name));
+  const aggsPath = routeSegmentFor(agg.name);
   const controller = `${upperFirst(agg.name)}Controller`;
   const derivedByFind = new Map(
     derivedOps.filter((o) => o.kind === "find" && o.find).map((o) => [o.find, o]),

@@ -22,7 +22,8 @@ import type { ResolvedDataSource } from "../../../ir/util/resolve-datasource.js"
 import { effectiveSavingShape } from "../../../ir/util/resolve-datasource.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
-import { plural, pythonIdent, snake, workflowStateTableName } from "../../../util/naming.js";
+import { pythonIdent, snake, workflowStateTableName } from "../../../util/naming.js";
+import { tableNameFor } from "../../../util/storage-names.js";
 import { pyRef } from "../../_imports/python.js";
 import {
   columnsForFields,
@@ -40,11 +41,10 @@ import { PY, pyVoOrEnum } from "../py-symbols.js";
 import { hydrateField, persistFieldValue } from "../repository-builder.js";
 import { PY_CALENDAR_DATE, PY_CALENDAR_DATE_NAME } from "./calendar-date.js";
 import { provColumn } from "./provenance.js";
-
 // ---------------------------------------------------------------------------
 // `app/db/schema.py` — SQLAlchemy 2 typed declarative models.  Table /
 // column / index naming mirrors the Drizzle schema exactly (snake_case
-// columns, `snake(plural(name))` tables, part FK column
+// columns, `tableNameFor(name)` tables, part FK column
 // `<parent>_id` behind the `parent_id` attribute, join tables
 // `snake(owner)_snake(field)` with composite PK + reverse index) so
 // every backend reads/writes the same shared Postgres DDL.
@@ -289,7 +289,7 @@ function renderModel(
   schema?: string,
   prefix?: string,
 ): string {
-  const tableName = `${prefix ?? ""}${snake(plural(name))}`;
+  const tableName = `${prefix ?? ""}${tableNameFor(name)}`;
   const cols: PyColumn[] = [
     { attr: "id", pyType: "str", saType: "Uuid(as_uuid=False)", optional: false, primaryKey: true },
     ...(parentName
@@ -363,7 +363,7 @@ function renderColumn(c: PyColumn): string {
  *  jsonb blob, so the table is the canonical document triple — `id` (PK),
  *  `data` (the serialised tree, JSONB), `version` (optimistic counter). */
 function renderDocumentModel(agg: AggregateIR, schema?: string, prefix?: string): string {
-  const tableName = `${prefix ?? ""}${snake(plural(agg.name))}`;
+  const tableName = `${prefix ?? ""}${tableNameFor(agg.name)}`;
   return lines(
     `class ${agg.name}Row(Base):`,
     `    __tablename__ = "${tableName}"`,
@@ -387,7 +387,7 @@ function renderEmbeddedModel(
   schema?: string,
   prefix?: string,
 ): string {
-  const tableName = `${prefix ?? ""}${snake(plural(agg.name))}`;
+  const tableName = `${prefix ?? ""}${tableNameFor(agg.name)}`;
   const cols: PyColumn[] = [
     { attr: "id", pyType: "str", saType: "Uuid(as_uuid=False)", optional: false, primaryKey: true },
   ];
@@ -533,7 +533,7 @@ function renderProjectionStateModel(
   ctx: EnrichedBoundedContextIR,
   schema?: string,
 ): string {
-  const tableName = plural(snake(proj.name));
+  const tableName = tableNameFor(proj.name);
   const corr = proj.correlationField as string;
   const cols: PyColumn[] = [];
   for (const f of proj.stateFields) {
@@ -633,7 +633,7 @@ function renderTphModel(
   schema?: string,
   prefix?: string,
 ): string {
-  const tableName = `${prefix ?? ""}${snake(plural(base.name))}`;
+  const tableName = `${prefix ?? ""}${tableNameFor(base.name)}`;
   const cols: PyColumn[] = [
     { attr: "id", pyType: "str", saType: "Uuid(as_uuid=False)", optional: false, primaryKey: true },
     { attr: "kind", pyType: "str", saType: "Text", optional: false },

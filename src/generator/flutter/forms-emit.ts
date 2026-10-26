@@ -56,12 +56,12 @@ import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { walkExprChildren } from "../../ir/util/walk.js";
 import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { lines } from "../../util/code-builder.js";
-import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import { STANDARD_AGG_OPS } from "../_walker/walker-core.js";
 import { flutterHttpImport } from "./api-client.js";
 import { type FlutterFieldRule, flutterValidatorMap, ruleGuards } from "./form-validators.js";
-
 // ---------------------------------------------------------------------------
 // Widget-name helpers — the ONE place the view seam and the class emitter agree
 // on the generated widget class name.  A collision here (seam emits `X`, emitter
@@ -327,7 +327,7 @@ function buildField(
   const enumValues =
     kind === "enum" && base.kind === "enum" ? enumsByName.get(base.name) : undefined;
   const fkCollection =
-    kind === "fk-select" && base.kind === "id" ? snake(plural(base.targetName)) : undefined;
+    kind === "fk-select" && base.kind === "id" ? routeSegmentFor(base.targetName) : undefined;
   return {
     wireName,
     jsonKey,
@@ -607,7 +607,7 @@ export function flutterCreateForm(
     kind: "create",
     aggregate: agg.name,
     needsId: false,
-    pathExpr: `/${snake(plural(agg.name))}`,
+    pathExpr: `/${routeSegmentFor(agg.name)}`,
     submitLabel: `Create ${humanize(agg.name)}`,
     fields,
     dropped,
@@ -645,7 +645,7 @@ export function flutterOperationForm(
     kind: "operation",
     aggregate: aggName,
     needsId: true,
-    pathExpr: `/${snake(plural(aggName))}/\${widget.id}/${opPath}`,
+    pathExpr: `/${routeSegmentFor(aggName)}/\${widget.id}/${opPath}`,
     submitLabel: humanize(op.name),
     fields,
     dropped,
@@ -662,7 +662,7 @@ export function flutterDestroyForm(aggName: string): FlutterFormSpec {
     kind: "destroy",
     aggregate: aggName,
     needsId: true,
-    pathExpr: `/${snake(plural(aggName))}/\${widget.id}`,
+    pathExpr: `/${routeSegmentFor(aggName)}/\${widget.id}`,
     submitLabel: `Delete ${humanize(aggName)}`,
     fields: [],
     dropped: [],
@@ -1837,7 +1837,7 @@ export function renderGatesFile(
     agg.operations
       .filter((op) => op.visibility === "public" && op.when)
       .map((op) => {
-        const path = `/${snake(plural(agg.name))}/$id/can_${snake(op.routeSlug ?? op.name)}`;
+        const path = `/${routeSegmentFor(agg.name)}/$id/can_${snake(op.routeSlug ?? op.name)}`;
         return [
           `final ${canProbeProviderName(agg.name, op.name)} = FutureProvider.autoDispose.family<bool, String>((ref, id) async {`,
           `  final res = await http.get(apiUri('${path}'));`,
