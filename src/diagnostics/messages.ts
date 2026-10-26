@@ -2258,6 +2258,21 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `migration for module "${p.module}": adds unique index ${p.index} on existing table ${p.table} (${p.columns})${p.partial}. Rows already stored may violate it — a duplicate fails CREATE UNIQUE INDEX at boot, the migration rolls back, and later generations queue behind it. If the table can hold duplicates, dedupe them AHEAD of the index in this same generation (declaring one silences this warning):\n` +
     `    migration "dedupe-…" { sql before "UPDATE <schema>.<table> SET … WHERE …" }`,
+  /** An enum CHECK on an existing table lost a member (deleted or renamed in
+   *  the `enum`).  The constraint lands NOT VALID, so the deploy succeeds, but
+   *  rows still holding a removed value fail to load on every backend and
+   *  cannot be updated.  Silenced by declaring a `sql before` step for the
+   *  module in the same generation. */
+  "loom.migration-enum-narrowed": (p: {
+    module: unknown;
+    table: unknown;
+    column: unknown;
+    check: unknown;
+    removed: unknown;
+    kept: unknown;
+  }) =>
+    `migration for module "${p.module}": enum check ${p.check} on existing table ${p.table} no longer admits ${p.removed} in column ${p.column}. Rows already stored may still hold a removed value. The constraint lands NOT VALID, so the deploy succeeds, but such a row fails to load on every backend except node (python/java/.NET/elixir map the stored string onto the enum; a list route that reads it fails as a whole), node serves it off-contract, and any UPDATE of it is refused by the new check. Remap the removed values AHEAD of the check in this same generation (declaring one silences this warning):\n` +
+    `    migration "remap-…" { sql before "UPDATE ${p.table} SET ${p.column} = <one of ${p.kept}> WHERE ${p.column} IN (${p.removed})" }`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/projection-checks.ts
