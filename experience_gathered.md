@@ -6965,3 +6965,25 @@ Verified on SQLAlchemy 2.1.6 while moving python reads onto one `do_orm_execute`
   `session.get()` answers from the identity map without SQL. Subtype restrictions
   are hosted on the TPH root guarded by `kind`, and by-id reads run
   `select(...).execution_options(populate_existing=True)`.
+
+## 137. Fleet coordination: label writes replace the set, and the migration harness's own postgres races (2026-10-26)
+
+Two traps that cost a fleet coordinator a cleanup pass each:
+
+- The GitHub MCP `issue_write` call with `labels` **replaces** the issue's whole
+  label set. A worker that "adds `in-progress`" by passing `["in-progress"]` wipes
+  the issue's `area:`/priority labels; one did, on two issues. Read the set first
+  (`issue_read` → `get_labels`) and write back the full set with your change.
+- `migration-evolution-harness.ts` starts its own `postgres:18-alpine` container
+  and treats `pg_isready` inside it as ready. The image's init runs a temporary
+  server first, so the first host connection can land on its shutdown
+  (`server closed the connection unexpectedly`). Locally, start postgres yourself,
+  wait until `psql` connects from the host, and pass it through
+  `LOOM_MIGRATION_PG_URL`. CI uses a service container and never sees this.
+- When the sandbox lacks a toolchain a gate needs, copy it out of the image CI
+  uses instead of skipping the gate: `docker create gradle:9-jdk25`, then
+  `docker cp` `/opt/java/openjdk` and `/opt/gradle`. For Elixir, the
+  `mirror.gcr.io/library/elixir:<ver>` image's `/usr/local/lib/{erlang,elixir}`,
+  with `ELIXIR_ERL_OPTIONS=+fnu` and `HEX_CACERTS_PATH` pointing at the proxy CA
+  bundle. That run caught a Flyway hang (`CREATE INDEX CONCURRENTLY` blocked by
+  Flyway's transactional PostgreSQL lock) before a second CI round trip.
