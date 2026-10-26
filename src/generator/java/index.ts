@@ -114,6 +114,7 @@ import {
   renderJavaAuditHistorySupport,
 } from "./emit/audit-history.js";
 import { renderAuthFiles } from "./emit/auth.js";
+import { renderJavaBaseReadController, routedJavaPolymorphicRead } from "./emit/base-read.js";
 import {
   AMQP_CLIENT_VERSION,
   type ChannelConsumerHandler,
@@ -1753,6 +1754,25 @@ function emitAggregate(
       agg.origin,
       construct,
     );
+    // The polymorphic base read (`GET /api/<bases>`, TPH `/{id}`).
+    const read = routedJavaPolymorphicRead(agg, ctx);
+    if (read) {
+      place(
+        `${plural(agg.name)}Controller.java`,
+        "controller",
+        renderJavaBaseReadController(agg, read, agg.idValueType, {
+          basePkg,
+          pkg: pkgFor("controller", agg.name),
+          routePrefix,
+          entityPkg: (name) => pkgFor("entity", name),
+          responsePkg: (name) => pkgFor("response-dto", name),
+          repositoryPkg: (name) => pkgFor("repository-interface", name),
+        }),
+        agg.name,
+        agg.origin,
+        construct,
+      );
+    }
     return;
   }
 
