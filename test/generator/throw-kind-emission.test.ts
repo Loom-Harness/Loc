@@ -51,7 +51,7 @@ system Probe {
         }
 
         test "a fresh work order cannot be completed" {
-          let wo = WorkOrder.create({ reference: "WO-1", status: Draft })
+          let wo = WorkOrder.create(reference: "WO-1", status: Draft)
           expect(wo.complete()).${matcher}
         }
       }

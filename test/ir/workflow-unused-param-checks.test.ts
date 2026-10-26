@@ -45,7 +45,7 @@ describe("loom.workflow-param-unused", () => {
     const msgs = await unused(`
     workflow file {
       create(reference: string, notes: string) {
-        let c = Claim.create({ reference: reference, note: "n" })
+        let c = Claim.create(reference: reference, note: "n")
       }
     }`);
     expect(msgs).toHaveLength(1);
@@ -61,7 +61,7 @@ describe("loom.workflow-param-unused", () => {
       await unused(`
     workflow file {
       create(reference: string, note: string) {
-        let c = Claim.create({ reference: reference, note: note })
+        let c = Claim.create(reference: reference, note: note)
       }
     }`),
     ).toEqual([]);

@@ -187,7 +187,7 @@ describe("workflow body effects", () => {
          itemId: Item id
          label: string
          create(itemId: Item id, name: string) {
-           let x = Item.create({ name: name, count: 0 })
+           let x = Item.create(name: name, count: 0)
            label := name
            emit Bumped { item: itemId }
          }
@@ -320,7 +320,7 @@ describe("the body-position effect vocabulary", () => {
   it("refuses a query handler's emit, create and let-bound mutation", async () => {
     for (const body of [
       `emit Bumped { item: itemId }`,
-      `let x = Item.create({ name: "n", count: 0 })`,
+      `let x = Item.create(name: "n", count: 0)`,
       `let o = Boxes.getById(boxId)
        let r = o.peek()`,
     ]) {
@@ -488,19 +488,27 @@ const POLL = `
   }
   repository Polls for Poll { }`;
 
-describe("workflow factory calls: positional, named and record are one create (#3301)", () => {
-  it("lowers all three spellings to the same saved factory-let", async () => {
-    for (const call of [
-      `Item.create(n, 0)`,
-      `Item.create(name: n, count: 0)`,
-      `Item.create(count: 0, name: n)`,
-      `Item.create({ name: n, count: 0 })`,
-    ]) {
+describe("workflow factory calls: positional and named are one create", () => {
+  it("lowers both spellings to the same saved factory-let", async () => {
+    for (const [call, record] of [
+      [`Item.create(n, 0)`, "Item{name=n,count=0}"],
+      [`Item.create(name: n, count: 0)`, "Item{name=n,count=0}"],
+      // Named arguments keep their written order; the record is keyed by name.
+      [`Item.create(count: 0, name: n)`, "Item{count=0,name=n}"],
+    ] as const) {
       const wf = `workflow W { create(n: string) { let x = ${call} } }`;
-      expect(await factoryLet(wf), call).toBe("Item{name=n,count=0}");
+      expect(await factoryLet(wf), call).toBe(record);
       await expectEffects(wf, ["create Item → x", "persist x"]);
       expect(await codes(wf), call).toStrictEqual([]);
     }
+  });
+
+  it("refuses the record form with loom.create-record-form", async () => {
+    expect(
+      await codes(
+        `workflow W { create(n: string) { let x = Item.create({ name: n, count: 0 }) } }`,
+      ),
+    ).toStrictEqual(["loom.create-record-form"]);
   });
 
   it("binds positions to a declared create's parameters, in a command handler too", async () => {
@@ -516,18 +524,25 @@ describe("workflow factory calls: positional, named and record are one create (#
     expect(await codes(wf)).toStrictEqual(["loom.workflow-create-missing-field"]);
   });
 
-  for (const [call, needle] of [
-    [`Item.create(n, 0, 1)`, "passes 3 positional argument(s), but 'Item' has 2"],
-    [`Item.create(n, count: 0)`, "mixes positional and named arguments"],
-    [`Item.create(title: n)`, "names 'title', which is not a create input"],
-    [`Item.create(name: n, name: n)`, "passes 'name' twice"],
+  for (const [call, needle, code] of [
+    [
+      `Item.create(n, 0, 1)`,
+      "passes 3 positional argument(s), but 'Item' has 2",
+      "loom.create-args",
+    ],
+    [`Item.create(n, count: 0)`, "mixes positional and named arguments", "loom.create-args"],
+    [`Poll.create(title: n)`, "has no create-input field 'title'", "loom.create-unknown-field"],
+    // A name that is no field at all is the field gate's, with a suggestion.
+    [`Item.create(nam: n)`, "has no create-input field 'nam'", "loom.create-unknown-field"],
+    [`Item.create(name: n, name: n)`, "passes 'name' twice", "loom.create-args"],
   ] as const) {
-    it(`refuses \`${call}\` with loom.workflow-create-args`, async () => {
+    it(`refuses \`${call}\` with ${code}`, async () => {
       const { diagnostics } = await parseString(
-        src(`workflow W { create(n: string) { let x = ${call} } }`),
+        src(`${POLL}
+      workflow W { create(n: string) { let x = ${call} } }`),
         { validate: true },
       );
-      const hit = diagnostics.filter((d) => d.code === "loom.workflow-create-args");
+      const hit = diagnostics.filter((d) => d.code === code);
       expect(hit.map((d) => d.message).join("\n")).toContain(needle);
       expect(hit).toHaveLength(1);
     });

@@ -86,7 +86,7 @@ describe("loom.nullable-receiver", () => {
   it("does not count a test matcher as a dereference", async () => {
     const c = await codes(`
       test "a supplied optional survives" {
-        let r = R.create({ name: "n", note: "kept" })
+        let r = R.create(name: "n", note: "kept")
         expect(r.note).toBe("kept")
       }`);
     expect(c).not.toContain(NULLABLE);

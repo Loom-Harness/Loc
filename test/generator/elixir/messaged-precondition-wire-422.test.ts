@@ -109,7 +109,7 @@ system W {
       repository Products for Product { }
       workflow replenish {
         create(n: string, amount: int, quantity: int) {
-          let p = Product.create({ name: n, quantity: 0 })
+          let p = Product.create(name: n, quantity: 0)
           p.restock(amount)
         }
       }

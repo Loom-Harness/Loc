@@ -43,7 +43,7 @@ system Acme {
       workflow Fulfil {
         orderId: Order id
         create(p: OrderPlaced) by p.order {          // starts on the foreign event
-          let s = Shipment.create({ orderRef: p.order, status: "Pending" })
+          let s = Shipment.create(orderRef: p.order, status: "Pending")
         }
       }
     }
@@ -252,7 +252,7 @@ delivered exactly as before — tenant-less, fail-closed.
 workflow Fulfil {
   orderId: Order id
   create(p: OrderPlaced) by p.order {           // runs in the tenant that placed the order
-    let s = Shipment.create({ orderRef: p.order, status: "Pending" })
+    let s = Shipment.create(orderRef: p.order, status: "Pending")
     s.dispatch()                                 // requires currentUser.isSystem
   }
 }

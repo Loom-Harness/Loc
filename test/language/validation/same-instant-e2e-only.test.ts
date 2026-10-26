@@ -15,7 +15,7 @@ const UNIT_MISUSE = `
         aggregate Entry {
           at: datetime
           test "misuse in a unit test" {
-            let e = Entry.create({ at: "2024-01-01T00:00:00Z" })
+            let e = Entry.create(at: "2024-01-01T00:00:00Z")
             expect(e.at).toBeSameInstant("2024-01-01T00:00:00Z")
           }
         }

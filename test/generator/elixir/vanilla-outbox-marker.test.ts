@@ -29,7 +29,7 @@ const DURABLE = `system Acme { subdomain Sales { context Orders {
     orderId: Order id
     status: string
     create(p: OrderPlaced) by p.order {
-      let ship = Shipment.create({ orderRef: p.order, status: "Pending" })
+      let ship = Shipment.create(orderRef: p.order, status: "Pending")
       emit ShipmentRequested { shipment: ship.id, order: p.order }
     }
     on(s: ShipmentRequested) by s.order {

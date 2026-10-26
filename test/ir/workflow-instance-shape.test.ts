@@ -89,7 +89,7 @@ describe("workflow instanceWireShape enrichment", () => {
     // A command-only workflow with no id-shaped state field has no instance
     // to persist or observe.
     const wf = await enrichFirstWorkflow(`
-      create(customerId: Order id) { let o = Order.create({ total: 1 }) }
+      create(customerId: Order id) { let o = Order.create(total: 1) }
     `);
     expect(wf.correlationField).toBeUndefined();
     expect(wf.instanceWireShape).toBeUndefined();

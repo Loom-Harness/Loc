@@ -95,7 +95,7 @@ system Helpdesk {
         }
 
         test "resolve requires assignee" {
-          let t = Ticket.create({ number: "T-1", subject: "Printer", description: "jam", priority: Normal, customer: "c1", openedAt: now() })
+          let t = Ticket.create(number: "T-1", subject: "Printer", description: "jam", priority: Normal, customer: "c1", openedAt: now())
           expect(t.resolve()).toThrow()
         }
       }

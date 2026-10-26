@@ -52,7 +52,7 @@ system WfPrimSys {
           amount: Money,
           memo: string?
         ) {
-          let acct = Account.create({ holder: holder, balance: qty, active: flag, tier: tier })
+          let acct = Account.create(holder: holder, balance: qty, active: flag, tier: tier)
         }
       }
     }

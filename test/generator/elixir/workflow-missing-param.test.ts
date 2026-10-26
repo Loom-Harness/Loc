@@ -55,21 +55,21 @@ system WF {
 
 const WITH_PARAMS = `workflow placeOrder {
         create(name: string, qty: int) {
-          let o = Order.create({ name: name, qty: qty })
+          let o = Order.create(name: name, qty: qty)
         }
       }`;
 
 // A workflow that threads `currentUser`, so `run/1` carries a DEFAULT argument.
 const WITH_USER = `workflow placeOrder {
         create(name: string, qty: int) {
-          let o = Order.create({ name: name, qty: qty, owner: currentUser.sub })
+          let o = Order.create(name: name, qty: qty, owner: currentUser.sub)
         }
       }`;
 
 // No params at all — the negative that keeps the change strictly additive.
 const NO_PARAMS = `workflow sweepOrders {
         create() {
-          let o = Order.create({ name: "auto", qty: 1 })
+          let o = Order.create(name: "auto", qty: 1)
         }
       }`;
 

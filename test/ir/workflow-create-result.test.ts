@@ -45,7 +45,7 @@ system S {
 
 const OPEN = `
       create(n: string): Account id {
-        let a = Account.create({ number: n, balance: 0 })
+        let a = Account.create(number: n, balance: 0)
         return a.id
       }`;
 
@@ -73,7 +73,7 @@ describe("workflow create(…): T — parse, print, lower", () => {
 
   it("a create without `: T` carries no result (the 204 path)", async () => {
     const { model } = await parseString(
-      src(`create(n: string) { let a = Account.create({ number: n, balance: 0 }) }`),
+      src(`create(n: string) { let a = Account.create(number: n, balance: 0) }`),
     );
     const wf = allContexts(lowerModel(model))[0]!.workflows[0]!;
     expect(commandCreateResult(wf)).toBeUndefined();
@@ -88,9 +88,9 @@ describe("workflow create(…): T — the routed-create rule (phase ⑦)", () =>
 
   it("refuses a result on a NAMED command create beside the unnamed one", async () => {
     const codes = await irCodes(`
-      create(n: string) { let a = Account.create({ number: n, balance: 0 }) }
+      create(n: string) { let a = Account.create(number: n, balance: 0) }
       create other(n: string): Account id {
-        let a = Account.create({ number: n, balance: 1 })
+        let a = Account.create(number: n, balance: 1)
         return a.id
       }`);
     expect(codes).toContain("loom.workflow-return-no-caller");
