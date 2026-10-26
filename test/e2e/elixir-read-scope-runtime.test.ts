@@ -92,6 +92,24 @@ checks =
       Repo.async(fn -> attempt.(fn -> elem(CarRepository.list(), 1) end) end) |> Task.await()
   })
 
+poly = fn read ->
+  case read.() do
+    {:ok, %{items: items, total: total}} ->
+      %{"total" => total, "items" => Enum.map(items, &[inspect(&1.__struct__), &1.plate])}
+
+    other ->
+      inspect(other)
+  end
+end
+
+checks =
+  Map.merge(checks, %{
+    # The polymorphic base read: one query over the shared table, every
+    # subtype's own restrictions applied kind-guarded, rows as their concretes.
+    "vehicles_acme" => poly.(fn -> D.Fleet.VehicleRepository.list(1, 20, acme) end),
+    "vehicles_acme_page2" => poly.(fn -> D.Fleet.VehicleRepository.list(2, 1, acme) end)
+  })
+
 Process.put(:loom_current_user, globex)
 
 checks =
@@ -173,6 +191,16 @@ describe.skipIf(!ENABLED)(
         expect(c.skip_soft_deletable).toEqual(["A-1", "A-2"]);
         expect(c.skip_tenant_owned).toEqual(["A-1", "G-1"]);
         expect(c.skip_all).toEqual(["A-1", "A-2", "G-1"]);
+        // The polymorphic base read: acme's live Car and its Truck, in `id`
+        // (insertion) order, each loaded as its concrete, paged globally.
+        expect(c.vehicles_acme).toEqual({
+          total: 2,
+          items: [
+            ["D.Fleet.Car", "A-1"],
+            ["D.Fleet.Truck", "T-1"],
+          ],
+        });
+        expect(c.vehicles_acme_page2).toEqual({ total: 2, items: [["D.Fleet.Truck", "T-1"]] });
       } finally {
         pg?.stop();
         try {

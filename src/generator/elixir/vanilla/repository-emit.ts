@@ -33,7 +33,7 @@ import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
-import { baseReaderShape } from "./base-reader.js";
+import { renderPolymorphicReader } from "./base-reader.js";
 import {
   aggregateUsesPrincipalContextFilter,
   findUsesPrincipal,
@@ -43,7 +43,7 @@ import {
 import { aggregateNeedsUpdateChangeset } from "./changeset-emit.js";
 import { isVanillaDocAgg, renderDocRepository } from "./document-emit.js";
 import { isEventSourced } from "./eventsourced-emit.js";
-import { isAbstractBase, isTphBase, tphKind } from "./inheritance-emit.js";
+import { isAbstractBase, tphKind } from "./inheritance-emit.js";
 import { renderUpdateProvenanceCapture, updateCapturesProvenance } from "./provenance-emit.js";
 import { containmentPreloadRels, readPreloadRels } from "./read-preload.js";
 import { readOpts } from "./read-scope-emit.js";
@@ -84,9 +84,10 @@ export function emitVanillaRepositories(
     const repo = (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name);
     // An abstract inheritance base is never instantiated — it gets a READ-ONLY
     // polymorphic reader (`find all <Base>`), not the CRUD seam.  TPH reads the
-    // shared table + dispatches on `kind`; TPC delegates to the concrete repos.
+    // shared table in one query and loads each row by `kind`; TPC merges the
+    // concretes' scoped reads (base-reader.ts).
     const content = isAbstractBase(agg)
-      ? renderBaseReader(appModule, ctxModule, agg, ctx, sys)
+      ? renderPolymorphicReader(appModule, ctxModule, agg, ctx, sys)
       : isVanillaDocAgg(agg, ctx, sys)
         ? renderDocRepository(appModule, ctxModule, agg, customFindsOf(repo), principalIdKey)
         : renderRepository(appModule, ctxModule, agg, repo, principalIdKey, ctx, pool, sys);
@@ -297,7 +298,7 @@ function renderRepository(
   // threads `page`/`page_size`/`sort`/`dir`, applies `limit`/`offset` + a
   // whitelisted `order_by`, and returns `%{items, page, pageSize, total,
   // totalPages}` instead of a bare list.  (The base-reader polymorphic `list`
-  // stays unpaged — an honest gate; see renderBaseReader.)
+  // pages over the whole hierarchy; see base-reader.ts.)
   const allFind = repo?.finds?.find((f) => f.name === "all");
   const listPaged = allFind ? !!pagedReturn(allFind.returnType) : false;
   // The LIST read's effective predicate.  A DECLARED `find all(): X[] where
@@ -737,131 +738,4 @@ ${
     query = ${query}
     {:ok, ${fetchCall}}
   end`;
-}
-
-/** Rows per page when a base reader drains a paged concrete. */
-const BASE_READER_PAGE_SIZE = 500;
-
-/** Read-only polymorphic reader for an abstract inheritance base — the read
- *  home for `find all <Base>` / dereferencing a polymorphic `<Base> id`
- *  (inheritance.md).  An abstract base is never instantiated, so it carries NO
- *  write seam (insert/update/delete); only `list` + `find_by_id`.
- *
- *  Both layouts DELEGATE to the concrete repositories (`baseReaderShape`): a
- *  TPH concrete's repository is where its `kind` conjunct and every capability
- *  / inline filter (soft-delete, tenancy, `seats > 0`) live, so reading the
- *  shared table directly would serve rows those filters exclude.  `list`
- *  concatenates each concrete's rows (draining a paged concrete's pages),
- *  `find_by_id` tries each concrete in turn; the actor is passed to every
- *  concrete read that takes one. */
-function renderBaseReader(
-  appModule: string,
-  ctxModule: string,
-  base: AggregateIR,
-  ctx: BoundedContextIR,
-  sys?: SystemIR,
-): string {
-  const aggModule = `${appModule}.${ctxModule}.${upperFirst(base.name)}`;
-  const repoMod = `${aggModule}Repository`;
-  const layout = isTphBase(base, ctx.aggregates) ? "TPH / sharedTable" : "TPC / ownTable";
-  const shape = baseReaderShape(base, ctx, sys);
-  const concreteRepo = (c: { agg: AggregateIR }) =>
-    `${appModule}.${ctxModule}.${upperFirst(c.agg.name)}Repository`;
-
-  // Each thunk reads one concrete.  `list` thunks take a page number so a paged
-  // concrete is drained page by page; an unpaged one ignores it.
-  const listThunks = shape.concretes.map((c) => {
-    const repo = concreteRepo(c);
-    const actor = c.listActor ? ", current_user" : "";
-    return c.paged
-      ? `fn page -> ${repo}.list(page, ${BASE_READER_PAGE_SIZE}, "id", "asc"${actor}) end`
-      : `fn _page -> ${repo}.list(${c.listActor ? "current_user" : ""}) end`;
-  });
-  const findThunks = shape.concretes.map((c) => {
-    const repo = concreteRepo(c);
-    return `fn -> ${repo}.find_by_id(id${c.findActor ? ", current_user" : ""}) end`;
-  });
-  const listActorName = shape.listActor ? "current_user" : "_current_user";
-  const findActorName = shape.findActor ? "current_user" : "_current_user";
-  const listHead = shape.principal ? `def list(${listActorName} \\\\ nil) do` : "def list do";
-  const listSpec = shape.principal
-    ? "@spec list(map() | nil) :: {:ok, [struct()]} | {:error, term()}"
-    : "@spec list() :: {:ok, [struct()]} | {:error, term()}";
-  const findHead = shape.principal
-    ? `def find_by_id(id, ${findActorName} \\\\ nil) when is_binary(id) do`
-    : "def find_by_id(id) when is_binary(id) do";
-  const findSpec = shape.principal
-    ? "@spec find_by_id(binary(), map() | nil) :: {:ok, struct()} | {:error, :not_found}"
-    : "@spec find_by_id(binary()) :: {:ok, struct()} | {:error, :not_found}";
-  const hasConcretes = shape.concretes.length > 0;
-  const listBody = hasConcretes
-    ? `Enum.reduce_while(
-      [
-${listThunks.map((t) => `        ${t}`).join(",\n")}
-      ],
-      {:ok, []},
-      fn read, {:ok, acc} ->
-        case drain(read) do
-          {:ok, rows} -> {:cont, {:ok, acc ++ rows}}
-          {:error, _} = err -> {:halt, err}
-        end
-      end
-    )`
-    : "{:ok, []}";
-  const findBody = hasConcretes
-    ? `Enum.reduce_while(
-      [
-${findThunks.map((t) => `        ${t}`).join(",\n")}
-      ],
-      {:error, :not_found},
-      fn read, _acc ->
-        case read.() do
-          {:ok, record} -> {:halt, {:ok, record}}
-          {:error, :not_found} -> {:cont, {:error, :not_found}}
-          {:error, _} = err -> {:halt, err}
-        end
-      end
-    )`
-    : "{:error, :not_found}";
-  // A paged concrete answers the `%{items, totalPages}` envelope; the base
-  // reader is unpaged, so it walks every page.  A bare list is a single page.
-  const drainHelper = shape.concretes.some((c) => c.paged)
-    ? `
-
-  defp drain(read, page \\\\ 1, acc \\\\ []) do
-    case read.(page) do
-      {:ok, %{items: items, totalPages: total_pages}} ->
-        acc = acc ++ items
-        if page >= total_pages, do: {:ok, acc}, else: drain(read, page + 1, acc)
-
-      {:ok, rows} when is_list(rows) ->
-        {:ok, acc ++ rows}
-
-      {:error, _} = err ->
-        err
-    end
-  end`
-    : `
-
-  defp drain(read) do
-    case read.(1) do
-      {:ok, rows} when is_list(rows) -> {:ok, rows}
-      {:error, _} = err -> err
-    end
-  end`;
-  return `# Auto-generated.
-defmodule ${repoMod} do
-  @moduledoc "Read-only polymorphic reader for the abstract ${upperFirst(base.name)} hierarchy (${layout}) — delegates to the concrete repositories, which carry the kind discriminator and every read filter."
-
-  ${listSpec}
-  ${listHead}
-    ${hasConcretes ? listBody : "{:ok, []}"}
-  end
-
-  ${findSpec}
-  ${findHead}
-    ${findBody}
-  end${hasConcretes ? drainHelper : ""}
-end
-`;
 }

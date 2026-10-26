@@ -54,7 +54,7 @@ import {
   renderVanillaHistoryMapper,
   vanillaHistoryFind,
 } from "./audit-history-emit.js";
-import { type BaseReaderShape, baseReaderShape } from "./base-reader.js";
+import { renderPolymorphicSerialize, routesPolymorphicRead } from "./base-reader.js";
 import { aggregateUsesPrincipalContextFilter, listUsesPrincipal } from "./capability-filter.js";
 import { CRUD_RESERVED_NAMES } from "./context-emit.js";
 import {
@@ -69,7 +69,7 @@ import { isVanillaDocAgg } from "./document-emit.js";
 import { isEventSourced, renderEsController } from "./eventsourced-emit.js";
 import { findRoutes, renderFindActions } from "./find-controller.js";
 import { effectiveGate, renderGateCondition } from "./gate.js";
-import { isAbstractBase } from "./inheritance-emit.js";
+import { isAbstractBase, isTphBase } from "./inheritance-emit.js";
 import {
   guardRescue,
   isReturningOperation,
@@ -78,7 +78,12 @@ import {
   renderProblemVariantHelper,
   renderReturningOpControllerAction,
 } from "./operation-returns-emit.js";
-import { PAGE_CALL_ARGS, PAGE_WITH_CLAUSES, pagingElseArm } from "./page-param.js";
+import {
+  PAGE_CALL_ARGS,
+  PAGE_PARAM_HELPER,
+  PAGE_WITH_CLAUSES,
+  pagingElseArm,
+} from "./page-param.js";
 import {
   renderPathIdCastPlug,
   renderRequiredParamsPlug,
@@ -242,7 +247,7 @@ export function emitVanillaApiControllers(
           ctx,
           isVanillaDocAgg(agg, ctx, sys),
           isAbstractBase(agg),
-          isAbstractBase(agg) ? baseReaderShape(agg, ctx, sys) : undefined,
+          sys,
         );
     out.set(controllerPath, controllerContent);
     sourcemap?.file(controllerPath, controllerContent, agg.origin, `${ctx.name}.${agg.name}`);
@@ -251,8 +256,12 @@ export function emitVanillaApiControllers(
     // `/:id` show route — Phoenix matches in registration order, so a literal
     // `/<find>` segment has to come first or `:id` would swallow it.
     const allEntry = derivedOps.find((o) => isAllFind(o));
+    // An abstract base's polymorphic read is routed only where it bypasses no
+    // concrete's list gate or field mask (`routesPolymorphicRead`); its by-id
+    // read only on TPH, where one table owns the ids.
+    const polyRouted = abstract && routesPolymorphicRead(agg, ctx);
     if (allEntry) routes.push(routeOf(allEntry, ":index"));
-    else if (abstract) {
+    else if (polyRouted) {
       // Read-only polymorphic index over the subtype tables — not derived
       // (abstract bases have no derived surface), served here on purpose.
       routes.push({
@@ -265,7 +274,7 @@ export function emitVanillaApiControllers(
     routes.push(...findRoutes(agg, ctx, allOps));
     const getByIdEntry = derivedOps.find((o) => o.kind === "getById");
     if (getByIdEntry) routes.push(routeOf(getByIdEntry, ":show"));
-    else if (abstract) {
+    else if (polyRouted && isTphBase(agg, ctx.aggregates)) {
       routes.push({
         method: "get",
         path: `/${aggsPath}/:id`,
@@ -339,8 +348,7 @@ function renderController(
    *  delete actions, which would call write-seam context fns the read-only base
    *  context never defines). */
   readOnly = false,
-  /** Abstract base only: the shape of its polymorphic reader. */
-  baseReader?: BaseReaderShape,
+  sys?: SystemIR,
 ): string {
   const aggPascal = upperFirst(agg.name);
   const facadeMod = `${appModule}.${ctxName}`;
@@ -372,7 +380,9 @@ function renderController(
   // controller pulls `current_user` off `conn.assigns` (set by the Auth plug,
   // which the validator requires when a principal filter is present) and threads
   // it into the context reads.  Non-principal aggregates stay byte-identical.
-  const principal = readOnly ? !!baseReader?.principal : aggregateUsesPrincipalContextFilter(agg);
+  // An abstract base's polymorphic reader always takes the actor: its reads
+  // hand it to `Repo.prepare_query/3` (base-reader.ts).
+  const principal = readOnly || aggregateUsesPrincipalContextFilter(agg);
   const cuBind = principal ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
   const getActor = principal ? ", current_user" : "";
   // The auto-`findAll` is paged-by-default (M-T2.6): the `index` action parses
@@ -383,7 +393,7 @@ function renderController(
   const listAllFind = listReadFind(
     (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name),
   );
-  const indexPaged = !readOnly && (listAllFind ? !!pagedReturn(listAllFind.returnType) : false);
+  const indexPaged = readOnly || (listAllFind ? !!pagedReturn(listAllFind.returnType) : false);
   // The LIST read threads the actor when its predicate reads the principal — a
   // principal capability filter, or a declared `find all(): X[] where <pred>`
   // reading `currentUser` (`listUsesPrincipal`, shared with the repo + context).
@@ -392,7 +402,11 @@ function renderController(
   // The paging controls are bound by the `with` clauses `PAGE_WITH_CLAUSES`
   // prepends (page-param.ts), so an out-of-range window 422s before the read
   // instead of being clamped into a page the caller never asked for.
-  const pagedListArgs = `${PAGE_CALL_ARGS.join(", ")}, Map.get(params, "sort", "id"), Map.get(params, "dir", "asc")${listPrincipal ? ", current_user" : ""}`;
+  // The polymorphic base reader pages in its one global `id` order — it takes
+  // no `sort`/`dir`.
+  const pagedListArgs = readOnly
+    ? `${PAGE_CALL_ARGS.join(", ")}, current_user`
+    : `${PAGE_CALL_ARGS.join(", ")}, Map.get(params, "sort", "id"), Map.get(params, "dir", "asc")${listPrincipal ? ", current_user" : ""}`;
   // The LIST read's authorization gate — 403 before the query, the same
   // contract `renderFindActions` gives every NAMED find.  `index` is emitted
   // here, outside that loop (the list endpoint has its own paged shape), which
@@ -988,8 +1002,10 @@ ${writeActions}
 ${findActions}
 ${opActions}
 ${canActions}
-${problemVariant}${versionHelper}
+${problemVariant}${versionHelper}${readOnly ? PAGE_PARAM_HELPER : ""}
 ${((): string => {
+  // An abstract base serializes each row as its concrete, tagged `"type"`.
+  if (readOnly) return renderPolymorphicSerialize(appModule, ctxName, agg, ctx, sys);
   // Route A: the document controller roots the SAME wireShape serializer at the
   // rehydrated `%<Agg>.Data{}` embed (`record = row.data`), with `id` off the
   // root row — so containments + value objects project through the shared
@@ -1008,17 +1024,7 @@ ${((): string => {
       })
     : renderWireSerialize(agg, ctx, { contextModule: facadeMod });
   const nested = helpers.length > 0 ? `\n\n${helpers.join("\n\n")}` : "";
-  // A `shape: document` concrete keeps its fields in the `data` embed, so the
-  // base serializer (which reads columns) first flattens that row.
-  const docRows = (baseReader?.concretes ?? [])
-    .filter((c) => c.doc)
-    .map(
-      (c) =>
-        `  defp serialize(%${facadeMod}.${upperFirst(c.agg.name)}{} = row),
-    do: serialize(Map.merge(Map.from_struct(row.data), %{id: row.id, version: row.version}))\n\n`,
-    )
-    .join("");
-  return `${docRows}${serialize}${nested}${refIdsHelper}`;
+  return `${serialize}${nested}${refIdsHelper}`;
 })()}${historyMapper}
 end
 `;

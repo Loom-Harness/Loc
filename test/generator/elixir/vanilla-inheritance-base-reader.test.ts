@@ -3,13 +3,15 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // The abstract base's polymorphic reader (`GET /api/<bases>`) on the plain
-// Ecto/Phoenix backend must apply every read restriction of the concretes it
-// fronts.  It used to read the TPH shared table directly (`Repo.all(Vehicle)`),
-// which carries no `kind` scoping and none of the concretes' capability filters
-// (tenancy, soft-delete) or inline predicates — soft-deleted and other tenants'
-// rows were served.  It also called the façade with an arity the façade did not
-// define, crashed on a paged concrete's envelope, and (TPC) read `record.name`
-// off a `shape: document` concrete's `%{data: …}` row.
+// Ecto/Phoenix backend (base-reader.ts), per the cross-backend contract of
+// #3959: one paged read over the hierarchy in the global `id` order, each row
+// its concrete, tagged `type` on the wire.
+//
+//   - TPH reads the shared table ONCE, from the root's `base_query/0`; the
+//     root's schema hosts every concrete's restrictions kind-guarded, and
+//     `Repo.prepare_query/3` applies them, so the reader spells none.
+//   - TPC merges each concrete's scoped read (its own `base_query/0`); a
+//     `shape: document` concrete's in-app filtered repository stands in.
 // ---------------------------------------------------------------------------
 
 const SYS = (body: string): string => `
@@ -76,44 +78,70 @@ function file(files: Map<string, string>, suffix: string): string {
 }
 
 describe("elixir/vanilla — abstract base reader applies the concretes' read restrictions", () => {
-  it("TPH: delegates to each concrete repository, threading the actor and draining a paged concrete", async () => {
-    const repo = file(await generateSystemFiles(TPH), "/fleet/vehicle_repository.ex");
-    // Never the shared table — that read carries no kind / tenant / soft-delete.
-    expect(repo).not.toContain("Repo.all(");
-    expect(repo).not.toContain("Repo.get(");
-    expect(repo).toContain("def list(current_user \\\\ nil) do");
-    expect(repo).toContain("def find_by_id(id, current_user \\\\ nil) when is_binary(id) do");
-    // The paged concrete is read page by page with the actor; the other plainly.
-    expect(repo).toContain('Api.Fleet.CarRepository.list(page, 500, "id", "asc", current_user)');
-    expect(repo).toContain("Api.Fleet.TruckRepository.list(current_user)");
-    expect(repo).toContain("Api.Fleet.CarRepository.find_by_id(id, current_user)");
-    expect(repo).toContain("Api.Fleet.TruckRepository.find_by_id(id, current_user)");
-    // The envelope is unwrapped, not concatenated as if it were a list.
-    expect(repo).toContain("{:ok, %{items: items, totalPages: total_pages}}");
+  it("TPH: one query over the root's base_query/0, paged in id order, loaded per kind", async () => {
+    const files = await generateSystemFiles(TPH);
+    const repo = file(files, "/fleet/vehicle_repository.ex");
+    expect(repo).toContain('@kinds %{"Car" => Api.Fleet.Car, "Truck" => Api.Fleet.Truck}');
+    expect(repo).toContain(
+      "query = from(record in Api.Fleet.Vehicle.base_query(), where: record.kind in ^Map.keys(@kinds))",
+    );
+    expect(repo).toContain("Repo.aggregate(query, :count, :id, current_user: current_user)");
+    expect(repo).toContain("|> order_by([record], asc: record.id)");
+    expect(repo).toContain("|> Enum.map(&as_concrete/1)");
+    // Never a concrete repository, and never a spelled restriction.
+    expect(repo).not.toContain("CarRepository");
+    expect(repo).not.toMatch(/tenant_id|is_deleted/);
+    // The root's schema hosts each concrete's own restrictions, kind-guarded.
+    const root = file(files, "/fleet/vehicle.ex");
+    expect(root).toContain('record.kind != "Car" or (not record.is_deleted)');
+    expect(root).toContain('record.kind != "Truck" or (not record.is_deleted)');
   });
 
-  it("TPH: the façade and the controller agree with the reader's arity", async () => {
+  it("TPH: the façade, the controller and the router agree with the reader", async () => {
     const files = await generateSystemFiles(TPH);
     const facade = file(files, "/api/fleet.ex");
     expect(facade).toContain(
-      "defdelegate list_vehicles(current_user \\\\ nil), to: Api.Fleet.VehicleRepository, as: :list",
+      "defdelegate list_vehicles(page \\\\ 1, page_size \\\\ 20, current_user \\\\ nil), to: Api.Fleet.VehicleRepository, as: :list",
     );
     expect(facade).toContain(
       "defdelegate get_vehicle(id, current_user \\\\ nil), to: Api.Fleet.VehicleRepository, as: :find_by_id",
     );
     const ctl = file(files, "/controllers/vehicle_controller.ex");
-    expect(ctl).toContain("Fleet.list_vehicles(current_user)");
+    expect(ctl).toContain("Fleet.list_vehicles(page_arg, page_size_arg, current_user)");
     expect(ctl).toContain("Fleet.get_vehicle(id, current_user)");
+    // Each row is its concrete's wire body, tagged.
+    expect(ctl).toContain(
+      'defp serialize(%Api.Fleet.Car{} = record),\n    do: Map.put(serialize_car(record), "type", "Car")',
+    );
+    const router = file(files, "/api_web/router.ex");
+    expect(router).toContain('get "/vehicles", VehicleController, :index');
+    expect(router).toContain('get "/vehicles/:id", VehicleController, :show');
   });
 
-  it("TPC: the same delegation, and a document concrete is flattened before serializing", async () => {
+  it("TPC: merges the concretes' scoped reads; a document concrete's repository stands in", async () => {
     const files = await generateSystemFiles(TPC);
     const repo = file(files, "/fleet/asset_repository.ex");
-    expect(repo).toContain("Api.Fleet.MachineRepository.list(current_user)");
-    expect(repo).toContain("Api.Fleet.RigRepository.list(current_user)");
+    expect(repo).toContain("query = Api.Fleet.Machine.base_query()");
+    expect(repo).toContain("{:ok, rows} = Api.Fleet.RigRepository.list(current_user)");
+    expect(repo).toContain("|> Enum.sort_by(& &1.id)");
     const ctl = file(files, "/controllers/asset_controller.ex");
-    expect(ctl).toContain("defp serialize(%Api.Fleet.Rig{} = row)");
-    expect(ctl).toContain("Map.from_struct(row.data)");
+    expect(ctl).toContain(
+      'defp serialize(%Api.Fleet.Rig{} = record),\n    do: Map.put(serialize_rig(record), "type", "Rig")',
+    );
+    expect(ctl).toContain("record = row.data");
+    // TPC ids are per concrete: the list is routed, a by-id read is not.
+    const router = file(files, "/api_web/router.ex");
+    expect(router).toContain('get "/assets", AssetController, :index');
+    expect(router).not.toContain('get "/assets/:id"');
+  });
+
+  it("does not route the base read past a concrete's list gate", async () => {
+    const gated = TPH.replace(
+      "repository Trucks for Truck { }",
+      'repository Trucks for Truck { }\n      policy { read Truck requires currentUser.tenantId == "root" }',
+    );
+    const router = file(await generateSystemFiles(gated), "/api_web/router.ex");
+    expect(router).not.toContain('get "/vehicles"');
   });
 
   it("a retrieval over a TPH concrete carries the kind conjunct", async () => {

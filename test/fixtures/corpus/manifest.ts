@@ -147,11 +147,11 @@ const PROJECTION_VO_ROW: readonly Backend[] = ["node", "java", "vanilla"];
 const PART_REBUILD: readonly Backend[] = ALL.filter((b) => b !== "dotnet");
 
 // #3959: the polymorphic base read (`GET /<bases>/{id}`, a projection `from
-// <Base>`) passes on node/drizzle, python/SQLAlchemy and .NET EF.  The other legs boot the case as a
+// <Base>`) passes on node/drizzle, python/SQLAlchemy, .NET EF and elixir/Ecto.  The other legs boot the case as a
 // tracked expected failure (`BEHAVIOURAL_XFAIL`), each fixed by its own
 // sub-issue of #3954 (#3960–#3965); each fix adds its backend here, and the
 // row becomes ALL when the last one lands.
-const BASE_READS: readonly Backend[] = ["node", "python", "dotnet"];
+const BASE_READS: readonly Backend[] = ["node", "python", "dotnet", "vanilla"];
 
 export interface CorpusFeature {
   /** Matches `<id>.ddd` in this directory. */
