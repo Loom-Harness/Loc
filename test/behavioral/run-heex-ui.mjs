@@ -198,6 +198,41 @@ async function waitForHealth(base, exited, timeoutMs = 180_000) {
   }
 }
 
+/** The Playwright Chromium download, retried, then its OS deps once: on CI
+ *  runners the download sometimes stalls until a timeout kills it, and a fresh
+ *  attempt succeeds.  The twin of `test/e2e/support/playwright-install.ts` (a
+ *  `.mjs` runner cannot import it), which carries the full rationale. */
+function installChromium(cwd) {
+  const bounded = (cmd, s) =>
+    `if command -v timeout >/dev/null 2>&1; then timeout -k 15 ${s} ${cmd}; else ${cmd}; fi`;
+  const run = (cmd, s) =>
+    execFileSync("sh", ["-c", bounded(cmd, s)], { cwd, stdio: "pipe", timeout: (s + 30) * 1000 });
+  const causeOf = (e) => {
+    const tail = e?.stderr ? String(e.stderr).trim().split("\n").pop() : "";
+    return String(e?.message ?? e).split("\n")[0] + (tail ? ` — ${tail}` : "");
+  };
+  const backoffMs = [5_000, 20_000];
+  const causes = [];
+  for (let attempt = 1; attempt <= backoffMs.length + 1; attempt++) {
+    try {
+      run("npx playwright install chromium", 240);
+      try {
+        run("npx playwright install-deps chromium", 180);
+      } catch (e) {
+        log(`    playwright install-deps failed (${causeOf(e)}); continuing with the host's libraries`);
+      }
+      return;
+    } catch (e) {
+      const cause = causeOf(e);
+      causes.push(`attempt ${attempt}: ${cause}`);
+      if (attempt > backoffMs.length) break;
+      log(`    playwright install failed (${cause}); retrying in ${backoffMs[attempt - 1] / 1000}s`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, backoffMs[attempt - 1]);
+    }
+  }
+  throw new Error(`playwright install failed ${causes.length} times:\n${causes.join("\n")}`);
+}
+
 async function main() {
   mkdirSync(WORK, { recursive: true });
   const genDir = mkdtempSync(join(tmpdir(), "loom-heex-ui-"));
@@ -303,7 +338,7 @@ async function main() {
         execFileSync(npm, ["install", "--no-audit", "--no-fund", "--no-save", `@playwright/test@${pinned}`], { cwd: e2eDir, stdio: "pipe", timeout: 600_000 });
       }
     } else {
-      execFileSync(npx, ["playwright", "install", "--with-deps", "chromium"], { cwd: e2eDir, stdio: "pipe", timeout: 600_000 });
+      installChromium(e2eDir);
     }
     const reportFile = join(WORK, "report.json");
     rmSync(reportFile, { force: true });
