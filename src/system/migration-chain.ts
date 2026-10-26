@@ -1,4 +1,5 @@
 import type { MigrationStep, MigrationsIR, SchemaSnapshot } from "../ir/types/migrations-ir.js";
+import { hasNonTransactionalSteps } from "../ir/util/migration-steps.js";
 import { snake, upperFirst } from "../util/naming.js";
 import type { MigrationDelta } from "./migrations-builder.js";
 import { canonicalSnapshot, memorySnapshotStore, type SnapshotStore } from "./snapshot.js";
@@ -37,6 +38,11 @@ export const BASE_VERSION = "20260101000000";
  *  one day in the `YYYYMMDDHHMMSS` shape, so a reserved version still reads
  *  as a timestamp. */
 export const INITIAL_RESERVATION = 1_000_000n;
+
+/** Version numbers reserved after a generation that has a non-transactional
+ *  unit (a `CREATE INDEX CONCURRENTLY`, `src/ir/util/migration-steps.ts`):
+ *  the unit's Ecto migration file is numbered `version + 1`. */
+export const NON_TRANSACTIONAL_RESERVATION = 1n;
 
 const CHAIN_FORMAT = 1;
 
@@ -218,6 +224,15 @@ function linkEntries(entries: readonly ChainEntry[]): Map<string | null, ChainEn
         `${entryFileName(e)} is numbered ${e.version}, not above ${entryFileName(parent)}.`,
       );
     }
+    if (
+      parent !== null &&
+      hasNonTransactionalSteps(parent.steps) &&
+      BigInt(parent.version) + NON_TRANSACTIONAL_RESERVATION >= BigInt(e.version)
+    ) {
+      throw new MigrationChainError(
+        `${entryFileName(e)} is numbered ${e.version}, but ${entryFileName(parent)} builds an index concurrently and reserves version ${BigInt(parent.version) + NON_TRANSACTIONAL_RESERVATION} for that step; number it above that version.`,
+      );
+    }
     (children.get(e.parent) ?? children.set(e.parent, []).get(e.parent)!).push(e);
   }
   return children;
@@ -336,7 +351,7 @@ export function recordGeneration(
         `module ${d.module} already has a migration named ${name}; choose another name.`,
       );
     }
-    const version = nextVersion(prev?.version ?? null, prevInitial, opts.now);
+    const version = nextVersion(prev, prevInitial, opts.now);
     const entry: ChainEntry = {
       format: CHAIN_FORMAT,
       version,
@@ -368,8 +383,22 @@ function isInitialEntry(entries: readonly ChainEntry[], e: ChainEntry): boolean 
   return entries.find((x) => x.module === e.module) === e;
 }
 
-function nextVersion(prev: string | null, prevInitial: boolean, now: string): string {
-  const floor = prev === null ? 0n : BigInt(prev) + (prevInitial ? INITIAL_RESERVATION : 1n);
+/** The lowest version an entry recorded after `prev` may take.  An initial
+ *  reserves {@link INITIAL_RESERVATION} versions; a generation with a
+ *  non-transactional unit reserves one, `version + 1`, which the Ecto emitter
+ *  numbers that unit's migration file with (Ecto orders and records files by
+ *  an integer version, and a unit needs its own). */
+function versionFloor(prev: ChainEntry, prevInitial: boolean): bigint {
+  const gap = prevInitial
+    ? INITIAL_RESERVATION
+    : hasNonTransactionalSteps(prev.steps)
+      ? NON_TRANSACTIONAL_RESERVATION + 1n
+      : 1n;
+  return BigInt(prev.version) + gap;
+}
+
+function nextVersion(prev: ChainEntry | null, prevInitial: boolean, now: string): string {
+  const floor = prev === null ? 0n : versionFloor(prev, prevInitial);
   const clock = BigInt(now);
   return String(clock > floor ? clock : floor);
 }

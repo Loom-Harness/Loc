@@ -8,6 +8,7 @@ import type {
   SchemaSnapshot,
   TableShape,
 } from "../../../ir/types/migrations-ir.js";
+import { splitTransactionalSteps } from "../../../ir/util/migration-steps.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
@@ -340,7 +341,12 @@ export function dapperMigrationSlug(m: MigrationsIR): string {
 const verbatim = (s: string): string => s.replace(/"/g, '""');
 
 /** One migration class: its history id and its single SQL statements. */
-function renderDapperMigrationClass(ns: string, id: string, statements: readonly string[]): string {
+function renderDapperMigrationClass(
+  ns: string,
+  id: string,
+  statements: readonly string[],
+  inTransaction = true,
+): string {
   return (
     lines(
       "// Auto-generated.  A versioned Dapper migration (persistence: dapper): the",
@@ -352,6 +358,13 @@ function renderDapperMigrationClass(ns: string, id: string, statements: readonly
       "{",
       `    public override string Id => "${id}";`,
       "",
+      ...(inTransaction
+        ? []
+        : [
+            "    // CREATE INDEX CONCURRENTLY: Postgres refuses it inside a transaction block.",
+            "    public override bool InTransaction => false;",
+            "",
+          ]),
       "    public override global::System.Collections.Generic.IReadOnlyList<string> Statements { get; } =",
       "        new string[]",
       "        {",
@@ -373,9 +386,21 @@ export function emitDapperMigrations(
 ): void {
   for (const m of migrations) {
     if (m.steps.length === 0) continue;
-    const steps = dapperMigrationSteps(m);
+    const { transactional, nonTransactional } = splitTransactionalSteps(dapperMigrationSteps(m));
     const id = dapperMigrationSlug(m);
-    out.set(`Migrations/${id}.cs`, renderDapperMigrationClass(ns, id, dapperStatements(steps)));
+    out.set(
+      `Migrations/${id}.cs`,
+      renderDapperMigrationClass(ns, id, dapperStatements(transactional)),
+    );
+    // The non-transactional unit (`CREATE INDEX CONCURRENTLY`): its own
+    // history id, `<id>_Concurrent`, which sorts right after `<id>`.
+    if (nonTransactional.length > 0) {
+      const cid = `${id}_Concurrent`;
+      out.set(
+        `Migrations/${cid}.cs`,
+        renderDapperMigrationClass(ns, cid, dapperStatements(nonTransactional), false),
+      );
+    }
   }
 }
 
@@ -403,7 +428,8 @@ export function renderDapperMigrationRunner(ns: string): string {
       "// Auto-generated.  Dapper migration runner (persistence: dapper).",
       "//",
       "// Applies the versioned migrations under Migrations/ (one LoomMigration per",
-      "// MigrationsIR generation) in id order, each in its own transaction, and",
+      "// MigrationsIR generation) in id order, each in its own transaction (a",
+      "// CREATE INDEX CONCURRENTLY unit, InTransaction = false, without one), and",
       "// records each id in public.__loom_migrations.  Idempotent: an id already in",
       "// the table is skipped, so every boot after the first is a no-op.  A",
       "// session advisory lock serialises concurrent boots (replicas, restarts).",
@@ -426,6 +452,12 @@ export function renderDapperMigrationRunner(ns: string): string {
       "",
       "    /// <summary>Single SQL statements, run in order inside one transaction.</summary>",
       "    public abstract IReadOnlyList<string> Statements { get; }",
+      "",
+      "    /// <summary>False for a generation's CREATE INDEX CONCURRENTLY unit, which Postgres",
+      "    /// refuses inside a transaction block: its statements run one by one without one,",
+      "    /// and its id is recorded after the last.  They are written to be re-runnable",
+      "    /// (DROP INDEX CONCURRENTLY IF EXISTS first), so a failed unit is retried whole.</summary>",
+      "    public virtual bool InTransaction => true;",
       "}",
       "",
       "public static class DbSchema",
@@ -464,14 +496,26 @@ export function renderDapperMigrationRunner(ns: string): string {
       "            {",
       "                try",
       "                {",
-      "                    await using var tx = await conn.BeginTransactionAsync(cancellationToken);",
-      "                    foreach (var statement in migration.Statements)",
+      "                    if (!migration.InTransaction)",
       "                    {",
-      "                        await conn.ExecuteAsync(new CommandDefinition(statement, transaction: tx, cancellationToken: cancellationToken));",
+      "                        foreach (var statement in migration.Statements)",
+      "                        {",
+      "                            await conn.ExecuteAsync(new CommandDefinition(statement, cancellationToken: cancellationToken));",
+      "                        }",
+      "                        await conn.ExecuteAsync(new CommandDefinition(",
+      '                            "INSERT INTO public.__loom_migrations (tag) VALUES (@tag)", new { tag = migration.Id }, cancellationToken: cancellationToken));',
       "                    }",
-      "                    await conn.ExecuteAsync(new CommandDefinition(",
-      '                        "INSERT INTO public.__loom_migrations (tag) VALUES (@tag)", new { tag = migration.Id }, tx, cancellationToken: cancellationToken));',
-      "                    await tx.CommitAsync(cancellationToken);",
+      "                    else",
+      "                    {",
+      "                        await using var tx = await conn.BeginTransactionAsync(cancellationToken);",
+      "                        foreach (var statement in migration.Statements)",
+      "                        {",
+      "                            await conn.ExecuteAsync(new CommandDefinition(statement, transaction: tx, cancellationToken: cancellationToken));",
+      "                        }",
+      "                        await conn.ExecuteAsync(new CommandDefinition(",
+      '                            "INSERT INTO public.__loom_migrations (tag) VALUES (@tag)", new { tag = migration.Id }, tx, cancellationToken: cancellationToken));',
+      "                        await tx.CommitAsync(cancellationToken);",
+      "                    }",
       "                }",
       "                catch (Exception migrationError)",
       "                {",

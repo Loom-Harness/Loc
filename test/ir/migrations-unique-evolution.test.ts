@@ -135,9 +135,23 @@ describe("unique index × softDeletable flip — every backend's migration rende
     emitJavaMigrations([mig], outputs.flyway!);
     emitPythonMigrations([mig], outputs.alembic!);
     emitEctoMigrations("bank", [mig], "Bank", outputs.ecto!);
+    // The rebuilt index is created CONCURRENTLY in the generation's second,
+    // non-transactional unit, so read each backend's files in apply order —
+    // Flyway's by numeric version (`V<n>.1` before `V<n>.1.1`), the rest by name.
+    const flyway = (p: string) => /V([\d.]+)__/.exec(p)![1]!.split(".").map(Number);
+    const byFlyway = (a: string, b: string) => {
+      const [x, y] = [flyway(a), flyway(b)];
+      for (let i = 0; i < Math.max(x.length, y.length); i++) {
+        const d = (x[i] ?? -1) - (y[i] ?? -1);
+        if (d !== 0) return d;
+      }
+      return 0;
+    };
     const out: Record<string, string> = {};
     for (const [backend, files] of Object.entries(outputs)) {
-      out[backend] = [...files.values()].find((c) => c.includes("accounts_number_uq")) ?? "";
+      const paths = [...files.keys()].filter((p) => !/db\/migrate\.ts$|\.json$/.test(p));
+      paths.sort(backend === "flyway" ? byFlyway : undefined);
+      out[backend] = paths.map((p) => files.get(p)!).join("\n");
     }
     return out;
   };
@@ -156,7 +170,7 @@ describe("unique index × softDeletable flip — every backend's migration rende
       } else {
         const drop = file.search(/DROP INDEX \S*accounts_number_uq/);
         const create = file.search(
-          /CREATE UNIQUE INDEX \S*accounts_number_uq\S* ON \S+ \(\S*number\S*\) WHERE is_deleted = false/,
+          /CREATE UNIQUE INDEX CONCURRENTLY \S*accounts_number_uq\S* ON \S+ \(\S*number\S*\) WHERE is_deleted = false/,
         );
         expect(drop, `${backend}: drop`).toBeGreaterThan(-1);
         expect(create, `${backend}: partial create`).toBeGreaterThan(drop);
@@ -178,7 +192,7 @@ describe("unique index × softDeletable flip — every backend's migration rende
       } else {
         const drop = file.search(/DROP INDEX \S*accounts_number_uq/);
         const create = file.search(
-          /CREATE UNIQUE INDEX \S*accounts_number_uq\S* ON \S+ \(\S*number\S*\);/,
+          /CREATE UNIQUE INDEX CONCURRENTLY \S*accounts_number_uq\S* ON \S+ \(\S*number\S*\);/,
         );
         expect(drop, `${backend}: drop`).toBeGreaterThan(-1);
         expect(create, `${backend}: full create`).toBeGreaterThan(drop);

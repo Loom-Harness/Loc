@@ -49,7 +49,9 @@ export function renderPgStep(step: MigrationStep): string {
     case "addIndex":
       // The index carries no schema of its own; the step's `schema` is the
       // owning table's schema (indexes live in the table's schema).
-      return renderAddIndex(step.index, step.schema);
+      return step.concurrently
+        ? renderAddIndexConcurrently(step.index, step.schema)
+        : renderAddIndex(step.index, step.schema);
     case "dropIndex":
       return `DROP INDEX ${qualified(step.schema, step.name)};`;
     case "addCheck":
@@ -74,6 +76,12 @@ export function renderPgStep(step: MigrationStep): string {
       return step.sql.trimEnd().endsWith(";") ? step.sql.trimEnd() : `${step.sql.trimEnd()};`;
   }
 }
+
+/** First line of a migration SQL file the node and python boot runners must
+ *  apply outside a transaction — a generation's non-transactional unit
+ *  (`splitTransactionalSteps`).  A SQL comment, so the file stays plain SQL
+ *  to every other reader. */
+export const NO_TRANSACTION_MARKER = "-- loom:no-transaction";
 
 /** Split one rendered migration chunk (a `renderPgStep` result, or several
  *  joined) into single statements, each `;`-terminated.  For the runners that
@@ -256,8 +264,29 @@ function renderFkConstraint(fk: FKShape, schema?: string): string {
   );
 }
 
-function renderAddIndex(idx: IndexShape, schema?: string): string {
+/** An index added to a table that already holds rows: built `CONCURRENTLY`, so
+ *  reads and writes keep flowing while it builds (a plain `CREATE INDEX` holds
+ *  a SHARE lock that blocks every INSERT/UPDATE/DELETE until it finishes).
+ *
+ *  Two statements, never one string: Postgres refuses `CONCURRENTLY` inside a
+ *  transaction block, and a multi-statement query is an implicit one.  The
+ *  leading `DROP INDEX CONCURRENTLY IF EXISTS` is the recovery a failed build
+ *  needs — a concurrent build that fails (a duplicate key under a unique index,
+ *  a cancelled deploy) leaves an INVALID index of that name behind, which
+ *  enforces nothing for reads yet still blocks a plain retry with "already
+ *  exists".  The step only exists because the baseline has no index of that
+ *  name, so whatever the drop removes is such a leftover.  Callers run the
+ *  pair outside a transaction (`splitTransactionalSteps`). */
+function renderAddIndexConcurrently(idx: IndexShape, schema?: string): string {
+  return (
+    `DROP INDEX CONCURRENTLY IF EXISTS ${qualified(schema, idx.name)};\n` +
+    renderAddIndex(idx, schema, true)
+  );
+}
+
+function renderAddIndex(idx: IndexShape, schema?: string, concurrently = false): string {
   const unique = idx.unique ? "UNIQUE " : "";
+  const conc = concurrently ? "CONCURRENTLY " : "";
   // Partial index (`WHERE …`) — set on a `unique` index derived for a
   // softDeletable aggregate so re-create after soft-delete is allowed.
   const where = idx.predicate ? ` WHERE ${idx.predicate}` : "";
@@ -270,7 +299,7 @@ function renderAddIndex(idx: IndexShape, schema?: string): string {
     })
     .join(", ");
   return (
-    `CREATE ${unique}INDEX ${ident(idx.name)} ON ${qualified(schema, idx.table)} ` +
+    `CREATE ${unique}INDEX ${conc}${ident(idx.name)} ON ${qualified(schema, idx.table)} ` +
     `(${cols})${where};`
   );
 }

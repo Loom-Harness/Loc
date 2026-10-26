@@ -6,6 +6,7 @@ import type {
   MigrationsIR,
   TableShape,
 } from "../../ir/types/migrations-ir.js";
+import { splitTransactionalSteps } from "../../ir/util/migration-steps.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { collapseVoGroups, collapseVoSteps } from "../_persistence/vo-json-columns.js";
 import {
@@ -28,7 +29,13 @@ import {
 //     parent migrations precede their parts in Ecto's apply order.
 //     Filename: `priv/repo/migrations/<ts>_create_<table>.exs`.
 //   - Subsequent migrations: one .exs file containing every step, named
-//     `<MigrationsIR.version>_<snake(MigrationsIR.name)>.exs`.
+//     `<MigrationsIR.version>_<snake(MigrationsIR.name)>.exs`.  A
+//     generation's non-transactional unit (`CREATE INDEX CONCURRENTLY`,
+//     `splitTransactionalSteps`) is a second file at `version + 1` — a
+//     version the migration chain reserves for it — with
+//     `@disable_ddl_transaction` and `@disable_migration_lock` set, so Ecto
+//     runs it outside a transaction and records it in `schema_migrations`
+//     on its own.
 //
 // Stays in Ecto DSL (not raw SQL) for DDL so `ecto.migrate` keeps working
 // unchanged; the shared `src/generator/sql-pg.ts` helper renders DDL for the
@@ -45,23 +52,27 @@ const BASE_TIMESTAMP = 20260101000000;
  *  `gen_random_uuid()`) — valid bare in raw Postgres DDL (`sql-pg.ts`) but NOT
  *  in Ecto migration DSL, where a SQL function call must be wrapped in
  *  `fragment("…")` (a bare `default: now()` is an undefined-function compile
- *  error).  A plain literal (number/boolean, e.g. `0`) stays bare. */
+ *  error).  A plain number (`0`, `19.99`) means the same thing bare in both
+ *  languages, and a boolean does once lower-cased (`TRUE`, as the backfill
+ *  renderer spells it, is a module alias in Elixir); everything else is SQL
+ *  text and goes through `fragment/1`:
+ *
+ *   - a function call (`now()`, `gen_random_uuid()`);
+ *   - a string literal (`'pending'`) — single quotes are a CHARLIST in
+ *     Elixir, so a bare `default: 'pending'` would put a Postgres integer
+ *     array (`{112,101,110,...}`) into the DDL;
+ *   - an expression (`(now() + make_interval(days => 3))`), which a constant
+ *     backfill lays down as the add-column default.
+ *
+ *  `fragment/1` passes the SQL through verbatim — the doubled-quote escaping
+ *  (`'it''s'`) `sqlStr` produced included — so the DEFAULT Phoenix writes is
+ *  the one the four SQL backends write. */
 function ectoDefaultClause(def: string | undefined): string {
   if (def === undefined) return "";
   const d = def.trim();
-  // A SQL function-call default (`now()`, `gen_random_uuid()`) → fragment.
-  const isSqlExpr = /^[a-z_][a-z0-9_]*\s*\(.*\)$/i.test(d);
-  // A SQL *string* literal (`'pending'`) → fragment too.  Single quotes mean
-  // something else entirely in Elixir: a bare `default: 'pending'` is a
-  // CHARLIST, not a string, so Ecto would emit a Postgres integer array
-  // (`{112,101,110,...}`) into the DDL.  Passing the SQL text straight through
-  // `fragment/1` also keeps the doubled-quote escaping (`'it''s'`) that
-  // `sqlStr` produced byte-for-byte, so the DEFAULT Phoenix writes is the one
-  // the four SQL backends write (M-T2.16 / #2864 G1).
-  const isSqlString = /^'(?:[^']|'')*'$/.test(d);
-  return isSqlExpr || isSqlString
-    ? `, default: fragment(${JSON.stringify(def)})`
-    : `, default: ${def}`;
+  if (/^-?\d+(\.\d+)?$/.test(d)) return `, default: ${def}`;
+  if (/^(true|false)$/i.test(d)) return `, default: ${d.toLowerCase()}`;
+  return `, default: fragment(${JSON.stringify(def)})`;
 }
 
 /** Ecto option string for a table / index / reference that lives in a
@@ -532,20 +543,42 @@ function emitDelta(m: MigrationsIR, appModule: string, out: Map<string, string>)
   // which Ecto has no columns to constrain — would otherwise land an `.exs`
   // with an empty `change/0`: a migration version recorded in
   // `schema_migrations` that does nothing.  Emit no file instead.
-  if (collapseVoSteps(m, "snake").flatMap((s) => renderEctoStep(s)).length === 0) return;
-  const path = `priv/repo/migrations/${m.version}_${snake(m.module)}_${snake(m.name)}.exs`;
-  out.set(path, renderDeltaFile(m, appModule));
-}
-
-function renderDeltaFile(m: MigrationsIR, appModule: string): string {
+  const { transactional, nonTransactional } = splitTransactionalSteps(collapseVoSteps(m, "snake"));
+  const stem = `${snake(m.module)}_${snake(m.name)}`;
   // Ecto names every migration module app-wide, and a migration name is only
   // unique within its module's chain — so the module is part of the name.
   const migrationName = `${upperFirst(m.module)}${upperFirst(m.name)}`;
-  const stepLines = collapseVoSteps(m, "snake").flatMap((s) => renderEctoStep(s));
+  const mainLines = transactional.flatMap((s) => renderEctoStep(s));
+  if (mainLines.length > 0) {
+    out.set(
+      `priv/repo/migrations/${m.version}_${stem}.exs`,
+      renderDeltaFile(appModule, migrationName, mainLines, false),
+    );
+  }
+  const concurrentLines = nonTransactional.flatMap((s) => renderEctoStep(s));
+  if (concurrentLines.length > 0) {
+    out.set(
+      `priv/repo/migrations/${BigInt(m.version) + 1n}_${stem}_concurrent.exs`,
+      renderDeltaFile(appModule, `${migrationName}Concurrent`, concurrentLines, true),
+    );
+  }
+}
+
+function renderDeltaFile(
+  appModule: string,
+  migrationName: string,
+  stepLines: readonly string[],
+  nonTransactional: boolean,
+): string {
+  // `CREATE INDEX CONCURRENTLY` cannot run inside a transaction, and Ecto's
+  // migration lock is itself a transaction around the migration — both off.
+  const attrs = nonTransactional
+    ? "  @disable_ddl_transaction true\n  @disable_migration_lock true\n\n"
+    : "";
   return `defmodule ${appModule}.Repo.Migrations.${migrationName} do
   use Ecto.Migration
 
-  def change do
+${attrs}  def change do
 ${stepLines.map((l) => "    " + l).join("\n")}
   end
 end
@@ -623,8 +656,15 @@ export function renderEctoStep(step: MigrationStep): string[] {
       return [`execute(${elixirStr(renderAlterColumnDefaultSql(step))})`];
     case "addIndex": {
       const cols = ectoIndexColumns(step.index);
+      const opts = ectoIndexOpts(step.index, prefixOpt(step.schema));
+      if (!step.concurrently) return [`create index(:${step.index.table}, [${cols}]${opts})`];
+      // The same pair the SQL backends render (`renderAddIndexConcurrently`):
+      // drop a leftover INVALID index a failed concurrent build left behind,
+      // then build.  The drop names the index exactly as the create does —
+      // same table, columns and options, so Ecto derives the same name.
       return [
-        `create index(:${step.index.table}, [${cols}]${ectoIndexOpts(step.index, prefixOpt(step.schema))})`,
+        `drop_if_exists index(:${step.index.table}, [${cols}]${opts}, concurrently: true)`,
+        `create index(:${step.index.table}, [${cols}]${opts}, concurrently: true)`,
       ];
     }
     case "dropIndex":
