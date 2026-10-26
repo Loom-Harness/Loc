@@ -59,8 +59,18 @@ system FieldOps {
         technicianUserId: guid
         title: string
         done: bool
+        // An operation BODY that reads the principal — the aggregate method
+        // takes it as a parameter, which the command handler must pass.
+        operation claim() {
+          technicianUserId := currentUser.id
+        }
       }
-      repository WorkOrders for WorkOrder { }
+      repository WorkOrders for WorkOrder {
+        // The same predicate on a REPOSITORY find, whose query handler threads
+        // the principal into the repository call.  Two rows share the title
+        // "Boiler", so only the principal half makes the read unique.
+        find mineTitled(t: string): WorkOrder? where technicianUserId == currentUser.id && title == t
+      }
       // THE SUBJECT — an author-written predicate over the principal.
       criterion WorkOrdersMine of WorkOrder = this.technicianUserId == currentUser.id
       queryHandler ListWorkOrdersMine(): WorkOrder[] {
@@ -120,9 +130,15 @@ system FieldOps {
     expect(api.work.listWorkOrdersMineByState(true).first().title).toBe("Pump")
     // The principal-free find beside it sees BOTH "Boiler" rows.
     expect(api.work.listWorkOrdersByTitle("Boiler").count()).toBe(2)
+    // The repository find reads the same principal.
+    expect(api.work_orders.mineTitled({ t: "Boiler" }).technicianUserId).toBe("00000000-0000-0000-0000-000000000000")
+    expect(api.work_orders.mineTitled({ t: "Pump" }).done).toBe(true)
 
-    // Hand the other technician's row to the caller: the filter follows.
-    api.work_orders.update(other, { technicianUserId: "00000000-0000-0000-0000-000000000000", title: "Boiler", done: false })
+    // The caller claims the other technician's row: the operation body writes
+    // the principal's id, and every filter follows.
+    api.work_orders.claim(other)
+    expect(api.work_orders.getById(other).technicianUserId).toBe("00000000-0000-0000-0000-000000000000")
+    expect(api.work.listWorkOrdersMine().count()).toBe(3)
     expect(api.work.listWorkOrdersMine().count()).toBe(3)
     expect(api.work_orders.getById(other).title).toBe("Boiler")
     expect(api.work_orders.all().total).toBe(3)

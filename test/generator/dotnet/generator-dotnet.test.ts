@@ -1272,19 +1272,9 @@ describe(".NET generator", () => {
       expect(keys).toContain("Auth/UserMiddleware.cs");
     });
 
-    // The frontend `auth: ui` guard probes GET /auth/me for the verified
-    // session; .NET maps it (not bypassed → UserMiddleware resolves the
-    // principal first).  Parity with the Hono backend.
-    it("maps GET /auth/me when `auth: required`, and not otherwise", async () => {
-      const program = (await emitForAuthSystem(SRC_AUTH_REQUIRED)).get("Program.cs")!;
-      // The body is the DECLARED `user { … }` shape, by declared name, and
-      // nothing else (#2548) — serialising the record itself also shipped its
-      // derived tenancy members, which no other backend sends.
-      expect(program.replace(/\s+/g, " ")).toContain(
-        'app.MapGet("/api/auth/me", (ICurrentUserAccessor accessor) => ' +
-          'Results.Json( new Dictionary<string, object?> { ["id"] = accessor.User.Id, ' +
-          '["role"] = accessor.User.Role, })).ExcludeFromDescription();',
-      );
+    // The declared-shape body is pinned by every booted leg's anonymous
+    // `/api/auth/me` probe; no runtime tier requests it on an auth-less system.
+    it("does not map GET /auth/me without `auth: required`", async () => {
       const noAuth = (await emitForAuthSystem(SRC_NO_AUTH)).get("Program.cs")!;
       expect(noAuth).not.toContain("/api/auth/me");
     });
@@ -1479,19 +1469,6 @@ describe(".NET generator", () => {
       expect(mw).toMatch(/"\/swagger"/);
     });
 
-    it("aggregate operation referencing currentUser gains a User parameter and the handler injects ICurrentUserAccessor", async () => {
-      const files = await emitForAuthSystem(SRC_AUTH_REQUIRED);
-      const order = files.get("Domain/Orders/Order.cs")!;
-      // Operation method takes the User param.
-      expect(order).toMatch(/public void Cancel\(User currentUser\)/);
-      // Body references currentUser.Role pascal-cased.
-      expect(order).toMatch(/currentUser\.Role/);
-      // Handler injects accessor and passes _currentUser.User.
-      const handler = files.get("Application/Orders/Commands/CancelHandler.cs")!;
-      expect(handler).toMatch(/ICurrentUserAccessor _currentUser/);
-      expect(handler).toMatch(/aggregate\.Cancel\(_currentUser\.User\)/);
-    });
-
     it("auth convergence: principal rides the ambient RequestContext (one source of truth)", async () => {
       // The principal is no longer stashed on HttpContext.Items — it is a
       // slice of the ambient RequestContext.  UserMiddleware writes the
@@ -1551,58 +1528,6 @@ describe(".NET generator", () => {
       const rc = files.get("Domain/Common/RequestContext.cs")!;
       expect(rc).toMatch(/public User\? CurrentUser/);
       expect(rc).toMatch(/public ILogger\? Logger/);
-    });
-
-    // -----------------------------------------------------------------------
-    // currentUser inside find filters
-    // -----------------------------------------------------------------------
-
-    const SRC_FILTER_AUTH = `
-      system Acme {
-        user {
-          id: string
-          customerId: string
-        }
-        subdomain Sales {
-          context Orders {
-            aggregate Order {
-              customerId: string
-              status: string
-            }
-            repository Orders for Order {
-              find mine(): Order? where customerId == currentUser.customerId
-            }
-          }
-        }
-        deployable api {
-          platform: dotnet
-          contexts: [Orders]
-          port: 8080
-          auth: required
-        }
-      }
-    `;
-
-    it("repository find filter on currentUser threads User through interface + impl", async () => {
-      const files = await emitForAuthSystem(SRC_FILTER_AUTH);
-      const iface = files.get("Domain/Orders/IOrderRepository.cs")!;
-      const impl = files.get("Infrastructure/Repositories/OrderRepository.cs")!;
-      // Both the interface and impl gain a User-typed parameter on the find.
-      expect(iface).toMatch(/Mine\(User currentUser/);
-      expect(impl).toMatch(/Mine\(User currentUser/);
-      // The Auth namespace is pulled in.
-      expect(iface).toMatch(/using Api\.Auth;/);
-      expect(impl).toMatch(/using Api\.Auth;/);
-      // The LINQ predicate closes over currentUser by referencing
-      // its Pascal-cased CustomerId property.
-      expect(impl).toMatch(/x\.CustomerId == currentUser\.CustomerId/);
-    });
-
-    it("find query handler injects ICurrentUserAccessor and passes _currentUser.User", async () => {
-      const files = await emitForAuthSystem(SRC_FILTER_AUTH);
-      const handler = files.get("Application/Orders/Queries/MineHandler.cs")!;
-      expect(handler).toMatch(/ICurrentUserAccessor _currentUser/);
-      expect(handler).toMatch(/_repo\.Mine\(_currentUser\.User, cancellationToken\)/);
     });
 
     // -----------------------------------------------------------------------
