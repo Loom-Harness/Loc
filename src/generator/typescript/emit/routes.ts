@@ -624,13 +624,18 @@ export function renderHttpIndex(
       '    return c.text(body, 200, { "Content-Type": registry.contentType });',
       "  });",
       ...testResetRoute,
+      // Explicit routes mount AHEAD of the aggregate routers: Hono answers with
+      // the first registered match, so `GET /api/orders/{id}` would otherwise
+      // take `GET /api/orders/order_by_code` (`id = "order_by_code"`, a 422)
+      // before the routed handler declared for that exact path.  The routers
+      // of every other backend rank the literal segment first on their own.
+      ...explicitRouterMounts,
       ...aggregateRoutes,
       ...baseRoutes,
       workflowMount,
       realtimeMount,
       projectionMount,
       queryProjectionMount,
-      ...explicitRouterMounts,
       fileRoutes,
       // ── framework-originated faults ──────────────────────────────────
       // Every sub-router carries its own `app.onError` mapping DOMAIN errors

@@ -28,7 +28,6 @@ import {
   type RoutedHandlerTarget,
   resolveRoutedHandler,
   routedHandlerCallHints,
-  routedHandlerNeedsUnsendableBody,
 } from "../ir/util/routed-handler.js";
 import { walkExprDeep } from "../ir/util/walk.js";
 import { commandCreateResult, emitsCommandRoute } from "../ir/util/workflow-command-route.js";
@@ -939,7 +938,7 @@ function matchRoutedHandlerCall(
  *
  * Path `{token}`s are substituted from the positionally-matching argument;
  * every other param rides the JSON body (or the query string on the paged-run
- * shape).  One helper (`__route`) serves every method, because a routed call is
+ * shape and on a bodyless method).  One helper (`__route`) serves every method, because a routed call is
  * shaped by the DECLARED route rather than by an aggregate verb — the method
  * comes off the `.ddd`, not off the name.
  */
@@ -955,18 +954,6 @@ function renderRoutedHandlerCall(
       `e2e: '${hint}(…)' takes ${t.bindings.length} argument(s) (${sig || "none"}), ` +
         `got ${call.args.length}. A routed handler's arguments are POSITIONAL, in declared ` +
         `param order — '${t.route.method} ${t.route.path}' binds them by name.`,
-    );
-  }
-  if (routedHandlerNeedsUnsendableBody(t)) {
-    const body = t.bindings
-      .filter((b) => b.source === "body")
-      .map((b) => b.param.name)
-      .join(", ");
-    throw new Error(
-      `e2e: '${hint}(…)' cannot be driven — '${t.route.method} ${t.route.path}' is a ` +
-        `bodyless method, but the handler's param(s) '${body}' are not bound by a {token} in ` +
-        `the path, so every backend reads them from a request BODY a ${t.route.method} cannot ` +
-        `carry. Add the missing {token}(s) to the route path.`,
     );
   }
   const rendered = t.bindings.map((b, i) => {

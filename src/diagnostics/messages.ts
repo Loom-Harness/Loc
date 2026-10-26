@@ -1788,6 +1788,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `${p.label} is declared to return '${p.declared}' but not every path ends in a \`return\`. ` +
     `End each branch with \`return <value>\` (an \`if\` needs an \`else\` that returns too).`,
 
+  "loom.handler-return-not-last": (p: { label: unknown }) =>
+    `${p.label}: 'return' must be the last top-level statement of the body, or the whole ` +
+    `then-branch of a final 'if let … { return x } else { … notFound }'. A handler answers ` +
+    `once, after its body has run, so a 'return' anywhere else would not stop the statements ` +
+    `after it.`,
   "loom.function-return-type-mismatch": (p: {
     name: unknown;
     actual: unknown;
@@ -4833,18 +4838,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `e2e: 'api.${p.slug}.${p.verb}(…)' takes ${p.expected} argument(s) (${p.params}), got ` +
     `${p.got}. A routed handler's arguments are POSITIONAL, in declared param order — ` +
     `'route ${p.method} "${p.path}"' binds a param by NAME to the matching {token} and sends ` +
-    `the rest as the request body.`,
-  "loom.e2e-routed-handler-bodyless-method": (p: {
-    slug: unknown;
-    verb: unknown;
-    method: unknown;
-    path: unknown;
-    params: unknown;
-  }) =>
-    `e2e: 'api.${p.slug}.${p.verb}(…)' cannot be driven — 'route ${p.method} "${p.path}"' is a ` +
-    `bodyless method, but the param(s) '${p.params}' are bound by no {token} in the path, so ` +
-    `every backend reads them from a request body a ${p.method} cannot carry. Add the missing ` +
-    `{token}(s) to the route path, or declare the route as POST.`,
+    `the rest as the query string (GET / DELETE) or the request body.`,
   "loom.e2e-unrouted-verb#ui-verb": (p: { slug: unknown; verb: unknown; known: unknown }) =>
     `ui e2e: 'ui.${p.slug}.${p.verb}(…)' drives no page object — the Playwright harness ` +
     `addresses the New-page create flow, the Detail-page read, and a public operation's ` +
