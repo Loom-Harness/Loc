@@ -590,23 +590,36 @@ export const LOCATORS: Record<VariantId, Locator> = {
   },
 
   // ── FastAPI + SQLAlchemy ──────────────────────────────────────────────────
+  // Relational conjuncts are SESSION-level: one `do_orm_execute` hook
+  // (`app/db/read_scope.py`) adds them to every ORM SELECT as
+  // `with_loader_criteria`, a TPH subtype's own ones hosted on the root and
+  // guarded by `kind`.  So a site carries one iff the hook hosts it for the
+  // aggregate AND the site does not lift it — a read's `loom_ignoring`
+  // execution option drops exactly the criteria the hook gates on a capability
+  // it names (`"*"` names every one).  An in-app (document) read, the write
+  // scope's pre-guard and a find's own principal `where` carry theirs inline.
   python: {
     files: (p) => p.endsWith(".py") && !/(^|\/)(tests?|migrations|alembic)\//.test(p),
     openers: [/^[ \t]*(?:async\s+)?def\s+(\w+)/m],
     reads: [/\bselect\((\w+)(?:\.\w+)?[,)]/, /\.select_from\((\w+)\)/, /\bsession\.get\((\w+)/],
     classify: pyClassify,
-    carries: (f, site) =>
-      f.kind === "deny"
-        ? /\.is_\(None\),\s*\w+\.id\.isnot\(None\)/.test(site.window) ||
-          INAPP_FALSE.test(site.window)
-        : carriesClaims(
-            site.window,
-            f,
-            (c) =>
-              new RegExp(
-                `\\b(?:require_current_user\\(\\)|current_user|__cu|user)\\.(?:${esc(snake(c))}\\b|guid_claim\\("${esc(snake(c))}"\\))`,
-              ),
-          ),
+    carries: (f, site, agg, files) => {
+      const inline =
+        f.kind === "deny"
+          ? /\.is_\(None\),\s*\w+\.id\.isnot\(None\)/.test(site.window) ||
+            INAPP_FALSE.test(site.window)
+          : carriesClaims(site.window, f, PY_PRINCIPAL);
+      if (inline) return true;
+      const lifted = pyIgnoring(site.window);
+      return pyHookCriteria(agg, files).some(
+        (c) =>
+          (c.guard === undefined || c.guard === agg.name) &&
+          (f.kind === "deny"
+            ? /\band_\(\w+\.id\.is_\(None\), \w+\.id\.isnot\(None\)\)/.test(c.text)
+            : carriesClaims(c.text, f, PY_PRINCIPAL)) &&
+          !(c.capability !== undefined && (lifted.has("*") || lifted.has(c.capability))),
+      );
+    },
   },
 
   // ── Phoenix + Ecto ────────────────────────────────────────────────────────
@@ -635,6 +648,57 @@ export const LOCATORS: Record<VariantId, Locator> = {
         : carriesClaims(site.window, f, (c) => new RegExp(`\\bcurrent_user\\.${esc(snake(c))}\\b`)),
   },
 };
+
+function PY_PRINCIPAL(claim: string): RegExp {
+  return new RegExp(
+    `\\b(?:require_current_user\\(\\)|current_user|__cu|user)\\.(?:${esc(snake(claim))}\\b|guid_claim\\("${esc(snake(claim))}"\\))`,
+  );
+}
+
+/** The capabilities a python read's `loom_ignoring` execution option names. */
+function pyIgnoring(window: string): Set<string> {
+  const m = /loom_ignoring=frozenset\(\{([^}]*)\}\)/.exec(window);
+  return new Set([...(m?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((x) => x[1]!));
+}
+
+/** One criterion the python read-scope hook adds for an aggregate's table. */
+interface PyHookCriterion {
+  /** The `with_loader_criteria(...)` line. */
+  readonly text: string;
+  /** The subtype whose rows alone it constrains (`kind != "<guard>"`). */
+  readonly guard?: string;
+  /** The capability whose `ignoring` drops it, or undefined when nothing can. */
+  readonly capability?: string;
+}
+
+/** The criteria the hook's `_<table>_scope` adds — read off the emitted
+ *  `app/db/read_scope.py`, so a mutation of the hook is what the census sees. */
+function pyHookCriteria(agg: AggFacts, files: ReadonlyMap<string, string>): PyHookCriterion[] {
+  const scope = [...files].find(([p]) => p.endsWith("/app/db/read_scope.py"))?.[1];
+  if (!scope) return [];
+  const lines = scope.split("\n");
+  const start = lines.indexOf(
+    `def _${snake(agg.table)}_scope(ignoring: Collection[str]) -> list[LoaderCriteriaOption]:`,
+  );
+  if (start < 0) return [];
+  const out: PyHookCriterion[] = [];
+  let capability: string | undefined;
+  for (const line of lines.slice(start + 1)) {
+    if (/^\S/.test(line)) break;
+    // Each restriction opens with its own comment line.
+    if (/^ {4}#/.test(line)) capability = undefined;
+    const gate = /^ {4}if not _bypassed\("([^"]+)", ignoring\):/.exec(line);
+    if (gate) capability = gate[1];
+    if (!line.includes("with_loader_criteria(")) continue;
+    const guard = /or_\((?:cls|\w+)\.kind != "(\w+)"/.exec(line)?.[1];
+    out.push({
+      text: line,
+      ...(guard ? { guard } : {}),
+      ...(capability ? { capability } : {}),
+    });
+  }
+  return out;
+}
 
 function CS_PRINCIPAL(claim: string): RegExp {
   return new RegExp(
@@ -682,7 +746,8 @@ function javaClassify(label: string): ReadKind | undefined {
 function pyClassify(label: string): ReadKind | undefined {
   const l = norm(label);
   if (["save", "delete", "insert", "update", "hydrate", "towire"].includes(l)) return "write";
-  if (["findbyid", "findmanybyids", "all", "list", "history", "getbyid"].includes(l)) return "root";
+  if (["findbyid", "findmanybyids", "all", "findpage", "list", "history", "getbyid"].includes(l))
+    return "root";
   if (["getbyidforwrite", "findbyidforwrite"].includes(l)) return "commandLoad";
   return undefined;
 }
