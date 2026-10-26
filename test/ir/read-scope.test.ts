@@ -5,7 +5,12 @@
 // independent of any backend that renders it.
 
 import { describe, expect, it } from "vitest";
-import { readDiscriminator, readOrderFor, readScopeFor } from "../../src/ir/enrich/read-scope.js";
+import {
+  polymorphicReadFor,
+  readDiscriminator,
+  readOrderFor,
+  readScopeFor,
+} from "../../src/ir/enrich/read-scope.js";
 import type { EnrichedAggregateIR } from "../../src/ir/types/loom-ir.js";
 import { buildLoomModel, enrichedContexts } from "../_helpers/index.js";
 
@@ -202,5 +207,83 @@ describe("readScope — default order", () => {
       { field: "id", direction: "asc" },
     ]);
     expect(readOrderFor([term("id", "desc")])).toEqual([{ field: "id", direction: "desc" }]);
+  });
+});
+
+const POLY = `
+system Poly {
+  subdomain D {
+    context Fleet {
+      abstract aggregate Vehicle inheritanceUsing: sharedTable with softDeletable { name: string }
+      aggregate Car extends Vehicle { seats: int  filter this.seats > 0 }
+      aggregate Truck extends Vehicle { payload: int }
+      abstract aggregate Party inheritanceUsing: ownTable { name: string }
+      aggregate Person extends Party { age: int  filter this.age > 0 }
+      aggregate Company extends Party { size: int }
+      repository Cars for Car { }
+      repository Trucks for Truck { }
+      repository People for Person { }
+      repository Companies for Company { }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: Fleet, kind: state, use: primary }
+  deployable api { platform: node contexts: [Fleet] dataSources: [st] port: 3000 }
+}`;
+
+async function polyPool(): Promise<EnrichedAggregateIR[]> {
+  const loom = await buildLoomModel(POLY);
+  return enrichedContexts(loom).find((c) => c.name === "Fleet")!.aggregates;
+}
+
+describe("polymorphicReadFor — the polymorphic base read", () => {
+  it("TPH: the root's restrictions, each subtype's guarded, every variant tagged", async () => {
+    const aggs = await polyPool();
+    const read = polymorphicReadFor(named(aggs, "Vehicle"), aggs)!;
+    expect(read.layout).toBe("sharedTable");
+    expect(read.restrictions.map((r) => [r.kind, r.capability])).toEqual([
+      ["capability", "softDeletable"],
+    ]);
+    expect(
+      read.subtypeRestrictions.map((g) => [
+        g.discriminator,
+        g.restriction.kind,
+        g.restriction.declaredOn,
+      ]),
+    ).toEqual([["Car", "filter", "Car"]]);
+    expect(read.variants.map((v) => [v.aggregate, v.tag, v.discriminator])).toEqual([
+      ["Car", "Car", "Car"],
+      ["Truck", "Truck", "Truck"],
+    ]);
+    expect(read.order).toEqual([{ field: "id", direction: "asc" }]);
+  });
+
+  it("TPH: `ignoring` drops the root's capability and keeps the bare subtype filter", async () => {
+    const aggs = await polyPool();
+    const read = polymorphicReadFor(named(aggs, "Vehicle"), aggs, {
+      ignoring: { bypassCaps: ["softDeletable"] },
+    })!;
+    expect(read.restrictions).toEqual([]);
+    expect(read.subtypeRestrictions).toHaveLength(1);
+  });
+
+  it("TPC: no base table — each variant carries its own full scope", async () => {
+    const aggs = await polyPool();
+    const read = polymorphicReadFor(named(aggs, "Party"), aggs)!;
+    expect(read.layout).toBe("ownTable");
+    expect(read.restrictions).toEqual([]);
+    expect(read.subtypeRestrictions).toEqual([]);
+    expect(
+      read.variants.map((v) => [v.tag, v.discriminator, v.scope.restrictions.map((r) => r.kind)]),
+    ).toEqual([
+      ["Person", undefined, ["filter"]],
+      ["Company", undefined, []],
+    ]);
+  });
+
+  it("is undefined for a concrete", async () => {
+    const aggs = await polyPool();
+    expect(polymorphicReadFor(named(aggs, "Car"), aggs)).toBeUndefined();
+    expect(polymorphicReadFor(named(aggs, "Person"), aggs)).toBeUndefined();
   });
 });

@@ -156,17 +156,38 @@ describe("TPH × capability filter (Hono/Drizzle)", () => {
     }
   });
 
-  it("the polymorphic base reader delegates, so it cannot bypass the concretes' filters", async () => {
+  it("the polymorphic base reader applies each concrete's filter, guarded by its kind", async () => {
     const files = await gen(hierarchy("!this.retired"));
     const base = files.get("db/repositories/vehicle-repository.ts") ?? "";
     expect(base, "base reader emitted").not.toEqual("");
-    expect(base, "delegates to each concrete repository").toContain(
-      "new CarRepository(db, events)",
+    // One select over the shared table per read …
+    const reads = base.match(/\.from\(schema\.vehicles\)[^;]*;/g) ?? [];
+    expect(reads.length, "findById, findAll, findPage's count and rows").toBe(4);
+    // … and every one of them carries Car's filter, hosted on the root and
+    // guarded so it narrows Car rows only — a Truck row passes it untouched.
+    for (const read of reads) {
+      expect(read, "Car's filter is kind-guarded on every read").toContain(
+        'or(not(eq(schema.vehicles.kind, "Car")), ',
+      );
+      expect(read, "Truck declares no filter, so no Truck guard").not.toContain('"Truck")');
+    }
+  });
+
+  it("a query-time projection `from <TPH base>` applies each concrete's filter, kind-guarded", async () => {
+    const src = hierarchy("!this.retired").replace(
+      "repository Cars for Car { }",
+      `repository Cars for Car { }
+    projection VehicleCount {
+      n: int
+      from Vehicle as v
+      select n = count()
+    }`,
     );
-    // The whole point: no read of the shared table that is not routed through a
-    // concrete repository (which carries the `kind` scope AND the filter).
-    expect(base, "never selects from the shared table itself").not.toContain(
-      "from(schema.vehicles)",
+    const files = await gen(src);
+    const proj = files.get("http/query-projections.ts") ?? "";
+    expect(proj, "query projections emitted").not.toEqual("");
+    expect(proj, "Car's filter narrows Car rows of the count").toContain(
+      'or(not(eq(schema.vehicles.kind, "Car")), ',
     );
   });
 });
