@@ -63,7 +63,7 @@ system Helpdesk {
           open := true
         }
         operation triage() {
-          requires !currentUser.levels.contains(9) && currentUser.role == "agent"
+          requires currentUser.levels.count == 0 && currentUser.role == "agent"
           open := true
         }
       }
