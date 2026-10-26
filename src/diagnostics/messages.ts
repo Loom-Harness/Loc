@@ -3262,6 +3262,15 @@ export const DIAGNOSTIC_MESSAGES = {
     `event-sourced create route gateable in place is mission M-T3.16.`,
   "loom.default-deny-ungated#denybydefault-projection": (p: { name: unknown }) =>
     `denyByDefault: projection '${p.name}' is served as a read endpoint on an 'auth: required' deployable but declares no \`requires\` gate. Add a \`requires <expr>\` after its declaration header (use \`requires true\` to allow anonymous access).`,
+  // Same rule, but the projection came from a MACRO (`scaffoldDashboard`),
+  // which copies the source aggregate's policy read gate onto it — so the
+  // missing gate is that policy rule, and the fix is to write it.
+  "loom.default-deny-ungated#denybydefault-projection-macro": (p: {
+    name: unknown;
+    macroName: unknown;
+    source: unknown;
+  }) =>
+    `denyByDefault: projection '${p.name}' (from \`with ${p.macroName}\`) is served as a read endpoint on an 'auth: required' deployable but has no read gate — it summarises '${p.source}', which declares no \`policy { read ${p.source} requires <expr> }\` rule. Add that rule to the context: \`${p.macroName}\` copies it onto the projection, and it gates every other read of '${p.source}' too (use \`requires true\` to allow anonymous access).`,
   "loom.default-deny-ungated#denybydefault-workflow-instances": (p: { name: unknown }) =>
     `denyByDefault: workflow '${p.name}' serves its instance reads (\`/workflows/${String(p.name).toLowerCase()}/instances\`) on an 'auth: required' deployable but declares no \`requires\` gate. Add a \`requires <expr>\` to the workflow header (use \`requires true\` to allow anonymous access) — it gates the READS; the command entries keep their own body gates.`,
   "loom.default-deny-ungated#denybydefault-handler": (p: {

@@ -106,6 +106,12 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
     lookup — so a denied caller cannot distinguish "forbidden" from "no such
     key".
 
+  The projections `scaffoldDashboard` emits carry the source aggregate's
+  `policy { read X requires … }` gate on their header, so a dashboard total is
+  guarded exactly like the rows it summarises.  Without that rule, under
+  `denyByDefault`, the scaffolded projection is refused
+  (`loom.default-deny-ungated`) with a hint to write it.
+
   A folded projection used to be unable to carry a gate at all: the keyword
   lived inside the query-clause fragment, which a folded projection has none
   of, and `loom.projection-gate-without-source` rejected the combination.  Both
