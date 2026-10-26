@@ -2059,6 +2059,13 @@ system P {
   // domain-service operation and handler arms share the check.
   "loom.return-type-mismatch": orderOps('operation bad(): int { return "x" }'),
   "loom.return-missing": orderOps("operation bad(): int { if total > 0 { return 1 } }"),
+  // A dropped `or E` result: the call statement throws the `error` case away.
+  "loom.unhandled-result": repoOnly(`    error Rejected { reason: string }
+    aggregate Order with crudish {
+      code: string
+      operation probe(): Order or Rejected { return Rejected { reason: code } }
+      operation touch() { probe() }
+    }`),
   // An anonymous `retrieval { where: … }` whose `where` is a predicate rather
   // than the criterion reference this release admits.
   "loom.retrieval-where-not-criterion": `
