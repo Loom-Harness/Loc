@@ -4,6 +4,8 @@ import type {
   EvolutionParams,
   EvolutionResult,
   GenerateResult,
+  RecordMigrationParams,
+  RecordMigrationResult,
   SnapshotResult,
   VfsEntry,
   VfsDeleteResult,
@@ -18,6 +20,7 @@ type AnyResult =
   | GenerateResult
   | SnapshotResult
   | EvolutionResult
+  | RecordMigrationResult
   | VfsWriteResult
   | VfsDeleteResult;
 
@@ -178,6 +181,14 @@ export class LoomBuildClient {
    *  changes).  `baseline` is `null` for a source with no prior version. */
   evolution(params: EvolutionParams): Promise<EvolutionResult> {
     return this.call("evolution", params) as Promise<EvolutionResult>;
+  }
+
+  /** Record the live edit's schema changes as the next entries of the
+   *  workspace's migration chain — the playground's `ddd migrate add`.
+   *  Returns the new chain files; the caller writes them into the
+   *  workspace. */
+  recordMigration(params: RecordMigrationParams): Promise<RecordMigrationResult> {
+    return this.call("migrate.record", params) as Promise<RecordMigrationResult>;
   }
 
   /** Push one or more files into the worker's VFS.  Returns the

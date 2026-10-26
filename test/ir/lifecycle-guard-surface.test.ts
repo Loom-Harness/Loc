@@ -203,7 +203,7 @@ describe("a lifecycle `requires` may only read what the gate can see", () => {
     expect(await astErrorsFor(src)).not.toEqual([]);
   });
 
-  it("names the spelling it found — `this` for a bare receiver", async () => {
+  it("names the spelling it found — the field for `this.<field>`", async () => {
     const diags = validateLoomModel(
       await buildLoomModel(
         wrap(`
@@ -214,7 +214,7 @@ describe("a lifecycle `requires` may only read what the gate can see", () => {
       }`),
       ),
     );
-    expect(diags.find((d) => d.code === CODE)?.message).toMatch(/`this`/);
+    expect(diags.find((d) => d.code === CODE)?.message).toMatch(/`quantity`/);
   });
 
   it("names the spelling it found — `isEmpty()` for a bare call", async () => {

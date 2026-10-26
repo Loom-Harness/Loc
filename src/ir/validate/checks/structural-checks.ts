@@ -1541,16 +1541,16 @@ function assignEffectReproduced(s: StmtIR, agg: AggregateIR): boolean {
  *             `param` is still out: a DELETE carries no body.
  *
  * IT REJECTS NODES, NOT JUST REFS — and that distinction is the whole bug the
- * first version had.  "Reads the instance" has FOUR spellings in this grammar
- * and only one of them lowers to a `ref`:
+ * first version had.  "Reads the instance" has several spellings in this
+ * grammar and only the field reads lower to a `ref`:
  *
  *   requires quantity == 0        → `ref` (`refKind: "this-prop"`)
- *   requires this.quantity == 0   → `member` over `{kind: "this"}` — NO ref node
+ *   requires this.quantity == 0   → the same `ref` (normalised at lowering)
  *   requires isEmpty()            → `call` (`callKind: "function"`)  — NO ref node
  *   requires this.isEmpty()       → `method-call` over `{kind: "this"}`
  *
- * A `refKind`-only predicate returns empty for three of the four, and each of
- * those three renders the same unbound receiver the check exists to prevent:
+ * A `refKind`-only predicate returns empty for the call spellings, and each of
+ * those renders the same unbound receiver the check exists to prevent:
  * `{kind:"this"}` renders as `ctx.thisName` (`_expr/target.ts`), and a
  * `function` / `private-operation` call renders `this.<fn>(…)` on every backend
  * even though the IR carries no `this` node to notice.  `refKind: "helper-fn"`
@@ -1572,9 +1572,8 @@ function lifecycleGuardIllegalReads(expr: ExprIR, label: "create" | "destroy"): 
   const instanceIsBound = label === "destroy";
   walkExprDeep(expr, (node) => {
     switch (node.kind) {
-      // The explicit receiver (`this.quantity`, `this.isEmpty()`).  One rule for
-      // both, because `walkExprDeep` visits the receiver child of a `member` and
-      // a `method-call` alike.
+      // The explicit receiver of a call (`this.isEmpty()`); `walkExprDeep`
+      // visits the receiver child of a `method-call` and a `member` alike.
       case "this":
         if (!instanceIsBound) bad.push("this");
         return;

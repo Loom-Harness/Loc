@@ -69,6 +69,7 @@ export {
   validateFlutterPrimitiveSupport,
   validateFormLocalCollisions,
   validateFrontendPropTypes,
+  validateLambdaParamTypes,
   validateLiveViewHoisting,
   validatePageGateExprs,
   validateUiBodyStatementKinds,

@@ -78,6 +78,7 @@ export type {
 } from "../language/model-patch.js";
 export { applyPatches, resolvePatchEdits } from "../language/model-patch.js";
 export type {
+  ChangeClass,
   DiffReport,
   MigrationStepView,
   MigrationView,
@@ -85,7 +86,7 @@ export type {
   SnapshotReport,
   WireChangeView,
 } from "./evolve.js";
-export { diff, snapshot } from "./evolve.js";
+export { diff, diffModels, snapshot } from "./evolve.js";
 export { fixHintCodeActions, toLspDiagnostic, toLspDiagnostics } from "./lsp.js";
 export { findSymbol, hover, references } from "./navigate.js";
 export { quickfix, rename, unfoldMacro } from "./refactor.js";

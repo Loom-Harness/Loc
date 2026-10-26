@@ -2817,6 +2817,12 @@ export const DIAGNOSTIC_MESSAGES = {
     `render (deployable '${p.dName}'): a page, component or store has no aggregate ` +
     `instance in scope. Bind the record through a page param, \`state\`, or a QueryView ` +
     `\`data:\` lambda, and read its fields off that name.`,
+  "loom.lambda-param-type-unknown": (p: { param: unknown; where: unknown; uiName: unknown }) =>
+    `Lambda parameter '${p.param}' in ${p.where} on ui '${p.uiName}' has no known type, so a ` +
+    `member read off it cannot be typed. A lambda parameter is typed by the collection it ` +
+    `iterates (\`For { each: xs, … }\`, \`Table { rows: xs, … }\`, a collection op) or by the ` +
+    `read it plots or displays (\`Chart { of: … }\`, \`QueryView { of: …, data: … }\`); bind ` +
+    `the lambda inside one of those, or read the value through a typed name instead.`,
   "loom.ui-gate-expr-unsupported": (p: {
     where: unknown;
     kind: unknown;
