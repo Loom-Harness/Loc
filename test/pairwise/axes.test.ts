@@ -237,9 +237,9 @@ describe("the composer actually varies with the new axes", () => {
   });
 
   it("read=plain returns the bare list, read=paged returns the carrier", () => {
-    expect(composeSource(base)).toContain("find byLabel(l: string): Thing[] where");
+    expect(composeSource(base)).toContain("queryHandler ListThingsByLabel(l: string): Thing[] {");
     expect(composeSource({ ...base, read: "paged" })).toContain(
-      "find byLabel(l: string): Thing paged where",
+      "queryHandler ListThingsByLabel(l: string): Thing paged {",
     );
   });
 

@@ -97,8 +97,8 @@ const MINIMAL: Case = {
  *                            rejects `string | null | undefined` (TS2322)
  *    tier: Tier?             the same, through the enum-select arm
  *
- *  Plus the PARAMETERLESS PAGED read (`find sellable(): Product paged`), whose
- *  page calls `useSellableProduct()` with no argument — the Vue twin of the
+ *  Plus the PARAMETERLESS PAGED read (the aggregate's paged `all`), whose
+ *  page calls its hook with no argument — the Vue twin of the
  *  Svelte arity defect (§P5), kept here so both frontends gate the shape.
  *
  *  `placedBy` is an OPTIONAL cross-aggregate reference, and it is here because
@@ -143,7 +143,6 @@ const SCAFFOLD: Case = {
             derived display: string = name
           }
           repository Products for Product { }
-          criterion ProductsSellable of Product = this.sellable == true
         }
       }
       api SalesApi from Sales
@@ -154,7 +153,7 @@ const SCAFFOLD: Case = {
           title: "Shop"
           body: Stack {
             QueryView {
-              of: Sales.Product.sellable,
+              of: Sales.Product.all,
               data: rows => Table {
                 rows: rows,
                 Column { "Name", o => Text { o.name } }
@@ -242,13 +241,7 @@ const FILE: Case = {
  *  change to their grid children rode on hand-run builds.  Filterable +
  *  computed-cell + selection on purpose: those three switch on the branches
  *  (`hasFilters`, the template cell branch, the `selectionChange` emit) that a
- *  bare grid leaves unemitted.
- *
- *  It also carries the ZERO-PARAMETER find (`gold`) and a hand-written page
- *  reading it — that page emits `useGoldCustomer()` with no argument, so the
- *  emitted hook must not require one ("Expected 1 arguments, but got 0" under
- *  `vue-tsc` otherwise).  Folded into this case rather than given its own so
- *  the shape gets pack-matrix coverage without adding a matrix cell. */
+ *  bare grid leaves unemitted. */
 const GRID: Case = {
   name: "grid",
   vueDir: "web",
@@ -262,31 +255,11 @@ const GRID: Case = {
           sequence: int
           spend: money
         }
-        repository Customers for Customer {
-          find gold(): Customer[] where this.tier == Gold
-        }
+        repository Customers for Customer { }
       } }
       api SalesApi from Sales
       ui WebApp {
         api Sales: SalesApi
-        page GoldCustomers {
-          route: "/gold"
-          title: "Gold customers"
-          body: Stack {
-            Heading { "Gold customers", level: 1 },
-            QueryView {
-              of: Sales.Customer.gold,
-              loading: Skeleton { count: 3 },
-              error: Alert { "Couldn't load customers" },
-              empty: Empty { "No gold customers yet." },
-              data: rows => Table {
-                rows: rows,
-                Column { "Name", o => Text { o.name } },
-                Column { "Tier", o => EnumBadge { o.tier } }
-              }
-            }
-          }
-        }
         page CustomerGrid {
           route: "/customers"
           title: "Customers"

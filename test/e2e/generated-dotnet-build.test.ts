@@ -844,7 +844,7 @@ describe.skipIf(!ENABLED)(
     // M-T5.10 handler-param rewrite — the SCAFFOLDED explicit handlers take a
     // single `command`/`query` record param; on .NET the Mediator record flattens
     // the request record's fields (`command.<Field>`) and a read declares
-    // `<Agg>Response` (projected at the boundary; a find `.Select(...).ToList()`).
+    // `<Agg>Response` (projected at the boundary).
     // A Money-typed operation param exercises the value-object arg.  No corpus
     // `.ddd` compiled a scaffolded record-param handler on .NET before.
     it("system scaffolded explicit handlers (command/query record params, dotnet) — builds under /warnaserror", () => {
@@ -859,10 +859,8 @@ describe.skipIf(!ENABLED)(
           path.join(proj, "Api", "SalesApiRoutesController.cs"),
           "utf8",
         );
-        // The command record's fields flatten into the Mediator record + body;
-        // a find projects the array to `<Agg>Response`.
+        // The command record's fields flatten into the Mediator record + body.
         expect(controller).toContain("[FromBody] CreateOrderBody body");
-        expect(controller).toMatch(/\.Select\(__e => new OrderResponse\(/);
         execSync(`dotnet restore --nologo`, { cwd: proj, stdio: "inherit", timeout: 240_000 });
         execSync(`dotnet build --no-restore --nologo /warnaserror`, {
           cwd: proj,
