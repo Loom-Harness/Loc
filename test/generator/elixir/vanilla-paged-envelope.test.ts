@@ -60,7 +60,9 @@ describe("vanilla `paged` wire envelope (§1)", () => {
     );
 
     // count query for `total`, then an order_by + limit/offset page slice (M-T2.6).
-    expect(repo).toContain("total = Repo.aggregate(query, :count, :id)");
+    // `count(*)`, not `count(id)`: the latter defeats the index-only scan.
+    expect(repo).toContain("total = Repo.aggregate(query, :count)\n");
+    expect(repo).not.toContain(":count, :id");
     expect(repo).toContain("offset = (page - 1) * page_size");
     expect(repo).toContain('dir_atom = if dir == "desc", do: :desc, else: :asc');
     expect(repo).toContain("|> order_by([record], [{^dir_atom, field(record, ^sort_col)}])");

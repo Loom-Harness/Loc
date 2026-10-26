@@ -425,7 +425,9 @@ function renderChangeset(
   // snake_case); (2) stamp a positional `:ordinal` into each element map (the
   // client body carries none) so the array round-trips in declared order.  The
   // child schema's `changeset/2` casts `:ordinal`, so it flows through naturally.
-  const vcSnakeKeys = valueCollections.map(({ vc }) => `"${snake(vc.fieldName)}"`);
+  const vcSnakeKeys = valueCollections.map(
+    ({ vc }) => `{"${snake(vc.fieldName)}", :${snake(vc.fieldName)}}`,
+  );
   const keyAliasPairs = valueCollections
     .map(({ vc }) => {
       const camel = vc.fieldName; // already camelCase as authored
@@ -458,14 +460,16 @@ ${keyAliasPairs.join(",\n")}
   defp prepare_vc_attrs(attrs) when is_map(attrs) do
     attrs = ${aliasReduce}
 
-    Enum.reduce([${vcSnakeKeys.join(", ")}], attrs, fn key, acc ->
+    Enum.reduce([${vcSnakeKeys.join(", ")}], attrs, fn {str_key, atom_key}, acc ->
+      key = if is_list(Map.get(acc, str_key)), do: str_key, else: atom_key
+
       case Map.fetch(acc, key) do
         {:ok, items} when is_list(items) ->
           stamped =
             items
             |> Enum.with_index()
             |> Enum.map(fn {item, i} ->
-              if is_map(item), do: Map.put(item, "ordinal", i), else: item
+              if is_map(item), do: Map.put(item, ordinal_key(item), i), else: item
             end)
 
           Map.put(acc, key, stamped)
@@ -475,7 +479,14 @@ ${keyAliasPairs.join(",\n")}
     end)
   end
 
-  defp prepare_vc_attrs(attrs), do: attrs`
+  defp prepare_vc_attrs(attrs), do: attrs
+
+  # An element map is keyed by strings (controller) or atoms (workflow); the
+  # ordinal takes the element's own key type, since Ecto \`cast\` rejects a map
+  # mixing both.
+  defp ordinal_key(item) do
+    if Enum.any?(Map.keys(item), &is_atom/1), do: :ordinal, else: "ordinal"
+  end`
       : "";
   const ordinalHelper = "";
 
