@@ -13,6 +13,7 @@ import {
   renderAlterColumnTypeSql,
   renderBackfillSql,
   renderRenameIndexSql,
+  renderSetSchemaSql,
 } from "../sql-pg.js";
 
 // ---------------------------------------------------------------------------
@@ -261,7 +262,32 @@ function emitInitial(
    *  the migration chain leaves after an initial. */
   baseOffset = 0,
 ): void {
-  const base = BASE_TIMESTAMP + baseOffset;
+  // A module's first generation can also take over tables another module's
+  // chain created — a migration-block move (`A.Note -> B.Note`) into a new
+  // module.  Those steps (the move, and whatever the diff then derives for
+  // the moved tables) are neither a create nor a data step, so they get a
+  // file of their own at the generation's own version, AHEAD of the
+  // per-table creates: a new table may reference a moved one.
+  const takeover = m.steps.filter((s) => s.op !== "createTable" && s.op !== "sqlExec");
+  const takeoverBase = BASE_TIMESTAMP + baseOffset;
+  if (takeover.length > 0) {
+    const lines = takeover.flatMap((s) => renderEctoStep(s)).map((l) => `    ${l}`);
+    const name = `${upperFirst(m.module)}TakeOverTables`;
+    out.set(
+      `priv/repo/migrations/${takeoverBase}_${snake(m.module)}_take_over_tables.exs`,
+      [
+        `defmodule ${appModule}.Repo.Migrations.${name} do`,
+        `  use Ecto.Migration`,
+        ``,
+        `  def change do`,
+        ...lines,
+        `  end`,
+        `end`,
+        ``,
+      ].join("\n"),
+    );
+  }
+  const base = takeoverBase + (takeover.length > 0 ? 1 : 0);
   // Three classes of table, separated so timestamps preserve the
   // create-order required by FK targets:
   //   - aggregate (no cascade FK) → BASE + i
@@ -561,8 +587,21 @@ export function renderEctoStep(step: MigrationStep): string[] {
       return [`drop table(:${step.name}${prefix})`];
     }
     case "renameTable": {
+      // Ecto has no `SET SCHEMA` DSL: a move runs the shared SQL through
+      // `execute/1` (the `CREATE SCHEMA` precedent), then renames in the new
+      // schema when the name changes too.
       const prefix = prefixOpt(step.schema);
-      return [`rename table(:${step.from}${prefix}), to: table(:${step.to}${prefix})`];
+      const lines: string[] = [];
+      if (step.fromSchema !== undefined) {
+        lines.push(...schemaCreateLines(step.schema));
+        lines.push(
+          `execute(${elixirStr(renderSetSchemaSql({ ...step, fromSchema: step.fromSchema }))})`,
+        );
+      }
+      if (step.from !== step.to) {
+        lines.push(`rename table(:${step.from}${prefix}), to: table(:${step.to}${prefix})`);
+      }
+      return lines;
     }
     case "addColumn": {
       const c = step.column;

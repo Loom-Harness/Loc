@@ -16,11 +16,12 @@
 //   - `loom.rename-duplicate-target`    — two renames collide ON one target
 //                                         column / aggregate (ambiguous dest.).
 //
-// A column rename's `aggregate` and a table rename's `toAggregate` are real
-// cross-references (`[Aggregate:ID]`), so an unknown live aggregate is already a
-// Langium linking error — not re-checked here.  A table rename's `fromTable` is
-// deliberately NOT a cross-reference (it names a table the model no longer
-// declares), so it is only checked structurally.
+// A column step's `aggregate` is a real cross-reference (`[Aggregate:ID]`), so
+// an unknown live aggregate is already a Langium linking error — not re-checked
+// here.  A table step's names are bare on both sides (the old side is gone, the
+// new side may be an aggregate, workflow or projection in another file), so
+// only its structure is checked here; its target is resolved on the merged IR
+// (`validateTableSteps`, phase ⑦).
 
 import { AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
@@ -68,36 +69,37 @@ function checkMigration(
 
   for (const step of m.steps) {
     if (isTableRename(step)) {
-      // Table/aggregate rename (`OldName -> NewAggregate`).  Structural checks
-      // only: `fromTable` is a bare name — it names a table the model no
-      // longer declares — so it cannot be cross-referenced.
-      const to = step.toAggregate.ref?.name ?? step.toAggregate.$refText;
-      if (step.fromTable === to) {
-        accept(
-          "error",
-          diagMessage("loom.rename-to-self#table", { fromTable: step.fromTable, to }),
-          { node: step, property: "toAggregate", code: "loom.rename-to-self" },
-        );
+      // Table step (`Old -> New`, or the move `A.Old -> B.New`).  Structural
+      // checks only: both sides are bare names (the old one is gone, the new
+      // one may live in another file), resolved at phase ⑦.  Keys carry the
+      // context on the move form, so `A.Note -> B.Note` is no self-rename.
+      const from =
+        step.fromContext !== undefined ? `${step.fromContext}.${step.fromTable}` : step.fromTable;
+      const to = step.toContext !== undefined ? `${step.toContext}.${step.to}` : step.to;
+      if (from === to) {
+        accept("error", diagMessage("loom.rename-to-self#table", { fromTable: from, to }), {
+          node: step,
+          property: "to",
+          code: "loom.rename-to-self",
+        });
         continue;
       }
-      // A whole-table rename shares the source/target namespace with column
-      // renames only trivially; key it on the aggregate name alone.
-      if (seenSource.has(step.fromTable)) {
+      if (seenSource.has(from)) {
         accept(
           "error",
           diagMessage("loom.rename-duplicate-source#table-is-renamed-more-than", {
-            fromTable: step.fromTable,
+            fromTable: from,
           }),
           { node: step, property: "fromTable", code: "loom.rename-duplicate-source" },
         );
       } else {
-        seenSource.add(step.fromTable);
+        seenSource.add(from);
       }
       if (seenTarget.has(to)) {
         accept(
           "error",
           diagMessage("loom.rename-duplicate-target#two-renames-target-aggregate", { to }),
-          { node: step, property: "toAggregate", code: "loom.rename-duplicate-target" },
+          { node: step, property: "to", code: "loom.rename-duplicate-target" },
         );
       } else {
         seenTarget.add(to);

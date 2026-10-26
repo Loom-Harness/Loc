@@ -140,9 +140,11 @@ such flag.
   ```elixir
   rename table(:persons, prefix: "people"), :home, to: :residence
   ```
-- **Table / aggregate rename (M-T2.1).** A bare `OldName -> NewAggregate` step in
-  the same block renames a whole aggregate's table. Only the NEW aggregate is a
-  cross-reference (the old name is gone); the diff emits a `renameTable` for the
+- **Table / aggregate rename (M-T2.1).** A bare `OldName -> NewName` step in
+  the same block renames a whole aggregate's table (the same step renames a
+  workflow's or projection's table, and its qualified form moves tables to
+  another context — see
+  [Table steps](#table-steps--renames-and-cross-context-moves)); the diff emits a `renameTable` for the
   root table plus the full **owned-child cascade** — value-collection child
   tables and association join tables (each a `renameTable`), and the owner FK
   column on every child + contained-part table (each a `renameColumn`). The whole
@@ -398,6 +400,101 @@ A scalar-literal field default on the added column (contrary signal 3) silences
 it for the same reason as the backfill. A nullability difference (signal 1)
 never reaches the warning either — it raises
 `loom.migration-ambiguous-rename` instead, which is an error.
+
+## Table steps — renames and cross-context moves
+
+One step shape keeps a table's rows when the declaration that owns it is
+renamed, or moved to another bounded context. The left side names the
+declaration as it was, the right side as it is now:
+
+```ddd
+migration "evolve" {
+  Order -> PurchaseOrder             // rename in place (an aggregate)
+  Tracker -> Watcher                 // a workflow's correlation-state table
+  OrderTotal -> OrderSum             // a materialized projection's read model
+  Leases.LeaseLedger -> Ledgers.LeaseLedger   // move to another context
+  A.Note -> B.Memo                   // move and rename at once
+}
+```
+
+The qualified form qualifies **both** sides (`Ctx.Name -> Name` reads as a
+column rename). The right side may be an aggregate, a workflow or a projection,
+declared in any file of the project; it is resolved on the merged model, and a
+bad one is a phase-⑦ error:
+
+- **`loom.migration-step-unknown-context`** — the move names a context the model
+  does not declare.
+- **`loom.migration-step-target-missing`** — no aggregate, workflow or projection
+  of that name (in that context).
+- **`loom.migration-step-ambiguous`** — an unqualified name that more than one
+  context declares; qualify the step.
+- **`loom.migration-move-across-databases`** — a move between two modules where a
+  deployable applies the target module's migrations to a database that never held
+  the source module's tables (each `needsDb` deployable has its own database).
+
+What each target takes along:
+
+- **Aggregate** — the root table and its owned children (contained parts and
+  their value collections, value-collection child tables, association join
+  tables; a TPH base also its concretes' part and join tables). A rename also
+  renames the owner FK columns, the derived indexes, and a sibling join table's
+  `targetFk`, as above.
+- **Workflow** — its correlation-state table.
+- **Projection** — its read-model table when it is materialized (a query-time
+  projection has none). A fold projection that moves with its event-sourced
+  aggregate is a declaration of its own, so it takes its own step.
+- **Event-sourced aggregate or workflow** — no table of its own: its rows live in
+  the per-context `<ctx>_events` log under `stream_type = "<Name>"`. A rename
+  rewrites them (a ledgered `UPDATE`). A move takes the **whole log** along
+  (`SET SCHEMA` + rename to `<newctx>_events`, then the `stream_type` rewrite)
+  when no stream is left in the old log and the new context has none yet.
+  Otherwise it **copies** the stream's rows (`INSERT … SELECT … ORDER BY seq`,
+  then `DELETE`) — after the generation's DDL when the new log is created by it,
+  ahead of it when the old log is dropped by it. The drop of an old log is still
+  destructive-gated: it may hold streams the model no longer declares.
+
+A move renders as `ALTER TABLE … SET SCHEMA` (creating the target schema first,
+like a create-table) and then a rename in the new schema when the name changes
+too. Postgres carries the table's indexes, constraints and owned sequences
+along. The `renameTable` step records the old schema in `fromSchema`:
+
+```ddd
+migration "move-note" { A.Note -> B.Memo }
+```
+```sql
+CREATE SCHEMA IF NOT EXISTS "b";
+ALTER TABLE "a"."notes" SET SCHEMA "b";
+ALTER TABLE "b"."notes" RENAME TO "memos";
+CREATE SCHEMA IF NOT EXISTS "b";
+ALTER TABLE "a"."note_charges" SET SCHEMA "b";
+ALTER TABLE "b"."note_charges" RENAME TO "memo_charges";
+CREATE SCHEMA IF NOT EXISTS "b";
+ALTER TABLE "a"."lines" SET SCHEMA "b";
+ALTER TABLE "b"."lines" RENAME COLUMN "note_id" TO "memo_id";
+ALTER TABLE "b"."memo_charges" RENAME COLUMN "note_id" TO "memo_id";
+ALTER INDEX "b"."lines_note_id_idx" RENAME TO "lines_memo_id_idx";
+ALTER INDEX "b"."note_charges_note_id_idx" RENAME TO "memo_charges_memo_id_idx";
+```
+```elixir
+execute "CREATE SCHEMA IF NOT EXISTS b"
+execute("ALTER TABLE \"a\".\"notes\" SET SCHEMA \"b\"")
+rename table(:notes, prefix: "b"), to: table(:memos, prefix: "b")
+```
+
+**A move between modules is recorded in the target module's chain** — the
+module whose schema gains the tables. Its generation (an `Initial` when the
+module is new) carries the `SET SCHEMA` steps; on Ecto, a first generation that
+takes tables over writes them to a `<module>_take_over_tables` file ahead of
+its per-table creates. The source module records a generation too, holding one
+comment per table it hands off, so its schema in the chain stops listing them;
+it never drops them. A move can only find tables that a module still in the
+model records, so keep the source module (or its other contexts) in the model
+until the move is recorded.
+
+Without the step, a rename or a move is a drop + create, and the destructive
+gate refuses it. Its message names the table step as the remedy whenever a
+table is dropped. The step is ledger-inert like a column rename: once the
+baseline holds the new relation and not the old, it emits nothing.
 
 ## Data migrations (M-T2.3)
 

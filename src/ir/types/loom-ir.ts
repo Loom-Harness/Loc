@@ -2085,12 +2085,12 @@ export interface LoomModel {
    *  baked into the baseline snapshot.  Empty when the source declares no
    *  migration block. */
   renameIntents: RenameIntentIR[];
-  /** Table/aggregate rename intents (M-T2.1) — lowered from `OldName ->
-   *  NewAggregate` steps in a `migration` block.  Sibling of `renameIntents`
-   *  (column renames); consumed only by the migration builder, which turns
-   *  each into a `renameTable` step for the aggregate's root table plus the
-   *  owned-child cascade (part / value-collection / association tables and
-   *  their owner FK columns).  Empty when no table renames are declared. */
+  /** Table step intents — lowered from `OldName -> NewName` (rename) and
+   *  `A.Name -> B.Name` (cross-context move) steps in a `migration` block.
+   *  Sibling of `renameIntents` (column renames); consumed only by the
+   *  migration builder, which turns each into `renameTable` steps (moving the
+   *  schema on the qualified form) for the target's tables plus the
+   *  owned-child cascade.  Empty when no table step is declared. */
   tableRenameIntents: TableRenameIntentIR[];
   /** Backfill intents (M-T2.3) — lowered from `Agg.field = <expr>` steps in
    *  a `migration` block.  Consumed only by the migration builder: a NOT-NULL
@@ -2128,23 +2128,26 @@ export interface RenameIntentIR {
   origin?: OriginRef;
 }
 
-/** One `OldName -> NewAggregate` step lowered from a `migration` block — a
- *  whole-aggregate (table) rename.  `fromAggregate` is the OLD, now-absent
- *  aggregate name (its old table is `plural(snake(fromAggregate))`);
- *  `toAggregate` is the live post-rename aggregate name (resolves the owning
- *  context/module/schema and enumerates the owned child tables to cascade).
- *  Both are RAW names — the builder snake-cases + pluralises them exactly as
- *  it does elsewhere. */
+/** One table step lowered from a `migration` block: `OldName -> NewName`
+ *  (rename in place) or `OldCtx.OldName -> NewCtx.NewName` (a move to another
+ *  bounded context, renaming too when the names differ).  The new side names
+ *  a live aggregate, workflow or projection; the old side names what the
+ *  model no longer declares.  All four names are RAW source names: the target
+ *  is resolved on demand against the model's contexts
+ *  (`resolveTableStepTarget`, `src/ir/util/table-step-target.ts`), never
+ *  stamped here, because it may live in another file of the project than the
+ *  block that names it. */
 export interface TableRenameIntentIR {
   /** Block label — the `"<name>"` on the owning `migration` block. */
   migration: string;
-  /** Old (pre-rename) aggregate name — table `plural(snake(fromAggregate))`. */
-  fromAggregate: string;
-  /** New (post-rename) aggregate name — the live cross-referenced aggregate. */
-  toAggregate: string;
-  /** Owning bounded-context name (of the new aggregate) — for module/schema
-   *  resolution. */
-  context: string;
+  /** Old (pre-step) declaration name — its old table is derived from it. */
+  from: string;
+  /** New (post-step) declaration name — an aggregate, workflow or projection. */
+  to: string;
+  /** Old bounded context, on the qualified (move) form only. */
+  fromContext?: string;
+  /** New bounded context, on the qualified (move) form only. */
+  toContext?: string;
   /** Provenance back to the step's `.ddd` source. */
   origin?: OriginRef;
 }

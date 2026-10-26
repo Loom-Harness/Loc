@@ -208,7 +208,14 @@ export function dapperMigrationSteps(m: MigrationsIR): MigrationStep[] {
       case "renameTable":
         // A child table follows its parent's rename; on this layout there is
         // no child table, and the parent's own rename carries the column.
-        if (!childOf(step.schema, step.from) && !childOf(step.schema, step.to)) out.push(step);
+        if (
+          !childOf(
+            step.fromSchema === undefined ? step.schema : (step.fromSchema ?? undefined),
+            step.from,
+          ) &&
+          !childOf(step.schema, step.to)
+        )
+          out.push(step);
         break;
       case "addColumn":
         if (childOf(step.schema, step.table)) break;

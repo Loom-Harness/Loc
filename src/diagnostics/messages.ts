@@ -776,15 +776,15 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.migration-duplicate-name": (p: { name: unknown }) =>
     `Duplicate migration block name ${p.name}.`,
   "loom.rename-to-self#table": (p: { fromTable: unknown; to: unknown }) =>
-    `Table rename '${p.fromTable} -> ${p.to}' names the same aggregate on both sides — a rename must change the name.`,
+    `Table step '${p.fromTable} -> ${p.to}' names the same declaration on both sides — a rename must change the name, a move the context.`,
   "loom.rename-to-self#field": (p: { agg: unknown; field: unknown }) =>
     `Rename of '${p.agg}.${p.field}' names the same field on both sides — a rename must change the name.`,
   "loom.rename-duplicate-source#table-is-renamed-more-than": (p: { fromTable: unknown }) =>
-    `Table '${p.fromTable}' is renamed more than once — an aggregate can be renamed FROM only once (ambiguous origin).`,
+    `Table '${p.fromTable}' is renamed or moved more than once — a declaration can be renamed or moved FROM only once (ambiguous origin).`,
   "loom.rename-duplicate-source#field-is-renamed-more-than": (p: { sourceKey: unknown }) =>
     `Field '${p.sourceKey}' is renamed more than once — a column can be renamed FROM only once (ambiguous origin).`,
   "loom.rename-duplicate-target#two-renames-target-aggregate": (p: { to: unknown }) =>
-    `Two renames target aggregate '${p.to}' — an aggregate can be renamed TO only once (ambiguous destination).`,
+    `Two table steps target '${p.to}' — a declaration can be renamed or moved TO only once (ambiguous destination).`,
   "loom.rename-duplicate-target#two-renames-target-a-column": (p: { targetKey: unknown }) =>
     `Two renames target '${p.targetKey}' — a column can be renamed TO only once (ambiguous destination).`,
   "loom.migration-sql-empty": "Empty sql step — a raw migration statement must not be blank.",
@@ -2195,6 +2195,19 @@ export const DIAGNOSTIC_MESSAGES = {
     field: unknown;
   }) =>
     `backfill '${p.aggregate}.${p.field}': a collection field needs no backfill — adding it to a populated table fills every existing row with an empty collection. Remove this step.`,
+  "loom.migration-step-unknown-context": (p: { step: unknown; context: unknown }) =>
+    `migration step '${p.step}' moves into context '${p.context}', which the model does not declare. Name the context the declaration lives in now.`,
+  "loom.migration-step-target-missing": (p: { step: unknown; name: unknown }) =>
+    `migration step '${p.step}': '${p.name}' is not an aggregate, workflow or projection of the model. The right-hand side names the declaration as it is NOW (after the rename or move).`,
+  "loom.migration-step-ambiguous": (p: { step: unknown; name: unknown; candidates: unknown }) =>
+    `migration step '${p.step}': '${p.name}' names more than one declaration (${p.candidates}). Qualify both sides with their contexts: migration "…" { <OldContext>.<Old> -> <NewContext>.<New> }`,
+  "loom.migration-move-across-databases": (p: {
+    step: unknown;
+    from: unknown;
+    to: unknown;
+    deployables: unknown;
+  }) =>
+    `migration step '${p.step}' moves tables from module '${p.from}' to module '${p.to}', but deployable(s) ${p.deployables} apply '${p.to}' migrations to a database that never held '${p.from}' tables, so there is nothing there to move. Host both modules on the same deployables, or migrate the data with a raw \`sql\` step.`,
   "loom.migration-expr-unsupported": (p: { aggregate: unknown; field: unknown; reason: unknown }) =>
     `backfill '${p.aggregate}.${p.field}': ${p.reason}.`,
   "loom.backfill-type-mismatch": (p: {
@@ -2260,6 +2273,11 @@ export const DIAGNOSTIC_MESSAGES = {
     why: unknown;
   }) =>
     `ADD COLUMN ${p.column} NOT NULL (no default) — contributed by \`with ${p.capability}\`. ${p.why} Declare what the existing rows hold in a migration block (\`migration "…" { <Agg>.<field> = <value> }\`), or add the capability before the table holds data.`,
+  /** One line of `loom.migration-destructive` when a TABLE is dropped: a
+   *  rename, or a move of the declaration to another context, reads as a
+   *  drop + create to the diff, and the table step keeps the rows. */
+  "loom.migration-destructive#table-dropped":
+    'A dropped table whose aggregate, workflow or projection was renamed or moved to another context keeps its rows with a migration-block table step: migration "…" { <Old> -> <New> } for a rename, migration "…" { <OldContext>.<Old> -> <NewContext>.<New> } for a move.',
   "loom.migration-destructive#capability-tenant-owned":
     "Loom cannot infer which tenant owns a row written before tenancy, and a wrong guess hands it to another tenant, so there is no automatic backfill.",
   "loom.migration-destructive#capability-auditable":

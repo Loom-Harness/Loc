@@ -281,7 +281,17 @@ export type MigrationStep =
   // Postgres schema (both ends share it — a rename never crosses schemas).
   // Postgres/Ecto keep every FK constraint pointing at the table valid across
   // the rename, so no separate FK-retarget step is emitted.  Non-destructive.
-  | { op: "renameTable"; from: string; to: string; schema?: string }
+  | {
+      op: "renameTable";
+      from: string;
+      to: string;
+      /** The schema the table is in AFTER the step. */
+      schema?: string;
+      /** Set on a cross-context move only: the schema the table is in
+       *  BEFORE the step (`null` = the default search-path schema).  The
+       *  renderers move it (`ALTER TABLE … SET SCHEMA`) before any rename. */
+      fromSchema?: string | null;
+    }
   | {
       op: "addColumn";
       table: string;

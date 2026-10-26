@@ -99,6 +99,10 @@ const NO_DOWNSTREAM_READER: readonly string[] = [
   "sourceAlias",
   "sourceModule",
   "testCaseId",
+  // A migration table step's qualified target context: read only through
+  // `src/ir/util/table-step-target.ts` (`resolveTableStepTarget`), which the
+  // migration builder calls to place the step's tables.
+  "toContext",
   "timezone", // already has a RESERVED_SURFACES row (`timer-source-timezone`)
   "ttl",
   "verifiesTestCase",

@@ -62,6 +62,7 @@ import {
   resolveDataSourceForAggregate,
 } from "../ir/util/resolve-datasource.js";
 import { sqlLiteralColumnDefault } from "../ir/util/sql-renderable-expr.js";
+import { resolveTableStepTarget } from "../ir/util/table-step-target.js";
 import {
   isValueCollectionType,
   type ValueCollectionIR,
@@ -832,20 +833,31 @@ export function diffSchema(
     const prevKeys = new Set(prev.tables.map((t) => qkey(t.schema, t.name)));
     const applied = new Map<string, ResolvedTableRename>(); // old qkey → rename
     for (const tr of tableRenames) {
-      const fromKey = qkey(tr.schema, tr.from);
+      const fromSchema = tr.fromSchema === undefined ? tr.schema : (tr.fromSchema ?? undefined);
+      const fromKey = qkey(fromSchema, tr.from);
       const toKey = qkey(tr.schema, tr.to);
       // Old relation must exist; new name must be free (no collision); each old
       // relation renamed at most once.
       if (!prevKeys.has(fromKey) || prevKeys.has(toKey) || applied.has(fromKey)) continue;
       applied.set(fromKey, tr);
-      tableRenameSteps.push({ op: "renameTable", from: tr.from, to: tr.to, schema: tr.schema });
+      tableRenameSteps.push({
+        op: "renameTable",
+        from: tr.from,
+        to: tr.to,
+        schema: tr.schema,
+        ...(fromSchema !== tr.schema ? { fromSchema: fromSchema ?? null } : {}),
+      });
     }
     if (applied.size > 0) {
       prev = {
         ...prev,
         tables: prev.tables.map((t) => {
           const tr = applied.get(qkey(t.schema, t.name));
-          return tr ? { ...t, name: tr.to } : t;
+          if (!tr) return t;
+          const { schema: _old, ...rest } = t;
+          return tr.schema === undefined
+            ? { ...rest, name: tr.to }
+            : { ...rest, name: tr.to, schema: tr.schema };
         }),
       };
     }
@@ -1312,7 +1324,7 @@ export function uniqueOnExistingTableWarnings(
   for (const t of baseline.tables) existing.set(key(t.schema, t.name), t);
   for (const s of steps) {
     if (s.op !== "renameTable") continue;
-    const t = existing.get(key(s.schema, s.from));
+    const t = existing.get(key(renamedFromSchema(s), s.from));
     if (t) existing.set(key(s.schema, s.to), t);
   }
   const out: MigrationWarning[] = [];
@@ -1444,6 +1456,9 @@ export class MigrationDestructiveError extends Error {
     super(
       `migration for module "${module}" contains ${offending.length} destructive change(s):\n` +
         offending.map((s) => `  - ${describeDestructive(s)}`).join("\n") +
+        (offending.some((s) => s.op === "dropTable")
+          ? `\n${diagMessage("loom.migration-destructive#table-dropped")}`
+          : "") +
         `\nA migration-block backfill step makes a NOT NULL add or flip non-destructive ` +
         `with no flag needed:  migration "…" { <Agg>.<field> = <value> }\n` +
         `Otherwise record it with \`ddd migrate add <name> <file.ddd> --allow-destructive\`. ` +
@@ -1930,7 +1945,7 @@ export function applyDestructivePolicy(
   const reborn = new Set<string>();
   for (const s of woven) {
     if (s.op === "createTable") reborn.add(qkey(s.table.schema, s.table.name));
-    else if (s.op === "renameTable") reborn.add(qkey(s.schema, s.from));
+    else if (s.op === "renameTable") reborn.add(qkey(renamedFromSchema(s), s.from));
   }
   const discarded = (opts.backfills ?? []).filter((b) => {
     const key = `${qkey(b.schema, b.table)}.${b.column}`;
@@ -2223,11 +2238,12 @@ export interface BuildMigrationsOptions {
    *  explicit `renameColumn` instead of the data-losing drop+add.  Empty /
    *  omitted for models with no migration block. */
   renameIntents?: readonly RenameIntentIR[];
-  /** Table/aggregate rename intents (M-T2.1) — `OldName -> NewAggregate`.  Each
-   *  module filters these to its own contexts and folds them into the diff as a
-   *  `renameTable` for the aggregate's root table plus the owned-child cascade,
-   *  so an aggregate rename is a clean set of renames instead of the data-losing
-   *  drop+recreate.  Empty / omitted for models with no table rename. */
+  /** Table steps — `Old -> New` (rename) and `A.Old -> B.New` (move to
+   *  another context).  Each resolves to the module that owns its target and
+   *  folds into that module's diff as `renameTable` steps for the target's
+   *  tables plus the owned-child cascade, so a rename or move is a clean set of
+   *  renames instead of the data-losing drop+recreate.  Empty / omitted for
+   *  models with no table step. */
   tableRenameIntents?: readonly TableRenameIntentIR[];
   /** Backfill intents (M-T2.3) — `Agg.field = <expr>`.  Each module resolves
    *  its own and weaves them into the policy pass: a NOT-NULL add (or a
@@ -2271,13 +2287,16 @@ export interface TableColumnRename {
 }
 
 /** One resolved table rename (M-T2.1) — the bare (unqualified) old + new table
- *  names and the Postgres schema they share.  `diffSchema` applies it against
- *  the baseline (only when the old relation actually exists) so a renamed table
- *  pairs with its new self instead of dropping + recreating. */
+ *  names and the Postgres schema the table ends up in.  `fromSchema` is set on
+ *  a cross-context MOVE only: the schema the table lives in before (`null` =
+ *  the default search-path schema).  `diffSchema` applies it against the
+ *  baseline (only when the old relation actually exists) so a renamed or
+ *  moved table pairs with its new self instead of dropping + recreating. */
 export interface ResolvedTableRename {
   from: string;
   to: string;
   schema?: string;
+  fromSchema?: string | null;
 }
 
 /** One resolved backfill (M-T2.3): the physical target column + the
@@ -2334,7 +2353,11 @@ export function buildMigrations(
     (blockModules.get(block) ?? blockModules.set(block, new Set()).get(block)!).add(mod);
   };
   for (const ri of options.renameIntents ?? []) pin(ri.migration, ri.context);
-  for (const tr of options.tableRenameIntents ?? []) pin(tr.migration, tr.context);
+  const sysContexts = sys.subdomains.flatMap((md) => md.contexts);
+  for (const tr of options.tableRenameIntents ?? []) {
+    const r = resolveTableStepTarget(sysContexts, tr);
+    if (r.ok) pin(tr.migration, r.target.ctx.name);
+  }
   for (const bi of options.backfillIntents ?? []) pin(bi.migration, bi.context);
   const ownerModules = sys.subdomains.filter((md) => md.migrationsOwner).map((md) => md.name);
   // Per-block spent tracking for `loom.migration-block-applied`: a block is
@@ -2348,44 +2371,127 @@ export function buildMigrations(
     if (!spent) e.live = true;
     blockSpent.set(block, e);
   };
+  // Binding-aware saving-shape resolver: resolve each aggregate's
+  // effective shape via its (context, kind) dataSource binding so a
+  // per-projection `shape:` override matches what the backend emitters
+  // produce.  The owning context is passed in by IDENTITY from
+  // `schemaFromModule` (not looked up by aggregate name), so two
+  // same-named aggregates in sibling contexts resolve independently.
+  const shapeOf = (agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): SavingShape =>
+    effectiveSavingShape(agg, resolveDataSourceConfig(agg, ctx, sys));
+  // Same binding-aware resolution for the Postgres schema each table
+  // lands in — the owning context's schema (`snake(ctx.name)` default,
+  // or the dataSource `schema:` override).  Matches what the EF /
+  // Drizzle table mappings resolve, so the migration DDL creates the
+  // exact schema-qualified relations the backends query at runtime.
+  const schemaOf = (agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): string | undefined =>
+    resolveDataSourceConfig(agg, ctx, sys)?.schema;
+  // Binding-aware manual-index resolver: the `index: [...]` specs on the
+  // aggregate's (context, state) storage binding.
+  const manualIndexesOf = (
+    agg: EnrichedAggregateIR,
+    ctx: EnrichedBoundedContextIR,
+  ): readonly ManualIndexIR[] => resolveDataSourceForAggregate(agg, ctx, sys)?.manualIndexes ?? [];
+  // Context-owned saga tables land in the context's schema (same resolver
+  // the backend schema emitters use), not `public`.
+  const contextSchemaOf = (ctx: EnrichedBoundedContextIR): string | undefined =>
+    resolveContextSchema(ctx, sys);
+  // Every owning module's baseline and next schema, up front: a table step can
+  // move tables between modules, so each module's derivation reads the others'
+  // (a move finds its source tables in another module's baseline, and an event
+  // log's fate depends on whether any module still declares it).
+  const owning = sys.subdomains.filter((md) => md.migrationsOwner);
+  const baselineOf = new Map<string, SchemaSnapshot | null>();
+  const nextOf = new Map<string, SchemaSnapshot>();
+  for (const md of owning) {
+    baselineOf.set(md.name, snapshots.read(md.name));
+    nextOf.set(md.name, schemaFromModule(md, shapeOf, schemaOf, manualIndexesOf, contextSchemaOf));
+  }
+  const holds = (
+    snap: SchemaSnapshot | null | undefined,
+    schema: string | undefined,
+    name: string,
+  ) => snap?.tables.some((t) => t.name === name && t.schema === schema) ?? false;
+  const tableStepEnv: TableStepEnv = {
+    contexts: sysContexts,
+    inBaseline: (schema, name) => owning.some((md) => holds(baselineOf.get(md.name), schema, name)),
+    inNext: (schema, name) => owning.some((md) => holds(nextOf.get(md.name), schema, name)),
+  };
+  const tableStepPlans = new Map(
+    owning.map((md) => [
+      md.name,
+      resolveTableRenames(
+        md,
+        options.tableRenameIntents ?? [],
+        schemaOf,
+        contextSchemaOf,
+        tableStepEnv,
+      ),
+    ]),
+  );
+  // A move whose source tables another module's baseline records crosses
+  // modules: the table's history is in the source module's chain, its future
+  // in the target's.  The TARGET module's generation records the move — the
+  // one whose schema gains the table — so its baseline is given the source
+  // tables (under their old names) to move, and the source module's baseline
+  // stops counting them, so it neither drops them nor diffs them again.  The
+  // source module still records a generation — one comment step per table
+  // handed off — so its own schema in the chain stops listing them.
+  const received = new Map<string, TableShape[]>();
+  /** source module → (old qualified key → the hand-off comment). */
+  const handedOff = new Map<string, Map<string, string>>();
+  const routedFixups = new Map<string, TableStepFixup[]>();
+  const moduleHolding = (schema: string | undefined, name: string) =>
+    owning.find((md) => holds(baselineOf.get(md.name), schema, name));
+  for (const md of owning) {
+    const plan = tableStepPlans.get(md.name)!;
+    for (const tr of plan.tableRenames) {
+      if (tr.fromSchema === undefined) continue;
+      const fromSchema = tr.fromSchema ?? undefined;
+      if (holds(baselineOf.get(md.name), fromSchema, tr.from)) continue; // within the module
+      if (holds(baselineOf.get(md.name), tr.schema, tr.to)) continue; // already recorded
+      const source = moduleHolding(fromSchema, tr.from);
+      if (!source) continue;
+      const table = baselineOf
+        .get(source.name)!
+        .tables.find((t) => t.name === tr.from && t.schema === fromSchema)!;
+      (received.get(md.name) ?? received.set(md.name, []).get(md.name)!).push(table);
+      (handedOff.get(source.name) ?? handedOff.set(source.name, new Map()).get(source.name)!).set(
+        qkey(fromSchema, tr.from),
+        `${qualifiedName(fromSchema, tr.from)} moves to module ${md.name} (${qualifiedName(tr.schema, tr.to)}), whose migration moves it`,
+      );
+    }
+    for (const f of plan.dataFixups) {
+      const home = f.withSource
+        ? (moduleHolding(f.withSource.schema, f.withSource.name) ?? md)
+        : md;
+      (routedFixups.get(home.name) ?? routedFixups.set(home.name, []).get(home.name)!).push(f);
+    }
+  }
   for (const m of sys.subdomains) {
     if (!m.migrationsOwner) continue;
-    // Binding-aware saving-shape resolver: resolve each aggregate's
-    // effective shape via its (context, kind) dataSource binding so a
-    // per-projection `shape:` override matches what the backend emitters
-    // produce.  The owning context is passed in by IDENTITY from
-    // `schemaFromModule` (not looked up by aggregate name), so two
-    // same-named aggregates in sibling contexts resolve independently.
-    const shapeOf = (agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): SavingShape =>
-      effectiveSavingShape(agg, resolveDataSourceConfig(agg, ctx, sys));
-    // Same binding-aware resolution for the Postgres schema each table
-    // lands in — the owning context's schema (`snake(ctx.name)` default,
-    // or the dataSource `schema:` override).  Matches what the EF /
-    // Drizzle table mappings resolve, so the migration DDL creates the
-    // exact schema-qualified relations the backends query at runtime.
-    const schemaOf = (
-      agg: EnrichedAggregateIR,
-      ctx: EnrichedBoundedContextIR,
-    ): string | undefined => resolveDataSourceConfig(agg, ctx, sys)?.schema;
-    // Binding-aware manual-index resolver: the `index: [...]` specs on the
-    // aggregate's (context, state) storage binding.
-    const manualIndexesOf = (
-      agg: EnrichedAggregateIR,
-      ctx: EnrichedBoundedContextIR,
-    ): readonly ManualIndexIR[] =>
-      resolveDataSourceForAggregate(agg, ctx, sys)?.manualIndexes ?? [];
-    // Context-owned saga tables land in the context's schema (same resolver
-    // the backend schema emitters use), not `public`.
-    const contextSchemaOf = (ctx: EnrichedBoundedContextIR): string | undefined =>
-      resolveContextSchema(ctx, sys);
-    let next = schemaFromModule(m, shapeOf, schemaOf, manualIndexesOf, contextSchemaOf);
-    const baseline = snapshots.read(m.name);
+    let next = nextOf.get(m.name)!;
+    const baseline = baselineOf.get(m.name) ?? null;
+    // The baseline this module's diff runs against: less the tables a move
+    // hands to another module, plus the ones a move brings in.
+    const leaving = handedOff.get(m.name);
+    const arriving = received.get(m.name) ?? [];
+    const diffBaseline: SchemaSnapshot | null =
+      leaving === undefined && arriving.length === 0
+        ? baseline
+        : {
+            ...(baseline ?? { schemaVersion: 1 }),
+            tables: [
+              ...(baseline?.tables ?? []).filter((t) => !leaving?.has(qkey(t.schema, t.name))),
+              ...arriving,
+            ],
+          };
     // Reshape detection (M-T2.4): a saving-shape or inheritance-strategy flip
     // is a full-table data move the column diff can't express.  Detect it up
     // front so it raises the dedicated `loom.migration-shape-change` error (or
     // takes the safe backup path under --allow-destructive) instead of diffing
     // as a pile of dropColumn/dropTable under the generic destructive gate.
-    const reshapes = detectReshapes(baseline, next);
+    const reshapes = detectReshapes(diffBaseline, next);
     const reshapeTableRenames: ResolvedTableRename[] = [];
     const reshapeComments: MigrationStep[] = [];
     // Per-module, because a `destructiveRefusals` sink records a refusal and
@@ -2448,27 +2554,22 @@ export function buildMigrations(
     // rename whose aggregate/context isn't in THIS module is skipped here and
     // picked up on its owning module's iteration.
     const renames = resolveRenames(m, options.renameIntents ?? [], schemaOf);
-    // Table/aggregate renames (M-T2.1): resolve to a `renameTable` for the root
-    // + owned-child cascade, plus the FK-column renames the cascade implies.
-    // The column renames join the column-rename list; the table renames feed
-    // `diffSchema` so a renamed table pairs with its new self.
-    const tableRenamePlan = resolveTableRenames(
-      m,
-      options.tableRenameIntents ?? [],
-      schemaOf,
-      contextSchemaOf,
-    );
+    // Table steps (renames and moves): a `renameTable` for each of the
+    // target's tables, plus the FK-column renames the cascade implies.  The
+    // column renames join the column-rename list; the table renames feed
+    // `diffSchema` so a renamed or moved table pairs with its new self.
+    const tableRenamePlan = tableStepPlans.get(m.name)!;
     const allRenames = [...renames, ...tableRenamePlan.columnRenames];
     // Backfills (M-T2.3): woven into the policy pass so a NOT-NULL add /
     // flip with a declared backfill is the safe sequence, not a gate trip.
     const backfills = resolveBackfills(m, options.backfillIntents ?? [], schemaOf);
-    const rawSteps = diffSchema(baseline, next, allRenames, [
+    const rawSteps = diffSchema(diffBaseline, next, allRenames, [
       ...tableRenamePlan.tableRenames,
       ...reshapeTableRenames,
       ...namingFixTableRenames(m, next),
     ]);
     const policy = (allow: boolean, warnings: MigrationWarning[] | undefined) =>
-      applyDestructivePolicy(rawSteps, baseline, {
+      applyDestructivePolicy(rawSteps, diffBaseline, {
         allowDestructive: allow,
         module: m.name,
         backfills,
@@ -2508,12 +2609,17 @@ export function buildMigrations(
         sql: step.sql,
         before: step.before === true && baseline !== null,
       })),
-      ...tableRenamePlan.dataFixups,
+      ...(routedFixups.get(m.name) ?? []).map((f) => ({
+        key: f.key,
+        sql: f.sql,
+        before: f.before === true && diffBaseline !== null,
+      })),
     ].filter((d) => !applied.has(d.key));
     const toExec = (d: { sql: string }): MigrationStep => ({ op: "sqlExec", sql: d.sql });
     judgeBlocksAgainstBaseline(m, baseline, options, sqlForModule, structuralSteps, markBlock, {
       schemaOf,
       contextSchemaOf,
+      tableStepEnv,
     });
     // B-20b — announce a `unique (…)` landing on a populated table, unless the
     // author already declared a `sql before` step for this generation.
@@ -2527,6 +2633,9 @@ export function buildMigrations(
       ...newData.filter((d) => d.before).map(toExec),
       ...structuralSteps,
       ...reshapeComments,
+      ...[...(leaving?.values() ?? [])].map(
+        (comment): MigrationStep => ({ op: "sqlComment", comment }),
+      ),
       ...newData.filter((d) => !d.before).map(toExec),
     ];
     const storageName = findPrimaryStorageBinding(sys, m, m.migrationsOwner) ?? "";
@@ -2585,6 +2694,7 @@ function judgeBlocksAgainstBaseline(
   resolvers: {
     schemaOf: (agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR) => string | undefined;
     contextSchemaOf: (ctx: EnrichedBoundedContextIR) => string | undefined;
+    tableStepEnv: TableStepEnv;
   },
 ): void {
   const applied = new Set(baseline?.appliedDataMigrations ?? []);
@@ -2631,15 +2741,17 @@ function judgeBlocksAgainstBaseline(
       ofBlock(options.tableRenameIntents),
       resolvers.schemaOf,
       resolvers.contextSchemaOf,
+      resolvers.tableStepEnv,
     );
     for (const tr of plan.tableRenames) {
+      const fromSchema = tr.fromSchema === undefined ? tr.schema : (tr.fromSchema ?? undefined);
       mark(
         block,
-        tableOf(tr.schema, tr.to) !== undefined && tableOf(tr.schema, tr.from) === undefined,
+        tableOf(tr.schema, tr.to) !== undefined && tableOf(fromSchema, tr.from) === undefined,
       );
     }
     for (const r of plan.columnRenames) mark(block, columnRenameSpent(r));
-    for (const f of plan.dataFixups) mark(block, applied.has(f.key));
+    for (const f of plan.dataFixups) if (!f.withSource) mark(block, applied.has(f.key));
     for (const b of resolveBackfills(m, ofBlock(options.backfillIntents), resolvers.schemaOf)) {
       const t = tableOf(b.schema, b.table);
       const now = runningNow.has(`${qkey(b.schema, b.table)}.${b.column}`);
@@ -2772,88 +2884,163 @@ function resolveBackfills(
   return out;
 }
 
-/** Resolve a module's table/aggregate rename intents (M-T2.1) to a `renameTable`
- *  plan + the FK-column renames the cascade implies.  Filters to intents whose
- *  NEW aggregate lives in this module, then for each:
+/** Where a table step looks up relations it does not own: every module's
+ *  baseline and next schema, so a move can find its source tables in another
+ *  module's chain and tell whether a context's event log survives. */
+interface TableStepEnv {
+  /** Every context of the system — a step's target and its old context may
+   *  live in any module. */
+  contexts: readonly EnrichedBoundedContextIR[];
+  /** True when some module's baseline records the relation. */
+  inBaseline: (schema: string | undefined, name: string) => boolean;
+  /** True when some module's next schema declares the relation. */
+  inNext: (schema: string | undefined, name: string) => boolean;
+}
+
+/** One ledgered data fix-up a table step implies.  `before` places it ahead
+ *  of the generation's structural steps; `withSource` routes it to the module
+ *  whose baseline holds `sourceTable` (the module that drops it), instead of
+ *  the step's own (target) module. */
+interface TableStepFixup {
+  key: string;
+  sql: string;
+  before?: boolean;
+  withSource?: { schema: string | undefined; name: string };
+}
+
+/** Resolve a module's table steps to a `renameTable` plan + the FK-column
+ *  renames the cascade implies.  A step belongs to the module that owns its
+ *  TARGET (the declaration as it is now); for each:
  *
- *   - the root table  `plural(snake(old))` → `plural(snake(new))`;
- *   - every OWNED child table — value-collection child tables + association
- *     join tables, both named `snake(agg)_<field>` — whose stem swaps
- *     `snake(old)` → `snake(new)`, and their owner FK column `snake(agg)_id`;
- *   - the owner FK column on each contained part's table (`snake(agg)_id`).
+ *   - an AGGREGATE — the root table `plural(snake(old))` → `plural(snake(new))`,
+ *     every OWNED child table (value-collection child tables + association join
+ *     tables named `snake(agg)_<field>`, whose stem swaps; contained parts and
+ *     their value collections, named for the part), and the owner FK columns
+ *     `snake(agg)_id` on all of them.  A TPH base carries its concretes' part
+ *     and join tables along.
+ *   - a WORKFLOW — its correlation-state table.
+ *   - a PROJECTION — its read-model table, when it is materialized.
+ *   - an event-sourced aggregate or workflow — no table of its own; its rows in
+ *     the per-context `<ctx>_events` log carry `stream_type = "<Name>"`, so a
+ *     rename rewrites them, and a move takes the whole log along when nothing
+ *     else is left in it and the new context has no log yet, or copies its own
+ *     rows across otherwise.
  *
- *  Old names are derived by substituting the NEW snake stem back to the OLD one
- *  on the enriched (new) descriptor, so they can't drift from what the schema
- *  emitter produced.  Emission is guarded downstream by baseline existence
- *  (`diffSchema`), so a candidate whose old relation/column never existed
- *  (a same-generation add, or a nested part FK'd to a sibling not the root) is
- *  silently dropped — never a rename against a missing object. */
+ *  On the qualified form (`A.Old -> B.New`) every table also changes schema:
+ *  from the old context's (read off the baselines when that context is gone)
+ *  to the new one's.  Old names are derived by substituting the NEW snake stem
+ *  back to the OLD one on the enriched (new) descriptor, so they can't drift
+ *  from what the schema emitter produced.  Emission is guarded downstream by
+ *  baseline existence (`diffSchema`), so a candidate whose old relation/column
+ *  never existed (a same-generation add, or a nested part FK'd to a sibling
+ *  not the root) is silently dropped — never a rename against a missing
+ *  object. */
 function resolveTableRenames(
   module: EnrichedSubdomainIR,
   intents: readonly TableRenameIntentIR[],
   schemaOf: (agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR) => string | undefined,
   /** Context-schema resolver (the same one `schemaFromModule` stamps on the
-   *  per-context `<ctx>_events` log) — needed to schema-qualify the eventLog
-   *  `stream_type` fix-up, since that table is context-owned, not tied to the
-   *  renamed aggregate's own dataSource.  Defaults to `() => undefined` so the
-   *  many schema-less unit callers keep the unqualified output. */
-  contextSchemaOf: (ctx: EnrichedBoundedContextIR) => string | undefined = () => undefined,
+   *  per-context `<ctx>_events` log and the saga / read-model tables). */
+  contextSchemaOf: (ctx: EnrichedBoundedContextIR) => string | undefined,
+  env: TableStepEnv,
 ): {
   tableRenames: ResolvedTableRename[];
   columnRenames: TableColumnRename[];
-  /** Ledgered data fix-ups (M-T2.3): renaming a TPH CONCRETE changes no DDL
-   *  (its rows live on the base's shared table, columns are field-named) but
-   *  silently strands the `kind` discriminator data — so the cascade emits a
-   *  one-shot UPDATE, keyed for the snapshot's `appliedDataMigrations`
-   *  ledger (no structural step exists to be naturally inert against). */
-  dataFixups: { key: string; sql: string }[];
+  /** Ledgered data fix-ups (M-T2.3): a renamed TPH CONCRETE or event-sourced
+   *  stream changes no DDL but strands its discriminator rows, and a moved
+   *  stream's rows may have to be copied between two context logs — so the
+   *  step emits one-shot statements, keyed for the snapshot's
+   *  `appliedDataMigrations` ledger (no structural step exists to be naturally
+   *  inert against). */
+  dataFixups: TableStepFixup[];
 } {
   const tableRenames: ResolvedTableRename[] = [];
   const columnRenames: TableColumnRename[] = [];
-  const dataFixups: { key: string; sql: string }[] = [];
+  const dataFixups: TableStepFixup[] = [];
   if (intents.length === 0) return { tableRenames, columnRenames, dataFixups };
-  const ctxByName = new Map<string, EnrichedBoundedContextIR>();
-  for (const ctx of module.contexts) ctxByName.set(ctx.name, ctx);
+  const qualified = (schema: string | undefined, name: string) =>
+    schema ? `"${schema}"."${name}"` : `"${name}"`;
+  /** The renames of one table step: `fromSchema` only on a move. */
+  const push = (
+    from: string,
+    to: string,
+    schema: string | undefined,
+    move: { fromSchema: string | undefined } | undefined,
+  ): void => {
+    if (move && (move.fromSchema !== schema || from !== to)) {
+      tableRenames.push({ from, to, schema, fromSchema: move.fromSchema ?? null });
+    } else if (from !== to) {
+      tableRenames.push({ from, to, schema });
+    }
+  };
   for (const ri of intents) {
-    if (ri.fromAggregate === ri.toAggregate) continue; // no-op (validator flags)
-    const ctx = ctxByName.get(ri.context);
-    if (!ctx) continue; // new aggregate's context is in another module
-    const agg = ctx.aggregates.find((a) => a.name === ri.toAggregate);
-    if (!agg) continue;
-    const schema = schemaOf(agg, ctx);
-    const oldStem = snake(ri.fromAggregate);
-    const newStem = snake(ri.toAggregate);
-    if (oldStem === newStem) continue; // same table name after snake-casing
+    const resolved = resolveTableStepTarget(env.contexts, ri);
+    if (!resolved.ok) continue; // phase ⑦ reported it
+    const { kind, ctx } = resolved.target;
+    if (!module.contexts.includes(ctx)) continue; // the target's own module emits it
+    const isMove = ri.fromContext !== undefined && ri.fromContext !== ctx.name;
+    if (!isMove && ri.from === ri.to) continue; // no-op (validator flags)
+    const oldStem = snake(ri.from);
+    const newStem = snake(ri.to);
+    // The schema the old tables live in.  A rename in place keeps each table's
+    // own; a move reads the old context's, trying in turn its resolved schema
+    // (when it is still declared), its default `snake(<ctx>)`, and the default
+    // search-path schema, and takes the first the baselines hold `probe` in.
+    const oldCtx = isMove ? env.contexts.find((c) => c.name === ri.fromContext) : undefined;
+    const oldSchemaFor = (probe: string): string | undefined => {
+      const candidates = [
+        ...(oldCtx ? [contextSchemaOf(oldCtx)] : []),
+        snake(ri.fromContext!),
+        undefined,
+      ];
+      return candidates.find((s) => env.inBaseline(s, probe)) ?? candidates[0];
+    };
 
-    // TPH concrete: no owned table, no cascade — but the shared table's
-    // `kind` discriminator rows still say the OLD name.  Emit the one-shot
-    // fix-up (M-T2.3 ledgered sqlExec) and skip the structural cascade.
+    if (kind === "workflow" || kind === "projection") {
+      const newSchema = contextSchemaOf(ctx);
+      if (kind === "workflow") {
+        const wf = ctx.workflows.find((w) => w.name === ri.to)!;
+        if (wf.eventSourced) {
+          streamFixups(ri, ctx, isMove, oldSchemaFor);
+          continue;
+        }
+        if (!wf.correlationField) continue; // no state table
+        const from = workflowStateTableName(ri.from);
+        const to = workflowStateTableName(ri.to);
+        push(from, to, newSchema, isMove ? { fromSchema: oldSchemaFor(from) } : undefined);
+      } else {
+        const proj = ctx.projections.find((p) => p.name === ri.to)!;
+        if (!isMaterializedProjection(proj)) continue; // query-time: no table
+        const from = plural(oldStem);
+        const to = plural(newStem);
+        push(from, to, newSchema, isMove ? { fromSchema: oldSchemaFor(from) } : undefined);
+      }
+      continue;
+    }
+
+    const agg = ctx.aggregates.find((a) => a.name === ri.to)!;
+    const schema = schemaOf(agg, ctx);
+    const move = isMove
+      ? { fromSchema: oldSchemaFor(plural(snake(tableOwnerName(agg, ctx.aggregates)))) }
+      : undefined;
+
+    // TPH concrete: no owned root table — but the shared table's `kind`
+    // discriminator rows still say the OLD name.  Emit the one-shot fix-up
+    // (M-T2.3 ledgered sqlExec).  Its part and join tables move with the base.
     if (isTphConcrete(agg, ctx.aggregates)) {
+      if (oldStem === newStem) continue;
       const baseTable = plural(snake(tableOwnerName(agg, ctx.aggregates)));
-      const target = schema ? `"${schema}"."${baseTable}"` : `"${baseTable}"`;
       dataFixups.push({
-        key: `${ri.migration}#tph:${ri.fromAggregate}->${ri.toAggregate}`,
-        sql: `UPDATE ${target} SET "kind" = '${ri.toAggregate}' WHERE "kind" = '${ri.fromAggregate}'`,
+        key: `${ri.migration}#tph:${ri.from}->${ri.to}`,
+        sql: `UPDATE ${qualified(schema, baseTable)} SET "kind" = '${ri.to}' WHERE "kind" = '${ri.from}'`,
       });
       continue;
     }
 
-    // Event-sourced (`persistedAs: eventLog`): no owned table either — the
-    // aggregate's stream lives in the shared per-context `<ctx>_events` log,
-    // discriminated by `stream_type = "<Agg>"` (the emitters stamp the exact
-    // aggregate NAME — every backend: hono/dotnet/java/python/elixir).  A rename
-    // strands those rows under the old name, the same *silent*-corruption shape
-    // as the TPH `kind` discriminator, so emit the ledgered UPDATE and skip the
-    // (empty) structural cascade.  The events table is context-owned, hence the
-    // context schema (not the aggregate's).
+    // Event-sourced (`persistedAs: eventLog`): no owned table — its stream
+    // lives in the per-context `<ctx>_events` log.
     if (agg.persistedAs === "eventLog") {
-      const eventsTable = `${snake(ctx.name)}_events`;
-      const ctxSchema = contextSchemaOf(ctx);
-      const target = ctxSchema ? `"${ctxSchema}"."${eventsTable}"` : `"${eventsTable}"`;
-      dataFixups.push({
-        key: `${ri.migration}#eventlog:${ri.fromAggregate}->${ri.toAggregate}`,
-        sql: `UPDATE ${target} SET "stream_type" = '${ri.toAggregate}' WHERE "stream_type" = '${ri.fromAggregate}'`,
-      });
+      streamFixups(ri, ctx, isMove, oldSchemaFor);
       continue;
     }
 
@@ -2866,44 +3053,58 @@ function resolveTableRenames(
       if (name.startsWith(`${newStem}_`)) return oldStem + name.slice(newStem.length);
       return undefined;
     };
+    const renamed = oldStem !== newStem;
 
     // Root table — plural, so computed directly (irregular plurals like
     // `category → categories` don't survive a bare prefix substitution).
-    tableRenames.push({ from: plural(oldStem), to: plural(newStem), schema });
+    push(plural(oldStem), plural(newStem), schema, move);
 
-    // Value-object collection child tables owned by the ROOT (`field: VO[]`).
-    // Part-owned collections are named for the part, not the aggregate, so they
-    // are unaffected by the rename — `valueCollectionsFor(agg)` returns only the
-    // root's.
+    // Value-object collection child tables owned by the ROOT (`field: VO[]`)
+    // and association join tables (`Target id[]`): table and owner FK both
+    // embed the aggregate stem.
     for (const vc of valueCollectionsFor(agg)) {
-      const oldTable = subStem(vc.childTable);
-      if (oldTable) tableRenames.push({ from: oldTable, to: vc.childTable, schema });
+      push(subStem(vc.childTable) ?? vc.childTable, vc.childTable, schema, move);
       const oldFk = subStem(vc.parentFk);
-      if (oldFk) columnRenames.push({ table: vc.childTable, schema, from: oldFk, to: vc.parentFk });
+      if (renamed && oldFk) {
+        columnRenames.push({ table: vc.childTable, schema, from: oldFk, to: vc.parentFk });
+      }
     }
-
-    // Association join tables (`Target id[]`) — the join table + its owner FK
-    // both embed the aggregate stem.
     for (const assoc of agg.associations) {
-      const oldTable = subStem(assoc.joinTable);
-      if (oldTable) tableRenames.push({ from: oldTable, to: assoc.joinTable, schema });
+      push(subStem(assoc.joinTable) ?? assoc.joinTable, assoc.joinTable, schema, move);
       const oldFk = subStem(assoc.ownerFk);
-      if (oldFk) {
+      if (renamed && oldFk) {
         columnRenames.push({ table: assoc.joinTable, schema, from: oldFk, to: assoc.ownerFk });
       }
     }
 
-    // Contained parts — the part table keeps its own name, but a root-level
-    // part's owner FK column is `snake(agg)_id`, which the rename moves.  A
-    // nested part FKs its sibling (not the root), so its `snake(agg)_id` column
-    // never existed and the baseline guard drops the candidate.
+    // Contained parts keep their own table names (and so do their value
+    // collections, named for the part); they only move.  A root-level part's
+    // owner FK column is `snake(agg)_id`, which the rename moves.  A nested
+    // part FKs its sibling (not the root), so its `snake(agg)_id` column never
+    // existed and the baseline guard drops the candidate.
     for (const part of agg.parts) {
-      columnRenames.push({
-        table: plural(snake(part.name)),
-        schema,
-        from: `${oldStem}_id`,
-        to: `${newStem}_id`,
-      });
+      const table = plural(snake(part.name));
+      if (move) {
+        push(table, table, schema, move);
+        for (const vc of valueCollectionsFor(part))
+          push(vc.childTable, vc.childTable, schema, move);
+      }
+      if (renamed) {
+        columnRenames.push({ table, schema, from: `${oldStem}_id`, to: `${newStem}_id` });
+      }
+    }
+
+    // A TPH base's concretes own no root table, but their parts and join tables
+    // live beside the shared table and move with it.
+    if (move && isTphBase(agg, ctx.aggregates)) {
+      for (const c of ctx.aggregates.filter((a) => isTphConcrete(a, ctx.aggregates))) {
+        if (tableOwnerName(c, ctx.aggregates) !== agg.name) continue;
+        for (const part of c.parts) {
+          const table = plural(snake(part.name));
+          push(table, table, schema, move);
+        }
+        for (const assoc of c.associations) push(assoc.joinTable, assoc.joinTable, schema, move);
+      }
     }
   }
 
@@ -2919,7 +3120,8 @@ function resolveTableRenames(
   // join table that predates the rename (or a same-generation add) is dropped.
   const intentByNewAgg = new Map<string, TableRenameIntentIR>();
   for (const ri of intents) {
-    if (ri.fromAggregate !== ri.toAggregate) intentByNewAgg.set(ri.toAggregate, ri);
+    const r = resolveTableStepTarget(env.contexts, ri);
+    if (r.ok && r.target.kind === "aggregate" && ri.from !== ri.to) intentByNewAgg.set(ri.to, ri);
   }
   if (intentByNewAgg.size > 0) {
     for (const ctx of module.contexts) {
@@ -2930,10 +3132,10 @@ function resolveTableRenames(
           // The renamed aggregate's OWN associations are the primary cascade's
           // job (ownerFk, above); the disambiguated self-collision column
           // (`target_id`) embeds no stem, so there's nothing to cascade.
-          if (assoc.ownerAgg === ri.toAggregate) continue;
-          const newStem = snake(ri.toAggregate);
+          if (assoc.ownerAgg === ri.to) continue;
+          const newStem = snake(ri.to);
           if (assoc.targetFk !== `${newStem}_id`) continue;
-          const oldStem = snake(ri.fromAggregate);
+          const oldStem = snake(ri.from);
           if (oldStem === newStem) continue;
           columnRenames.push({
             table: assoc.joinTable,
@@ -2945,7 +3147,77 @@ function resolveTableRenames(
       }
     }
   }
-  return { tableRenames, columnRenames, dataFixups };
+  // Two streams moving out of one log share its move and its sequence rename.
+  const seenFixup = new Set<string>();
+  const fixups = dataFixups.filter((f) => !seenFixup.has(f.key) && seenFixup.add(f.key));
+  return { tableRenames, columnRenames, dataFixups: fixups };
+
+  /** An event-sourced aggregate's or workflow's stream: its rows in the
+   *  per-context log are discriminated by `stream_type = "<Name>"` (every
+   *  backend stamps the exact declaration NAME).  A rename rewrites them — the
+   *  same *silent*-corruption shape as the TPH `kind` discriminator.  A move
+   *  takes the whole old log along (`SET SCHEMA` + rename) when no stream is
+   *  left in it and the new context has no log yet; otherwise it copies the
+   *  stream's rows into the new log and deletes them from the old one — ahead
+   *  of the structural steps when the old log is dropped this generation
+   *  (its module runs the copy), after them otherwise (the new log may be
+   *  created by them). */
+  function streamFixups(
+    ri: TableRenameIntentIR,
+    ctx: EnrichedBoundedContextIR,
+    isMove: boolean,
+    oldSchemaFor: (probe: string) => string | undefined,
+  ): void {
+    const newLog = `${snake(ctx.name)}_events`;
+    const newSchema = contextSchemaOf(ctx);
+    const target = qualified(newSchema, newLog);
+    const rewrite = (key: string, table: string) =>
+      dataFixups.push({
+        key: `${ri.migration}#${key}:${ri.from}->${ri.to}`,
+        sql: `UPDATE ${table} SET "stream_type" = '${ri.to}' WHERE "stream_type" = '${ri.from}'`,
+      });
+    if (!isMove) {
+      if (ri.from !== ri.to) rewrite("eventlog", target);
+      return;
+    }
+    const oldLog = `${snake(ri.fromContext!)}_events`;
+    const oldSchema = oldSchemaFor(oldLog);
+    // No baseline holds the old log: there is nothing (left) to move — the
+    // move is recorded already, or the stream never had a log.
+    if (!env.inBaseline(oldSchema, oldLog)) return;
+    const oldGone = !env.inNext(oldSchema, oldLog);
+    const newIsNew = !env.inBaseline(newSchema, newLog);
+    if (oldGone && newIsNew) {
+      push(oldLog, newLog, newSchema, { fromSchema: oldSchema });
+      // The `seq` cursor's sequence moved with the table but keeps its name;
+      // renaming it leaves the log identical to one created fresh.
+      if (oldLog !== newLog) {
+        dataFixups.push({
+          key: `${ri.migration}#eventlog-seq:${oldLog}->${newLog}`,
+          sql: `ALTER SEQUENCE IF EXISTS ${qualified(newSchema, `${oldLog}_seq_seq`)} RENAME TO "${newLog}_seq_seq"`,
+        });
+      }
+      if (ri.from !== ri.to) rewrite("eventlog", target);
+      return;
+    }
+    const source = qualified(oldSchema, oldLog);
+    const cols = `"stream_id", "version", "type", "data", "occurred_at"`;
+    const placement = oldGone
+      ? { before: true, withSource: { schema: oldSchema, name: oldLog } }
+      : {};
+    dataFixups.push({
+      key: `${ri.migration}#eventlog-copy:${ri.fromContext}.${ri.from}->${ctx.name}.${ri.to}`,
+      sql:
+        `INSERT INTO ${target} ("stream_type", ${cols}) ` +
+        `SELECT '${ri.to}', ${cols} FROM ${source} WHERE "stream_type" = '${ri.from}' ORDER BY "seq"`,
+      ...placement,
+    });
+    dataFixups.push({
+      key: `${ri.migration}#eventlog-delete:${ri.fromContext}.${ri.from}->${ctx.name}.${ri.to}`,
+      sql: `DELETE FROM ${source} WHERE "stream_type" = '${ri.from}'`,
+      ...placement,
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -4071,4 +4343,10 @@ function tableToPascal(name: string): string {
 
 function columnToPascal(name: string): string {
   return tableToPascal(name);
+}
+
+/** The schema a `renameTable` step's table is in BEFORE it runs: its own, or
+ *  the old one on a move. */
+function renamedFromSchema(s: Extract<MigrationStep, { op: "renameTable" }>): string | undefined {
+  return s.fromSchema === undefined ? s.schema : (s.fromSchema ?? undefined);
 }
