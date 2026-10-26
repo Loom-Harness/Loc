@@ -83,7 +83,7 @@ describe("validator — criterion", () => {
         aggregate Order { total: int }
         repository Customers for Customer { }
         repository Orders for Order {
-          find bad(): Order[] where ActiveCustomer
+          find bad(): Order? where ActiveCustomer
         }
         criterion ActiveCustomer of Customer = active
       }

@@ -22,7 +22,7 @@ const SRC = `
       invariant name.substring(0, 3).length <= 3
     }
     repository Products for Product {
-      find byNormalizedName(q: string): Product[] where this.name.toLower() == q
+      find byNormalizedName(q: string): Product? where this.name.toLower() == q
     }
   }
 `;

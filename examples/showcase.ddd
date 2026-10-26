@@ -264,10 +264,14 @@ system DevPlatform {
 
             repository Projects for Project {
                 find byName(name: string): Project? where this.name == name
-                find active(): Project[] where this.active == true
                 // Union-returning find (absence → the error variant) — the
                 // subject a VariantArm `match` narrows.
                 find locate(name: string): Project or ProjectNotFound where this.name == name
+            }
+            criterion ProjectsActive of Project = this.active == true
+            queryHandler ListProjectsActive(): Project[] {
+              let r = Projects.run(ProjectsActive())
+              return r
             }
 
             // Non-transactional workflow.  The guard references the module
@@ -457,6 +461,7 @@ system DevPlatform {
     // ApiStatus — per-error HTTP status mapping in an api contract block.
     api ProjectsApi from Projects {
         httpStatus ProjectNotFound -> 404
+      route GET "/active_projects" -> Catalog.ListProjectsActive
     }
     api DeliveryApi from Delivery
     api AccountsApi from Accounts
@@ -917,7 +922,7 @@ system DevPlatform {
     // Find route (collection): `active()` returns a non-empty set after a create.
     test e2e "listing active projects returns a non-empty set" against dotnetApi {
         let p = api.projects.create({ name: "Live", visibility: "Internal", active: true, sequence: 3, externalId: "00000000-0000-0000-0000-000000000000", budget: 0.0, createdAt: "2024-01-01T00:00:00Z" })
-        let list = api.projects.active()
+        let list = api.catalog.listProjectsActive()
         expect(list.length).toBeGreaterThanOrEqual(1)
     }
 

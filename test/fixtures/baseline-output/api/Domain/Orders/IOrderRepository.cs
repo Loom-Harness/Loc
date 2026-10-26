@@ -12,5 +12,5 @@ public interface IOrderRepository
     Task SaveAsync(Order aggregate, CancellationToken cancellationToken = default);
     Task DeleteAsync(Order aggregate, CancellationToken cancellationToken = default);
     Task<Paged<Order>> All(int page, int pageSize, string sort, string dir, CancellationToken cancellationToken = default);
-    Task<List<Order>> ByCustomer(string customerId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<Order>> RunFindAllByOrdersByCustomerAsync(string customerId, (int? offset, int? limit)? page = null, FilterBypass bypass = default, CancellationToken cancellationToken = default);
 }

@@ -57,10 +57,9 @@ system Helpdesk {
       aggregate Plan crossTenant with crudish { name: string }
       aggregate Organization with crudish { name: string  implements tenantRegistry }
 
-      repository Tickets for Ticket {
-        find mine(): Ticket[] where assignee == currentUser.id
-        find open(): Ticket[] where status == Open
-      }
+      repository Tickets for Ticket { }
+      criterion TicketsMine of Ticket = assignee == currentUser.id
+      criterion TicketsOpen of Ticket = status == Open
       repository Secrets for Secret { }
       repository Plans for Plan { }
       repository Organizations for Organization { }
@@ -604,12 +603,11 @@ Two more gates guard the read paths a mask cannot reach: `loom.field-mask-projec
 
 ## `currentUser` — claim access in domain logic
 
-`currentUser` is a magic identifier resolving to the typed principal, in scope wherever an expression evaluates **per request**: operation and workflow bodies, `requires` gates, `mask unless` predicates, aggregate `test` bodies, and repository `find` `where` filters. It is a compile error (`loom.currentuser-not-in-request-scope`) in an invariant, a derived property, or a `function` body — those can run outside a request.
+`currentUser` is a magic identifier resolving to the typed principal, in scope wherever an expression evaluates **per request**: operation and workflow bodies, `requires` gates, `mask unless` predicates, aggregate `test` bodies, and query filters (a `criterion` body, a repository `find`'s `where`). It is a compile error (`loom.currentuser-not-in-request-scope`) in an invariant, a derived property, or a `function` body — those can run outside a request.
 
 ```ddd
-repository Tickets for Ticket {
-  find mine(): Ticket[] where assignee == currentUser.id
-}
+repository Tickets for Ticket { }
+criterion TicketsMine of Ticket = assignee == currentUser.id
 ```
 
 ::: tabs backend

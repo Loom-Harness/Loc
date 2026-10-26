@@ -15,7 +15,7 @@ describe("dotnet generator — string.trim() intrinsic (stdlib A1 pilot)", () =>
       context Catalog {
         aggregate Product { name: string }
         repository Products for Product {
-          find byName(q: string): Product[] where this.name == q.trim()
+          find byName(q: string): Product? where this.name == q.trim()
         }
       }
     `;

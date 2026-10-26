@@ -40,7 +40,7 @@ system Tree {
         filter UnderRoot
       }
       repository Docs for Doc {
-        find under(prefix: string): Doc[] where this.path.startsWith(prefix)
+        find under(prefix: string): Doc? where this.path.startsWith(prefix)
       }
     }
   }

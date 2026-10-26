@@ -159,7 +159,7 @@ describe("ddd parse — one summary, counting every phase", () => {
   });
 
   it("counts AST and IR diagnostics together on a model that has both", () => {
-    // `find open(): Order[]` raises the phase-④ wire-shaped-list-query warning;
+    // `audited` on a private operation raises a phase-④ warning;
     // the eventLog knobs raise two phase-⑦ warnings.  One footer, all three —
     // the case where the two old footers were each individually truthful and
     // together said nothing a reader could use.
@@ -169,18 +169,11 @@ system Both {
   subdomain D {
     context Orders {
       enum OrderStatus { Open Closed }
-      aggregate Order with crudish { code: string  status: OrderStatus }
-      repository Orders for Order {
-        find open(): Order[] where this.status == OrderStatus.Open
+      aggregate Order with crudish {
+        code: string
+        status: OrderStatus
+        private operation quiet() audited { code := code }
       }
-      // The phase-④ warning this fixture COUNTS is scoped to contexts that
-      // already declare a criterion or a retrieval (audit D7: a context with
-      // neither has no equal-power replacement to migrate the find to, which
-      // is also the shape the crud starter template emits).  Declaring one
-      // keeps the AST-layer warning firing, which is the whole point here —
-      // without it this test would count 3 and silently stop covering the
-      // AST-plus-IR case it is named for.
-      criterion IsOpen of Order = status == OrderStatus.Open
     }
   }
   storage pg { type: postgres }
@@ -196,7 +189,7 @@ system Both {
 `),
     );
     expect(status).toBe(0);
-    expect(stderr).toContain("wire-shaped list query");
+    expect(stderr).toContain("'audited' has no effect on private operation 'quiet'");
     expect(stderr).toContain("loom.datasource-knob-unwired");
 
     const lines = summaryLines(stderr);

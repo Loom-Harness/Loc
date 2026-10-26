@@ -30,10 +30,10 @@ system BypassShop {
         filter this.price > 0
       }
       repository Products for Product {
-        find recent(): Product[] where this.name != "" ignoring softDeletable
-        find allRows(): Product[] ignoring *
-        find normal(): Product[] where this.name != ""
+        find all(): Product[] ignoring *
       }
+      criterion ProductsRecent of Product = this.name != ""
+      criterion ProductsNormal of Product = this.name != ""
     }
   }
   api CatalogApi from Sales

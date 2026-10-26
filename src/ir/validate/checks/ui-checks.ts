@@ -19,7 +19,6 @@ export { validateUiPageIdentity } from "./ui-page-identity-checks.js";
 
 import type { AggregateIR, EnrichedLoomModel, FindIR, ProjectionIR } from "../../types/loom-ir.js";
 import { allAggregates, allContexts } from "../../types/loom-ir.js";
-import { classifyPage } from "../../util/page-kind.js";
 import { pagedFindRoutes } from "../../util/paged-find-routes.js";
 import {
   groupedProjectionNames,
@@ -65,7 +64,6 @@ import {
   checkOfReadResolves,
   checkOfReadRouted,
   checkOpFormRouteId,
-  checkScaffoldFilterParams,
   checkSlotOutsideComponent,
   checkSubPrimitivePlacement,
   checkUnknownPageElements,
@@ -259,21 +257,6 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
         checkFixedSlotArity(page, pageWhere(page), diags);
         checkPrimitiveNamedArgs(page, pageWhere(page), diags);
         checkPrimitiveNamedArgValues(page, pageWhere(page), diags);
-        // The scaffolded list page is the only one whose filter bar the macro
-        // builds, so the drop is only reportable there.
-        const pageKind = classifyPage(page, {
-          aggregateNames: [...aggNames],
-          workflowNames: [...workflowNames],
-        });
-        if (pageKind.kind === "aggregate-list") {
-          checkScaffoldFilterParams(
-            page,
-            pageKind.aggregateName,
-            findsByAggregate.get(pageKind.aggregateName),
-            pageWhere(page),
-            diags,
-          );
-        }
         checkOfReadResolves(
           page,
           pageWhere(page),

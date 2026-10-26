@@ -40,7 +40,7 @@
     {
       "seq": 3,
       "method": "GET",
-      "path": "/api/secrets/by_code?c=S-1",
+      "path": "/api/secrets/by_code/S-1",
       "status": 200,
       "body": []
     },

@@ -140,7 +140,9 @@ describe(".NET document-persistence emission (normalised(false))", () => {
     );
     // Find evaluates client-side over rehydrated documents (de-asynced
     // terminal): `.ToList()`, not `.ToListAsync(cancellationToken)`.
-    expect(repo).toContain("var result = __all.Where(x => x.CustomerId == customerId).ToList();");
+    expect(repo).toContain(
+      "var result = __all.Where(x => x.CustomerId == customerId).FirstOrDefault();",
+    );
     expect(repo).not.toContain("_db.Carts.Where(x => x.CustomerId");
   });
 
@@ -188,7 +190,7 @@ describe(".NET document-persistence emission (normalised(false))", () => {
     const repo = files.get("Infrastructure/Repositories/WishlistRepository.cs")!;
     // Find is a real indexed SQL WHERE on the root column, not in-memory.
     expect(repo).toContain(
-      "_db.Wishlists.Where(x => x.CustomerId == customerId).ToListAsync(cancellationToken)",
+      "_db.Wishlists.Where(x => x.CustomerId == customerId).FirstOrDefaultAsync(cancellationToken)",
     );
     expect(repo).not.toContain("FromSnapshot");
     // Entity carries no snapshot machinery.

@@ -2,7 +2,7 @@
 
 A macro is a compile-time `with <Macro>(...)` clause that splices AST into its host declaration **before** lowering — it expands to ordinary `.ddd` you could have written by hand. The most instructive "output" of a macro is therefore the **expanded source**, not the target language: every macro has a source-equivalent, and the `unfold` refactor ejects it verbatim. This chapter covers the `with` invocation and its argument forms, the thirteen stdlib macros, the built-in *capabilities* they compose with, the `defineMacro` authoring surface, the macro validation gates, and `unfold`.
 
-> **Grammar:** `WithClause`, `MacroCall`, `MacroArg`, `MacroArgName`, `MacroArgValue` · **Pipeline:** macro expansion is phase ② (AST→AST), before scope/link · **Validators:** `loom.unknown-macro`, `loom.macro-target-mismatch`, `loom.macro-arg-*`, `loom.macro-threw`, `loom.macro-escapes-host`, `loom.macro-non-ast-result`, `loom.capability-host-invalid`, `loom.scaffold-filter-param-unsupported` · **Source:** [`src/macros/`](../../src/macros/) · **Docs:** [`../scaffold-macros.md`](../scaffold-macros.md), [`../macro-api.md`](../macro-api.md)
+> **Grammar:** `WithClause`, `MacroCall`, `MacroArg`, `MacroArgName`, `MacroArgValue` · **Pipeline:** macro expansion is phase ② (AST→AST), before scope/link · **Validators:** `loom.unknown-macro`, `loom.macro-target-mismatch`, `loom.macro-arg-*`, `loom.macro-threw`, `loom.macro-escapes-host`, `loom.macro-non-ast-result`, `loom.capability-host-invalid` · **Source:** [`src/macros/`](../../src/macros/) · **Docs:** [`../scaffold-macros.md`](../scaffold-macros.md), [`../macro-api.md`](../macro-api.md)
 
 Macros expand at AST phase ②, so a synthesised member is indistinguishable from a hand-written one by the time scope resolution, validation, lowering, and codegen run. That is why the examples below pair the **written** `.ddd` with its **expanded** `.ddd` (a `macro` tab group) — and, where the macro feeds backend output, one `backend` tab showing what the expansion ultimately emits.
 
@@ -291,23 +291,6 @@ export default function ProductList() {
 ::: end
 
 The synthesised pages carry their **full** walker-stdlib body (not a placeholder), so `unfold` ejects real, editable `.ddd`. A page's *kind* is derived on demand from its role-scoped name + area — there is no stamped `origin`. Override-by-name lets you replace any scaffolded page (Home included) by writing one with the same name explicitly. See [UI pages](15-ui-pages-structure.md) for the page DSL the scaffolds emit.
-
-### The scaffolded filter bar
-
-The List page's filter bar wires one input per param of every array-returning repository `find`, and the arm is **all-or-nothing**: a find with a single unrenderable param is dropped from the bar whole, with `loom.scaffold-filter-param-unsupported` (a *warning*) naming it. The renderable set (`RENDERABLE_FILTER_PRIMITIVES`, [`src/util/filter-param-kinds.ts`](../../src/util/filter-param-kinds.ts)) is `string`, `guid`, `datetime` (a text `Field` — all three are `z.string()` on the wire), `int` / `long` (a `NumberField` whose unset sentinel is `0`), `bool` (a three-state `SelectField`), and `<X> id`. Two kinds are held back for reasons that live in the frontend emitters, not the macro: `decimal` / `money` (the `0` sentinel does not type-check on Feliz) and `enum` (every frontend types an enum-valued `state {}` field as bare `string` while the query param is a zod enum union).
-
-```ddd
-repository Products for Product {
-  find byPrice(price: decimal): Product[] where this.price == price   // decimal → dropped
-}
-```
-```
-warning: the scaffolded list filter bar has no input for `price: decimal`, so repository
-find 'byPrice' is omitted from it entirely and 'Product' cannot be filtered by that column
-from this page.                                        [loom.scaffold-filter-param-unsupported]
-```
-
-Binding the find yourself in an explicit `page List { … }` override silences it — the gate only fires when nothing in the page body reads that find.
 
 ## `scaffold` family — application & transport
 

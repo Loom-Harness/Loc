@@ -30,9 +30,7 @@ system PagedShop {
   subdomain Sales {
     context Orders {
       aggregate Order { code: string  region: string }
-      repository Orders for Order {
-        find recent(): Order paged
-      }
+      repository Orders for Order { }
     }
   }
   api OrdersApi from Sales
@@ -107,10 +105,10 @@ describe("vanilla paging bounds — refuse, don't clamp (A16)", () => {
   it("the paged action answers the refusal as the shared errors[] 422", async () => {
     const ctrl = file(await generateSystemFiles(SOURCE), "/controllers/order_controller.ex");
 
-    // Both reads (the auto-findAll `index` and the declared `recent`) validate
-    // BEFORE the repository call — the page controls are bound by `with`
-    // clauses, so an out-of-range window never reaches the query.
-    for (const action of ["def index(conn, params) do", "def recent(conn, params) do"]) {
+    // The auto-findAll `index` validates BEFORE the repository call — the page
+    // controls are bound by `with` clauses, so an out-of-range window never
+    // reaches the query.
+    for (const action of ["def index(conn, params) do"]) {
       const body = ctrl.slice(ctrl.indexOf(action));
       expect(
         body.indexOf('{:ok, page_arg} <- page_param(params, "page", 1, 1000000)'),

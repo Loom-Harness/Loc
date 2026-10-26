@@ -51,7 +51,7 @@ const DEEP_AND_DENY = `system PD {
         body: string
       }
       repository Things for Thing {
-        find byLabel(l: string): Thing[] where this.label == l
+        find byLabel(l: string): Thing? where this.label == l
       }
       repository Notes for Note { }
       policy {
@@ -90,7 +90,7 @@ const NON_PRINCIPAL = `system SD {
         label: string
       }
       repository Docs for Doc {
-        find byLabel(l: string): Doc[] where this.label == l
+        find byLabel(l: string): Doc? where this.label == l
       }
     }
   }
@@ -120,8 +120,8 @@ const DOC_IGNORING = `system DI {
         note: string
       }
       repository Docs for Doc {
-        find byLabel(l: string): Doc[] where this.label == l
-        find byLabelAll(l: string): Doc[] where this.label == l ignoring softDeletable
+        find byLabel(l: string): Doc? where this.label == l
+        find byLabelAll(l: string): Doc? where this.label == l ignoring softDeletable
         find byNoteAny(n: string): Doc? where this.note == n ignoring *
       }
     }

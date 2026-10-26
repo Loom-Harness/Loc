@@ -200,7 +200,7 @@ system Carting {
       }
       repository Carts for Cart {
         find byReference(reference: string): Cart? where this.reference == reference
-        find checkedOutOnes(): Cart[] where this.status == checkedOut
+        find checkedOutOnes(): Cart? where this.status == checkedOut
       }
     }
   }
@@ -220,15 +220,14 @@ system Carting {
 describe("vanilla shape: document scalar finds + named ops (Route A slice 2 — struct mode)", () => {
   it("emits in-memory custom finds that read the rehydrated embed struct", async () => {
     const repo = file(await generateSystemFiles(DOC_OPS), "/carts/cart_repository.ex");
-    // A list find returns every match; the predicate reads the rehydrated
-    // `%<Agg>.Data{}` embed bound as `record` (struct access, no docMap fork),
-    // enums compared as their stored strings.
+    // The predicate reads the rehydrated `%<Agg>.Data{}` embed bound as
+    // `record` (struct access, no docMap fork), enums compared as their stored
+    // strings.
     expect(repo).toContain("def checked_out_ones() do");
     expect(repo).toContain("|> Repo.all()");
     expect(repo).toContain("|> Enum.filter(fn row ->");
     expect(repo).toContain("record = row.data");
     expect(repo).toContain('record.status == "checkedOut"');
-    expect(repo).toContain("{:ok, results}");
     // A single-return find (`Cart?`) yields the first match (or nil).
     expect(repo).toContain("def by_reference(reference) do");
     expect(repo).toContain("record.reference == reference");
@@ -431,13 +430,15 @@ system Shop {
         title: string
         status: Status
       }
-      repository Tickets for Ticket {
-        find recent(): Ticket paged
-        find byStatus(status: Status): Ticket paged where this.status == status
+      repository Tickets for Ticket { }
+      criterion ByStatus(status: Status) of Ticket = this.status == status
+      queryHandler ListByStatus(status: Status): Ticket paged {
+        let r = Tickets.run(ByStatus(status))
+        return r
       }
     }
   }
-  api ShopApi from Sales
+  api ShopApi from Sales { route GET "/tickets/by_status/{status}" -> Shop.ListByStatus }
   storage pg { type: postgres }
   resource shopState { for: Shop, kind: state, use: pg }
   deployable api { platform: elixir, contexts: [Shop], dataSources: [shopState], serves: ShopApi, port: 4000 }
@@ -451,10 +452,7 @@ system Shop {
     // defdelegate + the controller's paged action call through at that arity
     // (test/generator/elixir/paged-find-arity.test.ts).
     expect(repo).toContain(
-      'def recent(page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc") do',
-    );
-    expect(repo).toContain(
-      'def by_status(status, page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc") do',
+      'def find_all_by_by_status(status, page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc") do',
     );
     // Filter the whole table, then order + slice the page in memory.
     expect(repo).toContain("|> Repo.all()");
@@ -465,11 +463,9 @@ system Shop {
     // camelCase envelope keys (Jason serialises the atoms verbatim).
     expect(repo).toContain("pageSize: page_size");
     expect(repo).toContain("totalPages: if(page_size > 0, do: ceil(total / page_size), else: 0)");
-    // A filtered paged find still reads the embed (struct-mode predicate).
+    // The paged read still reads the embed (struct-mode predicate).
     expect(repo).toContain("record = row.data");
     expect(repo).toContain("record.status == status");
-    // An unfiltered paged find must NOT bind an unused `record` (else -Werror).
-    expect(repo).toContain("|> Enum.filter(fn _row -> true end)");
   });
 });
 

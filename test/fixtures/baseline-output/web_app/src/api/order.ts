@@ -35,10 +35,6 @@ export const AllQuery = z.object({
 });
 export type AllQuery = z.infer<typeof AllQuery>;
 export type AllQueryInput = z.input<typeof AllQuery>;
-export const ByCustomerQuery = z.object({
-  customerId: z.string(),
-});
-export type ByCustomerQuery = z.infer<typeof ByCustomerQuery>;
 
 export const OrderLineResponse = z.object({
   id: z.string(),
@@ -140,17 +136,6 @@ export function useUpdateOrder(id: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["orders", id] });
       qc.invalidateQueries({ queryKey: ["orders"] });
-    },
-  });
-}
-
-export function useByCustomerOrder(query: ByCustomerQuery) {
-  return useQuery({
-    queryKey: ["orders", "find", "by_customer", query],
-    queryFn: async () => {
-      const qs = new URLSearchParams(Object.entries(query).map(([k, v]) => [k, String(v)])).toString();
-      const r = await api.get(`/orders/by_customer${qs ? "?" + qs : ""}`);
-      return OrderListResponse.parse(r);
     },
   });
 }

@@ -28,7 +28,7 @@ system Claims {
         // Not `byRef`: .NET's analyzer refuses an interface member named like
         // the VB keyword `ByRef` (CA1716 under /warnaserror) — a separate
         // defect, kept out of this row.
-        find withRef(r: string): Clm[] where ref == r
+        find withRef(r: string): Clm? where ref == r
       }
 
       event Filed { ledger: Ledger id, amount: int }

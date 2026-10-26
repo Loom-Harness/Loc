@@ -84,10 +84,9 @@ system PokemonWorld {
                 derived display: string = species
             }
 
-            repository Pokedex for Pokemon {
-                find bySpecies(species: string): Pokemon[] where this.species == species
-                find readyToEvolve(): Pokemon[] where this.level >= 16
-            }
+            repository Pokedex for Pokemon { }
+            criterion PokemonsBySpecies(species: string) of Pokemon = this.species == species
+            criterion PokemonsReadyToEvolve of Pokemon = this.level >= 16
         }
 
         context Trainers {
@@ -150,10 +149,9 @@ system PokemonWorld {
 
             repository Trainers for Trainer {
                 find byName(name: string): Trainer? where this.name == name
-                find byRank(rank: TrainerRank): Trainer[] where this.rank == rank
-                find holdingInParty(pokemon: Pokemon id): Trainer[]
-                    where this.party.contains(pokemon)
             }
+            criterion TrainersByRank(rank: TrainerRank) of Trainer = this.rank == rank
+            criterion TrainersHoldingInParty(pokemon: Pokemon id) of Trainer = this.party.contains(pokemon)
         }
     }
 
@@ -206,11 +204,9 @@ system PokemonWorld {
                 }
             }
 
-            repository Battles for Battle {
-                find ongoing(): Battle[] where this.status == Ongoing
-                find forChallenger(challenger: Trainer id): Battle[]
-                    where this.challenger == challenger
-            }
+            repository Battles for Battle { }
+            criterion BattlesOngoing of Battle = this.status == Ongoing
+            criterion BattlesForChallenger(challenger: Trainer id) of Battle = this.challenger == challenger
         }
 
         context Arenas {
@@ -234,9 +230,8 @@ system PokemonWorld {
                 derived display: string = name
             }
 
-            repository Gyms for Gym {
-                find byCity(city: string): Gym[] where this.city == city
-            }
+            repository Gyms for Gym { }
+            criterion GymsByCity(city: string) of Gym = this.city == city
         }
     }
 

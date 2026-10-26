@@ -11,8 +11,8 @@ const SRC = `
   context Sales {
     aggregate Customer { active: bool  region: string }
     repository Customers for Customer {
-      find inRegionInline(r: string): Customer[] where active == true && region == r
-      find inRegionViaCriterion(r: string): Customer[] where ActiveCustomer && InRegion(r)
+      find inRegionInline(r: string): Customer? where active == true && region == r
+      find inRegionViaCriterion(r: string): Customer? where ActiveCustomer && InRegion(r)
     }
     criterion ActiveCustomer of Customer = active == true
     criterion InRegion(rgn: string) of Customer = region == rgn

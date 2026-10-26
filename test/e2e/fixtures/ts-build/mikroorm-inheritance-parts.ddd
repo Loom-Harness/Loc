@@ -24,9 +24,8 @@ system Wallet {
       aggregate BankAccount extends PaymentMethod with crudish {
         routingNumber: string
       }
-      repository CreditCards for CreditCard {
-        find byNetwork(network: CardNetwork): CreditCard[] where this.network == network
-      }
+      repository CreditCards for CreditCard { }
+      criterion CreditCardsByNetwork(network: CardNetwork) of CreditCard = this.network == network
       repository BankAccounts for BankAccount { }
     }
   }

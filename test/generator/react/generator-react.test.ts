@@ -77,8 +77,6 @@ describe("react generator", () => {
     // One hook per public DSL operation.
     expect(orderApi).toMatch(/export function useAddLineOrder/);
     expect(orderApi).toMatch(/export function useConfirmOrder/);
-    // Per-find hook (non-`all`).
-    expect(orderApi).toMatch(/export function useByCustomerOrder/);
   });
 
   it("Zod schemas mirror the wire shape — request + response", async () => {

@@ -76,10 +76,15 @@ system PolicyDocument {
         body: string
       }
 
-      repository Things for Thing {
-        // The ladder must be AND-ed into the author's own `where`, not only
-        // into the auto-`findAll`.
-        find byLabel(l: string): Thing[] where this.label == l
+      repository Things for Thing { }
+      // The ladder must be AND-ed into the author's own `where`, not only
+      // into the auto-`findAll`.
+      criterion ThingsByLabel(l: string) of Thing = this.label == l
+      // PAGED: a non-relational repository serves a criterion read through the
+      // synthesised paged find; an unpaged `run` has no repository method there.
+      queryHandler ListThingsByLabel(l: string): Thing paged {
+        let r = Things.run(ThingsByLabel(l))
+        return r
       }
       repository Notes for Note { }
 
@@ -99,7 +104,9 @@ system PolicyDocument {
     }
   }
 
-  api MainApi from Core
+  api MainApi from Core {
+    route GET "/things/by_label/{l}" -> Main.ListThingsByLabel
+  }
   storage primary { type: postgres }
   resource mainState { for: Main, kind: state, use: primary }
   resource registryState { for: Registry, kind: state, use: primary }
@@ -152,10 +159,10 @@ system PolicyDocument {
     expect(listed.length).toBe(1)
     // The DECLARED find — the site where the scope term has to be AND-ed into
     // the author's own `where this.label == l` rather than replacing it.
-    let found = api.things.byLabel({ l: "T-1" })
-    expect(found.length).toBe(1)
-    let other = api.things.byLabel({ l: "T-absent" })
-    expect(other.length).toBe(0)
+    let found = api.main.listThingsByLabel("T-1")
+    expect(found.items.length).toBe(1)
+    let other = api.main.listThingsByLabel("T-absent")
+    expect(other.items.length).toBe(0)
     // Mutations load through the read filter first, so an ADMITTED row writes —
     // and the update must not lose the stamp (the doc is rewritten whole).
     api.things.update(t, { label: "T-2", amount: 5 })

@@ -33,8 +33,8 @@ system Acme {
         note: string
       }
       repository Orders for Order {
-        find byQty(min: int): Order[] where this.qty >= min
-        find recent(): Order[]
+        find byQty(min: int): Order? where this.qty >= min
+        find recent(): Order?
       }
       aggregate Tag with crudish {
         label: string
@@ -111,7 +111,7 @@ describe("hono declared responses — 422 rides every parsed request part (F6)",
     const byQty = routeBlock(order, "get", "/by_qty");
     expect(byQty).toContain("request: { query: ByQtyQuery },");
     expect(byQty).toContain('422: { description: "Unprocessable Entity"');
-    // `find recent(): Order[]` parses NOTHING — no query object is even
+    // `find recent(): Order?` parses NOTHING — no query object is even
     // emitted — so declaring a 422 there would be the inverse fault: a status
     // published on a route that cannot produce it.
     const recent = routeBlock(order, "get", "/recent");

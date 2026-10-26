@@ -152,11 +152,9 @@ system BankingSystem {
         find byEmail(email: string): Customer? where this.email == email
       }
 
-      repository Accounts for Account {
-        find byHolder(holder: Customer id): Account[] where this.holder == holder
-        find openByHolder(holder: Customer id): Account[]
-          where this.holder == holder && this.status == Open
-      }
+      repository Accounts for Account { }
+      criterion AccountsByHolder(holder: Customer id) of Account = this.holder == holder
+      criterion AccountsOpenByHolder(holder: Customer id) of Account = this.holder == holder && this.status == Open
 
       // Workflow: atomically move funds between two accounts.
       // `transactional` keeps the withdraw + deposit in one DB

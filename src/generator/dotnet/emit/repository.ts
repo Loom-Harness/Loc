@@ -961,7 +961,7 @@ export function renderDocumentRepositoryImpl(
     : [];
   const findMethodLines = finds.flatMap((f) => {
     const body = findBodies.find((b) => b.name === f.name);
-    const filter = body?.filterClause ?? "";
+    const filter = inMemoryFilter(body?.filterClause ?? "");
     // De-async the EF terminal — finds run in-memory over the rehydrated
     // documents, so the async EF operators become their LINQ-to-objects
     // equivalents.
@@ -1295,7 +1295,7 @@ export function renderEventSourcedRepositoryImpl(
 
   const findMethodLines = finds.flatMap((f) => {
     const body = findBodies.find((b) => b.name === f.name);
-    const filter = body?.filterClause ?? "";
+    const filter = inMemoryFilter(body?.filterClause ?? "");
     const { ct } = csReadOwnParams(f.params.map((p) => p.name));
     const projection = (body?.projectionClause ?? `.ToListAsync(${ct})`)
       .replace(`.ToListAsync(${ct})`, ".ToList()")
@@ -1498,6 +1498,14 @@ export function renderEventSourcedRepositoryImpl(
  *  following `return result;` becomes **CS8603 Possible null reference return**,
  *  fatal under `/warnaserror`.  A `T?` find keeps the comparison: there the
  *  terminal really is `FirstOrDefault` and the return type admits null. */
+/** A find's filter clause as LINQ-to-objects.  The in-memory carriers
+ *  (document, event log) filter a rehydrated `IEnumerable`, whose `Where` takes
+ *  a `Func`; a criterion-backed clause names the criterion's EF query face
+ *  (`.ToExpression()`, an `Expression<Func<…>>`), so it is compiled first. */
+function inMemoryFilter(filter: string): string {
+  return filter.replace(/\.ToExpression\(\)\)/g, ".ToExpression().Compile())");
+}
+
 /**
  * An IN-MEMORY paged find over a NON-RELATIONAL carrier (`shape: document`,
  * `persistedAs: eventLog`) — ledger row `F2-CB-C1`.

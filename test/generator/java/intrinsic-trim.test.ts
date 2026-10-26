@@ -21,7 +21,7 @@ system Shop {
         invariant name.trim().length > 0
       }
       repository Products for Product {
-        find byExactName(q: string): Product[] where this.name.trim() == q
+        find byExactName(q: string): Product? where this.name.trim() == q
       }
     }
   }
@@ -43,8 +43,8 @@ const ROOT = "shop_api/src/main/java/com/loom/shopapi";
 describe("java generator — string.trim() intrinsic (stdlib A1 pilot)", () => {
   it("renders a value-side trim (param receiver) as trim(:q) — JPQL trim works on parameters", async () => {
     const src = SRC.replace(
-      "find byExactName(q: string): Product[] where this.name.trim() == q",
-      "find byName(q: string): Product[] where this.name == q.trim()",
+      "find byExactName(q: string): Product? where this.name.trim() == q",
+      "find byName(q: string): Product? where this.name == q.trim()",
     );
     const { errors } = await parseString(src);
     expect(errors).toEqual([]);

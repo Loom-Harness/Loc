@@ -31,9 +31,9 @@ describe("python find lowering", () => {
   it("comparison predicates lower to column expressions", async () => {
     const files = await build();
     const repo = files.get("api/app/db/repositories/order_repository.py")!;
-    expect(repo).toContain("async def by_status(self, status: OrderStatus) -> list[Order]:");
+    expect(repo).toContain("async def by_status(self, status: OrderStatus) -> Order | None:");
     expect(repo).toContain("select(OrderRow).where((OrderRow.status == status))");
-    expect(repo).toContain("async def cheaper_than(self, limit: Decimal) -> list[Order]:");
+    expect(repo).toContain("async def cheaper_than(self, limit: Decimal) -> Order | None:");
     expect(repo).toContain("select(OrderRow).where((OrderRow.unit_budget <= limit))");
   });
 
@@ -49,10 +49,10 @@ describe("python find lowering", () => {
     const files = await build();
     const routes = files.get("api/app/http/order_routes.py")!;
     expect(routes).toContain(
-      '@router.get("/by_status", response_model=OrderListResponse, operation_id="byStatusOrder", responses={422: {"model": ProblemDetails, "description": "Unprocessable Entity"}})',
+      '@router.get("/by_status", response_model=OrderResponse, operation_id="byStatusOrder", responses={404: {"model": ProblemDetails, "description": "Not Found"}, 422: {"model": ProblemDetails, "description": "Unprocessable Entity"}})',
     );
     expect(routes).toContain(
-      "async def by_status_orders(status: OrderStatus, session: SessionDep) -> list[dict[str, object]]:",
+      "async def by_status_orders(status: OrderStatus, session: SessionDep) -> dict[str, object]:",
     );
     expect(routes).toContain("await repo.watched_by(CustomerId(customerId))");
     // A `money` find param arrives as a wire string and is branded back to the
@@ -62,7 +62,7 @@ describe("python find lowering", () => {
     // constructor and raise `InvalidOperation` out of the handler — a 500 for
     // what is plainly a client error.
     expect(routes).toContain(
-      "async def cheaper_than_orders(limit: MoneyStr, session: SessionDep) -> list[dict[str, object]]:",
+      "async def cheaper_than_orders(limit: MoneyStr, session: SessionDep) -> dict[str, object]:",
     );
     expect(routes).toContain("await repo.cheaper_than(Decimal(limit))");
     // Declaration order: finds precede the /{id} pattern.

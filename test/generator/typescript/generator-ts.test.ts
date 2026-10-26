@@ -487,7 +487,7 @@ describe("typescript generator", () => {
         /requestLog\(\)\.debug\(\{ event: "find_executed", aggregate: "Order", find: "[^"]+", rows: 0 \}\)/,
       );
       expect(repo).toMatch(
-        /requestLog\(\)\.debug\(\{ event: "find_executed", aggregate: "Order", find: "[^"]+", rows: result\.length \}\)/,
+        /requestLog\(\)\.debug\(\{ event: "find_executed", aggregate: "Order", find: "[^"]+", rows: 1 \}\)/,
       );
     });
 
@@ -1506,7 +1506,7 @@ describe("typescript generator", () => {
               status: string
             }
             repository Orders for Order {
-              find mine(): Order[] where customerId == currentUser.customerId
+              find mine(): Order? where customerId == currentUser.customerId
             }
           }
         }

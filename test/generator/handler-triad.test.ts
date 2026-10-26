@@ -112,14 +112,14 @@ describe("A — .NET emits a handler that touches no aggregate", () => {
   });
 });
 
-describe("B — java calls a declared `byId` find by its declared name", () => {
+describe("B — java calls a declared `byId` read by its declared name", () => {
   it("renders the declared method verbatim, with the argument NOT re-wrapped", async () => {
     const h = fileEndingWith(
       await files("java"),
       "application/workflows/CountReplacingHandler.java",
     );
     expect(h).toContain("public int handle(OrderId orderId)");
-    expect(h).toContain("var matches = ordersRepository.byId(orderId);");
+    expect(h).toContain("var matches = ordersRepository.runFindAllByOrdersById(orderId);");
     // The two halves of the old special case, each independently fatal:
     // `getById` is not the find that was declared, and `orderId` is already an
     // `OrderId` (javac: incompatible types: OrderId cannot be converted to UUID).
@@ -129,7 +129,7 @@ describe("B — java calls a declared `byId` find by its declared name", () => {
 
   it("and the repository interface declares exactly that method", async () => {
     const repo = fileEndingWith(await files("java"), "features/orders/OrderRepository.java");
-    expect(repo).toContain("List<Order> byId(OrderId oid);");
+    expect(repo).toContain("List<Order> runFindAllByOrdersById(OrderId oid);");
   });
 
   it("CONTROL — the controller still coerces the wire path param once", async () => {
@@ -141,6 +141,8 @@ describe("B — java calls a declared `byId` find by its declared name", () => {
   it("CONTROL — the other backends already called the declared name", async () => {
     expect(
       fileEndingWith(await files("dotnet"), "Application/Orders/Queries/CountReplacingHandler.cs"),
-    ).toContain("await _orders.ById(command.OrderId, cancellationToken)");
+    ).toContain(
+      "await _orders.RunFindAllByOrdersByIdAsync(command.OrderId, cancellationToken: cancellationToken)",
+    );
   });
 });

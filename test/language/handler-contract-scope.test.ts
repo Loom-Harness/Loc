@@ -126,7 +126,8 @@ describe("handler contract scope — the neighbouring positions still refuse", (
     [
       "a repository find param",
       "GetOrderQuery",
-      `repository Bad3 for Order { find byQ(q: GetOrderQuery): Order[] where this.status == "x" }`,
+      `repository Bad3 for Order { }
+criterion OrdersByQ(q: GetOrderQuery) of Order = this.status == "x"`,
     ],
     [
       "a value-object field",

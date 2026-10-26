@@ -209,13 +209,10 @@ system Helpdesk {
       repository Tickets for Ticket {
         find byNumber(number: string): Ticket?
         find all(): Ticket[]
-        find myQueue(): Ticket[]
-          where assignee == currentUser.agentId && status != Resolved && status != Closed
-        find unassigned(): Ticket[]
-          where assignee == null && status == Open
-        find mine(): Ticket[]
-          where customer == currentUser.customerId
       }
+      criterion TicketsMyQueue of Ticket = assignee == currentUser.agentId && status != Resolved && status != Closed
+      criterion TicketsUnassigned of Ticket = assignee == null && status == Open
+      criterion TicketsMine of Ticket = customer == currentUser.customerId
       // One read gate per aggregate: `mine` is agent-gated like every other Ticket
       // read. A customer's own-ticket view needs its own exposure (a queryHandler
       // with `requires currentUser.customerId != null` over a criterion).

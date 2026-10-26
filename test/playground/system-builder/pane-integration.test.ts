@@ -78,7 +78,7 @@ const SRC = `system Shop {
     }
 
     repository Orders for Order {
-      find byStatus(s: string): Order[] where status == s
+      find byStatus(s: string): Order? where status == s
     }
   }
 }`;

@@ -125,9 +125,11 @@ system Acme {
                 }
             }
 
-            repository Orders for Order {
-                find byCustomer(customerId: string): Order[]
-                    where this.customerId == customerId
+            repository Orders for Order { }
+            criterion OrdersByCustomer(customerId: string) of Order = this.customerId == customerId
+            queryHandler ListOrdersByCustomer(customerId: string): Order[] {
+              let r = Orders.run(OrdersByCustomer(customerId))
+              return r
             }
 
             // Workflow surfacing — exercises the React generator's
@@ -246,7 +248,9 @@ system Acme {
     // ──────────────────────────────────────────────────────────────
 
     api CatalogApi      from Catalog
-    api SalesApi        from Sales
+    api SalesApi        from Sales {
+      route GET "/orders/by_customer/{customerId}" -> Orders.ListOrdersByCustomer
+    }
     api CustomerMgmtApi from CustomerMgmt
 
     storage primarySql { type: postgres }
@@ -339,7 +343,7 @@ system Acme {
 
     test e2e "by_customer query returns matching orders" against api {
         let ord = api.orders.create({ customerId: "cust-002", status: "Draft", placedAt: "2024-01-02T00:00:00Z" })
-        let list = api.orders.byCustomer({ customerId: "cust-002" })
+        let list = api.orders.listOrdersByCustomer("cust-002")
         expect(list.length).toBeGreaterThanOrEqual(1)
     }
 

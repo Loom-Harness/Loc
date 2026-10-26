@@ -109,18 +109,15 @@ subdomain Inventory {
 
     repository Products for Product {
       find bySku(sku: string): Product? where this.sku == sku
-      find active(): Product[] where this.active == true
     }
+    criterion ProductsActive of Product = this.active == true
     repository Warehouses for Warehouse {
       find byCode(code: string): Warehouse? where this.code == code
     }
-    repository StockItems for StockItem {
-      find byProduct(productId: Product id): StockItem[] where this.productId == productId
-      find byWarehouse(warehouseId: Warehouse id): StockItem[] where InWarehouse(warehouseId)
-    }
-    repository StockMovements for StockMovement {
-      find byProduct(productId: Product id): StockMovement[] where this.productId == productId
-    }
+    repository StockItems for StockItem { }
+    criterion StockItemsByProduct(productId: Product id) of StockItem = this.productId == productId
+    repository StockMovements for StockMovement { }
+    criterion StockMovementsByProduct(productId: Product id) of StockMovement = this.productId == productId
 
     // Non-transactional cycle-count sweep: page a warehouse's stock and
     // stamp each row's count time (per-iteration save commits as it goes).

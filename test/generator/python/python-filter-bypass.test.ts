@@ -74,8 +74,8 @@ describe("python filter-bypass (ignoring <Cap> / *)", () => {
   it("a bypassing find OMITS the capability predicate; a normal find KEEPS it", async () => {
     const repo = (
       await build(
-        sys(`find recent(): Doc[] where this.subject != "" ignoring softDeletable
-          find normal(): Doc[] where this.subject != ""`),
+        sys(`find recent(): Doc? where this.subject != "" ignoring softDeletable
+          find normal(): Doc? where this.subject != ""`),
       )
     ).get(REPO)!;
     expect(repo).toBeDefined();
@@ -91,8 +91,8 @@ describe("python filter-bypass (ignoring <Cap> / *)", () => {
   it("`ignoring *` omits ALL capability predicates on that read", async () => {
     const repo = (
       await build(
-        sys(`find allRows(): Doc[] ignoring *
-          find normal(): Doc[] where this.subject != ""`),
+        sys(`find allRows(): Doc? ignoring *
+          find normal(): Doc? where this.subject != ""`),
       )
     ).get(REPO)!;
     const all = method(repo, "all_rows");
@@ -103,7 +103,7 @@ describe("python filter-bypass (ignoring <Cap> / *)", () => {
 
   it("the always-on capability predicate still rides find_by_id / all() / find_many_by_ids", async () => {
     const repo = (
-      await build(sys(`find recent(): Doc[] where this.subject != "" ignoring softDeletable`))
+      await build(sys(`find recent(): Doc? where this.subject != "" ignoring softDeletable`))
     ).get(REPO)!;
     // The bypass is per-read: the non-bypassing reads keep the predicate.
     expect(method(repo, "find_by_id")).toContain("is_deleted");
@@ -112,9 +112,9 @@ describe("python filter-bypass (ignoring <Cap> / *)", () => {
   });
 
   it("a bare (non-capability) filter is NEVER dropped, even by `ignoring *`", async () => {
-    const repo = (
-      await build(sys(`find allRows(): Doc[] ignoring *`, `filter this.total > 0`))
-    ).get(REPO)!;
+    const repo = (await build(sys(`find allRows(): Doc? ignoring *`, `filter this.total > 0`))).get(
+      REPO,
+    )!;
     // softDeletable is dropped, but the bare `filter this.total > 0` stays.
     const all = method(repo, "all_rows");
     expect(all).not.toContain("is_deleted");

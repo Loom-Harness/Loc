@@ -19,8 +19,11 @@ system TenantOwned {
         code: string
         monthlyPrice: int
       }
-      repository Invoices for Invoice {
-        find byNumber(n: string): Invoice[] where this.number == n
+      repository Invoices for Invoice { }
+      criterion InvoicesByNumber(n: string) of Invoice = this.number == n
+      queryHandler ListInvoicesByNumber(n: string): Invoice[] {
+        let r = Invoices.run(InvoicesByNumber(n))
+        return r
       }
     }
     context Accounts {
@@ -29,7 +32,9 @@ system TenantOwned {
       }
     }
   }
-  api BillingApi from Core
+  api BillingApi from Core {
+    route GET "/invoices/by_number/{n}" -> Billing.ListInvoicesByNumber
+  }
   storage primary { type: postgres }
   resource billingState { for: Billing, kind: state, use: primary }
   resource accountsState { for: Accounts, kind: state, use: primary }
@@ -54,7 +59,7 @@ system TenantOwned {
   // there.  `crossTenant Plan` carries NO filter, so it round-trips too.
   test e2e "tenantOwned stamps the principal's tenant so same-tenant reads round-trip" against d {
     let inv = api.invoices.create({ number: "INV-1", amountDue: 100 })
-    let mine = api.invoices.byNumber({ n: "INV-1" })
+    let mine = api.billing.listInvoicesByNumber("INV-1")
     expect(mine.length).toBe(1)
     let p = api.plans.create({ code: "PRO", monthlyPrice: 50 })
     let readPlan = api.plans.getById(p)
@@ -96,7 +101,7 @@ system TenantOwned {
     let noInvoices = api.invoices.all()
     expect(noInvoices.items.length).toBe(0)
     expect(noInvoices.total).toBe(0)
-    let goneFromFind = api.invoices.byNumber({ n: "INV-1B" })
+    let goneFromFind = api.billing.listInvoicesByNumber("INV-1B")
     expect(goneFromFind.length).toBe(0)
     api.plans.destroy(p)
     expect(api.plans.getById(p)).toThrow(404)

@@ -315,8 +315,8 @@ export class DddValidator {
     // may appear only in a transport position (find return / payload field).
     guard("generic-carriers", model, () => checkGenericCarriers(model, accept));
 
-    // loom.repository-find-deprecated — a wire-shaped list `find` warns (steer
-    // to run(criterion)/retrieval); reconstitution finds stay legal.
+    // loom.list-find-removed — a list `find` is an error (a criterion or a
+    // retrieval replaces it); reconstitution finds and `find all` stay legal.
     guard("repository-finds", model, () => checkRepositoryFinds(model, accept));
     // loom.permission-implies-* — `implies` targets resolve by name against the
     // subdomain catalogue; self-implication is rejected.

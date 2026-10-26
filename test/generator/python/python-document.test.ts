@@ -64,14 +64,14 @@ describe("python shape: document", () => {
   it("finds evaluate in-memory over the rehydrated documents", async () => {
     const files = await build();
     const repo = files.get("api/app/db/repositories/article_repository.py")!;
-    expect(repo).toContain("async def popular(self, min: int) -> list[Article]:");
+    expect(repo).toContain("async def popular(self, min: int) -> Article | None:");
     expect(repo).toContain("items = await self.all()");
-    expect(repo).toContain("result = [x for x in items if (lambda x: x.view_count >= min)(x)]");
+    expect(repo).toContain("matches = [x for x in items if (lambda x: x.view_count >= min)(x)]");
     // find_executed (S5) — rows is the post-filter cardinality.
     expect(repo).toContain(
-      'log("debug", "find_executed", aggregate="Article", find="popular", rows=len(result))',
+      'log("debug", "find_executed", aggregate="Article", find="popular", rows=len(matches))',
     );
-    expect(repo).toContain("        return result");
+    expect(repo).toContain("        return matches[0] if matches else None");
   });
 });
 

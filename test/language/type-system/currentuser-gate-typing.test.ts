@@ -49,9 +49,8 @@ describe("currentUser gate typing — bare boolean claim gates type-check", () =
   it("accepts a bare permission gate on a repository `find`", async () => {
     const e = await errs(
       `aggregate Ticket with crudish { status: string }`,
-      `repository Tickets for Ticket {
-        find secure(): Ticket[] where status == "open"
-      }
+      `repository Tickets for Ticket { }
+criterion TicketsSecure of Ticket = status == "open"
       policy { read Ticket requires currentUser.permissions.contains(permissions.manage) }`,
     );
     expect(e.filter((s) => /requires/.test(s)).join("\n")).toBe("");
@@ -68,9 +67,8 @@ describe("currentUser gate typing — bare boolean claim gates type-check", () =
   it("rejects a non-bool `find` gate (`requires 42`) that previously slipped through", async () => {
     const e = await errs(
       `aggregate Ticket with crudish { status: string }`,
-      `repository Tickets for Ticket {
-        find secure(): Ticket[] where status == "open"
-      }
+      `repository Tickets for Ticket { }
+criterion TicketsSecure of Ticket = status == "open"
       policy { read Ticket requires 42 }`,
     );
     expect(e.some((s) => /'requires' must be of type 'bool', got 'int'/.test(s))).toBe(true);

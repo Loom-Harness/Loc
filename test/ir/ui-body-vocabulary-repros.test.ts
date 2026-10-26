@@ -114,18 +114,18 @@ const CASES: readonly { site: string; src: string; code: string }[] = [
     src: onePage(
       "feliz",
       `body: ${QV('C.Thing.byNames(["a"])')}`,
-      'find byNames(names: string[]): Thing[] where this.name != ""',
+      'find byNames(names: string[]): Thing? where this.name != ""',
     ),
     code: "loom.ui-body-feature-unsupported",
   },
   {
     site: "feliz/wire.ts#felizFindRead",
-    src: onePage("feliz", `body: ${QV("C.Thing.names()")}`, "find names(): string[]"),
+    src: onePage("feliz", `body: ${QV("C.Thing.names()")}`, "find names(): string?"),
     code: "loom.ui-body-feature-unsupported",
   },
   {
     site: "feliz/wire.ts#felizFindRead$2",
-    src: onePage("feliz", `body: ${QV("C.Thing.byName()")}`, "find byName(name: string): Thing[]"),
+    src: onePage("feliz", `body: ${QV("C.Thing.byName()")}`, "find byName(name: string): Thing?"),
     code: "loom.ui-find-call-arity",
   },
   {
@@ -133,7 +133,7 @@ const CASES: readonly { site: string; src: string; code: string }[] = [
     src: onePage(
       "feliz",
       `body: ${QV("C.Thing.all", `rows => For { each: rows, r => ${QV("C.Thing.byName(r.name)", 'xs2 => Text { "y" }')} }`)}`,
-      "find byName(name: string): Thing[]",
+      "find byName(name: string): Thing?",
     ),
     code: "loom.ui-body-feature-unsupported",
   },

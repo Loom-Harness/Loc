@@ -37,9 +37,12 @@
 //
 // A `test e2e` that reads a find's route (`api.<plural>.<find>(…)`) keeps it:
 // the codemod adds a routed `queryHandler List<Criterion>` over `Repo.run`,
-// bound by a `route GET` on the same path in the api serving the context (each
-// parameter a `{token}` — a GET carries no body), and repoints the read to
-// `api.<context>.list<Criterion>(…)`.  A find carries no `requires` gate: read
+// bound by a `route GET` on the find's old path in the api serving the context
+// (each parameter a `{token}` — a GET carries no body), and repoints the read to
+// `api.<context>.list<Criterion>(…)`.  A PARAMETERLESS find's old path
+// (`/<plural>/<find>`) would be shadowed by the aggregate's own
+// `GET /<plural>/{id}` (mounted first, so the literal segment is parsed as an
+// id), so its handler is routed at `/<find>_<plural>` instead.  A find carries no `requires` gate: read
 // gates live in `policy { read X requires … }` (run
 // `scripts/codemod-find-gate-to-policy.mjs` first on an older source).
 //
@@ -212,9 +215,24 @@ function planFinds(ast, text, shift, known, report, where, routeReads) {
         const [rs, re, comment] = findRemovalRange(text, { $cstNode: shifted(fd.$cstNode, shift) });
         edits.push({ start: rs, end: re, text: "" });
         const params = fd.params.map((p) => p.$cstNode.text).join(", ");
+        // A criterion carries no bypass: the find's `ignoring` moves onto each
+        // `Repo.run(…)` of it (in-source reads get it appended below), so say so
+        // where the bypass used to be — a find with no read would lose it silently.
+        const bypassNote = entry.ignoring
+          ? [
+              `// ${entry.ignoring}: add it to each \`${repo.name}.run(${name}(…))\` — a criterion carries no bypass`,
+            ]
+          : [];
+        if (entry.ignoring)
+          report.push(
+            `${label} — carried \`${entry.ignoring}\`; it moves to each \`${repo.name}.run(${name}(…))\``,
+          );
         const decls = reused
           ? []
-          : [`criterion ${name}${params ? `(${params})` : ""} of ${aggName} = ${filter}`];
+          : [
+              ...bypassNote,
+              `criterion ${name}${params ? `(${params})` : ""} of ${aggName} = ${filter}`,
+            ];
         // A client reads the find's route: keep it on the wire as a routed
         // queryHandler over the criterion, on the same path with each
         // parameter as a `{token}` (a GET carries no body).
@@ -239,7 +257,10 @@ function planFinds(ast, text, shift, known, report, where, routeReads) {
               "}",
             ].join("\n"),
           );
-          const routePath = `/${snakeCase(plural(aggName))}/${snakeCase(fd.name)}${argNames.map((a) => `/{${a}}`).join("")}`;
+          const routePath =
+            argNames.length === 0
+              ? `/${snakeCase(fd.name)}_${snakeCase(plural(aggName))}`
+              : `/${snakeCase(plural(aggName))}/${snakeCase(fd.name)}${argNames.map((a) => `/{${a}}`).join("")}`;
           const lines = routesByApi.get(api) ?? [];
           lines.push(`route GET "${routePath}" -> ${ctx.name}.${handler}`);
           routesByApi.set(api, lines);

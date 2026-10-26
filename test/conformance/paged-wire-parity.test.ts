@@ -30,7 +30,7 @@ const CANONICAL = genericShape("paged")
 const CONTEXT = `
   context Orders {
     aggregate Order { code: string  region: string }
-    repository Orders for Order { find recent(): Order paged }
+    repository Orders for Order { find all(): Order paged }
   }
 `;
 
@@ -41,7 +41,7 @@ system PagedShop {
   subdomain Sales {
     context Orders {
       aggregate Order { code: string  region: string }
-      repository Orders for Order { find recent(): Order paged }
+      repository Orders for Order { find all(): Order paged }
     }
   }
   api OrdersApi from Sales
@@ -76,14 +76,14 @@ async function dotnetKeys(): Promise<string[]> {
 
 /** Ordered keys of the vanilla-Elixir repository's paged envelope map — the atom
  *  keys of the `%{ items: …, page: …, pageSize: …, total: …, totalPages: … }`
- *  the `recent/2` find returns (Jason serialises atom keys verbatim, so these
+ *  the paged `list` read returns (Jason serialises atom keys verbatim, so these
  *  ARE the wire JSON keys). */
 async function elixirKeys(): Promise<string[]> {
   const files = await generateSystemFiles(ELIXIR_SYSTEM);
   const repoKey = [...files.keys()].find((k) => k.endsWith("/orders/order_repository.ex"))!;
   const repo = files.get(repoKey)!;
-  // Slice out the `recent/2` envelope map body and read its keys in order.
-  const fn = repo.match(/def recent\([^)]*\) do[\s\S]*?\{:ok,\s*%\{([\s\S]*?)\}\s*\}\s*end/)![1]!;
+  // Slice out the `list` envelope map body and read its keys in order.
+  const fn = repo.match(/def list\([^)]*\) do[\s\S]*?\{:ok,\s*%\{([\s\S]*?)\}\s*\}\s*end/)![1]!;
   return [...fn.matchAll(/^\s*(\w+):/gm)].map((m) => m[1]!);
 }
 

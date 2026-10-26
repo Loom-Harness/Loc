@@ -18,7 +18,7 @@ const SRC = (platform: string) => `
     subdomain Sub { context Sales {
       aggregate Order { status: string  customerId: string }
       repository Orders for Order {
-        find byStatus(status: string): Order[] where this.status == status
+        find byStatus(status: string): Order? where this.status == status
       }
     } }
     api SalesApi from Sub
@@ -50,14 +50,6 @@ describe("find-filter live-refetch — Vue", () => {
     expect(api).toContain("const queryArgs = computed(() => toValue(query));");
     expect(api).toContain('queryKey: ["orders", "find", "by_status", queryArgs],');
     expect(api).toContain("Object.entries(queryArgs.value)");
-  });
-
-  it("the list page passes the filter as a getter so it live-refetches", async () => {
-    const f = await files("vue", "web/");
-    const list = f.get("src/pages/orders/list.vue")!;
-    expect(list).toContain(
-      "const orderByStatus = reactive(useByStatusOrder(() => ({ status: byStatusStatus.value })));",
-    );
   });
 
   it("React's find hook is unaffected — a plain object param, no Vue imports", async () => {

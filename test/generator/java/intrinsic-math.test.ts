@@ -33,11 +33,11 @@ system Bank {
         derived atLeast: int = qty.max(0)
       }
       repository Accounts for Account {
-        find byRound(q: money): Account[] where this.balance.round(2) > q
-        find byRoundNoPlaces(q: money): Account[] where this.balance.round() > q
-        find byAbsQty(n: int): Account[] where this.qty.abs() > n
-        find byMinBal(q: money): Account[] where this.balance.min(this.cap) == q
-        find byCeil(q: money): Account[] where this.balance.ceil() >= q
+        find byRound(q: money): Account? where this.balance.round(2) > q
+        find byRoundNoPlaces(q: money): Account? where this.balance.round() > q
+        find byAbsQty(n: int): Account? where this.qty.abs() > n
+        find byMinBal(q: money): Account? where this.balance.min(this.cap) == q
+        find byCeil(q: money): Account? where this.balance.ceil() >= q
       }
     }
   }

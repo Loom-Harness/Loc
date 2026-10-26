@@ -159,11 +159,10 @@ const ALLOWLIST = new Set<string>([
   // below caught it as stale on its first run.  The hand-authored member is
   // indeed absent, but `scaffoldHandlers` SYNTHESISES a `queryHandler` into the
   // expanded model, and this gate measures the BUILT model (macros run), so the
-  // kind is covered.  `CommandHandler` / `Route` / `HandlerRef` genuinely are
-  // not, and stay.
+  // kind is covered.  `Route` / `HandlerRef` left the same way, with the
+  // routed `queryHandler` over a criterion the e2e reads.  `CommandHandler`
+  // genuinely is not covered, and stays.
   "CommandHandler",
-  "Route",
-  "HandlerRef",
   // The `if <cond> { … } else { … }` STATEMENT (M-FT.11).  UNREACHABLE in this
   // fixture BY CONSTRUCTION, not by omission: showcase.ddd's three contexts
   // (Catalog / Builds / People) are each hosted by `phoenixApi`

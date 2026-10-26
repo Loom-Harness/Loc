@@ -138,7 +138,7 @@ system Census {
       }
       repository Items for Item {
         find all(): Item[]
-        find openOnes(): Item[] where this.status == "open"
+        find openOnes(): Item? where this.status == "open"
         find byName(n: string): Item? where this.name == n
       }
       policy { read Item requires currentUser.level > 2 }
@@ -233,10 +233,10 @@ const SITES: Record<Platform, Site[]> = {
     },
     {
       rung: "Forbidden",
-      what: "the gated find's DECLARED OpenAPI response set",
+      what: "the gated list read's DECLARED OpenAPI response set",
       file: "http/item.routes.ts",
       // Skips past the 200 success entry — the error entry is the SECOND.
-      at: /operationId: "openOnesItem",[\s\S]{0,400}?200: \{ description: "OK"[^\n]*\n\s*(\d+): \{ description:/,
+      at: /operationId: "allItem",[\s\S]{0,400}?200: \{ description: "OK"[^\n]*\n\s*(\d+): \{ description:/,
     },
   ],
   dotnet: [
@@ -284,9 +284,9 @@ const SITES: Record<Platform, Site[]> = {
     },
     {
       rung: "Forbidden",
-      what: "the gated find's DECLARED [ProducesResponseType] set",
+      what: "the gated list read's DECLARED [ProducesResponseType] set",
       file: "Api/ItemsController.cs",
-      at: /ProducesResponseType\(typeof\(ProblemDetails\), (\d+)\)\][\s\S]{0,400}?public async Task<[^\n]*> OpenOnes/,
+      at: /ProducesResponseType\(typeof\(ProblemDetails\), (\d+)\)\][\s\S]{0,400}?public async Task<[^\n]*> AllItem/,
     },
   ],
   java: [
@@ -339,9 +339,9 @@ const SITES: Record<Platform, Site[]> = {
     },
     {
       rung: "Forbidden",
-      what: "the gated find's DECLARED response set in the OpenAPI customizer",
+      what: "the gated list read's DECLARED response set in the OpenAPI customizer",
       file: "config/OpenApiContractCustomizer.java",
-      at: /"\/api\/items\/open_ones", "ItemListResponse", new int\[\] \{(\d+)\}/,
+      at: /"\/api\/items", "ItemListResponse", new int\[\] \{(\d+)\}/,
     },
   ],
   python: [
@@ -389,9 +389,9 @@ const SITES: Record<Platform, Site[]> = {
     },
     {
       rung: "Forbidden",
-      what: "the gated find's DECLARED `responses=` set",
+      what: "the gated list read's DECLARED `responses=` set",
       file: "http/item_routes.py",
-      at: /operation_id="openOnesItem", responses=\{(\d+):/,
+      at: /operation_id="allItem", responses=\{(\d+):/,
     },
   ],
   elixir: [
@@ -452,10 +452,10 @@ const SITES: Record<Platform, Site[]> = {
     },
     {
       rung: "Forbidden",
-      what: "the gated find's DECLARED OpenApiSpex response set",
+      what: "the gated list read's DECLARED OpenApiSpex response set",
       file: "api/a_spec.ex",
       // Skips past the 200 success entry — the error entry is the SECOND.
-      at: /operationId: "openOnesItem",[\s\S]{0,600}?200 => %OpenApiSpex\.Response\{[\s\S]{0,400}?\n\s*(\d+) => %OpenApiSpex\.Response\{/,
+      at: /operationId: "allItem",[\s\S]{0,600}?200 => %OpenApiSpex\.Response\{[\s\S]{0,400}?\n\s*(\d+) => %OpenApiSpex\.Response\{/,
     },
   ],
 };

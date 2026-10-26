@@ -85,7 +85,11 @@ const REGISTERED: Ratchet[] = [
     // `handle reset()`.  Draining this entry does NOT mean adding the kind back
     // to showcase.ddd — it means landing the EMITTER (mission M-T6.58), which
     // makes the declaration legal again; the entry cites it.
-    max: 15,
+    //
+    // 15 -> 13: -Route -HandlerRef.  The list-find cutover routes the showcase's
+    // last list-find read through a `queryHandler` bound by `route GET`, so the
+    // fixture now exercises both kinds.
+    max: 13,
   },
   // Walker primitives with a TSX renderer but no HEEx one.  Empty: the last
   // entry — `ProvenanceInfo`, the provenance "?" disclosure — landed its HEEx

@@ -306,9 +306,8 @@ aggregate Patient {
     nextVisit := visit
   }
 }
-repository Patients for Patient {
-  find bornBefore(cutoff: date): Patient[] where this.birthDate < cutoff
-}
+repository Patients for Patient { }
+criterion PatientsBornBefore(cutoff: date) of Patient = this.birthDate < cutoff
 ```
 
 ```sql
@@ -652,13 +651,13 @@ option(T)   → the 2-variant union  union[T, none]  (an untagged 200 / 404 as a
 
 ```ddd
 repository OrderRepo for Order {
-  find recent(): Order paged
+  find all(): Order paged
   find audit(): Order envelope
   find byRef(ref: string): Order option where this.ref == ref
 }
 ```
 
-> A list-shaped `find` (`Order paged`, `Order[]`) is **deprecated** in favour of a `criterion` passed to `Repo.run(…)` or a named `retrieval` (`loom.repository-find-deprecated`, a warning) — see [Repositories & queries](10-repositories-and-queries.md#retrieval). A single-row reconstitution find (`Order` / `Order?` / `Order option`) stays first-class. The carrier shapes below are unchanged by where the query is declared.
+> A list-shaped `find` (`Order paged`, `Order[]`) other than `find all` is an **error** (`loom.list-find-removed`): a list read is a `criterion` passed to `Repo.run(…)` or a named `retrieval` — see [Repositories & queries](10-repositories-and-queries.md#retrieval). A single-row reconstitution find (`Order` / `Order?` / `Order option`) stays first-class. The carrier shapes below are unchanged by where the query is declared.
 
 ### `paged`
 

@@ -302,7 +302,7 @@ context Sales {
     subject: string
   }
   repository Orders for Order {
-    find bySubject(s: string): Order[] where this.subject == s ignoring softDeletable
+    find bySubject(s: string): Order? where this.subject == s ignoring softDeletable
   }
 }
 `;

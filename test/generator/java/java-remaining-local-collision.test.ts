@@ -50,14 +50,14 @@ system Probe {
       }
       repository Orders for Order {
         find byRegion(rgn: string): Order? where this.region == rgn
-        find allByRegion(rgn: string): Order[] where this.region == rgn
       }
+      criterion OrdersAllByRegion(rgn: string) of Order = this.region == rgn
       domainService Lookup {
         operation isFree(ordersRepository: string): bool {
           return Orders.byRegion(ordersRepository) == null
         }
         operation isFree2(rgn: string): bool {
-          let ordersRepository = Orders.allByRegion(rgn)
+          let ordersRepository = Orders.run(OrdersAllByRegion(rgn))
           return ordersRepository.count == 0
         }
       }
@@ -262,7 +262,9 @@ describe("java — reading domain service / query projection params vs injected 
     const s = await file("Lookup.java");
     expect(s).toContain("public boolean isFree(String ordersRepository_) {");
     expect(s).toContain("return ordersRepository.byRegion(ordersRepository_) == null;");
-    expect(s).toContain("var ordersRepository_ = ordersRepository.allByRegion(rgn);");
+    expect(s).toContain(
+      "var ordersRepository_ = ordersRepository.runFindAllByOrdersAllByRegion(rgn);",
+    );
     expect(s).toContain("return ordersRepository_.size() == 0;");
   });
 

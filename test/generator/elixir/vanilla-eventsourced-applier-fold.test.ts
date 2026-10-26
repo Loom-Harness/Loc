@@ -41,9 +41,8 @@ const AGG_SRC = `system EsFold {
         apply(e: Charged) { charges += Money { amount: e.amt, currency: "USD" } }
         apply(e: Boxed) { boxes += Box { label: e.label } }
       }
-      repository Orders for Order {
-        find byCustomer(customer: string): Order[] where this.customer == customer
-      }
+      repository Orders for Order { }
+      criterion OrdersByCustomer(customer: string) of Order = this.customer == customer
     }
   }
   api OrdersApi from Core

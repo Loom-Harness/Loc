@@ -19,7 +19,7 @@ const SRC = `
       filter !this.isDeleted
     }
     repository Docs for Doc {
-      find bySubject(s: string): Doc[] where subject == s
+      find bySubject(s: string): Doc? where subject == s
     }
   }
 `;
@@ -60,7 +60,7 @@ describe("typescript generator — capability filter (contextFilters)", () => {
           filter NotDeleted
         }
         repository Docs for Doc {
-          find bySubject(s: string): Doc[] where subject == s
+          find bySubject(s: string): Doc? where subject == s
         }
       }
     `);
@@ -151,7 +151,7 @@ system T {
       context Sales {
         aggregate Plain { subject: string }
         repository Plains for Plain {
-          find bySubject(s: string): Plain[] where subject == s
+          find bySubject(s: string): Plain? where subject == s
         }
       }
     `);
@@ -181,7 +181,7 @@ system Bank {
         filter this.tenantId == currentUser.tenantId
       }
       repository Accounts for Account {
-        find rich(min: int): Account[] where balance >= min
+        find rich(min: int): Account? where balance >= min
       }
     }
   }

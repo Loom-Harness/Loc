@@ -27,29 +27,6 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
-/** A scaffolded aggregate whose repository declares a `string`-param find — the
- *  scaffold grows a filter bar and puts both views in a `match`. */
-const SCAFFOLD_FILTER = `
-system Shop {
-  api ShopApi from Catalog
-  subdomain Catalog {
-    context Cat {
-      aggregate Product with crudish { name: string  price: money }
-      repository Products for Product {
-        find byName(name: string): Product[]
-      }
-    }
-  }
-  storage db { type: postgres }
-  resource catState { for: Cat, kind: state, use: db }
-  ui WebApp with scaffold(aggregates: [Product]) {
-    api Shop: ShopApi
-  }
-  deployable api { platform: node contexts: [Cat] dataSources: [catState] serves: ShopApi port: 3000 }
-  deployable web { platform: feliz targets: api ui: WebApp { Shop: api } port: 3005 }
-}
-`;
-
 /** The same shape written by hand — a `match` over a page `state {}` cell whose
  *  arms each host a `QueryView`. */
 const HAND_WRITTEN_MATCH = `
@@ -62,7 +39,7 @@ system Docs {
         derived display: string = title
       }
       repository Docs for Doc {
-        find byVis(vis: string): Doc[] where this.vis == vis
+        find byVis(vis: string): Doc? where this.vis == vis
       }
     }
   }
@@ -114,30 +91,9 @@ function undeclaredModelFields(app: string): string[] {
 }
 
 describe("feliz reads hosted by a match arm", () => {
-  it("scaffolded filter bar: both the filtered find and the `.all` fallback reach the Model", async () => {
-    const app = await appFs(SCAFFOLD_FILTER);
-    // The filter-bar state cell was never the missing half — it always landed.
-    expect(app).toContain("ByNameName: string");
-    // The two reads the `match` hosts.  Before the fix NEITHER was declared.
-    expect(app).toContain("ProductByName: Remote<Product list>");
-    expect(app).toContain("AllProducts: Remote<Product list>");
-    // …and each is fully wired: Msg case, init seed, update arms, fetch Cmd.
-    expect(app).toContain("| ProductByNameLoaded of Result<Product list, string>");
-    expect(app).toContain("ProductByName = Loading");
-    expect(app).toContain(
-      "| ProductByNameLoaded (Ok data) -> { model with ProductByName = Loaded data }",
-    );
-    expect(app).toContain("Api.productByName");
-    expect(app).toContain("Api.allProducts");
-  });
-
-  it("scaffolded filter bar: the view names no Model field the Model does not declare", async () => {
-    expect(undeclaredModelFields(await appFs(SCAFFOLD_FILTER))).toEqual([]);
-  });
-
   it("a hand-written match over page state wires both arms' reads", async () => {
     const app = await appFs(HAND_WRITTEN_MATCH);
-    expect(app).toContain("DocByVis: Remote<Doc list>");
+    expect(app).toContain("DocByVis: Remote<Doc option>");
     expect(app).toContain("AllDocs: Remote<Doc list>");
     expect(undeclaredModelFields(app)).toEqual([]);
   });

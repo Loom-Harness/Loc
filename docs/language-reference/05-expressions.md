@@ -507,19 +507,18 @@ def has_tag(self) -> bool: return "vip" in self._notes
 
 ### `.contains` — membership over a reference collection
 
-`.contains(x)` is its own divergence axis, because inside a **repository `find` filter** over a `X id[]` reference collection it is *not* an in-memory scan — it lowers to a join-table query against the auto-derived association.
+`.contains(x)` is its own divergence axis, because inside a **query filter** (a criterion body, a find's `where`) over a `X id[]` reference collection it is *not* an in-memory scan — it lowers to a join-table query against the auto-derived association.
 
 ```ddd
 aggregate Product {
   name: string
   tags: Tag id[]
 }
-repository Products for Product {
-  find taggedWith(t: Tag id): Product[] where tags.contains(t)
-}
+repository Products for Product { }
+criterion ProductsTaggedWith(t: Tag id) of Product = tags.contains(t)
 ```
 
-The `where tags.contains(t)` filter (a bespoke list `find` is a deprecation warning, `loom.repository-find-deprecated` — a `criterion` + `run` is the preferred spelling, see [Repositories](10-repositories-and-queries.md); the predicate lowers the same way):
+The `tags.contains(t)` filter, run as `Products.run(ProductsTaggedWith(t))` (see [Repositories](10-repositories-and-queries.md)):
 
 ::: tabs backend
 == node

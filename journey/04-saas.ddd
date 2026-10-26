@@ -65,9 +65,8 @@ system Todo {
         }
       }
 
-      repository Projects for Project {
-        find active(): Project[] where this.archived == false
-      }
+      repository Projects for Project { }
+      criterion ProjectsActive of Project = this.archived == false
 
       // versioned → optimistic-concurrency `version` column + 409 on conflict
       aggregate Task with crudish, tenantOwned, auditable, softDeletable, softDelete, versioned {
@@ -100,9 +99,8 @@ system Todo {
 
       criterion InProject(projectId: Project id) of Task = this.project == projectId
 
-      repository Tasks for Task {
-        find byProject(projectId: Project id): Task[] where this.project == projectId
-      }
+      repository Tasks for Task { }
+      criterion TasksByProject(projectId: Project id) of Task = this.project == projectId
 
       retrieval OpenByPriority(projectId: Project id) of Task {
         where: InProject(projectId) && this.status != Done

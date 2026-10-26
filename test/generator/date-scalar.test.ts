@@ -24,7 +24,7 @@ system Clinic {
         derived gap: int = date.daysUntil(date)
       }
       repository Patients for Patient {
-        find before(cutoff: date): Patient[] where this.date < cutoff
+        find before(cutoff: date): Patient? where this.date < cutoff
       }
     }
   }

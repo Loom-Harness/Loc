@@ -23,10 +23,9 @@ const ACTOR = "Map.get(socket.assigns, :current_user)";
 describe("LiveView reads over a principal-filtered aggregate thread current_user", () => {
   it("list, find and by-id each pass the socket's actor", async () => {
     const files = await generateSystemFiles(FIXTURE);
+    const rich = liveSrc(files, "rich_live.ex");
+    expect(rich).toContain(`Api.Ledger.by_min_balance_account(socket.assigns.min, ${ACTOR})`);
     const list = liveSrc(files, "account_list_live.ex");
-    expect(list).toContain(
-      `Api.Ledger.by_min_balance_account(socket.assigns.by_min_balance_min, ${ACTOR})`,
-    );
     expect(list).toContain(
       `Api.Ledger.list_accounts(socket.assigns.page_num, 10, socket.assigns.sort_key, socket.assigns.sort_dir, ${ACTOR})`,
     );
@@ -38,10 +37,9 @@ describe("LiveView reads over a principal-filtered aggregate thread current_user
     const files = await generateSystemFiles(
       FIXTURE.replace("        filter this.tenantId == currentUser.tenantId\n", ""),
     );
-    const list = liveSrc(files, "account_list_live.ex");
-    expect(list).toContain(
-      "Api.Ledger.by_min_balance_account(socket.assigns.by_min_balance_min) do",
-    );
-    expect(list).not.toContain(":current_user)");
+    const rich = liveSrc(files, "rich_live.ex");
+    expect(rich).toContain("Api.Ledger.by_min_balance_account(socket.assigns.min) do");
+    expect(rich).not.toContain(":current_user)");
+    expect(liveSrc(files, "account_list_live.ex")).not.toContain(":current_user)");
   });
 });

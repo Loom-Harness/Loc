@@ -5,11 +5,11 @@
 // COULD still fire — on five shapes — and four of those five ALSO crashed
 // drizzle codegen from source that validated `0 error(s)`:
 //
-//   find f1(): Order[] where this.flags.active     (a bool VO sub-property)
-//   find f2(): Order[] where !this.flags.active
-//   find f3(f: bool): Order[] where f              (a bool PARAMETER)
-//   find f4(): Order[] where currentUser.isAdmin   (a bool CLAIM)
-//   find f5(): Order[] where true                  (a literal)
+//   find f1(): Order? where this.flags.active     (a bool VO sub-property)
+//   find f2(): Order? where !this.flags.active
+//   find f3(f: bool): Order? where f              (a bool PARAMETER)
+//   find f4(): Order? where currentUser.isAdmin   (a bool CLAIM)
+//   find f5(): Order? where true                  (a literal)
 //
 // so the row was never an adapter narrowing.  It was `firstNonQueryableNode`
 // being position-BLIND: it answers "could this node reach SQL at all", which is
@@ -60,83 +60,83 @@ const SHAPES: readonly Shape[] = [
   // ---- admitted: a comparison with a column on one side -------------------
   {
     name: "compare: column vs literal",
-    find: "find a1(): Order[] where this.qty > 3",
+    find: "find a1(): Order? where this.qty > 3",
     admitted: true,
   },
   {
     name: "compare: column vs param",
-    find: "find a2(q: int): Order[] where this.qty == q",
+    find: "find a2(q: int): Order? where this.qty == q",
     admitted: true,
   },
   {
     name: "compare: literal vs column (commuted)",
-    find: "find a3(): Order[] where 3 < this.qty",
+    find: "find a3(): Order? where 3 < this.qty",
     admitted: true,
   },
   {
     name: "compare: column vs currentUser claim",
-    find: "find a4(): Order[] where this.code == currentUser.name",
+    find: "find a4(): Order? where this.code == currentUser.name",
     admitted: true,
   },
   {
     name: "compare: VO sub-property column vs literal",
-    find: 'find a5(): Order[] where this.flags.label == "x"',
+    find: 'find a5(): Order? where this.flags.label == "x"',
     admitted: true,
   },
   // ---- admitted: a column-rooted bool standing alone ----------------------
-  { name: "bare bool column", find: "find b1(): Order[] where this.live", admitted: true },
-  { name: "negated bool column", find: "find b2(): Order[] where !this.live", admitted: true },
+  { name: "bare bool column", find: "find b1(): Order? where this.live", admitted: true },
+  { name: "negated bool column", find: "find b2(): Order? where !this.live", admitted: true },
   {
     name: "bare bool VO sub-property",
-    find: "find b3(): Order[] where this.flags.active",
+    find: "find b3(): Order? where this.flags.active",
     admitted: true,
   },
   {
     name: "negated bool VO sub-property",
-    find: "find b4(): Order[] where !this.flags.active",
+    find: "find b4(): Order? where !this.flags.active",
     admitted: true,
   },
   // ---- admitted: connectives over the above -------------------------------
   {
     name: "&& / || / ! / parens over predicates",
-    find: "find c1(q: int): Order[] where (this.live && this.qty > q) || !this.flags.active",
+    find: "find c1(q: int): Order? where (this.live && this.qty > q) || !this.flags.active",
     admitted: true,
   },
   // ---- admitted: a bool-returning queryable intrinsic ---------------------
   {
     name: "bool-returning queryable intrinsic on a column",
-    find: 'find d1(): Order[] where this.code.startsWith("A")',
+    find: 'find d1(): Order? where this.code.startsWith("A")',
     admitted: true,
   },
   // ---- refused: a leaf that is not a column test --------------------------
   {
     name: "literal in predicate position",
-    find: "find e1(): Order[] where true",
+    find: "find e1(): Order? where true",
     admitted: false,
   },
   {
     name: "bool parameter in predicate position",
-    find: "find e2(f: bool): Order[] where f",
+    find: "find e2(f: bool): Order? where f",
     admitted: false,
   },
   {
     name: "currentUser claim in predicate position",
-    find: "find e3(): Order[] where currentUser.isAdmin",
+    find: "find e3(): Order? where currentUser.isAdmin",
     admitted: false,
   },
   {
     name: "non-bool column in predicate position",
-    find: "find e4(): Order[] where this.code",
+    find: "find e4(): Order? where this.code",
     admitted: false,
   },
   {
     name: "comparison with no column on either side",
-    find: "find e5(q: int): Order[] where q == 1",
+    find: "find e5(q: int): Order? where q == 1",
     admitted: false,
   },
   {
     name: "arithmetic in predicate position",
-    find: "find e6(): Order[] where this.qty + 1",
+    find: "find e6(): Order? where this.qty + 1",
     admitted: false,
   },
 ];

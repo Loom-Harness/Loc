@@ -43,8 +43,8 @@ system Shop {
         operation rename(to: string) { name := to }
       }
       repository Items for Item {
-        find popular(min: int): Item[] where this.viewCount >= min
-        find named(label: string): Item[] where this.name == label
+        find popular(min: int): Item? where this.viewCount >= min
+        find named(label: string): Item? where this.name == label
       }
     }
   }

@@ -1,5 +1,5 @@
 // The policy read gate on a find route, .NET (D-AUTH-OIDC / default-deny).  A
-// `policy { read T requires <expr> }` over a `find f(): T[] where <pred>` emits an in-handler 403 gate at
+// `policy { read T requires <expr> }` over a `find f(…): T? where <pred>` emits an in-handler 403 gate at
 // the top of the find's Mediator query handler — the read-side twin of the view
 // gate — evaluated against the request's currentUser before the query runs.
 // ForbiddenException maps to 403 via DomainExceptionFilter.  Ungated → no gate.
@@ -17,7 +17,7 @@ async function emit(findClause: string): Promise<Map<string, string>> {
         context Tickets {
           aggregate Ticket { subject: string open: bool }
           repository Tickets for Ticket {
-            find openOnes(): Ticket[] where open == true${findClause ? `\n}\npolicy { read Ticket ${findClause}` : ""}
+            find bySubject(s: string): Ticket? where this.subject == s${findClause ? `\n}\npolicy { read Ticket ${findClause}` : ""}
           }
         }
       }
@@ -44,8 +44,8 @@ async function emit(findClause: string): Promise<Map<string, string>> {
 }
 
 function handlerOf(files: Map<string, string>): string {
-  const key = [...files.keys()].find((k) => k.endsWith("OpenOnesHandler.cs"));
-  expect(key, "OpenOnesHandler.cs not emitted").toBeDefined();
+  const key = [...files.keys()].find((k) => k.endsWith("BySubjectHandler.cs"));
+  expect(key, "BySubjectHandler.cs not emitted").toBeDefined();
   return files.get(key!)!;
 }
 
@@ -55,11 +55,11 @@ describe(".NET find requires gate", () => {
     expect(handler).toMatch(/ICurrentUserAccessor _currentUser/);
     expect(handler).toContain("var currentUser = _currentUser.User;");
     expect(handler).toContain(
-      'if (!(currentUser.Role == "agent")) throw new ForbiddenException("Forbidden: find openOnes");',
+      'if (!(currentUser.Role == "agent")) throw new ForbiddenException("Forbidden: find bySubject");',
     );
     expect(handler).toMatch(/using Api\.Domain\.Common;/);
     const gateIdx = handler.indexOf("throw new ForbiddenException");
-    const queryIdx = handler.indexOf("await _repo.OpenOnes(");
+    const queryIdx = handler.indexOf("await _repo.BySubject(");
     expect(gateIdx).toBeGreaterThan(0);
     expect(queryIdx).toBeGreaterThan(gateIdx);
   });
@@ -72,7 +72,7 @@ describe(".NET find requires gate", () => {
   it("`requires true` emits an always-pass gate without injecting the accessor", async () => {
     const handler = handlerOf(await emit("requires true "));
     expect(handler).toContain(
-      'if (!(true)) throw new ForbiddenException("Forbidden: find openOnes");',
+      'if (!(true)) throw new ForbiddenException("Forbidden: find bySubject");',
     );
     expect(handler).not.toContain("var currentUser = _currentUser.User;");
   });

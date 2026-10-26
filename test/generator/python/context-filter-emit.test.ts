@@ -27,7 +27,7 @@ system Shop {
         filter !this.isDeleted
       }
       repository Customers for Customer {
-        find byName(n: string): Customer[] where name == n
+        find byName(n: string): Customer? where name == n
       }
     }
   }
@@ -80,7 +80,7 @@ system Shop {
         name: string
       }
       repository Plains for Plain {
-        find byName(n: string): Plain[] where name == n
+        find byName(n: string): Plain? where name == n
       }
     }
   }

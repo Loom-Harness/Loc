@@ -2,7 +2,7 @@
 
 Reading data: the `repository` container and its `find` operations, the restricted "queryable subset" a `where` clause admits, reusable `criterion` predicate specifications, `Repo.run(<Criterion>)` and `retrieval` query bundles with `sort`/`loads`, the `paged`/`envelope`/`option` return shapes, the `ignoring` capability-filter bypass, and — the read-model surface that replaced the removed `view` — `projection` in its two flavours: **query-time** (`from … where … join … group by … select …`, computed on every read) and **folded** (`keyed by` + `on(e: Event) { … }`, a materialized read-model table). Reach for it when you need to know exactly what SQL a read lowers to on each backend, why a `where` is rejected, or which read shape (find / criterion / retrieval / projection) to pick.
 
-> **Grammar:** `Repository`, `FindDecl`, `IgnoringClause` (fragment), `Criterion`, `Retrieval`, `RetrievalLiteral`, `SortItem`, `LoadPath`, `Projection`, `ProjectionMember`, `ProjectionOn`, `ProjectionJoin`, `ProjectionSelect`, `QueryHandler` · **Validators:** `loom.find-where-not-queryable` / `-unknown-field` / `-column-column`, `loom.find-reserved-name`, `loom.duplicate-find`, `loom.find-param-unbound`, `loom.repository-find-deprecated`, `loom.policy-read-gate-not-current-user`, `loom.index-suggestion`, `loom.findall-*`, `loom.criterion-*` (incl. `loom.criterion-retrieval-name-clash`), `loom.retrieval-*`, `loom.filter-bypass-*`, `loom.ignoring-clause-placement`, `loom.projection-*` (30 codes), `loom.field-mask-projection-source`, `loom.read-context-repo-write`, `loom.paged-query-handler-shape`, `loom.paged-param-reserved` (queryable oracle: `firstNonQueryableNode` + `firstNonQueryablePredicate` in `src/ir/validate/checks/shared.ts`) · **Docs:** [`../criterion.md`](../criterion.md), [`../scaffold-macros.md`](../scaffold-macros.md) (`scaffoldPaged`, `scaffoldDashboard`)
+> **Grammar:** `Repository`, `FindDecl`, `IgnoringClause` (fragment), `Criterion`, `Retrieval`, `RetrievalLiteral`, `SortItem`, `LoadPath`, `Projection`, `ProjectionMember`, `ProjectionOn`, `ProjectionJoin`, `ProjectionSelect`, `QueryHandler` · **Validators:** `loom.find-where-not-queryable` / `-unknown-field` / `-column-column`, `loom.find-reserved-name`, `loom.duplicate-find`, `loom.find-param-unbound`, `loom.list-find-removed`, `loom.policy-read-gate-not-current-user`, `loom.index-suggestion`, `loom.findall-*`, `loom.criterion-*` (incl. `loom.criterion-retrieval-name-clash`), `loom.retrieval-*`, `loom.filter-bypass-*`, `loom.ignoring-clause-placement`, `loom.projection-*` (30 codes), `loom.field-mask-projection-source`, `loom.read-context-repo-write`, `loom.paged-query-handler-shape`, `loom.paged-param-reserved` (queryable oracle: `firstNonQueryableNode` + `firstNonQueryablePredicate` in `src/ir/validate/checks/shared.ts`) · **Docs:** [`../criterion.md`](../criterion.md), [`../scaffold-macros.md`](../scaffold-macros.md) (`scaffoldPaged`, `scaffoldDashboard`)
 
 All multi-backend examples below are generated from one scratch `system` (`Catalog` context: `Product`, `Customer`, `Order with softDeletable`) once per backend pin; output is excerpted.
 
@@ -15,11 +15,10 @@ aggregate Product with crudish { sku: string  name: string  price: money }
 
 repository Products for Product {
   find bySku(s: string): Product?      where this.sku == s
-  find pricey(floor: money): Product[] where this.price >= floor
 }
 ```
 
-`bySku` returns `Product?` (zero-or-one) and `pricey` returns a collection:
+`bySku` returns `Product?` (zero-or-one):
 
 ::: tabs backend
 == node
@@ -29,11 +28,6 @@ async bySku(s: string): Promise<Product | null> {
   const rootRows = await this.db.select().from(schema.products).where(eq(schema.products.sku, s)).limit(1);
   if (rootRows.length === 0) return null;
   return Product._rehydrate({ id: Ids.ProductId(rootRows[0]!.id), sku: rootRows[0]!.sku, name: rootRows[0]!.name, price: new Decimal(rootRows[0]!.price), version: rootRows[0]!.version });
-}
-
-async pricey(floor: Decimal): Promise<Product[]> {
-  const rootRows = await this.db.select().from(schema.products).where(gte(schema.products.price, floor));
-  return rootRows.map((root) => Product._rehydrate({ /* … */ }));
 }
 
 // free reads
@@ -48,19 +42,12 @@ public async Task<Product?> BySku(string s, CancellationToken cancellationToken 
     var result = await _db.Products.Where(x => x.Sku == s).FirstOrDefaultAsync(cancellationToken);
     return result;
 }
-public async Task<List<Product>> Pricey(decimal floor, CancellationToken cancellationToken = default)
-{
-    var result = await _db.Products.Where(x => x.Price >= floor).ToListAsync(cancellationToken);
-    return result;
-}
 ```
 == java
 ```java
 // features/products/ProductJpaRepository.java — JPQL per find
 @Query("select e from Product e where e.sku = :s")
 Product bySku(@Param("s") String s);
-@Query("select e from Product e where e.price >= :floor")
-List<Product> pricey(@Param("floor") BigDecimal floor);
 ```
 == python
 ```python
@@ -70,10 +57,6 @@ async def by_sku(self, s: str) -> Product | None:
     if row is None:
         return None
     return await self._hydrate(row)
-
-async def pricey(self, floor: Decimal) -> list[Product]:
-    rows = (await self._session.execute(select(ProductRow).where((ProductRow.price >= floor)))).scalars().all()
-    return [await self._hydrate(row) for row in rows]
 ```
 == elixir
 ```elixir
@@ -81,10 +64,6 @@ async def pricey(self, floor: Decimal) -> list[Product]:
 def by_sku(s) do
   query = from(record in D.Catalog.Product, where: record.sku == ^s)
   {:ok, Repo.one(query)}
-end
-def pricey(floor) do
-  query = from(record in D.Catalog.Product, where: record.price >= ^floor)
-  {:ok, Repo.all(query)}
 end
 ```
 ::: end
@@ -113,9 +92,33 @@ async bySku(sku: string): Promise<Product | null> {
   const rootRows = await this.db.select().from(schema.products).where(eq(schema.products.sku, sku)).limit(1);
 ```
 
-### List finds are deprecated
+### List finds are removed
 
-`pricey` compiles, but with a **warning**: `loom.repository-find-deprecated` — "repository find 'pricey' is a wire-shaped list query — declare a 'criterion' (run it with Repo.run(<Criterion>(args))) or a 'retrieval' instead of accreting a bespoke list finder on the repository, and put it on the wire with 'scaffoldPaged(of: <it>)' on the context plus 'scaffoldPagedApi(of: <it>)' on the api when a client must call it." Every find returning `T[]` or `T paged` gets it, in every context ([`criterion.md`](../criterion.md#advisories--the-compiler-steers-you-toward-criteria)). A unique-key reconstitution find returning `T` / `T?` stays fine — provided the key really is unique: a single-row find keyed by equality on fields that no `unique (…)` covers gets the advisory `loom.single-row-find-not-unique` (declare `unique (number)` beside `find byNumber(number: string): Ticket?`). The compiler-synthesised reads (auto-`findAll`, `scaffoldPaged`'s paged find) are exempt. The replacements are §[`criterion`](#criterion), §[`Repo.run` / paged `queryHandler`](#reporun--the-paged-queryhandler) and §[`projection`](#projection--the-read-model). A query that filters an un-indexed column — a `find … where`, a `criterion` body or a `retrieval`'s `where` — also gets an advisory `loom.index-suggestion` pointing at the `resource … { index: [Agg.col] }` hatch ([chapter 14](14-apis-storage-resources-channels.md#resource)); the suggestion survives the find → criterion migration.
+A find returning a list is an **error** — `loom.list-find-removed`:
+
+```ddd
+repository Products for Product {
+  find pricey(floor: money): Product[] where this.price >= floor
+}
+```
+
+```
+error  loom.list-find-removed
+repository find 'pricey' returns a list, and list finds are removed — declare a 'criterion'
+(run it with Repo.run(<Criterion>(args))) or a 'retrieval' instead, and put it on the wire with
+'scaffoldPaged(of: <it>)' on the context plus 'scaffoldPagedApi(of: <it>)' on the api when a
+client must call it; 'node scripts/codemod-list-find-to-criterion.mjs <path>' rewrites it.
+```
+
+The list read is a criterion, run through the repository:
+
+```ddd
+repository Products for Product { }
+criterion ProductsPricey(floor: money) of Product = this.price >= floor
+// … let xs = Products.run(ProductsPricey(floor))
+```
+
+Every find returning `T[]` or `T paged` gets it, in every context, except `find all(…)` — the author's override of the repository's list endpoint ([`criterion.md`](../criterion.md#advisories--the-compiler-steers-you-toward-criteria)). A unique-key reconstitution find returning `T` / `T?` stays fine — provided the key really is unique: a single-row find keyed by equality on fields that no `unique (…)` covers gets the advisory `loom.single-row-find-not-unique` (declare `unique (number)` beside `find byNumber(number: string): Ticket?`). The compiler-synthesised reads (auto-`findAll`, `scaffoldPaged`'s paged find) are exempt. The replacements are §[`criterion`](#criterion), §[`Repo.run` / paged `queryHandler`](#reporun--the-paged-queryhandler) and §[`projection`](#projection--the-read-model). A query that filters an un-indexed column — a `find … where`, a `criterion` body or a `retrieval`'s `where` — also gets an advisory `loom.index-suggestion` pointing at the `resource … { index: [Agg.col] }` hatch ([chapter 14](14-apis-storage-resources-channels.md#resource)).
 
 `node scripts/codemod-list-find-to-criterion.mjs <path>` makes that migration ([D-LIST-FIND-REMOVED](../decisions.md)): one criterion per list find beside its repository, named `<Plural><Find>`, with the find's `where` as its body (or, for a find written without `where`, the parameter-name convention spelled out — `this.customerId == customerId`); each `Repo.<find>(args)` call becomes `Repo.run(<Criterion>(args))`.  A parameterless, filterless list find read every row, so it becomes the repository's `find all`.  When a `test e2e` reads the find's route (`api.<plural>.<find>(…)`), the codemod keeps it on the wire as a routed `queryHandler List<Criterion>` over `Repo.run` on the same path (each parameter a `{token}`), and repoints the read to `api.<context>.list<Criterion>(…)`.  What it cannot rewrite — a page reading the route, a find with no api in the same source — it lists.
 
@@ -126,7 +129,7 @@ A `find … where` (and a `retrieval` `where`, a `projection` `where`, a capabil
 ```ddd
 repository Orders for Order {
   // rejected: `.count` on a list is a projection needing a subquery
-  find busy(): Order[] where this.lines.count > 0
+  find busy(): Order? where this.lines.count > 0
 }
 ```
 
@@ -147,25 +150,28 @@ The oracle comes in two halves, because a predicate and a value are different qu
 |---|---|---|
 | `T` | exactly one (404 ProblemDetails on miss) | `getById`-style |
 | `T?` | zero-or-one | returns `T \| null` |
-| `T[]` | collection (**deprecated** — warns) | returns a list |
-| `T paged` | a page of `T` (**deprecated** as a declared find) | takes `page`/`pageSize`/`sort`/`dir`, returns `{ items, page, pageSize, total, totalPages }` |
+| `T[]` | collection — `find all` only (`loom.list-find-removed` otherwise) | returns a list |
+| `T paged` | a page of `T` — `find all` only | takes `page`/`pageSize`/`sort`/`dir`, returns `{ items, page, pageSize, total, totalPages }` |
 | `T envelope` | `{ id, ts, body }` wrapper | see [Type system → carriers](04-type-system.md#generic-carriers--paged-envelope-option) |
 | `T option` / `T or <Error>` | the absence shape | untagged: `T` at 200, 404 / the error's status on miss — [chapter 9](09-payloads-and-unions.md#union-finds--the-untagged-exception) |
 
-A paged read auto-gains `page`/`pageSize`/`sort`/`dir` parameters and a `total`/`totalPages` count query (the same shape the auto-`findAll` and a paged `queryHandler` use).  Those four names are therefore **reserved** on a paged read: a declared parameter spelled `page`, `pageSize`, `sort` or `dir` — compared in snake form, so `page_size` and `Dir` too — on a paged find, a paged `queryHandler`, or a criterion a paged `queryHandler` runs is refused (`loom.paged-param-reserved`), since it would be a second value for the same query key and a duplicate parameter in every generated signature. Rename it (`pageNo`, `sortKey`, …):
+A paged read auto-gains `page`/`pageSize`/`sort`/`dir` parameters and a `total`/`totalPages` count query (the same shape the auto-`findAll` and a paged `queryHandler` use).  Those four names are therefore **reserved** on a paged read: a declared parameter spelled `page`, `pageSize`, `sort` or `dir` — compared in snake form, so `page_size` and `Dir` too — on a paged `find all`, a paged `queryHandler`, or a criterion a paged `queryHandler` runs is refused (`loom.paged-param-reserved`), since it would be a second value for the same query key and a duplicate parameter in every generated signature. Rename it (`pageNo`, `sortKey`, …):
 
 ```ddd
-repository Orders for Order {
-  find forCustomer(c: string): Order paged where this.customer == c
+repository Orders for Order { }
+criterion OrdersForCustomer(c: string) of Order = this.customer == c
+queryHandler ListForCustomer(c: string): Order paged {
+  let r = Orders.run(OrdersForCustomer(c))
+  return r
 }
 ```
 
-`Order` carries `softDeletable`, so every read below also ANDs the capability filter `not is_deleted` ([chapter 11](11-capabilities-filters-stamps.md)):
+The paged `run` reads the repository's synthesised `findAllBy<Criterion>` page method.  `Order` carries `softDeletable`, so every read below also ANDs the capability filter `not is_deleted` ([chapter 11](11-capabilities-filters-stamps.md)):
 
 ::: tabs backend
 == node
 ```ts
-async forCustomer(c: string, page: number, pageSize: number, sort: string, dir: string):
+async findAllByOrdersForCustomer(c: string, page: number, pageSize: number, sort: string, dir: string):
     Promise<{ items: Order[]; page: number; pageSize: number; total: number; totalPages: number }> {
   const offset = (page - 1) * pageSize;
   const sortColumn = sortColumns[sort] ?? schema.orders.id;
@@ -180,7 +186,7 @@ async forCustomer(c: string, page: number, pageSize: number, sort: string, dir: 
 ```
 == dotnet
 ```csharp
-public async Task<Paged<Order>> ForCustomer(string c, int page, int pageSize, string sort, string dir, CancellationToken cancellationToken = default)
+public async Task<Paged<Order>> FindAllByOrdersForCustomer(string c, int page, int pageSize, string sort, string dir, CancellationToken cancellationToken = default)
 {
     var offset = (page - 1) * pageSize;
     var sortColumn = sort switch { "customer" => "Customer", "ref" => "Ref", "total" => "Total", "status" => "Status", "placedAt" => "PlacedAt", _ => "Id" };
@@ -193,17 +199,17 @@ public async Task<Paged<Order>> ForCustomer(string c, int page, int pageSize, st
 ```
 == java
 ```java
-// OrderJpaRepository:  @Query("select e from Order e where e.customer = :c") Page<Order> forCustomer(@Param("c") String c, Pageable pageable);
-public Paged<Order> forCustomer(String c, int page, int pageSize, String sort, String dir) {
+// OrderJpaRepository:  @Query("select e from Order e where e.customer = :c") Page<Order> findAllByOrdersForCustomer(@Param("c") String c, Pageable pageable);
+public Paged<Order> findAllByOrdersForCustomer(String c, int page, int pageSize, String sort, String dir) {
     String __sortField = java.util.List.of("id", "customer", "ref", "total", "status", "placedAt").contains(sort) ? sort : "id";
     Sort __sort = Sort.by("desc".equals(dir) ? Sort.Direction.DESC : Sort.Direction.ASC, __sortField);
-    var result = jpa.forCustomer(c, PageRequest.of(page - 1, pageSize, __sort));
+    var result = jpa.findAllByOrdersForCustomer(c, PageRequest.of(page - 1, pageSize, __sort));
     return new Paged<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());
 }
 ```
 == python
 ```python
-async def for_customer(self, c: str, page: int, page_size: int, sort: str, dir: str) -> PagedResult[Order]:
+async def find_all_by_orders_for_customer(self, c: str, page: int, page_size: int, sort: str, dir: str) -> PagedResult[Order]:
     offset = (page - 1) * page_size
     _sort_attr = getattr(OrderRow, _sort_columns.get(sort, "id"))
     _order = _sort_attr.desc() if dir == "desc" else _sort_attr.asc()
@@ -214,7 +220,7 @@ async def for_customer(self, c: str, page: int, page_size: int, sort: str, dir: 
 ```
 == elixir
 ```elixir
-def for_customer(c, page \\ 1, page_size \\ 20, sort \\ "id", dir \\ "asc") do
+def find_all_by_orders_for_customer(c, page \\ 1, page_size \\ 20, sort \\ "id", dir \\ "asc") do
   query = from(record in D.Catalog.Order, where: (record.customer == ^c) and (not record.is_deleted))
   total = Repo.aggregate(query, :count, :id)
   offset = (page - 1) * page_size
@@ -440,21 +446,21 @@ A trailing `ignoring` clause on a read skips the query-filters a capability cont
 
 ```ddd
 repository Orders for Order {
-  find everything(): Order[] ignoring softDeletable
+  find all(): Order[] ignoring softDeletable
 }
 ```
 
 ::: tabs backend
 == node
 ```ts
-async everything(): Promise<Order[]> {
+async all(): Promise<Order[]> {
   const rootRows = await this.db.select().from(schema.orders);   // no `not(isDeleted)` term
   // …
 }
 ```
 == dotnet
 ```csharp
-public async Task<List<Order>> Everything(CancellationToken cancellationToken = default)
+public async Task<List<Order>> All(CancellationToken cancellationToken = default)
 {
     var result = await _db.Orders.IgnoreQueryFilters(["IsDeletedFilter"]).ToListAsync(cancellationToken);
     return result;
@@ -462,21 +468,21 @@ public async Task<List<Order>> Everything(CancellationToken cancellationToken = 
 ```
 == java
 ```java
-public List<Order> everything() {
+public List<Order> findAll() {
     var __session = em.unwrap(org.hibernate.Session.class);
     __session.disableFilter("softDeletable");
-    try { return jpa.everything(); } finally { __session.enableFilter("softDeletable"); }
+    try { return jpa.findAll(); } finally { __session.enableFilter("softDeletable"); }
 }
 ```
 == python
 ```python
-async def everything(self) -> list[Order]:
+async def all(self) -> list[Order]:
     rows = (await self._session.execute(select(OrderRow))).scalars().all()   # no not_(is_deleted)
     return [await self._hydrate(row) for row in rows]
 ```
 == elixir
 ```elixir
-def everything() do
+def all() do
   query = from(record in D.Catalog.Order)
   {:ok, Repo.all(query)}
 end

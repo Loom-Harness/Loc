@@ -20,7 +20,7 @@ system Shop {
         price: money
       }
       repository Products for Product {
-        find byFloorPrice(whole: money): Product[] where this.price.floor() == whole
+        find byFloorPrice(whole: money): Product? where this.price.floor() == whole
       }
     }
   }
@@ -38,8 +38,8 @@ system Shop {
 `;
 
 const withoutMoneyFind = withMoneyFind.replace(
-  "find byFloorPrice(whole: money): Product[] where this.price.floor() == whole",
-  "find byName(q: string): Product[] where this.name == q",
+  "find byFloorPrice(whole: money): Product? where this.price.floor() == whole",
+  "find byName(q: string): Product? where this.name == q",
 );
 
 function portsFile(files: Map<string, string>): string {
@@ -51,7 +51,7 @@ function portsFile(files: Map<string, string>): string {
 describe("Hono repository ports — a money find parameter imports Decimal", () => {
   it("imports the decimal.js type when a port signature spells Decimal", async () => {
     const src = portsFile(await generateSystemFiles(withMoneyFind));
-    expect(src).toContain("byFloorPrice(whole: Decimal): Promise<Product[]>;");
+    expect(src).toContain("byFloorPrice(whole: Decimal): Promise<Product | null>;");
     expect(src).toContain('import type Decimal from "decimal.js";');
   });
 

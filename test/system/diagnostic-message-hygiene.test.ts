@@ -99,7 +99,6 @@ const DEAD_PARAM_DEBT: { why: string; params: string[] }[] = [
       "loom.page-primitive-extra-children#modal-op-form :: where",
       "loom.page-primitive-unknown-arg :: where",
       "loom.page-primitive-unknown-arg#style-not-object :: where",
-      "loom.scaffold-filter-param-unsupported :: where",
       "loom.slot-outside-component :: where",
       "loom.store-action-view-effect :: where",
       "loom.store-cross-store-on-liveview-invalid :: where",
