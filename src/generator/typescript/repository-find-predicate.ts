@@ -719,6 +719,31 @@ export function drizzleDiscriminatorEq(tableName: string, kind: string): string 
   return `eq(schema.${tableName}.kind, ${JSON.stringify(kind)})`;
 }
 
+/** A polymorphic read of TPH root `base`: each concrete's own restrictions
+ *  (`subtypeRestrictions`), root-hosted and guarded by its discriminator —
+ *  `or(not(kind = '<d>'), <pred>)`, so it constrains that concrete's rows only.
+ *  Empty for any aggregate that is not a TPH root.  Adds the ops it uses. */
+export function drizzleGuardedSubtypePredicates(
+  base: EnrichedAggregateIR,
+  ctx: EnrichedBoundedContextIR,
+  ops: Set<string>,
+  bypass?: FilterBypass,
+): string[] {
+  const tableName = repoTableName(base, ctx);
+  return drizzleReadScope(base, ctx, bypass).subtypeRestrictions.map((g) => {
+    const l =
+      lowerToDrizzle(g.restriction.predicate!, tableName, ctx, {
+        principalAccessor: "requireCurrentUser()",
+      }) ??
+      refuseOutOfVocabulary(
+        "drizzle-predicate",
+        `read restriction on '${g.restriction.declaredOn}' (polymorphic read of '${base.name}')`,
+      );
+    for (const op of [...l.ops, "or", "not", "eq"]) ops.add(op);
+    return `or(not(${drizzleDiscriminatorEq(tableName, g.discriminator)}), ${l.expr})`;
+  });
+}
+
 /** True when any restriction a read of `agg` applies reads the principal
  *  (`currentUser.<claim>`), so the repository must bind the ambient
  *  `requireCurrentUser()` accessor. */
