@@ -384,7 +384,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "message": "Required",
+            "message": "body is required",
             "pointer": "/body"
           }
         ],
