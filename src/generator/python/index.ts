@@ -2376,13 +2376,7 @@ ${voHandler}${integrityHandler}${versionedHandler}    @app.exception_handler(Agg
         # BODY from a rejected DOMAIN operation.  "Validation failed" plus the
         # \`errors[]\` pointer array is what distinguishes them, and python was
         # the one backend collapsing the two.
-        return problem(
-            request,
-            ${wireStatus("field-invalid")},
-            ${title("field-invalid")},
-            ${JSON.stringify(wireFixedDetail("field-invalid"))},
-            errors,
-        )
+        return problem(request, ${wireStatus("field-invalid")}, ${title("field-invalid")}, ${JSON.stringify(wireFixedDetail("field-invalid"))}, errors)
 
     @app.exception_handler(StarletteHTTPException)
     async def _http(request: Request, err: StarletteHTTPException) -> JSONResponse:

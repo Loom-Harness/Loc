@@ -197,7 +197,7 @@ describe("python: keyword member names (python-reserved-words)", async () => {
     expect(routes).toContain('    def_: str = Field(alias="def")');
     expect(routes).toContain('    def_: WireStr = Field(alias="def")');
     expect(routes).toContain('    lambda_: Int32 = Field(ge=0, alias="lambda")');
-    expect(routes).toContain('    pass_: bool = Field(default=False, alias="pass")');
+    expect(routes).toContain('    pass_: StrictBool = Field(default=False, alias="pass")');
     expect(routes).toContain('def_: Annotated[WireStr, Query(alias="def")]');
     expect(routes).toContain("found.class_(body.except_)");
     // Pydantic resolves a field validator by ATTRIBUTE, not alias: naming the
