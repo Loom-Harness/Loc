@@ -16,7 +16,9 @@
 // The document repository already underscored it; the relational path did not,
 // and no fixture crossed `ignoring` with a principal filter on a ROW read until
 // `corpus/find-bypass` (M-T6.54 F18).  The ARITY is unchanged either way —
-// callers pass the actor positionally whether or not the find reads it.
+// callers pass the actor positionally whether or not the find reads it.  The
+// underscore itself is what the corpus elixir leg's `--warnings-as-errors`
+// compile checks; what stays here is which conjuncts each find keeps.
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
@@ -37,18 +39,16 @@ describe("elixir vanilla — actor param on a bypassing find (M-T6.54 F18)", () 
     );
   });
 
-  it("`ignoring tenantOwned` drops the conjunct AND underscores the now-unread actor", async () => {
+  it("`ignoring tenantOwned` drops the principal conjunct and keeps the other", async () => {
     const repo = (await generateSystemFiles(SRC)).get("d/lib/d/orders/order_repository.ex")!;
-    expect(repo).toContain("def any_tenant(c, _current_user \\\\ nil) do");
     const body = repo.slice(repo.indexOf("def any_tenant("), repo.indexOf("def unfiltered("));
     expect(body).not.toContain("tenant_id");
     // The non-principal capability it did NOT name survives.
     expect(body).toContain("not record.is_deleted");
   });
 
-  it("`ignoring *` drops both conjuncts and likewise underscores the actor", async () => {
+  it("`ignoring *` drops both conjuncts", async () => {
     const repo = (await generateSystemFiles(SRC)).get("d/lib/d/orders/order_repository.ex")!;
-    expect(repo).toContain("def unfiltered(c, _current_user \\\\ nil) do");
     const body = repo.slice(repo.indexOf("def unfiltered("));
     expect(body.slice(0, 400)).not.toContain("tenant_id");
     expect(body.slice(0, 400)).not.toContain("is_deleted");

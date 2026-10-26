@@ -17,14 +17,15 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // nothing).  That was the `corpus/validation-messages` wire-golden divergence,
 // waived three ways in `test/_helpers/wire-waivers.ts` until this landed.
 //
-// Two halves of the gate are asserted here, because BOTH are what keep the fix
-// honest cross-backend:
-//   * a param-only precondition takes the new rung — messaged with its
-//     authored text and code, message-LESS with node's sentence and no code
-//     (D-MESSAGELESS-DEFAULT, RS-43);
-//   * a precondition over `this`-STATE (not wire-translatable on ANY backend —
-//     `corpus/wire-contract`'s `discontinue` is the live example) stays on the
-//     domain floor.
+// The messaged wire rung — its title, detail, pointer and `msg.<hash>` code,
+// sent through the one shared 422 sender — is asserted by value on the elixir
+// behavioural leg (`corpus/validation-messages`, against node's golden).  What
+// stays here is what that leg cannot see:
+//   * the message-LESS sentence (D-MESSAGELESS-DEFAULT, RS-43) — the golden's
+//     `errors[*].message` values are waived on this leg for now;
+//   * a precondition over `this`-STATE (not wire-translatable on ANY backend)
+//     stays on the domain floor;
+//   * the workflow `respond/2` arm, the no-leak twin, and the raise path.
 // ---------------------------------------------------------------------------
 
 const SRC = `
@@ -128,13 +129,6 @@ function file(files: Map<string, string>, suffix: string): string {
 }
 
 describe("elixir/vanilla — messaged precondition answers the wire-validation 422 (M-T6.20)", () => {
-  it("denies with a pointer + msg.<hash> code instead of the domain-floor tuple", async () => {
-    const ctx = file(await generateSystemFiles(SRC), "/api/cat.ex");
-    expect(ctx).toContain(
-      'ensure(amount >= 1, {:validation_failed, [%{pointer: "/amount", message: "Restock amount must be at least 1", code: "msg.zjdkcr"}]})',
-    );
-  });
-
   it("lifts a message-LESS param precondition with node's sentence and no code; leaves this-state on the domain floor", async () => {
     const ctx = file(await generateSystemFiles(SRC), "/api/cat.ex");
     // Message-less: node's synthesized sentence, no code (RS-43).
@@ -149,28 +143,6 @@ describe("elixir/vanilla — messaged precondition answers the wire-validation 4
     expect(ctx).toMatch(
       /ensure\(record\.status != "closed", \{:precondition_failed, %\{detail: "Product is already closed", code: "msg\.[a-z0-9]+", pointer: ""\}\}\)/,
     );
-  });
-
-  it("the controller renders the wire rung through the shared errors[] responder", async () => {
-    const ctrl = file(await generateSystemFiles(SRC), "/controllers/product_controller.ex");
-    expect(ctrl).toContain("{:error, {:validation_failed, errors}} ->");
-    expect(ctrl).toContain("ProblemDetails.validation_errors_response(conn, errors)");
-    // The domain-floor arm survives beside it (the other two ops still use it).
-    expect(ctrl).toContain("{:error, {:precondition_failed, detail}} ->");
-  });
-
-  it("both 422 rungs share ONE sender, so title/detail can never drift", async () => {
-    const pd = file(await generateSystemFiles(SRC), "/problem_details.ex");
-    expect(pd).toContain("defp send_validation_problem(conn, pointer_errors) do");
-    expect(pd).toContain('title: "Validation failed"');
-    expect(pd).toContain('detail: "One or more fields are invalid."');
-    // The changeset path delegates to it rather than building its own body.
-    // (Inside the domain-floor `case` since M-T1.11 (c) — the fixture carries a
-    // messaged domain-floor rule, so the tagged errors answer that rung first.)
-    expect(pd).toContain("send_validation_problem(conn, collect_changeset_errors(changeset, []))");
-    // The wire path localises the code through the SAME catalog lookup.
-    expect(pd).toContain("def validation_errors_response(conn, errors) when is_list(errors) do");
-    expect(pd).toContain("message: localize(code, message)");
   });
 
   it("the shared workflow respond/2 tail carries the arm, so an op-call denial keeps its 422", async () => {

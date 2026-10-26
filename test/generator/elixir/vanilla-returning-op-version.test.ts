@@ -2,24 +2,13 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
-// vanilla Phoenix — a RETURNING operation bumps the `versioned` counter.
+// vanilla Phoenix — a RETURNING operation on a `versioned` aggregate.
 //
-// `versioned` declares `version: int token = 1`, incremented per command
-// (`src/macros/prelude.ts`).  The NAMED-operation path in `context-emit.ts`
-// bumped via `change(%{version: record.version + 1})` at the time — since
-// M-T6.27 both paths ride `optimistic_lock(:version)` (same +1, plus the CAS).
-// The RETURNING-operation path (an exception-less `: T or Error` op) emitted a
-// bare `change(%{})`: it persisted the field write and left `version` untouched.
-//
-// NOT the RS-20 shape.  Java's `@Version` misses a bump because Hibernate tracks
-// ROW DIRTINESS, so it only diverges when nothing actually changed; here the
-// write is a real change and the bump is simply absent from one emitter arm.
-// Elixir alone, against a capability the other four backends honour — a fix, not
-// a waiver.
-//
-// Found 2026-08-05 by the caller-census drain: `corpus/operation-returns`'
-// `accept()` (`reserved := true`, returning `: string or NotFound`) read back
-// `version: 2` where every other backend read 3.
+// That a writing returning op bumps `version` through `optimistic_lock/2` is
+// asserted by value on the elixir behavioural leg (`corpus/operation-returns`:
+// `accept()` reads back `version: 3` against node's golden).  What stays here
+// is the case no read distinguishes: a returning op that writes nothing builds
+// no changeset at all.
 // ---------------------------------------------------------------------------
 
 const versionedSrc = (extra: string) => `
@@ -52,29 +41,6 @@ const ctxModule = async (src: string): Promise<string> => {
 };
 
 describe("vanilla Phoenix — returning-op version bump", () => {
-  it("a returning op on a versioned aggregate bumps `version`, like a named op", async () => {
-    const mod = await ctxModule(versionedSrc("with crudish"));
-
-    // Premise: BOTH op kinds are emitted on the same aggregate, so the
-    // comparison below is between the two PATHS and not between two fixtures.
-    expect(mod).toContain("def accept_order(%D.Shop.Order{} = record, params)");
-    expect(mod).toContain("def touch_order(%D.Shop.Order{} = record, params)");
-
-    // The named-op path bumps — via `optimistic_lock(:version)` since M-T6.27
-    // (same +1 on the wire, plus the CAS filter a plain bump lacked) …
-    const touch = mod.slice(mod.indexOf("def touch_order(%D.Shop.Order{}"));
-    const touchBody = touch.slice(0, touch.indexOf("\n  end"));
-    expect(touchBody).toContain("|> Ecto.Changeset.optimistic_lock(:version)");
-    expect(touchBody).not.toContain("version: record.version + 1");
-    // … and so does the returning-op path.
-    const accept = mod.slice(mod.indexOf("def accept_order(%D.Shop.Order{}"));
-    const acceptBody = accept.slice(0, accept.indexOf("\n  end"));
-    expect(acceptBody).toContain("|> Ecto.Changeset.optimistic_lock(:version)");
-    expect(acceptBody).not.toContain("version: record.version + 1");
-    // The write itself is unchanged.
-    expect(acceptBody).toContain("Ecto.Changeset.force_change(:reserved, record.reserved)");
-  });
-
   it("a returning op that WRITES NOTHING gains no changeset, and so no bump", async () => {
     // Scope guard.  The bump rides the persist pipeline, so it must appear only
     // where there IS one — a returning op with no assignment (here the
