@@ -88,7 +88,7 @@ system Collide {
       workflow Place {
         create(request: int, ordersRepository: int, state: string) {
           precondition request > 0
-          let o = Order.create({ status: state, qty: request + ordersRepository })
+          let o = Order.create(status: state, qty: request + ordersRepository)
         }
       }
     }

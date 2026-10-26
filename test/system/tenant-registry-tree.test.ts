@@ -107,7 +107,7 @@ const SIGNUP_SRC = `
         workflow signUpChild {
           create(nm: string, par: Organization id) {
             let loaded = Organizations.getById(par)
-            let org = Organization.create({ name: nm, parent: par })
+            let org = Organization.create(name: nm, parent: par)
             org.setPath(loaded.dataKey != null ? loaded.dataKey + "." + nm : nm)
           }
         }

@@ -43,7 +43,7 @@ const SYS = `
           qty: int
           function doubled(): int = qty * 2
           test "doubled doubles" {
-            let o = Order.create({ code: "c", qty: 3 })
+            let o = Order.create(code: "c", qty: 3)
             expect(o.doubled()).toBe(6)
           }
         }

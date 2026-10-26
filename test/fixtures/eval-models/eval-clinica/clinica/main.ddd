@@ -197,7 +197,7 @@ system Clinica {
         }
 
         test "cancel requires a reason" verifies TC-001 {
-          let a = Appointment.create({
+          let a = Appointment.create(
             // Distinct placeholder ids per reference.  These were all the bare
             // `id`, which inside an aggregate-nested test types as
             // `Appointment id` — so the fixture built an appointment whose
@@ -210,7 +210,7 @@ system Clinica {
             room: "00000000-0000-0000-0000-0000000000d1",
             apptType: "00000000-0000-0000-0000-0000000000e1",
             startAt: now(), durationMinutes: 30, patientUserRef: "u"
-          })
+          )
         }
 
         operation reschedule(newStart: datetime, newDuration: int) when (state == Requested || state == Confirmed) {
@@ -356,7 +356,7 @@ system Clinica {
       workflow onApptConfirmed {
         appointmentId: Appointment id
         create(e: AppointmentConfirmed) by e.appointment {
-          let r = Reminder.create({ appointment: string(e.appointment), sentAt: now() })
+          let r = Reminder.create(appointment: string(e.appointment), sentAt: now())
         }
       }
     }

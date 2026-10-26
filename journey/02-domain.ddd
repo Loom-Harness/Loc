@@ -59,8 +59,8 @@ system Todo {
         }
 
         test "a new task starts, then completes" {
-          let t = Task.create({ title: "write findings", status: Open,
-                                priority: High })
+          let t = Task.create(title: "write findings", status: Open,
+                                priority: High)
           t.start()
           expect(t.status).toBe(InProgress)
           t.complete()
@@ -68,8 +68,8 @@ system Todo {
         }
 
         test "cannot start a finished task" {
-          let t = Task.create({ title: "done already", status: Done,
-                                priority: Low })
+          let t = Task.create(title: "done already", status: Done,
+                                priority: Low)
           expect(t.start()).toThrow()
         }
       }

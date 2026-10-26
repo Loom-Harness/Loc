@@ -35,7 +35,7 @@ system W {
     workflow openTicket {
       ticket: Ticket id
       create(subject: string, priority: Priority) {
-        let t = Ticket.create({ subject: subject, priority: priority })
+        let t = Ticket.create(subject: subject, priority: priority)
       }
     }
     retrieval Labelled(l: string) of Tag { where: this.label == l }
@@ -43,13 +43,13 @@ system W {
       create(l: string) {
         let gs = Tags.run(Labelled(l), page: { offset: 0, limit: 100 })
         for g in gs {
-          let t = Ticket.create({ subject: g.label, priority: Low })
+          let t = Ticket.create(subject: g.label, priority: Low)
         }
       }
     }
     workflow tagIt {
       create(label: string) {
-        let g = Tag.create({ label: label })
+        let g = Tag.create(label: label)
       }
     }
   } }

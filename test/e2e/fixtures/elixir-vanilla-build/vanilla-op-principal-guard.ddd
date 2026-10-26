@@ -22,18 +22,18 @@ system OpGuard {
         }
         // A `test` block forces the pure-domain-core emission (where the gap lives).
         test "a fresh order takes its defaults" {
-          let o = Order.create({ customer: "acme" })
+          let o = Order.create(customer: "acme")
           expect(o.status).toBe("open")
         }
         test "blank customer is rejected" {
-          expect(Order.create({ customer: "" })).toThrow()
+          expect(Order.create(customer: "")).toThrow()
         }
         // Calls the guarded op — the emitted ExUnit test must thread a synthetic
         // privileged actor so the `requires currentUser.role == "admin"` guard
         // runs (not `nil.role`).  Exercises §11d (pure-core binds the actor) AND
         // the test-emit actor threading together, at RUNTIME (mix test).
         test "an admin can cancel an order" {
-          let o = Order.create({ customer: "acme" })
+          let o = Order.create(customer: "acme")
           o.cancel("done")
           expect(o.status).toBe("cancelled")
         }

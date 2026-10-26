@@ -45,12 +45,12 @@ system Rs43 {
       }
       workflow Housekeeping {
         create() {
-          let o = Order.create({ name: "auto" })
+          let o = Order.create(name: "auto")
         }
       }
       workflow Escalate {
         create(note: string) {
-          let o = Order.create({ name: note })
+          let o = Order.create(name: note)
         }
       }
       aggregate Ticket {

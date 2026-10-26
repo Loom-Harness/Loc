@@ -24,7 +24,7 @@ system DtMatch {
           scheduledAt := at
         }
         test "a datetime matcher compares as a date" {
-          let w = Widget.create({ code: "W1" })
+          let w = Widget.create(code: "W1")
           w.schedule("2026-02-02T12:30:00Z")
           expect(w.scheduledAt).toBe("2026-02-02T12:30:00Z")
           expect(w.scheduledAt).not.toBe("2027-01-01T00:00:00Z")

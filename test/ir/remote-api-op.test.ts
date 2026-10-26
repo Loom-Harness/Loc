@@ -55,7 +55,7 @@ ${body}
 
 const TYPED_CALL = `        create(id: Order id) {
           let o = orders.getOrderById(id)
-          let s = Shipment.create({ orderCode: o.code, status: "Pending" })
+          let s = Shipment.create(orderCode: o.code, status: "Pending")
         }`;
 
 async function lower(source: string) {

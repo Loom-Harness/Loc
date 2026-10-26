@@ -65,7 +65,7 @@ system Repro {
         }
       }
       test "persists and reads back an item" {
-        let i = Item.create({ name: "abc", tags: [] })
+        let i = Item.create(name: "abc", tags: [])
         let found = Item.findById(i.id)
         expect(found.name).toBe("abc")
       }

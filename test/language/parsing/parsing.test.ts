@@ -203,11 +203,11 @@ describe("parsing & validation of examples", () => {
         workflow placeOrder {
       create(customerId: Customer id, placedAt: datetime) {
           let customer = Customers.getById(customerId)
-          let order = Order.create({
+          let order = Order.create(
             customerId: customerId,
             status: Draft,
             placedAt: placedAt
-          })
+          )
           emit OrderPlaced { order: order.id, at: placedAt }
         }
     }

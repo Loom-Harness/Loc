@@ -70,7 +70,7 @@ system NumericOperands {
         // count=2 vs 2.5 makes it true; factor=2.5 is binary-exact so
         // `adjusted` is 5.5 on every backend regardless of representation.
         test "right-hand money/decimal operands compute, compare, and equal correctly" {
-          let o = Order.create({ qty: 3, price: money("2.5000"), count: 3, factor: 2.5 })
+          let o = Order.create(qty: 3, price: money("2.5000"), count: 3, factor: 2.5)
           expect(o.lineTotal == money("7.5000")).toBe(true)
           expect(o.adjusted).toBe(5.5)
           expect(o.underTarget).toBe(false)

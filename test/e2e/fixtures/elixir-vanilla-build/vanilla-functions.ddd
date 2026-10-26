@@ -46,15 +46,15 @@ system Shop {
         }
 
         test "passed is true above the threshold" {
-          let o = Order.create({ total: 150 })
+          let o = Order.create(total: 150)
           expect(o.passed()).toBe(true)
         }
         test "passed is false at or below the threshold" {
-          let o = Order.create({ total: 100 })
+          let o = Order.create(total: 100)
           expect(o.passed()).toBe(false)
         }
         test "bonus adds the extra to the total" {
-          let o = Order.create({ total: 10 })
+          let o = Order.create(total: 10)
           expect(o.bonus(5)).toBe(15)
         }
       }

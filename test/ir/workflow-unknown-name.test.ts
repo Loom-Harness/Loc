@@ -103,7 +103,7 @@ describe("loom.workflow-unknown-name (IR, phase ⑦)", () => {
        criterion ForP(k: P id) of SeenReplica = p == k
        workflow replicateSeen {
          p: P id
-         create(e: Went) by e.p { let r = SeenReplica.create({ p: e.p, at: e.at }) }
+         create(e: Went) by e.p { let r = SeenReplica.create(p: e.p, at: e.at) }
        }`,
       `if let s = SeenReplicas.find(ForP(p)) {
           precondition s.at < now() + days(1)

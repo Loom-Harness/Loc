@@ -37,7 +37,7 @@ system Demo {
           name := newName
         }
         test "partial create then rename rejects empty" {
-          let p = Project.create({ name: "demo", budget: 0.0 })
+          let p = Project.create(name: "demo", budget: 0.0)
           expect(p.budget).toBe(0.0)
           expect(p.rename("")).toThrow()
         }
@@ -74,7 +74,7 @@ system Demo2 {
           status := "cancelled"
         }
         test "create coerces typed inputs" {
-          let o = Order.create({ customerId: "c1", total: Money { amount: 9.99, currency: "USD" }, placedAt: "2024-01-01T00:00:00Z" })
+          let o = Order.create(customerId: "c1", total: Money { amount: 9.99, currency: "USD" }, placedAt: "2024-01-01T00:00:00Z")
           o.cancel()
           expect(o.status).toBe("cancelled")
         }

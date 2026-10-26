@@ -27,7 +27,7 @@ const SRC = `
         repository Tasks for Task {}
         workflow makeTask transactional {
           create(title: string) {
-            let t = Task.create({ title: title, priority: Normal })
+            let t = Task.create(title: title, priority: Normal)
           }
         }
       }

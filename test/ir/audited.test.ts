@@ -329,7 +329,7 @@ system S {
       repository Carts for Cart { }
       workflow buildCart {
         create(reason: int) {
-          let cart = Cart.create({ label: "seed", status: 0 })
+          let cart = Cart.create(label: "seed", status: 0)
           cart.touch(1)
           cart.cancel(reason)
         }
@@ -397,7 +397,7 @@ system S {
       workflow Fulfillment {
         orderId: Order id
         create(p: OrderPlaced) by p.order {
-          let ship = Shipment.create({ orderRef: p.order, status: "Pending" })
+          let ship = Shipment.create(orderRef: p.order, status: "Pending")
           emit ShipmentRequested { shipment: ship.id, order: p.order, at: now() }
         }
         on(s: ShipmentRequested) by s.order {

@@ -63,7 +63,7 @@ describe("vanilla — workflow create-param surfacing", () => {
       `workflow guardedCreate transactional {
         create(initialTitle: string) {
           precondition initialTitle.length > 0
-          let t = Task.create({ title: initialTitle, done: false })
+          let t = Task.create(title: initialTitle, done: false)
         }
       }`,
       "guarded_create",
@@ -76,7 +76,7 @@ describe("vanilla — workflow create-param surfacing", () => {
       `workflow guardedCreate transactional {
         create(initialTitle: string) {
           precondition initialTitle.length > 0
-          let t = Task.create({ title: initialTitle, done: false })
+          let t = Task.create(title: initialTitle, done: false)
         }
       }`,
       "guarded_create",
@@ -91,7 +91,7 @@ describe("vanilla — workflow create-param surfacing", () => {
     const wf = await workflowFor(
       `workflow placeOrder transactional {
         create(customerId: string) {
-          let t = Task.create({ title: customerId, done: false })
+          let t = Task.create(title: customerId, done: false)
         }
       }`,
       "place_order",
@@ -108,7 +108,7 @@ describe("vanilla — workflow create-param surfacing", () => {
     const wf = await workflowFor(
       `workflow guardedCreate transactional {
         create(usedTitle: string, unusedNote: string) {
-          let t = Task.create({ title: usedTitle, done: false })
+          let t = Task.create(title: usedTitle, done: false)
         }
       }`,
       "guarded_create",
@@ -123,8 +123,8 @@ describe("vanilla — workflow create-param surfacing", () => {
     const wf = await workflowFor(
       `workflow guardedCreate transactional {
         create(firstName: string, lastName: string) {
-          let t = Task.create({ title: firstName, done: false })
-          let u = Task.create({ title: lastName, done: false })
+          let t = Task.create(title: firstName, done: false)
+          let u = Task.create(title: lastName, done: false)
         }
       }`,
       "guarded_create",
@@ -136,7 +136,7 @@ describe("vanilla — workflow create-param surfacing", () => {
     const wf = await workflowFor(
       `workflow markAllDone transactional {
         create() {
-          let t = Task.create({ title: "Untitled", done: false })
+          let t = Task.create(title: "Untitled", done: false)
           t.markDone()
         }
       }`,

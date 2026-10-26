@@ -28,7 +28,7 @@ system R {
       repository Clms for Clm { }
       workflow fileClm transactional {
         create(kind: Kind, title: string) {
-          let c = Clm.create({ kind: kind, title: title })
+          let c = Clm.create(kind: kind, title: title)
         }
       }
     }

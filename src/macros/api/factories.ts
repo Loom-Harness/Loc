@@ -410,13 +410,24 @@ export function nameRef(name: string): NameRef {
 export function memberAccess(
   receiver: Expression,
   member: string,
-  opts: { call?: boolean; args?: Expression[] } = {},
+  opts: {
+    call?: boolean;
+    args?: Expression[];
+    /** Named arguments (`f(x: a, y: b)`), after any positional `args`. */
+    namedArgs?: { name: string; value: Expression }[];
+  } = {},
 ): PostfixChain {
   const origin = currentOrigin();
-  const args = opts.args ?? [];
+  const args: { name?: string; value: Expression }[] = [
+    ...(opts.args ?? []).map((value) => ({ value })),
+    ...(opts.namedArgs ?? []),
+  ];
   const callArgs: CallArg[] = args.map((a) => {
-    const node = tag(mkCallArg({ $type: "CallArg", value: a }), origin);
-    setContainer(a, node, "value");
+    const node = tag(
+      mkCallArg({ $type: "CallArg", value: a.value, ...(a.name ? { name: a.name } : {}) }),
+      origin,
+    );
+    setContainer(a.value, node, "value");
     return node;
   });
   const suffix: MemberSuffix = tag(

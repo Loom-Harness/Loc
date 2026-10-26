@@ -32,7 +32,7 @@ const wrap = (body: string): string => `
 describe("IR: loom.integration-find-must-bind", () => {
   it("errors on an inline repository find inside expect(...)", async () => {
     const codes = await codesFor(
-      wrap(`let o = Order.create({ code: "x" })  expect(Order.findById(o.id).code).toBe("x")`),
+      wrap(`let o = Order.create(code: "x")  expect(Order.findById(o.id).code).toBe("x")`),
     );
     expect(codes).toContain("loom.integration-find-must-bind");
   });
@@ -40,7 +40,7 @@ describe("IR: loom.integration-find-must-bind", () => {
   it("accepts a let-bound find asserted over its binding", async () => {
     const codes = await codesFor(
       wrap(
-        `let o = Order.create({ code: "x" })  let f = Order.findById(o.id)  expect(f.code).toBe("x")`,
+        `let o = Order.create(code: "x")  let f = Order.findById(o.id)  expect(f.code).toBe("x")`,
       ),
     );
     expect(codes).not.toContain("loom.integration-find-must-bind");
@@ -51,7 +51,7 @@ describe("IR: loom.integration-repository-call", () => {
   it("errors on a call rooted at the repository name", async () => {
     const codes = await codesFor(
       wrap(
-        `let o = Order.create({ code: "x" })  let r = Orders.getById(o.id)  expect(r.code).toBe("x")`,
+        `let o = Order.create(code: "x")  let r = Orders.getById(o.id)  expect(r.code).toBe("x")`,
       ),
     );
     expect(codes).toContain("loom.integration-repository-call");
@@ -60,7 +60,7 @@ describe("IR: loom.integration-repository-call", () => {
   it("accepts the aggregate-rooted read", async () => {
     const codes = await codesFor(
       wrap(
-        `let o = Order.create({ code: "x" })  let r = Order.findById(o.id)  expect(r.code).toBe("x")`,
+        `let o = Order.create(code: "x")  let r = Order.findById(o.id)  expect(r.code).toBe("x")`,
       ),
     );
     expect(codes).not.toContain("loom.integration-repository-call");

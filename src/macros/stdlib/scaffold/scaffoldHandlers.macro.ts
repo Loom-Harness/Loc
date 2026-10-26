@@ -10,7 +10,6 @@ import {
   memberAccess,
   namedType,
   nameRef,
-  objectLit,
   param,
   primType,
   queryHandler,
@@ -44,7 +43,7 @@ import {
  *   queryHandler   GetOrder(query: GetOrderQuery): OrderResponse  { let o = Orders.getById(query.orderId)  return o }
  *   queryHandler   ByStatusOrder(query: ByStatusOrderQuery): OrderResponse[] { let r = Orders.byStatus(query.status)  return r }
  *   commandHandler CreateOrder(cmd: CreateOrderCommand): Order id {
- *     let o = Order.create({ code: cmd.code, status: cmd.status })
+ *     let o = Order.create(code: cmd.code, status: cmd.status)
  *     return o.id
  *   }
  *   commandHandler CancelOrder(orderId: Order id) {   // cmd omitted — cancel has no params
@@ -132,18 +131,17 @@ function buildHandler(t: HandlerTarget) {
       const params =
         fields.length > 0 ? [param("cmd", namedType(`${targetHandlerName(t)}Command`))] : [];
       const body = [
-        // `let o = <Agg>.create({ <field>: cmd.<field>, … })` — a factory-let;
-        // each field value reads off the command record.  `computeSaves`
+        // `let o = <Agg>.create(<field>: cmd.<field>, …)` — a factory-let;
+        // each argument reads off the command record.  `computeSaves`
         // persists the constructed `o` at exit.
         letStmt(
           "o",
           memberAccess(nameRef(t.agg.name), "create", {
             call: true,
-            args: [
-              objectLit(
-                fields.map((f) => ({ name: f.name, value: memberAccess(nameRef("cmd"), f.name) })),
-              ),
-            ],
+            namedArgs: fields.map((f) => ({
+              name: f.name,
+              value: memberAccess(nameRef("cmd"), f.name),
+            })),
           }),
         ),
         // `return o.id` — the new aggregate's id.

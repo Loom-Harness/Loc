@@ -92,13 +92,13 @@ subdomain Sales {
       }
 
       test "adding a line then confirming yields a confirmed order" verifies TC-SALES-1 {
-        let order = SalesOrder.create({
+        let order = SalesOrder.create(
           reference: "SO-TEST-1",
           customerId: "00000000-0000-0000-0000-000000000001",
           status: Draft,
           priority: Normal,
           shipTo: { line1: "1 Test St", city: "Testville", region: "TS", postalCode: "00001", country: US }
-        })
+        )
         order.addLine("PRD-1", "Widget", Money { amount: 5.00, currency: "USD" }, 2)
         order.confirm()
         expect(order.status).toBe(Confirmed)
@@ -106,13 +106,13 @@ subdomain Sales {
       }
 
       test "lines cannot be added once confirmed" verifies TC-SALES-1 {
-        let order = SalesOrder.create({
+        let order = SalesOrder.create(
           reference: "SO-TEST-2",
           customerId: "00000000-0000-0000-0000-000000000001",
           status: Draft,
           priority: Normal,
           shipTo: { line1: "1 Test St", city: "Testville", region: "TS", postalCode: "00001", country: US }
-        })
+        )
         order.addLine("PRD-1", "Widget", Money { amount: 5.00, currency: "USD" }, 2)
         order.confirm()
         expect(order.addLine("PRD-2", "Gadget", Money { amount: 9.00, currency: "USD" }, 1)).toThrow()
@@ -171,13 +171,13 @@ subdomain Sales {
         shipTo: Address
       ) {
         precondition qty > 0
-        let order = SalesOrder.create({
+        let order = SalesOrder.create(
           reference: reference,
           customerId: customerId,
           status: Draft,
           priority: Normal,
           shipTo: shipTo
-        })
+        )
         order.addLine(productRef, "Ordered item", unitPrice, qty)
         order.confirm()
       }

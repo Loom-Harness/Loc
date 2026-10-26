@@ -25,7 +25,7 @@ const nested = `
   system S { subdomain M { context Ordering {
     aggregate Order { code: string }
     aggregate Inventory { sku: string }
-    test "cross-aggregate" { let o = Order.create({ code: "x" })  expect(1).toBe(1) }
+    test "cross-aggregate" { let o = Order.create(code: "x")  expect(1).toBe(1) }
   } } }
 `;
 
@@ -34,7 +34,7 @@ const hoisted = `
     aggregate Order { code: string }
     aggregate Inventory { sku: string }
   } } }
-  test "cross-aggregate" for Ordering { let o = Order.create({ code: "x" })  expect(1).toBe(1) }
+  test "cross-aggregate" for Ordering { let o = Order.create(code: "x")  expect(1).toBe(1) }
 `;
 
 describe("IR: context integration test lands on BoundedContextIR.tests", () => {

@@ -37,7 +37,7 @@ system WF {
       repository Orders for Order { }
       workflow placeOrder {
         create(name: string, qty: int) {
-          let o = Order.create({ name: name, qty: qty })
+          let o = Order.create(name: name, qty: qty)
         }
       }
     }

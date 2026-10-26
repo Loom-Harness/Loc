@@ -126,22 +126,22 @@ system BankingSystem {
         // vitest specs in the Hono project's `domain/` folder, and the
         // link feeds the coverage report under `.loom/`.
         test "withdrawing more than the balance is rejected" verifies TC-001 {
-          let acct = Account.create({
+          let acct = Account.create(
             holder: "00000000-0000-0000-0000-000000000001",
             status: Open,
             balance: { amount: 100.0, currency: "USD" },
             openedAt: "2024-01-01T00:00:00Z"
-          })
+          )
           expect(acct.withdraw(Money { amount: 1000.0, currency: "USD" })).toThrow()
         }
 
         test "a frozen account rejects deposits and withdrawals" verifies TC-002 {
-          let acct = Account.create({
+          let acct = Account.create(
             holder: "00000000-0000-0000-0000-000000000001",
             status: Open,
             balance: { amount: 100.0, currency: "USD" },
             openedAt: "2024-01-01T00:00:00Z"
-          })
+          )
           acct.freeze("fraud review")
           expect(acct.deposit(Money { amount: 10.0, currency: "USD" })).toThrow()
           expect(acct.withdraw(Money { amount: 10.0, currency: "USD" })).toThrow()

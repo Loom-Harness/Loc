@@ -405,7 +405,7 @@ export function validateLoomModel(
   }
   validateExprIntegrity(loom, diags);
   validateMemberResolution(loom, diags);
-  // `Agg.create({ … })` CALL SITES against the factory the emitters actually
+  // `Agg.create(…)` CALL SITES against the factory the emitters actually
   // emit — `isConstructible` (no factory at all) + the required create-input
   // set.  Whole-model: the call sites live in tests, workflow bodies, handlers
   // and page actions alike, and `forEachModelExpr` reaches all of them.

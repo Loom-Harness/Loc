@@ -34,7 +34,7 @@ system Tasks {
           precondition initialTitle.length > 0
           requires true
           let normalised = initialTitle
-          let t = Task.create({ title: normalised, done: false })
+          let t = Task.create(title: normalised, done: false)
           t.markDone()
         }
       }

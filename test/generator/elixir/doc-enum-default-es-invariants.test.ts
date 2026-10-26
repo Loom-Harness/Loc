@@ -45,7 +45,7 @@ const ES = `system Bank {
         apply(e: Opened) { owner := e.owner  balance := e.balance }
         apply(e: Deposited) { balance := balance + e.amount }
         test "a deposit past the cap is refused" {
-          let a = Account.create({ owner: "Ada", balance: 10 })
+          let a = Account.create(owner: "Ada", balance: 10)
           expect(a.deposit(500)).toThrow()
         }
       }

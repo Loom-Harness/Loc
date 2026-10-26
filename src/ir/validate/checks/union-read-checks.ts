@@ -10,7 +10,7 @@
 // Nothing refused the other spelling — reading straight through the union:
 //
 //     let r = Orders.byCode(code)          // Order or NotFound
-//     let n = Note.create({ text: r.code })  // 0 error(s), 0 warning(s)
+//     let n = Note.create(text: r.code)  // 0 error(s), 0 warning(s)
 //
 // `memberType` has no `union` arm, so `r.code` fell to its catch-all `string`
 // — right here by coincidence, a lie for any non-string member — and each

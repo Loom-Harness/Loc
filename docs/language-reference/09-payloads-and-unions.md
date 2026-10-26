@@ -32,7 +32,7 @@ The application-layer `commandHandler` / `queryHandler` pair (owned by [chapter 
 
 ```ddd
 commandHandler Place(cmd: PlaceOrder): Order id {
-  let o = Order.create({ code: cmd.code, region: cmd.region })
+  let o = Order.create(code: cmd.code, region: cmd.region)
   return o.id
 }
 api A from D { route POST "/place" -> Orders.Place }
@@ -263,7 +263,7 @@ workflow label {
   create(code: string) {
     let r = Orders.byCode(code)                                  // Order or NotFound
     let t = match r { Order o => o.code, NotFound => "missing" }
-    let n = Note.create({ text: t })
+    let n = Note.create(text: t)
   }
 }
 ```

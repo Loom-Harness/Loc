@@ -26,7 +26,7 @@ const src = (plat: string) => `
         workflow Triage {
           create open(subject: string) requires currentUser.role == "admin" {
             precondition subject.length > 0
-            let t = Ticket.create({ subject: subject })
+            let t = Ticket.create(subject: subject)
           }
         }
       }

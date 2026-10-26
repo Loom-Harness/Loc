@@ -17,7 +17,7 @@ const SRC = `system S { subdomain O { context O {
   channel L { carries: OrderPlaced, ShipmentRequested  delivery: broadcast  retention: ephemeral }
   enum FulfillmentStatus { Pending, Shipped }
   workflow OrderFulfillment { orderId: Order id  attempts: int  status: FulfillmentStatus
-    create(p: OrderPlaced) by p.order { let s = Shipment.create({ orderRef: p.order, status: "P" }) emit ShipmentRequested { shipment: s.id, order: p.order } }
+    create(p: OrderPlaced) by p.order { let s = Shipment.create(orderRef: p.order, status: "P") emit ShipmentRequested { shipment: s.id, order: p.order } }
     on(s: ShipmentRequested) by s.order { let sh = Shipments.getById(s.shipment) sh.mark() } }
 } } api A from O storage pg { type: postgres }
   resource oState { for: O, kind: state, use: pg }

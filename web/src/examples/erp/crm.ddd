@@ -65,9 +65,9 @@ subdomain Crm {
       }
 
       test "a lead must be qualified before it can convert" verifies TC-CRM-1 {
-        let l = Lead.create({
+        let l = Lead.create(
           name: "Acme Co", company: "Acme", status: New, source: "Web", score: 10
-        })
+        )
         expect(l.convert()).toThrow()
         l.qualify()
         l.convert()

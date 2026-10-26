@@ -93,7 +93,7 @@ describe("AST unknown-field diagnostics suggest the nearest field", () => {
 
   it("loom.create-unknown-field", async () => {
     const ms = await messages(
-      sys("", "workflow W { create(x: string) { let t = Task.create({ titel: x }) } }"),
+      sys("", "workflow W { create(x: string) { let t = Task.create(titel: x) } }"),
     );
     expect(ms.find((m) => m.includes("no create-input field 'titel'"))).toContain(
       "Did you mean 'title'?",

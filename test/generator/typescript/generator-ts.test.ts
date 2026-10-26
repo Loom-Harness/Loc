@@ -91,7 +91,7 @@ describe("typescript generator", () => {
           }
           entity OrderLine { quantity: int  invariant quantity > 0 }
           test "count on a local lowers to length" {
-            let order = Order.create({ status: Draft })
+            let order = Order.create(status: Draft)
             order.addLine(2)
             expect(order.lines.count).toBe(1)
           }
@@ -930,11 +930,11 @@ describe("typescript generator", () => {
           precondition amount > 0
           let customer = Customers.getById(customerId)
           customer.deductCredit(amount)
-          let order = Order.create({
+          let order = Order.create(
             customerId: customerId,
             status: Draft,
             placedAt: placedAt
-          })
+          )
           emit OrderPlaced { order: order.id, at: placedAt }
         }
     }
@@ -1406,12 +1406,12 @@ describe("typescript generator", () => {
             workflow archiveAll {
       create() {
               requires currentUser.role == "admin"
-              let o = Order.create({ customerId: "c", status: "archived" })
+              let o = Order.create(customerId: "c", status: "archived")
             }
     }
             workflow touchOne {
       create() {
-              let o = Order.create({ customerId: "c", status: "new" })
+              let o = Order.create(customerId: "c", status: "new")
             }
     }
           }

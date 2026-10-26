@@ -56,11 +56,11 @@ system Kernel {
       }
       workflow Dispatch transactional {
         create(reference: string, route: Outer) {
-          let s = Shipment.create({ reference: reference, route: route })
+          let s = Shipment.create(reference: reference, route: route)
         }
       }
       commandHandler Plan(reference: string, route: Outer): Shipment id {
-        let s = Shipment.create({ reference: reference, route: route })
+        let s = Shipment.create(reference: reference, route: route)
         return s.id
       }
     }

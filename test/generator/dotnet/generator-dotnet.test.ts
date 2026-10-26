@@ -844,11 +844,11 @@ describe(".NET generator", () => {
           precondition amount > 0
           let customer = Customers.getById(customerId)
           customer.deductCredit(amount)
-          let order = Order.create({
+          let order = Order.create(
             customerId: customerId,
             status: Draft,
             placedAt: placedAt
-          })
+          )
           emit OrderPlaced { order: order.id, at: placedAt }
         }
     }
@@ -943,7 +943,7 @@ describe(".NET generator", () => {
         repository Tickets for Ticket { }
         workflow openTicket {
       create(subject: string) {
-          let ticket = Ticket.create({ subject: subject })
+          let ticket = Ticket.create(subject: subject)
         }
     }
       }
@@ -1428,7 +1428,7 @@ describe(".NET generator", () => {
             workflow archiveAll {
       create() {
               requires currentUser.role == "admin"
-              let o = Order.create({ customerId: "c", status: "archived" })
+              let o = Order.create(customerId: "c", status: "archived")
             }
     }
           }

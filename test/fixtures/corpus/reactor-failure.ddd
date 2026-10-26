@@ -41,7 +41,7 @@ system ReactorFailure {
         ticket: Ticket id
         create(e: TicketResolved) by e.ticket {
           precondition e.email != "boom@example.test"
-          let s = Survey.create({ ticket: e.ticket, email: e.email })
+          let s = Survey.create(ticket: e.ticket, email: e.email)
         }
       }
     }

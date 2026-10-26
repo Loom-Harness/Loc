@@ -60,7 +60,7 @@ Derived CRUD covers the aggregate surface; a `route` binds **one explicit path**
 context Orders {
   command PlaceOrderCommand { code: string }
   commandHandler PlaceOrder(cmd: PlaceOrderCommand): Order id {
-    let order = Order.create({ code: cmd.code, status: "Draft" })
+    let order = Order.create(code: cmd.code, status: "Draft")
     return order.id
   }
   queryHandler GetOrder(orderId: Order id): Order { let order = Orders.getById(orderId)  return order }

@@ -27,12 +27,12 @@ system D17 {
           status := Closed
         }
         test "a closed ticket refuses close" {
-          let t = Ticket.create({ code: "T-1" })
+          let t = Ticket.create(code: "T-1")
           t.close()
           expect(t.close()).toThrow()
         }
         test "an empty code is refused" {
-          expect(Ticket.create({ code: "" })).toThrow()
+          expect(Ticket.create(code: "")).toThrow()
         }
       }
       repository Tickets for Ticket { }

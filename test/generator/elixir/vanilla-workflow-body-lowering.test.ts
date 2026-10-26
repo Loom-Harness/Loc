@@ -39,7 +39,7 @@ system Tasks {
 
       workflow createAndComplete transactional {
         create() {
-          let t = Task.create({ title: "Untitled", done: false })
+          let t = Task.create(title: "Untitled", done: false)
           t.markDone()
           t.toggle(false)
         }

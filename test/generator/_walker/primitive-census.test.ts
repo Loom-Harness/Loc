@@ -202,7 +202,7 @@ const DOMAIN = `
         group by c.name
         select name = c.name, n = count()
       }
-      workflow Signup { create(n: string) { let l = Lead.create({ name: n }) } }
+      workflow Signup { create(n: string) { let l = Lead.create(name: n) } }
     }
   }
   api ShopApi from S

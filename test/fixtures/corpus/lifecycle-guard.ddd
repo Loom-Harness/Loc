@@ -122,7 +122,7 @@ system LifecycleGuard {
       workflow Receiving {
         crateId: Crate id
         create(e: CrateReady) by e.crate {
-          let ship = Shipment.create({ reference: "auto" })
+          let ship = Shipment.create(reference: "auto")
         }
       }
     }

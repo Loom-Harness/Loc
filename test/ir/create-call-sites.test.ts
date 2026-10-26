@@ -71,13 +71,13 @@ const NON_CONSTRUCTIBLE = `
         invariant lines.all(l => l.currency == currency)
         entity Line { currency: string }
         test "an order can be built" {
-          let o = Order.create({ currency: "EUR" })
+          let o = Order.create(currency: "EUR")
           expect(o.display).toBe("EUR")
         }
       }
       repository Orders for Order {}
       workflow openOrder {
-        create(currency: string) { let o = Order.create({ currency: currency }) }
+        create(currency: string) { let o = Order.create(currency: currency) }
       }`;
 
 describe("Agg.create({…}) call sites", () => {
@@ -123,7 +123,7 @@ describe("Agg.create({…}) call sites", () => {
         onHand: int
         derived display: string = sku
         test "part is built" {
-          let p = Part.create({ sku: "a", onHand: 1 })
+          let p = Part.create(sku: "a", onHand: 1)
           expect(p.display).toBe("a")
         }
       }
@@ -144,7 +144,7 @@ describe("Agg.create({…}) call sites", () => {
         active: bool
         derived display: string = sku
         test "widget is built" {
-          let w = Widget.create({ sku: "a" })
+          let w = Widget.create(sku: "a")
           expect(w.display).toBe("a")
         }
       }
@@ -162,13 +162,13 @@ describe("Agg.create({…}) call sites", () => {
         onHand: int
         derived display: string = sku
         test "part is built" {
-          let p = Part.create({ sku: "a", binCode: "B1", onHand: 1 })
+          let p = Part.create(sku: "a", binCode: "B1", onHand: 1)
           expect(p.display).toBe("a")
         }
       }
       repository Parts for Part {}
       workflow stock {
-        create(sku: string) { let p = Part.create({ sku: sku, binCode: "B1", onHand: 0 }) }
+        create(sku: string) { let p = Part.create(sku: sku, binCode: "B1", onHand: 0) }
       }`);
     expect(
       diags.map((d) => `${d.code} @ ${d.source}: ${d.message}`),
@@ -186,7 +186,7 @@ describe("Agg.create({…}) call sites", () => {
         derived display: string = currency
         invariant qty > 0
         test "an order can be built" {
-          let o = Order.create({ currency: "EUR", qty: 1 })
+          let o = Order.create(currency: "EUR", qty: 1)
           expect(o.display).toBe("EUR")
         }
       }
@@ -225,7 +225,7 @@ describe("Agg.create({…}) nested in a workflow branch (claims eval D5)", () =>
       workflow fileClaim {
         create(pid: string, lossDate: datetime, description: string) {
           if let r = Reps.find(ForPid(pid)) {
-            let c = Claim.create({ lossDate: lossDate, description: description })
+            let c = Claim.create(lossDate: lossDate, description: description)
           } else {
             precondition false message "unknown"
           }
@@ -243,7 +243,7 @@ describe("Agg.create({…}) nested in a workflow branch (claims eval D5)", () =>
           let rs = Reps.run(Active)
           for r in rs {
             if let x = Reps.find(ForPid(r.pid)) {
-              let c = Claim.create({ lossDate: lossDate, description: description })
+              let c = Claim.create(lossDate: lossDate, description: description)
             }
           }
         }
@@ -255,7 +255,7 @@ describe("Agg.create({…}) nested in a workflow branch (claims eval D5)", () =>
     const diags = await diagsFor(`${CLAIM}
       workflow fileClaim {
         create(lossDate: datetime, description: string) {
-          let c = Claim.create({ lossDate: lossDate, description: description })
+          let c = Claim.create(lossDate: lossDate, description: description)
         }
       }`);
     const hit = diags.find((d) => d.code === "loom.create-call-not-constructible");
@@ -278,7 +278,7 @@ describe("Agg.create({…}) nested in a workflow branch (claims eval D5)", () =>
       workflow jot {
         create(pid: string) {
           if let r = Reps.find(ForPid(pid)) {
-            let n = Note.create({ text: "x" })
+            let n = Note.create(text: "x")
           }
         }
       }`);

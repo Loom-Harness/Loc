@@ -35,7 +35,7 @@ system ContainedPartRebuild {
         }
 
         test "rebuilding a line drops exactly one nested note" {
-          let c = Cart.create({ name: "u" })
+          let c = Cart.create(name: "u")
           c.addLine("B", 2)
           c.dropNote("B", "a")
           expect(c.lines.count).toBe(1)

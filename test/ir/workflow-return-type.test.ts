@@ -143,7 +143,7 @@ describe("enrichLoomModel — populates workflow.returnType", () => {
         repository Orders for Order { }
         workflow PlaceOrder {
           create(customerId: string) {
-            let order = Order.create({ customerId: customerId })
+            let order = Order.create(customerId: customerId)
           }
         }
       }

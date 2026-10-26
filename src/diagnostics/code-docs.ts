@@ -288,7 +288,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.workflow-explicit-save": "13-workflows.md#body-vocabulary",
   "loom.workflow-uncorrelated-state-read": "13-workflows.md#workflow--state",
   "loom.workflow-mutation-unsaved": "13-workflows.md#body-vocabulary",
-  "loom.workflow-create-args": "13-workflows.md#body-vocabulary",
+  "loom.create-args": "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
+  "loom.create-record-form": "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.channel-key-missing-field": "14-apis-storage-resources-channels.md#channel--channelsource",
   "loom.reserved-not-emitted": "14-apis-storage-resources-channels.md#connection-sources",
   "loom.channelsource-incompatible":
@@ -431,8 +432,6 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.create-param-not-a-field":
     "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.create-param-required-omitted":
-    "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
-  "loom.create-call-field-not-in-create":
     "06-behavior-and-statements.md#create--destroy--lifecycle-actions",
   "loom.default-deny-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.policy-read-gate-not-current-user": "17-auth.md#read--who-may-read-an-aggregate",

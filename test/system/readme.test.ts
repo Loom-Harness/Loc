@@ -23,7 +23,7 @@ const BACKEND_ONLY = `
           amount: int
 
           test "an entry keeps its memo" {
-            let e = Entry.create({ memo: "rent", amount: 100 })
+            let e = Entry.create(memo: "rent", amount: 100)
             expect(e.memo).toBe("rent")
           }
         }

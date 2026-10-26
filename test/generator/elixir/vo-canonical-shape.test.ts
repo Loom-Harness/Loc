@@ -53,7 +53,7 @@ const SRC = `system Ports {
       }
       repository Docks for Dock { }
       test "a loaded value object equals a constructed one" {
-        let d = Dock.create({ name: "x", berth: Berth { pier: "A", position: 3, side: Port, fee: 12.50, at: Coord { lat: 1.5, lng: 2.25 } }, tag: Tag { label: "t", side: Port }, mooring: Port })
+        let d = Dock.create(name: "x", berth: Berth { pier: "A", position: 3, side: Port, fee: 12.50, at: Coord { lat: 1.5, lng: 2.25 } }, tag: Tag { label: "t", side: Port }, mooring: Port)
         let got = Dock.findById(d.id)
         expect(got.berth == d.berth).toBe(true)
         expect(got.berth.side == Port).toBe(true)

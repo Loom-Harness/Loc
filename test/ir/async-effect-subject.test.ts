@@ -169,7 +169,7 @@ system Subj {
     repository Orders for Order { }
     workflow Settle {
       create(code: string) {
-        let o = Order.create({ code: code })
+        let o = Order.create(code: code)
       }
     }
   } }

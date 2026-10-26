@@ -174,7 +174,7 @@ describe("codemod-workflow-handle — liftWorkflowHandles", () => {
       workflow W {
         handle go(orderId: Order id) {
           let o = Orders.getById(orderId)
-          let n = Note.create({ body: "x" })
+          let n = Note.create(body: "x")
         }
       }`),
     );

@@ -45,7 +45,7 @@ const model = (testBody: string, where: "context" | "aggregate" = "context") => 
 }`;
 };
 
-const CREATE = `let r = Claim.create({ target: "a", n: 1 })`;
+const CREATE = `let r = Claim.create(target: "a", n: 1)`;
 
 async function argErrors(testBody: string, where?: "context" | "aggregate"): Promise<string[]> {
   const { errors } = await parseString(model(testBody, where));

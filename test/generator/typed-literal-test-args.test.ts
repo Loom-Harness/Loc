@@ -36,7 +36,7 @@ system TypedLits {
           scheduledAt := at
         }
         test "both literal kinds reach an operation parameter" {
-          let w = Widget.create({ code: "W1" })
+          let w = Widget.create(code: "W1")
           w.reassign("00000000-0000-0000-0000-000000000002", "2026-02-02T12:30:00Z")
           expect(w.code).toBe("W1")
         }
@@ -110,8 +110,8 @@ describe("typed id/datetime literals in an emitted test's operation call", () =>
 
 describe("the same rule reaches an OPTIONAL create-input field", () => {
   const OPTIONAL_FIXTURE = FIXTURE.replace(
-    'let w = Widget.create({ code: "W1" })',
-    'let w = Widget.create({ code: "W1", ownerId: "00000000-0000-0000-0000-000000000003", scheduledAt: "2026-03-03T08:00:00Z" })',
+    'let w = Widget.create(code: "W1")',
+    'let w = Widget.create(code: "W1", ownerId: "00000000-0000-0000-0000-000000000003", scheduledAt: "2026-03-03T08:00:00Z")',
   );
 
   /** The `create` call line of the rendered test body. */

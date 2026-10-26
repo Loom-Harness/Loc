@@ -52,7 +52,7 @@ import { foreignRepositoryOwners } from "./shared.js";
 // The grammar reuses operation-body Statement rules; this validator
 // constrains the surface to what workflow lowering supports:
 //
-//   - factory-let (`let x = Agg.create({...})`)
+//   - factory-let (`let x = Agg.create(…)`)
 //   - repo-let (`let x = Repo.method(args)`) returning a single
 //     non-nullable aggregate
 //   - op-call (`name.op(args)` on a let binding)
@@ -421,7 +421,7 @@ function validateWorkflowInlineRepoCalls(
 // `refKind: "unknown"`: a factory call whose arguments map onto no record
 // (`Category.create(name: x, label)`) lowers to a `method-call` on an
 // unresolved `Category` ref, and has its own phase-④ refusal
-// (`loom.workflow-create-args`).  Only a name that binds to NOTHING
+// (`loom.create-args`).  Only a name that binds to NOTHING
 // model-wide — or to a projection — is a defect here.
 // ---------------------------------------------------------------------------
 
@@ -1195,7 +1195,7 @@ function validateWorkflowStatements(
    *  on {@link validateWorkflowBody}. */
   crossContextBindings: ReadonlySet<string> = new Set(),
 ): void {
-  /** Every check a `let x = Agg.create({ … })` (`factory-let`) owes, wherever
+  /** Every check a `let x = Agg.create(…)` (`factory-let`) owes, wherever
    *  in the body it sits — the top level AND inside an `if let` branch / a
    *  `for` body (via {@link checkNestedBodyOpCalls}).  Before it was shared,
    *  only the TOP-LEVEL arm ran these: the claims eval's `fileClaim` built a
@@ -1220,7 +1220,7 @@ function validateWorkflowStatements(
       });
       return false;
     }
-    // A workflow `Agg.create({...})` invokes the canonical create,
+    // A workflow `Agg.create(…)` invokes the canonical create,
     // which is parameterized by the aggregate's *create-input* fields
     // — `forCreateInput` drops the server-populated roles
     // (`managed`/`token`/`internal`) and the required subset further
@@ -1232,7 +1232,7 @@ function validateWorkflowStatements(
     // The aggregate may have no `create` AT ALL.  An invariant that reaches
     // outside the create input makes it non-constructible (`isConstructible`),
     // and every backend then CORRECTLY emits no `static create(...)` — while
-    // this workflow's emitter goes on emitting `Agg.create({ … })` against it
+    // this workflow's emitter goes on emitting `Agg.create(…)` against it
     // (`http/workflows.ts(46,23): TS2551: Property 'create' does not exist on
     // type 'typeof Order'. Did you mean '_create'?`).  Checked before the
     // field contract: when there is no factory, arguing about its arguments

@@ -162,12 +162,12 @@ system Helpdesk {
       workflow openTicket {
         create(subject: string, description: string, priority: Priority) {
           requires currentUser.customerId != null
-          let t = Ticket.create({
+          let t = Ticket.create(
             subject: subject,
             description: description,
             priority: priority,
             requester: currentUser.customerId
-          })
+          )
           emit TicketOpened { ticket: t.id, requester: t.requester, priority: priority }
         }
       }

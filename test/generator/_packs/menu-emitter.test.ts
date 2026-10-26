@@ -158,7 +158,7 @@ describe("menu emitter", () => {
             aggregate Order { x: int }
             repository Orders for Order { }
             workflow placeOrder {
-      create() { let o = Order.create({ }) }
+      create() { let o = Order.create() }
     }
           }
         }

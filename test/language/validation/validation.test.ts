@@ -40,7 +40,7 @@ describe("validation", () => {
           name: string
           derived display: string = name
           test "name is set" {
-            let a = A.create({ name: "y" })
+            let a = A.create(name: "y")
             expect a.name == "y"
           }
         }
@@ -59,7 +59,7 @@ describe("validation", () => {
           derived display: string = name
           operation rename(n: string) { name := n }
           test "rename to empty is rejected" {
-            let a = A.create({ name: "y" })
+            let a = A.create(name: "y")
             expect(a.rename("")).toThrow(400)
           }
         }
@@ -2058,11 +2058,11 @@ describe("Loom IR validation (post-lowering)", async () => {
           precondition amount > 0
           let customer = Customers.getById(customerId)
           customer.deductCredit(amount)
-          let order = Order.create({
+          let order = Order.create(
             customerId: customerId,
             status: Draft,
             placedAt: placedAt
-          })
+          )
           emit OrderPlaced { order: order.id, at: placedAt }
         }
     }
@@ -2199,7 +2199,7 @@ describe("Loom IR validation (post-lowering)", async () => {
         repository Customers for Customer { }
         workflow makeOne {
       create(name: string) {
-          let c = Customer.create({ name: name })
+          let c = Customer.create(name: name)
         }
     }
       }
@@ -2226,7 +2226,7 @@ describe("Loom IR validation (post-lowering)", async () => {
         repository Tickets for Ticket { }
         workflow open {
           create(subject: string) {
-            let t = Ticket.create({ subject: subject })
+            let t = Ticket.create(subject: subject)
           }
         }
       }
@@ -2249,7 +2249,7 @@ describe("Loom IR validation (post-lowering)", async () => {
         repository Tickets for Ticket { }
         workflow open {
           create(subject: string) {
-            let t = Ticket.create({ subject: subject, openedAt: "2026-01-01T00:00:00Z" })
+            let t = Ticket.create(subject: subject, openedAt: "2026-01-01T00:00:00Z")
           }
         }
       }

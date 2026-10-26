@@ -165,18 +165,16 @@ describe("structured expression editor — model", () => {
     expect(emitExpr(tree)).toBe('match {\nqty > 0 => "open"\nelse => "closed"\n}');
   });
 
-  it("structures object literals (named fields)", () => {
-    // placeOrder: let order = Order.create({ customerId: …, status: Draft, placedAt: … })
+  it("structures named call arguments", () => {
+    // placeOrder: let order = Order.create(customerId: …, status: Draft, placedAt: …)
     const tree = seedExpr(
       slotExpr(parse(sales), { kind: "wfStmt", owner: "placeOrder", index: 1 })!,
     );
     if (tree.kind !== "member") throw new Error("expected a member call");
-    const obj = tree.args[0].value;
-    if (obj.kind !== "object") throw new Error("expected an object literal");
-    expect(obj.fields.map((f) => f.name)).toEqual(["customerId", "status", "placedAt"]);
-    expect(obj.fields[1].value).toMatchObject({ kind: "raw", text: "Draft" });
+    expect(tree.args.map((a) => a.name)).toEqual(["customerId", "status", "placedAt"]);
+    expect(tree.args[1]!.value).toMatchObject({ kind: "raw", text: "Draft" });
     expect(emitExpr(tree)).toBe(
-      "Order.create({ customerId: customerId, status: Draft, placedAt: placedAt })",
+      "Order.create(customerId: customerId, status: Draft, placedAt: placedAt)",
     );
   });
 

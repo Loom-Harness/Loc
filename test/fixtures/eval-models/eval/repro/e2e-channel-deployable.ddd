@@ -12,7 +12,7 @@ system X {
       aggregate Bar with crudish { tag: string  derived display: string = tag }
       repository Bars for Bar { }
       workflow onFoo { fooId: Foo id
-        create(e: FooMade) by e.foo { let b = Bar.create({ tag: "made" }) } }
+        create(e: FooMade) by e.foo { let b = Bar.create(tag: "made") } }
     }
   }
   storage p { type: postgres }

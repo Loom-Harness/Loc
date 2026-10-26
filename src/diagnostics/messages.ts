@@ -183,7 +183,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `405 and every read over it returns nothing. Add a 'create', give it ` +
     `'with crudish', or say in a comment that it is populated out of band.`,
   "loom.aggregate-not-a-builder": (p: { name: unknown }) =>
-    `'${p.name}' is an aggregate — construct it with '${p.name}.create({ … })', not '${p.name} { … }'. ` +
+    `'${p.name}' is an aggregate — construct it with '${p.name}.create(…)', not '${p.name} { … }'. ` +
     `The '{ }' builder literal is for value objects and entity parts.`,
   "loom.unknown-builder-type": (p: { name: unknown }) =>
     `Unknown builder type '${p.name}'. Expected a ValueObject, EntityPart, user-defined component, or stdlib walker primitive (e.g., Stack, CreateForm, Card).`,
@@ -3402,7 +3402,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `nothing. Host '${p.owner}' on '${p.relayName}', or add a channelSource for ` +
     `'${p.channelName}' to its 'channels:' clause.`,
   "loom.create-call-not-constructible": (p: { agg: unknown; blocking: unknown }) =>
-    `\`${p.agg}.create({ … })\` calls a factory that does not exist: '${p.agg}' is NOT CONSTRUCTIBLE, ` +
+    `\`${p.agg}.create(…)\` calls a factory that does not exist: '${p.agg}' is NOT CONSTRUCTIBLE, ` +
     `so every backend deliberately emits no \`create\`.${p.blocking}  ` +
     `An aggregate is constructible only when every invariant can be satisfied from the create input alone; ` +
     `one that reads containments, managed fields or post-create state cannot be built by a plain create. ` +
@@ -3414,14 +3414,10 @@ export const DIAGNOSTIC_MESSAGES = {
     plural: unknown;
     input: unknown;
   }) =>
-    `\`${p.agg}.create({ … })\` omits ${p.missing}, which ${p.plural} REQUIRED create input. ` +
-    `The factory input is the field-derived create-input contract, not the keys the call happens to pass: ` +
+    `\`${p.agg}.create(…)\` omits ${p.missing}, which ${p.plural} REQUIRED create input. ` +
+    `The factory input is the field-derived create-input contract, not the arguments the call happens to pass: ` +
     `${p.input}.  A field is omittable only when it is optional, carries an \`= default\`, or has a ` +
     `language-defined implicit default (a bare \`bool\`). Supply it, give it a default, or make it optional.`,
-  "loom.create-call-field-not-in-create": (p: { agg: unknown; fields: unknown; params: unknown }) =>
-    `\`${p.agg}.create({ … })\` passes ${p.fields}, which the declared \`create(…)\` does not ` +
-    `list.  Its parameters (${p.params}) are the factory input; every other field takes its ` +
-    `declared default.  Drop the key, or add the field to the \`create\` parameters.`,
   // A declared `create(…)`'s parameter list is the create input, so each
   // param must BE a client-suppliable field.
   "loom.create-param-not-a-field": (p: { agg: unknown; param: unknown; fields: unknown }) =>
@@ -5110,9 +5106,17 @@ export const DIAGNOSTIC_MESSAGES = {
     `there is no instance to read the value from. Either declare one id-shaped state field (for ` +
     `example 'orderId: Order id') and pass it to the create, or drop the state and pass the ` +
     `value in as a parameter.`,
-  // A factory call in a workflow / handler body whose arguments map onto no
-  // create-input record (`language/factory-call.ts`).
-  "loom.workflow-create-args": (p: {
+  // An aggregate factory call in its retired record form (D-CREATE-CALL-STYLE).
+  "loom.create-record-form": (p: { agg: unknown; owner: unknown }) =>
+    `'${p.agg}.create({ … })' in ${p.owner} passes the create input as one record. An ` +
+    `aggregate's 'create' is called like any other method: by name, '${p.agg}.create(x: a, ` +
+    `y: b)', or by position against a declared 'create(x, y)' signature, ` +
+    `'${p.agg}.create(a, b)'. ` +
+    `'node scripts/codemod-create-record-to-call.mjs <path>' rewrites every record-form call ` +
+    `into the named form.`,
+  // A factory call whose arguments map onto no create-input record
+  // (`language/factory-call.ts`).
+  "loom.create-args": (p: {
     agg: unknown;
     owner: unknown;
     given: unknown;
@@ -5120,20 +5124,31 @@ export const DIAGNOSTIC_MESSAGES = {
     inputs: unknown;
   }) =>
     `'${p.agg}.create(…)' in ${p.owner} passes ${p.given} positional argument(s), but ` +
-    `'${p.agg}' has ${p.count} create input(s), in order: ${p.inputs}. Positions bind to ` +
-    `those inputs in order; drop the extra arguments, or name each one.`,
-  "loom.workflow-create-args#mixed": (p: { agg: unknown; owner: unknown }) =>
+    `the declared '${p.agg}.create(…)' takes ${p.count} parameter(s), in order: ${p.inputs}. ` +
+    `Positions bind to those parameters in order; drop the extra arguments, or name each one.`,
+  "loom.create-args#mixed": (p: { agg: unknown; owner: unknown }) =>
     `'${p.agg}.create(…)' in ${p.owner} mixes positional and named arguments. Pass every ` +
-    `input by position (in the create input's order) or every one by name.`,
-  "loom.workflow-create-args#unknown-name": (p: {
+    `argument by name, or every one by position against a declared 'create(…)' signature.`,
+  "loom.create-args#positional-without-create": (p: {
+    agg: unknown;
+    owner: unknown;
+    example: unknown;
+    inputs: unknown;
+  }) =>
+    `'${p.agg}.create(…)' in ${p.owner} passes positional arguments, but '${p.agg}' declares ` +
+    `no 'create(…)' signature for positions to bind to. Name each argument, ` +
+    `'${p.agg}.create(${p.example})'; its create inputs are ${p.inputs}. Or declare ` +
+    `'create(…)' with parameters to call it by position.`,
+  "loom.create-args#not-in-create": (p: {
     agg: unknown;
     owner: unknown;
     name: unknown;
     inputs: unknown;
   }) =>
-    `'${p.agg}.create(…)' in ${p.owner} names '${p.name}', which is not a create input of ` +
-    `'${p.agg}'. Its inputs are: ${p.inputs}.`,
-  "loom.workflow-create-args#duplicate": (p: { agg: unknown; owner: unknown; name: unknown }) =>
+    `'${p.agg}.create(…)' in ${p.owner} passes '${p.name}', which the declared 'create(…)' ` +
+    `does not list. Its parameters (${p.inputs}) are the factory input; every other field ` +
+    `takes its declared default. Drop the argument, or add the field to the 'create' parameters.`,
+  "loom.create-args#duplicate": (p: { agg: unknown; owner: unknown; name: unknown }) =>
     `'${p.agg}.create(…)' in ${p.owner} passes '${p.name}' twice. Pass each input once.`,
   // A body mutates an aggregate that none of its saves covers (effect IR: a
   // `mutate` with no `persist` of the same local in an enclosing scope).

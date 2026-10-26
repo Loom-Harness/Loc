@@ -1,4 +1,4 @@
-import { factoryArgs } from "../../language/factory-call.js";
+import { factoryRecordFields } from "../../language/factory-call.js";
 import type {
   Aggregate,
   BoundedContext,
@@ -693,7 +693,7 @@ function lowerWorkflowStatementInner(
     // postfix chain (`Repo.findAll(...) ignoring …`) carries it; resolve it
     // once so the two `repo-run` arms below can spread it into the IR.
     const bypass = isPostfixChain(expr) ? resolveBypass(expr) : {};
-    // factory-let: `Agg.create({fields})`
+    // factory-let: `Agg.create(…)`
     const factory = matchFactoryCall(expr, aggsByName);
     if (factory) {
       const repoName = repoForAgg.get(factory.aggName) ?? plural(factory.aggName);
@@ -1155,8 +1155,8 @@ function matchFactoryCall(
   aggsByName: Map<string, Aggregate>,
 ): FactoryMatch | undefined {
   if (!expr || !isPostfixChain(expr)) return undefined;
-  // Factory shape: `<NameRef>.create({...})` — exactly one
-  // MemberSuffix with member==="create" and a call payload.
+  // Factory shape: `<NameRef>.create(…)` — exactly one MemberSuffix with
+  // member==="create" and a call payload.
   if (expr.suffixes.length !== 1) return undefined;
   const s = expr.suffixes[0]!;
   if (!isMemberSuffix(s) || !s.call) return undefined;
@@ -1165,13 +1165,13 @@ function matchFactoryCall(
   if (!isNameRef(recv)) return undefined;
   const agg = aggsByName.get(recv.name);
   if (!agg) return undefined;
-  // The record, positional and named shapes all mean one record keyed by
-  // field name (`language/factory-call.ts`).  An argument list that maps onto
-  // no record is refused at phase ④ (`loom.workflow-create-args`); it falls
-  // through to the generic `let` here.
-  const mapped = factoryArgs(agg, s.args);
-  if (mapped.kind !== "fields") return undefined;
-  return { aggName: recv.name, fields: mapped.fields };
+  // The positional and named shapes both mean one record keyed by field name
+  // (`language/factory-call.ts`).  The retired record form and an argument
+  // list that maps onto no record are refused at phase ④
+  // (`loom.create-record-form` / `loom.create-args`); they fall through to
+  // the generic `let` here.
+  const fields = factoryRecordFields(agg, s.args);
+  return fields ? { aggName: recv.name, fields } : undefined;
 }
 
 /** Lower a structural `LoadPath` AST node (`lines[].product`) to its

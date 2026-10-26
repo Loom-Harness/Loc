@@ -57,7 +57,7 @@ describe("System builder — operation/workflow body editing", () => {
     const wf = listStatements(parse(sales), placeOrder)!;
     expect(wf).toHaveLength(2);
     expect(wf[0]).toBe("let customer = Customers.getById(customerId)");
-    expect(wf[1]).toMatch(/^let order = Order\.create\(\{/);
+    expect(wf[1]).toMatch(/^let order = Order\.create\(\n\s+customerId: customerId,/);
   });
 
   it("structures an assignment into target / op / value, preconditions typed", () => {

@@ -52,13 +52,13 @@ system ClaimIntake {
 
       workflow ClaimHandling {
         create(c: FileClaim) {
-          let claim = Claim.create({
+          let claim = Claim.create(
             cargo: c.cargo,
             description: c.description,
             amount: c.amount,
             priority: c.priority,
             note: c.note
-          })
+          )
         }
       }
     }

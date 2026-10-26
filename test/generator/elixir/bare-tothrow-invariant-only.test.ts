@@ -29,15 +29,15 @@ const SRC = `system T {
           qty := n
         }
         test "invariant-only rejection" {
-          let c = Counter.create({ qty: 1 })
+          let c = Counter.create(qty: 1)
           expect(c.setQty(-1)).toThrow()
         }
         test "precondition rejection" {
-          let c = Counter.create({ qty: 1 })
+          let c = Counter.create(qty: 1)
           expect(c.bump(-1)).toThrow()
         }
         test "guard reached through a private op" {
-          let c = Counter.create({ qty: 1 })
+          let c = Counter.create(qty: 1)
           expect(c.viaPrivate(500)).toThrow()
         }
       }

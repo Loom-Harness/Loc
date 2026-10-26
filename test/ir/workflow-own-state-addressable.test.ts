@@ -126,7 +126,7 @@ describe("workflow command-create correlation addressability (F58 / M-T6.62)", (
         await codes(`    workflow W {
       orderId: Order id
       status: string
-      create(oid: Order id) { let o = Order.create({ sku: "x" }) }
+      create(oid: Order id) { let o = Order.create(sku: "x") }
     }`),
       ).not.toContain(CODE);
     });
@@ -157,7 +157,7 @@ describe("workflow command-create correlation addressability (F58 / M-T6.62)", (
     it("stays silent on a stateless workflow", async () => {
       expect(
         await codes(`    workflow W {
-      create(sku: string) { let o = Order.create({ sku: sku }) }
+      create(sku: string) { let o = Order.create(sku: sku) }
     }`),
       ).not.toContain(CODE);
     });
