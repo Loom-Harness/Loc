@@ -256,7 +256,7 @@ describe("audited — TypeScript emission", () => {
     // deadlocks an in-process subscriber on a single-connection driver
     // (see audited-route-dispatch.test.ts).
     expect(routes).toContain("const repoTx = new CartRepository(tx, __deferred);");
-    expect(routes).toContain("await repoTx.save(aggregate);");
+    expect(routes).toContain("await repoTx.save(aggregate, expectedVersion);");
     expect(routes).toContain("await tx.insert(schema.auditRecords).values({");
     expect(routes).toContain('operationId: "cancelCart",');
     expect(routes).toContain('action: "cancel",');

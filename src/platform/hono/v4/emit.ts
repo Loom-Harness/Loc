@@ -84,6 +84,7 @@ import {
 } from "../../../generator/typescript/repository-port-builder.js";
 import { deriveEventSubscriptions, enrichLoomModel } from "../../../ir/enrich/enrichments.js";
 import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
+import { anyRouteReadsIfMatch } from "../../../ir/enrich/version-check.js";
 import {
   fieldFixedMessage,
   fieldSentenceSuffix,
@@ -147,7 +148,6 @@ import {
 } from "../../../ir/util/resolve-datasource.js";
 import { hierarchyRegistry } from "../../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../../ir/util/value-object-invariants.js";
-import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import type { Model } from "../../../language/generated/ast.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
@@ -954,7 +954,7 @@ export function generateTypeScriptForContexts(
     "http/problem-details.ts",
     problemDetailsTs(
       validationMessages.length > 0,
-      merged.aggregates.some(aggregateIsVersioned),
+      anyRouteReadsIfMatch(merged.aggregates),
       emitVoInvariant,
       emitDomainFloorCodes,
     ),

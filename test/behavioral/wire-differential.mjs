@@ -288,7 +288,18 @@ const __bodies = [];
 // miss is 401; phoenix routes first, so it is 404).  Forwarding them keeps the
 // probe pointed at the thing it is meant to measure.
 let __authHeaders = {};
+// Whether each recorded request carried an \`If-Match\` precondition, index-aligned
+// with \`__urls\` — what the two-writer probe below reads to find a checked write.
+const __ifMatched = [];
+// The dispatch UNDER the recorder, for the requests the two-writer probe fires
+// concurrently: their completion order is a race, so the probe records them
+// itself, in a canonical order.
+let __rawDispatch = null;
+// Outcomes of the probes that assert (rather than only record), appended to the
+// runner's results so the expected-failure register settles them per test.
+const __probeResults = [];
 const __record = (dispatch) => {
+  __rawDispatch = dispatch;
   return async (req) => {
     const out = await dispatch(req);
     try {
@@ -299,6 +310,7 @@ const __record = (dispatch) => {
       if (r && !__isInfraRequest(req.url)) {
         __urls.push(req.url);
         __bodies.push(req.body);
+        __ifMatched.push(Object.keys(req.headers ?? {}).some((k) => /^if-match$/i.test(k)));
         for (const [k, v] of Object.entries(req.headers ?? {})) {
           if (!/^content-(type|length)$/i.test(k)) __authHeaders[k] = v;
         }
@@ -454,6 +466,98 @@ const __frameworkProbes = async (dispatch, opts = {}) => {
     await dispatch({ method: "GET", url: origin + "/files/__loom_absent", headers: { ...__authHeaders } });
   }
   await __emptyCommandBodyProbes(dispatch);
+  await __twoWriterProbe(dispatch);
+};
+
+// ── the two-writer probe (the \`checksVersion\` concurrency contract) ─────────
+// Two clients read the same row, both write it carrying the version they read
+// as \`If-Match\`, at the same moment.  Exactly one may win; the other answers the
+// RS-40 409, whatever the timing — the loser is refused by the think-time check
+// when the winner committed first, and by the write-time guard when both loaded
+// before either saved.  A backend that only checks the header against the row it
+// just loaded, and then saves without the guard, lets both through and loses a
+// write (#3521).  No emitted suite can say this: the \`test e2e\` DSL is strictly
+// sequential.
+//
+// The target is the first write the tier itself sent WITH an \`If-Match\` and
+// got a 2xx for — evidence the route reads the header and the body is accepted —
+// replayed on the same row with the same body.  A case whose tier deleted that
+// row is skipped (there is nothing left to write).  Derived from the CASE, so
+// every leg fires the same probe and records the same number of entries.
+//
+// Each pair's two answers are recorded in a canonical order (by status, then
+// body) rather than in completion order, which is a race; the reads between
+// pairs are recorded as usual and show the version moving by one per pair.
+const __TWO_WRITER_PAIRS = 5;
+const __twoWriterProbe = async (dispatch) => {
+  let i = -1;
+  for (let j = 0; j < __wire.length; j++) {
+    const e = __wire[j];
+    if (__ifMatched[j] && e.method === "POST" && e.status >= 200 && e.status < 300) { i = j; break; }
+  }
+  if (i < 0 || !__rawDispatch) return;
+  let u;
+  try { u = new URL(__urls[i]); } catch { return; }
+  const m = /^(\\/api\\/[^/]+\\/[^/]+)\\/[^/]+$/.exec(u.pathname);
+  if (!m) return;
+  const rowPath = m[1];
+  const deleted = __wire.some((e, j) => {
+    if (e.method !== "DELETE") return false;
+    try { return new URL(__urls[j]).pathname === rowPath; } catch { return false; }
+  });
+  if (deleted) return;
+  const headers = {};
+  for (const [k, v] of Object.entries(__authHeaders)) if (!/^if-match$/i.test(k)) headers[k] = v;
+  const name = "two writers with the same If-Match: exactly one 409 per pair (" + u.pathname.replace(/\\/[0-9a-f-]{36}(?=\\/|$)/gi, "/{id}") + ")";
+  const problems = [];
+  const versions = [];
+  const readVersion = async () => {
+    const r = await dispatch({ method: "GET", url: u.origin + rowPath, headers: { ...headers } });
+    try { return JSON.parse(r?.response?.body ?? "")?.version; } catch { return undefined; }
+  };
+  for (let p = 0; p < __TWO_WRITER_PAIRS; p++) {
+    const v = await readVersion();
+    versions.push(v);
+    if (typeof v !== "number") { problems.push("pair " + (p + 1) + ": the read carries no numeric version"); break; }
+    const req = () => ({
+      method: "POST",
+      url: __urls[i],
+      headers: { ...headers, "content-type": "application/json", "if-match": '"' + v + '"' },
+      body: __bodies[i] ?? "{}",
+    });
+    // Two reads in flight together first, unrecorded: an HTTP client keeps one
+    // idle keep-alive connection per finished request, so without this the
+    // second writer pays a fresh connect and reaches the server after the first
+    // has already committed — the pair would test the think-time check only.
+    const warm = () => __rawDispatch({ method: "GET", url: u.origin + rowPath, headers: { ...headers } });
+    await Promise.all([warm(), warm()]);
+    const both = await Promise.all([__rawDispatch(req()), __rawDispatch(req())]);
+    const answers = both
+      .map((o) => ({ status: o?.response?.status ?? 0, body: o?.response?.body ?? "" }))
+      .sort((a, b) => a.status - b.status || (a.body < b.body ? -1 : a.body > b.body ? 1 : 0));
+    for (const a of answers) {
+      __urls.push(__urls[i]);
+      __bodies.push(__bodies[i]);
+      __ifMatched.push(true);
+      __wire.push(__toWireEntry(__wire.length, "POST", __urls[i], a.status, a.body));
+    }
+    const won = answers.filter((a) => a.status >= 200 && a.status < 300).length;
+    const lost = answers.filter((a) => a.status === 409).length;
+    if (won !== 1 || lost !== 1) problems.push("pair " + (p + 1) + ": " + answers.map((a) => a.status).join(", "));
+  }
+  const last = await readVersion();
+  versions.push(last);
+  // One winner per pair moves the version by exactly one per pair; anything
+  // else means a write was lost or applied twice.
+  if (problems.length === 0 && last !== versions[0] + __TWO_WRITER_PAIRS) {
+    problems.push("version moved " + versions[0] + " → " + last + " over " + __TWO_WRITER_PAIRS + " pairs");
+  }
+  __probeResults.push({
+    tier: "probe",
+    name,
+    status: problems.length === 0 ? "pass" : "fail",
+    ...(problems.length === 0 ? {} : { error: problems.join("; ") }),
+  });
 };
 
 // ── the empty-command-body probes (RS-39) ──────────────────────────────────

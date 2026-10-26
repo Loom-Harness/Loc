@@ -744,6 +744,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Minted by M-T6.91: the concurrency 409 `detail` was node's `<Aggregate> <id> was modified by another request` on node and a fixed `The resource was modified by another request; reload and retry.` on the other four, and the one golden that recorded the 409 (`transactional-workflow-event-rollback`) ran on three legs.  This case drives the route every backend shares — a stale `If-Match` on the versioned `update`, via the e2e call's `{ ifMatch: v }` third argument — so the golden diff pins the sentence on every wire-gated leg.",
   },
   {
+    id: "concurrency-two-writers",
+    title:
+      "the write-path concurrency contract — a stale `If-Match` on any named operation (void, returning, `shape: document`) answers the 409, and two simultaneous writers with one tag yield exactly one 409",
+    doc: "capabilities",
+    backends: ALL,
+    note: "Minted with the `checksVersion` fact (#3593 item 6).  Node and elixir read `If-Match` only on the canonical `update`, so a stale tag on any other operation overwrote newer data with a 204 (#3531); java's guarded save let two simultaneous writers carrying the same tag both land (#3521).  The `test e2e` block drives the sequential half; the wire tier's two-writer probe replays the block's first `If-Match` write as concurrent pairs.",
+  },
+  {
     id: "workflow-two-handles-document-eventlog",
     title:
       "two handles on one `shape: document` row or one `persistedAs: eventLog` stream inside a workflow — the stale save answers the RS-40 409",

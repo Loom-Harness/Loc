@@ -1516,6 +1516,28 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // backend's history read.
     tier: "behavioral",
   },
+  {
+    id: "RS-46",
+    title:
+      "Every named operation of a `versioned` aggregate reads `If-Match`, and two writers carrying one tag yield exactly one 409",
+    trigger:
+      "`concurrency-two-writers.ddd`: a stale `If-Match` on a void operation, a value-returning operation and a `shape: document` aggregate's operation; then the wire tier's two-writer probe replays the first checked write as pairs of simultaneous requests carrying the same tag",
+    observable:
+      "each stale write answers the RS-40 409 and the row keeps the winning write; each simultaneous pair answers one 2xx and one 409, and the version moves by exactly one per pair",
+    // The contract is the `checksVersion` fact (src/ir/enrich/version-check.ts):
+    // an operation of a versioned row is `if-match`, whatever its name, return
+    // or saving shape.  When raised: node and elixir read the header only on the
+    // canonical `update` (#3531), and java checked the header against the row it
+    // had just loaded, then saved without the version guard, so two simultaneous
+    // writers both landed (#3521).
+    conforms: ["node", "dotnet", "python"],
+    targets: ["java", "elixir"],
+    provenance: [
+      "#3593 item 6 (the `checksVersion` fact); #3531, #3521",
+      "the witness is test/fixtures/corpus/concurrency-two-writers.ddd, whose golden is test/behavioral/wire-golden/concurrency-two-writers.json; the concurrent half is `__twoWriterProbe` in test/behavioral/wire-differential.mjs",
+    ],
+    tier: "behavioral",
+  },
 ];
 
 // ---------------------------------------------------------------------------
