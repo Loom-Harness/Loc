@@ -25,7 +25,7 @@ import type {
   SchemaSnapshot,
   TableShape,
 } from "../../../src/ir/types/migrations-ir.js";
-import { generateSystemFiles } from "../../_helpers/generate.js";
+import { generateEvolvedSystemFiles, generateSystemFiles } from "../../_helpers/generate.js";
 
 const SOURCE = (persistence: string) => `
 system Dm {
@@ -119,6 +119,25 @@ describe("Dapper: the migration chain, emitted", () => {
     const ef = files.get("d/Migrations/20260101000000_Sales_Initial.cs")!;
     expect(ef).toContain("migrationBuilder.Sql(");
     expect(unverb(ef)).toContain('"total_amount"');
+  });
+
+  it("a field added to a live aggregate is an ALTER in the next generation's file", async () => {
+    // Generation 1 deploys `Order`; generation 2 adds `note: string = ""`.
+    // The deployed database only ever sees the second file's statements, so
+    // the column must arrive as an ALTER with the declared default — editing
+    // the Initial's CREATE TABLE would leave the live table without it.
+    const before = SOURCE("dapper");
+    const after = before.replace("code: string\n", 'code: string\n        note: string = ""\n');
+    expect(after).not.toBe(before);
+    const files = await generateEvolvedSystemFiles([before, after]);
+    const migrations = [...files.keys()].filter((p) => p.startsWith("d/Migrations/")).sort();
+    expect(migrations).toHaveLength(2);
+    const initial = unverb(files.get(migrations[0]!)!);
+    const gen1 = unverb(files.get(migrations[1]!)!);
+    expect(initial).not.toContain('"note"');
+    expect(gen1).toContain(
+      `ALTER TABLE "orders"."orders" ADD COLUMN "note" TEXT NOT NULL DEFAULT '';`,
+    );
   });
 });
 
