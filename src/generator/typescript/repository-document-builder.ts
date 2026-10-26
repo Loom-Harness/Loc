@@ -40,6 +40,7 @@ import {
 import { collectEnums, collectValueObjects } from "./repository-imports-builder.js";
 import { repoPortImportLine, repoPortName } from "./repository-port-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "./repository-wire-builder.js";
+import { tsNotFoundThrow } from "./wire-policy-ts.js";
 
 // ---------------------------------------------------------------------------
 // Document-shaped (`shape: document`) repository for the Hono/Drizzle
@@ -370,7 +371,7 @@ export function writeScopeDeniesAll(agg: EnrichedAggregateIR): boolean {
  *  caller may READ but not WRITE reads as missing (404).  Byte-identical to the
  *  plain `findById` + not-found throw when nothing narrows. */
 export function blobGetByIdLines(agg: EnrichedAggregateIR, idVar: string): readonly string[] {
-  const notFound = `throw new AggregateNotFoundError(\`${agg.name} \${id} not found\`);`;
+  const notFound = tsNotFoundThrow(agg.name, "id");
   // `deny write` → the in-app form is the constant `false`, so no row is ever
   // writable: answer not-found without loading (and without emitting the
   // `if (!(false))` a constant-condition lint would flag).

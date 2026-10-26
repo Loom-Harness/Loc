@@ -208,7 +208,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "message": "Required",
+            "message": "except is required",
             "pointer": "/except"
           }
         ],

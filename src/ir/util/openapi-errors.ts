@@ -86,9 +86,10 @@ export const UNSUPPORTED_MEDIA_TYPE = 415;
  *  the refusal reads the same whichever framework layer raised it. */
 export const UNSUPPORTED_MEDIA_TYPE_DETAIL = "Content-Type must be application/json";
 
-/** The `errors[].message` every backend sends for a REQUIRED request field the
- *  body leaves out (RS-39) — one word, so the 422 for an absent field reads the
- *  same whichever framework noticed the absence. */
+/** The `errors[].message` .NET, java, python and elixir send for a REQUIRED
+ *  request field the body leaves out (RS-39).  The ruled sentence is the
+ *  `wirePolicy` fact's `missingFieldMessage` (`"<field> is required"`), which
+ *  node renders; each other backend moves onto it and stops reading this. */
 export const MISSING_FIELD_MESSAGE = "Required";
 
 /** The wire-validation tier every route that PARSES a request part answers on
