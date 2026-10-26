@@ -1394,21 +1394,17 @@ system S {
   } }
 }`,
 
-  // --- handler body (#2659) -----------------------------------------------
-  // An OPTIONAL repository read bound in a handler body.  The shared workflow
-  // statement vocabulary the body renders through has no null-handling arm, so
-  // before the gate this emitted an unguarded dereference (TS18047 / CS8602) in
-  // the generated project.  The workflow twin refuses the same load.
+  // --- handler body --------------------------------------------------------
+  // A BUILT-IN optional read bound with a plain `let` in a handler body: not
+  // emitted under a callable name on every backend (a declared `T?` find binds).
   "loom.handler-load-nullable-unsupported": deployed(`      aggregate Order {
         code: string
         status: string
       }
-      repository Orders2 for Order {
-        find byCode(c: string): Order? where code == c
-      }
-      queryHandler CodeStatus(c: string): string {
-        let o = Orders2.byCode(c)
-        return o.status
+      repository Orders2 for Order { }
+      queryHandler CodeStatus(oid: Order id): string {
+        let o = Orders2.findById(oid)
+        return o != null ? o.status : "missing"
       }`),
 
   // --- lifecycle gates (M-T3.16) ------------------------------------------

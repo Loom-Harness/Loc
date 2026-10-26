@@ -46,9 +46,8 @@ system Sales {
       }
       repository Customers for Customer {
         find byEmail(email: string): Customer? where this.email == email
-        // Non-nullable sibling: a workflow repo-let may only load a single
-        // NON-nullable aggregate (loom.workflow-load-nullable-unsupported), and
-        // the nullable byEmail above is what the repository tests pin.
+        // Non-nullable sibling for the workflow repo-let below; the nullable
+        // byEmail above is what the repository tests pin.
         find requireByEmail(email: string): Customer where this.email == email
       }
       repository Orders for Order {

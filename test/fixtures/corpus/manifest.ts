@@ -682,7 +682,15 @@ export const CORPUS: readonly CorpusFeature[] = [
       "handler-body shapes the emitters mishandled — an aggregate-less handler, a declared `byId` find called with an already-typed `Agg id`, and a dereferenced (non-optional) find",
     doc: "language",
     backends: ALL,
-    note: "The three defects #2652 measured and left unfixed. .NET DROPPED the aggregate-less handler and its route entirely (`if (!primaryAgg(h)) continue`); java renamed a declared `byId` find to `getById` and re-wrapped its already-typed argument (`getById(new OrderId(orderId))`, javac `incompatible types`). The third — an OPTIONAL find bound in a handler body, dereferenced unguarded (TS18047 / CS8602) — is now refused at phase ⑦ (`loom.handler-load-nullable-unsupported`), so this fixture carries the non-optional spelling and the refusal is pinned separately.",
+    note: "The three defects #2652 measured and left unfixed. .NET DROPPED the aggregate-less handler and its route entirely (`if (!primaryAgg(h)) continue`); java renamed a declared `byId` find to `getById` and re-wrapped its already-typed argument (`getById(new OrderId(orderId))`, javac `incompatible types`). The third — an OPTIONAL find bound in a handler body, dereferenced unguarded (TS18047 / CS8602) — is `loom.nullable-receiver` at the source; its guarded form is the `nullable-load` fixture.",
+  },
+  {
+    id: "nullable-load",
+    title:
+      "a nullable `find …: T?` bound with `let` in a workflow, a queryHandler and a domainService body, read behind a null guard",
+    doc: "language",
+    backends: ALL,
+    note: "Each body was refused (`loom.workflow-load-nullable-unsupported` / `loom.handler-load-nullable-unsupported`) because the binding reached the emitters unguarded. `loom.nullable-receiver` now refuses the unguarded read at the source, so the guarded form is legal; this fixture compiles it on all five and drives each body with a hit and a miss, so a dereferenced miss answers 500 rather than the fallback.",
   },
   {
     id: "handler-aggregate-ops",

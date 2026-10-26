@@ -88,33 +88,17 @@ export function validateDomainServices(
 }
 
 // -------------------------------------------------------------------------
-// The THIRD body kind an optional repository load reaches.
+// The domain-service twin of `loom.handler-load-nullable-unsupported`.
 //
-// `loom.handler-load-nullable-unsupported` gates a `find …: Agg?` bound in a
-// command/query HANDLER body (`api-checks.ts`), and its twin gates the same
-// load in a WORKFLOW body (`workflow-checks.ts`) — because no backend emits a
-// null guard for it, so the bound name is dereferenced unguarded.  A
-// `domainService` operation body is the third place the same load can appear,
-// and it was covered by neither: on this checkout the probe emitted an
-// UNGUARDED deref on all five backends —
-//
-//   node    `const a = (await accounts.byHolder(holder)); return a.holder === …`
-//           against `byHolder(...): Promise<Account | null>`      → TS18047
-//   dotnet  `var a = (await _accounts.ByHolder(holder, ct)); return a.Holder …`
-//           against `Task<Account?>`                              → CS8602
-//   java    `var a = accountsRepository.byHolder(holder); … a.holder()` → NPE
-//   python  `a = (await accounts.by_holder(holder))` then `a.holder` → AttributeError
-//   elixir  `a = (case by_holder_account(holder) do … _ -> nil end)` then `a.holder`
-//                                                                  → KeyError on nil
+// A DECLARED `T?` find binds like any value here: `loom.nullable-receiver`
+// refuses an unguarded read of the binding at the source, and all five backends
+// render the guarded read.  The built-in optional reads are the exception: only
+// DECLARED finds are emitted under their own names on .NET and elixir, so a
+// `let o = Orders.findById(oid)` in a service body does not resolve there
+// (`_owners.FindById` → CS1061; `find_by_id_owner` → undefined function).
 //
 // A domain-service body is `StmtIR[]` (not the workflow vocabulary), so the
-// load is a `let` bound to a `repo-read` CALL rather than a `repo-let`; the
-// optionality lives on the FIND's declared return type, not on the let's own
-// `type` stamp.  Resolve it through the repository the read names.
-//
-// `getById` is exempt for the same reason as in the handler gate: it is the
-// by-id reconstitution read every backend already renders with a
-// not-found/throw path.
+// load is a `let` bound to a `repo-read` CALL rather than a `repo-let`.
 // -------------------------------------------------------------------------
 function checkNullableRepoLoad(
   ctx: BoundedContextIR,
@@ -128,7 +112,7 @@ function checkNullableRepoLoad(
     const call = stmt.expr;
     if (call.kind !== "call" || call.callKind !== "repo-read" || !call.repoRead) continue;
     const { repo: repoName, method, op: readOp } = call.repoRead;
-    if (readOp === "load") continue;
+    if (readOp === "load" || readOp === "declared-find") continue;
     // Optionality has TWO sources: a DECLARED find carries it on its own return
     // type, but the by-id `load-optional` is a BUILT-IN — there is no
     // declaration to look up, so `finds.find(...)` returns undefined and the

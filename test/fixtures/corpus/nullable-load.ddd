@@ -1,0 +1,80 @@
+// A NULLABLE repository load (`find …: Order?`) bound with a plain `let` in the
+// three non-aggregate bodies — a workflow, a queryHandler and a domainService
+// operation — and read only behind a null guard.
+//
+// An unguarded read of the binding (`o.status`) is `loom.nullable-receiver`
+// at the source, in every one of these bodies, so the bound `T?` reaches the
+// emitters only behind a guard each backend narrows: `o != null ? o.status : …`.
+// Each body is driven twice by the e2e block, once with a matching row and
+// once without, so a backend that dereferenced the miss answers 500, not the
+// fallback.
+system NullableLoad {
+  subdomain D {
+    context Shop {
+      aggregate Order with crudish {
+        code: string
+        status: string
+      }
+      aggregate Note with crudish {
+        text: string
+      }
+      repository Orders for Order {
+        find byCode(c: string): Order? where this.code == c
+      }
+      repository Notes for Note { }
+
+      workflow Labeller {
+        create(c: string) {
+          let o = Orders.byCode(c)
+          let text = o != null ? o.status : "missing"
+          let n = Note.create({ text: text })
+        }
+      }
+
+      domainService Lookup {
+        operation status(c: string): string {
+          let o = Orders.byCode(c)
+          return o != null ? o.status : "missing"
+        }
+      }
+
+      queryHandler CodeStatus(c: string): string {
+        let o = Orders.byCode(c)
+        return o != null ? o.status : "missing"
+      }
+      queryHandler ServiceStatus(c: string): string {
+        let s = Lookup.status(c)
+        return s
+      }
+    }
+  }
+  api A from D {
+    route GET "/status/{c}" -> Shop.CodeStatus
+    route GET "/service-status/{c}" -> Shop.ServiceStatus
+  }
+  storage pg { type: postgres }
+  resource st { for: Shop, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Shop]
+    dataSources: [st]
+    serves: A
+    port: 4000
+  }
+
+  test e2e "a nullable load is read behind its guard in every body" against d {
+    let o = api.orders.create({ code: "A1", status: "open" })
+
+    expect(api.shop.codeStatus("A1")).toBe("open")
+    expect(api.shop.codeStatus("ZZ")).toBe("missing")
+    expect(api.shop.serviceStatus("A1")).toBe("open")
+    expect(api.shop.serviceStatus("ZZ")).toBe("missing")
+
+    api.labeller.run({ c: "A1" })
+    api.labeller.run({ c: "ZZ" })
+    let notes = api.notes.all()
+    expect(notes.total).toBe(2)
+    expect(notes.items.where(x => x.text == "missing").length).toBe(1)
+    expect(notes.items.where(x => x.text == "open").length).toBe(1)
+  }
+}
