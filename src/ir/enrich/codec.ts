@@ -338,8 +338,9 @@ export type Codec =
 export type ValueObjectLookup = (name: string) => ValueObjectIR | undefined;
 
 /** The codec of a declared type.  `lookupVo` resolves value-object members;
- *  without it a value object is `opaque`. */
-export function codecOf(t: TypeIR, lookupVo?: ValueObjectLookup): Codec {
+ *  passed `undefined`, a value object is `opaque`.  Required at the boundary so
+ *  a caller cannot drop value-object resolution by omission. */
+export function codecOf(t: TypeIR, lookupVo: ValueObjectLookup | undefined): Codec {
   return codecOfAt(t, lookupVo, new Set());
 }
 

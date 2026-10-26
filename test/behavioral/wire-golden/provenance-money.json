@@ -87,6 +87,62 @@
     },
     {
       "seq": 5,
+      "method": "GET",
+      "path": "/api/leases",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "market": {
+              "lineage": {
+                "computedValue": "12.5000",
+                "inputs": [
+                  {
+                    "path": "market",
+                    "value": "12.5000"
+                  }
+                ],
+                "snapshotId": "<volatile:key>",
+                "target": {
+                  "field": "market",
+                  "type": "Lease"
+                }
+              },
+              "value": "12.5000"
+            },
+            "rent": "1000.0000",
+            "version": 3
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 6,
+      "method": "DELETE",
+      "path": "/api/leases/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/leases/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Lease {id} not found",
+        "instance": "/api/leases/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 8,
       "method": "PATCH",
       "path": "/api/leases",
       "status": 405,
@@ -99,7 +155,7 @@
       }
     },
     {
-      "seq": 6,
+      "seq": 9,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -112,7 +168,7 @@
       }
     },
     {
-      "seq": 7,
+      "seq": 10,
       "method": "POST",
       "path": "/api/leases",
       "status": 400,

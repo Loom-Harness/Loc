@@ -169,6 +169,7 @@ const BASELINE: Record<string, Divergence> = {
   //     carrier for the wire; the record declares the bare `T`, so the
   //     scaffolded response DTO understates what the serializer emits.
   "provenance.ddd Ordering.Order": "provenanced-carrier-lost",
+  "provenance-money.ddd Leasing.Lease": "provenanced-carrier-lost",
 
   // ── class C — same field set, different ORDER ───────────────────────────
   // The derived walk is id → properties → containments → derived, and the

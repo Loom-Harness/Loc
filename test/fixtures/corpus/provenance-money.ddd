@@ -43,5 +43,11 @@ system LeasingSystem {
     let updated = api.leases.getById(l)
     expect(updated.market.lineage.computedValue).toBe("12.5000")
     expect(updated.market.lineage.inputs.where(i => i.path == "market").first().value).toBe("12.5000")
+
+    // The list route reads the same lineage column in bulk.
+    let listed = api.leases.all()
+    expect(listed.items.length).toBe(1)
+    api.leases.destroy(l)
+    expect(api.leases.getById(l)).toThrow(404)
   }
 }

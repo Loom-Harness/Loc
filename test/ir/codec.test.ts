@@ -163,18 +163,22 @@ describe("codecOf — a declared type", () => {
 
   it("is opaque for an unresolvable value object and for a union", () => {
     expect(codecOf({ kind: "valueobject", name: "Nope" } as TypeIR, lookup).kind).toBe("opaque");
-    expect(codecOf({ kind: "union", variants: [] } as unknown as TypeIR).kind).toBe("opaque");
+    expect(codecOf({ kind: "union", variants: [] } as unknown as TypeIR, undefined).kind).toBe(
+      "opaque",
+    );
   });
 
   it("wraps collections, optionals, ids and enums", () => {
-    expect(codecOf({ kind: "array", element: prim("int") } as TypeIR)).toEqual({
+    expect(codecOf({ kind: "array", element: prim("int") } as TypeIR, undefined)).toEqual({
       kind: "array",
       element: { kind: "scalar", scalar: scalarCodec("int") },
     });
-    expect(codecOf({ kind: "optional", inner: prim("date") } as TypeIR).kind).toBe("optional");
-    const id = codecOf({ kind: "id", targetName: "Order", valueType: "long" } as TypeIR);
+    expect(codecOf({ kind: "optional", inner: prim("date") } as TypeIR, undefined).kind).toBe(
+      "optional",
+    );
+    const id = codecOf({ kind: "id", targetName: "Order", valueType: "long" } as TypeIR, undefined);
     expect(id.kind === "id" && id.scalar.primitive).toBe("long");
-    const en = codecOf({ kind: "enum", name: "Status" } as TypeIR);
+    const en = codecOf({ kind: "enum", name: "Status" } as TypeIR, undefined);
     expect(en.kind === "enum" && en.scalar.wire.form).toBe("text");
   });
 
