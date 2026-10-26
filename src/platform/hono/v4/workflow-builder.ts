@@ -16,6 +16,7 @@ import {
   renderWorkflowStmtChunks,
   type WorkflowStmtTarget,
 } from "../../../generator/_workflow/stmt-target.js";
+import { tsTodayCalendarDate } from "../../../generator/typescript/codec-spelling.js";
 import type { OpFragment } from "../../../generator/typescript/emit/aggregate.js";
 import {
   eventRowClassOf,
@@ -1979,7 +1980,7 @@ function defaultLiteralFor(t: TypeIR, ctx: BoundedContextIR): string {
       case "datetime":
         return "new Date()";
       case "date":
-        return "new Date().toISOString().slice(0, 10)";
+        return tsTodayCalendarDate();
       case "json":
         return "{}";
       default:

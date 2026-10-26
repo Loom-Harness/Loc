@@ -25,6 +25,7 @@ import { effectiveSavingShape } from "../../../ir/util/resolve-datasource.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { lines as joinLines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, workflowStateTableName } from "../../../util/naming.js";
+import { drizzleIdColumn, drizzleScalarColumn } from "../codec-spelling.js";
 
 /** Per-aggregate dataSource lookup the orchestrator passes in.  Lets
  *  the schema emitter ask "what schema / tablePrefix does THIS
@@ -828,24 +829,6 @@ function uniqueIndexEntries(agg: AggregateIR, tableName: string): string[] {
   });
 }
 
-/** The Drizzle column factory call for an id-shaped column (aggregate PK,
- *  `X id` reference, containment / join-table FK, workflow correlation key).
- *  Mirrors the migration builder's `idColumnType` so the Drizzle schema and the
- *  generated DDL declare the same Postgres type: guid → uuid, int → integer,
- *  long → bigint, string → text. */
-function drizzleIdColumn(valueType: IdValueType, colName: string): string {
-  switch (valueType) {
-    case "guid":
-      return `uuid("${colName}")`;
-    case "int":
-      return `integer("${colName}")`;
-    case "long":
-      return `bigint("${colName}", { mode: "number" })`;
-    case "string":
-      return `text("${colName}")`;
-  }
-}
-
 function drizzleColumnLines(f: FieldIR, ctx: BoundedContextIR): string[] {
   const t = f.type;
   const optional = f.optional || t.kind === "optional";
@@ -879,46 +862,11 @@ function drizzleColumnLinesForName(
   const opt = optional || t.kind === "optional";
   const not = opt ? "" : ".notNull()";
   switch (inner.kind) {
-    // biome-ignore lint/suspicious/noFallthroughSwitchClause: inner switch on the primitive name union is exhaustive (every arm returns)
     case "primitive":
-      switch (inner.name) {
-        case "int":
-          return [`${fieldName}: integer("${colName}")${not},`];
-        case "long":
-          return [`${fieldName}: bigint("${colName}", { mode: "number" })${not},`];
-        case "decimal":
-          return [`${fieldName}: numeric("${colName}")${not},`];
-        case "money":
-          // Bounded NUMERIC(19,4) is the finance default — same shape
-          // sqlx + rust_decimal will read cleanly when the Rust
-          // backend lands.  Drizzle's numeric() returns a string at
-          // runtime so the repository-builder hydrates via
-          // `new Decimal(row.col)` without precision loss.
-          return [`${fieldName}: numeric("${colName}", { precision: 19, scale: 4 })${not},`];
-        case "string":
-          return [`${fieldName}: text("${colName}")${not},`];
-        case "bool":
-          return [`${fieldName}: boolean("${colName}")${not},`];
-        case "date":
-          // `mode: "string"` keeps the column's `YYYY-MM-DD` text: the default
-          // `Date` mode would build a JS Date at the host's LOCAL midnight, and
-          // a server west of UTC would read the previous day back.
-          return [`${fieldName}: date("${colName}", { mode: "string" })${not},`];
-        case "datetime":
-          return [`${fieldName}: timestamp("${colName}", { withTimezone: true })${not},`];
-        case "guid":
-          return [`${fieldName}: uuid("${colName}")${not},`];
-        case "json":
-          return [`${fieldName}: jsonb("${colName}")${not},`];
-        case "File":
-          // File reference (FileRef) stores as JSONB, exactly like `json` —
-          // the bytes live in object storage; the column carries the reference.
-          return [`${fieldName}: jsonb("${colName}")${not},`];
-        case "duration":
-          // A5: expression-only primitive — never a stored column in this
-          // slice (Postgres `interval` columns are a follow-on).
-          throw new Error("internal: 'duration' is expression-only and never reaches a column");
-      }
+      if (inner.name === "duration")
+        // Expression-only: never a stored column.
+        throw new Error("internal: 'duration' is expression-only and never reaches a column");
+      return [`${fieldName}: ${drizzleScalarColumn(inner.name, colName)}${not},`];
     case "id":
       return [`${fieldName}: ${drizzleIdColumn(inner.valueType, colName)}${not},`];
     case "enum":

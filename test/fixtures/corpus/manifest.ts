@@ -700,6 +700,14 @@ export const CORPUS: readonly CorpusFeature[] = [
   },
   { id: "provenance", title: "provenanced stored fields — per-write-site rule snapshots", doc: "provenance", backends: ALL },
   {
+    id: "provenance-money",
+    title:
+      "a provenanced `money` field's lineage — `inputs[].value` and `computedValue` carry money as the RS-12 wire string",
+    doc: "provenance",
+    backends: ALL,
+    note: "The `Codec` fact (`src/ir/enrich/codec.ts`) rules a money value's lineage encoding to be its wire encoding (owner ruling on #3527).  node writes it through the money wire encoder; the other four legs boot it as tracked expected failures (`BEHAVIOURAL_XFAIL`, #3527) until each is moved onto the fact — java and .NET send a JSON number, elixir an unscaled Decimal string, python 500s on the write",
+  },
+  {
     id: "audited",
     title: "command audit — aggregate-wide `audited` + per-command `audited`, transactional audit_records rows",
     doc: "audit",

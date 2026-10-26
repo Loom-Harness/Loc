@@ -334,6 +334,15 @@ the conforming backends, and the fix that established it.
   at runtime by the `projection-aggregation` / `projection-groupby` wire
   goldens and structurally by
   `test/generator/projection-aggregate-money-scale.test.ts`.
+- **Lineage gap (#3527).** A provenanced `money` field's lineage
+  (`inputs[].value`, `computedValue`) is a wire context too: the owner ruled
+  (2026-10-21) that it carries the same fixed-scale string. The `Codec` fact
+  (`src/ir/enrich/codec.ts`, D-CODEC) records this as `lineage: "wire"`. node
+  conforms; it wrote decimal.js's unscaled `"3000.3"` until the fact. java and
+  .NET send a JSON number, elixir an unscaled Decimal string, and python 500s
+  on the write. Those four boot `corpus/provenance-money` as tracked expected
+  failures until each is moved onto the fact. Pinned by the
+  `provenance-money` wire golden.
 
 ### RS-13 · A create `POST` returns the id envelope, not the whole aggregate
 - **Guarantee.** A create `POST /api/<plural>` answers `201` with the id

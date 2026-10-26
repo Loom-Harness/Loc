@@ -1,0 +1,128 @@
+{
+  "case": "provenance-money",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/leases",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/leases/{id}/assess",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/leases/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "market": {
+          "lineage": {
+            "computedValue": "3000.3000",
+            "inputs": [
+              {
+                "path": "comparable",
+                "value": "1000.1000"
+              },
+              {
+                "path": "units",
+                "value": 3
+              }
+            ],
+            "snapshotId": "<volatile:key>",
+            "target": {
+              "field": "market",
+              "type": "Lease"
+            }
+          },
+          "value": "3000.3000"
+        },
+        "rent": "1000.0000",
+        "version": 2
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/leases/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/leases/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "market": {
+          "lineage": {
+            "computedValue": "12.5000",
+            "inputs": [
+              {
+                "path": "market",
+                "value": "12.5000"
+              }
+            ],
+            "snapshotId": "<volatile:key>",
+            "target": {
+              "field": "market",
+              "type": "Lease"
+            }
+          },
+          "value": "12.5000"
+        },
+        "rent": "1000.0000",
+        "version": 3
+      }
+    },
+    {
+      "seq": 5,
+      "method": "PATCH",
+      "path": "/api/leases",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/leases",
+        "instance": "/api/leases",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/leases",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/leases",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

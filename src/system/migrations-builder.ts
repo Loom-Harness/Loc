@@ -1,7 +1,7 @@
 import { diagMessage } from "../diagnostics/messages.js";
-import { MONEY_PRECISION, MONEY_WIRE_SCALE } from "../generator/money-scale.js";
 import { qIdent } from "../generator/sql-pg.js";
 import { renderSqlScalarExpr } from "../generator/sql-pg-expr.js";
+import { idColumn, scalarCodec } from "../ir/enrich/codec.js";
 import type {
   AggregateIR,
   AssociationIR,
@@ -14,6 +14,7 @@ import type {
   FieldIR,
   IdValueType,
   ManualIndexIR,
+  PrimitiveName,
   ProjectionIR,
   RenameIntentIR,
   SavingShape,
@@ -3914,56 +3915,18 @@ function mapTypeToColumn(t: TypeIR): {
   }
 }
 
-function primitiveColumnType(name: string): ColumnType {
-  switch (name) {
-    case "int":
-      return { kind: "int" };
-    case "long":
-      return { kind: "bigint" };
-    case "decimal":
-      return { kind: "decimal" };
-    case "money":
-      // `money` is a precise decimal — same column family as `decimal`, but
-      // BOUNDED: the canonical `NUMERIC(19,4)` every other layer already
-      // declares (`money-scale.ts`, the Drizzle/SQLAlchemy/MikroORM models).
-      // A bare `DECIMAL` here drops those bounds, so the table and the ORM
-      // model reading it disagree and the column keeps whatever scale each
-      // backend happens to write.
-      return { kind: "decimal", precision: MONEY_PRECISION, scale: MONEY_WIRE_SCALE };
-    case "string":
-      return { kind: "text" };
-    case "bool":
-      return { kind: "bool" };
-    case "date":
-      // A calendar date — Postgres `date`, which round-trips the wire's
-      // `YYYY-MM-DD` exactly (no zone, no time-of-day).
-      return { kind: "date" };
-    case "datetime":
-      return { kind: "datetime" };
-    case "guid":
-      return { kind: "uuid" };
-    case "json":
-      return { kind: "json" };
-    case "File":
-      // File reference (FileRef) is stored as JSONB, exactly like `json` —
-      // the bytes live in object storage; the column carries the reference.
-      return { kind: "json" };
-    default:
-      throw new Error(`migrations-builder: unknown primitive type '${name}'`);
-  }
+/** A primitive's column, read off the `Codec` fact (`src/ir/enrich/codec.ts`):
+ *  `money` is the bounded `NUMERIC(19,4)`, a plain `decimal` unbounded, `date`
+ *  a calendar `date`, `File` the JSONB reference.  A copy of the column on the
+ *  generated ORM model must agree with it. */
+function primitiveColumnType(name: PrimitiveName): ColumnType {
+  if (name === "duration")
+    throw new Error("migrations-builder: 'duration' is expression-only and has no column");
+  return scalarCodec(name).column;
 }
 
 function idColumnType(t: IdValueType): ColumnType {
-  switch (t) {
-    case "guid":
-      return { kind: "uuid" };
-    case "int":
-      return { kind: "int" };
-    case "long":
-      return { kind: "bigint" };
-    case "string":
-      return { kind: "text" };
-  }
+  return idColumn(t);
 }
 
 // ---------------------------------------------------------------------------
