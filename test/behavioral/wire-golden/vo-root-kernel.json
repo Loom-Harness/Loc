@@ -1,0 +1,198 @@
+{
+  "case": "vo-root-kernel",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/shipments",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "GET",
+      "path": "/api/shipments/{id}",
+      "status": 200,
+      "body": {
+        "display": "SH-1",
+        "id": "<volatile:key>",
+        "reference": "SH-1",
+        "route": {
+          "destination": {
+            "value": "USNYC"
+          },
+          "origin": {
+            "value": "DEHAM"
+          }
+        },
+        "tag": {
+          "value": "NLRTM"
+        },
+        "version": 1
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/shipments/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/shipments/{id}",
+      "status": 200,
+      "body": {
+        "display": "SH-2",
+        "id": "<volatile:key>",
+        "reference": "SH-2",
+        "route": {
+          "destination": {
+            "value": "CNSHA"
+          },
+          "origin": {
+            "value": "FRLEH"
+          }
+        },
+        "tag": {
+          "value": "BEANR"
+        },
+        "version": 2
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/shipments",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "msg.ts86ny",
+            "message": "UN/LOCODE must be 5 characters",
+            "pointer": "/tag/value"
+          }
+        ],
+        "instance": "/api/shipments",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "POST",
+      "path": "/api/shipments",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "msg.ts86ny",
+            "message": "UN/LOCODE must be 5 characters",
+            "pointer": "/route/origin/value"
+          }
+        ],
+        "instance": "/api/shipments",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/shipments",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "display": "SH-2",
+            "id": "<volatile:key>",
+            "reference": "SH-2",
+            "route": {
+              "destination": {
+                "value": "CNSHA"
+              },
+              "origin": {
+                "value": "FRLEH"
+              }
+            },
+            "tag": {
+              "value": "BEANR"
+            },
+            "version": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 7,
+      "method": "DELETE",
+      "path": "/api/shipments/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/shipments/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Shipment {id} not found",
+        "instance": "/api/shipments/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "PATCH",
+      "path": "/api/shipments",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/shipments",
+        "instance": "/api/shipments",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/shipments",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/shipments",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

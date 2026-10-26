@@ -273,6 +273,18 @@ export const BEHAVIOURAL_XFAIL = {
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
   },
   dapper: {
+    // The document-shape read path keeps the filters an `ignoring` clause names;
+    // the relational `Order` on the same leg honours both clauses.
+    "find-bypass": {
+      issue: "#4223",
+      expect: "fail",
+      tests: {
+        "a bypassing find drops exactly the conjuncts it names": "unfiltered_note\\?b=N-2 → 404",
+        "document — `ignoring tenantOwned` lets a foreign tenant see the row — cross-tenant → 200": "expected 200, got 404",
+        "document — `ignoring *` lets a foreign tenant see the row — cross-tenant → 200": "expected 200, got 404",
+      },
+      reason: "`find … ignoring` on a `shape: document` aggregate still applies the filters it names on Dapper",
+    },
     "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
   },
@@ -280,6 +292,13 @@ export const BEHAVIOURAL_XFAIL = {
     "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
   },
   python: {
+    // A routed command handler's body model takes snake_case keys.
+    "extern-handlers": {
+      issue: "#4211",
+      expect: "fail",
+      tests: { "a routed extern handler is mounted and fails loudly": "POST [^ ]*/api/orders → 422" },
+      reason: "the explicit-route body model declares `customer_id`, so the camelCase wire key is refused (RS-1)",
+    },
     "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
     // `{"st": row.st}` against a model whose only attributes are the leaves.
     "projection-valueobject-row": projectionVoRow({
@@ -288,6 +307,25 @@ export const BEHAVIOURAL_XFAIL = {
     }),
   },
   elixir: {
+    // A value object nested inside another is cast as `:map`, so the nested
+    // VO's invariant never runs and the bad create commits.
+    "vo-root-kernel": {
+      issue: "#4017",
+      expect: "fail",
+      tests: { "a shared-kernel value object round-trips": "expected the call to reject, but it resolved" },
+      reason: "the root VO's invariant is not enforced where it is nested in a context-local VO (`route.origin`)",
+    },
+    // The document-shape create demands the defaulted capability field, so
+    // no `Note` can be written: the block and every document ladder seed 422.
+    "find-bypass": {
+      issue: "#4224",
+      expect: "fail",
+      tests: {
+        "a bypassing find drops exactly the conjuncts it names": "POST [^ ]*/api/notes → 422",
+        "document — ": "seed POST /api/notes → 422",
+      },
+      reason: "an author-declared create on a `shape: document` + `softDeletable` aggregate answers 422 `Required /data/isDeleted`",
+    },
     "workflow-two-handles-containment": {
       issue: "#3838",
       expect: "wire",

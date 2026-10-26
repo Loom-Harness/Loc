@@ -3,19 +3,17 @@
 // BARE body, and an empty result set is the not-found rung (404).  It carries no
 // distinct wire shape, so `T envelope` must emit exactly what `T` emits.
 //
-// Until this fixture landed, NO `.ddd` in the repo instantiated the carrier, so
-// every compile gate was blind to it by construction — and java emitted an
-// undeclared `Envelope<Order>` in three signatures while dotnet returned a bare
-// `Order` from a `Task<Envelope<Order>>` (CS0029).  Both compiled only because
-// nothing generated them.
+// The defect class this fixture exists for is a compile failure: java naming
+// an undeclared `Envelope<Order>`, dotnet returning a bare `Order` from a
+// `Task<Envelope<Order>>` (CS0029).  The five corpus compile legs read it
+// directly.
 //
-// COMPILE-TIER fixture on purpose: no `test e2e` block (signed in
-// E2E_LESS_CORPUS_FIXTURES + BEHAVIOURAL_ABSENT).  The oracle is the five corpus
-// compile legs plus `test/generator/envelope-carrier.test.ts`, which asserts the
-// emitted project is byte-identical to the same source with the carrier spelled
-// away.  A behavioural block would mint a wire golden across the un-drained
-// find-miss 404 `detail` split (node `"not found"` vs `"not_found"` on the other
-// four) and redden four legs on main.
+// COMPILE-TIER fixture by design: no `test e2e` block (signed in
+// E2E_LESS_CORPUS_FIXTURES + BEHAVIOURAL_ABSENT).  The carrier has no wire
+// shape of its own — `test/generator/envelope-carrier.test.ts` asserts the
+// emitted project is byte-identical to the same source with the carrier
+// spelled away — so a booted block would replay a single-row find other cases
+// already boot.
 system EnvelopeShop {
   subdomain Sales {
     context Orders {
