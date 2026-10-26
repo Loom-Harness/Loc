@@ -109,6 +109,36 @@ describe("toolkit: diff (evolution)", () => {
     expect(typeof mig?.destructiveMessage).toBe("string");
   });
 
+  it("flags EVERY module the destructive gate refuses, not only the first", async () => {
+    const twoModules = (extra: string) => `system Shop {
+  storage primary { type: postgres }
+  subdomain Selling {
+    context Sales {
+      aggregate Order with crudish { reference: string ${extra} }
+      repository Orders for Order { }
+    }
+  }
+  subdomain Stocking {
+    context Stock {
+      aggregate Item with crudish { sku: string ${extra} }
+      repository Items for Item { }
+    }
+  }
+  resource salesState { for: Sales, kind: state, use: primary }
+  resource stockState { for: Stock, kind: state, use: primary }
+  deployable sales { platform: node, contexts: [Sales], dataSources: [salesState] }
+  deployable stock { platform: node, contexts: [Stock], dataSources: [stockState] }
+}
+`;
+    const r = await diff(twoModules(""), twoModules("note: string?"));
+    expect(r.ok).toBe(true);
+    expect(r.migrations.map((m) => [m.module, m.class]).sort()).toEqual([
+      ["Selling", "breaking-for-data"],
+      ["Stocking", "breaking-for-data"],
+    ]);
+    expect(r.breakingForData).toBe(true);
+  });
+
   it("with no baseline every system reads Initial and the wire diff is skipped", async () => {
     const r = await diff(SYS_V2);
     expect(r.ok).toBe(true);

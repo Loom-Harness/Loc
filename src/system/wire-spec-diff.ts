@@ -50,6 +50,11 @@ export type WireContractChangeKind =
   | "property-made-required"
   | "property-made-optional"
   | "property-type-changed"
+  // The two renames are never produced by `diffWireSpec` itself (a spec
+  // carries no rename intent): `ddd diff` folds a declared rename's
+  // removed+added pair into one.
+  | "property-renamed"
+  | "entity-renamed"
   | "additional-properties-restricted"
   | "additional-properties-relaxed";
 

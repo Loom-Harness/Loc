@@ -10,11 +10,13 @@
 // browser-safe (the build worker already imports them), so this module keeps
 // the toolkit's no-Node-only invariant.
 //
-// Scope note: like every other toolkit verb these take a SINGLE `.ddd` source
-// string (the multi-file import-graph baselines the playground worker resolves
-// via its VFS project loader are out of scope here — the single-file source is
-// the one-entry case).  `diff` is the two-source counterpart of the dock's
+// Scope note: like every other toolkit verb `snapshot` and `diff` take a SINGLE
+// `.ddd` source string.  `diff` is the two-source counterpart of the dock's
 // baseline picker: `baseline` is the previous `.ddd`, `current` is the new one.
+// `diffModels` is the same diff over already-enriched models, which is how
+// `ddd diff` covers a multi-file project: the CLI loads each side's import
+// graph from disk (or from git) and hands the models here, so the CLI and
+// `loom_diff` classify by one core.
 // ---------------------------------------------------------------------------
 
 import { EmptyFileSystem, type LangiumDocument, URI } from "langium";
@@ -30,10 +32,14 @@ import { createDddServices } from "../language/ddd-module.js";
 import type { Model } from "../language/generated/ast.js";
 import { captureSnapshots } from "../system/loomsnap.js";
 import { headSnapshots, MigrationChainError, parseChain } from "../system/migration-chain.js";
-import { buildMigrations, MigrationDestructiveError } from "../system/migrations-builder.js";
+import {
+  buildMigrations,
+  type MigrationDestructiveError,
+  type MigrationShapeChangeError,
+} from "../system/migrations-builder.js";
 import type { SnapshotStore } from "../system/snapshot.js";
 import { buildWireSpec } from "../system/wire-spec.js";
-import { diffWireSpec } from "../system/wire-spec-diff.js";
+import { diffWireSpec, type WireContractChange } from "../system/wire-spec-diff.js";
 import { langiumDiagnosticToJson } from "./report.js";
 
 type EnrichedSystemIR = EnrichedLoomModel["systems"][number];
@@ -61,16 +67,29 @@ export interface MigrationStepView {
   sql: string;
 }
 
+/** How a change lands on the parties that already depend on the model:
+ *  - `compatible` — every existing client and every stored row stays valid;
+ *  - `breaking-for-clients` — the wire contract moved under an existing client
+ *    (a field dropped, renamed or retyped — an enum member removed, a carrier
+ *    narrowed — or tightened from optional to required);
+ *  - `breaking-for-data` — the schema migration loses or refuses existing data
+ *    (the phase-⑨ destructive gate: a drop, a NOT NULL add with nothing to
+ *    fill it, a narrowing column type, a reshape). */
+export type ChangeClass = "compatible" | "breaking-for-clients" | "breaking-for-data";
+
 /** One derived schema migration a source change implies, per owning module. */
 export interface MigrationView {
   module: string;
   /** Human-readable name — `"Initial"` on first run, `"AddOrderStatus"` etc. */
   name: string;
   steps: MigrationStepView[];
-  /** True when the delta drops/loses data — the `--allow-destructive` gate. */
+  /** True when the destructive gate refuses the delta — the
+   *  `--allow-destructive` gate. */
   destructive: boolean;
-  /** The `MigrationDestructiveError` message when `destructive`. */
+  /** The gate's refusal message when `destructive`. */
   destructiveMessage?: string;
+  /** `breaking-for-data` exactly when `destructive`. */
+  class: Extract<ChangeClass, "compatible" | "breaking-for-data">;
 }
 
 /** One wire-contract change from baseline → current, classified breaking. */
@@ -81,12 +100,20 @@ export interface WireChangeView {
   kind: string;
   /** True under consumer-compatibility semantics (a removed/retyped field). */
   breaking: boolean;
+  /** `breaking-for-clients` exactly when `breaking`. */
+  class: Extract<ChangeClass, "compatible" | "breaking-for-clients">;
   detail?: string;
+  /** The prior rendering (a wire type tag, `optional`, an old name), when the
+   *  change replaces a value — e.g. `enum(New|Paid|Lost)`. */
+  from?: string;
+  /** The new rendering, alongside `from`. */
+  to?: string;
 }
 
 /** Result of an evolution diff — the migration + wire-contract delta a change
  *  implies.  `breaking` is true on ANY breaking wire change OR destructive
- *  migration (the single red-flag the human dock surfaces as a red dot). */
+ *  migration (the single red-flag the human dock surfaces as a red dot);
+ *  `breakingForClients` / `breakingForData` split it by who breaks. */
 export interface DiffReport {
   ok: boolean;
   /** False when no usable baseline was supplied/loadable — every shape reads
@@ -95,7 +122,25 @@ export interface DiffReport {
   migrations: MigrationView[];
   wireChanges: WireChangeView[];
   breaking: boolean;
+  /** Any wire change is `breaking-for-clients`. */
+  breakingForClients: boolean;
+  /** Any migration is `breaking-for-data`. */
+  breakingForData: boolean;
   diagnostics: JsonDiagnostic[];
+}
+
+/** A report that derived nothing — the shape every early return shares. */
+function emptyReport(ok: boolean, hasBaseline: boolean, diagnostics: JsonDiagnostic[]): DiffReport {
+  return {
+    ok,
+    hasBaseline,
+    migrations: [],
+    wireChanges: [],
+    breaking: false,
+    breakingForClients: false,
+    breakingForData: false,
+    diagnostics,
+  };
 }
 
 interface ParsedSource {
@@ -188,20 +233,88 @@ export async function snapshot(source: string): Promise<SnapshotReport> {
   return { ok: true, files, diagnostics: json };
 }
 
+/** Fold each declared rename (a `migration` block's `Agg.old -> new` or
+ *  `Old -> New`) into the wire diff: the removed-plus-added pair it produced
+ *  becomes ONE `property-renamed` / `entity-renamed` change.  Still breaking
+ *  for clients — no backend keeps serving the old wire name — but reported as
+ *  the rename it is, not as an unrelated drop and add. */
+function foldDeclaredRenames(
+  changes: readonly WireContractChange[],
+  cur: EnrichedLoomModel,
+): WireContractChange[] {
+  const out = [...changes];
+  const isAgg = (entity: string, agg: string, ctx: string) =>
+    entity === agg || entity === `${ctx}.${agg}`;
+  const replacePair = (
+    removed: WireContractChange,
+    added: WireContractChange,
+    renamed: WireContractChange,
+  ) => {
+    out.splice(out.indexOf(removed), 1);
+    out[out.indexOf(added)] = renamed;
+  };
+  for (const r of cur.renameIntents) {
+    const at = (c: WireContractChange) =>
+      c.bucket === "aggregates" && isAgg(c.entity, r.aggregate, r.context);
+    const removed = out.find((c) => at(c) && c.kind === "property-removed" && c.field === r.from);
+    const added = out.find(
+      (c) =>
+        at(c) &&
+        (c.kind === "property-added-optional" || c.kind === "property-added-required") &&
+        c.field === r.to,
+    );
+    if (!removed || !added) continue;
+    replacePair(removed, added, {
+      kind: "property-renamed",
+      breaking: true,
+      bucket: added.bucket,
+      entity: added.entity,
+      field: r.to,
+      detail: `property '${r.from}' on ${added.entity} renamed to '${r.to}' (declared in migration "${r.migration}")`,
+      from: r.from,
+      to: r.to,
+    });
+  }
+  for (const r of cur.tableRenameIntents) {
+    const removed = out.find(
+      (c) =>
+        c.bucket === "aggregates" &&
+        c.kind === "entity-removed" &&
+        isAgg(c.entity, r.fromAggregate, r.context),
+    );
+    const added = out.find(
+      (c) =>
+        c.bucket === "aggregates" &&
+        c.kind === "entity-added" &&
+        isAgg(c.entity, r.toAggregate, r.context),
+    );
+    if (!removed || !added) continue;
+    replacePair(removed, added, {
+      kind: "entity-renamed",
+      breaking: true,
+      bucket: "aggregates",
+      entity: added.entity,
+      detail: `aggregate '${removed.entity}' renamed to '${added.entity}' (declared in migration "${r.migration}")`,
+      from: removed.entity,
+      to: added.entity,
+    });
+  }
+  return out;
+}
+
 /** Derive the pending schema migrations + wire changes a `current` system
  *  implies against an optional `baseline` system.  The schema baseline is
  *  `chainHeads` when a migration chain was given, else the baseline system's
  *  own schema.  Pure; throws only on a derivation refusal other than the
- *  destructive gate. */
+ *  destructive gate's, which it reports per module instead. */
 function diffSystems(
   cur: EnrichedLoomModel,
   curSys: EnrichedSystemIR,
   baseSys: EnrichedSystemIR | null,
   chainHeads: SnapshotStore | null,
-): { migrations: MigrationView[]; wireChanges: WireChangeView[]; breaking: boolean } {
+): { migrations: MigrationView[]; wireChanges: WireChangeView[] } {
   const migrations: MigrationView[] = [];
   const wireChanges: WireChangeView[] = [];
-  let breaking = false;
 
   // -- schema migration -----------------------------------------------------
   // The baseline's schema comes from the chain's heads, or from deriving the
@@ -216,35 +329,32 @@ function diffSystems(
     }
     store = memStore(seed);
   }
-  const intents = {
+  // The destructive gate decides what is breaking-for-data: every module it
+  // refuses lands in `refusals` and is derived as under `--allow-destructive`,
+  // so the caller still sees the (safe-sequence) steps the change implies.
+  const refusals: (MigrationDestructiveError | MigrationShapeChangeError)[] = [];
+  const migs = buildMigrations(curSys, store, {
     renameIntents: cur.renameIntents,
     tableRenameIntents: cur.tableRenameIntents,
     backfillIntents: cur.backfillIntents,
     sqlSteps: cur.sqlMigrationSteps,
-  };
-  const destructiveByModule = new Map<string, string>();
-  let migs: ReturnType<typeof buildMigrations>;
-  try {
-    migs = buildMigrations(curSys, store, intents);
-  } catch (err) {
-    if (err instanceof MigrationDestructiveError) {
-      destructiveByModule.set(err.module, err.message);
-      breaking = true;
-      // Re-derive with the gate OFF so the caller still sees the (safe-
-      // sequence) steps the change implies, not just the refusal.
-      migs = buildMigrations(curSys, store, { ...intents, allowDestructive: true });
-    } else {
-      throw err;
-    }
+    destructiveRefusals: refusals,
+  });
+  const refusalByModule = new Map<string, string>();
+  for (const r of refusals) {
+    const prior = refusalByModule.get(r.module);
+    refusalByModule.set(r.module, prior ? `${prior}\n${r.message}` : r.message);
   }
   for (const mig of migs) {
     if (mig.steps.length === 0) continue; // clean regen ⇒ no-op, don't list
+    const destructiveMessage = refusalByModule.get(mig.module);
     migrations.push({
       module: mig.module,
       name: mig.name,
       steps: mig.steps.map((s) => ({ op: s.op, sql: renderPgStep(s) })),
-      destructive: destructiveByModule.has(mig.module),
-      destructiveMessage: destructiveByModule.get(mig.module),
+      destructive: destructiveMessage !== undefined,
+      destructiveMessage,
+      class: destructiveMessage !== undefined ? "breaking-for-data" : "compatible",
     });
   }
 
@@ -253,27 +363,30 @@ function diffSystems(
   // and the contract diff would be noise.
   if (baseSys) {
     const diff = diffWireSpec(buildWireSpec(baseSys), buildWireSpec(curSys));
-    if (diff.breaking) breaking = true;
-    for (const c of diff.changes) {
+    for (const c of foldDeclaredRenames(diff.changes, cur)) {
       wireChanges.push({
         entity: `${BUCKET_LABEL[c.bucket] ?? c.bucket} ${c.entity}`,
         field: c.field,
         kind: c.kind,
         breaking: c.breaking,
+        class: c.breaking ? "breaking-for-clients" : "compatible",
         detail: c.detail,
+        from: c.from,
+        to: c.to,
       });
     }
   }
 
-  return { migrations, wireChanges, breaking };
+  return { migrations, wireChanges };
 }
 
 /**
  * The evolution diff between a `baseline` `.ddd` source and the `current` one —
  * the schema migrations the change implies (per owning module, rendered to
  * Postgres SQL, with the destructive-data-loss gate surfaced) plus the wire-
- * contract delta classified breaking vs additive.  The toolkit twin of the
- * playground's Migrations dock tab, at single-source granularity.
+ * contract delta, each change classified `compatible` / `breaking-for-clients`
+ * / `breaking-for-data`.  The toolkit twin of the playground's Migrations dock
+ * tab and of `ddd diff`, at single-source granularity.
  *
  * `baseline` omitted/empty ⇒ every system reads "Initial" (`hasBaseline: false`,
  * wire diff skipped).  `migrations` — the files of a committed `migrations/`
@@ -290,77 +403,68 @@ export async function diff(
 ): Promise<DiffReport> {
   const cur = await parseSource(current);
   const curJson = cur.diagnostics.map((d) => langiumDiagnosticToJson(d, cur.doc));
-  if (!cur.model || hasErrors(cur.diagnostics)) {
-    return {
-      ok: false,
-      hasBaseline: false,
-      migrations: [],
-      wireChanges: [],
-      breaking: false,
-      diagnostics: curJson,
-    };
-  }
+  if (!cur.model || hasErrors(cur.diagnostics)) return emptyReport(false, false, curJson);
   const curLoom = lowerEnriched(cur.model);
   if (!curLoom) {
-    return {
-      ok: false,
-      hasBaseline: false,
-      migrations: [],
-      wireChanges: [],
-      breaking: false,
-      diagnostics: [...curJson, loweringDiag(diagMessage("loom.ir-internal#evolve-lowering"))],
-    };
+    return emptyReport(false, false, [
+      ...curJson,
+      loweringDiag(diagMessage("loom.ir-internal#evolve-lowering")),
+    ]);
   }
-  if (curLoom.systems.length === 0) {
-    return {
-      ok: true,
-      hasBaseline: false,
-      migrations: [],
-      wireChanges: [],
-      breaking: false,
-      diagnostics: [
-        {
-          code: "loom.no-system",
-          severity: "warning",
-          phase: "ir-validate",
-          message: diagMessage("loom.no-system"),
-        },
-      ],
-    };
-  }
-
-  const refused = (diagnostics: JsonDiagnostic[]): DiffReport => ({
-    ok: false,
-    hasBaseline: true,
-    migrations: [],
-    wireChanges: [],
-    breaking: false,
-    diagnostics: [...curJson, ...diagnostics],
-  });
 
   // Load the baseline if given.  One that does not load is an error, never
   // "no baseline": the diff against nothing reads every change as additive.
-  let baseSystemsByName = new Map<string, EnrichedSystemIR>();
+  let baseLoom: EnrichedLoomModel | null = null;
   if (baseline && baseline.trim().length > 0) {
     const base = await parseSource(baseline);
-    const baseLoom = base.model && !hasErrors(base.diagnostics) ? lowerEnriched(base.model) : null;
+    baseLoom = base.model && !hasErrors(base.diagnostics) ? lowerEnriched(base.model) : null;
     if (!baseLoom) {
       const errors = base.diagnostics
         .filter((d) => d.severity === 1)
         .map((d) => langiumDiagnosticToJson(d, base.doc).message);
-      return refused([
-        {
-          code: "loom.diff-baseline-invalid",
-          severity: "error",
-          phase: "ir-validate",
-          message: diagMessage("loom.diff-baseline-invalid", {
-            detail: errors.length > 0 ? errors.slice(0, 3).join(" | ") : "it does not lower",
-          }),
-        },
+      return emptyReport(false, true, [
+        ...curJson,
+        baselineInvalid(errors.length > 0 ? errors.slice(0, 3).join(" | ") : "it does not lower"),
       ]);
     }
-    baseSystemsByName = new Map(baseLoom.systems.map((s) => [s.name, s]));
   }
+  const report = diffModels(curLoom, baseLoom, migrationFiles);
+  return { ...report, diagnostics: [...curJson, ...report.diagnostics] };
+}
+
+/** The `loom.diff-baseline-invalid` refusal. */
+function baselineInvalid(detail: string): JsonDiagnostic {
+  return {
+    code: "loom.diff-baseline-invalid",
+    severity: "error",
+    phase: "ir-validate",
+    message: diagMessage("loom.diff-baseline-invalid", { detail }),
+  };
+}
+
+/**
+ * {@link diff} over models the caller already parsed, lowered and enriched —
+ * the entry a host with a filesystem uses, so a multi-file project (its whole
+ * `import` graph) diffs exactly as a single source does.  `baseline` null and
+ * no `migrationFiles` ⇒ `hasBaseline: false`.  The returned diagnostics carry
+ * only what the diff itself raised.
+ */
+export function diffModels(
+  current: EnrichedLoomModel,
+  baseline: EnrichedLoomModel | null,
+  migrationFiles?: ReadonlyArray<{ name: string; content: string }>,
+): DiffReport {
+  if (current.systems.length === 0) {
+    return emptyReport(true, false, [
+      {
+        code: "loom.no-system",
+        severity: "warning",
+        phase: "ir-validate",
+        message: diagMessage("loom.no-system"),
+      },
+    ]);
+  }
+  const baseSystemsByName = new Map((baseline?.systems ?? []).map((s) => [s.name, s]));
 
   // The committed chain, when given, is the schema baseline.
   let chainHeads: SnapshotStore | null = null;
@@ -369,7 +473,7 @@ export async function diff(
       chainHeads = headSnapshots(parseChain(migrationFiles));
     } catch (err) {
       if (!(err instanceof MigrationChainError)) throw err;
-      return refused([
+      return emptyReport(false, true, [
         {
           code: "loom.migration-chain-invalid",
           severity: "error",
@@ -383,36 +487,37 @@ export async function diff(
 
   const migrations: MigrationView[] = [];
   const wireChanges: WireChangeView[] = [];
-  let breaking = false;
   try {
-    for (const curSys of curLoom.systems) {
+    for (const curSys of current.systems) {
       const r = diffSystems(
-        curLoom,
+        current,
         curSys,
         baseSystemsByName.get(curSys.name) ?? null,
         chainHeads,
       );
       migrations.push(...r.migrations);
       wireChanges.push(...r.wireChanges);
-      if (r.breaking) breaking = true;
     }
   } catch (err) {
-    return {
-      ok: false,
-      hasBaseline,
-      migrations: [],
-      wireChanges: [],
-      breaking: false,
-      diagnostics: [
-        ...curJson,
-        loweringDiag(
-          diagMessage("loom.ir-internal#migration-derivation", {
-            message: err instanceof Error ? err.message : String(err),
-          }),
-        ),
-      ],
-    };
+    return emptyReport(false, hasBaseline, [
+      loweringDiag(
+        diagMessage("loom.ir-internal#migration-derivation", {
+          message: err instanceof Error ? err.message : String(err),
+        }),
+      ),
+    ]);
   }
 
-  return { ok: true, hasBaseline, migrations, wireChanges, breaking, diagnostics: curJson };
+  const breakingForClients = wireChanges.some((c) => c.breaking);
+  const breakingForData = migrations.some((m) => m.destructive);
+  return {
+    ok: true,
+    hasBaseline,
+    migrations,
+    wireChanges,
+    breaking: breakingForClients || breakingForData,
+    breakingForClients,
+    breakingForData,
+    diagnostics: [],
+  };
 }
