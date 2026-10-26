@@ -6,7 +6,6 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
-import { defaultErrorStatus, errorTitle, errorTypeUri } from "../../../util/error-defaults.js";
 import { type UnionMember, unionMembers } from "../../_payload/union-wire.js";
 import { jid } from "../java-ident.js";
 import { renderJavaType } from "../render-expr.js";
@@ -35,9 +34,6 @@ export interface JavaReturnUnionArm {
   tag: string;
   member: UnionMember;
   isError: boolean;
-  status: number;
-  title: string;
-  typeUri: string;
 }
 
 export interface JavaReturnUnionSpec {
@@ -74,9 +70,6 @@ export function returnUnionSpec(
     tag: m.tag,
     member: m,
     isError: isError(variants[i]!),
-    status: ctx.errorStatusOverrides?.[m.tag] ?? defaultErrorStatus(m.tag),
-    title: errorTitle(m.tag),
-    typeUri: errorTypeUri(m.tag),
   }));
   return { name: unionInstanceName(variants), members, arms };
 }

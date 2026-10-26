@@ -13,6 +13,11 @@ export type ThrowClassification =
   | { deferred: string; mission: string; reviewUntil: string };
 
 export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
+  // src/generator/java/wire-policy-java.ts
+  "src/generator/java/wire-policy-java.ts#javaIngressCoercions": {
+    invariant:
+      "JACKSON_LOGICAL_TYPE is a closed emitter-side table; two primitives sharing a Jackson logical type must carry the same ingress rule, which the java wire-policy census pins. No .ddd input moves it.",
+  },
   // src/generator/_imports/java.ts
   "src/generator/_imports/java.ts#finalizeJavaUnit": {
     invariant:

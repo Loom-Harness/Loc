@@ -5679,6 +5679,12 @@ sentence a node emitter picks itself. The other four backends move onto it one
 at a time; until each does, its wire-golden legs carry a per-golden waiver in
 `test/_helpers/wire-waivers.ts` for the missing-field sentence.
 
+java/Spring renders the fact through `src/generator/java/wire-policy-java.ts`
+(`test/generator/java/wire-policy-census.test.ts` is its census, with the
+Jackson coercion table derived from `ingressFor`). Known java subject gap: the
+still-referenced 409 detail reads `This resource is still referenced…` because
+the shared advice does not know the aggregate.
+
 ## D-FAILURE-MODEL — Loom has no exceptions: each failure kind has one construct, and an expected failure is a value the caller must handle
 
 **Status:** PINNED (owner rulings 2026-10-25 on #4134, #4146, #3951, #3916;
