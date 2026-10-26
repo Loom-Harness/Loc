@@ -91,13 +91,14 @@ system PySales {
       }
       repository Orders for Order {
         find recent(): Order?
+        find byStatus(status: OrderStatus): Order? where this.status == status
+        find cheaperThan(limit: money): Order? where this.unitBudget <= limit
+        find watchedBy(customerId: Customer id): Order? where this.watchers.contains(customerId)
       }
       criterion OrdersFirstDraft of Order = this.status == Draft
-      criterion OrdersByStatus(status: OrderStatus) of Order = this.status == status
-      criterion OrdersCheaperThan(limit: money) of Order = this.unitBudget <= limit
-      criterion OrdersWatchedBy(customerId: Customer id) of Order = this.watchers.contains(customerId)
-      repository Customers for Customer { }
-      criterion CustomersByName(name: string) of Customer = this.name == name
+      repository Customers for Customer {
+        find byName(name: string): Customer? where this.name == name
+      }
 
       // Reusable predicate + named query bundle (criterion.md / retrieval.md).
       criterion StatusIs(s: OrderStatus) of Order = this.status == s
