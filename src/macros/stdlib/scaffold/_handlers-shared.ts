@@ -115,7 +115,7 @@ function canonicalDestroyOf(agg: Aggregate): Destroy | undefined {
  *
  * The ONE eligibility predicate both macros (and the contract records) route
  * through, so they can never disagree. */
-export function partitionAggregates(ctx: BoundedContext): {
+function partitionAggregates(ctx: BoundedContext): {
   readonly served: readonly { readonly agg: Aggregate; readonly repo: Repository }[];
   readonly unserved: readonly Aggregate[];
 } {
