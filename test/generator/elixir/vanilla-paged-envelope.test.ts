@@ -79,7 +79,7 @@ describe("vanilla `paged` wire envelope (§1)", () => {
     const repo = file(await generateSystemFiles(SOURCE), "/orders/order_repository.ex");
     // `latest()` is a plain `Order[]` find — bare Repo.all, no paging.
     expect(repo).toMatch(
-      /def latest\(\) do\n {4}query = from\(record in [\w.]+Order\)\n {4}\{:ok, Repo\.all\(query\)\}/,
+      /def latest\(\) do\n {4}query = [\w.]+Order\.base_query\(\)\n {4}\{:ok, Repo\.all\(query\)\}/,
     );
     // it must NOT gain page args or an envelope.
     expect(repo).not.toContain("def latest(page");

@@ -119,6 +119,9 @@ describe("elixir/vanilla — abstract base reader applies the concretes' read re
   it("a retrieval over a TPH concrete carries the kind conjunct", async () => {
     const files = await generateSystemFiles(TPH_RETRIEVAL);
     const ret = file(files, "/retrievals/big_cars.ex");
-    expect(ret).toContain('record.kind == "Car" and (');
+    // The retrieval starts from the concrete's `base_query/0`, which carries the
+    // `kind` discriminator.
+    expect(ret).toMatch(/from\(record in \S+\.Car\.base_query\(\), where:/);
+    expect(file(files, "/car.ex")).toContain('where: record.kind == "Car"');
   });
 });

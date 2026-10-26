@@ -115,6 +115,7 @@ import {
 } from "./denial.js";
 import { renderFunctionBodyLines } from "./function-emit.js";
 import { renderRequiredParamsPlug, requiredWireParams } from "./problem-details-emit.js";
+import { skipFiltersOption } from "./read-scope-emit.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
 
 /** The aggregate a workflow step targets, for the lifecycle-seam decision (which
@@ -622,22 +623,16 @@ function lowerStatement(
       // ride as a trailing keyword list, which Elixir parses positionally
       // into the retrieval's `opts \\ []` arg.
       const args = st.retrievalArgs.map((a) => renderExpr(a, renderCtx));
-      // An `ignoring` clause on the inline read rides as trailing keyword opts
-      // the retrieval module gates each capability `where` stage on: `ignoring *`
-      // → `ignore_all_filters: true`; `ignoring <Cap>` → `ignore_filters: [...]`
-      // (the bypassed capability NAMES, which key the retrieval's per-origin gate).
+      // An `ignoring` clause on the inline read rides as the trailing
+      // `skip_filters:` opt the retrieval hands to `Repo.prepare_query/3`:
+      // `ignoring *` → `skip_filters: :all`, `ignoring <Cap>` → `[:<cap>]`.
       const optEntries: string[] = [];
       if (st.page) {
         if (st.page.offset) optEntries.push(`offset: ${renderExpr(st.page.offset, renderCtx)}`);
         if (st.page.limit) optEntries.push(`limit: ${renderExpr(st.page.limit, renderCtx)}`);
       }
-      if (st.bypassAll) {
-        optEntries.push("ignore_all_filters: true");
-      } else if ((st.bypassCaps?.length ?? 0) > 0) {
-        optEntries.push(
-          `ignore_filters: [${st.bypassCaps!.map((c) => JSON.stringify(c)).join(", ")}]`,
-        );
-      }
+      const skip = skipFiltersOption(st);
+      if (skip) optEntries.push(skip);
       if (optEntries.length > 0) args.push(optEntries.join(", "));
       const action = `run_${snake(st.retrievalName)}_${snake(st.aggName)}`;
       const call = `${contextModule}.${action}(${args.join(", ")})`;

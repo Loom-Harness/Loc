@@ -185,18 +185,18 @@ describe("elixir generator — numeric intrinsics batch (stdlib A3)", () => {
     const repo = fileEndingWith(files, "/product_repository.ex");
     // round — with places (two-hole fragment) and without (single-hole).
     expect(repo).toContain(
-      'from(record in Api.Catalog.Product, where: fragment("round(?, ?)", record.rate, 2) == ^q)',
+      'from(record in Api.Catalog.Product.base_query(), where: fragment("round(?, ?)", record.rate, 2) == ^q)',
     );
     expect(repo).toContain(
-      'from(record in Api.Catalog.Product, where: fragment("round(?)", record.rate) == ^q)',
+      'from(record in Api.Catalog.Product.base_query(), where: fragment("round(?)", record.rate) == ^q)',
     );
     // min/max against a pinned param → least()/greatest() (args arrive with
     // the `^` pin already applied by the arg renderer — no extra pinning).
     expect(repo).toContain(
-      'from(record in Api.Catalog.Product, where: fragment("least(?, ?)", record.amount, ^cap) == ^cap)',
+      'from(record in Api.Catalog.Product.base_query(), where: fragment("least(?, ?)", record.amount, ^cap) == ^cap)',
     );
     expect(repo).toContain(
-      'from(record in Api.Catalog.Product, where: fragment("greatest(?, ?)", record.qty, ^q) == ^q)',
+      'from(record in Api.Catalog.Product.base_query(), where: fragment("greatest(?, ?)", record.qty, ^q) == ^q)',
     );
     expect(repo).toContain('fragment("floor(?)", record.amount)');
     expect(repo).toContain('fragment("ceil(?)", record.rate)');
@@ -209,7 +209,7 @@ describe("elixir generator — numeric intrinsics batch (stdlib A3)", () => {
     const files = await generateSystemFiles(A3_SRC);
     const repo = fileEndingWith(files, "/product_repository.ex");
     expect(repo).toContain(
-      'from(record in Api.Catalog.Product, where: fragment("abs(?)", record.qty) == ^q)',
+      'from(record in Api.Catalog.Product.base_query(), where: fragment("abs(?)", record.qty) == ^q)',
     );
     expect(repo).not.toMatch(/where: abs\(/);
   });

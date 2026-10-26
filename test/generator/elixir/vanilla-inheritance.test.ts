@@ -98,17 +98,24 @@ describe("vanilla aggregate inheritance — TPH (sharedTable)", () => {
   });
 
   it("a concrete repository filters every read by kind and stamps kind on insert", async () => {
-    const repo = file(await generateSystemFiles(TPH), "/parties/customer_repository.ex");
+    const files = await generateSystemFiles(TPH);
+    const repo = file(files, "/parties/customer_repository.ex");
+    // The discriminator lives in the schema's `base_query/0`, which every read
+    // of the subtype starts from.
+    expect(file(files, "/parties/customer.ex")).toContain(
+      'def base_query, do: Ecto.Query.from(record in __MODULE__, where: record.kind == "Customer")',
+    );
     // list + find_by_id scope to this subtype's rows on the shared table.
     // An inheritance subtype keeps the bare `list` (M-T2.6 excludes polymorphic
     // hierarchies from the paged findAll — the `find all <Base>` reader
     // concatenates each subtype's list, which a per-subtype page can't compose).
-    expect(repo).toMatch(/def list do[\s\S]*where: record\.kind == "Customer"/);
-    expect(repo).toMatch(/def find_by_id\(id\)[\s\S]*record\.kind == "Customer"/);
+    expect(repo).toMatch(/def list do[\s\S]*Api\.Parties\.Customer\.base_query\(\)/);
+    expect(repo).toMatch(/def find_by_id\(id\)[\s\S]*Api\.Parties\.Customer\.base_query\(\)/);
     // insert stamps the discriminator so the shared-table row is routable back.
     expect(repo).toContain('Ecto.Changeset.put_change(:kind, "Customer")');
     // a custom find ALSO scopes to the subtype.
-    expect(repo).toMatch(/def by_email\([\s\S]*record\.kind == "Customer"/);
+    expect(repo).toMatch(/def by_email\([\s\S]*Api\.Parties\.Customer\.base_query\(\)/);
+    expect(repo).not.toContain("record.kind ==");
   });
 
   it("the abstract base emits a read-only polymorphic reader that delegates to the concrete repositories", async () => {

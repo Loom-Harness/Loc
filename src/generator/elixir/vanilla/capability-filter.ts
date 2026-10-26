@@ -89,6 +89,18 @@ function renderPrincipalFilter(p: ExprIR, ctx: RenderCtx): string {
   return renderExpr(p, ctx);
 }
 
+/** One read restriction as an Ecto predicate under the `record` binding — the
+ *  rendering `Repo.prepare_query/3` and `base_query/0` apply.  The deep/global
+ *  subtree sentinel renders its own fail-closed pinned fragment (both claims:
+ *  the anchor and the system's tenancy claim, which the NULL-`data_key` floor
+ *  compares against); every other principal side is pinned by `renderExpr`. */
+export function renderEctoRestriction(p: ExprIR, contextModule: string): string {
+  const ctx: RenderCtx = { thisName: "record", contextModule, filterArgs: true };
+  return isDeepScopeFilter(p)
+    ? renderDeepScopeEcto(ctx.thisName, deepScopeAnchorClaim(p), deepScopeTenantClaim(p))
+    : renderPrincipalFilter(p, ctx);
+}
+
 /** A read's capability filter-bypass spec (`ignoring <Cap>` / `ignoring *`),
  *  carried by capability NAME on `FindIR` / the repo-run stmt.
  *  Named caps match `AggregateIR.contextFilterOrigins`; a filter with an

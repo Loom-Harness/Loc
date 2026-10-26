@@ -5,12 +5,12 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // `ignoring <Cap>` / `ignoring *` filter-bypass on the vanilla (plain Ecto)
 // foundation (named-filter-bypass.md §11, Slice 2).
 //
-// Plain Ecto has no global query filter, so a capability `filter` is AND-ed
-// into every read.  An `ignoring` read OMITS the named capability's `where:`
-// predicate from its conjunction — for that read only.  CRUD reads + a
-// non-bypassing find keep the full conjunction; a bare/hand-written filter is
-// never bypassable.  Inline `Repo.findAll(...) ignoring …` rides as
-// `ignore_filters` / `ignore_all_filters` opts onto the gated retrieval stages.
+// A capability `filter` is a `Repo.prepare_query/3` clause on the schema.  An
+// `ignoring` read passes `skip_filters:` naming the capabilities it drops —
+// for that read only (`ignoring *` → `:all`).  CRUD reads + a non-bypassing
+// find skip nothing; a bare filter lives in `base_query/0` and is never
+// skippable.  Inline `Repo.findAll(...) ignoring …` rides as the same
+// `skip_filters:` opt into the retrieval.
 // ---------------------------------------------------------------------------
 
 const SOURCE = `
@@ -73,47 +73,56 @@ function defBody(src: string, name: string): string {
   return src.slice(start, next === -1 ? undefined : next);
 }
 
-describe("vanilla ignoring filter-bypass — predicate omission", () => {
-  it("`ignoring <Cap>` drops the bypassed `where:` conjunct from that find", async () => {
+describe("vanilla ignoring filter-bypass — skip_filters on the read", () => {
+  it("the schema hosts the capability filter as a prepare_query clause", async () => {
+    const schema = file(await gen(), "/shop/order.ex");
+    expect(schema).toContain("def __loom_filters__, do: [{:soft_deletable, false}]");
+    expect(schema).toContain(
+      "do: Ecto.Query.where(query, [record], record.is_deleted == false)",
+    );
+  });
+
+  it("`ignoring <Cap>` skips exactly that capability on that find", async () => {
     const repo = file(await gen(), "/shop/order_repository.ex");
     const recent = defBody(repo, "recent");
-    expect(recent).toContain("from(record in Api.Shop.Order, where: record.total > 0)");
+    expect(recent).toContain("from(record in Api.Shop.Order.base_query(), where: record.total > 0)");
+    expect(recent).toContain("Repo.all(query, skip_filters: [:soft_deletable])");
     expect(recent).not.toContain("is_deleted");
   });
 
-  it("`ignoring *` drops ALL capability conjuncts (bare `from`)", async () => {
+  it("`ignoring *` skips every capability", async () => {
     const repo = file(await gen(), "/shop/order_repository.ex");
     const allRows = defBody(repo, "all_rows");
-    expect(allRows).toContain("from(record in Api.Shop.Order)");
-    expect(allRows).not.toContain("is_deleted");
+    expect(allRows).toContain("query = Api.Shop.Order.base_query()");
+    expect(allRows).toContain("Repo.all(query, skip_filters: :all)");
   });
 
-  it("a non-bypassing find keeps the full capability conjunction", async () => {
+  it("a non-bypassing find skips nothing and spells no restriction", async () => {
     const repo = file(await gen(), "/shop/order_repository.ex");
-    expect(defBody(repo, "normal")).toContain(
-      "where: (record.total > 0) and (record.is_deleted == false)",
-    );
+    const normal = defBody(repo, "normal");
+    expect(normal).toContain("where: record.total > 0)");
+    expect(normal).toContain("Repo.all(query)");
+    expect(normal).not.toContain("is_deleted");
   });
 
-  it("CRUD list/find_by_id keep the capability filter", async () => {
+  it("CRUD list/find_by_id skip nothing", async () => {
     const repo = file(await gen(), "/shop/order_repository.ex");
-    expect(defBody(repo, "list")).toContain("where: record.is_deleted == false");
-    expect(defBody(repo, "find_by_id")).toContain(
-      "where: record.id == ^id and (record.is_deleted == false)",
-    );
+    expect(defBody(repo, "list")).not.toContain("skip_filters");
+    expect(defBody(repo, "find_by_id")).not.toContain("skip_filters");
   });
 
-  it("the retrieval gates each capability filter as a skippable `where` stage", async () => {
+  it("the retrieval hands the caller's skip_filters to the Repo", async () => {
     const ret = file(await gen(), "/shop/retrievals/find_all_by_big_orders.ex");
     expect(ret).toContain(
-      'query = if opts[:ignore_all_filters] || "softDeletable" in (opts[:ignore_filters] || []), ' +
-        "do: query, else: where(query, [record], record.is_deleted == false)",
+      "Repo.all(query, current_user: opts[:current_user], skip_filters: opts[:skip_filters])",
     );
+    expect(ret).not.toContain("is_deleted");
   });
 
-  it("inline `Repo.findAll(...) ignoring <Cap>` / `*` passes the bypass opts", async () => {
+  it("inline `Repo.findAll(...) ignoring <Cap>` / `*` passes skip_filters", async () => {
     const wf = file(await gen(), "/shop/workflows/sweep.ex");
-    expect(wf).toContain('run_find_all_by_big_orders_order(ignore_filters: ["softDeletable"])');
-    expect(wf).toContain("run_find_all_by_big_orders_order(ignore_all_filters: true)");
+    expect(wf).toContain("run_find_all_by_big_orders_order(skip_filters: [:soft_deletable])");
+    expect(wf).toContain("run_find_all_by_big_orders_order(skip_filters: :all)");
   });
 });
+

@@ -88,7 +88,7 @@ describe("vanilla — retrieval modules under lib/<app>/<ctx>/retrievals/", () =
     const body = files.get([...files.keys()].find((k) => k.endsWith("/retrievals/by_status.ex"))!)!;
     // The predicate is rendered against Api.Orders.Order with `record` as
     // the Ecto binding (matching the existing vanilla view-emit shape).
-    expect(body).toMatch(/from\(record in Api\.Orders\.Order, where: record\.status == \^s\)/);
+    expect(body).toMatch(/from\(record in Api\.Orders\.Order\.base_query\(\), where: record\.status == \^s\)/);
   });
 
   it("renders a declared param as Ecto's `^name` pin (NOT Ash's `^arg(:name)`)", async () => {
@@ -131,7 +131,9 @@ describe("vanilla — retrieval modules under lib/<app>/<ctx>/retrievals/", () =
   it("returns `{:ok, Repo.all(query)}` (the contract that repo-run lowering will consume)", async () => {
     const files = await load();
     const body = files.get([...files.keys()].find((k) => k.endsWith("/retrievals/by_status.ex"))!)!;
-    expect(body).toContain("{:ok, Repo.all(query)}");
+    expect(body).toContain(
+      "{:ok, Repo.all(query, current_user: opts[:current_user], skip_filters: opts[:skip_filters])}",
+    );
   });
 
   it("no Ash references appear in the emitted module", async () => {
