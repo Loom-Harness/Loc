@@ -687,6 +687,11 @@ ddd generate system app.ddd -o out          # renders the chain; never records a
 **Commit `migrations/`.** It is the record a database's migration history
 is checked against.
 
+**The playground keeps the same files** in its workspace, beside the entry
+`.ddd`. Its generate renders the chain and refuses drift the same way. Its
+Migrations tab shows the status and records new entries (`migrate add`); see
+[playground.md](playground.md).
+
 **A model with no `migrations/` has nothing recorded.** `generate system`
 then emits each owning module's initial migration, derived from the model and
 numbered from `BASE_VERSION`, with nothing to drift from — every example and

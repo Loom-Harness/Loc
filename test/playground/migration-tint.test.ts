@@ -8,6 +8,7 @@ import { destructiveDrops, tintCounts, tintTables } from "../../web/src/layout/m
 const base = (over: Partial<EvolutionOk>): EvolutionOk => ({
   ok: true,
   hasBaseline: true,
+  chain: null,
   migrations: [],
   tables: [
     { module: "sales", name: "products", columns: ["id", "sku", "name"], refs: [] },

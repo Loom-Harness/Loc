@@ -2,6 +2,7 @@ import {
   Badge,
   Box,
   Button,
+  Checkbox,
   Code,
   Divider,
   Group,
@@ -10,10 +11,11 @@ import {
   Select,
   Stack,
   Text,
+  TextInput,
 } from "@mantine/core";
 import { useEffect, useMemo, useState } from "react";
 import type { CommitInfo } from "../workspace/git";
-import type { EvolutionOk, MigrationView } from "../build/protocol";
+import type { ChainStatusView, EvolutionOk, MigrationView } from "../build/protocol";
 import { classifyCommit, formatRelativeTime, shortOid } from "./history-format";
 import type { LayoutCtx } from "./ctx";
 import { destructiveDrops, type TableTint, type TintedTable, tintCounts, tintTables } from "./migration-tint";
@@ -24,8 +26,11 @@ import { MIGRATIONS } from "./vocabulary";
 // The playground regenerates statelessly (keyed by a source hash) and holds
 // no "previous version of my system", so schema migrations, wire-contract
 // drift, and provenance are invisible side effects.  This tab restores the
-// baseline: it diffs the LIVE edit against the last-committed source
-// (`HEAD:/workspace/main.ddd`) and shows (a) the schema the change implies
+// baseline: it diffs the LIVE edit against the workspace's committed
+// migration chain (`migrations/` beside the entry) when it has one, else the
+// last-committed source, and records the change as the chain's next entry —
+// the playground's `ddd migrate status` / `migrate add`.  It shows (a) the
+// schema the change implies
 // — as a table diagram tinted by the diff (added / changed / removed /
 // untouched) beside the migration SQL, with a destructive change rendered
 // as the gate `ddd generate system` would raise — (b) the wire-contract
@@ -172,6 +177,7 @@ export function MigrationsBody({
           </Button>
         </Group>
       )}
+      {e?.ok && <ChainBar ctx={ctx} e={e} />}
       <Divider />
       <ScrollArea style={{ flex: 1, minHeight: 0 }}>
         <Stack gap="md" p="sm" data-testid="migrations-panel">
@@ -189,7 +195,7 @@ export function MigrationsBody({
           ) : !e.ok ? (
             <Stack gap={4}>
               <Text size="sm" c="red" fw={600}>
-                Diff failed — fix the source first.
+                {MIGRATIONS.diffFailed}
               </Text>
               {e.diagnostics.map((d, i) => (
                 <Text key={i} size="xs" c="dimmed" ff="monospace">
@@ -206,6 +212,113 @@ export function MigrationsBody({
         </Stack>
       </ScrollArea>
     </Box>
+  );
+}
+
+// ---------------------------------------------------------------------
+// The chain status line and the "Record migration" action — `ddd migrate
+// status` and `ddd migrate add`, against the workspace's `migrations/`.
+// ---------------------------------------------------------------------
+
+/** One line: what the chain records and what the live edit adds to it. */
+function chainStatusLine(chain: ChainStatusView | null, recordable: boolean): string {
+  if (chain === null) {
+    return recordable ? MIGRATIONS.noChain : MIGRATIONS.noChainNothingToRecord;
+  }
+  if (chain.forkHeads) return MIGRATIONS.twoHeads(chain.forkHeads[0], chain.forkHeads[1]);
+  const head = chain.head ? `${chain.head.module} ${chain.head.name} (${chain.head.version})` : "—";
+  return MIGRATIONS.chainStatus(chain.entries, head, chain.unrecordedSteps);
+}
+
+function ChainBar({ ctx, e }: { ctx: LayoutCtx; e: EvolutionOk }): JSX.Element {
+  const [name, setName] = useState("");
+  const [allowDestructive, setAllowDestructive] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  // With a chain, the listed migrations ARE what recording writes.  Without
+  // one, recording starts the chain from every current table (each module's
+  // Initial, never destructive), whatever the diff against the last save.
+  const recordable =
+    e.chain === null ? e.tables.length > 0 : !e.chain.forkHeads && e.chain.unrecordedSteps > 0;
+  const destructive = e.chain !== null && e.migrations.some((m) => m.destructive);
+  const validName = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(name);
+  const canRecord =
+    ctx.buildClient != null &&
+    ctx.workspace.store != null &&
+    ctx.sourcesWritable &&
+    recordable &&
+    validName &&
+    (!destructive || allowDestructive) &&
+    !recording;
+
+  const record = async (): Promise<void> => {
+    setRecording(true);
+    setMessage(null);
+    try {
+      const r = await ctx.recordMigration(name, allowDestructive);
+      if (r == null) {
+        setMessage({ ok: false, text: MIGRATIONS.recordUnavailable });
+      } else if (!r.ok) {
+        const err = r.diagnostics.find((d) => d.severity === "error") ?? r.diagnostics[0];
+        setMessage({ ok: false, text: err?.message ?? MIGRATIONS.diffFailed });
+      } else {
+        setMessage({ ok: true, text: MIGRATIONS.recorded(r.files.length) });
+        setName("");
+        setAllowDestructive(false);
+      }
+    } finally {
+      setRecording(false);
+    }
+  };
+
+  return (
+    <Stack gap={4} px="sm" pb={6} style={{ flexShrink: 0 }} data-testid="migration-chain">
+      <Text
+        size="xs"
+        c={e.chain?.forkHeads ? "red" : "dimmed"}
+        data-testid="migration-chain-status"
+      >
+        {chainStatusLine(e.chain, recordable)}
+      </Text>
+      {recordable && (
+        <Group gap={8} wrap="wrap">
+          <TextInput
+            size="xs"
+            placeholder={MIGRATIONS.namePlaceholder}
+            aria-label={MIGRATIONS.nameLabel}
+            value={name}
+            onChange={(ev) => setName(ev.currentTarget.value)}
+            error={name !== "" && !validName}
+            style={{ width: 200 }}
+            data-testid="migration-record-name"
+          />
+          {destructive && (
+            <Checkbox
+              size="xs"
+              label={MIGRATIONS.destructiveFlag}
+              checked={allowDestructive}
+              onChange={(ev) => setAllowDestructive(ev.currentTarget.checked)}
+              data-testid="migration-record-destructive"
+            />
+          )}
+          <Button
+            size="compact-xs"
+            variant="light"
+            disabled={!canRecord}
+            leftSection={recording ? <Loader size={10} /> : undefined}
+            onClick={() => void record()}
+            data-testid="migration-record"
+          >
+            {MIGRATIONS.record}
+          </Button>
+        </Group>
+      )}
+      {message && (
+        <Text size="xs" c={message.ok ? "green" : "red"} data-testid="migration-record-result">
+          {message.text}
+        </Text>
+      )}
+    </Stack>
   );
 }
 
@@ -238,7 +351,11 @@ function EvolutionReport({ e, isDesktop }: { e: EvolutionOk; isDesktop: boolean 
           <Stack gap={6} style={{ flex: isDesktop ? "1 1 55%" : "1 1 100%", minWidth: 0 }}>
             {e.migrations.length === 0 ? (
               <Text size="sm" c="dimmed">
-                {e.hasBaseline ? "No schema changes since the last save." : "No tables to create."}
+                {e.chain?.head
+                  ? MIGRATIONS.noChangesSinceRecorded
+                  : e.hasBaseline
+                    ? "No schema changes since the last save."
+                    : "No tables to create."}
               </Text>
             ) : (
               e.migrations.map((m) => <MigrationCard key={`${m.module}/${m.name}`} m={m} />)
@@ -465,7 +582,7 @@ function MigrationCard({ m }: { m: MigrationView }): JSX.Element {
             {MIGRATIONS.destructiveBody}
           </Text>
           <Code style={{ fontSize: 10 }} mt={4}>
-            ddd generate system main.ddd {MIGRATIONS.destructiveFlag}
+            ddd migrate add {"<name>"} main.ddd {MIGRATIONS.destructiveFlag}
           </Code>
           {drops.length > 0 && (
             <Box mt={4}>

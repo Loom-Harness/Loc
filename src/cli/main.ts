@@ -55,6 +55,7 @@ import {
   parseChain,
   parseForkedChain,
   recordGeneration,
+  utcVersionNow,
 } from "../system/migration-chain.js";
 import {
   MigrationBackfillDiscardedError,
@@ -94,7 +95,6 @@ import {
   readChainFiles,
   readMigrationChain,
   readMigrationChainOrEmpty,
-  utcVersionNow,
   writeChainEntries,
 } from "./migrate.js";
 import {
