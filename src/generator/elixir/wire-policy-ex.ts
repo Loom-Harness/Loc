@@ -178,6 +178,6 @@ export function strictIngressFields(
  *  type a field can be pinned to. */
 export function exIngressGuardClauses(): string {
   return (Object.keys(GUARD) as (keyof typeof GUARD)[])
-    .map((json) => `  defp json_type_ok?(:${json}, v), do: ${GUARD[json]}`)
+    .map((json) => `  defp json_type_ok?("${json}", v), do: ${GUARD[json]}`)
     .join("\n");
 }

@@ -252,16 +252,16 @@ describe("elixir wire-policy census — emitted guard", () => {
   it("the controller checks each lax-cast key against its fact JSON type, before the action", async () => {
     const c = await emitted("/product_controller.ex");
     expect(c).toContain(
-      '@strict_params %{create: [{"price", :string}, {"qty", :number}, {"weight", :number}, {"active", :boolean}]',
+      "@strict_params %{create: ~w(price:string qty:number weight:number active:boolean)",
     );
-    expect(c).toContain('restock: [{"n", :number}]');
+    expect(c).toContain("restock: ~w(n:number)");
     expect(c).toContain("plug :require_wire_types when action in [:create, :restock, :update]");
   });
 
   it("ProblemDetails carries one guard clause per JSON type the fact names", async () => {
     const p = await emitted("/problem_details.ex");
     for (const json of ["number", "string", "boolean"])
-      expect(p).toContain(`defp json_type_ok?(:${json}, v)`);
+      expect(p).toContain(`defp json_type_ok?("${json}", v)`);
     expect(p).toContain("def type_mismatches_response(conn, mismatches)");
   });
 

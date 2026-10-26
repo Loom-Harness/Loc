@@ -630,8 +630,8 @@ describe("M-T6.48 — request-side numeric strictness still diverges (pinned)", 
     // the action runs (`require_wire_types`); the key list is derived from the
     // fact, not written out per field.
     const elixir = scope(await emit("elixir"));
-    expect(elixir).toMatch(/@strict_params %\{[^\n]*\{"qty", :number\}/);
-    expect(elixir).toMatch(/@strict_params %\{[^\n]*\{"price", :string\}/);
+    expect(elixir).toMatch(/@strict_params %\{[^\n]*qty:number/);
+    expect(elixir).toMatch(/@strict_params %\{[^\n]*price:string/);
     expect(elixir).toContain("plug :require_wire_types when action in [");
   });
 

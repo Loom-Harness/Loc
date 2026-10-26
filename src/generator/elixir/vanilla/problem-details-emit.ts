@@ -338,16 +338,17 @@ export function renderVanillaProblemDetailsModule(
 
   @doc """
   The keys of \`params\` whose value is not the JSON type the contract names
-  (\`fields\` is \`[{key, :number | :string | :boolean}]\`), as \`errors[]\`
+  (\`fields\` is a list of \`"<key>:<number|string|boolean>"\`), as \`errors[]\`
   entries.  Ecto would coerce a string into an integer or a number into a
   decimal; the wire contract refuses both.
   """
   def type_mismatches(params, fields) when is_map(params) do
-    for {key, json} <- fields,
+    for field <- fields,
+        [key, json] <- [String.split(field, ":")],
         {:ok, value} <- [Map.fetch(params, key)],
         not is_nil(value),
         not json_type_ok?(json, value),
-        do: %{pointer: "/" <> key, message: "Expected " <> Atom.to_string(json)}
+        do: %{pointer: "/" <> key, message: "Expected " <> json}
   end
 
   @doc "Send the 422 for the keys \`type_mismatches/2\` found."
@@ -833,10 +834,7 @@ export function renderStrictParamsPlug(
   const entries = [...fields].filter(([, keys]) => keys.length > 0);
   if (entries.length === 0) return "";
   const map = entries
-    .map(
-      ([action, keys]) =>
-        `${action}: [${keys.map((k) => `{${JSON.stringify(k.key)}, :${k.json}}`).join(", ")}]`,
-    )
+    .map(([action, keys]) => `${action}: ~w(${keys.map((k) => `${k.key}:${k.json}`).join(" ")})`)
     .join(", ");
   const actions = entries.map(([action]) => `:${action}`).join(", ");
   return `
