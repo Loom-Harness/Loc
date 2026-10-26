@@ -175,7 +175,7 @@ the query as a constant:
 | Backend | `currentUser.role == "agent"` renders as |
 |---|---|
 | node / Drizzle | `(requireCurrentUser().role === "agent" ? sql\`true\` : sql\`false\`)` |
-| node / MikroORM | `{ [raw(requireCurrentUser().role === "agent" ? "1 = 1" : "1 = 0")]: [] }` |
+| node / MikroORM | `{ [raw(requireCurrentUser().role === "agent" ? "1 = 1" : "1 = 0")]: [] }`, inside the entity's default schema filter (`cond: () => (…)`, evaluated per query) |
 | .NET / EF Core | `_currentUser.User.Role == "agent"` inside `HasQueryFilter` (EF binds it as a parameter) |
 | .NET / Dapper | `@__pt_<hash>`, bound to `(RequestContext.Current!.CurrentUser!.Role == "agent")` |
 | Java / JPA | `:#{@currentUserAccessor.user() != null and (@currentUserAccessor.user().role() == 'agent')} = true` (`cb.conjunction()` / `cb.disjunction()` in a Criteria `Specification`) |

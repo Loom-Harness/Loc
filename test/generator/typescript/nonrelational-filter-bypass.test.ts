@@ -66,10 +66,11 @@ function methodBody(file: string, name: string): string {
 }
 
 /** The soft-delete conjunct in whichever form the shape emits it: an in-app
- *  predicate over the rehydrated row (document) or a Drizzle column predicate
- *  (embedded). */
+ *  predicate over the rehydrated row (document) or, for a SQL read (embedded), a
+ *  call of the aggregate's scope helper that leaves it (`orderScope()` — an
+ *  `ignoring` read passes its clause, or drops the call altogether). */
 function mentionsSoftDeleteFilter(body: string): boolean {
-  return /x\.isDeleted === false|schema\.orders\.isDeleted/.test(body);
+  return /x\.isDeleted === false|schema\.orders\.isDeleted|\borderScope\(\)/.test(body);
 }
 
 describe.each([

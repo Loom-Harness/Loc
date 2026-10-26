@@ -16,6 +16,7 @@
 // `requireCurrentUser()` principal binding and the `ignoring <Cap>` bypass.
 
 import { describe, expect, it } from "vitest";
+import { scopeFn } from "../../_helpers/drizzle-scope.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
 const SRC = (persistence: string) => `
@@ -94,69 +95,77 @@ async function routes(persistence: string): Promise<string> {
   return f.get(k!)!;
 }
 
-// The two predicates the source aggregate contributes, as the drizzle
-// repository spells them — the aggregation must spell them identically.
-const DRIZZLE_CAPS =
-  "and(eq(schema.orders.tenantId, requireCurrentUser().tenantId), not(eq(schema.orders.isDeleted, true)))";
+// The two predicates the source aggregate contributes, as its generated scope
+// helper spells them — the aggregation calls the SAME helper the aggregate's own
+// repository calls in the same run, so the two cannot disagree.
+const DRIZZLE_CAPS = "orderScope()";
 
 describe("node/Hono query-projection aggregations apply the source capability filters", () => {
-  it("the WHOLE-TABLE aggregation ANDs the capability filters into the same query as its `where`", async () => {
+  it("the WHOLE-TABLE aggregation ANDs the scope helper into the same query as its `where`", async () => {
     const r = await routes("node");
     expect(r).toContain(
-      // #2609's arm flattens the conjunction (one `and(...)`, own filter first)
-      // rather than nesting the capability pair — same predicate, one spelling.
       `const [row] = await db.select({ orders: count(), revenue: sum(schema.orders.total) })` +
-        `.from(schema.orders).where(and(eq(schema.orders.status, "Confirmed"), ` +
-        `eq(schema.orders.tenantId, requireCurrentUser().tenantId), ` +
-        `not(eq(schema.orders.isDeleted, true))));`,
+        `.from(schema.orders).where(and(eq(schema.orders.status, "Confirmed"), ${DRIZZLE_CAPS}));`,
     );
   });
 
-  it("an UNFILTERED aggregation gets the capability filters as its entire WHERE", async () => {
+  it("an UNFILTERED aggregation gets the scope helper as its entire WHERE", async () => {
     const r = await routes("node");
     expect(r).toContain(
       `const [row] = await db.select({ total: count() }).from(schema.orders).where(${DRIZZLE_CAPS});`,
     );
   });
 
-  it("the GROUPED aggregation carries them too, before GROUP BY", async () => {
+  it("the GROUPED aggregation carries it too, before GROUP BY", async () => {
     const r = await routes("node");
     expect(r).toContain(
       `.from(schema.orders).where(${DRIZZLE_CAPS}).groupBy(schema.orders.status)`,
     );
   });
 
-  it("`ignoring softDeletable` drops that conjunct and KEEPS the tenant one", async () => {
+  it("`ignoring softDeletable` passes the clause: the helper drops that conjunct and KEEPS the tenant one", async () => {
     const r = await routes("node");
     expect(r).toContain(
       "const [row] = await db.select({ total: count() }).from(schema.orders)" +
-        ".where(eq(schema.orders.tenantId, requireCurrentUser().tenantId));",
+        '.where(orderScope({ ignoring: ["softDeletable"] }));',
+    );
+    // Each conjunct is guarded by ITS capability: naming `softDeletable` cannot drop the tenant one.
+    const scope = scopeFn(await files("node"), "orderScope");
+    expect(scope).toContain(
+      'drops(use, "tenantOwned") ? undefined : eq(schema.orders.tenantId, requireCurrentUser().tenantId)',
+    );
+    expect(scope).toContain(
+      'drops(use, "softDeletable") ? undefined : not(eq(schema.orders.isDeleted, true))',
     );
   });
 
   it("binds the principal through the same ambient accessor the repository uses", async () => {
     const f = await files("node");
     const r = await routes("node");
-    expect(r).toContain('import { requireCurrentUser } from "../auth/middleware";');
-    // The repository read in the SAME run — the reference the aggregation must
-    // agree with.  A divergence here is the leak.
+    // The principal predicate renders once, inside the helper both read sites call.
+    expect(scopeFn(f, "orderScope")).toContain(
+      "eq(schema.orders.tenantId, requireCurrentUser().tenantId)",
+    );
+    // The aggregation and the repository read in the SAME run call the same helper —
+    // a divergence here is the leak.
     const repo = [...f.keys()].find((k) => k.endsWith("repositories/order-repository.ts"));
     expect(f.get(repo!)!).toContain(DRIZZLE_CAPS);
+    expect(r).toContain('import { orderScope } from "../db/read-scopes";');
+    expect(r).not.toContain("requireCurrentUser");
   });
 
   it("the MikroORM adapter merges the same filters into the QueryBuilder WHERE", async () => {
     const r = await routes("node { persistence: mikroorm }");
-    // Filtered singleton: the projection's own filter AND both capability
-    // predicates, through the shared `whereToMikroFilter` lowering.
-    expect(r).toContain(
-      'qb.where({ $and: [{ status: "Confirmed" }, ' +
-        "{ tenantId: requireCurrentUser().tenantId }, { isDeleted: false }] });",
-    );
-    // Unfiltered singleton + grouped: capabilities only.
-    expect(r).toContain(
-      "qb.where({ $and: [{ tenantId: requireCurrentUser().tenantId }, { isDeleted: false }] });",
-    );
-    // `ignoring softDeletable` — one predicate left, so no `$and` wrapper.
-    expect(r).toContain("qb.where({ tenantId: requireCurrentUser().tenantId });");
+    // Filtered singleton: only the projection's OWN filter is spelled; the
+    // source's capability filters are default filters of the Order schema,
+    // which `qb.applyFilters` applies to the QueryBuilder.
+    expect(r).toContain('qb.where({ status: "Confirmed" });');
+    expect(r).not.toContain("requireCurrentUser");
+    expect(r).not.toContain("isDeleted");
+    // Unfiltered singleton + grouped read every filter…
+    expect(r).toContain("await qb.applyFilters({});");
+    // …and `ignoring softDeletable` switches that one off by name, keeping the
+    // tenant one.
+    expect(r).toContain('await qb.applyFilters({ "softDeletable": false });');
   });
 });

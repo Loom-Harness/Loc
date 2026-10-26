@@ -11,6 +11,7 @@
 // aggregate through a public route.  The other four backends keep the sentinel.
 
 import { describe, expect, it } from "vitest";
+import { dapperScopeClass, inlineDapperScope } from "../../_helpers/dapper-scope.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = (persistence: string) => `
@@ -47,7 +48,12 @@ async function files(persistence: string): Promise<Map<string, string>> {
   return f;
 }
 
+/** The emitted repository, each statement's `<Agg>Scope.<member>` resolved to the SQL it holds. */
 async function repo(persistence: string): Promise<string> {
+  return inlineDapperScope(await rawRepo(persistence));
+}
+
+async function rawRepo(persistence: string): Promise<string> {
   const f = await files(persistence);
   const key = [...f.keys()].find((k) =>
     k.endsWith("Infrastructure/Repositories/SecretRepository.cs"),
@@ -87,13 +93,16 @@ describe("policy deny survives `ignoring *` — dapper", () => {
       await repo(DAPPER),
       "public async Task<IReadOnlyList<Secret>> RunFindAllByAnyCodeAsync(",
     );
-    // The bypassable capability predicate stays guarded…
-    expect(run).toContain(
-      'if (!bypass.All && bypass.Capabilities?.Contains("softDeletable2") != true) __caps.Add("(is_deleted = FALSE)")',
+    // The retrieval's tail is the aggregate scope helper's runtime composition…
+    expect(run).toContain("SecretScope.Runtime(bypass)");
+    const scope = dapperScopeClass(await rawRepo(DAPPER));
+    // …where the bypassable capability predicate stays guarded…
+    expect(scope).toContain(
+      'if (!bypass.All && bypass.Capabilities?.Contains("softDeletable2") != true) parts.Add("(is_deleted = FALSE)")',
     );
     // …the deny sentinel is added unconditionally.
-    expect(run).toContain('__caps.Add("1 = 0")');
-    expect(run).not.toMatch(/if \(!bypass\.All[^)]*\)[^\n]*__caps\.Add\("1 = 0"\)/);
+    expect(scope).toContain('parts.Add("1 = 0")');
+    expect(scope).not.toMatch(/if \(!bypass\.All[^)]*\)[^\n]*parts\.Add\("1 = 0"\)/);
   });
 });
 

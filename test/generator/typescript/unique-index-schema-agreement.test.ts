@@ -5,7 +5,7 @@
 //
 //   real Postgres, drizzle  → `db/migrations/*.sql` (the shared MigrationsIR)
 //   PGlite (the playground) → `web/src/runtime/ddl.ts` over the DRIZZLE schema
-//   real Postgres, MikroORM → `orm.schema.updateSchema()` over the EntitySchema
+//   real Postgres, MikroORM → `orm.schema.update()` over the EntitySchema
 //                             metadata — the migration files are never run
 //
 // A key missing from the MikroORM metadata is a duplicate that commits with

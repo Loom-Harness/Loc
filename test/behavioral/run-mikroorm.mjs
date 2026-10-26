@@ -16,10 +16,10 @@
 // source transform — a `persistence: mikroorm` realization clause injected onto
 // the `platform: node` deployable before `generate system`.  So this tier
 // proves the drained MikroORM adapter RUNS (schema applies via
-// `orm.schema.updateSchema()` at boot, CRUD round-trips) on the same contract
+// `orm.schema.update()` at boot, CRUD round-trips) on the same contract
 // the drizzle backend passes, not merely that it tsc-compiles.
 //
-// Schema: the generated `index.ts` calls `await orm.schema.updateSchema()`
+// Schema: the generated `index.ts` calls `await orm.schema.update()`
 // before `serve(...)`, so a listening port already implies a migrated schema —
 // no separate migration CLI to run.
 //
@@ -166,7 +166,7 @@ function findNodeDeployable(genDir) {
 }
 
 /** Poll GET /health until it 200s (server up + schema applied), or give up after
- *  the deadline.  `updateSchema()` runs before serve(), so a listening port
+ *  the deadline.  `schema.update()` runs before serve(), so a listening port
  *  already implies a migrated schema — this is belt-and-braces. */
 async function waitForHealth(base, timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
@@ -282,12 +282,12 @@ async function runCase(c) {
       // npm's on-disk cache makes subsequent per-case installs fast.
       execFileSync("npm", ["install", "--no-audit", "--no-fund", "--loglevel=error"], { cwd: deplDir, stdio: "pipe" });
 
-      // Clean DB per case (mikroorm updateSchema is additive, so a stale table
+      // Clean DB per case (mikroorm schema.update is additive, so a stale table
       // from the previous case would otherwise linger), else the 2nd case sees
       // rows/columns it didn't create.
       await resetDatabase(DATABASE_URL);
 
-      // Boot the generated Hono server (`tsx index.ts`).  `updateSchema()` runs
+      // Boot the generated Hono server (`tsx index.ts`).  `schema.update()` runs
       // before serve(), so a listening port implies a migrated schema.
       // Nothing may still be listening on PORT: `waitForPort` below cannot tell
       // this case's server from a previous case's leftover, and answering with

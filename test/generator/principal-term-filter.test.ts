@@ -13,6 +13,8 @@
 // that the column half of the filter still renders beside it.
 
 import { describe, expect, it } from "vitest";
+import { inlineDapperScope } from "../_helpers/dapper-scope.js";
+import { inlineDrizzleScope } from "../_helpers/drizzle-scope.js";
 import { generateSystemFiles } from "../_helpers/index.js";
 
 const source = (platform: string): string => `
@@ -48,7 +50,7 @@ async function emitted(platform: string, pathRe: RegExp): Promise<string> {
   const files = await generateSystemFiles(source(platform));
   const hits = [...files.entries()].filter(([p]) => pathRe.test(p));
   expect(hits.length, `${platform}: no file matches ${pathRe}`).toBeGreaterThan(0);
-  return hits.map(([, c]) => c).join("\n");
+  return hits.map(([, c]) => inlineDrizzleScope(files, inlineDapperScope(c))).join("\n");
 }
 
 describe("capability filter principal terms render on every backend", () => {
@@ -64,17 +66,18 @@ describe("capability filter principal terms render on every backend", () => {
     // A nullable claim behind the CALL-rooted accessor is narrowed explicitly
     // (TS does not narrow `requireCurrentUser().x` across the ternary).
     expect(repo).toContain("eq(schema.tickets.customer, requireCurrentUser().customerId!)");
-    expect(repo).toMatch(/import \{[^}]*\bsql\b[^}]*\} from "drizzle-orm"/);
+    // The terms live in the scope helper module, which imports what they render with.
+    const scopes = await emitted("node", /db\/read-scopes\.ts$/);
+    expect(scopes).toMatch(/import \{[^}]*\bsql\b[^}]*\} from "drizzle-orm"/);
   });
 
   it("node / mikroorm: a constant raw condition per term", async () => {
-    const repo = await emitted(
-      "node { persistence: mikroorm }",
-      /db\/repositories\/ticket-repository\.ts$/,
-    );
+    // The filter is a default schema filter: its `cond` runs per query, so the
+    // principal's terms are decided when the query runs.
+    const repo = await emitted("node { persistence: mikroorm }", /db\/entities\.ts$/);
     expect(repo).toContain('[raw(requireCurrentUser().role === "agent" ? "1 = 1" : "1 = 0")]: []');
     expect(repo).toContain('[raw(requireCurrentUser().tier === "Gold" ? "1 = 1" : "1 = 0")]: []');
-    expect(repo).toContain('import { raw } from "@mikro-orm/core";');
+    expect(repo).toMatch(/import \{[^}]*\braw\b[^}]*\} from "@mikro-orm\/core";/);
   });
 
   it("dotnet / efcore: the term stays a C# closure read inside HasQueryFilter", async () => {

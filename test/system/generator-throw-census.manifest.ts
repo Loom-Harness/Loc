@@ -441,11 +441,11 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
   "src/generator/dotnet/emit/dapper.ts#renderDapperRepository": {
     invariant:
-      "A capability filter outside the Dapper SQL subset. Every shape the target-neutral predicate oracle admits renders here: test/system/predicate-position-census.test.ts measures each position × adapter × shape and fails on a crash.",
-  },
-  "src/generator/dotnet/emit/dapper.ts#renderDapperRepository$2": {
-    invariant:
       "writeScopeFilter is only synthesized by enrichment as a scope/deny authz-filter sentinel or `this.tenantId == currentUser.<claim>`, all of which whereToSql renders. (src/ir/enrich/enrichments.ts:680-684,759 + src/ir/util/tenant-stance.ts:369-455 (writeScopeFilter is only ever buildDeepScopeFilter / buildTenantFloorFilter / buildDenyFilter))",
+  },
+  "src/generator/dotnet/emit/dapper-scope.ts#buildDapperScope": {
+    invariant:
+      "A capability filter outside the Dapper SQL subset. Every shape the target-neutral predicate oracle admits renders here: test/system/predicate-position-census.test.ts measures each position × adapter × shape and fails on a crash.",
   },
 
   // src/generator/dotnet/emit/integration-tests.ts
@@ -1428,10 +1428,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/platform/hono/v4/projection-query-routes-builder.ts#buildQueryProjectionsFile$2": {
     invariant:
       "An aggregation projection `where` Drizzle cannot lower. Every shape the target-neutral predicate oracle admits renders here: test/system/predicate-position-census.test.ts measures each position × adapter × shape and fails on a crash.",
-  },
-  "src/platform/hono/v4/projection-query-routes-builder.ts#drizzleCapabilityPredicates": {
-    invariant:
-      "A capability filter Drizzle cannot lower on the aggregation path. Every shape the target-neutral predicate oracle admits renders here: test/system/predicate-position-census.test.ts measures each position × adapter × shape and fails on a crash.",
   },
   "src/platform/hono/v4/projection-query-routes-builder.ts#groupKeyExpr": {
     invariant:

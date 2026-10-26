@@ -21,6 +21,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateSystems } from "../../../src/system/index.js";
+import { dapperScopeClass, inlineDapperScope } from "../../_helpers/dapper-scope.js";
 import { parseValid } from "../../_helpers/parse.js";
 
 const SRC = `
@@ -48,13 +49,18 @@ const SRC = `
 `;
 
 let cache: Map<string, string> | undefined;
-async function repo(): Promise<string> {
+async function rawRepo(): Promise<string> {
   cache ??= (await generateSystems(await parseValid(SRC))).files;
   const key = [...cache.keys()].find((k) =>
     k.endsWith("Infrastructure/Repositories/OrderRepository.cs"),
   );
   expect(key, "OrderRepository.cs not emitted").toBeDefined();
   return cache.get(key!)!;
+}
+/** The repository with each statement's `OrderScope.<member>` reference resolved
+ *  to the SQL it holds — the SQL the statement runs. */
+async function repo(): Promise<string> {
+  return inlineDapperScope(await rawRepo());
 }
 
 /** The body of one emitted repository method, so an assertion about `recent()`
@@ -95,16 +101,21 @@ describe("dapper ignoring filter-bypass emission", () => {
       await repo(),
       "public async Task<IReadOnlyList<Order>> RunFindAllByBigOrdersAsync(",
     );
+    // The retrieval composes its tail from the aggregate's scope helper and the
+    // runtime bypass — it spells no capability predicate itself.
+    expect(run).toContain("OrderScope.Runtime(bypass)");
+    expect(run).not.toContain("is_deleted = FALSE");
+    // The retrieval's own predicate is NOT bypassable — it is the query.
+    expect(run).toContain("WHERE (total > 0)");
     // Each spliced capability predicate is guarded by the DOMAIN capability
     // name the `ignoring` clause spells — the adapter owns the mapping, the
     // port stays ORM-neutral (audit S7).
-    expect(run).toContain('bypass.Capabilities?.Contains("softDeletable") != true');
-    expect(run).toContain('bypass.Capabilities?.Contains("tenantScoped") != true');
-    expect(run).toContain("!bypass.All");
+    const scope = dapperScopeClass(await rawRepo());
+    expect(scope).toContain('bypass.Capabilities?.Contains("softDeletable") != true');
+    expect(scope).toContain('bypass.Capabilities?.Contains("tenantScoped") != true');
+    expect(scope).toContain("!bypass.All");
     // Composed, not baked: the predicates join the SQL only when kept.
-    expect(run).toContain('string.Join(" AND ", __caps)');
-    // The retrieval's own predicate is NOT bypassable — it is the query.
-    expect(run).toContain("WHERE (total > 0)");
+    expect(scope).toContain('string.Join(" AND ", parts)');
   });
 
   it("the inline workflow read still passes a DOMAIN FilterBypass to the Dapper repository", async () => {
