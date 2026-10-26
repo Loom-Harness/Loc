@@ -281,7 +281,17 @@ export type MigrationStep =
   // Postgres schema (both ends share it — a rename never crosses schemas).
   // Postgres/Ecto keep every FK constraint pointing at the table valid across
   // the rename, so no separate FK-retarget step is emitted.  Non-destructive.
-  | { op: "renameTable"; from: string; to: string; schema?: string }
+  | {
+      op: "renameTable";
+      from: string;
+      to: string;
+      /** The schema the table is in AFTER the step. */
+      schema?: string;
+      /** Set on a cross-context move only: the schema the table is in
+       *  BEFORE the step (`null` = the default search-path schema).  The
+       *  renderers move it (`ALTER TABLE … SET SCHEMA`) before any rename. */
+      fromSchema?: string | null;
+    }
   | {
       op: "addColumn";
       table: string;
@@ -339,7 +349,19 @@ export type MigrationStep =
       from: string | undefined;
       to: string | undefined;
     }
-  | { op: "addIndex"; index: IndexShape; schema?: string }
+  // Create an index.  `concurrently` is set by the diff on an index added to a
+  // table that already exists in the baseline (a table created in the same
+  // generation carries its indexes inline on `createTable`).  A plain
+  // `CREATE INDEX` holds a SHARE lock that blocks every write to the table for
+  // the whole build; the concurrent form does not, but Postgres refuses to run
+  // it inside a transaction.  So every backend applies a generation's
+  // concurrent steps as a separate, non-transactional migration unit ordered
+  // right after the generation's transactional one
+  // (`src/ir/util/migration-steps.ts`).  Absent on a step recorded before the
+  // flag existed: that step stays a plain `CREATE INDEX` inside its
+  // generation's file, so a migration a database already applied renders
+  // byte-identically.
+  | { op: "addIndex"; index: IndexShape; schema?: string; concurrently?: boolean }
   | { op: "dropIndex"; table: string; schema?: string; name: string }
   // Rename an index in place — `from`/`to` are the bare (unqualified)
   // old + new index names; `schema` is the owning table's Postgres schema (an

@@ -645,14 +645,15 @@ export function queryHandler(
  *  read returns ONE row.  The caller supplies already-built `Property` members
  *  (the declared row shape) and the `select` expressions; both are cross-checked
  *  by the ordinary validator, so a macro can't emit a row field no `select`
- *  fills (`loom.projection-fields-without-select`). */
+ *  fills (`loom.projection-fields-without-select`).  `gate` is the header
+ *  `requires` — who may read the projection's endpoint. */
 export function singletonProjection(
   name: string,
   source: string,
   alias: string,
   members: ProjectionMember[],
   selects: Array<{ field: string; expr: Expression }>,
-  opts: { where?: Expression; groupBys?: Expression[] } = {},
+  opts: { where?: Expression; groupBys?: Expression[]; gate?: Expression } = {},
 ): Projection & ContextMember {
   const origin = currentOrigin();
   // A `group by` turns the same node into the GROUPED read model (M-T4.2):
@@ -675,6 +676,7 @@ export function singletonProjection(
       source: makeRef<ProjectionSource>(source) as Projection["source"],
       sourceAlias: alias,
       ...(opts.where ? { filter: opts.where } : {}),
+      ...(opts.gate ? { gate: opts.gate } : {}),
     }),
     origin,
   );
@@ -689,6 +691,7 @@ export function singletonProjection(
     setContainer(g, node, "groupBys", i);
   });
   if (opts.where) setContainer(opts.where, node, "filter");
+  if (opts.gate) setContainer(opts.gate, node, "gate");
   return node as Projection & ContextMember;
 }
 

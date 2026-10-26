@@ -1,6 +1,7 @@
 import type { MigrationsIR } from "../../../ir/types/migrations-ir.js";
+import { splitTransactionalSteps } from "../../../ir/util/migration-steps.js";
 import { upperFirst } from "../../../util/naming.js";
-import { renderPgStep } from "../../sql-pg.js";
+import { renderPgStep, splitPgStatements } from "../../sql-pg.js";
 
 // ---------------------------------------------------------------------------
 // .NET EF Core migration emitter.
@@ -35,23 +36,43 @@ export function emitDotnetMigrations(
     // generation is named "Initial", and the module keeps the filename and
     // class name saying which module the migration belongs to.
     const slug = `${m.version}_${upperFirst(m.module)}_${upperFirst(m.name)}`;
-    const className = `M${slug}`;
-    const sql = m.steps.map(renderPgStep).join("\n\n");
-    out.set(`Migrations/${slug}.cs`, renderMigrationClass(ns, className, slug, sql));
+    const { transactional, nonTransactional } = splitTransactionalSteps(m.steps);
+    if (transactional.length > 0) {
+      const sql = transactional.map(renderPgStep).join("\n\n");
+      out.set(
+        `Migrations/${slug}.cs`,
+        renderMigrationClass(ns, `M${slug}`, slug, [`migrationBuilder.Sql(@"${verbatim(sql)}");`]),
+      );
+    }
+    // The non-transactional unit (`CREATE INDEX CONCURRENTLY`) is a migration
+    // of its own, `<slug>_Concurrent`, which EF orders right after `<slug>`
+    // (ids sort ordinally) and records in `__EFMigrationsHistory` on its own —
+    // so a failed concurrent build never leaves the transactional half applied
+    // but unrecorded.  Each statement is its own `suppressTransaction` command:
+    // Npgsql sends one command's statements as one batch, which Postgres runs
+    // as an implicit transaction.
+    if (nonTransactional.length > 0) {
+      const id = `${slug}_Concurrent`;
+      const calls = nonTransactional
+        .flatMap((s) => splitPgStatements(renderPgStep(s)))
+        .map((stmt) => `migrationBuilder.Sql(@"${verbatim(stmt)}", suppressTransaction: true);`);
+      out.set(`Migrations/${id}.cs`, renderMigrationClass(ns, `M${id}`, id, calls));
+    }
   }
+}
+
+/** C# verbatim string literal body: `@"..."` allows multi-line; embedded `"`
+ *  characters double up to `""` (the renderer quotes every identifier). */
+function verbatim(sql: string): string {
+  return sql.replace(/"/g, '""');
 }
 
 function renderMigrationClass(
   ns: string,
   className: string,
   migrationId: string,
-  sql: string,
+  upCalls: readonly string[],
 ): string {
-  // C# verbatim string literals: `@"..."` allows multi-line; embedded `"`
-  // characters double up to `""`.  Our renderPgStep output has no `"`
-  // characters today (Postgres uses single quotes for string literals,
-  // and identifiers stay bare), but escape defensively.
-  const escaped = sql.replace(/"/g, '""');
   return `// Auto-generated.
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -74,7 +95,7 @@ namespace ${ns}.Migrations
     {
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.Sql(@"${escaped}");
+${upCalls.map((c) => `            ${c}`).join("\n")}
         }
 
         protected override void Down(MigrationBuilder migrationBuilder)

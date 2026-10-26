@@ -1,21 +1,12 @@
 // ---------------------------------------------------------------------------
-// RS-26's OPTIONAL twin on the RELATIONAL write seam.
+// RS-26's OPTIONAL twin on the relational write seam: a full-replacement
+// update that omits an optional key clears it (`__clear_absent/2`).
 //
-// Loom's update contract is full-replacement, and `changeset-emit.ts` already
-// enforces half of that: `__require_keys/3` rejects an ABSENT REQUIRED key with
-// 422, because `validate_required/2` reads through `get_field/2` and would see
-// the stored value instead.  The other half had no enforcement at all —
-// `cast/3` simply IGNORES a key the attrs do not carry, so an omitted OPTIONAL
-// field kept whatever the loaded row held, while the other four backends
-// rebuild the aggregate from the request DTO and therefore null it.
-//
-// Measured on a booted Phoenix + Postgres against `corpus/optional-valueobject`:
-// a PUT that dropped `office` read back with the previous `Addr` still in place
-// (`expected {"city":"Shelbyville", …} to be null`).
-//
-// Compile gates are blind to it — both spellings compile — and the wire golden
-// only diverges once a request actually omits the key, so the assertion is on
-// the ENFORCEMENT surface: the changeset the request hits.
+// The clearing itself is asserted by value on the elixir behavioural leg
+// (`corpus/optional-valueobject`: an update that drops `office` reads back
+// null).  What stays here is what that leg cannot see: the clear runs on the
+// update seam only (a create already starts every optional field at nil), and
+// an aggregate whose updatable fields are all required emits none of it.
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
@@ -51,25 +42,6 @@ async function emitted(suffix: string): Promise<string> {
 }
 
 describe("a relational aggregate's PUT clears an omitted optional field", () => {
-  it("nulls exactly the nullable update-editable fields, against the raw attrs", async () => {
-    const changeset = await emitted("/thing_changeset.ex");
-    expect(changeset).toContain("@update_optional [:nickname, :score]");
-    expect(changeset).toContain("|> __clear_absent(attrs, @update_optional)");
-    // A required field is the presence check's business, not the clear's.
-    expect(changeset).not.toMatch(/@update_optional \[[^\]]*:name/);
-    expect(changeset).toContain("@update_required [:name]");
-  });
-
-  it("clears by `put_change(…, nil)` only when the key is genuinely absent", async () => {
-    const changeset = await emitted("/thing_changeset.ex");
-    // A key that IS present and null already reaches `cast`, so the helper must
-    // key on PRESENCE, not on the value — otherwise the two paths double-write.
-    expect(changeset).toContain(
-      "if Map.has_key?(attrs, Atom.to_string(field)) or Map.has_key?(attrs, field)",
-    );
-    expect(changeset).toContain("else: put_change(cs, field, nil)");
-  });
-
   it("runs inside update_changeset only — create is a construction, not a replacement", async () => {
     const changeset = await emitted("/thing_changeset.ex");
     const update = changeset.slice(changeset.indexOf("def update_changeset("));

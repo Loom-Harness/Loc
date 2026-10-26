@@ -987,8 +987,10 @@ every member read needs a receiver that cannot be null (`loom.nullable-receiver`
 rejects `path.trim()`, `path.length` and `addr.city` on a `string?` / `Addr?`,
 because every backend emits a bare dereference; a field read in a `ui` body is
 spelled null-safe and passes).  A **null test is the guard**: it narrows the
-ternary branch it proves safe, and the later operands of an `&&` (`x != null && …`)
-or `||` (`x == null || …`) chain.
+ternary branch it proves safe, the later operands of an `&&` (`x != null && …`)
+or `||` (`x == null || …`) chain, an `if` block, and the rest of a body after a
+`precondition x != null` or an `if x == null { return … }` guard
+([06 § Null narrowing in a body](language-reference/06-behavior-and-statements.md#null-narrowing-in-a-body)).
 
 ```ddd
 // dataKey: string?  — a root tenant has no parent path

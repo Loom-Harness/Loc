@@ -11,7 +11,9 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // another.  The fix routes BOTH the route and the `post` operation off ONE
 // shared predicate (`emitsRestCreate`).  These tests pin that they can never
 // drift: every aggregate the router create-routes is create-documented, and
-// vice versa.
+// vice versa.  (That the create, the paged list and the `tenantOwned` stamp
+// work at all is asserted by value on the elixir behavioural leg — every corpus
+// case creates and lists, and `corpus/tenancy-owned` stamps.)
 //
 // The create surface is now gated on an EXPLICIT canonical `create`
 // (`emitsRestCreate` → `canonicalCreate != null`), symmetric with the DELETE
@@ -74,22 +76,6 @@ system Shop {
 `;
 
 describe("vanilla create-route ⟺ OpenAPI parity", () => {
-  it("routes POST /<plural> for a create-bearing (crudish) aggregate", async () => {
-    const files = await generateSystemFiles(BARE);
-    const router = file(files, "/router.ex");
-    expect(router).toContain('post "/orders", OrderController, :create');
-  });
-
-  it("the paged-by-default list index serialises the envelope's items in place", async () => {
-    // Auto-`findAll` is paged-by-default (M-T2.6): the index reads the
-    // `{items, page, pageSize, total, totalPages}` envelope and maps
-    // `serialize/1` over `items` while preserving the rest of the envelope
-    // (`%{result | items: …}`) — the cross-backend paged contract.
-    const files = await generateSystemFiles(BARE);
-    const ctrl = file(files, "/order_controller.ex");
-    expect(ctrl).toContain("json(conn, %{result | items: Enum.map(result.items, &serialize/1)})");
-  });
-
   it("documents the create in the OpenAPI spec for the same aggregate", async () => {
     const files = await generateSystemFiles(BARE);
     const specKey = [...files.keys()].find((k) => k.endsWith("_spec.ex") && k.includes("/api/"));
@@ -106,30 +92,6 @@ describe("vanilla create-route ⟺ OpenAPI parity", () => {
       [...specCreateAggregates(spec)].sort(),
     );
     expect(routerCreateAggregates(router)).toContain("Order");
-  });
-
-  it("a tenantOwned stamped field is excluded from cast/validate_required, but still stamped on insert", async () => {
-    // The `tenantOwned` capability adds a server-stamped `tenantId` column.  It
-    // must NOT ride the changeset's cast/validate_required (that runs BEFORE the
-    // repository's `put_change` stamp and would 422 the create with
-    // "tenant_id can't be blank"), yet the repository must still stamp it from
-    // the claim.  Regression gate for the runtime defect the isolation boot
-    // surfaced once the create route was wired.
-    const src = readFileSync("test/fixtures/corpus/tenancy-owned.ddd", "utf8").replace(
-      "__PLATFORM__",
-      "elixir",
-    );
-    const files = await generateSystemFiles(src);
-    const changeset = file(files, "/billing/invoice_changeset.ex");
-    // tenant_id is neither cast nor required (server-owned, stamped).
-    expect(changeset).toMatch(/@all_fields \[[^\]]*\]/);
-    expect(changeset).not.toMatch(/@all_fields \[[^\]]*:tenant_id/);
-    expect(changeset).not.toMatch(/@required_fields \[[^\]]*:tenant_id/);
-    // …but the repository still stamps it from the principal claim on insert.
-    const repo = file(files, "/billing/invoice_repository.ex");
-    expect(repo).toContain(
-      "|> Ecto.Changeset.put_change(:tenant_id, current_user && current_user.tenant_id)",
-    );
   });
 
   it("parity holds across a multi-aggregate tenancy system (crudish + registry)", async () => {

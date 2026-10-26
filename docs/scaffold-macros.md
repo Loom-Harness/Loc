@@ -154,6 +154,13 @@ Notes:
 
 - **One projection per aggregate**, not per context: a query-time projection has
   a single `from` source.
+- **It carries the aggregate's read gate.** A totals row discloses the
+  aggregate's data, so each emitted projection (totals and per-day series)
+  copies the context's `policy { read <Agg> requires … }` gate onto its header
+  — `projection OrderTotals requires currentUser.role == "clerk" { … }` — and
+  every backend answers 403 before the query.  With no such rule the projection
+  is ungated; under `enforcement: denyByDefault` that is refused
+  (`loom.default-deny-ungated`, naming the policy rule to add).
 - **A hand-written `<Agg>Totals` wins** — the macro skips a name the context
   already declares, and the ui side binds whatever fields that projection
   declares. So the dashboard works without the macro too.

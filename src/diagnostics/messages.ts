@@ -800,15 +800,15 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.migration-duplicate-name": (p: { name: unknown }) =>
     `Duplicate migration block name ${p.name}.`,
   "loom.rename-to-self#table": (p: { fromTable: unknown; to: unknown }) =>
-    `Table rename '${p.fromTable} -> ${p.to}' names the same aggregate on both sides — a rename must change the name.`,
+    `Table step '${p.fromTable} -> ${p.to}' names the same declaration on both sides — a rename must change the name, a move the context.`,
   "loom.rename-to-self#field": (p: { agg: unknown; field: unknown }) =>
     `Rename of '${p.agg}.${p.field}' names the same field on both sides — a rename must change the name.`,
   "loom.rename-duplicate-source#table-is-renamed-more-than": (p: { fromTable: unknown }) =>
-    `Table '${p.fromTable}' is renamed more than once — an aggregate can be renamed FROM only once (ambiguous origin).`,
+    `Table '${p.fromTable}' is renamed or moved more than once — a declaration can be renamed or moved FROM only once (ambiguous origin).`,
   "loom.rename-duplicate-source#field-is-renamed-more-than": (p: { sourceKey: unknown }) =>
     `Field '${p.sourceKey}' is renamed more than once — a column can be renamed FROM only once (ambiguous origin).`,
   "loom.rename-duplicate-target#two-renames-target-aggregate": (p: { to: unknown }) =>
-    `Two renames target aggregate '${p.to}' — an aggregate can be renamed TO only once (ambiguous destination).`,
+    `Two table steps target '${p.to}' — a declaration can be renamed or moved TO only once (ambiguous destination).`,
   "loom.rename-duplicate-target#two-renames-target-a-column": (p: { targetKey: unknown }) =>
     `Two renames target '${p.targetKey}' — a column can be renamed TO only once (ambiguous destination).`,
   "loom.migration-sql-empty": "Empty sql step — a raw migration statement must not be blank.",
@@ -2219,6 +2219,19 @@ export const DIAGNOSTIC_MESSAGES = {
     field: unknown;
   }) =>
     `backfill '${p.aggregate}.${p.field}': a collection field needs no backfill — adding it to a populated table fills every existing row with an empty collection. Remove this step.`,
+  "loom.migration-step-unknown-context": (p: { step: unknown; context: unknown }) =>
+    `migration step '${p.step}' moves into context '${p.context}', which the model does not declare. Name the context the declaration lives in now.`,
+  "loom.migration-step-target-missing": (p: { step: unknown; name: unknown }) =>
+    `migration step '${p.step}': '${p.name}' is not an aggregate, workflow or projection of the model. The right-hand side names the declaration as it is NOW (after the rename or move).`,
+  "loom.migration-step-ambiguous": (p: { step: unknown; name: unknown; candidates: unknown }) =>
+    `migration step '${p.step}': '${p.name}' names more than one declaration (${p.candidates}). Qualify both sides with their contexts: migration "…" { <OldContext>.<Old> -> <NewContext>.<New> }`,
+  "loom.migration-move-across-databases": (p: {
+    step: unknown;
+    from: unknown;
+    to: unknown;
+    deployables: unknown;
+  }) =>
+    `migration step '${p.step}' moves tables from module '${p.from}' to module '${p.to}', but deployable(s) ${p.deployables} apply '${p.to}' migrations to a database that never held '${p.from}' tables, so there is nothing there to move. Host both modules on the same deployables, or migrate the data with a raw \`sql\` step.`,
   "loom.migration-expr-unsupported": (p: { aggregate: unknown; field: unknown; reason: unknown }) =>
     `backfill '${p.aggregate}.${p.field}': ${p.reason}.`,
   "loom.backfill-type-mismatch": (p: {
@@ -2284,6 +2297,11 @@ export const DIAGNOSTIC_MESSAGES = {
     why: unknown;
   }) =>
     `ADD COLUMN ${p.column} NOT NULL (no default) — contributed by \`with ${p.capability}\`. ${p.why} Declare what the existing rows hold in a migration block (\`migration "…" { <Agg>.<field> = <value> }\`), or add the capability before the table holds data.`,
+  /** One line of `loom.migration-destructive` when a TABLE is dropped: a
+   *  rename, or a move of the declaration to another context, reads as a
+   *  drop + create to the diff, and the table step keeps the rows. */
+  "loom.migration-destructive#table-dropped":
+    'A dropped table whose aggregate, workflow or projection was renamed or moved to another context keeps its rows with a migration-block table step: migration "…" { <Old> -> <New> } for a rename, migration "…" { <OldContext>.<Old> -> <NewContext>.<New> } for a move.',
   "loom.migration-destructive#capability-tenant-owned":
     "Loom cannot infer which tenant owns a row written before tenancy, and a wrong guess hands it to another tenant, so there is no automatic backfill.",
   "loom.migration-destructive#capability-auditable":
@@ -3286,6 +3304,15 @@ export const DIAGNOSTIC_MESSAGES = {
     `event-sourced create route gateable in place is mission M-T3.16.`,
   "loom.default-deny-ungated#denybydefault-projection": (p: { name: unknown }) =>
     `denyByDefault: projection '${p.name}' is served as a read endpoint on an 'auth: required' deployable but declares no \`requires\` gate. Add a \`requires <expr>\` after its declaration header (use \`requires true\` to allow anonymous access).`,
+  // Same rule, but the projection came from a MACRO (`scaffoldDashboard`),
+  // which copies the source aggregate's policy read gate onto it — so the
+  // missing gate is that policy rule, and the fix is to write it.
+  "loom.default-deny-ungated#denybydefault-projection-macro": (p: {
+    name: unknown;
+    macroName: unknown;
+    source: unknown;
+  }) =>
+    `denyByDefault: projection '${p.name}' (from \`with ${p.macroName}\`) is served as a read endpoint on an 'auth: required' deployable but has no read gate — it summarises '${p.source}', which declares no \`policy { read ${p.source} requires <expr> }\` rule. Add that rule to the context: \`${p.macroName}\` copies it onto the projection, and it gates every other read of '${p.source}' too (use \`requires true\` to allow anonymous access).`,
   "loom.default-deny-ungated#denybydefault-workflow-instances": (p: { name: unknown }) =>
     `denyByDefault: workflow '${p.name}' serves its instance reads (\`/workflows/${String(p.name).toLowerCase()}/instances\`) on an 'auth: required' deployable but declares no \`requires\` gate. Add a \`requires <expr>\` to the workflow header (use \`requires true\` to allow anonymous access) — it gates the READS; the command entries keep their own body gates.`,
   "loom.default-deny-ungated#denybydefault-handler": (p: {
@@ -5367,6 +5394,10 @@ export const DIAGNOSTIC_MESSAGES = {
     "Macro emitted a node targeting a destination outside the host's subtree.  " +
     "Macros may only modify their host or its descendants (e.g. a context-level macro " +
     "may invoke an aggregate-level macro against an aggregate inside the context).",
+  "loom.scaffold-aggregate-unserved": (p: { agg: unknown; context: unknown; repo: unknown }) =>
+    `scaffoldHandlers/scaffoldApi skip aggregate '${p.agg}' in context '${p.context}': it has no ` +
+    `repository, so nothing can load it by id and no handlers or routes are emitted for its ` +
+    `operations, create, or destroy.  Add \`repository ${p.repo} for ${p.agg} { }\` to serve it.`,
   "loom.macro-arg-duplicate": (p: { name: unknown; macroName: unknown }) =>
     `Duplicate argument '${p.name}' in call to macro '${p.macroName}'.`,
   "loom.macro-arg-unknown": (p: { name: unknown; macroName: unknown; spec: unknown }) =>

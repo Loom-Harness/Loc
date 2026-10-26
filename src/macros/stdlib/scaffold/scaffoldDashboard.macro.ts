@@ -1,8 +1,9 @@
 import type { ContextMember, Expression, Property } from "../../../language/generated/ast.js";
-import { isAggregate } from "../../../language/generated/ast.js";
+import { isAggregate, isPolicyDecl } from "../../../language/generated/ast.js";
 import type { Aggregate, BoundedContext } from "../../api/index.js";
 import {
   callExpr,
+  cloneExpr,
   defineMacro,
   field,
   memberAccess,
@@ -53,7 +54,17 @@ import {
  * projection this macro didn't emit.  The ui side detects the projection
  * STRUCTURALLY (a singleton query-time projection over the aggregate) rather
  * than by trusting this macro ran, so a hand-written one lights up the
- * dashboard too. */
+ * dashboard too.
+ *
+ * READ GATE: a totals row discloses the aggregate's data (its row count, the sum
+ * of every numeric column), so each projection carries the aggregate's own read
+ * gate — `policy { read Order requires … }` — as its header `requires`.
+ * Without it the endpoint would serve a payroll total to callers the rows
+ * themselves refuse.  The gate is copied verbatim (a named-policy call stays a
+ * call: the projection lowers in the same context, so it resolves there), so
+ * `unfold` shows exactly what guards the read.  An aggregate with no read rule
+ * yields an ungated projection, which `denyByDefault` refuses
+ * (`loom.default-deny-ungated`) with a hint to write that rule. */
 export default defineMacro({
   name: "scaffoldDashboard",
   target: "context",
@@ -83,6 +94,7 @@ export default defineMacro({
       // projection wins over the scaffold, and re-emitting would be a
       // duplicate-declaration error rather than a merge.
       if (ctx.members.some((d) => "name" in d && d.name === projName)) continue;
+      const readGate = policyReadGate(ctx, agg.name);
 
       const members: Property[] = [field(ROW_COUNT, primType("int"))];
       const selects: Array<{ field: string; expr: Expression }> = [
@@ -104,7 +116,11 @@ export default defineMacro({
           expr: callExpr("sum", [{ value: memberAccess(nameRefExpr(ALIAS), f.name) }]),
         });
       }
-      out.push(singletonProjection(projName, agg.name, ALIAS, members, selects));
+      out.push(
+        singletonProjection(projName, agg.name, ALIAS, members, selects, {
+          ...(readGate ? { gate: cloneExpr(readGate) } : {}),
+        }),
+      );
 
       // The per-day SERIES beside the totals (M-T1.3): one row per day
       // with that day's count — what a dashboard chart plots.  It rides the
@@ -135,10 +151,23 @@ export default defineMacro({
             { field: SERIES_DAY, expr: dayBucket() },
             { field: SERIES_COUNT, expr: callExpr("count", []) },
           ],
-          { groupBys: [dayBucket()] },
+          { groupBys: [dayBucket()], ...(readGate ? { gate: cloneExpr(readGate) } : {}) },
         ),
       );
     }
     return out;
   },
 });
+
+/** The gate of the context's `policy { read <aggName> requires … }` rule — the
+ *  one place an author says who may read the aggregate.  First rule wins, as in
+ *  enrichment (a second is `loom.policy-duplicate-target`). */
+function policyReadGate(ctx: BoundedContext, aggName: string): Expression | undefined {
+  for (const m of ctx.members) {
+    if (!isPolicyDecl(m)) continue;
+    for (const r of m.rules) {
+      if (r.effect === "read" && r.target === aggName && r.gate) return r.gate;
+    }
+  }
+  return undefined;
+}

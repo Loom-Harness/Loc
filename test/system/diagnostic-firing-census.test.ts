@@ -516,6 +516,29 @@ const FIXTURE_HOST_OPTIONS: Record<string, ToolkitOptions> = {
 };
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // Migration table steps (`Old -> New`, `A.Old -> B.New`), resolved on the
+  // merged IR: a context the model lacks, a target it lacks, a name two
+  // contexts declare, and a move between modules on different databases.
+  "loom.migration-step-unknown-context": `${systemScope("")}
+migration "m" { C.Thing -> Nowhere.Thing }`,
+  "loom.migration-step-target-missing": `${systemScope("")}
+migration "m" { Gone -> Missing }`,
+  "loom.migration-step-ambiguous": `
+system S {
+  subdomain D {
+    context A { aggregate Thing with crudish { name: string }  repository Things for Thing { } }
+    context B { aggregate Thing with crudish { name: string }  repository Things for Thing { } }
+  }
+}
+migration "m" { Old -> Thing }`,
+  "loom.migration-move-across-databases": `
+system S {
+  subdomain D1 { context A { aggregate Keep with crudish { name: string }  repository Keeps for Keep { } } }
+  subdomain D2 { context B { aggregate Note with crudish { name: string }  repository Notes for Note { } } }
+  deployable one { platform: node, contexts: [A], port: 3000 }
+  deployable two { platform: node, contexts: [B], port: 3001 }
+}
+migration "m" { A.Note -> B.Note }`,
   // A construct its target's capability table refuses: `DataGrid` on Flutter
   // (no JS runtime, so no TanStack row model).
   "loom.target-unsupported": `
@@ -1364,6 +1387,12 @@ system S {
   "loom.macro-arg-duplicate": uiWith("scaffoldAggregate(of: Thing, of: Thing)"),
   "loom.macro-arg-kind-mismatch": uiWith(`scaffoldAggregate(of: "Thing")`),
   "loom.capability-host-invalid": uiWith("auditable"),
+  "loom.scaffold-aggregate-unserved": `
+system S {
+  subdomain Sub { context C with scaffoldHandlers {
+    aggregate Thing with crudish { name: string }
+  } }
+}`,
 
   // --- handler body (#2659) -----------------------------------------------
   // An OPTIONAL repository read bound in a handler body.  The shared workflow

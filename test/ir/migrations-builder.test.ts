@@ -1833,10 +1833,10 @@ system Shop {
   }
   deployable api { platform: node, contexts: [Orders], port: 3000 }
 }
-migration "add-status" { Order.status = "pending" }
+migration "add-status" { Order.status = quantity > 0 ? "open" : "pending" }
 `;
 
-  it("weaves a declared backfill into a NOT-NULL add — no --allow-destructive needed", async () => {
+  it("weaves a declared expression backfill into a NOT-NULL add — no --allow-destructive needed", async () => {
     const loom = await buildLoomModel(BF_SRC);
     const sys = loom.systems[0]!;
     const next = schemaFromModule(sys.subdomains[0]!);
@@ -1859,14 +1859,14 @@ migration "add-status" { Order.status = "pending" }
     expect(bf).toMatchObject({
       table: "orders",
       column: "status",
-      valueSql: "'pending'",
+      valueSql: `(CASE WHEN ("quantity" > 0) THEN 'open' ELSE 'pending' END)`,
       onlyNull: true,
     });
     const flip = steps[2]!;
     if (flip.op !== "alterColumnNullable") throw new Error("expected alterColumnNullable");
     expect(flip.nullable).toBe(false);
     expect(steps.map(renderPgStep).join("\n")).toContain(
-      `UPDATE "orders" SET "status" = 'pending' WHERE "status" IS NULL;`,
+      `UPDATE "orders" SET "status" = (CASE WHEN ("quantity" > 0) THEN 'open' ELSE 'pending' END) WHERE "status" IS NULL;`,
     );
   });
 
@@ -2037,9 +2037,16 @@ migration "evolve" {
   it("is silent the generation the block runs, and suggests removal on the next", async () => {
     const g1 = await gen(V2, await v1Baseline());
     // Sanity: the block really did its work in this generation (rename, the
-    // NULL → NOT NULL flip's UPDATE, the add's UPDATE, the sql step).
+    // NULL → NOT NULL flip's UPDATE, the add laid down with its constant as
+    // the column default, the sql step).
     expect(g1.out.steps.map((s) => s.op)).toContain("renameColumn");
-    expect(g1.out.steps.filter((s) => s.op === "backfillColumn")).toHaveLength(2);
+    expect(g1.out.steps.filter((s) => s.op === "backfillColumn")).toHaveLength(1);
+    expect(g1.out.steps).toContainEqual(
+      expect.objectContaining({
+        op: "addColumn",
+        column: expect.objectContaining({ name: "placed_at", default: "now()" }),
+      }),
+    );
     expect(g1.out.steps.map((s) => s.op)).toContain("sqlExec");
     expect(g1.warnings.map((w) => w.code)).not.toContain("loom.migration-block-applied");
 
@@ -2946,9 +2953,11 @@ ${extra}
     // reviewed statement about THIS migration, where a field default is a
     // standing statement about every future row — and only the block can carry
     // the per-row forms (a sibling-field ref, a ternary) a column default
-    // cannot hold at all.  So the add stays the block's nullable → UPDATE →
-    // SET NOT NULL sequence, with no DEFAULT and no DROP DEFAULT anywhere.
-    // Through `buildMigrations`, since that is what resolves the block.
+    // cannot hold at all.  So the add carries the BLOCK's value: a constant
+    // one rides the same add-WITH-DEFAULT → DROP DEFAULT pair a field default
+    // would, with the block's literal; an expression one (below) the
+    // nullable → UPDATE → SET NOT NULL sequence.  Through `buildMigrations`,
+    // since that is what resolves the block.
     const loom = await buildLoomModel(
       src('name: string  status: string = "pending"', 'migration "m1" { A.status = "from-block" }'),
     );
@@ -2959,12 +2968,23 @@ ${extra}
     const steps = buildMigrations(sys, memorySnapshotStore({ S: baseline }), {
       backfillIntents: loom.backfillIntents,
     })[0]!.steps;
-    expect(steps.map((s) => s.op)).toEqual(["addColumn", "backfillColumn", "alterColumnNullable"]);
+    expect(steps.map((s) => s.op)).toEqual(["addColumn", "alterColumnDefault"]);
     expect(steps.map(renderPgStep)).toEqual([
+      `ALTER TABLE "as" ADD COLUMN "status" TEXT NOT NULL DEFAULT 'from-block';`,
+      `ALTER TABLE "as" ALTER COLUMN "status" DROP DEFAULT;`,
+    ]);
+    const expr = await buildLoomModel(
+      src('name: string  status: string = "pending"', 'migration "m1" { A.status = name }'),
+    );
+    const exprSteps = buildMigrations(expr.systems[0]!, memorySnapshotStore({ S: baseline }), {
+      backfillIntents: expr.backfillIntents,
+    })[0]!.steps;
+    expect(exprSteps.map(renderPgStep)).toEqual([
       `ALTER TABLE "as" ADD COLUMN "status" TEXT NULL;`,
-      `UPDATE "as" SET "status" = 'from-block' WHERE "status" IS NULL;`,
+      `UPDATE "as" SET "status" = "name" WHERE "status" IS NULL;`,
       `ALTER TABLE "as" ALTER COLUMN "status" SET NOT NULL;`,
     ]);
+    expect(exprSteps.map(renderPgStep).join("\n")).not.toContain("pending");
     // The carrier is still on the step's column shape — it is simply never
     // read once the block claimed the column, which is the honest shape of
     // "the block wins": nothing downstream renders it.
@@ -3360,9 +3380,11 @@ system M {
     expect(steps.some((s) => s.op === "renameColumn")).toBe(false);
     const sql = steps.map(renderPgStep).join("\n");
     expect(sql).toContain('DROP COLUMN "bin_code"');
+    // A constant backfill: the value lands as the add's column default.
     expect(sql).toContain(
-      `UPDATE "parts" SET "supplier_ref" = 'NO-SUPPLIER' WHERE "supplier_ref" IS NULL;`,
+      `ALTER TABLE "parts" ADD COLUMN "supplier_ref" TEXT NOT NULL DEFAULT 'NO-SUPPLIER';`,
     );
+    expect(sql).toContain(`ALTER TABLE "parts" ALTER COLUMN "supplier_ref" DROP DEFAULT;`);
   });
 });
 

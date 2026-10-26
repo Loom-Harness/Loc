@@ -28,6 +28,7 @@ import {
   validateMigrationAdapterSupport,
   validateMigrationDataSteps,
   validateSelfProvisioningSchemaSupport,
+  validateTableSteps,
 } from "./checks/migration-checks.js";
 import { validatePagedParamNames } from "./checks/paged-param-checks.js";
 import {
@@ -412,6 +413,9 @@ export function validateLoomModel(
   // Migration-block data steps (M-T2.3): expression renderability / target /
   // type fit.
   validateMigrationDataSteps(loom, diags);
+  // Migration table steps: the target resolves, unambiguously, and a move
+  // between modules stays within one database.
+  validateTableSteps(loom, diags);
   // A declared migration block on a SELF-PROVISIONING persistence adapter
   // (dapper / mikroorm): both skip the phase-⑨ chain entirely, so the step
   // would silently no-op (dapper) or drop+add the column (mikroorm).
