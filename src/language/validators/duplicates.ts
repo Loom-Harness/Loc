@@ -33,10 +33,10 @@
 //      distinct.
 //   4. loom.duplicate-enum-value     — enum values must be distinct.
 //   5. loom.duplicate-handler        — within a context, a `commandHandler` /
-//      `queryHandler` name must not collide with another handler or with a
-//      workflow `handle` in the same context (unfoldable-api-derivation.md,
+//      `queryHandler` name must not collide with another handler in the same
+//      context (unfoldable-api-derivation.md,
 //      Layer 3-4).  A `route -> Context.<name>` resolves the bare name against
-//      the UNION of those three, so a collision silently deduplicates in the
+//      the UNION of both kinds, so a collision silently deduplicates in the
 //      resolver and a route would dispatch ambiguously.
 
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
@@ -61,7 +61,6 @@ import {
   isEnumDecl,
   isEventDecl,
   isFunctionDecl,
-  isHandleDecl,
   isOperation,
   isProperty,
   isQueryHandler,
@@ -113,22 +112,13 @@ function checkContextTypeNames(ctx: BoundedContext, accept: ValidationAcceptor):
 }
 
 /** Application-layer handler names within a context — `commandHandler` /
- *  `queryHandler` context members and workflow `handle` declarations share one
- *  route-target namespace (`route -> Context.<name>`).  We report on the two
- *  new context-member kinds only: a command/query handler whose name is already
- *  taken by an earlier handler or a workflow `handle` in the same context.  We
- *  do NOT newly police workflow-`handle`-vs-`handle` collisions here (that is
- *  pre-existing behaviour owned elsewhere); this closes only the ambiguity the
- *  explicit handlers introduce. */
+ *  `queryHandler` context members share one route-target namespace
+ *  (`route -> Context.<name>`), so a handler whose name an earlier handler in
+ *  the same context already took is ambiguous. */
 function checkHandlerNames(ctx: BoundedContext, accept: ValidationAcceptor): void {
-  // Names already occupying the route-target space before we walk the explicit
-  // handlers: every workflow `handle` in the context.
   const seen = new Set<string>();
-  for (const node of AstUtils.streamAllContents(ctx)) {
-    if (isHandleDecl(node)) seen.add(node.name);
-  }
   // Walk the explicit handlers in document order; each collides if its name is
-  // already taken (by a workflow handle or an earlier explicit handler).
+  // already taken by an earlier handler.
   for (const m of ctx.members) {
     if (isCommandHandler(m) || isQueryHandler(m)) {
       const kind = isCommandHandler(m) ? "commandHandler" : "queryHandler";

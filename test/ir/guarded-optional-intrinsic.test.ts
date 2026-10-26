@@ -1,7 +1,7 @@
 // F2 (2026-09-03 language-docs audit) — the guarded-optional form the validator
 // itself RECOMMENDS must lower through each host's intrinsic idiom.
 //
-// `loom.intrinsic-nullable-receiver` rejects `note2.toUpper()` on a `string?`
+// `loom.nullable-receiver` rejects `note2.toUpper()` on a `string?`
 // and names the fix in its own message: guard the deref, `x != null ?
 // x.toUpper() : …`.  The lowerer then stamped the `method-call`'s
 // `receiverType` as the OPTIONAL wrapper, and every backend's intrinsic

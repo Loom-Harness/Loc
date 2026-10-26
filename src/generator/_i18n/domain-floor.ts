@@ -64,7 +64,7 @@ export type DomainFloorHost = Pick<BoundedContextIR, "aggregates"> &
   Partial<Pick<BoundedContextIR, "workflows" | "commandHandlers" | "queryHandlers">>;
 
 /** Every authored `message` on a `precondition` in an orchestration body — a
- *  workflow `create` / `on` reactor / `handle`, a `commandHandler`, a
+ *  workflow `create` / `on` reactor, a `commandHandler`, a
  *  `queryHandler` — at any depth (banking eval B-02).  A tripped one throws the
  *  same domain-floor error an operation precondition does, so it carries the
  *  same `msg.<hash>` code and needs the same catalog entry. */
@@ -73,7 +73,6 @@ export function workflowPreconditionMessages(ctx: DomainFloorHost): MessageIR[] 
   for (const w of ctx.workflows ?? []) {
     for (const c of w.creates) bodies.push(c.statements);
     for (const o of w.subscriptions ?? []) bodies.push(o.statements);
-    for (const h of w.handlers ?? []) bodies.push(h.statements);
   }
   for (const h of ctx.commandHandlers ?? []) bodies.push(h.statements);
   for (const h of ctx.queryHandlers ?? []) bodies.push(h.statements);

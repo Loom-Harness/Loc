@@ -219,7 +219,7 @@ if (hit !== null) {
 ```
 
 Own-state assignment (`field := value`) — writing one of the workflow's own
-declared state fields — is allowed inside a `create` / `handle` / `on` body; it
+declared state fields — is allowed inside a `create` / `on` body; it
 mutates the persisted saga-instance row (`attempts := 1`).  The compound mutation
 forms (`+=`, `-=`) and any cross-aggregate write (`order.status := …`) belong to
 aggregate operation bodies and stay rejected inside a workflow.  An *event-sourced*
@@ -236,7 +236,7 @@ dance the auto HTTP route does), and can't `findById` (use
 
 A workflow is a state-bearing entity like an aggregate, so it carries the same
 private-helper member: a `function`.  It factors a shared, side-effect-free
-expression out of the `create` / `handle` / `on` bodies that use it:
+expression out of the `create` / `on` bodies that use it:
 
 ```ddd
 workflow FulfillOrder {
@@ -634,13 +634,13 @@ is members-only — `workflow X { create(...) { ... } }`):
 | Member | Trigger |
 | --- | --- |
 | `create [name](params) [by <expr>] { ... }` | A starter.  The parameter shape discriminates the trigger (resolved at lowering): positional domain params synthesise an implicit command; a single payload param (`create(c: PlaceOrder)`) is an explicit command; a single event param with a `by` clause (`create(e: OrderPlaced) by e.order`) is event-triggered. |
-| `handle name(params) { ... }` | **Not implemented — refused by the compiler** (`loom.workflow-handle-unsupported`).  Parses and reaches the IR, but no backend emits a route, a handler, or a method for it, so a saga could be started and read and never advanced.  See [below](#handle-is-refused-not-shipped). |
 | `on(e: Event) [by <expr>] { ... }` | An external-event reactor. |
 
+A named command entry that is not a starter is a context-level
+`commandHandler`, not a workflow member — see [below](#there-is-no-handle).
+
 A `create` parameter may be typed by an **event** or a
-**payload** (`command` / `query` / `response` / `error`) named directly
-(`handle` accepts the same parameter forms grammatically, but is refused — see
-below):
+**payload** (`command` / `query` / `response` / `error`) named directly:
 
 ```ddd
 command SettleOrder { order: Order id, note: string }
@@ -654,36 +654,44 @@ workflow Fulfillment {
 }
 ```
 
-### `handle` is refused, not shipped
-
-`handle name(params) { ... }` parses and type-checks, and **no backend has ever
-emitted anything for it** — searching a generated tree for the handler's name
-finds only the mermaid diagram.  This page previously advertised it as the
-multi-command saga surface; that was wrong, and a model using it compiled into a
-saga that could be started and read (`/instances`, `/instances/{id}`) but never
-advanced, with no diagnostic (audit #2864 D5).
-
-The compiler now refuses it outright rather than emitting silence:
-
-```
-error: workflow 'Review': 'handle approve(…)' is not emitted by any backend …
-```
-
-Model a continuation one of the two ways that do work today:
-
-* **as an aggregate `operation`** — the aggregate owns the state transition, and
-  the operation gets a route on every backend; or
-* **as a second workflow** started by the event the first one emits.
-
-Whether Loom grows real multi-command sagas is a deferred feature decision
-(mission **M-T6.58**), not a documentation gap.
-
 The bound parameter is a flat transport record: `paid.amount` resolves
 to the field's declared type and is type-checked like any other
 expression (`paid.amount == "x"` is a type error).  These transport
-types are in scope **only** in `create` / `handle` parameter positions —
+types are in scope **only** in `create` parameter positions (and a
+`commandHandler` / `queryHandler` contract) —
 elsewhere a bare event/payload name stays unresolved.  See the
 [language reference](language.md#type-references).
+
+### There is no `handle`
+
+A workflow has no `handle name(params) { … }` member
+([D-HANDLE-REMOVAL](decisions.md#d-handle-removal--workflow-handle-is-removed-commandhandler-is-the-named-command-entry)).
+It had no correlation surface — nothing said *which* saga instance a call
+continued — and no backend ever emitted a route for it.  A named command entry
+is a context-level `commandHandler`, which every backend routes:
+
+```ddd
+// before — no longer parses               // after
+workflow Settle {                          workflow Settle {
+  create(orderId: Order id) { … }            create(orderId: Order id) { … }
+  handle close(orderId: Order id) {        }
+    let o = Orders.getById(orderId)        commandHandler close(orderId: Order id) {
+    o.close()                                let o = Orders.getById(orderId)
+  }                                          o.close()
+}                                          }
+```
+
+A leftover `handle` is a parse error naming the replacement.
+`node scripts/codemod-workflow-handle.mjs <path>` lifts each `handle` into a
+`commandHandler` after its workflow, and leaves in place — marked
+`// codemod-workflow-handle: not lifted — <reason>` — the ones with no faithful
+rewrite: a body that reads the workflow's own state or helpers, a handle of an
+`eventSourced` workflow, a `requires` gate (a `commandHandler` takes none; gate
+the aggregate operation it calls), a parameter named `id`, a body reaching more
+than one aggregate, or a name another handler of the context already holds.
+Model those continuations as an aggregate `operation` (the aggregate owns the
+state transition, and the operation gets a route on every backend), or as a
+second workflow started by the event the first one emits.
 
 > **Principal.** A reactor / event starter has no request, so it runs as the
 > **system principal** ([D-REACTOR-SYSTEM-PRINCIPAL](decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)): `currentUser.isSystem` is true, every claim is

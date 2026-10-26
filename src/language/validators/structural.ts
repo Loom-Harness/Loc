@@ -29,7 +29,6 @@ import {
   isEmitStmt,
   isEntityPart,
   isFunctionDecl,
-  isHandleDecl,
   isIdType,
   isInvariant,
   isNamedType,
@@ -286,12 +285,12 @@ function checkWorkflow(wf: Workflow, accept: ValidationAcceptor): void {
   checkWorkflowEventSourcedDiscipline(wf, accept);
 
   // `requires Expr` authorization gate (authorization.md §11.3) on a workflow
-  // `create` / `handle` trigger: a bool pre-check (403) over `currentUser` +
-  // the trigger's command params (a saga starter/handler has no aggregate
+  // `create` trigger: a bool pre-check (403) over `currentUser` +
+  // the trigger's command params (a saga starter has no aggregate
   // `this`).  Types to bool exactly like the in-body `requires` it lowers to;
-  // `envForNode` resolves the enclosing create/handle params.
+  // `envForNode` resolves the enclosing create params.
   for (const m of wf.members) {
-    if (!isWorkflowCreateDecl(m) && !isHandleDecl(m)) continue;
+    if (!isWorkflowCreateDecl(m)) continue;
     if (!m.gate) continue;
     const gt = typeOf(m.gate, envForNode(m.gate));
     if (gt.kind !== "primitive" || gt.name !== "bool") {
@@ -303,8 +302,8 @@ function checkWorkflow(wf: Workflow, accept: ValidationAcceptor): void {
     }
   }
 
-  // M-T6.18 gap #3 — a workflow's create / handle / on / apply bodies and its
-  // create/handle param defaults are never fed to the statement walk (that fires
+  // M-T6.18 gap #3 — a workflow's create / on / apply bodies and its
+  // create param defaults are never fed to the statement walk (that fires
   // only for aggregate operations + create/destroy), so their record
   // constructions (`X { … }`), free/member call args, emit-field types, and
   // param defaults went unchecked — a wrong-typed one compiled the .ddd and only
@@ -314,7 +313,7 @@ function checkWorkflow(wf: Workflow, accept: ValidationAcceptor): void {
   // they're found by streaming the member. (`Agg.create({ … })` create-input
   // VALUES are already covered model-wide by `checkFactoryCreateFieldTypes`.)
   for (const m of wf.members) {
-    if (isWorkflowCreateDecl(m) || isHandleDecl(m) || isOnDecl(m) || isApply(m)) {
+    if (isWorkflowCreateDecl(m) || isOnDecl(m) || isApply(m)) {
       const env = envForNode(m);
       checkConstructionArgTypes(m, env, accept);
       checkExprCallArgs(m, env, accept);
@@ -326,7 +325,7 @@ function checkWorkflow(wf: Workflow, accept: ValidationAcceptor): void {
         if (isEmitStmt(n)) checkEmit(n, envForNode(n), accept);
       }
     }
-    if (isWorkflowCreateDecl(m) || isHandleDecl(m)) {
+    if (isWorkflowCreateDecl(m)) {
       for (const p of m.params) checkParameterDefault(p, envForNode(p), accept);
     }
     if (isWorkflowCreateDecl(m)) checkWorkflowCreateReturn(m, accept);
@@ -342,10 +341,10 @@ function checkWorkflow(wf: Workflow, accept: ValidationAcceptor): void {
 
   // Transactional legality (workflow-and-applier.md A2-S5e): `transactional`
   // is one DB transaction, so it is incompatible with continuation handlers —
-  // an `on(...)` reactor or a `handle` command runs in its own later
+  // an `on(...)` reactor runs in its own later
   // transaction.  A multi-handler workflow is structurally multi-transaction.
   if (wf.transactional) {
-    const continuations = wf.members.filter((m) => isOnDecl(m) || isHandleDecl(m));
+    const continuations = wf.members.filter((m) => isOnDecl(m));
     for (const c of continuations) {
       accept("error", diagMessage("loom.transactional-with-continuations", { name: wf.name }), {
         node: c,
@@ -504,7 +503,6 @@ function checkWorkflowEventSourcedDiscipline(wf: Workflow, accept: ValidationAcc
   const appliedEvents = new Set(appliers.map(eventOf));
   const handlerBodies: AstNode[][] = [
     ...wf.members.filter(isOnDecl).map((o) => o.body),
-    ...wf.members.filter(isHandleDecl).map((h) => h.body),
     wf.members.filter(isAssignOrCallStmt),
     wf.members.filter(isEmitStmt),
   ];

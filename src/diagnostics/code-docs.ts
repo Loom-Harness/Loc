@@ -88,6 +88,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.generic-arg-not-carrier": "04-type-system.md#generic-carriers--paged-envelope-option",
   "loom.generic-position": "04-type-system.md#generic-carriers--paged-envelope-option",
   "loom.token-nullable": "04-type-system.md#options--t",
+  "loom.nullable-receiver": "04-type-system.md#options--t",
   "loom.bare-aggregate-in-type": "04-type-system.md#x-id--cross-aggregate-references",
   "loom.money-literal-malformed": "05-expressions.md#money-literals-vs-moneyx-conversion",
   "loom.interp-format-dropped-in-domain": "05-expressions.md#string-interpolation",
@@ -259,19 +260,16 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.workflow-return-type-mismatch": "13-workflows.md#returning-a-result",
   "loom.workflow-return-type-unsupported": "13-workflows.md#returning-a-result",
   "loom.workflow-return-event-sourced": "13-workflows.md#returning-a-result",
-  "loom.canonical-create-duplicate-workflow":
-    "13-workflows.md#create--handle--starters--continuations",
+  "loom.canonical-create-duplicate-workflow": "13-workflows.md#create--starters",
   "loom.create-field-id-target": "04-type-system.md#x-id--cross-aggregate-references",
-  "loom.create-name-conflict-workflow": "13-workflows.md#create--handle--starters--continuations",
-  "loom.workflow-param-unused": "13-workflows.md#create--handle--starters--continuations",
-  "loom.workflow-handle-unsupported": "13-workflows.md#create--handle--starters--continuations",
-  "loom.workflow-applier-on-non-event-sourced":
-    "13-workflows.md#create--handle--starters--continuations",
+  "loom.create-name-conflict-workflow": "13-workflows.md#create--starters",
+  "loom.workflow-param-unused": "13-workflows.md#create--starters",
+  "loom.workflow-applier-on-non-event-sourced": "13-workflows.md#create--starters",
   "loom.correlation-type-mismatch": "13-workflows.md#one-event--the-event-reactor",
   // M-T5.34.  The missing-starter ruling documents against the reactor section
   // (that is the member whose behaviour is inert without a starter); the
-  // command-side correlation ruling and the `handle` refusal both belong to the
-  // starters-and-continuations section that declares those two members.
+  // command-side correlation ruling belongs to the
+  // starters section that declares that member.
   "loom.reactor-without-starter": "13-workflows.md#one-event--the-event-reactor",
   "loom.correlation-uninferrable": "13-workflows.md#one-event--the-event-reactor",
   "loom.resource-op-in-transaction": "13-workflows.md#resource-consumption",

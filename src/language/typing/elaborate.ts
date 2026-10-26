@@ -91,7 +91,6 @@ import {
   isFindDecl,
   isForStmt,
   isFunctionDecl,
-  isHandleDecl,
   isIdRef,
   isIdType,
   isIfLetStmt,
@@ -433,7 +432,6 @@ export class Elaborator {
       isFunctionDecl(node) ||
       isDomainServiceOperation(node) ||
       isWorkflowCreateDecl(node) ||
-      isHandleDecl(node) ||
       isCommandHandler(node) ||
       isQueryHandler(node) ||
       isFindDecl(node) ||
@@ -1156,6 +1154,11 @@ export class Elaborator {
     for (let i = start; i < e.suffixes.length; i++) {
       const s = e.suffixes[i]!;
       cur = this.afterSuffix(cur, s, scope);
+      // The last suffix keeps its declared type: the whole chain is narrowed by
+      // `synth`, and a member's own type is what an emitter reads to decide
+      // whether its target can narrow the read itself.
+      if (cur.kind === "optional" && i < e.suffixes.length - 1)
+        cur = this.narrowedPrefix(e, i, cur);
       this.types.set(s, cur);
     }
     return cur;
@@ -1378,8 +1381,9 @@ export class Elaborator {
     const ms = s as MemberSuffix;
     const name = ms.member;
     const tags = recv.sensitivity;
-    // Scalar intrinsics and collection ops read through ONE optional level
-    // (the validator owns whether the unguarded read is legal).
+    // A member resolves through ONE optional level, so the read has the type
+    // it would have on the narrowed receiver; whether the unguarded read is
+    // legal is `checkNullableReceivers`' judgement, made once for every member.
     const bare = recv.kind === "optional" ? recv.inner : recv;
     // A collection op over a receiver the pass could not type still has the
     // result SHAPE its signature fixes — `xs.map(…)` is a list, `xs.count` an
@@ -1401,36 +1405,34 @@ export class Elaborator {
     }
     if (ms.call && bare.kind !== "record" && bare.kind !== "valueobject")
       this.synthArgs(ms.args, scope);
-    switch (recv.kind) {
+    switch (bare.kind) {
       case "record":
-        return this.recordMember(recv.shape, ms, scope);
+        return this.recordMember(bare.shape, ms, scope);
       case "generic":
-        return genericMember(recv.ctor, recv.arg, name) ?? Ty.unknown("unresolved-member");
+        return genericMember(bare.ctor, bare.arg, name) ?? Ty.unknown("unresolved-member");
       case "valueobject": {
-        if (!recv.ref) return Ty.unknown("unresolved-type");
-        const t = this.memberOf(recv.ref, ms, scope);
+        if (!bare.ref) return Ty.unknown("unresolved-type");
+        const t = this.memberOf(bare.ref, ms, scope);
         if (t) return t;
         // `<vo>.equals(other)` — the value-equality intrinsic every value
         // object answers when it declares no `equals` of its own (`memberOf`
         // found none above).  Call form only: a bare `.equals` stays unresolved
         // and `checkIntrinsicCalls` reports it.  Lowering turns the call into
         // the `binary ==` a `vo == other` writes, whose type is this `bool`.
-        if (ms.call && isValueObjectEqualsIntrinsic(recv.ref.members, ms.member)) {
+        if (ms.call && isValueObjectEqualsIntrinsic(bare.ref.members, ms.member)) {
           this.synthArgs(ms.args, scope);
           return Ty.prim("bool");
         }
         return Ty.unknown("unresolved-member");
       }
       case "id": {
-        if (name === "id") return recv;
-        const target = recv.target;
+        if (name === "id") return bare;
+        const target = bare.target;
         if (!target) return Ty.unknown("unresolved-type");
         return this.memberOf(target, ms, scope) ?? Ty.unknown("unresolved-member");
       }
-      case "primitive":
-      case "optional": {
-        const p = bare.kind === "primitive" ? bare.name : undefined;
-        if (!p) return Ty.unknown("unresolved-member");
+      case "primitive": {
+        const p = bare.name;
         const field = primitiveFieldType(p, name);
         if (field) return withTags(Ty.prim(field), tags);
         if (p === "string" && name === "matches" && ms.call) return Ty.prim("bool");
@@ -1443,7 +1445,7 @@ export class Elaborator {
         return Ty.unknown("unresolved-member");
       }
       default:
-        return recv.kind === "unknown" ? recv : Ty.unknown("unresolved-member");
+        return bare.kind === "unknown" ? bare : Ty.unknown("unresolved-member");
     }
   }
 
@@ -1608,6 +1610,19 @@ export class Elaborator {
     const key = simplePathKey(e);
     if (key === undefined) return t;
     return isNarrowedNonNull(e, key) ? withTags(t.inner, t.sensitivity) : t;
+  }
+
+  /** The same rule for a chain's PREFIX ending at suffix `i` — `this.note` in
+   *  `this.note.length` is a path a guard can name, though no node is it. */
+  private narrowedPrefix(e: PostfixChain, i: number, t: Ty & { kind: "optional" }): Ty {
+    const head = simplePathKey(e.head);
+    if (head === undefined) return t;
+    const parts = [head];
+    for (const s of e.suffixes.slice(0, i + 1)) {
+      if (!isMemberSuffix(s) || s.call) return t;
+      parts.push(s.member);
+    }
+    return isNarrowedNonNull(e, parts.join(".")) ? withTags(t.inner, t.sensitivity) : t;
   }
 }
 
@@ -1862,19 +1877,23 @@ function stringifiable(t: Ty): boolean {
   return false;
 }
 
-// Ternary null-narrowing (`x != null ? <x is T> : <x is T?>`).
+// Expression null-narrowing (`x != null ? <x is T> : <x is T?>`,
+// `x != null && <x is T>`, `x == null || <x is T>`).
 //
-// The null test sits in the ternary's condition, so every backend's `ternary`
-// leaf already renders a safe branch; narrowing only tells the checker so.
+// The null test sits in the same expression as the use, and every backend
+// renders a ternary and a short-circuit `&&` / `||` as such, so the use is
+// reached only when the test held; narrowing only tells the checker so.
 //
 // SCOPE, deliberately tight:
-//   • Only a DIRECT null comparison on the ternary's OWN condition:
-//     `<path> != null` / `null != <path>` narrows the THEN branch,
-//     `<path> == null` / `null == <path>` narrows the ELSE branch.
+//   • A null comparison that decides the use: `<path> != null` narrows a
+//     ternary's THEN branch and every later operand of the `&&` chain it is an
+//     operand of; `<path> == null` narrows the ELSE branch and every later
+//     operand of its `||` chain.  A ternary condition that is itself such a
+//     chain counts through its operands (`x != null && ok ? <x is T> : …`).
 //   • Only a SIMPLE PATH — a `this` / bare-name head plus plain member
 //     accesses.  `f().x` names no stable storage location, so it never narrows
 //     even when spelled identically twice.
-//   • No flow analysis: `&&` chains, `!`-negated tests, `precondition` guards,
+//   • No statement flow: `!`-negated tests, `precondition` guards,
 //     `let`-propagation and early-return guards do not narrow.
 //
 // SOUNDNESS.  Narrowing is sound only if the value cannot change between the
@@ -1887,7 +1906,8 @@ function stringifiable(t: Ty): boolean {
 // with `private operation bump(): string { path := null }` nulls the field
 // between the test and the use.  (A `function` cannot: it is gated pure by
 // `loom.function-block-impure`.)  So `branchBlocksNarrowing` refuses to narrow
-// any branch carrying a call it cannot prove pure.
+// any branch carrying a call it cannot prove pure — and, in a chain, any
+// operand between the test and the use carrying one.
 
 function simplePathKey(e: AstNode | undefined): string | undefined {
   if (!e) return undefined;
@@ -1924,6 +1944,32 @@ function condTestsNull(cond: AstNode | undefined, key: string, op: "==" | "!="):
   return simplePathKey(lNull ? r : l) === key;
 }
 
+/** Does `cond` being TRUE (`want` "!=") or FALSE (`want` "==") prove `key`
+ *  non-null?  The test itself, or one operand of the `&&` (resp. `||`) chain
+ *  `cond` is — the chain is true only when every conjunct is. */
+function decidesNonNull(cond: AstNode | undefined, key: string, want: "==" | "!="): boolean {
+  if (condTestsNull(cond, key, want)) return true;
+  const c = unparen(cond);
+  const join = want === "!=" ? "&&" : "||";
+  if (!c || !isBinaryChain(c) || !c.ops.every((o) => o === join)) return false;
+  return [c.head, ...c.rest].some((o) => decidesNonNull(o, key, want));
+}
+
+/** In the `&&` / `||` chain `chain`, is operand `child` reached only when an
+ *  earlier operand proved `key` non-null, with no impure call in between? */
+function narrowedInChain(chain: BinaryChain, child: AstNode, key: string): boolean {
+  const join = chain.ops[0];
+  if (join !== "&&" && join !== "||") return false;
+  const operands: AstNode[] = [chain.head, ...chain.rest];
+  const k = operands.indexOf(child);
+  const want = join === "&&" ? "!=" : "==";
+  for (let j = 0; j < k; j++) {
+    if (!decidesNonNull(operands[j], key, want)) continue;
+    if (operands.slice(j + 1, k + 1).every((o) => !branchBlocksNarrowing(o))) return true;
+  }
+  return false;
+}
+
 function branchBlocksNarrowing(branch: AstNode): boolean {
   const opNames = new Set<string>();
   for (let c: AstNode | undefined = branch; c; c = c.$container) {
@@ -1956,12 +2002,13 @@ function isNarrowedNonNull(node: AstNode, key: string): boolean {
       const inElse = parent.elseExpr === child;
       if (
         (inThen || inElse) &&
-        condTestsNull(parent.cond, key, inThen ? "!=" : "==") &&
+        decidesNonNull(parent.cond, key, inThen ? "!=" : "==") &&
         !branchBlocksNarrowing(child)
       ) {
         return true;
       }
     }
+    if (isBinaryChain(parent) && narrowedInChain(parent, child, key)) return true;
   }
   return false;
 }

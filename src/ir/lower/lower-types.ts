@@ -488,7 +488,7 @@ function lowerBase(t: TypeRef | TypeAtom, env?: Env): TypeIR {
       if (isAggregate(target)) return { kind: "entity", name: target.name };
       if (isEntityPart(target)) return { kind: "entity", name: target.name };
       // Transport types (`event` / payload) referenced as a workflow command
-      // param type — `create(e: PaymentReceived) by …`, `handle h(c: SettleOrder)`.
+      // param type — `create(e: PaymentReceived) by …`, `create(c: SettleOrder)`.
       // Events aren't a distinct TypeIR kind; like `on`/`apply` event params
       // they carry the name as an `entity` marker, and member access (`e.field`)
       // type-resolves through `findEventByName`/`findPayloadByName` in lower-expr.
@@ -636,7 +636,7 @@ export function findEventByName(env: Env, name: string): EventDecl | undefined {
 
 /** Look up a context-level `payload` declaration (payload / command / query /
  *  response / error) by name.  The transport-layer twin of `findEventByName`:
- *  member typing on a workflow command param (`handle h(c: SettleOrder) { …
+ *  member typing on a workflow command param (`create(c: SettleOrder) { …
  *  c.field … }`) resolves the param's `entity` marker back to the payload's
  *  flat field set through this lookup. */
 export function findPayloadByName(env: Env, name: string): PayloadDecl | undefined {

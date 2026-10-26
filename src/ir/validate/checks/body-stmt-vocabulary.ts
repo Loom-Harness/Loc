@@ -254,7 +254,6 @@ export function validatePartConstructionOwner(
       wf.statements,
       ...wf.creates.map((c) => c.statements),
       ...(wf.subscriptions ?? []).map((o) => o.statements),
-      ...(wf.handlers ?? []).map((h) => h.statements),
     ];
     for (const body of wfBodies) {
       for (const s of body) walkWorkflowStmtExprsDeep(s, (e) => exprs.push(e));

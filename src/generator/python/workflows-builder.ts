@@ -220,7 +220,7 @@ export function buildPyWorkflowsFile(
   ];
   const routes = routeBlocks.join("\n\n\n");
   // Workflow `function` helpers — module-scoped `def`s, namespaced by workflow
-  // (workflows share this file), emitted before the routes so the create/handle
+  // (workflows share this file), emitted before the routes so the create/on
   // bodies can call them.  Expression-bodied + pure over params (validator-guaranteed).
   const helperDefs = wfs.flatMap((wf) => workflowFnHelpers(wf)).join("\n\n");
   const helpersBlock = helperDefs ? `${helperDefs}\n\n\n` : "";

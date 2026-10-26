@@ -143,6 +143,5 @@ export type BodyPosition =
   | "workflow-command-create"
   | "workflow-command-create-uncorrelated"
   | "workflow-reactor"
-  | "workflow-handle"
   | "command-handler"
   | "query-handler";

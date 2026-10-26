@@ -1079,7 +1079,6 @@ function allWorkflowStmts(wf: WorkflowIR): WorkflowStmtIR[] {
   // calls), so they carry no `Repo.findAll` — excluded from the walk.
   const roots: WorkflowStmtIR[][] = [
     ...(wf.creates ?? []).map((c) => c.statements),
-    ...(wf.handlers ?? []).map((h) => h.statements),
     ...(wf.subscriptions ?? []).map((s) => s.statements),
   ];
   const out: WorkflowStmtIR[] = [];
@@ -1206,7 +1205,7 @@ function synthesizeFindAllRetrievals(
 /** Walk a flat handler statement body (`queryHandler` / `commandHandler`),
  *  descending into `for-each` / `if-let` bodies — the handler-body twin of
  *  `allWorkflowStmts` (handlers carry a flat `WorkflowStmtIR[]`, not the
- *  create/handle/subscribe roots a workflow does). */
+ *  create/subscribe roots a workflow does). */
 function flattenHandlerStmts(statements: WorkflowStmtIR[]): WorkflowStmtIR[] {
   const out: WorkflowStmtIR[] = [];
   const walk = (stmts: WorkflowStmtIR[]): void => {

@@ -7,7 +7,6 @@ import type {
   EmitStmt,
   ForStmt,
   FunctionDecl,
-  HandleDecl,
   IfLetStmt,
   LetStmt,
   MatchStmt,
@@ -51,7 +50,7 @@ import { parseDdd } from "../parse";
 // ---------------------------------------------------------------------------
 
 /** Key of one statement-bearing member of a workflow or an aggregate.
- *  Workflows: `create` | `create:<Name>` | `handle:<Name>` | `on:<Event>` |
+ *  Workflows: `create` | `create:<Name>` | `on:<Event>` |
  *  `apply:<Event>`.  Aggregates: `op:<Name>` | `create` | `create:<Name>` |
  *  `destroy` | `destroy:<Name>` | `apply:<Event>`.  A `#<n>` suffix
  *  disambiguates a repeated key (two unnamed `destroy`s, say). */
@@ -122,7 +121,7 @@ interface StmtHost extends Body {
 }
 
 /** Every statement-bearing member of a workflow, in declaration order:
- *  the primary + named `create`s, `handle`s, `on` reactors and `apply` folds. */
+ *  the primary + named `create`s, `on` reactors and `apply` folds. */
 function workflowHosts(wf: Workflow): StmtHost[] {
   const out: StmtHost[] = [];
   const seen = new Map<string, number>();
@@ -135,9 +134,6 @@ function workflowHosts(wf: Workflow): StmtHost[] {
     if (isWorkflowCreateDecl(m)) {
       const c = m as WorkflowCreateDecl;
       push(c.name ? `create:${c.name}` : "create", c.name ? `create ${c.name}` : "create", c, c.body);
-    } else if (m.$type === "HandleDecl") {
-      const h = m as HandleDecl;
-      push(`handle:${h.name}`, `handle ${h.name}`, h, h.body);
     } else if (m.$type === "OnDecl") {
       const o = m as OnDecl;
       const ev = o.event?.$refText ?? "";
@@ -183,7 +179,7 @@ function aggregateHosts(agg: Aggregate): StmtHost[] {
 }
 
 /** Statement-bearing members addressable by a `BodyLocator.member` key —
- *  workflows expose their creates / handles / ons / applies; an aggregate its
+ *  workflows expose their creates / ons / applies; an aggregate its
  *  operations (`op:<name>`, also reachable by the bare `operation` locator)
  *  plus its `create` / `destroy` / `apply` lifecycle bodies. */
 export function listBodies(node: AstNode): BodyRef[] {
@@ -202,7 +198,7 @@ export function workflowBodyStatements(wf: Workflow, member?: BodyKey): Statemen
   return workflowHosts(wf).find((h) => h.key === member)?.statements ?? [];
 }
 
-/** Names bound by a workflow member's own signature — the `create`/`handle`
+/** Names bound by a workflow member's own signature — the `create`
  *  parameter list, or the single `on`/`apply` event parameter. */
 export function workflowBodyParamNames(wf: Workflow, member?: BodyKey): string[] {
   const host = member
@@ -210,7 +206,6 @@ export function workflowBodyParamNames(wf: Workflow, member?: BodyKey): string[]
     : primaryWorkflowCreate(wf);
   if (!host) return [];
   if (host.$type === "WorkflowCreateDecl") return (host as WorkflowCreateDecl).params.map((p) => p.name);
-  if (host.$type === "HandleDecl") return (host as HandleDecl).params.map((p) => p.name);
   if (host.$type === "OnDecl") return [(host as OnDecl).param];
   if (host.$type === "Apply") return [(host as Apply).param];
   return [];

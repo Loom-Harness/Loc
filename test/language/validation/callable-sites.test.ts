@@ -131,13 +131,12 @@ describe("loom.callable-modifier-not-allowed-here — the declared legality tabl
     );
   });
 
-  it("explains `when` on a workflow handle", async () => {
+  it("explains `when` on a workflow create", async () => {
     await expectExplained(
       `      aggregate Thing { name: string }
       repository Things for Thing { }
       workflow flow {
-        create(name: string) { }
-        handle touch(name: string) when true { }
+        create(name: string) when true { }
       }`,
       "A workflow member is orchestration, not an aggregate method",
     );
@@ -182,7 +181,6 @@ system Demo {
       repository Things for Thing { }
       workflow flow {
         create(name: string) requires true { }
-        handle touch(name: string) requires true { }
       }`,
     );
     expect(codes.filter((c) => c === CODE)).toEqual([]);

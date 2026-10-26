@@ -81,6 +81,9 @@ const SUPPRESSION_BASELINE: Record<string, number> = {
   // is reported where it is written ("Unknown type"), so its returns are not
   // checked against it.
   "src/language/validators/callable-bodies.ts": 1,
+  // A member that does not exist on a nullable receiver: the member and
+  // intrinsic checks report the name, which outranks its nullability.
+  "src/language/validators/nullable-receiver.ts": 1,
 };
 
 /** The band the measured `unknown` share must stay inside.  Measured at

@@ -481,6 +481,78 @@ export function findRequiresMoved(
 }
 
 /**
+ * A workflow `handle name(…) { … }` member — the declaration is gone; a named
+ * command entry is a context-level `commandHandler` (D-HANDLE-REMOVAL).
+ * `handle` lexes as a plain name now, so the member alternation reads it as a
+ * state field and trips on the handler's NAME: `Expecting token of type ':'
+ * but found 'go'`.  Name the replacement and the codemod at the `handle`.
+ * Only inside a `workflow { … }` body, so a field genuinely missing its `:`
+ * elsewhere keeps chevrotain's message.  `undefined` for every other failure.
+ */
+export function workflowHandleRemoved(
+  err: IRecognitionException,
+  text: string,
+): RefinedParseError | undefined {
+  const token = err.token;
+  if (!token || Number.isNaN(token.startOffset)) return undefined;
+  // `private handle go(…)` — the `private` modifier commits the parser to a
+  // callable member, so it fails ON `private`, before `handle` is read.
+  const priv = /^private\s+handle\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(
+    text.slice(token.startOffset),
+  );
+  if (token.image === "private" && priv?.[1]) {
+    const offset = token.startOffset + priv[0].indexOf("handle");
+    const workflow = enclosingWorkflowName(text, offset);
+    if (!workflow) return undefined;
+    return {
+      offset,
+      length: "handle".length,
+      message: diagMessage("loom.parse-error#workflow-handle-removed", {
+        workflow,
+        handler: priv[1],
+      }),
+    };
+  }
+  if (!err.message.startsWith("Expecting token of type ':'")) return undefined;
+  if (!/^\s*\(/.test(text.slice(token.startOffset + token.image.length))) return undefined;
+  const before = /(?:^|[^A-Za-z0-9_.])handle\s+$/.exec(text.slice(0, token.startOffset));
+  if (!before) return undefined;
+  const offset = before.index + before[0].indexOf("handle");
+  const workflow = enclosingWorkflowName(text, offset);
+  if (!workflow) return undefined;
+  return {
+    offset,
+    length: "handle".length,
+    message: diagMessage("loom.parse-error#workflow-handle-removed", {
+      workflow,
+      handler: token.image,
+    }),
+  };
+}
+
+/** The name of the `workflow` whose body `{` most closely encloses `offset`,
+ *  or `undefined` when the innermost open block is not a workflow body.
+ *  Brace-counting over the raw text — a heuristic that only ever chooses
+ *  whether to REPLACE a parse message, never whether there is an error. */
+function enclosingWorkflowName(text: string, offset: number): string | undefined {
+  let depth = 0;
+  for (let i = offset - 1; i >= 0; i--) {
+    const ch = text[i];
+    if (ch === "}") depth++;
+    else if (ch === "{") {
+      if (depth > 0) {
+        depth--;
+        continue;
+      }
+      const head = text.slice(Math.max(0, i - 400), i);
+      const m = /\bworkflow\s+([A-Za-z_][A-Za-z0-9_]*)[^{}]*$/.exec(head);
+      return m?.[1];
+    }
+  }
+  return undefined;
+}
+
+/**
  * An access modifier written AFTER the field's default — `status: S = Draft
  * managed`.  `Property` is `name ':' type <modifiers> ('=' default)?`, so the
  * property ends at the default and the modifier (a soft keyword) is read as

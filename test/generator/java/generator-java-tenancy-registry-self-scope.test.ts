@@ -2,17 +2,15 @@
 // Java backend — derived tenancy registry self-scope filter (multi-tenancy
 // Phase 1b, capstone decision 4).
 //
-// The registry's derived `this.id == currentUser.tenantId` rides the same
-// per-query SpEL-principal JPQL path as `tenantOwned`'s filter.  The entity
-// key is an `@EmbeddedId` record (`OrganizationId(UUID value)`), so the
-// comparison navigates into its component (`e.id.value`) and the SpEL side
-// binds the claim AS the id's value type: a `string` claim against a guid id
-// converts through the principal's emitted `<claim>AsUuid()` accessor, which
-// is null for an absent OR MALFORMED claim (M-T3.7(c)) — converting inline in
-// SpEL (`T(java.util.UUID).fromString`) could only null-guard, so a token
-// carrying `tenantId: "not-a-guid"` threw IllegalArgumentException out of
-// query preparation (a 500 for an ordinary bad token).  A same-typed guid
-// claim binds directly through the plain `?.` accessor.
+// The registry's derived `this.id == currentUser.tenantId` is a Hibernate
+// filter on the registry entity, like `tenantOwned`'s: `id = :<param>`, the
+// claim a `@ParamDef` resolved per query, bound AS the id's value type.  A
+// `string` claim against a guid id converts through the principal's emitted
+// `<claim>AsUuid()` accessor, which is null for an absent OR MALFORMED claim
+// (M-T3.7(c)) — so a token carrying `tenantId: "not-a-guid"` matches no row
+// instead of throwing out of query preparation.  A same-typed guid claim
+// binds directly.  The filter is named `<Registry>_tenancy`: only
+// `ignoring *` lifts it.
 // ---------------------------------------------------------------------------
 
 import { readFileSync } from "node:fs";
@@ -39,6 +37,11 @@ const guidClaim = (src: string): string =>
       "aggregate Invoice crossTenant with crudish",
     );
 
+async function orgEntity(src: string = SRC): Promise<string> {
+  const files = await generateSystemFiles(src);
+  return files.get(`${ROOT}/features/organizations/Organization.java`)!;
+}
+
 async function orgRepo(src: string = SRC): Promise<string> {
   const files = await generateSystemFiles(src);
   return files.get(`${ROOT}/features/organizations/OrganizationJpaRepository.java`)!;
@@ -46,16 +49,26 @@ async function orgRepo(src: string = SRC): Promise<string> {
 
 describe("java generator — derived registry self-scope filter", () => {
   it("binds a same-typed guid claim directly (no UUID.fromString)", async () => {
-    const repo = await orgRepo(guidClaim(SRC));
-    expect(repo).toContain("e.id.value = :#{@currentUserAccessor.user()?.tenantId()}");
-    expect(repo).not.toContain("fromString");
+    const entity = await orgEntity(guidClaim(SRC));
+    expect(entity).toContain(
+      '@ParamDef(name = "__cuTenantId", type = java.util.UUID.class, resolver = Organization.FilterParam__cuTenantId.class)',
+    );
+    expect(entity).toContain(
+      '@Filter(name = "Organization_tenancy", condition = "id = :__cuTenantId")',
+    );
+    expect(entity).toContain("return __cu == null ? null : __cu.tenantId();");
+    expect(entity).not.toContain("fromString");
   });
 
-  it("routes the reified-retrieval (Criteria) self-scope through the same accessor", async () => {
-    // A `criterion` on the registry emits a `tenantScope(User)` Specification
-    // that bypasses the @Query reads.  It must navigate the @EmbeddedId to its
-    // `value` component AND bind the parsed claim — comparing the embeddable
-    // to a raw String threw for EVERY claim, well-formed or not.
+  it("binds a string claim through the null-on-malformed AsUuid accessor", async () => {
+    const entity = await orgEntity();
+    expect(entity).toContain(
+      '@Filter(name = "Organization_tenancy", condition = "id = :__cuTenantIdAsUuid")',
+    );
+    expect(entity).toContain("return __cu == null ? null : __cu.tenantIdAsUuid();");
+  });
+
+  it("a reified retrieval (Criteria) runs under the same entity filter, with no scope of its own", async () => {
     const withCriterion = SRC.replace(
       "      aggregate Organization with crudish {\n        name: string\n      }",
       '      aggregate Organization with crudish {\n        name: string\n      }\n      criterion NamedAcme of Organization = this.name == "Acme"',
@@ -63,16 +76,13 @@ describe("java generator — derived registry self-scope filter", () => {
     expect(withCriterion).not.toBe(SRC); // the fixture still has the shape we patched
     const files = await generateSystemFiles(withCriterion);
     const criteria = files.get(`${ROOT}/domain/criteria/OrganizationCriteria.java`)!;
-    expect(criteria).toContain(
-      'cb.equal(root.get("id").<UUID>get("value"), (currentUser == null ? null : currentUser.tenantIdAsUuid()))',
-    );
+    expect(criteria).not.toContain("tenantScope");
+    expect(criteria).not.toContain("currentUser");
   });
 
-  it("keeps the registry entity free of @SQLRestriction and claim reads", async () => {
-    const files = await generateSystemFiles(SRC);
-    const entity = files.get(`${ROOT}/features/organizations/Organization.java`)!;
-    expect(entity).not.toContain("@SQLRestriction");
-    expect(entity).not.toContain("currentUser");
-    expect(entity).not.toContain("tenantId");
+  it("no registry repository query spells the self-scope", async () => {
+    const repo = await orgRepo();
+    expect(repo).not.toMatch(/tenantId|currentUserAccessor/);
+    expect(await orgEntity()).not.toContain("@SQLRestriction");
   });
 });

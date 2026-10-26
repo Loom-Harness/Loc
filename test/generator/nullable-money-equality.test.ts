@@ -33,6 +33,7 @@ system R {
       function subtotalIsFee(): bool = subtotal == fee
       function feeIs(x: money?): bool = fee == x
       function rateIs(r: decimal): bool = r == rate
+      function feeAbove(): bool = fee > money("0")
       operation charge() {
         precondition fee == null || fee > money("0")
         subtotal := subtotal + money("1")
@@ -74,8 +75,10 @@ describe("node — a `money?` comparison is null-safe", () => {
 
   it("an ordering on a `money?` dispatches through the Decimal method, false when absent", async () => {
     const inv = await file("node", "domain/inv.ts");
-    // #3263: an ordering against an absent side answers false (`?.` → `?? false`).
-    expect(inv).toContain('this._fee === null || ((this._fee)?.gt(new Decimal("0")) ?? false)');
+    // An unguarded ordering against an absent side answers false (`?.` → `?? false`).
+    expect(inv).toContain('return ((this._fee)?.gt(new Decimal("0")) ?? false);');
+    // Behind `fee == null ||` the operand is narrowed to `money`: a plain call.
+    expect(inv).toContain('this._fee === null || this._fee.gt(new Decimal("0"))');
   });
 
   it("`decimal?` (a JS number) keeps native strict equality", async () => {
@@ -90,10 +93,12 @@ describe("java — a `money?`/`decimal?` comparison never reaches compareTo(null
     expect(inv).toContain("return this.fee != null;");
     expect(inv).toContain("return this.fee == null;");
     expect(inv).toContain("return this.subtotal != null;");
-    // #3263: the ordering arm is null-safe (false when absent), never `this.fee.compareTo`.
+    // An unguarded ordering arm is null-safe (false when absent).
     expect(inv).toContain(
-      'this.fee == null || ((java.util.function.BiPredicate<java.math.BigDecimal, java.math.BigDecimal>) (loomL, loomR) -> loomL != null && loomR != null && loomL.compareTo(loomR) > 0).test(this.fee, new BigDecimal("0"))',
+      '((java.util.function.BiPredicate<java.math.BigDecimal, java.math.BigDecimal>) (loomL, loomR) -> loomL != null && loomR != null && loomL.compareTo(loomR) > 0).test(this.fee, new BigDecimal("0"))',
     );
+    // Behind `fee == null ||` the operand is narrowed: a plain compareTo.
+    expect(inv).toContain('this.fee == null || this.fee.compareTo(new BigDecimal("0")) > 0');
     expect(inv).not.toMatch(/compareTo\(null\)/);
   });
 
@@ -124,9 +129,13 @@ describe("elixir — a `money?`/`decimal?` comparison never reaches Decimal.comp
 
   it("an ordering on a `money?` goes through Decimal.compare, not term order", async () => {
     const inv = await file("elixir", "lib/api/c.ex");
-    // #3263: the absent side answers false through a nil clause.
+    // Unguarded, the absent side answers false through a nil clause.
     expect(inv).toContain(
-      'is_nil(record.fee) or (case {record.fee, Decimal.new("0")} do {nil, _} -> false; {loom_l, loom_r} -> Decimal.compare(loom_l, loom_r) == :gt end)',
+      '(case {record.fee, Decimal.new("0")} do {nil, _} -> false; {loom_l, loom_r} -> Decimal.compare(loom_l, loom_r) == :gt end)',
+    );
+    // Behind `fee == null ||` the operand is narrowed: a plain Decimal.compare.
+    expect(inv).toContain(
+      'is_nil(record.fee) or Decimal.compare(record.fee, Decimal.new("0")) == :gt',
     );
   });
 });

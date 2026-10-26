@@ -1,17 +1,14 @@
 // ---------------------------------------------------------------------------
-// Java backend — principal (tenancy) capability filter (DEBT-01 java slice).
+// Java backend — principal (tenancy) capability filter.
 //
-// `filter this.tenantId == currentUser.tenantId` can't ride the static
-// @SQLRestriction (no runtime principal), so it AND-s a Spring Data SpEL
-// clause resolving the ambient request principal through the generated
-// CurrentUserAccessor bean — `:#{@currentUserAccessor.user()?.tenantId()}`,
-// the JPA analogue of node's `requireCurrentUser()` — into every read:
-//   - the JPA-derived findAll/findById (re-declared as scoped @Query overrides,
-//     so a guessed cross-tenant id can't leak),
-//   - each custom find,
-//   - each custom find.
-// The null-safe `?.` keeps it fail-closed.  The non-principal @SQLRestriction
-// path is unaffected; the entity carries no principal @SQLRestriction.
+// `filter this.tenantId == currentUser.tenantId` (a bare filter, so named
+// `<Agg>_filter` and never disabled) is an auto-enabled, by-key
+// Hibernate filter on the entity: its `@ParamDef` resolver reads the ambient
+// request principal whenever Hibernate binds the parameter, so it applies to
+// every query of the entity — the repository's `@Query` finds, Spring Data's
+// derived `findAll`/`count`/`existsById`, the `bumpVersion` update — without a
+// tenant predicate in any of them.  No principal binds null: `tenant_id = NULL`
+// matches no row (fail-closed).
 // ---------------------------------------------------------------------------
 
 import { readFileSync } from "node:fs";
@@ -20,44 +17,50 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = readFileSync("test/e2e/fixtures/java-build/tenancy-filter.ddd", "utf8");
 const ROOT = "api1/src/main/java/com/loom/api1";
-const SPEL = ":#{@currentUserAccessor.user()?.tenantId()}";
 
-async function repo(): Promise<string> {
+async function file(rel: string): Promise<string> {
   const files = await generateSystemFiles(SRC);
-  return files.get(`${ROOT}/features/accounts/AccountJpaRepository.java`)!;
+  return files.get(`${ROOT}/${rel}`)!;
 }
 
 describe("java generator — principal (tenancy) capability filter", () => {
-  it("overrides findAll with a scoped @Query carrying the SpEL principal", async () => {
-    expect(await repo()).toContain(
-      `@Query("select e from Account e where (e.tenantId = ${SPEL})")\n    List<Account> findAll();`,
+  it("is an auto-enabled, by-key named filter on the entity, its claim a resolved parameter", async () => {
+    const entity = await file("features/accounts/Account.java");
+    expect(entity).toContain(
+      '@FilterDef(name = "Account_filter", autoEnabled = true, applyToLoadByKey = true, parameters = {\n' +
+        '    @ParamDef(name = "__cuTenantId", type = String.class, resolver = Account.FilterParam__cuTenantId.class)\n' +
+        "})",
     );
-  });
-
-  it("overrides findById so a guessed cross-tenant id can't leak", async () => {
-    expect(await repo()).toContain(
-      `@Query("select e from Account e where e.id = :id and (e.tenantId = ${SPEL})")\n    Optional<Account> findById(@Param("id") AccountId id);`,
+    expect(entity).toContain(
+      '@Filter(name = "Account_filter", condition = "tenant_id = :__cuTenantId")',
     );
-  });
-
-  it("ANDs the principal into a custom find's own where", async () => {
-    expect(await repo()).toContain(`where (e.balance >= :min) and (e.tenantId = ${SPEL})`);
-  });
-
-  it("does NOT put the principal filter on the entity @SQLRestriction", async () => {
-    const files = await generateSystemFiles(SRC);
-    const entity = files.get(`${ROOT}/features/accounts/Account.java`)!;
     expect(entity).not.toContain("@SQLRestriction");
-    expect(entity).not.toContain("currentUser");
   });
 
-  it("emits the CurrentUserAccessor bean the SpEL resolves through", async () => {
-    const files = await generateSystemFiles(SRC);
-    const accessor = files.get(`${ROOT}/auth/CurrentUserAccessor.java`)!;
-    expect(accessor).toContain("@Component");
-    expect(accessor).toContain("public User user()");
-    const user = files.get(`${ROOT}/auth/User.java`)!;
-    expect(user).toContain(
+  it("resolves the parameter from the ambient principal, null without one", async () => {
+    const entity = await file("features/accounts/Account.java");
+    expect(entity).toContain(
+      "public static final class FilterParam__cuTenantId implements java.util.function.Supplier<String> {",
+    );
+    expect(entity).toContain("var __cu = CurrentUserAccessor.currentOrNull();");
+    expect(entity).toContain("return __cu == null ? null : __cu.tenantId();");
+  });
+
+  it("no repository query spells the tenant predicate; by id is still a query", async () => {
+    const repo = await file("features/accounts/AccountJpaRepository.java");
+    expect(repo).not.toMatch(/tenantId|currentUserAccessor/);
+    expect(repo).toContain('@Query("select e from Account e where e.balance >= :min")');
+    expect(repo).toContain(
+      '@Query("select e from Account e where e.id = :id")\n    Optional<Account> findById(@Param("id") AccountId id);',
+    );
+    // Inherited `findAll` is not re-declared: the filter scopes it.
+    expect(repo).not.toContain("List<Account> findAll();");
+  });
+
+  it("emits the CurrentUserAccessor the resolver reads", async () => {
+    const accessor = await file("auth/CurrentUserAccessor.java");
+    expect(accessor).toContain("public static User currentOrNull()");
+    expect(await file("auth/User.java")).toContain(
       "record User(UUID id, String tenantId, boolean isSystem, String causedBy)",
     );
   });

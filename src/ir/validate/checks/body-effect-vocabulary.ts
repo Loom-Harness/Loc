@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // The effect vocabulary of each body position.
 //
-// A workflow `create` / `on` / `handle` body and a `commandHandler` /
+// A workflow `create` / `on` body and a `commandHandler` /
 // `queryHandler` body all lower to `WorkflowStmtIR`, and what each body DOES is
 // its effect list (`ir/util/effects.ts`): loads, creates, mutations, saves,
 // deletes, emits, calls, a return.  Which of those a body may have is decided
@@ -113,20 +113,6 @@ export const BODY_EFFECT_VOCABULARY: Readonly<
     "call-remote-api": "admit",
     return: "admit",
   },
-  "workflow-handle": {
-    load: "admit",
-    create: "admit",
-    "mutate-aggregate": "admit",
-    "mutate-state": "admit",
-    "read-state": "admit",
-    persist: "admit",
-    delete: "admit",
-    emit: "admit",
-    "call-service": "admit",
-    "call-resource": "admit",
-    "call-remote-api": "admit",
-    return: "admit",
-  },
   "command-handler": {
     load: "admit",
     create: "admit",
@@ -180,7 +166,6 @@ function workflowBodies(wf: WorkflowIR): { position: BodyPosition; body: EffectB
       body: c,
     })),
     ...(wf.subscriptions ?? []).map((o) => ({ position: "workflow-reactor" as const, body: o })),
-    ...(wf.handlers ?? []).map((h) => ({ position: "workflow-handle" as const, body: h })),
   ];
 }
 

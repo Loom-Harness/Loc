@@ -1,10 +1,9 @@
 // -------------------------------------------------------------------------
-// M-T5.34 — the WORKFLOW rulings of the validator packet:
+// M-T5.34 — a WORKFLOW ruling of the validator packet:
 //
-//   loom.workflow-handle-unsupported   (#2864 D5, fleet-plan decision D-1(c))
 //   loom.reactor-without-starter       (#2864 G2)
 //
-// Each ruling gets a model that FAILS the gate and a sibling that PASSES, so
+// The ruling gets a model that FAILS the gate and a sibling that PASSES, so
 // the test pins the boundary rather than just the diagnostic.  The entity-part
 // ruling lives in `entity-part-param.test.ts`.
 //
@@ -26,14 +25,6 @@ async function codesFor(source: string): Promise<string[]> {
   return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? "");
 }
 
-/** The rendered message for one code (the advice is the deliverable here — a
- *  ruling that refuses without naming the alternative is half a diagnostic). */
-async function messageFor(source: string, code: string): Promise<string> {
-  const { model } = await parseString(source, { validate: false });
-  const hit = validateLoomModel(enrichLoomModel(lowerModel(model))).find((d) => d.code === code);
-  return hit?.message ?? "";
-}
-
 const wrap = (body: string) => `
 system S {
   subdomain D { context Ops {
@@ -44,57 +35,6 @@ system S {
 ${body}
   } }
 }`;
-
-// -------------------------------------------------------------------------
-describe("loom.workflow-handle-unsupported (#2864 D5 / decision D-1(c))", () => {
-  // The create SUPPLIES the correlation key, so the only defect is the handler.
-  const withHandle = wrap(`
-    workflow Review {
-      order: Order id
-      st: string
-      create(order: Order id) { st := "Filed" }
-      handle approve() { st := "Approved" }
-    }`);
-
-  const withoutHandle = wrap(`
-    workflow Review {
-      order: Order id
-      st: string
-      create(order: Order id) { st := "Filed" }
-    }`);
-
-  it("rejects a `handle` continuation — it is emitted by no backend", async () => {
-    expect(await codesFor(withHandle)).toContain("loom.workflow-handle-unsupported");
-  });
-
-  it("the same workflow without the `handle` passes", async () => {
-    expect(await codesFor(withoutHandle)).not.toContain("loom.workflow-handle-unsupported");
-  });
-
-  it("fires once per declared handler, naming each", async () => {
-    const two = wrap(`
-      workflow Review {
-        order: Order id
-        st: string
-        create(order: Order id) { st := "Filed" }
-        handle approve() { st := "Approved" }
-        handle reject() { st := "Rejected" }
-      }`);
-    const codes = (await codesFor(two)).filter((c) => c === "loom.workflow-handle-unsupported");
-    expect(codes).toHaveLength(2);
-  });
-
-  it("names the two spellings that DO work, so the author is not merely refused", async () => {
-    const msg = await messageFor(withHandle, "loom.workflow-handle-unsupported");
-    expect(msg).toContain("approve");
-    expect(msg).toContain("operation");
-    expect(msg).toContain("second workflow");
-  });
-
-  it("isolates: the handle model raises no sibling ruling from this packet", async () => {
-    expect(await codesFor(withHandle)).not.toContain("loom.reactor-without-starter");
-  });
-});
 
 // -------------------------------------------------------------------------
 describe("loom.reactor-without-starter (#2864 G2)", () => {

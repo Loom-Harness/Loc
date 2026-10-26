@@ -307,17 +307,7 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  `.ddd` spelling.  Compile- and BOOT-proved on a real Postgres
  *  (`test/generator/java/java-reserved-identifier.test.ts`,
  *  `test/fixtures/corpus/java-reserved-words.ddd`). */
-/** 24 -> 25 (M-T5.34, audit #2864 D5): +`loom.workflow-handle-unsupported`.
- *  A LIVE gap on every shipping target, not a seam: `handle name(…) { … }` has
- *  never been emitted by any backend — searching a generated tree for the
- *  handler's name finds only the mermaid diagram — while `docs/workflow.md`
- *  sold it as the multi-command saga surface, so a model using it validated
- *  `0 error(s)` and produced a saga that could be started and read but never
- *  advanced.  The register's intended trade: a silent five-backend hole becomes
- *  a named, owned, drainable one.  Drained by mission M-T6.58 (the emitter),
- *  which deletes the row and lowers this back to 24.
- *
- *  25 -> 24 (wave C2 packet 2j): `loom.flutter-async-effect-unsupported`
+/** 25 -> 24 (wave C2 packet 2j): `loom.flutter-async-effect-unsupported`
  *  re-classed `gap` -> `scope` under **D-FLUTTER-COMPONENT-BINDINGS**.  A
  *  component's `match await` on an INSTANCE op needs the ROUTE `id`, and a
  *  component has no route by construction — the decision refuses the only
@@ -448,8 +438,12 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  or emitted code that does not compile (`s.matches(…)`, `xs.filter(…)`
  *  verbatim in F# / Dart).  Drains row by row as an emitter learns a feature —
  *  the census then asks for the table row to grow — and the row goes when the
- *  table names every frontend in every row. */
-const MAX_OPEN_GAPS = 18;
+ *  table names every frontend in every row.
+ *
+ *  18 -> 17: `loom.workflow-handle-unsupported` drained by REMOVAL, not by an
+ *  emitter — the workflow `handle` member left the grammar (D-HANDLE-REMOVAL);
+ *  a leftover one is a parse error naming `commandHandler`. */
+const MAX_OPEN_GAPS = 17;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

@@ -43,8 +43,8 @@ export function reactorNeedsPrincipal(
 }
 
 /** Every event-reactor body a workflow declares — its event-triggered
- *  starters and its `on(e)` subscriptions.  Command-triggered creates and
- *  `handle` commands run under a request principal and are not reactors. */
+ *  starters and its `on(e)` subscriptions.  Command-triggered creates
+ *  run under a request principal and are not reactors. */
 export function reactorBodies(
   wf: WorkflowIR,
 ): { label: string; event: string; statements: readonly WorkflowStmtIR[] }[] {
