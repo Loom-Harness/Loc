@@ -1745,7 +1745,7 @@ function emitAggregate(
       renderJavaAbstractBaseEntity(agg, basePkg, pkgFor("entity", agg.name), {
         tph,
         persistence: { schema, voLookup, mangledEnums },
-        restrictionHost: restrictionHostFor(agg, ctx),
+        restrictionHost: restrictionHostFor(agg, ctx, `${basePkg}.domain.enums`),
       }),
       agg.name,
       agg.origin,
@@ -1864,7 +1864,7 @@ function emitAggregate(
       superType,
       operationReturnUnions,
       eventFields,
-      restrictionHost: restrictionHostFor(agg, ctx),
+      restrictionHost: restrictionHostFor(agg, ctx, `${basePkg}.domain.enums`),
       construct,
       opFragments,
       // Event-sourced / document aggregates have no normalised state

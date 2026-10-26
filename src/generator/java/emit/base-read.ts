@@ -21,11 +21,7 @@
 // ---------------------------------------------------------------------------
 
 import { type PolymorphicRead, polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
-import {
-  type EnrichedAggregateIR,
-  type EnrichedBoundedContextIR,
-  exprUsesCurrentUser,
-} from "../../../ir/types/loom-ir.js";
+import type { EnrichedAggregateIR, EnrichedBoundedContextIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, snake } from "../../../util/naming.js";
 import { javaRef } from "../../_imports/java.js";
@@ -37,22 +33,15 @@ import { javaIdValueType } from "./wire.js";
  *  The route answers every subtype's rows, so it exists only where each
  *  subtype's own list read is open to the same caller: a concrete whose `all`
  *  carries a `requires` gate, or whose wire masks a field, would have that
- *  gate or mask bypassed by the base route.  A read under a principal
- *  restriction (tenancy) is not routed either: the tenant predicate rides
- *  each concrete repository's own `@Query`, not the root entity, so a
- *  `from <Base>` query would not apply it. */
+ *  gate or mask bypassed by the base route.  Tenancy needs no gate: its
+ *  restriction is a filter on the root entity (TPH) or on each concrete's
+ *  (TPC), so the base read applies it like every other read. */
 export function routedJavaPolymorphicRead(
   base: EnrichedAggregateIR,
   ctx: EnrichedBoundedContextIR,
 ): PolymorphicRead | undefined {
   const read = polymorphicReadFor(base, ctx.aggregates);
   if (!read) return undefined;
-  const principal = [
-    ...read.restrictions,
-    ...read.subtypeRestrictions.map((g) => g.restriction),
-    ...read.variants.flatMap((v) => v.scope.restrictions),
-  ].some((r) => r.predicate !== undefined && exprUsesCurrentUser(r.predicate));
-  if (principal) return undefined;
   const open = read.variants.every((v) => {
     const concrete = ctx.aggregates.find((a) => a.name === v.aggregate);
     const all = ctx.repositories

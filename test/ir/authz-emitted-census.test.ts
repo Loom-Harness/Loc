@@ -684,8 +684,8 @@ const LEAK_AGG: Record<VariantId, Edit[]> = {
     {
       file: /StoreQueryProjections\.java$/,
       after: "orderVolume()",
-      from: " where (e.tenantId = :__cuTenantId)",
-      to: "",
+      from: "        Object r = entityManager.createQuery(",
+      to: '        entityManager.unwrap(org.hibernate.Session.class).disableFilter("Order_tenantOwned");\n        Object r = entityManager.createQuery(',
     },
   ],
   python: [

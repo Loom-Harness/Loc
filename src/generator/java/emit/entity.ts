@@ -45,6 +45,8 @@ import {
   renderJavaType,
   withLambdaScope,
 } from "../render-expr.js";
+import { principalBindExpr } from "../render-jpql.js";
+import type { FilterParam } from "../render-sql-restriction.js";
 import {
   declarationSubRegion,
   renderJavaStatementChunks,
@@ -68,6 +70,7 @@ const SQL_TYPES = javaRef("org.hibernate.type", "SqlTypes");
 const SQL_RESTRICTION = javaRef("org.hibernate.annotations", "SQLRestriction");
 const FILTER = javaRef("org.hibernate.annotations", "Filter");
 const FILTER_DEF = javaRef("org.hibernate.annotations", "FilterDef");
+const PARAM_DEF = javaRef("org.hibernate.annotations", "ParamDef");
 const AUDITING_ENTITY_LISTENER = javaRef(
   "org.springframework.data.jpa.domain.support",
   "AuditingEntityListener",
@@ -1153,7 +1156,7 @@ export function renderJavaEntity(
     persistence && isRoot && isAgg(entity) && !superType?.sharesIdentity
       ? options.restrictionHost
       : undefined;
-  const restrictionAnnotations = host ? renderRestrictionAnnotations(host) : [];
+  const restrictionAnnotations = host ? renderRestrictionAnnotations(host, entity.name) : [];
   return lines(
     `package ${pkg};`,
     ``,
@@ -1195,6 +1198,7 @@ export function renderJavaEntity(
     ``,
     ...accessorLines,
     ...body,
+    ...renderFilterParamResolvers(host, basePkg),
     `}`,
     ``,
   );
@@ -1205,20 +1209,57 @@ export function renderJavaEntity(
  *  bypassable one is a named filter: `autoEnabled` gives it the same always-on
  *  semantics with no interceptor, and `applyToLoadByKey` keeps by-id and lazy
  *  loads filtered — without it a primary-key load returns the hidden row. */
-function renderRestrictionAnnotations(host: RestrictionHost): string[] {
+function renderRestrictionAnnotations(host: RestrictionHost, entity: string): string[] {
+  const paramDef = (prm: FilterParam): string =>
+    `@${PARAM_DEF}(name = ${JSON.stringify(prm.name)}, type = ${prm.javaType}.class, resolver = ${entity}.${resolverClassName(prm)}.class)`;
   return [
     ...(host.sqlRestriction.length > 0
       ? [`@${SQL_RESTRICTION}(${JSON.stringify(host.sqlRestriction.join(" and "))})`]
       : []),
-    ...host.filters.map(
-      (f) =>
-        `@${FILTER_DEF}(name = ${JSON.stringify(f.name)}, autoEnabled = true, applyToLoadByKey = true)`,
-    ),
+    ...host.filters.flatMap((f) => {
+      const head = `@${FILTER_DEF}(name = ${JSON.stringify(f.name)}, autoEnabled = ${f.autoEnabled}, applyToLoadByKey = true`;
+      if (f.params.length === 0) return [`${head})`];
+      return [
+        `${head}, parameters = {`,
+        ...f.params.map((prm, i) => `    ${paramDef(prm)}${i < f.params.length - 1 ? "," : ""}`),
+        `})`,
+      ];
+    }),
     ...host.filters.map(
       (f) =>
         `@${FILTER}(name = ${JSON.stringify(f.name)}, condition = ${JSON.stringify(f.condition)})`,
     ),
   ];
+}
+
+/** The nested class resolving one principal filter parameter. */
+function resolverClassName(prm: FilterParam): string {
+  return `FilterParam${prm.name}`;
+}
+
+/** The resolver classes an entity's principal filter parameters name: each a
+ *  `Supplier` Hibernate calls whenever it binds the parameter, reading the
+ *  ambient request principal — so the value is the principal of the query
+ *  being run, never one captured when the session opened.  The value is the
+ *  same Java expression the JPQL EntityManager mode binds (`principalBindExpr`):
+ *  null, or false, without a principal. */
+function renderFilterParamResolvers(host: RestrictionHost | undefined, basePkg: string): string[] {
+  if (!host) return [];
+  const params = new Map<string, FilterParam>();
+  for (const f of host.filters) for (const prm of f.params) params.set(prm.name, prm);
+  if (params.size === 0) return [];
+  const accessor = javaRef(`${basePkg}.auth`, "CurrentUserAccessor");
+  return [...params.values()].flatMap((prm) => [
+    ``,
+    `    /** Resolves the \`${prm.name}\` filter parameter from the request principal. */`,
+    `    public static final class ${resolverClassName(prm)} implements java.util.function.Supplier<${prm.javaType}> {`,
+    `        @Override`,
+    `        public ${prm.javaType} get() {`,
+    `            var __cu = ${accessor}.currentOrNull();`,
+    `            return ${principalBindExpr(prm.entry, "__cu")};`,
+    `        }`,
+    `    }`,
+  ]);
 }
 
 /** The abstract base class for TPC / TPH hierarchies.  TPH bases own the
@@ -1247,7 +1288,7 @@ export function renderJavaAbstractBaseEntity(
   const renderCtx: JavaRenderContext = { thisName: "this", agg: base };
   const hostedRestrictions =
     options.persistence && options.tph && options.restrictionHost
-      ? renderRestrictionAnnotations(options.restrictionHost)
+      ? renderRestrictionAnnotations(options.restrictionHost, base.name)
       : [];
   const persistence = options.persistence;
   // `protected` — concretes may live in a different package (byLayer)
@@ -1357,6 +1398,10 @@ export function renderJavaAbstractBaseEntity(
     ``,
     ...idAccessor,
     ...body,
+    ...renderFilterParamResolvers(
+      options.persistence && options.tph ? options.restrictionHost : undefined,
+      basePkg,
+    ),
     `}`,
     ``,
   );

@@ -47,10 +47,14 @@ describe("java generator — polymorphic base read", () => {
     expect(ctl).not.toContain('@GetMapping("/{id}")');
   });
 
-  it("a hierarchy under tenancy is not routed: the tenant predicate is not on the root", async () => {
+  it("a hierarchy under tenancy is routed: the tenant filter is on the root entity", async () => {
     const all = await files("inheritance-read-restrictions");
-    expect([...all.keys()].filter((p) => /\/(Vehicles|Crews)Controller\.java$/.test(p))).toEqual(
-      [],
+    const ctl = all.get(`${ROOT}/vehicles/VehiclesController.java`)!;
+    expect(ctl).toContain('"select e from Vehicle e order by e.id"');
+    expect(ctl).not.toMatch(/tenantId|currentUser/);
+    expect(all.get(`${ROOT}/vehicles/Vehicle.java`)!).toContain(
+      '@Filter(name = "Vehicle_tenantOwned", condition = "tenant_id = :__cuTenantId")',
     );
+    expect(all.get(`${ROOT}/crews/CrewsController.java`)).toBeDefined();
   });
 });

@@ -23,9 +23,9 @@
 //      `authz-filter` node (`src/ir/util/walk.ts`);
 //   3. so `exprUsesCurrentUser` answers true for the sentinel;
 //   4. and the one caller of `renderSqlRestriction` — `restrictionHostFor` in
-//      `capability-filter.ts`, on both its `@SQLRestriction` arm and its
-//      bypassable `@Filter` arm — drops every predicate for which that is
-//      true, before the renderer is reached.
+//      `capability-filter.ts` — sends every predicate for which that is true to
+//      the PRINCIPAL renderer instead (`renderSqlFilterCondition`, a `@Filter`
+//      whose claims are resolved `@ParamDef`s), never to the static one.
 //
 // Link 2 is the load-bearing one and the easiest to lose: it is a single `if`
 // inside one `case` of the shared walker, and deleting it turns a compile-time
@@ -140,25 +140,26 @@ describe("render-sql-restriction: the principal-`scope` refusal is unreachable",
   // LINK 4 — both callers drop it first.  A vacuity guard makes sure the
   // fixture aggregate actually carries a scope predicate, so "dropped" is not
   // "there was nothing there".
-  it("is dropped by BOTH callers before the renderer is reached", () => {
+  it("is routed to the principal filter renderer, never the static one", () => {
     const promoted = new Set(["scopeCap"]);
     const agg = aggWith([SCOPE, DENY], ["scopeCap", undefined]);
     expect(agg.contextFilters, "vacuity: the fixture must carry the scope predicate").toHaveLength(
       2,
     );
 
-    // The always-on `@SQLRestriction` arm.
-    const statics = restrictionHostFor(agg, ctxWith(agg));
-    expect(statics.sqlRestriction).toEqual([renderSqlRestriction(DENY)]);
-    expect(statics.filters).toEqual([]);
-
-    // The bypassable `@FilterDef`/`@Filter` arm, which calls the SAME renderer
-    // and is the arm a reader is most likely to forget.
+    // The always-on `@SQLRestriction` arm carries the deny only.
+    const host = restrictionHostFor(agg, ctxWith(agg));
+    expect(host.sqlRestriction).toEqual([renderSqlRestriction(DENY)]);
+    // The scope is a principal filter, its claims parameters.
+    expect(host.filters).toHaveLength(1);
+    expect(host.filters[0]!.name).toBe("Doc_scopeCap");
+    expect(host.filters[0]!.condition).toContain("data_key like :__cuSubtreeOrgPath");
+    expect(host.filters[0]!.params.map((p) => p.name)).toContain("__cuSubtreeOrgPath");
+    // …promoted or not, the static renderer never sees it.
     const scoped = aggWith([SCOPE], ["scopeCap"]);
-    expect(restrictionHostFor(scoped, ctxWith(scoped, [...promoted]))).toEqual({
-      sqlRestriction: [],
-      filters: [],
-    });
+    const promotedHost = restrictionHostFor(scoped, ctxWith(scoped, [...promoted]));
+    expect(promotedHost.sqlRestriction).toEqual([]);
+    expect(promotedHost.filters.map((f) => f.name)).toEqual(["Doc_scopeCap"]);
   });
 
   // END TO END — the shape that would crash codegen if any link above moved.
@@ -166,10 +167,9 @@ describe("render-sql-restriction: the principal-`scope` refusal is unreachable",
     const files = await generateSystemFiles(SRC);
     const entity = files.get(DOC_ENTITY);
     expect(entity, "the deep-scoped entity must be emitted").toBeTruthy();
-    // The principal scope rides the Specification / SpEL query path, never the
-    // static restriction — so the entity carries no `@SQLRestriction` at all
-    // here, and certainly no subtree predicate.
+    // The principal scope is a parameterised `@Filter`, never the static
+    // restriction — so the entity carries no `@SQLRestriction` at all here.
     expect(entity).not.toContain("@SQLRestriction");
-    expect(entity).not.toContain("dataKey like");
+    expect(entity).toContain("data_key like :__cuSubtreeOrgPath");
   });
 });

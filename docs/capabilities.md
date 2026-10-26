@@ -232,9 +232,13 @@ and elixir has no `document` shape at all.  See *Deferred cases* below.
   `embedded` root (whose scalars are real columns).
 - **Java / Hibernate** — a static `@SQLRestriction("…")` on the
   entity for the non-principal predicate (`src/generator/java/emit/entity.ts`);
-  a **principal** predicate instead AND-s a SpEL-principal JPQL clause
-  (`:#{@currentUserAccessor.user()?.tenantId()}`) into the scoped
-  `findAll`/`findById` overrides + finds/retrievals.  A
+  a **principal** predicate (tenancy) is an auto-enabled `@Filter` whose
+  claims are `@ParamDef` parameters, each resolved from the request
+  principal per query (`CurrentUserAccessor.currentOrNull()`; no principal
+  binds null and matches no row) — so it scopes every query of the entity,
+  Spring Data's `findAll`/`existsById` and the `bumpVersion` update
+  included, and no `@Query` spells it.  A write scope narrower than the read
+  scope is a `<Agg>_writeScope` filter the command load enables.  A
   **non-relational** aggregate filters in-app via `findAll().stream()`
   for `document`, or rides the same `@SQLRestriction` for an `embedded`
   root.  A capability some read `ignoring`s is instead an auto-enabled,

@@ -377,11 +377,14 @@ describe("policy deny — Python (FastAPI/SQLAlchemy)", () => {
 });
 
 describe("policy deny — Java (Spring/JPA)", () => {
-  it('renders @SQLRestriction("1 = 0") (deny read) and `and 1 = 0` in the write @Query', async () => {
+  it('renders @SQLRestriction("1 = 0") (deny read) and a `1 = 0` write-scope filter the command load enables', async () => {
     const text = await allText("java");
     expect(text).toContain('@SQLRestriction("1 = 0")');
-    expect(text).toContain("findByIdForWrite");
-    expect(text).toContain("and 1 = 0");
+    expect(text).toMatch(
+      /@FilterDef\(name = "(\w+)_writeScope", autoEnabled = false, applyToLoadByKey = true\)/,
+    );
+    expect(text).toMatch(/@Filter\(name = "\w+_writeScope", condition = "1 = 0"\)/);
+    expect(text).toMatch(/__session\.enableFilter\("\w+_writeScope"\);/);
   });
 });
 
