@@ -87,6 +87,13 @@ describe("the bundled Keycloak's demo tenant exists (#26)", () => {
     expect(seeds).not.toContain("insert!(");
   });
 
+  it("elixir: the raw registry INSERT fills the migration's NOT NULL inserted_at/updated_at", async () => {
+    const files = await generateSystemFiles(system("elixir", KEYCLOAK));
+    const seeds = [...files].find(([p]) => p.endsWith("/invoicing/seeds.ex"))?.[1];
+    expect(seeds).toContain('inserted_at\\", \\"updated_at\\") VALUES (');
+    expect(seeds).toContain("FALSE, 0, now(), now())");
+  });
+
   it("no bundled Keycloak (dev stub) ⇒ no demo tenant row and no LOOM_SEED", async () => {
     const files = await generateSystemFiles(system("node", ""));
     const all = [...files.values()].join("\n");
