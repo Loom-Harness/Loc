@@ -1,4 +1,5 @@
 import { type PolymorphicRead, polymorphicReadFor } from "../../ir/enrich/read-scope.js";
+import { type WireRejectionClass, wireStatus } from "../../ir/enrich/wire-policy.js";
 import type { EnrichedAggregateIR, EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
 import { isTpcBase, isTphBase, tpcConcretesOf, tphConcretesOf } from "../../ir/util/inheritance.js";
 import { lines } from "../../util/code-builder.js";
@@ -8,6 +9,7 @@ import { rowClassName } from "./py-columns.js";
 import { pyIdType } from "./py-symbols.js";
 import { aggHasFieldMask, aggRef, R, schemaRow } from "./repository-builder.js";
 import { PY_HTTP as H, ID_PARAM, PY_PAGED_CONTROLS, PY_SESSION_DEP } from "./routes-builder.js";
+import { pyNotFoundRaise, pyProblemResponseEntry } from "./wire-policy-py.js";
 
 /** `from app.db.repositories.<snake(agg)>_repository import <Agg>Repository`. */
 const repoRef = (name: string): string =>
@@ -255,19 +257,19 @@ export function buildPyBaseRoutesFile(
     read.variants.length > 1
       ? `${B}Response = ${H.Annotated}[${union}, ${pyRef("pydantic", "Field")}(discriminator="type")]`
       : `${B}Response = ${union}`;
-  const problem = (st: number, title: string): string =>
-    `${st}: {"model": ${H.ProblemDetails}, "description": "${title}"}`;
+  const problem = (cls: WireRejectionClass): string =>
+    pyProblemResponseEntry(wireStatus(cls), H.ProblemDetails);
   const byId =
     read.layout === "sharedTable"
       ? [
           "",
           "",
-          `@router.get("/{id}", response_model=${B}Response, operation_id="get${B}ById", responses={${problem(404, "Not Found")}, ${problem(422, "Unprocessable Entity")}})`,
+          `@router.get("/{id}", response_model=${B}Response, operation_id="get${B}ById", responses={${problem("not-found")}, ${problem("field-invalid")}})`,
           `async def get_${snake(B)}_by_id(${ID_PARAM}, session: SessionDep) -> dict[str, object]:`,
           "    repo = _repo(session)",
           "    found = await repo.find_by_id(id)",
           "    if found is None:",
-          `        raise ${H.AggregateNotFoundError}(f"${B} {id} not found")`,
+          `        ${pyNotFoundRaise(H.AggregateNotFoundError, B, "id")}`,
           "    return repo.to_wire(found)",
         ]
       : [];
@@ -298,7 +300,7 @@ export function buildPyBaseRoutesFile(
     `    return ${repoRef(B)}(session, ${H.NoopDomainEventDispatcher}())`,
     "",
     "",
-    `@router.get("", response_model=${B}Paged, operation_id="all${B}", responses={${problem(422, "Unprocessable Entity")}})`,
+    `@router.get("", response_model=${B}Paged, operation_id="all${B}", responses={${problem("field-invalid")}})`,
     `async def all_${route}(session: SessionDep, ${PY_PAGED_CONTROLS.join(", ")}) -> dict[str, object]:`,
     "    repo = _repo(session)",
     "    result = await repo.find_page(page, pageSize)",
