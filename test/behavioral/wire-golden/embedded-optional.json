@@ -159,7 +159,7 @@
         "detail": "One or more fields are invalid.",
         "errors": [
           {
-            "message": "Required",
+            "message": "customer is required",
             "pointer": "/customer"
           }
         ],
