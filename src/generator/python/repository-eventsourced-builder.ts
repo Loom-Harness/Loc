@@ -9,7 +9,6 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
-import { CONCURRENCY_CONFLICT_SUFFIX } from "../../ir/util/openapi-errors.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
@@ -34,6 +33,7 @@ import {
   toWireMaskedMethod,
   writeGuardInApp,
 } from "./repository-builder.js";
+import { pyConflictRaise, pyNotFoundRaise } from "./wire-policy-py.js";
 
 /** `from app.domain.events import <Event>` — an event dataclass. */
 const eventRef = (name: string): string => pyRef("app.domain.events", name);
@@ -92,7 +92,7 @@ export function buildPyEventSourcedRepositoryFile(
     "        found = await self.find_by_id(id)",
     `        ${PY.log}("debug", "aggregate_loaded", aggregate=${JSON.stringify(agg.name)}, id=str(id), found=found is not None)`,
     "        if found is None:",
-    `            raise ${R.AggregateNotFoundError}(f"${agg.name} {id} not found")`,
+    `            ${pyNotFoundRaise(R.AggregateNotFoundError, agg.name, "id")}`,
     "        return found",
     // Command load (authorization): an event stream has no
     // queryable state columns, so the write-scope guard is checked IN-APP over
@@ -157,7 +157,7 @@ export function buildPyEventSourcedRepositoryFile(
     ...(aggregateIsVersioned(agg)
       ? [
           "            if expected_version is not None and version != expected_version:",
-          `                raise ${R.ConcurrencyError}(f"${agg.name} {aggregate.id} ${CONCURRENCY_CONFLICT_SUFFIX}")`,
+          `                ${pyConflictRaise(R.ConcurrencyError, agg.name, "aggregate.id")}`,
         ]
       : []),
     "            for ev in pending:",
@@ -180,7 +180,7 @@ export function buildPyEventSourcedRepositoryFile(
     "                    )",
     `                except ${R.IntegrityError} as err:`,
     '                    if getattr(getattr(err, "orig", None), "sqlstate", None) == "23505":',
-    `                        raise ${R.ConcurrencyError}(f"${agg.name} {aggregate.id} ${CONCURRENCY_CONFLICT_SUFFIX}") from err`,
+    `                        ${pyConflictRaise(R.ConcurrencyError, agg.name, "aggregate.id")} from err`,
     "                    raise",
     "                await self._events.dispatch(ev)",
     "            aggregate._stream_version = version",

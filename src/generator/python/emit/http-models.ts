@@ -1,16 +1,12 @@
+import { fieldFixedMessage, fieldValuePrefix } from "../../../ir/enrich/wire-policy.js";
 import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { orderValueObjectsByDependency } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
-import { INT32_MAX, INT32_MIN, INTEGER_RANGE_MESSAGE } from "../../../util/numeric-range.js";
+import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
 import { UUID_WIRE_PATTERN } from "../../../util/uuid-wire.js";
 import { PY_IMPORTS, pyRef } from "../../_imports/python.js";
 import { provenancedTypeMembers } from "../../_payload/provenanced-wire.js";
-import {
-  MONEY_INTEGER_DIGITS,
-  MONEY_PRECISION,
-  MONEY_RANGE_MESSAGE,
-  MONEY_WIRE_SCALE,
-} from "../../money-scale.js";
+import { MONEY_INTEGER_DIGITS, MONEY_PRECISION, MONEY_WIRE_SCALE } from "../../money-scale.js";
 import { PY, pyVoOrEnum } from "../py-symbols.js";
 import { PY_CALENDAR_DATE } from "./calendar-date.js";
 import {
@@ -31,6 +27,7 @@ const AFTER_VALIDATOR = pyd("AfterValidator");
 const BEFORE_VALIDATOR = pyd("BeforeValidator");
 const STRING_CONSTRAINTS = pyd("StringConstraints");
 const WITH_JSON_SCHEMA = pyd("WithJsonSchema");
+const STRICT_BOOL = pyd("StrictBool");
 const PYDANTIC_CUSTOM_ERROR = pyRef("pydantic_core", "PydanticCustomError");
 
 /** A reference to one of the shared wire-model module's names
@@ -109,7 +106,7 @@ const PY_MONEY_STR_DEF = [
   "        # The context form, not an f-string: the message is a TEMPLATE, and a",
   "        # value containing braces would otherwise be re-interpreted as one.",
   `        raise ${PYDANTIC_CUSTOM_ERROR}(`,
-  `            "money_format", "Invalid decimal: {value}", {"value": ${PY.json}.dumps(value)}`,
+  `            "money_format", ${JSON.stringify(`${fieldValuePrefix("money-grammar")}: {value}`)}, {"value": ${PY.json}.dumps(value)}`,
   "        )",
   "    # RANGE, not format: the grammar above already passed, and what is left is",
   "    # a magnitude question the COLUMN answers.  Without this a 40-digit price",
@@ -119,7 +116,7 @@ const PY_MONEY_STR_DEF = [
   "    # computed, so a value too large to hold is never constructed.",
   `    if len(value.lstrip("-").split(".")[0].lstrip("0") or "0") > ${MONEY_INTEGER_DIGITS}:`,
   `        raise ${PYDANTIC_CUSTOM_ERROR}(`,
-  `            "money_range", ${JSON.stringify(`${MONEY_RANGE_MESSAGE}: {value}`)}, {"value": ${PY.json}.dumps(value)}`,
+  `            "money_range", ${JSON.stringify(`${fieldValuePrefix("money-range")}: {value}`)}, {"value": ${PY.json}.dumps(value)}`,
   "        )",
   "    return value",
   "",
@@ -207,7 +204,7 @@ export const PY_INT32 = "Int32";
 const PY_INT32_CHECK_DEF = [
   "def _int32(value: int) -> int:",
   `    if not ${INT32_MIN} <= value <= ${INT32_MAX}:`,
-  `        raise ${PYDANTIC_CUSTOM_ERROR}("int_range", ${JSON.stringify(INTEGER_RANGE_MESSAGE)})`,
+  `        raise ${PYDANTIC_CUSTOM_ERROR}("int_range", ${JSON.stringify(fieldFixedMessage("integer-range"))})`,
   "    return value",
   "",
   "",
@@ -350,8 +347,12 @@ function wireFieldType(
           return inbound ? wireModelRef(PY_WIRE_STR) : "str";
         case "guid":
           return "str";
+        // REQUEST body only: pydantic's lax bool takes `"true"`, `"yes"`, `1`,
+        // which no other backend does (D-NUMERIC-INGRESS-STRICT applies to
+        // every JSON type).  A query parameter arrives as the URL's text, so a
+        // `param` keeps the lax bool.
         case "bool":
-          return "bool";
+          return dir === "request" ? STRICT_BOOL : "bool";
         case "datetime":
           return inbound ? PY.datetime : "str";
         // Inbound, pydantic parses the ISO `YYYY-MM-DD` text into a date and
