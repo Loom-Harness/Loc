@@ -31,6 +31,7 @@ import type { EnrichedLoomModel } from "../../../src/ir/types/loom-ir.js";
 import type { MigrationStep, TableShape } from "../../../src/ir/types/migrations-ir.js";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
+import { validateLoomModel } from "../../../src/ir/validate/validate.js";
 import { diagMessage } from "../../../src/diagnostics/messages.js";
 import { renderPgStep } from "../../../src/generator/sql-pg.js";
 import {
@@ -87,6 +88,15 @@ function collectDiagnostics(
   return out;
 }
 
+function irDiagnostics(loom: EnrichedLoomModel): BuildDiagnostic[] {
+  return validateLoomModel(loom).map((d) => ({
+    severity: d.severity === "error" ? ("error" as const) : ("warning" as const),
+    message: d.message,
+    source: "loom-ir",
+    code: d.code,
+  }));
+}
+
 function loweringDiag(err: unknown): BuildDiagnostic {
   return {
     severity: "error",
@@ -120,6 +130,7 @@ function chainDiag(err: MigrationChainError): BuildDiagnostic {
  *  `/workspace/*` doc (or the other diff side). */
 async function loadEvolutionTree(
   tree: EvolutionTree,
+  { validate }: { validate: boolean },
 ): Promise<
   | {
       loom: EnrichedLoomModel;
@@ -136,6 +147,14 @@ async function loadEvolutionTree(
     const diagnostics = collectDiagnostics(all);
     if (diagnostics.some((d) => d.severity === "error")) return { error: diagnostics };
     const loom = enrichLoomModel(lowerProject(all.map((d) => d.parseResult?.value as Model)));
+    if (validate) {
+      // The IR checks `ddd migrate add` runs before recording: a model they
+      // refuse (an `index:` on a removed field, a dangling reference) derives
+      // migrations that cannot apply.
+      const ir = irDiagnostics(loom);
+      diagnostics.push(...ir);
+      if (ir.some((d) => d.severity === "error")) return { error: diagnostics };
+    }
     return { loom, diagnostics, chainFiles: readChainFiles(vfs, tree.entryPath) };
   } catch (err) {
     // Missing import / cycle (from the loader) or a lowering throw.
@@ -150,7 +169,7 @@ export async function runEvolution(params: EvolutionParams): Promise<EvolutionRe
   // Load the CURRENT tree — its diagnostics are what the user acts on, and a
   // broken current source can't be diffed.  Each side is fully isolated (own
   // services + VFS), so ordering / disposal between sides is moot.
-  const curLoaded = await loadEvolutionTree(params.current);
+  const curLoaded = await loadEvolutionTree(params.current, { validate: true });
   if ("error" in curLoaded) return { ok: false, diagnostics: curLoaded.error };
   const curLoom = curLoaded.loom;
   const curDiags = curLoaded.diagnostics;
@@ -176,7 +195,7 @@ export async function runEvolution(params: EvolutionParams): Promise<EvolutionRe
 
   let baseSystemsByName = new Map<string, EnrichedLoomModel["systems"][number]>();
   if (params.baseline && params.baseline.files.length > 0) {
-    const baseLoaded = await loadEvolutionTree(params.baseline);
+    const baseLoaded = await loadEvolutionTree(params.baseline, { validate: false });
     // A baseline that no longer loads/lowers (a since-removed feature, a
     // missing import at that ref) is treated as absent rather than failing
     // the whole diff — everything then reads Initial.
@@ -278,7 +297,7 @@ export async function runEvolution(params: EvolutionParams): Promise<EvolutionRe
 export async function recordMigration(
   params: RecordMigrationParams,
 ): Promise<RecordMigrationResult> {
-  const loaded = await loadEvolutionTree(params.current);
+  const loaded = await loadEvolutionTree(params.current, { validate: true });
   if ("error" in loaded) return { ok: false, diagnostics: loaded.error };
   const refuse = (message: string): RecordMigrationResult => ({
     ok: false,

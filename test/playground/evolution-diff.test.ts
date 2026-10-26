@@ -102,8 +102,10 @@ describe("runEvolution", () => {
   });
 
   it("edit-driven: adding a field to an aggregate surfaces an add-column migration", async () => {
-    // Add `phone: string` to the Customer aggregate (which has `email: string`).
-    const edited = SALES.replace("email: string", "email: string\n        phone: string");
+    // Add `phone` to the Customer aggregate (which has `email: string`).  It is
+    // optional because the example's `test e2e` blocks create a Customer
+    // without it, which the IR validator refuses for a required field.
+    const edited = SALES.replace("email: string", "email: string\n        phone: string?");
     expect(edited).not.toBe(SALES); // guard: the anchor matched
     const r = await runEvolution({ baseline: tree(SALES), current: tree(edited) });
     expect(r.ok).toBe(true);
@@ -120,7 +122,7 @@ describe("runEvolution", () => {
     // The Migrations tab tints a schema diagram by the diff, so the DTO has
     // to carry EVERY current table (untouched ones included) plus the table
     // each step targets — `migration-tint.test.ts` covers the tint itself.
-    const edited = SALES.replace("email: string", "email: string phone: string");
+    const edited = SALES.replace("email: string", "email: string phone: string?");
     const r = (await runEvolution({ baseline: tree(SALES), current: tree(edited) })) as EvolutionOk;
     expect(r.ok).toBe(true);
     const names = r.tables.map((t) => t.name);
