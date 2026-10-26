@@ -1135,6 +1135,10 @@ function applySuffixToRecv(
   // but track the next type using `memberType` so chained access
   // through array.count etc. continues to type correctly.
   const stepType = passType(suffix, env);
+  if (recv.kind === "this") {
+    const own = thisDataRef(ms.member, env);
+    if (own) return { recv: own, recvType: stepType };
+  }
   const memberIR: ExprIR = {
     kind: "member",
     receiver: recv,
@@ -2160,6 +2164,65 @@ export function ambientResourceKind(name: string, env: Env): DataSourceKind | un
   return env.resources?.get(name);
 }
 
+/** The enclosing entity / value object / workflow / projection a bare name or `this.` read resolves against. */
+function ownerOfEnv(env: Env) {
+  return env.part ?? env.aggregate ?? env.valueObject ?? env.workflow ?? env.projection;
+}
+
+/**
+ * The owner's members as a bare name sees them.  An aggregate's `this`-props
+ * include the ones it inherits through `extends` — the base's members are
+ * merged onto the subtype at ENRICH time, which is after this pass, so the
+ * chain has to be walked here (see `memberOwnerChain`).  Own members shadow
+ * the base's.
+ */
+function ownerMembersOf(owner: NonNullable<ReturnType<typeof ownerOfEnv>>, env: Env) {
+  return owner === env.aggregate && isAggregate(owner)
+    ? memberOwnerChain(owner).flatMap((o) => o.members)
+    : owner.members;
+}
+
+/**
+ * The `this`-property ref for member `m` when it is the data member called
+ * `name` (property / containment / derived).  The one place a property read is
+ * given its IR shape: the bare spelling (`total`) and the dotted spelling
+ * (`this.total`) both come through here, so every backend sees a single node.
+ */
+function dataMemberRef(m: AstNode, name: string, isVo: boolean): ExprIR | undefined {
+  if (isProperty(m) && m.name === name) {
+    return {
+      kind: "ref",
+      name,
+      refKind: isVo ? "this-vo-prop" : "this-prop",
+      type: lowerType(m.type),
+    };
+  }
+  if (isContainment(m) && m.name === name) {
+    const partName = m.partType?.ref?.name ?? "Unknown";
+    const t: TypeIR = m.collection
+      ? { kind: "array", element: { kind: "entity", name: partName } }
+      : { kind: "entity", name: partName };
+    return { kind: "ref", name, refKind: "this-prop", type: t };
+  }
+  if (isDerivedProp(m) && m.name === name) {
+    return { kind: "ref", name, refKind: "this-derived", type: lowerType(m.type) };
+  }
+  return undefined;
+}
+
+/** `this.<name>` resolved against the enclosing owner, or undefined outside domain-logic bodies or when `name` is not one of its data members. */
+function thisDataRef(name: string, env: Env): ExprIR | undefined {
+  if (!env.thisPropRead) return undefined;
+  const owner = ownerOfEnv(env);
+  if (!owner) return undefined;
+  const isVo = !!env.valueObject;
+  for (const m of ownerMembersOf(owner, env)) {
+    const r = dataMemberRef(m, name, isVo);
+    if (r) return r;
+  }
+  return undefined;
+}
+
 function resolveNameRef(name: string, env: Env, node?: AstNode): ExprIR {
   // Criterion-parameter substitution — while inlining a criterion body, a
   // bare reference to one of its parameters resolves to the caller's
@@ -2224,41 +2287,12 @@ function resolveNameRef(name: string, env: Env, node?: AstNode): ExprIR {
   // Property of enclosing entity / value object / workflow.  A workflow is a
   // state-bearing entity (workflow-and-applier.md A2): its `Property` members
   // resolve as `this`-props exactly like aggregate fields.
-  const owner = env.part ?? env.aggregate ?? env.valueObject ?? env.workflow ?? env.projection;
+  const owner = ownerOfEnv(env);
   if (owner) {
     const isVo = !!env.valueObject;
-    // An aggregate's `this`-props include the ones it inherits through
-    // `extends` — the base's members are merged onto the subtype at ENRICH
-    // time, which is after this pass, so the chain has to be walked here (see
-    // `memberOwnerChain`).  Own members shadow the base's.
-    const ownerMembers =
-      owner === env.aggregate && isAggregate(owner)
-        ? memberOwnerChain(owner).flatMap((o) => o.members)
-        : owner.members;
-    for (const m of ownerMembers) {
-      if (isProperty(m) && m.name === name) {
-        return {
-          kind: "ref",
-          name,
-          refKind: isVo ? "this-vo-prop" : "this-prop",
-          type: lowerType(m.type),
-        };
-      }
-      if (isContainment(m) && m.name === name) {
-        const partName = m.partType?.ref?.name ?? "Unknown";
-        const t: TypeIR = m.collection
-          ? { kind: "array", element: { kind: "entity", name: partName } }
-          : { kind: "entity", name: partName };
-        return { kind: "ref", name, refKind: "this-prop", type: t };
-      }
-      if (isDerivedProp(m) && m.name === name) {
-        return {
-          kind: "ref",
-          name,
-          refKind: "this-derived",
-          type: lowerType(m.type),
-        };
-      }
+    for (const m of ownerMembersOf(owner, env)) {
+      const dataRef = dataMemberRef(m, name, isVo);
+      if (dataRef) return dataRef;
       if (isFunctionDecl(m) && m.name === name) {
         // A workflow `function` is a per-workflow-scoped module helper, not a
         // `this`-method — carry the workflow name so a bare (nullary) reference
