@@ -299,12 +299,6 @@ const BACKENDS: BackendCensus[] = [
         reason: "ExprTarget money.ceil() stdlib intrinsic, not a read boundary",
       },
       {
-        file: "src/generator/elixir/heex-walker-core.ts",
-        contains: "Decimal.to_integer(Decimal.round(${v}, 0, :down))",
-        reason:
-          "HEEx walker's int-convert intrinsic (parallels render-expr.ts), not a read boundary",
-      },
-      {
         file: "src/generator/elixir/liveview-emit.ts",
         contains: "defp number_of(%Decimal{} = v), do: Decimal.to_float(v)",
         reason:

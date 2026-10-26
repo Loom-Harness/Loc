@@ -42,6 +42,7 @@ import {
   localizedHeexAttr,
   type PrimitiveSpec,
   positionalRole,
+  registerBinding,
   renderAttrValue,
   renderChild,
   renderExpr,
@@ -253,7 +254,7 @@ ${heading}${childrenHeex}
   const params = op ? op.params.map((p) => ({ name: p.name, type: p.type })) : [];
 
   const gated = !!(agg && op && servesCanProbe(agg, op));
-  ctx.formBindings.push({
+  registerBinding(ctx, ctx.formBindings, {
     kind: "operation",
     name: ofName,
     op: opSnake,
@@ -400,9 +401,9 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
     return `<%!-- ${giveUpText("loom.page-ref-unreachable", `WorkflowForm(runs: ${runsWorkflow.name}): an event-triggered workflow has no command route to submit to`)} --%>`;
   }
   if (ofPascal) {
-    ctx.formBindings.push({ kind: "aggregate", name: ofPascal });
+    registerBinding(ctx, ctx.formBindings, { kind: "aggregate", name: ofPascal });
   } else if (runsPascal) {
-    ctx.formBindings.push({
+    registerBinding(ctx, ctx.formBindings, {
       kind: "workflow",
       name: runsPascal,
       ...(runsWorkflow ? { params: runsWorkflow.params } : {}),
@@ -825,7 +826,7 @@ export function renderTable(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
     rowsAttr = `${helpers}.page_rows(${rowsAttr}, @${pageRef}, ${pageSize})`;
   }
   if (sortActive || pageActive) {
-    ctx.tableControls.push({
+    registerBinding(ctx, ctx.tableControls, {
       sortKey: sortActive ? sortKey : undefined,
       sortDir: sortActive ? sortDir : undefined,
       page: pageActive ? pageRef : undefined,
@@ -958,7 +959,7 @@ function stateRefArg(
   const arg = namedArg(call, name);
   if (arg?.kind !== "ref") return undefined;
   const assign = snake(arg.name);
-  return ctx.stateNames.has(assign) ? assign : undefined;
+  return ctx.stateNames.has(assign) ? hostStateAssign(ctx.stateOwner, arg.name) : undefined;
 }
 
 /** Render a `Column("label", accessor_lambda)` node as a
@@ -1343,7 +1344,7 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
   if (projectionRead) {
     // The projection load takes no arguments (the read IS the row) and no
     // `listArgs` — a query-time projection has no page/sort surface.
-    ctx.queryBindings.push({
+    registerBinding(ctx, ctx.queryBindings, {
       kind: isSingle ? "single" : "list",
       assign: assignName,
       aggregate: projectionRead,
@@ -1355,7 +1356,7 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
     // passed (`socket.assigns.id` on a scaffolded detail page) — the loader
     // takes it as an argument rather than reaching for `@id`, so a hand-written
     // `history(someOtherId)` loads what it asked for.
-    ctx.queryBindings.push({
+    registerBinding(ctx, ctx.queryBindings, {
       kind: "list",
       assign: assignName,
       aggregate: historyRead,
@@ -1370,7 +1371,7 @@ export function renderQueryView(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wa
         ? resolveQueryAggregate(ofArgNode)
         : undefined;
   if (aggName) {
-    ctx.queryBindings.push({
+    registerBinding(ctx, ctx.queryBindings, {
       kind: isSingle ? "single" : "list",
       assign: assignName,
       aggregate: aggName,
@@ -2015,6 +2016,9 @@ export function renderMoney(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
  *  user `component` body.  Flags `ctx.slotUsed` so the component emitter
  *  declares the matching `slot :inner_block`. */
 export function renderSlot(_expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
+  // An INLINED component call has no `@inner_block`: its children render here,
+  // in the caller's scope (`WalkContext.inlineSlot`).
+  if (ctx.inlineSlot) return ctx.inlineSlot();
   ctx.slotUsed.value = true;
   return `{render_slot(@inner_block)}`;
 }
@@ -2333,15 +2337,18 @@ export function renderFileUpload(
   // which yields `<%= pgettext(…) %>` under i18n and the escaped literal off it.
   const labelText = labelArg ? renderInTemplate(labelArg, ctx, "inputLabel") : "";
   const testidAttr = testIdAttr(expr, ctx);
-  const field = bind ? snake(bind) : undefined;
-  if (!field || !ctx.stateNames.has(field)) {
+  const bound = bind ? snake(bind) : undefined;
+  if (!bound || !ctx.stateNames.has(bound)) {
     // Nothing to two-way bind to — a disabled plain file input, so the page
     // still renders (validators catch a genuinely-unresolvable bind upstream).
     return `<label class="block text-sm font-medium">${labelText}<input type="file" disabled${testidAttr} /></label>`;
   }
+  // The host assign the FileRef is written into: a component's lifted state is
+  // namespaced (`hostStateAssign`), a page's keeps its bare name.
+  const field = hostStateAssign(ctx.stateOwner, bound);
   // One allow_upload / progress consumer per bound field (mount + module body).
   if (!ctx.uploadBindings.some((u) => u.field === field)) {
-    ctx.uploadBindings.push({ field });
+    registerBinding(ctx, ctx.uploadBindings, { field });
   }
   // A live-file-input form must carry a `phx-change`; hoist the (no-op) clause
   // once per field.  `phx-submit` reuses it so an accidental Enter can't trigger
@@ -2750,7 +2757,7 @@ export function renderChart(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCo
     return `<%!-- ${giveUpText("loom.page-ref-unreachable", "Chart: unresolved 'of:' projection")} --%>`;
   }
   const assign = snake(projection);
-  ctx.queryBindings.push({
+  registerBinding(ctx, ctx.queryBindings, {
     kind: "list",
     assign,
     aggregate: projection,

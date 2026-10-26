@@ -4647,9 +4647,8 @@ still each framework's (node's zod text is itself zod-major-specific:
 `Invalid input: expected string, received undefined` on zod 4, `Required` on
 3). Whether to adopt a zod text as the cross-backend contract or mint a
 Loom-owned sentence is its own question — mission M-T6.93. Elixir's
-create/update CHANGESET still renders a message-less single-field rule
-through Ecto's own validators and text — mission M-T6.96 (that seam is wave
-C3F packet F1's tree); its operation rung follows this ruling.
+create/update changeset passes the same sentence as the `message:` of each
+message-less single-field validator, as its operation rung does.
 
 **Consequences.** .NET appends `.WithMessage(<node sentence>)` to each
 native FluentValidation arm (`dotnet/validator-emit.ts`); java passes the

@@ -62,7 +62,7 @@ describe("elixir/vanilla — messaged single-field rule → residual carrier + w
     // (RS-31).  Still the native chain — not the residual carrier.
     expect(cs).toContain("|> validate_change(:sku, fn _, value ->");
     expect(cs).toContain(
-      '[{:sku, {"should be at least %{count} character(s)", count: 1, validation: :length, kind: :min, type: :string}}]',
+      '[{:sku, {"Sku must be at least 1 character", count: 1, validation: :length, kind: :min, type: :string}}]',
     );
   });
 });

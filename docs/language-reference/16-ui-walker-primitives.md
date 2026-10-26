@@ -1446,7 +1446,6 @@ Where a target cannot render a primitive the compiler says so — a `loom.*` err
 | `loom.chart-unsupported-target` | `Chart` on a frontend with no chart renderer — none of the seven today |
 | `loom.flutter-primitive-unsupported` | a primitive the Flutter pack has no renderer for — none in the current registry (the message still names `FileUpload`, which now renders) |
 | `loom.user-component-deferred-target` | a `component` shape the Angular / Feliz emitter filters out — `slot` / `action` params, a Feliz body with `Action { … }`, a `byId` or store read, an Angular read fed by an `@Input()` ([15](15-ui-pages-structure.md)) |
-| `loom.heex-component-host-state-unsupported` | inputs / forms / queries / uploads / table controls inside a `component` on Phoenix — only `state` and named `action`s are lifted to the host LiveView |
 | `loom.feliz-async-effect-unsupported` · `loom.flutter-async-effect-unsupported` | `match await` in a component action ([actions.md](../actions.md)) |
 | `loom.ui-read-unresolved` | a `QueryView` / `Chart` `of:` naming an operation the aggregate's repository does not declare (any target) |
 | `loom.ui-projection-read-unsupported` | a keyed or folded projection read from a page, or a frontend without a projection client |

@@ -37,14 +37,7 @@ import {
   isUi,
   isValueObject,
 } from "../generated/ast.js";
-import {
-  type DddType,
-  envForNode,
-  resolveTypeRef,
-  T,
-  typeOf,
-  typeToString,
-} from "../type-system.js";
+import { envForNode, resolveTypeRef, T, type Ty, typeOf, typeToString } from "../type-system.js";
 import { isWalkerPrimitive } from "../walker-stdlib.js";
 
 /** Bindable page-body inputs — they wire to a `state` field via `bind:`. */
@@ -136,7 +129,7 @@ export function checkFileUploadBinding(model: Model, accept: ValidationAcceptor)
 }
 
 /** Short human name for a resolved type, for the diagnostic message. */
-function describeType(t: DddType): string {
+function describeType(t: Ty): string {
   if (t.kind === "primitive") return `'${t.name}'`;
   if (t.kind === "id") return `an id reference`;
   if (t.kind === "enum") return `an enum`;
@@ -295,10 +288,8 @@ function recordFieldNames(decl: ValueObject | EntityPart | PayloadDecl): Set<str
  *  `Env` to type each entry value).  A `Property` / payload field resolves via
  *  `resolveTypeRef`; a `contains` member is its part type (an array when the
  *  containment is a collection). */
-export function recordFieldTypes(
-  decl: ValueObject | EntityPart | PayloadDecl,
-): Map<string, DddType> {
-  const out = new Map<string, DddType>();
+export function recordFieldTypes(decl: ValueObject | EntityPart | PayloadDecl): Map<string, Ty> {
+  const out = new Map<string, Ty>();
   if (isPayloadDecl(decl)) {
     for (const f of decl.fields) out.set(f.name, resolveTypeRef(f.type));
     return out;
@@ -308,7 +299,7 @@ export function recordFieldTypes(
       out.set(m.name, resolveTypeRef(m.type));
     } else if (isContainment(m)) {
       const part = m.partType?.ref;
-      const el: DddType = part ? { kind: "entity", ref: part } : T.unknown;
+      const el = part ? T.record(part) : T.unknown;
       out.set(m.name, m.collection ? T.array(el) : el);
     }
   }
@@ -514,7 +505,7 @@ type WireFamily = "num" | "bool" | "text" | "obj" | "skip";
 /** The wire (JSON) family a create-input value serialises as.  `skip` means
  *  "don't compare" — an unknown / json / File / array / optional-unknown type
  *  whose shape is too loose to flag without risking a false positive. */
-function wireFamily(t: DddType): WireFamily {
+function wireFamily(t: Ty): WireFamily {
   const base = t.kind === "optional" ? t.inner : t;
   switch (base.kind) {
     case "primitive":
@@ -538,10 +529,14 @@ function wireFamily(t: DddType): WireFamily {
     case "enum":
       return "text"; // ids + enum values serialise as strings on the wire
     case "valueobject":
-    case "aggregate":
-    case "entity":
-    case "payload":
       return "obj";
+    case "record":
+      return base.shape.of === "aggregate" ||
+        base.shape.of === "part" ||
+        base.shape.of === "event" ||
+        base.shape.of === "payload"
+        ? "obj"
+        : "skip";
     default:
       return "skip"; // unknown / array / slot / action …
   }
@@ -564,7 +559,7 @@ export function checkFactoryCreateFieldTypes(model: Model, accept: ValidationAcc
     // Create-input contract mapped to declared types — declared `Property`
     // members whose access is NOT server-owned (`managed`/`token`/`internal`),
     // the same set `checkFactoryCreateFields` admits by name.
-    const createInput = new Map<string, DddType>();
+    const createInput = new Map<string, Ty>();
     for (const m of agg.members) {
       if (!isProperty(m)) continue;
       const access = typeof m.access === "string" ? m.access : "";
@@ -627,11 +622,7 @@ export function checkFactoryCreateFieldTypes(model: Model, accept: ValidationAcc
       // persisted row, and a production workflow could write one with
       // `0 error(s)` — while the SAME confusion in an assignment or a
       // comparison is caught precisely ("Cannot assign 'B id' to 'A id'").
-      if (
-        expected.kind === "id" &&
-        actual.kind === "id" &&
-        expected.target.name !== actual.target.name
-      ) {
+      if (expected.kind === "id" && actual.kind === "id" && expected.name !== actual.name) {
         accept(
           "error",
           diagMessage("loom.create-field-id-target", {

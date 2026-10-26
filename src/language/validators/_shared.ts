@@ -36,7 +36,6 @@ import {
   type ValueObject,
 } from "../generated/ast.js";
 import {
-  type DddType,
   type Env,
   makeEnv,
   paramType,
@@ -44,6 +43,7 @@ import {
   resolveTypeRef,
   sensitivityNarrows,
   T,
+  type Ty,
   typeToString,
   withTags,
 } from "../type-system.js";
@@ -53,7 +53,7 @@ import {
 // ---------------------------------------------------------------------------
 
 export function envForAggregate(agg: Aggregate, fn?: FunctionDecl): Env {
-  const bindings = new Map<string, { type: DddType; origin: AstNode }>();
+  const bindings = new Map<string, { type: Ty; origin: AstNode }>();
   // Aggregate properties / derived / contains are in scope as bare
   // identifiers — same as if we accessed them via `this`.  Property
   // bindings attach the declared sensitivity tags so propagation
@@ -68,7 +68,7 @@ export function envForAggregate(agg: Aggregate, fn?: FunctionDecl): Env {
     else if (isContainment(m)) {
       const part = m.partType?.ref;
       if (part) {
-        const t: DddType = { kind: "entity", ref: part };
+        const t = T.record(part);
         bindings.set(m.name, { type: m.collection ? T.array(t) : t, origin: m });
       }
     }
@@ -78,7 +78,7 @@ export function envForAggregate(agg: Aggregate, fn?: FunctionDecl): Env {
 }
 
 export function envForPart(agg: Aggregate, part: EntityPart, fn?: FunctionDecl): Env {
-  const bindings = new Map<string, { type: DddType; origin: AstNode }>();
+  const bindings = new Map<string, { type: Ty; origin: AstNode }>();
   for (const m of part.members) {
     if (isProperty(m))
       bindings.set(m.name, {
@@ -89,7 +89,7 @@ export function envForPart(agg: Aggregate, part: EntityPart, fn?: FunctionDecl):
     else if (isContainment(m)) {
       const partType = m.partType?.ref;
       if (partType) {
-        const t: DddType = { kind: "entity", ref: partType };
+        const t = T.record(partType);
         bindings.set(m.name, { type: m.collection ? T.array(t) : t, origin: m });
       }
     }
@@ -99,7 +99,7 @@ export function envForPart(agg: Aggregate, part: EntityPart, fn?: FunctionDecl):
 }
 
 export function envForValueObject(vo: ValueObject): Env {
-  const bindings = new Map<string, { type: DddType; origin: AstNode }>();
+  const bindings = new Map<string, { type: Ty; origin: AstNode }>();
   for (const m of vo.members) {
     if (isProperty(m)) bindings.set(m.name, { type: resolveTypeRef(m.type), origin: m });
     else if (isDerivedProp(m)) bindings.set(m.name, { type: resolveTypeRef(m.type), origin: m });
@@ -115,8 +115,8 @@ export function envForValueObject(vo: ValueObject): Env {
  *  dropped flowing into a less-sensitive target.  Implicit conversion
  *  is permitted by `isAssignable`; this surfaces it. */
 export function warnSensitivityDrop(
-  actual: DddType,
-  expected: DddType,
+  actual: Ty,
+  expected: Ty,
   accept: import("langium").ValidationAcceptor,
   info: { node: AstNode; property?: string },
 ): void {
@@ -146,7 +146,7 @@ export function warnSensitivityDrop(
  * money, `5L` for large long literals in C#, `5m` for decimal
  * literals in C#).  Mirrors `lowerExprInContext` in
  * `lower-expr.ts`; the validator MUST stay in lockstep so the
- * strict gates (`isAssignable`, comparable, arithmeticResult) don't
+ * strict gates (`isAssignable`, `comparable`, the pass's arithmetic) don't
  * reject what the lowering happily elaborates.
  *
  * The promotion is one-sided.  A typed VALUE (e.g. a `taxRate:
@@ -168,7 +168,7 @@ export function warnSensitivityDrop(
  */
 export function canPromoteLiteralTo(
   expr: import("../generated/ast.js").Expression | undefined,
-  target: DddType,
+  target: Ty,
 ): boolean {
   if (!expr) return false;
   if (target.kind !== "primitive") return false;
@@ -177,7 +177,7 @@ export function canPromoteLiteralTo(
 
 /** Inner gate used by both `canPromoteLiteralTo` (top-level checks)
  *  and `checkSingleBinaryOperands` (per-operand checks).  Takes a
- *  bare target name (not a wrapped `DddType`) so the caller doesn't
+ *  bare target name (not a wrapped `Ty`) so the caller doesn't
  *  have to box the type they already have in hand. */
 function canPromoteAstLitTo(
   expr: import("../generated/ast.js").Expression | undefined,
@@ -197,16 +197,13 @@ function canPromoteAstLitTo(
  *
  *  `money` anchors only the operators money is CLOSED under — `+`, `-`
  *  and the comparisons.  Scaling (`*`, `/`) is money × SCALAR by
- *  definition (`moneyArithmetic` in type-system.ts: money × money and
+ *  definition (the typing pass's `arithmetic`: money × money and
  *  money ÷ money are both rejected), so promoting the scalar literal to
  *  money there manufactures the very `money × money` the type-system
  *  refuses — and the refusal then printed the hint that says the form is
  *  allowed.  `derived half: money = price / 2` is legal source; it must
- *  reach `arithmeticResult` as `money ÷ int`, not `money ÷ money`. */
-export function literalPromotionAnchor(
-  t: DddType,
-  op: string,
-): "long" | "decimal" | "money" | null {
+ *  reach the pass's arithmetic as `money ÷ int`, not `money ÷ money`. */
+export function literalPromotionAnchor(t: Ty, op: string): "long" | "decimal" | "money" | null {
   if (t.kind !== "primitive") return null;
   if (t.name === "money") return op === "*" || op === "/" ? null : "money";
   if (t.name === "long" || t.name === "decimal") return t.name;
