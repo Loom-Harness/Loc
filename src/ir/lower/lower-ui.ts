@@ -16,7 +16,8 @@ import type {
   Store,
   Ui,
 } from "../../language/generated/ast.js";
-import { plural, snake } from "../../util/naming.js";
+import { snake } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import type {
   ActionIR,
   ComponentIR,
@@ -281,7 +282,7 @@ export function lowerUi(
         if (stmt.target?.head === "refetch") {
           for (const arg of stmt.target.args ?? []) {
             const aggregate = arg.$type === "NameRef" ? arg.name : "";
-            if (aggregate) refetches.push({ aggregate, queryTag: snake(plural(aggregate)) });
+            if (aggregate) refetches.push({ aggregate, queryTag: routeSegmentFor(aggregate) });
           }
         } else {
           const arg = stmt.target?.args?.[0];

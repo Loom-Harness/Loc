@@ -52,7 +52,8 @@ import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
-import { plural, snake } from "../../util/naming.js";
+import { snake } from "../../util/naming.js";
+import { tableNameFor } from "../../util/storage-names.js";
 import {
   resetTableDiscoverySql,
   TEST_RESET_ENV,
@@ -139,7 +140,6 @@ import {
   commandWorkflowsOf,
   observableWorkflowsOf,
 } from "./workflows-builder.js";
-
 // ---------------------------------------------------------------------------
 // Python / FastAPI generator orchestrator.
 //
@@ -501,7 +501,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
         const ds = owning
           ? resolveDataSourceConfig(reg as EnrichedAggregateIR, owning, args.sys)
           : undefined;
-        const table = `${ds?.tablePrefix ?? ""}${snake(plural(reg.name))}`;
+        const table = `${ds?.tablePrefix ?? ""}${tableNameFor(reg.name)}`;
         return ds?.schema ? `${ds.schema}.${table}` : table;
       })()
     : undefined;

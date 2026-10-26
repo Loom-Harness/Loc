@@ -159,6 +159,7 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
   ...(
     [
       "absent-optional",
+      "acronym-names",
       "audit-history-guarded",
       "audit-history",
       "audited",

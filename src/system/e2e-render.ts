@@ -36,6 +36,7 @@ import { emitsInstanceRoutes } from "../ir/util/workflow-instances.js";
 import { platformFor } from "../platform/registry.js";
 import { API_BASE_PATH } from "../util/api-base.js";
 import { escapeTsIdent, lowerFirst, plural, snake } from "../util/naming.js";
+import { routeSegmentFor } from "../util/storage-names.js";
 import { DURATION_UNIT_MS } from "../util/temporal.js";
 import {
   TEST_RESET_ENV,
@@ -366,7 +367,7 @@ function isBackendPlatform(platform: string): boolean {
 function slugNamesAggregate(slug: string, aggName: string): boolean {
   return (
     lowerFirst(aggName) === slug ||
-    snake(plural(aggName)) === slug ||
+    routeSegmentFor(aggName) === slug ||
     lowerFirst(plural(aggName)) === slug
   );
 }
@@ -838,7 +839,7 @@ function renderApiCall(call: ApiCallShape, ctx: RenderCtx): string {
     const routed = matchRoutedHandlerCall(call, ctx);
     if (routed) return renderRoutedHandlerCall(routed, call, ctx);
     const known = ctx.contexts
-      .flatMap((c) => c.aggregates.map((a) => snake(plural(a.name))))
+      .flatMap((c) => c.aggregates.map((a) => routeSegmentFor(a.name)))
       .sort()
       .join(", ");
     const knownWorkflows = workflowSlugHints(ctx.contexts).join(", ");
@@ -850,7 +851,7 @@ function renderApiCall(call: ApiCallShape, ctx: RenderCtx): string {
         (hints.length > 0 ? ` Routed handlers: ${hints.join(", ")}.` : ""),
     );
   }
-  const slug = snake(plural(agg.name));
+  const slug = routeSegmentFor(agg.name);
   const args = call.args;
 
   const prefix = ctx.apiBasePath;

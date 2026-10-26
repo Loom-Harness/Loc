@@ -153,7 +153,8 @@ import type {
   ClassifyContext,
   SingleFieldPattern,
 } from "../../../ir/validate/invariant-classify.js";
-import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import { lowerFirst, upperFirst } from "../../../util/naming.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
 import { escapeTargetMember } from "../../../util/target-identifiers.js";
 
 // ---------------------------------------------------------------------------
@@ -259,7 +260,7 @@ function emitHistoryRoute(
   const notFoundStatus = wireStatus("not-found", statuses);
   const forbiddenStatus = wireStatus("forbidden", statuses);
   const out: string[] = [];
-  const aggSlug = snake(plural(agg.name));
+  const aggSlug = routeSegmentFor(agg.name);
   out.push(`app.openapi(`);
   out.push(`  createRoute({`);
   out.push(`    method: "get",`);
@@ -1026,7 +1027,7 @@ export function buildRoutesFile(
     lines.push(`    createRoute({`);
     lines.push(`      method: "${derivedCreate.method}",`);
     lines.push(`      path: "${honoPath(derivedCreate)}",`);
-    lines.push(`      tags: ["${snake(plural(agg.name))}"],`);
+    lines.push(`      tags: ["${routeSegmentFor(agg.name)}"],`);
     lines.push(`      operationId: "${camelId(opCreate(agg.name))}",`);
     lines.push(`      request: {`);
     lines.push(
@@ -1172,7 +1173,7 @@ export function buildRoutesFile(
       lines.push(`    createRoute({`);
       lines.push(`      method: "get",`);
       lines.push(`      path: "/prepare",`);
-      lines.push(`      tags: ["${snake(plural(agg.name))}"],`);
+      lines.push(`      tags: ["${routeSegmentFor(agg.name)}"],`);
       lines.push(`      operationId: "prepare${agg.name}",`);
       lines.push(`      responses: {`);
       lines.push(`        200: {`);
@@ -1227,7 +1228,7 @@ export function buildRoutesFile(
     lines.push(`    createRoute({`);
     lines.push(`      method: "${derivedGetById.method}",`);
     lines.push(`      path: "${honoPath(derivedGetById)}",`);
-    lines.push(`      tags: ["${snake(plural(agg.name))}"],`);
+    lines.push(`      tags: ["${routeSegmentFor(agg.name)}"],`);
     lines.push(`      operationId: "${camelId(opGetById(agg.name))}",`);
     lines.push(`      request: { params: z.object({ id: UuidString }) },`);
     lines.push(`      responses: {`);
@@ -1316,7 +1317,7 @@ export function buildRoutesFile(
     lines.push(`    createRoute({`);
     lines.push(`      method: "${derivedDestroy.method}",`);
     lines.push(`      path: "${honoPath(derivedDestroy)}",`);
-    lines.push(`      tags: ["${snake(plural(agg.name))}"],`);
+    lines.push(`      tags: ["${routeSegmentFor(agg.name)}"],`);
     lines.push(`      operationId: "${camelId(opDestroy(agg.name))}",`);
     lines.push(`      request: { params: z.object({ id: UuidString }) },`);
     lines.push(`      responses: {`);
@@ -1854,7 +1855,7 @@ function emitCanOpRoute(
 ): string[] {
   if (!op.when) return [];
   void emitTrace;
-  const aggSlug = snake(plural(agg.name));
+  const aggSlug = routeSegmentFor(agg.name);
   const pred = renderTsExpr(op.when, { thisName: "aggregate" });
   const out: string[] = [];
   out.push(`app.openapi(`);
@@ -2005,7 +2006,7 @@ function emitOperationRoute(
 ): string[] {
   // Lifecycle stamps are applied persist-time in the drizzle save(); the
   // operation route does not stamp.
-  const aggSlug = snake(plural(agg.name));
+  const aggSlug = routeSegmentFor(agg.name);
   // Exception-less operation (`operation foo(): X or NotFound`): the route
   // captures the tagged-union result and translates an `error`-variant to an
   // RFC-7807 ProblemDetails status, a success to HTTP 200 (exception-less.md).
@@ -2186,7 +2187,7 @@ function emitReturningOperationRoute(
 ): string[] {
   // Lifecycle stamps are applied persist-time in the drizzle save(); the
   // operation route does not stamp.
-  const aggSlug = snake(plural(agg.name));
+  const aggSlug = routeSegmentFor(agg.name);
   const variants = op.returnType?.kind === "union" ? op.returnType.variants : [];
   const errorVariants = variants.filter((vv) => isErrorVariant(vv, ctx));
   const u = op.returnType ? unionForFind(op.returnType, ctx) : null;
@@ -2335,7 +2336,7 @@ function emitFindRoute(
   entry: ApiOperationIR,
   emitTrace: boolean,
 ): string[] {
-  const aggSlug = snake(plural(agg.name));
+  const aggSlug = routeSegmentFor(agg.name);
   const paged = pagedReturn(find.returnType);
   const isList = find.returnType.kind === "array";
   // A union find's 200 body is the SUCCESS variant directly (the aggregate),

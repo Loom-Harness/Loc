@@ -6,6 +6,7 @@
 // macros and the top-level composer share one source of truth.
 
 import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
 import type { Aggregate, Area, Expression, Page, Ui, Workflow } from "../../api/index.js";
 import { area, boolLit, callExpr, page, stringLit } from "../../api/index.js";
 import {
@@ -93,7 +94,7 @@ function declaredFindAll(agg: Aggregate): { returnType: { ctors?: string[] } } |
 }
 
 export function pagesForAggregate(agg: Aggregate, ui: Ui): Page[] {
-  const pluralSnake = snake(plural(agg.name));
+  const pluralSnake = routeSegmentFor(agg.name);
   const aggName = agg.name;
   const labelPlural = humanize(plural(aggName));
   const apiHandle = firstApiHandle(ui);
@@ -292,7 +293,7 @@ export function homePage(
         .filter((agg) => !listReadGateForAggregate(agg))
         .map((agg) => ({
           label: humanize(plural(agg.name)),
-          route: `/${snake(plural(agg.name))}`,
+          route: `/${routeSegmentFor(agg.name)}`,
         })),
     }),
     menu: { hidden: boolLit(true) },

@@ -8,8 +8,8 @@ import { forEachModelExpr } from "../../util/model-exprs.js";
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { isStdlibError, STRUCTURAL_CONFLICT_ERRORS } from "../../../util/error-defaults.js";
 import { bodyTypeOf } from "../../../util/expr-body-type.js";
-import { plural, snake } from "../../../util/naming.js";
 import { isRepoWriteName, repositoryVerb } from "../../../util/repository-contract.js";
+import { tableNameFor } from "../../../util/storage-names.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -45,7 +45,6 @@ import {
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { walkExpr } from "./shared.js";
 import { checkVariantMatchShape } from "./variant-match-shape.js";
-
 // ---------------------------------------------------------------------------
 // Workspace uniqueness — multi-file (Stage A) makes it easy to declare
 // two `valueobject Money` in different files, two `context Sales`, or
@@ -192,7 +191,7 @@ export function validateDuplicateTables(sys: EnrichedSystemIR, diags: LoomDiagno
   for (const { agg, ctx } of pairs) {
     if (!ownsRootTable(agg, pool)) continue;
     const schema = resolveDataSourceConfig(agg, ctx, sys)?.schema;
-    const key = `${schema ?? "public"}.${plural(snake(agg.name))}`;
+    const key = `${schema ?? "public"}.${tableNameFor(agg.name)}`;
     const group = byTable.get(key) ?? [];
     group.push({ agg, ctx });
     byTable.set(key, group);
@@ -275,7 +274,7 @@ export function validateUniqueTpcBase(loom: EnrichedLoomModel, diags: LoomDiagno
           message: diagMessage("loom.unique-tpc-not-hierarchy-wide", {
             name: agg.name,
             columns: uk.columns.join(", "),
-            concretes: concretes.map((c) => plural(snake(c.name))).join(", "),
+            concretes: concretes.map((c) => tableNameFor(c.name)).join(", "),
           }),
         });
       }
@@ -1792,7 +1791,7 @@ export function validateLifecycleBodyDropped(
             label,
             kind: s.kind,
             reason,
-            plural: plural(snake(agg.name)),
+            plural: tableNameFor(agg.name),
           }),
           source: `${ctx.name}/aggregate ${agg.name}.${label}`,
           origin: agg.origin,

@@ -14,7 +14,7 @@ import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { enumPool } from "../../../ir/util/reachable-types.js";
 import { hasValueObjectInvariants } from "../../../ir/util/value-object-invariants.js";
 import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
-import { escapeCsharpIdent, upperFirst } from "../../../util/naming.js";
+import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import {
   coerceMatcherExpected,
@@ -170,12 +170,6 @@ function renderSubjectTestsFile(
   }
   lines.push("}");
   return lines.join("\n") + "\n";
-}
-
-function plural(s: string): string {
-  if (s.endsWith("y") && !/[aeiou]y$/.test(s)) return s.slice(0, -1) + "ies";
-  if (/(s|x|z|ch|sh)$/.test(s)) return s + "es";
-  return s + "s";
 }
 
 function renderTest(t: TestIR, ctx: BoundedContextIR): string[] {

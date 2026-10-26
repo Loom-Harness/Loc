@@ -8,6 +8,7 @@
 // targets — the per-frontend byte-identity gates pin this.
 
 import type { TypeIR } from "../../ir/types/loom-ir.js";
+import { plural } from "../../util/naming.js";
 import type { VariantMatchSpec } from "./target.js";
 
 /** Hook local-variable name: `customerAll`, `orderCreate`. */
@@ -20,8 +21,7 @@ export function hookVarName(aggregate: string, op: string): string {
  *  `walker/api-hooks.ts`). */
 export function hookFnName(aggregate: string, op: string): string {
   const single = upperFirstName(aggregate);
-  const pluralName = pluralName_(single);
-  if (op === "all") return `useAll${pluralName}`;
+  if (op === "all") return `useAll${plural(single)}`;
   if (op === "byId") return `use${single}ById`;
   if (op === "create") return `useCreate${single}`;
   if (op === "update") return `useUpdate${single}`;
@@ -145,13 +145,6 @@ export function storeMemberLocal(
   reserved: ReadonlySet<string>,
 ): string {
   return reserved.has(member) ? `${lowerFirstName(storeName)}${upperFirstName(member)}` : member;
-}
-
-/** Conservative plural rules matching `src/util/naming.ts:plural`. */
-function pluralName_(s: string): string {
-  if (s.endsWith("y") && !/[aeiou]y$/.test(s)) return `${s.slice(0, -1)}ies`;
-  if (/(s|x|z|ch|sh)$/.test(s)) return `${s}es`;
-  return `${s}s`;
 }
 
 /** True when `ident` appears as a whole-word token in `code`.  Used by

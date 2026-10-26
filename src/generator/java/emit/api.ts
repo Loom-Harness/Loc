@@ -32,8 +32,9 @@ import {
   errorTypeUri,
   resolveErrorStatus,
 } from "../../../util/error-defaults.js";
-import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { plural, upperFirst } from "../../../util/naming.js";
 import { INTEGER_RANGE_MESSAGE } from "../../../util/numeric-range.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { findUnionSpec } from "../../_payload/union-wire.js";
@@ -110,7 +111,7 @@ export function renderJavaController(
   repo: RepositoryIR | undefined,
   ctx: ControllerCtx,
 ): string {
-  const route = snake(plural(agg.name));
+  const route = routeSegmentFor(agg.name);
   const idClass = ctx.idClass ?? `${agg.name}Id`;
   // THE UNIFICATION SEAM (api-surface.ts): which routes exist and at which
   // path comes from the shared derivation (the statuses live in the OpenAPI

@@ -33,7 +33,8 @@ import type { EnrichedAggregateIR, EnrichedBoundedContextIR } from "../../ir/typ
 import { isValueCollectionType } from "../../ir/util/value-collections.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
-import { lowerFirst, plural, snake } from "../../util/naming.js";
+import { lowerFirst } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
 import { rowClassOf } from "./emit/mikroorm-entities.js";
 import { isRefCollection } from "./repository-associations-builder.js";
@@ -47,7 +48,6 @@ import {
 import { collectEnums, collectValueObjects } from "./repository-imports-builder.js";
 import { aggHasFieldMask } from "./repository-wire-builder.js";
 import { tsNotFoundThrow } from "./wire-policy-ts.js";
-
 /** The `<Base> = Concrete | …` discriminated-union type (TS structural union
  *  of the concrete domain classes). Lives in `domain/<base>.ts`.  `layout`
  *  only tunes the explanatory comment: TPH discriminates on a shared `kind`
@@ -499,7 +499,7 @@ export function buildBaseRoutesFile(base: EnrichedAggregateIR, read: Polymorphic
     `    createRoute({`,
     `      method: "get",`,
     `      path: "/",`,
-    `      tags: ["${snake(plural(B))}"],`,
+    `      tags: ["${routeSegmentFor(B)}"],`,
     `      operationId: "all${B}",`,
     `      request: { query: ${B}PageQuery },`,
     `      responses: {`,
@@ -555,7 +555,7 @@ function byIdRouteLines(B: string): string[] {
     `    createRoute({`,
     `      method: "get",`,
     `      path: "/{id}",`,
-    `      tags: ["${snake(plural(B))}"],`,
+    `      tags: ["${routeSegmentFor(B)}"],`,
     `      operationId: "get${B}ById",`,
     `      request: { params: z.object({ id: UuidString }) },`,
     `      responses: {`,
@@ -577,5 +577,5 @@ function byIdRouteLines(B: string): string[] {
 
 /** The `createApp` mount line for a routed polymorphic read. */
 export function baseRoutesMount(base: EnrichedAggregateIR): string {
-  return `  app.route("${API_BASE_PATH}/${snake(plural(base.name))}", ${lowerFirst(base.name)}Routes(new ${base.name}Repository(db, events)));`;
+  return `  app.route("${API_BASE_PATH}/${routeSegmentFor(base.name)}", ${lowerFirst(base.name)}Routes(new ${base.name}Repository(db, events)));`;
 }

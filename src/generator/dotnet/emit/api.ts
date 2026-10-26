@@ -22,7 +22,8 @@ import {
 } from "../../../ir/util/openapi-ids.js";
 import { lines } from "../../../util/code-builder.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
-import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { plural, upperFirst } from "../../../util/naming.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
 import { PG_FOREIGN_KEY_VIOLATION, PG_UNIQUE_VIOLATION } from "../../_persistence/pg-sqlstate.js";
 import type { ReturnUnionSpec } from "../cqrs/controller.js";
@@ -274,7 +275,7 @@ export function renderController(
   shape: ControllerShape,
 ): string {
   const className = `${plural(upperFirst(agg.name))}Controller`;
-  const route = `${shape.routePrefix ?? ""}${snake(plural(agg.name))}`;
+  const route = `${shape.routePrefix ?? ""}${routeSegmentFor(agg.name)}`;
   const idClass = shape.idClass ?? `${agg.name}Id`;
   // Structural-conflict status resolver (M-T3.4a) — routes the hardcoded 409s
   // through the api's `httpStatus` override map, defaulting each to 409. With

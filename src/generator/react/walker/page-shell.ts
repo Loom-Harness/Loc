@@ -28,6 +28,7 @@ import {
   snake,
   upperFirst,
 } from "../../../util/naming.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
 import { coerceMoneyStateInit, usesDecimalBinding } from "../../_expr/js-intrinsics.js";
 import {
   componentPropTsType,
@@ -765,7 +766,7 @@ function renderFormOfWiring(
     aggregateName: agg.name,
     aggregateNameCamel: lowerFirst(agg.name),
     pluralAggregateName: plural(agg.name),
-    snakePluralAggregate: snake(plural(agg.name)),
+    snakePluralAggregate: routeSegmentFor(agg.name),
     humanAgg: humanize(agg.name),
     humanAggLower: humanize(agg.name).toLowerCase(),
     srcImportPrefix,
@@ -837,7 +838,7 @@ function renderFormOpWiring(
       JSON.stringify(chromeMessage(opDialogChrome(humanize(op.name)).close)),
     modalTitle: state.modalTitle || humanize(op.name),
     modalTitleExpr: state.modalTitleExpr ?? JSON.stringify(humanize(op.name)),
-    slug: snake(plural(agg.name)),
+    slug: routeSegmentFor(agg.name),
     srcImportPrefix,
     fieldArrays,
     idTargets: idTargets.map((t) => ({
