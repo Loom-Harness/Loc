@@ -1690,9 +1690,22 @@ function emitAggregate(
       `${agg.name}Repository.cs`,
       "repository-impl",
       isEs
-        ? renderDapperEventSourcedRepository(agg, repoWithViews, ns, findBodies, ctx.name)
+        ? renderDapperEventSourcedRepository(
+            agg,
+            repoWithViews,
+            ns,
+            findBodies,
+            ctx.name,
+            [...repoImplUsings].sort(),
+          )
         : isDoc
-          ? renderDapperDocumentRepository(agg, repoWithViews, ns, findBodies)
+          ? renderDapperDocumentRepository(
+              agg,
+              repoWithViews,
+              ns,
+              findBodies,
+              [...repoImplUsings].sort(),
+            )
           : renderDapperRepository(
               agg,
               repoWithViews,

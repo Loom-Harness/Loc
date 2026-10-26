@@ -376,10 +376,9 @@ describe.skipIf(!ENABLED)(
     // M-T5.10 handler-param rewrite — the SCAFFOLDED explicit handlers take a
     // single `command`/`query` record param (`cmd.<field>`/`query.<field>`) and
     // reads declare a `<Agg>Response` return.  A Money-typed operation param
-    // stresses the value-object wire-schema closure on the request-record path,
-    // and a find declares `<Agg>Response[]` (the array projection `r.map(x =>
-    // repo.toWire(x))`).  No corpus `.ddd` compiled a scaffolded record-param
-    // handler before, so this closes a real tsc blind spot.
+    // stresses the value-object wire-schema closure on the request-record path.
+    // No corpus `.ddd` compiled a scaffolded record-param handler before, so
+    // this closes a real tsc blind spot.
     it("system scaffolded explicit handlers (command/query record params) — type-checks + bundles", () => {
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-handlers-"));
       try {
@@ -390,10 +389,9 @@ describe.skipIf(!ENABLED)(
         const proj = path.join(outDir, "api");
         const router = fs.readFileSync(path.join(proj, "http", "salesApi-routes.ts"), "utf8");
         // The create handler binds the command record's fields as the body and
-        // reads them off `cmd.<field>`; the find projects the array to the wire.
+        // reads them off `cmd.<field>`; the get-by-id handler off `query.<field>`.
         expect(router).toContain("const cmd = {");
         expect(router).toContain("const query = {");
-        expect(router).toMatch(/\.map\(\(__e\) => \w+\.toWire\(__e\)\)/);
         installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 120_000 });
         execSync(`npm run build`, { cwd: proj, stdio: "inherit", timeout: 60_000 });

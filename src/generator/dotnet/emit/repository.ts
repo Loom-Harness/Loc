@@ -1502,7 +1502,7 @@ export function renderEventSourcedRepositoryImpl(
  *  (document, event log) filter a rehydrated `IEnumerable`, whose `Where` takes
  *  a `Func`; a criterion-backed clause names the criterion's EF query face
  *  (`.ToExpression()`, an `Expression<Func<…>>`), so it is compiled first. */
-function inMemoryFilter(filter: string): string {
+export function inMemoryFilter(filter: string): string {
   return filter.replace(/\.ToExpression\(\)\)/g, ".ToExpression().Compile())");
 }
 
