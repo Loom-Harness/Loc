@@ -42,10 +42,14 @@ async function emitFor(platform: string): Promise<string> {
   const files = await generateSystemFiles(
     corpusSource("tenancy-hierarchy").replaceAll("__PLATFORM__", platform),
   );
-  return [...files]
-    .filter(([p]) => /repositor|JpaRepository|_repository/i.test(p))
-    .map(([, c]) => c)
-    .join("\n");
+  return (
+    [...files]
+      // MikroORM declares the read scope (the subtree predicate) on its entity
+      // schemas, not in the repositories.
+      .filter(([p]) => /repositor|JpaRepository|_repository|db\/entities\.ts$/i.test(p))
+      .map(([, c]) => c)
+      .join("\n")
+  );
 }
 
 /** Every spelling of "this LIKE has an escape character bound to it".  A LIKE

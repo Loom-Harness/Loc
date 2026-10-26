@@ -49,7 +49,7 @@ export function renderMikroConfig(): string {
  *  written and its children not — while the drizzle sibling has always run the
  *  same statements inside `this.db.transaction(...)` (G2667-C4).
  *
- *  `em.transactional` defaults to `TransactionPropagation.NESTED` (MikroORM 6
+ *  `em.transactional` defaults to `TransactionPropagation.NESTED` (MikroORM
  *  `TransactionManager.handle`), so this composes with the ambient
  *  `db.transactional(...)` the audited / provenanced routes open: an existing
  *  transaction context yields a SAVEPOINT rather than a competing transaction,

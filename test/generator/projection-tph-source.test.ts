@@ -50,11 +50,16 @@ describe("projection over a TPH concrete reads the shared table, scoped by `kind
     expect(src).toMatch(/import \{[^}]*\beq\b[^}]*\} from "drizzle-orm";/);
   }, 120_000);
 
-  it("node/mikroorm: the root Row + a `{ kind }` filter", async () => {
+  it("node/mikroorm: the concrete's own Row, scoped to its kind by the ORM", async () => {
     const src = await projectionSource("node { persistence: mikroorm }", /query-projections\.ts$/);
-    expect(src).not.toMatch(/AutoClaimRow/);
-    expect(src.match(/createQueryBuilder\(ClaimRow, "src"\)/g)?.length).toBe(2);
-    expect(src.match(/qb\.where\(\{ kind: "AutoClaim" \}\);/g)?.length).toBe(2);
+    // `AutoClaimRow` is a subclass schema of the shared table's root: a
+    // QueryBuilder over it carries the discriminator itself, so the read spells
+    // no `{ kind }` conjunct.
+    expect(src.match(/createQueryBuilder\(AutoClaimRow, "src"\)/g)?.length).toBe(2);
+    expect(src).not.toMatch(/\bkind\b/);
+    // …and every direct-table read (the two TPH ones and the `Bill` control)
+    // applies its source schema's filters.
+    expect(src.match(/await qb\.applyFilters\(\{\}\);/g)?.length).toBe(3);
   }, 120_000);
 
   it("python: the kind conjunct on both direct-table arms", async () => {

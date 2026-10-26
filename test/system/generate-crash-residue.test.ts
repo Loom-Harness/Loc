@@ -259,7 +259,9 @@ system S {
   ${STORAGE}
   deployable d { platform: node { persistence: mikroorm }, contexts: [C], dataSources: [st], serves: A2, port: 4000 }
 }`);
-    expect(file(files, "a-repository.ts")).toContain(
+    // The membership predicate is part of A's read scope: a default schema
+    // filter, rendered through the join table.
+    expect(file(files, "db/entities.ts")).toContain(
       "id in (select __j.a_id from a_owners __j where __j.u_id = ?)",
     );
   });

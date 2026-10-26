@@ -476,7 +476,7 @@ Generated `deep` filter, one line per backend (for `allow deep on Account`):
 | Backend | Emitted predicate |
 |---|---|
 | node (Hono/Drizzle) | ``or(and(isNotNull(t.dataKey), or(eq(t.dataKey, p.orgPath), and(sql`${t.dataKey} like ${esc(p.orgPath)} escape '!'`, sql`strpos(${t.dataKey}, ${p.orgPath + "."}) = 1`))), and(isNull(t.dataKey), eq(t.tenantId, p.tenantId)))`` |
-| node (Hono/MikroORM) | `raw("((data_key is not null and (data_key = ? or (data_key like ? escape '!' and strpos(data_key, ?) = 1))) or (data_key is null and tenant_id = ?))", […])` |
+| node (Hono/MikroORM) | (in the entity's default `tenantOwned` schema filter) `raw("((data_key is not null and (data_key = ? or (data_key like ? escape '!' and strpos(data_key, ?) = 1))) or (data_key is null and tenant_id = ?))", […])` |
 | .NET (EF Core) | `(x.DataKey != null && (x.DataKey == u.OrgPath \|\| (EF.Functions.Like(x.DataKey, esc(u.OrgPath), "!") && x.DataKey.StartsWith(u.OrgPath + ".")))) \|\| (x.DataKey == null && x.TenantId == u.TenantId)` |
 | Python (SQLAlchemy) | `or_(and_(R.data_key.isnot(None), or_(R.data_key == u.org_path, and_(R.data_key.like(esc(u.org_path), escape="!"), func.strpos(R.data_key, u.org_path + ".") == 1))), and_(R.data_key.is_(None), R.tenant_id == u.tenant_id))` |
 | Java (JPA) | `(e.dataKey is not null and (e.dataKey = :#{…orgPath} or (e.dataKey like :#{…orgPath?.replace(…)?.concat('.%')} escape '!' and locate(concat(:#{…orgPath}, '.'), e.dataKey) = 1))) or (e.dataKey is null and e.tenantId = :#{…tenantId})` |

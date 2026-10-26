@@ -2143,7 +2143,10 @@ function renderProjectIndexTs(
   // whole subtree ladder collapses — a silent wrong answer on an adapter that
   // renders the subtree predicate.  The mikro branch reads the registry Row
   // through the EntityManager instead
-  // (`findOne(<Reg>Row, { id: claim })`), the same one-row lookup.
+  // (`findOne(<Reg>Row, { id: claim }, { filters: false })`), the same one-row
+  // lookup.  The registry Row carries the tenancy self-scope as a default
+  // filter that reads the principal — and this lookup runs to BUILD that
+  // principal, so it is the one read the filter must not scope.
   // The drizzle schema-table var (`orgs`) and the MikroORM Row entity class
   // (`OrgRow`) for the same registry aggregate — one name in, both spellings
   // derived here rather than at the call site, so the two persistence branches
@@ -2160,7 +2163,7 @@ function renderProjectIndexTs(
   const orgPathRegistration = !wireOrgPath
     ? ""
     : usingMikro
-      ? `${orgPathDoc}registerOrgPathResolver(async (claim) => {\n  const row = await db.fork().findOne(${orgPathRegistryRow}, { id: claim });\n  return row?.dataKey ?? null;\n});\n`
+      ? `${orgPathDoc}registerOrgPathResolver(async (claim) => {\n  const row = await db.fork().findOne(${orgPathRegistryRow}, { id: claim }, { filters: false });\n  return row?.dataKey ?? null;\n});\n`
       : `${orgPathDoc}registerOrgPathResolver(async (claim) => {\n  const rows = await db\n    .select({ dataKey: schema.${orgPathRegistryTable}.dataKey })\n    .from(schema.${orgPathRegistryTable})\n    .where(eq(schema.${orgPathRegistryTable}.id, claim))\n    .limit(1);\n  return rows[0]?.dataKey ?? null;\n});\n`;
   // Event-dispatch / relay / scheduler imports — SHARED by both persistence
   // branches — the mikro adapter emits the outbox relay too, so this block

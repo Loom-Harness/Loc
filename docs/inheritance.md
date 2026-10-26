@@ -88,7 +88,7 @@ the `denyByDefault` one) or whose wire masks a field keeps the reader unrouted.
 | Backend (`platform:`) | polymorphic base reader |
 |---|---|
 | `node` (Hono / Drizzle) | a read-only `<Base>Repository`. TPH: one select over the shared table carrying the root's and every subtype's kind-guarded restrictions, ordered by `id`, paged in SQL, each row hydrated as its `kind`. TPC: each concrete repo's own read, merged in `id` order, then paged. Routed as `GET /api/<bases>` (+ `/{id}` under TPH) with a `<Base>Response` discriminated union. A query-time projection `from <TPH base>` applies the same guarded subtype restrictions |
-| `node` (Hono / MikroORM) | a read-only `<Base>Repository` whose `findAll()` concatenates each concrete repo's `all()`; not routed |
+| `node` (Hono / MikroORM 7) | a read-only `<Base>Repository` with the same `findById` / `findPage` / `toWire` as the Drizzle one, routed the same way. TPH is **native single-table inheritance**: an abstract root `EntitySchema` with `discriminatorColumn: "kind"` + `discriminatorMap`, and an `extends` schema per concrete, so the read is ONE `em.find(<Root>Row, {}, { orderBy: { id: "asc" }, limit, offset })` that the ORM hydrates as each row's subclass. The read scope is declared once on the schemas as named `default: true` filters (below), so the reader states no restriction. TPC: each concrete repo's own read, merged in `id` order, then paged |
 | `dotnet` (.NET / EF Core) | `public abstract class <Base>` carrying the shared fields; concretes declare `: <Base>` and inherit them; EF excludes the base via `modelBuilder.Ignore<<Base>>()` so each concrete maps standalone; a read-only `I<Base>Repository` / `<Base>Repository` whose `FindAllAsync()` returns `IReadOnlyList<<Base>>` |
 | `phoenix` (Ecto) | a read-only `<Base>Repository` whose `list` concatenates each concrete repository's `list` (draining a paged concrete's pages) and whose `find_by_id` tries each concrete in turn; the context's `list_<bases>` / `get_<base>` delegate to it and take `current_user \\ nil` whenever a concrete read does. TPH included: the `kind` conjunct and every capability / inline filter live in the concrete repositories. A `shape: document` concrete is flattened (`row.data`) before the base serializer runs |
 | `python` (FastAPI / SQLAlchemy) | a read-only `<Base>` repository whose `find_all` concatenates each concrete repo's reads; a `<Base>` union response type |
@@ -100,6 +100,78 @@ strongly-typed `<Concrete>Id`); there is no shared `<Base>Id`, and a polymorphic
 polymorphic `findById` target. Under TPH the shared table does carry a
 single identity, so `<Base> id` refs and a `findById` on the base reader are
 available there.
+
+### MikroORM: schema filters, not hand-ANDed predicates
+
+`persistence: mikroorm` declares an aggregate's read scope **once**, on its
+`EntitySchema` (`src/generator/typescript/emit/mikroorm-schema-filters.ts`,
+rendered from `readScopeFor`), and the repositories state only their own `where`:
+
+```ddd
+abstract aggregate Vehicle inheritanceUsing: sharedTable with tenantOwned { plate: string }
+aggregate Car extends Vehicle with tenantOwned, softDeletable, softDelete {
+  seats: int
+  filter this.seats > 0
+}
+repository Cars for Car {
+  find byPlate(p: string): Car? where this.plate == p
+  find byPlateAll(p: string): Car? where this.plate == p ignoring softDeletable
+}
+```
+
+```ts
+// db/entities.ts — the root hosts its own AND every concrete's restrictions
+export const VehicleRowSchema = new EntitySchema<VehicleRow>({
+  class: VehicleRow, tableName: "vehicles", abstract: true,
+  discriminatorColumn: "kind",
+  discriminatorMap: { "Car": CarRow, "Truck": TruckRow },
+  properties: { /* id, kind, plate, tenantId … */ },
+  filters: {
+    "tenantOwned":  { name: "tenantOwned", cond: () => ({ tenantId: requireCurrentUser().tenantId }), default: true },
+    "softDeletable": {
+      name: "softDeletable", args: false, default: true,
+      cond: (_args, _type, _em, _options, entity) => {
+        const parts: object[] = [];
+        if (entity === "VehicleRow" || entity === "CarRow") parts.push({ $or: [{ kind: { $ne: "Car" } }, { isDeleted: false }] });
+        return parts.length === 0 ? {} : { $and: parts };
+      },
+    },
+    "loom.filter": { /* Car's bare `filter this.seats > 0`, guarded the same way */ },
+  },
+});
+export const CarRowSchema = new EntitySchema<CarRow, VehicleRow>({ class: CarRow, extends: VehicleRow, properties: { seats: { … } } });
+
+// db/repositories/car-repository.ts — no `kind`, no capability conjunct
+em.findOne(CarRow, { plate: p })
+em.findOne(CarRow, { plate: p }, { filters: { "softDeletable": false } })   // ignoring softDeletable
+```
+
+- **Named by provenance.** A capability's filter is named after the capability, so
+  `ignoring X` is `{ filters: { X: false } }`. A bare `filter` and a `policy`
+  deny have fixed names (`loom.filter`, `loom.deny`) no `ignoring` can name.
+- **Root-hosted, kind-guarded.** MikroORM applies a filter declared on a subclass
+  only to queries *of* that subclass, so a retired `Car` would leak from
+  `find(Vehicle)`. The root therefore hosts every concrete's restrictions, guarded
+  by its discriminator. A concrete's predicate may name a column only that
+  concrete has, and MikroORM rejects a condition on a property the queried entity
+  lacks, so the guarded condition joins the filter only for a query of the root
+  or of that concrete (the `entity` argument of the `cond`).
+- **Fail closed.** A principal predicate is a function `cond`: it reads the
+  request principal through the ambient accessor when the query *runs*, so a query
+  with no principal throws instead of reading unscoped.
+- **Writes.** Filters also apply to `nativeUpdate` / `nativeDelete` and to the
+  versioned save's existence probe. Those statements are scoped by id (and
+  version) alone — the caller already loaded the row through the read scope — so
+  they pass `{ filters: false }`: a soft-deleted row is still found as existing
+  (else the save would INSERT a duplicate key) and an `ignoring`-loaded aggregate
+  stays savable. The UPDATE runs through the concrete's Row, so a foreign-subtype
+  id matches nothing and raises `ConcurrencyError`. The discriminator is only
+  *stamped* on an insert/upsert payload (a native insert does not set it).
+- **QueryBuilder reads** (query-time projection aggregations) are not filtered by
+  themselves: they call `await qb.applyFilters({ … })` (the same `ignoring` map).
+- **Not filtered:** the tenant-registry `orgPath` lookup that *builds* the principal
+  (`{ filters: false }`), and `shape: document` / event-sourced aggregates, which
+  have no queryable columns and evaluate their scope in the app.
 
 ## Backend gating
 

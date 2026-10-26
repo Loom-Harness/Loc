@@ -25,7 +25,6 @@ import {
   isTphBase,
   isTphConcrete,
   ownFieldsOf,
-  tphConcretesOf,
 } from "../../../ir/util/inheritance.js";
 import { findValueObjectInScope } from "../../../ir/util/reachable-types.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
@@ -387,7 +386,7 @@ function mikroPropertyLine(c: MikroColumn): string {
   const parts = [`type: "${c.mikroType}"`];
   if (c.primary) parts.push("primary: true");
   if (c.array) {
-    // `array: true` alone is inert on a SCALAR property: MikroORM 6 wraps a
+    // `array: true` alone is inert on a SCALAR property: MikroORM wraps a
     // scalar in its `ArrayType` only for a `string[]`/`number[]`/`array` TYPE
     // name (or an enum with `items`), so the value went through the element's
     // scalar type instead — an `int[]` was bound as the JSON text `[7,2,9]`

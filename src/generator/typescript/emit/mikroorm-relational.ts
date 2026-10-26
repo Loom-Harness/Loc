@@ -611,8 +611,10 @@ export function renderMikroRepository(
     ...provEntries,
     { fieldName: "version", expr: "1" },
   ]);
+  // The UPDATE never writes `kind`: the row's discriminator is fixed at insert,
+  // and the statement runs through the concrete's Row, which scopes it to that
+  // `kind` already.
   const updateData = projectionObject("aggregate", [
-    ...kindProjection,
     ...nonVersionEntries,
     ...valueCollEntries,
     ...provEntries,
