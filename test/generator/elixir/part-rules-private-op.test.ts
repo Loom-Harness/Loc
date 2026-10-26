@@ -51,7 +51,9 @@ describe("elixir vanilla — part rules, guarded invariants, private-op calls (M
       const cs = fnBody(line, "changeset");
       expect(cs).toContain("cast(attrs, [:sku, :qty])");
       // The rule itself — absent entirely before the fix.
-      expect(cs).toContain("validate_number(:qty, greater_than_or_equal_to: 1)");
+      expect(cs).toContain(
+        'validate_number(:qty, greater_than_or_equal_to: 1, message: "Qty must be at least 1")',
+      );
     });
 
     it("the part's own `invariant sku.length > 2` becomes a code-point length rule", async () => {
