@@ -97,6 +97,7 @@ import {
   checkTraceability,
   checkTypeReferences,
   checkUi,
+  checkUnhandledResults,
   checkUnions,
   checkUnknownMemberAccess,
   checkUnknownNameRefs,
@@ -397,6 +398,9 @@ export class DddValidator {
     // Every callable's `return`s against its declared result type, and the
     // expression checks for the bodies the aggregate statement walk never visits.
     guard("callable-bodies", model, () => checkCallableBodies(model, accept));
+    // An `A or E` result dropped by a call statement or an unread `let`
+    // (loom.unhandled-result).
+    guard("unhandled-results", model, () => checkUnhandledResults(model, accept));
     // Unresolved bare-identifier heads (`total := amout`, `let x = amout`):
     // a `NameRef` is not a cross-reference, so an unresolvable head types as
     // `T.unknown` and every downstream gate suppresses on it — the finding-1

@@ -170,6 +170,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.let-type-mismatch": "06-behavior-and-statements.md#let--emit",
   "loom.return-type-mismatch": "06-behavior-and-statements.md#return--the-exception-less-outcome",
   "loom.return-missing": "06-behavior-and-statements.md#return--the-exception-less-outcome",
+  "loom.unhandled-result": "06-behavior-and-statements.md#return--the-exception-less-outcome",
   "loom.function-return-type-mismatch":
     "07-invariants-derived-functions.md#function--a-pure-helper",
   "loom.create-call-not-constructible":
