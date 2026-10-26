@@ -62,7 +62,7 @@ system RosterSys {
       // (and .NET/elixir emit a method name that does not even exist, since only
       // DECLARED finds are emitted under their own names).
       operation builtinGetById(o: Owner id): string { let f = Owners.getById(o)  return f.label }
-      operation builtinFindById(o: Owner id): string { let f = Owners.findById(o)  return f.label }
+      operation builtinFindById(o: Owner id): string { let f = Owners.findById(o)  return f != null ? f.label : "" }
       operation builtinFindAll(): bool { let f = Owners.findAll()  return f.count > 0 }
       operation builtinAll(): bool { let f = Owners.all()  return f.count > 0 }
       // the criterion / retrieval shapes

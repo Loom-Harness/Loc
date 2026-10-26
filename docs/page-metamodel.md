@@ -727,10 +727,11 @@ Two earlier limits are now closed, and one rule is worth knowing:
   `renderIntrinsic` is a `WalkerTarget` seam, fed by `feliz/fs-expr.ts`
   (`"string.toUpper": recv => (recv.ToUpper())`) and `flutter/dart-expr.ts`.  A
   page-body intrinsic no longer emits verbatim there.
-- **A nullable receiver is rejected** (#2711, `loom.intrinsic-nullable-receiver`):
-  every backend emits a bare dereference, so `nick.toUpper()` on a `string?` is
-  an error — guard it with a null-narrowing ternary
-  (`nick != null ? nick.toUpper() : ""`), which the checker treats as narrowing.
+- **A call on a nullable receiver is rejected** (`loom.nullable-receiver`):
+  `nick.toUpper()` on a `string?` is an error — guard it with a null-narrowing
+  ternary (`nick != null ? nick.toUpper() : ""`), which the checker treats as
+  narrowing.  A *field* read off a nullable record (`p.budget.amount`) is
+  spelled null-safe (`p.budget?.amount`) and passes.
   Arity and argument types are checked too (`loom.intrinsic-arity`,
   `loom.intrinsic-arg-type`, `loom.intrinsic-unknown`).
 

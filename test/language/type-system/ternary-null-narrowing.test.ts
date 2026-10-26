@@ -9,7 +9,7 @@
 // type-checker-only narrowing with byte-identical output.
 //
 // These tests pin BOTH directions, the negative cases (no leak into the other
-// branch, no general flow analysis), and the soundness guard: a branch that
+// branch, no statement flow analysis), and the soundness guard: a branch that
 // calls a sibling `operation` can have the field reassigned under it, so it
 // does not narrow.
 
@@ -98,9 +98,16 @@ describe("ternary null-narrowing — what must NOT narrow", () => {
     expect(stillOptional(errors), JSON.stringify(errors)).toBe(true);
   });
 
-  it("an `&&` chain is not a direct null test — deliberately no flow analysis", async () => {
+  it("an `&&` condition narrows the THEN branch through its operand", async () => {
     const { errors } = await parseString(
       agg(`derived a: string = path != null && label != "" ? path + "." : ""`),
+    );
+    expect(errors, JSON.stringify(errors)).toEqual([]);
+  });
+
+  it('…but not the ELSE branch, which a false `label != ""` reaches too', async () => {
+    const { errors } = await parseString(
+      agg(`derived a: string = path != null && label != "" ? "" : path + "."`),
     );
     expect(stillOptional(errors), JSON.stringify(errors)).toBe(true);
   });
