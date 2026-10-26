@@ -340,11 +340,7 @@ export function dapperMigrationSlug(m: MigrationsIR): string {
 const verbatim = (s: string): string => s.replace(/"/g, '""');
 
 /** One migration class: its history id and its single SQL statements. */
-function renderDapperMigrationClass(
-  ns: string,
-  id: string,
-  statements: readonly string[],
-): string {
+function renderDapperMigrationClass(ns: string, id: string, statements: readonly string[]): string {
   return (
     lines(
       "// Auto-generated.  A versioned Dapper migration (persistence: dapper): the",
