@@ -214,12 +214,14 @@ export function schemaFromModule(
     }
     const shape = shapeOf(agg, ctxFor(agg));
     if (shape === "document") {
-      return [documentTableForAggregate(agg, module.name)];
+      return [withLineageColumns(agg, documentTableForAggregate(agg, module.name))];
     }
     if (shape === "embedded") {
-      return [embeddedTableForAggregate(agg, module.name)];
+      return [withLineageColumns(agg, embeddedTableForAggregate(agg, module.name))];
     }
-    const out: TableShape[] = [tableForAggregate(agg, module.name, voLookup, enumLookup)];
+    const out: TableShape[] = [
+      withLineageColumns(agg, tableForAggregate(agg, module.name, voLookup, enumLookup)),
+    ];
     for (const part of agg.parts) {
       out.push(tableForPart(part, agg, module.name, voLookup, enumLookup));
     }
@@ -370,6 +372,31 @@ export function schemaFromModule(
   return { schemaVersion: 1, tables };
 }
 
+/** Append the co-located provenance lineage columns to an aggregate's ROOT
+ *  table: one nullable `<field>_provenance` jsonb per `provenanced` root field,
+ *  holding the lineage of the field's current value (provenance.md).  Root
+ *  fields only, because that is what every backend's ORM maps: operations (the
+ *  write sites) live on the root.  They are ordinary columns, versioned, diffed
+ *  and recorded in the chain, so marking a field `provenanced` on a live system
+ *  adds its column in a NEW generation.
+ *
+ *  Each carries `lineageOf`, which makes the add-column diff render
+ *  `ADD COLUMN IF NOT EXISTS`: a database deployed while these columns were
+ *  still a hand-emitted per-backend migration already holds them, and the
+ *  generation that first records them in the chain must apply there too. */
+function withLineageColumns(agg: AggregateIR, table: TableShape): TableShape {
+  for (const f of agg.fields) {
+    if (!f.provenanced) continue;
+    table.columns.push({
+      name: `${snake(f.name)}_provenance`,
+      type: { kind: "json" },
+      nullable: true,
+      lineageOf: f.name,
+    });
+  }
+  return table;
+}
+
 /** Drop a plain index a unique index already provides (D13).  A `unique (p)`
  *  on an FK column `p` used to sit beside the derived FK index on the same
  *  column (`r2s_p_uq` + `r2s_p_idx`) — two B-trees over one key, the plain one
@@ -455,9 +482,8 @@ function auditTableShape(ownerModule: string): TableShape {
  *  site, carrying the rule-snapshot id, the resolved inputs and the computed
  *  value, inserted inside the same transaction as the aggregate save.  The
  *  CURRENT lineage is also stored co-located on the aggregate row's
- *  `<field>_provenance` jsonb column — that half is per-aggregate and stays in
- *  each backend's late migration; only this fixed, cross-context table is
- *  shared.
+ *  `<field>_provenance` jsonb column, derived per aggregate by
+ *  `withLineageColumns`.
  *
  *  Column-for-column the shape the six hand-written copies carried (Drizzle
  *  schema + late `.sql`, .NET EF migration + the second Dapper copy, Java
@@ -1032,7 +1058,9 @@ function diffTable(
       buckets.addColumn.push(
         fk
           ? { op: "addColumn", table: next.name, schema, column: c, fk }
-          : { op: "addColumn", table: next.name, schema, column: c },
+          : c.lineageOf !== undefined
+            ? { op: "addColumn", table: next.name, schema, column: c, ifNotExists: true }
+            : { op: "addColumn", table: next.name, schema, column: c },
       );
     }
   }

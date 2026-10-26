@@ -101,11 +101,7 @@ import { renderPyIds } from "./emit/ids.js";
 import { renderPyContextIntegrationTest } from "./emit/integration-tests.js";
 import { PY_MESSAGES_MODULE_PATH, renderPyMessagesModule } from "./emit/messages.js";
 import { renderPythonMetricsFile } from "./emit/metrics.js";
-import {
-  emitPythonMigrations,
-  emitPythonProvenanceMigration,
-  MIGRATE_PY,
-} from "./emit/migrations.js";
+import { emitPythonMigrations, MIGRATE_PY } from "./emit/migrations.js";
 import { wireNumericHelpers } from "./emit/numeric.js";
 import { OBS_LOG_PY, OBS_MIDDLEWARE_PY, renderPythonTracingFile } from "./emit/obs.js";
 import { emitPyProvenance } from "./emit/provenance.js";
@@ -617,14 +613,13 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // COPY valid on systems whose snapshot is already up to date.
   out.set("migrations/.gitkeep", "");
   emitPythonMigrations(args.migrations ?? [], out);
-  // Provenance runtime (provenance.md): the SDK modules + the LATE
-  // hand-emitted migration (co-located `<field>_provenance` columns +
-  // `provenance_records`).  No-op when no aggregate declares a provenanced
-  // field, so non-provenance projects stay byte-identical.
+  // Provenance runtime (provenance.md): the SDK modules.  Its DDL (the
+  // co-located `<field>_provenance` columns + `provenance_records`) is
+  // ordinary MigrationsIR, rendered above.  No-op when no aggregate declares a
+  // provenanced field, so non-provenance projects stay byte-identical.
   emitPyProvenance(args.contexts, out);
-  emitPythonProvenanceMigration(args.contexts, out, args.sys);
   // Per-operation audit runtime (audit-and-logging.md): the AuditRecordRow
-  // model + the LATE hand-emitted migration (`audit_records`).  No-op when no
+  // model (its `audit_records` DDL is MigrationsIR too).  No-op when no
   // aggregate declares an `audited` op, so non-audit projects stay
   // byte-identical.  The per-op capture + the record_audit helper are wired by
   // routes-builder.ts / repository-builder.ts.

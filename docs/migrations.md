@@ -985,11 +985,34 @@ feature. They are machinery, not domain: cross-context (rows carry a
 deliberate — each was once hand-written per backend, and both consolidations
 turned up live defects the duplicated copies had been hiding.
 
-What *is* still feature-local and hand-emitted per backend is the
-**per-aggregate** half of provenance: the co-located `<field>_provenance` jsonb
-columns, which `ALTER` tables the module migration owns and so ship as a *late*
-migration (a far-future version like `29991231235959`) sorting after every
-generation of the chain.
+The **per-aggregate** half of provenance is ordinary schema too: each
+`provenanced` root field's co-located `<field>_provenance` column (nullable
+`JSONB`) is derived onto its aggregate's root table by `withLineageColumns` in
+the same file. No backend hand-emits provenance or audit DDL, and nothing sits
+at a fixed far-future version outside the chain. Like any other column, the
+lineage column is versioned, diffed and recorded, so the rules are the usual
+ones:
+
+- **Marking a field `provenanced`** on a live system records an `addColumn` in a
+  new generation, which sorts above every applied one. The applied migrations
+  stay byte-identical, so no runner re-checks or skips anything (no Flyway
+  checksum mismatch, no stale Drizzle watermark).
+- **That add renders `ADD COLUMN IF NOT EXISTS`** (Ecto: `add_if_not_exists`).
+  It is the one diffed step that does. Databases deployed while these columns
+  came from a hand-emitted per-backend migration already hold them, and the
+  first generation that records them has to apply there too. The column carries
+  a derivation-only `lineageOf` stamp, which is what selects this rendering;
+  `canonicalSnapshot` strips it, so the committed chain stores a plain column.
+- **Dropping `provenanced`** drops the column, and its lineage, as a destructive
+  step that needs `--allow-destructive`.
+
+A database whose Flyway history still holds the retired `29991231235959`
+provenance migration has a "future" applied version. Flyway skips that row, but
+it still treats every later chain version as out of order, so that database
+needs `spring.flyway.out-of-order=true` once. On Drizzle the retired entry's
+odd journal slot sits below the next generation's even slot, so nothing is
+hidden. The applied-set runners (EF, Dapper, Ecto, the python runner) just
+ignore the stale row.
 
 ### `persistence: dapper` — the same chain, on the jsonb layout (M-T2.17)
 
@@ -1002,8 +1025,7 @@ applies the same `MigrationsIR` chain EF applies
 
 - **Emission.** One `Migrations/<version>_<Module>_<Name>.cs` per generation —
   the id EF gives the same migration — rendered by `renderPgStep` and split into
-  single statements (`splitPgStatements`, shared with the python runner). The
-  late provenance-column migration is the same statements EF's carries.
+  single statements (`splitPgStatements`, shared with the python runner).
 - **One projection, not a third DDL copy.** The Dapper repositories store a
   value object as ONE `jsonb` column, a scalar/enum list as `jsonb`, and a
   value-object list as `jsonb` on the parent, where the canonical IR flattens /
@@ -1074,13 +1096,11 @@ That makes `when` load-bearing in a way a filename is not. Three requirements:
 `when` is therefore the entry's **position in chain order**:
 `when = epochMillis(BASE_VERSION) + ordinal * 2`. The chain only grows at its
 head, with a version above every existing one, so an entry's position never
-moves (2) and a new entry always lands last (1, 3). Entries take the even slots;
-the odd slot just above the newest one carries the always-last provenance
-migration, so it sorts after its own generation without sitting above the next
-one. The late provenance migration is emitted with `ADD COLUMN IF NOT EXISTS`
-because it is re-derived from scratch each generation rather than diffed, so
-re-applying it is a no-op — and a field newly marked `provenanced` actually
-receives its column. The runtime gate is the `journal-ordering` leg of
+moves (2) and a new entry always lands last (1, 3). Entries take the even slots.
+The factor of two stays because deployed databases already carry these values,
+and a database that applied the retired out-of-chain provenance migration holds
+it at the odd slot just above its then-newest entry, which the next generation's
+even slot still clears. The runtime gate is the `journal-ordering` leg of
 `migration-evolution-e2e`.
 
 ## Migration-evolution gate — proving migrations evolve *on data* (M-T2.13)

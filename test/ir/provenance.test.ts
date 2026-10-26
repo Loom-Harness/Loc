@@ -9,7 +9,9 @@ import { createDddServices } from "../../src/language/ddd-module.js";
 import { isProperty, type Model, type Property } from "../../src/language/generated/ast.js";
 import { generateSystems } from "../../src/system/index.js";
 import { captureSnapshots } from "../../src/system/loomsnap.js";
+import { type ChainEntry, serializeEntry } from "../../src/system/migration-chain.js";
 import { diagText } from "../_helpers/diagnostics.js";
+import { generateEvolvedSystemFiles, recordChain } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // `provenanced` stored-field modifier — per-write-site rule snapshots
@@ -240,94 +242,110 @@ describe("provenanced — TypeScript emission", () => {
     expect(schema).toContain('export const provenanceRecords = pgTable("provenance_records"');
   });
 
-  // Regression: `db/schema.ts` (Drizzle) declared the co-located
-  // `<field>_provenance` column and the `provenanceRecords` table above, but
-  // no SQL migration ever created either — `generate system` wrote the
-  // Drizzle model without the DDL to back it, so the first boot-time
-  // `migrate(...)` left both missing and any write to the column, or a
-  // history-table insert, failed against a live database. Every other
-  // provenance-capable backend (.NET / Java / Python / elixir) already emits
-  // an equivalent LATE migration (`docs/provenance.md`); this pins the same
-  // shape for Hono/Drizzle.
-  describe("provenanced — TypeScript migration (regression)", () => {
-    it("emits the LATE provenance migration (ADD column) + the shared history table", async () => {
+  // `db/schema.ts` (Drizzle) declares the co-located `<field>_provenance`
+  // column and the `provenanceRecords` table above; both must also exist in
+  // the SQL the boot-time `migrate(...)` applies.  They are ordinary
+  // MigrationsIR DDL, so they arrive in the chain's own generations — never in
+  // a separate out-of-chain migration.
+  describe("provenanced — TypeScript migration", () => {
+    it("creates the co-located column + the history table in the module's Initial", async () => {
       const { model } = await parseModel(SYSTEM(""));
       const files = generateSystems(model).files;
-      const mig = files.get("api/db/migrations/29991231000000_provenance.sql")!;
-      expect(mig).toBeDefined();
-      // Schema-qualified: the deployable binds a `resource` for context C, so
-      // its tables live in the `c` Postgres schema — the shape a real user gets.
-      // `IF NOT EXISTS`: this late migration is re-derived from scratch each
-      // generation and re-homed above the newest history entry, so it can be
-      // re-applied against a database that already carries some of its columns
-      // (F-012 — it used to crash the boot on "already exists").
-      expect(mig).toContain(
-        'ALTER TABLE "c"."carts" ADD COLUMN IF NOT EXISTS "total_provenance" JSONB',
-      );
-      // The history table is a shared MigrationsIR companion table
-      // (`provenanceTableShape`) now, so it lands in the ordinary module
-      // migration rather than being hand-written into this late one.
-      expect(mig).not.toContain("CREATE TABLE");
       const initial = [...files.entries()].find(([k]) =>
         /db\/migrations\/\d+_.*_initial\.sql$/.test(k),
       )?.[1];
+      // Schema-qualified: the deployable binds a `resource` for context C, so
+      // its tables live in the `c` Postgres schema — the shape a real user gets.
+      expect(initial).toMatch(/CREATE TABLE "c"\."carts" \([^;]*"total_provenance" JSONB NULL/);
       expect(initial).toContain('CREATE TABLE "provenance_records" (');
       expect(initial).toContain('"snapshot_id" TEXT NOT NULL');
-    });
-
-    it("registers the migration in the Drizzle journal (unregistered ⇒ never applied)", async () => {
-      const { model } = await parseModel(SYSTEM(""));
-      const files = generateSystems(model).files;
-      const journal = JSON.parse(files.get("api/db/migrations/meta/_journal.json")!);
-      const tags = journal.entries.map((e: { tag: string }) => e.tag);
-      expect(tags).toContain("29991231000000_provenance");
-      // `when` must be strictly increasing across every entry, or drizzle's
-      // runtime migrator silently collapses the tie and skips one file.
-      const whens = journal.entries.map((e: { when: number }) => e.when);
-      expect(whens).toEqual([...whens].sort((a, b) => a - b));
-      expect(new Set(whens).size).toBe(whens.length);
-    });
-
-    it("the migration sorts after every module migration", async () => {
-      const { model } = await parseModel(SYSTEM(""));
-      const files = generateSystems(model).files;
+      // No out-of-chain migration beside it.
       const sqlFiles = [...files.keys()].filter(
         (k) => k.startsWith("api/db/migrations/") && k.endsWith(".sql"),
       );
-      const provFile = sqlFiles.find((k) => k.endsWith("_provenance.sql"));
-      expect(provFile).toBeDefined();
-      const others = sqlFiles.filter((k) => k !== provFile);
-      for (const other of others)
-        expect(provFile!.split("/").pop()! > other.split("/").pop()!).toBe(true);
+      expect(sqlFiles).toHaveLength(1);
+      const journal = JSON.parse(files.get("api/db/migrations/meta/_journal.json")!);
+      expect(journal.entries.map((e: { tag: string }) => e.tag)).toEqual([
+        sqlFiles[0]!
+          .split("/")
+          .pop()!
+          .replace(/\.sql$/, ""),
+      ]);
     });
 
-    it("picks up a newly-added provenanced field on the next regenerate", async () => {
-      // Models the exact user-hit scenario: a field is marked `provenanced`
-      // after the aggregate already had migrations — regenerating must fold
-      // the new column into the (regenerated-from-scratch) late migration,
-      // not just leave the field itself added with no lineage column.
+    it("marking an existing field `provenanced` adds its column in a NEW generation", async () => {
+      // A field marked `provenanced` after the aggregate already had
+      // migrations.  The applied Initial must stay byte-identical (a changed
+      // applied migration never re-runs, and Flyway refuses its checksum), and
+      // the column arrives in the next generation, which sorts above it.
       const before = SYSTEM("");
       const after = before.replace("discount: int", "discount: int provenanced");
-      const migBefore = generateSystems((await parseModel(before)).model).files.get(
-        "api/db/migrations/29991231000000_provenance.sql",
-      )!;
-      const migAfter = generateSystems((await parseModel(after)).model).files.get(
-        "api/db/migrations/29991231000000_provenance.sql",
-      )!;
-      expect(migBefore).not.toContain("discount_provenance");
-      expect(migAfter).toContain('ADD COLUMN IF NOT EXISTS "discount_provenance" JSONB');
-      expect(migAfter).toContain('ADD COLUMN IF NOT EXISTS "total_provenance" JSONB');
+      const v1 = await generateEvolvedSystemFiles([before]);
+      const v2 = await generateEvolvedSystemFiles([before, after]);
+      const migs = (files: Map<string, string>) =>
+        [...files.keys()].filter((k) => /^api\/db\/migrations\/[^/]+\.sql$/.test(k)).sort();
+      const [initial] = migs(v1);
+      expect(migs(v2)).toHaveLength(2);
+      expect(v2.get(initial!)).toBe(v1.get(initial!));
+      const added = v2.get(migs(v2)[1]!)!;
+      // `IF NOT EXISTS`: a database deployed while these columns came from a
+      // hand-emitted migration outside the chain may already hold one.
+      expect(added).toBe(
+        'ALTER TABLE "c"."carts" ADD COLUMN IF NOT EXISTS "discount_provenance" JSONB NULL;\n',
+      );
+      const journal = JSON.parse(v2.get("api/db/migrations/meta/_journal.json")!);
+      const whens = journal.entries.map((e: { when: number }) => e.when);
+      expect(whens).toEqual([...whens].sort((a, b) => a - b));
+      expect(new Set(whens).size).toBe(whens.length);
     });
 
     it("emits no provenance migration when nothing is provenanced", async () => {
       const src = SYSTEM("").replace("total: int provenanced", "total: int");
       const { model } = await parseModel(src);
       const files = generateSystems(model).files;
-      expect([...files.keys()].some((k) => k.endsWith("_provenance.sql"))).toBe(false);
-      const journal = JSON.parse(files.get("api/db/migrations/meta/_journal.json")!);
-      expect(journal.entries.some((e: { tag: string }) => e.tag.includes("provenance"))).toBe(
-        false,
+      const sql = [...files.entries()].filter(([k]) => /^api\/db\/migrations\/[^/]+\.sql$/.test(k));
+      expect(sql).toHaveLength(1);
+      expect(sql[0]![1]).not.toContain("provenance");
+    });
+
+    it("records the lineage column in the chain, without its derivation stamp", async () => {
+      const before = SYSTEM("");
+      const after = before.replace("discount: int", "discount: int provenanced");
+      const chain = await recordChain([before, after]);
+      expect(chain.entries.map((e) => e.name)).toEqual(["Initial", "Gen1"]);
+      // The committed entry file carries the column as plain schema …
+      const carts = (i: number) =>
+        (JSON.parse(serializeEntry(chain.entries[i]!)) as ChainEntry).schema.tables.find(
+          (t) => t.name === "carts",
+        )!.columns;
+      expect(carts(0).find((c) => c.name === "total_provenance")).toEqual({
+        name: "total_provenance",
+        type: { kind: "json" },
+        nullable: true,
+      });
+      expect(carts(1).map((c) => c.name)).toContain("discount_provenance");
+      // … and the step that adds it is the IF NOT EXISTS add.
+      expect(chain.entries[1]!.steps).toEqual([
+        expect.objectContaining({
+          op: "addColumn",
+          table: "carts",
+          column: expect.objectContaining({ name: "discount_provenance", nullable: true }),
+          ifNotExists: true,
+        }),
+      ]);
+    });
+
+    it("dropping `provenanced` drops the lineage column as a destructive step", async () => {
+      // `discount` stays provenanced, so the history table stays too.
+      const before = SYSTEM("").replace("discount: int", "discount: int provenanced");
+      const after = before.replace("total: int provenanced", "total: int");
+      await expect(recordChain([before, after], { allowDestructive: false })).rejects.toThrow(
+        /total_provenance/,
       );
+      const chain = await recordChain([before, after]);
+      expect(chain.entries[1]!.steps).toEqual([
+        expect.objectContaining({ op: "dropColumn", table: "carts", name: "total_provenance" }),
+      ]);
     });
   });
 

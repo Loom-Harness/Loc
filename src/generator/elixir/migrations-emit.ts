@@ -671,9 +671,13 @@ export function renderEctoStep(step: MigrationStep): string[] {
       // `add …, null: false` where the four SQL backends emitted
       // `ADD COLUMN … NOT NULL DEFAULT …` — the same step, one backend failing.
       // Same clause `renderEctoColumn` uses for the CREATE TABLE path.
+      // `ifNotExists` (a provenance lineage column) maps to Ecto's
+      // `add_if_not_exists`, the same `ADD COLUMN IF NOT EXISTS` the SQL
+      // backends render.
+      const add = step.ifNotExists ? "add_if_not_exists" : "add";
       return [
         `alter table(:${step.table}${prefix}) do`,
-        `  add :${c.name}, ${decl}, null: ${c.nullable}${ectoDefaultClause(c.default)}`,
+        `  ${add} :${c.name}, ${decl}, null: ${c.nullable}${ectoDefaultClause(c.default)}`,
         `end`,
       ];
     }
