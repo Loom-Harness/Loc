@@ -8,7 +8,7 @@
 //     classes (the id EF gives the same migration), rendered by `sql-pg.ts`;
 //   - the `CREATE TABLE IF NOT EXISTS` bootstrap is gone — `DbSchema.cs` is the
 //     runner: `public.__loom_migrations`, one transaction per migration, an
-//     advisory lock, the legacy baseline;
+//     advisory lock, and no legacy-bootstrap baseline;
 //   - the steps are projected onto the Dapper column layout — a value object is
 //     ONE jsonb column, a list is jsonb, a value-object list has no child table
 //     — because that is what the repositories read and write;
@@ -25,7 +25,7 @@ import type {
   SchemaSnapshot,
   TableShape,
 } from "../../../src/ir/types/migrations-ir.js";
-import { generateSystemFiles } from "../../_helpers/generate.js";
+import { generateEvolvedSystemFiles, generateSystemFiles } from "../../_helpers/generate.js";
 
 const SOURCE = (persistence: string) => `
 system Dm {
@@ -69,16 +69,20 @@ describe("Dapper: the migration chain, emitted", () => {
       "public sealed class M20260101000000_Sales_Initial : global::D.Infrastructure.Persistence.LoomMigration",
     );
     expect(initial).toContain('public override string Id => "20260101000000_Sales_Initial";');
-    // The Initial names the tables it creates, for the legacy baseline.
-    expect(initial).toContain('("orders", "orders"),');
+    // No database predates the chain, so nothing is baselined: an Initial
+    // carries no table list and the runner never adopts existing tables.
+    expect(initial).not.toContain("CreatesTables");
 
     const runner = files.get("d/Infrastructure/Persistence/DbSchema.cs")!;
     expect(runner).not.toContain("CREATE TABLE IF NOT EXISTS orders");
     expect(runner).toContain("public.__loom_migrations");
     expect(runner).toContain("pg_advisory_lock");
+    expect(runner).toContain("pg_advisory_unlock");
     expect(runner).toContain("BeginTransactionAsync");
-    expect(runner).toContain("BaselineLegacyAsync");
-    expect(runner).toContain("SET SCHEMA");
+    expect(runner).toContain("INSERT INTO public.__loom_migrations (tag) VALUES (@tag)");
+    expect(runner).not.toContain("BaselineLegacyAsync");
+    expect(runner).not.toContain("CreatesTables");
+    expect(runner).not.toContain("SET SCHEMA");
 
     const program = files.get("d/Program.cs")!;
     expect(program).toContain('SearchPath = "public,orders"');
@@ -115,6 +119,25 @@ describe("Dapper: the migration chain, emitted", () => {
     const ef = files.get("d/Migrations/20260101000000_Sales_Initial.cs")!;
     expect(ef).toContain("migrationBuilder.Sql(");
     expect(unverb(ef)).toContain('"total_amount"');
+  });
+
+  it("a field added to a live aggregate is an ALTER in the next generation's file", async () => {
+    // Generation 1 deploys `Order`; generation 2 adds `note: string = ""`.
+    // The deployed database only ever sees the second file's statements, so
+    // the column must arrive as an ALTER with the declared default — editing
+    // the Initial's CREATE TABLE would leave the live table without it.
+    const before = SOURCE("dapper");
+    const after = before.replace("code: string\n", 'code: string\n        note: string = ""\n');
+    expect(after).not.toBe(before);
+    const files = await generateEvolvedSystemFiles([before, after]);
+    const migrations = [...files.keys()].filter((p) => p.startsWith("d/Migrations/")).sort();
+    expect(migrations).toHaveLength(2);
+    const initial = unverb(files.get(migrations[0]!)!);
+    const gen1 = unverb(files.get(migrations[1]!)!);
+    expect(initial).not.toContain('"note"');
+    expect(gen1).toContain(
+      `ALTER TABLE "orders"."orders" ADD COLUMN "note" TEXT NOT NULL DEFAULT '';`,
+    );
   });
 });
 
