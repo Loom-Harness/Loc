@@ -963,10 +963,11 @@ system D {
     expect(customer).toContain("Name = r.name,");
     expect(customer).toContain("Email = r.email,");
     expect(customer).toContain("CreditLimit = r.credit_limit,");
-    // The polymorphic base reader delegates to each concrete's All().
+    // The polymorphic base reader merges each concrete's All() in Id order.
     const base = files.get("api/Infrastructure/Repositories/PartyRepository.cs")!;
-    expect(base).toContain("result.AddRange(await _customerRepo.All(cancellationToken));");
-    expect(base).toContain("result.AddRange(await _vendorRepo.All(cancellationToken));");
+    expect(base).toContain("result.AddRange((await _customerRepo.All(cancellationToken)).Select(");
+    expect(base).toContain("result.AddRange((await _vendorRepo.All(cancellationToken)).Select(");
+    expect(base).toContain("return result.OrderBy(r => r.Key).Select(r => r.Row).ToList();");
   });
 
   // M-T6.9 wave 5: a TPH concrete carrying `contains` / an `X id[]` reference

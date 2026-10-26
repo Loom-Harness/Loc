@@ -120,7 +120,6 @@ import {
   validateStorageTypeBinding,
   validateSystem,
   validateTenancyFilterBypass,
-  validateTphFilterExpressibility,
   validateUiBodyStatementKinds,
   validateUiProjectionReadFramework,
   validateUiRealtimeSupport,
@@ -246,7 +245,6 @@ export function validateLoomModel(
     validateStampSupport(sys, diags);
     validateGuardPrincipalWithoutAuth(sys, diags);
     validateDapperSupport(sys, diags);
-    validateTphFilterExpressibility(sys, diags);
     validateNeedCapabilities(sys, diags);
     validateResourceConfig(sys, diags);
     validateApiResourceBindings(sys, diags);
