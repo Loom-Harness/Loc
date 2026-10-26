@@ -1,5 +1,5 @@
+import { scalarCodec } from "../../ir/enrich/codec.js";
 import type { PrimitiveName, TypeIR } from "../../ir/types/loom-ir.js";
-import { MONEY_WIRE_SCALE } from "../money-scale.js";
 
 // ---------------------------------------------------------------------------
 // The numeric wire-codec DECISION TABLE (M-T9.36).
@@ -66,16 +66,27 @@ export interface WireCodec {
   readonly scale?: number;
 }
 
-/** THE decision table.  One row per `NumericKind`, referenced by every
+/** THE decision table, as the read-boundary emitters see it — derived from the
+ *  IR `Codec` fact (`src/ir/enrich/codec.ts`), which owns the decision.  One
+ *  row per `NumericKind`, referenced by every
  *  per-backend `NumericTarget` leaf table (`./target.ts`) and by
  *  `test/generator/_numeric/codec.test.ts`, which pins these exact values
  *  against `docs/conformance-semantics.md` RS-12/RS-24. */
 export const NUMERIC_WIRE_CODEC: Readonly<Record<NumericKind, WireCodec>> = {
-  money: { wireForm: "string", scale: MONEY_WIRE_SCALE },
-  decimal: { wireForm: "number" },
-  int: { wireForm: "number" },
-  long: { wireForm: "number" },
+  money: wireCodecOf("money"),
+  decimal: wireCodecOf("decimal"),
+  int: wireCodecOf("int"),
+  long: wireCodecOf("long"),
 };
+
+/** A numeric kind's row, read off the IR `Codec` fact: a fixed-scale decimal
+ *  is a wire string at its scale, every other numeric form a wire number. */
+function wireCodecOf(kind: NumericKind): WireCodec {
+  const wire = scalarCodec(kind).wire;
+  return wire.form === "fixed-scale-decimal"
+    ? { wireForm: "string", scale: wire.scale }
+    : { wireForm: "number" };
+}
 
 /** The wire codec for one numeric kind — a lookup, not a computation, so a
  *  new numeric kind that forgets a row fails to type-check (`NumericKind` is

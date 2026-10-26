@@ -232,6 +232,21 @@ function baseReads({ passes = [], pins = {} } = {}) {
  * issue and a well-formed pin, and every behavioural corpus fixture is
  * accounted for on every one of the five backends.
  */
+/** A provenanced money field's lineage (`provenance-money`): the `Codec` fact
+ *  writes money there as its RS-12 wire string (#3527).  Every leg but node
+ *  still records the domain value, so the first lineage assertion fails —
+ *  java / .NET with a JSON number, elixir with an unscaled Decimal string. */
+const MONEY_LINEAGE_BLOCK = "a provenanced money lineage carries money at the wire scale";
+const moneyLineage = (re) => ({
+  issue: "#3527",
+  expect: "fail",
+  tests: { [MONEY_LINEAGE_BLOCK]: re },
+  reason: "a money value in a provenance lineage is the RS-12 wire string (Codec fact); this leg still writes the domain value",
+});
+/** The two-writer probe's test name (`__twoWriterProbe`, wire-differential.mjs) —
+ *  the one test a `race` entry may pin: only a race can show what it measures. */
+export const RACE_PROBE_TEST = "two writers with the same If-Match";
+
 export const BEHAVIOURAL_XFAIL = {
   node: {},
   mikroorm: {},
@@ -246,6 +261,7 @@ export const BEHAVIOURAL_XFAIL = {
     // EF maps the VO as a scalar onto a column the migration never creates; the
     // emitted project does not build.
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
+    "provenance-money": moneyLineage('to be "3000\\.3000"'),
   },
   dapper: {
     // The document-shape read path keeps the filters an `ignoring` clause names;
@@ -261,9 +277,25 @@ export const BEHAVIOURAL_XFAIL = {
       reason: "`find … ignoring` on a `shape: document` aggregate still applies the filters it names on Dapper",
     },
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
+    "provenance-money": moneyLineage('to be "3000\\.3000"'),
   },
-  java: {},
+  java: {
+    "provenance-money": moneyLineage('to be "3000\\.3000"'),
+    // The guarded save flushes the dirty entity (its stale `version` included)
+    // before the `where version = :expected` bump, so two simultaneous writers
+    // carrying one `If-Match` both land.  The sequential stale tag is refused.
+    "concurrency-two-writers": {
+      issue: "#3521",
+      expect: "fail",
+      tests: { [RACE_PROBE_TEST]: "pair \\d+: 204, 204" },
+      race:
+        "the lost write needs both requests to load before either saves, which only the server's own timing decides; a run whose pairs all serialise passes",
+      reason: "RS-46 — two simultaneous writers with one `If-Match` both answer 204 and one write is lost",
+    },
+  },
   python: {
+    // The lineage jsonb bind cannot serialize a `Decimal`, so the write 500s.
+    "provenance-money": moneyLineage("assess → 500"),
     // A routed command handler's body model takes snake_case keys.
     "extern-handlers": {
       issue: "#4211",
@@ -278,6 +310,17 @@ export const BEHAVIOURAL_XFAIL = {
     }),
   },
   elixir: {
+    "provenance-money": moneyLineage('to be "3000\\.3000"'),
+    // Only the canonical `update` reads `If-Match`; a stale tag on any other
+    // operation answers 204 and overwrites the newer row.
+    "concurrency-two-writers": {
+      issue: "#3531",
+      expect: "fail",
+      tests: {
+        "a stale If-Match on a named operation is refused": "expected the call to reject, but it resolved",
+      },
+      reason: "RS-46 — a named operation ignores a stale `If-Match`",
+    },
     // A value object nested inside another is cast as `:map`, so the nested
     // VO's invariant never runs and the bad create commits.
     "vo-root-kernel": {

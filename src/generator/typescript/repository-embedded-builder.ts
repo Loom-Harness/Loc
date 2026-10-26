@@ -1,3 +1,4 @@
+import { rowVersionGuarded } from "../../ir/enrich/version-check.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   EnrichedAggregateIR,
@@ -10,7 +11,6 @@ import { aggregateUsesMoneyDeep, findUsesCurrentUser } from "../../ir/types/loom
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
-import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst, plural } from "../../util/naming.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
@@ -159,7 +159,7 @@ export function buildEmbeddedRepositoryFile(
   // `versioned` capability (e.g. via `crudish`) compiles.  `rootEntries` omits
   // `version`, so the guarded path stamps it explicitly (1 on insert, expected
   // + 1 on the CAS update) — mirroring repository-save-builder.ts.
-  const versioned = aggregateIsVersioned(agg);
+  const versioned = rowVersionGuarded(agg);
   const emitsDelete = !!canonicalDestroy(agg);
   // A versioned aggregate carries `version` as a projected column entry
   // (`version: aggregate.version`); the guarded path stamps version itself, so

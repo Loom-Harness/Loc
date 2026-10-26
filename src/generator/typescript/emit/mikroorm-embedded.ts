@@ -4,6 +4,7 @@
 // logic change.
 // -------------------------------------------------------------------------
 
+import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   EnrichedAggregateIR,
@@ -16,7 +17,6 @@ import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
-import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "../paged-locals.js";
@@ -147,7 +147,7 @@ export function renderMikroEmbeddedRepository(
   // aggregate.version` (a projected field); the guarded path drops it and stamps
   // the CAS value itself (1 on insert, expected + 1 on the update).  A
   // non-versioned embedded aggregate keeps the byte-identical bare upsert.
-  const versioned = aggregateIsVersioned(agg);
+  const versioned = rowVersionGuarded(agg);
   const rootEntriesNoVersion = rootEntries.filter((e) => !e.startsWith("version:"));
   const rootRowInsert = `{ ${rootEntriesNoVersion.join(", ")}, version: 1 }`;
   const rootRowUpdate = `{ ${rootEntriesNoVersion.join(", ")}, version: expected + 1 }`;

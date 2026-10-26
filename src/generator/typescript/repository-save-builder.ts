@@ -7,6 +7,7 @@
 // repository-find-builder.ts.
 
 import { readDiscriminator, readScopeFor } from "../../ir/enrich/read-scope.js";
+import { rowVersionGuarded } from "../../ir/enrich/version-check.js";
 import type {
   BoundedContextIR,
   EnrichedAggregateIR,
@@ -17,7 +18,6 @@ import type {
 import { tableOwnerName } from "../../ir/util/inheritance.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { isValueCollectionType, valueCollectionsFor } from "../../ir/util/value-collections.js";
-import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, upperFirst } from "../../util/naming.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
@@ -179,7 +179,7 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
   // stays a coherent guarded write, not just `update`.  Zero rows affected
   // means another request won the race in between — `ConcurrencyError`,
   // mapped to 409 by the shared `onError` arm.
-  if (aggregateIsVersioned(agg)) {
+  if (rowVersionGuarded(agg)) {
     const baseEntries = rootEntries(agg, "aggregate", ctx, new Set(["version"]));
     const insertRow = projectionObject("aggregate", [
       ...baseEntries,
@@ -214,7 +214,7 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
     // no `kind` guard.  `applyDefaultVersioning` (macros/expander.ts) tags every
     // aggregate `versioned` except `persistedAs: eventLog`, and an eventLog
     // aggregate routes to `buildEventSourcedRepositoryFile` instead of here — so
-    // `aggregateIsVersioned` is true for everything that reaches this function.
+    // `rowVersionGuarded` is true for everything that reaches this function.
     // Were default versioning ever narrowed, this line would need the same
     // guard the branch above carries (`setWhere: eq(schema.<t>.kind, "<C>")`,
     // which drizzle's `onConflictDoUpdate` accepts) or the TPH corruption
@@ -243,7 +243,7 @@ export function saveMethod(
   // and still get a guarded write (the tx body falls back to
   // `aggregate.version`).  A non-versioned aggregate's signature is
   // byte-identical to before.
-  const saveSig = aggregateIsVersioned(agg)
+  const saveSig = rowVersionGuarded(agg)
     ? `  async save(aggregate: ${agg.name}, expectedVersion?: number): Promise<void> {`
     : `  async save(aggregate: ${agg.name}): Promise<void> {`;
   // Transactional outbox (dispatch-delivery-semantics.md §1, docs/channels.md):

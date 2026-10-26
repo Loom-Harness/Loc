@@ -43,6 +43,13 @@ export const OUTCOMES = ["error", "fail", "wire", "pass"];
 export function settle(entry, observed) {
   if (!entry) return { verdict: "ok" };
   const where = `(${entry.issue})`;
+  // A `race` entry pins a defect only a race between simultaneous requests can
+  // show (the two-writer probe): a run where the race did not overlap PASSES
+  // without the defect being fixed, so a pass settles as expected rather than
+  // as the ratchet.  Every failure it does not claim is still a mismatch.
+  if (observed.kind === "pass" && entry.race) {
+    return { verdict: "xfail", detail: `passed this run — the race it pins did not overlap ${where}` };
+  }
   if (observed.kind === "pass") {
     return {
       verdict: "xpass",
@@ -76,7 +83,7 @@ export function settle(entry, observed) {
       };
     }
     const healed = pins.filter((p) => !(observed.failures ?? []).some((f) => claims(f, p)));
-    if (healed.length) {
+    if (healed.length && !entry.race) {
       return {
         verdict: "mismatch",
         detail: `recorded failure "${healed[0][0]}" ${where} no longer fails — narrow its entry's \`tests\``,

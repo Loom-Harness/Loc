@@ -1780,6 +1780,12 @@ export const DIAGNOSTIC_MESSAGES = {
     `'let ${p.name}' is declared '${p.declared}' but its value is '${p.actual}'.`,
   "loom.return-type-mismatch": (p: { label: unknown; actual: unknown; declared: unknown }) =>
     `${p.label} returns '${p.actual}' but is declared to return '${p.declared}'.`,
+  "loom.unhandled-result": (p: { call: unknown; type: unknown; errors: unknown }) =>
+    `'${p.call}' returns '${p.type}' and its ${p.errors} case is discarded. ` +
+    `Match it, return it from a caller whose declared result admits it, or bind it with 'let' and use it.`,
+  "loom.unhandled-result#unread-let": (p: { name: unknown; type: unknown; errors: unknown }) =>
+    `'let ${p.name}' holds a '${p.type}' that is never read, so its ${p.errors} case is discarded. ` +
+    `Match it, return it, or use it.`,
   "loom.return-missing": (p: { label: unknown; declared: unknown }) =>
     `${p.label} is declared to return '${p.declared}' but not every path ends in a \`return\`. ` +
     `End each branch with \`return <value>\` (an \`if\` needs an \`else\` that returns too).`,
@@ -4778,9 +4784,9 @@ export const DIAGNOSTIC_MESSAGES = {
     verb: unknown;
     aggregate: unknown;
   }) =>
-    `e2e: 'api.${p.slug}.${p.verb}(…, { ifMatch: … })' — only the 'update' operation of a ` +
-    `'versioned' aggregate reads 'If-Match' on every backend, and '${p.aggregate}.${p.verb}' is ` +
-    `not one. Drop the third argument, or drive the precondition through '${p.slug}.update'.`,
+    `e2e: 'api.${p.slug}.${p.verb}(…, { ifMatch: … })' — only an operation of a 'versioned' ` +
+    `aggregate reads 'If-Match', and '${p.aggregate}.${p.verb}' is not one (an event-sourced ` +
+    `aggregate is checked against its stream version, never the header). Drop the third argument.`,
   "loom.e2e-unrouted-verb#destroy": (p: { slug: unknown; aggregate: unknown }) =>
     `e2e: 'api.${p.slug}.destroy(…)' has no route — '${p.aggregate}' declares no canonical ` +
     `'destroy { }', so no backend mounts 'DELETE /api/${p.slug}/{id}'. Add 'with crudish' to ` +

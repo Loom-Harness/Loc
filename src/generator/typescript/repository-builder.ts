@@ -1,3 +1,4 @@
+import { rowVersionGuarded } from "../../ir/enrich/version-check.js";
 import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
@@ -8,7 +9,6 @@ import { aggregateUsesMoneyDeep, findUsesCurrentUser } from "../../ir/types/loom
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { tableOwnerName } from "../../ir/util/inheritance.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
-import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural } from "../../util/naming.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
@@ -256,7 +256,7 @@ export function buildRepositoryFile(
     `import * as Ids from "../../domain/ids";`,
     // `ConcurrencyError` only when this aggregate is `versioned` — a
     // non-versioned repository's imports stay byte-identical.
-    aggregateIsVersioned(agg)
+    rowVersionGuarded(agg)
       ? `import { AggregateNotFoundError, ConcurrencyError } from "../../domain/errors";`
       : `import { AggregateNotFoundError } from "../../domain/errors";`,
     `import type { DomainEventDispatcher } from "../../domain/events";`,
