@@ -152,9 +152,6 @@ such flag.
   ```elixir
   rename table(:orders), to: table(:purchase_orders)
   ```
-  Renaming an aggregate that is the *target* of a sibling aggregate's reference
-  collection (`Other.xs: Order id[]`) is not yet cascaded — that sibling join
-  table's `targetFk` change falls under the destructive gate (never silent).
 - **Rename detection (heuristic fallback).** With no explicit block, a table with
   *exactly one* `dropColumn` and *one* `addColumn` of **identical type *and*
   nullability** is an unambiguous rename → the pair collapses into a single non-destructive
@@ -890,8 +887,10 @@ single backend whose database still accepted a deleted value.
 
 **Reference collections → join tables.** A `X id[]` field never produces a column.
 Enrichment derives one `AssociationIR` per such field, and the builder lays down a
-join table keyed by `(owner_fk, target_fk)` with both FKs `ON DELETE CASCADE` plus
-an `ordinal` column (nullable, default `0`).
+join table keyed by `(owner_fk, target_fk)` with both FKs `ON DELETE CASCADE`, and
+nothing else: `X id[]` is a set, so the composite primary key is the whole row and
+there is no `ordinal` column. Read-back order is a read-time projection — every
+backend orders the rows by the target FK id.
 
 ```ddd
 aggregate Order { items: Product id[] }
@@ -901,7 +900,6 @@ aggregate Order { items: Product id[] }
 CREATE TABLE order_items (
   order_id UUID NOT NULL,
   product_id UUID NOT NULL,
-  ordinal INTEGER NULL DEFAULT 0,
   PRIMARY KEY (order_id, product_id),
   FOREIGN KEY (order_id) REFERENCES orders ON DELETE CASCADE,
   FOREIGN KEY (product_id) REFERENCES products ON DELETE CASCADE
@@ -927,8 +925,12 @@ containment; `persistedAs: eventLog` and `eventSourced` workflows → an append-
 workflows get a state table; a durable channel adds the shared `__loom_outbox`
 table.
 
-**Optimistic concurrency (`versioned`).** An aggregate `with versioned` gains a
-`version INTEGER NOT NULL DEFAULT 1` state column. Every backend's save path emits
+**Optimistic concurrency (`versioned`).** Every aggregate is versioned by
+default — the macro layer splices the `versioned` capability into each one that
+is not event-sourced (`persistedAs: eventLog`, whose `(stream_id, version)`
+stream already is its concurrency control) — so a plain aggregate gains a
+`version INTEGER NOT NULL DEFAULT 1` state column; writing `with versioned` is
+redundant. Every backend's save path emits
 a guarded `UPDATE … WHERE id = $1 AND version = $2` (bumping `version`) and returns
 HTTP **409** when zero rows match — a lost-update guard. See
 [`capabilities.md`](capabilities.md).
@@ -1058,9 +1060,10 @@ with more than one replica.
 Drizzle is the only backend in the table above whose migrator is a **watermark**
 rather than an applied-set: `migrate()` reads the single highest
 `__drizzle_migrations.created_at` and applies a journal entry only when
-`lastApplied.created_at < entry.when`, strictly. EF, Flyway, Alembic and Ecto all
-record *each* applied migration by identity, so for them an inserted migration is
-simply pending and nothing can renumber.
+`lastApplied.created_at < entry.when`, strictly. EF, Flyway, Ecto and the
+`__loom_migrations` runner (Python, and .NET on `persistence: dapper`) all record
+*each* applied migration by identity, so for them an inserted migration is simply
+pending and nothing can renumber.
 
 That makes `when` load-bearing in a way a filename is not. Three requirements:
 
