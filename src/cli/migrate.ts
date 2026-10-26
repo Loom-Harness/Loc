@@ -80,17 +80,3 @@ export function writeChainEntries(sourceFile: string, entries: readonly ChainEnt
     return file;
   });
 }
-
-/** The current UTC instant as `YYYYMMDDHHMMSS` — the clock `migrate add`
- *  numbers a generation from. */
-export function utcVersionNow(date: Date = new Date()): string {
-  const p = (n: number, w = 2) => String(n).padStart(w, "0");
-  return (
-    p(date.getUTCFullYear(), 4) +
-    p(date.getUTCMonth() + 1) +
-    p(date.getUTCDate()) +
-    p(date.getUTCHours()) +
-    p(date.getUTCMinutes()) +
-    p(date.getUTCSeconds())
-  );
-}

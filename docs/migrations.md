@@ -852,6 +852,11 @@ ddd generate system app.ddd -o out          # renders the chain; never records a
 **Commit `migrations/`.** It is the record a database's migration history
 is checked against.
 
+**The playground keeps the same files** in its workspace, beside the entry
+`.ddd`. Its generate renders the chain and refuses drift the same way. Its
+Migrations tab shows the status and records new entries (`migrate add`); see
+[playground.md](playground.md).
+
 **A model with no `migrations/` has nothing recorded.** `generate system`
 then emits each owning module's initial migration, derived from the model and
 numbered from `BASE_VERSION`, with nothing to drift from — every example and
@@ -1084,8 +1089,10 @@ single backend whose database still accepted a deleted value.
 
 **Reference collections → join tables.** A `X id[]` field never produces a column.
 Enrichment derives one `AssociationIR` per such field, and the builder lays down a
-join table keyed by `(owner_fk, target_fk)` with both FKs `ON DELETE CASCADE` plus
-an `ordinal` column (nullable, default `0`).
+join table keyed by `(owner_fk, target_fk)` with both FKs `ON DELETE CASCADE`, and
+nothing else: `X id[]` is a set, so the composite primary key is the whole row and
+there is no `ordinal` column. Read-back order is a read-time projection — every
+backend orders the rows by the target FK id.
 
 ```ddd
 aggregate Order { items: Product id[] }
@@ -1095,7 +1102,6 @@ aggregate Order { items: Product id[] }
 CREATE TABLE order_items (
   order_id UUID NOT NULL,
   product_id UUID NOT NULL,
-  ordinal INTEGER NULL DEFAULT 0,
   PRIMARY KEY (order_id, product_id),
   FOREIGN KEY (order_id) REFERENCES orders ON DELETE CASCADE,
   FOREIGN KEY (product_id) REFERENCES products ON DELETE CASCADE
@@ -1124,8 +1130,12 @@ containment; `persistedAs: eventLog` and `eventSourced` workflows → an append-
 workflows get a state table; a durable channel adds the shared `__loom_outbox`
 table.
 
-**Optimistic concurrency (`versioned`).** An aggregate `with versioned` gains a
-`version INTEGER NOT NULL DEFAULT 1` state column. Every backend's save path emits
+**Optimistic concurrency (`versioned`).** Every aggregate is versioned by
+default — the macro layer splices the `versioned` capability into each one that
+is not event-sourced (`persistedAs: eventLog`, whose `(stream_id, version)`
+stream already is its concurrency control) — so a plain aggregate gains a
+`version INTEGER NOT NULL DEFAULT 1` state column; writing `with versioned` is
+redundant. Every backend's save path emits
 a guarded `UPDATE … WHERE id = $1 AND version = $2` (bumping `version`) and returns
 HTTP **409** when zero rows match — a lost-update guard. See
 [`capabilities.md`](capabilities.md).
@@ -1262,9 +1272,10 @@ with more than one replica.
 Drizzle is the only backend in the table above whose migrator is a **watermark**
 rather than an applied-set: `migrate()` reads the single highest
 `__drizzle_migrations.created_at` and applies a journal entry only when
-`lastApplied.created_at < entry.when`, strictly. EF, Flyway, Alembic and Ecto all
-record *each* applied migration by identity, so for them an inserted migration is
-simply pending and nothing can renumber.
+`lastApplied.created_at < entry.when`, strictly. EF, Flyway, Ecto and the
+`__loom_migrations` runner (Python, and .NET on `persistence: dapper`) all record
+*each* applied migration by identity, so for them an inserted migration is simply
+pending and nothing can renumber.
 
 That makes `when` load-bearing in a way a filename is not. Three requirements:
 
@@ -1393,6 +1404,18 @@ Two change records sit side by side and are easy to conflate:
   aggregate's `wireShape` — the network contract, not the database schema. Both are
   diffable change detectors, but they describe different surfaces (the JSON over the
   wire vs. the tables on disk).
+
+`ddd diff <file.ddd> [--baseline <old.ddd> | --git <ref>]` reads both at once and
+classifies each change: a wire change that moves the contract under an existing
+client is `breaking-for-clients`; a migration the destructive gate above refuses
+(including a reshape) is `breaking-for-data`. That verdict comes from the gate
+itself, through `buildMigrations`' `destructiveRefusals` sink, which records every
+refusing module and derives it as under `--allow-destructive` instead of throwing
+on the first. Everything else is `compatible`. A rename declared in a `migration`
+block is one rename on both sides: a compatible `RENAME COLUMN`, and a single
+`property-renamed` wire change, which is still breaking for clients. With no flag
+the committed chain is the schema baseline. The command exits `1` on a breaking
+change; see [`tools.md`](tools.md) § `diff`.
 
 See [`loom-artifacts.md`](loom-artifacts.md) for the full `.loom/` bundle and
 [`technical.md`](technical.md) § Phase ⑨ for the orchestration walk-through.

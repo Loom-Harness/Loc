@@ -1,4 +1,10 @@
-import { DefaultIndexManager, inject, type LangiumDocument, type Module } from "langium";
+import {
+  DefaultIndexManager,
+  DocumentState,
+  inject,
+  type LangiumDocument,
+  type Module,
+} from "langium";
 import {
   createDefaultModule,
   createDefaultSharedModule,
@@ -13,6 +19,7 @@ import { DddDocumentValidator } from "./ddd-document-validator.js";
 import { DddLinker } from "./ddd-linker.js";
 import { DddScopeComputation, DddScopeProvider } from "./ddd-scope.js";
 import { DddValidator, registerValidationChecks } from "./ddd-validator.js";
+import { isModel, type Model } from "./generated/ast.js";
 import { DddGeneratedModule, DddGeneratedSharedModule } from "./generated/module.js";
 import { DddCodeActionProvider } from "./lsp/ddd-code-actions.js";
 import { DddCompletionProvider } from "./lsp/ddd-completion.js";
@@ -26,7 +33,7 @@ import { DddSemanticTokenProvider } from "./lsp/ddd-semantic-tokens.js";
 import { DddSignatureHelpProvider } from "./lsp/ddd-signature-help.js";
 import { DddParserErrorMessageProvider } from "./parse-errors.js";
 import { DddTokenBuilder, DddValueConverter } from "./template-support.js";
-import { invalidateTyping, registerTypingWorkspace } from "./typing/shared.js";
+import { invalidateTyping, registerTypingRoot } from "./typing/shared.js";
 import { composedRoots } from "./validators/composition.js";
 
 export type DddAddedServices = {
@@ -161,12 +168,20 @@ export function createDddServices(context: DefaultSharedModuleContext): {
   // change drops them all (M-T5.47 §D8).
   shared.workspace.DocumentBuilder.onUpdate(() => invalidateTyping());
   // A session reads the project's `user { }` block across the import closure.
-  registerTypingWorkspace(shared, (root) => {
+  const composed = (root: Model): Model[] | undefined => {
     const uri = root.$document?.uri;
     if (!uri || shared.workspace.LangiumDocuments.getDocument(uri)?.parseResult.value !== root) {
       return undefined;
     }
     return composedRoots(root, Ddd);
+  };
+  // Parsed is the first phase of every build, so a root is bound before any
+  // later phase (the macro expander, validation) can ask for its typing.
+  shared.workspace.DocumentBuilder.onBuildPhase(DocumentState.Parsed, (docs) => {
+    for (const doc of docs) {
+      const root = doc.parseResult.value;
+      if (isModel(root)) registerTypingRoot(root, composed);
+    }
   });
   return { shared, Ddd };
 }

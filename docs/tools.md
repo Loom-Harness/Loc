@@ -35,6 +35,7 @@ ddd migrate add <name> <file.ddd>                 # record schema changes in mig
 ddd migrate status <file.ddd> [--json]            # each module's recorded head and its unrecorded changes
 ddd migrate remove <file.ddd>                     # delete the newest recorded migration
 ddd migrate rebase <file.ddd>                     # after a merge leaves two heads, re-record one on top of the other
+ddd diff <file.ddd> [--baseline <old.ddd> | --git <ref>] [--json]  # classify changes as compatible / breaking-for-clients / breaking-for-data; exit 1 on breaking
 ddd verify <file.ddd> --results <results.json>    # join test results onto the requirements graph
 ddd verify <file.ddd> --from-vitest <report.json> # …the same, straight from `vitest run --reporter=json`
 ddd verify <file.ddd> --from-vitest unit.json --from-vitest e2e.json --from-playwright ui.json  # every flag repeatable — one per runner report
@@ -422,6 +423,52 @@ data-losing drop+add.  An undeclared single drop+add of the same type
 on one table is collapsed into a rename too, and announced with
 `loom.migration-rename-inferred`.  See [`migrations.md`](migrations.md)
 § Destructive changes.
+
+### `diff` — is this change compatible?
+
+`ddd diff` compares the model with a baseline and classifies every change
+by who it breaks:
+
+| Class | Raised by | Examples |
+|---|---|---|
+| `breaking-for-clients` | the wire contract (`.loom/wire-spec.json`) moved under an existing client | a field dropped or renamed, a type changed (an enum member removed, a carrier narrowed such as `decimal` → `int`), optional → required, a newly required field |
+| `breaking-for-data` | the destructive migration gate — the same one `migrate add` applies without `--allow-destructive` | a column or table drop, a NOT NULL add with no default or backfill, a narrowing column type, a reshape |
+| `compatible` | everything else | a new optional field, required → optional, a new aggregate, a declared `RENAME COLUMN` |
+
+```bash
+ddd diff model.ddd --baseline old/model.ddd   # against another file
+ddd diff model.ddd --git origin/main          # against the entry as committed at a ref
+ddd diff model.ddd                            # against the committed migrations/ chain
+```
+
+`--git <ref>` reads every `.ddd` of that commit, so the old entry's `import`s
+resolve to the old files and a multi-file project diffs as a whole. With no
+flag the committed `migrations/` chain is the baseline; the chain records a
+schema, not a wire contract, so that run classifies only the data side.
+
+A rename declared in a `migration` block is reported as one
+`property-renamed` (or `entity-renamed`) change, not as a dropped field plus
+an added one. Its data side is a `RENAME COLUMN`, which is compatible. Its
+wire side is still `breaking-for-clients`, because no backend keeps serving
+the old field name.
+
+```text
+Diff against old/model.ddd:
+  breaking-for-clients  property 'qty' on Order renamed to 'quantity' (declared in migration "rename-qty")
+  breaking-for-clients  property 'status' on Order changed type: enum(New|Paid|Lost) → enum(New|Paid)
+  breaking-for-data     module Sales: 4 schema step(s), refused by the destructive gate without --allow-destructive
+      ALTER TABLE "sales"."orders" DROP COLUMN "note";
+      …
+BREAKING for clients and data.
+```
+
+The exit code is the gate: `0` compatible, `1` breaking, `2` when it cannot
+diff (the model or the baseline does not load, or there is no baseline at
+all). `--json` prints the toolkit's `DiffReport` (the shape `loom_diff`
+returns; the CLI and the MCP tool share one core, `diffModels` in
+`src/api/evolve.ts`), plus a `baseline` field naming where the baseline came
+from. Each wire change and migration carries `class`, and the report carries
+`breakingForClients` and `breakingForData`.
 
 ### Cross-backend data migrations
 

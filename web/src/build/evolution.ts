@@ -1,12 +1,18 @@
 // ---------------------------------------------------------------------------
 // Evolution diff core — the migration + wire-contract delta between a pinned
-// baseline and the live edit.  Extracted from the build worker so it's a pure,
-// headless-testable function (the worker just serialises `runEvolution` over
-// postMessage).  Both sides are whole `.ddd` source TREES, lowered through the
-// project loader (`loadProjectFromVfs` → `lowerProject`) so multi-file / import
-// baselines resolve exactly as `ddd generate system` would on disk (M-T8.11).
-// A single-file source is just the one-entry case.  Every diff rides a shipped
-// PURE core (`buildMigrations` / `diffWireSpec` / `renderPgStep`).
+// baseline and the live edit, and the playground's `ddd migrate add`.  Kept
+// out of the build worker so it's a pure, headless-testable module (the worker
+// just serialises `runEvolution` / `recordMigration` over postMessage).  Both
+// sides are whole `.ddd` source TREES, lowered through the project loader
+// (`loadProjectFromVfs` → `lowerProject`) so multi-file / import baselines
+// resolve exactly as `ddd generate system` would on disk.  A single-file source
+// is just the one-entry case.  The diff itself is `evolveSystem`
+// (`src/system/migration-diff.ts`), the one the toolkit's `diff` runs too.
+//
+// The current tree may carry the workspace's committed chain
+// (`migrations/*.json` beside the entry).  When it reads as one list, the
+// chain's heads are the SCHEMA baseline — the migrations shown are what
+// recording would write — and the baseline source only drives the wire diff.
 //
 // CRUCIAL: each side loads on a FRESH, isolated `createDddServices` + VFS.  If
 // an evolution tree were loaded into a workspace that ALSO held the generate
@@ -22,45 +28,44 @@ import { EmptyFileSystem } from "langium";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerProject } from "../../../src/ir/lower/lower.js";
 import type { EnrichedLoomModel } from "../../../src/ir/types/loom-ir.js";
-import type {
-  MigrationStep,
-  SchemaSnapshot,
-  TableShape,
-} from "../../../src/ir/types/migrations-ir.js";
+import type { MigrationStep, TableShape } from "../../../src/ir/types/migrations-ir.js";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
+import { diagMessage } from "../../../src/diagnostics/messages.js";
 import { renderPgStep } from "../../../src/generator/sql-pg.js";
 import {
-  buildMigrations,
-  MigrationDestructiveError,
-} from "../../../src/system/migrations-builder.js";
+  EMPTY_CHAIN,
+  entryFileName,
+  headSnapshots,
+  type MigrationChain,
+  MigrationChainError,
+  parseChain,
+  parseForkedChain,
+  recordGeneration,
+  serializeEntry,
+} from "../../../src/system/migration-chain.js";
+import {
+  evolveSystem,
+  pendingMigrations,
+  wireChangeEntity,
+} from "../../../src/system/migration-diff.js";
+import { MigrationDestructiveError } from "../../../src/system/migrations-builder.js";
 import type { SnapshotStore } from "../../../src/system/snapshot.js";
-import { buildWireSpec } from "../../../src/system/wire-spec.js";
-import { diffWireSpec } from "../../../src/system/wire-spec-diff.js";
 import { MemoryVfs } from "../vfs/memory-vfs.js";
+import { chainDir, readChainFiles } from "./chain-files.js";
 import { loadProjectFromVfs } from "./project-loader.js";
 import type {
   BuildDiagnostic,
+  ChainStatusView,
   EvolutionParams,
   EvolutionResult,
   EvolutionTree,
   MigrationView,
+  RecordMigrationParams,
+  RecordMigrationResult,
   SchemaTableView,
   WireChangeView,
 } from "./protocol.js";
-
-const BUCKET_LABEL: Record<string, string> = {
-  aggregates: "aggregate",
-  parts: "part",
-  valueObjects: "value object",
-};
-
-/** In-memory snapshot store — the browser twin of `fsSnapshotStore`, inlined
- *  to keep `node:fs` out of the worker bundle (`SnapshotStore` is a type-only
- *  import → no runtime edge).  Matches `memorySnapshotStore`'s contract. */
-function memStore(initial: Record<string, SchemaSnapshot> = {}): SnapshotStore {
-  return { read: (module: string) => initial[module] ?? null };
-}
 
 /** Minimal Langium-diagnostic → `BuildDiagnostic` projection (the slice the
  *  evolution flow needs; the worker's generate path has its own copy). */
@@ -98,6 +103,15 @@ function migrationDiag(err: unknown): BuildDiagnostic {
   };
 }
 
+function chainDiag(err: MigrationChainError): BuildDiagnostic {
+  return {
+    severity: "error",
+    code: "loom.migration-chain-invalid",
+    message: diagMessage("loom.migration-chain-invalid", { detail: err.message }),
+    source: "loom-migrations",
+  };
+}
+
 /** Load one diff side on its OWN isolated Langium services + VFS and lower it
  *  to an enriched IR.  Returns either the lowered model or the parse/import/
  *  lowering diagnostics that stopped it — never throws.  Isolation is the
@@ -107,7 +121,12 @@ function migrationDiag(err: unknown): BuildDiagnostic {
 async function loadEvolutionTree(
   tree: EvolutionTree,
 ): Promise<
-  { loom: EnrichedLoomModel; diagnostics: BuildDiagnostic[] } | { error: BuildDiagnostic[] }
+  | {
+      loom: EnrichedLoomModel;
+      diagnostics: BuildDiagnostic[];
+      chainFiles: { name: string; content: string }[] | undefined;
+    }
+  | { error: BuildDiagnostic[] }
 > {
   const svc = createDddServices(EmptyFileSystem);
   const vfs = new MemoryVfs();
@@ -117,7 +136,7 @@ async function loadEvolutionTree(
     const diagnostics = collectDiagnostics(all);
     if (diagnostics.some((d) => d.severity === "error")) return { error: diagnostics };
     const loom = enrichLoomModel(lowerProject(all.map((d) => d.parseResult?.value as Model)));
-    return { loom, diagnostics };
+    return { loom, diagnostics, chainFiles: readChainFiles(vfs, tree.entryPath) };
   } catch (err) {
     // Missing import / cycle (from the loader) or a lowering throw.
     return { error: [loweringDiag(err)] };
@@ -139,6 +158,7 @@ export async function runEvolution(params: EvolutionParams): Promise<EvolutionRe
     return {
       ok: true,
       hasBaseline: false,
+      chain: null,
       migrations: [],
       tables: [],
       wireChanges: [],
@@ -164,7 +184,30 @@ export async function runEvolution(params: EvolutionParams): Promise<EvolutionRe
       baseSystemsByName = new Map(baseLoaded.loom.systems.map((s) => [s.name, s]));
     }
   }
-  const hasBaseline = baseSystemsByName.size > 0;
+  // The committed chain.  One that reads as one list is the schema baseline;
+  // two heads are reported (nothing can read them until a rebase) and the
+  // schema falls back to the baseline source; anything else is an error —
+  // a diff against a chain that does not read would say nothing true.
+  let chain: MigrationChain | null = null;
+  let forkHeads: [string, string] | undefined;
+  let chainEntries = 0;
+  if (curLoaded.chainFiles) {
+    try {
+      const fork = parseForkedChain(curLoaded.chainFiles);
+      if (fork) {
+        forkHeads = [entryFileName(fork.tails[0].at(-1)!), entryFileName(fork.tails[1].at(-1)!)];
+        chainEntries = curLoaded.chainFiles.length;
+      } else {
+        chain = parseChain(curLoaded.chainFiles);
+        chainEntries = chain.entries.length;
+      }
+    } catch (err) {
+      if (!(err instanceof MigrationChainError)) throw err;
+      return { ok: false, diagnostics: [...curDiags, chainDiag(err)] };
+    }
+  }
+  const chainHeads: SnapshotStore | null = chain ? headSnapshots(chain) : null;
+  const hasBaseline = baseSystemsByName.size > 0 || chainHeads !== null;
 
   const migrations: MigrationView[] = [];
   const tables: SchemaTableView[] = [];
@@ -173,76 +216,101 @@ export async function runEvolution(params: EvolutionParams): Promise<EvolutionRe
 
   for (const curSys of curLoom.systems) {
     const baseSys = baseSystemsByName.get(curSys.name) ?? null;
-
-    // -- schema migration ---------------------------------------------------
-    // Seed a memory snapshot store from the baseline's stamped `.next`
-    // snapshots (an empty store ⇒ the baseline itself would be "Initial"),
-    // then derive the current source against it: the steps that come back
-    // ARE the pending migration.
-    const seed: Record<string, SchemaSnapshot> = {};
-    if (baseSys) {
-      for (const bm of buildMigrations(baseSys, memStore())) {
-        seed[bm.module] = bm.next;
-      }
-    }
-    const store = memStore(seed);
-    const destructiveByModule = new Map<string, string>();
-    let migs: ReturnType<typeof buildMigrations>;
+    let evo: ReturnType<typeof evolveSystem>;
     try {
-      migs = buildMigrations(curSys, store);
+      evo = evolveSystem(curLoom, curSys, baseSys, chainHeads);
     } catch (err) {
-      if (err instanceof MigrationDestructiveError) {
-        destructiveByModule.set(err.module, err.message);
-        breaking = true;
-        // Re-derive with the gate OFF so the user still sees the (safe-
-        // sequence) steps the change implies, not just the refusal.
-        migs = buildMigrations(curSys, store, { allowDestructive: true });
-      } else {
-        return { ok: false, diagnostics: [...curDiags, migrationDiag(err)] };
-      }
+      return { ok: false, diagnostics: [...curDiags, migrationDiag(err)] };
     }
-    for (const mig of migs) {
+    if (evo.breaking) breaking = true;
+    for (const mig of evo.deltas) {
       // The diagram wants EVERY current table, touched or not — a module
       // with no steps still contributes its (untouched) tables.
       for (const t of mig.next.tables) tables.push(tableView(mig.module, t));
       if (mig.steps.length === 0) continue; // clean regen ⇒ no-op, don't list
-      const isDestructive = destructiveByModule.has(mig.module);
       migrations.push({
         module: mig.module,
         name: mig.name,
         steps: mig.steps.map((s) => ({ op: s.op, sql: renderPgStep(s), table: stepTable(s) })),
-        destructive: isDestructive,
-        destructiveMessage: destructiveByModule.get(mig.module),
+        destructive: evo.destructive.has(mig.module),
+        destructiveMessage: evo.destructive.get(mig.module),
       });
     }
-
-    // -- wire contract ------------------------------------------------------
-    // Only meaningful against a real baseline; with none, every shape is
-    // "new" and the contract diff would be noise.
-    if (baseSys) {
-      const diff = diffWireSpec(buildWireSpec(baseSys), buildWireSpec(curSys));
-      if (diff.breaking) breaking = true;
-      for (const c of diff.changes) {
-        wireChanges.push({
-          entity: `${BUCKET_LABEL[c.bucket] ?? c.bucket} ${c.entity}`,
-          field: c.field,
-          kind: c.kind,
-          breaking: c.breaking,
-          detail: c.detail,
-        });
-      }
+    for (const c of evo.wire?.changes ?? []) {
+      wireChanges.push({
+        entity: wireChangeEntity(c),
+        field: c.field,
+        kind: c.kind,
+        breaking: c.breaking,
+        detail: c.detail,
+      });
     }
+  }
+
+  let chainStatus: ChainStatusView | null = null;
+  if (curLoaded.chainFiles) {
+    const last = chain?.entries.at(-1);
+    chainStatus = {
+      entries: chainEntries,
+      head: last ? { version: last.version, module: last.module, name: last.name } : null,
+      unrecordedSteps: chain ? migrations.reduce((n, m) => n + m.steps.length, 0) : 0,
+      ...(forkHeads ? { forkHeads } : {}),
+    };
   }
 
   return {
     ok: true,
     hasBaseline,
+    chain: chainStatus,
     migrations,
     tables,
     wireChanges,
     breaking,
     diagnostics: curDiags,
   };
+}
+
+/** Record the live edit's schema changes as the next entries of the chain
+ *  its tree carries — the playground's `ddd migrate add`, on the same pure
+ *  cores (`pendingMigrations` + `recordGeneration`).  Returns the new chain
+ *  files for the caller to write; never throws on a refusal (an invalid or
+ *  forked chain, a destructive change not allowed, a bad or taken name). */
+export async function recordMigration(
+  params: RecordMigrationParams,
+): Promise<RecordMigrationResult> {
+  const loaded = await loadEvolutionTree(params.current);
+  if ("error" in loaded) return { ok: false, diagnostics: loaded.error };
+  const refuse = (message: string): RecordMigrationResult => ({
+    ok: false,
+    diagnostics: [
+      ...loaded.diagnostics,
+      { severity: "error", message, source: "loom-migrations" },
+    ],
+  });
+  if (loaded.loom.systems.length === 0) return refuse(diagMessage("loom.no-system"));
+  try {
+    const chain = loaded.chainFiles ? parseChain(loaded.chainFiles) : EMPTY_CHAIN;
+    const deltas = pendingMigrations(loaded.loom, chain, {
+      allowDestructive: params.allowDestructive,
+    });
+    const entries = recordGeneration(chain, deltas, {
+      name: params.name,
+      now: params.now,
+      allowDestructive: params.allowDestructive,
+    });
+    const dir = chainDir(params.current.entryPath);
+    return {
+      ok: true,
+      files: entries.map((e) => ({ path: `${dir}/${entryFileName(e)}`, content: serializeEntry(e) })),
+      diagnostics: loaded.diagnostics,
+    };
+  } catch (err) {
+    if (err instanceof MigrationChainError) {
+      return { ok: false, diagnostics: [...loaded.diagnostics, chainDiag(err)] };
+    }
+    if (err instanceof MigrationDestructiveError) return refuse(err.message);
+    return { ok: false, diagnostics: [...loaded.diagnostics, migrationDiag(err)] };
+  }
 }
 
 /** The bare table a migration step targets, or `undefined` for the ops that
