@@ -1,13 +1,25 @@
-import type { BoundedContextIR, EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
+import type {
+  BoundedContextIR,
+  EnrichedAggregateIR,
+  EnrichedBoundedContextIR,
+} from "../../ir/types/loom-ir.js";
 import {
   isTpcBase,
   isTpcConcrete,
   isTphBase,
   isTphConcrete,
   rootBaseOf,
+  tphConcretesOf,
 } from "../../ir/util/inheritance.js";
 import { plural } from "../../util/naming.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
+import {
+  dapperRoutedTphBases,
+  renderDapperBaseController,
+  renderDapperBaseReaderImpl,
+  renderDapperBaseReaderInterface,
+  renderDapperConcreteWire,
+} from "./emit/dapper-base-reader.js";
 import {
   renderAuditableInterceptor,
   renderBaseReaderImpl,
@@ -177,7 +189,40 @@ export function emitBaseReaders(
   ns: string,
   out: Map<string, string>,
   sourcemap?: SourceMapRecorder,
+  /** `persistence: dapper` only: a TPH base also gets its polymorphic read home —
+   *  the reader, its concretes' wire mappers and the routed controller. */
+  dapperTph?: {
+    routePrefix: string;
+    /** True when the concrete hydrates from its root row alone. */
+    isFlat: (agg: EnrichedAggregateIR) => boolean;
+  },
 ): void {
+  for (const base of dapperTph ? dapperRoutedTphBases(ctx) : []) {
+    const concretes = tphConcretesOf(base, ctx.aggregates) as EnrichedAggregateIR[];
+    const construct = `${ctx.name}.${base.name}`;
+    const put = (path: string, content: string): void => {
+      out.set(path, content);
+      sourcemap?.file(path, content, base.origin, construct);
+    };
+    put(
+      `Domain/${plural(base.name)}/I${base.name}Repository.cs`,
+      renderDapperBaseReaderInterface(base, ns),
+    );
+    put(
+      `Infrastructure/Repositories/${base.name}Repository.cs`,
+      renderDapperBaseReaderImpl(base, concretes, ctx, ns, dapperTph!.isFlat),
+    );
+    for (const c of concretes) {
+      put(
+        `Application/${plural(c.name)}/Responses/${c.name}Wire.cs`,
+        renderDapperConcreteWire(c, ctx, ns),
+      );
+    }
+    put(
+      `Api/${plural(base.name)}Controller.cs`,
+      renderDapperBaseController(base, concretes, ns, dapperTph!.routePrefix),
+    );
+  }
   for (const base of ctx.aggregates) {
     if (!isTpcBase(base, ctx.aggregates)) continue;
     const concretes = ctx.aggregates.filter(

@@ -690,58 +690,138 @@ export function allContextFilterEntries(
   }));
 }
 
-/** The same entries minus the principal-referencing ones — the filters that
- *  lower to a CLOSED Drizzle expression, so the only ones that may reify into a
- *  module-level `<name>Criterion(...)` fn (which has no `currentUser` in
- *  scope).  Every root read still applies the full set via
- *  `contextFilterPredicate`. */
-export function nonPrincipalContextFilterEntries(
-  agg: EnrichedAggregateIR,
-  ctx: BoundedContextIR,
-): { predicate: ExprIR; criterionRef?: { name: string; args: ExprIR[] } }[] {
-  return allContextFilterEntries(agg, ctx).filter((e) => !exprUsesCurrentUser(e.predicate));
-}
-
-/** The TPH `kind` scope of one read of `agg` as a Drizzle predicate over
- *  `tableName`, or null when `agg` reads a table of its own. */
+/** The WRITE scope of `agg` as a call of its generated scope helper
+ *  (`<agg>Scope({ write: true })`): the TPH `kind` scope of its shared table
+ *  alone — a write is scoped by the type mapping, not by a read restriction —
+ *  or null when `agg` writes a table of its own. */
 export function drizzleKindPredicate(
   agg: EnrichedAggregateIR,
   ctx: BoundedContextIR,
-  tableName: string,
 ): string | null {
-  const kind = readDiscriminator(drizzleReadScope(agg, ctx));
-  return kind ? drizzleDiscriminatorEq(tableName, kind) : null;
+  return drizzleScopeCall(agg, ctx, { write: true });
+}
+
+// ---------------------------------------------------------------------------
+// The generated scope helper.
+//
+// Drizzle has no global query filter and no discriminator mapping, so every
+// statement over an aggregate's rows would have to spell its `kind` scope and
+// its capability / tenancy / deny predicates by hand — the same predicate at
+// ~8 sites per repository.  Instead each aggregate gets ONE generated function
+// (`db/read-scopes.ts`, rendered by `read-scopes-builder.ts` from the read-scope
+// fact), and every read and write site calls it:
+//
+//   forkliftScope()                          // a read
+//   forkliftScope({ ignoring: "*" })         // a read with `ignoring *`
+//   forkliftScope({ ignoring: ["softDeletable"] })
+//   forkliftScope({ write: true })           // a write: the `kind` scope only
+//
+// This file is the only place that decides WHICH call a site makes.
+// ---------------------------------------------------------------------------
+
+/** Where the generated scope helpers live, relative to `db/repositories/`. */
+const READ_SCOPES_MODULE = "../read-scopes";
+
+/** The generated scope helper's name: `<agg>Scope`. */
+export function drizzleScopeFnName(agg: { name: string }): string {
+  return `${lowerFirst(agg.name)}Scope`;
+}
+
+/** How a site uses the scope helper. */
+export interface DrizzleScopeUse {
+  /** The read's `ignoring` clause. */
+  ignoring?: FilterBypass;
+  /** A write site: the `kind` scope alone, whatever restrictions a read applies. */
+  write?: boolean;
+}
+
+/** The call of `agg`'s scope helper for one site, or null when nothing applies
+ *  there (no `kind` scope, and every filter dropped by the site's `ignoring`).
+ *  Whether a helper EXISTS is decided by {@link aggregateHasReadScope}. */
+export function drizzleScopeCall(
+  agg: EnrichedAggregateIR,
+  ctx: BoundedContextIR,
+  use: DrizzleScopeUse = {},
+): string | null {
+  const scope = drizzleReadScope(agg, ctx, use.write ? undefined : use.ignoring);
+  const applies = use.write
+    ? readDiscriminator(scope) !== undefined
+    : scope.restrictions.length > 0 || scope.subtypeRestrictions.length > 0;
+  if (!applies) return null;
+  const fn = drizzleScopeFnName(agg);
+  if (use.write) return `${fn}({ write: true })`;
+  const b = use.ignoring;
+  if (b?.bypassAll) return `${fn}({ ignoring: "*" })`;
+  const caps = [...new Set(b?.bypassCaps ?? [])];
+  return caps.length > 0 ? `${fn}({ ignoring: ${JSON.stringify(caps)} })` : `${fn}()`;
+}
+
+/** The import of `agg`'s scope helper into a repository file, derived from the
+ *  rendered body (`bodyScan`: string contents blanked): present exactly when the
+ *  body calls it, so an import and its use cannot drift. */
+export function scopeImportLine(agg: { name: string }, bodyScan: string): string | false {
+  const fn = drizzleScopeFnName(agg);
+  const line = `import { ${fn} } from "${READ_SCOPES_MODULE}";`;
+  return new RegExp(`\\b${fn}\\(`).test(bodyScan) ? line : false;
+}
+
+/** True when `agg` has a scope helper: some restriction applies to a plain read of it. */
+export function aggregateHasReadScope(agg: EnrichedAggregateIR, ctx: BoundedContextIR): boolean {
+  const scope = drizzleReadScope(agg, ctx);
+  return scope.restrictions.length > 0 || scope.subtypeRestrictions.length > 0;
+}
+
+/** One lowered conjunct of a scope helper. */
+export interface DrizzleScopeConjunct {
+  expr: string;
+  /** The capability that contributed it — the target of an `ignoring <Cap>`. */
+  capability?: string;
+}
+
+/** The lowered conjuncts of `agg`'s read scope, for the helper's body, bypass not
+ *  applied:
+ *
+ *   - `kind`: the TPH discriminator scope (`kind = '<Concrete>'`), if any;
+ *   - `filters`: every filter the read applies;
+ *   - `guarded`: for a TPH ROOT, each concrete's own restrictions hosted on the
+ *     root and guarded by that concrete's discriminator,
+ *     `or(not(kind = '<d>'), <pred>)`, so they constrain that concrete's rows only.
+ *
+ *  Predicates are inlined (never reified into a `<name>Criterion(...)` call —
+ *  those fns live in repository files) and render a principal reference against
+ *  the ambient `requireCurrentUser()` accessor. */
+export function drizzleScopeConjuncts(
+  agg: EnrichedAggregateIR,
+  ctx: EnrichedBoundedContextIR,
+): { kind: string | null; filters: DrizzleScopeConjunct[]; guarded: DrizzleScopeConjunct[] } {
+  const tableName = repoTableName(agg, ctx);
+  const scope = drizzleReadScope(agg, ctx);
+  const kind = readDiscriminator(scope);
+  const lower = (predicate: ExprIR, on: string): string =>
+    (
+      lowerToDrizzle(predicate, tableName, ctx, { principalAccessor: "requireCurrentUser()" }) ??
+      // Dropping this would ship unfiltered reads — a hard stop, not a fallback.
+      refuseOutOfVocabulary("drizzle-predicate", `read restriction on '${on}'`)
+    ).expr;
+  const cap = (capability: string | undefined): { capability?: string } =>
+    capability !== undefined ? { capability } : {};
+  return {
+    kind: kind ? drizzleDiscriminatorEq(tableName, kind) : null,
+    filters: readFilterRestrictions(scope).map((r) => ({
+      expr: lower(r.predicate, agg.name),
+      ...cap(r.capability),
+    })),
+    guarded: scope.subtypeRestrictions.map((g) => ({
+      expr: `or(not(${drizzleDiscriminatorEq(tableName, g.discriminator)}), ${lower(g.restriction.predicate!, g.restriction.declaredOn)})`,
+      ...cap(g.restriction.capability),
+    })),
+  };
 }
 
 /** The one drizzle spelling of a TPH discriminator scope: `kind = '<value>'`
  *  over the shared table. */
 export function drizzleDiscriminatorEq(tableName: string, kind: string): string {
   return `eq(schema.${tableName}.kind, ${JSON.stringify(kind)})`;
-}
-
-/** A polymorphic read of TPH root `base`: each concrete's own restrictions
- *  (`subtypeRestrictions`), root-hosted and guarded by its discriminator —
- *  `or(not(kind = '<d>'), <pred>)`, so it constrains that concrete's rows only.
- *  Empty for any aggregate that is not a TPH root.  Adds the ops it uses. */
-export function drizzleGuardedSubtypePredicates(
-  base: EnrichedAggregateIR,
-  ctx: EnrichedBoundedContextIR,
-  ops: Set<string>,
-  bypass?: FilterBypass,
-): string[] {
-  const tableName = repoTableName(base, ctx);
-  return drizzleReadScope(base, ctx, bypass).subtypeRestrictions.map((g) => {
-    const l =
-      lowerToDrizzle(g.restriction.predicate!, tableName, ctx, {
-        principalAccessor: "requireCurrentUser()",
-      }) ??
-      refuseOutOfVocabulary(
-        "drizzle-predicate",
-        `read restriction on '${g.restriction.declaredOn}' (polymorphic read of '${base.name}')`,
-      );
-    for (const op of [...l.ops, "or", "not", "eq"]) ops.add(op);
-    return `or(not(${drizzleDiscriminatorEq(tableName, g.discriminator)}), ${l.expr})`;
-  });
 }
 
 /** True when any restriction a read of `agg` applies reads the principal
@@ -812,70 +892,20 @@ export function repoTableName(agg: EnrichedAggregateIR, ctx: BoundedContextIR): 
   return lowerFirst(plural(tableOwnerName(agg, ctx.aggregates)));
 }
 
-/** Lower an aggregate's capability filters to a single Drizzle predicate
- *  string (conjoined with `and(...)` when there is more than one), or
- *  null when the aggregate has none.  Adds the Drizzle ops it uses to
- *  `ops` so the import-narrowing in the repository builders pulls them
- *  in.
- *
- *  The table is DERIVED (`repoTableName`), never passed in — see that
- *  function.  Throws on a non-lowerable predicate: the validator guarantees
- *  every capability filter is selectable, so reaching that path means an IR
- *  shape got past the gate, and returning null there silently dropped the
- *  WHOLE conjunction — a declared read restriction absent from the emitted SQL
- *  with no compile error and no diagnostic (`F2-CB-C4`). */
+/** The read scope of `agg` as a call of its generated scope helper (the `kind`
+ *  scope and every filter the read's `ignoring` clause leaves), or null when
+ *  nothing applies.  Threaded into each root-table read site; child /
+ *  containment reads (parentId-keyed) are unaffected — the scope constrains root
+ *  rows.  The helper's body throws at generation on a non-lowerable predicate
+ *  (`drizzleScopeConjuncts`): returning null there would silently drop the whole
+ *  conjunction — a declared read restriction absent from the emitted SQL with no
+ *  compile error and no diagnostic. */
 export function contextFilterPredicate(
   agg: EnrichedAggregateIR,
   ctx: EnrichedBoundedContextIR,
-  ops: Set<string>,
   bypass?: FilterBypass,
 ): string | null {
-  const tableName = repoTableName(agg, ctx);
-  const entries = allContextFilterEntries(agg, ctx, bypass);
-  if (entries.length === 0) return null;
-  const lowered: string[] = [];
-  for (const e of entries) {
-    // A filter that is exactly one named criterion reifies: call the
-    // module-level `<name>Criterion(...)` fn (emitted by
-    // repository-builder, deduped with find/retrieval consumers) instead
-    // of re-inlining the body.  Behaviour-identical — the fn body IS the
-    // lowered predicate.  Its Drizzle ops still join the import walk.
-    // A principal-referencing filter (`currentUser.x`) never reifies — the
-    // module-level `<name>Criterion()` fn has no `currentUser` in scope — so
-    // it always inlines (the inline render emits `currentUser.<field>`).
-    const c = exprUsesCurrentUser(e.predicate)
-      ? undefined
-      : reifiableCriterion(e.criterionRef, ctx, tableName);
-    if (c) {
-      const body =
-        lowerToDrizzle(c.body, tableName, ctx) ??
-        refuseOutOfVocabulary("drizzle-predicate", `body of criterion '${c.name}'`);
-      for (const op of body.ops) ops.add(op);
-      const args = (e.criterionRef?.args ?? []).map(renderCriterionArg).join(", ");
-      lowered.push(`${criterionFnName(c.name)}(${args})`);
-      continue;
-    }
-    // A principal-referencing filter renders its `currentUser.<field>` against
-    // the ambient `requireCurrentUser()` accessor, so the read needs no
-    // `currentUser` parameter (DEBT-01).
-    const l = lowerToDrizzle(e.predicate, tableName, ctx, {
-      principalAccessor: "requireCurrentUser()",
-    });
-    if (!l) {
-      // Dropping this would ship unfiltered reads — a hard stop, not a
-      // fallback.  `loom.criterion-not-selectable` is the IR-validate-phase
-      // gate meant to keep a non-selectable filter off this path.
-      refuseOutOfVocabulary(
-        "drizzle-predicate",
-        `capability \`filter\` on aggregate '${agg.name}'`,
-      );
-    }
-    for (const op of l.ops) ops.add(op);
-    lowered.push(l.expr);
-  }
-  if (lowered.length === 1) return lowered[0]!;
-  ops.add("and");
-  return `and(${lowered.join(", ")})`;
+  return drizzleScopeCall(agg, ctx, { ignoring: bypass });
 }
 
 /** Lower an aggregate's `writeScopeFilter` (authorization — the

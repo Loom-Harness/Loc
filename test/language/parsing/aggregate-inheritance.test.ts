@@ -641,8 +641,11 @@ system Sys {
     // Reads/writes go to the shared `parties` table…
     expect(repo).toMatch(/from\(schema\.parties\)/);
     expect(repo).toMatch(/insert\(schema\.parties\)/);
-    // …filtered by this concrete's `kind` on reads…
-    expect(repo).toMatch(/eq\(schema\.parties\.kind, "Customer"\)/);
+    // …filtered by this concrete's `kind` on reads (its scope helper)…
+    expect(repo).toMatch(/customerScope\(\)/);
+    expect(files.get("api/db/read-scopes.ts") ?? "").toMatch(
+      /eq\(schema\.parties\.kind, "Customer"\)/,
+    );
     // …and stamped with `kind` on writes.
     expect(repo).toMatch(/kind: "Customer"/);
     // Nullable shared columns are asserted non-null on hydrate (kind filter

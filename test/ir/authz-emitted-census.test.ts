@@ -588,7 +588,7 @@ const LEAK_DENY: Record<VariantId, Edit[]> = {
     {
       file: /secret-repository\.ts$/,
       after: "async everything(",
-      from: "and(eq(schema.secrets.code, c), and(isNull(schema.secrets.id), isNotNull(schema.secrets.id)))",
+      from: 'and(eq(schema.secrets.code, c), secretScope({ ignoring: "*" }))',
       to: "eq(schema.secrets.code, c)",
     },
   ],
@@ -612,8 +612,8 @@ const LEAK_DENY: Record<VariantId, Edit[]> = {
     {
       file: /Repositories\/SecretRepository\.cs$/,
       after: " Everything(",
-      from: "WHERE (code = @c) AND 1 = 0",
-      to: "WHERE (code = @c)",
+      from: 'WHERE (code = @c) AND " + SecretScope.WhereIgnoringAll',
+      to: 'WHERE (code = @c)"',
     },
   ],
   java: [
@@ -658,7 +658,7 @@ const LEAK_AGG: Record<VariantId, Edit[]> = {
     {
       file: /http\/query-projections\.ts$/,
       after: 'path: "/order_volume"',
-      from: ".where(eq(schema.orders.tenantId, requireCurrentUser().tenantId))",
+      from: ".where(orderScope())",
       to: "",
     },
   ],

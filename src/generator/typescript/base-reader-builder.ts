@@ -21,28 +21,22 @@
 //     (which applies that concrete's whole scope) and merges them in the one
 //     global order before it pages.
 
-import { type PolymorphicRead, polymorphicReadFor } from "../../ir/enrich/read-scope.js";
-import type {
-  EnrichedAggregateIR,
-  EnrichedBoundedContextIR,
-  ExprIR,
-} from "../../ir/types/loom-ir.js";
+import { type PolymorphicRead, polymorphicReadRouted } from "../../ir/enrich/read-scope.js";
+import type { EnrichedAggregateIR, EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
 import { isValueCollectionType } from "../../ir/util/value-collections.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, snake } from "../../util/naming.js";
-import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
 import { isRefCollection } from "./repository-associations-builder.js";
 import { hydrateRootExpr } from "./repository-find-hydrate.js";
 import {
-  drizzleGuardedSubtypePredicates,
   drizzleOrderBy,
-  lowerToDrizzle,
+  drizzleScopeCall,
+  drizzleScopeFnName,
   repoTableName,
 } from "./repository-find-predicate.js";
 import { collectEnums, collectValueObjects } from "./repository-imports-builder.js";
-import { aggHasFieldMask } from "./repository-wire-builder.js";
 
 /** The `<Base> = Concrete | …` discriminated-union type (TS structural union
  *  of the concrete domain classes). Lives in `domain/<base>.ts`.  `layout`
@@ -70,27 +64,12 @@ export function buildBaseUnionFile(
 }
 
 /** True when `base`'s polymorphic read is routed (`GET /api/<bases>`) on the
- *  drizzle adapter.
- *
- *  The route answers every subtype's rows, so it may only exist where every
- *  subtype's own list read is open to the same caller: a concrete whose `all`
- *  carries a `requires` gate (author-written, or the `denyByDefault`
- *  synthesised one) or whose wire masks a field would have that gate or mask
- *  bypassed by the base route.  Those hierarchies keep the reader but get no
- *  route until the base read carries the gates itself. */
+ *  drizzle adapter — the shared gate (`polymorphicReadRouted`). */
 export function routesPolymorphicRead(
   base: EnrichedAggregateIR,
   ctx: EnrichedBoundedContextIR,
 ): boolean {
-  const read = polymorphicReadFor(base, ctx.aggregates);
-  if (!read) return false;
-  return read.variants.every((v) => {
-    const concrete = ctx.aggregates.find((a) => a.name === v.aggregate);
-    const all = ctx.repositories
-      .find((r) => r.aggregateName === v.aggregate)
-      ?.finds.find((f) => f.name === "all");
-    return !!concrete && !!all && !all.requires && !aggHasFieldMask(concrete);
-  });
+  return polymorphicReadRouted(base, ctx);
 }
 
 /** True when a concrete hydrates from its root row alone — no contained part,
@@ -148,7 +127,9 @@ export function buildBaseReaderFile(
   read: PolymorphicRead,
 ): string {
   const table = repoTableName(base, ctx);
-  const scope = tphScopePredicate(base, read, table, ctx);
+  // The root's restrictions and each subtype's own, kind-guarded: the generated
+  // scope helper of the polymorphic read (`db/read-scopes.ts`).
+  const scope = drizzleScopeCall(base, ctx);
   const where = (extra?: string): string => {
     const terms = [extra, scope].filter((t): t is string => !!t);
     if (terms.length === 0) return "";
@@ -239,7 +220,7 @@ export function buildBaseReaderFile(
     drizzleImportLine(body),
     ...derivedImports(fullBody, [
       { from: "../schema", namespace: "schema" },
-      { from: "../../auth/middleware", values: ["requireCurrentUser"] },
+      { from: "../read-scopes", values: [drizzleScopeFnName(base)] },
       { from: "../../domain/events", types: ["DomainEventDispatcher"] },
       { from: "../../domain/ids", namespace: "Ids" },
       ...concretes.map((c) => ({ from: `../../domain/${lowerFirst(c.name)}`, values: [c.name] })),
@@ -258,29 +239,6 @@ export function buildBaseReaderFile(
     fullBody,
     "",
   );
-}
-
-/** The TPH root query's whole restriction: the root's own predicates, then
- *  every subtype's guarded `or(not(kind = '<d>'), <pred>)`, conjoined.  Null
- *  when nothing restricts the read. */
-function tphScopePredicate(
-  base: EnrichedAggregateIR,
-  read: PolymorphicRead,
-  table: string,
-  ctx: EnrichedBoundedContextIR,
-): string | null {
-  const render = (predicate: ExprIR): string => {
-    const l = lowerToDrizzle(predicate, table, ctx, { principalAccessor: "requireCurrentUser()" });
-    return (
-      l?.expr ?? refuseOutOfVocabulary("drizzle-predicate", `read restriction on '${read.base}'`)
-    );
-  };
-  const terms = [
-    ...read.restrictions.filter((r) => r.predicate !== undefined).map((r) => render(r.predicate!)),
-    ...drizzleGuardedSubtypePredicates(base, ctx, new Set()),
-  ];
-  if (terms.length === 0) return null;
-  return terms.length === 1 ? terms[0]! : `and(${terms.join(", ")})`;
 }
 
 /** `toWire(root)` — the row's tagged wire body: `{ type: "<Concrete>", …the

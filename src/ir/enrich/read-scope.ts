@@ -30,7 +30,7 @@
 // an unordered read answers differently from run to run and backend to backend.
 // Where ids are UUIDv7 (node), `id` order also tracks creation order.
 
-import type { AggregateIR, ExprIR, SortTermIR } from "../types/loom-ir.js";
+import type { AggregateIR, ExprIR, RepositoryIR, SortTermIR } from "../types/loom-ir.js";
 import {
   type AggPool,
   baseOf,
@@ -49,6 +49,7 @@ import {
   TENANCY_SELF_SCOPE_ORIGIN,
   TENANT_OWNED_CAPABILITY,
 } from "../util/tenant-stance.js";
+import { forApiRead, wireFieldsFor } from "./wire-projection.js";
 
 /** What a restriction is.
  *
@@ -347,4 +348,29 @@ export function polymorphicReadFor(
     variants,
     order: readOrderFor(),
   };
+}
+
+/** True when `base`'s polymorphic read may be ROUTED (`GET /api/<bases>`).
+ *
+ *  The route answers every subtype's rows, so it may only exist where every
+ *  subtype's own list read is open to the same caller: a concrete whose `all`
+ *  carries a `requires` gate (author-written, or the `denyByDefault`
+ *  synthesised one) or whose wire masks a field would have that gate or mask
+ *  bypassed by the base route.  Those hierarchies keep the reader but get no
+ *  route until the base read carries the gates itself. */
+export function polymorphicReadRouted(
+  base: AggregateIR,
+  ctx: { aggregates: readonly AggregateIR[]; repositories: readonly RepositoryIR[] },
+): boolean {
+  const read = polymorphicReadFor(base, ctx.aggregates);
+  if (!read) return false;
+  return read.variants.every((v) => {
+    const concrete = ctx.aggregates.find((a) => a.name === v.aggregate);
+    const all = ctx.repositories
+      .find((r) => r.aggregateName === v.aggregate)
+      ?.finds.find((f) => f.name === "all");
+    const masked =
+      !!concrete && forApiRead(wireFieldsFor(concrete)).some((wf) => wf.maskUnless !== undefined);
+    return !!concrete && !!all && !all.requires && !masked;
+  });
 }

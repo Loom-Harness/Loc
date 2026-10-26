@@ -7,6 +7,8 @@
 // `--warnings-as-errors`).
 
 import { describe, expect, it } from "vitest";
+import { inlineDapperScope } from "../_helpers/dapper-scope.js";
+import { inlineDrizzleScope } from "../_helpers/drizzle-scope.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 // `Secret` is READ-denied (invisible); `Account` is WRITE-denied (read-only).
@@ -54,8 +56,13 @@ async function files(platform: string): Promise<Map<string, string>> {
 async function allText(platform: string): Promise<string> {
   return [...(await files(platform)).values()].join("\n\n");
 }
+/** The first file whose path contains `needle`, with each scope-helper reference
+ *  (drizzle `secretScope()`, Dapper `SecretScope.Where`) resolved to the predicate it holds. */
 async function fileContaining(platform: string, needle: string): Promise<string> {
-  for (const [path, body] of await files(platform)) if (path.includes(needle)) return body;
+  const all = await files(platform);
+  for (const [path, body] of all) {
+    if (path.includes(needle)) return inlineDrizzleScope(all, inlineDapperScope(body));
+  }
   return "";
 }
 

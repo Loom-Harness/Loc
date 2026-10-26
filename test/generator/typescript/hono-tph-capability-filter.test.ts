@@ -21,6 +21,7 @@
 // reached any of them.
 
 import { describe, expect, it } from "vitest";
+import { scopeFn } from "../../_helpers/drizzle-scope.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
 // These fixtures used to ride the legacy `generateHono` helper on a BARE loose
@@ -78,17 +79,15 @@ describe("TPH × capability filter (Hono/Drizzle)", () => {
     const files = await gen(hierarchy("!this.retired"));
     const repo = files.get("db/repositories/car-repository.ts") ?? "";
     expect(repo, "concrete repository emitted").not.toEqual("");
-    // The criterion reifies to a module-level fn, and `retired` must be typed
-    // `bool` for the boolean-column path to accept it.  Before the fix there
-    // was ZERO `Criterion` anywhere in the project and no `retired` predicate
-    // on any read.
-    expect(repo, "the criterion fn is emitted").toContain("const liveCriterion = ()");
-    expect(repo, "the base field lowers as a boolean column").toContain(
+    // The criterion body is rendered into Car's scope helper, and `retired`
+    // must be typed `bool` for the boolean-column path to accept it.  Before the
+    // fix there was NO `retired` predicate on any read.
+    expect(scopeFn(files, "carScope"), "the base field lowers as a boolean column").toContain(
       "not(eq(schema.vehicles.retired, true))",
     );
-    // Every root read AND-s it in — not just one of them.
-    const applied = [...repo.matchAll(/liveCriterion\(\)/g)].length;
-    expect(applied, "the filter is applied to findById, findManyByIds and all").toBeGreaterThan(2);
+    // Every root read AND-s the helper in — not just one of them.
+    const applied = [...repo.matchAll(/carScope\(\)/g)].length;
+    expect(applied, "the scope is applied to findById, findManyByIds and all").toBeGreaterThan(2);
   });
 
   it("the predicate targets the shared TPH table, not the subtype's own plural", async () => {
@@ -149,7 +148,9 @@ describe("TPH × capability filter (Hono/Drizzle)", () => {
     ] as const) {
       const repo = files.get(file) ?? "";
       expect(repo, `${file} emitted`).not.toEqual("");
-      expect(repo, `${file} scopes by tenant on the shared table`).toContain(
+      const fn = `${table.slice(0, -1)}Scope`;
+      expect(repo, `${file} reads through its scope helper`).toContain(`${fn}()`);
+      expect(scopeFn(files, fn), `${fn} scopes by tenant on the shared table`).toContain(
         "eq(schema.vehicles.tenantId, requireCurrentUser().tenantId)",
       );
       expect(repo, `${file} must not name schema.${table}`).not.toContain(`schema.${table}`);
@@ -163,14 +164,15 @@ describe("TPH × capability filter (Hono/Drizzle)", () => {
     // One select over the shared table per read …
     const reads = base.match(/\.from\(schema\.vehicles\)[^;]*;/g) ?? [];
     expect(reads.length, "findById, findAll, findPage's count and rows").toBe(4);
-    // … and every one of them carries Car's filter, hosted on the root and
-    // guarded so it narrows Car rows only — a Truck row passes it untouched.
-    for (const read of reads) {
-      expect(read, "Car's filter is kind-guarded on every read").toContain(
-        'or(not(eq(schema.vehicles.kind, "Car")), ',
-      );
-      expect(read, "Truck declares no filter, so no Truck guard").not.toContain('"Truck")');
-    }
+    // … and every one of them calls the polymorphic scope helper …
+    for (const read of reads) expect(read).toContain("vehicleScope()");
+    // … which carries Car's filter, hosted on the root and guarded so it
+    // narrows Car rows only — a Truck row passes it untouched.
+    const scope = scopeFn(files, "vehicleScope");
+    expect(scope, "Car's filter is kind-guarded").toContain(
+      'or(not(eq(schema.vehicles.kind, "Car")), ',
+    );
+    expect(scope, "Truck declares no filter, so no Truck guard").not.toContain('"Truck")');
   });
 
   it("a query-time projection `from <TPH base>` applies each concrete's filter, kind-guarded", async () => {
@@ -186,7 +188,10 @@ describe("TPH × capability filter (Hono/Drizzle)", () => {
     const files = await gen(src);
     const proj = files.get("http/query-projections.ts") ?? "";
     expect(proj, "query projections emitted").not.toEqual("");
-    expect(proj, "Car's filter narrows Car rows of the count").toContain(
+    expect(proj, "the count reads through the polymorphic scope helper").toContain(
+      "vehicleScope()",
+    );
+    expect(scopeFn(files, "vehicleScope"), "Car's filter narrows Car rows of the count").toContain(
       'or(not(eq(schema.vehicles.kind, "Car")), ',
     );
   });

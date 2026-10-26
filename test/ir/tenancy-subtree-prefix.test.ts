@@ -34,6 +34,8 @@
 // survived review there.
 
 import { describe, expect, it } from "vitest";
+import { inlineDapperScope } from "../_helpers/dapper-scope.js";
+import { inlineDrizzleScope } from "../_helpers/drizzle-scope.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { corpusSource } from "../fixtures/corpus/harness.js";
 
@@ -44,7 +46,7 @@ async function emitFor(platform: string): Promise<string> {
   );
   return [...files]
     .filter(([p]) => /repositor|JpaRepository|_repository/i.test(p))
-    .map(([, c]) => c)
+    .map(([, c]) => inlineDrizzleScope(files, inlineDapperScope(c)))
     .join("\n");
 }
 

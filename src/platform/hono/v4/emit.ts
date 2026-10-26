@@ -73,6 +73,12 @@ import {
 import { buildExternSubclassFile } from "../../../generator/typescript/extern-builder.js";
 import { rewriteRelativeImports } from "../../../generator/typescript/layout-imports.js";
 import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
+import {
+  READ_SCOPES_PATH,
+  type ReadScopeSpec,
+  renderReadScopesFile,
+  wantsReadScope,
+} from "../../../generator/typescript/read-scopes-builder.js";
 import { buildRepositoryFile } from "../../../generator/typescript/repository-builder.js";
 import { buildDocumentRepositoryFile } from "../../../generator/typescript/repository-document-builder.js";
 import { buildEmbeddedRepositoryFile } from "../../../generator/typescript/repository-embedded-builder.js";
@@ -1237,6 +1243,9 @@ export function generateTypeScriptForContexts(
   // concrete's own emitted public method headers (so `implements` always
   // type-checks) and pooled into one `domain/repository-ports.ts`.
   const portSpecs: RepoPortSpec[] = [];
+  // Aggregates whose drizzle repository (or polymorphic base reader) calls a
+  // generated scope helper — pooled into `db/read-scopes.ts` below.
+  const scopeSpecs: ReadScopeSpec[] = [];
   for (const ctx of contexts) {
     // Scaffold-once impl modules for any extern commandHandler / queryHandler.
     // No-op (byte-identical) for a context with none.
@@ -1298,6 +1307,17 @@ export function generateTypeScriptForContexts(
               ? buildEmbeddedRepositoryFile(agg, repo, ctx, emitTrace)
               : buildRepositoryFile(agg, repo, ctx, emitTrace);
       place("drizzle-repository", agg.name, repoContent, repo?.origin ?? agg.origin, construct);
+      // Relational / embedded reads are SQL over the aggregate's table, so they scope
+      // through the generated helper; a document or event-sourced read evaluates
+      // in-process and never calls one.
+      if (
+        !usingMikro &&
+        agg.persistedAs !== "eventLog" &&
+        shape !== "document" &&
+        wantsReadScope(agg, ctx)
+      ) {
+        scopeSpecs.push({ agg, ctx });
+      }
       // Derive this aggregate's repository PORT from the concrete just emitted
       // (audit S7) — pooled into `domain/repository-ports.ts` below.
       portSpecs.push({ aggName: agg.name, members: portMembersFromSource(repoContent) });
@@ -1370,6 +1390,7 @@ export function generateTypeScriptForContexts(
       const concretes = tphConcretesOf(base, ctx.aggregates) as typeof ctx.aggregates;
       const read = polymorphicReadFor(base, ctx.aggregates);
       if (!read) continue;
+      if (!usingMikro && wantsReadScope(base, ctx)) scopeSpecs.push({ agg: base, ctx });
       const baseConstruct = `${ctx.name}.${base.name}`;
       place(
         "domain-aggregate",
@@ -1705,6 +1726,10 @@ export function generateTypeScriptForContexts(
   // up by the layout post-pass below when byFeature relocates the aggregates.
   const portsFile = renderRepositoryPortsFile(portSpecs, merged);
   if (portsFile) out.set(PORT_POOL_PATH, portsFile);
+  // The pooled drizzle read-scope helpers (`<agg>Scope`) every repository read and
+  // write site, the polymorphic base readers and the projection routes call.
+  const readScopesFile = renderReadScopesFile(scopeSpecs);
+  if (readScopesFile) out.set(READ_SCOPES_PATH, readScopesFile);
   // D-REALIZATION-AXES `directoryLayout:` — when the layout relocated any
   // per-aggregate file (byFeature), fix up every relative import across the
   // project so the moved modules still resolve.  No-op (byte-identical) for the

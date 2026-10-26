@@ -528,7 +528,27 @@ function emitProjectFromContexts(
     for (const agg of ctx.aggregates) {
       emitAggregate(agg, ctx, ns, out, routePrefix, emitTrace, emitCtx, sourcemap, sourceTexts);
     }
-    emitBaseReaders(ctx, ns, out, sourcemap);
+    emitBaseReaders(
+      ctx,
+      ns,
+      out,
+      sourcemap,
+      // `persistence: dapper`: a TPH base is also a polymorphic read home (one
+      // SELECT over the shared table, a row parser per `kind`).  A concrete
+      // hydrates from its root row alone only in the relational shape with no
+      // contained parts or `X id[]` references.
+      emitCtx && system?.deployable.persistence === "dapper"
+        ? {
+            routePrefix: routePrefix ?? "",
+            isFlat: (a) =>
+              a.persistedAs !== "eventLog" &&
+              effectiveSavingShape(a, resolveDataSourceConfig(a, ctx, emitCtx.sys)) ===
+                "relational" &&
+              a.contains.length === 0 &&
+              (a.associations ?? []).length === 0,
+          }
+        : undefined,
+    );
     // Domain services (domain-services.md) — stateless pure calculators, one
     // `public static class` per `domainService` + its `or`-union return records.
     emitDomainServices(ctx, ns, out);
@@ -1690,7 +1710,7 @@ function emitAggregate(
       isEs
         ? renderDapperEventSourcedRepository(agg, repoWithViews, ns, findBodies, ctx.name)
         : isDoc
-          ? renderDapperDocumentRepository(agg, repoWithViews, ns, findBodies)
+          ? renderDapperDocumentRepository(agg, repoWithViews, ns, findBodies, ctx.aggregates)
           : renderDapperRepository(
               agg,
               repoWithViews,
@@ -1701,6 +1721,7 @@ function emitAggregate(
               // TPH concrete: persist to the shared base table, discriminated by
               // `kind = '<Concrete>'`, threading the shared `<Base>Id`.
               tphBase ? { baseName: tphBase.name, discriminator: agg.name } : undefined,
+              ctx.aggregates,
             ),
       repoOrigin,
     );

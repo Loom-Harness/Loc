@@ -88,11 +88,28 @@ the `denyByDefault` one) or whose wire masks a field keeps the reader unrouted.
 | Backend (`platform:`) | polymorphic base reader |
 |---|---|
 | `node` (Hono / Drizzle) | a read-only `<Base>Repository`. TPH: one select over the shared table carrying the root's and every subtype's kind-guarded restrictions, ordered by `id`, paged in SQL, each row hydrated as its `kind`. TPC: each concrete repo's own read, merged in `id` order, then paged. Routed as `GET /api/<bases>` (+ `/{id}` under TPH) with a `<Base>Response` discriminated union. A query-time projection `from <TPH base>` applies the same guarded subtype restrictions |
+| `dotnet` (.NET / Dapper, TPH) | a read-only `I<Base>Repository` / `<Base>Repository`: one `SELECT` over the shared table under the root's and every subtype's kind-guarded restrictions (the base's generated `<Base>Scope.Polymorphic`), `ORDER BY id LIMIT/OFFSET` plus a `COUNT(*)` for `total`, and `reader.GetRowParser<BaseRow>(typeof(<Concrete>Row))` switching the row parser per `kind`. A concrete with contained parts or `X id[]` references cannot hydrate from its root row, so its ids are loaded in order through its own repository (same scope). Routed as `GET /api/<bases>` (+ `/{id}`) answering the concrete's own `<Concrete>Response` plus the `type` tag. Dapper TPC keeps the concatenating reader below |
 | `node` (Hono / MikroORM) | a read-only `<Base>Repository` whose `findAll()` concatenates each concrete repo's `all()`; not routed |
 | `dotnet` (.NET / EF Core) | `public abstract class <Base>` carrying the shared fields; concretes declare `: <Base>` and inherit them; EF excludes the base via `modelBuilder.Ignore<<Base>>()` so each concrete maps standalone; a read-only `I<Base>Repository` / `<Base>Repository` whose `FindAllAsync()` returns `IReadOnlyList<<Base>>` |
 | `phoenix` (Ecto) | a read-only `<Base>Repository` whose `list` concatenates each concrete repository's `list` (draining a paged concrete's pages) and whose `find_by_id` tries each concrete in turn; the context's `list_<bases>` / `get_<base>` delegate to it and take `current_user \\ nil` whenever a concrete read does. TPH included: the `kind` conjunct and every capability / inline filter live in the concrete repositories. A `shape: document` concrete is flattened (`row.data`) before the base serializer runs |
 | `python` (FastAPI / SQLAlchemy) | a read-only `<Base>` repository whose `find_all` concatenates each concrete repo's reads; a `<Base>` union response type |
 | `java` (Spring Boot / JPA) | a read-only `<Base>Repository` whose `findAll()` concatenates each concrete repo's reads; a `<Base>` union response type |
+
+**Read scope helpers (drizzle and Dapper).** Neither has a global query filter or
+an inheritance mapping, so the `kind` scope and every capability / tenancy / deny
+predicate must be applied by every read *and* write statement. Both adapters render
+the read-scope fact once per aggregate into a generated helper and every statement
+calls it: drizzle's `db/read-scopes.ts` exports `<agg>Scope({ ignoring?, write? })`
+(`forkliftScope()` for a read, `forkliftScope({ ignoring: ["softDeletable"] })` for an
+`ignoring` read, `forkliftScope({ write: true })` for the `kind` scope alone on a
+save / delete); Dapper emits an `internal static class <Agg>Scope` beside each
+repository (`"… WHERE id = @id AND " + ForkliftScope.Where`, a `Where…Ignoring_<cap>`
+constant per `ignoring` clause, `Runtime(FilterBypass)` for a retrieval whose clause
+arrives at runtime). Only a capability-contributed restriction is droppable by
+`ignoring`; the `kind` scope, a `deny` carve-out and a bare `filter` never are.
+`test/generator/hono/drizzle-read-scope-census.test.ts` and
+`test/generator/dotnet/dapper-read-scope-census.test.ts` pin that no other generated
+statement spells a scope predicate.
 
 Under TPC, identity stays **per-concrete** (each concrete keeps its own
 strongly-typed `<Concrete>Id`); there is no shared `<Base>Id`, and a polymorphic

@@ -51,6 +51,8 @@ import { tableOwnerName } from "../../src/ir/util/inheritance.js";
 import { lifecycleGates } from "../../src/ir/util/op-gates.js";
 import { walkExprDeep, walkStmtsDeep, walkWorkflowStmtsDeep } from "../../src/ir/util/walk.js";
 import { plural, snake } from "../../src/util/naming.js";
+import { inlineDapperScope } from "../_helpers/dapper-scope.js";
+import { inlineDrizzleScope } from "../_helpers/drizzle-scope.js";
 import type { Backend } from "../fixtures/corpus/backends.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -337,6 +339,10 @@ export interface Locator {
   /** Helper definitions to inline into a window that references them: given a
    *  helper name referenced in a window, its body in the same file. */
   readonly helpers?: readonly Helper[];
+  /** Resolve a generated scope-helper reference to the predicate it stands for
+   *  before the file is windowed, so a site is judged by what it APPLIES rather
+   *  than by where the predicate is spelled. */
+  readonly prepare?: (files: ReadonlyMap<string, string>, text: string) => string;
   /** The window starts at the enclosing SCOPE, not at the site: a delegating
    *  method's setup before its read (`session.disableFilter("…")` ahead of
    *  `jpa.find…`) is part of that read. */
@@ -439,6 +445,7 @@ export const LOCATORS: Record<VariantId, Locator> = {
     files: TS_FILES,
     openers: [TS_METHOD, TS_FUNCTION, TS_ROUTE_PATH, TS_ROUTE_CALL, TS_REGISTER],
     reads: [/\.from\((schema\.\w+)\)/],
+    prepare: (files, text) => inlineDrizzleScope(files, text),
     classify: tsClassify,
     carries: (f, site) =>
       f.kind === "deny"
@@ -500,6 +507,7 @@ export const LOCATORS: Record<VariantId, Locator> = {
     files: (p) => p.endsWith(".cs") && !/(^|\/)(Tests?|Migrations)\//.test(p),
     openers: [CS_METHOD()],
     reads: [/"[^"\n]*?\bFROM\s+(?:"?\w+"?\.)?"?(\w+)"?/i],
+    prepare: (_files, text) => inlineDapperScope(text),
     helpers: CS_HELPERS,
     classify: csClassify,
     carries: (f, site) => {
@@ -782,8 +790,9 @@ function helperDef(
 export function readSites(variant: VariantId, files: ReadonlyMap<string, string>): ReadSite[] {
   const loc = LOCATORS[variant];
   const out: ReadSite[] = [];
-  for (const [file, text] of files) {
+  for (const [file, rawText] of files) {
     if (!loc.files(file)) continue;
+    const text = loc.prepare ? loc.prepare(files, rawText) : rawText;
     const hits: { at: number; storage: string }[] = [];
     for (const re of loc.reads) {
       const g = new RegExp(re.source, re.flags.includes("g") ? re.flags : `${re.flags}g`);

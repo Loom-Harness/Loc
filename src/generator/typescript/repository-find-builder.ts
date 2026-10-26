@@ -75,7 +75,7 @@ export function readFilterPred(
   bypass: FilterBypass | undefined,
 ): string | null {
   if (!bypass || (!bypass.bypassAll && (bypass.bypassCaps ?? []).length === 0)) return filterPred;
-  return contextFilterPredicate(agg, ctx, new Set<string>(), bypass);
+  return contextFilterPredicate(agg, ctx, bypass);
 }
 
 // Re-export the leaf modules' externally-consumed surface so the sibling
@@ -85,7 +85,6 @@ export { hydrateConcreteFromSharedRow, hydrateRootExpr } from "./repository-find
 export {
   contextFilterPredicate,
   lowerToDrizzle,
-  nonPrincipalContextFilterEntries,
   // The table a repository reads `agg` from.  Defined beside the predicate
   // lowerer (which derives it itself) and re-exported here so the sibling
   // builders keep importing it from this module.
@@ -143,12 +142,8 @@ export function renderCriterionFn(
  *  base id into every concrete's branded id by design), so without it
  *  `carRepo.delete(truckId)` deletes the truck and `carRepo.save(x)` on a
  *  truck's id takes the UPDATE branch and rewrites that row's `kind`. */
-export function kindPredicate(
-  agg: EnrichedAggregateIR,
-  ctx: BoundedContextIR,
-  tableName: string,
-): string | null {
-  return drizzleKindPredicate(agg, ctx, tableName);
+export function kindPredicate(agg: EnrichedAggregateIR, ctx: BoundedContextIR): string | null {
+  return drizzleKindPredicate(agg, ctx);
 }
 
 /** Combine an id/param filter with the optional `kind` predicate. */
@@ -287,10 +282,7 @@ export function findManyByIdsMethod(
 ): string {
   const tableName = repoTableName(agg, ctx);
   // Compose the capability filter onto the TPH-aware id/kind base.
-  const rootWhere = combinePredicate(
-    withKind(`inArray(schema.${tableName}.id, ids)`, kindPredicate(agg, ctx, tableName)),
-    filterPred,
-  );
+  const rootWhere = combinePredicate(`inArray(schema.${tableName}.id, ids)`, filterPred);
   // Bulk-load every containment (collections + singulars) into per-
   // parent maps; mirrors the array-return path of findQueryMethod.
   const eagerContains = eagerContainsOf(agg);
@@ -356,10 +348,7 @@ function txCallbackBody(
   filterPred: string | null = null,
 ): string[] {
   const tableName = repoTableName(agg, ctx);
-  const rootWhere = combinePredicate(
-    withKind(`eq(schema.${tableName}.id, id)`, kindPredicate(agg, ctx, tableName)),
-    filterPred,
-  );
+  const rootWhere = combinePredicate(`eq(schema.${tableName}.id, id)`, filterPred);
   // Eager-load each `contains` child (collection or singular).
   const childLoads = agg.contains.flatMap((c): string[] => {
     const part = agg.parts.find((p) => p.name === c.partName);
@@ -643,8 +632,8 @@ export function runMethod(
   );
   const params = [...baseParams, "page?: { offset?: number; limit?: number }"].join(", ");
 
-  // `where` → Drizzle predicate, AND-ed with the TPH `kind` scope.
-  const kindPred = kindPredicate(agg, ctx, tableName);
+  // `where` → Drizzle predicate, AND-ed with the aggregate's read scope (the
+  // TPH `kind` scope and every filter).
   const lowered =
     lowerToDrizzle(retrieval.where, tableName, ctx) ??
     refuseOutOfVocabulary(
@@ -665,7 +654,7 @@ export function runMethod(
   // the find path does (buildFindWhereClause); retrievals carry no `ignoring`
   // bypass, so the full predicate applies.  Omitting it leaked soft-deleted /
   // other-tenant rows through `run<Name>` (silent gap).
-  const whereClause = `.where(${combinePredicate(withKind(whereInner, kindPred), filterPred)})`;
+  const whereClause = `.where(${combinePredicate(whereInner, filterPred)})`;
 
   // `sort` → `.orderBy(asc(col), desc(col), …, asc(id))`: the declared terms
   // with the `id` tie-break, or `id` alone (the read-scope order).  Only the
@@ -728,9 +717,8 @@ export function buildFindWhereClause(
   ctx: EnrichedBoundedContextIR,
   filterPred: string | null = null,
 ): string {
-  // Under TPH every read of this concrete is scoped to its `kind` rows in the
-  // shared table (null for non-TPH aggregates → byte-identical output).
-  const kindPred = kindPredicate(agg, ctx, tableName);
+  // Every read of the aggregate is scoped by its generated scope helper — under
+  // TPH that includes the `kind` rows of the shared table — carried by `filterPred`.
   if (find.filter) {
     // The IR validator (Layer ②) rejects any `where` clause that can't
     // lower to Drizzle's queryable subset, so by the time we get here
@@ -751,7 +739,7 @@ export function buildFindWhereClause(
           .map(renderCriterionArg)
           .join(", ")})`
       : lowered.expr;
-    return `.where(${combinePredicate(withKind(whereInner, kindPred), filterPred)})`;
+    return `.where(${combinePredicate(whereInner, filterPred)})`;
   }
   // Drizzle's `eq<T>(left, right)` infers `T` from the column's TS type
   // (plain `string` for `text(...)` columns).  Branded id params
@@ -764,11 +752,9 @@ export function buildFindWhereClause(
   for (const { param: p, field: matched } of implicitFindMatches(find, agg)) {
     conditions.push(`eq(schema.${tableName}.${matched.name}, ${p.name})`);
   }
-  // TPH `kind` scope joins the convention-matched param conditions.
-  if (kindPred) conditions.push(kindPred);
   if (conditions.length === 0) {
-    // No find-level / kind predicate — but a capability filter still
-    // applies to every root read, so emit it alone when present.
+    // No find-level predicate — but the read scope still applies to every root
+    // read, so emit it alone when present.
     return filterPred ? `.where(${filterPred})` : "";
   }
   const findPred = conditions.length === 1 ? conditions[0]! : `and(${conditions.join(", ")})`;

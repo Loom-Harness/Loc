@@ -15,6 +15,7 @@ import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
 import { adaptersFor } from "../../src/platform/resolve-adapters.js";
 import { generateSystems } from "../../src/system/index.js";
+import { inlineDapperScope } from "../_helpers/dapper-scope.js";
 import { diagText } from "../_helpers/diagnostics.js";
 
 /** The Dapper deployable's DDL, as the assertions below read it: every
@@ -91,7 +92,9 @@ describe("dapper persistence adapter — dotnet (Phase 5c)", () => {
     // Dapper schema bootstrap replaces the EF DbContext + migrations.
     expect(files.has("api/Infrastructure/Persistence/DbSchema.cs")).toBe(true);
     expect(files.has("api/Infrastructure/Persistence/AppDbContext.cs")).toBe(false);
-    const repo = files.get("api/Infrastructure/Repositories/OrderRepository.cs")!;
+    const repo = inlineDapperScope(
+      files.get("api/Infrastructure/Repositories/OrderRepository.cs")!,
+    );
     expect(repo).toContain("private readonly NpgsqlDataSource _db;");
     expect(repo).toContain("Order._Create(new Order.__State"); // hydration seam
     expect(repo).toContain("ON CONFLICT (id) DO UPDATE SET"); // upsert
@@ -169,7 +172,9 @@ system D {
   it("accepts persistedAs: eventLog and emits the Dapper event store", async () => {
     const { files, errors } = await emit(esSys);
     expect(errors).toEqual([]);
-    const repo = files.get("api/Infrastructure/Repositories/AccountRepository.cs")!;
+    const repo = inlineDapperScope(
+      files.get("api/Infrastructure/Repositories/AccountRepository.cs")!,
+    );
     expect(repo).toContain("Account._FromEvents(id, __rows.Select(RowToEvent).ToList());");
     // The aggregate's stream lives in the single per-context event log
     // `<ctx>_events` (context `O`), discriminated by `stream_type`
@@ -212,7 +217,9 @@ system D {
 }`;
     const { files, errors } = await emit(src);
     expect(errors).toEqual([]); // the event-sourced-containment gate is lifted
-    const repo = files.get("api/Infrastructure/Repositories/AccountRepository.cs")!;
+    const repo = inlineDapperScope(
+      files.get("api/Infrastructure/Repositories/AccountRepository.cs")!,
+    );
     // Still the raw-Npgsql event store — folds the stream, no child-table load.
     expect(repo).toContain("Account._FromEvents(id, __rows.Select(RowToEvent).ToList());");
     expect(repo).not.toContain("HydrateAsync");
@@ -252,7 +259,9 @@ system D {
   it("emits the join table, bulk loader, and save sync", async () => {
     const { files, errors } = await emit(SRC);
     expect(errors).toEqual([]);
-    const repo = files.get("api/Infrastructure/Repositories/OrderRepository.cs")!;
+    const repo = inlineDapperScope(
+      files.get("api/Infrastructure/Repositories/OrderRepository.cs")!,
+    );
     // The root row carries no tags column; the join table does.
     expect(repo).not.toContain("tags { get; set; }");
     expect(dapperDdl(files)).toContain("create table order_tags");
@@ -291,7 +300,9 @@ system D {
 }`;
     const { files, errors } = await emit(src);
     expect(errors).toEqual([]); // no longer rejected by the find-predicate gate
-    const repo = files.get("api/Infrastructure/Repositories/OrderRepository.cs")!;
+    const repo = inlineDapperScope(
+      files.get("api/Infrastructure/Repositories/OrderRepository.cs")!,
+    );
     // The membership predicate becomes an EXISTS subquery over the join table,
     // correlated on the owner row's id (the raw-SQL mirror of EF's `.Any(...)`).
     expect(repo).toContain(
@@ -309,9 +320,9 @@ system D {
       sys("dapper", "passwordHash: string secret\n        version: int token"),
     );
     expect(errors).toEqual([]);
-    const repo = [...files.entries()].find(([k]) =>
-      k.endsWith("Repositories/OrderRepository.cs"),
-    )![1];
+    const repo = inlineDapperScope(
+      [...files.entries()].find(([k]) => k.endsWith("Repositories/OrderRepository.cs"))![1],
+    );
     // The columns persist like any field; the shared CQRS layer owns the
     // wire stripping.
     expect(repo).toContain("password_hash");
@@ -513,7 +524,7 @@ system D {
     expect(errors).toEqual([]);
     // The containment column serialises each part's ToSnapshot; the nested
     // Item folds inside BoxSnapshot (no child table for the embedded shape).
-    const repo = files.get("api/Infrastructure/Repositories/CartRepository.cs")!;
+    const repo = inlineDapperScope(files.get("api/Infrastructure/Repositories/CartRepository.cs")!);
     expect(repo).toContain("aggregate.Boxes.Select(__x => __x.ToSnapshot()).ToList()");
     const snaps = files.get("api/Domain/Carts/CartSnapshots.cs")!;
     // Nested Item's snapshot ParentId brands to its DIRECT parent Box, not Cart.
@@ -564,7 +575,9 @@ system D {
     expect(schema).toContain("create table line_items");
     expect(schema).toContain("create table ship_infos");
     expect(schema).toContain("create index line_items_order_id_idx");
-    const repo = files.get("api/Infrastructure/Repositories/OrderRepository.cs")!;
+    const repo = inlineDapperScope(
+      files.get("api/Infrastructure/Repositories/OrderRepository.cs")!,
+    );
     // The root has no flat `Map` (reads reconstruct via HydrateAsync); children
     // hydrate through the part's own `_Create(State)` seam.
     expect(repo).not.toContain("private static Order Map(Row r)");
@@ -626,7 +639,9 @@ system D {
     expect(schema).toContain("foreign key (box_id) references boxes on delete cascade");
     expect(schema).toContain("create table items");
     expect(schema).toContain("create table tags");
-    const repo = files.get("api/Infrastructure/Repositories/OrderRepository.cs")!;
+    const repo = inlineDapperScope(
+      files.get("api/Infrastructure/Repositories/OrderRepository.cs")!,
+    );
     // The parent part's Map threads the grandchild dictionaries; its ParentId is
     // typed to the ROOT (Box.State.ParentId : OrderId), the grandchild's to Box.
     expect(repo).toContain("private static Box MapBox(BoxRow r, Dictionary<");
@@ -672,7 +687,9 @@ system D {
 }`;
     const { files, errors } = await emit(src);
     expect(errors).toEqual([]); // the contains+association gate is lifted
-    const repo = files.get("api/Infrastructure/Repositories/OrderRepository.cs")!;
+    const repo = inlineDapperScope(
+      files.get("api/Infrastructure/Repositories/OrderRepository.cs")!,
+    );
     // Both the child-table hydrator and the ref-collection loader are emitted.
     expect(repo).toContain("private static async Task<List<Order>> HydrateAsync(");
     expect(repo).toContain("private static async Task LoadRefsAsync(");
@@ -734,7 +751,9 @@ system D {
     expect(schema).toContain("kinds jsonb not null");
     expect(schema).toContain("charges jsonb not null");
     expect(schema).toContain("notes jsonb"); // optional → nullable (no "not null")
-    const repo = files.get("api/Infrastructure/Repositories/OrderRepository.cs")!;
+    const repo = inlineDapperScope(
+      files.get("api/Infrastructure/Repositories/OrderRepository.cs")!,
+    );
     // Row DTO carries the list columns as jsonb-backed strings.
     expect(repo).toContain("public string tags { get; set; } = default!;");
     expect(repo).toContain("public string? notes { get; set; }");
@@ -787,7 +806,9 @@ system D {
     const schema = dapperDdl(files);
     expect(schema).toMatch(/create table tags \(/);
     expect(schema).toContain("line_item_id");
-    const repo = files.get("api/Infrastructure/Repositories/OrderRepository.cs")!;
+    const repo = inlineDapperScope(
+      files.get("api/Infrastructure/Repositories/OrderRepository.cs")!,
+    );
     expect(repo).toContain("INSERT INTO tags");
     expect(repo).toContain("FROM tags WHERE line_item_id = ANY(@ids)");
   });
@@ -833,7 +854,7 @@ system D {
     // The repository (de)serialises the whole aggregate through the snapshot,
     // stamping the row's version onto it so the optimistic-concurrency CAS
     // compares against the persisted value (PR #2095).
-    const repo = files.get("api/Infrastructure/Repositories/CartRepository.cs")!;
+    const repo = inlineDapperScope(files.get("api/Infrastructure/Repositories/CartRepository.cs")!);
     expect(repo).toContain(
       "Cart.FromSnapshot(System.Text.Json.JsonSerializer.Deserialize<CartSnapshot>(__d.data, __json)! with { Version = __d.version })",
     );
@@ -897,7 +918,7 @@ system D {
     expect(schema).toContain("coupon jsonb"); // single optional → nullable
     expect(schema).not.toContain("create table cart_lines");
     expect(schema).not.toContain("create table coupons");
-    const repo = files.get("api/Infrastructure/Repositories/CartRepository.cs")!;
+    const repo = inlineDapperScope(files.get("api/Infrastructure/Repositories/CartRepository.cs")!);
     // The JSONB options field + the snapshot (de)serialisation.
     expect(repo).toContain("private static readonly System.Text.Json.JsonSerializerOptions __json");
     expect(repo).toContain(
@@ -958,13 +979,17 @@ system D {
     expect(schema).toContain("create table customers");
     expect(schema).toContain("create table vendors");
     expect(schema).not.toContain("create table parties");
-    const customer = files.get("api/Infrastructure/Repositories/CustomerRepository.cs")!;
+    const customer = inlineDapperScope(
+      files.get("api/Infrastructure/Repositories/CustomerRepository.cs")!,
+    );
     // The concrete's Map hydrates the merged (inherited + own) State fields.
     expect(customer).toContain("Name = r.name,");
     expect(customer).toContain("Email = r.email,");
     expect(customer).toContain("CreditLimit = r.credit_limit,");
     // The polymorphic base reader delegates to each concrete's All().
-    const base = files.get("api/Infrastructure/Repositories/PartyRepository.cs")!;
+    const base = inlineDapperScope(
+      files.get("api/Infrastructure/Repositories/PartyRepository.cs")!,
+    );
     expect(base).toContain("result.AddRange(await _customerRepo.All(cancellationToken));");
     expect(base).toContain("result.AddRange(await _vendorRepo.All(cancellationToken));");
   });
@@ -1005,7 +1030,9 @@ system D {
     expect(schema).toContain("party_id uuid not null");
     expect(schema).toContain("foreign key (party_id) references parties on delete cascade");
     expect(schema).toContain("create table customer_tags");
-    const repo = files.get("api/Infrastructure/Repositories/CustomerRepository.cs")!;
+    const repo = inlineDapperScope(
+      files.get("api/Infrastructure/Repositories/CustomerRepository.cs")!,
+    );
     // Containment child rows FK the shared base row (`party_id = aggregate.Id`);
     // the part's State.ParentId is typed to the concrete (Note.State : CustomerId).
     expect(repo).toContain("INSERT INTO notes (id, party_id, text)");
@@ -1072,7 +1099,9 @@ system D {
 
   it("the concrete repo targets the shared table, filters + inserts the discriminator, threads the base id", async () => {
     const { files } = await emit(TPH);
-    const repo = files.get("api/Infrastructure/Repositories/CustomerRepository.cs")!;
+    const repo = inlineDapperScope(
+      files.get("api/Infrastructure/Repositories/CustomerRepository.cs")!,
+    );
     // Shared base id class, not a per-concrete CustomerId.
     expect(repo).toContain(
       "public async Task<Customer?> GetByIdAsync(PartyId id, CancellationToken cancellationToken = default)",
@@ -1090,6 +1119,8 @@ system D {
     expect(repo).toContain(
       "INSERT INTO parties (id, kind, name, email, credit_limit, version) VALUES (@id, 'Customer', @name, @email, @credit_limit, 1)",
     );
+    // …spelled once in the aggregate's scope helper, which the INSERT splices.
+    expect(repo).toContain("INSERT INTO parties");
   });
 
   it("the abstract base emits the mapped entity but NO EF configuration on Dapper", async () => {
@@ -1102,9 +1133,10 @@ system D {
     expect(files.has("api/Infrastructure/Persistence/Configurations/PartyConfiguration.cs")).toBe(
       false,
     );
-    // No polymorphic base repository (parity with the EF .NET path, which emits
-    // none for TPH — the concretes carry their own repos).
-    expect(files.has("api/Infrastructure/Repositories/PartyRepository.cs")).toBe(false);
+    // Dapper renders the TPH polymorphic base read: one SELECT over the shared
+    // table, routed as `GET /api/parties` (the EF path emits no TPH base reader).
+    expect(files.has("api/Infrastructure/Repositories/PartyRepository.cs")).toBe(true);
+    expect(files.has("api/Api/PartiesController.cs")).toBe(true);
   });
 });
 
@@ -1118,9 +1150,9 @@ describe("dapper capability filters", () => {
       sys("dapper", "archived: bool\n        filter !this.archived"),
     );
     expect(errors).toEqual([]);
-    const repo = [...files.entries()].find(([k]) =>
-      k.endsWith("Repositories/OrderRepository.cs"),
-    )![1];
+    const repo = inlineDapperScope(
+      [...files.entries()].find(([k]) => k.endsWith("Repositories/OrderRepository.cs"))![1],
+    );
     // GetById + FindManyByIds + findAll + the named find all carry it.
     expect(repo).toContain("WHERE id = @id AND (NOT archived)");
     expect(repo).toContain("WHERE id = ANY(@ids) AND (NOT archived)");
@@ -1135,9 +1167,9 @@ describe("dapper capability filters", () => {
         stamp onUpdate { updatedAt := now() }`;
     const { files, errors } = await emit(sys("dapper", body));
     expect(errors).toEqual([]);
-    const repo = [...files.entries()].find(([k]) =>
-      k.endsWith("Repositories/OrderRepository.cs"),
-    )![1];
+    const repo = inlineDapperScope(
+      [...files.entries()].find(([k]) => k.endsWith("Repositories/OrderRepository.cs"))![1],
+    );
     // Stamps bind as column params (the entity's fields are `{ get; private
     // set; }`, so the Dapper repo can't mutate them — it computes a local and
     // binds it, reaching both the INSERT and the ON CONFLICT SET).
@@ -1201,7 +1233,9 @@ system D {
   it("no longer rejects principal stamps/filters; binds them from the ambient principal", async () => {
     const { files, errors } = await emit(AUTH_SRC);
     expect(errors).toEqual([]); // both principal gates are lifted
-    const repo = files.get("api/Infrastructure/Repositories/InvoiceRepository.cs")!;
+    const repo = inlineDapperScope(
+      files.get("api/Infrastructure/Repositories/InvoiceRepository.cs")!,
+    );
     // Principal filter → a `@__cu_tenantId` param bound from the request
     // principal, spliced into every SELECT (GetById shown).
     expect(repo).toContain("WHERE id = @id AND (tenant_id = @__cu_tenantId)");
@@ -1225,7 +1259,9 @@ system D {
   it("widens the find-predicate subset: `currentUser.<claim>` in a find `where`", async () => {
     const { files, errors } = await emit(AUTH_SRC);
     expect(errors).toEqual([]); // the Dapper find-predicate currentUser gate is lifted
-    const repo = files.get("api/Infrastructure/Repositories/InvoiceRepository.cs")!;
+    const repo = inlineDapperScope(
+      files.get("api/Infrastructure/Repositories/InvoiceRepository.cs")!,
+    );
     // The find carries the shared interface's `User currentUser` param and binds
     // its own `@__cu_id` ref + the inherited capability filter's `@__cu_tenantId`
     // from that parameter (not the ambient accessor).
@@ -1271,7 +1307,9 @@ system D {
   it("no longer rejects provenanced fields; round-trips the co-located column + flushes history", async () => {
     const { files, errors } = await emit(PROV_SRC);
     expect(errors).toEqual([]); // the dapper provenance gate is lifted
-    const repo = files.get("api/Infrastructure/Repositories/OrderRepository.cs")!;
+    const repo = inlineDapperScope(
+      files.get("api/Infrastructure/Repositories/OrderRepository.cs")!,
+    );
     // Co-located `total_provenance` jsonb column round-trips the lineage.
     expect(repo).toContain("public string? total_provenance { get; set; }");
     expect(repo).toContain(
@@ -1325,7 +1363,9 @@ system D {
   it("no longer rejects retrievals; emits Run<Name>Async as parameterised SQL", async () => {
     const { files, errors } = await emit(SRC);
     expect(errors).toEqual([]); // the dapper retrieval gate is lifted
-    const repo = files.get("api/Infrastructure/Repositories/CustomerRepository.cs")!;
+    const repo = inlineDapperScope(
+      files.get("api/Infrastructure/Repositories/CustomerRepository.cs")!,
+    );
     // The retrieval signature carries the domain-termed `FilterBypass` param
     // (named-filter-bypass.md §11 / audit S7) uniformly with the EF path — no EF
     // vocabulary on the port; the Dapper body doesn't honor capability filters
@@ -1389,8 +1429,9 @@ system H {
   it("renders the deep-scope subtree predicate as raw SQL on every read", async () => {
     const { files, errors } = await emit(hierarchical);
     expect(errors, `expected clean generation, got: ${errors.join(" | ")}`).toEqual([]);
-    const repo = files.get("api/Infrastructure/Repositories/AccountRepository.cs");
-    expect(repo, "no Dapper AccountRepository emitted").toBeDefined();
+    const rawRepo = files.get("api/Infrastructure/Repositories/AccountRepository.cs");
+    expect(rawRepo, "no Dapper AccountRepository emitted").toBeDefined();
+    const repo = inlineDapperScope(rawRepo!);
     // Every SELECT over the aggregate's table carries the descendant-or-self
     // predicate — the by-id read, the write-scope existence guard, the bulk
     // by-ids load and the paged findAll.  Swept rather than spot-checked: a
@@ -1443,7 +1484,7 @@ system H {
   it("binds the registry self-scope claim as a PARSED uuid, not the text claim", async () => {
     const { files, errors } = await emit(hierarchical);
     expect(errors).toEqual([]);
-    const repo = files.get("api/Infrastructure/Repositories/OrgRepository.cs")!;
+    const repo = inlineDapperScope(files.get("api/Infrastructure/Repositories/OrgRepository.cs")!);
     expect(repo, "no Dapper OrgRepository emitted").toBeDefined();
     // The comparison names the uuid param…
     expect(repo).toContain("id = @__cu_tenantId__uuid");

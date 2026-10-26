@@ -1,4 +1,8 @@
-import type { BoundedContextIR, FieldIR } from "../../../ir/types/loom-ir.js";
+import type {
+  BoundedContextIR,
+  EnrichedBoundedContextIR,
+  FieldIR,
+} from "../../../ir/types/loom-ir.js";
 import { deriveContextOperations, staticSubpathRoutes } from "../../../ir/util/api-surface.js";
 import { readPortsForOperation } from "../../../ir/util/domain-service-read-ports.js";
 import { isTphBase } from "../../../ir/util/inheritance.js";
@@ -23,6 +27,7 @@ import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_ob
 import { OTEL_ENDPOINT_ENV, OTEL_SERVICE_NAME_ENV } from "../../_obs/tracing.js";
 import type { SchemaIdOverride } from "../schema-ids.js";
 import { DAPPER_PROJECT_DEPS, renderDapperConnectionSetup } from "./dapper.js";
+import { dapperRoutedTphBases } from "./dapper-base-reader.js";
 
 // Program.cs is top-level statements, not a class — so the renderer's
 // `_log.` prefix becomes `lifecycleLog.`.  When the call sits inside a
@@ -584,12 +589,16 @@ ${
 }
 `;
   const emitTrace = !!options?.emitTrace;
+  const dapperTphReadHomes = new Set(
+    usingDapper ? dapperRoutedTphBases(ctx as EnrichedBoundedContextIR).map((a) => a.name) : [],
+  );
   const repoRegistrations = ctx.aggregates
     // A TPH (`sharedTable`) base owns the shared table but emits no repository
     // of its own (only its concretes do; reads route through their DbSets),
     // so it has no I<Base>Repository / <Base>Repository to register.  A TPC
-    // base, by contrast, has a base-reader repository — kept.
-    .filter((a) => !isTphBase(a, ctx.aggregates))
+    // base, by contrast, has a base-reader repository — kept; so is a Dapper
+    // TPH base whose polymorphic read is routed.
+    .filter((a) => !isTphBase(a, ctx.aggregates) || dapperTphReadHomes.has(a.name))
     .map(
       (a) =>
         `builder.Services.AddScoped<${ns}.Domain.${plural(a.name)}.I${a.name}Repository, ${ns}.Infrastructure.Repositories.${a.name}Repository>();`,

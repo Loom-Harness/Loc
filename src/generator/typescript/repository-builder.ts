@@ -20,14 +20,13 @@ import {
   findManyByIdsMethod,
   findQueryMethod,
   kindPredicate,
-  nonPrincipalContextFilterEntries,
   reifiableCriterion,
   renderCriterionFn,
   repoTableName,
   runMethod,
   withKind,
 } from "./repository-find-builder.js";
-import { readScopeUsesPrincipal, writeScopeGuardLines } from "./repository-find-predicate.js";
+import { scopeImportLine, writeScopeGuardLines } from "./repository-find-predicate.js";
 import { collectEnums, collectValueObjects } from "./repository-imports-builder.js";
 import { repoPortImportLine, repoPortName } from "./repository-port-builder.js";
 import { saveMethod } from "./repository-save-builder.js";
@@ -96,11 +95,6 @@ export function buildRepositoryFile(
   const reifyingRefs = [
     ...aggRetrievals.map((r) => r.criterionRef),
     ...(repo?.finds ?? []).map((f) => f.criterionRef),
-    // Capability `filter` declarations that are exactly one named criterion
-    // (reified-criteria.md, the anonymous-`filter` row) — the predicate
-    // builder calls the same module-level fn (non-principal entries only;
-    // principal filters are validator-rejected on Hono).
-    ...nonPrincipalContextFilterEntries(agg, ctx).map((e) => e.criterionRef),
   ];
   for (const ref of reifyingRefs) {
     const c = reifiableCriterion(ref, ctx, retrievalTable);
@@ -113,7 +107,7 @@ export function buildRepositoryFile(
   // table (null when it has no non-principal capability filter).  Threaded
   // into each root-table read site below; child/containment reads
   // (parentId-keyed) are unaffected — the filter constrains root rows.
-  const filterPred = contextFilterPredicate(agg, ctx, drizzleOps);
+  const filterPred = contextFilterPredicate(agg, ctx);
   // If any find or matching capability filter references currentUser, the
   // per-method signature gains a `currentUser: User` parameter that
   // the closure-captured Drizzle predicate reads.  Pull the User
@@ -126,7 +120,6 @@ export function buildRepositoryFile(
   // currentUser.tenantId`) reads the ambient principal via `requireCurrentUser()`
   // inside every root read's predicate — so the repo imports that accessor
   // (DEBT-01).  Unlike a per-find `currentUser` use, no method signature changes.
-  const usesPrincipalFilter = readScopeUsesPrincipal(agg, ctx);
   const partNames = agg.parts.map((p) => p.name);
   const domainImports = [agg.name, ...partNames].join(", ");
   const valueObjectsUsed = collectValueObjects(agg, ctx);
@@ -246,11 +239,12 @@ export function buildRepositoryFile(
     /\bAnyPgColumn\b/.test(bodyScan) && `import type { AnyPgColumn } from "drizzle-orm/pg-core";`,
     drizzleImportLine(renderedBody),
     `import * as schema from "../schema";`,
+    scopeImportLine(agg, bodyScan),
     repoUsesUser && `import type { User } from "../../auth/user-types";`,
     // …or a reified criterion fn (a tenancy `criterion` used by a
     // find/retrieval) binds the principal through the same accessor — detected
     // from the scanned body, which includes the criterion fns (line above).
-    (usesPrincipalFilter || /\brequireCurrentUser\(/.test(bodyScan)) &&
+    /\brequireCurrentUser\(/.test(bodyScan) &&
       `import { requireCurrentUser } from "../../auth/middleware";`,
     // Persist-time audit stamping helper — pulled in only when this aggregate's
     // `save()` stamps (audited).  Stamps the audit columns from the ambient
@@ -320,7 +314,7 @@ function deleteMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): 
   // row — and such ids DO reach it: the polymorphic reader hands each concrete
   // repo a base id cast to that concrete's branded id, laundering the brand.
   // Non-TPH aggregates get `null` here, so their emission is byte-identical.
-  const filter = withKind(`eq(schema.${tableName}.id, id)`, kindPredicate(agg, ctx, tableName));
+  const filter = withKind(`eq(schema.${tableName}.id, id)`, kindPredicate(agg, ctx));
   return lines(
     `  async delete(id: Ids.${agg.name}Id): Promise<void> {`,
     `    await this.db.delete(schema.${tableName}).where(${filter});`,

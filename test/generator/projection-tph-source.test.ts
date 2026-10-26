@@ -20,6 +20,8 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { inlineDapperScope } from "../_helpers/dapper-scope.js";
+import { inlineDrizzleScope } from "../_helpers/drizzle-scope.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 const FIXTURE = readFileSync(
@@ -31,7 +33,7 @@ async function projectionSource(platform: string, pathRe: RegExp): Promise<strin
   const files = await generateSystemFiles(FIXTURE.replace("__PLATFORM__", platform));
   const src = [...files.entries()]
     .filter(([p]) => pathRe.test(p))
-    .map(([, c]) => c)
+    .map(([, c]) => inlineDrizzleScope(files, inlineDapperScope(c)))
     .join("\n");
   expect(src, `${platform}: no projection source emitted`).not.toBe("");
   return src;
@@ -47,7 +49,8 @@ describe("projection over a TPH concrete reads the shared table, scoped by `kind
     expect(src).toMatch(
       /\[row\] = await db\.select\(\{ claims: count\(\) \}\)\.from\(schema\.claims\)\.where\(eq\(schema\.claims\.kind, "AutoClaim"\)\);/,
     );
-    expect(src).toMatch(/import \{[^}]*\beq\b[^}]*\} from "drizzle-orm";/);
+    // The kind scope is the claim's scope helper; the helper module owns the operator imports.
+    expect(src).toContain('from "../db/read-scopes"');
   }, 120_000);
 
   it("node/mikroorm: the root Row + a `{ kind }` filter", async () => {

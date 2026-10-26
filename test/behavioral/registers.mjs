@@ -150,6 +150,10 @@ export const ADAPTER_ONLY_CASES = {
     // deletes and re-inserts them and passes.
     "contained-part-rebuild":
       "#4136 — EF loses a rebuilt part's nested owned children (M-T6.96); the Dapper adapter passes it",
+    // Dapper renders the TPH polymorphic base read (one SELECT over the shared
+    // table, a row parser per `kind`); EF's equivalent is #3960.
+    "inheritance-base-reads":
+      "#3965 — the Dapper adapter routes the TPH polymorphic base reads; EF's base read is #3960",
   },
 };
 
@@ -285,7 +289,6 @@ export const BEHAVIOURAL_XFAIL = {
       },
       reason: "`find … ignoring` on a `shape: document` aggregate still applies the filters it names on Dapper",
     },
-    "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
   },
   java: {

@@ -33,7 +33,7 @@ import {
   combinePredicate,
   contextFilterPredicate,
   drizzleOrderBy,
-  readScopeUsesPrincipal,
+  scopeImportLine,
   writeScopeGuardLines,
 } from "./repository-find-predicate.js";
 import { collectEnums, collectValueObjects } from "./repository-imports-builder.js";
@@ -120,7 +120,7 @@ export function buildEmbeddedRepositoryFile(
   // (non-principal) capability `filter` AND-s into every root read as a Drizzle
   // SQL predicate — the same machinery the relational repository uses (DEBT-02).
   // null when the aggregate has no such filter → embedded reads stay identical.
-  const filterPred = contextFilterPredicate(agg, ctx, drizzleOps);
+  const filterPred = contextFilterPredicate(agg, ctx);
 
   // Root-row column entries (reused from the relational save projection)
   // + ref-collection jsonb arrays + one jsonb entry per containment.
@@ -299,6 +299,7 @@ export function buildEmbeddedRepositoryFile(
     /\bAnyPgColumn\b/.test(bodyScan) && `import type { AnyPgColumn } from "drizzle-orm/pg-core";`,
     drizzleImportLine(bodyStr),
     `import * as schema from "../schema";`,
+    scopeImportLine(agg, bodyScan),
     repoUsesUser && `import type { User } from "../../auth/user-types";`,
     `import { ${domainImports} } from "../../domain/${lowerFirst(agg.name)}";`,
     voOrEnumImportLine,
@@ -307,12 +308,10 @@ export function buildEmbeddedRepositoryFile(
       ? `import { AggregateNotFoundError, ConcurrencyError } from "../../domain/errors";`
       : `import { AggregateNotFoundError } from "../../domain/errors";`,
     `import type { DomainEventDispatcher } from "../../domain/events";`,
-    // A principal-referencing capability filter (tenancy) weaves
-    // `requireCurrentUser()` into every embedded root read (DEBT-02), the same
-    // ambient-accessor path the relational builder uses — so import it.
-    // …and a principal-referencing WRITE scope binds the same accessor in the
-    // `getById` pre-guard, so key off the emitted body too (F2-ADP-5).
-    (readScopeUsesPrincipal(agg, ctx) || /\brequireCurrentUser\(/.test(bodyScan)) &&
+    // A principal-referencing WRITE scope binds the ambient accessor in the
+    // `getById` pre-guard (a principal read filter lives in the scope helper), so
+    // key off the emitted body (F2-ADP-5).
+    /\brequireCurrentUser\(/.test(bodyScan) &&
       `import { requireCurrentUser } from "../../auth/middleware";`,
     `import { requestLog } from "../../obs/als";`,
     "",
