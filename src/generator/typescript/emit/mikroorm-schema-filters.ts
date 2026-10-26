@@ -78,7 +78,7 @@ function filterName(r: ReadRestriction): string {
 
 /** The aggregate whose `EntitySchema` carries `agg`'s filters: a TPH concrete
  *  owns no schema of its own and reads through its root's. */
-export function filterHostOf(agg: EnrichedAggregateIR, pool: readonly EnrichedAggregateIR[]) {
+function filterHostOf(agg: EnrichedAggregateIR, pool: readonly EnrichedAggregateIR[]) {
   return isTphConcrete(agg, pool) ? (rootBaseOf(agg, pool) as EnrichedAggregateIR) : agg;
 }
 
@@ -198,18 +198,4 @@ export function mikroFilterOption(
   const names = mikroBypassedFilters(agg, pool, bypass);
   if (names.length === 0) return null;
   return `filters: { ${names.map((n) => `${JSON.stringify(n)}: false`).join(", ")} }`;
-}
-
-/** The ORM options literal of a read: its `ignoring` filters plus `extra`
- *  options (`limit`, `orderBy`, …); null when there is neither. */
-export function mikroReadOptions(
-  agg: EnrichedAggregateIR,
-  pool: readonly EnrichedAggregateIR[],
-  bypass?: ReadBypass,
-  extra: readonly string[] = [],
-): string | null {
-  const parts = [...extra, mikroFilterOption(agg, pool, bypass)].filter(
-    (p): p is string => p !== null,
-  );
-  return parts.length === 0 ? null : `{ ${parts.join(", ")} }`;
 }
