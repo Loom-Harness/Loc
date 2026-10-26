@@ -1,5 +1,6 @@
 import type { ExprIR, OperationIR } from "../../ir/types/loom-ir.js";
-import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { humanize, lowerFirst, upperFirst } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { preconditionsAsInvariants } from "../_frontend/zod-schemas.js";
 import { giveUp } from "../_walker/give-up.js";
 import { opGateFor } from "../_walker/op-gate.js";
@@ -16,7 +17,6 @@ import {
 } from "./form-fields.js";
 import { angularValidatorMap, applyAngularValidators } from "./form-validators.js";
 import { angularSink } from "./walker/sink.js";
-
 // ---------------------------------------------------------------------------
 // Angular standalone `OperationForm(...)` renderer — the operation-command
 // form NOT hosted inside a `Modal` (that path is `renderAngularModal`).  Forked
@@ -127,7 +127,7 @@ export function renderAngularOperationForm(
   const mutationFn = `use${upperFirst(op.name)}${aggName}`;
   const importFrom = `../../api/${lowerFirst(aggName)}`;
   const submitMethod = `submit${upperFirst(op.name)}${aggName}`;
-  const ns = stringNamed(call, "testid") ?? `${snake(plural(aggName))}-op-${op.name}`;
+  const ns = stringNamed(call, "testid") ?? `${routeSegmentFor(aggName)}-op-${op.name}`;
 
   addNg(ctx, "@angular/forms", "FormControl", "FormGroup", "ReactiveFormsModule");
   addNg(ctx, importFrom, mutationFn);

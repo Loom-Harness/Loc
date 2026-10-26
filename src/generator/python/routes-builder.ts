@@ -62,13 +62,13 @@ import { listReadFind } from "../../ir/util/read-gates.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
 import {
-  plural,
   pythonIdent,
   pythonWireIdent,
   pythonWireNeedsAlias,
   snake,
   upperFirst,
 } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { UUID_WIRE_PATTERN } from "../../util/uuid-wire.js";
 import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/server-default.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
@@ -185,7 +185,7 @@ export function buildPyRoutesFile(
    *  write (M-T9.84) — kept so the orchestrator's call shape is unchanged. */
   _extraIdNames: readonly string[] = [],
 ): string {
-  const slug = snake(plural(agg.name));
+  const slug = routeSegmentFor(agg.name);
   // THE UNIFICATION SEAM (api-surface.ts): route-set membership, decorator
   // paths, and the declared error statuses come from the shared derivation.
   // This file keeps what is genuinely python's: pydantic models, handler
@@ -882,7 +882,7 @@ function allRoute(
     ].join(", ");
     return lines(
       `@router.get("${relativeOpPath(apiOp)}", response_model=${paged.name}, operation_id="all${agg.name}"${derivedResponsesKwarg(apiOp)})`,
-      `async def all_${snake(plural(agg.name))}(${sig}) -> dict[str, object]:`,
+      `async def all_${routeSegmentFor(agg.name)}(${sig}) -> dict[str, object]:`,
       gateLines,
       "    repo = _repo(session)",
       "    result = await repo.all(page, pageSize, sort, dir)",
@@ -897,7 +897,7 @@ function allRoute(
   }
   return lines(
     `@router.get("${relativeOpPath(apiOp)}", response_model=${agg.name}ListResponse, operation_id="all${agg.name}"${derivedResponsesKwarg(apiOp)})`,
-    `async def all_${snake(plural(agg.name))}(${[...userParam, "session: SessionDep"].join(", ")}) -> list[dict[str, object]]:`,
+    `async def all_${routeSegmentFor(agg.name)}(${[...userParam, "session: SessionDep"].join(", ")}) -> list[dict[str, object]]:`,
     gateLines,
     "    repo = _repo(session)",
     `    return [${wireResp(agg, "root")} for root in await repo.all()]`,
@@ -1375,7 +1375,7 @@ function findRoute(
       // the optional arm, it once published [404] while its sibling published
       // [403].)
       `@router.get("${relativeOpPath(apiOp)}", response_model=${agg.name}Response, operation_id="${opId}"${derivedResponsesKwarg(apiOp)})`,
-      `async def ${findSnake}_${snake(plural(agg.name))}(${sig}) -> dict[str, object] | ${H.JSONResponse}:`,
+      `async def ${findSnake}_${routeSegmentFor(agg.name)}(${sig}) -> dict[str, object] | ${H.JSONResponse}:`,
       userBind,
       gateLines,
       "    repo = _repo(session)",
@@ -1407,7 +1407,7 @@ function findRoute(
     ];
     return lines(
       `@router.get("${relativeOpPath(apiOp)}", response_model=${paged.name}, operation_id="${opId}"${derivedResponsesKwarg(apiOp)})`,
-      `async def ${findSnake}_${snake(plural(agg.name))}(${pagedSig}) -> dict[str, object]:`,
+      `async def ${findSnake}_${routeSegmentFor(agg.name)}(${pagedSig}) -> dict[str, object]:`,
       userBind,
       gateLines,
       "    repo = _repo(session)",
@@ -1424,7 +1424,7 @@ function findRoute(
   if (isList) {
     return lines(
       `@router.get("${relativeOpPath(apiOp)}", response_model=${agg.name}ListResponse, operation_id="${opId}"${derivedResponsesKwarg(apiOp)})`,
-      `async def ${findSnake}_${snake(plural(agg.name))}(${sig}) -> list[dict[str, object]]:`,
+      `async def ${findSnake}_${routeSegmentFor(agg.name)}(${sig}) -> list[dict[str, object]]:`,
       userBind,
       gateLines,
       "    repo = _repo(session)",
@@ -1433,7 +1433,7 @@ function findRoute(
   }
   return lines(
     `@router.get("${relativeOpPath(apiOp)}", response_model=${agg.name}Response, operation_id="${opId}"${derivedResponsesKwarg(apiOp)})`,
-    `async def ${findSnake}_${snake(plural(agg.name))}(${sig}) -> dict[str, object]:`,
+    `async def ${findSnake}_${routeSegmentFor(agg.name)}(${sig}) -> dict[str, object]:`,
     userBind,
     gateLines,
     "    repo = _repo(session)",

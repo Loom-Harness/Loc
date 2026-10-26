@@ -6,7 +6,7 @@ import {
 import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
-import { plural, snake } from "../../../util/naming.js";
+import { tableNameFor } from "../../../util/storage-names.js";
 import { desugarAuthzFilterInApp } from "../../_expr/authz-filter-inapp.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
@@ -26,7 +26,6 @@ import {
   versionFieldName,
 } from "./repository.js";
 import { javaBlobWriteGuardLines, writeScopeUsesPrincipal } from "./write-scope.js";
-
 // ---------------------------------------------------------------------------
 // Document-shaped persistence (`shape: document`, D-DOCUMENT-AXIS) — the
 // whole aggregate (contained parts inline, cross-aggregate refs as id
@@ -50,7 +49,7 @@ export function renderJavaDocumentRepositoryImpl(
   idClass: string,
   schema: string | undefined,
 ): string {
-  const bare = plural(snake(agg.name));
+  const bare = tableNameFor(agg.name);
   const table = schema ? `${schema}.${bare}` : bare;
   const finds = declaredFinds(repo).map((f) => unionFindAsOptionalTwin(f, agg.name));
 

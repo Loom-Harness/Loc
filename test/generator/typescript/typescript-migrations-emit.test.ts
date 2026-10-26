@@ -116,8 +116,9 @@ describe("typescript migrations emitter", () => {
       ],
       out,
     );
-    // `index.ts` imports `./db/migrate` whenever the project migrates at boot.
-    expect([...out.keys()]).toEqual(["db/migrate.ts"]);
+    // `index.ts` imports `./db/migrate` whenever the project migrates at boot,
+    // and `npm run db:migrate` runs it through `db/migrate-cli.ts`.
+    expect([...out.keys()]).toEqual(["db/migrate.ts", "db/migrate-cli.ts"]);
   });
 
   it("keeps two modules' generations distinct (module-qualified tags)", () => {

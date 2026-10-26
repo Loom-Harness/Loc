@@ -921,7 +921,7 @@ holds one statement per command, and goes into the runner's ledger on its own:
 
 | Backend | Second unit | How the runner applies it |
 |---|---|---|
-| Hono / Drizzle | `db/migrations/<tag>_concurrent.sql`, first line `-- loom:no-transaction`, its own journal entry | the generated `db/migrate.ts` (Drizzle's migrator with the same `drizzle.__drizzle_migrations` ledger and watermark) runs a marked file statement by statement outside a transaction, then writes its ledger row. Consecutive unmarked files still share one transaction. `npm run db:migrate` (`drizzle-kit migrate`) wraps everything in one transaction and cannot apply a marked file |
+| Hono / Drizzle | `db/migrations/<tag>_concurrent.sql`, first line `-- loom:no-transaction`, its own journal entry | the generated `db/migrate.ts` (Drizzle's migrator with the same `drizzle.__drizzle_migrations` ledger and watermark) runs a marked file statement by statement outside a transaction, then writes its ledger row. Consecutive unmarked files still share one transaction. `npm run db:migrate` runs the same runner out of band (`db/migrate-cli.ts`); `drizzle-kit migrate`, which wraps everything in one transaction, is not wired |
 | Python / FastAPI | `migrations/<tag>_concurrent.sql`, same marker | `run_migrations()` applies a marked file on an `AUTOCOMMIT` connection, then records its tag in `__loom_migrations`. Consecutive unmarked files share one transaction |
 | Java / Flyway | `V<v>.<n>.1__<Mod>_<Name>Concurrent.sql` | Flyway runs a script that holds only `CREATE`/`DROP INDEX CONCURRENTLY` statements without a transaction. It refuses a script that mixes them with transactional ones, which is why the unit is its own script |
 | .NET / EF Core | `Migrations/<slug>_Concurrent.cs` | one `migrationBuilder.Sql(…, suppressTransaction: true)` per statement |
@@ -1096,6 +1096,12 @@ mode, and inheritance:
 
 **Aggregate → table.** `aggregate Order` → table `orders` (`plural(snake(name))`),
 `id` PK typed from `idValueType`, one column per scalar/enum/`X id` field.
+The spelling lives in one place, `tableNameFor` (`src/util/storage-names.ts`), with
+the per-node accessors (`aggregateTableName`, `partTableName`, `projectionTableName`,
+`associationTables`) in `src/ir/enrich/storage-names.ts`; every backend's ORM mapping
+and the migrations read them, and the aggregate's route segment uses the same
+spelling (`routeSegmentFor`).  The order matters for a name that ends in an acronym:
+`ProductSKU` → `product_skus`, never `product_sk_us`.
 
 ```ddd
 context Sales {

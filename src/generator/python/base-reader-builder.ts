@@ -3,7 +3,8 @@ import { type WireRejectionClass, wireStatus } from "../../ir/enrich/wire-policy
 import type { EnrichedAggregateIR, EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
 import { isTpcBase, isTphBase, tpcConcretesOf, tphConcretesOf } from "../../ir/util/inheritance.js";
 import { lines } from "../../util/code-builder.js";
-import { plural, snake } from "../../util/naming.js";
+import { snake } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { rowClassName } from "./py-columns.js";
 import { pyIdType } from "./py-symbols.js";
@@ -241,7 +242,7 @@ export function buildPyBaseRoutesFile(
 ): string {
   const read = polymorphicReadFor(base, ctx.aggregates)!;
   const B = base.name;
-  const route = snake(plural(B));
+  const route = routeSegmentFor(B);
   const literal = pyRef("typing", "Literal");
   const itemClass = (v: string): string => `${B}${v}Item`;
   const items = read.variants.map((v) =>

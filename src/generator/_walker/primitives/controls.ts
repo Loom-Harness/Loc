@@ -5,7 +5,8 @@
 
 import type { AggregateIR, ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { rowSetLambdaParam } from "../../../ir/util/collection-op-site.js";
-import { humanize, lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import { humanize, lowerFirst, upperFirst } from "../../../util/naming.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
 import { tryDetectApiHook } from "../api-hook-detector.js";
 import { giveUp, giveUpNotice } from "../give-up.js";
 import { skipsEntityHistoryRead } from "../history-read.js";
@@ -38,7 +39,6 @@ import {
   tryRenderNavigateCall,
   walk,
 } from "../walker-core.js";
-
 export function emitIdLink(
   call: ExprIR & { kind: "call" },
   ctx: WalkContext,
@@ -69,7 +69,7 @@ export function emitIdLink(
   // module), we still emit a working link, just without IR-level
   // verification.
   const agg = ctx.aggregatesByName.get(aggName);
-  const slug = agg ? plural(snake(agg.name)) : plural(snake(aggName));
+  const slug = agg ? routeSegmentFor(agg.name) : routeSegmentFor(aggName);
   ctx.usesRouterLink = true;
   // The link LABEL is the referenced record's `display` when it has one, read
   // by a per-cell child the target wraps around the pack's truncated-id label
@@ -79,7 +79,7 @@ export function emitIdLink(
   // display, so a by-id read there would be a pure N+1.
   const wrap =
     agg && id && carriesDisplay(agg) && !isSelfIdRead(id)
-      ? ctx.target.renderRefLabelWrap?.({ apiPath: `/${snake(plural(agg.name))}/`, idExpr }, ctx)
+      ? ctx.target.renderRefLabelWrap?.({ apiPath: `/${routeSegmentFor(agg.name)}/`, idExpr }, ctx)
       : undefined;
   return renderPrimitive(ctx, "primitive-id-link", {
     idExpr,

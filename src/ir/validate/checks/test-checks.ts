@@ -7,6 +7,7 @@ import { diagMessage } from "../../../diagnostics/messages.js";
 import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { lowerFirst, plural, snake } from "../../../util/naming.js";
 import { isRepoVerbAt } from "../../../util/repository-contract.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
 import type {
   AggregateIR,
   ApiIR,
@@ -35,7 +36,6 @@ import { walkExprDeep, walkStmtExprsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 import { routeContractWillReport } from "./e2e-route-checks.js";
 import { walkExpr } from "./shared.js";
-
 // ---------------------------------------------------------------------------
 // Aggregate-level `test "..." { ... }` body checks.
 //
@@ -758,7 +758,7 @@ function checkMagicCall(
     // Resolved only once the aggregate lookup has FAILED, deliberately.  A
     // workflow and an aggregate cannot share a name inside one context
     // (`loom.workflow-name-collision`), but that guard compares names, not
-    // SLUGS — an aggregate is addressed by its plural (`snake(plural(Order))`
+    // SLUGS — an aggregate is addressed by its plural (`routeSegmentFor("Order")`
     // = `orders`), so a `workflow Orders` beside an `aggregate Order` slugs
     // identically and passes it, as does any collision across the several
     // contexts one deployable hosts.  Aggregate-first therefore cannot change
@@ -795,7 +795,7 @@ function checkMagicCall(
     // workflow changes nothing.
     if (magicId === "api" && resolveRoutedHandler(aggregateSlug, method, contexts, apis)) return;
     const known = contexts
-      .flatMap((c) => c.aggregates.map((a) => snake(plural(a.name))))
+      .flatMap((c) => c.aggregates.map((a) => routeSegmentFor(a.name)))
       .sort()
       .join(", ");
     const routed = magicId === "api" ? routedHandlerCallHints(contexts, apis) : [];
@@ -909,7 +909,7 @@ function findAggregateBySlug(slug: string, contexts: BoundedContextIR[]): Aggreg
   for (const c of contexts) {
     for (const a of c.aggregates) {
       if (lowerFirst(a.name) === slug) return a;
-      if (snake(plural(a.name)) === slug) return a;
+      if (routeSegmentFor(a.name) === slug) return a;
       if (lowerFirst(plural(a.name)) === slug) return a;
     }
   }

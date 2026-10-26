@@ -10,7 +10,7 @@ import { NO_TRANSACTION_MARKER, renderPgStep, splitPgStatements } from "../../sq
 // the `--> statement-breakpoint` sentinel Drizzle's runtime migrator
 // (`drizzle-orm/node-postgres/migrator`) splits on.  A
 // `meta/_journal.json` index lists every migration ever emitted so
-// `drizzle-kit migrate` / runtime `migrate()` can apply them in order.
+// the runtime `migrate()` can apply them in order.
 //
 // Application: the generated `index.ts` calls `migrate(...)` from
 // `db/migrate.ts` at boot, so deployments (`node dist/index.js`) self-heal
@@ -19,9 +19,10 @@ import { NO_TRANSACTION_MARKER, renderPgStep, splitPgStatements } from "../../sq
 // applies consecutive pending files in one transaction exactly like
 // `drizzle-orm/node-postgres/migrator` — except a file marked
 // `-- loom:no-transaction` (a `CREATE INDEX CONCURRENTLY` unit), which it
-// applies outside any transaction.  `npm run db:migrate` (`drizzle-kit
-// migrate`) wraps every pending file in one transaction, so it cannot apply
-// such a file; use the boot runner.
+// applies outside any transaction.  `npm run db:migrate` runs the same
+// runner out of band through `db/migrate-cli.ts`.  `drizzle-kit migrate` is
+// not wired: it wraps every pending file in one transaction, so it cannot
+// apply such a file.
 //
 // Every generation of the migration chain arrives as its own
 // `MigrationsIR`, so the files and the journal are rebuilt from the
@@ -84,6 +85,7 @@ export function emitTypescriptMigrations(
   // The runner ships whenever the project migrates at boot — `index.ts`
   // imports it on exactly that condition.
   out.set("db/migrate.ts", MIGRATE_TS);
+  out.set("db/migrate-cli.ts", MIGRATE_CLI_TS);
   const units = migrationUnits(migrations);
   if (units.length === 0) return;
   for (const u of units) out.set(`db/migrations/${u.tag}.sql`, u.sql);
@@ -221,4 +223,35 @@ export async function migrate(db: NodePgDatabase<any>, config: { migrationsFolde
     i = end;
   }
 }
+`;
+
+/** `db/migrate-cli.ts` — the out-of-band entry `npm run db:migrate` runs
+ *  (via `tsx`).  It opens a pool from `DATABASE_URL` and calls the same
+ *  `migrate` the boot path calls, so the ledger, the watermark and the
+ *  no-transaction handling are the boot runner's.  A separate file for the
+ *  same reason as `db/seed-cli.ts`: `db/migrate.ts` is bundled into
+ *  `dist/index.js` and must carry no self-executing entry. */
+const MIGRATE_CLI_TS = `// Auto-generated.  Do not edit by hand.
+import { drizzle } from "drizzle-orm/node-postgres";
+import pg from "pg";
+import { migrate } from "./migrate";
+
+// Standalone migration (npm run db:migrate).  The server boot path calls the
+// same migrate() from index.ts.
+async function main(): Promise<void> {
+  if (!process.env.DATABASE_URL) {
+    throw new Error("DATABASE_URL is required to run migrations.");
+  }
+  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    await migrate(drizzle(pool), { migrationsFolder: "./db/migrations" });
+  } finally {
+    await pool.end();
+  }
+}
+
+main().catch((err: unknown) => {
+  console.error(err);
+  process.exitCode = 1;
+});
 `;

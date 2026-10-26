@@ -4,6 +4,7 @@ import {
   type BackendDriver,
   handleFor,
   type PgConn,
+  runCrossContextMoveGate,
   runMigrationEvolutionGate,
   runUniqueIndexEvolutionGate,
 } from "./support/migration-evolution-harness.js";
@@ -95,5 +96,15 @@ describe.skipIf(!ENABLED)(
 describe.skipIf(!ENABLED)("unique-index evolution gate over the generated elixir backend", () => {
   it("rebuilds the index across a softDeletable flip; inherited keys enforce per table / hierarchy", async () => {
     await runUniqueIndexEvolutionGate(elixirDriver);
+  }, 1_200_000);
+});
+
+// Cross-context move (`A.Note -> B.Note`, `A.Ledger -> B.Ledger`) through
+// Ecto's own migration files — the `<module>_take_over_tables` migration's
+// `SET SCHEMA`, the event-log rename and its sequence fix-up.  See
+// `runCrossContextMoveGate`.
+describe.skipIf(!ENABLED)("cross-context move gate over the generated elixir backend", () => {
+  it("a declared A.X -> B.X move keeps the rows; chain ≡ fresh create", async () => {
+    await runCrossContextMoveGate(elixirDriver);
   }, 1_200_000);
 });

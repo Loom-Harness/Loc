@@ -40,7 +40,8 @@
 import type { PageIR, UiIR } from "../../ir/types/loom-ir.js";
 import { areaQualifiedName, classifyPage, type PageNameCtx } from "../../ir/util/page-kind.js";
 import { menuLinkPage, menuMetaString as readMenuMetaString } from "../../ir/util/page-menu.js";
-import { plural, snake } from "../../util/naming.js";
+import { snake } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { messageKey } from "../_walker/i18n-extract.js";
 import { renderGateExpr } from "./gate-expr.js";
 
@@ -371,7 +372,7 @@ function testIdAndActive(
   const kind = classifyPage(page, nameCtx);
   switch (kind.kind) {
     case "aggregate-list": {
-      const slug = snake(plural(kind.aggregateName));
+      const slug = routeSegmentFor(kind.aggregateName);
       return {
         testId: `nav-${slug}`,
         activeArgs: JSON.stringify(`/${slug}`),
@@ -379,7 +380,7 @@ function testIdAndActive(
     }
     case "aggregate-new":
     case "aggregate-detail": {
-      const slug = snake(plural(kind.aggregateName));
+      const slug = routeSegmentFor(kind.aggregateName);
       return {
         testId: `nav-${slug}-${kind.kind === "aggregate-new" ? "new" : "detail"}`,
         activeArgs: JSON.stringify(route),

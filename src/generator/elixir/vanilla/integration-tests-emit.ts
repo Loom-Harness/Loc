@@ -22,7 +22,7 @@ import type {
   TestIR,
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
-import { elixirString, plural, snake, upperFirst } from "../../../util/naming.js";
+import { elixirString, snake, upperFirst } from "../../../util/naming.js";
 import { repoVerbOpAt } from "../../../util/repository-contract.js";
 import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { internalCreateFn } from "../lifecycle-seam.js";
@@ -71,7 +71,7 @@ function findBinding(
   if (!op && !custom) return undefined;
   const args = e.args.map((a) => vtExpr(a, env)).join(", ");
   if (op === "select-many") {
-    return `{:ok, %{items: ${name}}} = ${ctxMod}.list_${snake(plural(agg.name))}()`;
+    return `{:ok, %{items: ${name}}} = ${ctxMod}.list_${snake(agg.name)}s()`;
   }
   if (op === "load" || op === "load-optional") {
     return `{:ok, ${name}} = ${ctxMod}.get_${snake(agg.name)}(${args})`;

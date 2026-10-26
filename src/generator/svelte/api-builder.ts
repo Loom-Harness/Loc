@@ -18,6 +18,7 @@ import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import {
   aggregateHasProvenanced,
   clientFinds,
@@ -42,7 +43,6 @@ import {
   zodForRequest,
   zodForResponseInner,
 } from "../_frontend/zod-schemas.js";
-
 // ---------------------------------------------------------------------------
 // Per-aggregate API module: Zod schemas + svelte-query factories.
 //
@@ -230,7 +230,7 @@ export function buildSvelteApiModule(
   // ---------------------------------------------------------------------
   // svelte-query factories — same exported names as the React hooks.
   // ---------------------------------------------------------------------
-  const tag = snake(plural(agg.name));
+  const tag = routeSegmentFor(agg.name);
   const aggKey = `["${tag}"]`;
 
   // useAll<Agg> — paged-by-default (M-T2.6): a paged `all` returns the
