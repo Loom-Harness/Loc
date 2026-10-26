@@ -949,6 +949,31 @@ sort guarantees the parent is created first even though `pipelines` sorts before
 `voGroup` so Phoenix/Ecto can regroup them into a single `:map`. Relational
 backends emit the columns as-is.
 
+**Renaming a value-object field moves its json key.** Where a value object is
+ONE json column (Phoenix's `:map`, Dapper's `jsonb`), a leaf rename
+(`street` → `road`) renames no column, but every stored document still holds
+the old key. The delta therefore rewrites the key in every row — snake on
+Phoenix (`'street'`), the PascalCase property name on Dapper (`'Street'`) — and,
+on Dapper, in every element of a value-object list's jsonb array:
+
+```ddd
+valueobject Address { street: string  city: string }   // v1
+valueobject Address { road: string    city: string }   // v2
+aggregate Person with crudish { name: string  home: Address  past: Address[] }
+```
+
+```elixir
+rename table(:person_past, prefix: "c"), :street, to: :road
+execute("DO $$ BEGIN IF EXISTS (SELECT 1 FROM \"c\".\"persons\" WHERE jsonb_typeof(\"home\") = 'object' AND \"home\" -> 'street' IS NULL AND \"home\" -> 'road' IS NULL) THEN RAISE EXCEPTION '…'; END IF; END $$")
+execute("UPDATE \"c\".\"persons\" SET \"home\" = (\"home\" - 'street') || jsonb_build_object('road', \"home\" -> 'street') WHERE jsonb_typeof(\"home\") = 'object' AND \"home\" -> 'street' IS NOT NULL")
+```
+
+The key is read off the column name, which cannot tell a field of a nested
+value object (`home.geo.lat`) from a flat one (`home.geoLat`), or recover an
+acronym's casing. So the first statement checks the data: when a stored value
+has neither the old key nor the new one, the migration stops with an error
+rather than moving nothing. Write that rename as a `sql` step instead.
+
 **An OPTIONAL value object carries a null-consistency `CHECK`.** Flattening an
 optional VO makes N *independent* nullable columns, but every backend reads the
 group atomically — java's record compact constructor runs the VO's invariant,
@@ -1079,8 +1104,11 @@ CREATE INDEX order_items_product_id_idx ON order_items (product_id);
 ```
 
 A VO *array* (`charges: Money[]`) produces an id-less child table
-(`<parent>_<field>`) of flattened VO columns keyed by `(parent_fk, ordinal)`;
-Phoenix skips it (it stores the array inline as `{:array, :map}`).
+(`<parent>_<field>`) of flattened VO columns keyed by `(parent_fk, ordinal)`.
+Phoenix creates the same child table plus a synthetic `id` uuid primary key (the
+Ecto `has_many` row identity `cast_assoc` needs) and no timestamps — the same
+table whether it arrives in the initial generation or in a later delta. Dapper
+has no child table: the list is one `jsonb` column on the parent.
 
 **Inheritance.** TPC (`inheritanceUsing: ownTable`): the abstract base emits **no
 table**, each concrete is standalone with the merged field set. TPH
@@ -1180,7 +1208,9 @@ applies the same `MigrationsIR` chain EF applies
   rendering — through the same `collapseVoGroups` / `collapseVoSteps`
   ([`_persistence/vo-json-columns.ts`](../src/generator/_persistence/vo-json-columns.ts))
   the Ecto emitter uses for its `:map` value objects. Value-object
-  null-consistency CHECKs drop out (the column is the whole value object).
+  null-consistency CHECKs drop out (the column is the whole value object). A
+  renamed value-object field moves its jsonb key instead of renaming a column
+  (see "Renaming a value-object field moves its json key" above).
 - **Placement.** Tables land in the binding's schema exactly as on EF
   (`snake(<context>)` by default). The repositories keep naming tables
   unqualified; the Npgsql data source sets `SearchPath = public,<schemas>`.

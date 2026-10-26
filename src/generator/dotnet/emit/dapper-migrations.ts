@@ -11,7 +11,12 @@ import type {
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
-import { collapseVoGroups, collapseVoSteps } from "../../_persistence/vo-json-columns.js";
+import {
+  collapseVoGroups,
+  collapseVoSteps,
+  voJsonKey,
+  voKeyRenameSteps,
+} from "../../_persistence/vo-json-columns.js";
 import { renderPgStep, splitPgStatements } from "../../sql-pg.js";
 
 // ---------------------------------------------------------------------------
@@ -37,6 +42,8 @@ import { renderPgStep, splitPgStatements } from "../../sql-pg.js";
 //   - a value-object field   → one `jsonb` column named for the field;
 //   - a scalar / enum list   → `jsonb` instead of `<type>[]`;
 //   - a value-object list    → `jsonb` on the parent instead of a child table;
+//   - a renamed value-object field → its key moved inside the jsonb (in the
+//     one object, or in every list element) instead of a column rename;
 //   - a value-object null-consistency CHECK → dropped (the column is the
 //     whole value object, so it cannot be half-null).
 //
@@ -144,7 +151,7 @@ export function dapperMigrationSteps(m: MigrationsIR): MigrationStep[] {
   const sch = (schema: string | undefined) => (schema !== undefined ? { schema } : {});
 
   const out: MigrationStep[] = [];
-  for (const step of collapseVoSteps(m)) {
+  for (const step of collapseVoSteps(m, "pascal")) {
     switch (step.op) {
       case "createTable": {
         const child = childOf(step.table.schema, step.table.name);
@@ -227,8 +234,30 @@ export function dapperMigrationSteps(m: MigrationsIR): MigrationStep[] {
         out.push(step);
         break;
       }
+      case "renameColumn": {
+        const child = childOf(step.schema, step.table);
+        if (!child) {
+          out.push(step);
+          break;
+        }
+        // A value-object list element's field was renamed: the elements live
+        // in the parent's jsonb array, so the key moves in every element.  The
+        // child's own key columns (parent FK, ordinal) are not element fields.
+        const keyCols = tableIn(m.baseline, step.schema, step.table)?.primaryKey ?? [];
+        if (keyCols.includes(step.from)) break;
+        out.push(
+          ...voKeyRenameSteps({
+            table: child.parentTable,
+            schema: child.schema,
+            column: child.column,
+            from: voJsonKey(step.from, "pascal"),
+            to: voJsonKey(step.to, "pascal"),
+            list: true,
+          }),
+        );
+        break;
+      }
       case "dropColumn":
-      case "renameColumn":
       case "alterColumnNullable":
       case "backfillColumn":
         if (!childOf(step.schema, step.table)) out.push(step);

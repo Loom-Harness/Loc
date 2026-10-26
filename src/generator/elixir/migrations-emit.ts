@@ -124,13 +124,12 @@ function ectoIndexColumns(i: IndexShape): string {
     .join(", ");
 }
 
-/** The `execute "CREATE SCHEMA …"` line (4-space indented, trailing
- *  newline) prepended to a `change/0` body when the table is schema-
- *  qualified, or "" for the default schema.  Idempotent (`IF NOT
- *  EXISTS`) since several per-aggregate migrations can share one schema.
- *  Forward-only — matching the no-op down of every other backend. */
-function schemaCreateLine(schema: string | undefined): string {
-  return schema ? `    execute "CREATE SCHEMA IF NOT EXISTS ${schema}"\n` : "";
+/** The `execute "CREATE SCHEMA …"` line that precedes a create-table when
+ *  the table is schema-qualified; none for the default schema.  Idempotent
+ *  (`IF NOT EXISTS`) since several per-aggregate migrations can share one
+ *  schema.  Forward-only — matching the no-op down of every other backend. */
+function schemaCreateLines(schema: string | undefined): string[] {
+  return schema ? [`execute "CREATE SCHEMA IF NOT EXISTS ${schema}"`] : [];
 }
 
 /** The `timestamps()` line a state-table migration appends — column-aware
@@ -280,7 +279,7 @@ function emitInitial(
   // not collapsed into an inline `{:array, :map}` column on the parent.  They
   // are FK-cascaded children of their owner aggregate — the same tier as a
   // containment part table — so they share the part block's create-ordering
-  // (parent before child).  See `renderInitialValueCollectionFile`.
+  // (parent before child).  See `valueCollectionColumnLines`.
   const allTables = createSteps.map((s) => s.table);
   const joinTables = allTables.filter(isJoinTable);
   const partTables = allTables.filter(
@@ -375,21 +374,53 @@ function writeInitialFile(
 ): void {
   const path = `priv/repo/migrations/${ts}_create_${table.name}.exs`;
   const migrationName = `Create${tableToPascal(table.name)}`;
-  const body = table.valueCollection
-    ? renderInitialValueCollectionFile(table, migrationName, appModule)
+  const body = createTableLines(table).map((l) => `    ${l}`);
+  out.set(
+    path,
+    `defmodule ${appModule}.Repo.Migrations.${migrationName} do
+  use Ecto.Migration
+
+  def change do
+${body.join("\n")}
+  end
+end
+`,
+  );
+}
+
+/** The `change/0` body (unindented) that creates `table` — the ONE rendering
+ *  both the initial per-table file and a delta's `createTable` step use.  A
+ *  table's shape does not depend on the generation it first appears in: a
+ *  value-object collection or `X id[]` join table added later must match its
+ *  Ecto schema exactly as a fresh create does (`@primary_key :id` on the
+ *  collection child, a key-only composite PK on the join), or the first
+ *  `put_assoc` / preload against it fails at runtime. */
+function createTableLines(table: TableShape): string[] {
+  const prefix = prefixOpt(table.schema);
+  const columns = table.valueCollection
+    ? valueCollectionColumnLines(table)
     : isJoinTable(table)
-      ? renderInitialJoinFile(table, migrationName, appModule)
+      ? joinColumnLines(table)
       : isEventLogTable(table)
-        ? renderInitialEventLogFile(table, migrationName, appModule)
+        ? eventLogColumnLines(table)
         : isStateTable(table)
-          ? renderInitialStateFile(table, migrationName, appModule)
-          : renderInitialFile(table, migrationName, appModule);
-  out.set(path, body);
+          ? stateColumnLines(table)
+          : entityColumnLines(table);
+  return [
+    ...schemaCreateLines(table.schema),
+    `create table(:${table.name}, primary_key: false${prefix}) do`,
+    ...columns.map((l) => `  ${l}`),
+    "end",
+    ...ectoIndexes(table).map(
+      (i) => `create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
+    ),
+    ...enumCheckLines(table, prefix),
+  ];
 }
 
 /** The single per-context append-only event log (`<ctx>_events`,
  *  event-log-architecture.md).  It has no `id` (so it would otherwise fall to
- *  `renderInitialStateFile`), but unlike a saga-state table it carries a
+ *  `stateColumnLines`), but unlike a saga-state table it carries a
  *  `bigserial` `seq` cursor, a composite `(stream_type, stream_id, version)`
  *  PK, a unique index on `seq`, and NO `timestamps()` (its time column is
  *  `occurred_at`).  Detected by the `seq` bigserial column, unique to this
@@ -398,227 +429,101 @@ function isEventLogTable(t: TableShape): boolean {
   return t.columns.some((c) => c.name === "seq" && c.type.kind === "bigserial");
 }
 
-/** Render the per-context event-log migration: composite PK columns marked
- *  `primary_key: true`, the remaining columns (incl. the `bigserial` `seq`)
- *  as plain adds, then the unique `seq` index.  No `timestamps()` — the log's
- *  time column is the explicit `occurred_at`. */
-function renderInitialEventLogFile(
-  table: TableShape,
-  migrationName: string,
-  appModule: string,
-): string {
+/** The event log's columns: composite PK columns marked `primary_key: true`,
+ *  the remaining columns (incl. the `bigserial` `seq`) as plain adds.  No
+ *  `timestamps()` — the log's time column is the explicit `occurred_at`. */
+function eventLogColumnLines(table: TableShape): string[] {
   const pk = new Set(table.primaryKey);
-  const prefix = prefixOpt(table.schema);
-  const colLines = table.columns.map((c) => {
-    if (pk.has(c.name)) {
-      return `      add :${c.name}, ${ectoPrimaryKeyType(c.type)}, primary_key: true, null: false`;
-    }
-    return "      " + renderEctoColumn(c, table);
-  });
-  const indexLines = [
-    ...ectoIndexes(table).map(
-      (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
-    ),
-    ...enumCheckLines(table, prefix, "    "),
-  ];
-  return `defmodule ${appModule}.Repo.Migrations.${migrationName} do
-  use Ecto.Migration
-
-  def change do
-${schemaCreateLine(table.schema)}    create table(:${table.name}, primary_key: false${prefix}) do
-${colLines.join("\n")}
-    end
-${indexLines.join("\n")}${indexLines.length > 0 ? "\n" : ""}  end
-end
-`;
+  return table.columns.map((c) =>
+    pk.has(c.name)
+      ? `add :${c.name}, ${ectoPrimaryKeyType(c.type)}, primary_key: true, null: false`
+      : renderEctoColumn(c, table),
+  );
 }
 
 /** A persisted workflow-correlation (saga) state table: keyed by the
  *  workflow's correlation field rather than a synthetic `id`, with no
- *  foreign keys (the routing row is standalone).  `renderInitialFile`'s
- *  hard-coded `id` PK doesn't fit, so these render with the correlation
- *  column(s) marked `primary_key: true`. */
+ *  foreign keys (the routing row is standalone).  The entity tables' `id` PK
+ *  doesn't fit, so these render with the correlation column(s) marked
+ *  `primary_key: true`. */
 function isStateTable(t: TableShape): boolean {
   return !t.columns.some((c) => c.name === "id") && !isJoinTable(t);
 }
 
-function renderInitialStateFile(
-  table: TableShape,
-  migrationName: string,
-  appModule: string,
-): string {
+/** An id-less state table's columns.  Value-object leaf columns regroup into
+ *  ONE `:map` column, as on an entity table: the saga-state / projection-row
+ *  schema types a value-object field `:map` (`ectoStateFieldType`,
+ *  `mapTypeToEcto`). */
+function stateColumnLines(table: TableShape): string[] {
   const pk = new Set(table.primaryKey);
-  const prefix = prefixOpt(table.schema);
-  // Value-object leaf columns regroup into ONE `:map` column, exactly as the
-  // id-carrying `renderInitialFile` and the delta `renderCreateTableInline` do:
-  // the saga-state / projection-row schema types a value-object field `:map`
-  // (`ectoStateFieldType`, `mapTypeToEcto`), so a flattened `total_amount` /
-  // `total_currency` pair left the schema's `:total` with no column at all.
-  const colLines = collapseVoGroups(table.columns.filter((c) => !c.valueArrayChildTable)).map(
-    (c) => {
-      if (pk.has(c.name)) {
-        return `      add :${c.name}, ${ectoPrimaryKeyType(c.type)}, primary_key: true, null: false`;
-      }
-      return "      " + renderEctoColumn(c, table);
-    },
+  const lines = collapseVoGroups(table.columns.filter((c) => !c.valueArrayChildTable)).map((c) =>
+    pk.has(c.name)
+      ? `add :${c.name}, ${ectoPrimaryKeyType(c.type)}, primary_key: true, null: false`
+      : renderEctoColumn(c, table),
   );
   const ts = timestampsMacro(table);
-  if (ts) colLines.push(`      ${ts}`);
-  // Indexes, same as the id-carrying `renderInitialFile` and the DELTA path's
-  // `renderCreateTableInline`.  Dropping them here is invisible while every
-  // id-less table (outbox, saga state, projection read model) declares none,
-  // but `audit_records` and `provenance_records` arrive through the shared
-  // MigrationsIR carrying two each.  A fresh Phoenix project would get the
-  // table with NO indexes while the same table added later
-  // as a delta got both, so fresh-create and migrate-chain schemas disagreed.
-  const indexLines = [
-    ...ectoIndexes(table).map(
-      (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
-    ),
-    ...enumCheckLines(table, prefix, "    "),
-  ];
-  return `defmodule ${appModule}.Repo.Migrations.${migrationName} do
-  use Ecto.Migration
-
-  def change do
-${schemaCreateLine(table.schema)}    create table(:${table.name}, primary_key: false${prefix}) do
-${colLines.join("\n")}
-    end
-${indexLines.join("\n")}${indexLines.length > 0 ? "\n" : ""}  end
-end
-`;
+  if (ts) lines.push(ts);
+  return lines;
 }
 
-function renderInitialFile(table: TableShape, migrationName: string, appModule: string): string {
+/** An entity table's columns: the `id` PK, then the rest with value objects
+ *  regrouped into one `:map` each.  The parent's value-collection stand-in
+ *  column (`{:array, :map}`, tagged `valueArrayChildTable`) is dropped — the
+ *  data lives in the child table, matching the relational backends'
+ *  `sql-pg.ts` skip. */
+function entityColumnLines(table: TableShape): string[] {
   const idCol = table.columns.find((c) => c.name === "id");
   const pkType = idCol ? ectoPrimaryKeyType(idCol.type) : ":uuid";
-  // The parent's value-collection stand-in column (`{:array, :map}`,
-  // tagged `valueArrayChildTable`) is dropped — the data lives in the
-  // emitted child table now, not inline on the parent.  Matches the
-  // relational backends' `sql-pg.ts` skip.
   const otherCols = collapseVoGroups(
     table.columns.filter((c) => c.name !== "id" && !c.valueArrayChildTable),
   );
-  const colLines = [
-    `      add :id, ${pkType}, primary_key: true, null: false`,
-    ...otherCols.map((c) => "      " + renderEctoColumn(c, table)),
+  const lines = [
+    `add :id, ${pkType}, primary_key: true, null: false`,
+    ...otherCols.map((c) => renderEctoColumn(c, table)),
   ];
   const ts = timestampsMacro(table);
-  if (ts) colLines.push(`      ${ts}`);
-  const prefix = prefixOpt(table.schema);
-  const indexLines = [
-    ...ectoIndexes(table).map(
-      (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
-    ),
-    ...enumCheckLines(table, prefix, "    "),
-  ];
-
-  return `defmodule ${appModule}.Repo.Migrations.${migrationName} do
-  use Ecto.Migration
-
-  def change do
-${schemaCreateLine(table.schema)}    create table(:${table.name}, primary_key: false${prefix}) do
-${colLines.join("\n")}
-    end
-${indexLines.join("\n")}${indexLines.length > 0 ? "\n" : ""}  end
-end
-`;
+  if (ts) lines.push(ts);
+  return lines;
 }
 
-/** Render a value-object collection child-table migration (`charges:
- *  Money[]` → `order_charges`).  Unlike the relational backends — whose
- *  child table is keyed by the composite `(parent_fk, ordinal)` in the
- *  shared MigrationsIR — the Phoenix child carries a SYNTHETIC `id` uuid
- *  primary key so it can be modelled as an Ecto `has_many` whose rows are
- *  managed via `cast_assoc` (which wants row identity for the
- *  replace-on-update diff).  The synthetic id never reaches the wire — the
- *  child's Jason encoder projects only the value object's own fields, so
- *  the array stays `[{amount,currency},…]`, byte-identical with every other
- *  backend.  Parent FK cascades; `ordinal` preserves declared order. */
-function renderInitialValueCollectionFile(
-  table: TableShape,
-  migrationName: string,
-  appModule: string,
-): string {
-  const prefix = prefixOpt(table.schema);
-  // Synthetic uuid PK (NOT in the MigrationsIR composite PK — Phoenix adds
-  // it so the child has Ecto-managed row identity).
-  const lines: string[] = ["      add :id, :uuid, primary_key: true, null: false"];
-  for (const c of table.columns) {
-    const defaultClause = ectoDefaultClause(c.default);
-    const fk = table.foreignKeys.find((f) => f.column === c.name);
-    if (fk) {
-      const ref = `references(:${fk.refTable}${prefix}, type: ${ectoPrimaryKeyType(c.type)}, on_delete: :${fk.onDelete === "cascade" ? "delete_all" : "restrict"})`;
-      lines.push(`      add :${c.name}, ${ref}, null: ${c.nullable}${defaultClause}`);
-    } else {
-      lines.push(
-        `      add :${c.name}, ${ectoColumnType(c.type)}${ectoColumnOpts(c.type)}, null: ${c.nullable}${defaultClause}`,
-      );
-    }
-  }
-  const indexLines = [
-    ...ectoIndexes(table).map(
-      (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
-    ),
-    ...enumCheckLines(table, prefix, "    "),
-  ];
-  return `defmodule ${appModule}.Repo.Migrations.${migrationName} do
-  use Ecto.Migration
-
-  def change do
-${schemaCreateLine(table.schema)}    create table(:${table.name}, primary_key: false${prefix}) do
-${lines.join("\n")}
-    end
-${indexLines.join("\n")}${indexLines.length > 0 ? "\n" : ""}  end
-end
-`;
+/** A value-object collection child table's columns (`charges: Money[]` →
+ *  `order_charges`).  Unlike the relational backends — whose child table is
+ *  keyed by the composite `(parent_fk, ordinal)` in the shared MigrationsIR —
+ *  the Phoenix child carries a SYNTHETIC `id` uuid primary key so it can be
+ *  modelled as an Ecto `has_many` whose rows are managed via `cast_assoc`
+ *  (which wants row identity for the replace-on-update diff).  The synthetic
+ *  id never reaches the wire — the child's Jason encoder projects only the
+ *  value object's own fields, so the array stays `[{amount,currency},…]`,
+ *  byte-identical with every other backend.  Parent FK cascades; `ordinal`
+ *  preserves declared order.  No `timestamps()`: the child schema has none. */
+function valueCollectionColumnLines(table: TableShape): string[] {
+  return ["add :id, :uuid, primary_key: true, null: false", ...keyedColumnLines(table, new Set())];
 }
 
-/** Render a many-to-many join-table migration.  Composite PK on the
- *  two FK columns, both `primary_key: true` (this is what enforces the
- *  set-semantics contract for `Id<T>[]` — the pair IS the whole row, no
- *  payload column); no `timestamps()` (join rows are pure relationship
- *  records).  Deterministic read-back order is a read-time projection
- *  (the `many_to_many` preloads `order_by: [asc: :id]` on the target),
- *  not a stored `ordinal`. */
-function renderInitialJoinFile(
-  table: TableShape,
-  migrationName: string,
-  appModule: string,
-): string {
-  const pkSet = new Set(table.primaryKey);
-  const prefix = prefixOpt(table.schema);
-  const lines: string[] = [];
-  for (const c of table.columns) {
-    const defaultClause = ectoDefaultClause(c.default);
-    const fk = table.foreignKeys.find((f) => f.column === c.name);
-    if (fk) {
-      const ref = `references(:${fk.refTable}${prefix}, type: ${ectoPrimaryKeyType(c.type)}, on_delete: :${fk.onDelete === "cascade" ? "delete_all" : "restrict"})`;
-      const pk = pkSet.has(c.name) ? ", primary_key: true" : "";
-      lines.push(`      add :${c.name}, ${ref}, null: ${c.nullable}${pk}${defaultClause}`);
-    } else {
-      const pk = pkSet.has(c.name) ? ", primary_key: true" : "";
-      lines.push(
-        `      add :${c.name}, ${ectoColumnType(c.type)}${ectoColumnOpts(c.type)}, null: ${c.nullable}${pk}${defaultClause}`,
-      );
-    }
-  }
-  const indexLines = [
-    ...ectoIndexes(table).map(
-      (i) => `    create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
-    ),
-    ...enumCheckLines(table, prefix, "    "),
-  ];
-  return `defmodule ${appModule}.Repo.Migrations.${migrationName} do
-  use Ecto.Migration
+/** A many-to-many join table's columns.  Composite PK on the two FK columns,
+ *  both `primary_key: true` (this is what enforces the set-semantics contract
+ *  for `Id<T>[]` — the pair IS the whole row, no payload column); no
+ *  `timestamps()` (join rows are pure relationship records, and the
+ *  `many_to_many` insert writes only the keys).  Deterministic read-back
+ *  order is a read-time projection (the `many_to_many` preloads
+ *  `order_by: [asc: :id]` on the target), not a stored `ordinal`. */
+function joinColumnLines(table: TableShape): string[] {
+  return keyedColumnLines(table, new Set(table.primaryKey));
+}
 
-  def change do
-${schemaCreateLine(table.schema)}    create table(:${table.name}, primary_key: false${prefix}) do
-${lines.join("\n")}
-    end
-${indexLines.join("\n")}${indexLines.length > 0 ? "\n" : ""}  end
-end
-`;
+/** Every column of `table` as written, FK columns as `references(...)`, the
+ *  ones in `pk` marked `primary_key: true`. */
+function keyedColumnLines(table: TableShape, pk: ReadonlySet<string>): string[] {
+  const prefix = prefixOpt(table.schema);
+  return table.columns.map((c) => {
+    const defaultClause = ectoDefaultClause(c.default);
+    const pkOpt = pk.has(c.name) ? ", primary_key: true" : "";
+    const fk = table.foreignKeys.find((f) => f.column === c.name);
+    const decl = fk
+      ? `references(:${fk.refTable}${prefix}, type: ${ectoPrimaryKeyType(c.type)}, on_delete: :${fk.onDelete === "cascade" ? "delete_all" : "restrict"})`
+      : `${ectoColumnType(c.type)}${ectoColumnOpts(c.type)}`;
+    return `add :${c.name}, ${decl}, null: ${c.nullable}${pkOpt}${defaultClause}`;
+  });
 }
 
 function emitDelta(m: MigrationsIR, appModule: string, out: Map<string, string>): void {
@@ -627,7 +532,7 @@ function emitDelta(m: MigrationsIR, appModule: string, out: Map<string, string>)
   // which Ecto has no columns to constrain — would otherwise land an `.exs`
   // with an empty `change/0`: a migration version recorded in
   // `schema_migrations` that does nothing.  Emit no file instead.
-  if (collapseVoSteps(m).flatMap((s) => renderEctoStep(s)).length === 0) return;
+  if (collapseVoSteps(m, "snake").flatMap((s) => renderEctoStep(s)).length === 0) return;
   const path = `priv/repo/migrations/${m.version}_${snake(m.module)}_${snake(m.name)}.exs`;
   out.set(path, renderDeltaFile(m, appModule));
 }
@@ -636,7 +541,7 @@ function renderDeltaFile(m: MigrationsIR, appModule: string): string {
   // Ecto names every migration module app-wide, and a migration name is only
   // unique within its module's chain — so the module is part of the name.
   const migrationName = `${upperFirst(m.module)}${upperFirst(m.name)}`;
-  const stepLines = collapseVoSteps(m).flatMap((s) => renderEctoStep(s));
+  const stepLines = collapseVoSteps(m, "snake").flatMap((s) => renderEctoStep(s));
   return `defmodule ${appModule}.Repo.Migrations.${migrationName} do
   use Ecto.Migration
 
@@ -650,7 +555,7 @@ end
 export function renderEctoStep(step: MigrationStep): string[] {
   switch (step.op) {
     case "createTable":
-      return renderCreateTableInline(step.table);
+      return createTableLines(step.table);
     case "dropTable": {
       const prefix = prefixOpt(step.schema);
       return [`drop table(:${step.name}${prefix})`];
@@ -776,14 +681,8 @@ function elixirStr(s: string): string {
 }
 
 /** The `enumValues` CHECK constraints of a freshly created table, as Ecto
- *  `create constraint(...)` lines at `indent`.
- *
- *  Phoenix has FIVE initial-file renderers plus the delta path's
- *  `renderCreateTableInline`, and the index lines above this call are already
- *  the scar of that: they were once emitted on some paths and not others, so a
- *  fresh Phoenix project and the same table arriving later as a delta produced
- *  different schemas (see the note in `renderIdlessInitialFile`).  One helper,
- *  called from every path, is what keeps this constraint from repeating that.
+ *  `create constraint(...)` lines, called from `createTableLines` — the one
+ *  create-table rendering the initial files and the delta steps share.
  *
  *  No `validate: false` here — there are no stored rows on a table being
  *  created, which is the same reason the SQL renderer inlines these in the
@@ -795,7 +694,7 @@ function elixirStr(s: string): string {
  *  `enumValues` check on an enum INSIDE a value object (`berth_side`) is
  *  skipped: that leaf column is folded into the one `:map` column too, and a
  *  check naming it fails the migration (`column "berth_side" does not exist`). */
-function enumCheckLines(table: TableShape, prefix: string, indent: string): string[] {
+function enumCheckLines(table: TableShape, prefix: string): string[] {
   // The builder names an enum check `<table>_<column>_enum`.
   const voLeafChecks = new Set(
     table.columns.filter((c) => c.voGroup).map((c) => `${table.name}_${c.name}_enum`),
@@ -805,32 +704,8 @@ function enumCheckLines(table: TableShape, prefix: string, indent: string): stri
     .filter((c) => !voLeafChecks.has(c.name))
     .map(
       (c) =>
-        `${indent}create constraint(:${table.name}, :${c.name}, check: ${elixirStr(c.expression)}${prefix})`,
+        `create constraint(:${table.name}, :${c.name}, check: ${elixirStr(c.expression)}${prefix})`,
     );
-}
-
-function renderCreateTableInline(table: TableShape): string[] {
-  const idCol = table.columns.find((c) => c.name === "id");
-  const others = collapseVoGroups(
-    table.columns.filter((c) => c.name !== "id" && !c.valueArrayChildTable),
-  );
-  const prefix = prefixOpt(table.schema);
-  const lines: string[] = [];
-  if (table.schema) lines.push(`execute "CREATE SCHEMA IF NOT EXISTS ${table.schema}"`);
-  lines.push(`create table(:${table.name}, primary_key: false${prefix}) do`);
-  if (idCol) {
-    lines.push(`  add :id, ${ectoPrimaryKeyType(idCol.type)}, primary_key: true, null: false`);
-  }
-  for (const c of others) lines.push("  " + renderEctoColumn(c, table));
-  const ts = timestampsMacro(table);
-  if (ts) lines.push(`  ${ts}`);
-  lines.push("end");
-  lines.push(...enumCheckLines(table, prefix, ""));
-  for (const idx of ectoIndexes(table)) {
-    const cols = ectoIndexColumns(idx);
-    lines.push(`create index(:${table.name}, [${cols}]${ectoIndexOpts(idx, prefix)})`);
-  }
-  return lines;
 }
 
 function renderEctoColumn(c: ColumnShape, table: TableShape): string {
