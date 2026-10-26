@@ -5037,7 +5037,8 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.agg}.create(…)' in ${p.owner} must take one record argument, ` +
     `'${p.agg}.create({ field: value, … })'. The factory's input is a record keyed by field ` +
     `name on every backend, so a positional, named or empty argument list has no field to ` +
-    `land on, and the created '${p.agg}' would never be saved. Write the fields as a record.`,
+    `land on, and the created '${p.agg}' would never be saved. Write the fields as a record ` +
+    `('node scripts/codemod-workflow-create-record.mjs <path>' rewrites a project).`,
   // A body mutates an aggregate that none of its saves covers (effect IR: a
   // `mutate` with no `persist` of the same local in an enclosing scope).
   "loom.workflow-mutation-unsaved": (p: { owner: unknown; call: unknown; name: unknown }) =>

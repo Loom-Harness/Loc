@@ -407,6 +407,11 @@ has) — return the id and read the record back, or use a `commandHandler`.
 - **One way to create.**  `Agg.create({ field: value, … })` is the only
   factory form in a body; a positional, named or empty argument list
   (`Agg.create(a, b)`) is `loom.workflow-positional-create`.
+  `node scripts/codemod-workflow-create-record.mjs <path>` (`--check` /
+  `--list` write nothing) rewrites a project to the record form, mapping
+  positions onto the declared `create(…)` parameters or else the
+  client-writable properties in order; a call it cannot map faithfully is
+  left in place with a marker comment, and the run exits non-zero.
 - **Aggregate-level events** (raised inside an operation via `emit`)
   drain through the aggregate's repository save.  In a
   non-transactional workflow each save commits on its own, so its
