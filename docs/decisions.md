@@ -5731,6 +5731,12 @@ Jackson coercion table derived from `ingressFor`). Known java subject gap: the
 still-referenced 409 detail reads `This resource is still referenced…` because
 the shared advice does not know the aggregate.
 
+elixir/Phoenix renders the fact through `src/generator/elixir/wire-policy-ex.ts`
+(`test/generator/elixir/wire-policy-census.test.ts` is its census). Ecto's
+`cast/3` coerces across JSON types, so a controller plug (`require_wire_types`)
+checks each int/long/decimal/money/bool request key's raw value against
+`ingressFor` before the action runs; the key list is derived from the fact.
+
 ## D-FAILURE-MODEL — Loom has no exceptions: each failure kind has one construct, and an expected failure is a value the caller must handle
 
 **Status:** PINNED (owner rulings 2026-10-25 on #4134, #4146, #3951, #3916;

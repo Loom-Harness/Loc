@@ -39,16 +39,11 @@ import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
-import { INT32_MAX, INT32_MIN, INTEGER_RANGE_MESSAGE } from "../../../util/numeric-range.js";
+import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
 import { numericEncode } from "../../_numeric/target.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { declarationSubRegion, statementSubRegions } from "../../_trace/sourcemap.js";
-import {
-  MONEY_MAX_EXCLUSIVE,
-  MONEY_PRECISION,
-  MONEY_RANGE_MESSAGE,
-  MONEY_WIRE_SCALE,
-} from "../../money-scale.js";
+import { MONEY_MAX_EXCLUSIVE, MONEY_PRECISION, MONEY_WIRE_SCALE } from "../../money-scale.js";
 import { type ElixirChannelsCfg, opEmitsDurableEvent } from "../channels-emit.js";
 import { contextHasDispatcher } from "../dispatch-emit.js";
 import { opBodyStmtsDeep, opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
@@ -56,6 +51,7 @@ import { renderReadingServiceContextFns } from "../domain-service-emit.js";
 import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { unguardedName } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
+import { exFieldMessage, exLit, exValuePrefix } from "../wire-policy-ex.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
 import { baseReaderShape } from "./base-reader.js";
 import {
@@ -310,12 +306,6 @@ function coerceOpParam(varName: string, type: TypeIR | undefined): string {
  *  given as text: `"5"` is refused, matching node's `z.number()` body slot and
  *  .NET.  A fractional value for an `int` is refused rather than truncated —
  *  the same strictness M-T6.48 pins for Java's `ACCEPT_FLOAT_AS_INT`. */
-/** The refusal an out-of-int32 `int` gets, on both ingress paths — the op-param
- *  guard here and the create/update changeset in `changeset-emit.ts`.  It is
- *  the cross-backend range sentence (RS-42, `INTEGER_RANGE_MESSAGE`), sent
- *  bare — no value appended — exactly as the other four send it. */
-export const INT32_RANGE_MESSAGE = INTEGER_RANGE_MESSAGE;
-
 function renderNumericParamHelpers(
   needsDecimal: boolean,
   needsInt: boolean,
@@ -347,15 +337,15 @@ function renderNumericParamHelpers(
       if __loom_money_in_range?(Decimal.new(value)) do
         {:ok, Decimal.new(value)}
       else
-        {:error, __loom_param_error(record, field, value, ${JSON.stringify(MONEY_RANGE_MESSAGE)})}
+        {:error, __loom_param_error(record, field, value, ${exLit(exValuePrefix("money-range"))})}
       end
     else
-      {:error, __loom_param_error(record, field, value, "Invalid decimal")}
+      {:error, __loom_param_error(record, field, value, ${exLit(exValuePrefix("money-grammar"))})}
     end
   end
 
   defp __loom_decimal_param(record, field, value),
-    do: {:error, __loom_param_error(record, field, value, "Invalid decimal")}
+    do: {:error, __loom_param_error(record, field, value, ${exLit(exValuePrefix("money-grammar"))})}
 
   # RANGE, not format: the grammar already passed, and what is left is a
   # magnitude question the COLUMN answers.  Without this a 40-digit price is a
@@ -389,7 +379,7 @@ function renderNumericParamHelpers(
        do: {:ok, value}
 
   defp __loom_int32_param(record, field, value) when is_integer(value),
-    do: {:error, Ecto.Changeset.add_error(Ecto.Changeset.change(record, %{}), field, ${JSON.stringify(INT32_RANGE_MESSAGE)})}
+    do: {:error, Ecto.Changeset.add_error(Ecto.Changeset.change(record, %{}), field, ${exFieldMessage("integer-range")})}
 
   defp __loom_int32_param(record, field, value),
     do: {:error, __loom_param_error(record, field, value, "Invalid integer")}

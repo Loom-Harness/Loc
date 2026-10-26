@@ -12,7 +12,6 @@
 // ---------------------------------------------------------------------------
 
 import type { UiIR } from "../../../ir/types/loom-ir.js";
-import { UNSUPPORTED_MEDIA_TYPE_DETAIL } from "../../../ir/util/openapi-errors.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import {
@@ -47,6 +46,13 @@ import {
 } from "../shell/runtime.js";
 import { renderLayouts } from "../shell/web.js";
 import { renderTelemetry } from "../telemetry-emit.js";
+import {
+  exFixedDetail,
+  exInternalFallback,
+  exSentence,
+  exStatus,
+  exTitle,
+} from "../wire-policy-ex.js";
 import { renderLoomDatetimeModule } from "./datetime-type-emit.js";
 import { renderGuardErrorModule } from "./denial.js";
 import { renderObanConfig } from "./scheduler-emit.js";
@@ -1037,7 +1043,7 @@ defmodule ${appModule}Web.BodyParser do
   end
 
   defp unsupported_media_type(conn) do
-    send_problem(conn, 415, ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)})
+    send_problem(conn, ${exStatus("unsupported-media-type")}, ${exFixedDetail("unsupported-media-type")})
   end
 
   defp parse(conn, opts) do
@@ -1054,8 +1060,8 @@ defmodule ${appModule}Web.BodyParser do
       # is neither safe nor portable as a \`detail\`.  400 gets the one wording
       # every backend sends for this fault; the rest get the reason phrase.
       detail =
-        if status == 400,
-          do: "Malformed JSON in request body",
+        if status == ${exStatus("malformed-body")},
+          do: ${exFixedDetail("malformed-body")},
           else: Plug.Conn.Status.reason_phrase(status)
 
       # \`conn\` here is the one from BEFORE the parser ran: the adapter state
@@ -1197,7 +1203,7 @@ defmodule ${appModule}Web.FaultHandler do
   # gets the one sanitized literal all five backends send; the log line above
   # got the truth.
   defp respond(conn, status) when status >= 500 do
-    ProblemDetails.problem_response(conn, 500, "Internal Server Error", "internal")
+    ${exInternalFallback()}
   end
 
   # A \`Plug.Exception\` that names a 4xx classified the request, not the server
@@ -1243,14 +1249,14 @@ defmodule ${appModule}Web.NotFoundController do
 
     case allow do
       [] ->
-        respond(conn, 404, "Not Found", "no route for #{conn.method} #{conn.request_path}")
+        respond(conn, ${exStatus("no-route")}, ${exTitle("no-route")}, ${exSentence("no-route", "#{conn.method} #{conn.request_path}")})
 
       methods ->
         conn
         |> put_resp_header("allow", Enum.join(methods, ", "))
         |> respond(
-          405,
-          "Method Not Allowed",
+          ${exStatus("method-not-allowed")},
+          ${exTitle("method-not-allowed")},
           "method #{conn.method} is not supported for #{conn.request_path}"
         )
     end
@@ -1526,7 +1532,7 @@ defmodule ${appModule}Web.ErrorJSON do
   # answers everything at or below the router, so what still renders here is a
   # fault in an endpoint plug above it — but the leak must not depend on which
   # of the two paths a request happened to take.)
-  defp detail_for(status, _assigns, _title) when status >= 500, do: "internal"
+  defp detail_for(status, _assigns, _title) when status >= 500, do: ${exFixedDetail("internal")}
 
   # Below 500, phoenix passes the raised exception when there is one; its
   # message is a better \`detail\` than the bare reason phrase ("no route found

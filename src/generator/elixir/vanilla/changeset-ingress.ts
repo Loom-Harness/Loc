@@ -31,6 +31,7 @@
 
 import type { FieldIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { snake } from "../../../util/naming.js";
+import { exLit, exValuePrefix } from "../wire-policy-ex.js";
 
 /** One decimal leaf the ingress guard checks: its snake-cased path from the
  *  aggregate root, and whether a blank value means "absent" (only a top-level
@@ -122,7 +123,7 @@ export function renderDecimalIngressHelpers(): string {
             else: cs.errors
 
         %{cs | errors: errors}
-        |> add_error(field, "Invalid decimal: " <> Jason.encode!(value), loom_path: rest)
+        |> add_error(field, ${exLit(`${exValuePrefix("money-grammar")}: `)} <> Jason.encode!(value), loom_path: rest)
       else
         _ -> cs
       end

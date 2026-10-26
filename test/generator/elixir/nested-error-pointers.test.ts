@@ -95,7 +95,8 @@ describe("elixir/vanilla — a 422 names the nested field it rejected", () => {
     expect(pd).toContain(
       "defp segment_to_string(seg) when is_integer(seg), do: Integer.to_string(seg)",
     );
-    expect(pd).toContain("pointer_of(prefix ++ [field] ++ Keyword.get(opts, :loom_path, []))");
+    expect(pd).toContain("segments = prefix ++ [field] ++ Keyword.get(opts, :loom_path, [])");
+    expect(pd).toContain("pointer_of(segments)");
     expect(pd).not.toContain("pointer_of([field])");
   });
 

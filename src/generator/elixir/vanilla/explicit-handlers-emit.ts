@@ -60,6 +60,7 @@ import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
 import { claimsDerivedSlot, pathParamNames } from "../../_api/explicit-route-mount.js";
 import type { ApiRoute } from "../api-emit.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
+import { type StrictIngressField, strictIngressFields } from "../wire-policy-ex.js";
 import { aggregateUsesPrincipalContextFilter, findUsesPrincipal } from "./capability-filter.js";
 import { renderControllerSerialize } from "./controller-serialize.js";
 import {
@@ -75,7 +76,11 @@ import {
   PAGE_WITH_CLAUSES,
   pagingElseArm,
 } from "./page-param.js";
-import { renderRequiredParamsPlug, requiredWireParams } from "./problem-details-emit.js";
+import {
+  renderRequiredParamsPlug,
+  renderStrictParamsPlug,
+  requiredWireParams,
+} from "./problem-details-emit.js";
 import { retrievalReadsActor } from "./retrieval-emit.js";
 import {
   type BodyLine,
@@ -581,6 +586,7 @@ export function emitExplicitRoutesController(
   // key — a command/query record's fields stand in for the record, exactly as
   // the request schema flattens them — minus the route's own `{tokens}`.
   const requiredBodyKeys = new Map<string, string[]>();
+  const strictBodyKeys = new Map<string, StrictIngressField[]>();
   // Set when a routed handler loads through `getById` (its miss carries a
   // detail — see `tagGetByIdMiss`), and when one returns nothing (204).
   let loadsById = false;
@@ -696,6 +702,10 @@ ${pagingElseArm("ProblemDetails", "    ")}
         action,
         requiredWireParams(slots.filter((f) => !routeTokens.has(f.name))),
       );
+      strictBodyKeys.set(
+        action,
+        strictIngressFields(slots.filter((f) => !routeTokens.has(f.name))),
+      );
     }
     const runArgs = handlerThreadsActor(handler, ctx)
       ? "params, Map.get(conn.assigns, :current_user)"
@@ -736,7 +746,7 @@ defmodule ${webModule}.${controller} do
   HTTP entry points for the explicit \`route ... -> <Ctx>.<Handler>\` bindings
   of api \`${apiName}\`.
   """
-${renderRequiredParamsPlug(requiredBodyKeys)}
+${renderRequiredParamsPlug(requiredBodyKeys)}${renderStrictParamsPlug(strictBodyKeys)}
 ${actions.join("\n\n")}
 
   # Shared result handler.  Each handler's run/1 result flows through here;
