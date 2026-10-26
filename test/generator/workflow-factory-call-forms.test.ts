@@ -1,0 +1,90 @@
+// A workflow factory call in its three spellings — positional
+// `Survey.create(a, b)`, named `Survey.create(ticket: a, note: b)` and record
+// `Survey.create({ ticket: a, note: b })` — is ONE create: the same saved
+// `factory-let`, so byte-identical generated output on every backend.  The
+// positional one is the reported shape (an event-triggered starter that built
+// a `Survey` nobody ever saved, and that did not typecheck on node).
+
+import { describe, expect, it } from "vitest";
+import { generateSystemFiles } from "../_helpers/generate.js";
+
+const sys = (platform: string, call: string, poll = "") => `
+system S {
+  subdomain Core {
+    context Desk {
+      aggregate Ticket with crudish {
+        subject: string
+        operation resolve() { emit TicketResolved { ticket: id, subject: subject } }
+      }
+      repository Tickets for Ticket { }
+      event TicketResolved { ticket: Ticket id, subject: string }
+      aggregate Survey {
+        ticket: Ticket id
+        note: string
+      }
+      repository Surveys for Survey { }
+      aggregate Poll {
+        ticket: Ticket id
+        label: string
+        create(label: string, ticket: Ticket id) { }
+      }
+      repository Polls for Poll { }
+      workflow askForRating {
+        ticket: Ticket id
+        create(e: TicketResolved) by e.ticket {
+          let s = ${call}
+          ${poll}
+        }
+      }
+    }
+  }
+  api DeskApi from Core
+  storage primary { type: postgres }
+  resource st { for: Desk, kind: state, use: primary }
+  deployable api { platform: ${platform}, contexts: [Desk], dataSources: [st], serves: DeskApi, port: 3000 }
+}`;
+
+const RECORD = "Survey.create({ ticket: e.ticket, note: e.subject })";
+const BACKENDS = ["node", "dotnet", "java", "python", "elixir"] as const;
+
+/** The files that differ between two generations. */
+function differing(a: Map<string, string>, b: Map<string, string>): string[] {
+  const keys = new Set([...a.keys(), ...b.keys()]);
+  return [...keys].filter((k) => a.get(k) !== b.get(k)).sort();
+}
+
+describe("workflow factory call — positional, named and record are one create (#3301)", () => {
+  for (const platform of BACKENDS) {
+    it(`${platform}: the three spellings generate byte-identical output`, async () => {
+      const record = await generateSystemFiles(sys(platform, RECORD));
+      const positional = await generateSystemFiles(
+        sys(platform, "Survey.create(e.ticket, e.subject)"),
+      );
+      const named = await generateSystemFiles(
+        sys(platform, "Survey.create(note: e.subject, ticket: e.ticket)"),
+      );
+      expect(differing(record, positional)).toStrictEqual([]);
+      expect(differing(record, named)).toStrictEqual([]);
+    });
+  }
+
+  it("node: the positional create is constructed from a record and saved", async () => {
+    const files = await generateSystemFiles(sys("node", "Survey.create(e.ticket, e.subject)"));
+    const wf = files.get("api/http/workflows.ts") ?? "";
+    expect(wf).toContain("const s = Survey.create({ ticket: e.ticket, note: e.subject });");
+    expect(wf).toContain("await surveys.save(s);");
+  });
+
+  it("maps positions onto a declared create's parameters, not the property order", async () => {
+    const declared = await generateSystemFiles(
+      sys("node", RECORD, `let p = Poll.create(e.subject, e.ticket)`),
+    );
+    const record = await generateSystemFiles(
+      sys("node", RECORD, `let p = Poll.create({ label: e.subject, ticket: e.ticket })`),
+    );
+    expect(differing(record, declared)).toStrictEqual([]);
+    const wf = declared.get("api/http/workflows.ts") ?? "";
+    expect(wf).toContain("const p = Poll.create({ label: e.subject, ticket: e.ticket });");
+    expect(wf).toContain("await polls.save(p);");
+  });
+});

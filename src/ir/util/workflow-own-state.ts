@@ -20,33 +20,17 @@
 // reason `workflow-command-route.ts` sits here).  Pure, platform-neutral,
 // browser-safe.
 // -------------------------------------------------------------------------
-import type { CreateIR, ExprIR, ParamIR, WorkflowIR, WorkflowStmtIR } from "../types/loom-ir.js";
+import type { CreateIR, ParamIR, WorkflowIR, WorkflowStmtIR } from "../types/loom-ir.js";
 import { bodyEffects } from "./effects.js";
-import { walkWorkflowStmtExprsDeep, walkWorkflowStmtsDeep } from "./walk.js";
 import { emitsCommandRoute } from "./workflow-command-route.js";
 
 /** True when a workflow body reads or writes its OWN state — an `assign`
  *  statement, or any expression naming a `this-prop` / `this-derived` on the
- *  workflow instance. */
+ *  workflow instance, at any nesting depth. */
 export function workflowBodyUsesOwnState(statements: readonly WorkflowStmtIR[]): boolean {
-  let found = false;
-  const seeExpr = (e: ExprIR): void => {
-    if (found) return;
-    if (e.kind === "ref" && (e.refKind === "this-prop" || e.refKind === "this-derived")) {
-      found = true;
-    }
-  };
-  for (const st of statements) {
-    if (found) break;
-    // Nested `for-each` / `if-let` bodies count too — the shared deep walkers
-    // own that recursion (`ir/util/walk.ts`).
-    walkWorkflowStmtsDeep(st, (inner) => {
-      if (inner.kind === "assign") found = true;
-    });
-    if (found) break;
-    walkWorkflowStmtExprsDeep(st, seeExpr);
-  }
-  return found;
+  return bodyEffects({ statements, savesAtExit: [] }, undefined).some(
+    (e) => e.kind === "read-state" || (e.kind === "mutate" && e.target.kind === "state"),
+  );
 }
 
 /** True when a workflow body WRITES its own state (`field := …`, including the
@@ -54,7 +38,7 @@ export function workflowBodyUsesOwnState(statements: readonly WorkflowStmtIR[]):
  *  {@link workflowBodyUsesOwnState}: a body that only READS state needs the row
  *  BOUND but has nothing to write back. */
 export function workflowBodyWritesOwnState(statements: readonly WorkflowStmtIR[]): boolean {
-  return bodyEffects({ statements, savesAtExit: [] }).some(
+  return bodyEffects({ statements, savesAtExit: [] }, undefined).some(
     (e) => e.kind === "mutate" && e.target.kind === "state",
   );
 }
