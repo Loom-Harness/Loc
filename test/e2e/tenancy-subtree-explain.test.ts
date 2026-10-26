@@ -276,7 +276,10 @@ describe.skipIf(!ENABLED)(
         const start = entities![1].indexOf("export class AccountRow");
         expect(start, "no AccountRow entity in the emitted entities").toBeGreaterThanOrEqual(0);
         const next = entities![1].indexOf("export class ", start + 1);
-        const repo = [entities![0], entities![1].slice(start, next < 0 ? undefined : next)] as const;
+        const repo = [
+          entities![0],
+          entities![1].slice(start, next < 0 ? undefined : next),
+        ] as const;
         const frag = /raw\("((?:[^"\\]|\\.)*)",\s*\[/.exec(repo[1]);
         expect(frag, "no raw() SQL fragment in the Account entity's filter").not.toBeNull();
         const emitted = JSON.parse(`"${frag![1]}"`) as string;
