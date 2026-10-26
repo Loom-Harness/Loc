@@ -553,7 +553,7 @@ export const LOCATORS: Record<VariantId, Locator> = {
     files: (p) => p.endsWith(".cs") && !/(^|\/)(Tests?|Migrations)\//.test(p),
     openers: [CS_METHOD()],
     reads: [/"[^"\n]*?\bFROM\s+(?:"?\w+"?\.)?"?(\w+)"?/i],
-    prepare: (_files, text) => inlineDapperScope(text),
+    prepare: (_files, text) => inlineDapperScope(text, { runtime: true }),
     helpers: CS_HELPERS,
     // A criterion read assembles its conjuncts into `__caps` AHEAD of the
     // `FROM` literal (`__caps.Add("1 = 0")`), so the window opens at the method.

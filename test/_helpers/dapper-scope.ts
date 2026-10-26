@@ -24,13 +24,35 @@ function scopeConstants(src: string): Map<string, string> {
   return consts;
 }
 
+/** `<Agg>Scope.Runtime` → every conjunct its body can add, guarded or not, joined
+ *  the way the method joins them.  A guarded conjunct is one a caller's
+ *  `FilterBypass` drops at run time, so a read that concatenates `Runtime(bypass)`
+ *  applies it unless that read's own bypass names it. */
+function scopeRuntimes(src: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const cls = dapperScopeClass(src);
+  for (const c of cls.matchAll(/internal static class (\w+)\s*\{([\s\S]*?)\n\}/g)) {
+    const rt = /public static string Runtime\([^)]*\)\s*\{([\s\S]*?)\n {4}\}/.exec(c[2]!);
+    if (!rt) continue;
+    const parts = [...rt[1]!.matchAll(/parts\.Add\("(.*?)"\);/g)].map((m) => m[1]!);
+    out.set(`${c[1]}.Runtime`, parts.length > 0 ? ` AND ${parts.join(" AND ")}` : "");
+  }
+  return out;
+}
+
 /** The repository source with every scope-constant reference replaced by the SQL it
- *  holds (the scope class itself is dropped).  `OrderScope.Runtime(bypass)` is left
- *  as is — it is a method, asserted through {@link dapperScopeClass}. */
-export function inlineDapperScope(src: string): string {
+ *  holds (the scope class itself is dropped).  `<Agg>Scope.Runtime(bypass)` is left
+ *  as is — it is a method, asserted through {@link dapperScopeClass} — unless
+ *  `runtime` is set, when it becomes every conjunct the method can add (the
+ *  authz census, which must see the conjuncts a criterion run applies). */
+export function inlineDapperScope(src: string, opts: { runtime?: boolean } = {}): string {
   const consts = scopeConstants(src);
+  const runtimes = opts.runtime ? scopeRuntimes(src) : new Map<string, string>();
   const body = src.slice(0, src.length - dapperScopeClass(src).length);
   return body
+    .replace(/"\s*\+\s*(\w+Scope\.Runtime)\(\w+\)/g, (m, k: string) =>
+      runtimes.has(k) ? `${runtimes.get(k)}"` : m,
+    )
     .replace(/\{(\w+Scope\.\w+)\}/g, (m, k: string) => consts.get(k) ?? m)
     .replace(/"\s*\+\s*(\w+Scope\.\w+)\s*\+\s*"/g, (m, k: string) => consts.get(k) ?? m)
     .replace(/"\s*\+\s*(\w+Scope\.\w+)(?=[,)])/g, (m, k: string) =>
