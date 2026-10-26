@@ -3811,16 +3811,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `emission target. Host the context on a backend deployable, or declare ` +
     `'inheritanceUsing: ownTable' to use the per-concrete (TPC) layout. ` +
     `Tracked in aggregate-inheritance.md I2/I3.`,
-  "loom.tph-filter-unsupported": (p: { name: unknown; fields: unknown; root: unknown }) =>
-    `aggregate '${p.name}' declares a capability 'filter' reading ${p.fields}, which ` +
-    `'${p.root}' does not declare. Under sharedTable (TPH) inheritance the .NET backend must ` +
-    `register every query filter in the hierarchy on the ROOT entity type '${p.root}' — ` +
-    `EF Core allows a filter "only on the root entity type" — and a root-hosted filter ` +
-    `cannot read a column that exists on one subtype alone (both workarounds fail when the ` +
-    `query source is a SIBLING subtype: a CLR downcast has no coercion operator, and ` +
-    `EF.Property names a property the sibling does not have). Move the field(s) to the ` +
-    `abstract base '${p.root}', declare 'inheritanceUsing: ownTable' (TPC — each concrete ` +
-    `owns its table, filters unrestricted), or host this context off the .NET backend.`,
   "loom.event-sourcing-backend-unsupported": (p: { name: unknown }) =>
     `aggregate '${p.name}' is persistedAs: eventLog, but no backend deployable hosts this ` +
     `context, so there is no event-sourced storage emission target. Host the context on a ` +

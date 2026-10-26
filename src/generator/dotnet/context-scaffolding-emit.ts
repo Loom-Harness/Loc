@@ -1,13 +1,19 @@
+import { polymorphicReadFor } from "../../ir/enrich/read-scope.js";
 import type { BoundedContextIR, EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
-import {
-  isTpcBase,
-  isTpcConcrete,
-  isTphBase,
-  isTphConcrete,
-  rootBaseOf,
-} from "../../ir/util/inheritance.js";
-import { plural } from "../../util/naming.js";
+import { isTphBase, isTphConcrete, rootBaseOf } from "../../ir/util/inheritance.js";
+import { plural, upperFirst } from "../../util/naming.js";
+import type { EmitCtx } from "../_adapters/index.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
+import {
+  byLayerLayoutAdapter,
+  type DotnetArtifact,
+  type DotnetArtifactCategory,
+} from "./adapters/by-layer-layout.js";
+import {
+  emitsBaseReader,
+  renderBaseController,
+  routesPolymorphicRead,
+} from "./emit/base-reader.js";
 import {
   renderAuditableInterceptor,
   renderBaseReaderImpl,
@@ -167,32 +173,53 @@ export function emitDispatcher(
   }
 }
 
-/** Polymorphic read home for each abstract TPC (`ownTable`) base in the
- *  context: a read-only `I<Base>Repository` / `<Base>Repository` pair that
- *  delegates to the concrete repositories and concatenates (aggregate-
- *  inheritance.md, `find all <Base>`).  Emits nothing when the context has no
- *  TPC base. */
+/** The polymorphic read home of each abstract base in the context that has
+ *  one (`polymorphicReadFor`: a TPH root or a TPC base, with a concrete): a
+ *  read-only `I<Base>Repository` / `<Base>Repository` pair, and — when the read
+ *  is routed — `Api/<Bases>Controller.cs` (`GET /api/<bases>`, plus the TPH
+ *  by-id read).  The TPH reader queries the root `DbSet`, so it is EF-only; a
+ *  Dapper project keeps only the TPC reader, which delegates to the concrete
+ *  repositories.  Emits nothing when the context has no such base. */
 export function emitBaseReaders(
   ctx: EnrichedBoundedContextIR,
   ns: string,
   out: Map<string, string>,
   sourcemap?: SourceMapRecorder,
+  opts: { dapper?: boolean; routePrefix?: string; emitCtx?: EmitCtx } = {},
 ): void {
   for (const base of ctx.aggregates) {
-    if (!isTpcBase(base, ctx.aggregates)) continue;
-    const concretes = ctx.aggregates.filter(
-      (a) => a.extendsAggregate === base.name && isTpcConcrete(a, ctx.aggregates),
-    );
-    if (concretes.length === 0) continue;
+    if (!emitsBaseReader(base, ctx.aggregates, !!opts.dapper)) continue;
+    const read = polymorphicReadFor(base, ctx.aggregates)!;
     const construct = `${ctx.name}.${base.name}`;
-    const ifacePath = `Domain/${plural(base.name)}/I${base.name}Repository.cs`;
-    const ifaceContent = renderBaseReaderInterface(base, ns);
-    out.set(ifacePath, ifaceContent);
-    sourcemap?.file(ifacePath, ifaceContent, base.origin, construct);
-    const implPath = `Infrastructure/Repositories/${base.name}Repository.cs`;
-    const implContent = renderBaseReaderImpl(base, concretes, ns);
-    out.set(implPath, implContent);
-    sourcemap?.file(implPath, implContent, base.origin, construct);
+    // Placed through the deployable's layout adapter, like the base's own
+    // entity file, so a `directoryLayout: byFeature` project keeps the reader
+    // in the base's feature folder (and its namespace rewrite reaches it).
+    const layout = opts.emitCtx?.layoutAdapter ?? byLayerLayoutAdapter;
+    const place = (name: string, category: DotnetArtifactCategory, content: string): void => {
+      const path = layout.pathFor(
+        { name, content, category, aggregateName: base.name } as DotnetArtifact,
+        opts.emitCtx ?? ({} as EmitCtx),
+      );
+      out.set(path, content);
+      sourcemap?.file(path, content, base.origin, construct);
+    };
+    place(
+      `I${base.name}Repository.cs`,
+      "repository-interface",
+      renderBaseReaderInterface(base, read, ns),
+    );
+    place(
+      `${base.name}Repository.cs`,
+      "repository-impl",
+      renderBaseReaderImpl(base, read, ctx, ns),
+    );
+    if (opts.routePrefix !== undefined && !opts.dapper && routesPolymorphicRead(read, ctx)) {
+      place(
+        `${plural(upperFirst(base.name))}Controller.cs`,
+        "controller",
+        renderBaseController(base, read, ctx, ns, opts.routePrefix),
+      );
+    }
   }
 }
 

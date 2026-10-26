@@ -114,11 +114,12 @@ describe("capability filter principal terms render on every backend", () => {
   });
 
   it("python: a Python-decided bound boolean (`literal(...)`)", async () => {
-    const repo = await emitted("python", /ticket_repository\.py$/);
-    expect(repo).toContain('literal(require_current_user().role == "agent")');
-    expect(repo).toContain("literal(require_current_user().tier == Tier.Gold)");
-    expect(repo).toContain("literal(require_current_user().customer_id is not None)");
-    expect(repo).toMatch(/from sqlalchemy import [^\n]*\bliteral\b/);
+    // Built in the read-scope hook from the principal it reads per execution.
+    const scope = await emitted("python", /app\/db\/read_scope\.py$/);
+    expect(scope).toContain('literal(user.role == "agent")');
+    expect(scope).toContain("literal(user.tier == Tier.Gold)");
+    expect(scope).toContain("literal(user.customer_id is not None)");
+    expect(scope).toMatch(/from sqlalchemy import [^\n]*\bliteral\b/);
   });
 
   it("elixir: an Elixir-decided pinned boolean, false without an actor", async () => {

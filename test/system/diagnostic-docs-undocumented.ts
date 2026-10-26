@@ -306,7 +306,6 @@ export const UNDOCUMENTED_CODES: readonly string[] = [
   "loom.toast-message-unsupported",
   "loom.top-level-domain-needs-single-system",
   "loom.tph-backend-unsupported",
-  "loom.tph-filter-unsupported",
   "loom.tph-own-override-unsupported",
   "loom.transactional-with-continuations",
   "loom.ui-binding-unmountable-platform",

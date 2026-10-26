@@ -186,7 +186,7 @@ runtime-gated by the isolation e2e):
 | node (Hono/Drizzle) | `eq(schema.organizations.id, requireCurrentUser().tenantId)` AND-ed into every root read, behind a UUID-shape ternary | falls to the always-false term (`and(isNull(id), isNotNull(id))`) |
 | .NET (EF Core) | `HasQueryFilter("IdFilter", x => x.Id == __SelfScopeId_Organization_0)`, a hoisted `OrganizationId?` member | `Guid.TryParse(…) ? new OrganizationId(g) : null` → `= NULL` |
 | elixir (Ecto) | `fragment("? = ?", record.id, ^…)` — cast in Elixir, compared on the uuid column so the PK index still serves it | `Ecto.UUID.cast/1` → `nil` → `= NULL` |
-| python (SQLAlchemy) | `OrganizationRow.id == require_current_user().guid_claim("tenant_id")` | `guid_claim` → `None` → `IS NULL` |
+| python (SQLAlchemy) | `OrganizationRow.id == user.guid_claim("tenant_id")`, a `with_loader_criteria` the read-scope hook (`app/db/read_scope.py`) builds from the request principal on every ORM read (`false()` with no principal) | `guid_claim` → `None` → `IS NULL` |
 | java (Spring/JPA) | `e.id.value = :#{@currentUserAccessor.user()?.tenantIdAsUuid()}` scoped `@Query` overrides on findAll/findById + every find (and the same accessor in the `tenantScope(User)` Specification a reified retrieval uses) | `<claim>AsUuid()` → `null` → `= NULL` |
 
 The derived filter is provenance-tagged `tenancy` in
@@ -313,7 +313,7 @@ half follows the declaration while the row column stays `tenantId`.
 | node (Hono/Drizzle) | `.where(and(…, eq(t.tenantId, requireCurrentUser().tenantId)))` on every repository read | `stampInsert` copies both claims off the ambient principal — `tenantId: currentUser.tenantId, dataKey: currentUser.orgPath` (no-op for system/seed saves) |
 | .NET (EF Core) | `HasQueryFilter(x => x.TenantId == RequestContext.Current!.CurrentUser!.TenantId)` | `SaveChangesInterceptor` sets both on `Added` — `x.TenantId` off `…CurrentUser!.TenantId`, `x.DataKey` off `…CurrentUser!.OrgPath` |
 | elixir (Ecto) | fail-closed `^(current_user && current_user.tenant_id)` match in every read | `put_change(:tenant_id, current_user && current_user.tenant_id) \|> put_change(:data_key, current_user && current_user.org_path)` |
-| python (FastAPI/SQLAlchemy) | `.where(...)` on every read | `self._tenant_id = current_user.tenant_id` + `self._data_key = current_user.org_path` in the create factory |
+| python (FastAPI/SQLAlchemy) | one `do_orm_execute` hook (`app/db/read_scope.py`) adds `with_loader_criteria(<Row>, <Row>.tenant_id == user.tenant_id)` to every ORM read; `false()` with no principal | `self._tenant_id = current_user.tenant_id` + `self._data_key = current_user.org_path` in the create factory |
 | java (Spring/JPA) | principal predicate composed into the repository specification | `@PrePersist` hook reading `CurrentUserAccessor.currentOrNull()`, setting `this.tenantId = currentUser.tenantId()` and `this.dataKey = currentUser.orgPath()` |
 
 Frontends need nothing: enforcement is server-side, and neither `tenantId` nor
@@ -443,7 +443,7 @@ context Ledger {
 Each rule rewrites the aggregate's `tenantOwned` capability filter (its
 `contextFilters` entry), riding the exact per-backend query seams the flat
 tenant floor already uses (Drizzle `.where`, EF `HasQueryFilter`, SQLAlchemy
-conjunction, JPA `@Query`/`Specification`, pinned Ecto `where:`) — no new backend
+`with_loader_criteria` hook, JPA `@Query`/`Specification`, pinned Ecto `where:`) — no new backend
 plumbing. The levels:
 
 | Level | Emitted scope |
