@@ -220,7 +220,7 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
     ] as const
   ).map(
     (c): WireWaiver => ({
-      backends: ["dotnet", "dapper", "java", "elixir"],
+      backends: ["dotnet", "dapper", "elixir"],
       cases: [c],
       path: "$.errors[*].message",
       kinds: ["value"],

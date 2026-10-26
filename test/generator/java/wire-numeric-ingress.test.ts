@@ -126,9 +126,11 @@ describe("java money ingress (M-T6.48)", () => {
     // THE CONTROL, so this never becomes "refuse every coercion": a String IS
     // what a string field expects, and the Integer arm above still has to keep
     // its own String→Integer refusal.
-    expect(cfg).not.toContain(
-      "cfg.setCoercion(CoercionInputShape.String, CoercionAction.Fail);\n                    ",
+    const textual = cfg.slice(
+      cfg.indexOf("LogicalType.Textual,"),
+      cfg.indexOf("});", cfg.indexOf("LogicalType.Textual,")),
     );
+    expect(textual).not.toContain("CoercionInputShape.String");
     expect(cfg).toContain("LogicalType.Integer,");
   });
 

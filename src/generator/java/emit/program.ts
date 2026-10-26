@@ -31,6 +31,7 @@ import {
 } from "../../_docker/node-stage.js";
 import { bootDbRetryBudgetMs } from "../../_obs/boot-db-retry.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
+import { javaSentence } from "../wire-policy-java.js";
 
 /** Spring Boot release the generated projects build against.  Bumping it
  *  is a single-constant change validated by `LOOM_JAVA_BUILD=1`. */
@@ -608,7 +609,7 @@ export function renderFilesController(
     // `ApiExceptionAdvice.onNotFound` (a global `@RestControllerAdvice`) renders
     // it as the same RFC 7807 envelope every other absent read answers with —
     // including the `httpStatus NotFound -> <Code>` override.
-    `            throw new AggregateNotFoundException("File " + key + " not found");`,
+    `            throw new AggregateNotFoundException(${javaSentence("not-found", '"File " + key')});`,
     `        }`,
     `        return ResponseEntity.ok().contentType(MediaType.parseMediaType(obj.contentType())).body(obj.bytes());`,
     `    }`,
