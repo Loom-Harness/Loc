@@ -50,10 +50,10 @@ describe("backfill on a TPC base fans out to every concrete table", () => {
       sys(tpc("label: string", "owner: string")),
       sys(tpc("label: string  owner: string", ""), `migration "m" { Asset.owner = "it" }`),
     ]);
+    // A constant: laid down as the add's column default, then dropped.
     expect(sql).toEqual([
-      `ALTER TABLE "hr"."phones" ADD COLUMN "owner" TEXT NULL;`,
-      `UPDATE "hr"."phones" SET "owner" = 'it' WHERE "owner" IS NULL;`,
-      `ALTER TABLE "hr"."phones" ALTER COLUMN "owner" SET NOT NULL;`,
+      `ALTER TABLE "hr"."phones" ADD COLUMN "owner" TEXT NOT NULL DEFAULT 'it';`,
+      `ALTER TABLE "hr"."phones" ALTER COLUMN "owner" DROP DEFAULT;`,
     ]);
   });
 

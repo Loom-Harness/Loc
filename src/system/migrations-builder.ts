@@ -1588,8 +1588,9 @@ function isBlockingNotNullAdd(s: MigrationStep): boolean {
 /** Classify the raw diff, collapse unambiguous renames, weave declared
  *  backfills (M-T2.3), and enforce the destructive-change policy.  A NOT-NULL
  *  add or a NULL→NOT-NULL flip WITH a matching backfill becomes the safe
- *  add-nullable → UPDATE → SET NOT NULL sequence and does NOT trip the gate;
- *  without one, both are destructive (the flip fails on any row holding NULL
+ *  add-nullable → UPDATE → SET NOT NULL sequence and does NOT trip the gate
+ *  (an add whose backfill is a constant becomes add-WITH-DEFAULT → DROP
+ *  DEFAULT instead, which rewrites no row); without one, both are destructive (the flip fails on any row holding NULL
  *  — previously ungated).  A NOT-NULL add with NO backfill but a scalar-literal
  *  field default (`addColumnDefault`) instead becomes add-WITH-DEFAULT →
  *  DROP DEFAULT, which is likewise non-destructive and leaves the column with
@@ -1780,9 +1781,39 @@ export function applyDestructivePolicy(
   // (`backfillByCol` / `backfillFor` are built above — the rename heuristic
   // needs them too.)
   const safeFlips = new Set<MigrationStep>();
+  // Backfills applied as an add-with-DEFAULT rather than an UPDATE — consumed
+  // all the same, so the discarded-backfill gate below must count them.
+  const consumedConstant = new Set<string>();
   const woven = afterRename.flatMap((s): MigrationStep[] => {
     if (s.op === "addColumn") {
       const b = backfillFor(s.schema, s.table, s.column.name);
+      if (b?.constant && s.column.default === undefined) {
+        // A constant backfill is laid down as the column's DEFAULT for the
+        // width of this migration: `ADD COLUMN … DEFAULT <c> [NOT] NULL`, then
+        // `DROP DEFAULT` — the field-default pair below.  On PG11+ an ADD
+        // COLUMN with a non-volatile default is a catalog-only change: every
+        // existing row reads the stored default without being rewritten, so
+        // the ACCESS EXCLUSIVE lock lasts milliseconds.  The UPDATE path holds
+        // that lock while it writes every row of the table.  Same final
+        // column, same stored value, and no `SET NOT NULL` scan either: the
+        // column is NOT NULL from the moment it exists.
+        consumedConstant.add(`${qkey(s.schema, s.table)}.${s.column.name}`);
+        const withDefault: ColumnShape = { ...s.column, default: b.valueSql };
+        const add: MigrationStep = s.fk
+          ? { op: "addColumn", table: s.table, schema: s.schema, column: withDefault, fk: s.fk }
+          : { op: "addColumn", table: s.table, schema: s.schema, column: withDefault };
+        return [
+          add,
+          {
+            op: "alterColumnDefault",
+            table: s.table,
+            schema: s.schema,
+            name: s.column.name,
+            from: b.valueSql,
+            to: undefined,
+          },
+        ];
+      }
       if (b) {
         const blocking = isBlockingNotNullAdd(s);
         const addCol: ColumnShape = blocking ? { ...s.column, nullable: true } : s.column;
@@ -1916,7 +1947,7 @@ export function applyDestructivePolicy(
       renamedInto.add(`${qkey(s.schema, s.table)}.${s.to}`);
     }
   }
-  const consumed = new Set<string>();
+  const consumed = new Set<string>(consumedConstant);
   for (const s of woven) {
     if (s.op === "backfillColumn") consumed.add(`${qkey(s.schema, s.table)}.${s.column}`);
   }
@@ -2288,6 +2319,12 @@ export interface ResolvedBackfill {
   schema?: string;
   column: string;
   valueSql: string;
+  /** The value reads no column: the same for every row, so Postgres can hold
+   *  it as a column DEFAULT.  An added column backfilled with a constant is
+   *  laid down `ADD COLUMN … DEFAULT <c>` and the default dropped again — a
+   *  catalog-only change on PG11+ — instead of the UPDATE over every row.
+   *  Absent ⇒ treated as an expression (the UPDATE path). */
+  constant?: boolean;
 }
 
 /** Raised when a raw `sql` migration step cannot be pinned to a single
@@ -2523,12 +2560,15 @@ export function buildMigrations(
       options.warnings.push(...uniqueOnExistingTableWarnings(structuralSteps, baseline, m.name));
       options.warnings.push(...enumNarrowingWarnings(structuralSteps, baseline, m.name));
     }
-    const steps: MigrationStep[] = [
-      ...newData.filter((d) => d.before).map(toExec),
-      ...structuralSteps,
-      ...reshapeComments,
-      ...newData.filter((d) => !d.before).map(toExec),
-    ];
+    const steps: MigrationStep[] = markConcurrentIndexes(
+      [
+        ...newData.filter((d) => d.before).map(toExec),
+        ...structuralSteps,
+        ...reshapeComments,
+        ...newData.filter((d) => !d.before).map(toExec),
+      ],
+      baseline,
+    );
     const storageName = findPrimaryStorageBinding(sys, m, m.migrationsOwner) ?? "";
     // The version is NOT decided here: it belongs to the migration chain,
     // which numbers a generation when it is recorded (`migration-chain.ts`).
@@ -2559,6 +2599,40 @@ export function buildMigrations(
     });
   }
   return out;
+}
+
+/** Build every index added to a table that already exists `CONCURRENTLY`.
+ *
+ *  A plain `CREATE INDEX` holds a SHARE lock on its table until the build
+ *  finishes, so every write to the table waits for it — seconds per million
+ *  rows — and inside a migration transaction the wait stretches to the end of
+ *  the whole generation.  Concurrent builds take no lock that blocks reads or
+ *  writes.  This covers every index the diff adds: a `resource … index:`, a
+ *  `unique (…)` key and the covering index of a foreign key alike.  An index
+ *  on a table this generation creates is inline on its `createTable` and
+ *  stays plain — the table is empty and nothing can be waiting on it.  The
+ *  flag is recorded with the step in the migration chain, so a generation
+ *  recorded before it renders unchanged. */
+function markConcurrentIndexes(
+  steps: readonly MigrationStep[],
+  baseline: SchemaSnapshot | null,
+): MigrationStep[] {
+  if (baseline === null) return [...steps];
+  const existing = new Set(baseline.tables.map((t) => qkey(t.schema, t.name)));
+  const created = new Set<string>();
+  for (const s of steps) {
+    if (s.op === "createTable") created.add(qkey(s.table.schema, s.table.name));
+    // A renamed table keeps its rows: an index on its new name is one on an
+    // existing table.
+    else if (s.op === "renameTable" && existing.has(qkey(s.schema, s.from))) {
+      existing.add(qkey(s.schema, s.to));
+    }
+  }
+  return steps.map((s): MigrationStep => {
+    if (s.op !== "addIndex") return s;
+    const key = qkey(s.schema, s.index.table);
+    return existing.has(key) && !created.has(key) ? { ...s, concurrently: true } : s;
+  });
 }
 
 /** Judge each `migration` block's steps for ONE module against that module's
@@ -2743,7 +2817,15 @@ function resolveBackfills(
     if (!agg) continue;
     const field = agg.fields.find((f) => f.name === bi.field);
     if (!field || !isScalar(field.type)) continue; // validator reported
+    // A value is a constant when rendering it never resolves a column.  The
+    // renderer's vocabulary holds no volatile function (`now()` is STABLE —
+    // one value per statement, the same one a column default takes), so
+    // such a value is identical for every row.  A NULL constant is left on
+    // the UPDATE path: it backfills nothing, and the NOT NULL it precedes
+    // should fail exactly as it does there.
+    let readsColumn = false;
     const columnFor = (name: string): string | undefined => {
+      readsColumn = true;
       const sibling = agg.fields.find((f) => f.name === name);
       return sibling && isScalar(sibling.type) ? snake(name) : undefined;
     };
@@ -2753,6 +2835,7 @@ function resolveBackfills(
     } catch {
       continue; // outside the SQL subset — validator reported
     }
+    const constant = !readsColumn && valueSql !== "NULL";
     // A TPC base owns no table: its fields live on every concrete's own
     // table, under the same column names, so the step fans out to each of
     // them with the one rendered value.  Anything else has exactly one
@@ -2766,6 +2849,7 @@ function resolveBackfills(
         schema: schemaOf(target, ctx),
         column: snake(bi.field),
         valueSql,
+        ...(constant ? { constant: true } : {}),
       });
     }
   }

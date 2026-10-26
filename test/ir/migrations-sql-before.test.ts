@@ -134,12 +134,31 @@ describe("`sql before` ordering (B-20)", () => {
     emitJavaMigrations([mig], outputs.flyway!);
     emitPythonMigrations([mig], outputs.alembic!);
     emitEctoMigrations("bank", [mig], "Bank", outputs.ecto!);
+    // The index lands on an existing table, so it is built CONCURRENTLY in the
+    // generation's non-transactional unit — a second file each runner applies
+    // AFTER the first.  Read every backend's files in its runner's apply order:
+    // Flyway's numeric version, every other runner's file name.
+    const flywayVersion = (path: string): number[] =>
+      /V([\d.]+)__/.exec(path)![1]!.split(".").map(Number);
+    const byFlyway = (a: string, b: string): number => {
+      const [x, y] = [flywayVersion(a), flywayVersion(b)];
+      for (let i = 0; i < Math.max(x.length, y.length); i++) {
+        const d = (x[i] ?? -1) - (y[i] ?? -1);
+        if (d !== 0) return d;
+      }
+      return 0;
+    };
     for (const [backend, files] of Object.entries(outputs)) {
-      const file = [...files.values()].find((c) => c.includes("-dup"));
-      expect(file, `${backend}: dedupe emitted`).toBeDefined();
-      const dedupe = file!.indexOf("-dup");
-      const index = file!.search(/CREATE UNIQUE INDEX|create index\(/);
-      expect(index, `${backend}: unique index in the same file`).toBeGreaterThan(-1);
+      const paths = [...files.keys()].filter((p) => !/db\/migrate\.ts$|\.json$/.test(p));
+      paths.sort(backend === "flyway" ? byFlyway : undefined);
+      const applied = paths.map((p) => files.get(p)!).join("\n");
+      expect(paths.length, `${backend}: a transactional + a concurrent unit`).toBe(2);
+      const dedupe = applied.indexOf("-dup");
+      expect(dedupe, `${backend}: dedupe emitted`).toBeGreaterThan(-1);
+      const index = applied.search(
+        /CREATE UNIQUE INDEX CONCURRENTLY|create index\(.*concurrently: true/,
+      );
+      expect(index, `${backend}: unique index built concurrently`).toBeGreaterThan(-1);
       expect(dedupe, `${backend}: dedupe precedes the unique index`).toBeLessThan(index);
     }
   });
