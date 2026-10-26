@@ -33,13 +33,6 @@ export function javaSentence(cls: WireRejectionClass, subjectExpr: string): stri
     .join(" + ");
 }
 
-/** The sentence a class builds for a subject known at generation time, as one
- *  Java string literal. */
-export function javaSentenceLit(cls: WireRejectionClass, subject: string): string {
-  const { prefix, suffix } = wireSentence(cls);
-  return javaLit(`${prefix}${subject}${suffix === "" ? "" : ` ${suffix}`}`);
-}
-
 /** The Java expression for an absent required field's `errors[].message`:
  *  `"<field> is required"`, the field being the last key of the RFC 6901
  *  `pointerExpr`.  `lastKey` is the advice's helper. */
