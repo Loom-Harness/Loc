@@ -229,6 +229,34 @@ if (err instanceof ConcurrencyError)       return problem(409, "Conflict", err.m
 
 A `requires` that reads `currentUser` needs a deployable that binds a verified principal (`loom.guard-principal-without-auth`); see [Auth](17-auth.md#requires--the-authorization-gate-http-403).
 
+### Null narrowing in a body
+
+A null test narrows the path it tests for the region of the body it decides: an `if`'s block (`!= null` the then block, `== null` the else block), and the rest of the body after a `precondition <path> != null` or after an `if <path> == null { … return … }` with no `else`. A member of a `T?` is otherwise refused (`loom.nullable-receiver`).
+
+```ddd
+operation rename(o: string?) {
+  if o != null { name := o.trim() }                  // o is string here
+}
+operation stampOrg() {
+  precondition currentUser.org != null
+  name := currentUser.org.toLower()                  // narrowed for the rest of the body
+}
+```
+
+```ts
+public rename(o: string | null): void {
+  if (o !== null) {
+    this._name = o.trim();
+  }
+}
+public stampOrg(): void {
+  if (!(currentUser.org !== null)) throw new DomainError("Precondition failed: currentUser.org != null", "precondition");
+  this._name = currentUser.org.toLowerCase();
+}
+```
+
+The region must not change the path. A write to it, or to a prefix of it (`addr := …` changes `addr.city`), blocks narrowing. So does an operation call when the path is aggregate state, because the operation can assign the field; a param, a `let` and a `currentUser` claim cannot change under a call. A `requires` does not narrow: it is checked at the route, before the aggregate method runs.
+
 ### A parameterless operation needs no request body
 
 `operation confirm()` routes to `POST /api/<plural>/{id}/confirm`, and a caller with nothing to send may send nothing: on all five backends an empty body — no `Content-Type`, or a JSON one with zero bytes — is answered exactly as `{}` is ([RS-39](../conformance-semantics.md)). The same holds for a workflow started with no input. The published `requestBody` is optional; a foreign media type (`text/plain`, a form post) is still `415`.

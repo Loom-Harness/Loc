@@ -30,6 +30,7 @@ import { handlerTargets, targetHandlerName, targetMethod, targetPath } from "./_
 export default defineMacro({
   name: "scaffoldApi",
   target: "api",
+  late: true,
   apiVersion: 1,
   description:
     "Emits a route per operation, create, find, and get-by-id read of every " +

@@ -138,6 +138,10 @@ export interface ExpandContext<P extends ParamSpec, T extends MacroTarget> {
     name: string,
     opts: { target: object; args?: Record<string, unknown> },
   ) => unknown[];
+  /** Report a non-fatal `loom.*` warning against the `with` call, for a macro
+   * that deliberately skips part of its scope.  Absent when the host drives
+   * `expand` outside the expander (e.g. the unfold code action). */
+  warn?: (code: `loom.${string}`, message: string) => void;
 }
 
 /** A macro registered with the compiler.  Stdlib ships these
@@ -160,6 +164,12 @@ export interface MacroDefinition<
    * against.  Currently informational; will gate API compatibility
    * once the surface stabilises. */
   apiVersion?: 1;
+  /** Expand only after every aggregate/ui/context/api `with` clause in the
+   * document has run.  For macros that READ the finished aggregate surface of
+   * their scope (members spliced by other macros such as `crudish`) rather
+   * than contribute to it — document order would otherwise show them a
+   * context's aggregates before those are expanded. */
+  late?: boolean;
   /** The expansion function.  Returns the list of members to
    * splice into the host.  Members MUST be constructed via the
    * factories so they carry origin metadata. */

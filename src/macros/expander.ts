@@ -244,6 +244,21 @@ function expandModel(model: Model, doc: LangiumDocument, shared?: LangiumSharedS
     else if (isBoundedContext(node)) expandHost(node, "context", doc, inv, buildRef);
     else if (isApi(node)) expandHost(node, "api", doc, inv, buildRef);
   }
+  // Second sweep: `late` macros (they read the finished aggregate surface of
+  // their scope), now that every aggregate's own `with` clause has spliced.
+  for (const node of [...AstUtils.streamAllContents(model)]) {
+    const kind = isUi(node)
+      ? "ui"
+      : isBoundedContext(node)
+        ? "context"
+        : isApi(node)
+          ? "api"
+          : undefined;
+    if (!kind) continue;
+    for (const call of (node as { withClause?: { calls?: MacroCall[] } }).withClause?.calls ?? []) {
+      if (isLateCall(call)) expandOneCall(call, node as never, kind, doc, inv, buildRef);
+    }
+  }
   void isSystem; // imported for symmetry with future system-level macros
   // ALWAYS-ON, after `with` expansion so scaffold-generated pages are seen too
   // (they already carry their paging controls, so they pass through untouched).
@@ -251,6 +266,12 @@ function expandModel(model: Model, doc: LangiumDocument, shared?: LangiumSharedS
   // scaffold emits — otherwise it renders the backend's default first page with
   // no pager and no way to reach the rest.  See `stdlib/auto-paged-table.ts`.
   autoPagePagedTables(model);
+}
+
+/** True iff the call names a registered `late` macro (see
+ * `MacroDefinition.late`) — deferred to the expander's second sweep. */
+function isLateCall(call: MacroCall): boolean {
+  return !!call.name && lookupMacro(call.name)?.late === true;
 }
 
 function expandHost(
@@ -263,6 +284,7 @@ function expandHost(
   const wc = host.withClause;
   if (wc) {
     for (const call of wc.calls ?? []) {
+      if (isLateCall(call)) continue;
       expandOneCall(call, host, kind, doc, inv, buildRef);
     }
   }
@@ -558,6 +580,14 @@ function expandOneCall(
         args: argResult.values,
         origin,
         invokeMacro,
+        warn: (code, message) =>
+          recordDiagnostic(doc, {
+            severity: "warning",
+            code,
+            message,
+            node: call,
+            property: "name",
+          }),
       }),
     );
   } catch (err) {

@@ -1,23 +1,19 @@
 // ---------------------------------------------------------------------------
-// The vanilla changeset's WIRE-INGRESS contract, and the projection's decimal
-// read — three elixir-only runtime divergences from node, each pinned on the
-// surface the request actually hits.
+// The vanilla changeset's wire-ingress seams that no booted leg reaches.
 //
-//   * A blank string reaches the rule that owns it.  Ecto's default `cast/3`
-//     turns `""` / `"   "` into nil and `validate_required/2` calls a blank
-//     string missing, so `check name.length > 0 message "Name is required"`
-//     never ran: elixir answered "can't be blank" (or a 500) where node answers
-//     the authored text and its `msg.<hash>` code.  String columns (and a value
-//     object's string leaves) are cast with `empty_values: []`; presence is
-//     nil-only.
-//   * A malformed decimal is node's `Invalid decimal: "…"` at the LEAF pointer —
-//     on the crudish create/update body (Ecto said "is invalid") and inside a
-//     value object (stored verbatim before).
-//   * A query-time projection's joined plain `decimal` is a JSON number, not
-//     the string Jason renders a `%Decimal{}` as (RS-24).
+// The create path's blank-string and decimal-ingress contracts, and the
+// query-time projection's decimal read, are asserted by value on the elixir
+// behavioural leg (corpus `validation-messages`, `wire-ingress`,
+// `datetime-wire`, against node's golden).  What stays here is what those legs
+// cannot observe:
 //
-// The runtime half is the corpus fixtures `validation-messages`, `wire-ingress`
-// and `datetime-wire` on the elixir behavioural leg, against node's golden.
+//   * `update_changeset`'s own copies of the blank-string and decimal-ingress
+//     pipes — the booted leg does not tell them apart from the create path's
+//     (reverting the update-path decimal guard leaves `wire-ingress` green).
+//   * a blank optional decimal (`""` from a LiveView form) stays absent.
+//   * the decimal grammar is node's `moneySchema` regex.
+//   * an aggregate with no string or decimal column emits none of the helpers.
+//   * the projection and the aggregate serializer share one `__decimal_num/1`.
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
@@ -76,32 +72,22 @@ async function emitted(suffix: string): Promise<string> {
   throw new Error(`${suffix} not found in: ${[...cache.keys()].join(", ")}`);
 }
 
-describe("elixir changeset — a blank string reaches its rule", () => {
-  it("casts string columns with empty_values: [] and checks their presence nil-only", async () => {
+describe("elixir update_changeset — its own ingress pipes", () => {
+  it("re-casts strings with empty_values: [] and guards decimals, after the absent-key check", async () => {
     const cs = await emitted("/c/product_changeset.ex");
-    expect(cs).toContain("@string_fields [:name, :nick]");
-    expect(cs).toContain("@required_strings [:name]");
-    // Both seams: create and the full-replacement update.
-    expect(cs.match(/\|> cast\(attrs, @string_fields, empty_values: \[\]\)/g)?.length).toBe(2);
-    expect(cs).toContain("|> cast(attrs, @all_fields -- @string_fields)");
-    expect(cs).toContain("|> validate_required(@required_fields -- @required_strings)");
-    expect(cs.match(/\|> __require_present\(@required_strings\)/g)?.length).toBe(2);
-    // Nil-only: `validate_required/2` would call "" missing.
-    expect(cs).toContain("defp __require_present(changeset, fields) do");
-    expect(cs).toContain(
-      "if is_nil(get_field(cs, field)) and not Keyword.has_key?(cs.errors, field),",
-    );
-    // The update seam keeps its absent-key check ahead of the presence check.
-    expect(cs.indexOf("|> __require_keys(attrs, @update_required)")).toBeLessThan(
-      cs.indexOf("|> __require_present(@required_strings)", cs.indexOf("def update_changeset")),
+    const update = cs.slice(cs.indexOf("def update_changeset"));
+    expect(update).toMatch(/\|> cast\(attrs, @string_fields, empty_values: \[\]\)/);
+    expect(update).toMatch(/\|> __loom_decimal_ingress\(attrs, @decimal_ingress\)/);
+    expect(update.indexOf("|> __require_keys(attrs, @update_required)")).toBeLessThan(
+      update.indexOf("|> __require_present(@required_strings)"),
     );
   });
 
-  it("re-casts a value object's string leaves the same way", async () => {
-    const vo = await emitted("/c/sku.ex");
-    expect(vo).toContain("@string_fields [:code]");
-    expect(vo).toContain("|> cast(attrs, Map.keys(@types) -- @string_fields)");
-    expect(vo).toContain("|> cast(attrs, @string_fields, empty_values: [])");
+  it("keeps a blank optional decimal absent, on node's grammar", async () => {
+    const cs = await emitted("/c/product_changeset.ex");
+    expect(cs).toContain("{[:discount], true}");
+    expect(cs).toContain('(blank_is_absent and String.trim(value) == "")');
+    expect(cs).toContain("Regex.match?(~r/^-?\\d+(\\.\\d+)?$/, value)");
   });
 
   it("leaves an aggregate with no string column byte-identical", async () => {
@@ -114,45 +100,7 @@ describe("elixir changeset — a blank string reaches its rule", () => {
   });
 });
 
-describe("elixir changeset — a malformed decimal is node's refusal at the leaf", () => {
-  it("guards every top-level decimal column and every value-object decimal leaf", async () => {
-    const cs = await emitted("/c/product_changeset.ex");
-    expect(cs).toContain(
-      "@decimal_ingress [{[:price], false}, {[:discount], true}, {[:weight], false}, " +
-        "{[:best, :price], false}, {[:best, :rate, :amount], false}]",
-    );
-    // Right after the casts, on both seams, so a top-level cast error is
-    // replaced before `validate_required/2` looks at the field.
-    const createBody = cs.slice(
-      cs.indexOf("def base_changeset"),
-      cs.indexOf("def update_changeset"),
-    );
-    expect(createBody).toMatch(
-      /\|> cast\(attrs, @string_fields, empty_values: \[\]\)\n\s+\|> __loom_decimal_ingress\(attrs, @decimal_ingress\)/,
-    );
-    expect(cs.match(/\|> __loom_decimal_ingress\(attrs, @decimal_ingress\)/g)?.length).toBe(2);
-  });
-
-  it("answers node's text and grammar, at the leaf's pointer, replacing Ecto's cast error", async () => {
-    const cs = await emitted("/c/product_changeset.ex");
-    expect(cs).toContain(
-      'add_error(field, "Invalid decimal: " <> Jason.encode!(value), loom_path: rest)',
-    );
-    expect(cs).toContain("Regex.match?(~r/^-?\\d+(\\.\\d+)?$/, value)");
-    expect(cs).toContain("f == field and opts[:validation] == :cast");
-    // A blank optional top-level column stays absent (a LiveView form posts "").
-    expect(cs).toContain('(blank_is_absent and String.trim(value) == "")');
-  });
-});
-
-describe("elixir query-time projection — a decimal select is a JSON number", () => {
-  it("routes a decimal select through __decimal_num/1 and money through __money_round/1", async () => {
-    const proj = await emitted("/price_board.ex");
-    expect(proj).toContain("weight: __decimal_num(record.weight)");
-    expect(proj).toContain("price: __money_round(record.price)");
-    expect(proj).toContain("defp __decimal_num(%Decimal{} = dec), do: Decimal.to_float(dec)");
-  });
-
+describe("elixir query-time projection — decimal serialization", () => {
   it("shares one __decimal_num/1 definition with the aggregate's own serializer", async () => {
     const helper = (src: string): string => {
       const start = src.indexOf("  defp __decimal_num(nil)");

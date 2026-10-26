@@ -49,6 +49,7 @@ import type {
   EntityPart,
   Expression,
   FunctionDecl,
+  IfStmt,
   Lambda,
   MemberSuffix,
   Model,
@@ -69,6 +70,7 @@ import {
   isAggregate,
   isApi,
   isApply,
+  isAssignOrCallStmt,
   isAwaitExpr,
   isBinaryChain,
   isBoolLit,
@@ -94,6 +96,7 @@ import {
   isIdRef,
   isIdType,
   isIfLetStmt,
+  isIfStmt,
   isIntLit,
   isLambda,
   isLetStmt,
@@ -113,6 +116,7 @@ import {
   isPayloadDecl,
   isPolicyDecl,
   isPostfixChain,
+  isPreconditionStmt,
   isPrimitiveConversion,
   isPrimitiveType,
   isProjection,
@@ -121,8 +125,10 @@ import {
   isQueryHandler,
   isRepository,
   isRetrieval,
+  isReturnStmt,
   isSlotType,
   isStateBlock,
+  isStatement,
   isStore,
   isStringLit,
   isTemplateStr,
@@ -2009,8 +2015,108 @@ function isNarrowedNonNull(node: AstNode, key: string): boolean {
       }
     }
     if (isBinaryChain(parent) && narrowedInChain(parent, child, key)) return true;
+    if (isIfStmt(parent) && isStatement(child) && narrowedInIf(parent, child, key)) return true;
+    if (isStatement(child) && narrowedBySibling(parent, child, key)) return true;
   }
   return false;
+}
+
+// Statement null-narrowing.  A null test narrows the region of a body it
+// decides: an `if`'s THEN block (`!= null`) or ELSE block (`== null`), and the
+// statements after a `precondition` that tests `!= null`, or after an
+// `if <path> == null { … return … }` with no `else`.  Every backend emits each
+// of these as the same guard in the same method (a precondition is an early
+// throw), so its own compiler narrows the read too.  A `requires` does not
+// narrow: it is checked where the request is authorized (the route, before
+// the aggregate method runs), so the method body has no guard to narrow by.
+//
+// SOUNDNESS: the region must not change the path.  A write to it (or to a
+// prefix of it: `addr := …` changes `addr.city`) blocks narrowing anywhere in
+// the region; so does an operation call when the path is aggregate STATE (an
+// operation can assign it), while a param, a `let` or a `currentUser` claim
+// cannot change under a call.  `this.x` and a bare field `x` are the same
+// storage, so writes compare with `this.` dropped.
+
+function narrowedInIf(stmt: IfStmt, child: Statement, key: string): boolean {
+  if (stmt.thenBody.includes(child))
+    return decidesNonNull(stmt.cond, key, "!=") && regionKeeps(stmt.thenBody, key, stmt);
+  const elseRegion: Statement[] = stmt.elseIf ? [stmt.elseIf] : stmt.elseBody;
+  if (elseRegion.includes(child))
+    return decidesNonNull(stmt.cond, key, "==") && regionKeeps(elseRegion, key, stmt);
+  return false;
+}
+
+function narrowedBySibling(parent: AstNode, child: Statement, key: string): boolean {
+  const list = containingList(parent, child);
+  if (!list) return false;
+  const at = list.indexOf(child);
+  for (let j = at - 1; j >= 0; j--) {
+    if (guardsRest(list[j]!, key)) return regionKeeps(list.slice(j + 1), key, parent);
+  }
+  return false;
+}
+
+/** The statement array of `parent` that holds `child`. */
+function containingList(parent: AstNode, child: Statement): Statement[] | undefined {
+  for (const [k, v] of Object.entries(parent)) {
+    if (!k.startsWith("$") && Array.isArray(v) && v.includes(child)) return v as Statement[];
+  }
+  return undefined;
+}
+
+/** Does `s` stop the rest of its block from running unless `key` is non-null? */
+function guardsRest(s: Statement, key: string): boolean {
+  if (isPreconditionStmt(s)) return decidesNonNull(s.expr, key, "!=");
+  if (isIfStmt(s) && !s.elseIf && s.elseBody.length === 0) {
+    const last = s.thenBody[s.thenBody.length - 1];
+    return last !== undefined && isReturnStmt(last) && decidesNonNull(s.cond, key, "==");
+  }
+  return false;
+}
+
+function storageKey(path: string): string {
+  return path.startsWith("this.") ? path.slice(5) : path;
+}
+
+/** Is `key` aggregate state — `this.…`, or a bare name the enclosing
+ *  aggregate / part declares as a property? */
+function isStatePath(key: string, at: AstNode): boolean {
+  if (key.startsWith("this.")) return true;
+  const head = key.split(".")[0]!;
+  for (let c: AstNode | undefined = at; c; c = c.$container) {
+    if (isAggregate(c) || isEntityPart(c))
+      return c.members.some((m) => isProperty(m) && m.name === head);
+  }
+  return false;
+}
+
+function regionKeeps(stmts: readonly Statement[], key: string, at: AstNode): boolean {
+  const target = storageKey(key);
+  const state = isStatePath(key, at);
+  const stack: AstNode[] = [...stmts];
+  while (stack.length > 0) {
+    const n = stack.pop()!;
+    if (isAssignOrCallStmt(n)) {
+      const t = n.target;
+      if (t.call && state) return false;
+      if (n.op) {
+        const written = [t.head, ...t.tail].join(".");
+        if (target === written || target.startsWith(`${written}.`)) return false;
+      }
+    }
+    if (state && (isCallSuffix(n) || (isMemberSuffix(n) && n.call && !isPureMemberCall(n))))
+      return false;
+    for (const [k, v] of Object.entries(n)) {
+      if (k.startsWith("$")) continue;
+      if (Array.isArray(v)) for (const x of v) if (isAstNode(x)) stack.push(x);
+      if (isAstNode(v)) stack.push(v);
+    }
+  }
+  return true;
+}
+
+function isPureMemberCall(n: MemberSuffix): boolean {
+  return isIntrinsicName(n.member) || isCollectionOp(n.member) || n.member === "matches";
 }
 
 export type { Model, Statement };
