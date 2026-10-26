@@ -312,6 +312,41 @@ describe("waiver matching", () => {
     expect(applyWaivers([onCreate], "java", "ledger", waivers).gating).toHaveLength(1);
   });
 
+  it("scopes by value pair, so one sentence's waiver leaves every other message gating", () => {
+    const waivers: WireWaiver[] = [
+      {
+        backends: ["elixir"],
+        path: "$.errors[*].message",
+        kinds: ["value"],
+        values: { golden: " is required$", actual: "^Required$" },
+        reason: "#3881 — x",
+      },
+    ];
+    const msg = (golden: string, actual: string) => ({
+      seq: 0,
+      request: "POST /api/products",
+      kind: "value" as const,
+      path: "$.errors[0].message",
+      golden,
+      actual,
+    });
+    const split = applyWaivers(
+      [
+        msg("title is required", "Required"),
+        msg("Amount must be at least 1", "Precondition failed: amount >= 1"),
+        msg("title is required", "can't be blank"),
+      ],
+      "elixir",
+      "validation-messages",
+      waivers,
+    );
+    expect(split.waived.map((d) => d.actual)).toEqual(["Required"]);
+    expect(split.gating.map((d) => d.actual)).toEqual([
+      "Precondition failed: amount >= 1",
+      "can't be blank",
+    ]);
+  });
+
   it("splits gating from waived by backend, case, path and kind", () => {
     const waivers: WireWaiver[] = [
       { backends: ["java"], path: "**.version", kinds: ["value"], reason: "RS-11 — x" },
