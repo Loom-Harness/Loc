@@ -109,6 +109,7 @@ export {
   checkTheme,
   checkUi,
 } from "./ui.js";
+export { checkUnhandledResults } from "./unhandled-result.js";
 export { checkUnions } from "./unions.js";
 export { checkWorkflowCreateArgs } from "./workflow-create-args.js";
 export { checkWorkflowExplicitSave } from "./workflow-explicit-save.js";
