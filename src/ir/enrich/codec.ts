@@ -295,7 +295,7 @@ export function allScalarCodecs(): readonly ScalarCodec[] {
 }
 
 /** The scalar an `X id` of this value type is carried as. */
-export function idScalar(valueType: IdValueType): CodecPrimitive {
+function idScalar(valueType: IdValueType): CodecPrimitive {
   return valueType === "string" ? "string" : valueType;
 }
 

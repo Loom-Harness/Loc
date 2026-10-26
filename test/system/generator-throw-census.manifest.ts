@@ -1215,6 +1215,16 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "uiName comes from a resolved Langium cross-reference (an unresolved ui name is a linking error), and a project has exactly one system, so the ui is always in sys.uis. (src/ir/lower/lower-deployment.ts:34-35)",
   },
 
+  // src/generator/typescript/codec-spelling.ts
+  "src/generator/typescript/codec-spelling.ts#drizzleColumn": {
+    invariant:
+      "drizzleColumn is reached only from drizzleScalarColumn / drizzleIdColumn, which pass the Codec fact's column for a storable scalar or an id value type; the fact maps none of those to `bigserial` or `array` (pinned by test/ir/codec.test.ts). (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/typescript/codec-spelling.ts#tsInstantWire": {
+    invariant:
+      "The Codec fact's datetime wire form carries exactly three fraction digits (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+
   // src/generator/typescript/emit/channels.ts
   "src/generator/typescript/emit/channels.ts#transportFactoryLine": {
     invariant:
