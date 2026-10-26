@@ -61,6 +61,7 @@ async function runMixCompile(projDir: string): Promise<void> {
 // or a behaviourally wrong assertion (the `mix compile --warnings-as-errors`
 // gate above is MIX_ENV=prod and never compiles `test/`).
 async function runMixTest(projDir: string): Promise<void> {
+  await mix.ready();
   await sh(mix.dockerRun(`-v ${projDir}:/app`, "", `${mixDepsGet()} && mix test`), {
     timeout: 600_000,
   });

@@ -162,6 +162,13 @@ describe("mixDepsGet — bounded retry snippet", () => {
     expect(mixLocalInstall()).toContain("mix local.rebar --force");
   });
 
+  it("--if-missing always carries --force, so no install waits on a stdin [Yn] prompt", () => {
+    const snippet = mixLocalInstall({ ifMissing: true });
+    expect(snippet).toContain("mix local.hex --if-missing --force");
+    expect(snippet).toContain("mix local.rebar --if-missing --force");
+    expect(snippet).not.toMatch(/--if-missing(?! --force)/);
+  });
+
   it("the .mjs twin of the Hex install emits the identical snippet", async () => {
     const { mixLocalInstallShell } = await import("../../behavioral/mix-retry.mjs");
     expect(mixLocalInstallShell()).toBe(mixLocalInstall());
