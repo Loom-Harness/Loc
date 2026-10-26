@@ -185,17 +185,17 @@ function corpusFixtures(): { name: string; source: string }[] {
 }
 
 /** Injected handlers the validator refuses, per fixture: `scaffoldHandlers`
- *  declares a read handler over a `paged` / `option` / `or` find as a single
+ *  declares a read handler over a `paged` / `T?` / `or` find as a single
  *  `<Agg>Response`, and that handler's emitted code does not serve its declared
  *  shape (#4262). The refusal is the honest answer, so these errors are
  *  expected; every other error still fails, and an entry that stops firing must
  *  be deleted. */
 const INJECTED_HANDLER_REFUSALS: Record<string, readonly string[]> = {
-  "api-call.ddd": ["queryHandler 'ByCodeOrder' returns 'Order option'"],
+  "api-call.ddd": ["queryHandler 'ByCodeOrder' returns 'Order?'"],
   "paged.ddd": ["queryHandler 'AllOrder' returns 'Order paged'"],
   "union-find-absence.ddd": [
     "queryHandler 'ByCodeOrder' returns 'Order or NotFound'",
-    "queryHandler 'MaybeFirstOrder' returns 'Order option'",
+    "queryHandler 'MaybeFirstOrder' returns 'Order?'",
   ],
 };
 

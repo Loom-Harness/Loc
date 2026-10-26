@@ -61,7 +61,11 @@ export function checkVariantMatchShape(
   source: string,
   diags: LoomDiagnostic[],
 ): void {
-  const subjectType = m.subjectType;
+  // A `T?` subject matches as `T or none` (D-ABSENCE-MODEL).
+  const subjectType: TypeIR | undefined =
+    m.subjectType?.kind === "optional"
+      ? { kind: "union", variants: [m.subjectType.inner, { kind: "none" }] }
+      : m.subjectType;
   // Non-union subject — the scrutinee must resolve to an `or`-union.
   if (subjectType?.kind !== "union") {
     diags.push({

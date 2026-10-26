@@ -23,7 +23,7 @@
 
 import { AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
-import type { Model, TypeRef } from "../generated/ast.js";
+import type { Model, TypeAtom, TypeRef } from "../generated/ast.js";
 import {
   isCapability,
   isFindDecl,
@@ -32,6 +32,7 @@ import {
   isQueryHandler,
   isSelfType,
   isSlotType,
+  isTypeAtom,
   isTypeRef,
 } from "../generated/ast.js";
 
@@ -54,11 +55,26 @@ export function checkSelfType(model: Model, accept: ValidationAcceptor): void {
 
 export function checkGenericCarriers(model: Model, accept: ValidationAcceptor): void {
   for (const node of AstUtils.streamAllContents(model)) {
+    if (isTypeRef(node) || isTypeAtom(node)) checkOptionDeprecated(node, accept);
     if (isTypeRef(node)) {
       checkTypeRefCarrier(node, accept);
       checkTypeRefPosition(node, accept);
     }
   }
+}
+
+/** `T option` is `T?` (D-ABSENCE-MODEL): it lowers to the one nullable shape,
+ *  so the keyword is a deprecated spelling with a mechanical fix. */
+function checkOptionDeprecated(t: TypeRef | TypeAtom, accept: ValidationAcceptor): void {
+  t.ctors.forEach((ctor, index) => {
+    if (ctor !== "option") return;
+    accept("warning", diagMessage("loom.option-deprecated"), {
+      node: t,
+      property: "ctors",
+      index,
+      code: "loom.option-deprecated",
+    });
+  });
 }
 
 /** A generic carrier is a transport shape, not a stored value — it may only
@@ -68,7 +84,10 @@ export function checkGenericCarriers(model: Model, accept: ValidationAcceptor): 
  *  signature) is rejected, which also keeps the storage-side emitters
  *  (migrations, schema columns, wire-spec) free of `genericInstance`. */
 function checkTypeRefPosition(t: TypeRef, accept: ValidationAcceptor): void {
-  if (t.ctors.length === 0) return;
+  // `option` is `T?`, legal in any position; only the transport carriers stay
+  // bound to one.
+  const carriers = t.ctors.filter((c) => c !== "option");
+  if (carriers.length === 0) return;
   const container = t.$container;
   // A find's return type: the TypeRef sits directly on the FindDecl (its
   // params are wrapped in `Parameter` nodes, so they don't match here).
@@ -83,7 +102,7 @@ function checkTypeRefPosition(t: TypeRef, accept: ValidationAcceptor): void {
   if (isQueryHandler(container)) return;
   // A payload field: a `Property` whose owner is a `PayloadDecl`.
   if (isProperty(container) && isPayloadDecl(container.$container)) return;
-  accept("error", diagMessage("loom.generic-position", { ctors: t.ctors.join(" ") }), {
+  accept("error", diagMessage("loom.generic-position", { ctors: carriers.join(" ") }), {
     node: t,
     property: "ctors",
     code: "loom.generic-position",

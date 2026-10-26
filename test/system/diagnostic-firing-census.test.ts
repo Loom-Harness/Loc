@@ -2055,6 +2055,11 @@ system P {
   // domain-service operation and handler arms share the check.
   "loom.return-type-mismatch": orderOps('operation bad(): int { return "x" }'),
   "loom.return-missing": orderOps("operation bad(): int { if total > 0 { return 1 } }"),
+  // `T option` is the deprecated spelling of `T?`.
+  "loom.option-deprecated": repoOnly(`    aggregate Order with crudish { code: string }
+    repository Orders for Order {
+      find byCode(code: string): Order option where this.code == code
+    }`),
   // A dropped `or E` result: the call statement throws the `error` case away.
   "loom.unhandled-result": repoOnly(`    error Rejected { reason: string }
     aggregate Order with crudish {
