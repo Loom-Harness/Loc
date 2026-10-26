@@ -28,7 +28,7 @@ describe("svelte pack format groundwork", () => {
     const tsx = new Set(flattenRequired(REQUIRED_PRIMITIVES.tsx));
     // `primitive-chart` is TSX-ONLY (M-T1.3 Phase 5): each react pack binds its
     // own charting library, and no svelte pack ships a chart template — `Chart`
-    // stays an honest `loom.chart-unsupported-target` gap here.
+    // stays an honest `loom.target-unsupported#chart` gap here.
     tsx.delete("primitive-chart");
     for (const name of tsx) {
       expect(svelte.has(name), `svelte set missing tsx-required "${name}"`).toBe(true);

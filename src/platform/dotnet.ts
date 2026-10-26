@@ -7,6 +7,7 @@ import { efcorePersistenceAdapter } from "../generator/dotnet/adapters/efcore-pe
 import { dotnetRootNamespace } from "../generator/dotnet/bcl-collision.js";
 import { DOTNET_TFM } from "../generator/dotnet/emit/program.js";
 import { generateDotnetForContexts } from "../generator/dotnet/index.js";
+import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
 import {
   type ComposeServiceShape,
   EMBEDDABLE_FRAMEWORKS,
@@ -42,6 +43,7 @@ const dotnetPlatform: PlatformSurface = {
   // `hasUiBinding && !platformMountsUi`, which never fires absent
   // an explicit `ui:` declaration.
   mountsUi: true,
+  capabilities: TARGET_CAPABILITIES.dotnet,
   emitProject({
     contexts,
     deployable,

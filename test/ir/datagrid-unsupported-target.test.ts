@@ -1,4 +1,4 @@
-// `loom.datagrid-unsupported-target` — DataGrid on a frontend that can't
+// `loom.target-unsupported#datagrid` — DataGrid on a frontend that can't
 // render it is a COMPILE ERROR, not a silently missing grid.
 //
 // This is the honest-gap discipline: DataGrid emits a TanStack row model in a
@@ -129,7 +129,7 @@ system S {
 }
 `;
 
-describe("loom.datagrid-unsupported-target", () => {
+describe("loom.target-unsupported#datagrid", () => {
   // The frameworks with no `renderDataGridChild` seam.  Both are PERMANENT
   // under D-DATAGRID-TARGETS' one rule — a frontend ships `DataGrid` iff it can
   // host TanStack without forking its own contract — not unported legs:
@@ -150,7 +150,7 @@ describe("loom.datagrid-unsupported-target", () => {
   for (const fw of ["flutter", "phoenixLiveView"]) {
     it(`rejects DataGrid on a ${fw} frontend`, async () => {
       const diags = await validateSource(sys(fw));
-      const hit = diags.find((d) => d.code === "loom.datagrid-unsupported-target");
+      const hit = diags.find((d) => d.code === "loom.target-unsupported");
       expect(hit, `expected the gate to fire for ${fw}`).toBeDefined();
       expect(hit?.severity).toBe("error");
       // The message must point at the alternative that actually works.
@@ -160,7 +160,7 @@ describe("loom.datagrid-unsupported-target", () => {
 
   it("rejects DataGrid inside a COMPONENT on a flutter frontend", async () => {
     const diags = await validateSource(sysWithGridInComponent("flutter"));
-    const hit = diags.find((d) => d.code === "loom.datagrid-unsupported-target");
+    const hit = diags.find((d) => d.code === "loom.target-unsupported");
     expect(hit, "a grid moved into a component must not slip the gate").toBeDefined();
     expect(hit?.severity).toBe("error");
     // The message names the actual host, not just some page.
@@ -169,12 +169,12 @@ describe("loom.datagrid-unsupported-target", () => {
 
   it("accepts DataGrid inside a component on a ported frontend", async () => {
     const diags = await validateSource(sysWithGridInComponent("react"));
-    expect(diags.find((d) => d.code === "loom.datagrid-unsupported-target")).toBeUndefined();
+    expect(diags.find((d) => d.code === "loom.target-unsupported")).toBeUndefined();
   });
 
   it("scans EVERY ui a `hosts: [A, B]` deployable mounts, not just the first", async () => {
     const diags = await validateSource(sysWithTwoHostedUis);
-    const hits = diags.filter((d) => d.code === "loom.datagrid-unsupported-target");
+    const hits = diags.filter((d) => d.code === "loom.target-unsupported");
     expect(hits.length, "the grid on the second hosted ui must be found").toBe(1);
     expect(hits[0].source).toBe("UiB/page 'B'");
   });
@@ -184,7 +184,7 @@ describe("loom.datagrid-unsupported-target", () => {
   for (const fw of ["react", "vue", "svelte", "angular", "feliz"]) {
     it(`accepts DataGrid on ${fw}`, async () => {
       const diags = await validateSource(sys(fw));
-      expect(diags.find((d) => d.code === "loom.datagrid-unsupported-target")).toBeUndefined();
+      expect(diags.find((d) => d.code === "loom.target-unsupported")).toBeUndefined();
     });
   }
 });

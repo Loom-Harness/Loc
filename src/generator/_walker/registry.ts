@@ -559,10 +559,10 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
   // per format (`vue/`, `sveltekit/`, `angular/` `primitive-chart.hbs`) that
   // the loader merges into every pack of that format, which is why they carry
   // no per-pack entry (see `CHART_PRIMITIVES` in
-  // `_packs/required-primitives.ts`).  So `CHART_FRAMEWORKS` lists all seven
-  // and `loom.chart-unsupported-target` gates only a not-yet-ported FUTURE
-  // frontend.  (This line used to say vue/svelte/angular "stay behind the
-  // honest gate" — stale since the shared templates landed.)
+  // `_packs/required-primitives.ts`).  So the capability table
+  // (`src/util/target-capabilities.ts`) marks `Chart` supported on all seven,
+  // and `loom.target-unsupported#chart` gates only a not-yet-ported FUTURE
+  // frontend.
   // A chart is an image of data: `role="img"` + a derived `aria-label`.
   Chart: {
     group: "layout",
