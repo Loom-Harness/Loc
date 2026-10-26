@@ -20,6 +20,11 @@ import {
   TEST_RESET_TOKEN_ENV,
 } from "../../../util/test-reset.js";
 import { renderHonoBaseLogCall, renderHonoLogCall } from "../../_obs/render-hono.js";
+import {
+  baseRoutesImports,
+  baseRoutesMount,
+  routesPolymorphicRead,
+} from "../base-reader-builder.js";
 
 // The per-aggregate routes file is built procedurally in
 // `routes-builder.ts` because the OpenAPI annotations push it past
@@ -179,6 +184,14 @@ export function renderHttpIndex(
     `import { ${lowerFirst(a.name)}Routes } from "./${lowerFirst(a.name)}.routes";`,
     `import { ${a.name}Repository } from "../db/repositories/${lowerFirst(a.name)}-repository";`,
   ]);
+  // Polymorphic base reads (aggregate-inheritance.md) — the paged
+  // `GET /api/<bases>` of each abstract base whose read is routed.  Drizzle
+  // only: the MikroORM reader does not yet render the polymorphic-read fact.
+  const routedBases = usingMikro
+    ? []
+    : ctx.aggregates.filter((a) => a.isAbstract && routesPolymorphicRead(a, ctx));
+  const baseImports = routedBases.flatMap(baseRoutesImports);
+  const baseRoutes = routedBases.map(baseRoutesMount);
   const aggregateRoutes = aggregates.map((a) => {
     // Aggregates with an audited OR provenanced public operation — or an
     // audited lifecycle action (`create(...) audited` / `destroy audited`) —
@@ -507,6 +520,7 @@ export function renderHttpIndex(
       baseLoggerImport,
       authImport,
       ...aggregateImports,
+      ...baseImports,
       workflowImport,
       realtimeImport,
       projectionImport,
@@ -617,6 +631,7 @@ export function renderHttpIndex(
       "  });",
       ...testResetRoute,
       ...aggregateRoutes,
+      ...baseRoutes,
       workflowMount,
       realtimeMount,
       projectionMount,

@@ -66,20 +66,29 @@ The default is `sharedTable`, so a hierarchy with no `inheritanceUsing: …` is 
 
 Both strategies provide a polymorphic read home that returns the union of all
 concrete subtypes. The abstract base owns no repository, so the reader is emitted
-per backend as infrastructure that **delegates to the concrete loaders** (so
-contained parts and `X id[]` associations load correctly) rather than a flat
-column union:
+per backend as infrastructure.
 
-This holds for **both** layouts. It used to be a TPC-only property on
-node/Hono: the TPH reader hand-rolled `select().from(schema.<base>)` + a `kind`
-switch, which meant it read the shared table through none of the machinery the
-concrete repositories apply to it — no capability `filter`, no tenancy
-predicate, no contained parts. Under `tenantOwned` that is a cross-tenant read
-as soon as the reader is routed. Both layouts now delegate.
+The contract is **one native read**: every row comes back as
+its real subtype, a row filtered by the base's restriction or by its own
+subtype's is absent, and the order (`id`) and the page window are global across
+subtypes — never per-subtype reads concatenated. The IR fact every backend
+renders is `polymorphicReadFor` (`src/ir/enrich/read-scope.ts`): under TPH the
+root's restrictions plus each concrete's own, root-hosted and guarded by its
+discriminator (`kind <> 'Car' OR <pred>`); under TPC each concrete's full scope,
+unioned or merged in the global order.
+
+On the wire the read is `GET /api/<bases>?page=&pageSize=` answering the paged
+envelope (`items`, `page`, `pageSize`, `total`, `totalPages`), each item the
+tagged-union shape of [`payloads.md`](payloads.md): `{ "type": "Car", …Car's own
+wire fields }`. Under TPH `GET /api/<bases>/{id}` answers one tagged row, or 404
+when a restriction hides it. The route is served only where every concrete's own
+list read is open — a concrete whose `all` carries a `requires` gate (including
+the `denyByDefault` one) or whose wire masks a field keeps the reader unrouted.
 
 | Backend (`platform:`) | polymorphic base reader |
 |---|---|
-| `node` (Hono / Drizzle) | a read-only `<Base>Repository` whose `findAll()` concatenates each concrete repo's `all()`; a `<Base>` discriminated-union response type |
+| `node` (Hono / Drizzle) | a read-only `<Base>Repository`. TPH: one select over the shared table carrying the root's and every subtype's kind-guarded restrictions, ordered by `id`, paged in SQL, each row hydrated as its `kind`. TPC: each concrete repo's own read, merged in `id` order, then paged. Routed as `GET /api/<bases>` (+ `/{id}` under TPH) with a `<Base>Response` discriminated union. A query-time projection `from <TPH base>` applies the same guarded subtype restrictions |
+| `node` (Hono / MikroORM) | a read-only `<Base>Repository` whose `findAll()` concatenates each concrete repo's `all()`; not routed |
 | `dotnet` (.NET / EF Core) | `public abstract class <Base>` carrying the shared fields; concretes declare `: <Base>` and inherit them; EF excludes the base via `modelBuilder.Ignore<<Base>>()` so each concrete maps standalone; a read-only `I<Base>Repository` / `<Base>Repository` whose `FindAllAsync()` returns `IReadOnlyList<<Base>>` |
 | `phoenix` (Ecto) | a read-only `<Base>Repository` whose `list` concatenates each concrete repository's `list` (draining a paged concrete's pages) and whose `find_by_id` tries each concrete in turn; the context's `list_<bases>` / `get_<base>` delegate to it and take `current_user \\ nil` whenever a concrete read does. TPH included: the `kind` conjunct and every capability / inline filter live in the concrete repositories. A `shape: document` concrete is flattened (`row.data`) before the base serializer runs |
 | `python` (FastAPI / SQLAlchemy) | a read-only `<Base>` repository whose `find_all` concatenates each concrete repo's reads; a `<Base>` union response type |
