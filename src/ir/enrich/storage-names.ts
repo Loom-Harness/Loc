@@ -65,10 +65,3 @@ export function associationTables(
     targetTable: tableNameFor(assoc.targetAgg),
   };
 }
-
-/** The URL segment an aggregate's routes mount under (`ProductSKU` →
- *  `product_skus`).  Routes are per aggregate, so a TPH concrete mounts under
- *  its OWN segment even though its rows share the base's table. */
-export function aggregateRouteSegment(agg: Pick<AggregateIR, "name">): string {
-  return routeSegmentFor(agg.name);
-}

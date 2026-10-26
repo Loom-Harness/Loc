@@ -115,4 +115,42 @@ system AcronymNames {
     let saga = api.restockSKU.instance(sku)
     expect(saga.restocks).toBe(3)
   }
+
+  // Every derived route of every acronym-named aggregate — each one is mounted
+  // under the route segment and reads the table this fixture is about.
+  test e2e "every acronym-named route answers" against d {
+    let alias = api.url_aliases.create({ path: "/b" })
+    api.url_aliases.update(alias, { path: "/c" })
+    expect(api.url_aliases.getById(alias).path).toBe("/c")
+    let aliases = api.url_aliases.all().total
+    api.url_aliases.destroy(alias)
+    expect(api.url_aliases.all().total).toBe(aliases - 1)
+
+    let log = api.http_logs.create({ status: 500 })
+    api.http_logs.update(log, { status: 503 })
+    let logs = api.http_logs.all().total
+    api.http_logs.destroy(log)
+    expect(api.http_logs.all().total).toBe(logs - 1)
+
+    let sku = api.productSKUs.create({ code: "P-3", qty: 1, aliases: [] })
+    api.productSKUs.update(sku, { code: "P-4", qty: 2, aliases: [] })
+    expect(api.productSKUs.getById(sku).code).toBe("P-4")
+    let skus = api.productSKUs.all().total
+    api.productSKUs.destroy(sku)
+    expect(api.productSKUs.all().total).toBe(skus - 1)
+
+    let p = api.physicalSKUs.create({ title: "Crate", weightGrams: 900 })
+    api.physicalSKUs.update(p, { weightGrams: 950 })
+    expect(api.physicalSKUs.getById(p).weightGrams).toBe(950)
+    let physical = api.physicalSKUs.all().length
+    api.physicalSKUs.destroy(p)
+    expect(api.physicalSKUs.all().length).toBe(physical - 1)
+
+    let dg = api.digitalSKUs.create({ title: "Song", sizeBytes: 10 })
+    api.digitalSKUs.update(dg, { sizeBytes: 20 })
+    expect(api.digitalSKUs.getById(dg).sizeBytes).toBe(20)
+    let digital = api.digitalSKUs.all().length
+    api.digitalSKUs.destroy(dg)
+    expect(api.digitalSKUs.all().length).toBe(digital - 1)
+  }
 }

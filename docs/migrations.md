@@ -913,6 +913,12 @@ mode, and inheritance:
 
 **Aggregate → table.** `aggregate Order` → table `orders` (`plural(snake(name))`),
 `id` PK typed from `idValueType`, one column per scalar/enum/`X id` field.
+The spelling lives in one place, `tableNameFor` (`src/util/storage-names.ts`), with
+the per-node accessors (`aggregateTableName`, `partTableName`, `projectionTableName`,
+`associationTables`) in `src/ir/enrich/storage-names.ts`; every backend's ORM mapping
+and the migrations read them, and the aggregate's route segment uses the same
+spelling (`routeSegmentFor`).  The order matters for a name that ends in an acronym:
+`ProductSKU` → `product_skus`, never `product_sk_us`.
 
 ```ddd
 context Sales {
