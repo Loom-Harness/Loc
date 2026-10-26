@@ -34,6 +34,8 @@
 // survived review there.
 
 import { describe, expect, it } from "vitest";
+import { inlineDapperScope } from "../_helpers/dapper-scope.js";
+import { inlineDrizzleScope } from "../_helpers/drizzle-scope.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { corpusSource } from "../fixtures/corpus/harness.js";
 
@@ -52,7 +54,7 @@ async function emitFor(platform: string): Promise<string> {
           /repositor|JpaRepository|_repository|read_scope|db\/entities\.ts$/i.test(p) ||
           /\/features\/\w+\/\w+\.java$/.test(p),
       )
-      .map(([, c]) => c)
+      .map(([, c]) => inlineDrizzleScope(files, inlineDapperScope(c)))
       .join("\n")
   );
 }
@@ -180,7 +182,7 @@ system TenantCriteria {
 `);
     const criteria = [...files]
       .filter(([p]) => /domain\/criteria\/.*\.java$/.test(p))
-      .map(([, c]) => c)
+      .map(([, c]) => inlineDrizzleScope(files, inlineDapperScope(c)))
       .join("\n");
     expect(criteria).toContain("RichAccount(");
     expect(criteria).not.toContain("tenantScope");

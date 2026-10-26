@@ -13,6 +13,8 @@
 // that the column half of the filter still renders beside it.
 
 import { describe, expect, it } from "vitest";
+import { inlineDapperScope } from "../_helpers/dapper-scope.js";
+import { inlineDrizzleScope } from "../_helpers/drizzle-scope.js";
 import { generateSystemFiles } from "../_helpers/index.js";
 
 const source = (platform: string): string => `
@@ -48,7 +50,7 @@ async function emitted(platform: string, pathRe: RegExp): Promise<string> {
   const files = await generateSystemFiles(source(platform));
   const hits = [...files.entries()].filter(([p]) => pathRe.test(p));
   expect(hits.length, `${platform}: no file matches ${pathRe}`).toBeGreaterThan(0);
-  return hits.map(([, c]) => c).join("\n");
+  return hits.map(([, c]) => inlineDrizzleScope(files, inlineDapperScope(c))).join("\n");
 }
 
 describe("capability filter principal terms render on every backend", () => {
@@ -64,7 +66,9 @@ describe("capability filter principal terms render on every backend", () => {
     // A nullable claim behind the CALL-rooted accessor is narrowed explicitly
     // (TS does not narrow `requireCurrentUser().x` across the ternary).
     expect(repo).toContain("eq(schema.tickets.customer, requireCurrentUser().customerId!)");
-    expect(repo).toMatch(/import \{[^}]*\bsql\b[^}]*\} from "drizzle-orm"/);
+    // The terms live in the scope helper module, which imports what they render with.
+    const scopes = await emitted("node", /db\/read-scopes\.ts$/);
+    expect(scopes).toMatch(/import \{[^}]*\bsql\b[^}]*\} from "drizzle-orm"/);
   });
 
   it("node / mikroorm: a constant raw condition per term", async () => {

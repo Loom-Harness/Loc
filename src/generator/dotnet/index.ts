@@ -1694,7 +1694,7 @@ function emitAggregate(
       isEs
         ? renderDapperEventSourcedRepository(agg, repoWithViews, ns, findBodies, ctx.name)
         : isDoc
-          ? renderDapperDocumentRepository(agg, repoWithViews, ns, findBodies)
+          ? renderDapperDocumentRepository(agg, repoWithViews, ns, findBodies, ctx.aggregates)
           : renderDapperRepository(
               agg,
               repoWithViews,
@@ -1705,6 +1705,7 @@ function emitAggregate(
               // TPH concrete: persist to the shared base table, discriminated by
               // `kind = '<Concrete>'`, threading the shared `<Base>Id`.
               tphBase ? { baseName: tphBase.name, discriminator: agg.name } : undefined,
+              ctx.aggregates,
             ),
       repoOrigin,
     );

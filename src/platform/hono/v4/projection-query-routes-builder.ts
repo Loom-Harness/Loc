@@ -15,8 +15,8 @@ import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
 import {
   allContextFilterEntries,
   DRIZZLE_INTRINSIC_SQL,
-  drizzleDiscriminatorEq,
-  drizzleGuardedSubtypePredicates,
+  drizzleScopeCall,
+  drizzleScopeFnName,
   type FilterBypass,
   lowerToDrizzle,
 } from "../../../generator/typescript/repository-find-predicate.js";
@@ -202,6 +202,8 @@ export function buildQueryProjectionsFile(
   // tenants' rows counted.  A read's `ignoring *` / `ignoring <Cap>` drops the
   // capability-origin predicates it names, exactly as on the repository arm.
   const aggWheres = new Map<string, string | undefined>();
+  // The scope helpers the direct-table arms call — imported from `db/read-scopes`.
+  const scopeFns = new Set<string>();
   for (const p of projections) {
     const grouped = groupedAggregates(p);
     const aggregates = grouped?.aggregates ?? wholeTableAggregates(p);
@@ -210,21 +212,25 @@ export function buildQueryProjectionsFile(
     // A COMPUTED grouping key (`group by o.placedAt.startOfDay()`) renders
     // through the Drizzle intrinsic snippets, which build a `sql` template.
     if ((grouped?.groupBy ?? []).some((e) => groupKeyOf(e)?.transform)) rawDrizzleOps.add("sql");
-    const { table, kind } = directSourceTable(p, ctx);
+    const { table } = directSourceTable(p, ctx);
     const parts: string[] = [];
-    // A TPH (`sharedTable`) concrete shares its root's table: scope the read to
-    // this concrete's rows, or every sibling's rows enter the aggregate.
-    if (kind) {
-      parts.push(drizzleDiscriminatorEq(table, kind));
-      rawDrizzleOps.add("eq");
-    }
+    // The source aggregate's read scope: a TPH (`sharedTable`) concrete shares its
+    // root's table, so its `kind` scope keeps every sibling's rows out of the
+    // aggregate; a projection `from <TPH base>` applies every concrete's own
+    // restrictions, kind-guarded; the capability / tenancy / deny filters apply
+    // as on the repository arm.  All of it is the source's generated scope
+    // helper (`db/read-scopes.ts`), called with the read's `ignoring` clause.
     if (p.query.filter) {
       const lowered = lowerToDrizzle(p.query.filter, table, ctx);
       if (!lowered) throw new Error(unloweredWhere(p.name));
       parts.push(lowered.expr);
       for (const op of lowered.ops) rawDrizzleOps.add(op);
     }
-    parts.push(...drizzleCapabilityPredicates(p, ctx, table, rawDrizzleOps));
+    const scopeCall = scopeCallFor(p, ctx);
+    if (scopeCall) {
+      parts.push(scopeCall.call);
+      scopeFns.add(scopeCall.fn);
+    }
     if (parts.length === 0) aggWheres.set(p.name, undefined);
     else if (parts.length === 1) aggWheres.set(p.name, parts[0]);
     else {
@@ -296,6 +302,10 @@ export function buildQueryProjectionsFile(
     );
     if (rawDrizzleOps.size > 0) {
       lines.push(`import { ${[...rawDrizzleOps].sort().join(", ")} } from "drizzle-orm";`);
+    }
+    if (scopeFns.size > 0) {
+      const scopeImport = `import { ${[...scopeFns].sort().join(", ")} } from "../db/read-scopes";`;
+      lines.push(scopeImport);
     }
   }
   if (anyMoneyAggregate(projections)) lines.push(`import Decimal from "decimal.js";`);
@@ -960,43 +970,16 @@ function projectionBypass(p: ProjectionIR): FilterBypass {
   return { bypassAll: p.query?.bypassAll, bypassCaps: p.query?.bypassCaps };
 }
 
-/** The source aggregate's applicable capability filters as Drizzle predicate
- *  expressions.
- *
- *  Deliberately NOT `contextFilterPredicate`: that one reifies a filter that is
- *  exactly one named criterion into a `<name>Criterion(...)` call, and those
- *  module-level fns are emitted into the REPOSITORY file — naming one here
- *  would be an undefined identifier.  Inlining every predicate is what this
- *  file can compile.  A principal filter renders against the ambient
- *  `requireCurrentUser()` accessor (same as the repository path), which the
- *  import walk below picks up by body scan. */
-function drizzleCapabilityPredicates(
+/** The call of the source aggregate's generated scope helper for one direct-table
+ *  read of `p`, with the read's `ignoring` clause; null when nothing applies. */
+function scopeCallFor(
   p: ProjectionIR,
   ctx: EnrichedBoundedContextIR,
-  table: string,
-  ops: Set<string>,
-): string[] {
+): { call: string; fn: string } | null {
   const agg = projectionSourceAggregate(p, ctx);
-  if (!agg) return [];
-  const out: string[] = [];
-  for (const e of allContextFilterEntries(agg, ctx, projectionBypass(p))) {
-    const l = lowerToDrizzle(e.predicate, table, ctx, {
-      principalAccessor: "requireCurrentUser()",
-    });
-    // Unlowerable is unreachable for a valid model (the queryable check + the
-    // adapter gate run first); dropping it silently is the bug this closes, so
-    // fail loudly instead.
-    if (!l)
-      throw new Error(
-        `query projection '${p.name}': capability filter on '${agg.name}' is not Drizzle-lowerable`,
-      );
-    for (const op of l.ops) ops.add(op);
-    out.push(l.expr);
-  }
-  // A projection `from <TPH base>` reads the whole hierarchy: every concrete's
-  // own restrictions apply too, each guarded by its discriminator.
-  out.push(...drizzleGuardedSubtypePredicates(agg, ctx, ops, projectionBypass(p)));
-  return out;
+  if (!agg) return null;
+  const call = drizzleScopeCall(agg, ctx, { ignoring: projectionBypass(p) });
+  return call ? { call, fn: drizzleScopeFnName(agg) } : null;
 }
 
 /** The SQL aggregate expression for one `select`, aliased column-qualified so it

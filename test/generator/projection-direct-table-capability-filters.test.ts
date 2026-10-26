@@ -21,6 +21,8 @@
 //     and is out of this change's scope (reported as follow-up).
 
 import { describe, expect, it } from "vitest";
+import { inlineDapperScope } from "../_helpers/dapper-scope.js";
+import { inlineDrizzleScope } from "../_helpers/drizzle-scope.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 /** `softDeletable` contributes a NON-principal filter (`!this.isDeleted`). */
@@ -104,7 +106,10 @@ const tenancySystem = (platform: string) => `
 `;
 
 async function fileContaining(src: string, needle: string): Promise<string> {
-  for (const [path, body] of await generateSystemFiles(src)) if (path.includes(needle)) return body;
+  const files = await generateSystemFiles(src);
+  for (const [path, body] of files) {
+    if (path.includes(needle)) return inlineDrizzleScope(files, inlineDapperScope(body));
+  }
   return "";
 }
 
@@ -124,10 +129,10 @@ describe("direct-table projection — node (Hono/Drizzle)", () => {
     expect(f).toContain(
       "db.select({ total: count() }).from(schema.orders).where(eq(schema.orders.tenantId, requireCurrentUser().tenantId))",
     );
-    // The ambient accessor needs its import — an undefined name would not
-    // compile, which is how a filter that is applied differs from one that is
-    // merely rendered.
-    expect(f).toContain(`import { requireCurrentUser } from "../auth/middleware";`);
+    // The scope helper needs its import — an undefined name would not compile,
+    // which is how a filter that is applied differs from one that is merely
+    // rendered; the ambient accessor is imported by the helper module.
+    expect(f).toContain(`from "../db/read-scopes";`);
     // `ignoring *` drops the capability predicate for that read ONLY.
     expect(f).toContain("db.select({ total: count() }).from(schema.orders);");
   });

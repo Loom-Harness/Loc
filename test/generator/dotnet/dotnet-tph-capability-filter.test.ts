@@ -260,11 +260,13 @@ describe(".NET TPH × capability filter", () => {
     expect(ctl).toContain('Car __c0 => Tagged("Car", new CarResponse(');
   });
 
-  it("Dapper emits no TPH reader (it would query the EF root set)", async () => {
+  it("Dapper emits its own TPH reader over the shared table, routed like EF's", async () => {
     const { files } = await emit(model("this.doors > 0", "dotnet { persistence: dapper }"));
-    expect(fileNamed(files, "Repositories/VehicleRepository.cs")).toEqual("");
-    expect(fileNamed(files, "Api/VehiclesController.cs")).toEqual("");
-    expect(fileNamed(files, "Program.cs")).not.toContain("IVehicleRepository");
+    const reader = fileNamed(files, "Repositories/VehicleRepository.cs");
+    expect(reader).toContain("GetRowParser<BaseRow>");
+    expect(reader).not.toContain("_db.Vehicles");
+    expect(fileNamed(files, "Api/VehiclesController.cs")).toContain("GetVehicleById");
+    expect(fileNamed(files, "Program.cs")).toContain("IVehicleRepository");
   });
 });
 

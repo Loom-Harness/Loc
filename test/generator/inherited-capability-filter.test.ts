@@ -11,6 +11,8 @@
 // emitter.
 
 import { describe, expect, it } from "vitest";
+import { inlineDapperScope } from "../_helpers/dapper-scope.js";
+import { inlineDrizzleScope } from "../_helpers/drizzle-scope.js";
 import { generateSystemFiles } from "../_helpers/index.js";
 
 type Layout = "sharedTable" | "ownTable";
@@ -62,7 +64,8 @@ describe.each<Layout>(["sharedTable", "ownTable"])("inherited softDeletable — 
   const table = tph ? "vehicles" : "trucks";
 
   it("node (drizzle)", async () => {
-    const repo = file(await gen("node", layout), "db/repositories/truck-repository.ts");
+    const files = await gen("node", layout);
+    const repo = inlineDrizzleScope(files, file(files, "db/repositories/truck-repository.ts"));
     expect(lineWith(repo, "rootRows", `inArray(schema.${table}.id, ids)`)).toContain(
       `not(eq(schema.${table}.isDeleted, true))`,
     );
@@ -125,9 +128,11 @@ describe.each<Layout>(["sharedTable", "ownTable"])("inherited softDeletable — 
   });
 
   it(".NET (dapper)", async () => {
-    const repo = file(
-      await gen("dotnet { persistence: dapper }", layout),
-      "Infrastructure/Repositories/TruckRepository.cs",
+    const repo = inlineDapperScope(
+      file(
+        await gen("dotnet { persistence: dapper }", layout),
+        "Infrastructure/Repositories/TruckRepository.cs",
+      ),
     );
     // The SELECT list names `is_deleted` either way; only the WHERE clause counts.
     const where = (l: string): string => l.slice(l.indexOf(" WHERE "));

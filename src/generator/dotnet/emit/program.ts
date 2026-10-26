@@ -586,10 +586,8 @@ ${
   const emitTrace = !!options?.emitTrace;
   const repoRegistrations = ctx.aggregates
     // An abstract base registers its polymorphic reader exactly when one is
-    // emitted (`emitsBaseReader`): every TPC base, and a TPH root on EF.
-    .filter(
-      (a) => !a.isAbstract || emitsBaseReader(a, ctx.aggregates, options?.usingDapper ?? false),
-    )
+    // emitted (`emitsBaseReader`): every TPC base and every TPH root.
+    .filter((a) => !a.isAbstract || emitsBaseReader(a, ctx.aggregates))
     .map(
       (a) =>
         `builder.Services.AddScoped<${ns}.Domain.${plural(a.name)}.I${a.name}Repository, ${ns}.Infrastructure.Repositories.${a.name}Repository>();`,

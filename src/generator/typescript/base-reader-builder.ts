@@ -29,24 +29,19 @@
 
 import { type PolymorphicRead, polymorphicReadFor } from "../../ir/enrich/read-scope.js";
 import { reasonPhrase, wireStatus } from "../../ir/enrich/wire-policy.js";
-import type {
-  EnrichedAggregateIR,
-  EnrichedBoundedContextIR,
-  ExprIR,
-} from "../../ir/types/loom-ir.js";
+import type { EnrichedAggregateIR, EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
 import { isValueCollectionType } from "../../ir/util/value-collections.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, snake } from "../../util/naming.js";
-import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
 import { rowClassOf } from "./emit/mikroorm-entities.js";
 import { isRefCollection } from "./repository-associations-builder.js";
 import { hydrateRootExpr } from "./repository-find-hydrate.js";
 import {
-  drizzleGuardedSubtypePredicates,
   drizzleOrderBy,
-  lowerToDrizzle,
+  drizzleScopeCall,
+  drizzleScopeFnName,
   repoTableName,
 } from "./repository-find-predicate.js";
 import { collectEnums, collectValueObjects } from "./repository-imports-builder.js";
@@ -157,7 +152,9 @@ export function buildBaseReaderFile(
   read: PolymorphicRead,
 ): string {
   const table = repoTableName(base, ctx);
-  const scope = tphScopePredicate(base, read, table, ctx);
+  // The root's restrictions and each subtype's own, kind-guarded: the generated
+  // scope helper of the polymorphic read (`db/read-scopes.ts`).
+  const scope = drizzleScopeCall(base, ctx);
   const where = (extra?: string): string => {
     const terms = [extra, scope].filter((t): t is string => !!t);
     if (terms.length === 0) return "";
@@ -248,7 +245,7 @@ export function buildBaseReaderFile(
     drizzleImportLine(body),
     ...derivedImports(fullBody, [
       { from: "../schema", namespace: "schema" },
-      { from: "../../auth/middleware", values: ["requireCurrentUser"] },
+      { from: "../read-scopes", values: [drizzleScopeFnName(base)] },
       { from: "../../domain/events", types: ["DomainEventDispatcher"] },
       { from: "../../domain/ids", namespace: "Ids" },
       ...concretes.map((c) => ({ from: `../../domain/${lowerFirst(c.name)}`, values: [c.name] })),
@@ -267,29 +264,6 @@ export function buildBaseReaderFile(
     fullBody,
     "",
   );
-}
-
-/** The TPH root query's whole restriction: the root's own predicates, then
- *  every subtype's guarded `or(not(kind = '<d>'), <pred>)`, conjoined.  Null
- *  when nothing restricts the read. */
-function tphScopePredicate(
-  base: EnrichedAggregateIR,
-  read: PolymorphicRead,
-  table: string,
-  ctx: EnrichedBoundedContextIR,
-): string | null {
-  const render = (predicate: ExprIR): string => {
-    const l = lowerToDrizzle(predicate, table, ctx, { principalAccessor: "requireCurrentUser()" });
-    return (
-      l?.expr ?? refuseOutOfVocabulary("drizzle-predicate", `read restriction on '${read.base}'`)
-    );
-  };
-  const terms = [
-    ...read.restrictions.filter((r) => r.predicate !== undefined).map((r) => render(r.predicate!)),
-    ...drizzleGuardedSubtypePredicates(base, ctx, new Set()),
-  ];
-  if (terms.length === 0) return null;
-  return terms.length === 1 ? terms[0]! : `and(${terms.join(", ")})`;
 }
 
 /** `toWire(root)` — the row's tagged wire body: `{ type: "<Concrete>", …the

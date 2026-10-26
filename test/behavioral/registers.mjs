@@ -260,7 +260,6 @@ export const BEHAVIOURAL_XFAIL = {
       },
       reason: "`find … ignoring` on a `shape: document` aggregate still applies the filters it names on Dapper",
     },
-    "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
   },
   java: {},
