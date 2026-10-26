@@ -1752,6 +1752,12 @@ export const DIAGNOSTIC_MESSAGES = {
   // it separately: the top-level expression-form function here, and the member
   // function's expression body and block-body `return` in `types.ts`.  Same
   // rule, one sentence, three call sites (M-T9.56).
+  "loom.return-type-mismatch": (p: { label: unknown; actual: unknown; declared: unknown }) =>
+    `${p.label} returns '${p.actual}' but is declared to return '${p.declared}'.`,
+  "loom.return-missing": (p: { label: unknown; declared: unknown }) =>
+    `${p.label} is declared to return '${p.declared}' but not every path ends in a \`return\`. ` +
+    `End each branch with \`return <value>\` (an \`if\` needs an \`else\` that returns too).`,
+
   "loom.function-return-type-mismatch": (p: {
     name: unknown;
     actual: unknown;

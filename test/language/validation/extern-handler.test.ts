@@ -43,7 +43,7 @@ describe("validator: extern handler ↔ body pairing", () => {
     const { errors } = await parseString(
       wrap(`
         commandHandler Touch(orderId: Order id) { let o = Orders.getById(orderId) }
-        queryHandler   Get(orderId: Order id): Order { let o = Orders.getById(orderId) }
+        queryHandler   Get(orderId: Order id): Order { let o = Orders.getById(orderId)  return o }
       `),
     );
     expect(errors, errors.join("\n")).toEqual([]);

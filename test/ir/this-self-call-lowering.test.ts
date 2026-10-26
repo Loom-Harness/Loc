@@ -34,7 +34,7 @@ const CTX = `
         total := this.bump(by)
       }
       private operation half(): int {
-        return total / 2
+        return total.divTrunc(2)
       }
       operation shrink() {
         total := this.half()
