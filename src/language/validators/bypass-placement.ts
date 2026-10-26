@@ -29,12 +29,15 @@
 // The rule mirrors the ONE consuming site exactly (`lower-workflow.ts`'s
 // `isLetStmt` arm, whose `repo-run` arms spread `resolveBypass`): a chain-borne
 // `ignoring` is legal only as a `let` binding's own expression, over a
-// `.findAll(…)` / `.run(…)` read.  Every other position drops it.
+// `.findAll(…)` / `.run(…)` / natural-key `.getBy(…)` / `.findBy(…)` read —
+// and, for a natural-key read, as an `if let` source too (`findBy` is `T?`,
+// so `if let` is where it is bound).  Every other position drops it.
 
 import { AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { repositoryVerb } from "../../util/repository-contract.js";
 import {
+  isIfLetStmt,
   isLetStmt,
   isMemberSuffix,
   isPostfixChain,
@@ -71,6 +74,14 @@ export function checkBypassPlacement(model: Model, accept: ValidationAcceptor): 
       isLetStmt(parent) &&
       node.$containerProperty === "expr" &&
       repositoryVerb(trailingCallMember(node) ?? "")?.ignoring === true
+    ) {
+      continue;
+    }
+    // Legal: an `if let` source over a natural-key read.
+    if (
+      isIfLetStmt(parent) &&
+      node.$containerProperty === "source" &&
+      repositoryVerb(trailingCallMember(node) ?? "")?.args === "key"
     ) {
       continue;
     }

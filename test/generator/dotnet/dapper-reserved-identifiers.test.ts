@@ -33,7 +33,7 @@ system ReservedSys {
         total: money
       }
       repository Tickets for Ticket {
-        find byGroup(g: string): Ticket[] where group == g
+        find byGroup(g: string): Ticket? where group == g
       }
       criterion Live of Ticket as t = t.limit > 0
       retrieval OpenByOrder() of Ticket {

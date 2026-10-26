@@ -156,7 +156,7 @@ system S {
     context Orders {
       aggregate Product { name: string }
       repository Products for Product {
-        find named(term: string): Product[] where this.name == term
+        find all(): Product[]
       }
     }
   }
@@ -168,7 +168,7 @@ system S {
     page ProductList {
       route: "/products"
       body: QueryView {
-        of: Sales.Product.named("x"),
+        of: Sales.Product.all,
         data: rows => Table { rows: rows, Column { "Name", o => Text { o.name } } }
       }
     }
@@ -178,25 +178,11 @@ system S {
   deployable web { platform: flutter, targets: api, port: 3001, ui: WebApp { Sales: api } }
 }
 `);
-    // Asserted against the PAGE, not `reads.dart`.  Flutter emits NO
-    // `lib/reads.dart` at all for this fixture (see the gap below), so the
-    // `not.toContain("class LoomPage<T>")` this replaces was passing against
-    // `?? ""` — vacuously true, for the same reason `pageSource` above refuses
-    // to locate a page by path guess.  The page IS emitted, and it carries the
-    // real contrast: a non-paged binding reads `.isEmpty` / `.map` straight off
-    // the row list, where the paged sibling goes through `.items`.
+    // A declared `find all(): Product[]` is a bare row list: the binding reads
+    // `.isEmpty` / `.map` straight off it, where the paged sibling goes
+    // through `.items`.
     const page = files.get("web/lib/pages/product_list_page.dart") ?? "";
-    expect(page).toContain("productNamed.isEmpty");
-    expect(page).not.toContain("productNamed.items");
-
-    // KNOWN GAP, deliberately NOT pinned as expected behaviour — asserting
-    // `reads.dart` is absent would freeze a bug.  `collectFlutterReads` only
-    // collects `all` / `byId` (src/generator/flutter/reads-emit.ts:124), so a
-    // PARAMETERIZED find contributes no provider and no `lib/reads.dart` —
-    // while the page walker still emits `import '../reads.dart';` and calls
-    // `productNamedProvider(...)`.  The emitted Flutter project therefore has
-    // a dangling import and an undefined provider.  Fixing it belongs with the
-    // flutter reads collector + the `generated-flutter-build` gate.
-    expect(page).toContain("productNamedProvider");
+    expect(page).toContain("productAll.isEmpty");
+    expect(page).not.toContain("productAll.items");
   });
 });

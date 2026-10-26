@@ -42,7 +42,7 @@ system KwSys {
         }
       }
       repository Kws for Kw {
-        find byQuote(quote: string, do: string): Kw[] where this.quote == quote && this.do == do
+        find byQuote(quote: string, do: string): Kw? where this.quote == quote && this.do == do
       }
       criterion EndsAt(end: int) of Kw = this.end == end
       command Shift {

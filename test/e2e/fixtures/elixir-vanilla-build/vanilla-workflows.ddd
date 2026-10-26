@@ -42,9 +42,8 @@ system Tasks {
       // `byDone(done: bool): Task[]` lowers to a
       // `def by_done(done)` fn on the repository module +
       // `defdelegate by_done_task(done), as: :by_done` on the context.
-      repository Tasks for Task {
-        find byDone(done: bool): Task[]
-      }
+      repository Tasks for Task { }
+      criterion TasksByDone(done: bool) of Task = this.done == done
 
       // Empty body — exercises the SHAPE-only emit path.
       workflow markAllDone transactional {

@@ -33,15 +33,22 @@ guards.
 > loads: […] }, page?)` — the call-site twin of a declared `retrieval`; `findAll`
 > and bare-criterion `run` stay the un-shaped spellings, shaping lives on the
 > (named or anonymous) retrieval.  Its `where:` is a criterion reference in this
-> release.  **A wire-shaped *list* `find` on a repository is deprecated**
-> (`loom.repository-find-deprecated`, a warning): a `find byX(...): T[]` /
+> release.  **A *list* `find` on a repository is removed**
+> (`loom.list-find-removed`, an error): a `find byX(...): T[]` /
 > `T paged` is a bespoke list finder — pass a criterion to `run`
 > (`Repo.run(<Criterion>(args))`) or name a `retrieval` instead of accreting a
 > method per query, and expose it with `scaffoldPaged(of: …)` +
 > `scaffoldPagedApi(of: …)` when a client must call it.
 > `node scripts/codemod-list-find-to-criterion.mjs <path>` rewrites the old form
 > (see [D-LIST-FIND-REMOVED](decisions.md)).  A **unique-key reconstitution** find (returning a single
-> `T` / `T?` by identity) is *not* a list query and stays legal.  The
+> `T` / `T?` by identity) is *not* a list query and stays legal, and so does
+> `find all(…)`, the override of the repository's list endpoint.  Over a declared
+> `unique (…)` key it needs no declaration at all — `Repo.getBy(<col>: v)` /
+> `Repo.findBy(…)` read it ([D-REPO-KEY-LOOKUP](decisions.md);
+> `node scripts/codemod-find-to-findby.mjs` migrates the finds).  A key that is
+> not unique is a query: a criterion, read with `Repo.find(<Criterion>)` — the
+> same codemod writes `criterion <Plural><Find>` for such a find and points its
+> call sites at `find(C)`.  The
 > single-result `Repo.find(<Criterion>)` is **shipped on every backend** as the
 > source of an `if let` workflow statement — `if let x = Repo.find(<Criterion>)
 > { … } else { … }` — which binds the first match (non-null) in the then-branch
@@ -123,14 +130,15 @@ A criterion reference is **inlined at compile time** wherever a boolean
 expression is expected. Today that means:
 
 ```ddd
-// Repository find filter (bare criterion):
-repository Customers for Customer {
-  find active(): Customer[] where ActiveCustomer
-}
+// A criterion body (bare reference):
+criterion CustomersActive of Customer = ActiveCustomer
 
-// Repository find filter (composed + parameterised):
+// A criterion body (composed + parameterised):
+criterion CustomersActiveInRegion(r: string) of Customer = ActiveCustomer && InRegion(r)
+
+// A single-row find filter:
 repository Customers for Customer {
-  find activeInRegion(r: string): Customer[] where ActiveCustomer && InRegion(r)
+  find activeByEmail(e: string): Customer? where ActiveCustomer && this.email == e
 }
 
 // Invariants and operation preconditions inline criteria the same way.
@@ -156,9 +164,8 @@ reusable object:
 ```ddd
 criterion NamedLike(needle: string) of Customer = this.name == needle
 retrieval ByName(needle: string) of Customer { where: NamedLike(needle) sort: [name asc] }
-repository Customers for Customer {
-  find named(needle: string): Customer[] where NamedLike(needle)   // reifies too
-}
+repository Customers for Customer { }
+// … Customers.run(NamedLike(needle)) and Customers.run(ByName(needle)) share it
 ```
 
 | Backend | What the criterion reifies to |
@@ -203,14 +210,13 @@ and workflow calls are already excluded by the grammar.
 
 ## Advisories — the compiler steers you toward criteria
 
-Two **warnings** (not errors — they don't block `generate`) nudge you off
-patterns that work but scale badly, toward the criterion / retrieval / index
-model. They're worth trusting; both fire early:
+One **error** and one **warning** steer you toward the criterion / retrieval /
+index model:
 
 | Code | Fires when | Steers you to |
 |---|---|---|
-| `loom.repository-find-deprecated` | A `repository` declares a `find` returning a collection (`: T[]` / `T paged`) — a bespoke list finder accreting on the repo. | Pass a criterion to `run` (`Repo.run(<Criterion>(args))`) or name a `retrieval` instead; put it on the wire with `scaffoldPaged(of: <it>)` on the context and `scaffoldPagedApi(of: <it>)` on the api. A unique-key reconstitution find returning a single `T` / `T?` stays fine. |
-| `loom.index-suggestion` | A field is read on a query filter — a `find … where`, a reified `filter`, a `criterion` body or a `retrieval`'s `where` — but has no index. | Add `index: <Agg>.<field>` on the aggregate's `kind: state` resource — the column then shows up in the migration. |
+| `loom.list-find-removed` (error) | A `repository` declares a `find` returning a collection (`: T[]` / `T paged`) other than `find all` — a bespoke list finder accreting on the repo. | Pass a criterion to `run` (`Repo.run(<Criterion>(args))`) or name a `retrieval` instead; put it on the wire with `scaffoldPaged(of: <it>)` on the context and `scaffoldPagedApi(of: <it>)` on the api. `node scripts/codemod-list-find-to-criterion.mjs <path>` rewrites a source. A unique-key reconstitution find returning a single `T` / `T?` stays fine. |
+| `loom.index-suggestion` (warning) | A field is read on a query filter — a `find … where`, a reified `filter`, a `criterion` body or a `retrieval`'s `where` — but has no index. | Add `index: <Agg>.<field>` on the aggregate's `kind: state` resource — the column then shows up in the migration. |
 
 > The index suggestion follows the migration: a `find … where` rewritten as a
 > `criterion` + `retrieval` keeps earning the same `loom.index-suggestion`.

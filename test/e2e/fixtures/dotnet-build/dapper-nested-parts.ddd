@@ -43,9 +43,8 @@ system DapperNestedParts {
         entity Coupon { code: string }
       }
 
-      repository Orders for Order {
-        find byCustomer(customer: string): Order[] where this.customer == customer
-      }
+      repository Orders for Order { }
+      criterion OrdersByCustomer(customer: string) of Order = this.customer == customer
     }
   }
 

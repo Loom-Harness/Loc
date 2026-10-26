@@ -75,6 +75,7 @@ import {
   checkPredicateSlotArgs,
   checkPrimitiveConversions,
   checkProjectSingletons,
+  checkRepoKeyLookups,
   checkRepositoryFinds,
   checkRetrievalLiteral,
   checkSeeds,
@@ -319,8 +320,8 @@ export class DddValidator {
     // may appear only in a transport position (find return / payload field).
     guard("generic-carriers", model, () => checkGenericCarriers(model, accept));
 
-    // loom.repository-find-deprecated — a wire-shaped list `find` warns (steer
-    // to run(criterion)/retrieval); reconstitution finds stay legal.
+    // loom.list-find-removed — a list `find` is an error (a criterion or a
+    // retrieval replaces it); reconstitution finds and `find all` stay legal.
     guard("repository-finds", model, () => checkRepositoryFinds(model, accept));
     // loom.permission-implies-* — `implies` targets resolve by name against the
     // subdomain catalogue; self-implication is rejected.
@@ -433,6 +434,9 @@ export class DddValidator {
     // expression (`group by o.status ignoring softDeletable`) and is then
     // silently dropped.  See `validators/bypass-placement.ts`.
     guard("bypass-placement", model, () => checkBypassPlacement(model, accept));
+    // Natural-key reads (`Repo.getBy(sku: s)`): the named arguments must equal
+    // a declared `unique (…)` tuple.  See `validators/repo-key-lookup.ts`.
+    guard("repo-key-lookups", model, () => checkRepoKeyLookups(model, accept));
     // The callable legality table: the grammar's callable fragments
     // accept the whole modifier/clause surface at every site, so an excluded
     // modifier reports WHY (`CALLABLE_SITES`) instead of failing as an

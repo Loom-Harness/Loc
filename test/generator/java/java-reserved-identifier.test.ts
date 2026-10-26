@@ -80,7 +80,7 @@ system RW {
         invariant do >= 0
       }
       repository Tickets for Ticket {
-        find byCase(case: string): Ticket[] where this.case == case
+        find byCase(case: string): Ticket? where this.case == case
       }
     }
   }

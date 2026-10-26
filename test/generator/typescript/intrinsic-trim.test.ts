@@ -23,7 +23,7 @@ describe("typescript generator — A2 string intrinsics end-to-end", () => {
         derived tagCount: int = name.split(",").count
       }
       repository Products for Product {
-        find byNameCi(q: string): Product[] where this.name.toLower() == q.toLower()
+        find byNameCi(q: string): Product? where this.name.toLower() == q.toLower()
       }
     }
   `;
@@ -50,9 +50,9 @@ describe("typescript generator — A3 math intrinsics end-to-end", () => {
         derived cappedPrice: money = price.min(price.round()).max(price.ceil().abs())
       }
       repository Invoices for Invoice {
-        find pricier(m: money): Invoice[] where this.price.round(2) > m
-        find qtyNear(n: int): Invoice[] where this.qty.abs() == n.abs()
-        find capped(a: decimal): Invoice[] where this.amount.min(a) == a
+        find pricier(m: money): Invoice? where this.price.round(2) > m
+        find qtyNear(n: int): Invoice? where this.qty.abs() == n.abs()
+        find capped(a: decimal): Invoice? where this.amount.min(a) == a
       }
     }
   `;

@@ -254,7 +254,6 @@ export const COVERED_ELSEWHERE: readonly string[] = [
   "loom.rename-duplicate-source",
   "loom.rename-duplicate-target",
   "loom.rename-to-self",
-  "loom.repository-find-deprecated",
   "loom.reserved-structural-error-name",
   "loom.resource-api-ambiguous-server",
   "loom.resource-api-self-call",

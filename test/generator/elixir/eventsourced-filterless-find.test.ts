@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Elixir / Phoenix — an event-sourced aggregate's filterless, param-less find
-// (`find pick(): Evt`, `find everything(): Evt[]`) has NO predicate.
+// (`find pick(): Evt`, `find everything(): Evt?`) has NO predicate.
 //
 // `renderEsFind` joined the params into the fold's predicate and interpolated
 // it into `fn a -> <pred> end` unconditionally, so a find with neither a
@@ -25,8 +25,7 @@ const SRC = `system Es {
       }
       repository Evts for Evt {
         find pick(): Evt
-        find everything(): Evt[]
-        find everyPage(): Evt paged
+        find everything(): Evt?
         find byLabel(l: string): Evt? where this.label == l
       }
     }
@@ -52,8 +51,9 @@ describe("elixir event-sourced repository — filterless find", () => {
     const src = repo![1];
     expect(src).not.toMatch(/fn a ->\s+end/);
     expect(src).toMatch(/def pick\(\) do\s+\{:ok, all\} = list\(\)\s+\{:ok, List\.first\(all\)\}/);
-    expect(src).toMatch(/def everything\(\) do\s+\{:ok, all\} = list\(\)\s+\{:ok, all\}/);
-    expect(src).toMatch(/matched = all\n/);
+    expect(src).toMatch(
+      /def everything\(\) do\s+\{:ok, all\} = list\(\)\s+\{:ok, List\.first\(all\)\}/,
+    );
     // A filtered find keeps its predicate.
     expect(src).toMatch(/Enum\.find\(all, fn a -> .*l.* end\)/);
   });

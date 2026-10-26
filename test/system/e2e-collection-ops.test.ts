@@ -31,9 +31,8 @@ const SRC = `system S {
         }
         operation bump(n: int) { quantity := quantity + n }
       }
-      repository Orders for Order {
-        find byReference(reference: string): Order? where this.reference == reference
-      }
+      repository Orders for Order { }
+      criterion OrdersByReference(reference: string) of Order = this.reference == reference
     }
   }
   api A from M

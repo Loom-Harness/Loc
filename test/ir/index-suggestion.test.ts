@@ -138,7 +138,7 @@ describe("loom.index-suggestion", () => {
 
 // ---------------------------------------------------------------------------
 // A `find` migrated to the criterion / retrieval spelling that
-// `loom.repository-find-deprecated` recommends still filters the same columns —
+// `loom.list-find-removed` asks for still filters the same columns —
 // so it must still earn the same suggestion.  Before this, the collector ran
 // over `repo.finds` + `agg.contextFilters` only, and the advice vanished on
 // exactly the migration the tool told you to make (audit 2026-09-10 §D7).

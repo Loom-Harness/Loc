@@ -397,23 +397,35 @@
     {
       "seq": 28,
       "method": "GET",
-      "path": "/api/ledgers/over?min=9.5",
+      "path": "/api/ledgers/over/9.5",
       "status": 200,
-      "body": [
-        {
-          "balance": "20.0000",
-          "id": "<volatile:key>",
-          "limit": "25.0000",
-          "version": 3
-        }
-      ]
+      "body": {
+        "items": [
+          {
+            "balance": "20.0000",
+            "id": "<volatile:key>",
+            "limit": "25.0000",
+            "version": 3
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
     },
     {
       "seq": 29,
       "method": "GET",
-      "path": "/api/ledgers/over?min=100",
+      "path": "/api/ledgers/over/{id}",
       "status": 200,
-      "body": []
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
     },
     {
       "seq": 30,
@@ -469,7 +481,7 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 34,
       "method": "POST",
       "path": "/api/invoices/{id}/charge",
       "status": 404,
@@ -482,7 +494,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 35,
       "method": "POST",
       "path": "/api/invoices/{id}/charge",
       "status": 404,
@@ -495,7 +507,7 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 36,
       "method": "POST",
       "path": "/api/invoices/{id}/charge",
       "status": 415,
@@ -508,7 +520,7 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 37,
       "method": "POST",
       "path": "/api/invoices/{id}/set_fee",
       "status": 404,

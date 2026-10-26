@@ -72,9 +72,8 @@ describe("loom.unknown-user-claim — undeclared principal claim", () => {
 
   it("flags an undeclared claim in a repository `find` gate", async () => {
     const e = await errs(`aggregate Ticket with crudish { status: string }`, {
-      extra: `repository Tickets for Ticket {
-        find secure(): Ticket[] where status == "open"
-      }
+      extra: `repository Tickets for Ticket { }
+criterion TicketsSecure of Ticket = status == "open"
       policy { read Ticket requires currentUser.nickname == "x" }`,
     });
     expect(claimErrs(e), e.join("\n")).toHaveLength(1);
@@ -114,11 +113,10 @@ describe("loom.unknown-user-claim — undeclared principal claim", () => {
   });
 
   it("does not flag the `tenantOwned` capability's `currentUser.tenantId` placeholder", async () => {
-    // The prelude capability hardcodes `tenantId` on the principal side of its
-    // stamp and filter; phase ⑥ (`bindTenancyClaim`) rewrites it to the
-    // DECLARED claim — here `orgId`, which is deliberately NOT `tenantId`
-    // (the shape of `test/fixtures/corpus/tenancy-claim-name.ddd`).  Judging
-    // that spliced, CST-less node would fail every tenancy model in the corpus.
+    // The prelude capability writes `tenantId` on the principal side of its
+    // stamp and filter; the expander splices the DECLARED claim instead — here
+    // `orgId`, which is deliberately NOT `tenantId` (the shape of
+    // `test/fixtures/corpus/tenancy-claim-name.ddd`).
     const src = `system S {
   user { id: guid  orgId: string }
   tenancy by user.orgId of Organization

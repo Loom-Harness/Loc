@@ -8,7 +8,6 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import { RENDERABLE_FILTER_PRIMITIVES } from "../../../util/filter-param-kinds.js";
 import {
   isWalkerPrimitive,
   WALKER_READ_PRIMITIVES,
@@ -242,85 +241,6 @@ export function checkSubPrimitivePlacement(
     });
   };
   for (const root of walkerRenderedExprs(host)) visit(root, undefined);
-}
-
-// -------------------------------------------------------------------------
-// `loom.scaffold-filter-param-unsupported` — the scaffolded list page's
-// filter bar drops a find it cannot render an input for.
-//
-// `filterFindsForAggregate` (src/macros/stdlib/scaffold/_body-builders.ts)
-// wires one filter input per param of every array-returning `find`, and the
-// arm is ALL-OR-NOTHING: a find with a single unrenderable param is skipped
-// whole.  It renders `string`, `int`, `long` and `<X> id`; `decimal`/`money`,
-// `enum`, `bool`, `datetime` and `guid` are held back for reasons that live in
-// the FRONTEND emitters, not in the macro (see
-// `src/util/filter-param-kinds.ts`).  Until this gate the skip was silent: the
-// author declared `find byStatus(s: Status): Order[]`, the scaffolded list
-// page came out with no `Status` filter, and nothing anywhere said why.
-//
-// A WARNING, not an error: an aggregate may legitimately carry finds the
-// author never wanted in the bar (a workflow's lookup, a criterion-backed
-// read).  It is also suppressed when the page's own body already references
-// the find — a hand-written or overridden `page List` that binds it is doing
-// exactly what the message would ask for.
-// -------------------------------------------------------------------------
-
-/** Whether the scaffolded filter bar can render an input for a find param. */
-
-function filterParamRenderable(t: TypeIR): boolean {
-  if (t.kind === "id") return true;
-  return t.kind === "primitive" && RENDERABLE_FILTER_PRIMITIVES.has(t.name);
-}
-
-/** Every name a page body READS through a call or member access — enough to
- *  tell "the author already bound this find here" from "the bar dropped it". */
-
-function namesReadByBody(host: PageIR | ComponentIR): Set<string> {
-  const out = new Set<string>();
-  for (const root of walkerRenderedExprs(host)) {
-    walkExprDeep(root, (e) => {
-      if (e.kind === "call") out.add(e.name);
-      else if (e.kind === "method-call") out.add(e.member);
-      else if (e.kind === "member") out.add(e.member);
-    });
-  }
-  return out;
-}
-
-/** Report each array-returning find the scaffolded filter bar had to drop. */
-
-export function checkScaffoldFilterParams(
-  page: PageIR,
-  aggregateName: string,
-  finds: ReadonlyMap<string, FindIR> | undefined,
-  where: string,
-  diags: LoomDiagnostic[],
-): void {
-  if (!finds || finds.size === 0) return;
-  let bound: Set<string> | undefined;
-  for (const find of finds.values()) {
-    // `all` is the auto-`findAll` the bar renders unconditionally; the
-    // synthesized paged twin and the audit-history read are not user finds.
-    if (find.name === "all" || find.synthesized || find.auditHistory) continue;
-    if (find.returnType.kind !== "array" || find.params.length === 0) continue;
-    const bad = find.params.find((prm) => !filterParamRenderable(prm.type));
-    if (!bad) continue;
-    bound ??= namesReadByBody(page);
-    if (bound.has(find.name)) continue;
-    diags.push({
-      severity: "warning",
-      code: "loom.scaffold-filter-param-unsupported",
-      message: diagMessage("loom.scaffold-filter-param-unsupported", {
-        where,
-        find: find.name,
-        param: bad.name,
-        type: typeLabel(bad.type),
-        aggregate: aggregateName,
-      }),
-      source: where,
-      origin: page.origin,
-    });
-  }
 }
 
 // -------------------------------------------------------------------------

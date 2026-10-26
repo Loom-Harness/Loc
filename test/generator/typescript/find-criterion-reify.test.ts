@@ -14,9 +14,9 @@ const SRC = `
   context Sales {
     aggregate Customer { active: bool  region: string  name: string }
     repository Customers for Customer {
-      find active(): Customer[] where ActiveCustomer
-      find inRegion(r: string): Customer[] where InRegion(r)
-      find activeInRegion(r: string): Customer[] where ActiveCustomer && InRegion(r)
+      find active(): Customer? where ActiveCustomer
+      find inRegion(r: string): Customer? where InRegion(r)
+      find activeInRegion(r: string): Customer? where ActiveCustomer && InRegion(r)
     }
     criterion ActiveCustomer of Customer = active == true
     criterion InRegion(rgn: string) of Customer = region == rgn
@@ -31,7 +31,7 @@ describe("typescript generator — reified criteria (find)", () => {
 
     // Parameterless + parameterised single-criterion finds reify.
     expect(repo).toMatch(
-      /async active\(\): Promise<Customer\[\]> \{[\s\S]*?\.where\(activeCustomerCriterion\(\)\)/,
+      /async active\(\): Promise<Customer \| null> \{[\s\S]*?\.where\(activeCustomerCriterion\(\)\)/,
     );
     expect(repo).toMatch(/async inRegion\(r: string\)[\s\S]*?\.where\(inRegionCriterion\(r\)\)/);
 

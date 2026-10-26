@@ -47,7 +47,7 @@ system ExWords {
         }
       }
       repository Kws for Kw {
-        find byEnd(end: int): Kw[] where this.end == end
+        find byEnd(end: int): Kw? where this.end == end
       }
     }
   }

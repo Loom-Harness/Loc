@@ -2,8 +2,10 @@
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Api.Domain.Criteria;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Ardalis.Specification.EntityFrameworkCore;
 using Api.Domain.Orders;
 using Api.Domain.Common;
 using Api.Domain.Ids;
@@ -83,10 +85,12 @@ public sealed class OrderRepository : IOrderRepository
         _log.LogDebug("{Event} aggregate={Aggregate} find={Find} rows={Rows}", "find_executed", "Order", "all", items.Count);
         return new Paged<Order>(items, page, pageSize, total, totalPages);
     }
-    public async Task<List<Order>> ByCustomer(string customerId, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<Order>> RunFindAllByOrdersByCustomerAsync(string customerId, (int? offset, int? limit)? page = null, FilterBypass bypass = default, CancellationToken cancellationToken = default)
     {
-        var result = await _db.Orders.Where(x => x.CustomerId == customerId).ToListAsync(cancellationToken);
-        _log.LogDebug("{Event} aggregate={Aggregate} find={Find} rows={Rows}", "find_executed", "Order", "byCustomer", result.Count);
+        var __q = _db.Orders.AsQueryable();
+        if (bypass.All) __q = __q.IgnoreQueryFilters();
+        var result = await __q.WithSpecification(new FindAllByOrdersByCustomerSpec(customerId)).ApplyPaging(page).ToListAsync(cancellationToken);
+        _log.LogDebug("{Event} aggregate={Aggregate} find={Find} rows={Rows}", "find_executed", "Order", "RunFindAllByOrdersByCustomer", result.Count);
         return result;
     }
 }

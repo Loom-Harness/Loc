@@ -221,9 +221,9 @@ capability tags and tenancy stance onto each concrete (D-INHERITED-CAPABILITIES)
 abstract aggregate Vehicle with softDeletable { name: string  plate: string }
 aggregate Car   extends Vehicle { seats: int }
 aggregate Truck extends Vehicle { payload: int }
-repository Trucks for Truck {
-  find byPlateAll(plate: string): Truck[] where this.plate == plate ignoring softDeletable
-}
+repository Trucks for Truck { }
+criterion TrucksByPlate(plate: string) of Truck = this.plate == plate
+// … let all = Trucks.run(TrucksByPlate(plate)) ignoring softDeletable
 ```
 
 ```ts

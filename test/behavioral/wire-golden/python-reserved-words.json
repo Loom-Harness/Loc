@@ -91,7 +91,7 @@
     {
       "seq": 6,
       "method": "GET",
-      "path": "/api/things/by_def?def=d2&elif=1",
+      "path": "/api/things/by_def/d2/{id}",
       "status": 200,
       "body": [
         {

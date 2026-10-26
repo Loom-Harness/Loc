@@ -1,6 +1,6 @@
-// Generator coverage for paged finds on the .NET backend
+// Generator coverage for paged reads on the .NET backend
 // (payload-transport-layer.md, P3b emission — .NET slice).  A
-// `find x(): <Agg> paged` emits: a `Paged<T>` record (Domain.Common), a
+// `find all(): <Agg> paged` emits: a `Paged<T>` record (Domain.Common), a
 // repository `CountAsync` + `Skip`/`Take` method returning `Paged<Agg>`, a CQRS
 // query/handler that maps to `Paged<AggResponse>`, and a controller action with
 // page/pageSize query params.  The generated project compiles under
@@ -20,8 +20,12 @@ const SRC = `
   context Orders {
     aggregate Order { ref: string  region: string }
     repository Orders for Order {
-      find recent(): Order paged
-      find inRegion(region: string): Order paged where this.region == region
+      find all(): Order paged
+    }
+    criterion InRegion(region: string) of Order = this.region == region
+    queryHandler ListInRegion(region: string): Order paged {
+      let r = Orders.run(InRegion(region))
+      return r
     }
   }
 `;
@@ -30,7 +34,7 @@ async function files(): Promise<Map<string, string>> {
   return generateDotnet(await parseValid(SRC));
 }
 
-describe(".NET generator — paged finds (P3b)", () => {
+describe(".NET generator — paged reads (P3b)", () => {
   it("emits the shared Paged<T> record into Domain.Common", async () => {
     const common = (await files()).get("Domain/Common/DomainException.cs")!;
     expect(common).toContain(
@@ -41,7 +45,7 @@ describe(".NET generator — paged finds (P3b)", () => {
   it("repository method: CountAsync + Skip/Take returning Paged<Agg>, where threaded into both", async () => {
     const repo = (await files()).get("Infrastructure/Repositories/OrderRepository.cs")!;
     expect(repo).toContain(
-      "public async Task<Paged<Order>> Recent(int page, int pageSize, string sort, string dir, CancellationToken cancellationToken = default)",
+      "public async Task<Paged<Order>> All(int page, int pageSize, string sort, string dir, CancellationToken cancellationToken = default)",
     );
     expect(repo).toContain("var offset = (page - 1) * pageSize;");
     expect(repo).toContain("var total = await _db.Orders.CountAsync(cancellationToken);");
@@ -57,30 +61,34 @@ describe(".NET generator — paged finds (P3b)", () => {
       "var items = await ordered.Skip(offset).Take(pageSize).ToListAsync(cancellationToken);",
     );
     expect(repo).toContain("return new Paged<Order>(items, page, pageSize, total, totalPages);");
-    // where-clause threaded into both the count and the (ordered) page query.
+    // A criterion a paged queryHandler runs: its reified spec is threaded into
+    // both the count and the (ordered) page query of `FindAllBy<Criterion>`.
     expect(repo).toContain(
-      "await _db.Orders.Where(x => x.Region == region).CountAsync(cancellationToken);",
+      "public async Task<Paged<Order>> FindAllByInRegion(string region, int page, int pageSize, string sort, string dir, CancellationToken cancellationToken = default)",
     );
     expect(repo).toContain(
-      "_db.Orders.Where(x => x.Region == region).OrderBy(e => EF.Property<object>(e, sortColumn))",
+      "await _db.Orders.Where(new InRegionCriterion(region).ToExpression()).CountAsync(cancellationToken);",
+    );
+    expect(repo).toContain(
+      "_db.Orders.Where(new InRegionCriterion(region).ToExpression()).OrderBy(e => EF.Property<object>(e, sortColumn))",
     );
   });
 
   it("interface declares the paged method signature", async () => {
     const iface = (await files()).get("Domain/Orders/IOrderRepository.cs")!;
     expect(iface).toContain(
-      "Task<Paged<Order>> Recent(int page, int pageSize, string sort, string dir, CancellationToken cancellationToken = default);",
+      "Task<Paged<Order>> All(int page, int pageSize, string sort, string dir, CancellationToken cancellationToken = default);",
     );
   });
 
   it("CQRS query + handler map Paged<Order> → Paged<OrderResponse>", async () => {
-    const query = (await files()).get("Application/Orders/Queries/RecentQuery.cs")!;
+    const query = (await files()).get("Application/Orders/Queries/AllQuery.cs")!;
     expect(query).toContain(
-      "public sealed record RecentQuery(int Page, int PageSize, string Sort, string Dir) : IQuery<Paged<OrderResponse>>;",
+      "public sealed record AllQuery(int Page, int PageSize, string Sort, string Dir) : IQuery<Paged<OrderResponse>>;",
     );
-    const handler = (await files()).get("Application/Orders/Queries/RecentHandler.cs")!;
+    const handler = (await files()).get("Application/Orders/Queries/AllHandler.cs")!;
     expect(handler).toContain(
-      "var domain = await _repo.Recent(query.Page, query.PageSize, query.Sort, query.Dir, cancellationToken);",
+      "var domain = await _repo.All(query.Page, query.PageSize, query.Sort, query.Dir, cancellationToken);",
     );
     expect(handler).toContain("return new Paged<OrderResponse>(domain.Items.Select(d =>");
     expect(handler).toContain(
@@ -92,30 +100,37 @@ describe(".NET generator — paged finds (P3b)", () => {
     const ctrl = (await files()).get("Api/OrdersController.cs")!;
     expect(ctrl).toContain("[ProducesResponseType(typeof(Paged<OrderResponse>), 200)]");
     expect(ctrl).toContain(
-      'public async Task<ActionResult<Paged<OrderResponse>>> RecentOrder([FromQuery] [System.ComponentModel.DataAnnotations.Range(1, 1000000)] int page = 1, [FromQuery] [System.ComponentModel.DataAnnotations.Range(1, 500)] int pageSize = 20, [FromQuery] string sort = "id", [FromQuery] string dir = "asc")',
+      'public async Task<ActionResult<Paged<OrderResponse>>> AllOrder([FromQuery] [System.ComponentModel.DataAnnotations.Range(1, 1000000)] int page = 1, [FromQuery] [System.ComponentModel.DataAnnotations.Range(1, 500)] int pageSize = 20, [FromQuery] string sort = "id", [FromQuery] string dir = "asc")',
     );
     expect(ctrl).toContain(
-      "var result = await _mediator.Send(new RecentQuery(page, pageSize, sort, dir));",
+      "var result = await _mediator.Send(new AllQuery(page, pageSize, sort, dir));",
     );
   });
 });
 
 // Regression (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/repo-code-review-2026-07.md T2): on the Dapper
-// persistence adapter, a PARAMETERIZED paged find (`… paged where this.f == x`)
+// persistence adapter, a PARAMETERIZED paged read (a criterion run by a paged
+// queryHandler)
 // must bind its predicate params in the ROWS (page) query, not only the COUNT
 // query — otherwise the page query's `@x` is unbound and Npgsql throws at
 // runtime.
-describe(".NET generator — Dapper paged find binds its where params", () => {
+describe(".NET generator — Dapper paged read binds its where params", () => {
   async function dapperRepo(): Promise<string> {
     const SRC = `
 system Shop {
-  api OrdersApi from Sales
+  api OrdersApi from Sales {
+    route GET "/orders/in_region/{region}" -> Orders.ListInRegion
+  }
   subdomain Sales {
     context Orders {
       aggregate Order with crudish { code: string  region: string }
       repository Orders for Order {
-        find recent(): Order paged
-        find inRegion(region: string): Order paged where this.region == region
+        find all(): Order paged
+      }
+      criterion InRegion(region: string) of Order = this.region == region
+      queryHandler ListInRegion(region: string): Order paged {
+        let r = Orders.run(InRegion(region))
+        return r
       }
     }
   }
@@ -139,7 +154,7 @@ system Shop {
 
   it("the parameterized paged rows query binds `region` (matches the COUNT query)", async () => {
     const repo = await dapperRepo();
-    const inRegion = repo.slice(repo.indexOf("InRegion"));
+    const inRegion = repo.slice(repo.indexOf("FindAllByInRegion("));
     const rowsLine = inRegion
       .split("\n")
       .find((l) => l.includes("QueryAsync<Row>") && l.includes("LIMIT @__take"))!;
@@ -149,9 +164,9 @@ system Shop {
     expect(rowsLine).toContain("new { __take = pageSize, __offset = offset, region }");
   });
 
-  it("a non-parameterized paged find stays byte-identical (empty suffix)", async () => {
+  it("a non-parameterized paged read stays byte-identical (empty suffix)", async () => {
     const repo = await dapperRepo();
-    const recent = repo.slice(repo.indexOf("Recent"));
+    const recent = repo.slice(repo.indexOf("Task<Paged<Order>> All("));
     const rowsLine = recent
       .split("\n")
       .find((l) => l.includes("QueryAsync<Row>") && l.includes("LIMIT @__take"))!;

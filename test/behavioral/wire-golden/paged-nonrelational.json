@@ -41,7 +41,7 @@
     {
       "seq": 4,
       "method": "GET",
-      "path": "/api/invoices/in_region?region=EU",
+      "path": "/api/invoices/in_region/EU",
       "status": 200,
       "body": {
         "items": [
@@ -72,59 +72,13 @@
     },
     {
       "seq": 5,
-      "method": "GET",
-      "path": "/api/invoices/in_region?dir=asc&page=2&pageSize=2&region=EU&sort=total",
-      "status": 200,
-      "body": {
-        "items": [
-          {
-            "id": "<volatile:key>",
-            "region": "EU",
-            "total": 30,
-            "version": 1
-          }
-        ],
-        "page": 2,
-        "pageSize": 2,
-        "total": 3,
-        "totalPages": 2
-      }
-    },
-    {
-      "seq": 6,
-      "method": "GET",
-      "path": "/api/invoices/in_region?dir=asc&page=1&pageSize=2&region=EU&sort=total",
-      "status": 200,
-      "body": {
-        "items": [
-          {
-            "id": "<volatile:key>",
-            "region": "EU",
-            "total": 10,
-            "version": 1
-          },
-          {
-            "id": "<volatile:key>",
-            "region": "EU",
-            "total": 20,
-            "version": 1
-          }
-        ],
-        "page": 1,
-        "pageSize": 2,
-        "total": 3,
-        "totalPages": 2
-      }
-    },
-    {
-      "seq": 7,
       "method": "POST",
       "path": "/api/invoices/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 8,
+      "seq": 6,
       "method": "GET",
       "path": "/api/invoices/{id}",
       "status": 200,
@@ -136,9 +90,9 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 7,
       "method": "GET",
-      "path": "/api/invoices/in_region?region=EU",
+      "path": "/api/invoices/in_region/EU",
       "status": 200,
       "body": {
         "items": [
@@ -162,7 +116,7 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 8,
       "method": "GET",
       "path": "/api/invoices",
       "status": 200,
@@ -194,14 +148,14 @@
       ]
     },
     {
-      "seq": 11,
+      "seq": 9,
       "method": "DELETE",
       "path": "/api/invoices/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 12,
+      "seq": 10,
       "method": "GET",
       "path": "/api/invoices/{id}",
       "status": 404,
@@ -214,27 +168,27 @@
       }
     },
     {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/accounts",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/accounts",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
       "seq": 13,
-      "method": "POST",
-      "path": "/api/accounts",
-      "status": 201,
-      "body": {
-        "id": "<volatile:key>"
-      }
-    },
-    {
-      "seq": 14,
-      "method": "POST",
-      "path": "/api/accounts",
-      "status": 201,
-      "body": {
-        "id": "<volatile:key>"
-      }
-    },
-    {
-      "seq": 15,
       "method": "GET",
-      "path": "/api/accounts/by_owner?owner=Ada",
+      "path": "/api/accounts/by_owner/Ada",
       "status": 200,
       "body": {
         "items": [
@@ -251,7 +205,7 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 14,
       "method": "GET",
       "path": "/api/accounts/{id}",
       "status": 200,
@@ -262,9 +216,9 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 15,
       "method": "GET",
-      "path": "/api/accounts/by_owner?owner=Cy",
+      "path": "/api/accounts/by_owner/Cy",
       "status": 200,
       "body": {
         "items": [],
@@ -275,7 +229,7 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 16,
       "method": "GET",
       "path": "/api/accounts",
       "status": 200,
@@ -293,7 +247,7 @@
       ]
     },
     {
-      "seq": 19,
+      "seq": 17,
       "method": "PATCH",
       "path": "/api/invoices",
       "status": 405,
@@ -306,7 +260,7 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 18,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -319,7 +273,7 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 19,
       "method": "POST",
       "path": "/api/invoices",
       "status": 400,

@@ -70,7 +70,7 @@ system Census {
         }
       }
       repository Items for Item {
-        find openOnes(): Item[] where this.qty > 0
+        find openOnes(): Item? where this.qty > 0
       }
       policy { read Item requires currentUser.level > 2 }
     }

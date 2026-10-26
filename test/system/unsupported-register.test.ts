@@ -442,8 +442,12 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *
  *  18 -> 17: `loom.workflow-handle-unsupported` drained by REMOVAL, not by an
  *  emitter — the workflow `handle` member left the grammar (D-HANDLE-REMOVAL);
- *  a leftover one is a parse error naming `commandHandler`. */
-const MAX_OPEN_GAPS = 17;
+ *  a leftover one is a parse error naming `commandHandler`.
+ *
+ *  17 -> 16: `loom.scaffold-filter-param-unsupported` is gone with the
+ *  scaffolded filter bar it reported on — list finds are an error
+ *  (`loom.list-find-removed`), so the bar had nothing left to render. */
+const MAX_OPEN_GAPS = 16;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

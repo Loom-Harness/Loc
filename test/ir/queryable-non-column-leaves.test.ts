@@ -87,17 +87,17 @@ async function errorCodes(source: string): Promise<string[]> {
 const REFUSED: ReadonlyArray<{ leaf: string; find: string; says: RegExp }> = [
   {
     leaf: "bare `this`",
-    find: "find byThis(q: Customer): Customer[] where this == q",
+    find: "find byThis(q: Customer): Customer? where this == q",
     says: /compares COLUMNS/,
   },
   {
     leaf: "bare `id`",
-    find: "find byId2(q: Customer id): Customer[] where id == q",
+    find: "find byId2(q: Customer id): Customer? where id == q",
     says: /primary-key column/,
   },
   {
     leaf: "a standalone `duration` constructor",
-    find: "find byDur(): Customer[] where days(7) == days(3)",
+    find: "find byDur(): Customer? where days(7) == days(3)",
     says: /outside a 'datetime ± days\(n\)' comparison/,
   },
 ];
@@ -122,7 +122,7 @@ describe("queryable gate — leaves no query renderer emits are refused, not cra
   // duration node rides the `binary` arm's destructuring (which recurses into
   // its AMOUNT, never the node), so narrowing the standalone arm must leave it
   // untouched: still queryable, still emitted.
-  const TEMPORAL = "find dueBefore(q: datetime): Customer[] where this.dueDate < q + days(2)";
+  const TEMPORAL = "find dueBefore(q: datetime): Customer? where this.dueDate < q + days(2)";
 
   it("control: datetime ± days(n) is still queryable", async () => {
     expect(await errorCodes(sys(TEMPORAL))).not.toContain("loom.find-where-not-queryable");

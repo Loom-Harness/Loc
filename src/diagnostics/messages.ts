@@ -189,6 +189,38 @@ export const DIAGNOSTIC_MESSAGES = {
     `Unknown builder type '${p.name}'. Expected a ValueObject, EntityPart, user-defined component, or stdlib walker primitive (e.g., Stack, CreateForm, Card).`,
 
   // ----------------------------------------------------------------------
+  // src/language/validators/repo-key-lookup.ts
+  // ----------------------------------------------------------------------
+  "loom.repo-key-not-unique": (p: {
+    repo: unknown;
+    verb: unknown;
+    cols: unknown;
+    agg: unknown;
+    declared: unknown;
+    suggestion: unknown;
+  }) =>
+    `'${p.repo}.${p.verb}(${p.cols})': (${p.cols}) is not a declared unique key of '${p.agg}'. ` +
+    (p.declared
+      ? `Its unique keys are ${p.declared}.${p.suggestion ? ` Did you mean '${p.repo}.${p.verb}(${p.suggestion})'?` : ""} `
+      : `'${p.agg}' declares no 'unique (…)' key. `) +
+    `'${p.verb}' reads ONE row by a natural key, so its named arguments must equal a ` +
+    `'unique (…)' tuple — otherwise two rows can share the key and the read returns whichever ` +
+    `the database yields first. Declare 'unique (${p.cols})' on '${p.agg}', or read a list with ` +
+    `'${p.repo}.findAll(<Criterion>)'.`,
+  "loom.repo-key-incomplete": (p: {
+    repo: unknown;
+    verb: unknown;
+    agg: unknown;
+    tuple: unknown;
+    missing: unknown;
+  }) =>
+    `'${p.repo}.${p.verb}' names part of the unique key (${p.tuple}) of '${p.agg}' but not ` +
+    `${p.missing}. Every column of the tuple is required: a partial key can match many rows.`,
+  "loom.repo-key-incomplete#positional": (p: { repo: unknown; verb: unknown; agg: unknown }) =>
+    `'${p.repo}.${p.verb}' takes NAMED arguments, one per column of a declared unique key of ` +
+    `'${p.agg}' ('${p.repo}.${p.verb}(sku: s)'); a positional argument names no column.`,
+
+  // ----------------------------------------------------------------------
   // src/language/validators/bypass-placement.ts
   // ----------------------------------------------------------------------
   "loom.ignoring-clause-placement": (p: { clause: unknown }) =>
@@ -851,13 +883,13 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/language/validators/repository.ts
   // ----------------------------------------------------------------------
-  "loom.repository-find-deprecated": (p: { name: unknown }) =>
-    `repository find '${p.name}' is a wire-shaped list query — declare a 'criterion' ` +
-    `(run it with Repo.run(<Criterion>(args))) or a 'retrieval' instead of accreting a ` +
-    `bespoke list finder on the repository, and put it on the wire with ` +
-    `'scaffoldPaged(of: <it>)' on the context plus 'scaffoldPagedApi(of: <it>)' on the api ` +
-    `when a client must call it; 'node scripts/codemod-list-find-to-criterion.mjs <path>' ` +
-    `rewrites it. (A unique-key reconstitution find returning a single 'T' / 'T?' stays fine.)`,
+  "loom.list-find-removed": (p: { name: unknown }) =>
+    `repository find '${p.name}' returns a list, and list finds are removed — declare a ` +
+    `'criterion' (run it with Repo.run(<Criterion>(args))) or a 'retrieval' instead, and put ` +
+    `it on the wire with 'scaffoldPaged(of: <it>)' on the context plus ` +
+    `'scaffoldPagedApi(of: <it>)' on the api when a client must call it; ` +
+    `'node scripts/codemod-list-find-to-criterion.mjs <path>' rewrites it. (A unique-key ` +
+    `find returning a single 'T' / 'T?' stays fine.)`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/seed.ts
@@ -4213,22 +4245,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `where inference is weaker — a region that renders blank forever with nothing, anywhere, ` +
     `reporting a problem.  Check the spelling, or bind the read through an ` +
     `\`api <Handle>: <Api>\` param on the ui.`,
-  "loom.scaffold-filter-param-unsupported": (p: {
-    where: unknown;
-    find: unknown;
-    param: unknown;
-    type: unknown;
-    aggregate: unknown;
-  }) =>
-    `the scaffolded list filter bar has no input for \`${p.param}: ${p.type}\`, ` +
-    `so repository find '${p.find}' is omitted from it entirely and '${p.aggregate}' cannot be ` +
-    `filtered by that column from this page.  The bar renders \`string\`, \`guid\`, ` +
-    `\`date\`, \`datetime\`, \`int\`, \`long\`, \`bool\` and \`<X> id\` params.  Two kinds are still held ` +
-    `back, each for a reason outside the scaffold macro: \`decimal\`/\`money\` have no ` +
-    `zero-sentinel that type-checks on Feliz (\`decimal <> 0\` is \`decimal <> int\`), and an ` +
-    `\`enum\` state field is typed as bare \`string\` by every frontend while the query param ` +
-    `is the zod enum union.  Change the param's type, or write the page body by hand ` +
-    `(\`page List { … }\` overrides the scaffolded one by name) and bind the find yourself.`,
   "loom.slot-outside-component": (_p: { where: unknown }) =>
     `\`Slot { }\` renders the children a CALLER passed in, so it only means ` +
     `something inside a \`component\` body.  A page has no caller and no children ` +
@@ -4992,7 +5008,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `repository '${p.repo}': find '${p.find}' returns a single '${p.agg}' by (${p.cols}), but no ` +
     `'unique (${p.cols})' makes that a natural key — when two rows share it, every backend ` +
     `returns whichever row the database yields first. Declare 'unique (${p.cols})' on '${p.agg}' ` +
-    `(it also derives the DB unique index and the 409 on a duplicate), or return a list.`,
+    `(it also derives the DB unique index and the 409 on a duplicate), or read every match through a criterion (Repo.run).`,
   "loom.persisted-table-collision": (p: {
     ctx: unknown;
     first: unknown;

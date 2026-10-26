@@ -12,5 +12,4 @@ public interface ICustomerRepository
     Task SaveAsync(Customer aggregate, CancellationToken cancellationToken = default);
     Task DeleteAsync(Customer aggregate, CancellationToken cancellationToken = default);
     Task<Paged<Customer>> All(int page, int pageSize, string sort, string dir, CancellationToken cancellationToken = default);
-    Task<Customer?> ByEmail(string email, CancellationToken cancellationToken = default);
 }

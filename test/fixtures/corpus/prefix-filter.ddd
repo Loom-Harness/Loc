@@ -40,14 +40,19 @@ system PrefixFilter {
         filter UnderRoot
       }
 
-      repository Docs for Doc {
-        // Inline `startsWith` in predicate position, with the prefix as a
-        // PARAMETER (so every backend binds it rather than inlining a literal).
-        find under(prefix: string): Doc[] where this.path.startsWith(prefix)
+      repository Docs for Doc { }
+      // Inline `startsWith` in predicate position, with the prefix as a
+      // PARAMETER (so every backend binds it rather than inlining a literal).
+      criterion DocsUnder(prefix: string) of Doc = this.path.startsWith(prefix)
+      queryHandler ListDocsUnder(prefix: string): Doc[] {
+        let r = Docs.run(DocsUnder(prefix))
+        return r
       }
     }
   }
-  api DocsApi from Core
+  api DocsApi from Core {
+    route GET "/docs/under/{prefix}" -> Docs.ListDocsUnder
+  }
   storage primary { type: postgres }
   resource docsState { for: Docs, kind: state, use: primary, index: [Doc.path] }
   deployable d {
@@ -76,14 +81,14 @@ system PrefixFilter {
     // 1. Delimiter-exact: `root.` reaches the two dotted descendants and must
     //    NOT reach `root_a` — a `_` is a single-character LIKE wildcard, so a
     //    LIKE-based lowering that forgot to escape the PATTERN would match it.
-    let dotted = api.docs.under({ prefix: "root." })
+    let dotted = api.docs.listDocsUnder("root.")
     expect(dotted.length).toBe(2)
 
     // 2. Wildcards in the VALUE are data: `root%` matches only the row whose
     //    path literally starts with `root%`, never all five.  This is the
     //    assertion that distinguishes the shipped anchored-position lowering
     //    (`strpos(col, $p) = 1`) from `col LIKE $p || '%'`.
-    let pct = api.docs.under({ prefix: "root%" })
+    let pct = api.docs.listDocsUnder("root%")
     expect(pct.length).toBe(1)
 
     // 3. A prefix every row shares matches all of them — the whole-subtree read.
@@ -96,11 +101,11 @@ system PrefixFilter {
     //    property of this operator, and both readings are defensible (`?p=` as
     //    present-but-empty vs as absent), so this fixture does not pin which side
     //    is right.  Adjudicating it is a conformance-semantics RS-rule of its own.
-    let all = api.docs.under({ prefix: "root" })
+    let all = api.docs.listDocsUnder("root")
     expect(all.length).toBe(5)
 
     // 4. A prefix reaching only the deepest row.
-    let deepest = api.docs.under({ prefix: "root.a.b" })
+    let deepest = api.docs.listDocsUnder("root.a.b")
     expect(deepest.length).toBe(1)
     expect(deepest.first().title).toBe("grandchild")
 
@@ -109,14 +114,14 @@ system PrefixFilter {
     api.docs.update(rootDoc, { path: "root", title: "renamed root" })
     expect(api.docs.getById(rootDoc).title).toBe("renamed root")
     api.docs.destroy(trap)
-    let afterDestroy = api.docs.under({ prefix: "root" })
+    let afterDestroy = api.docs.listDocsUnder("root")
     expect(afterDestroy.length).toBe(4)
 
     // 6. The capability `filter` is real: a row OUTSIDE the `root` prefix is
     //    invisible to every read, including one whose `find` prefix would
     //    otherwise select it.
     api.docs.create({ path: "other.x", title: "outside" })
-    let outside = api.docs.under({ prefix: "other" })
+    let outside = api.docs.listDocsUnder("other")
     expect(outside.length).toBe(0)
     expect(api.docs.all().total).toBe(4)
   }

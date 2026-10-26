@@ -21,7 +21,7 @@
 //      so it cannot appear in a corpus fixture at all: its pin is
 //      `test/ir/handler-nullable-load.test.ts`.
 //
-// Every find here returns an ARRAY on purpose.  A NON-optional SINGLE find
+// Every read here returns an ARRAY on purpose.  A NON-optional SINGLE find
 // (`find byCode(c: string): Order`) is a shape no corpus fixture reaches, and
 // when this fixture landed the five backends did not agree on it: node threw
 // `AggregateNotFoundError`, .NET's `FirstAsync` threw an
@@ -43,10 +43,13 @@ system HandlerTriad {
         replaces: Order id
         operation cancel() { status := "cancelled" }
       }
-      repository Orders for Order {
-        // B: named `byId` on purpose — the name java used to special-case,
-        // renaming the call to `getById` and re-wrapping its argument.
-        find byId(oid: Order id): Order[] where replaces == oid
+      repository Orders for Order { }
+      // B: named `byId` on purpose — the name java used to special-case,
+      // renaming the call to `getById` and re-wrapping its argument.
+      criterion OrdersById(oid: Order id) of Order = replaces == oid
+      queryHandler ListOrdersById(oid: Order id): Order[] {
+        let r = Orders.run(OrdersById(oid))
+        return r
       }
 
       // A, command leg: no repository, no aggregate — pure computation.
@@ -59,7 +62,7 @@ system HandlerTriad {
       }
       // B: an `Agg id` path param flowing into the declared `byId` find.
       queryHandler CountReplacing(orderId: Order id): int {
-        let matches = Orders.byId(orderId)
+        let matches = Orders.run(OrdersById(orderId))
         return matches.count
       }
 
@@ -96,7 +99,7 @@ system HandlerTriad {
           // (the read-port derivation only recognises a read that is the whole
           // expression).  This fixture takes the supported spelling on purpose
           // — its subject is the handler's handle, not that gate.
-          let hits = Orders.byId(oid)
+          let hits = Orders.run(OrdersById(oid))
           return hits.count > 0
         }
       }
@@ -116,6 +119,7 @@ system HandlerTriad {
     route GET  "/orders/{orderId}/replacements" -> Sales.CountReplacing
     route GET  "/orders/{orderId}/reachable" -> Sales.Reachable
     route GET  "/doubled/{n}" -> Sales.Doubled
+    route GET "/orders/by_id/{oid}" -> Sales.ListOrdersById
   }
   storage pg { type: postgres }
   resource salesState { for: Sales, kind: state, use: pg }
@@ -169,7 +173,7 @@ system HandlerTriad {
     let listing = api.orders.all()
     expect(listing.items.length).toBe(0)
     expect(listing.total).toBe(0)
-    let rows = api.orders.byId({ oid: "33333333-3333-4333-8333-333333333333" })
+    let rows = api.sales.listOrdersById("33333333-3333-4333-8333-333333333333")
     expect(rows.length).toBe(0)
   }
 }

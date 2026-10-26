@@ -22,7 +22,7 @@ system JavaTenancy {
         filter this.tenantId == currentUser.tenantId
       }
       repository Accounts for Account {
-        find byMinBalance(min: int): Account[] where this.balance >= min
+        find byMinBalance(min: int): Account? where this.balance >= min
       }
     }
   }

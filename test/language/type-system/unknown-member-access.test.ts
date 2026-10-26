@@ -96,9 +96,8 @@ describe("loom.unknown-member — undefined field access", () => {
         derived display: string = displayName
       }
       aggregate PersonContact extends Contact { firstName: string }
-      repository PersonContacts for PersonContact {
-        find byEmail(q: string): PersonContact? where this.email == q
-      }`);
+      repository PersonContacts for PersonContact { }
+      criterion PersonContactsByEmail(q: string) of PersonContact = this.email == q`);
     expect(unknownMember(e), e.join("\n")).toHaveLength(0);
   });
 

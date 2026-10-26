@@ -62,7 +62,7 @@ const SRC = `
           destroy { }
         }
         repository Orders for Order {
-          find byStatus(status: string): Order[] where this.status == status
+          find byStatus(status: string): Order? where this.status == status
         }
       }
     }

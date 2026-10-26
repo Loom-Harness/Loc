@@ -22,9 +22,8 @@ const SRC = `
       }
       entity Label { zpl: string }
     }
-    repository Orders for Order {
-      find byCode(code: string): Order[] where this.code == code
-    }
+    repository Orders for Order { }
+    criterion OrdersByCode(code: string) of Order = this.code == code
   }
 `;
 

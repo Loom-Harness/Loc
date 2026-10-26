@@ -175,14 +175,21 @@ system MoneyNullable {
           limit := x
         }
       }
-      repository Ledgers for Ledger {
-        // An in-memory document find over money.
-        find over(min: money): Ledger[] where this.balance > min
+      repository Ledgers for Ledger { }
+      // An in-memory document find over money.
+      criterion LedgersOver(min: money) of Ledger = this.balance > min
+      // PAGED: a non-relational repository serves a criterion read through the
+      // synthesised paged find; an unpaged `run` has no repository method there.
+      queryHandler ListLedgersOver(min: money): Ledger paged {
+        let r = Ledgers.run(LedgersOver(min))
+        return r
       }
     }
   }
 
-  api BillingApi from Billing
+  api BillingApi from Billing {
+    route GET "/ledgers/over/{min}" -> Billing.ListLedgersOver
+  }
   storage primary { type: postgres }
   resource billingState { for: Billing, kind: state, use: primary }
   deployable d {
@@ -277,10 +284,10 @@ system MoneyNullable {
     expect(limited.version).toBe(3)
     // The in-memory find orders by value: 20 > 9.5 (term order on the
     // `%Decimal{}` structs said no).
-    let over = api.ledgers.over({ min: money("9.5") })
-    expect(over.length).toBe(1)
-    let none = api.ledgers.over({ min: money("100") })
-    expect(none.length).toBe(0)
+    let over = api.billing.listLedgersOver(money("9.5"))
+    expect(over.items.length).toBe(1)
+    let none = api.billing.listLedgersOver(money("100"))
+    expect(none.items.length).toBe(0)
     let ledgers = api.ledgers.all()
     expect(ledgers.length).toBe(1)
   }

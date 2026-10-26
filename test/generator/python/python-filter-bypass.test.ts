@@ -75,8 +75,8 @@ describe("python filter-bypass (ignoring <Cap> / *)", () => {
   it("a bypassing find names the capability it drops; a normal find names none", async () => {
     const repo = (
       await build(
-        sys(`find recent(): Doc[] where this.subject != "" ignoring softDeletable
-          find normal(): Doc[] where this.subject != ""`),
+        sys(`find recent(): Doc? where this.subject != "" ignoring softDeletable
+          find normal(): Doc? where this.subject != ""`),
       )
     ).get(REPO)!;
     expect(repo).toBeDefined();
@@ -90,8 +90,8 @@ describe("python filter-bypass (ignoring <Cap> / *)", () => {
   it("`ignoring *` carries the wildcard", async () => {
     const repo = (
       await build(
-        sys(`find allRows(): Doc[] ignoring *
-          find normal(): Doc[] where this.subject != ""`),
+        sys(`find allRows(): Doc? ignoring *
+          find normal(): Doc? where this.subject != ""`),
       )
     ).get(REPO)!;
     expect(method(repo, "all_rows")).toContain(
@@ -102,7 +102,7 @@ describe("python filter-bypass (ignoring <Cap> / *)", () => {
 
   it("the hook drops a capability restriction only when the read names it", async () => {
     const scope = (
-      await build(sys(`find recent(): Doc[] where this.subject != "" ignoring softDeletable`))
+      await build(sys(`find recent(): Doc? where this.subject != "" ignoring softDeletable`))
     ).get(SCOPE)!;
     expect(scope).toContain('    return "*" in ignoring or capability in ignoring');
     expect(scope).toContain(
@@ -115,7 +115,7 @@ describe("python filter-bypass (ignoring <Cap> / *)", () => {
 
   it("a bare (non-capability) filter is NEVER dropped, even by `ignoring *`", async () => {
     const scope = (
-      await build(sys(`find allRows(): Doc[] ignoring *`, `filter this.total > 0`))
+      await build(sys(`find allRows(): Doc? ignoring *`, `filter this.total > 0`))
     ).get(SCOPE)!;
     // Unconditional: no `_bypassed` guard precedes it.
     expect(scope).toContain(

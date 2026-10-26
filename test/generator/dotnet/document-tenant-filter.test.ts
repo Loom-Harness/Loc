@@ -57,7 +57,7 @@ const tenantSystem = `
           implements tenantRegistry
         }
         repository Notes for Note {
-          find byTitle(t: string): Note[] where this.title == t
+          find byTitle(t: string): Note? where this.title == t
         }
         repository Ledgers for Ledger { }
         repository Orgs for Org { }

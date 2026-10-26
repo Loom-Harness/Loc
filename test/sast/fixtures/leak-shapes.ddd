@@ -36,12 +36,12 @@ system LeakShapes {
       repository Organizations for Organization { }
 
       repository Secrets for Secret {
-        find byCode(c: string): Secret[] where this.code == c
-        find everything(c: string): Secret[] where this.code == c ignoring *
+        find byCode(c: string): Secret? where this.code == c
+        find everything(c: string): Secret? where this.code == c ignoring *
       }
 
       repository Orders for Order {
-        find allTenants(c: string): Order[] where this.code == c ignoring *
+        find allTenants(c: string): Order? where this.code == c ignoring *
       }
 
       projection OrderVolume {

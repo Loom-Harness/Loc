@@ -1063,7 +1063,7 @@ const FIND_SOURCE = `
       context Orders {
         enum OrderStatus { Draft, Confirmed, Shipped }
         aggregate Order with crudish { customerId: string  status: OrderStatus }
-        repository Orders for Order { find byStatus(status: OrderStatus): Order[] }
+        repository Orders for Order { find byStatus(status: OrderStatus): Order? }
       }
     }
     ui WebApp {

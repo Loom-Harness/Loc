@@ -17,9 +17,7 @@ system Repro {
           name := n
         }
       }
-      repository Things for Thing {
-        find byId(id: Thing id): Thing?
-      }
+      repository Things for Thing { }
       policy { read Thing requires currentUser.permissions.contains(permissions.manage) }
     }
   }

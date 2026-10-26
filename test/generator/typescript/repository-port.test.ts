@@ -12,7 +12,7 @@ const SRC = `
     subdomain D { context C {
       aggregate Order with crudish { total: int }
       repository OrderRepo for Order {
-        find byMin(m: int): Order[] where this.total > m
+        find byMin(m: int): Order? where this.total > m
       }
     }}
     storage primary { type: postgres }
@@ -44,7 +44,7 @@ describe("repository ports (audit S7)", () => {
     expect(port).toContain("findManyByIds(ids: Ids.OrderId[]): Promise<Order[]>;");
     expect(port).toContain("save(aggregate: Order, expectedVersion?: number): Promise<void>;");
     expect(port).toContain("delete(id: Ids.OrderId): Promise<void>;");
-    expect(port).toContain("byMin(m: number): Promise<Order[]>;");
+    expect(port).toContain("byMin(m: number): Promise<Order | null>;");
   });
 
   it("the port is ORM-neutral (no Drizzle vocabulary) and excludes presentation (toWire)", async () => {

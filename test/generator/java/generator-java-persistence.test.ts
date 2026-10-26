@@ -36,9 +36,9 @@ system Shop {
       aggregate Customer { name: string }
       aggregate Tag { label: string }
       repository Orders for Order {
-        find byCode(code: string): Order[] where this.code == code
-        find confirmed(): Order[] where this.status == confirmed
-        find inCity(city: string): Order[] where this.shipTo.city == city
+        find byCode(code: string): Order? where this.code == code
+        find confirmed(): Order? where this.status == confirmed
+        find inCity(city: string): Order? where this.shipTo.city == city
       }
       repository Customers for Customer { }
       repository Tags for Tag { }
@@ -142,7 +142,7 @@ describe("java generator — repository triple (S4)", () => {
     expect(port).toContain("Optional<Order> findById(OrderId id);");
     expect(port).toContain("Order getById(OrderId id);");
     expect(port).toContain("List<Order> findAll();");
-    expect(port).toContain("List<Order> byCode(String code);");
+    expect(port).toContain("Order byCode(String code);");
   });
 
   it("Spring Data interface renders IR-derived finds as @Query JPQL", async () => {
@@ -157,7 +157,7 @@ describe("java generator — repository triple (S4)", () => {
     );
     // VO sub-column navigates the embedded path.
     expect(jpa).toContain('@Query("select e from Order e where e.shipTo.city = :city")');
-    expect(jpa).toContain('List<Order> byCode(@Param("code") String code);');
+    expect(jpa).toContain('Order byCode(@Param("code") String code);');
   });
 
   it("impl maps the getById miss to AggregateNotFoundException", async () => {

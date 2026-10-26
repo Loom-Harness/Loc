@@ -97,7 +97,7 @@ describe("generics — position restriction (P3b)", () => {
   it("allows a carrier as a repository find return", async () => {
     const { diagnostics } = await parseString(`context C {
       aggregate Order { ref: string }
-      repository Orders for Order { find recent(): Order id paged }
+      repository Orders for Order { find all(): Order id paged }
     }`);
     expect(errorCodes(diagnostics)).not.toContain("loom.generic-position");
   });

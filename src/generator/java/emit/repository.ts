@@ -9,6 +9,7 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
+import { findRaisesNotFound } from "../../../ir/util/key-lookup.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
@@ -25,7 +26,7 @@ import { isMangled, javaLocals, jid, localOf, movedLocalOrUndefined } from "../j
 import { J } from "../java-symbols.js";
 import { boxedJavaType, renderJavaExpr, renderJavaType } from "../render-expr.js";
 import { renderJpqlWhere } from "../render-jpql.js";
-import { javaNotFoundThrow } from "./common.js";
+import { JAVA_FIND_ABSENCE_THROW, javaNotFoundThrow } from "./common.js";
 
 const OPTIONAL = javaRef("java.util", "Optional");
 const COMPARATOR = javaRef("java.util", "Comparator");
@@ -747,6 +748,10 @@ export function renderJavaRepositoryImpl(
       ...wrapBypass(findBypass, [
         `        var result = jpa.${f.name}(${args});`,
         findExecutedLog(f, rowsExpr),
+        // A natural-key `getBy` answers the find-absence 404, never a null.
+        ...(findRaisesNotFound(f)
+          ? [`        if (result == null) throw ${JAVA_FIND_ABSENCE_THROW};`]
+          : []),
         `        return result;`,
       ]),
       `    }`,

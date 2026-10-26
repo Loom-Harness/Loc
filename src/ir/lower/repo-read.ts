@@ -35,13 +35,17 @@ import {
   isRetrieval,
   isRetrievalLiteral,
 } from "../../language/generated/ast.js";
+import { declaredKeyTuples } from "../../language/repo-key-tuples.js";
 import {
   isRepoWriteName,
+  keyLookupMethodName,
   namedRepoCallOp,
   type RepoOp,
   repoOpResult,
+  repositoryVerb,
+  resolveKeyTuple,
 } from "../../util/repository-contract.js";
-import type { TypeIR } from "../types/loom-ir.js";
+import type { KeyLookupIR, TypeIR } from "../types/loom-ir.js";
 import { type Env, lowerType } from "./lower-types.js";
 
 /** A predicate that decides whether a bare `run(<Name>)` / `run(<Name>(args))`
@@ -93,6 +97,79 @@ export function matchRepoCall(
     repo,
     method: s.member,
     args: (s.args ?? []).map((a) => a.value),
+  };
+}
+
+/** A natural-key read — `Repo.getBy(<col>: v, …)` / `Repo.findBy(…)`. */
+export interface KeyLookupMatch {
+  repo: Repository;
+  verb: "getBy" | "findBy";
+  op: "load-by-key" | "load-by-key-optional";
+  /** The repository method the read is emitted as (`keyLookupMethodName`):
+   *  one per (verb, tuple, `ignoring` stance). */
+  method: string;
+  /** The tuple's columns in their declared order — the method's parameters. */
+  columns: string[];
+  /** The argument values, in `columns` order. */
+  args: Expression[];
+  bypassAll?: boolean;
+  bypassCaps?: string[];
+}
+
+/** Recognise `<Repo>.getBy(<col>: v, …)` / `<Repo>.findBy(…)`.  The named
+ *  arguments are matched against the aggregate's declared `unique (…)` tuples
+ *  (`resolveKeyTuple`) and re-ordered into the tuple's declared column order,
+ *  so a call's argument order never changes the method it calls.  A call that
+ *  names no declared tuple keeps its own argument order; phase ④ has already
+ *  refused it (`loom.repo-key-not-unique` / `loom.repo-key-incomplete`). */
+export function matchKeyLookupCall(
+  expr: Expression | undefined,
+  reposByName: Map<string, Repository>,
+): KeyLookupMatch | undefined {
+  if (!expr || !isPostfixChain(expr) || expr.suffixes.length !== 1) return undefined;
+  const s = expr.suffixes[0]!;
+  if (!isMemberSuffix(s) || !s.call) return undefined;
+  const c = repositoryVerb(s.member);
+  if (c?.args !== "key") return undefined;
+  const recv = expr.head;
+  if (!isNameRef(recv)) return undefined;
+  const repo = reposByName.get(recv.name);
+  if (!repo) return undefined;
+  const callArgs = s.args ?? [];
+  const res = resolveKeyTuple(
+    callArgs.map((a) => a.name),
+    declaredKeyTuples(repo.aggregate?.ref),
+  );
+  const own = callArgs.map((a, i) => a.name ?? `arg${i}`);
+  const columns = res.kind === "match" ? [...res.tuple] : own;
+  const byName = new Map(callArgs.map((a, i) => [own[i]!, a.value]));
+  const args = columns.flatMap((col) => {
+    const v = byName.get(col);
+    return v ? [v] : [];
+  });
+  const bypass: { bypassAll?: boolean; bypassCaps?: string[] } = expr.bypassAll
+    ? { bypassAll: true }
+    : expr.bypass.length > 0
+      ? { bypassCaps: [...expr.bypass] }
+      : {};
+  const verb = s.member as "getBy" | "findBy";
+  return {
+    repo,
+    verb,
+    op: c.op as "load-by-key" | "load-by-key-optional",
+    method: keyLookupMethodName(verb, columns, bypass),
+    columns,
+    args,
+    ...bypass,
+  };
+}
+
+/** The IR record of a natural-key read's tuple + `ignoring` stance. */
+export function keyLookupIR(m: KeyLookupMatch): KeyLookupIR {
+  return {
+    columns: m.columns,
+    ...(m.bypassAll ? { bypassAll: true } : {}),
+    ...(m.bypassCaps ? { bypassCaps: m.bypassCaps } : {}),
   };
 }
 
@@ -349,6 +426,9 @@ export interface RepoReadMatch {
   /** For `run` — the referenced (named) retrieval.  Empty for an anonymous
    *  retrieval literal, whose predicate rides `criterionName` instead. */
   retrievalName?: string;
+  /** For a natural-key read — the tuple and `ignoring` stance `method`
+   *  names. */
+  key?: KeyLookupIR;
 }
 
 /** Recognise ANY repository read in an expression position, collapsing the four
@@ -363,6 +443,15 @@ export function matchRepoRead(
   reposByName: Map<string, Repository>,
   isCriterionRun?: CriterionRunPredicate,
 ): RepoReadMatch | undefined {
+  const key = matchKeyLookupCall(expr, reposByName);
+  if (key)
+    return {
+      op: key.op,
+      repo: key.repo,
+      method: key.method,
+      args: key.args,
+      key: keyLookupIR(key),
+    };
   const find = matchFindCall(expr, reposByName);
   if (find)
     return {

@@ -41,11 +41,18 @@ system Payments {
         invariant routingNumber.length > 0
       }
 
-      repository CreditCards for CreditCard {
-        find byNetwork(network: CardNetwork): CreditCard[] where this.network == network
+      repository CreditCards for CreditCard { }
+      criterion CreditCardsByNetwork(network: CardNetwork) of CreditCard = this.network == network
+      queryHandler ListCreditCardsByNetwork(network: CardNetwork): CreditCard[] {
+        let r = CreditCards.run(CreditCardsByNetwork(network))
+        return r
       }
       repository BankAccounts for BankAccount { }
     }
+  }
+
+  api WalletApi from Wallet {
+    route GET "/credit_cards/by_network/{network}" -> Wallet.ListCreditCardsByNetwork
   }
 
   storage primary { type: postgres }
@@ -55,6 +62,7 @@ system Payments {
     platform: __PLATFORM__
     contexts: [Wallet]
     dataSources: [walletState]
+    serves: WalletApi
     port: 8000
   }
 
@@ -81,9 +89,9 @@ system Payments {
     expect(updated.expiryYear).toBe(2031)
     expect(updated.holderName).toBe("Ada Lovelace")
     expect(updated.last4).toBe("4242")
-    // The declared find over the enum column the update just moved — the one
-    // subtype-scoped query on this system, and previously uncalled.
-    let byNet = api.creditCards.byNetwork({ network: "Mastercard" })
+    // A criterion over the enum column the update just moved, routed through a
+    // queryHandler — the one subtype-scoped query on this system.
+    let byNet = api.wallet.listCreditCardsByNetwork("Mastercard")
     expect(byNet.length).toBe(1)
 
     // The LIST and DELETE routes on a TPH subtype.  `all` is a bare ARRAY here
@@ -99,7 +107,7 @@ system Payments {
     expect(api.creditCards.getById(c)).toThrow(404)
     let noCards = api.creditCards.all()
     expect(noCards.length).toBe(0)
-    let noneByNet = api.creditCards.byNetwork({ network: "Mastercard" })
+    let noneByNet = api.wallet.listCreditCardsByNetwork("Mastercard")
     expect(noneByNet.length).toBe(0)
   }
 

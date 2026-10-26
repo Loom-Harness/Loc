@@ -85,7 +85,7 @@ system P {
     context C {
       aggregate Doc { title: string }
       repository Docs for Doc {
-        find byTitle(t: string): Doc[] where title == t
+        find byTitle(t: string): Doc? where title == t
       }
       policy { read Doc requires currentUser.role == "editor" }
     }

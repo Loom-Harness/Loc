@@ -3,8 +3,8 @@
 // `tenancy by user.<claim>` is documented as taking any claim name, but the
 // `tenantOwned` capability hardcoded `currentUser.tenantId` on the principal
 // side of its stamp and filter — so the feature only worked when the author
-// happened to name the claim `tenantId`, which every fixture did.  Enrichment
-// now binds the declared claim (`bindTenancyClaim`).
+// happened to name the claim `tenantId`, which every fixture did.  The expander
+// now splices the declared claim (`resolveTenancyClaim`).
 //
 // This pins the emitted result on all five backends, because the IR-level test
 // (`test/ir/tenancy-claim-binding.test.ts`) cannot see a backend that reaches
@@ -57,9 +57,8 @@ system TenantClaimNameDeep {
         number: string
         amountDue: int
       }
-      repository Invoices for Invoice {
-        find byNumber(n: string): Invoice[] where this.number == n
-      }
+      repository Invoices for Invoice { }
+      criterion InvoicesByNumber(n: string) of Invoice = this.number == n
       policy {
         allow deep on Invoice
       }

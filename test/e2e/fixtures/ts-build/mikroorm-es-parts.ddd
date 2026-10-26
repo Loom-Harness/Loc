@@ -19,9 +19,8 @@ system Warehouse {
         apply(e: Placed) { customer := e.customer }
         apply(e: Boxed) { boxes += Box { label: e.label } }
       }
-      repository Orders for Order {
-        find byCustomer(customer: string): Order[] where this.customer == customer
-      }
+      repository Orders for Order { }
+      criterion OrdersByCustomer(customer: string) of Order = this.customer == customer
     }
   }
   storage pg { type: postgres }

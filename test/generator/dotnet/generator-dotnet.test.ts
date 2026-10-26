@@ -741,7 +741,7 @@ describe(".NET generator", () => {
       // find_executed — array find uses result.Count; the assertion
       // anchors on the catalog shape, not a specific find name.
       expect(repo).toMatch(
-        /_log\.LogDebug\("\{Event\} aggregate=\{Aggregate\} find=\{Find\} rows=\{Rows\}", "find_executed", "Order", "[a-zA-Z]+", result\.Count\);/,
+        /_log\.LogDebug\("\{Event\} aggregate=\{Aggregate\} find=\{Find\} rows=\{Rows\}", "find_executed", "Order", "[a-zA-Z]+", result == null \? 0 : 1\);/,
       );
     });
 
@@ -1624,7 +1624,7 @@ describe(".NET generator", () => {
               status: string
             }
             repository Orders for Order {
-              find mine(): Order[] where customerId == currentUser.customerId
+              find mine(): Order? where customerId == currentUser.customerId
             }
           }
         }

@@ -115,6 +115,7 @@ import {
 } from "./denial.js";
 import { renderFunctionBodyLines } from "./function-emit.js";
 import { renderRequiredParamsPlug, requiredWireParams } from "./problem-details-emit.js";
+import { retrievalReadsActor } from "./retrieval-emit.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
 
 /** The aggregate a workflow step targets, for the lifecycle-seam decision (which
@@ -630,6 +631,9 @@ function lowerStatement(
       if (st.page) {
         if (st.page.offset) optEntries.push(`offset: ${renderExpr(st.page.offset, renderCtx)}`);
         if (st.page.limit) optEntries.push(`limit: ${renderExpr(st.page.limit, renderCtx)}`);
+      }
+      if (renderCtx.repoRunActor && ctx && retrievalReadsActor(st.retrievalName, ctx)) {
+        optEntries.push("current_user: current_user");
       }
       if (st.bypassAll) {
         optEntries.push("ignore_all_filters: true");

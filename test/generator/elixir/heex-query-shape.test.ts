@@ -31,8 +31,10 @@ const phoenixSystem = (route: string, uiBody: string): string => `
       context C {
         aggregate Doc with crudish { name: string  derived display: string = name }
         repository Docs for Doc {
-          find named(name: string): Doc[] where this.name == name
+          find named(name: string): Doc? where this.name == name
         }
+        aggregate Note shape: document, with crudish { title: string  derived display: string = title }
+        repository Notes for Note { find all(): Note[] }
       }
     }
     api DemoApi from M
@@ -107,17 +109,17 @@ describe("HEEx QueryView — the read's shape is derived, not declared", () => {
     expect(heex).not.toContain("Enum.empty?");
   });
 
-  it("a plain array find keeps bare-collection semantics", async () => {
+  it("a bare-array list read keeps bare-collection semantics", async () => {
     const heex = await landingHeex(
       "/",
       `QueryView {
-        of: Api.Doc.named("x"),
+        of: Api.Note.all,
         empty: Empty { "none" },
-        data: rows => Table { rows: rows, Column { "Name", o => Text { o.name } } }
+        data: rows => Table { rows: rows, Column { "Title", o => Text { o.title } } }
       }`,
     );
-    // A user find returning `Doc[]` is neither paged nor single — no `.items`
-    // unwrap, and the collection cond.
+    // A declared `find all(): Note[]` is a bare array — neither paged nor
+    // single — so no `.items` unwrap, and the collection cond.
     expect(heex).toContain("Enum.empty?(@items)");
     expect(heex).toContain("rows={@items}");
   });

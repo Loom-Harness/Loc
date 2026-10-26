@@ -152,15 +152,12 @@ subdomain Sales {
 
     repository Customers for Customer {
       find byEmail(email: string): Customer? where this.contact.email == email
-      find active(): Customer[] where this.active == true
     }
-    repository SalesOrders for SalesOrder {
-      find byCustomer(customerId: Customer id): SalesOrder[] where this.customerId == customerId
-      find open(): SalesOrder[] where OpenOrder
-    }
-    repository Quotes for Quote {
-      find byCustomer(customerId: Customer id): Quote[] where this.customerId == customerId
-    }
+    criterion CustomersActive of Customer = this.active == true
+    repository SalesOrders for SalesOrder { }
+    criterion SalesOrdersByCustomer(customerId: Customer id) of SalesOrder = this.customerId == customerId
+    repository Quotes for Quote { }
+    criterion QuotesByCustomer(customerId: Customer id) of Quote = this.customerId == customerId
 
     // ── Transactional workflow: create + confirm an order atomically.
     // If `confirm`'s precondition throws, the whole creation rolls back.

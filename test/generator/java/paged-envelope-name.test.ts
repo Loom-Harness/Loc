@@ -32,7 +32,7 @@ system PG {
         grade: Grade
       }
       repository Widgets for Widget {
-        find byGrade(grade: Grade): Widget paged where this.grade == grade
+        find all(): Widget paged
       }
     }
   }
@@ -50,16 +50,16 @@ async function file(source: string, suffix: string): Promise<string> {
 }
 
 describe("java paged envelope naming (F2-W-07)", () => {
-  it("a DECLARED paged find returns the concrete `<Agg>Paged`, not the raw generic", async () => {
+  it("a declared `find all(): T paged` returns the concrete `<Agg>Paged`, not the raw generic", async () => {
     const controller = await file(paged(), "features/widgets/WidgetsController.java");
-    expect(controller).toContain("public WidgetPaged byGradeWidget(");
+    expect(controller).toContain("public WidgetPaged allWidget(");
     // The raw generic is what springdoc flattened to `PagedWidgetResponse`.
     expect(controller).not.toContain("Paged<WidgetResponse>");
   });
 
   it("wraps the service's `Paged<T>` at the controller, so the service is unchanged", async () => {
     const controller = await file(paged(), "features/widgets/WidgetsController.java");
-    expect(controller).toContain("var result = service.byGrade(grade, page, pageSize, sort, dir);");
+    expect(controller).toContain("var result = service.allWidget(page, pageSize, sort, dir);");
     expect(controller).toContain(
       "return new WidgetPaged(result.items(), result.page(), result.pageSize(), " +
         "result.total(), result.totalPages());",
@@ -76,7 +76,7 @@ describe("java paged envelope naming (F2-W-07)", () => {
   // under that flag.  Returning the concrete record from the declared find
   // without this would emit a controller referencing a class that does not
   // exist.
-  it("emits `<Agg>Paged.java` for a declared paged find even with a non-paged auto-findAll", async () => {
+  it("emits `<Agg>Paged.java` for a declared paged `find all` even where the auto-findAll is not paged", async () => {
     const source = paged("shape: document, ");
     const files = await generateSystemFiles(source);
     const paths = [...files.keys()];
@@ -84,9 +84,7 @@ describe("java paged envelope naming (F2-W-07)", () => {
     const controller = files.get(
       paths.find((p) => p.endsWith("features/widgets/WidgetsController.java"))!,
     )!;
-    expect(controller).toContain("public WidgetPaged byGradeWidget(");
-    // The document auto-findAll is the bare array — unchanged by this fix.
-    expect(controller).toContain("public List<WidgetResponse> allWidget()");
+    expect(controller).toContain("public WidgetPaged allWidget(");
   });
 
   it("registers the `<Agg>Paged` required set on the OpenAPI customizer", async () => {

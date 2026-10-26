@@ -36,9 +36,8 @@ system Todo {
         }
       }
 
-      repository Projects for Project {
-        find active(): Project[] where this.archived == false
-      }
+      repository Projects for Project { }
+      criterion ProjectsActive of Project = this.archived == false
 
       aggregate Task with crudish {
         project: Project id
@@ -95,11 +94,9 @@ system Todo {
       // inlined below rather than factored into its own criterion.
       criterion InProject(projectId: Project id) of Task = this.project == projectId
 
-      repository Tasks for Task {
-        find byProject(projectId: Project id): Task[] where this.project == projectId
-        find openInProject(projectId: Project id): Task[]
-          where this.project == projectId && this.status != Done
-      }
+      repository Tasks for Task { }
+      criterion TasksByProject(projectId: Project id) of Task = this.project == projectId
+      criterion TasksOpenInProject(projectId: Project id) of Task = this.project == projectId && this.status != Done
 
       // Named query bundle → a `runOpenByPriority` repo method + a
       // GET /views route, filter + sort composed from a criterion.

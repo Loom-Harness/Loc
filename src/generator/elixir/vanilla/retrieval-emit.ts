@@ -27,7 +27,12 @@
 // Mirrors the established vanilla repository-emit.ts shape.
 // ---------------------------------------------------------------------------
 
-import type { BoundedContextIR, RetrievalIR, SortTermIR } from "../../../ir/types/loom-ir.js";
+import type {
+  BoundedContextIR,
+  RetrievalIR,
+  SortTermIR,
+  SystemIR,
+} from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { elixirLocal, snake, upperFirst } from "../../../util/naming.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
@@ -35,7 +40,36 @@ import {
   aggregateUsesPrincipalContextFilter,
   vanillaCapabilityFilterParts,
 } from "./capability-filter.js";
+import { isEventSourced } from "./eventsourced-emit.js";
 import { tphKind } from "./inheritance-emit.js";
+import { readPreloadRels } from "./read-preload.js";
+
+/** Does retrieval `r` get an Ecto query module (and its `run_…` delegate)?
+ *  Only over an aggregate with a table: an event-sourced aggregate has no Ecto
+ *  schema to `from(...)` over — its reads fold the stream inside its
+ *  repository, which is where a paged criterion read's synthesised
+ *  `findAllBy<Criterion>` page method lives. */
+export function emitsRetrievalModule(r: RetrievalIR, ctx: BoundedContextIR): boolean {
+  if (r.targetType.kind !== "entity") return false;
+  const name = r.targetType.name;
+  const target = ctx.aggregates.find((a) => a.name === name);
+  return !(target && isEventSourced(target));
+}
+
+/** Does the retrieval named `retrievalName` read the request actor
+ *  (`opts[:current_user]`)?  True when its target aggregate carries a principal
+ *  (tenancy) filter or its own `where` reads `currentUser` — the same decision
+ *  that makes its module bind `current_user`.  A caller holding the actor passes
+ *  it as the `current_user:` opt; one that does not scopes to no rows. */
+export function retrievalReadsActor(retrievalName: string, ctx: BoundedContextIR): boolean {
+  const r = (ctx.retrievals ?? []).find((x) => snake(x.name) === snake(retrievalName));
+  if (r?.targetType.kind !== "entity") return false;
+  const targetName = r.targetType.name;
+  const target = ctx.aggregates.find((a) => a.name === targetName);
+  return (
+    (target ? aggregateUsesPrincipalContextFilter(target) : false) || exprUsesCurrentUser(r.where)
+  );
+}
 
 /** Per-context fan-out: emit one Ecto query module per retrieval. */
 export function emitVanillaRetrievals(
@@ -43,13 +77,14 @@ export function emitVanillaRetrievals(
   appModule: string,
   ctx: BoundedContextIR,
   out: Map<string, string>,
+  sys?: SystemIR,
 ): void {
   const retrievals = ctx.retrievals ?? [];
   if (retrievals.length === 0) return;
   const ctxSnake = snake(ctx.name);
   const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
   for (const r of retrievals) {
-    if (r.targetType.kind !== "entity") continue;
+    if (!emitsRetrievalModule(r, ctx) || r.targetType.kind !== "entity") continue;
     // The retrieval reads its target aggregate, so it honours that aggregate's
     // capability filter (soft-delete / scoping) just like the CRUD reads.
     const targetName = r.targetType.name;
@@ -61,9 +96,7 @@ export function emitVanillaRetrievals(
     // A retrieval whose OWN `where:` reads `currentUser` needs the actor bound
     // too — the rendered `^(current_user && …)` pin otherwise names a variable
     // `run/1` never bound ("undefined variable current_user" at `mix compile`).
-    const principal =
-      (target ? aggregateUsesPrincipalContextFilter(target) : false) ||
-      exprUsesCurrentUser(r.where);
+    const principal = retrievalReadsActor(r.name, ctx);
     // Each capability filter is applied as a SEPARATELY-gated `where` pipe stage
     // (rather than baked into the base `where:`) so an inline `Repo.run(...)
     // ignoring <Cap>` / `ignoring *` at a call site can skip individual origins
@@ -80,6 +113,11 @@ export function emitVanillaRetrievals(
         capParts,
         principal,
         target ? tphKind(target, ctx.aggregates) : undefined,
+        // The rows are returned as aggregate structs the callers serialise
+        // through the wireShape, so every collection association the REST read
+        // preloads is preloaded here too — an unloaded `has_many` is
+        // `%Ecto.Association.NotLoaded{}`, which the serializer cannot map.
+        target ? readPreloadRels(target, ctx, sys) : [],
       ),
     );
   }
@@ -93,6 +131,7 @@ function renderRetrievalModule(
   principal: boolean,
   /** TPH concrete: the shared table's `kind` discriminator, always conjoined. */
   kind?: string,
+  preloadRels: readonly string[] = [],
 ): string {
   const aggName = (r.targetType as { kind: "entity"; name: string }).name;
   const moduleName = `${contextModule}.Retrievals.${upperFirst(r.name)}`;
@@ -105,7 +144,6 @@ function renderRetrievalModule(
     filterArgs: true,
   };
   const args = r.params.map((p) => elixirLocal(p.name));
-  const argList = args.length > 0 ? `${args.join(", ")}, opts \\\\ []` : "opts \\\\ []";
   // The retrieval's own `where` predicate (the capability filters apply below,
   // as separately-gated pipe stages so a call-site `ignoring` can skip them).
   const ownWhere = renderExpr(r.where, renderCtx);
@@ -139,12 +177,21 @@ function renderRetrievalModule(
   pipeline.push(`    query = if opts[:limit], do: limit(query, ^opts[:limit]), else: query`);
   pipeline.push(`    query = if opts[:offset], do: offset(query, ^opts[:offset]), else: query`);
   if (sortClause) pipeline.push(`    query = ${sortClause}`);
-  pipeline.push(`    {:ok, Repo.all(query)}`);
+  pipeline.push(
+    preloadRels.length > 0
+      ? `    {:ok, query |> Repo.all() |> Repo.preload([${preloadRels.join(", ")}])}`
+      : `    {:ok, Repo.all(query)}`,
+  );
 
   // `opts` is always referenced (the if/else above) — no unused-var
-  // warning even when params are empty.  Params themselves are referenced
-  // in `whereExpr` whenever the retrieval is well-formed (the validator
-  // would already have errored on a stray param).
+  // warning even when params are empty.  A declared parameter the predicate
+  // never reads (`criterion C(final: bool, label: string) of T = this.label ==
+  // label`) is bound and unread, which `mix compile --warnings-as-errors`
+  // refuses: the arity stays (callers pass every parameter positionally) and
+  // the unread NAME underscores, as on the repository's find heads.
+  const body = pipeline.join("\n");
+  const head = args.map((n) => (new RegExp(`\\b${n}\\b`).test(body) ? n : `_${n}`));
+  const argList = head.length > 0 ? `${head.join(", ")}, opts \\\\ []` : "opts \\\\ []";
   return `# Auto-generated.
 defmodule ${moduleName} do
   @moduledoc """
@@ -159,7 +206,7 @@ defmodule ${moduleName} do
 
   @doc "Execute the retrieval; returns {:ok, [aggregate]}."
   def run(${argList}) do
-${pipeline.join("\n")}
+${body}
   end
 end
 `;

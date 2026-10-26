@@ -2,7 +2,7 @@
 // A declared find with an ENUM param on a non-relational java aggregate emitted
 // a repository impl that does not compile.
 //
-//     find byGrade(grade: Grade): Widget[] …      // on `shape: document`
+//     find byGrade(grade: Grade): Widget? …      // on `shape: document`
 //
 //   → public List<Widget> byGrade(Grade grade) {  // WidgetRepositoryImpl.java
 //     javac: cannot find symbol / symbol: class Grade
@@ -27,7 +27,21 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
-const src = (shape: string, ret: string): string => `
+/** A single-row find over the enum param, or (`paged`) a criterion over it run
+ *  by a paged queryHandler — read through the synthesised `findAllBy<Criterion>`. */
+const READS = {
+  single: `repository Widgets for Widget {
+        find byGrade(grade: Grade): Widget? where this.grade == grade
+      }`,
+  paged: `repository Widgets for Widget { }
+      criterion ByGrade(grade: Grade) of Widget = this.grade == grade
+      queryHandler ListByGrade(grade: Grade): Widget paged {
+        let r = Widgets.run(ByGrade(grade))
+        return r
+      }`,
+} as const;
+
+const src = (shape: string, read: keyof typeof READS): string => `
 system PG {
   subdomain S {
     context C {
@@ -35,9 +49,7 @@ system PG {
       aggregate Widget ${shape}with crudish {
         grade: Grade
       }
-      repository Widgets for Widget {
-        find byGrade(grade: Grade): ${ret} where this.grade == grade
-      }
+      ${READS[read]}
     }
   }
   api A from S
@@ -59,10 +71,10 @@ describe("non-relational java repository impls import the enums they name", () =
   // an import assertion alone would still pass if the param stopped being
   // emitted at all, which is the "the check never reached the thing it names"
   // failure shape.
-  const cases: [string, string, string][] = [
-    ["document", "shape: document, ", "Widget[]"],
-    ["document (paged)", "shape: document, ", "Widget paged"],
-    ["relational (the sibling that was already right)", "", "Widget[]"],
+  const cases: [string, string, keyof typeof READS][] = [
+    ["document", "shape: document, ", "single"],
+    ["document (paged)", "shape: document, ", "paged"],
+    ["relational (the sibling that was already right)", "", "single"],
   ];
 
   for (const [name, shape, ret] of cases) {

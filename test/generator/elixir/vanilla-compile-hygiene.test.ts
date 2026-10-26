@@ -34,7 +34,7 @@ system Acme {
         operation reschedule(when_: datetime) { at := when_ }
       }
       repository Tickets for Ticket {
-        find openOnes(): Ticket[] where open == true
+        find openOnes(): Ticket? where open == true
       }
       policy { read Ticket requires true }
     }

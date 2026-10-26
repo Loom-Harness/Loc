@@ -20,8 +20,8 @@ const SRC = (persistence: string) => `
       criterion AnyCode() of Secret = this.code != ""
       aggregate Secret with softDeletable2 { code: string }
       repository SecretRepo for Secret {
-        find allIgnoring(c: string): Secret[] where this.code == c ignoring *
-        find normal(c: string): Secret[] where this.code == c
+        find allIgnoring(c: string): Secret? where this.code == c ignoring *
+        find normal(c: string): Secret? where this.code == c
       }
       workflow Sweep {
         create(x: int) {
@@ -69,15 +69,15 @@ describe("policy deny survives `ignoring *` — dapper", () => {
   const DAPPER = "dotnet { persistence: dapper }";
 
   it("`find … ignoring *` KEEPS the always-false deny conjunct", async () => {
-    const all = method(await repo(DAPPER), "public async Task<List<Secret>> AllIgnoring(");
+    const all = method(await repo(DAPPER), "public async Task<Secret?> AllIgnoring(");
     expect(all).toContain("1 = 0");
   });
 
   it("`ignoring *` still drops the bypassable capability predicate", async () => {
-    const all = method(await repo(DAPPER), "public async Task<List<Secret>> AllIgnoring(");
+    const all = method(await repo(DAPPER), "public async Task<Secret?> AllIgnoring(");
     expect(all).not.toContain("is_deleted = FALSE");
     // …while a plain read carries both conjuncts.
-    const normal = method(await repo(DAPPER), "public async Task<List<Secret>> Normal(");
+    const normal = method(await repo(DAPPER), "public async Task<Secret?> Normal(");
     expect(normal).toContain("is_deleted = FALSE");
     expect(normal).toContain("1 = 0");
   });
@@ -106,7 +106,7 @@ describe("policy deny survives `ignoring *` — efcore", () => {
   });
 
   it("`find … ignoring *` bypasses only the NAMED bypassable filters", async () => {
-    const all = method(await repo(EF), "public async Task<List<Secret>> AllIgnoring(");
+    const all = method(await repo(EF), "public async Task<Secret?> AllIgnoring(");
     expect(all).toContain('IgnoreQueryFilters(["IsDeletedFilter"])');
   });
 

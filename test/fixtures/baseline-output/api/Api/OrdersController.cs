@@ -143,13 +143,4 @@ public sealed class OrdersController : ControllerBase
         return Ok(result);
     }
 
-    [HttpGet("by_customer")]
-    [ProducesResponseType(typeof(IReadOnlyList<OrderResponse>), 200)]
-    [ProducesResponseType(typeof(ProblemDetails), 422)]
-    public async Task<ActionResult<IReadOnlyList<OrderResponse>>> ByCustomerOrder([FromQuery] [Microsoft.AspNetCore.Mvc.ModelBinding.BindRequired] string customerId)
-    {
-        var result = await _mediator.Send(new ByCustomerQuery(customerId));
-        return Ok(result);
-    }
-
 }

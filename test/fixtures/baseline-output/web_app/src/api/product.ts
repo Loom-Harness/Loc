@@ -28,10 +28,6 @@ export const AllQuery = z.object({
 });
 export type AllQuery = z.infer<typeof AllQuery>;
 export type AllQueryInput = z.input<typeof AllQuery>;
-export const BySkuQuery = z.object({
-  sku: z.string(),
-});
-export type BySkuQuery = z.infer<typeof BySkuQuery>;
 
 export const ProductResponse = z.object({
   id: z.string(),
@@ -100,17 +96,6 @@ export function useUpdateProduct(id: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["products", id] });
       qc.invalidateQueries({ queryKey: ["products"] });
-    },
-  });
-}
-
-export function useBySkuProduct(query: BySkuQuery) {
-  return useQuery({
-    queryKey: ["products", "find", "by_sku", query],
-    queryFn: async () => {
-      const qs = new URLSearchParams(Object.entries(query).map(([k, v]) => [k, String(v)])).toString();
-      const r = await api.get(`/products/by_sku${qs ? "?" + qs : ""}`);
-      return ProductResponse.nullable().parse(r);
     },
   });
 }

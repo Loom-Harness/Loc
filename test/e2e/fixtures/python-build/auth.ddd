@@ -31,7 +31,7 @@ system AuthSys {
         }
       }
       repository Orders for Order {
-        find mine(): Order[] where customerId == currentUser.customerId
+        find mine(): Order? where customerId == currentUser.customerId
       }
 
       workflow CancelOrder {
