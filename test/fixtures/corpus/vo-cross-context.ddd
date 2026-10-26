@@ -47,14 +47,12 @@
 //           are untyped dict literals, so a regression there passes the compile
 //           tier and fails only against a live database.
 //
-// COMPILE-TIER ONLY — no `test e2e` block yet.  A recorded behavioural case must
-// ship a reviewed wire golden (`test/behavioral/wire-golden/`, gated by
-// `golden-coverage.test.ts`) captured from a booted stack on every backend.
-// That block is what would gate python's bind sites and the wire round trip
-// through the sibling-pool lookup; its `gate-ledger.test.ts` entry falls when it
-// lands.  What this fixture proves today is static and per-backend: the
-// flattened column set the migration creates must equal the one the
-// ORM/repository names, in BOTH contexts.
+// The `test e2e` block below is the runtime half: it writes and reads the
+// sibling-context VO through each aggregate's routes, so python's untyped bind
+// sites and the wire round trip through the sibling-pool lookup are observed
+// on a booted stack.  The static half — the flattened column set the migration
+// creates must equal the one the ORM/repository names, in BOTH contexts — is
+// the five compile legs.
 system VoCrossContext {
   subdomain Commerce {
     context Directory {
@@ -127,5 +125,41 @@ system VoCrossContext {
     dataSources: [directoryState, billingState]
     serves: CommerceApi
     port: 4000
+  }
+
+  test e2e "a sibling-context value object round-trips through every aggregate that holds it" against d {
+    let p = api.persons.create({ name: "Ada", home: { line1: "1 Home St", geo: { lat: 51.5, lng: -0.25 } } })
+    let r = api.receipts.create({ reference: "R-1", shipTo: { line1: "2 Ship Rd", geo: { lat: 48.75, lng: 2.5 } } })
+    let s = api.shippers.create({ label: "S-1", ship: { line1: "3 Dock Ln", geo: { lat: 40.5, lng: -74.25 } } })
+
+    expect(api.persons.getById(p).home.geo.lat).toBe(51.5)
+    let read = api.receipts.getById(r)
+    expect(read.shipTo.line1).toBe("2 Ship Rd")
+    expect(read.shipTo.geo.lng).toBe(2.5)
+    let shipper = api.shippers.getById(s)
+    expect(shipper.ship.line1).toBe("3 Dock Ln")
+    expect(shipper.ship.geo.lat).toBe(40.5)
+
+    // The write side of the consuming context: the canonical update REPLACES
+    // the whole value, nested leaf included.
+    api.receipts.update(r, { reference: "R-2", shipTo: { line1: "4 New Rd", geo: { lat: 1.5, lng: 3.25 } } })
+    let updated = api.receipts.getById(r)
+    expect(updated.shipTo.line1).toBe("4 New Rd")
+    expect(updated.shipTo.geo.lat).toBe(1.5)
+    api.shippers.update(s, { ship: { line1: "5 Pier Ave", geo: { lat: 2.5, lng: 4.75 } } })
+    expect(api.shippers.getById(s).ship.geo.lng).toBe(4.75)
+
+    api.persons.update(p, { name: "Ada L", home: { line1: "6 Home St", geo: { lat: 51.25, lng: -0.5 } } })
+    expect(api.persons.getById(p).home.line1).toBe("6 Home St")
+
+    expect(api.persons.all().items.length).toBe(1)
+    expect(api.receipts.all().items.length).toBe(1)
+    expect(api.shippers.all().length).toBe(1)
+    api.persons.destroy(p)
+    api.receipts.destroy(r)
+    api.shippers.destroy(s)
+    expect(api.persons.getById(p)).toThrow(404)
+    expect(api.receipts.getById(r)).toThrow(404)
+    expect(api.shippers.getById(s)).toThrow(404)
   }
 }

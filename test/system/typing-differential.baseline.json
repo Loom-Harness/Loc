@@ -5,17 +5,17 @@
   },
   "classes": {
     "agree": 222638,
-    "declaration-name": 59390,
+    "declaration-name": 60470,
     "ir-differs": 6787,
-    "nobody-knows": 3743,
+    "nobody-knows": 3918,
     "not-lowered": 2800,
     "unreached": 0
   },
   "unknownCauses": {
-    "not-a-value": 59390,
-    "no-rule": 2921,
-    "unresolved-member": 820,
-    "unresolved-name": 517,
+    "not-a-value": 60470,
+    "no-rule": 3061,
+    "unresolved-member": 833,
+    "unresolved-name": 518,
     "contextual-lambda": 166,
     "unresolved-type": 89,
     "ill-typed-operands": 2,

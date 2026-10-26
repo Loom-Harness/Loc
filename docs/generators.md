@@ -1373,7 +1373,7 @@ module, the TypeScript scanner's reserved-word range).
 | elixir | `elixirLocal(name)` for every parameter / bound op input (`do_`); `elixirOpAction(name)` for a controller action (`def do_`, and `show` / `index` step aside to `show_op` from the CRUD read actions); an OpenApiSpex schema with a reserved property key opts out of the derived struct (`struct?: false`) |
 | java | already clean through `jid` (M-T6.36) |
 
-**Not covered yet** — tracked by M-T6.97: a FIELD named `constructor` on node
+**Not covered yet** — tracked by #4213: a FIELD named `constructor` on node
 (its getter cannot carry that name), TYPE names that shadow a target's
 globals / BCL / framework types (`valueobject Promise` / `String` / `Symbol` on
 node; `.NET` handles `Task`-like names via `dotnet-bcl-type-collision`), and the

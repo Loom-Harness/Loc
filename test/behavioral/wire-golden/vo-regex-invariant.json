@@ -1,0 +1,209 @@
+{
+  "case": "vo-regex-invariant",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/berths",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "GET",
+      "path": "/api/berths/{id}",
+      "status": 200,
+      "body": {
+        "code": {
+          "value": "DEHAM"
+        },
+        "display": "B-1",
+        "id": "<volatile:key>",
+        "name": "B-1",
+        "version": 1
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/berths",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "msg.ipjnqi",
+            "message": "must be five uppercase letters",
+            "pointer": "/code/value"
+          }
+        ],
+        "instance": "/api/berths",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/berths",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "msg.ipjnqi",
+            "message": "must be five uppercase letters",
+            "pointer": "/code/value"
+          }
+        ],
+        "instance": "/api/berths",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/berths/{id}/update",
+      "status": 422,
+      "body": {
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "msg.ipjnqi",
+            "message": "must be five uppercase letters",
+            "pointer": "/code/value"
+          }
+        ],
+        "instance": "/api/berths/{id}/update",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/berths/{id}",
+      "status": 200,
+      "body": {
+        "code": {
+          "value": "DEHAM"
+        },
+        "display": "B-1",
+        "id": "<volatile:key>",
+        "name": "B-1",
+        "version": 1
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/berths/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/berths/{id}",
+      "status": 200,
+      "body": {
+        "code": {
+          "value": "USNYC"
+        },
+        "display": "B-1b",
+        "id": "<volatile:key>",
+        "name": "B-1b",
+        "version": 2
+      }
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/berths",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "code": {
+              "value": "USNYC"
+            },
+            "display": "B-1b",
+            "id": "<volatile:key>",
+            "name": "B-1b",
+            "version": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 9,
+      "method": "DELETE",
+      "path": "/api/berths/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/berths/{id}",
+      "status": 404,
+      "body": {
+        "detail": "Berth {id} not found",
+        "instance": "/api/berths/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "PATCH",
+      "path": "/api/berths",
+      "status": 405,
+      "body": {
+        "detail": "method PATCH is not supported for /api/berths",
+        "instance": "/api/berths",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/berths",
+      "status": 400,
+      "body": {
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/berths",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}
