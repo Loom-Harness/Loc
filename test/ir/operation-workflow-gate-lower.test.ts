@@ -1,5 +1,5 @@
 // Lowering of the `requires <expr>` authorization gate (authorization.md §11.3):
-// the header gate on an operation / workflow-create / workflow-handle lowers to
+// the header gate on an operation / workflow-create lowers to
 // a synthetic `requires` StmtIR prepended to the body, so every backend's
 // existing `requires`->403 rendering fires with no new emitter code.
 
@@ -21,9 +21,6 @@ const SRC = `
         workflow Triage {
           create open(subject: string) requires currentUser.role == "admin" {
             precondition subject.length > 0
-          }
-          handle escalate(id: Ticket id) requires currentUser.role == "agent" {
-            let t = Tickets.byId(id)
           }
         }
       }
@@ -50,18 +47,14 @@ describe("operation / workflow requires gate — lowering", () => {
     );
     expect(op.statements[1].kind).toBe("assign");
 
-    // Workflow create + handle: gate is the first body statement.
-    const wf = ctx.workflows!.find((w) => w.name === "Triage")! as unknown as {
-      creates: { statements: { kind: string }[] }[];
-      handlers: { name: string; statements: { kind: string; source?: string }[] }[];
-    };
+    // Workflow create: gate is the first body statement.
+    const wf = ctx.workflows!.find((w) => w.name === "Triage")!;
     const create = wf.creates[0];
     expect(create.statements[0].kind).toBe("requires");
+    expect((create.statements[0] as { source: string }).source).toContain(
+      'currentUser.role == "admin"',
+    );
     expect(create.statements[1].kind).toBe("precondition");
-
-    const handle = wf.handlers.find((h) => h.name === "escalate")!;
-    expect(handle.statements[0].kind).toBe("requires");
-    expect(handle.statements[0].source).toContain('currentUser.role == "agent"');
   });
 
   it("leaves an ungated operation body untouched", async () => {

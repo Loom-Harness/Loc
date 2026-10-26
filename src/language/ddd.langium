@@ -976,9 +976,9 @@ ContextMember:
     // context.  Requires a `for <Aggregate>` head naming its home.
     | TestBlock;
 
-// Application-layer handlers — top-level context members, effectively a
-// workflow `handle` lifted out when the orchestration is single-aggregate.
-// Function-signature form mirrors `Operation` / `HandleDecl`; the body reuses
+// Application-layer handlers — top-level context members; the named command
+// entry point of a context (a workflow has no `handle` member).
+// Function-signature form mirrors `Operation`; the body reuses
 // the same `Statement*` grammar (load → mutate → save → return).
 //
 //   commandHandler PlaceOrder(cmd: PlaceOrderCommand): OrderResponse { … }
@@ -1497,7 +1497,7 @@ Workflow:
     // instance's correlation id and state, and which had no author surface to
     // gate until this clause existed.
     //
-    // It does NOT gate the command entries: a `create`/`handle` carries its own
+    // It does NOT gate the command entries: a `create` carries its own
     // `requires` in its body, and "who may start this workflow" is a different
     // question from "who may read its state" — which is the entire reason the
     // read needs a gate of its own.
@@ -1508,8 +1508,7 @@ Workflow:
 
 // The workflow body is MEMBERS-ONLY — no free statements, no header params.
 // A workflow is a state-bearing entity like an aggregate: state (`Property`),
-// starters (`create`), continuation commands (`handle`), event reactors
-// (`on`), and event folds (`apply`).
+// starters (`create`), event reactors (`on`), and event folds (`apply`).
 //
 // `function` — a private pure helper, the aggregate-parity member (workflows
 // are state-bearing entities like aggregates, so they get the same
@@ -1523,7 +1522,7 @@ Workflow:
 // `sla_days`), never inlined.  Recursive helpers remain rejected, by
 // `loom.function-recursive`.
 WorkflowMember:
-    WorkflowCreateDecl | Apply | OnDecl | HandleDecl | Property | FunctionDecl;
+    WorkflowCreateDecl | Apply | OnDecl | Property | FunctionDecl;
 
 // A workflow starter.  The body is optional — a bodyless starter is the
 // same AST as one with `{ }`.  Param-shape discriminates the trigger
@@ -1548,17 +1547,10 @@ WorkflowCreateDecl:
         body+=Statement*
     '}')?;
 
-
-// A named orchestration command handler on a workflow: `handle
-// confirm(orderId: Order id) { … }`.  Like the legacy paren-form body, a
-// handle body loads/creates aggregates, calls their operations, and emits;
-// `handle` is a fresh keyword so it can never start a Statement.  Multiple
-// handles make a workflow a multi-command saga.
-HandleDecl:
-    CallableLeadModifiers 'handle' name=ID '(' (params+=Parameter (',' params+=Parameter)*)? ')'
-        CallableSigModifiers CallableGates '{'
-        body+=Statement*
-    '}';
+// There is no workflow `handle name(…) { … }` member: a named command entry is
+// a context-level `commandHandler` (D-HANDLE-REMOVAL).  A leftover `handle`
+// fails to parse with a message naming `commandHandler` and the codemod
+// (`workflowHandleRemoved` in `parse-errors.ts`).
 
 // Extrinsic event subscription / continuation: `on(paid: PaymentReceived)
 // { … }` reacts to a fact from outside the workflow's own scope.  Mirrors the
@@ -1592,7 +1584,7 @@ IsolationLevel returns string:
 // Projection — a read model folded from FOREIGN events.  The passive
 // read-half of an event-sourced workflow: declared state fields (`Property`)
 // + pure `on(e: Event)` folds, keyed by a correlation column.  No command
-// side (no create/handle/emit, no operations) — a projection originates
+// side (no create/emit, no operations) — a projection originates
 // nothing, it only reflects.  `keyed by` is REQUIRED (no inference, unlike a
 // workflow's derived correlation field): a read-model schema routinely
 // carries several foreign ids, so a single-id rule would be ambiguous.  `key`
@@ -1603,7 +1595,7 @@ Projection:
     ('keyed' 'by' key=LooseName)?
     // The authorization gate rides the DECLARATION HEADER, like every other
     // gate in the language (`operation … requires`, `create … requires`,
-    // `handle … requires`) — not inside the body among the
+    // `commandHandler … requires`) — not inside the body among the
     // query clauses.  It used to sit in `ProjectionQueryClauses`, which made it
     // unspellable on a FOLDED projection (no `from`, so no query-clause tail to
     // hold it); a validator then rejected the folded case as if that were a
@@ -2118,7 +2110,7 @@ CommonSoftKeywords returns string:
       | 'design' | 'directoryLayout' | 'document' | 'domainService' | 'dotnet' | 'e2e' | 'elastic' | 'elixir'
       | 'embedded' | 'enforcement' | 'entitles' | 'env' | 'envelope' | 'ephemeral' | 'error' | 'event'
       | 'eventLog' | 'eventSourced' | 'every' | 'extern' | 'favicon' | 'feliz' | 'filter' | 'flowbite'
-      | 'flutter' | 'footer' | 'framework' | 'global' | 'group' | 'handle' | 'header' | 'hosts' | 'httpStatus'
+      | 'flutter' | 'footer' | 'framework' | 'global' | 'group' | 'header' | 'hosts' | 'httpStatus'
       | 'immutable' | 'implements' | 'implies' | 'index' | 'inheritanceUsing' | 'inMemory' | 'instance'
       | 'internal' | 'isolationLevel' | 'issuer' | 'java' | 'join' | 'jwt' | 'kafka' | 'key' | 'keyed'
       | 'keyPrefix' | 'kind' | 'layout' | 'link' | 'literal' | 'loads' | 'local' | 'localDisk' | 'log'
@@ -2240,8 +2232,8 @@ NamedType:
 // EventDecl / PayloadDecl join the union so a bare name in a type position can
 // resolve to a transport type (an `event` or a `command`/`query`/… payload).
 // The scope provider (ddd-scope.ts) only *offers* these in a workflow
-// `create`/`handle` parameter position — `create(e: PaymentReceived) by …`,
-// `handle settle(c: SettleOrder)` — so they cannot leak into aggregate field /
+// `create` parameter position — `create(e: PaymentReceived) by …`,
+// `create(c: SettleOrder)` — so they cannot leak into aggregate field /
 // operation-param / UI positions, where a bare event name stays unresolved.
 // IdType (`X id`) filters them back out — `PaymentReceived id` is meaningless.
 type NamedDecl = Aggregate | EntityPart | EnumDecl | ValueObject | EventDecl | PayloadDecl;

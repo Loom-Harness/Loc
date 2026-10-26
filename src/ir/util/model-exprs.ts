@@ -192,8 +192,6 @@ export const SITES = {
     "FunctionBodyIR.stmts",
     "FunctionIR.body",
     "FunctionIR.params",
-    "HandleIR.params",
-    "HandleIR.statements",
     "InvariantIR.expr",
     "InvariantIR.guard",
     "LayoutIR.footer",
@@ -280,7 +278,6 @@ export const SITES = {
     "WorkflowIR.appliers",
     "WorkflowIR.creates",
     "WorkflowIR.functions",
-    "WorkflowIR.handlers",
     "WorkflowIR.instanceReadGate",
     "WorkflowIR.instanceWireShape",
     "WorkflowIR.params",
@@ -501,11 +498,6 @@ function visitWorkflow(w: WorkflowIR, src: string, v: ExprVisitor) {
     const os = `${s}/on(${o.event})`;
     expr(o.correlation, os, "OnIR.correlation", v);
     stmts(o.statements, os, "OnIR.statements", v, walkWorkflowStmtExprsDeep);
-  }
-  for (const h of w.handlers ?? []) {
-    const hs = `${s}/${h.name}`;
-    visitParams(h.params, hs, "HandleIR.params", v);
-    stmts(h.statements, hs, "HandleIR.statements", v, walkWorkflowStmtExprsDeep);
   }
   for (const ap of w.appliers ?? []) {
     stmts(ap.statements, `${s}/apply(${ap.event})`, "ApplyIR.statements", v, walkStmtExprsDeep);

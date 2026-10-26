@@ -2514,7 +2514,7 @@ it.
 | # | tag | default in one line |
 |---|---|---|
 | 1 | `D-ENVELOPE-RATIFY` | `X envelope` = a single-row find; the `{id, ts, body}` carrier is dropped |
-| 2 | `D-HANDLE-REMOVAL` | remove workflow `handle` / named `create` — **owner-only** |
+| 2 | `D-HANDLE-REMOVAL` | remove workflow `handle`; `commandHandler` is the named command entry — APPLIED (owner-signed) |
 | 3 | `D-FOR-IN-DOMAIN` | `for` in a domain body = honest gap + named successor; `variant-match` / `if let` = permanent refusals |
 | 4 | `D-NUMERIC-INGRESS-STRICT` | strict on both real narrowings — **owner-only** |
 | 5 | `D-DECIMAL-EXACT-MOMENT` | one PR: node + python + all 54 goldens re-captured; mint **RS-35** |
@@ -2602,10 +2602,17 @@ F21; PR #2852; `src/ir/stdlib/generics.ts`, `src/ir/enrich/enrichments.ts`,
 
 ---
 
-## D-HANDLE-REMOVAL — workflow `handle` and named `create` are removed, not routed
+## D-HANDLE-REMOVAL — workflow `handle` is removed; `commandHandler` is the named command entry
 
-**Status:** proposed — **owner-only, no default.** Nothing proceeds on M-T6.58
-without a signature; this entry deletes surface syntax.
+**Status:** applied — the owner signed option (b), remove, on 2026-10-21
+(#3316 / M-T6.58, recorded on #3458), and the removal shipped as a hard cutover
+with a codemod per the breaking-change policy (#3608): `HandleDecl` left the
+grammar together with `HandleIR`, `WorkflowIR.handlers`, `lowerHandle` and
+`loom.workflow-handle-unsupported`; a leftover `handle` is the parse error
+`loom.parse-error#workflow-handle-removed`, which names `commandHandler` and
+`scripts/codemod-workflow-handle.mjs`.  The named-`create` half of the original
+question is NOT part of this removal — a named command-triggered `create` still
+parses, and its missing route is tracked on #4094.
 
 **Question.** Does the workflow `handle name(...) { … }` declaration become a
 shipping HTTP entry point on all five backends, or is it removed as redundant
@@ -2616,8 +2623,8 @@ surface it lacks; (b) remove the declaration — grammar, lowering, and the
 diagnostic that promises it — and point authors at `commandHandler`; (c) keep it
 parsing behind an honest refusal.
 
-**Decision (proposed).** (b) — remove. (c) is the acceptable transitional step in
-the same PR if the grammar removal cannot land in one go.
+**Decision.** (b) — remove, in one step: the grammar removal and the refusal
+(a parse error naming `commandHandler`) landed together, so (c) was not needed.
 
 **Rationale.**
 
@@ -2643,14 +2650,17 @@ the same PR if the grammar removal cannot land in one go.
 - **Owner-only** because a default must never take a keyword out of the language
   unattended.
 
-**Consequences.** `handle` and the named `create` form stop parsing; `HandleIR`,
+**Consequences.** `handle` stops parsing (it is an ordinary name again); `HandleIR`,
 `WorkflowIR.handlers` and `lowerHandle` are deleted; `loom.duplicate-handler`
-loses its workflow-`handle` clause and keeps the handler-vs-handler arm; the
-removal ships with a migration note naming `commandHandler` as the replacement.
-If the owner picks (a) instead, the correlation surface (`handle f(…) by <expr>`)
-is designed FIRST as its own mission and this tag is superseded rather than
-edited. Either way the work is **blocked behind M-T6.62** — option (a) would be
-built on a workflow-`create` path that miscompiles on all five backends.
+loses its workflow-`handle` clause and keeps the handler-vs-handler arm.  The
+migration is `scripts/codemod-workflow-handle.mjs`: it lifts each `handle` into a
+`commandHandler` written after its workflow, and leaves in place, marked, the
+ones with no faithful rewrite — a body reading the workflow's own state or
+helpers, an `eventSourced` workflow, a `requires` gate or modifier (a
+`commandHandler` takes none), a parameter named `id`, a body reaching more than
+one aggregate, or a name clash.  `docs/workflow.md` § "There is no `handle`"
+carries the migration note.  No correlation-addressed continuation
+(`handle f(…) by <expr>`) will be designed.
 
 **Unblocks.** M-T6.58 → wave **C1 packet 1a**.
 

@@ -90,13 +90,6 @@ const POSITIVE_CASES: Record<string, Case> = {
       on(e: OrderPlaced) by e.orderRef { salesFiles.put("k/" + e.label, e.label) }
     }`,
   },
-  "HandleIR.statements": {
-    body: `workflow track {
-      orderRef: Order id
-      create(o: Order id) { orderRef := o }
-      handle stash(name: string) { salesFiles.put("k/" + name, name) }
-    }`,
-  },
   "CommandHandlerIR.statements": {
     body: `commandHandler Stash(name: string): int {
       let matches = Orders.run(OrdersByName(name))

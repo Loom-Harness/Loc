@@ -3,7 +3,6 @@ import type {
   BoundedContext,
   CommandHandler,
   Expression,
-  HandleDecl,
   LoadPath,
   OnDecl,
   QueryHandler,
@@ -19,7 +18,6 @@ import {
   isEmitStmt,
   isForStmt,
   isFunctionDecl,
-  isHandleDecl,
   isIfLetStmt,
   isLetStmt,
   isMemberSuffix,
@@ -47,7 +45,6 @@ import type {
   ExprIR,
   FieldIR,
   FunctionIR,
-  HandleIR,
   LoadPlanIR,
   LoadSegmentIR,
   OnIR,
@@ -122,12 +119,11 @@ export function lowerWorkflow(
       }
     : undefined;
   // A workflow is a state-bearing entity (workflow-and-applier.md A2-S5f): bind
-  // `this` to it so every member body (create / handle / on / apply) resolves
+  // `this` to it so every member body (create / on / apply) resolves
   // bare names / `this.field` against the workflow's `Property` state fields.
   // The body is members-only — no header params, no free statements.
   const paramEnv = inWorkflow(env, wf);
   const subscriptions: OnIR[] = [];
-  const handlers: HandleIR[] = [];
   const creates: CreateIR[] = [];
   // Workflow state fields (`Property` members) — the correlation field +
   // saga state (A2-S2).  Lowered with the same `lowerField` aggregates use.
@@ -147,8 +143,6 @@ export function lowerWorkflow(
       );
     } else if (isOnDecl(m)) {
       subscriptions.push(lowerOn(m, paramEnv, aggsByName, reposByName, repoForAgg, saveResolver));
-    } else if (isHandleDecl(m)) {
-      handlers.push(lowerHandle(m, paramEnv, aggsByName, reposByName, repoForAgg, saveResolver));
     }
     // Property / Apply handled above.
   }
@@ -177,7 +171,6 @@ export function lowerWorkflow(
     ...(stateFields.length > 0 ? { stateFields } : {}),
     ...(correlationField ? { correlationField } : {}),
     ...(appliers.length > 0 ? { appliers } : {}),
-    ...(handlers.length > 0 ? { handlers } : {}),
     ...(functions.length > 0 ? { functions } : {}),
     // The instance-read gate lowers in the BARE context env, not `paramEnv` —
     // the same stance the projection gate takes.  `paramEnv` binds `this` to
@@ -201,7 +194,7 @@ function serviceOpResolver(
 }
 
 // Lower a `create [name](params) [by <expr>] { … }` workflow starter
-// (workflow-and-applier.md A2-S5f).  Mirrors `lowerHandle`: params bind as
+// (workflow-and-applier.md A2-S5f).  Params bind as
 // locals on the workflow `this`-env, the body lowers via
 // `lowerWorkflowStatement`.  Trigger kind is discriminated from the shape — a
 // `by` clause (and a sole event-typed param) marks an event-triggered starter.
@@ -272,43 +265,6 @@ function lowerWorkflowCreate(
   };
 }
 
-// Lower a `handle name(params) { … }` command handler (workflow-and-applier.md
-// A2-S5c).  Structurally the legacy paren-form workflow body: params bind as
-// locals on top of the workflow `this`-env, the body lowers through
-// `lowerWorkflowStatement`, and exit-saves are derived the same way.
-function lowerHandle(
-  h: HandleDecl,
-  baseEnv: Env,
-  aggsByName: Map<string, Aggregate>,
-  reposByName: Map<string, Repository>,
-  repoForAgg: Map<string, string>,
-  saveResolver?: SaveResolver,
-): HandleIR {
-  // A workflow `handle` parameter default is not lowered today — the same
-  // deliberate hold the domain-service row records (`callable-params.ts`).
-  const boundParams = lowerCallableParams(h.params, baseEnv, { defaults: false });
-  const params = boundParams.params;
-  const inner = boundParams.env;
-  // `requires Expr` — authorization gate (authorization.md §11.3), lowered as a
-  // prepended 403 pre-check in the param-bound env (currentUser + command
-  // params).  See `lowerWorkflowCreate`.
-  const { statements } = lowerWorkflowStatements(
-    h.body,
-    inner,
-    aggsByName,
-    reposByName,
-    repoForAgg,
-    saveResolver,
-    h.gate ? [{ kind: "requires", expr: lowerExpr(h.gate, inner), source: cstText(h.gate) }] : [],
-  );
-  return {
-    name: h.name,
-    params,
-    statements,
-    savesAtExit: computeSaves(statements, repoForAgg, undefined, saveResolver),
-  };
-}
-
 /** Build the `(aggregate | repository)` lookup maps a workflow / handler body
  *  needs to resolve loads, saves, and repo calls within its context.  Mirrors
  *  the inline pass at the top of `lowerWorkflow`. */
@@ -344,7 +300,7 @@ type SecondPassLowered = { aggregates: AggregateIR[]; domainServices: DomainServ
 
 /** Lower a top-level `commandHandler name(params): T { … }` application-layer
  *  member (unfoldable-api-derivation.md, Layer 3).  Structurally a workflow
- *  `handle` lifted to the context — params bind as `refKind: "param"` locals on
+ *  command entry at context level — params bind as `refKind: "param"` locals on
  *  the context env (no workflow `this`), the body lowers through
  *  `lowerWorkflowStatement`, and exit-saves derive the same way.  `returnType`
  *  is optional. */

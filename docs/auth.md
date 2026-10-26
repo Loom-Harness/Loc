@@ -526,10 +526,9 @@ operation cancel() requires currentUser.role == "manager" {
   status := Cancelled
 }
 
-// workflow starter / command handler carry it too
+// a workflow starter carries it too
 workflow Fulfil {
   create open(ref: string) requires currentUser.role == "ops" { … }
-  handle retry(order: Order id) requires currentUser.role == "agent" { … }
 }
 ```
 
@@ -625,9 +624,7 @@ end
 ```
 
 A workflow `create` gate scopes to `currentUser` + the starter's command params
-(a saga has no aggregate `this`) and renders identically.  (A workflow `handle`
-gate lowers the same way but is inert until `handle` command handlers are
-surfaced as HTTP routes.)
+(a saga has no aggregate `this`) and renders identically.
 
 `currentUser` types against the system's `user { … }` claim block, so a gate
 that is a **bare boolean claim expression** — the simplest permission check —

@@ -1973,7 +1973,7 @@ system P {
   ),
   "loom.when-not-bool": orderOps("operation p() when name { total := total + 1 }"),
   // The `requires` gate at the OPERATION site.  Its four siblings — the in-body
-  // `requires` statement, the workflow create/handle gate (`structural.ts`),
+  // `requires` statement, the workflow create gate (`structural.ts`),
   // the read-path find/projection gate (`repository.ts`) and the handler-body
   // statement (`types.ts`) — share this code, so one fixture covers the family.
   "loom.requires-not-bool": orderOps("operation p() requires name { total := total + 1 }"),
@@ -3780,26 +3780,9 @@ system S {
     domainService Calc {
       operation twice(x: int = 3): int { return x * 2 }
     }`),
-  // --- M-T5.34: the four rulings (#2864 D5/D6/G2, #2850 case B) ------------
+  // --- M-T5.34: the rulings (#2864 D6/G2, #2850 case B) ---------------
   // Each fixture is minimal and ISOLATING — it raises its own code and no
   // sibling from the packet, so a future regression names one gate.
-  //
-  // `handle` on a workflow whose command create DOES supply the correlation
-  // key ('doc'), so `loom.workflow-create-correlation-unsupplied` stays quiet
-  // and this fixture is about the handler alone.
-  "loom.workflow-handle-unsupported": `
-system S {
-  subdomain D { context Ops {
-    aggregate Doc { title: string }
-    repository Docs for Doc { }
-    workflow Review {
-      doc: Doc id
-      st: string
-      create(doc: Doc id) { st := "Filed" }
-      handle approve() { st := "Approved" }
-    }
-  } }
-}`,
   // An entity-part-typed parameter on a PUBLIC operation.  The value-object
   // spelling of the very same model is the passing sibling (it emits
   // `z.array(LineSchema)` + `new Line(e.sku, e.qty)`), pinned in

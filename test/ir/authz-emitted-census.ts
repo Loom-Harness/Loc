@@ -1343,7 +1343,6 @@ export function gateFacts(model: LoomModel): GateFact[] {
             ...wf.creates
               .filter((c) => c.triggerKind === "command")
               .map((c) => ({ name: c.name ?? "create", stmts: c.statements })),
-            ...(wf.handlers ?? []).map((h) => ({ name: h.name, stmts: h.statements })),
           ];
           for (const e of entries) {
             for (const src of workflowRequiresIn(e.stmts)) {

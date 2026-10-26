@@ -28,7 +28,7 @@
 //
 //   • We check ONLY inside the executable *domain* expression zones
 //     (operation / create / destroy / function / derived / invariant /
-//     property-check-default / workflow create·handle·on·apply bodies).
+//     property-check-default / workflow create·on·apply bodies).
 //     `test e2e` bodies (which render bare names verbatim by design — see
 //     `resolveNameRef`'s "no ctx" arm) and `ui` walker bodies (a broad
 //     stdlib + state vocabulary this check does not model) are allowlisted.
@@ -81,7 +81,6 @@ const CHECKED_CONTAINERS: ReadonlySet<string> = new Set([
   "Invariant",
   "Property", // field `check:` / `default:` expressions
   "WorkflowCreateDecl",
-  "HandleDecl",
   "OnDecl",
   "Apply",
 ]);

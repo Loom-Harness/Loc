@@ -154,7 +154,7 @@ const SRC = `system Shop {
         create(cmd: PlaceOrder) {
           let a = 1
         }
-        handle approve(id: int) {
+        create approve(id: int) {
           let b = 2
           let c = 3
         }
@@ -584,10 +584,10 @@ describe("Model v2 — workflow member picker", () => {
     return found;
   };
 
-  it("listBodies enumerates the workflow's create / handle / on / apply members", () => {
+  it("listBodies enumerates the workflow's create / on / apply members", () => {
     expect(listBodies(wf()).map((b) => `${b.key}=${b.count}`)).toEqual([
       "create=1",
-      "handle:approve=2",
+      "create:approve=2",
       "on:Placed=1",
       "apply:Placed=1",
     ]);
@@ -607,9 +607,9 @@ describe("Model v2 — workflow member picker", () => {
 
   it("picking a member re-renders the statement flow for THAT body", () => {
     const g = buildViewGraph(AST, [{ kind: "workflow", name: "Fulfil" }], {
-      workflowMember: "handle:approve",
+      workflowMember: "create:approve",
     });
-    expect(g.title).toBe("workflow Fulfil.handle:approve()");
+    expect(g.title).toBe("workflow Fulfil.create:approve()");
     expect(children(g).map((n) => n.id)).toEqual(["stmt:0", "stmt:1"]);
     expect(children(g).every((n) => n.kind === "stmt")).toBe(true);
     expect(g.edges.filter((e) => e.kind === "next").map((e) => [e.source, e.target])).toEqual([
@@ -628,7 +628,7 @@ describe("Model v2 — workflow member picker", () => {
 
   it("an unknown member key yields an empty flow rather than the wrong body", () => {
     const g = buildViewGraph(AST, [{ kind: "workflow", name: "Fulfil" }], {
-      workflowMember: "handle:nope",
+      workflowMember: "create:nope",
     });
     expect(children(g)).toEqual([]);
   });

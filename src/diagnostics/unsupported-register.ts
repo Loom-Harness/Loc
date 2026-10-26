@@ -123,18 +123,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: false,
   },
   {
-    code: "loom.workflow-handle-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/workflow-checks.ts:551",
-    what:
-      "`handle name(…) { … }`, the multi-command saga continuation, is emitted by NO backend — " +
-      "not a route, not a handler, not a method.  It was silent before M-T5.34 (audit #2864 D5): " +
-      "a saga could be started and read and never advanced.  A genuine five-backend gap, not a " +
-      "latent seam — the emitter is the deferred half of decision D-1(c)",
-    mission: "#3316",
-    verified: true,
-  },
-  {
     code: "loom.audited-backend-unsupported",
     kind: "seam",
     site: "src/ir/validate/checks/storage-inheritance-checks.ts:385",
@@ -697,7 +685,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     kind: "scope",
     site: "src/language/validators/callable-sites.ts:70",
     what:
-      "a parameter default on a `domainService` operation, workflow `handle`, `commandHandler`, " +
+      "a parameter default on a `domainService` operation, `commandHandler`, " +
       "`queryHandler` or `function` — those lowerers pass `defaults: false`, so the default " +
       "would be silently dropped and every generated signature would still require the " +
       "argument.  Lifting it is a capability change on every target, not a fix at one site",
@@ -770,7 +758,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1625",
+    site: "src/ir/validate/checks/workflow-checks.ts:1594",
     what: "workflow load of an array result — v1 is single non-nullable",
     mission: "#3376",
     verified: true,
@@ -794,7 +782,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-nullable-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1639",
+    site: "src/ir/validate/checks/workflow-checks.ts:1608",
     what: "workflow load of a nullable result — v1 is single non-nullable",
     mission: "#3376",
     verified: true,

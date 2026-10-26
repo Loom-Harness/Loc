@@ -1,8 +1,8 @@
 # 13. Workflows
 
-Context-level orchestration: a `workflow` loads or creates several aggregates, calls their operations, raises orchestration-level events, and (optionally) wraps the lot in one DB transaction. The aggregate stays the single mutation + invariant gate — a workflow only wires those gates together. The body is **members-only**: state fields (`Property`), `create` starters, `handle` continuation commands, `on(e: Event)` event reactors, `function` pure helpers, and (for `eventSourced` workflows) `apply` folds. A `timerSource` fires an event on a wall-clock cadence into that same `on` / `create … by` surface. Reach for it when a use-case touches more than one aggregate, when you want a saga driven by inbound events, or when ACID across a few aggregates is genuinely the right semantic.
+Context-level orchestration: a `workflow` loads or creates several aggregates, calls their operations, raises orchestration-level events, and (optionally) wraps the lot in one DB transaction. The aggregate stays the single mutation + invariant gate — a workflow only wires those gates together. The body is **members-only**: state fields (`Property`), `create` starters, `on(e: Event)` event reactors, `function` pure helpers, and (for `eventSourced` workflows) `apply` folds. A `timerSource` fires an event on a wall-clock cadence into that same `on` / `create … by` surface. Reach for it when a use-case touches more than one aggregate, when you want a saga driven by inbound events, or when ACID across a few aggregates is genuinely the right semantic.
 
-> **Grammar:** `Workflow`, `WorkflowCreateDecl`, `HandleDecl`, `OnDecl`, `Apply`, `FunctionDecl`, `IsolationLevel`, `TimerSource` · **Validators:** `loom.workflow-*`, `loom.transactional-no-effect`, `loom.isolation-requires-transactional`, `loom.resource-op-in-transaction`, `loom.resource-op-outside-workflow`, `loom.workflow-correlation-required`, `loom.correlation-*`, `loom.workflow-gate-not-current-user`, `loom.timer-*` (`src/ir/validate/checks/workflow-checks.ts` + `timer-checks.ts`, `src/language/validators/timer.ts`) · **Docs:** [`../workflow.md`](../workflow.md), [`../resources.md`](../resources.md)
+> **Grammar:** `Workflow`, `WorkflowCreateDecl`, `OnDecl`, `Apply`, `FunctionDecl`, `IsolationLevel`, `TimerSource` · **Validators:** `loom.workflow-*`, `loom.transactional-no-effect`, `loom.isolation-requires-transactional`, `loom.resource-op-in-transaction`, `loom.resource-op-outside-workflow`, `loom.workflow-correlation-required`, `loom.correlation-*`, `loom.workflow-gate-not-current-user`, `loom.timer-*` (`src/ir/validate/checks/workflow-checks.ts` + `timer-checks.ts`, `src/language/validators/timer.ts`) · **Docs:** [`../workflow.md`](../workflow.md), [`../resources.md`](../resources.md)
 
 A workflow shares its context's namespace (a workflow named like an aggregate / event / repository is a `loom.workflow-name-collision`).  Its state table shares the context's schema too: the table name is derived from the declared name (`workflow slaSweep` → `sla_sweeps`), so a workflow whose derived table matches any other persisted table of the context — `aggregate SlaSweep`, an entity part, a materialized projection, a join or value-collection table — is refused as `loom.persisted-table-collision` (the migration would otherwise create the table twice). Bodies reuse the operation [statement vocabulary](06-behavior-and-statements.md) but the validator narrows it to the orchestration subset: factory-`let`, repo-`let`, op-call, `precondition` / `requires`, `emit`, plus the workflow-only `for` / `if let`. Mutation forms (`:=` / `+=` / `-=`) are rejected in a workflow body (they belong in an aggregate op) — except inside an `eventSourced` workflow's `apply` fold.
 
@@ -25,7 +25,7 @@ A workflow with no id-shaped state field keeps no instance row, so a command `cr
 
 ### `requires` on the header — the instance-read gate
 
-`workflow Name … requires <expr> { … }` guards **those two reads only**, not the commands. It runs before any instance is loaded, so it may reference `currentUser` and constants and nothing else — an instance field or repository call is `loom.workflow-gate-not-current-user`. To gate a *command*, put a `requires` in the `create` / `handle` body (or on the entry header), where the instance is bound.
+`workflow Name … requires <expr> { … }` guards **those two reads only**, not the commands. It runs before any instance is loaded, so it may reference `currentUser` and constants and nothing else — an instance field or repository call is `loom.workflow-gate-not-current-user`. To gate a *command*, put a `requires` in the `create` body (or on the entry header), where the instance is bound.
 
 ```ddd
 workflow fulfillment requires currentUser.role == "supervisor" {
@@ -83,7 +83,7 @@ end
 ```
 ::: end
 
-## `create` / `handle` — starters & continuations
+## `create` — starters
 
 `create [name](params) [by <expr>] { body }` is an entry point; the **parameter shape** discriminates the trigger (resolved at lowering, not parse time):
 
@@ -93,13 +93,11 @@ end
 | `create(c: SomeCommand)` | explicit command (single payload param) | `POST /api/workflows/<snake>` |
 | `create(e: SomeEvent) by e.field` | event-triggered starter (single event param + `by`) | in-process dispatch only |
 
-`handle name(params) { body }` was the spelling for a continuation command on the same workflow. **It is now refused** (`loom.workflow-handle-unsupported`) — see the gap note below. A workflow may declare at most one **unnamed** `create` (`loom.canonical-create-duplicate-workflow`); extra entry points must be named, and no two share a name (`loom.create-name-conflict-workflow`). A `handle` name must also not collide with a `commandHandler` / `queryHandler` in the same context (`loom.duplicate-handler`), because an `api` `route` addresses all three through the same `<Context>.<Name>` reference ([APIs](14-apis-storage-resources-channels.md#route--the-explicit-transport-binding)).
+A workflow may declare at most one **unnamed** `create` (`loom.canonical-create-duplicate-workflow`); extra entry points must be named, and no two share a name (`loom.create-name-conflict-workflow`).
 
-> **Honest gap — only the canonical `create` gets an entry point today.** The unnamed `create` becomes the `POST /api/workflows/<snake>` route on every backend. A **named** `create expedite(…)` and a `handle retry(…)` lower to IR (`WorkflowIR.creates` / `.handlers`, `test/ir/workflow-handle.test.ts`) and their repository needs are collected, but no backend emits a route, a command, or any other callable for them.
->
-> **`handle` is no longer merely undocumented-as-missing — it is rejected.** Emitting nothing while the docs sold it as the multi-command saga surface meant a saga could be started and read and never advanced, silently (audit #2864 D5). M-T5.34 ruled that the silence is the bug and minted `loom.workflow-handle-unsupported`; whether Loom grows real multi-command sagas is a deferred feature decision (mission **M-T6.58**). Model a continuation as an aggregate `operation`, or as a second `workflow` started by the event the first one emits.
->
-> A **named `create`** is NOT rejected — that half of this gap is untouched by M-T5.34 and still emits nothing for a named *command*-triggered create (a named *event*-triggered one is dispatcher-routed and does work). An `api { route POST "/fulfil/retry" -> C.retry }` naming a handle validates clean while emitting nothing (checked on node, dotnet and python).
+There is no workflow `handle name(params) { body }` member: a named command entry is a context-level `commandHandler`, which an `api` `route` addresses as `<Context>.<Name>` ([APIs](14-apis-storage-resources-channels.md#route--the-explicit-transport-binding)). A leftover `handle` is a parse error naming the replacement; `node scripts/codemod-workflow-handle.mjs` lifts each one into a `commandHandler` and marks the ones it cannot lift faithfully (see [`workflow.md`](../workflow.md#there-is-no-handle)).
+
+> **Honest gap — only the canonical `create` gets an entry point today.** The unnamed `create` becomes the `POST /api/workflows/<snake>` route on every backend. A **named** command-triggered `create expedite(…)` lowers to IR (`WorkflowIR.creates`) and its repository needs are collected, but no backend emits a route, a command, or any other callable for it (#4094). A named *event*-triggered `create` is dispatcher-routed and does work.
 
 ```ddd
 workflow placeOrder {

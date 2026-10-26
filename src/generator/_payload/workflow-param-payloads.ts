@@ -2,7 +2,7 @@
 // place every backend asks "which payload wire types must this context's
 // workflow DTOs carry?".
 //
-// `docs/payloads.md` §1 lists a workflow `create` / `handle` parameter as the
+// `docs/payloads.md` §1 lists a workflow `create` parameter as the
 // first position where a payload is admissible as a TYPE, and
 // `docs/workflow.md` documents the form: `create(c: PlaceOrder)`, where
 // `PlaceOrder` is a declared `command`, is the explicit-command starter.

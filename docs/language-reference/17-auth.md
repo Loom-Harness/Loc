@@ -325,7 +325,7 @@ operation close() requires IsAgent() || CanClose(priority) { … }   // header (
 operation reassign(to: string) { requires currentUser.permissions.contains(permissions.ticketsReassign)  … }
 policy { read Ticket requires currentUser.role == "agent" }      // every read of Ticket (see below)
 projection Backlog requires currentUser.role == "agent" { … }
-workflow Fulfil requires currentUser.role == "ops" { create open(...) requires … { … } handle retry(...) requires … { … } }
+workflow Fulfil requires currentUser.role == "ops" { create open(...) requires … { … } }
 page Admin { requires currentUser.role == "admin"  … }            // client-side guard, see ch. 15
 ```
 

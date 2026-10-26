@@ -774,13 +774,12 @@ export function buildWorkflowsFile(
 
 /** Every statement list a workflow renders into this file: each `create`
  *  (command- AND event-triggered — `wf.statements` is only a facade over the
- *  primary), each `on(e)` reactor and each `handle`. */
+ *  primary) and each `on(e)` reactor. */
 function workflowBodyStmts(wf: WorkflowIR): WorkflowStmtIR[] {
   const creates = wf.creates ?? [];
   return [
     ...(creates.length > 0 ? creates.flatMap((c) => c.statements) : wf.statements),
     ...(wf.subscriptions ?? []).flatMap((o) => o.statements),
-    ...(wf.handlers ?? []).flatMap((h) => h.statements),
   ];
 }
 

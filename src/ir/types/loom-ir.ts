@@ -1437,11 +1437,6 @@ export interface WorkflowIR {
    *  (A2-S5a), so bodies fold events into workflow state.  Omitted when the
    *  workflow declares none. */
   appliers?: ApplyIR[];
-  /** Named orchestration command handlers declared via `handle name(params)
-   *  { … }` members (A2-S5c) — a multi-command saga's continuation commands.
-   *  Each carries its own params + saves, lowered like the legacy paren-form
-   *  body.  Omitted when the workflow declares none. */
-  handlers?: HandleIR[];
   /** Private pure helpers declared via `function f(...): T = expr` or the block
    *  form `function f(...): T { let … return … }` — the aggregate-parity helper
    *  (a workflow is a state-bearing entity, so it factors shared expressions the
@@ -1495,24 +1490,12 @@ export interface WorkflowIR {
   origin?: OriginRef;
 }
 
-/** A named `handle name(params) { … }` command handler on a workflow
- *  (workflow-and-applier.md A2-S5c) — structurally the legacy paren-form
- *  workflow body, but named and repeatable. */
-export interface HandleIR {
-  name: string;
-  params: ParamIR[];
-  statements: WorkflowStmtIR[];
-  /** Which let-bound aggregates need a save call at handler exit, in
-   *  declaration order — same derivation as `WorkflowIR.savesAtExit`. */
-  savesAtExit: { name: string; aggName: string; repoName: string }[];
-}
-
 /** A top-level `commandHandler name(params): T { … }` application-layer member
- *  (unfoldable-api-derivation.md, Layer 3) — a workflow `handle` lifted out of a
- *  workflow when the orchestration is single-aggregate.  `returnType` is optional
+ *  (unfoldable-api-derivation.md, Layer 3) — a context's named command entry
+ *  point.  `returnType` is optional
  *  (a `commandHandler` may omit it, `: void`-equivalent).  Body statements are
- *  `WorkflowStmtIR` (load → mutate → save → return), same as `HandleIR`.  Every
- *  backend's explicit-handlers emitter reads these. */
+ *  `WorkflowStmtIR` (load → mutate → save → return), same as a workflow
+ *  `create`.  Every backend's explicit-handlers emitter reads these. */
 export interface CommandHandlerIR {
   name: string;
   params: ParamIR[];
@@ -2035,8 +2018,8 @@ export type WorkflowStmtIR =
     }
   | {
       // `field := value` — assignment to one of the workflow's OWN state
-      // fields inside a `create`/`handle`/`on` body (workflow.md, "handle =
-      // own-state mutation").  The `target` PathIR resolves to a `this-prop`
+      // fields inside a `create`/`on` body (workflow.md, "own-state
+      // mutation").  The `target` PathIR resolves to a `this-prop`
       // on the workflow's persisted correlation/instance state row; the write
       // lands on that state object (NOT an aggregate `this`).  Mirrors the
       // aggregate-op `StmtIR` `assign` (loom-ir.ts) exactly.  Only `:=` lowers
@@ -2932,7 +2915,7 @@ export interface ApiIR {
 /** A single explicit `route <METHOD> <PATH> -> <Context>.<Handler>` transport
  *  binding (unfoldable-api-derivation.md, Layer 4).  `target.handler` is a plain
  *  name resolved by the IR validator (`loom.route-handler-unresolved`) against
- *  the commandHandler / queryHandler / workflow-handle members of
+ *  the commandHandler / queryHandler members of
  *  `target.context`. */
 export interface RouteIR {
   /** HTTP method — `GET` | `POST` | `PUT` | `PATCH` | `DELETE`. */

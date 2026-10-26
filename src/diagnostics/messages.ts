@@ -253,7 +253,7 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `'${p.feature}' is not allowed on ${p.label}. A domain service is a stateless, context-internal calculator: no instance to gate, no route to authorize, no persistence to audit — and its body already refuses repository / extern / emit / this-write. Move the rule to the aggregate operation that owns the state.`,
   "loom.callable-modifier-not-allowed-here#workflow": (p: { feature: unknown; label: unknown }) =>
-    `'${p.feature}' is not allowed on ${p.label}. A workflow member is orchestration, not an aggregate method: there is no 'this' for a 'when' canCommand gate to read, and the aggregate-only modifiers ('private' / 'extern' / 'audited') have no member to attach to. A workflow's command entries ('create' / 'handle') take 'requires'; the workflow header takes its own 'requires' for the instance READ.`,
+    `'${p.feature}' is not allowed on ${p.label}. A workflow member is orchestration, not an aggregate method: there is no 'this' for a 'when' canCommand gate to read, and the aggregate-only modifiers ('private' / 'extern' / 'audited') have no member to attach to. A workflow's command entry ('create') takes 'requires'; the workflow header takes its own 'requires' for the instance READ.`,
   "loom.callable-modifier-not-allowed-here#page-action": (p: {
     feature: unknown;
     label: unknown;
@@ -669,19 +669,11 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/language/validators/duplicates.ts
   // ----------------------------------------------------------------------
-  // The route half of this message used to over-promise: it implied a
-  // `route -> Ctx.<handle>` naming a workflow `handle` was meaningful, when no
-  // backend has ever emitted one (M-T6.58's "three places promise routing
-  // works, zero deliver").  M-T5.34 refuses `handle` outright
-  // (`loom.workflow-handle-unsupported`), so the name-collision rule below is
-  // now genuinely about the two APPLICATION handler kinds; a workflow `handle`
-  // in scope is already an error on its own line.
+  // The two APPLICATION handler kinds share one route-target namespace.
   "loom.duplicate-handler": (p: { name: unknown; ctxName: unknown; kind: unknown }) =>
     `Duplicate handler '${p.name}' in context '${p.ctxName}'; a ${p.kind} shares its name ` +
-    `with another handler or a workflow 'handle'. A 'route -> ${p.ctxName}.${p.name}' would ` +
-    `be ambiguous — handler and workflow-handle names must be unique within a context. ` +
-    `(A workflow 'handle' is itself refused — see 'loom.workflow-handle-unsupported' — so only ` +
-    `a commandHandler / queryHandler can carry a route today.)`,
+    `with another handler. A 'route -> ${p.ctxName}.${p.name}' would ` +
+    `be ambiguous — commandHandler and queryHandler names must be unique within a context.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/generics.ts
@@ -1167,9 +1159,9 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.variant-match-placement": (p: { owner: unknown }) =>
     `A 'match' used for its EFFECTS (arms that run statements) is frontend-only — it lowers to a page / component / store 'action' handler and has no backend form — but this one is in ${p.owner}, which runs on the backend. Move the effect into the 'action' that invokes it. This is a permanent placement rule, not a missing feature.`,
   "loom.if-let-placement": (p: { owner: unknown }) =>
-    `'if let' binds the optional result of a repository read and branches on its presence; only a workflow body ('create' / 'handle' / 'on') or a top-level 'commandHandler' / 'queryHandler' lowers it. This one is in ${p.owner}, which has no such lowering — do the optional read in a workflow or handler and pass the resolved value in. This is a permanent placement rule, not a missing feature.`,
+    `'if let' binds the optional result of a repository read and branches on its presence; only a workflow body ('create' / 'on') or a top-level 'commandHandler' / 'queryHandler' lowers it. This one is in ${p.owner}, which has no such lowering — do the optional read in a workflow or handler and pass the resolved value in. This is a permanent placement rule, not a missing feature.`,
   "loom.for-placement": (p: { owner: unknown }) =>
-    `'for … in …' is lowered only inside a workflow body ('create' / 'handle' / 'on') or a top-level 'commandHandler' / 'queryHandler' — that lowering owns the per-iteration save the loop needs. This one is in ${p.owner}, where the loop would be dropped silently. Put it in a workflow or handler for now; this is a GAP, not a design rule — mission M-T5.30 tracks lowering 'for' into domain bodies.`,
+    `'for … in …' is lowered only inside a workflow body ('create' / 'on') or a top-level 'commandHandler' / 'queryHandler' — that lowering owns the per-iteration save the loop needs. This one is in ${p.owner}, where the loop would be dropped silently. Put it in a workflow or handler for now; this is a GAP, not a design rule — mission M-T5.30 tracks lowering 'for' into domain bodies.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/workflow-explicit-save.ts
@@ -1227,7 +1219,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `Each inbound event routes to one reactor; if these are intentional alternates, distinguish them by their 'by' clause.`,
   "loom.transactional-with-continuations": (p: { name: unknown }) =>
     `Workflow '${p.name}' is 'transactional' but declares a continuation handler. ` +
-    `A reactor / handle runs in its own transaction — drop 'transactional', or remove the continuation.`,
+    `An on(...) reactor runs in its own transaction — drop 'transactional', or remove the continuation.`,
   // `create(…): T { … return <expr> }` — a command starter's result (B-03).
   "loom.workflow-return-no-caller": (p: { workflow: unknown; create: unknown }) =>
     `Workflow '${p.workflow}': '${p.create}' is event-triggered ('by …'), so nothing calls it and ` +
@@ -2071,18 +2063,17 @@ export const DIAGNOSTIC_MESSAGES = {
     handler: unknown;
   }) =>
     `api '${p.name}': route '${p.label}' targets '${p.context}.${p.handler}', ` +
-    `but context '${p.context}' has no commandHandler, queryHandler, or workflow handle ` +
+    `but context '${p.context}' has no commandHandler or queryHandler ` +
     `named '${p.handler}'.`,
   "loom.read-context-repo-write": (p: {
     name: unknown;
     label: unknown;
     method: unknown;
-    targetKind: unknown;
     context: unknown;
     handler: unknown;
   }) =>
     `api '${p.name}': route '${p.label}' is a read (${p.method}) but targets ` +
-    `${p.targetKind} '${p.context}.${p.handler}', which writes. A read ` +
+    `commandHandler '${p.context}.${p.handler}', which writes. A read ` +
     `position (an api read route, a queryHandler, or a 'reading' service) may not reach the ` +
     `mutating repository face — bind the read to a queryHandler.`,
 
@@ -5091,17 +5082,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `and returns. Add a starter — an event-triggered 'create(e: <Event>) by <expr> { … }' for ` +
     `the event that begins the saga, or a command-triggered 'create(…) { … }' that supplies ` +
     `the correlation key.`,
-  // D5 / decision D-1(c).  `handle <name>(…)` parses, type-checks and reaches
-  // the IR, and NO backend emits anything for it — not a route, not a handler,
-  // not a method.  Rejecting is the ruling: the silence is the bug, and the
-  // emitter is a feature decision taken separately (the follow-up mission row).
-  "loom.workflow-handle-unsupported": (p: { name: unknown; handler: unknown }) =>
-    `workflow '${p.name}': 'handle ${p.handler}(…)' is not emitted by any backend — no route, ` +
-    `no handler, no method — so the continuation is unreachable at runtime and the saga can ` +
-    `be started and read but never advanced. Model the continuation as an aggregate ` +
-    `'operation' (the aggregate owns the state transition, and the operation gets a route on ` +
-    `every backend), or as a second workflow started by the event the first one emits. ` +
-    `Multi-command sagas via 'handle' are deferred, not shipped.`,
   "loom.workflow-unknown-name": (p: { name: unknown; kind: unknown; exprName: unknown }) =>
     `workflow '${p.name}': ${p.kind} references unknown name '${p.exprName}'.`,
   "loom.workflow-unknown-name#projection-receiver": (p: {
@@ -5550,6 +5530,14 @@ export const DIAGNOSTIC_MESSAGES = {
     `\`policy { read ${p.aggregate} requires <expr> }\` in its context, and it gates every ` +
     `read of '${p.aggregate}'. Move the gate there (\`node scripts/codemod-find-gate-to-policy.mjs\` ` +
     `does it for a whole project).`,
+  // A workflow `handle` member — the declaration was removed (D-HANDLE-REMOVAL):
+  // it had no correlation surface and no backend ever routed it.  The named
+  // command entry is a context-level `commandHandler` (`src/language/parse-errors.ts`).
+  "loom.parse-error#workflow-handle-removed": (p: { workflow: unknown; handler: unknown }) =>
+    `workflow '${p.workflow}': 'handle ${p.handler}(…)' is no longer part of the language. ` +
+    `A named command entry is a context-level \`commandHandler ${p.handler}(…) { … }\` — move ` +
+    `it out of the workflow (\`node scripts/codemod-workflow-handle.mjs\` does it for a whole ` +
+    `project, and names any handle it cannot lift).`,
 } satisfies Record<string, MessageEntry>;
 
 type Catalog = typeof DIAGNOSTIC_MESSAGES;
