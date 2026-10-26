@@ -523,13 +523,14 @@ function pathParamCoercions(r: RouteIR, h: Handler): string {
 /** Rewrite a `{braced}` RouteIR path template into the Phoenix `:snake` form,
  *  snake-casing each param so it matches the handler's `run/1` destructure key
  *  (`{orderId}` → `:order_id`, keyed as `"order_id"` in `params`). */
-/** True when a handler body performs a by-id `load` at any depth — the load
- *  whose miss `tagGetByIdMiss` tags with a row-naming detail. */
+/** True when a handler body performs a by-id `load` (whose miss
+ *  `tagGetByIdMiss` tags with a row-naming detail) or answers `notFound`, at
+ *  any depth — both thread the detail-carrying `{:not_found, detail}` term. */
 function handlerLoadsById(h: CommandHandlerIR | QueryHandlerIR): boolean {
   let found = false;
   for (const top of h.statements) {
     walkWorkflowStmtsDeep(top, (st) => {
-      if (st.kind === "repo-let" && st.op === "load") found = true;
+      if ((st.kind === "repo-let" && st.op === "load") || st.kind === "not-found") found = true;
     });
   }
   return found;

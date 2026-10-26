@@ -143,7 +143,8 @@ export interface RepoVerbContract {
   readonly paged: boolean;
   /** The call consumes a chain-borne `ignoring` filter bypass (the matchers
    *  that read it are `matchRetrievalRunCall` / `matchFindAllCall` /
-   *  `matchKeyLookupCall` in `ir/lower/repo-read.ts`). */
+   *  `matchKeyLookupCall` / `matchFindCall` / `matchByIdBypassCall` in
+   *  `ir/lower/repo-read.ts`). */
   readonly ignoring: boolean;
   readonly positions: readonly RepoVerbPosition[];
 }
@@ -167,7 +168,7 @@ export const REPOSITORY_CONTRACT: readonly RepoVerbContract[] = [
     args: "id",
     result: "optional-row",
     paged: false,
-    ignoring: false,
+    ignoring: true,
     positions: ["body", "integration-test"],
   },
   {
@@ -197,7 +198,7 @@ export const REPOSITORY_CONTRACT: readonly RepoVerbContract[] = [
     args: "criterion",
     result: "optional-row",
     paged: false,
-    ignoring: false,
+    ignoring: true,
     positions: ["body"],
   },
   {
@@ -337,13 +338,46 @@ export function isKeyLookupOp(op: RepoOp): op is "load-by-key" | "load-by-key-op
 export function keyLookupMethodName(
   verb: "getBy" | "findBy",
   columns: readonly string[],
-  bypass?: { bypassAll?: boolean; bypassCaps?: readonly string[] },
+  bypass?: ReadBypass,
 ): string {
-  const cap = (s: string) => (s.length ? s[0]!.toUpperCase() + s.slice(1) : s);
-  const base = `${verb}${columns.map(cap).join("And")}`;
-  if (bypass?.bypassAll) return `${base}IgnoringAll`;
+  return `${verb}${columns.map(capFirst).join("And")}${bypassSuffix(bypass)}`;
+}
+
+/** An `ignoring` stance as the IR carries it. */
+export interface ReadBypass {
+  bypassAll?: boolean;
+  bypassCaps?: readonly string[];
+}
+
+const capFirst = (s: string): string => (s.length ? s[0]!.toUpperCase() + s.slice(1) : s);
+
+/** The method-name suffix that spells an `ignoring` stance: `ignoring *` →
+ *  `IgnoringAll`, `ignoring A, B` → `IgnoringAAndB` (capability names sorted,
+ *  so the order they are written in never picks a different method), no
+ *  stance → `""`. */
+export function bypassSuffix(bypass?: ReadBypass): string {
+  if (bypass?.bypassAll) return "IgnoringAll";
   const caps = bypass?.bypassCaps ?? [];
-  return caps.length > 0 ? `${base}Ignoring${[...caps].sort().map(cap).join("And")}` : base;
+  return caps.length > 0 ? `Ignoring${[...caps].sort().map(capFirst).join("And")}` : "";
+}
+
+/** The repository method a single-row read that widens its capability filters
+ *  is emitted as.  The plain reads run against shared methods (`find(C)` the
+ *  criterion's `findAllBy<C>` retrieval, `findById` the by-id load) whose
+ *  filters every other caller relies on, so a widened read gets a method of
+ *  its own, with the stance in its name:
+ *
+ *    Orders.find(ByRef(r)) ignoring softDeletable → findFirstByRefIgnoringSoftDeletable
+ *    Orders.findById(id) ignoring *              → findByIdIgnoringAll
+ *
+ *  `findFirst` keeps a criterion read apart from a natural-key read over a
+ *  column of the same spelling (`findBy` over `(ref)` is `findByRef…`). */
+export function bypassReadMethodName(
+  source: { kind: "criterion"; name: string } | { kind: "id" },
+  bypass: ReadBypass,
+): string {
+  const base = source.kind === "id" ? "findById" : `findFirst${capFirst(source.name)}`;
+  return `${base}${bypassSuffix(bypass)}`;
 }
 
 /** How a natural-key read's named arguments line up with the aggregate's

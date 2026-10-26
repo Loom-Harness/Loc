@@ -1435,7 +1435,7 @@ decimal`.
 | `return Expression` | The designed-in outcome of an operation / handler declared with an `or`-union return type — an `error` variant maps to a ProblemDetails status, a success variant to 200.  See [`payloads.md`](payloads.md).  Also the result of a workflow `create(…): T` — last top-level statement only, answered as the `POST`'s 200 body (`loom.workflow-return-*`; [`workflow.md`](workflow.md#returning-a-result--createt)). |
 | `match subject { Variant [b] => { … }, else => { … } }` | Statement-form variant match — arms run statements (state writes, `navigate(...)`) rather than yield a value.  In a page `action`, `match await Agg.op(...) { Ok r => …, Err e => … }` is how a remote command is awaited and its Result handled — a remote mutating call *without* the marker is `loom.missing-effect-marker`; `loom.match-await*` gates the awaited call's shape ([`actions.md`](actions.md)). |
 | `let xs = Repo.run(R(args))` then `for x in xs { … }` | **Workflow / handler bodies only** — iterate an aggregate array, saving each element's mutations per iteration ([`workflow.md`](workflow.md)).  The iterable must be a `let`-bound `Repo.run(...)` result; iterating the call inline (`for x in Repo.run(...)`) is refused with `loom.workflow-foreach-source`. |
-| `if let x = Repo.find(C(args)) { … } else { … }` | **Workflow / handler bodies only** — bind an optional repository result and branch on presence. |
+| `if let x = Repo.find(C(args)) { … } else { … }` | **Workflow / handler bodies only** — bind an optional repository result (`find(C)`, `findById`, `findBy`, a `T?` find, or an optional `let` binding) and branch on presence. |
 | `if Expression { … } else { … }` | Boolean branch; `else` is optional and `else if` chains.  The condition is a full boolean expression EXCEPT that a `{`-opening form (a part / value-object construction, an object literal, a `match`) must be parenthesised — otherwise it would claim the `if`'s own body block.  **Rendered on node / dotnet / java / python.**  Refused with `loom.elixir-if-stmt-unsupported` when an elixir deployable hosts the context (a Phoenix body threads its result through a rebound `record`, and an Elixir `if` block's bindings do not escape it), and with `loom.if-stmt-page-body-unsupported` in a `ui` body — a page expresses a condition as a VALUE (`cond ? a : b` or `match`). |
 
 ```ddd
@@ -2047,11 +2047,13 @@ the binding is a plain `T`).  To BRANCH on the absent row instead, declare the
 find `: T or NotFound` / `: T option` and read the binding through a variant
 `match` (`match r { Order o => o.code, NotFound => "–" }`).  Reading such a
 binding straight through — `r.code`, `r.touch()` — is refused with
-`loom.union-read-undiscriminated`; a `: T?` find stays a native nullable, and
-its binding is read behind a null guard (`loom.nullable-receiver`) in every body.
-A plain `let` of a BUILT-IN optional read (`findById` / `findBy`) is refused in
-workflow / handler / domain-service bodies — branch on it with `if let`
-(`loom.workflow-load-nullable-unsupported` / `loom.handler-load-nullable-unsupported`).
+`loom.union-read-undiscriminated`.  A `T?` read — a `: T?` find,
+`Repo.find(<Criterion>)`, `Repo.findById(id)`, `Repo.findBy(col: v)` — stays a
+native nullable: `let c = Customers.find(ByEmail(e))` binds `Customer?`, read
+through a null test (`c == null`, `c ?? d`) or narrowed by
+`if let x = c { … } else { … }` (an `if let` takes the read itself as its
+source too: `if let o = Orders.findById(id) { o.touch() }`).  A member read or
+an op-call on the binding before it is narrowed is `loom.nullable-receiver`.
 See [`payloads.md`](payloads.md) → "Union finds".
 
 ---

@@ -105,11 +105,13 @@ import type { ApiRoute } from "../api-emit.js";
 import { inlineMutatingServiceCall } from "../domain-service-emit.js";
 import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { internalCreateFn, internalDeleteFn } from "../lifecycle-seam.js";
-import { type RenderCtx, renderExpr } from "../render-expr.js";
+import { optionalReadLookup, type RenderCtx, renderExpr } from "../render-expr.js";
 import { stateDefault, stateDefaultDecls } from "../state-default.js";
 import {
   contextsHaveWireDenials,
   denialOverrides,
+  notFoundStmtClause,
+  notFoundStmtTerm,
   respondErrorTail,
   workflowDenialTerm,
 } from "./denial.js";
@@ -451,6 +453,11 @@ function lowerStatement(
       ];
     }
 
+    case "not-found":
+      // `notFound` → a clause that fails the chain with the tagged not-found
+      // term, answered by the dispatcher's `{:not_found, detail}` arm.
+      return [{ kind: "with-clause", text: notFoundStmtClause(st), bindName: undefined }];
+
     case "expr-let": {
       // `let foo = <expr>` (pure binding inside a workflow body) →
       // `foo <- (<expr>)` — a with-clause binding always succeeds.
@@ -506,6 +513,32 @@ function lowerStatement(
       // facade.  Custom finds map to the per-find defdelegate emitted by
       // `context-emit.ts` (see `customFindsOf`), which routes to the
       // matching `def <find>` in the repository module.
+      // An OPTIONAL read (`findById`, `find(<Criterion>)`, `findBy`, a `T?`
+      // find) binds the row or `nil` — a bare-variable clause always matches,
+      // so an absent row is a value rather than a with-chain short-circuit.
+      if (st.returnType.kind === "optional") {
+        const { call, hit } = optionalReadLookup(
+          {
+            op: st.op,
+            method: st.method,
+            aggregate: st.aggName,
+            retrievalName: st.retrievalName,
+          },
+          st.args.map((a) => renderExpr(a, renderCtx)),
+          contextModule,
+        );
+        const { pattern, bindName } = tupleBind(st.name, rest, reads);
+        return [
+          {
+            kind: "with-clause",
+            text: `${pattern} <- (case ${call} do
+           ${hit} -> hit
+           _ -> nil
+         end)`,
+            bindName,
+          },
+        ];
+      }
       const argList = st.args.map((a) => renderExpr(a, renderCtx)).join(", ");
       const action =
         st.op === "load" ? `get_${snake(st.aggName)}` : elixirFindFacadeFn(st.method, st.aggName);
@@ -723,17 +756,37 @@ function lowerStatement(
       // A declared optional find (`findMethod`) calls the context's per-find
       // delegate, which answers `{:ok, row | nil}` — the same head-or-nil
       // `case` reads it.
-      const lookup = st.findMethod
-        ? {
-            call: `${contextModule}.${elixirFindFacadeFn(st.findMethod, st.aggName)}(${st.retrievalArgs.map((a) => renderExpr(a, renderCtx)).join(", ")})`,
-            hit: "{:ok, hit}",
-          }
-        : {
-            call: `${contextModule}.run_${snake(st.retrievalName)}_${snake(st.aggName)}(${[...st.retrievalArgs.map((a) => renderExpr(a, renderCtx)), "limit: 1"].join(", ")})`,
-            hit: "{:ok, [hit | _]}",
-          };
+      // `findById` calls the by-id facade (`{:ok, row} | {:error, :not_found}`),
+      // and a `bound` source narrows an optional binding already in scope.
+      const args = st.retrievalArgs.map((a) => renderExpr(a, renderCtx));
       const v = escapeElixirIdent(snake(st.var));
-      const renderBranch = (body: WorkflowStmtIR[], present: string): string[] => {
+      const lookupLines =
+        st.op === "bound"
+          ? [`           ${v} = ${args.join(", ")}`]
+          : ((l: { call: string; hit: string }) => [
+              `           ${v} = case ${l.call} do`,
+              `             ${l.hit} -> hit`,
+              `             _ -> nil`,
+              `           end`,
+            ])(
+              optionalReadLookup(
+                {
+                  op: st.op,
+                  method: st.findMethod ?? "",
+                  aggregate: st.aggName,
+                  retrievalName: st.retrievalName,
+                },
+                args,
+                contextModule,
+              ),
+            );
+      const renderBranch = (all: WorkflowStmtIR[], present: string): string[] => {
+        // A branch that ends in `notFound` evaluates to the not-found term
+        // itself rather than a clause that cannot match before `{:ok, _}`.
+        const last = all[all.length - 1];
+        const endsNotFound = last?.kind === "not-found";
+        const result = endsNotFound ? `{:error, ${notFoundStmtTerm(last)}}` : `{:ok, ${present}}`;
+        const body = endsNotFound ? all.slice(0, -1) : all;
         // A branch needs a `with`-chain when it holds a fallible statement that
         // must short-circuit to `{:error, tag}` (so it threads up the outer
         // with-chain): a guard (`precondition` / `requires`) OR nested control
@@ -741,7 +794,10 @@ function lowerStatement(
         // A branch of only flat side-effects keeps the sequential `=`-bind form.
         const needsWith = body.some(
           (s) =>
-            s.kind === "precondition" || s.kind === "requires" || NESTED_FLOW_KINDS.has(s.kind),
+            s.kind === "precondition" ||
+            s.kind === "requires" ||
+            s.kind === "not-found" ||
+            NESTED_FLOW_KINDS.has(s.kind),
         );
         if (needsWith) {
           const clauses: string[] = [];
@@ -755,6 +811,9 @@ function lowerStatement(
                 clauses.push(
                   `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner)}})`,
                 );
+                break;
+              case "not-found":
+                clauses.push(notFoundStmtClause(inner));
                 break;
               case "op-call":
                 clauses.push(`{:ok, _} <- ${opCallSource(inner, renderCtx, contextModule, ctx)}`);
@@ -815,7 +874,7 @@ function lowerStatement(
           return [
             `with ${clauses.join(",\n                  ")} do`,
             ...tail.map((l) => `  ${l}`),
-            `  {:ok, ${present}}`,
+            `  ${result}`,
             `else`,
             `  err -> err`,
             `end`,
@@ -824,14 +883,11 @@ function lowerStatement(
         const stmtLines = body.flatMap((inner, i) =>
           renderBranchStmt(inner, renderCtx, contextModule, body.slice(i + 1), ctx),
         );
-        return [...stmtLines, `{:ok, ${present}}`];
+        return [...stmtLines, result];
       };
       const lines = [
         `{:ok, _} <- (`,
-        `           ${v} = case ${lookup.call} do`,
-        `             ${lookup.hit} -> hit`,
-        `             _ -> nil`,
-        `           end`,
+        ...lookupLines,
         `           if ${v} != nil do`,
         ...renderBranch(st.thenBody, v).map((l) => `             ${l}`),
         `           else`,
@@ -1091,6 +1147,9 @@ function renderLoopBody(
           `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner)}})`,
         );
         break;
+      case "not-found":
+        clauses.push(notFoundStmtClause(inner));
+        break;
       case "expr-let": {
         const bind = bindUsedLater(inner.name, rest) ? escapeElixirIdent(snake(inner.name)) : "_";
         clauses.push(`${bind} <- (${renderExpr(inner.expr, renderCtx)})`);
@@ -1309,6 +1368,7 @@ function renderBranchStmt(
     }
     case "precondition":
     case "requires":
+    case "not-found":
     case "for-each":
     case "if-let":
     case "repo-run":
@@ -1936,8 +1996,8 @@ end
   return { content, statementRegions };
 }
 
-/** Does any body of this workflow load through `getById` (at any depth)?  Gates
- *  the dispatcher's `{:not_found, detail}` arm (M-T5.1 A4). */
+/** Does any body of this workflow load through `getById` or answer `notFound`
+ *  (at any depth)?  Gates the dispatcher's `{:not_found, detail}` arm. */
 function workflowLoadsById(wf: WorkflowIR): boolean {
   const lists: readonly (readonly WorkflowStmtIR[])[] = [
     wf.statements,
@@ -1948,7 +2008,7 @@ function workflowLoadsById(wf: WorkflowIR): boolean {
   for (const list of lists) {
     for (const top of list) {
       walkWorkflowStmtsDeep(top, (s) => {
-        if (s.kind === "repo-let" && s.op === "load") found = true;
+        if ((s.kind === "repo-let" && s.op === "load") || s.kind === "not-found") found = true;
       });
     }
   }

@@ -613,6 +613,8 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.debitOnce.run (no such aggregate)",
     "api.debitThenOverdraw.run (no such aggregate)",
   ],
+  // A workflow run whose `if let` else answers `notFound` — same class.
+  "corpus/not-found-statement": ["api.escalateFirst.run (no such aggregate)"],
   // `api.orders.history(...)` reads the entity-history endpoint over
   // `audit_records` (#2378) — a machinery read `deriveContextOperations` does
   // not lift (same class as projection reads).  Lifting it would make this
@@ -1018,6 +1020,11 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // (open).  The sidecar blocker is unchanged — the two routes exist to do
   // objectStore / queue / mailer I/O, and no behavioural leg stands those up.
   "handler-resource-ops",
+  // COMPILE-TIER WITNESS — `let`-bound optional repository reads and the
+  // `if let` that narrows them.  The emitted null-handling form is what the
+  // compile legs read; the booted block over the absent-row and present-row
+  // branches is #4335.
+  "optional-let",
   // `handler-triad` DRAINED (M-T6.73), and it took THREE attempts — the first two
   // are the reason this note is long.
   //

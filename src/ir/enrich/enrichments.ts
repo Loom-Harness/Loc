@@ -80,6 +80,7 @@ import {
   tenancyPrincipalClaim,
 } from "../util/tenant-stance.js";
 import { walkExprDeep, walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "../util/walk.js";
+import { type BypassRead, synthesizeBypassReadFinds } from "./bypass-read-finds.js";
 import { applyDefaultDenyReads } from "./default-deny-reads.js";
 import { applyDemoTenantSeed } from "./demo-tenant.js";
 import { bindFindParams } from "./find-param-bindings.js";
@@ -898,23 +899,28 @@ export function enrichContext(
   // so the aggregate router does NOT auto-expose it (the queryHandler's own
   // route is the exposure).
   const repositories = bindFindParams(
-    synthesizeKeyLookupFinds(
-      synthesizePagedQueryHandlerFinds(
-        // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
-        // find's gate + `ignoring` stance, so the implicit `all` must exist first.
-        // `applyPolicyReadGates` sits between them: it puts the
-        // `policy { read X requires … }` gate on the injected `all` (and every
-        // declared find), which history then copies.
-        ensureHistoryFind(
-          aggregates,
-          applyPolicyReadGates(ensureFindAll(aggregates, ctx.repositories), ctx.policyReadGates),
+    synthesizeBypassReadFinds(
+      synthesizeKeyLookupFinds(
+        synthesizePagedQueryHandlerFinds(
+          // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
+          // find's gate + `ignoring` stance, so the implicit `all` must exist first.
+          // `applyPolicyReadGates` sits between them: it puts the
+          // `policy { read X requires … }` gate on the injected `all` (and every
+          // declared find), which history then copies.
+          ensureHistoryFind(
+            aggregates,
+            applyPolicyReadGates(ensureFindAll(aggregates, ctx.repositories), ctx.policyReadGates),
+          ),
+          ctx.queryHandlers,
+          ctx.criteria,
+          ctx.retrievals,
         ),
-        ctx.queryHandlers,
-        ctx.criteria,
-        ctx.retrievals,
+        aggregates,
+        keyLookupReads(ctx),
       ),
       aggregates,
-      keyLookupReads(ctx),
+      ctx.criteria,
+      bypassReads(ctx),
     ),
     aggregates,
   );
@@ -1053,6 +1059,35 @@ function keyLookupReads(ctx: BoundedContextIR): KeyLookupRead[] {
   return out;
 }
 
+/** Every widened single-row read (`Repo.find(<Criterion>) ignoring …` /
+ *  `Repo.findById(id) ignoring …`) the context's bodies make — an `if let`
+ *  source in a workflow or explicit handler, or a read in a domain-service
+ *  operation.  Each names the method `synthesizeBypassReadFinds` adds to its
+ *  repository. */
+function bypassReads(ctx: BoundedContextIR): BypassRead[] {
+  const out: BypassRead[] = [];
+  const noteStmt = (st: WorkflowStmtIR): void => {
+    if (st.kind === "if-let" && st.bypassRead) {
+      out.push({ repoName: st.repoName, read: st.bypassRead });
+    }
+  };
+  for (const wf of ctx.workflows) for (const st of allWorkflowStmts(wf)) noteStmt(st);
+  for (const h of [...(ctx.queryHandlers ?? []), ...(ctx.commandHandlers ?? [])]) {
+    for (const st of flattenHandlerStmts(h.statements)) noteStmt(st);
+  }
+  for (const svc of ctx.domainServices ?? []) {
+    for (const op of svc.operations) {
+      for (const stmt of op.body) {
+        walkStmtExprsDeep(stmt, (e) => {
+          const read = e.kind === "call" && e.callKind === "repo-read" ? e.repoRead : undefined;
+          if (read?.bypassRead) out.push({ repoName: read.repo, read: read.bypassRead });
+        });
+      }
+    }
+  }
+  return out;
+}
+
 /** criterion.md, use site 3: materialise the synthetic `findAllBy<Criterion>`
  *  RetrievalIR for every `Repo.findAll(<Criterion>)` a workflow body lowered to
  *  a `synthCriterion`-marked `repo-run`.  The criterion's lowered `body` is
@@ -1107,9 +1142,10 @@ function synthesizeFindAllRetrievals(
   };
   for (const wf of workflows) {
     for (const st of allWorkflowStmts(wf)) {
-      // Both `Repo.findAll(<Criterion>)` (repo-run) and the `if let` /
-      // `Repo.find(<Criterion>)` (if-let) source ride a `findAllBy<Criterion>`
-      // retrieval; an `if let` carries no sort/loads (single-result, takes the
+      // `Repo.findAll(<Criterion>)` (repo-run), the `if let` /
+      // `Repo.find(<Criterion>)` (if-let) source and a `let`-bound
+      // `Repo.find(<Criterion>)` (repo-let) ride a `findAllBy<Criterion>`
+      // retrieval; the single-result two carry no sort/loads (they take the
       // first row).  Collect the criterion + shaping from whichever shape.
       if (st.kind === "repo-run" && st.synthCriterion) {
         materialise({
@@ -1119,6 +1155,9 @@ function synthesizeFindAllRetrievals(
           loadPlan: st.synthLoadPlan,
         });
       } else if (st.kind === "if-let" && st.synthCriterion.name) {
+        materialise({ name: st.synthCriterion.name, retrievalName: st.retrievalName });
+      } else if (st.kind === "repo-let" && st.synthCriterion && st.retrievalName) {
+        // `let c = Repo.find(<Criterion>)` — the same single-result run.
         materialise({ name: st.synthCriterion.name, retrievalName: st.retrievalName });
       }
     }
@@ -1152,6 +1191,9 @@ function synthesizeFindAllRetrievals(
           loadPlan: st.synthLoadPlan,
         });
       } else if (st.kind === "if-let" && st.synthCriterion.name) {
+        materialise({ name: st.synthCriterion.name, retrievalName: st.retrievalName });
+      } else if (st.kind === "repo-let" && st.synthCriterion && st.retrievalName) {
+        // `let c = Repo.find(<Criterion>)` — the same single-result run.
         materialise({ name: st.synthCriterion.name, retrievalName: st.retrievalName });
       }
     }
@@ -1440,6 +1482,7 @@ function tailBindType(stmt: WorkflowStmtIR): TypeIR | undefined {
     case "emit":
     case "for-each":
     case "if-let":
+    case "not-found":
     case "op-call":
     case "precondition":
     case "repo-delete":

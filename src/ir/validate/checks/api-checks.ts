@@ -21,6 +21,7 @@ import { allContexts } from "../../types/loom-ir.js";
 import { walkWorkflowStmtsDeep } from "../../util/walk.js";
 import { handlerWrites, validateHandlerEffectVocabulary } from "./body-effect-vocabulary.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
+import { isBadIfLetSource } from "./optional-binding-checks.js";
 
 /** Visit every workflow statement in `stmts`, descending into the nested
  *  bodies of `for-each` / `if-let` so a mutation buried in a branch is seen.
@@ -62,6 +63,7 @@ function aggregatesTouched(h: CommandHandlerIR | QueryHandlerIR): Set<string> {
       case "emit":
       case "resource-call":
       case "domain-service-call":
+      case "not-found":
         break;
       default: {
         const _exhaustive: never = s;
@@ -78,11 +80,9 @@ function aggregatesTouched(h: CommandHandlerIR | QueryHandlerIR): Set<string> {
  *    - `loom.query-handler-saves` — a `queryHandler` must not mutate/save.
  *    - `loom.command-handler-multi-aggregate` — a `commandHandler` may touch
  *      only ONE aggregate; a cross-aggregate orchestration must be a workflow.
- *    - `loom.handler-load-nullable-unsupported` — a handler body may not bind a
- *      BUILT-IN optional read (`findById` / `findBy`) with a plain `let`; a
- *      declared `T?` find binds, its reads guarded by `loom.nullable-receiver`.
- *    - `loom.iflet-bad-source` — an `if let` source must be `Repo.find(<Criterion>)`
- *      or a declared optional find, the two forms every backend renders.
+ *    - `loom.iflet-bad-source` — an `if let` source must be an optional read
+ *      (`Repo.find(<Criterion>)`, `findById`, `findBy`, a declared optional
+ *      find) or an optional binding, the forms every backend renders.
  *    - `loom.handler-param-reserved-id` — a handler parameter may not be named
  *      `id`: in Loom's expression scope a bare `id` always means "the current
  *      entity's id", so a body reference to an `id` param silently resolves to
@@ -97,15 +97,11 @@ export function validateApplicationHandlers(ctx: BoundedContextIR, diags: LoomDi
   ];
   for (const [handlers, kind] of handlerKinds) {
     for (const h of handlers) {
-      // A DECLARED `T?` find binds like any value (`loom.nullable-receiver`
-      // guards its reads at the source).  The built-in optional reads are not
-      // emitted under a callable name here on every backend, so the workflow
-      // body's twin refuses them for a plain `let` and so does this one.
       forEachStmtDeep(h.statements, (s) => {
-        // An `if let` source the lowerer recognised as neither a criterion
-        // find nor a declared optional find has no repository read to render —
-        // every backend would emit a call on an empty receiver.
-        if (s.kind === "if-let" && !s.synthCriterion.name && !s.findMethod) {
+        // An `if let` source the lowerer recognised as no optional read has
+        // no repository read to render — every backend would emit a call on
+        // an empty receiver.
+        if (s.kind === "if-let" && isBadIfLetSource(s)) {
           diags.push({
             severity: "error",
             code: "loom.iflet-bad-source",
@@ -117,22 +113,7 @@ export function validateApplicationHandlers(ctx: BoundedContextIR, diags: LoomDi
             source: `${ctx.name}/${h.name}`,
             origin: ctx.origin,
           });
-          return;
         }
-        if (s.kind !== "repo-let" || s.op === "load" || s.op === "declared-find") return;
-        if (s.returnType.kind !== "optional") return;
-        diags.push({
-          severity: "error",
-          code: "loom.handler-load-nullable-unsupported",
-          message: diagMessage("loom.handler-load-nullable-unsupported", {
-            kind,
-            name: h.name,
-            repoName: s.repoName,
-            method: s.method,
-          }),
-          source: `${ctx.name}/${h.name}`,
-          origin: ctx.origin,
-        });
       });
       for (const p of h.params) {
         if (p.name === "id") {

@@ -1239,6 +1239,19 @@ system S {
     }
     repository Orders for Order { }`),
 
+  "loom.not-found-placement": repoOnly(`    aggregate Order with crudish {
+      code: string
+      operation touch() { notFound }
+    }
+    repository Orders for Order { }`),
+
+  "loom.not-found-unreachable": repoOnly(`    aggregate Order with crudish { code: string }
+    repository Orders for Order { }
+    commandHandler Touch(code: string) {
+      notFound
+      precondition code != ""
+    }`),
+
   "loom.if-let-placement": repoOnly(`    aggregate Order with crudish {
       code: string
       operation touch() { if let c = code { code := c } }
@@ -1393,19 +1406,6 @@ system S {
     aggregate Thing with crudish { name: string }
   } }
 }`,
-
-  // --- handler body --------------------------------------------------------
-  // A BUILT-IN optional read bound with a plain `let` in a handler body: not
-  // emitted under a callable name on every backend (a declared `T?` find binds).
-  "loom.handler-load-nullable-unsupported": deployed(`      aggregate Order {
-        code: string
-        status: string
-      }
-      repository Orders2 for Order { }
-      queryHandler CodeStatus(oid: Order id): string {
-        let o = Orders2.findById(oid)
-        return o != null ? o.status : "missing"
-      }`),
 
   // --- lifecycle gates (M-T3.16) ------------------------------------------
   // These three arrived on `main` AFTER the 2026-08-13 census and were caught

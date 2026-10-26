@@ -352,6 +352,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Minted by banking-eval B-04 (#3137).  Every repository `save()` dispatched its drained events when its own write returned — inside a transactional workflow that is a savepoint on the outer transaction, so a later failure (here a duplicate `unique (reference)` Transfer insert) rolled the debit back after `Debited` had already reached the `onDebit` reactor.  Booted node stack: 1×204 + 2×409 → balance shows ONE debit, audits THREE.  The e2e cannot drive the unique-reference repro itself — this tier's PGlite DDL is synthesised from the drizzle schema, which has no unique index — so it forces the later-save failure with an optimistic-concurrency conflict (two handles on one row, `debitTwice`, 409) and asserts the committed `debitOnce` produced exactly one Audit and the rolled-back run none; on single-connection PGlite the pre-fix shape hangs instead (the reactor queries the connection the open transaction holds).  Backend scope is the named `POST_COMMIT_WORKFLOW_DISPATCH` set above (node + python + dotnet + elixir — the elixir leg armed by M-T6.92, pre-fix a 500 instead of the 409).  On .NET the same e2e gates two fixes: the Dapper unit of work's atomicity (#3224, pre-fix `expected 80 to be 90`) and, on EF, that two `getById` loads of one row are independent handles (M-T6.90, pre-fix `expected the call to reject, but it resolved`).",
   },
   {
+    id: "not-found-statement",
+    title:
+      "`notFound` / `notFound \"detail\"` in the `else` of an `if let` over a criterion read — a routed commandHandler and a workflow body answer the same ProblemDetails 404 a `getById` miss does",
+    doc: "workflow",
+    backends: ALL,
+    note: "#4259.  A criterion read has no uniqueness guarantee, so `get(C)` is refused and a must-exist lookup is an `if let … else { notFound }`.  The wire golden carries the statement's 404 next to a by-id miss, so a backend that answered it with a different envelope (or status) diverges per-PR.",
+  },
+  {
     id: "transactional-workflow-post-commit-dispatch",
     title:
       "WHEN a transactional workflow's aggregate event reaches its reactor — after the commit, never inside the transaction, and not at all after a rollback",
@@ -684,7 +692,15 @@ export const CORPUS: readonly CorpusFeature[] = [
       "handler-body shapes the emitters mishandled — an aggregate-less handler, a declared `byId` find called with an already-typed `Agg id`, and a dereferenced (non-optional) find",
     doc: "language",
     backends: ALL,
-    note: "The three defects #2652 measured and left unfixed. .NET DROPPED the aggregate-less handler and its route entirely (`if (!primaryAgg(h)) continue`); java renamed a declared `byId` find to `getById` and re-wrapped its already-typed argument (`getById(new OrderId(orderId))`, javac `incompatible types`). The third — an OPTIONAL find bound in a handler body, dereferenced unguarded (TS18047 / CS8602) — is `loom.nullable-receiver` at the source; its guarded form is the `nullable-load` fixture.",
+    note: "The three defects #2652 measured and left unfixed. .NET DROPPED the aggregate-less handler and its route entirely (`if (!primaryAgg(h)) continue`); java renamed a declared `byId` find to `getById` and re-wrapped its already-typed argument (`getById(new OrderId(orderId))`, javac `incompatible types`). The third — an OPTIONAL find bound in a handler body, dereferenced unguarded (TS18047 / CS8602) — now binds `T?` and a dereference without a null test is refused (`loom.nullable-receiver`); the guarded forms are the `optional-let` fixture.",
+  },
+  {
+    id: "optional-let",
+    title:
+      "a `let` bound to an optional repository read (`find(C)`, `findById`, `findBy`, a `T?` find) and the `if let` that narrows it — handlers, a workflow, a reading domain service",
+    doc: "language",
+    backends: ALL,
+    note: "Each optional read binds the nullable value as is and every dereference is guarded (`loom.nullable-receiver`), so the compile legs check the null-handling form each backend emits: a criterion read's first-row-or-null retrieval run, `findById` (Java's `Optional` unwrapped with `.orElse(null)`, .NET's `GetByIdAsync`, elixir's `get_<agg>` facade), and an `if let` over a binding already in scope.",
   },
   {
     id: "nullable-load",
@@ -692,7 +708,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "a nullable `find …: T?` bound with `let` in a workflow, a queryHandler and a domainService body, read behind a null guard",
     doc: "language",
     backends: ALL,
-    note: "Each body was refused (`loom.workflow-load-nullable-unsupported` / `loom.handler-load-nullable-unsupported`) because the binding reached the emitters unguarded. `loom.nullable-receiver` now refuses the unguarded read at the source, so the guarded form is legal; this fixture compiles it on all five and drives each body with a hit and a miss, so a dereferenced miss answers 500 rather than the fallback.",
+    note: "`loom.nullable-receiver` refuses an unguarded read of a `T?` binding at the source, so the guarded form is legal; this fixture compiles it on all five and drives each body with a hit and a miss, so a dereferenced miss answers 500 rather than the fallback.",
   },
   {
     id: "handler-aggregate-ops",

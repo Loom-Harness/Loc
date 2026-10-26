@@ -224,10 +224,12 @@ export const DIAGNOSTIC_MESSAGES = {
   // src/language/validators/bypass-placement.ts
   // ----------------------------------------------------------------------
   "loom.ignoring-clause-placement": (p: { clause: unknown }) =>
-    `'${p.clause}' sits in a position that DROPS it. A capability-filter bypass has three homes: ` +
+    `'${p.clause}' sits in a position that DROPS it. A capability-filter bypass has five homes: ` +
     "a repository 'find … ignoring …', a query-time projection's 'where' slot (before 'join' / " +
-    "'group by' / 'select'), or an inline read bound by a 'let' ('let xs = Repo.findAll(…) " +
-    "ignoring …'). Written on any other expression it parses, binds to that expression, and is " +
+    "'group by' / 'select'), an inline read bound by a 'let' ('let xs = Repo.findAll(…) " +
+    "ignoring …'), an 'if let' source ('if let o = Repo.find(C) ignoring …' / 'Repo.findBy(…) " +
+    "ignoring …'), or a single-row read in a domainService operation ('Repo.findById(id) " +
+    "ignoring … == null'). Written on any other expression it parses, binds to that expression, and is " +
     "never read back — the read still applies every filter you asked it to skip. Move the clause " +
     "to the read it is meant to widen.",
 
@@ -1160,6 +1162,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `A 'match' used for its EFFECTS (arms that run statements) is frontend-only — it lowers to a page / component / store 'action' handler and has no backend form — but this one is in ${p.owner}, which runs on the backend. Move the effect into the 'action' that invokes it. This is a permanent placement rule, not a missing feature.`,
   "loom.if-let-placement": (p: { owner: unknown }) =>
     `'if let' binds the optional result of a repository read and branches on its presence; only a workflow body ('create' / 'on') or a top-level 'commandHandler' / 'queryHandler' lowers it. This one is in ${p.owner}, which has no such lowering — do the optional read in a workflow or handler and pass the resolved value in. This is a permanent placement rule, not a missing feature.`,
+  "loom.not-found-placement": (p: { owner: unknown }) =>
+    `'notFound' answers the request with the not-found ProblemDetails, so only a body that handles a request may say it: a workflow body ('create' / 'on') or a top-level 'commandHandler' / 'queryHandler'. This one is in ${p.owner}. An operation or domain function refuses with 'precondition' / 'requires' or a declared 'error' variant instead; do the lookup and the 404 in the handler that calls it.`,
+  "loom.not-found-unreachable": () =>
+    "This statement follows a 'notFound', which ends the body — it can never run. Move it before the 'notFound', or into the branch that finds the row.",
   "loom.for-placement": (p: { owner: unknown }) =>
     `'for … in …' is lowered only inside a workflow body ('create' / 'on') or a top-level 'commandHandler' / 'queryHandler' — that lowering owns the per-iteration save the loop needs. This one is in ${p.owner}, where the loop would be dropped silently. Put it in a workflow or handler for now; this is a GAP, not a design rule — mission M-T5.30 tracks lowering 'for' into domain bodies.`,
 
@@ -1914,6 +1920,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.member}' can't be read on '${p.recv}' — the receiver may be null and every backend emits a bare dereference. ` +
     `Guard it with a null test the read depends on: '<expr> != null ? <expr>${p.member} : …', ` +
     `'<expr> != null && <expr>${p.member} …' or '<expr> == null || <expr>${p.member} …'.`,
+  "loom.nullable-receiver#statement": (p: { where: unknown; name: unknown; use: unknown }) =>
+    `'${p.where}': '${p.name}' may be null (it is bound to a read that can find no row), so ` +
+    `'${p.use}' dereferences it unguarded on every backend.  Narrow it first: ` +
+    `'if let x = ${p.name} { … } else { … }'.`,
   "loom.ternary-condition": (p: { condT: unknown }) =>
     `Ternary condition must be of type 'bool', got '${p.condT}'.`,
   "loom.ternary-branches": (p: { thenT: unknown; elseT: unknown }) =>
@@ -5248,29 +5258,7 @@ export const DIAGNOSTIC_MESSAGES = {
     repoName: unknown;
     method: unknown;
   }) =>
-    `workflow '${p.name}': '${p.repoName}.${p.method}(...)' returns an array; v1 supports only single non-nullable aggregates.  Split iteration into a follow-up workflow or use getById.`,
-  "loom.workflow-load-nullable-unsupported": (p: {
-    name: unknown;
-    repoName: unknown;
-    method: unknown;
-  }) =>
-    `workflow '${p.name}': '${p.repoName}.${p.method}(...)' is a built-in optional read, which a plain 'let' cannot bind here.  Branch on the absent row with 'if let x = ${p.repoName}.${p.method}(...) { … } else { … }', use getById / getBy (throws → 404), or declare a 'find …: T?' and read its binding behind a null guard.`,
-  "loom.handler-load-nullable-unsupported": (p: {
-    kind: unknown;
-    name: unknown;
-    repoName: unknown;
-    method: unknown;
-  }) =>
-    `${p.kind} '${p.name}': '${p.repoName}.${p.method}(...)' is a built-in optional read, which a plain 'let' cannot bind here.  Branch on the absent row with 'if let x = ${p.repoName}.${p.method}(...) { … } else { … }', use getById / getBy (throws → 404), or declare a 'find …: T?' and read its binding behind a null guard.`,
-  "loom.handler-load-nullable-unsupported#domain-service": (p: {
-    name: unknown;
-    repoName: unknown;
-    method: unknown;
-  }) =>
-    `domainService '${p.name}': '${p.repoName}.${p.method}(...)' is a built-in optional read, ` +
-    `which a service body cannot call on every backend (only declared finds are emitted under ` +
-    `their own names on .NET and elixir).  Use getById / getBy (throws → 404), or declare a ` +
-    `'find …: T?' and read its binding behind a null guard.`,
+    `workflow '${p.name}': '${p.repoName}.${p.method}(...)' returns an array; a 'let' over a repository read binds a single row (or none, as 'T?').  Iterate the rows with 'for x in ${p.repoName}.findAll(…) { … }', or use getById.`,
   "loom.workflow-run-unknown-repository#workflow-a-criterion-query": (p: {
     name: unknown;
     repoName: unknown;

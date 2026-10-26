@@ -170,12 +170,12 @@ describe("refused shapes", () => {
     expect(codes.join("\n")).toContain("loom.iflet-bad-source");
   });
 
-  it("a findBy bound by a `let` is the nullable-load refusal, like any `T?` read", async () => {
+  it("a findBy bound by a `let` binds `T?`, so an op-call on it un-narrowed is refused", async () => {
     const loom = await buildLoomModel(
       SRC.replace("let p = Products.getBy(sku: s)", "let p = Products.findBy(sku: s)"),
     ).catch((e: Error) => e);
     const codes =
       loom instanceof Error ? [loom.message] : validateLoomModel(loom).map((d) => d.code ?? "");
-    expect(codes.join("\n")).toContain("loom.workflow-load-nullable-unsupported");
+    expect(codes.join("\n")).toContain("loom.nullable-receiver");
   });
 });

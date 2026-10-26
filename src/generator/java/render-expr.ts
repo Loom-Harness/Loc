@@ -773,6 +773,10 @@ function renderCall(args: string[], e: CallExpr, ctx: JavaRenderContext): string
         const call = `${field}.run${upperFirst(read.retrievalName)}(${argList})`;
         return read.op === "select-one" ? `${call}.stream().findFirst().orElse(null)` : call;
       }
+      // `findById` answers `Optional<T>`; the read yields the row or null.
+      // A widened read (`ignoring …`) calls its own method, which answers T or null.
+      if (read.op === "load-optional" && !read.bypassRead)
+        return `${field}.findById(${argList}).orElse(null)`;
       return `${field}.${read.method}(${argList})`;
     }
     case "action":

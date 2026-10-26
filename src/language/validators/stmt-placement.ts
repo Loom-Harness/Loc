@@ -43,6 +43,17 @@
 //
 // The zone is decided by CONTAINMENT and nothing else, which is why this is a
 // single `streamAllContents` pass rather than a hook per body owner.
+//
+// `notFound` rides the same pass with two rules of its own:
+//
+//   - `loom.not-found-placement` — workflow / handler bodies only.  It answers
+//     the request with the not-found ProblemDetails, and only those bodies are
+//     a request's handler: an aggregate operation is called BY one (its
+//     refusals are `precondition` / `requires` / a declared `error` variant),
+//     and a page action is the client.
+//   - `loom.not-found-unreachable` — last in its block.  It ends the body, so a
+//     statement after it can never run; Java rejects the emitted throw-then-
+//     statement outright, and on the other four backends it is dead code.
 
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
@@ -58,6 +69,7 @@ import {
   isFunctionDecl,
   isIfLetStmt,
   isMatchStmt,
+  isNotFoundStmt,
   isOnDecl,
   isOperation,
   isPage,
@@ -129,8 +141,40 @@ export function describeOwner(node: AstNode): string {
   return "this body";
 }
 
+/** Where a `notFound` may stand: a workflow / handler body.  Shared with the
+ *  find-to-findBy codemod, which rewrites a must-exist read into an
+ *  `if let … else { notFound }` only where this holds. */
+export function notFoundAllowedAt(node: AstNode): boolean {
+  return zoneOf(node) === "workflow";
+}
+
+function checkNotFound(
+  node: AstNode & { $containerProperty?: string; $containerIndex?: number },
+  accept: ValidationAcceptor,
+): void {
+  if (!notFoundAllowedAt(node)) {
+    accept("error", diagMessage("loom.not-found-placement", { owner: describeOwner(node) }), {
+      node,
+      code: "loom.not-found-placement",
+    });
+    return;
+  }
+  const block = node.$container as unknown as Record<string, unknown> | undefined;
+  const siblings = node.$containerProperty ? block?.[node.$containerProperty] : undefined;
+  const index = node.$containerIndex;
+  if (!Array.isArray(siblings) || index === undefined || index >= siblings.length - 1) return;
+  accept("error", diagMessage("loom.not-found-unreachable", {}), {
+    node: siblings[index + 1] as AstNode,
+    code: "loom.not-found-unreachable",
+  });
+}
+
 export function checkStatementPlacement(model: Model, accept: ValidationAcceptor): void {
   for (const node of AstUtils.streamAllContents(model)) {
+    if (isNotFoundStmt(node)) {
+      checkNotFound(node, accept);
+      continue;
+    }
     // The effect form of `match` — frontend-only, permanently.
     if (isMatchStmt(node)) {
       if (zoneOf(node) === "frontend") continue;
