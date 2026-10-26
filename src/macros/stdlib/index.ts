@@ -8,6 +8,8 @@ import scaffoldAggregate from "./scaffold/scaffoldAggregate.macro.js";
 import scaffoldApi from "./scaffold/scaffoldApi.macro.js";
 import scaffoldContext from "./scaffold/scaffoldContext.macro.js";
 import scaffoldDashboard from "./scaffold/scaffoldDashboard.macro.js";
+import scaffoldGet from "./scaffold/scaffoldGet.macro.js";
+import scaffoldGetApi from "./scaffold/scaffoldGetApi.macro.js";
 import scaffoldHandlers from "./scaffold/scaffoldHandlers.macro.js";
 import scaffoldPaged from "./scaffold/scaffoldPaged.macro.js";
 import scaffoldPagedApi from "./scaffold/scaffoldPagedApi.macro.js";
@@ -62,6 +64,11 @@ export function loadStdlibMacros(): void {
   // `/projections/<criterion>` route that binds to it.
   registerMacro(scaffoldPaged);
   registerMacro(scaffoldPagedApi);
+  // The single-row twin: `scaffoldGet` (context) emits a queryHandler answering
+  // a criterion's first match or a unique key's row (404 on a miss);
+  // `scaffoldGetApi` (api) mounts it where a declared find's route was.
+  registerMacro(scaffoldGet);
+  registerMacro(scaffoldGetApi);
   // Dashboard read models (M-T1.3): one SINGLETON query-time projection
   // per aggregate, aggregating the whole table in SQL.  The ui-side scaffold
   // renders the matching `Stat` cards from the same derivation

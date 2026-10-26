@@ -18,8 +18,9 @@
 // `src/generator/dotnet/explicit-handlers-emit.ts` `emitExplicitRouteController`,
 // and their python / java / elixir twins): a handler param whose NAME is a
 // `{token}` in the route path binds from the URL; every other param rides the
-// JSON request body — except on the paged-run shape, where the emitters put
-// them on the query string instead.
+// JSON request body — except on the paged-run shape and on a bodyless method
+// (`GET` / `DELETE` / `HEAD`), where the emitters put them on the query string
+// instead (`routedParamSource`).
 // ---------------------------------------------------------------------------
 
 import { lowerFirst, snake } from "../../util/naming.js";
@@ -58,7 +59,7 @@ export interface RoutedHandlerTarget {
 }
 
 /** `GET`/`DELETE` carry no request body (`fetch` refuses one), so a handler
- *  param that is neither path-bound nor query-bound is undrivable there. */
+ *  param that is not path-bound rides their query string. */
 const BODYLESS_METHODS = new Set(["GET", "DELETE", "HEAD"]);
 
 /** The paged-run shape the route emitters special-case: a `queryHandler`
@@ -120,29 +121,30 @@ export function resolveRoutedHandler(
   return undefined;
 }
 
+/** Where one handler param (or request-record field) named `name` rides on
+ *  `route`: the URL when it is a `{token}` of the path; else the query string
+ *  on the paged-run shape or a bodyless method (`GET` / `DELETE` / `HEAD`,
+ *  which `fetch` cannot give a body); else the JSON body.  A single-row read
+ *  routed this way (`scaffoldGet`) answers on the same URL a declared find's
+ *  `GET /<aggs>/<find>?<param>=…` did.  Every backend's explicit-route emitter
+ *  binds by this rule. */
+export function routedParamSource(name: string, route: RouteIR, paged: boolean): RoutedParamSource {
+  if (routePathTokens(route.path).includes(name)) return "path";
+  if (paged || BODYLESS_METHODS.has(route.method.toUpperCase())) return "query";
+  return "body";
+}
+
 /** Per-param wire source, in declared order.  See the file header for why this
  *  mirrors the emitters rather than restating the wire in its own words. */
 function bindParams(
   handler: CommandHandlerIR | QueryHandlerIR,
   route: RouteIR,
 ): RoutedHandlerBinding[] {
-  const tokens = new Set(routePathTokens(route.path));
   const paged = isPagedRun(handler);
   return handler.params.map((param) => ({
     param,
-    source: tokens.has(param.name) ? "path" : paged ? "query" : "body",
+    source: routedParamSource(param.name, route, paged),
   }));
-}
-
-/** True when the route's method cannot carry the body its non-path params
- *  would need — a `GET`/`DELETE` route whose handler declares a param that is
- *  not a `{token}` and is not query-bound.  The BACKENDS emit a body-reading
- *  GET for that shape; `fetch` cannot send one, so a caller is not expressible
- *  and the e2e surface refuses it rather than emitting a request that silently
- *  drops the argument. */
-export function routedHandlerNeedsUnsendableBody(t: RoutedHandlerTarget): boolean {
-  if (!BODYLESS_METHODS.has(t.route.method.toUpperCase())) return false;
-  return t.bindings.some((b) => b.source === "body");
 }
 
 /** Every `api.<ctx>.<handler>(…)` spelling this deployable answers — the

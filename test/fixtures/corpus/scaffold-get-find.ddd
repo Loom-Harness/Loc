@@ -1,0 +1,55 @@
+// The declared-find original of `scaffold-get.ddd`: the same system and the
+// same requests, read through `find byCode` / `find bySku` routes.  The two
+// wire goldens must agree request for request — that is the wire contract a
+// `scaffoldGet` replacement keeps (`test/behavioral/scaffold-get-wire.test.ts`).
+system SG {
+  subdomain D {
+    context Shop {
+      aggregate Order with crudish { code: string }
+      aggregate Item with crudish {
+        sku: string
+        unique (sku)
+      }
+      repository Orders for Order {
+        find byCode(code: string): Order? where this.code == code
+      }
+      repository Items for Item {
+        find bySku(sku: string): Item? where this.sku == sku
+      }
+    }
+  }
+  api A from D
+  storage primary { type: postgres }
+  resource st { for: Shop, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Shop]
+    dataSources: [st]
+    serves: A
+    port: 4000
+  }
+
+  test e2e "a single-row read answers the row, then 404 once it is gone" against d {
+    let o = api.orders.create({ code: "C1" })
+    let read = api.orders.byCode({ code: "C1" })
+    expect(read.code).toBe("C1")
+    expect(api.orders.byCode({ code: "NOPE" })).toThrow(404)
+    api.orders.update(o, { code: "C2" })
+    expect(api.orders.getById(o).code).toBe("C2")
+    expect(api.orders.byCode({ code: "C2" }).code).toBe("C2")
+    expect(api.orders.byCode({ code: "C1" })).toThrow(404)
+    expect(api.orders.all().items.length).toBe(1)
+    api.orders.destroy(o)
+    expect(api.orders.byCode({ code: "C2" })).toThrow(404)
+    let i = api.items.create({ sku: "S1" })
+    expect(api.items.bySku({ sku: "S1" }).sku).toBe("S1")
+    expect(api.items.bySku({ sku: "NOPE" })).toThrow(404)
+    api.items.update(i, { sku: "S2" })
+    expect(api.items.getById(i).sku).toBe("S2")
+    expect(api.items.bySku({ sku: "S2" }).sku).toBe("S2")
+    expect(api.items.bySku({ sku: "S1" })).toThrow(404)
+    expect(api.items.all().items.length).toBe(1)
+    api.items.destroy(i)
+    expect(api.items.bySku({ sku: "S2" })).toThrow(404)
+  }
+}

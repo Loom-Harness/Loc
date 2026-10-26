@@ -94,6 +94,7 @@ import {
 } from "../../../ir/util/walk.js";
 import { commandCreateResult } from "../../../ir/util/workflow-command-route.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { lineCount, type SourceMapRecorder } from "../../_trace/sourcemap.js";
 import {
@@ -110,6 +111,8 @@ import { stateDefault, stateDefaultDecls } from "../state-default.js";
 import {
   contextsHaveWireDenials,
   denialOverrides,
+  notFoundStmtClause,
+  notFoundStmtTerm,
   respondErrorTail,
   workflowDenialTerm,
 } from "./denial.js";
@@ -451,6 +454,11 @@ function lowerStatement(
       ];
     }
 
+    case "not-found":
+      // `notFound` → a clause that fails the chain with the tagged not-found
+      // term, answered by the dispatcher's `{:not_found, detail}` arm.
+      return [{ kind: "with-clause", text: notFoundStmtClause(st), bindName: undefined }];
+
     case "expr-let": {
       // `let foo = <expr>` (pure binding inside a workflow body) →
       // `foo <- (<expr>)` — a with-clause binding always succeeds.
@@ -519,10 +527,18 @@ function lowerStatement(
       // (`renderCtx.tagGetByIdMiss`): the explicit-handler and mutating
       // domain-service paths share this lowering, and their dispatchers know
       // only the bare term.
+      // A natural-key `getBy` miss is the find-absence 404 — the `not_found`
+      // token a declared find's route answers (RS-27) — tagged the same way.
+      const missDetail =
+        st.op === "load"
+          ? `"${upperFirst(st.aggName)} #{${argList}} not found"`
+          : st.op === "load-by-key"
+            ? JSON.stringify(FIND_ABSENT_DETAIL)
+            : undefined;
       const call =
-        st.op === "load" && renderCtx.tagGetByIdMiss
+        missDetail && renderCtx.tagGetByIdMiss
           ? `(case ${contextModule}.${action}(${argList}) do
-           {:error, :not_found} -> {:error, {:not_found, "${upperFirst(st.aggName)} #{${argList}} not found"}}
+           {:error, :not_found} -> {:error, {:not_found, ${missDetail}}}
            found -> found
          end)`
           : `${contextModule}.${action}(${argList})`;
@@ -733,7 +749,13 @@ function lowerStatement(
             hit: "{:ok, [hit | _]}",
           };
       const v = escapeElixirIdent(snake(st.var));
-      const renderBranch = (body: WorkflowStmtIR[], present: string): string[] => {
+      const renderBranch = (all: WorkflowStmtIR[], present: string): string[] => {
+        // A branch that ends in `notFound` evaluates to the not-found term
+        // itself rather than a clause that cannot match before `{:ok, _}`.
+        const last = all[all.length - 1];
+        const endsNotFound = last?.kind === "not-found";
+        const result = endsNotFound ? `{:error, ${notFoundStmtTerm(last)}}` : `{:ok, ${present}}`;
+        const body = endsNotFound ? all.slice(0, -1) : all;
         // A branch needs a `with`-chain when it holds a fallible statement that
         // must short-circuit to `{:error, tag}` (so it threads up the outer
         // with-chain): a guard (`precondition` / `requires`) OR nested control
@@ -741,7 +763,10 @@ function lowerStatement(
         // A branch of only flat side-effects keeps the sequential `=`-bind form.
         const needsWith = body.some(
           (s) =>
-            s.kind === "precondition" || s.kind === "requires" || NESTED_FLOW_KINDS.has(s.kind),
+            s.kind === "precondition" ||
+            s.kind === "requires" ||
+            s.kind === "not-found" ||
+            NESTED_FLOW_KINDS.has(s.kind),
         );
         if (needsWith) {
           const clauses: string[] = [];
@@ -755,6 +780,9 @@ function lowerStatement(
                 clauses.push(
                   `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner)}})`,
                 );
+                break;
+              case "not-found":
+                clauses.push(notFoundStmtClause(inner));
                 break;
               case "op-call":
                 clauses.push(`{:ok, _} <- ${opCallSource(inner, renderCtx, contextModule, ctx)}`);
@@ -815,7 +843,7 @@ function lowerStatement(
           return [
             `with ${clauses.join(",\n                  ")} do`,
             ...tail.map((l) => `  ${l}`),
-            `  {:ok, ${present}}`,
+            `  ${result}`,
             `else`,
             `  err -> err`,
             `end`,
@@ -824,10 +852,15 @@ function lowerStatement(
         const stmtLines = body.flatMap((inner, i) =>
           renderBranchStmt(inner, renderCtx, contextModule, body.slice(i + 1), ctx),
         );
-        return [...stmtLines, `{:ok, ${present}}`];
+        return [...stmtLines, result];
       };
+      // A guard — an empty then-branch over an `else` that answers the 404 —
+      // keeps the hit bound for the statements after it (a handler's
+      // `if let o = … { return o } else { notFound }`), so the clause binds
+      // the branch's `{:ok, o}` instead of discarding it.
+      const guard = st.thenBody.length === 0 && st.elseBody?.at(-1)?.kind === "not-found";
       const lines = [
-        `{:ok, _} <- (`,
+        `{:ok, ${guard ? v : "_"}} <- (`,
         `           ${v} = case ${lookup.call} do`,
         `             ${lookup.hit} -> hit`,
         `             _ -> nil`,
@@ -839,7 +872,7 @@ function lowerStatement(
         `           end`,
         `         )`,
       ];
-      return [{ kind: "with-clause", text: lines.join("\n"), bindName: undefined }];
+      return [{ kind: "with-clause", text: lines.join("\n"), bindName: guard ? v : undefined }];
     }
     default: {
       // CR1-f (wave CR1, audit row P0-2b): all 14 `WorkflowStmtIR` kinds are
@@ -1091,6 +1124,9 @@ function renderLoopBody(
           `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner)}})`,
         );
         break;
+      case "not-found":
+        clauses.push(notFoundStmtClause(inner));
+        break;
       case "expr-let": {
         const bind = bindUsedLater(inner.name, rest) ? escapeElixirIdent(snake(inner.name)) : "_";
         clauses.push(`${bind} <- (${renderExpr(inner.expr, renderCtx)})`);
@@ -1309,6 +1345,7 @@ function renderBranchStmt(
     }
     case "precondition":
     case "requires":
+    case "not-found":
     case "for-each":
     case "if-let":
     case "repo-run":
@@ -1936,8 +1973,17 @@ end
   return { content, statementRegions };
 }
 
-/** Does any body of this workflow load through `getById` (at any depth)?  Gates
- *  the dispatcher's `{:not_found, detail}` arm (M-T5.1 A4). */
+/** Does any body of this workflow load through `getById` or answer `notFound`
+ *  (at any depth)?  Gates the dispatcher's `{:not_found, detail}` arm. */
+/** A statement whose miss reaches the dispatcher as the detail-carrying
+ *  `{:not_found, detail}` term: a by-id or natural-key load (tagged under
+ *  `tagGetByIdMiss`), or `notFound` itself. */
+export function tagsNotFoundMiss(s: WorkflowStmtIR): boolean {
+  return (
+    (s.kind === "repo-let" && (s.op === "load" || s.op === "load-by-key")) || s.kind === "not-found"
+  );
+}
+
 function workflowLoadsById(wf: WorkflowIR): boolean {
   const lists: readonly (readonly WorkflowStmtIR[])[] = [
     wf.statements,
@@ -1948,7 +1994,7 @@ function workflowLoadsById(wf: WorkflowIR): boolean {
   for (const list of lists) {
     for (const top of list) {
       walkWorkflowStmtsDeep(top, (s) => {
-        if (s.kind === "repo-let" && s.op === "load") found = true;
+        if (tagsNotFoundMiss(s)) found = true;
       });
     }
   }

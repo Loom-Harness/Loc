@@ -197,6 +197,20 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "state-gate", title: "`when` canCommand state gate + GET can-query companion", doc: "criterion", backends: ALL },
   { id: "operation-returns", title: "exception-less `T or Error` operation returns", doc: "payloads", backends: ALL },
   { id: "union-find-absence", title: "union-returning finds (`Order or NotFound`, `Order option`)", doc: "payloads", backends: ALL },
+  {
+    id: "scaffold-get",
+    title:
+      "`scaffoldGet` / `scaffoldGetApi` — a single-row read route (criterion first match, unique key) with no declared find: the row or 404",
+    doc: "scaffold-macros",
+    backends: ALL,
+    note: "paired with `scaffold-get-find`, the same system read through declared finds: `scaffold-get-wire.test.ts` holds the two wire goldens request-for-request equal, which is the wire a find's replacement must keep",
+  },
+  {
+    id: "scaffold-get-find",
+    title: "the declared-find original of `scaffold-get` — `find byCode` / `find bySku` routes over the same requests",
+    doc: "scaffold-macros",
+    backends: ALL,
+  },
   { id: "paged", title: "pagination — `find ... paged` Paged<T> envelope", doc: "payloads", backends: ALL },
   {
     id: "implicit-find-filter",
@@ -348,6 +362,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "workflow",
     backends: POST_COMMIT_WORKFLOW_DISPATCH,
     note: "Minted by banking-eval B-04 (#3137).  Every repository `save()` dispatched its drained events when its own write returned — inside a transactional workflow that is a savepoint on the outer transaction, so a later failure (here a duplicate `unique (reference)` Transfer insert) rolled the debit back after `Debited` had already reached the `onDebit` reactor.  Booted node stack: 1×204 + 2×409 → balance shows ONE debit, audits THREE.  The e2e cannot drive the unique-reference repro itself — this tier's PGlite DDL is synthesised from the drizzle schema, which has no unique index — so it forces the later-save failure with an optimistic-concurrency conflict (two handles on one row, `debitTwice`, 409) and asserts the committed `debitOnce` produced exactly one Audit and the rolled-back run none; on single-connection PGlite the pre-fix shape hangs instead (the reactor queries the connection the open transaction holds).  Backend scope is the named `POST_COMMIT_WORKFLOW_DISPATCH` set above (node + python + dotnet + elixir — the elixir leg armed by M-T6.92, pre-fix a 500 instead of the 409).  On .NET the same e2e gates two fixes: the Dapper unit of work's atomicity (#3224, pre-fix `expected 80 to be 90`) and, on EF, that two `getById` loads of one row are independent handles (M-T6.90, pre-fix `expected the call to reject, but it resolved`).",
+  },
+  {
+    id: "not-found-statement",
+    title:
+      "`notFound` / `notFound \"detail\"` in the `else` of an `if let` over a criterion read — a routed commandHandler and a workflow body answer the same ProblemDetails 404 a `getById` miss does",
+    doc: "workflow",
+    backends: ALL,
+    note: "#4259.  A criterion read has no uniqueness guarantee, so `get(C)` is refused and a must-exist lookup is an `if let … else { notFound }`.  The wire golden carries the statement's 404 next to a by-id miss, so a backend that answered it with a different envelope (or status) diverges per-PR.",
   },
   {
     id: "transactional-workflow-post-commit-dispatch",

@@ -1,3 +1,4 @@
+import { notFoundStmtDetail } from "../../ir/enrich/wire-policy.js";
 import { createInputFields, createOmissionValue } from "../../ir/enrich/wire-projection.js";
 import {
   type EnrichedBoundedContextIR,
@@ -2106,6 +2107,11 @@ export function csWorkflowStmtTarget(
     // synchronous static call).  The mutated args are EF-tracked entities →
     // they flush at the orchestrator's single `await db.SaveChangesAsync()`.
     domainServiceCall: (st, indent) => [`${indent}${renderArg(st.call)};`],
+    // The exception a by-id miss throws, so `DomainExceptionFilter`'s
+    // not-found arm renders the identical ProblemDetails.
+    notFound: (st, indent) => [
+      `${indent}throw new AggregateNotFoundException(${JSON.stringify(notFoundStmtDetail(st))});`,
+    ],
   };
 }
 

@@ -343,6 +343,8 @@ function stepNode(id: string, s: WorkflowStmtIR): StepNode {
     }
     case "domain-service-call":
       return { id, decl: `${id}["${label(`${s.service}.${s.op}()`)}"]` };
+    case "not-found":
+      return { id, decl: `${id}["${label("notFound")}"]` };
     default: {
       // CR1-f: the switch was already total by case count, which `tsc` enforced
       // only as "function lacks ending return".  The explicit never-check says
@@ -575,6 +577,8 @@ function sequenceMessages(s: WorkflowStmtIR): SeqLine[] {
     }
     case "domain-service-call":
       return [call(s.service, `${s.op}()`)];
+    case "not-found":
+      return [note("notFound")];
     default: {
       // CR1-f — see `stepNode`.  Total by case count already; the never-check
       // makes that a stated invariant rather than an implicit one.

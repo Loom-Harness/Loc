@@ -1799,10 +1799,9 @@ bounded CONTEXT in the slug position and the HANDLER in the method
 position — the spelling `route POST "/echo/{text}" -> Sales.Echo` already
 uses, so `api.sales.echo("hi")` posts `/api/echo/hi`.  Arguments bind
 POSITIONALLY to the declared params; a wrong count is
-`loom.e2e-routed-handler-arity`, and a `GET`/`DELETE` route whose handler
-declares a param no `{token}` binds is
-`loom.e2e-routed-handler-bodyless-method` (the backends read it from a
-body those methods cannot carry).  An aggregate verb always wins, so a
+`loom.e2e-routed-handler-arity`.  A param no `{token}` binds rides the
+query string on a `GET`/`DELETE` route (those methods carry no body) and
+the JSON body otherwise.  An aggregate verb always wins, so a
 context whose name slugs like an aggregate changes no existing call.
 
 The projection verbs read a folded `projection`'s read model (see

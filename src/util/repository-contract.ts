@@ -387,3 +387,9 @@ export function resolveKeyTuple(
   if (best) return { kind: "incomplete", tuple: best, missing: best.filter((c) => !names.has(c)) };
   return { kind: "not-unique" };
 }
+
+/** The `detail` a FIND's absence answers with (optional or single) — a machine
+ *  token, deliberately not the by-id `not-found` sentence (RS-27 scope).  A
+ *  single-row read route that replaces a find (`scaffoldGet`) answers its miss
+ *  with the same token, so the route keeps the find's 404 body. */
+export const FIND_ABSENT_DETAIL = "not_found";

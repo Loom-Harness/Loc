@@ -32,6 +32,7 @@
 // structural-conflict rungs use, so a remap moves the runtime arm and
 // the OpenAPI declaration together and no rung is silently un-overridable.
 
+import { notFoundStmtDetail } from "../../../ir/enrich/wire-policy.js";
 import type { StmtIR, WorkflowStmtIR } from "../../../ir/types/loom-ir.js";
 import { disallowedDetail } from "../../../ir/util/denial-detail.js";
 import { problemTitle } from "../../../ir/util/openapi-errors.js";
@@ -280,6 +281,20 @@ export function denialTerm(s: GuardStmt, wireAvailable?: ReadonlySet<string>): s
   }
   const tag = s.kind === "requires" ? ":forbidden" : ":precondition_failed";
   return `{${tag}, ${elixirString(denialMessage(s))}}`;
+}
+
+/** The term a `notFound` statement fails with: the same `{:not_found, detail}`
+ *  a tagged `getById` miss threads, so the dispatcher's detail-carrying
+ *  not-found arm answers the identical ProblemDetails.  The dispatchers gate
+ *  that arm on `handlerLoadsById` / `workflowLoadsById`, which count this
+ *  statement. */
+export function notFoundStmtTerm(st: { detail?: string; subject?: string }): string {
+  return `{:not_found, ${elixirString(notFoundStmtDetail(st))}}`;
+}
+
+/** The with-clause a `notFound` statement lowers to in a command-path chain. */
+export function notFoundStmtClause(st: { detail?: string; subject?: string }): string {
+  return `:ok <- {:error, ${notFoundStmtTerm(st)}}`;
 }
 
 /** The denial term for a guard in a WORKFLOW / command-handler body.  An

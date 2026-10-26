@@ -60,6 +60,7 @@ import {
   pagedRunSortDefault,
   requirePagedRunStmt,
 } from "../../ir/util/paged-run.js";
+import { routedParamSource } from "../../ir/util/routed-handler.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst } from "../../util/naming.js";
@@ -885,10 +886,12 @@ export function emitExplicitRouteController(
     // body record + call args carry the flat fields, identical to a
     // hand-written flat-param form); an extern handler keeps its raw
     // params (its impl owns the signature).  Then split on the route `{token}`s.
-    const pathNames = pathParamNames(r.path);
+    // On a bodyless method (GET / DELETE) the unbound params ride the query
+    // string instead (`routedParamSource`), each a `@RequestParam`.
     const effParams = h.extern ? h.params : flatHandlerParams(h, ctx);
-    const pathParams = effParams.filter((p) => pathNames.has(p.name));
-    const bodyParams = effParams.filter((p) => !pathNames.has(p.name));
+    const source = (p: ParamIR) => routedParamSource(p.name, r, false);
+    const pathParams = effParams.filter((p) => source(p) !== "body");
+    const bodyParams = effParams.filter((p) => source(p) === "body");
     if (pathParams.some((p) => isEnumType(p.type))) usesEnumParam = true;
     // The path params are the action's own parameters, next to the
     // `@RequestBody … body` record, the `result` local, the injected handler
@@ -908,7 +911,10 @@ export function emitExplicitRouteController(
       ]),
     );
     const pathArg = new Map(
-      pathParams.map((p) => [p.name, wireActionParam(p, localOf(pathLocals, p.name))]),
+      pathParams.map((p) => [
+        p.name,
+        (source(p) === "path" ? wireActionParam : wireQueryParam)(p, localOf(pathLocals, p.name)),
+      ]),
     );
 
     const actionParamParts = pathParams.map((p) => pathArg.get(p.name)!.actionParam);
@@ -929,7 +935,7 @@ export function emitExplicitRouteController(
     // coerce from the route token, body params read off `body.<name>()` (record
     // accessor).
     const callArgs = effParams
-      .map((p) => (pathNames.has(p.name) ? pathArg.get(p.name)!.callArg : `body.${jid(p.name)}()`))
+      .map((p) => pathArg.get(p.name)?.callArg ?? `body.${jid(p.name)}()`)
       .join(", ");
     // A query always returns; a command returns only with an explicit type.  A
     // scaffolded read declares `<Agg>Response` — normalise to the entity the

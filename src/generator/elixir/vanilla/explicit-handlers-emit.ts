@@ -83,6 +83,7 @@ import {
   collectWorkflowStmtParamRefs,
   lookupServiceTier,
   lowerStatements,
+  tagsNotFoundMiss,
 } from "./workflow-execution-emit.js";
 
 type Handler = CommandHandlerIR | QueryHandlerIR;
@@ -523,13 +524,14 @@ function pathParamCoercions(r: RouteIR, h: Handler): string {
 /** Rewrite a `{braced}` RouteIR path template into the Phoenix `:snake` form,
  *  snake-casing each param so it matches the handler's `run/1` destructure key
  *  (`{orderId}` → `:order_id`, keyed as `"order_id"` in `params`). */
-/** True when a handler body performs a by-id `load` at any depth — the load
- *  whose miss `tagGetByIdMiss` tags with a row-naming detail. */
+/** True when a handler body performs a by-id or natural-key load (whose miss
+ *  `tagGetByIdMiss` tags with its detail) or answers `notFound`, at any depth —
+ *  each threads the detail-carrying `{:not_found, detail}` term. */
 function handlerLoadsById(h: CommandHandlerIR | QueryHandlerIR): boolean {
   let found = false;
   for (const top of h.statements) {
     walkWorkflowStmtsDeep(top, (st) => {
-      if (st.kind === "repo-let" && st.op === "load") found = true;
+      if (tagsNotFoundMiss(st)) found = true;
     });
   }
   return found;

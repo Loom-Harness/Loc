@@ -1239,6 +1239,19 @@ system S {
     }
     repository Orders for Order { }`),
 
+  "loom.not-found-placement": repoOnly(`    aggregate Order with crudish {
+      code: string
+      operation touch() { notFound }
+    }
+    repository Orders for Order { }`),
+
+  "loom.not-found-unreachable": repoOnly(`    aggregate Order with crudish { code: string }
+    repository Orders for Order { }
+    commandHandler Touch(code: string) {
+      notFound
+      precondition code != ""
+    }`),
+
   "loom.if-let-placement": repoOnly(`    aggregate Order with crudish {
       code: string
       operation touch() { if let c = code { code := c } }
@@ -2059,6 +2072,16 @@ system P {
   // domain-service operation and handler arms share the check.
   "loom.return-type-mismatch": orderOps('operation bad(): int { return "x" }'),
   "loom.return-missing": orderOps("operation bad(): int { if total > 0 { return 1 } }"),
+  // A handler `return` nested in a branch would not stop the statements after
+  // it; only a trailing single-row guard may hold one.
+  "loom.handler-return-not-last": `
+system S {
+  subdomain D { context Orders {
+    aggregate Order with crudish { total: int }
+    repository Orders for Order { }
+    queryHandler Q(n: int): int { if n > 0 { return 1 } else { return 2 } }
+  } }
+}`,
   // A dropped `or E` result: the call statement throws the `error` case away.
   "loom.unhandled-result": repoOnly(`    error Rejected { reason: string }
     aggregate Order with crudish {
@@ -2927,28 +2950,6 @@ system S {
   }
   test e2e "t" against d {
     expect(api.sales.sum(2)).toBe(5)
-  }
-}`,
-
-  // The same binding on a BODYLESS method whose param no `{token}` binds.
-  // Every backend reads `sku` from a request body; `fetch` cannot send one on
-  // a GET, so the argument would silently vanish and the assertion would be
-  // testing the handler's default rather than what the body passed.
-  "loom.e2e-routed-handler-bodyless-method": `
-system S {
-  subdomain D { context Sales {
-    aggregate Order with crudish { code: string }
-    repository Orders for Order { }
-    queryHandler Quote(sku: string): string { return sku }
-  } }
-  api A from D { route GET "/quote" -> Sales.Quote }
-  storage pg { type: postgres }
-  resource st { for: Sales, kind: state, use: pg }
-  deployable d {
-    platform: node, contexts: [Sales], dataSources: [st], serves: A, port: 4105
-  }
-  test e2e "t" against d {
-    expect(api.sales.quote("SKU-1")).toBe("SKU-1")
   }
 }`,
 

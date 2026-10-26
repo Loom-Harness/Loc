@@ -1,3 +1,4 @@
+import { notFoundStmtDetail } from "../../ir/enrich/wire-policy.js";
 import {
   type EnrichedBoundedContextIR,
   exprUsesCurrentUser,
@@ -507,6 +508,7 @@ export function collectLiveLetNames(
         case "resource-call":
         case "domain-service-call":
         case "assign":
+        case "not-found":
           return;
         default: {
           const _exhaustive: never = n;
@@ -1096,5 +1098,10 @@ export function pyWorkflowStmtTarget(
       const bare = rendered.startsWith("(await ") ? rendered.slice(1, -1) : rendered;
       return [`${i}${bare}`];
     },
+    // The error a by-id miss raises, so the app's not-found handler renders
+    // the identical ProblemDetails.
+    notFound: (st, i) => [
+      `${i}raise ${PY.AggregateNotFoundError}(${JSON.stringify(notFoundStmtDetail(st))})`,
+    ],
   };
 }

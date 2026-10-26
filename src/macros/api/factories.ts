@@ -28,12 +28,14 @@ import type {
   HandlerRef,
   HttpMethod,
   IdType,
+  IfLetStmt,
   LetStmt,
   LValue,
   MemberSuffix,
   NamedDecl,
   NamedType,
   NameRef,
+  NotFoundStmt,
   ObjectFieldInit,
   ObjectLit,
   Operation,
@@ -71,12 +73,14 @@ import {
   mkFilterDecl,
   mkHandlerRef,
   mkIdType,
+  mkIfLetStmt,
   mkImplementsDecl,
   mkLetStmt,
   mkLValue,
   mkMemberSuffix,
   mkNamedType,
   mkNameRef,
+  mkNotFoundStmt,
   mkNullLit,
   mkObjectFieldInit,
   mkObjectLit,
@@ -410,13 +414,19 @@ export function nameRef(name: string): NameRef {
 export function memberAccess(
   receiver: Expression,
   member: string,
-  opts: { call?: boolean; args?: Expression[] } = {},
+  opts: { call?: boolean; args?: (Expression | { name: string; value: Expression })[] } = {},
 ): PostfixChain {
   const origin = currentOrigin();
   const args = opts.args ?? [];
+  // A `{ name, value }` entry is a named argument (`Products.getBy(sku: s)`).
   const callArgs: CallArg[] = args.map((a) => {
-    const node = tag(mkCallArg({ $type: "CallArg", value: a }), origin);
-    setContainer(a, node, "value");
+    const named = "value" in a && !("$type" in a) ? a : undefined;
+    const value = named ? named.value : (a as Expression);
+    const node = tag(
+      mkCallArg({ $type: "CallArg", ...(named ? { name: named.name } : {}), value }),
+      origin,
+    );
+    setContainer(value, node, "value");
     return node;
   });
   const suffix: MemberSuffix = tag(
@@ -559,6 +569,38 @@ export function returnStmt(value: Expression): ReturnStmt {
   const stmt: ReturnStmt = tag(mkReturnStmt({ $type: "ReturnStmt", value }), origin);
   setContainer(value, stmt, "value");
   return stmt;
+}
+
+/** `if let <name> = <source> { then } else { else }` (grammar `IfLetStmt`) —
+ * the single-row lookup that binds its hit in the then-branch. */
+export function ifLetStmt(
+  name: string,
+  source: Expression,
+  thenBody: Statement[],
+  elseBody: Statement[],
+): IfLetStmt {
+  const origin = currentOrigin();
+  const stmt: IfLetStmt = tag(
+    mkIfLetStmt({ $type: "IfLetStmt", var: name, source, thenBody, elseBody }),
+    origin,
+  );
+  setContainer(source, stmt, "source");
+  thenBody.forEach((s, i) => {
+    setContainer(s, stmt, "thenBody", i);
+  });
+  elseBody.forEach((s, i) => {
+    setContainer(s, stmt, "elseBody", i);
+  });
+  return stmt;
+}
+
+/** `notFound` / `notFound "<detail>"` (grammar `NotFoundStmt`) — ends a
+ * workflow / handler body with the standard 404, its `detail` when given. */
+export function notFoundStmt(detail?: string): NotFoundStmt {
+  return tag(
+    mkNotFoundStmt({ $type: "NotFoundStmt", ...(detail !== undefined ? { detail } : {}) }),
+    currentOrigin(),
+  );
 }
 
 // ---------------------------------------------------------------------------

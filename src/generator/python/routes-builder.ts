@@ -1299,7 +1299,7 @@ function operationRoute(
  *  wire query key, so a key that is a python keyword (`def`) binds under the
  *  escaped identifier with the key restored by `Query(alias=…)` (eval item 6,
  *  ruling D2); every other parameter is byte-identical. */
-function pyQueryParam(name: string, type: string): string {
+export function pyQueryParam(name: string, type: string): string {
   if (!pythonWireNeedsAlias(name)) return `${name}: ${type}`;
   return `${pythonWireIdent(name)}: ${H.Annotated}[${type}, ${H.Query}(alias=${JSON.stringify(name)})]`;
 }

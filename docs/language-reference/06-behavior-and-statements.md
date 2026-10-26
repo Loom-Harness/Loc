@@ -885,7 +885,7 @@ Vue / Svelte / Angular / Feliz / Flutter emit the same try-match shape through t
 
 ## Handler bodies — `commandHandler` / `queryHandler`
 
-`[extern] commandHandler Name(params) [: Return] { … }` and `[extern] queryHandler Name(params): Return { … }` are context-level, application-layer handlers — the named entry points of a context, routable from an `api { route POST "/…" -> Ctx.Name }` body. Their body is the **workflow vocabulary** (`lower-workflow.ts`, see [Workflows](13-workflows.md#body-vocabulary)): `let x = Repo.getById(id)` / a single non-nullable `find`, `if let x = Repo.<find>(args) { … } else { … }` over a nullable one, an operation call on the binding, `Repo.delete(x)`, `precondition` / `requires`, `emit`, `return`. A loaded aggregate is saved automatically when an operation was invoked on it — you don't write the save. Gates: a non-`extern` handler needs a body (`loom.handler-missing-body`) and an `extern` one must be bodyless `;` (`loom.extern-handler-has-body`); a parameter may not be named `id` (`loom.handler-param-reserved-id`); a nullable load may not be `let`-bound (`loom.handler-load-nullable-unsupported` — use `getById`, or `if let`); a `queryHandler` may not mutate (`loom.query-handler-saves`) and a `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`).
+`[extern] commandHandler Name(params) [: Return] { … }` and `[extern] queryHandler Name(params): Return { … }` are context-level, application-layer handlers — the named entry points of a context, routable from an `api { route POST "/…" -> Ctx.Name }` body. Their body is the **workflow vocabulary** (`lower-workflow.ts`, see [Workflows](13-workflows.md#body-vocabulary)): `let x = Repo.getById(id)` / a single non-nullable `find`, `if let x = Repo.<find>(args) { … } else { … }` over a nullable one, an operation call on the binding, `Repo.delete(x)`, `precondition` / `requires`, `emit`, `return`. A loaded aggregate is saved automatically when an operation was invoked on it — you don't write the save. Gates: a non-`extern` handler needs a body (`loom.handler-missing-body`) and an `extern` one must be bodyless `;` (`loom.extern-handler-has-body`); a parameter may not be named `id` (`loom.handler-param-reserved-id`); a nullable load may not be `let`-bound (`loom.handler-load-nullable-unsupported` — use `getById`, or `if let`); a `queryHandler` may not mutate (`loom.query-handler-saves`) and a `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`). A handler answers once, after its body has run, so its `return` is the last top-level statement — or the whole then-branch of a final `if let x = <lookup> { return x } else { …; notFound }`, the single-row read [`scaffoldGet`](22-macros.md) emits; a `return` anywhere else is `loom.handler-return-not-last`.
 
 ```ddd
 context Accounts {
@@ -981,6 +981,25 @@ aggregate Order {
 The two codes say different things on purpose. `loom.if-let-placement` is a **permanent** placement rule: `if let` exists to bind the optional result of a repository read, and a domain body reaches its own state through `this` (a cross-aggregate read from inside an aggregate is already refused by `loom.infra-call-from-aggregate`). `loom.for-placement` is an **honest gap** — nothing about a loop is workflow-specific, only the per-iteration save the workflow lowering owns is — and its message names the successor mission (M-T5.30) that tracks lowering `for` into domain bodies.
 
 Before the gates landed, `operation touch() { for n in notes { owner := n } }` validated clean (`0 error(s), 0 warning(s)`) and every backend emitted a call to a method that does not exist — `this.<unknown>()` (node/.NET/Java), `self._<unknown>()` (Python), `_ = <unknown>(record)` (Elixir).
+
+## `notFound` — the not-found answer
+
+`notFound` / `notFound "detail"` ends a workflow or handler body with the standard ProblemDetails 404 — the same response a `getById` miss produces, because each backend raises its by-id read's own error (`AggregateNotFoundError` on node / python, `AggregateNotFoundException` on .NET / Java, the tagged `{:not_found, detail}` on Elixir). Its home is the `else` of an `if let` over a criterion read, which has no uniqueness guarantee and so no must-exist `get`:
+
+```ddd
+commandHandler EscalateOpen(customer: string) {
+  if let t = Tickets.find(OpenFor(customer)) { t.escalate() } else { notFound "no open ticket" }
+}
+```
+
+```ts
+// node (Hono)
+} else {
+  throw new AggregateNotFoundError("no open ticket");
+}
+```
+
+A bare `notFound` in an `if let` else names the lookup's aggregate (`Ticket not found`). Two placement rules: it is refused outside a workflow / handler body (`loom.not-found-placement` — an operation is called *by* a handler and refuses with `precondition` / `requires` / a declared `error` variant), and it must be the last statement of its block (`loom.not-found-unreachable` — anything after it can never run). See [`workflow.md`](../workflow.md).
 
 ## Choosing a callable kind
 

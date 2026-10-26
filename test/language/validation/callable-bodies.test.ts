@@ -31,6 +31,7 @@ async function codes(members: string, contextMembers = ""): Promise<string[]> {
 
 const MISMATCH = "loom.return-type-mismatch";
 const MISSING = "loom.return-missing";
+const NOT_LAST = "loom.handler-return-not-last";
 
 describe("callable returns", () => {
   it("checks an operation's returns against its declared type", async () => {
@@ -70,6 +71,42 @@ describe("callable returns", () => {
        queryHandler q(): int { return "s" }`,
     );
     expect(c.filter((x) => x === MISMATCH)).toHaveLength(2);
+  });
+
+  it("counts a handler's trailing `if let … { return x } else { notFound }` as returning", async () => {
+    const guard = `
+       criterion Rich(n: int) of Account = this.balance > n
+       queryHandler q(n: int): Account {
+         if let a = Accounts.find(Rich(n)) {
+           return a
+         } else {
+           notFound
+         }
+       }`;
+    const c = await codes("", guard);
+    expect(c).not.toContain(MISSING);
+    expect(c).not.toContain(NOT_LAST);
+    // Without the `notFound` the else falls through: a missing return.
+    expect(await codes("", guard.replace("notFound", ""))).toContain(MISSING);
+  });
+
+  it("refuses a handler `return` anywhere but last or in the trailing guard", async () => {
+    expect(
+      await codes("", "queryHandler q(b: bool): int { if b { return 1 } else { return 2 } }"),
+    ).toContain(NOT_LAST);
+    expect(await codes("", "queryHandler q(): int { return 1 }")).not.toContain(NOT_LAST);
+    // A guard whose then-branch holds more than the return is not the guard.
+    const busy = `
+       criterion Rich(n: int) of Account = this.balance > n
+       queryHandler q(n: int): Account {
+         if let a = Accounts.find(Rich(n)) {
+           let m = n
+           return a
+         } else {
+           notFound
+         }
+       }`;
+    expect(await codes("", busy)).toContain(NOT_LAST);
   });
 
   it("lets an operation whose result includes its aggregate fall through to `this`", async () => {

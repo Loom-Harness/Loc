@@ -59,6 +59,7 @@ import {
   pagedRunSortDefault,
   requirePagedRunStmt,
 } from "../../ir/util/paged-run.js";
+import { routedParamSource } from "../../ir/util/routed-handler.js";
 import { walkWorkflowStmtChildren, walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { walkExpr } from "../../ir/validate/checks/shared.js";
 import { lines } from "../../util/code-builder.js";
@@ -84,6 +85,7 @@ import {
   PY_REQUEST_PARAM,
   PY_SESSION_DEP,
   PY_USER_BIND,
+  pyQueryParam,
   pyWireToDomain,
   repoClassRef,
 } from "./routes-builder.js";
@@ -628,11 +630,15 @@ export function emitPyExplicitRouteRouter(
     // `<Handler>Body` + call args carry the flat fields, byte-identical to the
     // flat-param form; a record's field binds from the SAME request location an
     // equivalent flat param would — path if its name is a route `{token}`, else
-    // the body). Then split on the route `{token}`s as before.
-    const pathNames = pathParamNames(r.path);
+    // the body). Then split on the route `{token}`s as before.  On a bodyless
+    // method (GET / DELETE) the unbound params ride the query string instead
+    // (`routedParamSource`), keyed by their `.ddd` name exactly as a declared
+    // find's query params are.
     const effParams = flatHandlerParams(h, ctx);
-    const pathParams = effParams.filter((p) => pathNames.has(p.name));
-    const bodyParams = effParams.filter((p) => !pathNames.has(p.name));
+    const source = (p: ParamIR) => routedParamSource(p.name, r, false);
+    const pathParams = effParams.filter((p) => source(p) === "path");
+    const queryParams = effParams.filter((p) => source(p) === "query");
+    const bodyParams = effParams.filter((p) => source(p) === "body");
 
     let bodyModelName: string | undefined;
     if (bodyParams.length > 0) {
@@ -648,6 +654,7 @@ export function emitPyExplicitRouteRouter(
     }
     const sig = [
       ...pathParams.map((p) => pyAliasedParam(p.name, paramPyType(p.type, ctx), "Path")),
+      ...queryParams.map((p) => pyQueryParam(p.name, paramPyType(p.type, ctx))),
       ...(bodyModelName ? [`body: ${bodyModelName}`] : []),
       ...(usesUser ? [PY_REQUEST_PARAM] : []),
       "session: SessionDep",
@@ -657,9 +664,11 @@ export function emitPyExplicitRouteRouter(
     const callArgs = [
       "session",
       ...effParams.map((p) =>
-        pathNames.has(p.name)
+        source(p) === "path"
           ? pyWireToDomain(pythonIdent(p.name), p.type, ctx)
-          : pyWireToDomain(`body.${pythonIdent(p.name)}`, p.type, ctx),
+          : source(p) === "query"
+            ? pyWireToDomain(pythonWireIdent(p.name), p.type, ctx)
+            : pyWireToDomain(`body.${pythonIdent(p.name)}`, p.type, ctx),
       ),
       ...(usesUser ? ["current_user"] : []),
     ].join(", ");

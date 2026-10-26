@@ -172,6 +172,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.let-type-mismatch": "06-behavior-and-statements.md#let--emit",
   "loom.return-type-mismatch": "06-behavior-and-statements.md#return--the-exception-less-outcome",
   "loom.return-missing": "06-behavior-and-statements.md#return--the-exception-less-outcome",
+  "loom.handler-return-not-last":
+    "06-behavior-and-statements.md#return--the-exception-less-outcome",
   "loom.unhandled-result": "06-behavior-and-statements.md#return--the-exception-less-outcome",
   "loom.function-return-type-mismatch":
     "07-invariants-derived-functions.md#function--a-pure-helper",
@@ -192,6 +194,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "06-behavior-and-statements.md#match--the-effect-form-variant-match",
   "loom.for-placement": "06-behavior-and-statements.md#for--if-let--workflow-bodies-only",
   "loom.if-let-placement": "06-behavior-and-statements.md#for--if-let--workflow-bodies-only",
+  "loom.not-found-placement": "06-behavior-and-statements.md#notfound--the-not-found-answer",
+  "loom.not-found-unreachable": "06-behavior-and-statements.md#notfound--the-not-found-answer",
   "loom.vanilla-op-call-actor": "06-behavior-and-statements.md#operation--a-mutating-method",
   "loom.repository-access-outside-workflow":
     "06-behavior-and-statements.md#operation--a-mutating-method",
@@ -466,8 +470,6 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.e2e-unrouted-verb": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-call-options": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-routed-handler-arity":
-    "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
-  "loom.e2e-routed-handler-bodyless-method":
     "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-unknown-body-key": "18-testing.md#test-e2e--against-deployable--a-live-end-to-end-test",
   "loom.e2e-missing-required-field":

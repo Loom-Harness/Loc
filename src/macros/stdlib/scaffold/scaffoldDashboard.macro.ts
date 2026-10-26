@@ -1,5 +1,5 @@
 import type { ContextMember, Expression, Property } from "../../../language/generated/ast.js";
-import { isAggregate, isPolicyDecl } from "../../../language/generated/ast.js";
+import { isAggregate } from "../../../language/generated/ast.js";
 import type { Aggregate, BoundedContext } from "../../api/index.js";
 import {
   callExpr,
@@ -22,6 +22,7 @@ import {
   seriesDateField,
   summableFields,
 } from "./_dashboard-shared.js";
+import { policyReadGate } from "./_policy-inline.js";
 
 /** Emit the read model a DASHBOARD reads: one SINGLETON query-time
  * `projection` per aggregate, aggregating the whole table in SQL.
@@ -158,16 +159,3 @@ export default defineMacro({
     return out;
   },
 });
-
-/** The gate of the context's `policy { read <aggName> requires … }` rule — the
- *  one place an author says who may read the aggregate.  First rule wins, as in
- *  enrichment (a second is `loom.policy-duplicate-target`). */
-function policyReadGate(ctx: BoundedContext, aggName: string): Expression | undefined {
-  for (const m of ctx.members) {
-    if (!isPolicyDecl(m)) continue;
-    for (const r of m.rules) {
-      if (r.effect === "read" && r.target === aggName && r.gate) return r.gate;
-    }
-  }
-  return undefined;
-}

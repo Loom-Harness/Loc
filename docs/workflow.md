@@ -77,6 +77,7 @@ context Sales {
 | `let xs = Repo.run(<Retrieval>(args), page?)` / `let xs = Repo.findAll(<Criterion>, page?)` | Bind an aggregate **array**; consumable only by a `for` loop. |
 | `for x in xs { ... }` | Iterate an aggregate array, binding each element to `x`; per-iteration mutations save inside the loop. |
 | `if let x = Repo.find(<Criterion>) { ... } else { ... }` / `if let x = Repo.findBy(<col>: v, ...) { ... }` | Look up a **single** aggregate by criterion (the shared `findAllBy<Criterion>` retrieval, capped at one row), by a declared `unique (…)` key (`findBy`), or through a declared optional `find` (`T?`).  `x` is bound (non-null) only in the then-branch; `else` runs on no match.  The body's only option/null-handling construct.  `else` is optional. |
+| `notFound` / `notFound "detail"` | End the body with the standard ProblemDetails 404 — the same response a `getById` miss produces.  Workflow / handler bodies only (`loom.not-found-placement`), last in its block (`loom.not-found-unreachable`).  The canonical home is the `else` of an `if let`; see below. |
 | `name.opName(args)` | Invoke a public operation on a let-bound aggregate.  The op's own preconditions / invariants run inside that call. |
 | `let x = expr` | Plain expression binding. |
 | `emit EventName { field: expr, ... }` | Workflow-level event.  Event must be declared in the same context.  Drains through `IDomainEventDispatcher` after all saves (after commit when `transactional`). |
@@ -207,6 +208,46 @@ string): Order?`) is the older spelling of the same source.  Any other source
 (`getById`, `getBy`, a non-optional or union-valued find) is
 `loom.iflet-bad-source`.  A row the body must have reads with
 `let o = Orders.getBy(code: c.code)` — a miss answers the standard 404.
+
+A criterion read has no uniqueness guarantee, so there is no must-exist
+`get(<Criterion>)`.  A body that needs the row spells the miss: `notFound`
+ends the body with the standard 404 — the error the backend's by-id read
+raises, so the response (status, `title`, `type`, `instance`) is byte-for-byte
+the one a `getById` miss produces.  `notFound "detail"` sets the `detail`; a
+bare `notFound` in an `if let` else names the lookup's aggregate
+(`Ticket not found`).
+
+```ddd
+commandHandler EscalateOpen(customer: string) {
+  if let t = Tickets.find(OpenFor(customer)) { t.escalate() } else { notFound "no open ticket" }
+}
+```
+
+```ts
+// node (Hono)
+const t = (await tickets.runFindAllByOpenFor(customer, { limit: 1 }))[0] ?? null;
+if (t !== null) {
+  t.escalate();
+  await tickets.save(t);
+} else {
+  throw new AggregateNotFoundError("no open ticket");
+}
+```
+
+```elixir
+# elixir (Phoenix) — the branch evaluates to the tagged miss
+if t != nil do
+  Context.escalate_ticket(t, %{})
+  {:ok, t}
+else
+  {:error, {:not_found, "no open ticket"}}
+end
+```
+
+.NET and Java throw `AggregateNotFoundException("no open ticket")`, Python
+raises `AggregateNotFoundError("no open ticket")`.  `notFound` is refused
+outside a workflow / handler body: an operation is called *by* a handler, and
+refuses with `precondition` / `requires` or a declared `error` variant.
 
 ```ddd
 commandHandler BumpByCode(code: string, n: int) {

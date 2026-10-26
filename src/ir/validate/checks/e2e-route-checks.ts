@@ -71,7 +71,6 @@ import {
   apisServedBy,
   type RoutedHandlerTarget,
   resolveRoutedHandler,
-  routedHandlerNeedsUnsendableBody,
 } from "../../util/routed-handler.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../util/walk.js";
 import { emitsCommandRoute } from "../../util/workflow-command-route.js";
@@ -171,12 +170,6 @@ type VerbVerdict =
       readonly params: string;
       readonly method: string;
       readonly path: string;
-    }
-  | {
-      readonly tag: "routed-bodyless";
-      readonly method: string;
-      readonly path: string;
-      readonly params: string;
     }
   | { readonly tag: "ui-create"; readonly aggregate: string }
   | { readonly tag: "ui-verb"; readonly known: string };
@@ -293,17 +286,6 @@ function routedHandlerVerdict(call: MagicCall, t: RoutedHandlerTarget): VerbVerd
       params: t.bindings.map((b) => b.param.name).join(", ") || "(none)",
       method: t.route.method,
       path: t.route.path,
-    };
-  }
-  if (routedHandlerNeedsUnsendableBody(t)) {
-    return {
-      tag: "routed-bodyless",
-      method: t.route.method,
-      path: t.route.path,
-      params: t.bindings
-        .filter((b) => b.source === "body")
-        .map((b) => b.param.name)
-        .join(", "),
     };
   }
   return null;
@@ -488,21 +470,6 @@ function checkApiVerb(
         params: verdict.params,
         method: verdict.method,
         path: verdict.path,
-      }),
-    });
-    return false;
-  }
-  if (verdict.tag === "routed-bodyless") {
-    diags.push({
-      severity: "error",
-      code: "loom.e2e-routed-handler-bodyless-method",
-      source,
-      message: diagMessage("loom.e2e-routed-handler-bodyless-method", {
-        slug: call.slug,
-        verb: call.verb,
-        method: verdict.method,
-        path: verdict.path,
-        params: verdict.params,
       }),
     });
     return false;

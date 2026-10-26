@@ -58,6 +58,7 @@ import {
   pagedRunSortDefault,
   requirePagedRunStmt,
 } from "../../ir/util/paged-run.js";
+import { routedParamSource } from "../../ir/util/routed-handler.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { rewrite } from "../../util/emission-sink.js";
 import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../util/naming.js";
@@ -844,13 +845,20 @@ export function emitExplicitRouteController(
     // record + `[FromBody]` body carry the flat fields, byte-identical to the
     // flat-param form); extern handlers keep their raw params (their impl owns
     // the signature).  Then split on the route `{token}`s as before.
-    const pathNames = pathParamNames(r.path);
+    // On a bodyless method (GET / DELETE) the unbound params ride the query
+    // string instead (`routedParamSource`), each a `[FromQuery]` action param.
     const effParams = h.extern ? h.params : flatHandlerParams(h, ctx);
-    const pathParams = effParams.filter((p) => pathNames.has(p.name));
-    const bodyParams = effParams.filter((p) => !pathNames.has(p.name));
-    const pathArg = new Map(pathParams.map((p) => [p.name, pathActionParam(p)]));
+    const source = (p: ParamIR) => routedParamSource(p.name, r, false);
+    const urlParams = effParams.filter((p) => source(p) !== "body");
+    const bodyParams = effParams.filter((p) => source(p) === "body");
+    const urlArg = new Map(
+      urlParams.map((p) => [
+        p.name,
+        source(p) === "path" ? pathActionParam(p) : queryActionParam(p),
+      ]),
+    );
 
-    const actionParamParts = pathParams.map((p) => pathArg.get(p.name)!.actionParam);
+    const actionParamParts = urlParams.map((p) => urlArg.get(p.name)!.actionParam);
     let bodyRecName: string | undefined;
     if (bodyParams.length > 0) {
       bodyRecName = `${h.name}Body`;
@@ -864,9 +872,7 @@ export function emitExplicitRouteController(
     // Command/query ctor args stay in flat declared order: path params coerce
     // from the route token, body params read off `body.<Pascal>`.
     const ctorArgs = effParams
-      .map((p) =>
-        pathNames.has(p.name) ? pathArg.get(p.name)!.commandArg : `body.${upperFirst(p.name)}`,
-      )
+      .map((p) => urlArg.get(p.name)?.commandArg ?? `body.${upperFirst(p.name)}`)
       .join(", ");
 
     const rec = `${h.name}${kind}`;

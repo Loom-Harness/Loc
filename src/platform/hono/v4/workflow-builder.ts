@@ -35,6 +35,7 @@ import { renderTsStatements } from "../../../generator/typescript/render-stmt.js
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
 import { tsNotFoundThrow } from "../../../generator/typescript/wire-policy-ts.js";
 import {
+  notFoundStmtDetail,
   reasonPhrase,
   wireFixedDetail,
   wireStatus,
@@ -2413,6 +2414,7 @@ function collectRepoRefs(st: WorkflowStmtIR, seen: Map<string, string>): void {
     case "op-call":
     case "resource-call":
     case "domain-service-call":
+    case "not-found":
       // Name no repository of their own.
       break;
     default: {
@@ -2602,6 +2604,17 @@ export function honoWorkflowStmtTarget(
       const elseSaves = st.savesInElse.map(
         (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,
       );
+      // A guard — nothing on a hit, the 404 on a miss — reads as one negated
+      // branch; the binding stays narrowed to non-null after it.
+      if (thenLines.length === 0 && thenSaves.length === 0 && elseLines.length > 0) {
+        return [
+          `${indent}const ${escapeTsIdent(st.var)} = ${lookup};`,
+          `${indent}if (${escapeTsIdent(st.var)} === null) {`,
+          ...elseLines,
+          ...elseSaves,
+          `${indent}}`,
+        ];
+      }
       const out = [
         `${indent}const ${escapeTsIdent(st.var)} = ${lookup};`,
         `${indent}if (${escapeTsIdent(st.var)} !== null) {`,
@@ -2624,6 +2637,11 @@ export function honoWorkflowStmtTarget(
     // emit as a statement.  The mutated aggregate args persist via the
     // workflow's exit-saves (`savesAtExit`), emitted after the body.
     domainServiceCall: (st, indent) => [`${indent}${renderArg(st.call)};`],
+    // The by-id read's own absence error, so the router's
+    // `AggregateNotFoundError` arm answers the identical ProblemDetails.
+    notFound: (st, indent) => [
+      `${indent}throw new AggregateNotFoundError(${JSON.stringify(notFoundStmtDetail(st))});`,
+    ],
   };
 }
 

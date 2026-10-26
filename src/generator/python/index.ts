@@ -1529,11 +1529,14 @@ function renderMain(
     "# Added last so it runs first (Starlette: later-added is outermost) —",
     "# every request is bracketed, including 401s from the auth middleware.",
     "app.add_middleware(ObservabilityMiddleware)",
+    // Explicit routes first: FastAPI answers with the first registered match,
+    // so an aggregate's `GET /api/orders/{id}` would otherwise take a routed
+    // handler's `GET /api/orders/order_by_code` (`id = "order_by_code"`).
+    ...explicitRouteApis.map((name) => `app.include_router(${snake(name)}_router${routerArgs})`),
     ...routerAggs.map((name) => `app.include_router(${snake(name)}_router${routerArgs})`),
     hasWorkflows ? `app.include_router(${M.workflows_router}${routerArgs})` : null,
     hasProjections ? `app.include_router(${M.projections_router}${routerArgs})` : null,
     hasQueryProjections ? `app.include_router(${M.query_projections_router}${routerArgs})` : null,
-    ...explicitRouteApis.map((name) => `app.include_router(${snake(name)}_router${routerArgs})`),
     // Realtime SSE wire (channels.md Part I): GET /api/realtime/events streams
     // broadcast-channel events to connected browsers (mounted under the shared
     // API base so `${API_BASE_URL}/realtime/events` lines up).

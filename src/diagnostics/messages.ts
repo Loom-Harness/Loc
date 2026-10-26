@@ -1160,6 +1160,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `A 'match' used for its EFFECTS (arms that run statements) is frontend-only — it lowers to a page / component / store 'action' handler and has no backend form — but this one is in ${p.owner}, which runs on the backend. Move the effect into the 'action' that invokes it. This is a permanent placement rule, not a missing feature.`,
   "loom.if-let-placement": (p: { owner: unknown }) =>
     `'if let' binds the optional result of a repository read and branches on its presence; only a workflow body ('create' / 'on') or a top-level 'commandHandler' / 'queryHandler' lowers it. This one is in ${p.owner}, which has no such lowering — do the optional read in a workflow or handler and pass the resolved value in. This is a permanent placement rule, not a missing feature.`,
+  "loom.not-found-placement": (p: { owner: unknown }) =>
+    `'notFound' answers the request with the not-found ProblemDetails, so only a body that handles a request may say it: a workflow body ('create' / 'on') or a top-level 'commandHandler' / 'queryHandler'. This one is in ${p.owner}. An operation or domain function refuses with 'precondition' / 'requires' or a declared 'error' variant instead; do the lookup and the 404 in the handler that calls it.`,
+  "loom.not-found-unreachable": () =>
+    "This statement follows a 'notFound', which ends the body — it can never run. Move it before the 'notFound', or into the branch that finds the row.",
   "loom.for-placement": (p: { owner: unknown }) =>
     `'for … in …' is lowered only inside a workflow body ('create' / 'on') or a top-level 'commandHandler' / 'queryHandler' — that lowering owns the per-iteration save the loop needs. This one is in ${p.owner}, where the loop would be dropped silently. Put it in a workflow or handler for now; this is a GAP, not a design rule — mission M-T5.30 tracks lowering 'for' into domain bodies.`,
 
@@ -1790,6 +1794,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `${p.label} is declared to return '${p.declared}' but not every path ends in a \`return\`. ` +
     `End each branch with \`return <value>\` (an \`if\` needs an \`else\` that returns too).`,
 
+  "loom.handler-return-not-last": (p: { label: unknown }) =>
+    `${p.label}: 'return' must be the last top-level statement of the body, or the whole ` +
+    `then-branch of a final 'if let … { return x } else { … notFound }'. A handler answers ` +
+    `once, after its body has run, so a 'return' anywhere else would not stop the statements ` +
+    `after it.`,
   "loom.function-return-type-mismatch": (p: {
     name: unknown;
     actual: unknown;
@@ -4835,18 +4844,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `e2e: 'api.${p.slug}.${p.verb}(…)' takes ${p.expected} argument(s) (${p.params}), got ` +
     `${p.got}. A routed handler's arguments are POSITIONAL, in declared param order — ` +
     `'route ${p.method} "${p.path}"' binds a param by NAME to the matching {token} and sends ` +
-    `the rest as the request body.`,
-  "loom.e2e-routed-handler-bodyless-method": (p: {
-    slug: unknown;
-    verb: unknown;
-    method: unknown;
-    path: unknown;
-    params: unknown;
-  }) =>
-    `e2e: 'api.${p.slug}.${p.verb}(…)' cannot be driven — 'route ${p.method} "${p.path}"' is a ` +
-    `bodyless method, but the param(s) '${p.params}' are bound by no {token} in the path, so ` +
-    `every backend reads them from a request body a ${p.method} cannot carry. Add the missing ` +
-    `{token}(s) to the route path, or declare the route as POST.`,
+    `the rest as the query string (GET / DELETE) or the request body.`,
   "loom.e2e-unrouted-verb#ui-verb": (p: { slug: unknown; verb: unknown; known: unknown }) =>
     `ui e2e: 'ui.${p.slug}.${p.verb}(…)' drives no page object — the Playwright harness ` +
     `addresses the New-page create flow, the Detail-page read, and a public operation's ` +
