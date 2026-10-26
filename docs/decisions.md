@@ -5682,3 +5682,45 @@ sentence a node emitter picks itself. python/FastAPI renders it through
 The remaining backends move onto it one at a time; until each does, its
 wire-golden legs carry a per-golden waiver in `test/_helpers/wire-waivers.ts`
 for the missing-field sentence.
+
+## D-FAILURE-MODEL — Loom has no exceptions: each failure kind has one construct, and an expected failure is a value the caller must handle
+
+**Status:** PINNED (owner rulings 2026-10-25 on #4134, #4146, #3951, #3916;
+parent #4120).
+
+**Question.** A domain operation can fail in five different ways, and the
+language had a construct for each, but nothing made a caller deal with the one
+kind that is the caller's business: an expected failure declared in the
+signature (`operation withdraw(amt: money): Account or InsufficientCredit`). A
+call statement dropped it, and a workflow answered 204.
+
+**Decision.** One construct per failure kind, chosen by who can act on it:
+
+| kind | construct | outcome |
+|---|---|---|
+| absence | `T?` + narrowing | `null` |
+| invalid input | value-object invariant, wire validation | 422 |
+| precondition | `precondition` (RS-15) | 422 `DomainError` |
+| expected failure | `A or E` with an `error` record (`httpStatus` maps it) | the caller's to handle; at the wire, problem+json at the mapped status |
+| bug | aggregate invariant | 500 |
+
+- **An expected failure is a value, handled in process.** An `or E` result
+  whose `E` is an `error` must be matched, returned through a caller whose own
+  declared result admits it, or bound and read (`loom.unhandled-result`). A call
+  statement and an unread `let` discard it. There is no implicit propagation
+  and no `?` operator. (#4134)
+- **Returning `E` discards the operation's writes.** An operation that returns
+  an `error` variant leaves the aggregate as it was; nothing it assigned is
+  saved. (#4146)
+- **A read does not encode absence as an error.** `T or NotFound` finds go; a
+  read that may miss is `T?` (`find…`), one that must hit is `T` (`get…`, the
+  standard 404). (#3951)
+- **Workflows return `or E` too**, once a workflow body can `match` a result
+  (#3367). (#3916)
+- **The wire is the boundary.** In process an `E` is a value; a route renders
+  it as problem+json at its `httpStatus` (D-WIRE-POLICY,
+  `errorVariantResponse`), never as a 200 union.
+
+**Consequences.** `loom.unhandled-result` refuses a dropped `or E`
+(`src/language/validators/unhandled-result.ts`). In a workflow body the only
+handling route until #3367 lands is binding the result and reading it.

@@ -230,6 +230,9 @@ export class Elaborator {
   readonly scopes = new WeakMap<AstNode, Scope>();
   /** Each assignment / call target's receiver chain (see `lvalueSteps`). */
   readonly lvalueChains = new WeakMap<AstNode, Ty[]>();
+  /** What a call TARGET (`a.withdraw(amt)` as a statement) returns: the
+   *  called member's type on the last receiver of its chain. */
+  readonly lvalueCallResults = new WeakMap<AstNode, Ty>();
   /** A CONTEXT-level `filter` / `stamp` is one AST that lands on every
    *  aggregate of its context (`lowerContext` propagates it), so it has one
    *  typing per host: each is elaborated again with that aggregate as `this`. */
@@ -272,6 +275,14 @@ export class Elaborator {
       const steps = this.lvalueSteps(lv, inner);
       this.lvalueChains.set(lv, steps);
       if (!lv.call) this.types.set(lv, steps[steps.length - 1]!);
+      else {
+        const member = lv.tail.length > 0 ? lv.tail[lv.tail.length - 1]! : lv.head;
+        const call = { $type: "MemberSuffix", member, call: true, args: [] } as never;
+        this.lvalueCallResults.set(
+          lv,
+          this.afterSuffixInner(steps[steps.length - 1]!, call, inner),
+        );
+      }
     }
     if (isProjection(node)) {
       this.visitProjection(node, scope, inner);

@@ -66,8 +66,8 @@ system Catalog {
 
       // All three FALLIBLE bind shapes, unread and not the result slot.
       workflow discardUnreadTuples {
-        create(ref: string) {
-          let probe = Orders.locate(ref)
+        create(ref: string, id: Order id) {
+          let probe = Orders.getById(id)
           let rows = Orders.run(ByCustomer(ref))
           let extra = Order.create({ customerId: ref })
           let kept = Order.create({ customerId: ref })
@@ -76,8 +76,8 @@ system Catalog {
 
       // The SOLE bind fills the with-chain's return → must keep its name.
       workflow keepsResultBind {
-        create(ref: string) {
-          let only = Orders.locate(ref)
+        create(id: Order id) {
+          let only = Orders.getById(id)
         }
       }
 
@@ -147,7 +147,7 @@ describe("vanilla — unused workflow `let` binding is underscore-prefixed (M-T6
 
   it("underscores unread repo-let / repo-run / factory-let tuple binds", async () => {
     const wf = await workflowFile("discard_unread_tuples");
-    expect(wf).toMatch(/\{:ok, _probe\} <- Context\.locate_order\(ref\)/);
+    expect(wf).toMatch(/\{:ok, _probe\} <- \(case Context\.get_order\(id\)/);
     expect(wf).toMatch(/\{:ok, _rows\} <- Context\.run_by_customer_order\(ref\)/);
     expect(wf).toMatch(/\{:ok, _extra\} <- Context\.create_order\(/);
   });
@@ -170,7 +170,7 @@ describe("vanilla — unused workflow `let` binding is underscore-prefixed (M-T6
     expect(many).toMatch(/\{:ok, kept\}\n\s+end/);
     // …and the sole bind of a single-bind chain, which nothing else reads.
     const one = await workflowFile("keeps_result_bind");
-    expect(one).toMatch(/\{:ok, only\} <- Context\.locate_order\(ref\)/);
+    expect(one).toMatch(/\{:ok, only\} <- \(case Context\.get_order\(id\)/);
     expect(one).toMatch(/\{:ok, only\}\n\s+end/);
     expect(one).not.toContain("_only");
   });
