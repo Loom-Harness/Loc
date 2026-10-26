@@ -5675,9 +5675,13 @@ answers, and backends render it:
 
 **Consequences.** node/Hono renders every refusal from the fact, and
 `test/generator/hono/wire-policy-census.test.ts` fails on a status, title or
-sentence a node emitter picks itself. The other four backends move onto it one
-at a time; until each does, its wire-golden legs carry a per-golden waiver in
-`test/_helpers/wire-waivers.ts` for the missing-field sentence.
+sentence a node emitter picks itself. python/FastAPI renders it through
+`src/generator/python/wire-policy-py.ts`, guarded by
+`test/generator/python/wire-policy-census.test.ts` (request bools are
+`StrictBool`, so `"true"`/`1` is a refusal like every other cross-type value).
+The remaining backends move onto it one at a time; until each does, its
+wire-golden legs carry a per-golden waiver in `test/_helpers/wire-waivers.ts`
+for the missing-field sentence.
 
 ## D-CODEC — how a value is encoded on the wire, in a column, in memory and in a lineage comes from one IR fact
 

@@ -29,6 +29,12 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     reviewUntil: "2027-01-31",
   },
 
+  // src/generator/python/wire-policy-py.ts
+  "src/generator/python/wire-policy-py.ts#wireStatusResolver": {
+    invariant:
+      "The resolver is called only by errorStatuses (src/ir/util/openapi-errors.ts) with its four fixed rung names (ReferencedInUse, DomainError, Forbidden, NotFound); no .ddd input names a rung. (src/generator/python/wire-policy-py.ts:72)",
+  },
+
   // src/generator/_imports/python.ts
   "src/generator/_imports/python.ts#parseStatement": {
     invariant:
