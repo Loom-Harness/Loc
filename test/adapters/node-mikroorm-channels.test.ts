@@ -177,7 +177,7 @@ describe("MikroORM broker channels", () => {
     expect(wf).toContain('import { LoomOutboxRow } from "../db/entities";');
     expect(wf).toContain("export function startOutboxRelay(\n  db: EntityManager,");
     expect(wf).not.toContain('from "drizzle-orm"');
-    // …and the outbox table is in the entity set so `updateSchema()` makes it.
+    // …and the outbox table is in the entity set so `schema.update()` makes it.
     const entities = files.get("api/db/entities.ts") as string;
     expect(entities).toMatch(/export const entities = \[[^\]]*LoomOutboxRowSchema[^\]]*\];/);
   });

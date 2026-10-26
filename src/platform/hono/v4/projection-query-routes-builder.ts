@@ -1,7 +1,11 @@
-import { integralWireRange, numericKindOf } from "../../../generator/_numeric/codec.js";
+import { numericKindOf } from "../../../generator/_numeric/codec.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
-import { whereToMikroFilter } from "../../../generator/typescript/emit/mikroorm.js";
+import { tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
+import {
+  mikroBypassedFilters,
+  whereToMikroFilter,
+} from "../../../generator/typescript/emit/mikroorm.js";
 import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
 import {
   isInstantWireType,
@@ -10,10 +14,9 @@ import {
 } from "../../../generator/typescript/raw-row-wire.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
 import {
-  allContextFilterEntries,
   DRIZZLE_INTRINSIC_SQL,
-  drizzleDiscriminatorEq,
-  drizzleGuardedSubtypePredicates,
+  drizzleScopeCall,
+  drizzleScopeFnName,
   type FilterBypass,
   lowerToDrizzle,
 } from "../../../generator/typescript/repository-find-predicate.js";
@@ -200,6 +203,8 @@ export function buildQueryProjectionsFile(
   // tenants' rows counted.  A read's `ignoring *` / `ignoring <Cap>` drops the
   // capability-origin predicates it names, exactly as on the repository arm.
   const aggWheres = new Map<string, string | undefined>();
+  // The scope helpers the direct-table arms call — imported from `db/read-scopes`.
+  const scopeFns = new Set<string>();
   for (const p of projections) {
     const grouped = groupedAggregates(p);
     const aggregates = grouped?.aggregates ?? wholeTableAggregates(p);
@@ -208,21 +213,25 @@ export function buildQueryProjectionsFile(
     // A COMPUTED grouping key (`group by o.placedAt.startOfDay()`) renders
     // through the Drizzle intrinsic snippets, which build a `sql` template.
     if ((grouped?.groupBy ?? []).some((e) => groupKeyOf(e)?.transform)) rawDrizzleOps.add("sql");
-    const { table, kind } = directSourceTable(p, ctx);
+    const { table } = directSourceTable(p, ctx);
     const parts: string[] = [];
-    // A TPH (`sharedTable`) concrete shares its root's table: scope the read to
-    // this concrete's rows, or every sibling's rows enter the aggregate.
-    if (kind) {
-      parts.push(drizzleDiscriminatorEq(table, kind));
-      rawDrizzleOps.add("eq");
-    }
+    // The source aggregate's read scope: a TPH (`sharedTable`) concrete shares its
+    // root's table, so its `kind` scope keeps every sibling's rows out of the
+    // aggregate; a projection `from <TPH base>` applies every concrete's own
+    // restrictions, kind-guarded; the capability / tenancy / deny filters apply
+    // as on the repository arm.  All of it is the source's generated scope
+    // helper (`db/read-scopes.ts`), called with the read's `ignoring` clause.
     if (p.query.filter) {
       const lowered = lowerToDrizzle(p.query.filter, table, ctx);
       if (!lowered) throw new Error(unloweredWhere(p.name));
       parts.push(lowered.expr);
       for (const op of lowered.ops) rawDrizzleOps.add(op);
     }
-    parts.push(...drizzleCapabilityPredicates(p, ctx, table, rawDrizzleOps));
+    const scopeCall = scopeCallFor(p, ctx);
+    if (scopeCall) {
+      parts.push(scopeCall.call);
+      scopeFns.add(scopeCall.fn);
+    }
     if (parts.length === 0) aggWheres.set(p.name, undefined);
     else if (parts.length === 1) aggWheres.set(p.name, parts[0]);
     else {
@@ -232,27 +241,27 @@ export function buildQueryProjectionsFile(
   }
   // MikroORM WHERE lowering for the same direct-table shapes: a FilterQuery
   // object built by the shared `whereToMikroFilter` (the lowering every mikro
-  // find already uses), keyed per projection.  `undefined` = no filter.  Same
-  // capability-filter conjunction as the drizzle side above — `$and`-composed
-  // exactly as the mikro repository composes a read's base filter with them.
-  const mikroWheres = new Map<string, string | undefined>();
+  // find already uses), keyed per projection.  Only the projection's OWN filter
+  // is spelled here: the source aggregate's read scope (its capability filters,
+  // tenancy and — for a TPH source — the discriminator and the subtypes' guarded
+  // filters) is declared on the source's `EntitySchema`, so the ORM applies it
+  // to the `em.find`, and `qb.applyFilters` to a QueryBuilder read.  `ignoring`
+  // is the names of the schema filters this read's `ignoring` clause switches off.
+  const mikroReads = new Map<string, MikroProjectionRead>();
   if (usingMikro) {
     for (const p of projections) {
       const f = p.query?.filter;
-      const kind = p.query?.source ? directSourceTable(p, ctx).kind : undefined;
-      const parts = [
-        ...(kind ? [`{ kind: ${JSON.stringify(kind)} }`] : []),
-        ...(f ? [mikroFilterFor(f, p, ctx)] : []),
-        ...mikroCapabilityFilters(p, ctx),
-      ].filter((x): x is string => x !== undefined);
-      mikroWheres.set(
-        p.name,
-        parts.length === 0
-          ? undefined
-          : parts.length === 1
-            ? parts[0]
-            : `{ $and: [${parts.join(", ")}] }`,
-      );
+      const agg = projectionSourceAggregate(p, ctx);
+      const ignoring = agg
+        ? mikroBypassedFilters(agg, ctx.aggregates, projectionBypass(p)).map(
+            (n) => `${JSON.stringify(n)}: false`,
+          )
+        : [];
+      mikroReads.set(p.name, {
+        where: f ? mikroFilterFor(f, p, ctx) : undefined,
+        scoped: agg !== undefined,
+        ignoring: ignoring.length > 0 ? ignoring.join(", ") : undefined,
+      });
     }
   }
   const allAggs = new Set([...sourceAggs, ...followAggs]);
@@ -294,6 +303,10 @@ export function buildQueryProjectionsFile(
     );
     if (rawDrizzleOps.size > 0) {
       lines.push(`import { ${[...rawDrizzleOps].sort().join(", ")} } from "drizzle-orm";`);
+    }
+    if (scopeFns.size > 0) {
+      const scopeImport = `import { ${[...scopeFns].sort().join(", ")} } from "../db/read-scopes";`;
+      lines.push(scopeImport);
     }
   }
   if (anyMoneyAggregate(projections)) lines.push(`import Decimal from "decimal.js";`);
@@ -387,7 +400,7 @@ export function buildQueryProjectionsFile(
         ctx,
         rawReads.get(p.name),
         aggWheres.get(p.name),
-        usingMikro ? { where: mikroWheres.get(p.name) } : undefined,
+        usingMikro ? mikroReads.get(p.name) : undefined,
       ).map((l) => `  ${l}`),
     );
     lines.push("");
@@ -474,7 +487,7 @@ export function buildQueryProjectionsFile(
     ...new Set(
       projections
         .filter((p) => p.query?.source)
-        .map((p) => mikroRowClassFor(p, p.query!.source!, ctx))
+        .map((p) => mikroRowClassFor(p, p.query!.source!))
         .filter((cls) => new RegExp(`\\b${cls}\\b`).test(file)),
     ),
   ].sort();
@@ -502,7 +515,7 @@ function emitQueryProjectionRoute(
    *  literal (or undefined for an unfiltered read).  The direct-table shapes
    *  below branch on it; the repository-sourced shape ignores it, being
    *  adapter-neutral. */
-  mikro?: { where?: string },
+  mikro?: MikroProjectionRead,
 ): string[] {
   const T = upperFirst(p.name);
   const source = p.query!.source!;
@@ -562,7 +575,7 @@ function emitQueryProjectionRoute(
   // and ORDERs BY, for a deterministic cross-backend read — exactly the
   // grouping columns, in one query.
   if (grouped && mikro) {
-    const rowClass = mikroRowClassFor(p, source, ctx);
+    const rowClass = mikroRowClassFor(p, source);
     const alias = "src";
     // SELECT: one raw fragment per grouping key + per aggregate, each aliased to
     // the projection field so the row comes back keyed like the drizzle one.
@@ -582,6 +595,8 @@ function emitQueryProjectionRoute(
     out.push(`    const qb = db.createQueryBuilder(${rowClass}, ${JSON.stringify(alias)});`);
     out.push(`    qb.select([${selects.join(", ")}]);`);
     if (mikro.where) out.push(`    qb.where(${mikro.where});`);
+    if (mikro.scoped)
+      out.push(`    await qb.applyFilters({${mikro.ignoring ? ` ${mikro.ignoring} ` : ""}});`);
     out.push(`    qb.groupBy([${groupSql.map((g) => `raw(${JSON.stringify(g)})`).join(", ")}]);`);
     out.push(
       `    qb.orderBy([${groupSql.map((g) => `{ [raw(${JSON.stringify(g)})]: "asc" }`).join(", ")}]);`,
@@ -616,7 +631,7 @@ function emitQueryProjectionRoute(
   }
   // WHOLE-TABLE aggregation, mikro edition: the same push-down, one row out.
   if (aggregates && mikro) {
-    const rowClass = mikroRowClassFor(p, source, ctx);
+    const rowClass = mikroRowClassFor(p, source);
     const alias = "src";
     const selects = aggregates.map(
       (sel) =>
@@ -625,6 +640,8 @@ function emitQueryProjectionRoute(
     out.push(`    const qb = db.createQueryBuilder(${rowClass}, ${JSON.stringify(alias)});`);
     out.push(`    qb.select([${selects.join(", ")}]);`);
     if (mikro.where) out.push(`    qb.where(${mikro.where});`);
+    if (mikro.scoped)
+      out.push(`    await qb.applyFilters({${mikro.ignoring ? ` ${mikro.ignoring} ` : ""}});`);
     const rowType = aggregates.map((sel) => `${snake(sel.field)}: unknown`).join("; ");
     // `mapResults: false` — see the grouped branch above.
     out.push(`    const [row] = await qb.execute<{ ${rowType} }[]>("all", false);`);
@@ -709,8 +726,10 @@ function emitQueryProjectionRoute(
   // is why the runtime leg stayed green; `node-mikroorm-query-projections.test.ts`
   // now pins it.
   if (mikro && rawRead) {
-    const rowClass = mikroRowClassFor(p, source, ctx);
-    out.push(`    const rows = await db.find(${rowClass}, ${mikro.where ?? "{}"});`);
+    const rowClass = mikroRowClassFor(p, source);
+    out.push(
+      `    const rows = await db.find(${rowClass}, ${mikro.where ?? "{}"}${mikro.ignoring ? `, { filters: { ${mikro.ignoring} } }` : ""});`,
+    );
     // A `datetime` column hydrates to a `Date` on a mikro ENTITY exactly as it
     // does on a drizzle row, so the same RS-4 canonicalisation applies — see the
     // drizzle twin below.
@@ -857,18 +876,28 @@ function emitQueryProjectionRoute(
   return out;
 }
 
+/** What the MikroORM direct-table shapes of a query-time projection read: the
+ *  projection's own `where`, whether the source is an aggregate (whose schema
+ *  declares a read scope), and the `ignoring` filters to switch off. */
+interface MikroProjectionRead {
+  where?: string;
+  scoped: boolean;
+  ignoring?: string;
+}
+
 /** The MikroORM Row entity class a direct-table projection shape reads.  Mirrors
  *  the three source kinds the drizzle path names a table for: an AGGREGATE
  *  source reads `<Agg>Row`, a WORKFLOW source its saga-state Row, a PROJECTION
  *  source the folded read-model Row — the same three classes `renderMikroEntities`
  *  emits, so the names cannot drift. */
-function mikroRowClassFor(p: ProjectionIR, source: string, ctx: EnrichedBoundedContextIR): string {
+function mikroRowClassFor(p: ProjectionIR, source: string): string {
   const kind = p.query?.sourceKind;
   if (kind === "workflow") return `${upperFirst(source)}Row`;
   if (kind === "projection") return `${upperFirst(source)}Row`;
-  // A TPH concrete has no Row of its own — it reads its root's shared Row
-  // (scoped by the `kind` conjunct in `mikroWheres`).
-  return `${projectionSourceTable(source, ctx.aggregates).tableOwner}Row`;
+  // An aggregate source reads its own Row — a TPH concrete's subclass schema,
+  // which the ORM scopes to its `kind`, or the TPH root's, which reads the whole
+  // hierarchy through every subtype's guarded filters.
+  return `${source}Row`;
 }
 
 /** The drizzle table (bare `schema.<name>` member) a direct-table projection
@@ -942,52 +971,16 @@ function projectionBypass(p: ProjectionIR): FilterBypass {
   return { bypassAll: p.query?.bypassAll, bypassCaps: p.query?.bypassCaps };
 }
 
-/** The source aggregate's applicable capability filters as Drizzle predicate
- *  expressions.
- *
- *  Deliberately NOT `contextFilterPredicate`: that one reifies a filter that is
- *  exactly one named criterion into a `<name>Criterion(...)` call, and those
- *  module-level fns are emitted into the REPOSITORY file — naming one here
- *  would be an undefined identifier.  Inlining every predicate is what this
- *  file can compile.  A principal filter renders against the ambient
- *  `requireCurrentUser()` accessor (same as the repository path), which the
- *  import walk below picks up by body scan. */
-function drizzleCapabilityPredicates(
+/** The call of the source aggregate's generated scope helper for one direct-table
+ *  read of `p`, with the read's `ignoring` clause; null when nothing applies. */
+function scopeCallFor(
   p: ProjectionIR,
   ctx: EnrichedBoundedContextIR,
-  table: string,
-  ops: Set<string>,
-): string[] {
+): { call: string; fn: string } | null {
   const agg = projectionSourceAggregate(p, ctx);
-  if (!agg) return [];
-  const out: string[] = [];
-  for (const e of allContextFilterEntries(agg, ctx, projectionBypass(p))) {
-    const l = lowerToDrizzle(e.predicate, table, ctx, {
-      principalAccessor: "requireCurrentUser()",
-    });
-    // Unlowerable is unreachable for a valid model (the queryable check + the
-    // adapter gate run first); dropping it silently is the bug this closes, so
-    // fail loudly instead.
-    if (!l)
-      throw new Error(
-        `query projection '${p.name}': capability filter on '${agg.name}' is not Drizzle-lowerable`,
-      );
-    for (const op of l.ops) ops.add(op);
-    out.push(l.expr);
-  }
-  // A projection `from <TPH base>` reads the whole hierarchy: every concrete's
-  // own restrictions apply too, each guarded by its discriminator.
-  out.push(...drizzleGuardedSubtypePredicates(agg, ctx, ops, projectionBypass(p)));
-  return out;
-}
-
-/** The same set as MikroORM FilterQuery literals. */
-function mikroCapabilityFilters(p: ProjectionIR, ctx: EnrichedBoundedContextIR): string[] {
-  const agg = projectionSourceAggregate(p, ctx);
-  if (!agg) return [];
-  return allContextFilterEntries(agg, ctx, projectionBypass(p)).map((e) =>
-    whereToMikroFilter(e.predicate, undefined, agg.associations),
-  );
+  if (!agg) return null;
+  const call = drizzleScopeCall(agg, ctx, { ignoring: projectionBypass(p) });
+  return call ? { call, fn: drizzleScopeFnName(agg) } : null;
 }
 
 /** The SQL aggregate expression for one `select`, aliased column-qualified so it
@@ -1081,7 +1074,7 @@ function coerceAggregate(sel: AggregateSelect, expr: string): string {
   // wrapped, .NET's cast and python's `Int32` bound already failed).
   const kind = numericKindOf(sel.type);
   if (kind === "int" || kind === "long") {
-    const { min, max } = integralWireRange(kind);
+    const { min, max } = tsIntegerRange(kind);
     const checked = (e: string) => `__intWire(${e}, ${min}, ${max}, ${JSON.stringify(sel.field)})`;
     // `count` is never optional (`AggregateCoercion.optional` excludes it), so
     // the null arm below is the `sum`/`min`/`max`-over-an-empty-table one.

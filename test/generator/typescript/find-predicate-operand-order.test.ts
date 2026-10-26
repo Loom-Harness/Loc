@@ -23,6 +23,7 @@ import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
 import { MIRRORED_COMPARE_OP, orientComparison } from "../../../src/ir/util/comparison-operands.js";
 import { validateLoomModel } from "../../../src/ir/validate/validate.js";
+import { scopeFn } from "../../_helpers/drizzle-scope.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 import { parseString } from "../../_helpers/parse.js";
 
@@ -200,13 +201,21 @@ describe("drizzle: the other lowering positions commute", () => {
   });
 
   it("a capability `filter` written value-on-left excludes, not includes", async () => {
-    const src = await repo(system(POSITIONS, "drizzle"));
+    const files = await generateSystemFiles(system(POSITIONS, "drizzle"));
+    // The capability `filter` lives in the aggregate's scope helper.
+    const scope = scopeFn(files, "itemScope");
     // `filter 0 < this.qty` keeps rows whose qty is ABOVE zero.
-    expect(src).toContain("gt(schema.items.qty, 0)");
-    expect(src).not.toContain("lt(schema.items.qty, 0)");
-    // …and it rides the by-id read, where a wrong filter is least visible.
-    const byId = src.split("\n").find((l) => l.includes("async findById("));
-    expect(byId, "findById not emitted").toBeDefined();
+    expect(scope).toContain("gt(schema.items.qty, 0)");
+    expect(scope).not.toContain("lt(schema.items.qty, 0)");
+    // …and it rides the by-id read (where a wrong filter is least visible) via the helper.
+    const src = files.get(
+      [...files.keys()].find((k) => k.endsWith("db/repositories/item-repository.ts"))!,
+    )!;
+    expect(src).not.toContain("gt(schema.items.qty, 0)");
+    const byId = src
+      .split("\n")
+      .find((l) => l.includes("const rootRows") && l.includes("itemScope()"));
+    expect(byId, "findById does not call the scope helper").toBeDefined();
   });
 
   it("a `criterion` body written value-on-left commutes", async () => {

@@ -16,6 +16,7 @@ import {
   renderWorkflowStmtChunks,
   type WorkflowStmtTarget,
 } from "../../../generator/_workflow/stmt-target.js";
+import { tsTodayCalendarDate } from "../../../generator/typescript/codec-spelling.js";
 import type { OpFragment } from "../../../generator/typescript/emit/aggregate.js";
 import {
   eventRowClassOf,
@@ -1810,7 +1811,7 @@ function emitWorkflowStateHelpers(wf: WorkflowIR, usingMikro = false): string[] 
   if (usingMikro) {
     // MikroORM store: the correlation Row IS the state type; load reads by the
     // correlation PK (`findOne`), save upserts on it (`em.upsert`).  The
-    // EntityManager owns the schema (updateSchema at boot), so no migration.
+    // EntityManager owns the schema (schema.update at boot), so no migration.
     const rowClass = mikroWorkflowRowClass(wf);
     return [
       `type ${T}State = ${rowClass};`,
@@ -1980,7 +1981,7 @@ function defaultLiteralFor(t: TypeIR, ctx: BoundedContextIR): string {
       case "datetime":
         return "new Date()";
       case "date":
-        return "new Date().toISOString().slice(0, 10)";
+        return tsTodayCalendarDate();
       case "json":
         return "{}";
       default:

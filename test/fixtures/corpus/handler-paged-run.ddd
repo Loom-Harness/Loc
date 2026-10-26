@@ -1,0 +1,65 @@
+// A paged `queryHandler` over `Repo.run(<Criterion>(args))`: the handler
+// returns `<Agg> paged`, so every backend serves it through the synthesized
+// paged FIND repository method (the in-SQL filtered, sorted, windowed read)
+// and answers the paged envelope.  The route takes the criterion's own
+// argument plus `page` / `pageSize` / `sort` / `dir` from the query string.
+//
+// The synthesized find is NOT a route of its own: only the declared
+// `route GET` serves it, which the api surface and the caller census read.
+//
+// A routed handler's `test e2e` arguments are positional and match its
+// declared params, so the block reads the DEFAULT window (page 1, default
+// size); `paged-nonrelational` and `paged` drive narrowed windows.
+system HandlerPagedRun {
+  subdomain Sales {
+    context Ordering {
+      aggregate Order with crudish {
+        code: string
+        region: string
+      }
+      repository Orders for Order { }
+      criterion InRegion(rgn: string) of Order = region == rgn
+      queryHandler ListInRegion(rgn: string): Order paged {
+        let r = Orders.run(InRegion(rgn))
+        return r
+      }
+    }
+  }
+
+  api SalesApi from Sales {
+    route GET "/reports/in_region" -> Ordering.ListInRegion
+  }
+  storage pg { type: postgres }
+  resource st { for: Ordering, kind: state, use: pg }
+
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Ordering]
+    dataSources: [st]
+    serves: SalesApi
+    port: 4000
+  }
+
+  test e2e "a paged queryHandler pages the criterion's match" against d {
+    api.orders.create({ code: "E-3", region: "EU" })
+    api.orders.create({ code: "E-1", region: "EU" })
+    let na = api.orders.create({ code: "N-1", region: "NA" })
+
+    let eu = api.ordering.listInRegion("EU")
+    expect(eu.items.length).toBe(2)
+    expect(eu.total).toBe(2)
+    expect(eu.page).toBe(1)
+    expect(eu.totalPages).toBe(1)
+    expect(api.ordering.listInRegion("SA").total).toBe(0)
+    expect(api.ordering.listInRegion("SA").items.length).toBe(0)
+
+    // A write the criterion reads moves the row into the match.
+    api.orders.update(na, { code: "N-1", region: "EU" })
+    expect(api.orders.getById(na).region).toBe("EU")
+    expect(api.ordering.listInRegion("EU").total).toBe(3)
+    expect(api.orders.all().total).toBe(3)
+    api.orders.destroy(na)
+    expect(api.orders.getById(na)).toThrow(404)
+    expect(api.ordering.listInRegion("EU").total).toBe(2)
+  }
+}

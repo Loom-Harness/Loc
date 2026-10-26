@@ -281,7 +281,7 @@ export const R = {
    *     repositories always write `version` explicitly).
    *   • the MikroORM adapter ignores the dataSource `schema:` altogether: its
    *     `EntitySchema`s are mapped `tableName: "<plural>"` with no schema and it
-   *     creates them with `orm.schema.updateSchema()` instead of running the
+   *     creates them with `orm.schema.update()` instead of running the
    *     emitted migration chain — so the same `.ddd` puts its tables in
    *     `"<ctx>"` on drizzle and in `public` on mikroorm.  A THIRD source of
    *     truth for one table.  Its raw seed INSERT is therefore left unqualified
@@ -590,6 +590,8 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.debitOnce.run (no such aggregate)",
     "api.debitTwice.run (no such aggregate)",
   ],
+  // A workflow run (`POST /api/workflows/labeller`) — the `notLifted` class.
+  "corpus/nullable-load": ["api.labeller.run (no such aggregate)"],
   // Workflow runs (M-T6.98) — not a lifted route class.
   "corpus/workflow-two-handles-document-eventlog": [
     "api.hitSameTwice.run (no such aggregate)",

@@ -219,8 +219,8 @@ const A32 = `
           operation cancel() { status := "cancelled" }
           destroy { }
         }
-        // NON-optional: a handler body cannot bind an optional find
-        // (loom.handler-load-nullable-unsupported), and list finds are removed.
+        // NON-optional, so the handler body dereferences it directly; list
+        // finds are removed.
         repository Orders for Order {
           find byStatus(status: string): Order where this.status == status
         }

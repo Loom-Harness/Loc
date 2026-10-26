@@ -16,17 +16,18 @@ import { BOOT_DB_RETRY } from "../../../generator/_obs/boot-db-retry.js";
 import { renderHonoBaseLogCall } from "../../../generator/_obs/render-hono.js";
 import type { SourceMapRecorder } from "../../../generator/_trace/sourcemap.js";
 import {
-  MONEY_INTEGER_DIGITS,
-  MONEY_PRECISION,
-  MONEY_WIRE_SCALE,
-} from "../../../generator/money-scale.js";
-import {
   buildBaseReaderFile,
   buildBaseRoutesFile,
   buildBaseUnionFile,
+  buildMikroBaseReaderFile,
   buildTpcBaseReaderFile,
   routesPolymorphicRead,
 } from "../../../generator/typescript/base-reader-builder.js";
+import {
+  TS_MONEY_GRAMMAR,
+  tsMoneyColumnLabel,
+  tsMoneyIntegerDigits,
+} from "../../../generator/typescript/codec-spelling.js";
 import { addTsExtensionsForNodeDebug } from "../../../generator/typescript/debug-imports.js";
 import {
   renderAuditActorModule,
@@ -45,15 +46,14 @@ import {
 import { emitTypescriptMigrations } from "../../../generator/typescript/emit/migrations.js";
 import {
   MIKRO_INDEX_IMPORTS,
+  MIKRO_ORM_VERSION,
   mikroConnectionSetup,
-  renderMikroBaseReader,
   renderMikroConfig,
   renderMikroDocumentRepository,
   renderMikroEmbeddedRepository,
   renderMikroEntities,
   renderMikroEventSourcedRepository,
   renderMikroRepository,
-  renderMikroTpcBaseReader,
 } from "../../../generator/typescript/emit/mikroorm.js";
 import { emitMikroSeeds, emitTypescriptSeeds } from "../../../generator/typescript/emit/seed.js";
 import {
@@ -72,6 +72,12 @@ import {
 import { buildExternSubclassFile } from "../../../generator/typescript/extern-builder.js";
 import { rewriteRelativeImports } from "../../../generator/typescript/layout-imports.js";
 import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
+import {
+  READ_SCOPES_PATH,
+  type ReadScopeSpec,
+  renderReadScopesFile,
+  wantsReadScope,
+} from "../../../generator/typescript/read-scopes-builder.js";
 import { buildRepositoryFile } from "../../../generator/typescript/repository-builder.js";
 import { buildDocumentRepositoryFile } from "../../../generator/typescript/repository-document-builder.js";
 import { buildEmbeddedRepositoryFile } from "../../../generator/typescript/repository-embedded-builder.js";
@@ -84,6 +90,7 @@ import {
 } from "../../../generator/typescript/repository-port-builder.js";
 import { deriveEventSubscriptions, enrichLoomModel } from "../../../ir/enrich/enrichments.js";
 import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
+import { anyRouteReadsIfMatch } from "../../../ir/enrich/version-check.js";
 import {
   fieldFixedMessage,
   fieldSentenceSuffix,
@@ -147,7 +154,6 @@ import {
 } from "../../../ir/util/resolve-datasource.js";
 import { hierarchyRegistry } from "../../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../../ir/util/value-object-invariants.js";
-import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import type { Model } from "../../../language/generated/ast.js";
 import { API_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
@@ -759,7 +765,7 @@ export function generateTypeScript(
 /** Does this deployable OWN at least one timerSource?  Ownership is derived (the
  *  subdomain's `migrationsOwner`), and it decides two things that must agree: the
  *  `scheduler.ts` emit and — on mikroorm — the `loom_timer_runs` watermark
- *  ENTITY, without which `updateSchema()` drops the table on the second boot.
+ *  ENTITY, without which `schema.update()` drops the table on the second boot.
  *  Shared so the two cannot drift. */
 function ownsTimers(system: { deployable: DeployableIR; sys: SystemIR } | undefined): boolean {
   if (!system) return false;
@@ -954,7 +960,7 @@ export function generateTypeScriptForContexts(
     "http/problem-details.ts",
     problemDetailsTs(
       validationMessages.length > 0,
-      merged.aggregates.some(aggregateIsVersioned),
+      anyRouteReadsIfMatch(merged.aggregates),
       emitVoInvariant,
       emitDomainFloorCodes,
     ),
@@ -1006,7 +1012,7 @@ export function generateTypeScriptForContexts(
   // Persistence selection (D-REALIZATION-AXES `persistence:`): `mikroorm`
   // replaces the drizzle schema + per-aggregate drizzle repositories + drizzle
   // migrations with an EntitySchema persistence model + MikroORM repositories
-  // (schema owned by `orm.schema.updateSchema()` at startup).  The validator
+  // (schema owned by `orm.schema.update()` at startup).  The validator
   // gates mikroorm to the supported subset, so the drizzle-only branches below
   // stay byte-identical for the default `drizzle`.
   const usingMikro = system?.deployable.persistence === "mikroorm";
@@ -1026,7 +1032,7 @@ export function generateTypeScriptForContexts(
           outbox: durableEventTypes(merged).size > 0,
           // Timer-scheduler watermark Row — same condition as `scheduler.ts`
           // below (this deployable OWNS a timerSource).  It has to be an entity
-          // on this adapter or `updateSchema()` drops it on the second boot.
+          // on this adapter or `schema.update()` drops it on the second boot.
           timerRuns: ownsTimers(system),
         },
       ),
@@ -1240,6 +1246,9 @@ export function generateTypeScriptForContexts(
   // concrete's own emitted public method headers (so `implements` always
   // type-checks) and pooled into one `domain/repository-ports.ts`.
   const portSpecs: RepoPortSpec[] = [];
+  // Aggregates whose drizzle repository (or polymorphic base reader) calls a
+  // generated scope helper — pooled into `db/read-scopes.ts` below.
+  const scopeSpecs: ReadScopeSpec[] = [];
   for (const ctx of contexts) {
     // Scaffold-once impl modules for any extern commandHandler / queryHandler.
     // No-op (byte-identical) for a context with none.
@@ -1301,6 +1310,17 @@ export function generateTypeScriptForContexts(
               ? buildEmbeddedRepositoryFile(agg, repo, ctx, emitTrace)
               : buildRepositoryFile(agg, repo, ctx, emitTrace);
       place("drizzle-repository", agg.name, repoContent, repo?.origin ?? agg.origin, construct);
+      // Relational / embedded reads are SQL over the aggregate's table, so they scope
+      // through the generated helper; a document or event-sourced read evaluates
+      // in-process and never calls one.
+      if (
+        !usingMikro &&
+        agg.persistedAs !== "eventLog" &&
+        shape !== "document" &&
+        wantsReadScope(agg, ctx)
+      ) {
+        scopeSpecs.push({ agg, ctx });
+      }
       // Derive this aggregate's repository PORT from the concrete just emitted
       // (audit S7) — pooled into `domain/repository-ports.ts` below.
       portSpecs.push({ aggName: agg.name, members: portMembersFromSource(repoContent) });
@@ -1377,6 +1397,7 @@ export function generateTypeScriptForContexts(
       const concretes = tphConcretesOf(base, ctx.aggregates) as typeof ctx.aggregates;
       const read = polymorphicReadFor(base, ctx.aggregates);
       if (!read) continue;
+      if (!usingMikro && wantsReadScope(base, ctx)) scopeSpecs.push({ agg: base, ctx });
       const baseConstruct = `${ctx.name}.${base.name}`;
       place(
         "domain-aggregate",
@@ -1389,12 +1410,12 @@ export function generateTypeScriptForContexts(
         "drizzle-repository",
         base.name,
         usingMikro
-          ? renderMikroBaseReader(base, concretes)
+          ? buildMikroBaseReaderFile(base, concretes, ctx, read)
           : buildBaseReaderFile(base, concretes, ctx, read),
         base.origin,
         baseConstruct,
       );
-      if (!usingMikro && routesPolymorphicRead(base, ctx)) {
+      if (routesPolymorphicRead(base, ctx)) {
         place(
           "http-routes",
           base.name,
@@ -1425,13 +1446,11 @@ export function generateTypeScriptForContexts(
       place(
         "drizzle-repository",
         base.name,
-        usingMikro
-          ? renderMikroTpcBaseReader(base, concretes)
-          : buildTpcBaseReaderFile(base, concretes, read),
+        buildTpcBaseReaderFile(base, concretes, read, usingMikro ? "mikroorm" : "drizzle"),
         base.origin,
         baseConstruct,
       );
-      if (!usingMikro && routesPolymorphicRead(base, ctx)) {
+      if (routesPolymorphicRead(base, ctx)) {
         place(
           "http-routes",
           base.name,
@@ -1478,7 +1497,7 @@ export function generateTypeScriptForContexts(
   // Per-module Postgres migrations + Drizzle journal — emitted whenever
   // the system orchestrator hands us a migrations slice.  Empty slice
   // (non-system entry points) → no-op.
-  // mikroorm owns its schema via `orm.schema.updateSchema()` at startup, so it
+  // mikroorm owns its schema via `orm.schema.update()` at startup, so it
   // emits no drizzle migration files and `hasMigrations` stays false (which
   // suppresses the boot-time `migrate(...)` call in index.ts).
   const hasMigrations = !usingMikro && !!(system?.migrations && system.migrations.length > 0);
@@ -1713,6 +1732,10 @@ export function generateTypeScriptForContexts(
   // up by the layout post-pass below when byFeature relocates the aggregates.
   const portsFile = renderRepositoryPortsFile(portSpecs, merged);
   if (portsFile) out.set(PORT_POOL_PATH, portsFile);
+  // The pooled drizzle read-scope helpers (`<agg>Scope`) every repository read and
+  // write site, the polymorphic base readers and the projection routes call.
+  const readScopesFile = renderReadScopesFile(scopeSpecs);
+  if (readScopesFile) out.set(READ_SCOPES_PATH, readScopesFile);
   // D-REALIZATION-AXES `directoryLayout:` — when the layout relocated any
   // per-aggregate file (byFeature), fix up every relative import across the
   // project so the moved modules still resolve.  No-op (byte-identical) for the
@@ -1794,8 +1817,8 @@ function projectPackageJson(
   const dependencies = mikro
     ? {
         ...depsNoDrizzle,
-        "@mikro-orm/core": "6.6.17",
-        "@mikro-orm/postgresql": "6.6.17",
+        "@mikro-orm/core": MIKRO_ORM_VERSION,
+        "@mikro-orm/postgresql": MIKRO_ORM_VERSION,
       }
     : { ...pins.dependencies };
   const devDependencies = {
@@ -1907,7 +1930,7 @@ import { z } from "@hono/zod-openapi";
  * a 400 with the field name attached, not an uncaught throw.
  */
 export const moneySchema = z.string().transform((s: string, ctx: any) => {
-  if (!/^-?\\d+(\\.\\d+)?$/.test(s)) {
+  if (!${TS_MONEY_GRAMMAR}.test(s)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: \`${fieldValuePrefix("money-grammar")}: \${JSON.stringify(s)}\`,
@@ -1917,10 +1940,10 @@ export const moneySchema = z.string().transform((s: string, ctx: any) => {
   // RANGE, not format: the grammar above already passed, and what is left is a
   // magnitude question the COLUMN answers.  Without this a 40-digit price is a
   // well-formed decimal string every parser accepts, so it reached
-  // NUMERIC(${MONEY_PRECISION},${MONEY_WIRE_SCALE}) and the DATABASE refused it
+  // ${tsMoneyColumnLabel()} and the DATABASE refused it
   // — a 500 for a client fault (M-T6.60 divergence 3).  Counted on the digits
   // rather than computed, so a value too large to hold is never constructed.
-  if (s.replace(/^-/, "").split(".")[0]!.replace(/^0+(?=\\d)/, "").length > ${MONEY_INTEGER_DIGITS}) {
+  if (s.replace(/^-/, "").split(".")[0]!.replace(/^0+(?=\\d)/, "").length > ${tsMoneyIntegerDigits()}) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: \`${fieldValuePrefix("money-range")}: \${JSON.stringify(s)}\`,
@@ -2156,7 +2179,10 @@ function renderProjectIndexTs(
   // whole subtree ladder collapses — a silent wrong answer on an adapter that
   // renders the subtree predicate.  The mikro branch reads the registry Row
   // through the EntityManager instead
-  // (`findOne(<Reg>Row, { id: claim })`), the same one-row lookup.
+  // (`findOne(<Reg>Row, { id: claim }, { filters: false })`), the same one-row
+  // lookup.  The registry Row carries the tenancy self-scope as a default
+  // filter that reads the principal — and this lookup runs to BUILD that
+  // principal, so it is the one read the filter must not scope.
   // The drizzle schema-table var (`orgs`) and the MikroORM Row entity class
   // (`OrgRow`) for the same registry aggregate — one name in, both spellings
   // derived here rather than at the call site, so the two persistence branches
@@ -2173,7 +2199,7 @@ function renderProjectIndexTs(
   const orgPathRegistration = !wireOrgPath
     ? ""
     : usingMikro
-      ? `${orgPathDoc}registerOrgPathResolver(async (claim) => {\n  const row = await db.fork().findOne(${orgPathRegistryRow}, { id: claim });\n  return row?.dataKey ?? null;\n});\n`
+      ? `${orgPathDoc}registerOrgPathResolver(async (claim) => {\n  const row = await db.fork().findOne(${orgPathRegistryRow}, { id: claim }, { filters: false });\n  return row?.dataKey ?? null;\n});\n`
       : `${orgPathDoc}registerOrgPathResolver(async (claim) => {\n  const rows = await db\n    .select({ dataKey: schema.${orgPathRegistryTable}.dataKey })\n    .from(schema.${orgPathRegistryTable})\n    .where(eq(schema.${orgPathRegistryTable}.id, claim))\n    .limit(1);\n  return rows[0]?.dataKey ?? null;\n});\n`;
   // Event-dispatch / relay / scheduler imports — SHARED by both persistence
   // branches — the mikro adapter emits the outbox relay too, so this block
@@ -2226,7 +2252,7 @@ import { shutdownTracing } from "./obs/tracing";`;
   const connectionBlock = usingMikro
     ? `// Persistence connection — owned by the mikroorm PersistenceAdapter\n// (MikroORM.init → dev schema bootstrap → EntityManager as \`db\`).\n${mikroConnectionSetup().join("\n")}`
     : `// Persistence connection — owned by the drizzle PersistenceAdapter\n// (DATABASE_URL guard → pg pool → pool-error logging → drizzle db).\n${DRIZZLE_CONNECTION_SETUP.join("\n")}`;
-  // mikroorm bootstraps its schema inside the connection block (updateSchema),
+  // mikroorm bootstraps its schema inside the connection block (schema.update),
   // so it never emits the drizzle boot-time migrate call.
   const effectiveMigCall = usingMikro ? "" : migCall;
   return `// Auto-generated.
@@ -2364,7 +2390,7 @@ process.on("SIGINT", () => void shutdown("SIGINT"));
 /** The runtime stage's copy of the drizzle migration folder.  Present iff the
  *  project emits `db/migrations` — the same `hasMigrations` predicate that
  *  emits the boot-time `migrate(...)` call in index.ts.  A mikroorm project
- *  (schema via `orm.schema.updateSchema()`) and a node deployable that owns no
+ *  (schema via `orm.schema.update()`) and a node deployable that owns no
  *  module's migrations emit none, and an unconditional `COPY` of a missing
  *  path fails `docker build` outright (`"/app/db/migrations": not found`). */
 const MIGRATIONS_COPY = `# Drizzle's runtime migrator reads migration SQL + meta/_journal.json

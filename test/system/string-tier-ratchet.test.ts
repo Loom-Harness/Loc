@@ -92,7 +92,7 @@ const CEILINGS: Record<string, number> = {
   _walker: 700,
   _workflow: 200,
   angular: 1000,
-  dotnet: 2500, // 2300 → 2500 (#3249): the EF identity-parity pins assert the emitted C# (tracker fork, 409 path) per leg
+  dotnet: 2400, // the EF identity-parity pins assert the emitted C# (tracker fork, 409 path) per leg
   elixir: 3400, // the Ecto delta-migration pins assert the emitted create/rename/key-move per step; runtime proof is migration-evolution-elixir
   "elixir-vanilla": 500,
   feliz: 1500,

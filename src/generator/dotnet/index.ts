@@ -1709,6 +1709,7 @@ function emitAggregate(
               ns,
               findBodies,
               [...repoImplUsings].sort(),
+              ctx.aggregates,
             )
           : renderDapperRepository(
               agg,
@@ -1720,6 +1721,7 @@ function emitAggregate(
               // TPH concrete: persist to the shared base table, discriminated by
               // `kind = '<Concrete>'`, threading the shared `<Base>Id`.
               tphBase ? { baseName: tphBase.name, discriminator: agg.name } : undefined,
+              ctx.aggregates,
             ),
       repoOrigin,
     );

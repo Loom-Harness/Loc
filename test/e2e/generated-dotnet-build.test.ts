@@ -1572,8 +1572,8 @@ describe.skipIf(!ENABLED)(
     // M-T6.9 wave 4: the Dapper adapter's TPH (`sharedTable`) inheritance
     // surface — one `kind`-discriminated shared table named for the abstract
     // base (id + kind + base columns + the nullable union of every concrete's
-    // own columns); each concrete repo targets that table with a spliced
-    // `kind = '<Concrete>'` filter + discriminator-literal INSERT, threading
+    // own columns); each concrete repo targets that table through its
+    // `<Concrete>Scope` (`kind = '<Concrete>'`) + discriminator-literal INSERT, threading
     // the shared `<Base>Id`.  Build under /warnaserror.
     it("system `persistence: dapper` + TPH inheritance — shared kind-discriminated table builds under /warnaserror", () => {
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dapper-tph-"));
@@ -1592,7 +1592,8 @@ describe.skipIf(!ENABLED)(
           path.join(proj, "Infrastructure", "Repositories", "CustomerRepository.cs"),
           "utf8",
         );
-        expect(repo).toContain("FROM parties WHERE kind = 'Customer'");
+        expect(repo).toContain(`public const string Where = "kind = 'Customer'";`);
+        expect(repo).toContain('FROM parties WHERE id = @id AND " + CustomerScope.Where');
         expect(repo).toContain("INSERT INTO parties (id, kind,");
         execSync(`dotnet restore --nologo`, { cwd: proj, stdio: "inherit", timeout: 240_000 });
         execSync(`dotnet build --no-restore --nologo /warnaserror`, {

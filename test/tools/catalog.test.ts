@@ -132,7 +132,8 @@ describe("agent-tool catalog", () => {
   it("loom_diff surfaces the migration + wire delta a change implies", async () => {
     const v1 = `system Shop {
   storage primary { type: postgres }
-  deployable api { platform: node, contexts: [Sales] }
+  resource st { for: Sales, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Sales], dataSources: [st] }
   subdomain Selling { context Sales {
     aggregate Order with crudish { reference: string }
     repository Orders for Order { }

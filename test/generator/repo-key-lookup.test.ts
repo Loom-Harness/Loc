@@ -11,6 +11,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
+import { inlineDrizzleScope } from "../_helpers/drizzle-scope.js";
 import { generateSystemFiles } from "../_helpers/index.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -29,7 +30,8 @@ function file(suffix: string): string {
 
 describe("node", () => {
   it("emits the methods, throwing on a getBy miss and honouring ignoring *", () => {
-    const repo = file("node_api/db/repositories/product-repository.ts");
+    // The scope helper calls are resolved to the predicates they apply.
+    const repo = inlineDrizzleScope(files, file("node_api/db/repositories/product-repository.ts"));
     const get = repo.slice(
       repo.indexOf("async getBySku("),
       repo.indexOf("async findByRegionAndName("),

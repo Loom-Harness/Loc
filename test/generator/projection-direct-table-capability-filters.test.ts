@@ -21,6 +21,8 @@
 //     and is out of this change's scope (reported as follow-up).
 
 import { describe, expect, it } from "vitest";
+import { inlineDapperScope } from "../_helpers/dapper-scope.js";
+import { inlineDrizzleScope } from "../_helpers/drizzle-scope.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 /** `softDeletable` contributes a NON-principal filter (`!this.isDeleted`). */
@@ -104,7 +106,10 @@ const tenancySystem = (platform: string) => `
 `;
 
 async function fileContaining(src: string, needle: string): Promise<string> {
-  for (const [path, body] of await generateSystemFiles(src)) if (path.includes(needle)) return body;
+  const files = await generateSystemFiles(src);
+  for (const [path, body] of files) {
+    if (path.includes(needle)) return inlineDrizzleScope(files, inlineDapperScope(body));
+  }
   return "";
 }
 
@@ -124,10 +129,10 @@ describe("direct-table projection — node (Hono/Drizzle)", () => {
     expect(f).toContain(
       "db.select({ total: count() }).from(schema.orders).where(eq(schema.orders.tenantId, requireCurrentUser().tenantId))",
     );
-    // The ambient accessor needs its import — an undefined name would not
-    // compile, which is how a filter that is applied differs from one that is
-    // merely rendered.
-    expect(f).toContain(`import { requireCurrentUser } from "../auth/middleware";`);
+    // The scope helper needs its import — an undefined name would not compile,
+    // which is how a filter that is applied differs from one that is merely
+    // rendered; the ambient accessor is imported by the helper module.
+    expect(f).toContain(`from "../db/read-scopes";`);
     // `ignoring *` drops the capability predicate for that read ONLY.
     expect(f).toContain("db.select({ total: count() }).from(schema.orders);");
   });
@@ -136,18 +141,24 @@ describe("direct-table projection — node (Hono/Drizzle)", () => {
 describe("direct-table projection — node (Hono/MikroORM)", () => {
   const mikro = "node { persistence: mikroorm }";
 
-  it("ANDs the capability filter into the QueryBuilder WHERE", async () => {
+  it("applies the source's schema filters to the QueryBuilder read", async () => {
     const f = await fileContaining(softDeleteSystem(mikro), "query-projections");
-    // Two direct-table reads (whole-table + grouped), each carrying the filter.
-    expect([...f.matchAll(/qb\.where\(\{ isDeleted: false \}\);/g)].length).toBe(2);
+    // Two direct-table reads (whole-table + grouped), each applying the filters
+    // the Order schema declares — a QueryBuilder is not filtered by itself.
+    expect([...f.matchAll(/await qb\.applyFilters\(\{\}\);/g)].length).toBe(2);
+    expect(f).not.toContain("isDeleted");
+    const entities = await fileContaining(softDeleteSystem(mikro), "db/entities");
+    expect(entities).toContain('"softDeletable": { name: "softDeletable"');
   });
 
   it("scopes a tenantOwned source to the caller, and honours `ignoring *`", async () => {
     const f = await fileContaining(tenancySystem(mikro), "query-projections");
-    expect(f).toContain("qb.where({ tenantId: requireCurrentUser().tenantId });");
-    expect(f).toContain(`import { requireCurrentUser } from "../auth/middleware";`);
-    // The bypassed read emits no `where` at all.
-    expect([...f.matchAll(/qb\.where\(/g)].length).toBe(1);
+    // The scoped read applies every filter; the `ignoring *` read switches the
+    // tenant one off by name.
+    expect(f).toContain("await qb.applyFilters({});");
+    expect(f).toContain('await qb.applyFilters({ "tenantOwned": false });');
+    expect(f).not.toContain("requireCurrentUser");
+    expect(f).not.toContain("qb.where(");
   });
 });
 

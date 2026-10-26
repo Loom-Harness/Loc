@@ -317,6 +317,28 @@ The workflow body draws from a narrowed statement set — distinct from an aggre
 | `precondition Expr` / `requires Expr` | Guard → 400 (`DomainError`) / 403 (`ForbiddenError`). |
 | `emit Event { … }` | Workflow-level event; drains after all saves (after commit when `transactional`). |
 
+A `let` over a declared `T?` find, read behind its guard:
+
+```ddd
+repository Orders for Order {
+  find byCode(c: string): Order? where this.code == c
+}
+workflow Labeller {
+  create(c: string) {
+    let o = Orders.byCode(c)
+    let text = o != null ? o.status : "missing"
+    let n = Note.create({ text: text })
+  }
+}
+```
+```ts
+// http/workflows.ts (node)
+const o = await orders.byCode(c);
+const text = o !== null ? o.status : "missing";
+const n = Note.create({ text: text });
+await notes.save(n);
+```
+
 A loaded aggregate is saved **only if** an operation was invoked on it inside the body; fresh `Agg.create` results always save. See [`../workflow.md`](../workflow.md) §"Save + event drain semantics".
 
 There is no save statement: `Repo.save(x)` (or `insert` / `update` / `add` / `commit`) in a workflow or handler body is `loom.workflow-explicit-save`. `Repo.delete(x)` / `Repo.remove(x)` is the one repository write a body states.

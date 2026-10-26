@@ -178,6 +178,8 @@ export async function run() {
     // RS-9 — appended AFTER the tier so the probes never shift the ordinals the
     // golden aligns on, and so a failing tier is diagnosed on its own requests.
     await __frameworkProbes(dispatch, { auth: ${J(authMode !== "none")}, files: ${J(!!mountsFiles)} });
+    // The asserting probes (the two-writer probe) settle like the tier's own tests.
+    for (const r of __probeResults) out.push(r);
     // M-T9.28 / M-T9.11 — the authorization ladder, on the cases that declare
     // one.  RECORDED through the same dispatch, so its 401/403/2xx enter the wire
     // golden; runs last, after the framework probes, so it only appends trailing
@@ -211,7 +213,7 @@ export async function run() {
     // onto, so they stay out of the Definition-of-Done rollup entirely rather
     // than arriving as unmatched (or, worse, skip-status) outcomes.
     const outcomes = out
-      .filter((r) => r.tier !== "authz")
+      .filter((r) => r.tier !== "authz" && r.tier !== "probe")
       .map((r) => ({ name: r.name, suite: r.suite, status: r.status }));
     // An api-e2e title carries an " against <serviceSlug>" suffix
     // (e2e-render.ts replays one e2e block per compatible backend), so the

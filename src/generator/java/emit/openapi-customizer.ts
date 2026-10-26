@@ -1,3 +1,4 @@
+import { reasonPhrase } from "../../../ir/enrich/wire-policy.js";
 import {
   forApiRead,
   wireFieldsForAggregate,
@@ -25,12 +26,7 @@ import {
   relativeOpPath,
 } from "../../../ir/util/api-surface.js";
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
-import {
-  errorStatuses,
-  PROBLEM_JSON,
-  PROBLEM_SCHEMA,
-  problemTitle,
-} from "../../../ir/util/openapi-errors.js";
+import { errorStatuses, PROBLEM_JSON, PROBLEM_SCHEMA } from "../../../ir/util/openapi-errors.js";
 import { lines } from "../../../util/code-builder.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { lowerFirst, snake, upperFirst } from "../../../util/naming.js";
@@ -666,12 +662,12 @@ export function renderJavaOpenApiCustomizer(basePkg: string, contract: Contract)
     return `        new RequiredSet(${JSON.stringify(r.schema)}, List.of(${fields})),`;
   });
 
-  // Title table for the RFC 7807 problem responses (matches problemTitle()).
+  // Title table for the RFC 7807 problem responses (the fact's reasonPhrase).
   const allStatuses = new Set<number>();
   for (const r of contract.routes) for (const e of r.errors) allStatuses.add(e.status);
   const titleCases = [...allStatuses]
     .sort((a, b) => a - b)
-    .map((s) => `            case ${s} -> ${JSON.stringify(problemTitle(s))};`);
+    .map((s) => `            case ${s} -> ${JSON.stringify(reasonPhrase(s))};`);
 
   return lines(
     `package ${basePkg}.config;`,

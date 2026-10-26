@@ -13,6 +13,11 @@ export type ThrowClassification =
   | { deferred: string; mission: string; reviewUntil: string };
 
 export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
+  // src/generator/java/wire-policy-java.ts
+  "src/generator/java/wire-policy-java.ts#javaIngressCoercions": {
+    invariant:
+      "JACKSON_LOGICAL_TYPE is a closed emitter-side table; two primitives sharing a Jackson logical type must carry the same ingress rule, which the java wire-policy census pins. No .ddd input moves it.",
+  },
   // src/generator/_imports/java.ts
   "src/generator/_imports/java.ts#finalizeJavaUnit": {
     invariant:
@@ -27,6 +32,12 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "A user type name equal to an imported JDK/library type (e.g. a value object named `Instant` or `List`) makes two imports bind one simple name; refused here (Java has no import alias) instead of emitting a javac ambiguity. The target-reserved table from S1 (#3155, `isReserved`) is to refuse or escape such names up front; wire it in and re-classify guardedBy.",
     mission: "#3164",
     reviewUntil: "2027-01-31",
+  },
+
+  // src/generator/python/wire-policy-py.ts
+  "src/generator/python/wire-policy-py.ts#wireStatusResolver": {
+    invariant:
+      "The resolver is called only by errorStatuses (src/ir/util/openapi-errors.ts) with its four fixed rung names (ReferencedInUse, DomainError, Forbidden, NotFound); no .ddd input names a rung. (src/generator/python/wire-policy-py.ts:72)",
   },
 
   // src/generator/_imports/python.ts
@@ -430,11 +441,11 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
   "src/generator/dotnet/emit/dapper.ts#renderDapperRepository": {
     invariant:
-      "A capability filter outside the Dapper SQL subset. Every shape the target-neutral predicate oracle admits renders here: test/system/predicate-position-census.test.ts measures each position × adapter × shape and fails on a crash.",
-  },
-  "src/generator/dotnet/emit/dapper.ts#renderDapperRepository$2": {
-    invariant:
       "writeScopeFilter is only synthesized by enrichment as a scope/deny authz-filter sentinel or `this.tenantId == currentUser.<claim>`, all of which whereToSql renders. (src/ir/enrich/enrichments.ts:680-684,759 + src/ir/util/tenant-stance.ts:369-455 (writeScopeFilter is only ever buildDeepScopeFilter / buildTenantFloorFilter / buildDenyFilter))",
+  },
+  "src/generator/dotnet/emit/dapper-scope.ts#buildDapperScope": {
+    invariant:
+      "A capability filter outside the Dapper SQL subset. Every shape the target-neutral predicate oracle admits renders here: test/system/predicate-position-census.test.ts measures each position × adapter × shape and fails on a crash.",
   },
 
   // src/generator/dotnet/emit/integration-tests.ts
@@ -1215,6 +1226,16 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "uiName comes from a resolved Langium cross-reference (an unresolved ui name is a linking error), and a project has exactly one system, so the ui is always in sys.uis. (src/ir/lower/lower-deployment.ts:34-35)",
   },
 
+  // src/generator/typescript/codec-spelling.ts
+  "src/generator/typescript/codec-spelling.ts#drizzleColumn": {
+    invariant:
+      "drizzleColumn is reached only from drizzleScalarColumn / drizzleIdColumn, which pass the Codec fact's column for a storable scalar or an id value type; the fact maps none of those to `bigserial` or `array` (pinned by test/ir/codec.test.ts). (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/typescript/codec-spelling.ts#tsInstantWire": {
+    invariant:
+      "The Codec fact's datetime wire form carries exactly three fraction digits (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+
   // src/generator/typescript/emit/channels.ts
   "src/generator/typescript/emit/channels.ts#transportFactoryLine": {
     invariant:
@@ -1407,10 +1428,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/platform/hono/v4/projection-query-routes-builder.ts#buildQueryProjectionsFile$2": {
     invariant:
       "An aggregation projection `where` Drizzle cannot lower. Every shape the target-neutral predicate oracle admits renders here: test/system/predicate-position-census.test.ts measures each position × adapter × shape and fails on a crash.",
-  },
-  "src/platform/hono/v4/projection-query-routes-builder.ts#drizzleCapabilityPredicates": {
-    invariant:
-      "A capability filter Drizzle cannot lower on the aggregation path. Every shape the target-neutral predicate oracle admits renders here: test/system/predicate-position-census.test.ts measures each position × adapter × shape and fails on a crash.",
   },
   "src/platform/hono/v4/projection-query-routes-builder.ts#groupKeyExpr": {
     invariant:

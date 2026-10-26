@@ -26,6 +26,7 @@ import { lines } from "../../../util/code-builder.js";
 import { plural } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { javaRef } from "../../_imports/java.js";
+import { javaSentence } from "../wire-policy-java.js";
 import { javaPagedQueryParams } from "./common.js";
 import { javaIdValueType } from "./wire.js";
 /** The polymorphic read of `base` when java routes it, else undefined.
@@ -124,7 +125,7 @@ export function renderJavaBaseReadController(
     `            .getResultStream()`,
     `            .findFirst()`,
     `            .map(this::tagged)`,
-    `            .orElseThrow(() -> new ${notFound}("${base.name} " + key + " not found"));`,
+    `            .orElseThrow(() -> new ${notFound}(${javaSentence("not-found", `"${base.name} " + key`)}));`,
     `    }`,
     ``,
     `    private ${OBJECT_NODE} tagged(${baseEntity} row) {`,
