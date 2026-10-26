@@ -46,10 +46,10 @@ import {
   type WorkflowCreateDecl,
 } from "../generated/ast.js";
 import {
-  type DddType,
   envForNode,
   isAssignable,
   resolveTypeRef,
+  type Ty,
   typeOf,
   typeToString,
 } from "../type-system.js";
@@ -360,7 +360,7 @@ function checkWorkflow(wf: Workflow, accept: ValidationAcceptor): void {
  *  (`"…"` / integer / `true|false`).  An aggregate / payload / value-object /
  *  decimal / money / datetime result needs a per-backend wire projection the
  *  workflow route does not have yet — refused honestly, not mis-serialised. */
-function isSupportedWorkflowResult(t: DddType): boolean {
+function isSupportedWorkflowResult(t: Ty): boolean {
   if (t.kind === "id") return true;
   return (
     t.kind === "primitive" &&

@@ -70,7 +70,6 @@ export {
   validateFlutterPrimitiveSupport,
   validateFormLocalCollisions,
   validateFrontendPropTypes,
-  validateHeexComponentHostState,
   validateLiveViewHoisting,
   validatePageGateExprs,
   validateUiBodyStatementKinds,

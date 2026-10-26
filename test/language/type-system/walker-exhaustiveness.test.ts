@@ -7,7 +7,7 @@
 // they hand back (the member's type; the member's type along a dotted path;
 // the member's AST node).  They were written as `if (t.kind === …)` chains
 // falling through to a silent `T.unknown` / `undefined`, which is the shape the
-// weak-spots audit §7 flagged: **a new `DddType` kind resolves on one walker,
+// weak-spots audit §7 flagged: **a new type kind resolves on one walker,
 // silently misses the other two, and nothing fails.**
 //
 // The divergence is not hypothetical.  On `main` before this change,
@@ -17,7 +17,7 @@
 //
 // THE GUARD IS THE COMPILER.  Each walker is now a `switch (t.kind)` with a
 // `const _exhaustive: never` default (the `src/ir/util/walk.ts` idiom), so a
-// new `DddType` member fails `tsc -b` at all three sites at once.  That is the
+// new `Ty` member fails `tsc -b` at all three sites at once.  That is the
 // gate; this test is its READABILITY half, and it catches the two things the
 // `never`-check alone cannot:
 //
@@ -41,14 +41,15 @@ const SRC = path.resolve(
   "../../../src/language/type-system.ts",
 );
 const source = fs.readFileSync(SRC, "utf8");
+const tySource = fs.readFileSync(path.resolve(path.dirname(SRC), "typing/ty.ts"), "utf8");
 
-/** Every `kind:` literal in the `DddType` union declaration — read from the
+/** Every `kind:` literal in the `Ty` union declaration — read from the
  *  source so the test cannot drift behind a union that grew. */
-function dddTypeKinds(): string[] {
-  const start = source.indexOf("export type DddType =");
-  expect(start, "the `DddType` union declaration moved or was renamed").toBeGreaterThan(-1);
-  const end = source.indexOf("\n\n", start);
-  const decl = source.slice(start, end);
+function tyKinds(): string[] {
+  const start = tySource.indexOf("export type Ty = (");
+  expect(start, "the `Ty` union declaration moved or was renamed").toBeGreaterThan(-1);
+  const end = tySource.indexOf("\n\n", start);
+  const decl = tySource.slice(start, end);
   return [...decl.matchAll(/\{\s*kind:\s*"([a-z]+)"/g)].map((m) => m[1] as string);
 }
 
@@ -68,7 +69,13 @@ function caseGroups(fullBody: string): Map<string, string> {
   // the `never`-check block and never looks like a bare `return T.unknown;`.
   const dflt = fullBody.search(/^\s*default: \{/m);
   const body = dflt === -1 ? fullBody : fullBody.slice(0, dflt);
-  const labels = [...body.matchAll(/^\s*case "([a-z]+)":/gm)];
+  // Only the walker's own switch: a `record` arm dispatches again on the
+  // record's shape, and those nested labels are not `Ty` kinds.
+  const all = [...body.matchAll(/^(\s*)case "([a-z]+)":/gm)];
+  const indent = all[0]?.[1]?.length ?? 0;
+  const labels = all
+    .filter((m) => m[1]!.length === indent)
+    .map((m) => Object.assign([m[0], m[2]], { index: m.index }) as RegExpMatchArray);
   const out = new Map<string, string>();
   for (let i = 0; i < labels.length; i++) {
     const here = labels[i]!;
@@ -98,27 +105,27 @@ function isNonResolving(groupBody: string): boolean {
 
 const WALKERS = ["stepInto", "stepIntoNode"] as const;
 
-describe("type-system member-resolution walkers are exhaustive over DddType", () => {
-  const kinds = dddTypeKinds();
+describe("type-system member-resolution walkers are exhaustive over Ty", () => {
+  const kinds = tyKinds();
 
   it("the scan reaches the real union and the real walkers", () => {
     // Vacuum guard: a source scan that matched nothing would pass every
     // assertion below (experience_gathered §59).
     expect(kinds.length).toBeGreaterThanOrEqual(15);
-    expect(kinds).toContain("userclaim");
-    expect(kinds).toContain("payload");
-    expect(new Set(kinds).size, "duplicate kind in the DddType union").toBe(kinds.length);
+    expect(kinds).toContain("record");
+    expect(kinds).toContain("union");
+    expect(new Set(kinds).size, "duplicate kind in the Ty union").toBe(kinds.length);
     for (const w of WALKERS) {
       expect(caseGroups(functionBody(w)).size, `${w} has no switch arms`).toBeGreaterThan(5);
     }
   });
 
-  it.each(WALKERS)("%s has an explicit arm for every DddType kind", (walker) => {
+  it.each(WALKERS)("%s has an explicit arm for every Ty kind", (walker) => {
     const groups = caseGroups(functionBody(walker));
     const missing = kinds.filter((k) => !groups.has(k));
     expect(
       missing,
-      `${walker} has no \`case "<kind>":\` arm for these DddType kinds. ` +
+      `${walker} has no \`case "<kind>":\` arm for these Ty kinds. ` +
         "A kind with no arm falls into the `never` default and resolves silently to " +
         "nothing — which is the M-T5.16 (a) defect. Add an arm (and, if the kind " +
         "genuinely resolves members, a row in MEMBER_RESOLVING_KINDS).",

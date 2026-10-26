@@ -74,10 +74,6 @@ const SUPPRESSION_BASELINE: Record<string, number> = {
   "src/language/validators/builder-call.ts": 1,
   // Interpolation-hole typing in a template literal.
   "src/language/validators/template.ts": 1,
-  // `arithmeticResult` itself: unknown ⊕ anything = unknown. This is the
-  // PROPAGATOR, not a suppression — it is what makes one unknown reach every
-  // later operand position in the same expression.
-  "src/language/type-system.ts": 2,
 };
 
 /** The band the measured `unknown` share must stay inside.  Measured at

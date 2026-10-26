@@ -145,7 +145,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.auth-ui-unsupported-framework",
     kind: "seam",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:319",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:276",
     what: "`auth: ui` ships on every frontend; the seam a NEW one gates on",
     mission: "#3328",
   },
@@ -179,7 +179,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.component-children-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:582",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:539",
     what:
       "an EXTERN user component invoked WITH CHILDREN on angular.  The WALKED half DRAINED in " +
       "wave C2 packet 2h: Loom emits that class and stamps its selector, so its call site is " +
@@ -201,7 +201,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.page-form-locals-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:622",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:579",
     what:
       "two forms on ONE page whose generated page-local bindings collide.  Every JS frontend " +
       "splices a form's mutation hook + form handle in as page-scope consts named by the design " +
@@ -232,18 +232,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "the entity-history read are supported on every shipping frontend, so the remaining " +
       "refusals are the seam a NEW frontend gates on until it ports",
     mission: "#3592",
-    verified: true,
-  },
-  {
-    code: "loom.heex-component-host-state-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:79",
-    what:
-      "a form / QueryView / Table / FileUpload / Chart inside a `component` on phoenixLiveView — " +
-      "#2646 lifted a component's `state` and `action`s into the host LiveView but not the " +
-      "walker's form / query / upload / table-control accumulators, so the markup emitted " +
-      "against an assign the host never makes (compiles clean, then raises at render time)",
-    mission: "#3330",
     verified: true,
   },
   {
@@ -370,7 +358,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.flutter-primitive-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:526",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:483",
     what:
       "every page primitive now renders on Flutter — FLUTTER_UNRENDERED_PRIMITIVES " +
       "(src/util/flutter-deferred-primitives.ts) is EMPTY, so the gate is a dormant re-arm net",
@@ -379,7 +367,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.flutter-action-body-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:721",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:678",
     what:
       "ONE Flutter action-body shape left, down from two: a `match await` on one of the five " +
       "STANDARD aggregate ops (the async-effect emitter resolves its op through " +
@@ -397,7 +385,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.frontend-prop-type-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:119",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:76",
     what:
       "a declared `component` param / `extern` function signature type the shared TypeScript " +
       "prop layer has no spelling for. The three shapes this row was opened for — `money`, " +
@@ -603,7 +591,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.ui-gate-expr-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:1113",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:1070",
     what:
       "a page `requires <expr>` gate outside the client-evaluable subset all THREE closed gate " +
       "renderers implement (`_frontend/gate-expr.ts` for React/Vue/Svelte/Angular, " +
@@ -657,7 +645,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.ui-projection-read-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:272",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:229",
     what:
       "a KEYED or FOLDED projection read from a page/component — not ui-consumable on ANY target " +
       "(ui-checks.ts:1538).  The per-framework half is fully ported: PROJECTION_READ_FRAMEWORKS " +
@@ -667,7 +655,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.ui-realtime-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:470",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:427",
     what:
       "an `on <channel>.<Event>` handler on a ui whose FRAMEWORK has no realtime consumption — " +
       "latent: `SSE_REALTIME_FRONTENDS` names react/vue/svelte/angular/feliz/flutter/static and " +

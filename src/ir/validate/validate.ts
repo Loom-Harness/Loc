@@ -105,7 +105,6 @@ import {
   validateFormLocalCollisions,
   validateFrontendPropTypes,
   validateGuardPrincipalWithoutAuth,
-  validateHeexComponentHostState,
   validateInheritanceStorage,
   validateLiveViewHoisting,
   validateNeedCapabilities,
@@ -268,7 +267,6 @@ export function validateLoomModel(
     // Every construct × position a deployable's target cannot render, read off
     // the capability table (`src/util/target-capabilities.ts`).
     validateTargetCapabilities(sys, diags);
-    validateHeexComponentHostState(sys, diags);
     validateLiveViewHoisting(sys, diags);
     validateFrontendPropTypes(sys, diags);
     validateFlutterActionBodies(sys, diags);

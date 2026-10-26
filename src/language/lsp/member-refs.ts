@@ -36,12 +36,12 @@ import {
   type ValueObject,
 } from "../generated/ast.js";
 import {
-  type DddType,
   envForNode,
   iterateEntityMembers,
   stepInto,
   stepIntoNode,
   suffixType,
+  type Ty,
   typeOf,
 } from "../type-system.js";
 
@@ -82,7 +82,7 @@ export function memberNameCst(ms: MemberSuffix): CstNode | undefined {
 /** Walk head + prior suffixes of a PostfixChain to compute the
  *  receiver type at the given MemberSuffix.  Mirrors the same walk
  *  used by the definition / completion / semantic-tokens providers. */
-function receiverTypeForSuffix(ms: MemberSuffix): DddType | undefined {
+function receiverTypeForSuffix(ms: MemberSuffix): Ty | undefined {
   const chain = ms.$container;
   if (!isPostfixChain(chain)) return undefined;
   const idx = chain.suffixes.indexOf(ms);
@@ -249,7 +249,7 @@ function collectLValueUsages(lv: LValue, target: AstNode, out: CstNode[]): void 
   const info = iterateEntityMembers(owner).find((m) => m.name === head);
   if (!info) return;
   if (info.node === target) pushCst(memberNameCstOf(lv, "head"), out);
-  let cur: DddType = info.type;
+  let cur: Ty = info.type;
   const tailCsts = GrammarUtils.findNodesForProperty(lv.$cstNode, "tail");
   lv.tail.forEach((seg, i) => {
     if (stepIntoNode(cur, seg) === target) pushCst(tailCsts[i], out);

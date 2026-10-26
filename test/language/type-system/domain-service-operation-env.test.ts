@@ -28,31 +28,37 @@ import { AstUtils } from "langium";
 import { describe, expect, it } from "vitest";
 import type { Model } from "../../../src/language/generated/ast.js";
 import { isDomainServiceOperation, isOperation } from "../../../src/language/generated/ast.js";
-import type { DddType } from "../../../src/language/type-system.js";
+import type { Ty } from "../../../src/language/type-system.js";
 import { envForNode } from "../../../src/language/type-system.js";
 import { parseString } from "../../_helpers/index.js";
 
-// A stable rendering of a `DddType`.  Deep-equality is not usable here: the
-// aggregate / valueobject / entity arms hold the AST node itself, so `toEqual`
+// A stable rendering of a type.  Deep-equality is not usable here: the
+// record / valueobject / enum arms hold the AST node itself, so `toEqual`
 // walks `$container` back into the document and throws on the cycle.  This
 // renders the same information the union carries, and nothing else.
-function show(t: DddType | undefined): string {
+function show(t: Ty | undefined): string {
   if (!t) return "(unbound)";
   switch (t.kind) {
     case "primitive":
       return `primitive:${t.name}`;
     case "id":
-      return `id<${t.target.name}>`;
+      return `id<${t.name}>`;
     case "enum":
-      return `enum:${t.ref.name}`;
+      return `enum:${t.name}`;
     case "valueobject":
-      return `valueobject:${t.ref.name}`;
-    case "aggregate":
-      return `aggregate:${t.ref.name}`;
-    case "entity":
-      return `entity:${t.ref.name}`;
-    case "payload":
-      return `payload:${t.ref.name}`;
+      return `valueobject:${t.name}`;
+    case "record":
+      switch (t.shape.of) {
+        case "aggregate":
+          return `aggregate:${t.shape.ref.name}`;
+        case "part":
+          return `entity:${t.shape.ref.name}`;
+        case "event":
+        case "payload":
+          return `payload:${t.shape.ref.name}`;
+        default:
+          return t.shape.of;
+      }
     case "array":
       return `array<${show(t.element)}>`;
     case "optional":

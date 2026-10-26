@@ -31,12 +31,12 @@ import {
   type Model,
 } from "../generated/ast.js";
 import {
-  type DddType,
   envForNode,
   type MemberCompletion,
   membersOfType,
   resolveTypeRef,
   suffixType,
+  type Ty,
   typeOf,
 } from "../type-system.js";
 
@@ -211,7 +211,7 @@ export class DddCompletionProvider extends DefaultCompletionProvider {
   }
 
   private emitMembersForType(
-    t: DddType,
+    t: Ty,
     context: CompletionContext,
     acceptor: CompletionAcceptor,
   ): void {
