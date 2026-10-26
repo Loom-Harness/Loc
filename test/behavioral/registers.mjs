@@ -309,7 +309,7 @@ export const BEHAVIOURAL_XFAIL = {
       issue: "#3959",
       expect: "wire",
       reason:
-        "every block passes on elixir; the case has no golden until the node oracle passes the polymorphic base read (#3959)",
+        "every block passes on elixir, but its routed TPH base by-id read answers the base fields only — no `type` tag and no concrete's own columns, where node answers the tagged concrete row",
     },
   },
 };
