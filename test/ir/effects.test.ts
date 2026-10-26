@@ -17,7 +17,9 @@ import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { EffectIR } from "../../src/ir/types/effect-ir.js";
 import { allContexts } from "../../src/ir/types/loom-ir.js";
+import { contextSaveResolver } from "../../src/ir/util/domain-service-tier.js";
 import { bodyEffects, type EffectBodyIR } from "../../src/ir/util/effects.js";
+import { BODY_EFFECT_VOCABULARY } from "../../src/ir/validate/checks/body-effect-vocabulary.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import {
   isRepoWriteName,
@@ -54,7 +56,11 @@ function render(e: EffectIR): string {
     case "mutate":
       return e.target.kind === "state"
         ? `${scope}mutate state.${e.target.field}`
-        : `${scope}mutate ${e.target.name}.${e.target.op}`;
+        : e.target.service
+          ? `${scope}mutate ${e.target.name || "<expr>"} via ${e.target.service}.${e.target.op}`
+          : `${scope}mutate ${e.target.name}.${e.target.op}`;
+    case "read-state":
+      return `${scope}read state.${e.field}`;
     case "persist":
       return `${scope}persist ${e.name}`;
     case "delete":
@@ -87,7 +93,17 @@ async function firstBody(members: string): Promise<EffectBodyIR> {
 }
 
 async function expectEffects(members: string, expected: string[]): Promise<void> {
-  expect(bodyEffects(await firstBody(members)).map(render)).toStrictEqual(expected);
+  expect(bodyEffects(await firstBody(members), undefined).map(render)).toStrictEqual(expected);
+}
+
+/** Like {@link expectEffects}, with the callees' declared effects resolved
+ *  against the fixture's context. */
+async function expectResolvedEffects(members: string, expected: string[]): Promise<void> {
+  const { model } = await parseString(src(members), { validate: false });
+  const ctx = allContexts(lowerModel(model))[0]!;
+  const body = ctx.workflows[0]?.creates[0] ?? ctx.commandHandlers?.[0];
+  if (!body) throw new Error("fixture declares no workflow create or command handler");
+  expect(bodyEffects(body, contextSaveResolver(ctx)).map(render)).toStrictEqual(expected);
 }
 
 /** AST + IR diagnostic codes for the fixture. */
@@ -285,4 +301,235 @@ describe("loom.workflow-uncorrelated-state-write (#3390)", () => {
       await codes(`workflow Tally { create(id: Item id) { let i = Items.getById(id)  i.bump() } }`),
     ).toStrictEqual([]);
   });
+});
+
+// The per-position vocabulary: one row per body position, one column per
+// effect sort (`ir/validate/checks/body-effect-vocabulary.ts`).
+describe("the body-position effect vocabulary", () => {
+  it("refuses in exactly two positions; every other row admits everything", () => {
+    const refusing = Object.entries(BODY_EFFECT_VOCABULARY)
+      .map(([pos, row]) => [pos, Object.entries(row).filter(([, a]) => a !== "admit")] as const)
+      .filter(([, refused]) => refused.length > 0)
+      .map(([pos, refused]) => `${pos}: ${refused.map(([s, a]) => `${s}=${a}`).join(" ")}`);
+    expect(refusing).toStrictEqual([
+      "workflow-command-create-uncorrelated: mutate-state=loom.workflow-uncorrelated-state-write read-state=loom.workflow-uncorrelated-state-read",
+      "query-handler: create=loom.query-handler-saves mutate-aggregate=loom.query-handler-saves mutate-state=loom.query-handler-saves persist=loom.query-handler-saves delete=loom.query-handler-saves emit=loom.query-handler-saves",
+    ]);
+  });
+
+  it("refuses a query handler's emit, create and let-bound mutation", async () => {
+    for (const body of [
+      `emit Bumped { item: itemId }`,
+      `let x = Item.create({ name: "n", count: 0 })`,
+      `let o = Boxes.getById(boxId)
+       let r = o.peek()`,
+    ]) {
+      expect(
+        await codes(`
+          ${PEEK}
+          queryHandler look(itemId: Item id, boxId: Box id): string { ${body}  return "x" }`),
+        body,
+      ).toStrictEqual(["loom.query-handler-saves"]);
+    }
+    expect(
+      await codes(`queryHandler look(itemId: Item id): Item { return Items.getById(itemId) }`),
+    ).toStrictEqual([]);
+  });
+});
+
+/** An aggregate whose operation returns a value — the shape a body binds with
+ *  `let` — and a `mutating` domain service over two `Item`s. */
+const PEEK = `
+  aggregate Box {
+    count: int
+    operation peek(): int { count := count + 1  return count }
+  }
+  repository Boxes for Box { }
+  domainService Moves { operation shift(a: Box, b: Box) { a.peek()  b.peek() } }`;
+
+describe("own-state reads (#4062)", () => {
+  it("records each read of the workflow's own state", async () => {
+    await expectEffects(
+      `workflow startItem {
+         itemId: Item id
+         total: int
+         create(itemId: Item id, n: int) { precondition total == 0  total := total + n }
+       }`,
+      ["read state.total", "read state.total", "mutate state.total"],
+    );
+  });
+
+  it("refuses an uncorrelated create that reads state, at any depth", async () => {
+    expect(
+      await codes(`workflow Tally { total: int  create(n: int) { precondition total == 0 } }`),
+    ).toStrictEqual(["loom.workflow-uncorrelated-state-read"]);
+    expect(
+      await codes(`workflow Tally { total: int  create(n: int) {
+           if let b = Items.find(Busy) { precondition total == 0 }
+         } }`),
+    ).toStrictEqual(["loom.workflow-uncorrelated-state-read"]);
+  });
+
+  it("reports only the write when the create both writes and reads", async () => {
+    expect(
+      await codes(`workflow Tally { total: int  create(n: int) { total := total + n } }`),
+    ).toStrictEqual(["loom.workflow-uncorrelated-state-write"]);
+  });
+
+  it("admits the read on a correlated workflow and in a reactor", async () => {
+    expect(
+      await codes(`workflow Tally {
+         itemId: Item id  total: int
+         create(itemId: Item id) { precondition total == 0 }
+       }`),
+    ).toStrictEqual([]);
+  });
+});
+
+describe("a mutation needs a save (#3618)", () => {
+  it("sees the callee's mutation through a `let`", async () => {
+    await expectResolvedEffects(
+      `${PEEK}
+       workflow W { create(a: Box id, b: Box id) {
+         let x = Boxes.getById(a)
+         let y = Boxes.getById(b)
+         let r = x.peek()
+         let s = Moves.shift(x, y)
+       } }`,
+      [
+        "load Boxes.load → x",
+        "load Boxes.load → y",
+        "mutate x.peek",
+        "call Moves.shift",
+        "mutate x via Moves.shift",
+        "mutate y via Moves.shift",
+      ],
+    );
+  });
+
+  it("the bare statement forms are saved, so admitted", async () => {
+    await expectResolvedEffects(
+      `${PEEK}
+       workflow W { create(a: Box id, b: Box id) {
+         let x = Boxes.getById(a)
+         let y = Boxes.getById(b)
+         Moves.shift(x, y)
+       } }`,
+      [
+        "load Boxes.load → x",
+        "load Boxes.load → y",
+        "call Moves.shift",
+        "mutate x via Moves.shift",
+        "mutate y via Moves.shift",
+        "persist x",
+        "persist y",
+      ],
+    );
+    expect(
+      await codes(`${PEEK}
+        workflow W { create(a: Box id) { let x = Boxes.getById(a)  x.peek() } }`),
+    ).toStrictEqual([]);
+  });
+
+  it("refuses a let-bound mutating operation call", async () => {
+    expect(
+      await codes(`${PEEK}
+        workflow W { create(a: Box id) { let x = Boxes.getById(a)  let r = x.peek() } }`),
+    ).toStrictEqual(["loom.workflow-mutation-unsaved"]);
+  });
+
+  it("refuses a let-bound mutating service call, once per mutated local", async () => {
+    expect(
+      await codes(`${PEEK}
+        workflow W { create(a: Box id, b: Box id) {
+          let x = Boxes.getById(a)
+          let y = Boxes.getById(b)
+          let s = Moves.shift(x, y)
+        } }`),
+    ).toStrictEqual(["loom.workflow-mutation-unsaved", "loom.workflow-mutation-unsaved"]);
+  });
+
+  it("refuses it in a command handler and inside a loop body", async () => {
+    expect(
+      await codes(`${PEEK}
+        commandHandler poke(a: Box id): int {
+          let x = Boxes.getById(a)
+          let r = x.peek()
+          return r
+        }`),
+    ).toStrictEqual(["loom.workflow-mutation-unsaved"]);
+    expect(
+      await codes(`${PEEK}
+        criterion Full of Box = count > 1
+        workflow W { create() {
+          let xs = Boxes.findAll(Full)
+          for x in xs { let r = x.peek() }
+        } }`),
+    ).toStrictEqual(["loom.workflow-mutation-unsaved"]);
+  });
+});
+
+/** The first body's `factory-let`, rendered `Agg{field=<ref or literal>,…}`. */
+async function factoryLet(members: string): Promise<string> {
+  const st = (await firstBody(members)).statements[0];
+  if (st?.kind !== "factory-let") return `not a factory-let: ${st?.kind}`;
+  const v = (e: { kind: string; name?: string; value?: unknown }) =>
+    e.kind === "ref" ? String(e.name) : e.kind === "literal" ? String(e.value) : e.kind;
+  return `${st.aggName}{${st.fields.map((f) => `${f.name}=${v(f.value as never)}`).join(",")}}`;
+}
+
+/** A second aggregate whose declared `create(…)` lists its inputs in a
+ *  different order from its properties. */
+const POLL = `
+  aggregate Poll {
+    item: Item id
+    label: string
+    create(label: string, item: Item id) { }
+  }
+  repository Polls for Poll { }`;
+
+describe("workflow factory calls: positional, named and record are one create (#3301)", () => {
+  it("lowers all three spellings to the same saved factory-let", async () => {
+    for (const call of [
+      `Item.create(n, 0)`,
+      `Item.create(name: n, count: 0)`,
+      `Item.create(count: 0, name: n)`,
+      `Item.create({ name: n, count: 0 })`,
+    ]) {
+      const wf = `workflow W { create(n: string) { let x = ${call} } }`;
+      expect(await factoryLet(wf), call).toBe("Item{name=n,count=0}");
+      await expectEffects(wf, ["create Item → x", "persist x"]);
+      expect(await codes(wf), call).toStrictEqual([]);
+    }
+  });
+
+  it("binds positions to a declared create's parameters, in a command handler too", async () => {
+    const h = `${POLL}
+      commandHandler mk(i: Item id) { let p = Poll.create("x", i) }`;
+    expect(await factoryLet(h)).toBe("Poll{label=x,item=i}");
+    expect(await codes(h)).toStrictEqual([]);
+  });
+
+  it("leaves out trailing inputs only as far as the missing-field gate allows", async () => {
+    const wf = `workflow W { create(n: string) { let x = Item.create(n) } }`;
+    expect(await factoryLet(wf)).toBe("Item{name=n}");
+    expect(await codes(wf)).toStrictEqual(["loom.workflow-create-missing-field"]);
+  });
+
+  for (const [call, needle] of [
+    [`Item.create(n, 0, 1)`, "passes 3 positional argument(s), but 'Item' has 2"],
+    [`Item.create(n, count: 0)`, "mixes positional and named arguments"],
+    [`Item.create(title: n)`, "names 'title', which is not a create input"],
+    [`Item.create(name: n, name: n)`, "passes 'name' twice"],
+  ] as const) {
+    it(`refuses \`${call}\` with loom.workflow-create-args`, async () => {
+      const { diagnostics } = await parseString(
+        src(`workflow W { create(n: string) { let x = ${call} } }`),
+        { validate: true },
+      );
+      const hit = diagnostics.filter((d) => d.code === "loom.workflow-create-args");
+      expect(hit.map((d) => d.message).join("\n")).toContain(needle);
+      expect(hit).toHaveLength(1);
+    });
+  }
 });

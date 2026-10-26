@@ -85,7 +85,7 @@ system Shop {
       repository Products for Product { }
       repository Categories for Category { }
       workflow restock transactional {
-        create(sku: string, qty: int) { precondition qty > 0  let p = Product.create(name: sku, price: 0) }
+        create(sku: string, qty: int) { precondition qty > 0  let p = Product.create(name: sku, price: 0, status: Status.active, contact: Contact { email: sku, phone: sku }) }
       }
     }
   }
