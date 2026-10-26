@@ -104,10 +104,10 @@ describe("policy deep — Python (FastAPI/SQLAlchemy)", () => {
 });
 
 describe("policy deep — Java (Spring/JPA)", () => {
-  it("emits the JPQL prefix (locate/concat) with the NULL fallback", async () => {
+  it("emits the anchored prefix (position/concat) with the NULL fallback in the entity @Filter", async () => {
     const text = await allText("java", "deep");
-    expect(text).toContain("locate(concat(");
-    expect(text).toContain("dataKey is not null");
+    expect(text).toContain("position(concat(");
+    expect(text).toContain("data_key is not null");
   });
 });
 
@@ -164,11 +164,11 @@ describe("policy global — Python (FastAPI/SQLAlchemy)", () => {
 });
 
 describe("policy global — Java (Spring/JPA)", () => {
-  it("emits the JPQL prefix anchored at rootOrg() with the NULL fallback", async () => {
+  it("emits the prefix anchored at rootOrg() with the NULL fallback in the entity @Filter", async () => {
     const text = await allText("java", "global");
-    expect(text).toContain("locate(concat(");
-    expect(text).toContain("rootOrg()");
-    expect(text).toContain("dataKey is not null");
+    expect(text).toContain("position(concat(:__cuRootOrg, '.') in data_key) = 1");
+    expect(text).toContain("__cu.rootOrg()");
+    expect(text).toContain("data_key is not null");
   });
 });
 
@@ -227,9 +227,9 @@ describe("M-T3.17 — the subtree read carries a sargable prefilter on every bac
     },
     {
       platform: "java",
-      label: "Java (Spring Data JPA)",
-      prefilter: /like :#\{.*\} escape '!'/,
-      recheck: /locate\(concat\(/,
+      label: "Java (Hibernate @Filter)",
+      prefilter: /data_key like :__cuSubtree\w+ escape '!'/,
+      recheck: /position\(concat\(/,
     },
     {
       platform: "python",
@@ -265,7 +265,7 @@ describe("M-T3.17 — the subtree read carries a sargable prefilter on every bac
     for (const [platform, chain] of [
       ["node", '.replace(/[!%_]/g, "!$&")'],
       ["dotnet", '.Replace("!", "!!").Replace("%", "!%").Replace("_", "!_")'],
-      ["java", "?.replace('!', '!!')?.replace('%', '!%')?.replace('_', '!_')"],
+      ["java", '.replace("!", "!!").replace("%", "!%").replace("_", "!_")'],
       ["python", '.replace("!", "!!").replace("%", "!%").replace("_", "!_")'],
       [
         "elixir",
