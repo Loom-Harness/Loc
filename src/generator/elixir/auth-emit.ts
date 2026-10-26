@@ -241,13 +241,17 @@ function renderAuthPlug(
   # and casts the pinned string claim against the \`:binary_id\` id column (the
   # same cast the registry self-scope filter uses).  Fails safe to the raw claim
   # (the root-segment path) when the row / data_key is absent or the claim is
-  # malformed — never crashes the request.
+  # malformed — never crashes the request.  It runs BEFORE the principal
+  # exists, and reads exactly the row the registry's own self-scope admits
+  # (\`id == claim\`), so it skips the read scope (\`skip_filters: :all\`) rather
+  # than meeting a principal-bound clause with no principal.
   defp put_org_path(user), do: Map.put(user, :org_path, resolve_org_path(user[:${orgPathKey}]))
 
   defp resolve_org_path(claim) when is_binary(claim) and claim != "" do
     try do
       case ${orgPathRegistry.repoModule}.one(
-             from o in ${orgPathRegistry.schemaModule}, where: o.id == ^claim, select: o.data_key
+             from(o in ${orgPathRegistry.schemaModule}, where: o.id == ^claim, select: o.data_key),
+             skip_filters: :all
            ) do
         data_key when is_binary(data_key) and data_key != "" -> data_key
         _ -> claim
@@ -1558,8 +1562,15 @@ defmodule ${webModule}.LiveAuth do
 
   def on_mount(:default, _params, session, socket) do
     case verify_session(session) do
-      {:ok, user} -> {:cont, assign(socket, :current_user, user)}
-      _ -> {:halt, Phoenix.LiveView.redirect(socket, to: "${loginRedirect}")}
+      {:ok, user} ->
+        # The LiveView is its own process: make the user its ambient principal
+        # too, so a scoped read (\`Repo.prepare_query/3\`) that is not handed
+        # the actor explicitly reads under this user rather than raising.
+        Process.put(:loom_current_user, user)
+        {:cont, assign(socket, :current_user, user)}
+
+      _ ->
+        {:halt, Phoenix.LiveView.redirect(socket, to: "${loginRedirect}")}
     end
   end
 

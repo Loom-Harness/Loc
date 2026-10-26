@@ -161,11 +161,11 @@ const MONEY_LINEAGE_WIRE: readonly Backend[] = ["node"];
 const PART_REBUILD: readonly Backend[] = ALL.filter((b) => b !== "dotnet");
 
 // #3959: the polymorphic base read (`GET /<bases>/{id}`, a projection `from
-// <Base>`) passes on node/drizzle, python/SQLAlchemy, .NET EF and java.  The other legs boot the case as a
+// <Base>`) passes on node/drizzle, python/SQLAlchemy, .NET EF, java and elixir/Ecto.  The other legs boot the case as a
 // tracked expected failure (`BEHAVIOURAL_XFAIL`), each fixed by its own
 // sub-issue of #3954 (#3960–#3965); each fix adds its backend here, and the
 // row becomes ALL when the last one lands.
-const BASE_READS: readonly Backend[] = ["node", "python", "dotnet", "java"];
+const BASE_READS: readonly Backend[] = ["node", "python", "dotnet", "java", "vanilla"];
 
 export interface CorpusFeature {
   /** Matches `<id>.ddd` in this directory. */

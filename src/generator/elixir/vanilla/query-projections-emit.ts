@@ -41,7 +41,6 @@ import {
   aggregateUsesPrincipalContextFilter,
   isQueryTimeProjection,
 } from "../../../ir/types/loom-ir.js";
-import { projectionSourceTable } from "../../../ir/util/inheritance.js";
 import {
   type AggregateSelect,
   aggregateCoercion,
@@ -60,12 +59,10 @@ import type { ApiRoute } from "../api-emit.js";
 import { projectionRowModule, stateModule } from "../dispatch-emit.js";
 import { ECTO_INTRINSIC_FRAGMENTS, type RenderCtx, renderExpr } from "../render-expr.js";
 import {
-  combineWhere,
   DOC_DENY_HELPER,
   DOC_DENY_PREDICATE,
   liftDocRootId,
   renderDocPredicate,
-  vanillaCapabilityFilter,
   vanillaDocCapabilityFilter,
 } from "./capability-filter.js";
 import { normalizeDatetime } from "./datetime-type-emit.js";
@@ -74,6 +71,7 @@ import { docFilterLambdaArg, docPredReadsRecord, isVanillaDocAgg } from "./docum
 import { findParamRead } from "./find-controller.js";
 import { effectiveGate } from "./gate.js";
 import { ELIXIR_NUMERIC, elixirDecimalNumHelper, elixirMoneyRoundHelper } from "./numeric-codec.js";
+import { readOpts } from "./read-scope-emit.js";
 import { hasRefColls, preloadSuffix } from "./ref-collection-emit.js";
 import { renderWireSerialize } from "./wire-serialize.js";
 
@@ -196,30 +194,15 @@ function renderQueryProjectionModule(
   // take their in-memory Elixir forms rather than Ecto `fragment(...)` SQL.
   const docRenderCtx: RenderCtx = { ...renderCtx, docStruct: true };
 
-  // The source read honours the source aggregate's capability filter (soft
-  // delete / tenancy) exactly like every other read; a principal (tenancy)
-  // filter scopes by the `current_user` the controller threads into `run/1`.
+  // The source read honours the source aggregate's read scope exactly like
+  // every other read: it starts from the schema's `base_query/0` (the TPH
+  // `kind` discriminator — a TPH ROOT source hosts its subtypes' restrictions
+  // kind-guarded — and the non-bypassable restrictions), and
+  // `Repo.prepare_query/3` applies the bypassable ones with the
+  // `current_user` the controller threads into `run/1`.
   const principal = sourceAgg ? aggregateUsesPrincipalContextFilter(sourceAgg) : false;
-  // A projection `… ignoring <Cap>` / `ignoring *` OMITS the named capability
-  // filter(s) on the source aggregate for this read only (plain Ecto drops the
-  // bypassed `where:` conjunct).
-  const cap = sourceAgg
-    ? vanillaCapabilityFilter(sourceAgg, contextModule, {
-        actor: principal,
-        bypass:
-          query.bypassAll || (query.bypassCaps?.length ?? 0) > 0
-            ? { bypassAll: query.bypassAll, bypassCaps: query.bypassCaps }
-            : undefined,
-      })
-    : null;
   const filter = query.filter ? renderExpr(query.filter, queryCtx) : null;
-  // A TPH (`sharedTable`) concrete's schema module points at the ROOT's shared
-  // table, so every read over it must carry the `kind` conjunct — exactly as
-  // its repository's reads do.  Without it the projection silently counted /
-  // summed / listed every sibling concrete's rows too (eval item 10).
-  const tphKind = sourceAgg ? projectionSourceTable(source, ctx.aggregates).kind : undefined;
-  const kindFilter = tphKind ? `record.kind == ${JSON.stringify(tphKind)}` : null;
-  const where = combineWhere(combineWhere(kindFilter, filter), cap);
+  const where = filter;
 
   // A `shape: document` source has NO flattened columns — the whole tree is one
   // jsonb `data` embed on an `(id, data, version)` row — so every per-row read
@@ -232,6 +215,20 @@ function renderQueryProjectionModule(
   // (everything else is refused by `loom.projection-columnless-source`, and a
   // capability-filtered one by `loom.projection-document-source-capability-filtered`).
   const isDocSource = !!sourceAgg && isVanillaDocAgg(sourceAgg, ctx, sys);
+  // A relational aggregate source reads through its scoped schema.  A
+  // projection `… ignoring <Cap>` / `ignoring *` drops the named restrictions
+  // for this read only (`skip_filters:`).
+  const scopedSource = !!sourceAgg && !isDocSource;
+  const from = scopedSource ? `${sourceMod}.base_query()` : sourceMod;
+  const srcOpts = scopedSource
+    ? readOpts({
+        principal: "current_user",
+        bypass:
+          query.bypassAll || (query.bypassCaps?.length ?? 0) > 0
+            ? { bypassAll: query.bypassAll, bypassCaps: query.bypassCaps }
+            : undefined,
+      })
+    : "";
   // In-app twins of `filter` / `cap` above, over the `record` embed + `row` root.
   const docFilter =
     isDocSource && query.filter
@@ -302,10 +299,10 @@ function renderQueryProjectionModule(
     lines.push("    rows =");
     lines.push(
       where
-        ? `      from(record in ${sourceMod}, where: ${where}, group_by: ${groupClause}, order_by: ${groupClause}, select: %{${selectCols}})`
-        : `      from(record in ${sourceMod}, group_by: ${groupClause}, order_by: ${groupClause}, select: %{${selectCols}})`,
+        ? `      from(record in ${from}, where: ${where}, group_by: ${groupClause}, order_by: ${groupClause}, select: %{${selectCols}})`
+        : `      from(record in ${from}, group_by: ${groupClause}, order_by: ${groupClause}, select: %{${selectCols}})`,
     );
-    lines.push(`      |> Repo.all()`);
+    lines.push(`      |> Repo.all(${srcOpts})`);
     lines.push(`    Enum.map(rows, fn row ->`);
     lines.push(`      %{`);
     const entries = [
@@ -377,10 +374,10 @@ ${
     lines.push("    row =");
     lines.push(
       where
-        ? `      from(record in ${sourceMod}, where: ${where}, select: %{${cols}})`
-        : `      from(record in ${sourceMod}, select: %{${cols}})`,
+        ? `      from(record in ${from}, where: ${where}, select: %{${cols}})`
+        : `      from(record in ${from}, select: %{${cols}})`,
     );
-    lines.push(`      |> Repo.one()`);
+    lines.push(`      |> Repo.one(${srcOpts})`);
     lines.push("    %{");
     aggregates.forEach((a, i) => {
       const tail = i === aggregates.length - 1 ? "" : ",";
@@ -451,10 +448,10 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
       }
     }
   } else if (where) {
-    lines.push(`      from(record in ${sourceMod}, where: ${where})`);
-    lines.push(`      |> Repo.all()`);
+    lines.push(`      from(record in ${from}, where: ${where})`);
+    lines.push(`      |> Repo.all(${srcOpts})`);
   } else {
-    lines.push(`      Repo.all(${sourceMod})`);
+    lines.push(`      Repo.all(${from}${srcOpts ? `, ${srcOpts}` : ""})`);
   }
   if (preload) lines.push(`      ${preload}`);
 
@@ -480,29 +477,25 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
       : isDocSource
         ? liftDocRootId(`record.${snake(aux.path[0] ?? "id")}`, "row")
         : `record.${snake(aux.path[0] ?? "id")}`;
-    // The follow honours the JOINED aggregate's own capability filter (soft
-    // delete / tenancy), exactly as the other four backends' bulk-load does by
-    // going through that aggregate's repository (RS-34): a soft-deleted target
-    // is ABSENT from the map, so the LEFT JOIN answers `nil`.  Without it the
-    // map carried the soft-deleted row and the projection leaked its fields.
-    // (A document-shaped target keeps the unfiltered load — its capability
-    // columns live inside the jsonb embed, not on the row.)
+    // The follow honours the JOINED aggregate's own read scope (soft delete /
+    // tenancy), exactly as the other four backends' bulk-load does by going
+    // through that aggregate's repository (RS-34): a soft-deleted target is
+    // ABSENT from the map, so the LEFT JOIN answers `nil`.  It is its own
+    // query over the target's schema, so `base_query/0` and
+    // `Repo.prepare_query/3` scope it like any other read.  (A document-shaped
+    // target keeps the unfiltered load — its capability columns live inside
+    // the jsonb embed, not on the row.)
     const followAgg = aggsByName.get(aux.aggName);
-    const followCap =
-      followAgg && !isDocSource && !isVanillaDocAgg(followAgg, ctx, sys)
-        ? vanillaCapabilityFilter(followAgg, contextModule, {
-            actor: aggregateUsesPrincipalContextFilter(followAgg),
-          })
-        : null;
+    const followScoped = !!followAgg && !isVanillaDocAgg(followAgg, ctx, sys);
+    const followFrom = followScoped ? `${followMod}.base_query()` : followMod;
+    const followOpts = followScoped ? `current_user: current_user` : "";
     lines.push(`    ${mapVar} =`);
     lines.push(
       isDocSource
-        ? `      from(joined in ${followMod}, where: joined.id in ^Enum.map(rows, ${docRowLambda(idRow)}))`
-        : followCap
-          ? `      from(record in ${followMod}, where: record.id in ^Enum.map(rows, fn record -> ${idRow} end) and (${followCap}))`
-          : `      from(row in ${followMod}, where: row.id in ^Enum.map(rows, fn record -> ${idRow} end))`,
+        ? `      from(joined in ${followFrom}, where: joined.id in ^Enum.map(rows, ${docRowLambda(idRow)}))`
+        : `      from(row in ${followFrom}, where: row.id in ^Enum.map(rows, fn record -> ${idRow} end))`,
     );
-    lines.push(`      |> Repo.all()`);
+    lines.push(`      |> Repo.all(${followOpts})`);
     lines.push(`      |> Map.new(&{&1.id, &1})`);
     if (join) aliasMap.set(join.alias, { mapVar, idRow });
   }

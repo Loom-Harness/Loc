@@ -28,6 +28,7 @@
 // ---------------------------------------------------------------------------
 
 import type {
+  AggregateIR,
   BoundedContextIR,
   RetrievalIR,
   SortTermIR,
@@ -38,10 +39,13 @@ import { elixirLocal, snake, upperFirst } from "../../../util/naming.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import {
   aggregateUsesPrincipalContextFilter,
-  vanillaCapabilityFilterParts,
+  DOC_DENY_HELPER,
+  DOC_DENY_PREDICATE,
+  renderDocPredicate,
+  vanillaDocCapabilityFilter,
 } from "./capability-filter.js";
+import { docFilterLambdaArg, docPredReadsRecord, isVanillaDocAgg } from "./document-emit.js";
 import { isEventSourced } from "./eventsourced-emit.js";
-import { tphKind } from "./inheritance-emit.js";
 import { readPreloadRels } from "./read-preload.js";
 
 /** Does retrieval `r` get an Ecto query module (and its `run_…` delegate)?
@@ -89,30 +93,30 @@ export function emitVanillaRetrievals(
     // capability filter (soft-delete / scoping) just like the CRUD reads.
     const targetName = r.targetType.name;
     const target = ctx.aggregates.find((a) => a.name === targetName);
-    // A principal (tenancy) filter on the target threads the request actor via
-    // `opts[:current_user]`.  Retrievals are workflow-internal (no HTTP
-    // controller), so a caller that omits it scopes to no rows (fail-closed) —
-    // never a cross-tenant leak.
-    // A retrieval whose OWN `where:` reads `currentUser` needs the actor bound
-    // too — the rendered `^(current_user && …)` pin otherwise names a variable
-    // `run/1` never bound ("undefined variable current_user" at `mix compile`).
-    const principal = retrievalReadsActor(r.name, ctx);
-    // Each capability filter is applied as a SEPARATELY-gated `where` pipe stage
-    // (rather than baked into the base `where:`) so an inline `Repo.run(...)
-    // ignoring <Cap>` / `ignoring *` at a call site can skip individual origins
-    // at runtime via `opts[:ignore_filters]` / `opts[:ignore_all_filters]`.
-    const capParts = target
-      ? vanillaCapabilityFilterParts(target, contextModule, { actor: principal })
-      : [];
+    // A retrieval whose OWN `where:` reads `currentUser` binds the actor from
+    // `opts[:current_user]` — the rendered `^(current_user && …)` pin otherwise
+    // names a variable `run/1` never bound.  The target's own restrictions need
+    // no binding here: `Repo.prepare_query/3` applies them, with the caller's
+    // `current_user:` (or the ambient principal) and `skip_filters:` options.
+    const ownPrincipal = exprUsesCurrentUser(r.where);
+    // A `shape: document` target keeps its fields in the jsonb embed: it has no
+    // `base_query/0` and no columns to query, so the retrieval filters in-app
+    // over the rehydrated embed, exactly as its repository's reads do.
+    if (target && isVanillaDocAgg(target, ctx, sys)) {
+      out.set(
+        `lib/${appName}/${ctxSnake}/retrievals/${snake(r.name)}.ex`,
+        renderDocRetrievalModule(r, target, contextModule, appModule),
+      );
+      continue;
+    }
     out.set(
       `lib/${appName}/${ctxSnake}/retrievals/${snake(r.name)}.ex`,
       renderRetrievalModule(
         r,
         contextModule,
         appModule,
-        capParts,
-        principal,
-        target ? tphKind(target, ctx.aggregates) : undefined,
+        ownPrincipal,
+        !!target,
         // The rows are returned as aggregate structs the callers serialise
         // through the wireShape, so every collection association the REST read
         // preloads is preloaded here too — an unloaded `has_many` is
@@ -127,10 +131,10 @@ function renderRetrievalModule(
   r: RetrievalIR,
   contextModule: string,
   appModule: string,
-  capParts: { origin: string | undefined; pred: string }[],
-  principal: boolean,
-  /** TPH concrete: the shared table's `kind` discriminator, always conjoined. */
-  kind?: string,
+  /** The retrieval's own `where` reads `currentUser`. */
+  ownPrincipal: boolean,
+  /** The target is an aggregate of this context, with a `base_query/0`. */
+  scoped: boolean,
   preloadRels: readonly string[] = [],
 ): string {
   const aggName = (r.targetType as { kind: "entity"; name: string }).name;
@@ -144,10 +148,9 @@ function renderRetrievalModule(
     filterArgs: true,
   };
   const args = r.params.map((p) => elixirLocal(p.name));
-  // The retrieval's own `where` predicate (the capability filters apply below,
-  // as separately-gated pipe stages so a call-site `ignoring` can skip them).
+  // The retrieval's own `where` predicate, over the target's `base_query/0`.
   const ownWhere = renderExpr(r.where, renderCtx);
-  const whereExpr = kind ? `record.kind == ${JSON.stringify(kind)} and (${ownWhere})` : ownWhere;
+  const source = scoped ? `${aggModule}.base_query()` : aggModule;
   const sortClause = renderSortClause(r.sort);
 
   // Build the Ecto pipeline in stages.  `from(...)` opens, conditional
@@ -157,30 +160,19 @@ function renderRetrievalModule(
   // pipe step so the source compiles cleanly even when pagination opts
   // are absent.
   const pipeline: string[] = [];
-  // Principal-filtered retrievals read the threaded actor out of `opts`.
-  if (principal) pipeline.push(`    current_user = opts[:current_user]`);
-  pipeline.push(`    query = from(record in ${aggModule}, where: ${whereExpr})`);
-  // Each capability filter is its own gated `where` pipe stage.  A call-site
-  // `Repo.run(...) ignoring *` passes `ignore_all_filters: true` (skips every
-  // capability stage); `ignoring <Cap>` passes `ignore_filters: ["<Cap>", …]`
-  // (skips only the matching origin).  A bare/hand-written filter (origin
-  // `nil`) is never bypassable, so it applies unconditionally.
-  for (const part of capParts) {
-    if (part.origin === undefined) {
-      pipeline.push(`    query = where(query, [record], ${part.pred})`);
-    } else {
-      pipeline.push(
-        `    query = if opts[:ignore_all_filters] || ${JSON.stringify(part.origin)} in (opts[:ignore_filters] || []), do: query, else: where(query, [record], ${part.pred})`,
-      );
-    }
-  }
+  if (ownPrincipal) pipeline.push(`    current_user = opts[:current_user]`);
+  pipeline.push(`    query = from(record in ${source}, where: ${ownWhere})`);
   pipeline.push(`    query = if opts[:limit], do: limit(query, ^opts[:limit]), else: query`);
   pipeline.push(`    query = if opts[:offset], do: offset(query, ^opts[:offset]), else: query`);
   if (sortClause) pipeline.push(`    query = ${sortClause}`);
+  // A call-site `ignoring` arrives as `skip_filters:` and the actor as
+  // `current_user:`; `Repo.prepare_query/3` reads both.
+  const read =
+    "Repo.all(query, current_user: opts[:current_user], skip_filters: opts[:skip_filters])";
   pipeline.push(
     preloadRels.length > 0
-      ? `    {:ok, query |> Repo.all() |> Repo.preload([${preloadRels.join(", ")}])}`
-      : `    {:ok, Repo.all(query)}`,
+      ? `    {:ok, query |> ${read.replace("Repo.all(query, ", "Repo.all(")} |> Repo.preload([${preloadRels.join(", ")}])}`
+      : `    {:ok, ${read}}`,
   );
 
   // `opts` is always referenced (the if/else above) — no unused-var
@@ -208,6 +200,69 @@ defmodule ${moduleName} do
   def run(${argList}) do
 ${body}
   end
+end
+`;
+}
+
+/** A retrieval over a `shape: document` aggregate: load the rows in `id`
+ *  order, keep those the retrieval's own predicate AND the aggregate's
+ *  restrictions admit — both evaluated in-app over `record = row.data` — then
+ *  sort and window in memory. */
+function renderDocRetrievalModule(
+  r: RetrievalIR,
+  target: AggregateIR,
+  contextModule: string,
+  appModule: string,
+): string {
+  const moduleName = `${contextModule}.Retrievals.${upperFirst(r.name)}`;
+  const aggModule = `${contextModule}.${upperFirst(target.name)}`;
+  const own = renderDocPredicate(r.where, target, contextModule, "row");
+  const cap = vanillaDocCapabilityFilter(target, contextModule, "row", { actor: true });
+  const pred = cap ? `(${own}) and (${cap})` : own;
+  const needsActor = /\bcurrent_user\b/.test(pred);
+  // Stable sorts applied last term first give the declared multi-key order.
+  const sorts = [...r.sort]
+    .reverse()
+    .map(
+      (t) =>
+        `    rows = Enum.sort_by(rows, fn row -> row.data.${t.path.map((s) => snake(s.name)).join(".")} end, :${t.direction})`,
+    );
+  const pipeline = [
+    ...(needsActor ? ["    current_user = opts[:current_user]"] : []),
+    "    rows =",
+    `      ${aggModule}`,
+    "      |> Ecto.Query.order_by([r], r.id)",
+    "      |> Repo.all()",
+    `      |> Enum.filter(fn ${docFilterLambdaArg(pred)} ->`,
+    ...(docPredReadsRecord(pred) ? ["        record = row.data"] : []),
+    `        ${pred}`,
+    "      end)",
+    ...sorts,
+    "    rows = if opts[:offset], do: Enum.drop(rows, opts[:offset]), else: rows",
+    "    rows = if opts[:limit], do: Enum.take(rows, opts[:limit]), else: rows",
+    "    {:ok, rows}",
+  ];
+  const body = pipeline.join("\n");
+  const args = r.params.map((p) => elixirLocal(p.name));
+  const head = args.map((n) => (new RegExp(`\\b${n}\\b`).test(body) ? n : `_${n}`));
+  const argList = head.length > 0 ? `${head.join(", ")}, opts \\\\ []` : "opts \\\\ []";
+  const denyHelper = pred.includes(DOC_DENY_PREDICATE) ? `\n\n${DOC_DENY_HELPER}` : "";
+  return `# Auto-generated.
+defmodule ${moduleName} do
+  @moduledoc """
+  Retrieval: ${upperFirst(r.name)}
+
+  Source aggregate: ${upperFirst(target.name)} (document shape — filtered in-app)
+  Foundation: vanilla (plain Ecto).
+  """
+
+  require Ecto.Query
+  alias ${appModule}.Repo
+
+  @doc "Execute the retrieval; returns {:ok, [aggregate]}."
+  def run(${argList}) do
+${body}
+  end${denyHelper}
 end
 `;
 }

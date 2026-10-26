@@ -78,6 +78,13 @@ on:
       - 'src/generator/dotnet/auth-emit.ts'
       - 'src/generator/elixir/vanilla/api-emit.ts'
       - 'src/generator/elixir/vanilla/openapi-emit.ts'
+      # The Ecto read scope: `base_query/0` + `Repo.prepare_query/3`, and the
+      # reads that start from it (elixir-read-scope-runtime.test.ts boots it).
+      - 'src/generator/elixir/vanilla/read-scope-emit.ts'
+      - 'src/generator/elixir/vanilla/capability-filter.ts'
+      - 'src/generator/elixir/vanilla/repository-emit.ts'
+      - 'src/generator/elixir/vanilla/schema-emit.ts'
+      - 'src/generator/elixir/vanilla/shell-emit.ts'
       - 'src/platform/hono/**'
       # The MikroORM adapter's own emitter: it owns the hierarchical subtree
       # predicate (a `raw()` FilterQuery key) that the `node-mikroorm` cell
@@ -93,6 +100,8 @@ on:
       - 'test/e2e/tenancy-isolation-java.test.ts'
       - 'test/e2e/tenancy-isolation-dotnet.test.ts'
       - 'test/e2e/tenancy-isolation-elixir.test.ts'
+      - 'test/e2e/elixir-read-scope-runtime.test.ts'
+      - 'test/fixtures/corpus/inheritance-read-restrictions.ddd'
       - 'test/e2e/tenancy-hierarchy.test.ts'
       - 'test/e2e/tenancy-hierarchy-python.test.ts'
       - 'test/e2e/tenancy-hierarchy-java.test.ts'

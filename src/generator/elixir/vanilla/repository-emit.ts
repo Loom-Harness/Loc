@@ -27,7 +27,6 @@ import type {
   SystemIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
-import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { findRaisesNotFound } from "../../../ir/util/key-lookup.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
@@ -35,21 +34,20 @@ import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
-import { baseReaderShape } from "./base-reader.js";
+import { renderPolymorphicReader } from "./base-reader.js";
 import {
   aggregateUsesPrincipalContextFilter,
-  combineWhere,
   findUsesPrincipal,
   listUsesPrincipal,
-  vanillaCapabilityFilter,
   vanillaWriteScopeFilter,
 } from "./capability-filter.js";
 import { aggregateNeedsUpdateChangeset } from "./changeset-emit.js";
 import { isVanillaDocAgg, renderDocRepository } from "./document-emit.js";
 import { isEventSourced } from "./eventsourced-emit.js";
-import { isAbstractBase, isTphBase, tphKind } from "./inheritance-emit.js";
+import { isAbstractBase, tphKind } from "./inheritance-emit.js";
 import { renderUpdateProvenanceCapture, updateCapturesProvenance } from "./provenance-emit.js";
 import { containmentPreloadRels, readPreloadRels } from "./read-preload.js";
+import { readOpts } from "./read-scope-emit.js";
 import {
   containsRefCollField,
   foreignRefCollFields,
@@ -87,9 +85,10 @@ export function emitVanillaRepositories(
     const repo = (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name);
     // An abstract inheritance base is never instantiated — it gets a READ-ONLY
     // polymorphic reader (`find all <Base>`), not the CRUD seam.  TPH reads the
-    // shared table + dispatches on `kind`; TPC delegates to the concrete repos.
+    // shared table in one query and loads each row by `kind`; TPC merges the
+    // concretes' scoped reads (base-reader.ts).
     const content = isAbstractBase(agg)
-      ? renderBaseReader(appModule, ctxModule, agg, ctx, sys)
+      ? renderPolymorphicReader(appModule, ctxModule, agg, ctx, sys)
       : isVanillaDocAgg(agg, ctx, sys)
         ? renderDocRepository(appModule, ctxModule, agg, customFindsOf(repo), principalIdKey)
         : renderRepository(appModule, ctxModule, agg, repo, principalIdKey, ctx, pool, sys);
@@ -143,7 +142,6 @@ function renderRepository(
   // is the runtime half of the §8 fix — the schema change alone would read every
   // subtype's rows back as the wrong struct.
   const kind = tphKind(agg, pool);
-  const kindFilter = kind ? `record.kind == ${JSON.stringify(kind)}` : null;
 
   // Relational entity-part containments (§11c) are `has_many`/`has_one`
   // associations — preloaded on every read so the wire shape materialises (an
@@ -192,23 +190,17 @@ function renderRepository(
   // other repository stays byte-identical.  The `\\ nil` default keeps internal
   // callers (workflows) compiling and fail-closed (a nil actor scopes to no rows).
   const principal = aggregateUsesPrincipalContextFilter(agg);
-  const cap = vanillaCapabilityFilter(agg, contextModule, { actor: principal });
-  // The effective read filter — the capability filter AND the TPH `kind`
-  // discriminator (for a concrete sharing the base table).  A non-TPH aggregate
-  // keeps `capEff === cap` so its output stays byte-identical.
-  const capEff = combineWhere(kindFilter, cap);
+  // Every read starts from the schema's `base_query/0` (discriminator +
+  // non-bypassable restrictions); `Repo.prepare_query/3` applies the rest, so
+  // no read here spells a restriction (read-scope-emit.ts).
+  const baseQuery = `${aggModule}.base_query()`;
+  // The read opts of a principal-scoped read: the request actor, explicit.
+  const actorOpts = principal ? readOpts({ principal: "current_user" }) : "";
   // The WRITE-scope command-load filter (authorization) — null
   // unless the aggregate's write scope is narrower than its read scope.  When
-  // present, a `find_by_id_for_write` mirrors `find_by_id` but scopes on it.
+  // present, a `find_by_id_for_write` mirrors `find_by_id` but scopes on it
+  // INSTEAD of the read restrictions (`skip_filters: :all`).
   const writeScope = vanillaWriteScopeFilter(agg, contextModule);
-  const writeEff = combineWhere(kindFilter, writeScope);
-  // Does the write-scope predicate actually reference the principal?  A DENY
-  // carve-out (`deny write on X`, authorization) is always-false and uses
-  // NO `current_user`, so the `find_by_id_for_write` principal param must be
-  // underscored or `--warnings-as-errors` trips on the unused variable.  The
-  // tenant-floor / deep write scopes DO reference it.
-  const writeScopeUsesPrincipal =
-    agg.writeScopeFilter !== undefined && exprUsesCurrentUser(agg.writeScopeFilter);
   // On insert, a TPH concrete stamps its `kind` discriminator (the migration's
   // NOT-NULL text column) so the shared-table row is routable back to this
   // subtype.  `kind` isn't a cast field (it's not a declared aggregate column),
@@ -239,7 +231,6 @@ function renderRepository(
       // never bound ("undefined variable current_user" at `mix compile`).
       principal || findUsesPrincipal(f),
       preload,
-      kindFilter,
     ),
   );
   const findBlock = findFns.length > 0 ? `\n\n${findFns.join("\n\n")}\n` : "";
@@ -308,36 +299,28 @@ function renderRepository(
   // threads `page`/`page_size`/`sort`/`dir`, applies `limit`/`offset` + a
   // whitelisted `order_by`, and returns `%{items, page, pageSize, total,
   // totalPages}` instead of a bare list.  (The base-reader polymorphic `list`
-  // stays unpaged — an honest gate; see renderBaseReader.)
+  // pages over the whole hierarchy; see base-reader.ts.)
   const allFind = repo?.finds?.find((f) => f.name === "all");
   const listPaged = allFind ? !!pagedReturn(allFind.returnType) : false;
   // The LIST read's effective predicate.  A DECLARED `find all(): X[] where
   // <pred>` is not a custom find (`customFindsOf` drops `all` — `list` IS its
   // read), so its `where` must be AND-ed in here or the list silently returns
-  // every row (eval-closure item 2).  Its `ignoring` stance narrows the
-  // capability filter exactly as a named find's does (`renderFindFn`); the TPH
-  // `kind` discriminator is never bypassable.  A synthesized `all` carries no
-  // filter and no bypass, so `listEff === capEff` (byte-identical).
+  // every row.  Its `ignoring` stance becomes the read's `skip_filters:`
+  // exactly as a named find's does (`renderFindFn`); the TPH `kind`
+  // discriminator lives in `base_query/0` and is never bypassable.
   const listPrincipal = listUsesPrincipal(agg, allFind);
   const allBypass = !!allFind && (allFind.bypassAll || (allFind.bypassCaps?.length ?? 0) > 0);
-  const listCap = allBypass
-    ? combineWhere(
-        kindFilter,
-        vanillaCapabilityFilter(agg, contextModule, {
-          actor: principal,
-          bypass: { bypassAll: allFind?.bypassAll, bypassCaps: allFind?.bypassCaps },
-        }),
-      )
-    : capEff;
   const allWhere = allFind?.filter
     ? renderExpr(allFind.filter, { thisName: "record", contextModule, filterArgs: true })
     : null;
-  const listEff = combineWhere(allWhere, listCap);
-  const ectoImport =
-    finds.length > 0 || capEff || listEff || hasLocalRefColls(agg, pool) || listPaged
-      ? `
-  import Ecto.Query`
-      : "";
+  const listOpts = readOpts({
+    principal: listPrincipal ? "current_user" : undefined,
+    bypass: allBypass
+      ? { bypassAll: allFind?.bypassAll, bypassCaps: allFind?.bypassCaps }
+      : undefined,
+  });
+  const ectoImport = `
+  import Ecto.Query`;
   // The threaded actor parameter (principal filters only).
   const actorParam = principal ? "current_user \\\\ nil" : "";
   // The LIST head threads the actor when its read references the principal —
@@ -345,7 +328,7 @@ function renderRepository(
   // `currentUser`.  The arity is kept whenever it is threaded (callers pass the
   // actor positionally); only the NAME underscores when an `ignoring` bypass
   // dropped every principal reference from the body (`--warnings-as-errors`).
-  const listActorParam = `${listEff && /\bcurrent_user\b/.test(listEff) ? "" : "_"}current_user \\\\ nil`;
+  const listActorParam = `current_user \\\\ nil`;
   const listHead = listPrincipal ? `def list(${listActorParam}) do` : "def list do";
   const listSpec = listPrincipal
     ? `@spec list(map() | nil) :: {:ok, [${aggModule}.t()]} | {:error, term()}`
@@ -355,15 +338,9 @@ function renderRepository(
   // `Repo.preload/2` accepts the whole list, so the value-collection has_many
   // and reference-collection many_to_many associations come back loaded (and
   // ordinal-ordered, for value collections) in one round-trip.
-  const listBody =
-    (listEff
-      ? `from(record in ${aggModule}, where: ${listEff}) |> Repo.all()`
-      : `Repo.all(${aggModule})`) + preload;
-  // The paged `list` block (whole spec + def).  The plain block is byte-identical
-  // to before the flip; only a paged auto-findAll takes the envelope path.
-  const listQuery = listEff
-    ? `from(record in ${aggModule}, where: ${listEff})`
-    : `from(record in ${aggModule})`;
+  const listQuery = allWhere ? `from(record in ${baseQuery}, where: ${allWhere})` : baseQuery;
+  const listBody = `${listQuery} |> Repo.all(${listOpts})${preload}`;
+  // The paged `list` block (whole spec + def).
   const listSortArms = sortableFields(agg)
     .filter((wf) => wf !== "id")
     .map((wf) => `        "${wf}" -> :${snake(wf)}`)
@@ -379,7 +356,7 @@ function renderRepository(
     ? `  @spec list(pos_integer(), pos_integer(), String.t(), String.t()${listPrincipal ? ", map() | nil" : ""}) :: {:ok, map()} | {:error, term()}
   def list(${listPagedArgs}) do
     query = ${listQuery}
-    total = Repo.aggregate(query, :count)
+    total = Repo.aggregate(query, :count${listOpts ? `, ${listOpts}` : ""})
     offset = (page - 1) * page_size
 
     sort_col =
@@ -394,7 +371,7 @@ ${listSortArms}${listSortArms ? "\n" : ""}        _ -> :id
       |> order_by([record], [{^dir_atom, field(record, ^sort_col)}])
       |> limit(^page_size)
       |> offset(^offset)
-      |> Repo.all()${preload}
+      |> Repo.all(${listOpts})${preload}
 
     {:ok,
      %{
@@ -418,9 +395,7 @@ ${listSortArms}${listSortArms ? "\n" : ""}        _ -> :id
   // `find_by_id`: `Repo.get` can't carry the capability `where`, so a scoped
   // read becomes a `from(... where: id and cap) |> Repo.one()` (a soft-deleted
   // / out-of-scope row then reads as `:not_found`, matching every other backend).
-  const findByIdBody = capEff
-    ? `case Repo.one(from(record in ${aggModule}, where: record.id == ^id and (${capEff}))) do`
-    : `case Repo.get(${aggModule}, id) do`;
+  const findByIdBody = `case Repo.one(from(record in ${baseQuery}, where: record.id == ^id)${actorOpts ? `, ${actorOpts}` : ""}) do`;
   // Preload the reference-collection relationships on the loaded row so the
   // serializer projects them to id arrays.
   const findByIdHit = preload ? `record -> {:ok, record${preload}}` : "record -> {:ok, record}";
@@ -539,19 +514,16 @@ ${listBlock}
     end
   end
 ${
-  // Gate on `writeScope` (the aggregate's own write-scope narrowing), NOT
-  // `writeEff`: a TPH concrete carries a non-null `kindFilter` even with no
-  // write policy, and a kind-only guard would never reference `current_user`
-  // → an unused-variable warning that fails `--warnings-as-errors` (and dead
-  // code — the facade/controller only dispatch here when `writeScopeFilter`
-  // is set).  `writeEff` still supplies the body so a real write guard on a
-  // TPH concrete keeps its kind discriminator.
+  // Emitted only when the aggregate's write scope narrows its read scope (the
+  // facade/controller dispatch here only then).  The load starts from
+  // `base_query/0` (the discriminator) and swaps the read restrictions for the
+  // write scope: `skip_filters: :all`.
   writeScope
     ? `
   @doc "Command-load path (authorization): scope the by-id load to the WRITE scope; a readable-but-not-writable (or missing) row reads as :not_found → 404."
   @spec find_by_id_for_write(binary(), map() | nil) :: {:ok, ${aggModule}.t()} | {:error, :not_found}
-  def find_by_id_for_write(id, ${writeScopeUsesPrincipal ? "current_user" : "_current_user"} \\\\ nil) when is_binary(id) do
-    case Repo.one(from(record in ${aggModule}, where: record.id == ^id and (${writeEff}))) do
+  def find_by_id_for_write(id, current_user \\\\ nil) when is_binary(id) do
+    case Repo.one(from(record in ${baseQuery}, where: record.id == ^id and (${writeScope})), current_user: current_user, skip_filters: :all) do
       nil -> {:error, :not_found}
       ${findByIdHit}
     end
@@ -594,23 +566,16 @@ function renderFindFn(
   contextModule: string,
   principal: boolean,
   preload: string,
-  /** The TPH `record.kind == "<Concrete>"` discriminator predicate, or null for
-   *  a non-TPH-concrete aggregate.  A custom find over a shared table must scope
-   *  to this subtype's rows just like `list`/`find_by_id` do. */
-  kindFilter: string | null = null,
 ): string {
-  // The capability filter for THIS find — recomputed with the find's own
-  // `ignoring` clause so a bypassed capability's `where:` predicate is omitted
-  // from this finder only (other reads keep the full conjunction).  The TPH
-  // `kind` discriminator is never bypassable (it's a physical-table fact, not a
-  // capability), so it ANDs in unconditionally.
-  const cap = combineWhere(
-    kindFilter,
-    vanillaCapabilityFilter(agg, contextModule, {
-      actor: principal,
-      bypass: { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps },
-    }),
-  );
+  // The find starts from `base_query/0`; `Repo.prepare_query/3` applies the
+  // bypassable restrictions, minus the ones this find's `ignoring` names
+  // (`skip_filters:`), with the actor passed explicitly when it has one.
+  const baseQuery = `${aggModule}.base_query()`;
+  const opts = readOpts({
+    principal: principal ? "current_user" : undefined,
+    bypass: { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps },
+  });
+  const fetchArgs = opts ? `query, ${opts}` : "query";
   const fnName = snake(f.name);
   const argNames = f.params.map((p) => elixirLocal(p.name));
   // A `paged` find (`find recent(): Order paged`) returns the cross-backend
@@ -628,22 +593,11 @@ function renderFindFn(
         `dir \\\\ "asc"`,
       ]
     : [];
-  // A principal-filtered aggregate threads the request actor into the find too
-  // (the `cap` references `current_user`).  `\\ nil` keeps the workflow callers
-  // compiling + fail-closed.
+  // A principal-filtered aggregate threads the request actor into the find too:
+  // it rides the read's `current_user:` option, so the head always reads it.
+  // A nil actor falls back to the ambient principal (`Repo.default_options/1`).
   //
-  // …UNLESS THIS FIND DROPPED IT.  `cap` is recomputed per find with the find's
-  // own `ignoring` clause, so `find ... ignoring tenantOwned` emits a `where:`
-  // with no `current_user` in it — and a bound-but-unread parameter is a
-  // warning, which `mix compile --warnings-as-errors` (the corpus elixir leg)
-  // turns into a build failure.  So the head is derived from the BODY: keep the
-  // arity (callers pass the actor positionally whether or not this find reads
-  // it) and underscore the NAME when nothing in the rendered body mentions it.
-  // The document repository already did this; the relational path did not, and
-  // no fixture crossed `ignoring` with a principal filter on a relational find
-  // until `corpus/find-bypass` (M-T6.54 F18).
-  //
-  // The find's OWN parameters take the same derivation: a declared parameter
+  // The find's OWN parameters are derived from the body: a declared parameter
   // the predicate never reads (`find byLabel(final: bool, label: string) …
   // where this.label == label` — the wire still carries `?final=`) is bound
   // and unread, the identical warning.  The arity stays (the controller passes
@@ -652,7 +606,7 @@ function renderFindFn(
     [
       ...argNames.map((n) => (new RegExp(`\\b${n}\\b`).test(body) ? n : `_${n}`)),
       ...pageArgs,
-      ...(principal ? [`${/\bcurrent_user\b/.test(body) ? "" : "_"}current_user \\\\ nil`] : []),
+      ...(principal ? [`current_user \\\\ nil`] : []),
     ].join(", ");
   const single = isSingleReturn(f.returnType);
 
@@ -664,7 +618,9 @@ function renderFindFn(
     filterArgs: true,
   };
 
-  const fetchCallEarly = isSingleReturn(f.returnType) ? "Repo.one(query)" : "Repo.all(query)";
+  const fetchCallEarly = isSingleReturn(f.returnType)
+    ? `Repo.one(${fetchArgs})`
+    : `Repo.all(${fetchArgs})`;
   const specTailEarly = isSingleReturn(f.returnType)
     ? `{:ok, ${aggModule}.t() | nil} | {:error, term()}`
     : `{:ok, [${aggModule}.t()]} | {:error, term()}`;
@@ -678,12 +634,12 @@ function renderFindFn(
   if (containsField) {
     const rel = snake(containsField);
     const arg = argNames[0] ?? "nil";
-    const where = combineWhere(`join_row.id == ^${arg}`, cap) ?? `join_row.id == ^${arg}`;
+    const where = `join_row.id == ^${arg}`;
     const spec = `  @spec ${fnName}(${specArgsEarly.join(", ")}) :: ${specTailEarly}`;
     return `${spec}
   def ${fnName}(${headFor(where)}) do
     query =
-      from(record in ${aggModule},
+      from(record in ${baseQuery},
         join: join_row in assoc(record, :${rel}),
         where: ${where},
         distinct: true
@@ -704,11 +660,7 @@ function renderFindFn(
       .map((p) => `record.${snake(p.name)} == ^${escapeElixirIdent(snake(p.name))}`)
       .join(" and ");
   }
-  // AND the aggregate's capability filter into the find's own predicate
-  // (a find must honour the same soft-delete / scoping the CRUD reads do).
-  whereExpr = combineWhere(whereExpr || null, cap) ?? "";
-
-  const fetchCall = (single ? `Repo.one(query)` : `Repo.all(query)`) + preload;
+  const fetchCall = (single ? `Repo.one(${fetchArgs})` : `Repo.all(${fetchArgs})`) + preload;
   const specTail = paged
     ? `{:ok, map()} | {:error, term()}`
     : single
@@ -723,9 +675,7 @@ function renderFindFn(
   // A find with neither a `where` clause nor convention params (e.g. an
   // unfiltered `find recent(): Order`) has an empty predicate — emit a bare
   // `from(record in Mod)` rather than `where: ` (which is invalid Elixir).
-  const query = whereExpr
-    ? `from(record in ${aggModule}, where: ${whereExpr})`
-    : `from(record in ${aggModule})`;
+  const query = whereExpr ? `from(record in ${baseQuery}, where: ${whereExpr})` : baseQuery;
 
   if (paged) {
     // Paged WIRE ENVELOPE: count the unpaged query for `total`, then re-run it
@@ -749,7 +699,7 @@ function renderFindFn(
     return `${spec}
   def ${fnName}(${headFor(query)}) do
     query = ${query}
-    total = Repo.aggregate(query, :count)
+    total = Repo.aggregate(query, :count${opts ? `, ${opts}` : ""})
     offset = (page - 1) * page_size
 
     sort_col =
@@ -771,7 +721,7 @@ ${
       |> ${declaredOrder ? "order_by(^order)" : "order_by([record], [{^dir_atom, field(record, ^sort_col)}])"}
       |> limit(^page_size)
       |> offset(^offset)
-      |> Repo.all()${preload}
+      |> Repo.all(${opts})${preload}
 
     {:ok,
      %{
@@ -803,131 +753,4 @@ ${
     query = ${query}
     {:ok, ${fetchCall}}
   end`;
-}
-
-/** Rows per page when a base reader drains a paged concrete. */
-const BASE_READER_PAGE_SIZE = 500;
-
-/** Read-only polymorphic reader for an abstract inheritance base — the read
- *  home for `find all <Base>` / dereferencing a polymorphic `<Base> id`
- *  (inheritance.md).  An abstract base is never instantiated, so it carries NO
- *  write seam (insert/update/delete); only `list` + `find_by_id`.
- *
- *  Both layouts DELEGATE to the concrete repositories (`baseReaderShape`): a
- *  TPH concrete's repository is where its `kind` conjunct and every capability
- *  / inline filter (soft-delete, tenancy, `seats > 0`) live, so reading the
- *  shared table directly would serve rows those filters exclude.  `list`
- *  concatenates each concrete's rows (draining a paged concrete's pages),
- *  `find_by_id` tries each concrete in turn; the actor is passed to every
- *  concrete read that takes one. */
-function renderBaseReader(
-  appModule: string,
-  ctxModule: string,
-  base: AggregateIR,
-  ctx: BoundedContextIR,
-  sys?: SystemIR,
-): string {
-  const aggModule = `${appModule}.${ctxModule}.${upperFirst(base.name)}`;
-  const repoMod = `${aggModule}Repository`;
-  const layout = isTphBase(base, ctx.aggregates) ? "TPH / sharedTable" : "TPC / ownTable";
-  const shape = baseReaderShape(base, ctx, sys);
-  const concreteRepo = (c: { agg: AggregateIR }) =>
-    `${appModule}.${ctxModule}.${upperFirst(c.agg.name)}Repository`;
-
-  // Each thunk reads one concrete.  `list` thunks take a page number so a paged
-  // concrete is drained page by page; an unpaged one ignores it.
-  const listThunks = shape.concretes.map((c) => {
-    const repo = concreteRepo(c);
-    const actor = c.listActor ? ", current_user" : "";
-    return c.paged
-      ? `fn page -> ${repo}.list(page, ${BASE_READER_PAGE_SIZE}, "id", "asc"${actor}) end`
-      : `fn _page -> ${repo}.list(${c.listActor ? "current_user" : ""}) end`;
-  });
-  const findThunks = shape.concretes.map((c) => {
-    const repo = concreteRepo(c);
-    return `fn -> ${repo}.find_by_id(id${c.findActor ? ", current_user" : ""}) end`;
-  });
-  const listActorName = shape.listActor ? "current_user" : "_current_user";
-  const findActorName = shape.findActor ? "current_user" : "_current_user";
-  const listHead = shape.principal ? `def list(${listActorName} \\\\ nil) do` : "def list do";
-  const listSpec = shape.principal
-    ? "@spec list(map() | nil) :: {:ok, [struct()]} | {:error, term()}"
-    : "@spec list() :: {:ok, [struct()]} | {:error, term()}";
-  const findHead = shape.principal
-    ? `def find_by_id(id, ${findActorName} \\\\ nil) when is_binary(id) do`
-    : "def find_by_id(id) when is_binary(id) do";
-  const findSpec = shape.principal
-    ? "@spec find_by_id(binary(), map() | nil) :: {:ok, struct()} | {:error, :not_found}"
-    : "@spec find_by_id(binary()) :: {:ok, struct()} | {:error, :not_found}";
-  const hasConcretes = shape.concretes.length > 0;
-  const listBody = hasConcretes
-    ? `Enum.reduce_while(
-      [
-${listThunks.map((t) => `        ${t}`).join(",\n")}
-      ],
-      {:ok, []},
-      fn read, {:ok, acc} ->
-        case drain(read) do
-          {:ok, rows} -> {:cont, {:ok, acc ++ rows}}
-          {:error, _} = err -> {:halt, err}
-        end
-      end
-    )`
-    : "{:ok, []}";
-  const findBody = hasConcretes
-    ? `Enum.reduce_while(
-      [
-${findThunks.map((t) => `        ${t}`).join(",\n")}
-      ],
-      {:error, :not_found},
-      fn read, _acc ->
-        case read.() do
-          {:ok, record} -> {:halt, {:ok, record}}
-          {:error, :not_found} -> {:cont, {:error, :not_found}}
-          {:error, _} = err -> {:halt, err}
-        end
-      end
-    )`
-    : "{:error, :not_found}";
-  // A paged concrete answers the `%{items, totalPages}` envelope; the base
-  // reader is unpaged, so it walks every page.  A bare list is a single page.
-  const drainHelper = shape.concretes.some((c) => c.paged)
-    ? `
-
-  defp drain(read, page \\\\ 1, acc \\\\ []) do
-    case read.(page) do
-      {:ok, %{items: items, totalPages: total_pages}} ->
-        acc = acc ++ items
-        if page >= total_pages, do: {:ok, acc}, else: drain(read, page + 1, acc)
-
-      {:ok, rows} when is_list(rows) ->
-        {:ok, acc ++ rows}
-
-      {:error, _} = err ->
-        err
-    end
-  end`
-    : `
-
-  defp drain(read) do
-    case read.(1) do
-      {:ok, rows} when is_list(rows) -> {:ok, rows}
-      {:error, _} = err -> err
-    end
-  end`;
-  return `# Auto-generated.
-defmodule ${repoMod} do
-  @moduledoc "Read-only polymorphic reader for the abstract ${upperFirst(base.name)} hierarchy (${layout}) — delegates to the concrete repositories, which carry the kind discriminator and every read filter."
-
-  ${listSpec}
-  ${listHead}
-    ${hasConcretes ? listBody : "{:ok, []}"}
-  end
-
-  ${findSpec}
-  ${findHead}
-    ${findBody}
-  end${hasConcretes ? drainHelper : ""}
-end
-`;
 }
