@@ -52,7 +52,8 @@ system Helpdesk {
         // Claims the gates above never read.  `id` defaults to the token's
         // `sub`; `permissions` is a string-array claim; `levels` is a declared
         // non-string array claim NO token carries, so it must read as the
-        // empty list rather than null.
+        // empty list rather than null (`triage` ANDs the role so the ladder's
+        // unauthorized principal is refused there too).
         operation escalate() {
           requires currentUser.id == "00000000-0000-0000-0000-000000000000"
           open := true
@@ -62,7 +63,7 @@ system Helpdesk {
           open := true
         }
         operation triage() {
-          requires !currentUser.levels.contains(9)
+          requires !currentUser.levels.contains(9) && currentUser.role == "agent"
           open := true
         }
       }

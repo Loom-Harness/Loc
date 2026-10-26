@@ -423,6 +423,105 @@
       "path": "/api/tickets/{id}/assign",
       "status": 204,
       "body": ""
+    },
+    {
+      "seq": 40,
+      "method": "POST",
+      "path": "/api/tickets/{id}/escalate",
+      "status": 401,
+      "body": {
+        "detail": "no valid credentials for POST /api/tickets/{id}/escalate",
+        "instance": "/api/tickets/{id}/escalate",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 41,
+      "method": "POST",
+      "path": "/api/tickets/{id}/escalate",
+      "status": 403,
+      "body": {
+        "detail": "Forbidden",
+        "instance": "/api/tickets/{id}/escalate",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 42,
+      "method": "POST",
+      "path": "/api/tickets/{id}/escalate",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 43,
+      "method": "POST",
+      "path": "/api/tickets/{id}/reassign",
+      "status": 401,
+      "body": {
+        "detail": "no valid credentials for POST /api/tickets/{id}/reassign",
+        "instance": "/api/tickets/{id}/reassign",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 44,
+      "method": "POST",
+      "path": "/api/tickets/{id}/reassign",
+      "status": 403,
+      "body": {
+        "detail": "Forbidden",
+        "instance": "/api/tickets/{id}/reassign",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 45,
+      "method": "POST",
+      "path": "/api/tickets/{id}/reassign",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 46,
+      "method": "POST",
+      "path": "/api/tickets/{id}/triage",
+      "status": 401,
+      "body": {
+        "detail": "no valid credentials for POST /api/tickets/{id}/triage",
+        "instance": "/api/tickets/{id}/triage",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 47,
+      "method": "POST",
+      "path": "/api/tickets/{id}/triage",
+      "status": 403,
+      "body": {
+        "detail": "Forbidden",
+        "instance": "/api/tickets/{id}/triage",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 48,
+      "method": "POST",
+      "path": "/api/tickets/{id}/triage",
+      "status": 204,
+      "body": ""
     }
   ]
 }
