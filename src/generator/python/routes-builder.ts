@@ -1220,12 +1220,14 @@ function operationRoute(
       ...whenGate(agg, op),
       op.audited ? "    __before = repo.to_wire(found)" : null,
       `    result = found.${pythonIdent(op.name)}(${callArgs.join(", ")})`,
+      // An error leaves no trace (D-FAILURE-MODEL): it answers before the
+      // stamp, the save and the audit row, so the loaded aggregate is dropped.
+      ...translations,
       hasStamp(agg, "update") ? stampCall(agg, "update", "found") : null,
       ...vsave.ifMatch,
       vsave.save,
       op.audited ? "    __after = repo.to_wire(found)" : null,
       ...(op.audited ? auditRecordCall(agg, op) : []),
-      ...translations,
       "    return result",
     );
   }

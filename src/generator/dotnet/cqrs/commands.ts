@@ -16,6 +16,7 @@ import {
 } from "../../../ir/util/op-gates.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
+import { unionMembers } from "../../_payload/union-wire.js";
 import { maskNamer, projectEntityExpr, projectToResponse, wireType } from "../dto-mapping.js";
 import { renderCommand, renderCommandHandler } from "../emit.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "../render-expr.js";
@@ -538,10 +539,31 @@ export function emitOperationCommandAndHandler(
       `            ?? throw new AggregateNotFoundException($"${agg.name} {command.Id} not found");\n` +
       requiresGate(op) +
       whenGate(agg, op);
+    // An error variant leaves no trace (D-FAILURE-MODEL): the handler returns
+    // it before the audit row is staged and before the save, so the mutated
+    // aggregate and its pending events are dropped with the unit of work.
+    // The variant records are named in full — an audited handler also imports
+    // the same-named wire union from `Responses`.
+    const variants = op.returnType?.kind === "union" ? op.returnType.variants : [];
+    const errorTags = unionMembers(variants, ctx)
+      .filter((_, i) => {
+        const v = variants[i]!;
+        return (
+          v.kind === "entity" && ctx.payloads.some((p) => p.name === v.name && p.kind === "error")
+        );
+      })
+      .map((m) => m.tag);
+    const errorGuard =
+      returnUnion && errorTags.length > 0
+        ? `        if (result is ${errorTags
+            .map((t) => `${ns}.Domain.${plural(agg.name)}.${returnUnion}_${t}`)
+            .join(" or ")}) return result;\n`
+        : "";
     const handlerBody = returnUnion
       ? loadLine +
         auditBefore +
         `        var result = aggregate.${upperFirst(op.name)}(${callArgs});\n` +
+        errorGuard +
         auditStage +
         `        await _repo.SaveAsync(aggregate, cancellationToken);\n` +
         `        return result;\n`
