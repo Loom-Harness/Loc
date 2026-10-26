@@ -111,15 +111,6 @@ function scopeHosts(
   return hosts;
 }
 
-/** True when the deployable has at least one restriction to apply — the hook
- *  module (and its install call) exist only then. */
-export function pyHasReadScope(
-  contexts: readonly EnrichedBoundedContextIR[],
-  sqlScoped: (agg: EnrichedAggregateIR) => boolean,
-): boolean {
-  return scopeHosts(contexts, sqlScoped).length > 0;
-}
-
 /** `app/db/read_scope.py`, or null when no aggregate carries a restriction. */
 export function buildPyReadScopeFile(
   contexts: readonly EnrichedBoundedContextIR[],

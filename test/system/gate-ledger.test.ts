@@ -152,10 +152,12 @@ describe("gate ledger", () => {
     // The behavioural block lives in the shared `.ddd`, so a feature either
     // boots everywhere it is declared or nowhere.  A split would mean a
     // per-backend `BEHAVIOURAL_SKIP` entry is doing the hiding, and the
-    // per-feature register above would be the wrong shape to describe it.
+    // per-feature register above would be the wrong shape to describe it.  A
+    // tracked expected failure (`BEHAVIOURAL_XFAIL`) is booted, so it is no
+    // such hiding: it is how a fix lands one backend at a time.
     const split = [...new Set(ledger.cells.map((c) => c.feature))].filter((f) => {
       const cs = ledger.cells.filter((c) => c.feature === f);
-      return cs.some((c) => c.behavioural) && cs.some((c) => !c.behavioural);
+      return cs.some((c) => c.behavioural) && cs.some((c) => !c.behavioural && !c.expectedFailure);
     });
     expect(split).toEqual([]);
   });
