@@ -224,6 +224,7 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
       cases: [c],
       path: "$.errors[*].message",
       kinds: ["value"],
+      values: { golden: " is required$", actual: "^Required$" },
       reason:
         '#3881 — only node renders the wirePolicy missing-field sentence `"<field> is required"` yet; the other legs send `"Required"`',
     }),
