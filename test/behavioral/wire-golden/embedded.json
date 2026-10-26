@@ -66,23 +66,29 @@
     {
       "seq": 5,
       "method": "GET",
-      "path": "/api/orders/by_customer?name=beta",
+      "path": "/api/orders/by_customer/beta",
       "status": 200,
-      "body": [
-        {
-          "customer": "beta",
-          "id": "<volatile:key>",
-          "lines": [
-            {
-              "id": "<volatile:key>",
-              "qty": 3,
-              "sku": "A1"
-            }
-          ],
-          "total": "125.0000",
-          "version": 3
-        }
-      ]
+      "body": {
+        "items": [
+          {
+            "customer": "beta",
+            "id": "<volatile:key>",
+            "lines": [
+              {
+                "id": "<volatile:key>",
+                "qty": 3,
+                "sku": "A1"
+              }
+            ],
+            "total": "125.0000",
+            "version": 3
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
     },
     {
       "seq": 6,
@@ -161,9 +167,15 @@
     {
       "seq": 12,
       "method": "GET",
-      "path": "/api/orders/by_customer?name=beta",
+      "path": "/api/orders/by_customer/beta",
       "status": 200,
-      "body": []
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
     },
     {
       "seq": 13,

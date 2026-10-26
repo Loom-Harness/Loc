@@ -82,12 +82,17 @@ system MessagedRules {
           expect(p.quantity).toBe(5)
         }
       }
-      repository Products for Product {
-        find byName(n: string): Product[] where this.name == n
+      repository Products for Product { }
+      criterion ProductsByName(n: string) of Product = this.name == n
+      queryHandler ListProductsByName(n: string): Product[] {
+        let r = Products.run(ProductsByName(n))
+        return r
       }
     }
   }
-  api CatalogApi from Sales
+  api CatalogApi from Sales {
+    route GET "/products/by_name/{n}" -> Catalog.ListProductsByName
+  }
   storage primary { type: postgres }
   resource catalogState { for: Catalog, kind: state, use: primary }
   deployable d {
@@ -137,7 +142,7 @@ system MessagedRules {
     let listed = api.products.all({ sort: "name", dir: "asc" })
     expect(listed.items.length).toBe(1)
     expect(listed.total).toBe(1)
-    let byName = api.products.byName({ n: "Widget" })
+    let byName = api.catalog.listProductsByName("Widget")
     expect(byName.length).toBe(1)
     // The messaged precondition rejects at the wire boundary (422).  The
     // `errors[].code` it carries is what the generated catalog is keyed by, and

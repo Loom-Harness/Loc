@@ -114,13 +114,10 @@ subdomain Crm {
       find byEmail(email: string): PersonContact? where this.email == email
     }
     repository CompanyContacts for CompanyContact { }
-    repository Leads for Lead {
-      find byStatus(status: LeadStatus): Lead[] where this.status == status
-    }
-    repository Opportunities for Opportunity {
-      find byStage(stage: OpportunityStage): Opportunity[] where this.stage == stage
-      find open(): Opportunity[] where OpenOpportunity
-    }
+    repository Leads for Lead { }
+    criterion LeadsByStatus(status: LeadStatus) of Lead = this.status == status
+    repository Opportunities for Opportunity { }
+    criterion OpportunitiesByStage(stage: OpportunityStage) of Opportunity = this.stage == stage
 
     seed default {
       Lead { name: "Jane Prospect", company: "Hooli", status: New, source: "Website", score: 65 }

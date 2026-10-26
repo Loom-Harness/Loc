@@ -286,8 +286,11 @@ describe("system / module / deployable", () => {
     expect(e2e).toMatch(/__get\(`\$\{base\}\/api\/products\/\$\{p\.id\}`\)/);
     // POST /api/orders/{id}/add_line for the operation call with body.
     expect(e2e).toMatch(/__post\(`\$\{base\}\/api\/orders\/\$\{ord\.id\}\/add_line`,/);
-    // GET /api/orders/by_customer with the find query name in snake_case.
-    expect(e2e).toMatch(/__getQuery\(`\$\{base\}\/api\/orders\/by_customer`,/);
+    // GET /api/orders/by_customer/{customerId} — the routed queryHandler, its
+    // param substituted into the path token.
+    expect(e2e).toMatch(
+      /__route\("GET", `\$\{base\}\/api\/orders\/by_customer\/\$\{encodeURIComponent/,
+    );
   });
 
   it("lowers `test e2e ... against <react>` to a Playwright spec via page objects", async () => {

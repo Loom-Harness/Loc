@@ -78,7 +78,7 @@ describe("declared `find all() where …` keeps its filter (eval item 2)", () =>
 
     it("keeps the synthesized `all` unfiltered (byte-identical control)", async () => {
       const body = await file(
-        source("python", `find byTitle(t: string): Doc[] where this.title == t`),
+        source("python", `find byTitle(t: string): Doc? where this.title == t`),
         PY_REPO,
       );
       expect(body).toContain(

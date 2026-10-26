@@ -17,7 +17,7 @@ const SRC = `
       caught: Pokemon id[]
     }
     repository Trainers for Trainer {
-      find holdingInParty(pokemon: Pokemon id): Trainer[] where this.party.contains(pokemon)
+      find holdingInParty(pokemon: Pokemon id): Trainer? where this.party.contains(pokemon)
     }
   }
 `;
@@ -80,7 +80,7 @@ describe("reference-collection join tables (TS/Hono)", () => {
         aggregate Pokemon { species: string }
         aggregate Trainer { name: string  party: Pokemon id[] }
         repository Trainers for Trainer {
-          find holding(pokemon: Pokemon id): Trainer[] where this.party.contains(pokemon)
+          find holding(pokemon: Pokemon id): Trainer? where this.party.contains(pokemon)
         }
       }
     `;
@@ -92,7 +92,7 @@ describe("reference-collection join tables (TS/Hono)", () => {
         aggregate Pokemon { species: string }
         aggregate Trainer { name: string  party: Pokemon id[] }
         repository Trainers for Trainer {
-          find big(): Trainer[] where this.party.count > 0
+          find big(): Trainer? where this.party.count > 0
         }
       }
     `;

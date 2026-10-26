@@ -74,13 +74,10 @@ subdomain People {
 
     // Row-level visibility: both scope the result to the requesting
     // user's tenant via `currentUser`.
-    repository Employees for Employee {
-      find inMyTenant(): Employee[] where tenantId == currentUser.tenantId
-      find byDepartment(departmentRef: Department id): Employee[]
-        where this.departmentRef == departmentRef
-    }
-    repository Departments for Department {
-      find inMyTenant(): Department[] where tenantId == currentUser.tenantId
-    }
+    repository Employees for Employee { }
+    criterion EmployeesInMyTenant of Employee = tenantId == currentUser.tenantId
+    criterion EmployeesByDepartment(departmentRef: Department id) of Employee = this.departmentRef == departmentRef
+    repository Departments for Department { }
+    criterion DepartmentsInMyTenant of Department = tenantId == currentUser.tenantId
   }
 }

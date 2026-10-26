@@ -48,9 +48,8 @@ system SvelteShop {
             }
 
             repository Customers for Customer { }
-            repository Orders for Order {
-                find byStatus(status: OrderStatus): Order[] where this.status == status
-            }
+            repository Orders for Order { }
+            criterion OrdersByStatus(status: OrderStatus) of Order = this.status == status
 
             criterion ConfirmedOrders of Order as o = o.status == OrderStatus.Confirmed
 

@@ -23,9 +23,8 @@ system FieldOps {
       }
       repository WorkOrders for WorkOrder {
         find byReference(reference: string): WorkOrder?
-        find byRegionAndRef(region: string, reference: string): WorkOrder[]
-        find bySite(siteId: Site id): WorkOrder[]
-        find inRegion(region: string): WorkOrder paged
+        find byRegionAndRef(region: string, reference: string): WorkOrder?
+        find bySite(siteId: Site id): WorkOrder?
       }
     }
   }
@@ -44,30 +43,28 @@ async function repoFile(platform: string, suffix: string): Promise<string> {
 }
 
 describe("dapper — a clause-less find applies its implicit key-match filter", () => {
-  it("single, multi-param, `<field>Id` and paged (count + page) carry the WHERE", async () => {
+  it("single, multi-param and `<field>Id` carry the WHERE", async () => {
     const r = await repoFile(
       "dotnet { persistence: dapper }",
       "Infrastructure/Repositories/WorkOrderRepository.cs",
     );
     const cols = "SELECT id, reference, region, site, version FROM work_orders";
     expect(r).toContain(`"${cols} WHERE (reference = @reference) LIMIT 1"`);
-    expect(r).toContain(`"${cols} WHERE ((region = @region) AND (reference = @reference))"`);
-    expect(r).toContain(`"${cols} WHERE (site = @siteId)", new { siteId = siteId.Value }`);
-    expect(r).toContain(`"SELECT COUNT(*) FROM work_orders WHERE (region = @region)"`);
-    expect(r).toContain(`$"${cols} WHERE (region = @region) ORDER BY {sortColumn}`);
+    expect(r).toContain(
+      `"${cols} WHERE ((region = @region) AND (reference = @reference)) LIMIT 1"`,
+    );
+    expect(r).toContain(`"${cols} WHERE (site = @siteId) LIMIT 1", new { siteId = siteId.Value }`);
   });
 });
 
 describe("mikroorm — a clause-less find applies its implicit key-match filter", () => {
-  it("single, multi-param, `<field>Id` and paged (count + page) carry the filter", async () => {
+  it("single, multi-param and `<field>Id` carry the filter", async () => {
     const r = await repoFile(
       "node { persistence: mikroorm }",
       "db/repositories/workOrder-repository.ts",
     );
     expect(r).toContain("em.findOne(WorkOrderRow, { reference: reference });");
-    expect(r).toContain("em.find(WorkOrderRow, { region: region, reference: reference });");
-    expect(r).toContain("em.find(WorkOrderRow, { site: siteId });");
-    expect(r).toContain("em.count(WorkOrderRow, { region: region });");
-    expect(r).toContain("em.find(WorkOrderRow, { region: region }, { limit: pageSize");
+    expect(r).toContain("em.findOne(WorkOrderRow, { region: region, reference: reference });");
+    expect(r).toContain("em.findOne(WorkOrderRow, { site: siteId });");
   });
 });

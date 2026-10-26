@@ -36,14 +36,12 @@ system MikroNode {
         note:       string?
       }
 
-      repository Customers for Customer {
-        find byName(name: string): Customer[] where this.name == name
-      }
+      repository Customers for Customer { }
+      criterion CustomersByName(name: string) of Customer = this.name == name
 
-      repository Orders for Order {
-        find byCustomer(customerId: Customer id): Order[] where this.customerId == customerId
-        find byQuantity(quantity: int): Order[] where this.quantity >= quantity
-      }
+      repository Orders for Order { }
+      criterion OrdersByCustomer(customerId: Customer id) of Order = this.customerId == customerId
+      criterion OrdersByQuantity(quantity: int) of Order = this.quantity >= quantity
 
       // Named query bundle (retrieval.md) → a `runBulkOrders(min, page?)`
       // repository method on MikroORM (DEBT-17): where (enum + scalar compare)

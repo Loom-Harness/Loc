@@ -155,7 +155,7 @@ describe("auto-paged table", () => {
         of: T.Task.ranked(1),
         data: rows => Table { rows: rows, Column { "Title", o => Text { o.title } } }
       }`,
-      "find ranked(min: int): Task[] where rank > min",
+      "find ranked(min: int): Task? where rank > min",
     );
     // A plain array find is complete in one response — nothing to page.
     expect(tsx).not.toContain("pageNum");

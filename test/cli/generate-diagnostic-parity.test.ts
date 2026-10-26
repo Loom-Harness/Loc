@@ -39,10 +39,9 @@ function run(args: string[]): { stderr: string; status: number } {
 }
 
 /** A model that generates CLEANLY but is not diagnostic-free — the exact case
- *  the defect hid.  `find open(): Order[]` raises the AST-layer (phase ④)
- *  wire-shaped-list-query warning (the context declares a `criterion`, which is
- *  what puts that warning in scope), and filtering on `status` with no `index:`
- *  raises the advisory phase-⑦ `loom.index-suggestion`. */
+ *  the defect hid.  `audited` on a private operation raises an AST-layer
+ *  (phase ④) warning, and filtering on `status` with no `index:` raises the
+ *  advisory phase-⑦ `loom.index-suggestion`. */
 const WARNED = `
 system Shop {
   subdomain D {
@@ -51,15 +50,11 @@ system Shop {
       aggregate Order with crudish {
         code: string
         status: OrderStatus
+        private operation quiet() audited { code := code }
       }
       repository Orders for Order {
-        find open(): Order[] where this.status == OrderStatus.Open
+        find open(): Order? where this.status == OrderStatus.Open
       }
-      // The list-find deprecation is scoped to contexts that already declare a
-      // criterion or a retrieval (audit §D7 — a model with neither has no
-      // equal-power replacement to migrate to).  This context declares one so
-      // the fixture keeps raising BOTH diagnostics it is here to compare.
-      criterion IsOpen of Order = status == OrderStatus.Open
     }
   }
   storage pg { type: postgres }
@@ -89,7 +84,7 @@ describe("generate system / parse diagnostic parity", () => {
 
     // The warnings are actually there to be dropped (a vacuous pass would
     // otherwise compare two empty strings).
-    expect(parsed.stderr).toContain("wire-shaped list query");
+    expect(parsed.stderr).toContain("'audited' has no effect on private operation 'quiet'");
     expect(parsed.stderr).toContain("Suggestions (");
 
     // …and `generate` reports exactly what `parse` reports.

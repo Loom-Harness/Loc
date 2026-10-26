@@ -1702,7 +1702,7 @@ describe("Loom IR validation (post-lowering)", async () => {
           entity OrderLine { qty: int }
         }
         repository Orders for Order {
-          find big(): Order[] where this.lines.count > 0
+          find big(): Order? where this.lines.count > 0
         }
       }
     `);
@@ -1727,7 +1727,7 @@ describe("Loom IR validation (post-lowering)", async () => {
           entity OrderLine { qty: int }
         }
         repository Orders for Order {
-          find anyBig(): Order[] where this.lines.any(l => l.qty > 5)
+          find anyBig(): Order? where this.lines.any(l => l.qty > 5)
         }
       }
     `);
@@ -1750,7 +1750,7 @@ describe("Loom IR validation (post-lowering)", async () => {
           status: OrderStatus
         }
         repository Orders for Order {
-          find activeForCustomer(c: string): Order[]
+          find activeForCustomer(c: string): Order?
             where this.customerId == c && this.status == Open
         }
       }
@@ -1974,7 +1974,7 @@ describe("Loom IR validation (post-lowering)", async () => {
       context T {
         aggregate Task { name: string  derived display: string = name }
         repository Tasks for Task {
-          find byUnknown(p: string): Task[] where this.unknownField == p
+          find byUnknown(p: string): Task? where this.unknownField == p
         }
       }
     `);
@@ -1993,7 +1993,7 @@ describe("Loom IR validation (post-lowering)", async () => {
       context T {
         aggregate Task { name: string, alt: string  derived display: string = name }
         repository Tasks for Task {
-          find both(): Task[] where this.name == this.alt
+          find both(): Task? where this.name == this.alt
         }
       }
     `);
@@ -2271,11 +2271,11 @@ describe("Loom IR validation (post-lowering)", async () => {
           tier: string
         }
         repository Customers for Customer {
-          find byTier(tier: string): Customer[] where this.tier == tier
+          find all(): Customer[]
         }
         workflow w {
       create(tier: string) {
-          let cs = Customers.byTier(tier)
+          let cs = Customers.all()
         }
     }
       }
@@ -2563,7 +2563,7 @@ describe("Loom IR validation (post-lowering)", async () => {
           context T {
             aggregate Order { customerId: string }
             repository Orders for Order {
-              find mine(): Order[] where customerId == currentUser.id
+              find mine(): Order? where customerId == currentUser.id
             }
           }
         }

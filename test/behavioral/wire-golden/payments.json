@@ -51,7 +51,7 @@
     {
       "seq": 4,
       "method": "GET",
-      "path": "/api/credit_cards/by_network?network=Mastercard",
+      "path": "/api/credit_cards/by_network/Mastercard",
       "status": 200,
       "body": [
         {
@@ -112,7 +112,7 @@
     {
       "seq": 9,
       "method": "GET",
-      "path": "/api/credit_cards/by_network?network=Mastercard",
+      "path": "/api/credit_cards/by_network/Mastercard",
       "status": 200,
       "body": []
     },

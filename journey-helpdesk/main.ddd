@@ -267,27 +267,23 @@ system Helpdesk {
         sort: [createdAt asc]
       }
 
-      repository Customers for Customer {}
+      repository Customers for Customer { }
       policy { read Customer requires currentUser.role == "agent" }
-      repository Agents for Agent {}
+      repository Agents for Agent { }
       policy { read Agent requires currentUser.role == "agent" }
-      repository Categories for Category {}
+      repository Categories for Category { }
       policy { read Category requires currentUser.role == "agent" }
-      repository InternalNotes for InternalNote {
-        find forTicket(ticket: Ticket id): InternalNote[]
-      }
+      repository InternalNotes for InternalNote { }
+      criterion InternalNotesForTicket(ticket: Ticket id) of InternalNote = this.ticket == ticket
       policy { read InternalNote requires currentUser.role == "agent" }
-      repository SlaSweeps for SlaSweep {}
+      repository SlaSweeps for SlaSweep { }
       policy { read SlaSweep requires currentUser.role == "agent" }
       repository Tickets for Ticket {
         find byNumber(number: string): Ticket?
-        find myQueue(): Ticket[]
-          where assignee == currentUser.agentId && status != Resolved && status != Closed
-        find unassigned(): Ticket[]
-          where assignee == null && status == Open
-        find mine(): Ticket[]
-          where customer == currentUser.customerId
       }
+      criterion TicketsMyQueue of Ticket = assignee == currentUser.agentId && status != Resolved && status != Closed
+      criterion TicketsUnassigned of Ticket = assignee == null && status == Open
+      criterion TicketsMine of Ticket = customer == currentUser.customerId
       // One read gate per aggregate: `mine` is agent-gated like every other Ticket
       // read. A customer's own-ticket view needs its own exposure (a queryHandler
       // with `requires currentUser.customerId != null` over a criterion).

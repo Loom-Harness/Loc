@@ -35,7 +35,20 @@ import {
   aggregateUsesPrincipalContextFilter,
   vanillaCapabilityFilterParts,
 } from "./capability-filter.js";
+import { isEventSourced } from "./eventsourced-emit.js";
 import { tphKind } from "./inheritance-emit.js";
+
+/** Does retrieval `r` get an Ecto query module (and its `run_…` delegate)?
+ *  Only over an aggregate with a table: an event-sourced aggregate has no Ecto
+ *  schema to `from(...)` over — its reads fold the stream inside its
+ *  repository, which is where a paged criterion read's synthesised
+ *  `findAllBy<Criterion>` page method lives. */
+export function emitsRetrievalModule(r: RetrievalIR, ctx: BoundedContextIR): boolean {
+  if (r.targetType.kind !== "entity") return false;
+  const name = r.targetType.name;
+  const target = ctx.aggregates.find((a) => a.name === name);
+  return !(target && isEventSourced(target));
+}
 
 /** Per-context fan-out: emit one Ecto query module per retrieval. */
 export function emitVanillaRetrievals(
@@ -49,7 +62,7 @@ export function emitVanillaRetrievals(
   const ctxSnake = snake(ctx.name);
   const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
   for (const r of retrievals) {
-    if (r.targetType.kind !== "entity") continue;
+    if (!emitsRetrievalModule(r, ctx) || r.targetType.kind !== "entity") continue;
     // The retrieval reads its target aggregate, so it honours that aggregate's
     // capability filter (soft-delete / scoping) just like the CRUD reads.
     const targetName = r.targetType.name;
@@ -105,7 +118,6 @@ function renderRetrievalModule(
     filterArgs: true,
   };
   const args = r.params.map((p) => elixirLocal(p.name));
-  const argList = args.length > 0 ? `${args.join(", ")}, opts \\\\ []` : "opts \\\\ []";
   // The retrieval's own `where` predicate (the capability filters apply below,
   // as separately-gated pipe stages so a call-site `ignoring` can skip them).
   const ownWhere = renderExpr(r.where, renderCtx);
@@ -142,9 +154,14 @@ function renderRetrievalModule(
   pipeline.push(`    {:ok, Repo.all(query)}`);
 
   // `opts` is always referenced (the if/else above) — no unused-var
-  // warning even when params are empty.  Params themselves are referenced
-  // in `whereExpr` whenever the retrieval is well-formed (the validator
-  // would already have errored on a stray param).
+  // warning even when params are empty.  A declared parameter the predicate
+  // never reads (`criterion C(final: bool, label: string) of T = this.label ==
+  // label`) is bound and unread, which `mix compile --warnings-as-errors`
+  // refuses: the arity stays (callers pass every parameter positionally) and
+  // the unread NAME underscores, as on the repository's find heads.
+  const body = pipeline.join("\n");
+  const head = args.map((n) => (new RegExp(`\\b${n}\\b`).test(body) ? n : `_${n}`));
+  const argList = head.length > 0 ? `${head.join(", ")}, opts \\\\ []` : "opts \\\\ []";
   return `# Auto-generated.
 defmodule ${moduleName} do
   @moduledoc """
@@ -159,7 +176,7 @@ defmodule ${moduleName} do
 
   @doc "Execute the retrieval; returns {:ok, [aggregate]}."
   def run(${argList}) do
-${pipeline.join("\n")}
+${body}
   end
 end
 `;

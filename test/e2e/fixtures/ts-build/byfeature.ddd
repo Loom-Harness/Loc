@@ -40,9 +40,8 @@ system ByFeatureNode {
 
       repository Customers for Customer { }
 
-      repository Orders for Order {
-        find byCustomer(customerId: string): Order[] where this.customerId == customerId
-      }
+      repository Orders for Order { }
+      criterion OrdersByCustomer(customerId: string) of Order = this.customerId == customerId
     }
   }
 

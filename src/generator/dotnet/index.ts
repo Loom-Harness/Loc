@@ -1623,14 +1623,16 @@ function emitAggregate(
   // implementation, EF Core configuration) pick them up uniformly.
   const repoWithViews = mergeViewsAsFinds(agg, repo, ctx);
   // Context retrievals (retrieval.md) targeting this aggregate emit a
-  // `Run<Name>Async` repository method.  Document-shaped aggregates skip
-  // them in v1 (the in-memory document impl doesn't compose LINQ query
-  // operators); they stay a follow-up.
-  const aggRetrievals = isDoc
-    ? []
-    : (ctx.retrievals ?? []).filter(
-        (r) => r.targetType.kind === "entity" && r.targetType.name === agg.name,
-      );
+  // `Run<Name>Async` repository method.  Document-shaped and event-sourced
+  // aggregates skip them (their in-memory impls don't compose LINQ query
+  // operators, so the interface must not promise one); a paged criterion read
+  // reaches them through the synthesised `FindAllBy<Criterion>` find instead.
+  const aggRetrievals =
+    isDoc || isEs
+      ? []
+      : (ctx.retrievals ?? []).filter(
+          (r) => r.targetType.kind === "entity" && r.targetType.name === agg.name,
+        );
   place(
     `I${agg.name}Repository.cs`,
     "repository-interface",

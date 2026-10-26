@@ -29,7 +29,7 @@ system Shop {
         operation cancel(reason: string) { }
       }
       repository Orders for Order {
-        find recent(): Order[]
+        find recent(): Order?
       }
     }
   }

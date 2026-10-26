@@ -38,9 +38,8 @@ system DapperDocument {
         }
       }
 
-      repository Carts for Cart {
-        find byCustomer(customer: string): Cart[] where this.customer == customer
-      }
+      repository Carts for Cart { }
+      criterion CartsByCustomer(customer: string) of Cart = this.customer == customer
     }
   }
 

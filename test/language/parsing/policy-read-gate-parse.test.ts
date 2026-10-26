@@ -31,7 +31,7 @@ const wrap = (members: string) => `system Sys {
       aggregate Ticket { subject: string  open: bool }
       aggregate Product { name: string }
       repository Tickets for Ticket {
-        find openOnes(): Ticket[] where open == true
+        find openOnes(): Ticket? where open == true
       }
       ${members}
     }
@@ -91,8 +91,8 @@ describe("policy read gate parsing", () => {
 
   it("a repository find no longer takes a `requires` clause — the error names the policy line", async () => {
     const src = wrap("").replace(
-      "find openOnes(): Ticket[] where open == true",
-      'find openOnes(): Ticket[] requires currentUser.role == "agent" where open == true',
+      "find openOnes(): Ticket? where open == true",
+      'find openOnes(): Ticket? requires currentUser.role == "agent" where open == true',
     );
     expect(parseErrorsOf(src).length).toBeGreaterThan(0);
     const { errors } = await parseString(src);

@@ -72,9 +72,8 @@ describe("loom.unknown-user-claim — undeclared principal claim", () => {
 
   it("flags an undeclared claim in a repository `find` gate", async () => {
     const e = await errs(`aggregate Ticket with crudish { status: string }`, {
-      extra: `repository Tickets for Ticket {
-        find secure(): Ticket[] where status == "open"
-      }
+      extra: `repository Tickets for Ticket { }
+criterion TicketsSecure of Ticket = status == "open"
       policy { read Ticket requires currentUser.nickname == "x" }`,
     });
     expect(claimErrs(e), e.join("\n")).toHaveLength(1);

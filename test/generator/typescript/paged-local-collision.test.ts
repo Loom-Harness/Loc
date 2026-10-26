@@ -1,9 +1,10 @@
-// A `find … paged` param that shares a name with one of the paged method's own
+// A paged read's param (a criterion a paged queryHandler runs, read through the
+// synthesised `findAllBy<Criterion>` method) that shares a name with one of the paged method's own
 // bookkeeping locals (`offset`, `total`, `totalPages`, `items`, the sort
 // whitelist, the in-memory `matched` list, …).
 //
 // Every node repository builder declared those locals in the same function
-// scope as the find's params, so `find byTotal(total: int): X paged` emitted
+// scope as the find's params, so `find byTotal(total: int): X?` emitted
 //
 //     async byTotal(total: number, page: number, …) {
 //       …
@@ -40,25 +41,29 @@ system PagedLocals {
       aggregate Order with crudish {
         code: string  region: string  offset: int  total: int  totalPages: int  items: int
       }
-      repository Orders for Order {
-        find plain(region: string): Order paged where this.region == region
-        find byOffset(offset: int): Order paged where this.offset == offset
-        find byTotal(total: int, totalPages: int): Order paged where this.total == total && this.totalPages == totalPages
-        find byItems(items: int, countRows: int, rootRows: int, sortColumns: string, sortColumn: string, orderBy: string): Order paged where this.items == items && this.region == sortColumn
-        find bySort(sortable: string, sortField: string, orderBy: string, total: int, items: int): Order paged where this.code == sortable && this.region == sortField && this.total == total
-      }
+      repository Orders for Order { }
+      criterion OrderPlain(region: string) of Order = this.region == region
+      queryHandler PageOrderPlain(region: string): Order paged { let r = Orders.run(OrderPlain(region))  return r }
+      criterion OrderByOffset(offset: int) of Order = this.offset == offset
+      queryHandler PageOrderByOffset(offset: int): Order paged { let r = Orders.run(OrderByOffset(offset))  return r }
+      criterion OrderByTotal(total: int, totalPages: int) of Order = this.total == total && this.totalPages == totalPages
+      queryHandler PageOrderByTotal(total: int, totalPages: int): Order paged { let r = Orders.run(OrderByTotal(total, totalPages))  return r }
+      criterion OrderByItems(items: int, countRows: int, sortColumns: string, sortColumn: string, orderBy: string) of Order = this.items == items && this.region == sortColumn
+      queryHandler PageOrderByItems(items: int, countRows: int, sortColumns: string, sortColumn: string, orderBy: string): Order paged { let r = Orders.run(OrderByItems(items, countRows, sortColumns, sortColumn, orderBy))  return r }
+      criterion OrderBySort(sortable: string, sortField: string, orderBy: string, total: int, items: int) of Order = this.code == sortable && this.region == sortField && this.total == total
+      queryHandler PageOrderBySort(sortable: string, sortField: string, orderBy: string, total: int, items: int): Order paged { let r = Orders.run(OrderBySort(sortable, sortField, orderBy, total, items))  return r }
       aggregate Doc shape: document, with crudish { total: int  offset: int }
-      repository Docs for Doc {
-        find byTotal(total: int, offset: int, totalPages: int, items: int, matched: int): Doc paged where this.total == total && this.offset == offset
-      }
+      repository Docs for Doc { }
+      criterion DocByTotal(total: int, offset: int, totalPages: int, items: int, matched: int) of Doc = this.total == total && this.offset == offset
+      queryHandler PageDocByTotal(total: int, offset: int, totalPages: int, items: int, matched: int): Doc paged { let r = Docs.run(DocByTotal(total, offset, totalPages, items, matched))  return r }
       aggregate Emb shape: embedded, with crudish {
         total: int  offset: int
         contains lines: Line[]
         entity Line { sku: string }
       }
-      repository Embs for Emb {
-        find byTotal(total: int, offset: int, totalPages: int, items: int, countRows: int): Emb paged where this.total == total && this.offset == offset
-      }
+      repository Embs for Emb { }
+      criterion EmbByTotal(total: int, offset: int, totalPages: int, items: int, countRows: int) of Emb = this.total == total && this.offset == offset
+      queryHandler PageEmbByTotal(total: int, offset: int, totalPages: int, items: int, countRows: int): Emb paged { let r = Embs.run(EmbByTotal(total, offset, totalPages, items, countRows))  return r }
       aggregate Account persistedAs: eventLog {
         owner: string
         balance: int
@@ -66,9 +71,9 @@ system PagedLocals {
         apply(e: AccountOpened) { owner := e.owner  balance := 0 }
       }
       event AccountOpened { accountRef: Account id, owner: string }
-      repository Accounts for Account {
-        find byOwner(owner: string, total: int, offset: int, totalPages: int, items: int, matched: int): Account paged where this.owner == owner && this.balance == total
-      }
+      repository Accounts for Account { }
+      criterion AccountByOwner(owner: string, total: int, offset: int, totalPages: int, items: int, matched: int) of Account = this.owner == owner && this.balance == total
+      queryHandler PageAccountByOwner(owner: string, total: int, offset: int, totalPages: int, items: int, matched: int): Account paged { let r = Accounts.run(AccountByOwner(owner, total, offset, totalPages, items, matched))  return r }
     }
   }
   api A from S
@@ -111,7 +116,7 @@ for (const [label, persistence] of [
   ["drizzle (default)", ""],
   ["mikroorm", " { persistence: mikroorm }"],
 ] as const) {
-  describe(`node paged find locals step aside for same-named params — ${label}`, () => {
+  describe(`node paged read locals step aside for same-named params — ${label}`, () => {
     let files: Map<string, string>;
     beforeAll(async () => {
       files = await generateSystemFiles(SOURCE(persistence));
@@ -127,11 +132,14 @@ for (const [label, persistence] of [
 
     it("keeps the param name and renames the local, envelope keys unchanged", () => {
       const order = files.get("d/db/repositories/order-repository.ts")!;
-      expect(order).toContain("async byTotal(total: number, totalPages: number,");
+      expect(order).toContain("async findAllByOrderByTotal(total: number, totalPages: number,");
       expect(order).toContain("total: __total, totalPages: __totalPages }");
       // A find with no collision is untouched (byte-identity for every model
       // that never names a param after a local).
-      const plain = order.slice(order.indexOf("async plain("), order.indexOf("async byOffset("));
+      const plain = order.slice(
+        order.indexOf("async findAllByOrderPlain("),
+        order.indexOf("async findAllByOrderByOffset("),
+      );
       expect(plain).toContain("return { items, page, pageSize, total, totalPages };");
       expect(plain).not.toContain("__");
     });

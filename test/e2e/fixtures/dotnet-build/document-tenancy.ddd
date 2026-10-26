@@ -72,15 +72,13 @@ system DotnetDocTenancy {
         operation setPath(p: string) { dataKey := p }
       }
 
-      repository Notes for Note {
-        // A named find on the document aggregate: the capability predicate has
-        // to narrow the rehydrated set BEFORE the author's own `where` runs,
-        // not just on the auto `findAll`.
-        find byTitle(t: string): Note[] where this.title == t
-      }
-      repository Ledgers for Ledger {
-        find byLabel(l: string): Ledger[] where this.label == l
-      }
+      repository Notes for Note { }
+      // A named find on the document aggregate: the capability predicate has
+      // to narrow the rehydrated set BEFORE the author's own `where` runs,
+      // not just on the auto `findAll`.
+      criterion NotesByTitle(t: string) of Note = this.title == t
+      repository Ledgers for Ledger { }
+      criterion LedgersByLabel(l: string) of Ledger = this.label == l
       repository Orgs for Org { }
     }
   }

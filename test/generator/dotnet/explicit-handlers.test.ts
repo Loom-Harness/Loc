@@ -81,9 +81,8 @@ system Shop {
         create(code: string, status: string) { }
         operation setNote(note: string) { status := note }
       }
-      repository Orders for Order {
-        find byStatus(status: string): Order[] where this.status == status
-      }
+      repository Orders for Order { }
+      criterion OrdersByStatus(status: string) of Order = this.status == status
     }
   }
   api SalesApi with scaffoldApi(of: Sales)
@@ -113,8 +112,6 @@ describe("dotnet — scaffolded handlers consume command/query record params", (
     const ctrl = fileEndingWith(files, "Api/SalesApiRoutesController.cs");
     expect(ctrl).toContain("[FromBody] CreateOrderBody body");
     expect(ctrl).toContain("new SetNoteOrderCommand(new OrderId(orderId), body.Note)");
-    // Find over the aggregate projects the array to <Agg>Response.
-    expect(ctrl).toMatch(/\.Select\(__e => new OrderResponse\(/);
   });
 });
 

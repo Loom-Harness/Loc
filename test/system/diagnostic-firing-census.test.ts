@@ -820,8 +820,11 @@ system TestVocab {
 system PagedParam {
   subdomain S { context Shop {
     aggregate Thing with crudish { rank: int }
-    repository Things for Thing {
-      find byRank(page: int): Thing paged where this.rank == page
+    repository Things for Thing { }
+    criterion ThingsByRank(page: int) of Thing = this.rank == page
+    queryHandler ListThingsByRank(page: int): Thing paged {
+      let r = Things.run(ThingsByRank(page))
+      return r
     }
   } }
 }`,
@@ -1219,6 +1222,12 @@ system S {
     }
     repository Orders for Order { }`),
 
+  // A list find: a criterion replaces it.
+  "loom.list-find-removed": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing {
+      find byName(n: string): Thing[] where this.name == n
+    }`),
+
   "loom.criterion-retrieval-name-clash": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing { }
     criterion Named(n: string) of Thing = this.name == n
@@ -1233,8 +1242,8 @@ system S {
 
   "loom.duplicate-find": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing {
-      find byName(n: string): Thing[] where this.name == n
-      find byName(n: string): Thing[] where this.name == n
+      find byName(n: string): Thing? where this.name == n
+      find byName(n: string): Thing? where this.name == n
     }`),
 
   // An abstract inheritance base owning its own `contains`.  The part's table
@@ -2403,27 +2412,6 @@ system S {
     framework: react
     api C: Api
     page Home { route: "/"  body: Button { "Save", variant: "filled" } }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
-}`,
-  // The scaffolded list filter bar renders `string`/`guid`/`datetime`/`int`/
-  // `long`/`bool`/`<X> id` params; an `enum` one is dropped whole (the FRONTEND
-  // state emitters type an enum state as bare `string` while the query param is
-  // the zod enum union).
-  "loom.scaffold-filter-param-unsupported": `
-system S {
-  subdomain Sub { context C {
-    enum Status { Open, Closed }
-    aggregate Order with crudish { title: string  status: Status }
-    repository Orders for Order { find byStatus(s: Status): Order[] where this.status == s }
-  } }
-  api Api from Sub
-  ui WebApp with scaffold(aggregates: [Order]) {
-    framework: react
-    api C: Api
   }
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }

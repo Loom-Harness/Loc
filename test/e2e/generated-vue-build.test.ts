@@ -142,9 +142,8 @@ const SCAFFOLD: Case = {
             sellable: bool
             derived display: string = name
           }
-          repository Products for Product {
-            find sellable(): Product paged where this.sellable == true
-          }
+          repository Products for Product { }
+          criterion ProductsSellable of Product = this.sellable == true
         }
       }
       api SalesApi from Sales

@@ -97,7 +97,7 @@ const SRC = `system Shop {
       }
       repository Orders for Order {
         find byId(id: int): Order? where this.id == id
-        find open(): Order[] where true
+        find open(): Order? where true
       }
       projection OrderRow(limit: int) keyed by sku requires permissions.read {
         total: decimal

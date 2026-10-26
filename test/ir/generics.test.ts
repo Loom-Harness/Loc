@@ -187,7 +187,7 @@ describe("generics — monomorphization (P3b)", () => {
     const payloads = await payloadsOf(
       `system S { subdomain D { context C {
          aggregate Order { ref: string }
-         repository Orders for Order { find recent(): Order id paged }
+         repository Orders for Order { find all(): Order id paged }
        } } }`,
       "C",
     );

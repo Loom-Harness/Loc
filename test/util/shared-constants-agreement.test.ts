@@ -14,7 +14,6 @@ import {
 } from "../../src/util/api-base.js";
 import { AUDIT_HISTORY_FIND } from "../../src/util/audit-names.js";
 import { CAPABILITIES_TAG, FILTER_ORIGIN_TAG } from "../../src/util/capability-tag.js";
-import { RENDERABLE_FILTER_PRIMITIVES } from "../../src/util/filter-param-kinds.js";
 import { PLATFORM_SAVING_SHAPES } from "../../src/util/platform-axes.js";
 import {
   PRINCIPAL_ORG_PATH,
@@ -30,8 +29,6 @@ import {
 // SOURCE OF TRUTH for some code that lives elsewhere.  Every test below is that
 // agreement, never the constant's value in isolation:
 //
-//   (a) filter-param-kinds.ts  ⇄  the `filterParamKind` switch in the scaffold
-//                                 macro (`_body-builders.ts`)
 //   (b) platform-axes.ts       ⇄  the `Platform` / `SavingShape` IR vocabulary
 //                                 and the platform descriptor table
 //   (c) api-base.ts            ⇄  itself (derived paths) and the compose
@@ -41,107 +38,13 @@ import {
 //       audit-names.ts             spell the same key
 //
 // Several of these reach into module source text.  That is deliberate: the code
-// under test is module-private (`filterParamKind`) or lives inside an emitter's
+// under test is module-private or lives inside an emitter's
 // template string (the `rootOrg` derivations), and a hand-copied duplicate of it
 // here would be the very drift the test claims to prevent.
 // ---------------------------------------------------------------------------
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const read = (rel: string): string => fs.readFileSync(path.join(repoRoot, rel), "utf8");
-
-// ===========================================================================
-// (a) RENDERABLE_FILTER_PRIMITIVES ⇄ filterParamKind
-// ===========================================================================
-
-const BODY_BUILDERS = "src/macros/stdlib/scaffold/_body-builders.ts";
-
-/** The primitive names `filterParamKind` returns a NON-NULL kind for — read
- *  out of its `switch (type.base.name)`.  Every `case` in that switch falls
- *  into a `return "<kind>"`; the only `null` is its `default`. */
-function filterParamKindCases(): string[] {
-  const src = read(BODY_BUILDERS);
-  const start = src.indexOf("function filterParamKind(");
-  expect(start, `filterParamKind not found in ${BODY_BUILDERS}`).toBeGreaterThanOrEqual(0);
-  const end = src.indexOf("\n}", start);
-  expect(end).toBeGreaterThan(start);
-  const fn = src.slice(start, end);
-  const sw = fn.slice(fn.indexOf("switch ("));
-  // Everything before `default:` returns a kind; nothing after it does.
-  const arms = sw.slice(0, sw.indexOf("default:"));
-  return [...arms.matchAll(/case "([a-zA-Z]+)":/g)].map((m) => m[1]!);
-}
-
-/** The `PrimitiveType` name alternatives in the grammar. */
-function grammarPrimitives(): string[] {
-  const src = read("src/language/ddd.langium");
-  const m = /PrimitiveType:\s*\n\s*name=\(([^)]*)\)/.exec(src);
-  expect(m, "PrimitiveType rule not found in ddd.langium").not.toBeNull();
-  return [...m![1]!.matchAll(/'([^']+)'/g)].map((x) => x[1]!);
-}
-
-describe("(a) RENDERABLE_FILTER_PRIMITIVES agrees with `filterParamKind`", () => {
-  it("every listed name is a `case` the macro's switch returns a kind for", () => {
-    // The subset direction: a name here that the macro drops would put a filter
-    // input in the scaffolded bar with nothing behind it.
-    const cases = new Set(filterParamKindCases());
-    for (const name of RENDERABLE_FILTER_PRIMITIVES) {
-      expect(cases.has(name), `"${name}" is listed but has no arm in filterParamKind`).toBe(true);
-    }
-  });
-
-  it("every kind-returning `case` is listed here", () => {
-    // The other direction: a macro arm not listed here would make the IR check
-    // `loom.scaffold-filter-param-unsupported` report a param the bar DID render.
-    for (const name of filterParamKindCases()) {
-      expect(
-        RENDERABLE_FILTER_PRIMITIVES.has(name),
-        `filterParamKind renders "${name}" but it is not in RENDERABLE_FILTER_PRIMITIVES`,
-      ).toBe(true);
-    }
-  });
-
-  it("the two sets are therefore equal", () => {
-    expect([...RENDERABLE_FILTER_PRIMITIVES].sort()).toEqual(
-      [...new Set(filterParamKindCases())].sort(),
-    );
-  });
-
-  it("the deliberately held-back names are absent (decimal / money / enum)", () => {
-    // `decimal` / `money`: the `0` unset sentinel does not type-check on Feliz.
-    // `enum`: every frontend types an enum-valued state field as bare `string`
-    //         while the query param is the zod enum union (TS2322).
-    for (const held of ["decimal", "money", "enum"]) {
-      expect(RENDERABLE_FILTER_PRIMITIVES.has(held), `"${held}" must stay held back`).toBe(false);
-    }
-  });
-
-  it("`decimal` and `money` are real grammar primitives, so their absence is a CHOICE", () => {
-    // Guards against the set drifting into vacuous correctness: if these ever
-    // stopped being primitives, "absent" would prove nothing.
-    const prims = grammarPrimitives();
-    expect(prims).toContain("decimal");
-    expect(prims).toContain("money");
-    // `enum` is NOT a PrimitiveType — an enum-typed param arrives as a
-    // `NamedType` and is rejected one branch earlier, before the switch.
-    expect(prims).not.toContain("enum");
-  });
-
-  it("every listed name is a real grammar primitive", () => {
-    const prims = new Set(grammarPrimitives());
-    for (const name of RENDERABLE_FILTER_PRIMITIVES) {
-      expect(prims.has(name), `"${name}" is not a PrimitiveType in the grammar`).toBe(true);
-    }
-  });
-
-  it("the non-primitive `ref` arm is keyed off IdType, not a primitive name", () => {
-    // Documented: "An `X id` param IS renderable … so it is not a primitive-name
-    // question".  Pinned so the `ref` kind never leaks into this NAME set.
-    const src = read(BODY_BUILDERS);
-    expect(src).toContain('if (type.base.$type === "IdType") return "ref";');
-    expect(RENDERABLE_FILTER_PRIMITIVES.has("ref")).toBe(false);
-    expect(RENDERABLE_FILTER_PRIMITIVES.has("id")).toBe(false);
-  });
-});
 
 // ===========================================================================
 // (b) PLATFORM_SAVING_SHAPES ⇄ the Platform / SavingShape vocabulary

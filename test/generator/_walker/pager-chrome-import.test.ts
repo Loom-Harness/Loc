@@ -47,7 +47,7 @@ system Shop {
     context Sales {
       aggregate Order with crudish { code: string }
       repository Orders for Order {
-        find recent(): Order paged
+        find recent(): Order?
       }
     }
   }

@@ -448,8 +448,12 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  or emitted code that does not compile (`s.matches(…)`, `xs.filter(…)`
  *  verbatim in F# / Dart).  Drains row by row as an emitter learns a feature —
  *  the census then asks for the table row to grow — and the row goes when the
- *  table names every frontend in every row. */
-const MAX_OPEN_GAPS = 18;
+ *  table names every frontend in every row.
+ *
+ *  18 -> 17: `loom.scaffold-filter-param-unsupported` is gone with the
+ *  scaffolded filter bar it reported on — list finds are an error
+ *  (`loom.list-find-removed`), so the bar had nothing left to render. */
+const MAX_OPEN_GAPS = 17;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

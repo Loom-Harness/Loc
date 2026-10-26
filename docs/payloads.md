@@ -142,7 +142,7 @@ with **ML-postfix** syntax — the carrier keyword follows its type argument:
 
 ```
 repository Orders for Order {
-  find recent(): Order paged                 # paged(Order)   — the { items, page, … } wrapper
+  find all(): Order paged                    # paged(Order)   — the { items, page, … } wrapper
   find latest(): OrderPlaced envelope        # envelope(…)    — a single-row read; the BARE body
 }
 ```

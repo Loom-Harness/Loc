@@ -214,7 +214,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.projection-aggregate-arg-not-columnar": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-aggregate-arity":
     "10-repositories-and-queries.md#whole-table-aggregation--the-singleton",
-  "loom.single-row-find-not-unique": "10-repositories-and-queries.md#list-finds-are-deprecated",
+  "loom.single-row-find-not-unique": "10-repositories-and-queries.md#list-finds-are-removed",
+  "loom.list-find-removed": "10-repositories-and-queries.md#list-finds-are-removed",
   "loom.persisted-table-collision": "13-workflows.md#13-workflows",
   "loom.projection-aggregate-type-mismatch": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-groupby-join-invalid": "10-repositories-and-queries.md#grouped--group-by",

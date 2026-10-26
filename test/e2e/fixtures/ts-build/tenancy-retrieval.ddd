@@ -17,9 +17,7 @@ system Tenancy {
         tenantId: string
         balance: int
       }
-      repository Accounts for Account {
-        find mine(): Account[] where MyTenant
-      }
+      repository Accounts for Account { }
 
       criterion MyTenant of Account = tenantId == currentUser.tenantId
 

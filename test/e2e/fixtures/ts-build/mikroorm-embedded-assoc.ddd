@@ -14,9 +14,8 @@ system Roster {
         entity Badge { label: string  rank: Rank }
       }
       repository Players for Player { }
-      repository Teams for Team {
-        find byName(name: string): Team[] where this.name == name
-      }
+      repository Teams for Team { }
+      criterion TeamsByName(name: string) of Team = this.name == name
     }
   }
   storage pg { type: postgres }

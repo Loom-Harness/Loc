@@ -399,7 +399,7 @@ system M2 {
       aggregate Order with crudish { owner: string  tags: Tag id[] }
       repository Tags for Tag { }
       repository Orders for Order {
-        find tagged(t: Tag id): Order[] where this.tags.contains(t)
+        find tagged(t: Tag id): Order? where this.tags.contains(t)
       }
     }
   }

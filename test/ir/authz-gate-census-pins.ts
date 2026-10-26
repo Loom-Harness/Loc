@@ -287,7 +287,6 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "find GET /api/notes": R.principalFreeGate,
     "find GET /api/orgs": R.sharedTenancyIdentity,
     "find GET /api/secrets": R.principalFreeGate,
-    "find GET /api/secrets/by_code": R.principalFreeGate,
     "getById GET /api/accounts/{id}": R.sharedTenancyIdentity,
     "getById GET /api/notes/{id}": R.principalFreeGate,
     "getById GET /api/orgs/{id}": R.sharedTenancyIdentity,
@@ -313,7 +312,6 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "find GET /api/notes": R.principalFreeGate,
     "find GET /api/orgs": R.sharedTenancyIdentity,
     "find GET /api/things": R.sharedTenancyIdentity,
-    "find GET /api/things/by_label": R.sharedTenancyIdentity,
     "getById GET /api/notes/{id}": R.principalFreeGate,
     "getById GET /api/orgs/{id}": R.sharedTenancyIdentity,
     "getById GET /api/things/{id}": R.sharedTenancyIdentity,
@@ -332,7 +330,6 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "create POST /api/organizations": R.sharedTenancyIdentity,
     "destroy DELETE /api/organizations/{id}": R.sharedTenancyIdentity,
     "find GET /api/invoices": R.sharedTenancyIdentity,
-    "find GET /api/invoices/by_number": R.sharedTenancyIdentity,
     "find GET /api/organizations": R.sharedTenancyIdentity,
     "getById GET /api/organizations/{id}": R.sharedTenancyIdentity,
     "operation POST /api/organizations/{id}/update": R.sharedTenancyIdentity,
@@ -340,7 +337,6 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
   "corpus/tenancy-filter": {
     "create POST /api/accounts": R.sharedTenancyIdentity,
     "find GET /api/accounts": R.sharedTenancyIdentity,
-    "find GET /api/accounts/by_min_balance": R.sharedTenancyIdentity,
   },
   // The fixture wave-3 row 3.3 drained.  Every gate on it is the TENANCY scope
   // filter and nothing else — there is no `requires` in the system — so the
@@ -369,7 +365,6 @@ export const AUTHZ_GATE_PINS: Record<string, Record<string, string>> = {
     "create POST /api/organizations": R.sharedTenancyIdentity,
     "destroy DELETE /api/organizations/{id}": R.sharedTenancyIdentity,
     "find GET /api/invoices": R.sharedTenancyIdentity,
-    "find GET /api/invoices/by_number": R.sharedTenancyIdentity,
     "find GET /api/organizations": R.sharedTenancyIdentity,
     "getById GET /api/organizations/{id}": R.sharedTenancyIdentity,
     "operation POST /api/organizations/{id}/update": R.sharedTenancyIdentity,
@@ -479,6 +474,6 @@ export const PIN_CLASS_CENSUS: Readonly<Record<string, number>> = {
   maskIsNotAStatus: 8,
   notABehaviouralCase: 11,
   importGateOnly: 1,
-  principalFreeGate: 17,
-  sharedTenancyIdentity: 92,
+  principalFreeGate: 16,
+  sharedTenancyIdentity: 88,
 };

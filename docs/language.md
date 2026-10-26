@@ -1972,10 +1972,9 @@ repository Orders for Order {
     // unique-key reconstitution: parameter names match aggregate properties.
     find byNumber(number: string): Order?
 
-    // explicit predicate; `this` refers to the aggregate root.
-    find activeForCustomer(forCustomer: Customer id): Order[]
-        where this.customerId == forCustomer && this.status == Draft
 }
+// explicit predicate; `this` refers to the aggregate root.
+criterion OrdersActiveForCustomer(forCustomer: Customer id) of Order = this.customerId == forCustomer && this.status == Draft
 ```
 
 The full form is `find name(params): T | T? | T or NotFound | T option | T[] | T paged
@@ -1985,16 +1984,13 @@ covers every find), and `ignoring` bypasses a capability's contributed query
 filter (e.g. `softDeletable`).  Each `find` declaration becomes a method
 on the generated repository plus a Mediator query in the .NET backend.
 
-> **List finds warn.**  A `find` returning a collection (`T[]` / `T paged`)
-> is flagged `loom.repository-find-deprecated`: the list read-path is
-> `Repo.run(<Criterion>(args))` / a named `retrieval` (composable, page-able,
-> SQL-inlined — see [`criterion.md`](criterion.md)), so a bespoke list finder
-> on the repository is discouraged.  A unique-key find returning `T` / `T?`
-> is the intended shape.  (The `activeForCustomer` find above still generates;
-> it just carries the warning.)  **Interim scope:** the warning fires only in a
-> context that already declares a `criterion` or a `retrieval` — until the
-> replacement carries its own route, a model with neither has nothing of equal
-> power to migrate to ([`criterion.md`](criterion.md#advisories--the-compiler-steers-you-toward-criteria)).
+> **List finds are an error.**  A `find` returning a collection (`T[]` /
+> `T paged`), other than `find all`, is `loom.list-find-removed`: the list
+> read-path is `Repo.run(<Criterion>(args))` / a named `retrieval`
+> (composable, page-able, SQL-inlined — see [`criterion.md`](criterion.md)),
+> which is why `activeForCustomer` above is a criterion.  A unique-key find
+> returning `T` / `T?` is the intended shape.
+> `node scripts/codemod-list-find-to-criterion.mjs <path>` rewrites a source.
 
 - **TypeScript**: when no `where` is given, parameters are equality-
   matched against aggregate columns and lowered to a Drizzle
@@ -2013,15 +2009,15 @@ on the generated repository plus a Mediator query in the .NET backend.
 null-aware on every backend: `this.col == v` with `v` null matches the rows
 whose `col` IS NULL, `!=` matches the rows where it is NOT NULL, and an
 ordering (`<`, `>`, …) against null matches no row.  So
-`find mine(): WorkOrder[] where this.technicianId == currentUser.technicianId`
-returns the unassigned orders for a principal with no `technicianId` rather
+`criterion Mine of WorkOrder = this.technicianId == currentUser.technicianId`
+matches the unassigned orders for a principal with no `technicianId` rather
 than none (or, on Ecto, a raised `ArgumentError`).  An absent principal stays
 fail-closed.
 
-A repository `where` clause may use `this.<refColl>.contains(param)` to
-query membership over an `X id[]` reference collection — for example,
-`find holdingInParty(pokemon: Pokemon id): Trainer[] where
-this.party.contains(pokemon)`.  The TypeScript backend lowers this to
+A query filter (a criterion body, a find's `where`) may use
+`this.<refColl>.contains(param)` to query membership over an `X id[]`
+reference collection — for example, `criterion HoldingInParty(pokemon:
+Pokemon id) of Trainer = this.party.contains(pokemon)`.  The TypeScript backend lowers this to
 an `inArray(...subquery...)` against the field's join table; other
 collection operations (`.count`, `.any`, `.where`, …) remain rejected
 by the queryable-subset validator.
@@ -2144,7 +2140,7 @@ validator raises is in it).  By family, with the doc that explains each:
 | `loom.tenancy-*`, `loom.tenant-*`, `loom.cross-tenant-without-tenancy`, `loom.orgpath-without-tenancy` | The explicit-stance rule, registry / claim wiring, `crossTenant` | [`tenancy.md`](tenancy.md) |
 | `loom.migration-*`, `loom.rename-*`, `loom.backfill-*`, `loom.unique-*` | `migration { … }` ledger steps, destructive / rebaseline gating, `unique (…)` | [`migrations.md`](migrations.md) |
 | `loom.handler-*`, `loom.command-handler-*`, `loom.query-handler-*`, `loom.route-handler-unresolved`, `loom.extern-*` | `commandHandler` / `queryHandler` contracts, `api` routes, extern pairing | [`extern.md`](extern.md), [`architecture.md`](architecture.md) |
-| `loom.criterion-*`, `loom.retrieval-*`, `loom.find-*`, `loom.findall-*`, `loom.repository-find-deprecated` | Criteria purity / arity / aliasing, retrievals, the queryable subset | [`criterion.md`](criterion.md) |
+| `loom.criterion-*`, `loom.retrieval-*`, `loom.find-*`, `loom.findall-*`, `loom.list-find-removed` | Criteria purity / arity / aliasing, retrievals, the queryable subset | [`criterion.md`](criterion.md) |
 | `loom.union-*`, `loom.payload-*`, `loom.generic-*`, `loom.match-*` | `A or B` unions, payload records, `paged` / `envelope` / `option` carriers, `match` exhaustiveness and subjects | [`payloads.md`](payloads.md) |
 | `loom.channel*`, `loom.reactor-*`, `loom.relay-*`, `loom.timer-*` | Channels, channelSources, reactors, timers | [`channels.md`](channels.md) |
 | `loom.resource-*`, `loom.datasource-*`, `loom.file-*`, `loom.config-*`, `loom.index-suggestion` | Resource bindings, storage kinds, `File` fields, vendor config, index advice | [`resources.md`](resources.md) |

@@ -23,9 +23,9 @@ system Acme {
         unique (badge)
       }
       repository Employees for Employee {
-        find byKind(kind: string): Employee[]
-        find seniors(k: string): Employee[] where this.kind == k && this.name == "x"
-        find byTeam(team: Team id): Employee[]
+        find byKind(kind: string): Employee?
+        find seniors(k: string): Employee? where this.kind == k && this.name == "x"
+        find byTeam(team: Team id): Employee?
       }
     }
   }

@@ -10,7 +10,7 @@ system EMB {
         }
       }
       repository Orders for Order {
-        find byCode(code: string): Order[] where this.code == code
+        find byCode(code: string): Order? where this.code == code
       }
     }
   }

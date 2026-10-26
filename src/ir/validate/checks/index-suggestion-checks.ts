@@ -115,7 +115,7 @@ export function validateIndexSuggestions(sys: EnrichedSystemIR, diags: LoomDiagn
         // filters (capability + hand-written), read on every / some read —
         // PLUS the criterion / retrieval spelling of the same query.  A
         // `find … where` migrated to `criterion` + `retrieval` (the migration
-        // `loom.repository-find-deprecated` recommends) filters the same
+        // `loom.list-find-removed` asks for) filters the same
         // columns, so it must keep earning the same suggestion; scanning finds
         // alone made the advice vanish on the migration the tool told you to
         // make (audit 2026-09-10 §D7).

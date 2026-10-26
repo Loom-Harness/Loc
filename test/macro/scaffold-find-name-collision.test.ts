@@ -30,13 +30,13 @@ const COLLIDING = `
           status: string
         }
         repository Orders for Order {
-          find byStatus(status: string): Order[] where this.status == status
+          find byStatus(status: string): Order? where this.status == status
         }
         aggregate Customer {
           status: string
         }
         repository Customers for Customer {
-          find byStatus(status: string): Customer[] where this.status == status
+          find byStatus(status: string): Customer? where this.status == status
         }
       }
     }

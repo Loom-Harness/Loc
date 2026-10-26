@@ -160,7 +160,7 @@ function genShallowModel(seed: number): string {
     let finds = "";
     if (filterable.length > 0 && r() < 0.6) {
       const f = pick(r, filterable);
-      finds = `\n        find by${f.name[0].toUpperCase()}${f.name.slice(1)}(v: ${f.type}): ${agg}[] where this.${f.name} == v`;
+      finds = `\n        find by${f.name[0].toUpperCase()}${f.name.slice(1)}(v: ${f.type}): ${agg}? where this.${f.name} == v`;
     }
 
     // An OPTIONAL field — the null-handling path through every wire mapper.
@@ -391,23 +391,38 @@ function emitAgg(agg: AggSpec): string {
       (agg.op.precondition ? `\n          precondition ${agg.op.precondition}` : "") +
       `\n          ${agg.op.field} := ${agg.op.literal}\n        }`
     : "";
-  const finds = agg.finds
+  // A single-row find stays a find.  A list read is a criterion run by a
+  // queryHandler (list finds are refused by `loom.list-find-removed`); its
+  // paged form synthesises the repository's `findAllBy<Criterion>` find.  The
+  // unfiltered paged read is the declared `find all`, which must come first.
+  const repo = `${agg.name}s`;
+  const finds = [
+    ...agg.finds
+      .filter((f) => f.field === null)
+      .map(() => `\n        find all(): ${agg.name} paged`),
+    ...agg.finds
+      .filter((f) => f.field !== null && f.shape === "single")
+      .map(
+        (f) =>
+          `\n        find ${f.name}(v: ${f.fieldType}): ${agg.name}? where this.${f.field} == v`,
+      ),
+  ].join("");
+  const reads = agg.finds
+    .filter((f) => f.field !== null && f.shape !== "single")
     .map((f) => {
-      const ret =
-        f.shape === "many"
-          ? `${agg.name}[]`
-          : f.shape === "single"
-            ? `${agg.name}?`
-            : `${agg.name} paged`;
-      const param = f.field === null ? "" : `v: ${f.fieldType}`;
-      const where = f.field === null ? "" : ` where this.${f.field} == v`;
-      return `\n        find ${f.name}(${param}): ${ret}${where}`;
+      const crit = `${repo}${f.name[0]!.toUpperCase()}${f.name.slice(1)}`;
+      const ret = f.shape === "paged" ? `${agg.name} paged` : `${agg.name}[]`;
+      return (
+        `\n      criterion ${crit}(v: ${f.fieldType}) of ${agg.name} = this.${f.field} == v` +
+        `\n      queryHandler List${crit}(v: ${f.fieldType}): ${ret} {` +
+        `\n        let r = ${repo}.run(${crit}(v))\n        return r\n      }`
+      );
     })
     .join("");
   return (
     `      aggregate ${agg.name}${agg.crudish ? " with crudish" : ""} {\n` +
     `${decls}${derived}${invariant}${part}${create}${op}\n      }\n` +
-    `      repository ${agg.name}s for ${agg.name} {${finds}\n      }`
+    `      repository ${repo} for ${agg.name} {${finds}\n      }${reads}`
   );
 }
 

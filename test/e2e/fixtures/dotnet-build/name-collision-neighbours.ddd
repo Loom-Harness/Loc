@@ -97,7 +97,6 @@ context Tracking {
     }
   }
 
-  repository Issues for Issue {
-    find byKind(k: Kind): Issue[] where this.kind == k
-  }
+  repository Issues for Issue { }
+  criterion IssuesByKind(k: Kind) of Issue = this.kind == k
 }

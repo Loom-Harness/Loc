@@ -13,7 +13,7 @@ context Orders {
     region: string
   }
   repository Orders for Order {
-    find recent(): Order paged
-    find inRegion(region: string): Order paged where this.region == region
+    find all(): Order paged
   }
+  criterion OrdersInRegion(region: string) of Order = this.region == region
 }

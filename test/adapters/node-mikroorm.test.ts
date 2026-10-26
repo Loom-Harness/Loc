@@ -47,7 +47,7 @@ system M {
         ${body}
       }
       repository Orders for Order {
-        find byCustomer(customer: string): Order[] where this.customer == customer
+        find byCustomer(customer: string): Order? where this.customer == customer
       }
     }
   }
@@ -265,10 +265,10 @@ describe("mikroorm — widened find predicates (bare boolean / unary NOT)", () =
         archived: bool
       }
       repository Orders for Order {
-        find live(): Order[] where this.active
-        find inactive(): Order[] where !this.active
-        find liveOrArchived(): Order[] where this.active || this.archived
-        find complex(): Order[] where this.active && !this.archived
+        find live(): Order? where this.active
+        find inactive(): Order? where !this.active
+        find liveOrArchived(): Order? where this.active || this.archived
+        find complex(): Order? where this.active && !this.archived
       }
     }
   }
@@ -281,12 +281,12 @@ describe("mikroorm — widened find predicates (bare boolean / unary NOT)", () =
     const { files, errors } = await emit(BOOL_SRC);
     expect(errors).toEqual([]);
     const repo = files.get("api/db/repositories/order-repository.ts")!;
-    expect(repo).toContain("await em.find(OrderRow, { active: true })");
-    expect(repo).toContain("await em.find(OrderRow, { active: false })");
+    expect(repo).toContain("await em.findOne(OrderRow, { active: true })");
+    expect(repo).toContain("await em.findOne(OrderRow, { active: false })");
     expect(repo).toContain(
-      "await em.find(OrderRow, { $or: [{ active: true }, { archived: true }] })",
+      "await em.findOne(OrderRow, { $or: [{ active: true }, { archived: true }] })",
     );
-    expect(repo).toContain("await em.find(OrderRow, { active: true, archived: false })");
+    expect(repo).toContain("await em.findOne(OrderRow, { active: true, archived: false })");
   });
 });
 
@@ -309,7 +309,7 @@ describe("mikroorm — `filter` capability predicates", () => {
         filter !this.deleted
       }
       repository Orders for Order {
-        find byCustomer(customer: string): Order[] where this.customer == customer
+        find byCustomer(customer: string): Order? where this.customer == customer
       }
     }
   }
@@ -336,7 +336,7 @@ describe("mikroorm — `filter` capability predicates", () => {
     );
     // A declared find — its own `where` joined with the filters.
     expect(repo).toContain(
-      'await em.find(OrderRow, { $and: [{ customer: customer }, { status: "Active" }, { deleted: false }] });',
+      'await em.findOne(OrderRow, { $and: [{ customer: customer }, { status: "Active" }, { deleted: false }] });',
     );
     // The auto-`findAll` (paged, empty base) — the `{}` base is dropped.
     expect(repo).toContain(
@@ -353,9 +353,9 @@ describe("mikroorm — `filter` capability predicates", () => {
         customer: string
       }
       repository Orders for Order {
-        find active(customer: string): Order[] where this.customer == customer
-        find withDeleted(customer: string): Order[] where this.customer == customer ignoring softDeletable
-        find reallyAll(customer: string): Order[] where this.customer == customer ignoring *
+        find active(customer: string): Order? where this.customer == customer
+        find withDeleted(customer: string): Order? where this.customer == customer ignoring softDeletable
+        find reallyAll(customer: string): Order? where this.customer == customer ignoring *
       }
     }
   }
@@ -369,14 +369,14 @@ describe("mikroorm — `filter` capability predicates", () => {
     // The softDeletable filter (`!this.isDeleted` → `{ isDeleted: false }`) is
     // applied to the plain read…
     expect(repo).toContain(
-      "async active(customer: string): Promise<Order[]> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const rows = await em.find(OrderRow, { $and: [{ customer: customer }, { isDeleted: false }] });",
+      "async active(customer: string): Promise<Order | null> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const row = await em.findOne(OrderRow, { $and: [{ customer: customer }, { isDeleted: false }] });",
     );
     // …and dropped when the read bypasses it by name or with `*`.
     expect(repo).toContain(
-      "async withDeleted(customer: string): Promise<Order[]> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const rows = await em.find(OrderRow, { customer: customer });",
+      "async withDeleted(customer: string): Promise<Order | null> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const row = await em.findOne(OrderRow, { customer: customer });",
     );
     expect(repo).toContain(
-      "async reallyAll(customer: string): Promise<Order[]> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const rows = await em.find(OrderRow, { customer: customer });",
+      "async reallyAll(customer: string): Promise<Order | null> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const row = await em.findOne(OrderRow, { customer: customer });",
     );
   });
 });
@@ -393,7 +393,7 @@ describe("mikroorm — principal-referencing (tenancy) `filter` predicates", () 
         filter this.tenantId == currentUser.tenantId
       }
       repository Accounts for Account {
-        find byMinBalance(min: int): Account[] where this.balance >= min
+        find byMinBalance(min: int): Account? where this.balance >= min
       }
     }
   }
@@ -414,7 +414,7 @@ describe("mikroorm — principal-referencing (tenancy) `filter` predicates", () 
     );
     // A declared find's own `where` is joined with the tenant scope.
     expect(repo).toContain(
-      "await em.find(AccountRow, { $and: [{ balance: { $gte: min } }, { tenantId: requireCurrentUser().tenantId }] });",
+      "await em.findOne(AccountRow, { $and: [{ balance: { $gte: min } }, { tenantId: requireCurrentUser().tenantId }] });",
     );
     // The scope is a real FilterQuery, not a dropped/stubbed predicate.
     expect(repo).not.toContain("this find's predicate is not yet supported");
@@ -440,7 +440,7 @@ describe("mikroorm — reference-collection associations (Id[] pivot tables)", (
       }
       repository Pokemons for Pokemon { }
       repository Trainers for Trainer {
-        find byName(name: string): Trainer[] where this.name == name
+        find byName(name: string): Trainer? where this.name == name
       }
     }
   }
@@ -734,7 +734,7 @@ describe("mikroorm — aggregate inheritance (wave 2)", () => {
         routingNumber: string
       }
       repository CreditCards for CreditCard {
-        find byNetwork(network: CardNetwork): CreditCard[] where this.network == network
+        find byNetwork(network: CardNetwork): CreditCard? where this.network == network
       }
       repository BankAccounts for BankAccount { }
     }
@@ -1079,7 +1079,7 @@ describe("mikroorm — shape: document (wave 3)", () => {
         }
       }
       repository Articles for Article {
-        find popular(min: int): Article[] where this.viewCount >= min
+        find popular(min: int): Article? where this.viewCount >= min
       }
     }
   }
@@ -1139,7 +1139,7 @@ describe("mikroorm — shape: document (wave 3)", () => {
     expect(repo).toContain(
       'const rows = await em.find(ArticleRow, {}, { orderBy: { id: "ASC" } });',
     );
-    expect(repo).toContain("const result = all.filter((x) => x.viewCount >= min);");
+    expect(repo).toContain("const result = all.find((x) => x.viewCount >= min) ?? null;");
   });
 });
 
@@ -1386,7 +1386,7 @@ describe("mikroorm — shape: embedded + Id[] reference collections (fold)", () 
       }
       repository Players for Player { }
       repository Teams for Team {
-        find byName(name: string): Team[] where this.name == name
+        find byName(name: string): Team? where this.name == name
       }
     }
   }

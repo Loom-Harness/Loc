@@ -1,4 +1,4 @@
-// `find … paged` on a NON-RELATIONAL saving shape (F2-CB-C1).
+// A paged read (a criterion run by a paged queryHandler) on a NON-RELATIONAL saving shape (F2-CB-C1).
 //
 // The route layer derives its contract from `pagedReturn(find.returnType)` and
 // emits `repo.<find>(…, page, pageSize, sort, dir)` + `result.items.map(…)`
@@ -33,12 +33,22 @@ system P {
         create open(owner: string) { emit Opened { ledger: id, owner: owner } }
         apply(e: Opened) { owner := e.owner }
       }
-      repository Embs for Emb { find byOwner(owner: string): Emb paged where this.owner == owner }
-      repository Docs for Doc { find inRegion(region: string): Doc paged where this.region == region }
-      repository Ledgers for Ledger { find byOwner(owner: string): Ledger paged where this.owner == owner }
+      repository Embs for Emb { }
+      repository Docs for Doc { }
+      repository Ledgers for Ledger { }
+      criterion EmbsByOwner(owner: string) of Emb = this.owner == owner
+      criterion DocsInRegion(region: string) of Doc = this.region == region
+      criterion LedgersByOwner(owner: string) of Ledger = this.owner == owner
+      queryHandler ListEmbsByOwner(owner: string): Emb paged { let r = Embs.run(EmbsByOwner(owner))  return r }
+      queryHandler ListDocsInRegion(region: string): Doc paged { let r = Docs.run(DocsInRegion(region))  return r }
+      queryHandler ListLedgersByOwner(owner: string): Ledger paged { let r = Ledgers.run(LedgersByOwner(owner))  return r }
     }
   }
-  api A from S
+  api A from S {
+    route GET "/embs/by_owner/{owner}" -> C.ListEmbsByOwner
+    route GET "/docs/in_region/{region}" -> C.ListDocsInRegion
+    route GET "/ledgers/by_owner/{owner}" -> C.ListLedgersByOwner
+  }
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   resource lg { for: C, kind: eventLog, use: pg }
@@ -59,15 +69,15 @@ for (const [label, persistence] of [
   ["drizzle (default)", ""],
   ["mikroorm", " { persistence: mikroorm }"],
 ] as const) {
-  describe(`paged finds on non-relational shapes — ${label}`, () => {
+  describe(`paged reads on non-relational shapes — ${label}`, () => {
     it("emits a paged repository method the paged route can actually call", async () => {
       const files = await generateSystemFiles(SOURCE(persistence));
       const get = (n: string) => files.get(`d/db/repositories/${n}-repository.ts`)!;
 
       // Every one of the three shapes carries the paged arity + wrapper.
-      expect(get("emb")).toContain(sig("byOwner", "owner: string", "Emb"));
-      expect(get("doc")).toContain(sig("inRegion", "region: string", "Doc"));
-      expect(get("ledger")).toContain(sig("byOwner", "owner: string", "Ledger"));
+      expect(get("emb")).toContain(sig("findAllByEmbsByOwner", "owner: string", "Emb"));
+      expect(get("doc")).toContain(sig("findAllByDocsInRegion", "region: string", "Doc"));
+      expect(get("ledger")).toContain(sig("findAllByLedgersByOwner", "owner: string", "Ledger"));
       // …and each returns the wrapper, not a bare aggregate.
       for (const n of ["emb", "doc", "ledger"]) {
         expect(get(n)).toContain("return { items, page, pageSize, total, totalPages };");
@@ -79,15 +89,15 @@ for (const [label, persistence] of [
       // moves with them — this is what the route's `repo` variable is typed as.
       const ports = files.get("d/domain/repository-ports.ts")!;
       expect(ports).toContain(
-        "byOwner(owner: string, page: number, pageSize: number, sort: string, dir: string): Promise<{ items: Emb[]; page: number; pageSize: number; total: number; totalPages: number }>;",
+        "findAllByEmbsByOwner(owner: string, page: number, pageSize: number, sort: string, dir: string): Promise<{ items: Emb[]; page: number; pageSize: number; total: number; totalPages: number }>;",
       );
       expect(ports).toContain(
-        "inRegion(region: string, page: number, pageSize: number, sort: string, dir: string): Promise<{ items: Doc[]; page: number; pageSize: number; total: number; totalPages: number }>;",
+        "findAllByDocsInRegion(region: string, page: number, pageSize: number, sort: string, dir: string): Promise<{ items: Doc[]; page: number; pageSize: number; total: number; totalPages: number }>;",
       );
 
       // The call site the repository has to match, unchanged.
-      expect(files.get("d/http/doc.routes.ts")!).toContain(
-        "await repo.inRegion(params.region, params.page, params.pageSize, params.sort, params.dir)",
+      expect(files.get("d/http/a-routes.ts")!).toContain(
+        "await docs.findAllByDocsInRegion(region, query.page, query.pageSize, query.sort, query.dir)",
       );
     });
 
@@ -111,13 +121,13 @@ for (const [label, persistence] of [
   });
 }
 
-describe("paged finds on an EMBEDDED shape page in SQL (drizzle)", () => {
+describe("paged reads on an EMBEDDED shape page in SQL (drizzle)", () => {
   it("counts, orders by the whitelisted column, and limits/offsets", async () => {
     const emb = (await generateSystemFiles(SOURCE(""))).get("d/db/repositories/emb-repository.ts")!;
     // The embedded root keeps real columns, so the page is SQL — the same shape
     // the relational builder emits, not the in-memory fallback.
     expect(emb).toContain(
-      "const countRows = await this.db.select({ value: count() }).from(schema.embs).where(eq(schema.embs.owner, owner));",
+      "const countRows = await this.db.select({ value: count() }).from(schema.embs).where(embsByOwnerCriterion(owner));",
     );
     expect(emb).toContain('const orderBy = dir === "desc" ? desc(sortColumn) : asc(sortColumn);');
     expect(emb).toContain(".orderBy(orderBy).limit(pageSize).offset(offset);");

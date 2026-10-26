@@ -26,11 +26,6 @@
 //   attachment: File?         an optional FILE — the upload handler assigns the
 //                             returned ref back and clears to `null`
 //
-// `find open()` is the PARAMETERLESS PAGED read (audit P5): the page below calls
-// `useOpenProject()` with no argument, so the emitted hook must default its
-// query accessor — a paged find was the one shape left un-defaulted
-// ("Expected 1 arguments, but got 0").
-//
 // The `fund` operation is what puts the optional value object on a form (an
 // op-modal seeds and binds every parameter), so the shard covers the READ side
 // (detail rows) and the WRITE side (op-form group) of the same field.
@@ -75,9 +70,7 @@ system OptFields {
         }
       }
 
-      repository Projects for Project {
-        find open(): Project paged where this.open == true
-      }
+      repository Projects for Project { }
     }
   }
 
@@ -85,21 +78,6 @@ system OptFields {
 
   ui WebApp with scaffold(subdomains: [Core]) {
     api Tracking: TrackingApi
-
-    // The parameterless paged read — `useOpenProject()`, no argument.
-    page OpenProjects {
-      route: "/open"
-      title: "Open projects"
-      body: Stack {
-        QueryView {
-          of: Tracking.Project.open,
-          data: rows => Table {
-            rows: rows,
-            Column { "Name", p => Text { p.name } }
-          }
-        }
-      }
-    }
   }
 
   storage primary { type: postgres }

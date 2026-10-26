@@ -57,7 +57,6 @@ system NotFoundDecl {
       repository Wallets for Wallet {
         find byRef(r: string): Wallet where this.ownerRef == r
         find maybeByRef(r: string): Wallet? where this.ownerRef == r
-        find allByRef(r: string): Wallet[] where this.ownerRef == r
       }
       repository Notes for Note { }
 
@@ -324,12 +323,12 @@ describe("F13 — a non-optional find route declares the 404 it throws", () => {
     expect(await statuses.elixir("/wallets/by_ref")).toContain(404);
   });
 
-  it("a COLLECTION find still declares none — `[]` is not an absent row", async () => {
+  it("the COLLECTION read still declares none — `[]` is not an absent row", async () => {
     // The boundary of the fix.  A collection read answers an empty array for
     // "nothing matched", so it has no absent case and no rung; widening the
     // findSingle arm must not have swept this one along with it.
-    expect(await statuses.java("/api/wallets/all_by_ref")).not.toContain(404);
-    expect(await statuses.node(/wallet\.routes\.ts$/, "/all_by_ref")).not.toContain(404);
+    expect(await statuses.java("/api/wallets")).not.toContain(404);
+    expect(await statuses.node(/wallet\.routes\.ts$/, "/")).not.toContain(404);
   });
 
   it("an OPTIONAL find keeps its 404 — it RETURNS the absence it declares", async () => {

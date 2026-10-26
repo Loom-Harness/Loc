@@ -392,22 +392,28 @@ needs.
 
 ### Row-level visibility (slice 1C)
 
-`currentUser` is admissible inside repository find
-`where` clauses; the renderer threads the resolved User through
-the generated method as a closure-captured parameter:
+`currentUser` is admissible inside a `criterion` body (and a
+single-row find's `where`); the renderer reads the resolved User
+inside the generated repository method:
 
 ```ddd
-repository Orders for Order {
-  find mine(): Order[] where customerId == currentUser.customerId
-}
+repository Orders for Order { }
+criterion OrdersMine of Order = customerId == currentUser.customerId
 ```
 
 What gets emitted:
 
-| Backend | Repo method signature | Caller threads user via |
-| --- | --- | --- |
-| .NET   | `Task<...> Mine(User currentUser, CancellationToken ct)` | Mediator handler injects `ICurrentUserAccessor`, calls `_repo.Mine(_currentUser.User, ct)` |
-| Hono   | `async mine(currentUser: User): Promise<Order[]>` | Route reads `c.get("currentUser")` and passes it in |
+A `queryHandler` runs it with `Orders.run(OrdersMine())`:
+
+```ts
+// db/repositories/order-repository.ts (Hono)
+const ordersMineCriterion = () => eq(schema.orders.customerId, requireCurrentUser().customerId);
+
+async runFindAllByOrdersMine(page?: { offset?: number; limit?: number }): Promise<Order[]> {
+  let query = this.db.select().from(schema.orders).where(ordersMineCriterion()).orderBy(asc(schema.orders.id)).$dynamic();
+  // …
+}
+```
 
 The Drizzle / EF predicate translates `currentUser.customerId`
 into a closure-captured value — Drizzle parametrises it into the
@@ -415,8 +421,8 @@ SQL bind, EF lifts it via Linq-to-Entities — so no string
 interpolation hits the SQL surface.
 
 Slice 1C does **not** yet support workflow bodies calling such
-finds; the validator points users at `getById` (with an explicit
-id parameter) or asks them to call the user-aware find from the
+reads; the validator points users at `getById` (with an explicit
+id parameter) or asks them to call the user-aware read from the
 route layer.
 
 ### `requires` clauses (slice 2)
@@ -1025,9 +1031,7 @@ Who may read an aggregate is one line in its context's `policy` block, beside
 the `allow` / `deny` ladder:
 
 ```ddd
-repository Tickets for Ticket {
-  find openOnes(): Ticket[] where open == true
-}
+repository Tickets for Ticket { }
 policy {
   read Ticket requires currentUser.role == "agent"
   read Product requires true          // intentionally public
@@ -1035,8 +1039,7 @@ policy {
 ```
 
 The gate covers **every read** of the aggregate: the list `GET /<plural>`, the
-by-id `GET /<plural>/{id}`, each declared find's route
-(`GET /<plural>/open_ones`), the audit history read
+by-id `GET /<plural>/{id}`, each declared find's route, the audit history read
 (`GET /<plural>/{id}/history`), and the scaffolded List page (client-side, so
 its nav entry hides for a refused principal).  An exposure-level gate — a
 `scaffoldPaged(requires:)`, a route / handler `requires` — still ANDs on top.

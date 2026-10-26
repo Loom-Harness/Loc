@@ -73,11 +73,11 @@ const SRC = `system Shop {
     // Reads over the order book.
     repository Orders for Order {
       // one customer's own orders
-      find byCustomer(customerId: Customer id): Order[]
-      find drafts(forCustomer: Customer id): Order[]
+      find byCustomer(customerId: Customer id): Order?
+      find drafts(forCustomer: Customer id): Order?
         where this.customerId == forCustomer
-      find secured(): Order[] where this.total > 0 ignoring tenantOwned
-      find everything(): Order[] ignoring *
+      find secured(): Order? where this.total > 0 ignoring tenantOwned
+      find everything(): Order? ignoring *
     }
     policy { read Order requires currentUser.isAdmin }
   }
@@ -156,8 +156,8 @@ describe("operation surface — the read surface", () => {
     expect(findSurface(parse(SRC), "Orders", "secured")).toEqual({
       name: "secured",
       params: [],
-      returnType: { base: { kind: "named", target: "Order" }, array: true, optional: false },
-      returnTypeText: "Order[]",
+      returnType: { base: { kind: "named", target: "Order" }, array: false, optional: true },
+      returnTypeText: "Order?",
       where: "this.total > 0",
       ignoring: ["tenantOwned"],
     });
@@ -568,8 +568,8 @@ describe("find surface — ignoring clause", () => {
     expectHunk(
       SRC,
       setFindIgnoring(SRC, "Orders", "byCustomer", "*"),
-      ["      find byCustomer(customerId: Customer id): Order[]"],
-      ["      find byCustomer(customerId: Customer id): Order[] ignoring *"],
+      ["      find byCustomer(customerId: Customer id): Order?"],
+      ["      find byCustomer(customerId: Customer id): Order? ignoring *"],
     );
   });
 
@@ -577,14 +577,14 @@ describe("find surface — ignoring clause", () => {
     expectHunk(
       SRC,
       setFindIgnoring(SRC, "Orders", "secured", "*"),
-      ["      find secured(): Order[] where this.total > 0 ignoring tenantOwned"],
-      ["      find secured(): Order[] where this.total > 0 ignoring *"],
+      ["      find secured(): Order? where this.total > 0 ignoring tenantOwned"],
+      ["      find secured(): Order? where this.total > 0 ignoring *"],
     );
     expectHunk(
       SRC,
       setFindIgnoring(SRC, "Orders", "everything", ["tenantOwned"]),
-      ["      find everything(): Order[] ignoring *"],
-      ["      find everything(): Order[] ignoring tenantOwned"],
+      ["      find everything(): Order? ignoring *"],
+      ["      find everything(): Order? ignoring tenantOwned"],
     );
   });
 
@@ -592,14 +592,14 @@ describe("find surface — ignoring clause", () => {
     expectHunk(
       SRC,
       setFindIgnoring(SRC, "Orders", "everything", null),
-      ["      find everything(): Order[] ignoring *"],
-      ["      find everything(): Order[]"],
+      ["      find everything(): Order? ignoring *"],
+      ["      find everything(): Order?"],
     );
     expectHunk(
       SRC,
       setFindIgnoring(SRC, "Orders", "secured", []),
-      ["      find secured(): Order[] where this.total > 0 ignoring tenantOwned"],
-      ["      find secured(): Order[] where this.total > 0"],
+      ["      find secured(): Order? where this.total > 0 ignoring tenantOwned"],
+      ["      find secured(): Order? where this.total > 0"],
     );
     expect(setFindIgnoring(SRC, "Orders", "byCustomer", null)).toBe(SRC);
   });

@@ -31,14 +31,14 @@ system X {
     aggregate WorkOrder with crudish { technicianId: Technician id?  priority: int  cost: Price  derived display: string = "wo" }
     repository Technicians for Technician { }
     repository WorkOrders for WorkOrder {
-      find mine(): WorkOrder[] where this.technicianId == currentUser.technicianId
-      find notMine(): WorkOrder[] where currentUser.technicianId != this.technicianId
-      find byTech(t: Technician id?): WorkOrder[] where this.technicianId == t
-      find above(p: int?): WorkOrder[] where this.priority > p
-      find exact(t: Technician id): WorkOrder[] where this.technicianId == t
-      find bossOf(): WorkOrder[] where this.technicianId == currentUser.boss
-      find pricey(): WorkOrder[] where this.cost.amount > 100
-      find inCur(c: string): WorkOrder[] where this.cost.currency == c
+      find mine(): WorkOrder? where this.technicianId == currentUser.technicianId
+      find notMine(): WorkOrder? where currentUser.technicianId != this.technicianId
+      find byTech(t: Technician id?): WorkOrder? where this.technicianId == t
+      find above(p: int?): WorkOrder? where this.priority > p
+      find exact(t: Technician id): WorkOrder? where this.technicianId == t
+      find bossOf(): WorkOrder? where this.technicianId == currentUser.boss
+      find pricey(): WorkOrder? where this.cost.amount > 100
+      find inCur(c: string): WorkOrder? where this.cost.currency == c
     }
     policy { read WorkOrder requires true }
   } }
@@ -115,7 +115,7 @@ describe("java (JPQL) — nullable value operand", () => {
     );
     expect(r).toContain('@Query("select e from WorkOrder e where e.priority > :p")');
     const exact = r.split("\n");
-    const i = exact.findIndex((l) => l.includes("List<WorkOrder> exact("));
+    const i = exact.findIndex((l) => l.includes("WorkOrder exact("));
     expect(exact[i - 1]).toContain('where e.technicianId = :t")');
   });
 });
@@ -127,22 +127,22 @@ describe(".NET dapper — nullable value operand + value-object leaf", () => {
   it("a nullable claim / optional param compares null-aware and binds the id's .Value", async () => {
     const r = await repo();
     expect(r).toContain(
-      'WHERE (technician_id = @__cu_technicianId OR (@__cu_technicianId IS NULL AND technician_id IS NULL))", new { __cu_technicianId = currentUser.TechnicianId?.Value }',
+      'WHERE (technician_id = @__cu_technicianId OR (@__cu_technicianId IS NULL AND technician_id IS NULL)) LIMIT 1", new { __cu_technicianId = currentUser.TechnicianId?.Value }',
     );
     expect(r).toContain(
       "WHERE (@__cu_technicianId <> technician_id OR (@__cu_technicianId IS NULL AND technician_id IS NOT NULL))",
     );
     expect(r).toContain(
-      'WHERE (technician_id = @t OR (@t IS NULL AND technician_id IS NULL))", new { t = t?.Value }',
+      'WHERE (technician_id = @t OR (@t IS NULL AND technician_id IS NULL)) LIMIT 1", new { t = t?.Value }',
     );
-    expect(r).toContain('WHERE (priority > @p)", new { p }');
+    expect(r).toContain('WHERE (priority > @p) LIMIT 1", new { p }');
   });
 
   it("non-nullable values stay plain; a non-optional id claim binds .Value", async () => {
     const r = await repo();
-    expect(r).toContain('WHERE (technician_id = @t)", new { t = t.Value }');
+    expect(r).toContain('WHERE (technician_id = @t) LIMIT 1", new { t = t.Value }');
     expect(r).toContain(
-      'WHERE (technician_id = @__cu_boss)", new { __cu_boss = currentUser.Boss.Value }',
+      'WHERE (technician_id = @__cu_boss) LIMIT 1", new { __cu_boss = currentUser.Boss.Value }',
     );
   });
 

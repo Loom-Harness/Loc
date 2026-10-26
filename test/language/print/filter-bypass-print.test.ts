@@ -48,7 +48,7 @@ describe("ignoring filter-bypass printer", () => {
   it("find: `ignoring <Cap>` round-trips", async () => {
     const { printed } = await printAndReparse(
       wrap(`repository R for Order {
-        find recent(): Order[] where this.total > 0 ignoring softDeletable
+        find recent(): Order? where this.total > 0 ignoring softDeletable
       }`),
     );
     expect(printed).toContain("ignoring softDeletable");
@@ -57,7 +57,7 @@ describe("ignoring filter-bypass printer", () => {
   it("find: `ignoring *` round-trips", async () => {
     const { printed } = await printAndReparse(
       wrap(`repository R for Order {
-        find allRows(): Order[] ignoring *
+        find allRows(): Order? ignoring *
       }`),
     );
     expect(printed).toContain("ignoring *");
