@@ -317,8 +317,6 @@ export function problemTitle(status: number): string {
   switch (status) {
     case 400:
       return "Bad Request";
-    case 401:
-      return "Unauthorized";
     // Codes an `httpStatus <Error> -> <Code>` override may retarget a rung to
     // (M-T3.4a / M-T5.20) — kept here so a remapped rung's 7807 title and its
     // OpenAPI `description` stay a real reason phrase, not the generic fallback.
@@ -328,9 +326,6 @@ export function problemTitle(status: number): string {
       return "Forbidden";
     case 404:
       return "Not Found";
-    // The routing tier's answer to a verb a path does not serve (RS-9).
-    case 405:
-      return "Method Not Allowed";
     case 409:
       return "Conflict";
     // A natural retarget for the `NotFound` rung — `httpStatus NotFound -> 410`

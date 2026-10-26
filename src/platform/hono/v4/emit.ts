@@ -88,8 +88,8 @@ import {
   fieldFixedMessage,
   fieldSentenceSuffix,
   fieldValuePrefix,
+  frameworkReasonPhrase,
   REASON_PHRASE_STATUSES,
-  reasonPhrase,
   wireFixedDetail,
   wireSentence,
   wireStatus,
@@ -615,7 +615,7 @@ export function newApp(): OpenAPIHono {
  *  The values are node's verbatim.  A status outside this set falls back to
  *  "Error", as node's own table does for a code it doesn't carry. */
 const REASON_PHRASES: Record<number, string> = {
-${REASON_PHRASE_STATUSES.map((st) => `  ${st}: ${JSON.stringify(reasonPhrase(st))},`).join("\n")}
+${REASON_PHRASE_STATUSES.map((st) => `  ${st}: ${JSON.stringify(frameworkReasonPhrase(st))},`).join("\n")}
 };
 
 /** RFC 7807 body for a fault the FRAMEWORK raised — one no domain error class

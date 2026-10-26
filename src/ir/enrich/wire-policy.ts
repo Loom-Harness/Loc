@@ -299,6 +299,15 @@ export function reasonPhrase(status: number): string {
   return problemTitle(status);
 }
 
+/** The IANA reason phrase a framework-fault responder titles a status with —
+ *  `reasonPhrase`, plus the two statuses only that responder raises (401 for
+ *  an unauthenticated request, 405 for a verb a path does not serve). */
+export function frameworkReasonPhrase(status: number): string {
+  if (status === 401) return "Unauthorized";
+  if (status === 405) return "Method Not Allowed";
+  return problemTitle(status);
+}
+
 /** Every rejection class, in table order. */
 export const WIRE_REJECTION_CLASSES = Object.keys(TABLE) as readonly WireRejectionClass[];
 
