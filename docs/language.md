@@ -478,9 +478,15 @@ up is the first off-happy-path surprise:
 | You built a… | Construct it with | Why |
 |---|---|---|
 | `valueobject` / `entity` part | `Money { amount: 1, currency: "USD" }` — a **brace literal** | A plain immutable record; the `{ … }` is the whole value. |
-| `aggregate` root | `Order.create(c, m)` — the **`create` factory**, called like a method | An aggregate has identity + invariants; construction must run the `create` action so those are enforced and the create input (not the raw field set) is honoured. |
+| `aggregate` root | `Order.create(customerId: c, total: m)` — the **`create` factory**, called like a method | An aggregate has identity + invariants; construction must run the `create` action so those are enforced and the create input (not the raw field set) is honoured. |
 
 ```ddd
+aggregate Order {
+  customerId: string
+  total: Money
+  create(customerId: string, total: Money) { }   // a declared signature
+}
+
 test "build them" {
   let m = Money { amount: 5, currency: "USD" }      // value object — brace literal
   let o = Order.create(customerId: "c1", total: m)  // aggregate — named arguments
@@ -499,14 +505,35 @@ An aggregate's `create` is a lifecycle method, called like any other method.
 Its arguments bind to the **create input**: the parameters of the declared
 unnamed `create(…)` when there is one, else the properties a client may write —
 the **create-input** column of the
-[access-modifier matrix](#field-access-modifiers), in declaration order. Pass
-every input by position, in that order, or every one by name, in any order;
-trailing inputs may be left out where a default covers them. A `managed` field
-like `createdAt` is off the input, so `Order.create(createdAt: …)` is rejected
-(`loom.create-server-field`), and so is an argument list that maps onto no
-input record — too many positions, positions mixed with names, a name given
-twice (`loom.create-args`). The same call means the same thing in an operation,
-a workflow or handler body and a test.
+[access-modifier matrix](#field-access-modifiers).
+
+- **By name** works against any create input. Named arguments keep the order
+  you write them in; the record they build is keyed by name.
+- **By position** binds to a declared `create(a, b)` signature only, in its
+  parameter order, and trailing parameters may be left out where a default
+  covers them. With no declared signature — no `create(…)`, the one `with
+  crudish` synthesizes, an event-sourced create — positions are refused,
+  `loom.create-args`, and the message names the named form: property
+  declaration order is no call signature, and reordering two properties must
+  never swap two arguments.
+
+```ddd
+aggregate Ticket {   // no declared create
+  title: string
+  priority: int
+}
+test "t" {
+  let a = Ticket.create(title: "x", priority: 2)    // ok
+  let b = Ticket.create("x", 2)                     // loom.create-args — name each argument
+}
+```
+
+A `managed` field like `createdAt` is off the input, so
+`Order.create(createdAt: …)` is rejected (`loom.create-server-field`), and so is
+an argument list that maps onto no input record — too many positions, positions
+mixed with names, a name given twice (`loom.create-args`). The same call means
+the same thing in an operation, a workflow or handler body and a test. A `seed`
+row stays a record literal, `Order { … }`: it is data, not a factory call.
 
 The record form `Order.create({ customerId: "c1", total: m })` is retired
 (`loom.create-record-form`, [D-CREATE-CALL-STYLE](decisions.md)): it put the

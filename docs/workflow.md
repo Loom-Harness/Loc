@@ -421,13 +421,13 @@ has) — return the id and read the record back, or use a `commandHandler`.
   `Agg.create(x: a, y: b)` (named) are the same factory call, created and
   saved alike; the record form `Agg.create({ x: a })` is retired
   (`loom.create-record-form`, D-CREATE-CALL-STYLE).  Positions
-  bind to the aggregate's create input in order: the parameters of its
-  declared `create(…)` (`with crudish` declares one from the writable
-  fields), else its properties minus the `managed` / `token` / `internal`
-  ones; trailing inputs may be left out when they are optional or
-  defaulted.  More positions than inputs, positional and named arguments
-  mixed, a name that is not an input, or a name given twice is
-  `loom.create-args`.
+  bind to an author-declared `create(…)` signature only, in its
+  parameter order; trailing parameters may be left out when they are
+  optional or defaulted.  With no declared signature (none, the one
+  `with crudish` synthesizes, an event-sourced create) name each
+  argument.  Positions with no signature, more positions than
+  parameters, positional and named arguments mixed, a name that is not
+  an input, or a name given twice is `loom.create-args`.
 - **Aggregate-level events** (raised inside an operation via `emit`)
   drain through the aggregate's repository save.  In a
   non-transactional workflow each save commits on its own, so its

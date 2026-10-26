@@ -491,16 +491,23 @@ const POLL = `
 describe("workflow factory calls: positional and named are one create", () => {
   it("lowers both spellings to the same saved factory-let", async () => {
     for (const [call, record] of [
-      [`Item.create(n, 0)`, "Item{name=n,count=0}"],
-      [`Item.create(name: n, count: 0)`, "Item{name=n,count=0}"],
+      [`Poll.create(n, i)`, "Poll{label=n,item=i}"],
+      [`Poll.create(label: n, item: i)`, "Poll{label=n,item=i}"],
       // Named arguments keep their written order; the record is keyed by name.
-      [`Item.create(count: 0, name: n)`, "Item{count=0,name=n}"],
+      [`Poll.create(item: i, label: n)`, "Poll{item=i,label=n}"],
     ] as const) {
-      const wf = `workflow W { create(n: string) { let x = ${call} } }`;
+      const wf = `${POLL}
+        workflow W { create(n: string, i: Item id) { let x = ${call} } }`;
       expect(await factoryLet(wf), call).toBe(record);
-      await expectEffects(wf, ["create Item → x", "persist x"]);
+      await expectEffects(wf, ["create Poll → x", "persist x"]);
       expect(await codes(wf), call).toStrictEqual([]);
     }
+  });
+
+  it("calls an aggregate with no declared create by name, in any order", async () => {
+    const wf = `workflow W { create(n: string) { let x = Item.create(count: 0, name: n) } }`;
+    expect(await factoryLet(wf)).toBe("Item{count=0,name=n}");
+    expect(await codes(wf)).toStrictEqual([]);
   });
 
   it("refuses the record form with loom.create-record-form", async () => {
@@ -519,18 +526,27 @@ describe("workflow factory calls: positional and named are one create", () => {
   });
 
   it("leaves out trailing inputs only as far as the missing-field gate allows", async () => {
-    const wf = `workflow W { create(n: string) { let x = Item.create(n) } }`;
-    expect(await factoryLet(wf)).toBe("Item{name=n}");
+    const wf = `${POLL}
+      workflow W { create(n: string) { let x = Poll.create(n) } }`;
+    expect(await factoryLet(wf)).toBe("Poll{label=n}");
     expect(await codes(wf)).toStrictEqual(["loom.workflow-create-missing-field"]);
   });
 
   for (const [call, needle, code] of [
     [
-      `Item.create(n, 0, 1)`,
-      "passes 3 positional argument(s), but 'Item' has 2",
+      `Poll.create(n, n, 1)`,
+      "passes 3 positional argument(s), but the declared 'Poll.create(…)' takes 2",
       "loom.create-args",
     ],
-    [`Item.create(n, count: 0)`, "mixes positional and named arguments", "loom.create-args"],
+    // Positions bind to a declared signature only; property order is none.
+    [
+      `Item.create(n, 0)`,
+      "declares no 'create(…)' signature for positions to bind to. Name each argument, " +
+        "'Item.create(name: …, count: …)'",
+      "loom.create-args",
+    ],
+    [`Item.create(n)`, "'Item.create(name: …)'", "loom.create-args"],
+    [`Poll.create(n, item: n)`, "mixes positional and named arguments", "loom.create-args"],
     [`Poll.create(title: n)`, "has no create-input field 'title'", "loom.create-unknown-field"],
     // A name that is no field at all is the field gate's, with a suggestion.
     [`Item.create(nam: n)`, "has no create-input field 'nam'", "loom.create-unknown-field"],

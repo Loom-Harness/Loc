@@ -5110,7 +5110,8 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.create-record-form": (p: { agg: unknown; owner: unknown }) =>
     `'${p.agg}.create({ … })' in ${p.owner} passes the create input as one record. An ` +
     `aggregate's 'create' is called like any other method: by name, '${p.agg}.create(x: a, ` +
-    `y: b)', or by position in the create input's order, '${p.agg}.create(a, b)'. ` +
+    `y: b)', or by position against a declared 'create(x, y)' signature, ` +
+    `'${p.agg}.create(a, b)'. ` +
     `'node scripts/codemod-create-record-to-call.mjs <path>' rewrites every record-form call ` +
     `into the named form.`,
   // A factory call whose arguments map onto no create-input record
@@ -5123,11 +5124,21 @@ export const DIAGNOSTIC_MESSAGES = {
     inputs: unknown;
   }) =>
     `'${p.agg}.create(…)' in ${p.owner} passes ${p.given} positional argument(s), but ` +
-    `'${p.agg}' has ${p.count} create input(s), in order: ${p.inputs}. Positions bind to ` +
-    `those inputs in order; drop the extra arguments, or name each one.`,
+    `the declared '${p.agg}.create(…)' takes ${p.count} parameter(s), in order: ${p.inputs}. ` +
+    `Positions bind to those parameters in order; drop the extra arguments, or name each one.`,
   "loom.create-args#mixed": (p: { agg: unknown; owner: unknown }) =>
     `'${p.agg}.create(…)' in ${p.owner} mixes positional and named arguments. Pass every ` +
-    `input by position (in the create input's order) or every one by name.`,
+    `argument by name, or every one by position against a declared 'create(…)' signature.`,
+  "loom.create-args#positional-without-create": (p: {
+    agg: unknown;
+    owner: unknown;
+    example: unknown;
+    inputs: unknown;
+  }) =>
+    `'${p.agg}.create(…)' in ${p.owner} passes positional arguments, but '${p.agg}' declares ` +
+    `no 'create(…)' signature for positions to bind to. Name each argument, ` +
+    `'${p.agg}.create(${p.example})'; its create inputs are ${p.inputs}. Or declare ` +
+    `'create(…)' with parameters to call it by position.`,
   "loom.create-args#not-in-create": (p: {
     agg: unknown;
     owner: unknown;

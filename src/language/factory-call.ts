@@ -11,12 +11,15 @@
 // wire record into the domain language and is refused
 // (`loom.create-record-form`, D-CREATE-CALL-STYLE).
 //
-// A positional list maps onto the aggregate's create input IN ORDER: the
-// parameters of its unnamed `create(…)` when the author declares one (they ARE
-// the input's fields), else its properties minus the server-owned ones
-// (`managed` / `token` / `internal`) — which is also what the create `with
-// crudish` synthesizes takes.  Trailing inputs may be left out; the missing-required-field
-// gate decides whether that is allowed.
+// Positions bind to a signature, so a positional list is allowed only against
+// an author-declared `create(a, b)`: it maps onto those parameters IN ORDER
+// (they ARE the input's fields), and trailing ones may be left out — the
+// missing-required-field gate decides whether that is allowed.  An aggregate
+// with no such signature (no declared `create`, a macro-emitted one, an
+// event-sourced one) takes its writable properties minus the server-owned ones
+// (`managed` / `token` / `internal`), and those are passed by name: property
+// declaration order is no call signature, and reordering two properties must
+// never silently swap two arguments.
 //
 // Shared by the phase-④ argument check (`validators/create-args.ts`), the
 // field gates (`validators/builder-call.ts`) and the lowerings
@@ -80,6 +83,7 @@ export function factoryInputFieldNames(agg: Aggregate): string[] {
 export type FactoryArgs =
   | { kind: "fields"; fields: { name: string; value: Expression }[] }
   | { kind: "mixed" }
+  | { kind: "positional-without-create"; inputs: readonly string[] }
   | { kind: "arity"; given: number; inputs: readonly string[] }
   | { kind: "unknown-name"; name: string; inputs: readonly string[] }
   | { kind: "duplicate"; name: string };
@@ -124,6 +128,9 @@ export function factoryArgs(agg: Aggregate, args: readonly CallArg[]): FactoryAr
   const named = args.filter((a) => a.name);
   if (named.length > 0 && named.length < args.length) return { kind: "mixed" };
   if (named.length === 0) {
+    if (args.length > 0 && !declaredCreateParams(agg)) {
+      return { kind: "positional-without-create", inputs };
+    }
     if (args.length > inputs.length) return { kind: "arity", given: args.length, inputs };
     return { kind: "fields", fields: args.map((a, i) => ({ name: inputs[i]!, value: a.value })) };
   }
@@ -145,7 +152,8 @@ export function factoryArgs(agg: Aggregate, args: readonly CallArg[]): FactoryAr
 
 /** The record a lowering builds for a factory call's arguments, or `undefined`
  *  when they name no record (the retired record form, a mixed or over-long
- *  argument list, a repeated name — all refused at phase ④).  A named argument
+ *  argument list, a repeated name, positions with no declared signature — all
+ *  refused at phase ④).  A named argument
  *  that is not an input still lands in the record under its own name: the
  *  phase-④ field gates refuse it at the call, and the IR checks read the same
  *  record the factory would have been handed. */
