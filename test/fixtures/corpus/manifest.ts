@@ -163,11 +163,11 @@ const PART_REBUILD: readonly Backend[] = ALL.filter((b) => b !== "dotnet");
 // #3959: the polymorphic base read (`GET /<bases>/{id}`, a projection `from
 // <Base>`) passes on node — both persistence adapters, drizzle and MikroORM
 // (`node` is the manifest key of both behavioural legs) — python/SQLAlchemy,
-// .NET EF and java.  The other legs boot the case as a tracked expected failure
-// (`BEHAVIOURAL_XFAIL`), each fixed by its own sub-issue of #3954
-// (#3960–#3965); each fix adds its backend here, and the row becomes ALL when
-// the last one lands.
-const BASE_READS: readonly Backend[] = ["node", "python", "dotnet", "java"];
+// .NET EF, java and elixir/Ecto.  The other legs boot the case as a tracked
+// expected failure (`BEHAVIOURAL_XFAIL`), each fixed by its own sub-issue of
+// #3954 (#3960–#3965); each fix adds its backend here, and the row becomes ALL
+// when the last one lands.
+const BASE_READS: readonly Backend[] = ["node", "python", "dotnet", "java", "vanilla"];
 
 export interface CorpusFeature {
   /** Matches `<id>.ddd` in this directory. */

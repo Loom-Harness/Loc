@@ -71,12 +71,19 @@ describe("vanilla tenancy — principal filter threaded + pinned", () => {
     expect(repo).toContain(
       'def list(page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc", current_user \\\\ nil) do',
     );
-    expect(repo).toContain(`where: record.tenant_id == ${PIN}`);
+    expect(repo).toContain("Repo.all(current_user: current_user)");
     expect(repo).toContain("def find_by_id(id, current_user \\\\ nil) when is_binary(id) do");
-    expect(repo).toContain(`where: record.id == ^id and (record.tenant_id == ${PIN})`);
+    expect(repo).toContain(
+      "Repo.one(from(record in Api.Ledger.Account.base_query(), where: record.id == ^id), current_user: current_user)",
+    );
     // Custom find carries the actor too.
     expect(repo).toContain("def by_min_balance(min, current_user \\\\ nil) do");
-    expect(repo).toContain(`(record.balance >= ^min) and (record.tenant_id == ${PIN})`);
+    expect(repo).toContain("Repo.one(query, current_user: current_user)");
+    // No read spells the tenant predicate: the schema hosts it, unskippable.
+    expect(repo).not.toContain("tenant_id ==");
+    const schema = file(await gen(), "/ledger/account.ex");
+    expect(schema).toContain("def __loom_filters__, do: [{:loom_filter, true}]");
+    expect(schema).toContain(`do: Ecto.Query.where(query, [record], record.tenant_id == ${PIN})`);
   });
 
   it("carries the actor through the context defdelegates", async () => {
@@ -101,17 +108,15 @@ describe("vanilla tenancy — principal filter threaded + pinned", () => {
     expect(ctrl).toContain("Ledger.get_account(id, current_user)");
   });
 
-  it("reads the actor from opts in the retrieval and pins it", async () => {
+  it("hands the actor from opts to the Repo in the retrieval", async () => {
     const ret = file(await gen(), "/ledger/retrievals/rich_accounts.ex");
-    expect(ret).toContain("current_user = opts[:current_user]");
-    // The retrieval's own predicate is the base `where:`; the (bare, origin-less)
-    // principal capability filter applies as a separate, unconditional `where`
-    // pipe stage (Slice 2 — the per-origin gate lets a call-site `ignoring` skip
-    // capability filters; a bare filter has no origin, so it always applies).
+    // The retrieval's own predicate over the target's `base_query/0`; the
+    // principal filter is `Repo.prepare_query/3`'s, fed the caller's actor.
     expect(ret).toContain(
-      "query = from(record in Api.Ledger.Account, where: record.balance >= ^min)",
+      "query = from(record in Api.Ledger.Account.base_query(), where: record.balance >= ^min)",
     );
-    expect(ret).toContain(`query = where(query, [record], record.tenant_id == ${PIN})`);
+    expect(ret).toContain("current_user: opts[:current_user]");
+    expect(ret).not.toContain("tenant_id ==");
   });
 
   it("emits the Auth plug and splices it into the :api router pipeline", async () => {
@@ -178,9 +183,12 @@ describe("vanilla embedded principal (tenancy) capability filter (DEBT-02 Slice 
     // single-table relational aggregates), so no page/pageSize/sort/dir args —
     // just the threaded principal.
     expect(repo).toContain("def list(current_user \\\\ nil) do");
-    expect(repo).toContain(`where: record.tenant_id == ${PIN}`);
-    expect(repo).toContain(`where: record.id == ^id and (record.tenant_id == ${PIN})`);
+    expect(repo).toContain("Repo.all(current_user: current_user)");
+    expect(repo).toContain("where: record.id == ^id), current_user: current_user)");
     // The custom find carries the actor too.
-    expect(repo).toContain(`(record.code == ^code) and (record.tenant_id == ${PIN})`);
+    expect(repo).toContain("def by_code(code, current_user \\\\ nil) do");
+    expect(repo).not.toContain("tenant_id ==");
+    const schema = file(await generateSystemFiles(EMBEDDED_SOURCE), "/shop/order.ex");
+    expect(schema).toContain(`record.tenant_id == ${PIN}`);
   });
 });

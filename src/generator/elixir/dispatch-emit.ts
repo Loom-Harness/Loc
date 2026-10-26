@@ -40,6 +40,7 @@ import { type StateDefaultDecls, stateDefault, stateDefaultDecls } from "./state
 import { normalizeDatetime } from "./vanilla/datetime-type-emit.js";
 import { denialTerm } from "./vanilla/denial.js";
 import { bodyUsesParam, renderFunctionBodyLines } from "./vanilla/function-emit.js";
+import { skipFiltersOption } from "./vanilla/read-scope-emit.js";
 import { emitsRestDelete } from "./vanilla/rest-surface.js";
 import { mapTypeToEcto } from "./vanilla/schema-emit.js";
 import { renderEsWorkflowHandler } from "./vanilla/workflow-eventsourced-emit.js";
@@ -1349,9 +1350,8 @@ function retrievalRunCall(
   const optEntries: string[] = [];
   if (st.page?.offset) optEntries.push(`offset: ${renderExpr(st.page.offset, renderCtx)}`);
   if (st.page?.limit) optEntries.push(`limit: ${renderExpr(st.page.limit, renderCtx)}`);
-  if (st.bypassAll) optEntries.push("ignore_all_filters: true");
-  else if ((st.bypassCaps?.length ?? 0) > 0)
-    optEntries.push(`ignore_filters: [${st.bypassCaps!.map((c) => JSON.stringify(c)).join(", ")}]`);
+  const skip = skipFiltersOption(st);
+  if (skip) optEntries.push(skip);
   if (optEntries.length > 0) args.push(optEntries.join(", "));
   return `${contextModule}.run_${snake(st.retrievalName)}_${snake(st.aggName)}(${args.join(", ")})`;
 }

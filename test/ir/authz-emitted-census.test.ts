@@ -644,12 +644,14 @@ const LEAK_DENY: Record<VariantId, Edit[]> = {
       to: '    # policy deny\n    if not _bypassed("policy", ignoring):\n        out.append(',
     },
   ],
+  // The deny is `base_query/0`'s, which no `skip_filters:` reaches; seeded as
+  // the one way the bypass could reach it — the schema hosting it as a
+  // skippable `prepare_query` clause.
   elixir: [
     {
-      file: /secret_repository\.ex$/,
-      after: "def everything(",
-      from: '(record.code == ^c) and (fragment("false"))',
-      to: "record.code == ^c",
+      file: /\/secret\.ex$/,
+      from: 'def base_query, do: Ecto.Query.from(record in __MODULE__, where: fragment("false"))',
+      to: 'def base_query, do: Ecto.Query.from(record in __MODULE__)\n\n  def __loom_filter__(query, :policy, _current_user),\n    do: Ecto.Query.where(query, [record], fragment("false"))',
     },
   ],
 };
@@ -705,11 +707,13 @@ const LEAK_AGG: Record<VariantId, Edit[]> = {
       to: 'select(func.count()).select_from(OrderRow).execution_options(loom_ignoring=frozenset({"*"}))',
     },
   ],
+  // The tenant floor is the schema's `prepare_query` clause; the aggregation
+  // read lifts it with the option a bypassing read would pass.
   elixir: [
     {
       file: /order_volume\.ex$/,
-      from: "where: record.tenant_id == ^(current_user && current_user.tenant_id), ",
-      to: "",
+      from: "|> Repo.one(current_user: current_user)",
+      to: "|> Repo.one(current_user: current_user, skip_filters: [:tenant_owned])",
     },
   ],
 };

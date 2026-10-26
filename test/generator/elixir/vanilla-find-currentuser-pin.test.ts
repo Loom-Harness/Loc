@@ -163,7 +163,7 @@ system T {
 describe("vanilla — the derived tenancy capability filter stays fail-closed pinned", () => {
   it("renders `^(current_user && current_user.org_id)` on the scoped read", async () => {
     const files = await generateSystemFiles(TENANT_SOURCE);
-    const key = [...files.keys()].find((k) => k.endsWith("/lib/api/work/ticket_repository.ex"))!;
+    const key = [...files.keys()].find((k) => k.endsWith("/lib/api/work/ticket.ex"))!;
     expect(files.get(key)!).toContain("^(current_user && current_user.org_id)");
   });
 });

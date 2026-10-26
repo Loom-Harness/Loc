@@ -95,7 +95,7 @@ describe("vanilla — custom find functions on the repository module", () => {
       [...files.keys()].find((k) => k.endsWith("/customer_repository.ex"))!,
     )!;
     expect(customer).toContain(
-      "def by_email(email) do\n    query = from(record in Api.Orders.Customer, where: record.email == ^email)\n    {:ok, Repo.one(query)}\n  end",
+      "def by_email(email) do\n    query = from(record in Api.Orders.Customer.base_query(), where: record.email == ^email)\n    {:ok, Repo.one(query)}\n  end",
     );
   });
 
@@ -105,7 +105,7 @@ describe("vanilla — custom find functions on the repository module", () => {
     // `find byCustomer(customerId: Customer id): Order?` — no where clause,
     // so the predicate is per-param `record.<name> == ^<name>`.
     expect(order).toMatch(
-      /def by_customer\(customer_id\) do\n\s+query = from\(record in Api\.Orders\.Order, where: record\.customer_id == \^customer_id\)/,
+      /def by_customer\(customer_id\) do\n\s+query = from\(record in Api\.Orders\.Order\.base_query\(\), where: record\.customer_id == \^customer_id\)/,
     );
   });
 
