@@ -209,7 +209,7 @@ describe("validation — scalar intrinsic calls", () => {
       `),
     );
     expect(
-      errors.some((e) => e.includes("'.trim()' can't be called on 'string?'")),
+      errors.some((e) => e.includes("'.trim()' can't be read on 'string?'")),
       JSON.stringify(errors),
     ).toBe(true);
   });
@@ -222,19 +222,22 @@ describe("validation — scalar intrinsic calls", () => {
       `),
     );
     expect(
-      errors.some((e) => e.includes("'.matches()' can't be called on 'string?'")),
+      errors.some((e) => e.includes("'.matches()' can't be read on 'string?'")),
       JSON.stringify(errors),
     ).toBe(true);
   });
 
-  it("bare member ACCESS on a nullable receiver stays un-gated (`.length`)", async () => {
+  it("bare member ACCESS on a nullable receiver is a deref too (`.length`)", async () => {
     const { errors } = await parseString(
       wrap(`
         path: string?
         derived a: int = path.length
       `),
     );
-    expect(errors, JSON.stringify(errors)).toEqual([]);
+    expect(
+      errors.some((e) => e.includes("'.length' can't be read on 'string?'")),
+      JSON.stringify(errors),
+    ).toBe(true);
   });
 
   it("a non-nullable receiver still accepts every catalogue call", async () => {

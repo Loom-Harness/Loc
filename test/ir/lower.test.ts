@@ -186,7 +186,7 @@ describe("lowering — property-style first/firstOrNull → method-call (C1)", (
     context Shop {
       aggregate Cart {
         contains lines: CartLine[]
-        derived firstLabel: string? = lines.firstOrNull.label
+        derived hasFirst: bool = lines.firstOrNull != null
         derived firstQty: int = lines.first.qty
         entity CartLine { label: string  qty: int }
       }
@@ -197,15 +197,17 @@ describe("lowering — property-style first/firstOrNull → method-call (C1)", (
   async function head(name: string): Promise<Extract<ExprIR, { kind: "method-call" }>> {
     const loom = await buildLoomModel(SRC);
     const cart = allAggregates(loom).find((a) => a.name === "Cart")!;
-    // Both deriveds trail a `.label` / `.qty` member off the op result, so the
-    // op node is the derived expr's RECEIVER.
+    // `firstQty` trails a `.qty` member off the op result, so the op node is
+    // the derived expr's RECEIVER; `hasFirst` compares the op result (a member
+    // of the `CartLine?` it answers is refused unguarded), so it is the LEFT.
     const d = cart.derived.find((x) => x.name === name)!;
+    if (d.expr.kind === "binary") return d.expr.left as Extract<ExprIR, { kind: "method-call" }>;
     const outer = d.expr as Extract<ExprIR, { kind: "member" }>;
     return outer.receiver as Extract<ExprIR, { kind: "method-call" }>;
   }
 
   it("lowers `lines.firstOrNull` to an isCollectionOp method-call", async () => {
-    const op = await head("firstLabel");
+    const op = await head("hasFirst");
     expect(op.kind).toBe("method-call");
     expect(op.member).toBe("firstOrNull");
     expect(op.isCollectionOp).toBe(true);

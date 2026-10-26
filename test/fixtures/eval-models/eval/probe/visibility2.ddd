@@ -8,7 +8,7 @@ context C {
     visibility: Visibility
     title: string
     derived display: string = title
-    filter this.visibility == Public || this.author == currentUser.id || this.group.members.contains(currentUser.id)
+    filter this.visibility == Public || this.author == currentUser.id || (this.group != null && this.group.members.contains(currentUser.id))
   }
   repository Posts for Post { }
   repository Members for Member { }

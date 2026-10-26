@@ -118,7 +118,7 @@ describe("feliz invariant validation — length and regex", () => {
     // numeric, so before M-T1.16 it was not message-bearing at all.  Without
     // the union, the submit guard would refuse with no visible reason.
     const fs = await appFs(
-      SYS("        note: string?\n        invariant note.length <= 10", CREATE),
+      SYS("        note: string?\n        invariant note == null || note.length <= 10", CREATE),
     );
     expect(fs).toContain('then Some "Must be at most 10 characters"');
     // The view seam agrees — onBlur, aria, and the inline error element.

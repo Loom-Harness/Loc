@@ -410,7 +410,7 @@ export function absentUserClaim(recvType: Ty, name: string): string[] | undefine
  *  A single optional level is unwrapped first, exactly as member RESOLUTION
  *  does everywhere else: `nickname.length` on a `string?` stays a membership
  *  question, and whether the DEREF is safe is a separate judgement
- *  (`loom.intrinsic-nullable-receiver`).
+ *  (`loom.nullable-receiver`).
  *
  *  INTRINSIC NAMES RESOLVE HERE even when written bare (`s.trim`): the name is
  *  reachable, it is the missing call that is wrong, and that already has its
