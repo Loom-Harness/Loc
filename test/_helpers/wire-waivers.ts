@@ -80,6 +80,16 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
       reason: "#4035 — RS-20: a soft delete leaves java's version counter where the create put it",
     }),
   ),
+  // The same java gap on `find-bypass`: the soft-deleted row read back through
+  // `ignoring *` carries the version the update left.
+  {
+    backends: ["java"],
+    cases: ["find-bypass"],
+    request: "GET /api/orders/unfiltered?*",
+    path: "$.version",
+    kinds: ["value"],
+    reason: "#4035 — RS-20: a soft delete leaves java's version counter where the update put it",
+  },
   // 2026-10-25 — #3595 booted `projection-valueobject-row` on elixir for the
   // first time: the read model round-trips, but a nested value object's keys
   // reach the wire in their column spelling (`at_time`), not camelCase (RS-1).
@@ -105,19 +115,19 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
     reason:
       "#4214 — RS-12: a folded projection's money column reaches the wire unscaled on mikroorm",
   },
-  // .NET's request validator applies a value object's invariant one level
-  // deep, so a breach inside a VO nested in a VO reaches the domain constructor
+  // The .NET and java request validators apply a value object's invariant one
+  // level deep, so a breach inside a VO nested in a VO reaches the domain constructor
   // and answers its domain-error 422 (no `errors[]` pointer) instead of the
   // field-validation one.  Status agrees.
   ...(["$.title", "$.detail", "$.errors[*].pointer"] as const).map(
     (path): WireWaiver => ({
-      backends: ["dotnet"],
+      backends: ["dotnet", "dapper", "java"],
       cases: ["vo-root-kernel"],
       request: "POST /api/shipments",
       path,
       kinds: ["value"],
       reason:
-        "#4215 — a nested value object's invariant is not checked by .NET's request validator; the 422 comes from the domain",
+        "#4215 — a nested value object's invariant is not checked by the .NET / java request validator; the 422 comes from the domain",
     }),
   ),
   // node/drizzle orders every read with no declared order by `id` (the
