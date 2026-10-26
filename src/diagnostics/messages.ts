@@ -4784,9 +4784,9 @@ export const DIAGNOSTIC_MESSAGES = {
     verb: unknown;
     aggregate: unknown;
   }) =>
-    `e2e: 'api.${p.slug}.${p.verb}(…, { ifMatch: … })' — only the 'update' operation of a ` +
-    `'versioned' aggregate reads 'If-Match' on every backend, and '${p.aggregate}.${p.verb}' is ` +
-    `not one. Drop the third argument, or drive the precondition through '${p.slug}.update'.`,
+    `e2e: 'api.${p.slug}.${p.verb}(…, { ifMatch: … })' — only an operation of a 'versioned' ` +
+    `aggregate reads 'If-Match', and '${p.aggregate}.${p.verb}' is not one (an event-sourced ` +
+    `aggregate is checked against its stream version, never the header). Drop the third argument.`,
   "loom.e2e-unrouted-verb#destroy": (p: { slug: unknown; aggregate: unknown }) =>
     `e2e: 'api.${p.slug}.destroy(…)' has no route — '${p.aggregate}' declares no canonical ` +
     `'destroy { }', so no backend mounts 'DELETE /api/${p.slug}/{id}'. Add 'with crudish' to ` +

@@ -1,13 +1,13 @@
 import type { EnrichedBoundedContextIR, ProjectionIR } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, isMaterializedProjection } from "../../ir/types/loom-ir.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
-import { resolveErrorStatus } from "../../util/error-defaults.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { pyRef } from "../_imports/python.js";
 import { responsePyType } from "./emit/http-models.js";
 import { PY } from "./py-symbols.js";
 import { renderPyNegatedGuard } from "./render-expr.js";
 import { errorResponsesKwarg } from "./routes-builder.js";
+import { pyNotFoundRaise, wireStatusResolver } from "./wire-policy-py.js";
 import { instanceFieldValue } from "./workflows-builder.js";
 
 // ---------------------------------------------------------------------------
@@ -130,7 +130,7 @@ function projectionRoutes(proj: ProjectionIR, ctx: EnrichedBoundedContextIR): st
   // `Forbidden` through the context's `httpStatus` map, so a remapped rung
   // moves the declaration and the handler together.  Ungated ⇒ byte-identical
   // to the previous `""` / `getById` kwargs.
-  const resolve = (name: string): number => resolveErrorStatus(name, ctx.structuralErrorStatuses);
+  const resolve = wireStatusResolver(ctx.structuralErrorStatuses);
   const list = lines(
     `@router.get("/${slug}", response_model=${T}ListResponse, operation_id="list${T}"${errorResponsesKwarg("findList", !!gate, [], resolve)})`,
     `async def ${slug}_list(${userParam}session: SessionDep) -> list[dict[str, object]]:`,
@@ -147,7 +147,7 @@ function projectionRoutes(proj: ProjectionIR, ctx: EnrichedBoundedContextIR): st
     `    row = await session.get(${row}, key)`,
     "    if row is None:",
     // RS-27 extends here — a projection row read by correlation KEY is by-id.
-    `        raise AggregateNotFoundError(f"${T} {key} not found")`,
+    `        ${pyNotFoundRaise("AggregateNotFoundError", T, "key")}`,
     `    return {${project("row")}}`,
   );
   return [list, byKey].join("\n\n\n");

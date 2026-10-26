@@ -214,10 +214,10 @@ describe("RS-39 — an absent required field: one 422 everywhere; a create with 
     ).not.toContain("required: false");
   });
 
-  it("python: pydantic's `missing` reads MISSING_FIELD; Ticket's create takes a defaulted body", async () => {
+  it("python: pydantic's `missing` reads '<field> is required'; Ticket's create takes a defaulted body", async () => {
     const m = await files("python");
     expect(fileEndingWith(m, "app/http/problem.py")).toContain(
-      'MISSING_FIELD if e.get("type") == "missing" else _wire_message(e)',
+      "f\"{e['loc'][-1]} {MISSING_FIELD_SUFFIX}\"",
     );
     expect(
       lineWith(fileEndingWith(m, "app/http/ticket_routes.py"), "async def create_ticket("),

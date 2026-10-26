@@ -1,3 +1,4 @@
+import { rowVersionGuarded } from "../../ir/enrich/version-check.js";
 import { wireFieldsForAggregate } from "../../ir/enrich/wire-projection.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
@@ -19,7 +20,6 @@ import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
 import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
-import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst, plural } from "../../util/naming.js";
 import { desugarAuthzFilterInApp } from "../_expr/authz-filter-inapp.js";
@@ -86,7 +86,7 @@ export function buildDocumentRepositoryFile(
   // aggregate with a reachable `destroy` / a `versioned` capability (e.g. via
   // `crudish`) compiles: the routes call `repo.delete(id)` and
   // `repo.save(agg, expectedVersion)` regardless of saving shape.
-  const versioned = aggregateIsVersioned(agg);
+  const versioned = rowVersionGuarded(agg);
   // Lifecycle stamps land on the doc payload at INSERT — see the save()
   // comment below for why only the insert branch stamps.
   const audited = aggregateIsAudited(agg);
@@ -525,7 +525,7 @@ function documentFindMethod(
     // everywhere else — caught by the wire golden, not by any assertion.  `id`
     // is the primary key, so this is an index scan, not a sort.
     `    const rows = await this.db.select().from(schema.${tableName}).orderBy(schema.${tableName}.id);`,
-    `    const all = rows.map((r) => ${lowerFirst(agg.name)}FromDoc(r.data as ${agg.name}Doc${aggregateIsVersioned(agg) ? ", r.version" : ""}));`,
+    `    const all = rows.map((r) => ${lowerFirst(agg.name)}FromDoc(r.data as ${agg.name}Doc${rowVersionGuarded(agg) ? ", r.version" : ""}));`,
   ];
   // `find … paged` — the route is built for the paged contract, so the
   // repository has to answer it (F2-CB-C1).  The match set is the same
@@ -615,7 +615,7 @@ export function entityFromDocFn(
   // this the loaded aggregate's version is stale, and the CAS `save` (which the
   // route feeds `aggregate.version` when there's no `If-Match`) 409s on the
   // next update.  Parity with the python document repo (`_x_from_doc(raw, version)`).
-  const versionedRoot = isRoot && aggregateIsVersioned(entity as EnrichedAggregateIR);
+  const versionedRoot = isRoot && rowVersionGuarded(entity as EnrichedAggregateIR);
   const entries: string[] = [`id: Ids.${entity.name}Id(d.id)`];
   if (!isRoot) entries.push(`parentId: Ids.${rootName}Id(d.parentId)`);
   for (const f of entity.fields) {

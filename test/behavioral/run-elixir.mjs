@@ -336,7 +336,8 @@ export async function run() {
   const authz = AUTHZ_LADDER && UNAUTHORIZED_CREDS
     ? await __authzLadder(AUTHZ_LADDER, { authorized: __authHeaders, unauthorized: UNAUTHORIZED_CREDS, otherTenant: OTHER_TENANT_CREDS }, dispatch)
     : [];
-  return { results, authz, wire: __wire };
+  // The asserting probes (the two-writer probe) settle like the tier's own tests.
+  return { results: [...results, ...__probeResults], authz, wire: __wire };
 }
 `;
 }

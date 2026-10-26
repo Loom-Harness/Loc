@@ -34,6 +34,12 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     reviewUntil: "2027-01-31",
   },
 
+  // src/generator/python/wire-policy-py.ts
+  "src/generator/python/wire-policy-py.ts#wireStatusResolver": {
+    invariant:
+      "The resolver is called only by errorStatuses (src/ir/util/openapi-errors.ts) with its four fixed rung names (ReferencedInUse, DomainError, Forbidden, NotFound); no .ddd input names a rung. (src/generator/python/wire-policy-py.ts:72)",
+  },
+
   // src/generator/_imports/python.ts
   "src/generator/_imports/python.ts#parseStatement": {
     invariant:
@@ -1218,6 +1224,16 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/svelte/index.ts#generateSvelteForContexts$2": {
     invariant:
       "uiName comes from a resolved Langium cross-reference (an unresolved ui name is a linking error), and a project has exactly one system, so the ui is always in sys.uis. (src/ir/lower/lower-deployment.ts:34-35)",
+  },
+
+  // src/generator/typescript/codec-spelling.ts
+  "src/generator/typescript/codec-spelling.ts#drizzleColumn": {
+    invariant:
+      "drizzleColumn is reached only from drizzleScalarColumn / drizzleIdColumn, which pass the Codec fact's column for a storable scalar or an id value type; the fact maps none of those to `bigserial` or `array` (pinned by test/ir/codec.test.ts). (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/typescript/codec-spelling.ts#tsInstantWire": {
+    invariant:
+      "The Codec fact's datetime wire form carries exactly three fraction digits (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
   },
 
   // src/generator/typescript/emit/channels.ts
