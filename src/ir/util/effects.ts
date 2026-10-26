@@ -136,14 +136,17 @@ function collectStmtEffects(st: WorkflowStmtIR, scope: readonly EffectScopeIR[],
       return;
     }
     case "if-let": {
-      out.push({
-        kind: "load",
-        op: st.op,
-        repoName: st.repoName,
-        aggName: st.aggName,
-        binds: st.var,
-        scope,
-      });
+      // A `bound` source narrows a binding already loaded; it reads nothing.
+      if (st.op !== "bound") {
+        out.push({
+          kind: "load",
+          op: st.op,
+          repoName: st.repoName,
+          aggName: st.aggName,
+          binds: st.var,
+          scope,
+        });
+      }
       const thenScope = [...scope, { kind: "branch", arm: "then", var: st.var } as const];
       for (const s of st.thenBody) collectStmtEffects(s, thenScope, cx);
       pushSaves(st.savesInThen, thenScope, cx);

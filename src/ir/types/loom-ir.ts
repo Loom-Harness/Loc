@@ -1808,6 +1808,12 @@ export interface ProjectionOnIR {
   statements: StmtIR[];
 }
 
+/** What an `if let` source does: one of the optional repository reads, or
+ *  `bound` — narrowing an optional binding already in scope (no read). */
+export type IfLetOp =
+  | Extract<RepoOp, "select-one" | "declared-find" | "load-by-key-optional" | "load-optional">
+  | "bound";
+
 export type WorkflowStmtIR =
   | { kind: "precondition"; expr: ExprIR; source: string; message?: MessageIR; origin?: OriginRef }
   | { kind: "requires"; expr: ExprIR; source: string; origin?: OriginRef }
@@ -1840,6 +1846,12 @@ export type WorkflowStmtIR =
        *  tuple `args` follow and the `ignoring` stance.  Enrichment
        *  synthesises the repository method `method` names from it. */
       key?: KeyLookupIR;
+      /** A criterion read (`op: "select-one"`, `let c = Repo.find(<Criterion>)`):
+       *  the shared synthetic retrieval (`findAllBy<Criterion>`) it runs with
+       *  limit 1, and the criterion enrichment materialises it from.  `args`
+       *  carry the criterion's arguments.  Absent for every other op. */
+      retrievalName?: string;
+      synthCriterion?: { name: string };
       origin?: OriginRef;
     }
   | {
@@ -1972,9 +1984,9 @@ export type WorkflowStmtIR =
       // a `findAll` over one criterion share a single internal retrieval.  The
       // if-let codegen runs it with `limit: 1` and takes the first row (or
       // null) — retrievals are internal query bundles (no route leak), unlike a
-      // repository `find` which would auto-expose a query endpoint.  This is
-      // why the optional never becomes a standalone `repo-let` (which forbids
-      // nullable returns) nor a public `find`.
+      // repository `find` which would auto-expose a query endpoint.  A plain
+      // `let c = Repo.find(<Criterion>)` (a `select-one` `repo-let`) runs the
+      // same retrieval the same way and binds the row or null.
       //
       // The second source form is a DECLARED optional find
       // (`if let o = Orders.byCode(c)` over `find byCode(..): Order?`):
@@ -1986,8 +1998,12 @@ export type WorkflowStmtIR =
       var: string;
       /** `select-one` for a criterion source, `declared-find` for a declared
        *  optional find (`findMethod` names it), `load-by-key-optional` for a
-       *  natural-key `Repo.findBy(…)` (`findMethod` names its method). */
-      op: Extract<RepoOp, "select-one" | "declared-find" | "load-by-key-optional">;
+       *  natural-key `Repo.findBy(…)` (`findMethod` names its method),
+       *  `load-optional` for `Repo.findById(id)` (`retrievalArgs` carry the
+       *  id), and `bound` for an in-scope optional binding (`if let o = x`
+       *  over `let x = Repo.find…`; `retrievalArgs` is the one `let` ref) —
+       *  that form re-runs no read, it only narrows the binding. */
+      op: IfLetOp;
       repoName: string;
       aggName: string;
       /** Name of the shared synthetic retrieval (`findAllBy<Criterion>`);
@@ -4283,12 +4299,12 @@ export function workflowIsGuarded(wf: WorkflowIR): boolean {
  *
  *  WHAT THROWS.  Three producers, and only three:
  *
- *  1. A `repo-let` (`let w = Wallets.getById(id)` / `let w = Wallets.byRef(r)`).
- *     Always throwing: `getById` throws by construction on every backend, and
- *     a repo-let bound to a DECLARED find is validator-constrained to a
- *     non-optional, non-array return (`loom.workflow-load-nullable-unsupported`
- *     / `loom.workflow-load-array-unsupported`), which leaves the emitted
- *     repository method no way to report an empty result except by throwing.
+ *  1. A `repo-let` over a read that must find its row (`let w =
+ *     Wallets.getById(id)`, `getBy(…)`, a declared non-optional find
+ *     `let w = Wallets.byRef(r)`): the emitted repository method has no way
+ *     to report an empty result except by throwing.  A `repo-let` over an
+ *     optional read (`findById`, `find(<Criterion>)`, `findBy`, a `T?` find)
+ *     binds the absence instead.
  *  2. A NAMED read inside an expression — the `reading` domain-service tier
  *     (`domain-services.md`), whose read port is threaded from this very
  *     workflow.  Here optionality is NOT validator-constrained (the canonical
@@ -4335,7 +4351,7 @@ export function workflowCanAnswerNotFound(
     // body or an `if-let` branch counts; a hand-rolled recursion here is the
     // drifting copy `ir/util/walk.ts` exists to prevent.
     walkWorkflowStmtsDeep(top, (s) => {
-      if (s.kind === "repo-let" || s.kind === "not-found") canNotFound = true;
+      if ((s.kind === "repo-let" && s.returnType.kind !== "optional") || s.kind === "not-found") canNotFound = true;
     });
     // Producer 2 — the expression form (a `reading` domain service's own
     // repository read).  `walkWorkflowStmtExprsDeep` already descends through

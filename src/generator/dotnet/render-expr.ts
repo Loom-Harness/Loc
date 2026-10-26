@@ -1363,10 +1363,8 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
         const method = csRepoReadMethod(read.op, read.method);
         const ctArg = argList.length > 0 ? `${argList}, cancellationToken` : "cancellationToken";
         // `getById` is contractually NON-NULL — it throws rather than returning
-        // absent, which is what `loom.handler-load-nullable-unsupported`
-        // prescribes as the remedy for a nullable read ("Use getById (throws →
-        // 404)") and what `repoReadResultType` types it as (a bare
-        // entity, not `T?`).  On node/java/python the read PORT carries that
+        // absent (`findById` is the read that answers absence), which is what
+        // `repoReadResultType` types it as (a bare entity, not `T?`).  On node/java/python the read PORT carries that
         // contract in its own signature (`Promise<Owner>` / `Owner getById` /
         // `-> Owner`, each with a nullable `findById` sibling).  .NET has no
         // `findById` sibling: the single `GetByIdAsync` member IS the
@@ -1401,7 +1399,8 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
 /** The .NET repository method name a `repo-read` (`callKind: "repo-read"`)
  *  called by name in a `reading` domain-service body resolves to
  *  (domain-services.md rev. 4).  Mirrors the names the repository emitter
- *  generates: the by-id `load` → `GetByIdAsync` (the built-in load-or-null,
+ *  generates: both by-id reads (`load`, `load-optional`) → `GetByIdAsync` (the
+ *  built-in load-or-null — `load` guards its null at the call site,
  *  which carries the `Async` suffix, like the workflow `repoLet`); any other
  *  read called by name (a declared find such as `byHolder`, the enriched `all`)
  *  → `csFindMethodName` (declared finds get no `Async` suffix — `Task<Account?>
@@ -1409,7 +1408,7 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
  *  method).  A criterion / retrieval read never reaches here: it
  *  carries a `retrievalName` and renders the retrieval method. */
 function csRepoReadMethod(op: RepoOp, method: string): string {
-  return op === "load" ? "GetByIdAsync" : csFindMethodName(method);
+  return op === "load" || op === "load-optional" ? "GetByIdAsync" : csFindMethodName(method);
 }
 
 function renderNew(

@@ -1018,6 +1018,11 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // (open).  The sidecar blocker is unchanged — the two routes exist to do
   // objectStore / queue / mailer I/O, and no behavioural leg stands those up.
   "handler-resource-ops",
+  // COMPILE-TIER WITNESS — `let`-bound optional repository reads and the
+  // `if let` that narrows them.  The emitted null-handling form is what the
+  // compile legs read; the booted block over the absent-row and present-row
+  // branches is #4335.
+  "optional-let",
   // `handler-triad` DRAINED (M-T6.73), and it took THREE attempts — the first two
   // are the reason this note is long.
   //

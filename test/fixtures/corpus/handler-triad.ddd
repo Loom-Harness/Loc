@@ -14,12 +14,10 @@
 //      `getById(new OrderId(orderId))` where `orderId` is an `OrderId`
 //      (`incompatible types` at javac), against a method the declared find is
 //      not.  The declared method is now rendered verbatim, as everywhere else.
-//   C. an OPTIONAL find bound in a handler body — the shared workflow statement
-//      vocabulary has no null-handling arm, so the binding was dereferenced
-//      unguarded (TS18047 / CS8602).  That shape is REFUSED at phase ⑦ now
-//      (`loom.handler-load-nullable-unsupported`), mirroring the workflow twin,
-//      so it cannot appear in a corpus fixture at all: its pin is
-//      `test/ir/handler-nullable-load.test.ts`.
+//   C. an OPTIONAL find bound in a handler body — the binding was dereferenced
+//      unguarded (TS18047 / CS8602).  It binds `T?` now, and a dereference
+//      without a null test is refused (`loom.nullable-receiver`); the guarded
+//      forms every backend emits are the `optional-let` fixture.
 //
 // Every read here returns an ARRAY on purpose.  A NON-optional SINGLE find
 // (`find byCode(c: string): Order`) is a shape no corpus fixture reaches, and

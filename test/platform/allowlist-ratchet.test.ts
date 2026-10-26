@@ -385,7 +385,9 @@ const REGISTERED: Ratchet[] = [
     // row of one of those kinds; a drain deletes the row and lowers this bound
     // in the same PR.  If this merges alongside another change to the
     // register, re-derive the bound from the merged register's row count.
-    max: 17,
+    // 17 → 18: `optional-let`, a compile-tier row (the emitted null-handling
+    // form of a `let`-bound optional read); its booted block is #4335.
+    max: 18,
   },
 ];
 

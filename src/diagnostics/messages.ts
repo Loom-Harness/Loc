@@ -1918,6 +1918,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.member}' can't be read on '${p.recv}' — the receiver may be null and every backend emits a bare dereference. ` +
     `Guard it with a null test the read depends on: '<expr> != null ? <expr>${p.member} : …', ` +
     `'<expr> != null && <expr>${p.member} …' or '<expr> == null || <expr>${p.member} …'.`,
+  "loom.nullable-receiver#statement": (p: { where: unknown; name: unknown; use: unknown }) =>
+    `'${p.where}': '${p.name}' may be null (it is bound to a read that can find no row), so ` +
+    `'${p.use}' dereferences it unguarded on every backend.  Narrow it first: ` +
+    `'if let x = ${p.name} { … } else { … }'.`,
   "loom.ternary-condition": (p: { condT: unknown }) =>
     `Ternary condition must be of type 'bool', got '${p.condT}'.`,
   "loom.ternary-branches": (p: { thenT: unknown; elseT: unknown }) =>
@@ -5252,30 +5256,7 @@ export const DIAGNOSTIC_MESSAGES = {
     repoName: unknown;
     method: unknown;
   }) =>
-    `workflow '${p.name}': '${p.repoName}.${p.method}(...)' returns an array; v1 supports only single non-nullable aggregates.  Split iteration into a follow-up workflow or use getById.`,
-  "loom.workflow-load-nullable-unsupported": (p: {
-    name: unknown;
-    repoName: unknown;
-    method: unknown;
-  }) =>
-    `workflow '${p.name}': '${p.repoName}.${p.method}(...)' returns a nullable; a 'let' binds only single non-nullable aggregates.  Use getById (throws → 404) instead — or, to branch on the absent row, bind it with 'if let x = ${p.repoName}.${p.method}(...) { … } else { … }', or declare the find '… option' (or '… or NotFound') and read it through a variant 'match'.`,
-  "loom.handler-load-nullable-unsupported": (p: {
-    kind: unknown;
-    name: unknown;
-    repoName: unknown;
-    method: unknown;
-  }) =>
-    `${p.kind} '${p.name}': '${p.repoName}.${p.method}(...)' returns a nullable, so a 'let' binding is dereferenced unguarded (TS18047 on node, CS8602 on .NET).  Branch on the absent row with 'if let x = ${p.repoName}.${p.method}(...) { … } else { … }', use getById (throws → 404), or declare the find non-optional.`,
-  "loom.handler-load-nullable-unsupported#domain-service": (p: {
-    name: unknown;
-    repoName: unknown;
-    method: unknown;
-  }) =>
-    `domainService '${p.name}': '${p.repoName}.${p.method}(...)' returns a nullable, and a ` +
-    `domain-service body has no null-handling vocabulary either — the binding is dereferenced ` +
-    `unguarded on every backend (TS18047 on node, CS8602 on .NET under /warnaserror, an NPE on ` +
-    `java, AttributeError on python, KeyError on nil in elixir).  Use getById (throws → 404), ` +
-    `or declare the find non-optional.`,
+    `workflow '${p.name}': '${p.repoName}.${p.method}(...)' returns an array; a 'let' over a repository read binds a single row (or none, as 'T?').  Iterate the rows with 'for x in ${p.repoName}.findAll(…) { … }', or use getById.`,
   "loom.workflow-run-unknown-repository#workflow-a-criterion-query": (p: {
     name: unknown;
     repoName: unknown;

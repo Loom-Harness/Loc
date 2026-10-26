@@ -35,7 +35,7 @@ import { buildPhoenixResourceModules } from "./adapters/resource-clients.js";
 import type { ElixirChannelsCfg } from "./channels-emit.js";
 import { elixirFindFacadeFn } from "./find-facade-name.js";
 import { internalCreateFn, internalDeleteFn } from "./lifecycle-seam.js";
-import { type RenderCtx, renderExpr } from "./render-expr.js";
+import { optionalReadLookup, type RenderCtx, renderExpr } from "./render-expr.js";
 import { type StateDefaultDecls, stateDefault, stateDefaultDecls } from "./state-default.js";
 import { normalizeDatetime } from "./vanilla/datetime-type-emit.js";
 import { denialTerm, notFoundStmtTerm } from "./vanilla/denial.js";
@@ -1122,6 +1122,27 @@ function renderStmt(
       ];
     }
     case "repo-let": {
+      // An OPTIONAL read binds the row or `nil` (the command path's shape,
+      // `vanilla/workflow-execution-emit.ts`).
+      if (st.returnType.kind === "optional") {
+        const { call, hit } = optionalReadLookup(
+          {
+            op: st.op,
+            method: st.method,
+            aggregate: st.aggName,
+            retrievalName: st.retrievalName,
+          },
+          st.args.map((a) => renderExpr(a, renderCtx)),
+          contextModule,
+        );
+        return [
+          {
+            kind: "with-clause",
+            text: `${snake(st.name)} <- (case ${call} do\n               ${hit} -> hit\n               _ -> nil\n             end)`,
+            bindName: snake(st.name),
+          },
+        ];
+      }
       const argList = st.args.map((a) => renderExpr(a, renderCtx)).join(", ");
       const action =
         st.op === "load" ? `get_${snake(st.aggName)}` : elixirFindFacadeFn(st.method, st.aggName);
@@ -1309,9 +1330,29 @@ function renderStmt(
       // reactor's own `renderStmt` (so an `emit` re-enters the Dispatcher) and
       // ends in `{:ok, _}`, or in its first `{:error, _}`, which threads up the
       // handler's with-chain.
-      const action = `run_${snake(st.retrievalName)}_${snake(st.aggName)}`;
-      const runArgs = [...st.retrievalArgs.map((a) => renderExpr(a, renderCtx)), "limit: 1"];
-      const v = loopBindUsed(st.var, st.thenBody) ? snake(st.var) : `_${snake(st.var)}`;
+      //
+      // Every other source answers the row itself or `nil` (a declared optional
+      // find's `{:ok, nil}`, `findById`'s `{:error, :not_found}`, a `bound`
+      // source's own value), so its then-arm is guarded on presence.
+      const args = st.retrievalArgs.map((a) => renderExpr(a, renderCtx));
+      const lookup =
+        st.op === "bound"
+          ? { call: args.join(", "), hit: "hit" }
+          : optionalReadLookup(
+              {
+                op: st.op,
+                method: st.findMethod ?? "",
+                aggregate: st.aggName,
+                retrievalName: st.retrievalName,
+              },
+              args,
+              contextModule,
+            );
+      const guarded = !(st.op === "select-one" && st.retrievalName);
+      const v = guarded || loopBindUsed(st.var, st.thenBody) ? snake(st.var) : `_${snake(st.var)}`;
+      const thenPattern = guarded
+        ? `${lookup.hit.replace("hit", v)} when not is_nil(${v})`
+        : lookup.hit.replace("hit", v);
       const branch = (body: WorkflowStmtIR[]): string[] =>
         renderReactorNestedBody(body, ctx, renderCtx, contextModule, channels, {
           ok: () => "{:ok, nil}",
@@ -1322,8 +1363,8 @@ function renderStmt(
       // Continuation lines carry absolute indentation, as the `for-each` arm's
       // do: the with-chain assembler prefixes only a clause's FIRST line.
       const lines = [
-        `{:ok, _} <- (case ${contextModule}.${action}(${runArgs.join(", ")}) do`,
-        `               {:ok, [${v} | _]} ->`,
+        `{:ok, _} <- (case ${lookup.call} do`,
+        `               ${thenPattern} ->`,
         ...branch(st.thenBody),
         `               _ ->`,
         ...branch(st.elseBody ?? []),

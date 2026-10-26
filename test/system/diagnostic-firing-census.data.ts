@@ -363,7 +363,6 @@ export const COVERED_ELSEWHERE: readonly string[] = [
   "loom.workflow-foreach-unknown-binding",
   "loom.workflow-function-uses-state",
   "loom.workflow-load-array-unsupported",
-  "loom.workflow-load-nullable-unsupported",
   "loom.workflow-private-operation",
   "loom.workflow-run-retrieval-mismatch",
   "loom.workflow-unknown-binding",

@@ -29,12 +29,10 @@
 // it stays declared and the call sites that block it are reported.  Where each
 // target is accepted:
 //
-//   - `findBy` / `getBy` / `getById` — wherever the find was called;
-//   - `findById` — anywhere but an `if let` source (not an `if let` source
-//     today);
-//   - `find(<Criterion>)` — an `if let` source, or an expression in a
-//     `domainService` operation (`Repo.find(C(x)) != null`).  Not a `let`:
-//     a `T?` read bound by a `let` is refused in every body.
+//   - `findBy` / `getBy` / `getById` / `findById` — wherever the find was
+//     called;
+//   - `find(<Criterion>)` — an `if let` source, a `let` (it binds `T?`), or an
+//     expression in a `domainService` operation (`Repo.find(C(x)) != null`).
 //
 // A must-exist (`T` / `T envelope`) find with no unique or id key reads with
 // `find(C)` too, and the miss it used to throw becomes an explicit `notFound`:
@@ -450,14 +448,16 @@ function rewriteCall(n, plan, shift, raw = "", mustExistKeys = new Set()) {
       blocked: "matches on the error variant; a miss is T? now — rewrite the match by hand",
     };
   // An absence-returning read (`findBy`, `findById`, `find(C)`) is a `T?`,
-  // which only an `if let` source or a domain-service expression can take.
+  // which an `if let` source, a `let` (binding `T?`) or a domain-service
+  // expression can take.
   const absentVerb =
     (t.kind === "key" && t.verb === "findBy") ||
     (t.kind === "by-id" && t.verb === "findById") ||
     (t.kind === "criterion" && !t.mustExist);
-  if (absentVerb && pos !== "if-let" && pos !== "service")
+  if (absentVerb && pos !== "if-let" && pos !== "let" && pos !== "service")
     return {
-      blocked: `is a ${pos === "let" ? "'let'" : "position"} a T? read cannot take (only an 'if let' source or a domain-service expression)`,
+      blocked:
+        "is a position a T? read cannot take (only an 'if let' source, a 'let' or a domain-service expression)",
     };
   if (t.kind === "key") {
     if (args.length !== t.cols.length) return { blocked: "does not pass every parameter" };
@@ -473,8 +473,6 @@ function rewriteCall(n, plan, shift, raw = "", mustExistKeys = new Set()) {
     return { edits };
   }
   if (t.kind === "by-id") {
-    if (t.verb === "findById" && pos === "if-let")
-      return { blocked: "is an 'if let' source, which findById is not" };
     return { edits: [{ start, end, text: `.${t.verb}(${argText.join(", ")})` }] };
   }
   // criterion

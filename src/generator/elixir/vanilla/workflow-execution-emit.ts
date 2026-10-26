@@ -105,7 +105,7 @@ import type { ApiRoute } from "../api-emit.js";
 import { inlineMutatingServiceCall } from "../domain-service-emit.js";
 import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { internalCreateFn, internalDeleteFn } from "../lifecycle-seam.js";
-import { type RenderCtx, renderExpr } from "../render-expr.js";
+import { optionalReadLookup, type RenderCtx, renderExpr } from "../render-expr.js";
 import { stateDefault, stateDefaultDecls } from "../state-default.js";
 import {
   contextsHaveWireDenials,
@@ -513,6 +513,32 @@ function lowerStatement(
       // facade.  Custom finds map to the per-find defdelegate emitted by
       // `context-emit.ts` (see `customFindsOf`), which routes to the
       // matching `def <find>` in the repository module.
+      // An OPTIONAL read (`findById`, `find(<Criterion>)`, `findBy`, a `T?`
+      // find) binds the row or `nil` — a bare-variable clause always matches,
+      // so an absent row is a value rather than a with-chain short-circuit.
+      if (st.returnType.kind === "optional") {
+        const { call, hit } = optionalReadLookup(
+          {
+            op: st.op,
+            method: st.method,
+            aggregate: st.aggName,
+            retrievalName: st.retrievalName,
+          },
+          st.args.map((a) => renderExpr(a, renderCtx)),
+          contextModule,
+        );
+        const { pattern, bindName } = tupleBind(st.name, rest, reads);
+        return [
+          {
+            kind: "with-clause",
+            text: `${pattern} <- (case ${call} do
+           ${hit} -> hit
+           _ -> nil
+         end)`,
+            bindName,
+          },
+        ];
+      }
       const argList = st.args.map((a) => renderExpr(a, renderCtx)).join(", ");
       const action =
         st.op === "load" ? `get_${snake(st.aggName)}` : elixirFindFacadeFn(st.method, st.aggName);
@@ -730,16 +756,30 @@ function lowerStatement(
       // A declared optional find (`findMethod`) calls the context's per-find
       // delegate, which answers `{:ok, row | nil}` — the same head-or-nil
       // `case` reads it.
-      const lookup = st.findMethod
-        ? {
-            call: `${contextModule}.${elixirFindFacadeFn(st.findMethod, st.aggName)}(${st.retrievalArgs.map((a) => renderExpr(a, renderCtx)).join(", ")})`,
-            hit: "{:ok, hit}",
-          }
-        : {
-            call: `${contextModule}.run_${snake(st.retrievalName)}_${snake(st.aggName)}(${[...st.retrievalArgs.map((a) => renderExpr(a, renderCtx)), "limit: 1"].join(", ")})`,
-            hit: "{:ok, [hit | _]}",
-          };
+      // `findById` calls the by-id facade (`{:ok, row} | {:error, :not_found}`),
+      // and a `bound` source narrows an optional binding already in scope.
+      const args = st.retrievalArgs.map((a) => renderExpr(a, renderCtx));
       const v = escapeElixirIdent(snake(st.var));
+      const lookupLines =
+        st.op === "bound"
+          ? [`           ${v} = ${args.join(", ")}`]
+          : ((l: { call: string; hit: string }) => [
+              `           ${v} = case ${l.call} do`,
+              `             ${l.hit} -> hit`,
+              `             _ -> nil`,
+              `           end`,
+            ])(
+              optionalReadLookup(
+                {
+                  op: st.op,
+                  method: st.findMethod ?? "",
+                  aggregate: st.aggName,
+                  retrievalName: st.retrievalName,
+                },
+                args,
+                contextModule,
+              ),
+            );
       const renderBranch = (all: WorkflowStmtIR[], present: string): string[] => {
         // A branch that ends in `notFound` evaluates to the not-found term
         // itself rather than a clause that cannot match before `{:ok, _}`.
@@ -847,10 +887,7 @@ function lowerStatement(
       };
       const lines = [
         `{:ok, _} <- (`,
-        `           ${v} = case ${lookup.call} do`,
-        `             ${lookup.hit} -> hit`,
-        `             _ -> nil`,
-        `           end`,
+        ...lookupLines,
         `           if ${v} != nil do`,
         ...renderBranch(st.thenBody, v).map((l) => `             ${l}`),
         `           else`,
