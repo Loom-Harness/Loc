@@ -131,7 +131,7 @@
     {
       "seq": 10,
       "method": "GET",
-      "path": "/api/products/by_exact_name?q=Ada",
+      "path": "/api/products/by_exact_name/Ada",
       "status": 200,
       "body": [
         {
@@ -152,7 +152,7 @@
     {
       "seq": 11,
       "method": "GET",
-      "path": "/api/products/by_lower_name?q=bob",
+      "path": "/api/products/by_lower_name/bob",
       "status": 200,
       "body": [
         {
@@ -173,7 +173,7 @@
     {
       "seq": 12,
       "method": "GET",
-      "path": "/api/products/by_floor_price?whole=18",
+      "path": "/api/products/by_floor_price/{id}",
       "status": 200,
       "body": [
         {
@@ -194,7 +194,7 @@
     {
       "seq": 13,
       "method": "GET",
-      "path": "/api/products/by_abs_qty?n=3",
+      "path": "/api/products/by_abs_qty/{id}",
       "status": 200,
       "body": [
         {
@@ -215,7 +215,7 @@
     {
       "seq": 14,
       "method": "GET",
-      "path": "/api/products/by_trimmed_query?q=  Bob  ",
+      "path": "/api/products/by_trimmed_query/%20%20Bob%20%20",
       "status": 200,
       "body": [
         {
@@ -236,7 +236,7 @@
     {
       "seq": 15,
       "method": "GET",
-      "path": "/api/products/by_lowered_query?q=BOB",
+      "path": "/api/products/by_lowered_query/BOB",
       "status": 200,
       "body": [
         {
@@ -257,7 +257,7 @@
     {
       "seq": 16,
       "method": "GET",
-      "path": "/api/products/bobbish",
+      "path": "/api/bobbish_products",
       "status": 200,
       "body": [
         {
@@ -304,7 +304,7 @@
     {
       "seq": 19,
       "method": "GET",
-      "path": "/api/products/bobbish",
+      "path": "/api/bobbish_products",
       "status": 200,
       "body": [
         {
@@ -325,7 +325,7 @@
     {
       "seq": 20,
       "method": "GET",
-      "path": "/api/products/by_exact_name?q=Bob",
+      "path": "/api/products/by_exact_name/Bob",
       "status": 200,
       "body": [
         {
@@ -406,7 +406,7 @@
     {
       "seq": 24,
       "method": "GET",
-      "path": "/api/products/bobbish",
+      "path": "/api/bobbish_products",
       "status": 200,
       "body": []
     },

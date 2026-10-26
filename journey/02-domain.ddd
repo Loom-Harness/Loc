@@ -74,9 +74,8 @@ system Todo {
         }
       }
 
-      repository Tasks for Task {
-        find byStatus(status: Status): Task[] where this.status == status
-      }
+      repository Tasks for Task { }
+      criterion TasksByStatus(status: Status) of Task = this.status == status
     }
   }
 

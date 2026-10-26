@@ -24,8 +24,12 @@ system LocalsSys {
       error NotFound { resource: string }
       repository Tickets for Ticket {
         find byRows(rows: string, r: string, x: string, result: string): Ticket? where label == rows && label == r && label == x && label == result
-        find pagedT(offset: int, total: int, items: string, sortColumn: string, totalPages: int): Ticket paged where qty == offset && qty == total && label == items && label == sortColumn && qty == totalPages
         find uni(result: string, problem: string): Ticket or NotFound where label == result && label == problem
+      }
+      criterion PagedT(offset: int, total: int, items: string, sortColumn: string, totalPages: int) of Ticket = qty == offset && qty == total && label == items && label == sortColumn && qty == totalPages
+      queryHandler ListPagedT(offset: int, total: int, items: string, sortColumn: string, totalPages: int): Ticket paged {
+        let r = Tickets.run(PagedT(offset, total, items, sortColumn, totalPages))
+        return r
       }
       retrieval RetP(p: string, sql: string, conn: string, pg: string, x: string) of Ticket { where: label == p && label == x }
       aggregate Calm with crudish { label: string }

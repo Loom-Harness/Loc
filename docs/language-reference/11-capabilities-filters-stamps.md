@@ -266,13 +266,13 @@ The clause has exactly three homes: a repository `find … ignoring …`, a quer
 
 ```ddd
 repository Orders for Order {
-  find allRows(): Order[] ignoring *                              // skips every capability filter
+  find all(): Order[] ignoring *                              // skips every capability filter
 }
 ```
 
 ```ts
 // db/repositories/order-repository.ts (node) — no tenant term
-async allRows(): Promise<Order[]> {
+async all(): Promise<Order[]> {
   const rootRows = await this.db.select().from(schema.orders);
   // …
 }

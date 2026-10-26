@@ -221,7 +221,7 @@ describe(".NET TPH × capability filter", () => {
             aggregate Truck extends Vehicle { payloadKg: int }
             repository Cars for Car { }
             repository Trucks for Truck {
-              find anyTenant(): Truck[] where this.payloadKg > 0 ignoring tenantOwned
+              find anyTenant(): Truck? where this.payloadKg > 0 ignoring tenantOwned
             }
           }
         }

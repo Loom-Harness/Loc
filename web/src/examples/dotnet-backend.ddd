@@ -70,16 +70,13 @@ system SalesBackend {
         }
       }
 
-      repository Customers for Customer {
-        find byEmail(email: string): Customer? where this.email == email
-      }
+      repository Customers for Customer { }
+      criterion CustomersByEmail(email: string) of Customer = this.email == email
 
       repository Products for Product { }
 
-      repository Orders for Order {
-        find byCustomer(customerId: Customer id): Order[]
-          where this.customerId == customerId
-      }
+      repository Orders for Order { }
+      criterion OrdersByCustomer(customerId: Customer id) of Order = this.customerId == customerId
 
       // Transactional workflow — places a single-line order in
       // one DB transaction.  Mediator runs the FluentValidation

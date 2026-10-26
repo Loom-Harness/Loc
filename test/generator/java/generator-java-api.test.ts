@@ -45,7 +45,7 @@ system Shop {
         }
       }
       repository Orders for Order {
-        find byCode(code: string): Order[] where this.code == code
+        find byCode(code: string): Order? where this.code == code
       }
     }
   }
@@ -210,10 +210,10 @@ describe("java generator — layered service (S5)", () => {
   });
 });
 
-describe("java generator — paged finds", () => {
+describe("java generator — paged reads", () => {
   const PAGED_SRC = SRC.replace(
-    "find byCode(code: string): Order[] where this.code == code",
-    "find byCode(code: string): Order[] where this.code == code\n        find recent(): Order paged",
+    "find byCode(code: string): Order? where this.code == code",
+    "find all(): Order paged\n        find byCode(code: string): Order? where this.code == code",
   );
 
   it("emits the Paged<T> envelope, Pageable repository path, and the paged route", async () => {
@@ -222,12 +222,16 @@ describe("java generator — paged finds", () => {
       "public record Paged<T>(List<T> items, int page, int pageSize, int total, int totalPages) {",
     );
     const port = f.get(`${ROOT}/features/orders/OrderRepository.java`)!;
-    expect(port).toContain("Paged<Order> recent(int page, int pageSize, String sort, String dir);");
+    expect(port).toContain(
+      "Paged<Order> findAllPaged(int page, int pageSize, String sort, String dir);",
+    );
     const jpa = f.get(`${ROOT}/features/orders/OrderJpaRepository.java`)!;
-    expect(jpa).toContain("Page<Order> recent(Pageable pageable);");
+    expect(jpa).toContain("Page<Order> findAllPaged(Pageable pageable);");
     const impl = f.get(`${ROOT}/features/orders/OrderRepositoryImpl.java`)!;
     // Server-side sort (M-T2.6): a whitelisted Sort built into the PageRequest.
-    expect(impl).toContain("var result = jpa.recent(PageRequest.of(page - 1, pageSize, __sort));");
+    expect(impl).toContain(
+      "var result = jpa.findAllPaged(PageRequest.of(page - 1, pageSize, __sort));",
+    );
     expect(impl).toContain(
       'Sort __sort = Sort.by("desc".equals(dir) ? Sort.Direction.DESC : Sort.Direction.ASC, __sortField);',
     );
@@ -241,7 +245,7 @@ describe("java generator — paged finds", () => {
     // above — and the controller wraps at the boundary.
     const ctrl = f.get(`${ROOT}/features/orders/OrdersController.java`)!;
     expect(ctrl).toContain(
-      'public OrderPaged recentOrder(@RequestParam(defaultValue = "1") @jakarta.validation.constraints.Min(1) @jakarta.validation.constraints.Max(1000000) int page, @RequestParam(defaultValue = "20") @jakarta.validation.constraints.Min(1) @jakarta.validation.constraints.Max(500) int pageSize, @RequestParam(defaultValue = "id") String sort, @RequestParam(defaultValue = "asc") String dir) {',
+      'public OrderPaged allOrder(@RequestParam(defaultValue = "1") @jakarta.validation.constraints.Min(1) @jakarta.validation.constraints.Max(1000000) int page, @RequestParam(defaultValue = "20") @jakarta.validation.constraints.Min(1) @jakarta.validation.constraints.Max(500) int pageSize, @RequestParam(defaultValue = "id") String sort, @RequestParam(defaultValue = "asc") String dir) {',
     );
     expect(ctrl).toContain(
       "return new OrderPaged(result.items(), result.page(), result.pageSize(), result.total(), result.totalPages());",
@@ -402,10 +406,10 @@ system Abs {
       error Missing { resource: string }
       aggregate Order with crudish { code: string }
       repository Orders for Order {
+        find all(): Order[]
         find optionFind(code: string): Order option where this.code == code
         find nullableFind(code: string): Order? where this.code == code
         find errorFind(code: string): Order or Missing where this.code == code
-        find listFind(code: string): Order[] where this.code == code
       }
     }
   }
@@ -427,7 +431,7 @@ describe("java generator — find-absence 404 (RS-22/RS-27)", () => {
     // Premise: all four find shapes really are in this controller, so the
     // assertions below are about the ABSENCE arm and not about a find the
     // emitter dropped.
-    for (const route of ["/option_find", "/nullable_find", "/error_find", "/list_find"]) {
+    for (const route of ["/option_find", "/nullable_find", "/error_find"]) {
       expect(ctrl).toContain(`@GetMapping("${route}")`);
     }
 
@@ -463,18 +467,20 @@ describe("java generator — find-absence 404 (RS-22/RS-27)", () => {
     expect(advice).toContain('problem.setProperty("type", "about:blank");');
   });
 
-  it("a LIST find is untouched — it has no absence to answer", async () => {
-    // Scope guard: `Order[]` answers `[]`, never a 404 (RS-23), so the arm
+  it("the LIST read is untouched — it has no absence to answer", async () => {
+    // Scope guard: `find all(): Order[]` answers `[]`, never a 404 (RS-23), so the arm
     // must not have grown a throw.  Without this, a fix that threw on every
     // null-ish find would pass the two tests above.
     const files_ = await generateSystemFiles(ABSENCE_SRC);
     const ctrl = files_.get(
       "api/src/main/java/com/loom/api/features/orders/OrdersController.java",
     )!;
-    const listArm = ctrl.slice(ctrl.indexOf('@GetMapping("/list_find")'));
+    const at = ctrl.indexOf("@GetMapping\n");
+    expect(at).toBeGreaterThan(-1);
+    const listArm = ctrl.slice(at);
     const nextRoute = listArm.indexOf("@GetMapping", 1);
     const body = nextRoute === -1 ? listArm : listArm.slice(0, nextRoute);
-    expect(body).toContain("return service.listFind(code);");
+    expect(body).toContain("return service.allOrder();");
     expect(body).not.toContain("AggregateNotFoundException");
   });
 });

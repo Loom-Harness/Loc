@@ -203,9 +203,7 @@ describe.skipIf(!RUN)(
         // realm roles are [user, agent] (no admin), so the two gated reads split:
         // Authorized (role present) → 200 — the gate-satisfied control that
         // proves the gate isn't always-deny.
-        expect(
-          (await fetch(`${API_BASE}/api/tickets/agent_scoped`, { headers: bearer })).status,
-        ).toBe(200);
+        expect((await fetch(`${API_BASE}/api/tickets`, { headers: bearer })).status).toBe(200);
         // Authenticated but UNauthorized (role absent) → 403 — the deny half; a
         // forgetful backend emitting a no-op gate would return 200 here.
         expect(

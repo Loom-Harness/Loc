@@ -23,7 +23,7 @@
     {
       "seq": 2,
       "method": "GET",
-      "path": "/api/invoices/overdue_by?q=<timestamp>",
+      "path": "/api/invoices/overdue_by/2026-01-15T00%3A00%3A00Z",
       "status": 200,
       "body": [
         {
@@ -44,7 +44,7 @@
     {
       "seq": 3,
       "method": "GET",
-      "path": "/api/invoices/overdue_by?q=<timestamp>",
+      "path": "/api/invoices/overdue_by/2026-02-15T00%3A00%3A00Z",
       "status": 200,
       "body": [
         {
@@ -78,7 +78,7 @@
     {
       "seq": 4,
       "method": "GET",
-      "path": "/api/invoices/due_before?q=<timestamp>",
+      "path": "/api/invoices/due_before/2025-12-30T00%3A00%3A00Z",
       "status": 200,
       "body": [
         {
@@ -99,7 +99,7 @@
     {
       "seq": 5,
       "method": "GET",
-      "path": "/api/invoices/due_before?q=<timestamp>",
+      "path": "/api/invoices/due_before/2025-12-31T00%3A00%3A00Z",
       "status": 200,
       "body": [
         {
@@ -133,7 +133,7 @@
     {
       "seq": 6,
       "method": "GET",
-      "path": "/api/invoices/overdue_via?q=<timestamp>",
+      "path": "/api/invoices/overdue_via/2026-01-15T00%3A00%3A00Z",
       "status": 200,
       "body": [
         {
@@ -154,7 +154,7 @@
     {
       "seq": 7,
       "method": "GET",
-      "path": "/api/invoices/overdue_via?q=<timestamp>",
+      "path": "/api/invoices/overdue_via/2026-02-15T00%3A00%3A00Z",
       "status": 200,
       "body": [
         {

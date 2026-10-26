@@ -11,7 +11,6 @@ export interface ProductRepositoryPort {
   save(aggregate: Product, expectedVersion?: number): Promise<void>;
   delete(id: Ids.ProductId): Promise<void>;
   all(page: number, pageSize: number, sort: string, dir: string): Promise<{ items: Product[]; page: number; pageSize: number; total: number; totalPages: number }>;
-  bySku(sku: string): Promise<Product | null>;
 }
 
 export interface CustomerRepositoryPort {
@@ -21,5 +20,4 @@ export interface CustomerRepositoryPort {
   save(aggregate: Customer, expectedVersion?: number): Promise<void>;
   delete(id: Ids.CustomerId): Promise<void>;
   all(page: number, pageSize: number, sort: string, dir: string): Promise<{ items: Customer[]; page: number; pageSize: number; total: number; totalPages: number }>;
-  byEmail(email: string): Promise<Customer | null>;
 }

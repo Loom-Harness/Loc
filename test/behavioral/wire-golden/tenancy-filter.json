@@ -23,7 +23,7 @@
     {
       "seq": 2,
       "method": "GET",
-      "path": "/api/accounts/by_min_balance?min=0",
+      "path": "/api/accounts/by_min_balance/{id}",
       "status": 200,
       "body": [
         {

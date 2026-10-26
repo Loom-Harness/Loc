@@ -90,7 +90,7 @@ const PREFIX = system(`
           filter UnderRoot
         }
         repository Docs for Doc {
-          find under(prefix: string): Doc[] where this.path.startsWith(prefix)
+          find under(prefix: string): Doc? where this.path.startsWith(prefix)
         }
 `);
 
@@ -137,7 +137,7 @@ const PRINCIPAL = system(`
           title: string
         }
         repository Docs for Doc {
-          find mine(): Doc[] where this.owner == currentUser.tenantId
+          find mine(): Doc? where this.owner == currentUser.tenantId
         }
 `);
 
@@ -148,8 +148,8 @@ describe("a principal-referencing find declares the parameter its caller passes"
 
   it("the repository method takes `currentUser: User` and reads it", async () => {
     const src = await file(PRINCIPAL, "db/repositories/doc-repository.ts");
-    expect(src).toContain("async mine(currentUser: User): Promise<Doc[]>");
-    expect(src).toContain("em.find(DocRow, { owner: currentUser.tenantId })");
+    expect(src).toContain("async mine(currentUser: User): Promise<Doc | null>");
+    expect(src).toContain("em.findOne(DocRow, { owner: currentUser.tenantId })");
     // The `User` import goes with it — omitting it is TS2304 in the generated
     // project, the same class of miss as the `mask unless` one (M-T9.29 F3).
     expect(src).toContain('import type { User } from "../../auth/user-types";');
@@ -210,7 +210,7 @@ const MEMBERSHIP_SYSTEM = `
         }
         repository Tags for Tag { }
         repository Docs for Doc {
-          find tagged(t: Tag id): Doc[] where this.tags.contains(t)
+          find tagged(t: Tag id): Doc? where this.tags.contains(t)
         }
     `;
 

@@ -37,10 +37,18 @@ function bySuffix(files: Map<string, string>, suffix: string): string {
   return files.get(key!)!;
 }
 
-describe("dotnet (Dapper) — a paged find over a non-relational carrier implements the paged contract", () => {
+describe("dotnet (Dapper) — a paged read over a non-relational carrier implements the paged contract", () => {
   it.each([
-    ["shape: document", "Infrastructure/Repositories/InvoiceRepository.cs", "InRegion"],
-    ["persistedAs: eventLog", "Infrastructure/Repositories/AccountRepository.cs", "ByOwner"],
+    [
+      "shape: document",
+      "Infrastructure/Repositories/InvoiceRepository.cs",
+      "FindAllByInvoicesInRegion",
+    ],
+    [
+      "persistedAs: eventLog",
+      "Infrastructure/Repositories/AccountRepository.cs",
+      "FindAllByAccountsByOwner",
+    ],
   ])("%s", async (_carrier, file, method) => {
     const files = await generateCorpusCase("paged-nonrelational", "dotnet", "dapper");
     const impl = bySuffix(files, file);

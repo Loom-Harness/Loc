@@ -81,6 +81,11 @@ export interface RenderCtx {
    *  principal (ruling D1): an op-call to a `currentUser`-reading operation
    *  threads it as the context function's trailing actor.  Unset elsewhere. */
   reactorPrincipal?: boolean;
+  /** Set by an explicit handler whose `run` binds the request actor
+   *  (`current_user`): a `repo-run` over a retrieval that reads the actor passes
+   *  it as the `current_user:` opt, so a principal-filtered read scopes to the
+   *  caller.  Unset elsewhere — the retrieval then fails closed (no rows). */
+  repoRunActor?: boolean;
   /** Module prefix for the current bounded context, e.g. `"MyApp.Sales"`. */
   contextModule: string;
   /** Set only by the WORKFLOW `run/1` body (M-T5.1 A4): a `getById` load tags

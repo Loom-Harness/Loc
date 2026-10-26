@@ -28,6 +28,7 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { findRaisesNotFound } from "../../../ir/util/key-lookup.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
@@ -780,6 +781,20 @@ ${
        total: total,
        totalPages: if(page_size > 0, do: ceil(total / page_size), else: 0)
      }}
+  end`;
+  }
+
+  // A natural-key `getBy` answers the find-absence 404 (`{:error,
+  // :not_found}`, the term the by-id read answers), never `{:ok, nil}`.
+  if (findRaisesNotFound(f)) {
+    return `  @spec ${fnName}(${specArgs.join(", ")}) :: {:ok, ${aggModule}.t()} | {:error, :not_found}
+  def ${fnName}(${headFor(query)}) do
+    query = ${query}
+
+    case ${fetchCall} do
+      nil -> {:error, :not_found}
+      found -> {:ok, found}
+    end
   end`;
   }
 

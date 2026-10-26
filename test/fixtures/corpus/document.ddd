@@ -18,8 +18,13 @@ system DocSys {
         }
         operation bump() { viewCount := viewCount + 1 }
       }
-      repository Articles for Article {
-        find popular(min: int): Article[] where this.viewCount >= min
+      repository Articles for Article { }
+      criterion ArticlesPopular(min: int) of Article = this.viewCount >= min
+      // PAGED: a non-relational repository serves a criterion read through the
+      // synthesised paged find; an unpaged `run` has no repository method there.
+      queryHandler ListArticlesPopular(min: int): Article paged {
+        let r = Articles.run(ArticlesPopular(min))
+        return r
       }
       // A capability `filter` on a document aggregate (PROMOTED from the
       // per-backend `*-document-capability-filter.test.ts` string copies,
@@ -34,12 +39,18 @@ system DocSys {
         filter !this.archived
         operation shelve() { archived := true }
       }
-      repository Drafts for Draft {
-        find byTitle(t: string): Draft[] where this.title == t
+      repository Drafts for Draft { }
+      criterion DraftsByTitle(t: string) of Draft = this.title == t
+      queryHandler ListDraftsByTitle(t: string): Draft paged {
+        let r = Drafts.run(DraftsByTitle(t))
+        return r
       }
     }
   }
-  api CmsApi from Cms
+  api CmsApi from Cms {
+    route GET "/articles/popular/{min}" -> Cms.ListArticlesPopular
+    route GET "/drafts/by_title/{t}" -> Cms.ListDraftsByTitle
+  }
   storage primary { type: postgres }
   resource cmsState { for: Cms, kind: state, use: primary }
   deployable d {
@@ -77,8 +88,8 @@ system DocSys {
     api.articles.bump(a)
     let bumped = api.articles.getById(a)
     expect(bumped.viewCount).toBe(6)
-    let popular = api.articles.popular({ min: 6 })
-    expect(popular.length).toBe(1)
+    let popular = api.cms.listArticlesPopular(6)
+    expect(popular.items.length).toBe(1)
 
     // The root LIST route.  On `shape: document` the auto-`findAll` is a BARE
     // ARRAY, not the paged envelope (there is no queryable column to page over
@@ -94,8 +105,8 @@ system DocSys {
     expect(api.articles.getById(a)).toThrow(404)
     let empty = api.articles.all()
     expect(empty.length).toBe(0)
-    let gone = api.articles.popular({ min: 0 })
-    expect(gone.length).toBe(0)
+    let gone = api.cms.listArticlesPopular(0)
+    expect(gone.items.length).toBe(0)
 
     // ── the capability filter, evaluated in-app ────────────────────────────
     // Two drafts share a title; one is shelved after creation.  Every read
@@ -107,9 +118,9 @@ system DocSys {
     expect(api.drafts.getById(live).title).toBe("Plan")
     expect(api.drafts.getById(shelved)).toThrow(404)
     expect(api.drafts.all().length).toBe(1)
-    let plans = api.drafts.byTitle({ t: "Plan" })
-    expect(plans.length).toBe(1)
-    expect(plans.first().archived).toBe(false)
+    let plans = api.cms.listDraftsByTitle("Plan")
+    expect(plans.items.length).toBe(1)
+    expect(plans.items.first().archived).toBe(false)
     // The write routes load through the same scope.
     api.drafts.update(live, { title: "Plan v2", archived: false })
     expect(api.drafts.getById(live).title).toBe("Plan v2")

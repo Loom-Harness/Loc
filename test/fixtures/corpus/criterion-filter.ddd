@@ -12,12 +12,17 @@ system Crit {
         filter Active
         filter InRegion("EU")
       }
-      repository Orders for Order {
-        find recent(): Order[] where this.archived == false
+      repository Orders for Order { }
+      criterion OrdersRecent of Order = this.archived == false
+      queryHandler ListOrdersRecent(): Order[] {
+        let r = Orders.run(OrdersRecent())
+        return r
       }
     }
   }
-  api OrdersApi from Sales
+  api OrdersApi from Sales {
+    route GET "/recent_orders" -> Orders.ListOrdersRecent
+  }
   storage primary { type: postgres }
   resource ordersState { for: Orders, kind: state, use: primary }
   deployable d {
@@ -33,7 +38,7 @@ system Crit {
     let read = api.orders.getById(a)
     expect(read.code).toBe("C1")
     api.orders.create({ code: "C2", region: "EU", archived: true })
-    let list = api.orders.recent()
+    let list = api.orders.listOrdersRecent()
     expect(list.length).toBe(1)
 
     // The WRITE side of the two capability criteria, which nothing drove: the
@@ -46,7 +51,7 @@ system Crit {
     let updated = api.orders.getById(a)
     expect(updated.code).toBe("C1B")
     expect(updated.region).toBe("EU")
-    let stillOne = api.orders.recent()
+    let stillOne = api.orders.listOrdersRecent()
     expect(stillOne.length).toBe(1)
 
     // The ROOT LIST route under the SAME two capability criteria.  Two rows are
@@ -64,7 +69,7 @@ system Crit {
     // reads 0 afterwards, not 1.)
     api.orders.destroy(a)
     expect(api.orders.getById(a)).toThrow(404)
-    let gone = api.orders.recent()
+    let gone = api.orders.listOrdersRecent()
     expect(gone.length).toBe(0)
     let empty = api.orders.all()
     expect(empty.items.length).toBe(0)

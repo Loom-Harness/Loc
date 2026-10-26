@@ -40,9 +40,8 @@ const MODEL_SRC = `system S {
       aggregate Customer {
         name: string
       }
-      repository Orders for Order {
-        find byTotal(t: int): Order[] where this.total == t
-      }
+      repository Orders for Order { }
+      criterion OrdersByTotal(t: int) of Order = this.total == t
     }
   }
 }`;

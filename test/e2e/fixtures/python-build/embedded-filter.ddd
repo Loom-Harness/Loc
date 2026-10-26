@@ -34,9 +34,8 @@ system EmbFilter {
           lines += LineItem { sku: sku, qty: qty }
         }
       }
-      repository Carts for Cart {
-        find byMinTotal(min: money): Cart[] where this.total >= min
-      }
+      repository Carts for Cart { }
+      criterion CartsByMinTotal(min: money) of Cart = this.total >= min
     }
   }
 

@@ -32,8 +32,10 @@ const source = (read: string) => `
           }
         }
         repository Orders for Order {
-          find byLabel(l: string): Order ${read} where this.label == l
+          find byLabel(l: string): Order? where this.label == l
         }
+        criterion Labelled(l: string) of Order = this.label == l
+        ${read === "paged" ? "queryHandler ListLabelled(l: string): Order paged { let r = Orders.run(Labelled(l))  return r }" : ""}
       }
     }
     api SalesApi from Sales
@@ -58,7 +60,7 @@ const repoFor = async (read: string): Promise<string> => {
   return entry![1];
 };
 
-describe("python shape: embedded × a paged find", () => {
+describe("python shape: embedded × a paged read", () => {
   it("imports the PagedResult carrier it annotates and constructs", async () => {
     const repo = await repoFor("paged");
     // Both uses are present …
@@ -68,7 +70,7 @@ describe("python shape: embedded × a paged find", () => {
     expect(repo).toContain("from app.domain.paging import PagedResult");
   });
 
-  it("does not import it when no find is paged (ruff F401)", async () => {
+  it("does not import it when no read is paged (ruff F401)", async () => {
     const repo = await repoFor("");
     expect(repo).not.toContain("PagedResult");
   });

@@ -42,7 +42,7 @@ const SRC = `
           body: string
         }
         repository Things for Thing {
-          find byLabel(l: string): Thing[] where this.label == l
+          find byLabel(l: string): Thing? where this.label == l
         }
         repository Notes for Note { }
         policy {

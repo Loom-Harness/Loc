@@ -2339,8 +2339,12 @@ ForStmt:
 // `Expression`, because `BuilderCall` (`Name { … }`) would otherwise
 // swallow the loop's own `{ body }` block.  These are the only forms
 // that produce an aggregate array anyway.
+// An `if let` source shares the rule, so a trailing `ignoring …` parses here
+// for the natural-key read it widens (`if let p = Products.findBy(sku: s)
+// ignoring softDeletable { … }`); `validators/bypass-placement.ts` refuses it
+// on any other iterable.
 ForIterable infers Expression:
-    NameRef ({infer PostfixChain.head=current} suffixes+=PostfixSuffix+)?;
+    NameRef ({infer PostfixChain.head=current} suffixes+=PostfixSuffix+ IgnoringClause?)?;
 
 PreconditionStmt:
     'precondition' expr=Expression ('message' message=STRING)?;

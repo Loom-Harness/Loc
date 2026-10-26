@@ -37,9 +37,9 @@ const LOWER_SRC = `
       criterion BigOrders() of Order = this.total > 0
       aggregate Order with softDeletable { total: int }
       repository OrderRepo for Order {
-        find recent(): Order[] where this.total > 0 ignoring softDeletable
-        find allRows(): Order[] ignoring *
-        find normal(): Order[] where this.total > 0
+        find recent(): Order? where this.total > 0 ignoring softDeletable
+        find allRows(): Order? ignoring *
+        find normal(): Order? where this.total > 0
       }
       workflow Sweep {
         create(x: int) {
@@ -126,7 +126,7 @@ describe("ignoring filter-bypass validator gates", () => {
   it("accepts a valid bypass on a dotnet deployable (no diagnostics)", async () => {
     const diags = await bypassDiags(
       systemWith(`repository R for Order {
-        find recent(): Order[] where this.total > 0 ignoring softDeletable
+        find recent(): Order? where this.total > 0 ignoring softDeletable
       }`),
     );
     expect(diags).toEqual([]);
@@ -135,7 +135,7 @@ describe("ignoring filter-bypass validator gates", () => {
   it("accepts `ignoring *` on a dotnet deployable", async () => {
     const diags = await bypassDiags(
       systemWith(`repository R for Order {
-        find allRows(): Order[] ignoring *
+        find allRows(): Order? ignoring *
       }`),
     );
     expect(diags).toEqual([]);
@@ -145,7 +145,7 @@ describe("ignoring filter-bypass validator gates", () => {
     const diags = await bypassDiags(
       systemWith(
         `repository R for Order {
-          find recent(): Order[] where this.total > 0 ignoring softDeletable
+          find recent(): Order? where this.total > 0 ignoring softDeletable
         }`,
         "node",
       ),
@@ -157,7 +157,7 @@ describe("ignoring filter-bypass validator gates", () => {
     const diags = await bypassDiags(
       systemWith(
         `repository R for Order {
-          find recent(): Order[] where this.total > 0 ignoring softDeletable
+          find recent(): Order? where this.total > 0 ignoring softDeletable
         }`,
         ELIXIR_VANILLA,
       ),
@@ -169,7 +169,7 @@ describe("ignoring filter-bypass validator gates", () => {
     const diags = await bypassDiags(
       systemWith(
         `repository R for Order {
-          find recent(): Order[] where this.total > 0 ignoring softDeletable
+          find recent(): Order? where this.total > 0 ignoring softDeletable
         }`,
         "elixir",
       ),
@@ -181,7 +181,7 @@ describe("ignoring filter-bypass validator gates", () => {
     const diags = await bypassDiags(
       systemWith(
         `repository R for Order {
-          find recent(): Order[] where this.total > 0 ignoring softDeletable
+          find recent(): Order? where this.total > 0 ignoring softDeletable
         }`,
         "java",
       ),
@@ -193,7 +193,7 @@ describe("ignoring filter-bypass validator gates", () => {
     const diags = await bypassDiags(
       systemWith(
         `repository R for Order {
-          find recent(): Order[] where this.total > 0 ignoring softDeletable
+          find recent(): Order? where this.total > 0 ignoring softDeletable
         }`,
         "python",
       ),
@@ -204,7 +204,7 @@ describe("ignoring filter-bypass validator gates", () => {
   it("loom.filter-bypass-unknown-capability — capability not implemented", async () => {
     const diags = await bypassDiags(
       systemWith(`repository R for Order {
-        find recent(): Order[] where this.total > 0 ignoring tenantScoped
+        find recent(): Order? where this.total > 0 ignoring tenantScoped
       }`),
     );
     expect(diags.map((d) => d.code)).toEqual(["loom.filter-bypass-unknown-capability"]);
@@ -213,7 +213,7 @@ describe("ignoring filter-bypass validator gates", () => {
   it("loom.filter-bypass-no-filter — capability contributes no filter (stamps-only)", async () => {
     const diags = await bypassDiags(
       systemWith(`repository R for Order {
-        find recent(): Order[] where this.total > 0 ignoring auditable
+        find recent(): Order? where this.total > 0 ignoring auditable
       }`),
     );
     expect(diags.map((d) => d.code)).toEqual(["loom.filter-bypass-no-filter"]);
@@ -222,7 +222,7 @@ describe("ignoring filter-bypass validator gates", () => {
   it("fires on an inline repo-run bypass of an unknown capability", async () => {
     const diags = await bypassDiags(
       systemWith(`repository R for Order {
-        find recent(): Order[] where this.total > 0 ignoring tenantScoped
+        find recent(): Order? where this.total > 0 ignoring tenantScoped
       }`),
     );
     expect(diags.map((d) => d.code)).toEqual(["loom.filter-bypass-unknown-capability"]);

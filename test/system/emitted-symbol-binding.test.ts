@@ -132,7 +132,7 @@ system BindBoth {
       derived display: string = \`t {status}\`
     }
     repository Tickets for Ticket {
-      find openPage(): Ticket paged where status != Closed
+      find openPage(): Ticket? where status != Closed
     }
     projection OpenTickets {
       status: Status

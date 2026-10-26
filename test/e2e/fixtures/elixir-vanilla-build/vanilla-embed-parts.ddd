@@ -17,9 +17,8 @@ system VanillaEmbedParts {
           lines += Line { sku: sku, qty: qty }
         }
       }
-      repository Orders for Order {
-        find byCode(c: string): Order[] where this.code == c
-      }
+      repository Orders for Order { }
+      criterion OrdersByCode(c: string) of Order = this.code == c
     }
   }
   api CatalogApi from Core

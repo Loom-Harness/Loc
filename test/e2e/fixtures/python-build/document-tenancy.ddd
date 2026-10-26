@@ -38,7 +38,7 @@ system DocTenancy {
         operation bump() { viewCount := viewCount + 1 }
       }
       repository Articles for Article {
-        find popular(min: int): Article[] where this.viewCount >= min
+        find popular(min: int): Article? where this.viewCount >= min
       }
     }
   }

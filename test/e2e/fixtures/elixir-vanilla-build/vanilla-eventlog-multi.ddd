@@ -71,12 +71,10 @@ system Banking {
         }
       }
 
-      repository Accounts for Account {
-        find byOwner(owner: string): Account? where this.owner == owner
-      }
-      repository Ledgers for Ledger {
-        find byName(name: string): Ledger? where this.name == name
-      }
+      repository Accounts for Account { }
+      criterion AccountsByOwner(owner: string) of Account = this.owner == owner
+      repository Ledgers for Ledger { }
+      criterion LedgersByName(name: string) of Ledger = this.name == name
     }
   }
 

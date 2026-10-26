@@ -29,9 +29,8 @@ system PythonHierarchy {
         name: string
         implements tenantRegistry
       }
-      repository Accounts for Account {
-        find byMinBalance(min: int): Account[] where this.balance >= min
-      }
+      repository Accounts for Account { }
+      criterion AccountsByMinBalance(min: int) of Account = this.balance >= min
       repository Orgs for Org { }
       // P2.5: `global` widens Account's tenant floor to the caller's ROOT-org
       // subtree — the rootOrg-anchored materialized-path sentinel.  Compile-

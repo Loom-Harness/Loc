@@ -27,9 +27,8 @@ system RelParts {
         contains pipelines: Pipeline[]
         entity Pipeline { label: string  runCount: int }
       }
-      repository Projects for Project {
-        find byName(n: string): Project[] where this.name == n
-      }
+      repository Projects for Project { }
+      criterion ProjectsByName(n: string) of Project = this.name == n
     }
   }
   api CatalogApi from Core

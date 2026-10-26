@@ -60,15 +60,26 @@ system FieldOps {
         title: string
         done: bool
       }
-      repository WorkOrders for WorkOrder {
-        // THE SUBJECT — an author-written predicate over the principal.
-        find mine(): WorkOrder[] where this.technicianUserId == currentUser.id
-        // …crossed with a declared parameter, so the pinned principal and the
-        // pinned param share one predicate (different renderer arms).
-        find mineByState(d: bool): WorkOrder[] where this.technicianUserId == currentUser.id && this.done == d
-        // A find with NO principal in its predicate — the threading must stay
-        // scoped to the finds that need it, not spread aggregate-wide.
-        find byTitle(t: string): WorkOrder[] where this.title == t
+      repository WorkOrders for WorkOrder { }
+      // THE SUBJECT — an author-written predicate over the principal.
+      criterion WorkOrdersMine of WorkOrder = this.technicianUserId == currentUser.id
+      queryHandler ListWorkOrdersMine(): WorkOrder[] {
+        let r = WorkOrders.run(WorkOrdersMine())
+        return r
+      }
+      // …crossed with a declared parameter, so the pinned principal and the
+      // pinned param share one predicate (different renderer arms).
+      criterion WorkOrdersMineByState(d: bool) of WorkOrder = this.technicianUserId == currentUser.id && this.done == d
+      queryHandler ListWorkOrdersMineByState(d: bool): WorkOrder[] {
+        let r = WorkOrders.run(WorkOrdersMineByState(d))
+        return r
+      }
+      // A find with NO principal in its predicate — the threading must stay
+      // scoped to the finds that need it, not spread aggregate-wide.
+      criterion WorkOrdersByTitle(t: string) of WorkOrder = this.title == t
+      queryHandler ListWorkOrdersByTitle(t: string): WorkOrder[] {
+        let r = WorkOrders.run(WorkOrdersByTitle(t))
+        return r
       }
       // The same predicate on the RETRIEVAL path, which is a separate emitter
       // (its own module + `opts`-threaded actor) on the backend that broke.
@@ -77,7 +88,11 @@ system FieldOps {
       }
     }
   }
-  api WorkApi from Field
+  api WorkApi from Field {
+    route GET "/mine_work_orders" -> Work.ListWorkOrdersMine
+    route GET "/work_orders/mine_by_state/{d}" -> Work.ListWorkOrdersMineByState
+    route GET "/work_orders/by_title/{t}" -> Work.ListWorkOrdersByTitle
+  }
   storage primary { type: postgres }
   resource workState { for: Work, kind: state, use: primary }
   deployable d {
@@ -96,23 +111,23 @@ system FieldOps {
     let other = api.work_orders.create({ technicianUserId: "7b0c1c7e-0000-4000-8000-000000000001", title: "Boiler", done: false })
 
     // THE SUBJECT: two of three rows are the caller's.
-    let mine = api.work_orders.mine()
+    let mine = api.work.listWorkOrdersMine()
     expect(mine.count()).toBe(2)
     // …crossed with a declared parameter.
-    let openMine = api.work_orders.mineByState({ d: false })
+    let openMine = api.work.listWorkOrdersMineByState(false)
     expect(openMine.count()).toBe(1)
     expect(openMine.first().title).toBe("Boiler")
-    expect(api.work_orders.mineByState({ d: true }).first().title).toBe("Pump")
+    expect(api.work.listWorkOrdersMineByState(true).first().title).toBe("Pump")
     // The principal-free find beside it sees BOTH "Boiler" rows.
-    expect(api.work_orders.byTitle({ t: "Boiler" }).count()).toBe(2)
+    expect(api.work.listWorkOrdersByTitle("Boiler").count()).toBe(2)
 
     // Hand the other technician's row to the caller: the filter follows.
     api.work_orders.update(other, { technicianUserId: "00000000-0000-0000-0000-000000000000", title: "Boiler", done: false })
-    expect(api.work_orders.mine().count()).toBe(3)
+    expect(api.work.listWorkOrdersMine().count()).toBe(3)
     expect(api.work_orders.getById(other).title).toBe("Boiler")
     expect(api.work_orders.all().total).toBe(3)
     api.work_orders.destroy(ownDone)
-    expect(api.work_orders.mineByState({ d: true }).count()).toBe(0)
+    expect(api.work.listWorkOrdersMineByState(true).count()).toBe(0)
     api.work_orders.destroy(own)
     api.work_orders.destroy(other)
     expect(api.work_orders.getById(own)).toThrow(404)

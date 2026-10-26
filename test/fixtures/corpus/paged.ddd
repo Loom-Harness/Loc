@@ -4,12 +4,18 @@ system PagedShop {
     context Orders {
       aggregate Order with crudish { code: string  region: string }
       repository Orders for Order {
-        find recent(): Order paged
-        find inRegion(region: string): Order paged where this.region == region
+        find all(): Order paged
+      }
+      criterion OrdersInRegion(region: string) of Order = this.region == region
+      queryHandler ListOrdersInRegion(region: string): Order paged {
+        let r = Orders.run(OrdersInRegion(region))
+        return r
       }
     }
   }
-  api OrdersApi from Sales
+  api OrdersApi from Sales {
+    route GET "/orders/in_region/{region}" -> Orders.ListOrdersInRegion
+  }
   storage primary { type: postgres }
   resource ordersState { for: Orders, kind: state, use: primary }
   deployable d {
@@ -23,7 +29,7 @@ system PagedShop {
   test e2e "paged find returns the envelope" against d {
     let p1 = api.orders.create({ code: "P1", region: "NA" })
     api.orders.create({ code: "P2", region: "NA" })
-    let p = api.orders.recent()
+    let p = api.orders.all()
     expect(p.items.length).toBe(2)
 
     // The canonical `update` moves one row across the `inRegion` predicate —
@@ -34,7 +40,7 @@ system PagedShop {
     api.orders.update(p1, { code: "P1", region: "EU" })
     let moved = api.orders.getById(p1)
     expect(moved.region).toBe("EU")
-    let eu = api.orders.inRegion({ region: "EU" })
+    let eu = api.orders.listOrdersInRegion("EU")
     expect(eu.items.length).toBe(1)
     expect(eu.total).toBe(1)
 
@@ -60,7 +66,7 @@ system PagedShop {
     // detached the row would keep answering the filtered page.
     api.orders.destroy(p1)
     expect(api.orders.getById(p1)).toThrow(404)
-    let goneFromEu = api.orders.inRegion({ region: "EU" })
+    let goneFromEu = api.orders.listOrdersInRegion("EU")
     expect(goneFromEu.items.length).toBe(0)
     expect(goneFromEu.total).toBe(0)
     let left = api.orders.all()

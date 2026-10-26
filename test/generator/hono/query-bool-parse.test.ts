@@ -32,7 +32,7 @@ system Shop {
         operation mark(wanted: bool) { flagged := wanted }
       }
       repository Orders for Order {
-        find byFlag(f: bool): Order[] where this.flagged == f
+        find byFlag(f: bool): Order? where this.flagged == f
       }
       queryHandler CountFlagged(wanted: bool): int {
         let all = Orders.findAll()

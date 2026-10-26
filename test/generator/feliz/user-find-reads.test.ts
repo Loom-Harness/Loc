@@ -25,8 +25,8 @@ import { describe, expect, it } from "vitest";
 import { validate } from "../../../src/api/index.js";
 import { generateSystemFiles, generateSystemFilesUnchecked } from "../../_helpers/generate.js";
 
-/** A list-returning find, its argument bound to a page `state {}` cell that a
- *  `Select` also writes — so the refetch-on-control-change arm is exercised. */
+/** A single-row find, its argument bound to a page `state {}` cell that a
+ *  `Field` also writes — so the refetch-on-control-change arm is exercised. */
 const SRC = `
 system Docs {
   subdomain Knowledge {
@@ -37,7 +37,7 @@ system Docs {
         derived display: string = title
       }
       repository Docs for Doc {
-        find byVis(vis: string): Doc[] where this.vis == vis
+        find byVis(vis: string): Doc? where this.vis == vis
       }
     }
   }
@@ -55,7 +55,7 @@ system Docs {
         QueryView {
           of: K.Doc.byVis(chosen),
           empty: Text { "No docs" },
-          data: rows => For { each: rows, d => Text { d.title } }
+          data: d => Text { d.title }
         }
       }
     }
@@ -83,7 +83,7 @@ async function featureRefusals(src: string): Promise<string[]> {
 
 /** The `.ddd` above with its find declaration and its call site rewritten. */
 function withFind(decl: string, callSite: string, extra = ""): string {
-  return SRC.replace("find byVis(vis: string): Doc[] where this.vis == vis", decl)
+  return SRC.replace("find byVis(vis: string): Doc? where this.vis == vis", decl)
     .replace("K.Doc.byVis(chosen)", callSite)
     .replace("aggregate Doc {", `aggregate Doc {${extra}`);
 }
@@ -91,7 +91,7 @@ function withFind(decl: string, callSite: string, extra = ""): string {
 describe("feliz user-find read — the Model field is op-derived, not All<Plural>", () => {
   it("declares a Remote field named off the AGGREGATE AND THE FIND", async () => {
     const fs = await appFs();
-    expect(fs).toContain("DocByVis: Remote<Doc list>");
+    expect(fs).toContain("DocByVis: Remote<Doc option>");
   });
 
   it("never binds the find to the unfiltered list field", async () => {
@@ -103,25 +103,25 @@ describe("feliz user-find read — the Model field is op-derived, not All<Plural
 
   it("carries the decoded Result on its own Msg case and update arms", async () => {
     const fs = await appFs();
-    expect(fs).toContain("| DocByVisLoaded of Result<Doc list, string>");
+    expect(fs).toContain("| DocByVisLoaded of Result<Doc option, string>");
     expect(fs).toContain("| DocByVisLoaded (Ok data) -> { model with DocByVis = Loaded data }");
     expect(fs).toContain("| DocByVisLoaded (Error e) -> { model with DocByVis = LoadError e }");
   });
 
   it("emits the wire layer the read needs — the record, its decoder, the matcher", async () => {
     // Before the fix the read set was EMPTY, so `hasWire` / `hasHttp` were
-    // false: no `type Doc`, no `Decoders.doc`, no `Api`, no `View.remoteList`.
+    // false: no `type Doc`, no `Decoders.doc`, no `Api`, no `View.remoteOne`.
     const fs = await appFs();
     expect(fs).toContain("type Doc =");
     expect(fs).toContain("let doc : Decoder<Doc> =");
-    expect(fs).toContain("let remoteList (r: Remote<'T list>)");
+    expect(fs).toContain("let remoteOne");
   });
 });
 
 describe("feliz user-find read — the query is actually issued, with its args", () => {
   it("generates the api fn from the DECLARATION — one param per find param", async () => {
     const fs = await appFs();
-    expect(fs).toContain("let docByVis (vis: string) : Async<Result<Doc list, string>> =");
+    expect(fs).toContain("let docByVis (vis: string) : Async<Result<Doc option, string>> =");
   });
 
   it("fetches the find's own route with the params as a query string", async () => {
@@ -129,7 +129,7 @@ describe("feliz user-find read — the query is actually issued, with its args",
     // Svelte / Angular / Flutter clients call, so all seven agree.
     const fs = await appFs();
     expect(fs).toContain('Http.get (sprintf "/api/docs/by_vis?vis=%s" vis)');
-    expect(fs).toContain("Decode.fromString (Decode.list Decoders.doc) body");
+    expect(fs).toContain("(Decode.option Decoders.doc)");
   });
 
   it("fires at INIT with the argument read off the initial model", async () => {
@@ -154,16 +154,9 @@ describe("feliz user-find read — the query is actually issued, with its args",
 });
 
 describe("feliz user-find read — the view names the read's own field", () => {
-  it("matches on the find's Remote field through the list matcher", async () => {
+  it("matches on the find's Remote field through the single-record matcher", async () => {
     const fs = await appFs();
-    expect(fs).toContain("View.remoteList model.DocByVis");
-    // The `data:` lambda binds the read's own binding, and the body iterates it.
-    expect(fs).toContain("fun docByVis ->");
-    // ONE element, not a `yield!` splice: a `data:` lambda body is a value
-    // slot, and F# admits `yield!` only inside a list/seq expression (F-024 /
-    // ledger F2-CFE-3 — this assertion used to pin the FS0747 shape).
-    expect(fs).toContain("React.fragment (docByVis |> List.map");
-    expect(fs).not.toContain("yield! docByVis");
+    expect(fs).toContain("View.remoteOne model.DocByVis");
   });
 
   it("emits no F# that references an undeclared model field", async () => {
@@ -185,35 +178,9 @@ describe("feliz user-find read — the view names the read's own field", () => {
 });
 
 describe("feliz user-find read — the other return shapes", () => {
-  it("renders an OPTIONAL find as a single-record read (404 → Ok None)", async () => {
-    const fs = await appFs(
-      withFind(
-        "find byTitle(title: string): Doc? where this.title == title",
-        "K.Doc.byTitle(chosen)",
-      ).replace(
-        "data: rows => For { each: rows, d => Text { d.title } }",
-        "data: d => Text { d.title }",
-      ),
-    );
-    expect(fs).toContain("DocByTitle: Remote<Doc option>");
-    expect(fs).toContain("let docByTitle (title: string) : Async<Result<Doc option, string>> =");
-    expect(fs).toContain("(Decode.option Decoders.doc)");
+  it("answers a miss as `Ok None` (404), not an error", async () => {
+    const fs = await appFs();
     expect(fs).toContain("elif status = 404 then");
-    expect(fs).toContain("View.remoteOne model.DocByTitle");
-  });
-
-  it("decodes a PAGED find through the existing paged-envelope path", async () => {
-    // Not a new path: the read gets the same `PageMeta` SIBLING field an
-    // uncontrolled paged `.all` gets, so the pager's counts render truthfully.
-    const fs = await appFs(
-      withFind("find byVis(vis: string): Doc paged where this.vis == vis", "K.Doc.byVis(chosen)"),
-    );
-    expect(fs).toContain("DocByVis: Remote<Doc list>");
-    expect(fs).toContain("DocByVisPageMeta: PageMeta");
-    expect(fs).toContain(
-      "let docByVis (vis: string) : Async<Result<Doc list * PageMeta, string>> =",
-    );
-    expect(fs).toContain('Decode.field "items"');
   });
 
   it("carries a NON-string parameter with an explicit, culture-safe conversion", async () => {
@@ -221,12 +188,12 @@ describe("feliz user-find read — the other return shapes", () => {
     // would reach the backend as something its query parser does not accept.
     const fs = await appFs(
       withFind(
-        'find recent(limit: int, since: datetime): Doc[] where this.title != ""',
+        'find recent(limit: int, since: datetime): Doc? where this.title != ""',
         "K.Doc.recent(3, now())",
       ),
     );
     expect(fs).toContain(
-      "let docRecent (limit: int) (since: System.DateTime) : Async<Result<Doc list, string>> =",
+      "let docRecent (limit: int) (since: System.DateTime) : Async<Result<Doc option, string>> =",
     );
     expect(fs).toContain(
       'Http.get (sprintf "/api/docs/recent?limit=%s&since=%s" (string limit) (since.ToString("o")))',
@@ -255,7 +222,7 @@ describe("feliz user-find read — unsupported shapes fail LOUDLY", () => {
 
   it("refuses a find parameter with no query-string spelling (codegen keeps its throw)", async () => {
     const src = withFind(
-      'find byTags(tags: string[]): Doc[] where this.title != ""',
+      'find byTags(tags: string[]): Doc? where this.title != ""',
       "K.Doc.byTags(picked)",
     ).replace(
       'state { chosen: string = "public" }',
@@ -273,8 +240,8 @@ describe("feliz user-find read — unsupported shapes fail LOUDLY", () => {
     // A find read's fetch is built in `init` / an `update` arm, where a lambda
     // binding from the surrounding view is not in scope.
     const src = SRC.replace(
-      "data: rows => For { each: rows, d => Text { d.title } }",
-      'data: rows => For { each: rows, d => Stack { QueryView { of: K.Doc.byVis(d.title), data: r2 => Text { "x" } } } }',
+      "data: d => Text { d.title }",
+      'data: d => Stack { QueryView { of: K.Doc.byVis(d.title), data: r2 => Text { "x" } } }',
     );
     expect(await featureRefusals(src)).toEqual([
       expect.stringContaining("whose argument is not a `state` cell"),

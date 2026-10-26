@@ -122,16 +122,14 @@ const READ_PORT_SRC = `system PyPorts {
         balance: decimal
         operation deposit(amount: decimal) { balance := balance + amount }
       }
-      repository Accounts for Account {
-        find byHolder(holder: string): Account? where this.holder == holder
-      }
+      repository Accounts for Account { }
+      criterion AccountsByHolder(holder: string) of Account = this.holder == holder
       aggregate Ledger with crudish { code: string }
-      repository Ledgers for Ledger {
-        find byCode(code: string): Ledger? where this.code == code
-      }
+      repository Ledgers for Ledger { }
+      criterion LedgersByCode(code: string) of Ledger = this.code == code
       domainService Audit {
         operation record(source: Account, code: string) {
-          precondition Ledgers.byCode(code) != null
+          precondition Ledgers.find(LedgersByCode(code)) != null
           source.deposit(1.0)
         }
       }

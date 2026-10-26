@@ -35,7 +35,9 @@ describe("java document capability filter (DEBT-02)", () => {
     // The find streams over findAll(), which already hides deleted rows — no
     // separate capability filter is duplicated onto the find.
     const r = await repo();
-    expect(r).toContain("findAll().stream().filter(x -> Objects.equals(x.title(), t)).toList();");
+    expect(r).toContain(
+      "findAll().stream().filter(x -> Objects.equals(x.title(), t)).findFirst().orElse(null);",
+    );
     // A string-equality find renders `Objects.equals` — the document store must
     // import it (a pre-existing gap this fixture surfaced).
     expect(r).toContain("import java.util.Objects;");

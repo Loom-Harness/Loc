@@ -57,9 +57,8 @@ system TenantClaimNameDeep {
         number: string
         amountDue: int
       }
-      repository Invoices for Invoice {
-        find byNumber(n: string): Invoice[] where this.number == n
-      }
+      repository Invoices for Invoice { }
+      criterion InvoicesByNumber(n: string) of Invoice = this.number == n
       policy {
         allow deep on Invoice
       }

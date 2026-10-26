@@ -207,18 +207,22 @@ function members(shape: Shape, authz: Authz): string[] {
   return out;
 }
 
-/** The one declared repository find, in its bare-list or `paged`-carrier form.
+/** The one criterion-driven list read, in its bare-list or `paged`-carrier form.
  *
- *  Same predicate either way — the ONLY difference is the carrier, so a failure
- *  belongs to the carrier and not to a differently-shaped query.  (The auto
- *  `findAll` enrichment adds a second, always-paged read regardless; the point
- *  of this axis is a DECLARED find whose filter the scope/mask layers must
- *  reach through the envelope.) */
+ *  A `criterion` over the label plus a `queryHandler` that runs it through the
+ *  repository's read port.  Same predicate either way — the ONLY difference is
+ *  the handler's return carrier, so a failure belongs to the carrier and not to
+ *  a differently-shaped query.  (The auto `findAll` enrichment adds a second,
+ *  always-paged read regardless; the point of this axis is an AUTHORED read whose
+ *  filter the scope/mask layers must reach through the envelope.) */
 function repositoryBlock(read: Read): string[] {
   const ret = read === "paged" ? "Thing paged" : "Thing[]";
   return [
-    "      repository Things for Thing {",
-    `        find byLabel(l: string): ${ret} where this.label == l`,
+    "      repository Things for Thing { }",
+    "      criterion ThingsByLabel(l: string) of Thing = this.label == l",
+    `      queryHandler ListThingsByLabel(l: string): ${ret} {`,
+    "        let r = Things.run(ThingsByLabel(l))",
+    "        return r",
     "      }",
   ];
 }

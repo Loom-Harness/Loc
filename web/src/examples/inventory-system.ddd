@@ -65,9 +65,8 @@ system InventorySystem {
         derived display: string = code
       }
 
-      repository Warehouses for Warehouse {
-        find byCode(code: string): Warehouse? where this.code == code
-      }
+      repository Warehouses for Warehouse { }
+      criterion WarehousesByCode(code: string) of Warehouse = this.code == code
 
       // Workflow: demonstrates non-transactional orchestration —
       // load a warehouse and record a reservation against it.  The

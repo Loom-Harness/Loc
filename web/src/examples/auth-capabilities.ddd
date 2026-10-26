@@ -88,11 +88,9 @@ system Helpdesk {
 
       // Row-level visibility: both the find and the view scope their
       // result to the requesting user via `currentUser` (slice 1C).
-      repository Tickets for Ticket {
-        find mine(): Ticket[] where assignee == currentUser.id
-        find openInTenant(): Ticket[]
-          where tenantId == currentUser.tenantId && status == Open
-      }
+      repository Tickets for Ticket { }
+      criterion TicketsMine of Ticket = assignee == currentUser.id
+      criterion TicketsOpenInTenant of Ticket = tenantId == currentUser.tenantId && status == Open
     }
   }
 

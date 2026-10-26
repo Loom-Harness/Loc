@@ -38,9 +38,7 @@ system TenancyHierarchyShop {
       aggregate Organization with tenantRegistry {
         name: string
       }
-      repository Organizations for Organization {
-        find byId(id: Organization id): Organization?
-      }
+      repository Organizations for Organization { }
       policy { read Organization requires true }
 
       aggregate Account with tenantOwned {
@@ -49,9 +47,7 @@ system TenancyHierarchyShop {
         // resolved from the registry `data_key` by the auth plug.
         filter this.balance >= 0
       }
-      repository Accounts for Account {
-        find byId(id: Account id): Account?
-      }
+      repository Accounts for Account { }
       policy { read Account requires true }
       // P2.5: `global` widens Account's tenant floor to the caller's ROOT-org
       // subtree — the rootOrg-anchored materialized-path fragment.  Compile-

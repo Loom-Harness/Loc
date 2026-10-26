@@ -52,7 +52,7 @@
 //     answer with a named `loom.*` diagnostic, and a crash there is a finding.
 //
 //   read (`plain` / `paged`)
-//     The declared repository find returns `Thing[]` or `Thing paged`.  Every
+//     The criterion-driven `queryHandler` returns `Thing[]` or `Thing paged`.  Every
 //     existing axis leaves the wire shape BARE; `paged` is the only value in
 //     the corpus that wraps it in a CARRIER, and a carrier is where read-side
 //     concerns get dropped: the scope filter has to reach both the page query

@@ -17,9 +17,8 @@ system Parties {
       abstract aggregate Asset inheritanceUsing: ownTable { label: string }
       aggregate Machine extends Asset { serial: string }
       aggregate Vehicle extends Asset { plate: string }
-      repository Customers for Customer {
-        find byEmail(email: string): Customer? where this.email == email
-      }
+      repository Customers for Customer { }
+      criterion CustomersByEmail(email: string) of Customer = this.email == email
       repository Vendors for Vendor { }
       repository Machines for Machine { }
       repository Vehicles for Vehicle { }

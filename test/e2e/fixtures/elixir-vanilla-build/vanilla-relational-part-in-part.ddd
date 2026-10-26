@@ -23,9 +23,8 @@ system Warehouse {
         }
         entity Tag { label: string }
       }
-      repository Orders for Order {
-        find byName(name: string): Order[] where this.name == name
-      }
+      repository Orders for Order { }
+      criterion OrdersByName(name: string) of Order = this.name == name
     }
   }
 

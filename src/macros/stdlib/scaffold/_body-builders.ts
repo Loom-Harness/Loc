@@ -8,7 +8,7 @@
 // Status: this is the ONLY scaffold body path.  The scaffold macro family
 // (`_pages.ts`) returns these full AST trees directly as page bodies — `unfold`
 // on a scaffolded page reveals real `.ddd` source.  The full family is in place:
-// `scaffoldList` (per-type columns + `rowTestid` + the find-filter bar),
+// `scaffoldList` (per-type columns + `rowTestid`),
 // `scaffoldNewForm`, `scaffoldDetails` (value-object sub-rows + related-entity
 // cards), `scaffoldOperations`, `scaffoldWorkflowForm`, the
 // workflow-instance list/detail, and the `scaffoldHome` /
@@ -39,14 +39,10 @@ import {
   binaryExpr,
   boolLit,
   callExpr,
-  cloneTypeRef,
   intLit,
   lambda,
-  listLit,
-  matchExpr,
   memberAccess,
   nameRefExpr,
-  type StateFieldSpec,
   stringLit,
   ternaryExpr,
 } from "../../api/index.js";
@@ -1268,84 +1264,6 @@ function columnKindForType(type: TypeRef): ColumnKind | null {
   return kindForType(type, false);
 }
 
-/** How the list filter bar renders one param of a filter `find`, and what the
- *  page-state field it binds to is typed as.
- *
- *  M-T1.15: the bar used to accept ONLY plain `string` params, so
- *  `find byAmount(min: int)` and `find forCustomer(c: Customer id)` were
- *  declared, emitted as backend routes, and produced NO input — a filter bar
- *  that quietly omitted the author's find, with no diagnostic.  The kinds
- *  below are the ones whose state type and the generated query-param type
- *  AGREE, so the emitted page type-checks on every frontend:
- *
- *    string           → `Field`        state `string`,         unset = `""`
- *    int / long       → `NumberField`  state <the param type>, unset = `0`
- *    `X id`           → `Field`        state `string`,         unset = `""`
- *    guid / datetime  → `Field`        state `string`,         unset = `""`
- *    bool             → `SelectField`  state `string`,         unset = `""`
- *
- *  `guid` and `datetime` are STRING-shaped end to end — the request zod for
- *  both is a bare `z.string()` (`zodForRequest`, `_frontend/api-module.ts`) and
- *  every frontend's state emitter already types them `string`
- *  (`stateTypeAsTsString` and its Vue/Svelte/Angular/Feliz/Flutter twins) — so
- *  a text box over them binds and calls with the types agreeing, exactly like
- *  the `X id` arm.
- *
- *  `bool` is the one kind whose NATURAL input is wrong rather than missing: a
- *  `Toggle` binds a `bool` state whose zero value is `false`, which makes
- *  "filter for false" and "no filter" the same page state and puts half the
- *  domain out of reach.  So the bar binds a THREE-state string select instead
- *  (`""` unset / `"true"` / `"false"`) and passes `<state> == "true"` as the
- *  find argument — the whole domain, with an unset state that is genuinely
- *  distinct.
- *
- *  Still dropped, each for a reason that lives outside this macro:
- *
- *    enum            — every frontend's state emitter types an enum-valued
- *                      `state {}` field as bare `string`
- *                      (`stateTypeAsTsString`), while the generated query param
- *                      is the `z.enum([...])` UNION, so the call is TS2322.
- *                      A frontend-emitter fix; see IMPL-NOTES.md §2.
- *    decimal / money — the "unset" sentinel would be the int literal `0`, which
- *                      Feliz types `decimal <> int` (FS0001); `money` binds a
- *                      `Decimal` state `NumberField` does not accept at all.
- *                      IMPL-NOTES.md §3.
- *    value objects, arrays, optionals
- *                    — no single input has a matching state type. */
-export type FilterParamKind = "string" | "number" | "ref" | "bool";
-
-/** The walker input primitive each filter kind binds through.  One table so the
- *  input choice and the "unset" sentinel below can't drift apart. */
-const FILTER_INPUT_PRIMITIVE: Record<FilterParamKind, string> = {
-  string: "Field",
-  ref: "Field",
-  number: "NumberField",
-  bool: "SelectField",
-};
-
-/** One param of a filter find: the name the input binds through, how it renders,
- *  and the param's own declared type (cloned onto the page-state field so the
- *  state and the find ARGUMENT agree by construction). */
-export interface FilterParam {
-  name: string;
-  kind: FilterParamKind;
-  type: TypeRef;
-}
-
-/** A repository `find` the list filter-bar turns into an input arm — its name
- *  and the params the inputs bind to. */
-export interface FilterFind {
-  name: string;
-  params: readonly FilterParam[];
-}
-
-/** Resolve a list's filter finds from the aggregate's repository in the same
- *  context: each `find` (excluding the synthetic `all`) whose return is an
- *  unwrapped list and whose params are ALL renderable by `filterParamKind`
- *  (non-array, non-optional, and one of the kinds tabulated there).
- *  Filters the aggregate's repository finds to the bar-eligible ones — the repository
- *  is a sibling `ContextMember`, so it's reachable from the aggregate's AST
- *  without lowering. */
 /** The aggregate's `policy { read X requires <expr> }` gate, if its context
  *  declares one — the gate guarding `GET /<aggs>`, which is exactly what the
  *  scaffolded List page reads.
@@ -1365,175 +1283,10 @@ export function listReadGateForAggregate(agg: Aggregate): Expression | undefined
   return undefined;
 }
 
-/** A parameterless list `find` the scaffold gives a page of its own — the
- *  author's named view over the aggregate (`find mine(): Ticket[]`).  `gate` is
- *  the aggregate's policy read gate, which guards every read of it, the find's
- *  route included (the AUTHOR's node: clone before attaching). */
-export interface ViewFind {
-  name: string;
-  gate?: Expression;
-}
-
-/** The aggregate's parameterless list finds: declared on its repository,
- *  returning a plain `<Agg>[]`, taking no parameters (a find with parameters
- *  is a filter-bar arm on the List page instead), and not the `all` the List
- *  page already reads.
- *
- *  The page copies the aggregate's read gate as its own `requires`, so the nav entry
- *  shows exactly for the principals the route admits — which needs a gate the
- *  browser can evaluate ({@link isClientEvaluableGate}).  An aggregate whose gate is
- *  outside that subset gets no page rather than one the page-gate check
- *  (`loom.ui-gate-expr-unsupported` / `loom.page-gate-not-client-evaluable`)
- *  refuses. */
-export function viewFindsForAggregate(agg: Aggregate): ViewFind[] {
-  const policies = new Set(
-    agg.$container.members.filter((m) => m.$type === "PolicyDecl").map((m) => String(m.name)),
-  );
-  const gate = listReadGateForAggregate(agg);
-  if (gate && !isClientEvaluableGate(gate, policies)) return [];
-  const out: ViewFind[] = [];
-  for (const m of agg.$container.members) {
-    if (m.$type !== "Repository") continue;
-    if (m.aggregate.ref?.name !== agg.name && m.aggregate.$refText !== agg.name) continue;
-    for (const f of m.finds) {
-      if (f.name === "all" || f.params.length > 0) continue;
-      const rt = f.returnType;
-      if (!rt.array || rt.optional || (rt.ctors?.length ?? 0) > 0) continue;
-      if ((rt.alternatives?.length ?? 0) > 0) continue;
-      if (rt.base.$type !== "NamedType") continue;
-      const target = rt.base.target.ref?.name ?? rt.base.target.$refText;
-      if (target !== agg.name) continue;
-      out.push({ name: String(f.name), gate });
-    }
-  }
-  return out;
-}
-
-/** AST node kinds a client page gate is built from: `currentUser` and its
- *  claim chain, literals other than `null`, `.contains(…)` membership,
- *  comparisons and boolean operators, `!`, parentheses and a ternary — the
- *  subset every frontend gate renderer implements
- *  (`src/generator/_frontend/gate-expr.ts` and its Feliz / Flutter twins).
- *  Listed positively, so a construct this list does not know keeps the page
- *  off rather than emitting a gate the renderers refuse. */
-const CLIENT_GATE_NODES: ReadonlySet<string> = new Set([
-  "BinaryChain",
-  "UnaryExpr",
-  "ParenExpr",
-  "TernaryExpr",
-  "PostfixChain",
-  "MemberSuffix",
-  "CallArg",
-  "NameRef",
-  "StringLit",
-  "IntLit",
-  "DecLit",
-  "BoolLit",
-]);
-
-/** Whether a `currentUser`-only gate can be copied onto a page as its
- *  `requires`.  Beyond the node kinds in {@link CLIENT_GATE_NODES}: the only
- *  call is `.contains(…)`, and no name may be a context `policy` — the page
- *  lives in the `ui`, outside the context, and cannot resolve it. */
-function isClientEvaluableGate(gate: Expression, policies: ReadonlySet<string>): boolean {
-  for (const node of AstUtils.streamAst(gate)) {
-    if (!CLIENT_GATE_NODES.has(node.$type)) return false;
-    const n = node as { name?: unknown; member?: unknown; call?: unknown };
-    if (node.$type === "NameRef" && typeof n.name === "string" && policies.has(n.name))
-      return false;
-    if (node.$type === "MemberSuffix" && n.call && n.member !== "contains") return false;
-  }
-  return true;
-}
-
-export function filterFindsForAggregate(agg: Aggregate): FilterFind[] {
-  const out: FilterFind[] = [];
-  for (const m of agg.$container.members) {
-    if (m.$type !== "Repository") continue;
-    if (m.aggregate.ref?.name !== agg.name && m.aggregate.$refText !== agg.name) continue;
-    for (const f of m.finds) {
-      if (f.name === "all") continue;
-      if (!f.returnType.array) continue;
-      if (f.params.length === 0) continue;
-      const kinds = f.params.map((p) => filterParamKind(p.type));
-      // ALL-OR-NOTHING per find: the bar's arm is active only when every input
-      // of the find is set, so a find with one unrenderable param has no
-      // meaningful partial form.
-      if (kinds.some((k) => k === null)) continue;
-      out.push({
-        name: f.name,
-        params: f.params.map((p, i) => ({
-          name: String(p.name),
-          kind: kinds[i]!,
-          type: cloneTypeRef(p.type),
-        })),
-      });
-    }
-  }
-  return out;
-}
-
-/** The filter-bar input kind for a find param's declared type, or null when no
- *  input renders it (see the {@link FilterParam} note). */
-function filterParamKind(type: TypeRef): FilterParamKind | null {
-  if (type.array || type.optional) return null;
-  if (type.base.$type === "IdType") return "ref";
-  if (type.base.$type !== "PrimitiveType") return null;
-  switch (type.base.name) {
-    case "string":
-    // `guid`, `date` and `datetime` are string-shaped on the wire (`z.string()`) and
-    // string-typed in every frontend's state emitter, so a text box over them
-    // binds and calls with the types agreeing — same arm as a plain `string`.
-    case "guid":
-    case "date":
-    case "datetime":
-      return "string";
-    case "int":
-    case "long":
-      return "number";
-    case "bool":
-      return "bool";
-    default:
-      // `decimal` and `money` are held back deliberately, not forgotten: their
-      // "unset" sentinel would be the int literal `0`, and Feliz types that
-      // comparison `decimal <> 0` / `Decimal` against an `int` literal, which
-      // does not type-check there.  See IMPL-NOTES.md §3.
-      return null;
-  }
-}
-
-/** The page-state field name a filter input binds to: `<find><Param>`
- *  (camel-joined). */
-export function stateNameFor(findName: string, param: string): string {
-  return `${findName}${param[0]!.toUpperCase()}${param.slice(1)}`;
-}
-
-/** The page-state fields the scaffolded filter inputs bind to — one per find
- *  param, typed as the PARAM is (M-T1.15).  A plain `string` param keeps the
- *  bare-name spec (`string`, init `""`) so its emission stays byte-identical;
- *  every other kind carries the param's cloned `TypeRef` and no initializer, so
- *  each frontend's state emitter falls back to that type's zero value.  The page
- *  builder attaches these as the page's `state { }` block when wiring
- *  `scaffoldList`'s filter form. */
-export function filterStateFields(filters: readonly FilterFind[]): Array<string | StateFieldSpec> {
-  return filters.flatMap((f) =>
-    f.params.map((p): string | StateFieldSpec =>
-      p.kind === "number"
-        ? { name: stateNameFor(f.name, p.name), type: "string", typeRef: cloneTypeRef(p.type) }
-        : // `string`, `X id`, `guid`/`datetime` and `bool` all bind a `string`
-          // state: an id's wire form IS a string (a uuid-shaped one), guid and
-          // datetime are `z.string()`, and the bool select's three states are
-          // `""`/`"true"`/`"false"`.  A bare-name spec keeps the string arm's
-          // emission byte-identical.
-          stateNameFor(f.name, p.name),
-    ),
-  );
-}
-
 /** `scaffoldList` — scaffolds the list page body: breadcrumbs, a toolbar with
  *  a "New <agg>" button, and a `QueryView` over `<api?>.<Agg>.all` rendering a
- *  Paper-framed `Table` (ID column + one column per scalar field).  The
- *  no-filter list path.  `columns` are the scalar columns
+ *  Paper-framed `Table` (ID column + one column per scalar field).  `columns`
+ *  are the scalar columns
  *  the caller resolved off the aggregate (`scalarColumnsForAggregate`), each
  *  carrying its display `kind`; `apiHandle` is the ui's api param when the
  *  aggregate is served over one. */
@@ -1542,16 +1295,11 @@ export function scaffoldList(
   columns: readonly ScaffoldColumn[],
   opts: {
     apiHandle?: string;
-    filters?: readonly FilterFind[];
     paged?: boolean;
     /** The column that names each row and links to its Detail page, in place
      *  of the raw-id column (`listShapeForAggregate`).  Absent ⇒ the id
      *  column is the row's link. */
     label?: ListLabel;
-    /** Render a parameterless list `find` instead of `all`: the page lists
-     *  exactly that find's rows (client-paged — a declared `T[]` find is an
-     *  unbounded array), with no filter bar, under `title`. */
-    view?: { find: string; title: string };
   } = {},
 ): Expression {
   // Whether the aggregate's implicit `all` is the paged `Paged<T>` findAll
@@ -1565,19 +1313,15 @@ export function scaffoldList(
   const humanPlural = humanize(plural(aggName));
   const humanLower = humanPlural.toLowerCase();
   const singular = humanize(aggName).toLowerCase();
-  const view = opts.view;
-  const filters = view ? [] : (opts.filters ?? []);
 
   // `<api?>.<Agg>` query root, rebuilt per use — AST nodes can't be shared
-  // across parents, and the filter `match` reads it once per arm + the `all`
-  // fallback.
+  // across parents.
   const queryRoot = (): Expression =>
     opts.apiHandle ? memberAccess(nameRefExpr(opts.apiHandle), aggName) : nameRefExpr(aggName);
 
   // One Column per field; the ID column links to the detail page, the rest
-  // dispatch their cell renderer by type (`columnAccessor`).  Rebuilt per
-  // QueryView so the filter `match`'s several views never share nodes.
-  // A CLIENT-paged table (a filter query's unbounded array) sorts every
+  // dispatch their cell renderer by type (`columnAccessor`).
+  // A CLIENT-paged table (a non-paged `all`'s bare array) sorts every
   // column in the browser (M-T1.1).  A SERVER-paged one posts the key as
   // `?sort=`, which the backend validates against its whitelist
   // (`sortableFields`) — so there only a whitelisted column is `sortable:`;
@@ -1667,9 +1411,9 @@ export function scaffoldList(
   // M-T2.6) reads the server's page off the `Paged<T>` envelope: rows are
   // `rows.items`, the pager's page count is `rows.totalPages`, and the sortable
   // headers + pager write `pageNum`/`sortKey`/`sortDir` state that the query's
-  // `of:` args feed back for a refetch (no client slice/sort).  A filter query
-  // (a user `find … : T[]`, unbounded array) stays CLIENT-paged: `rows` is the
-  // array, sliced/sorted in the browser.
+  // `of:` args feed back for a refetch (no client slice/sort).  A non-paged
+  // `all` (a bare `T[]`) stays CLIENT-paged: `rows` is the array, sliced/sorted
+  // in the browser.
   const makeTable = (serverPaged: boolean): Expression =>
     callExpr("Table", [
       ...makeCols(serverPaged),
@@ -1698,8 +1442,7 @@ export function scaffoldList(
       },
     ]);
 
-  // One QueryView per query expression — built per call so the filter arms
-  // below never share `ExprIR`/AST nodes.  `paged` marks the server-paged `all`
+  // The list's QueryView.  `paged` marks the server-paged `all`
   // query (unwrap `.data.items`; the Table reads the envelope).
   const makeQueryView = (ofExpr: Expression, serverPaged: boolean): Expression =>
     callExpr("QueryView", [
@@ -1738,95 +1481,6 @@ export function scaffoldList(
         // bare `T[]` — call it with no args and CLIENT-slice/sort in the browser.
         makeQueryView(memberAccess(queryRoot(), "all", { call: true, args: [] }), false);
 
-  // Find-filter bar (T3.14): each qualifying `find` gets one text input per
-  // param; when every input of a find is non-empty the list switches to that
-  // find's results (first matching arm wins), else `all` renders.  The
-  // list's filter block; the page-state fields the inputs bind
-  // to are resolved by `filterStateFields`, attached by the page builder.
-  const filterFields: Array<{ name?: string; value: Expression }> = [];
-  let listRegion: Expression = view
-    ? makeQueryView(memberAccess(queryRoot(), view.find, { call: true, args: [] }), false)
-    : allView();
-  if (filters.length > 0) {
-    for (const f of filters) {
-      for (const p of f.params) {
-        const stateName = stateNameFor(f.name, p.name);
-        // `NumberField` for a numeric param, a three-state `SelectField` for a
-        // bool, `Field` (text) otherwise — an `X id` filter is a raw-id box
-        // until a walker-level FK picker exists (IMPL-NOTES.md), which is still
-        // strictly better than the silent drop.
-        filterFields.push({
-          value: callExpr(FILTER_INPUT_PRIMITIVE[p.kind], [
-            { value: stringLit(humanize(p.name)) },
-            { name: "bind", value: nameRefExpr(stateName) },
-            // The bool select's options are the two SET states; "unset" is the
-            // state's own zero value (`""`), which the picker's placeholder
-            // row already offers.
-            ...(p.kind === "bool"
-              ? [
-                  {
-                    name: "options",
-                    value: listLit([stringLit("true"), stringLit("false")]) as Expression,
-                  },
-                ]
-              : []),
-            { name: "testid", value: stringLit(`${slug}-filter-${snake(stateName)}`) },
-          ]),
-        });
-      }
-    }
-    listRegion = matchExpr(
-      filters.map((f) => ({
-        cond: f.params
-          .map(
-            (p): Expression =>
-              // "Unset" is the state type's zero value: `""` for a string / id /
-              // guid / datetime box AND for the bool select, `0` for a number
-              // box.  Same trade the string arm always made — a filter FOR the
-              // zero value is indistinguishable from no filter, which is why the
-              // input starts there.  (The bool select is the exception by
-              // construction: its zero value `""` is not one of its two options,
-              // so both `true` and `false` stay reachable.)
-              binaryExpr(
-                nameRefExpr(stateNameFor(f.name, p.name)),
-                "!=",
-                p.kind === "number" ? intLit(0) : stringLit(""),
-              ),
-          )
-          .reduce((acc, e) => binaryExpr(acc, "&&", e)),
-        value: makeQueryView(
-          memberAccess(queryRoot(), f.name, {
-            call: true,
-            // A bool param's state is the select's `"true"`/`"false"` STRING;
-            // the find takes a `bool`, so the comparison is the argument.
-            args: f.params.map(
-              (p): Expression =>
-                p.kind === "bool"
-                  ? binaryExpr(nameRefExpr(stateNameFor(f.name, p.name)), "==", stringLit("true"))
-                  : nameRefExpr(stateNameFor(f.name, p.name)),
-            ),
-          }),
-          false,
-        ),
-      })),
-      allView(),
-    );
-  }
-
-  if (view) {
-    return callExpr("Stack", [
-      { value: breadcrumbs(humanPlural, slug, view.title) },
-      {
-        value: callExpr("Heading", [
-          { value: stringLit(view.title) },
-          { name: "level", value: intLit(2) },
-        ]),
-      },
-      { value: listRegion },
-      { name: "testid", value: stringLit(`${slug}-${snake(view.find)}-list`) },
-    ]);
-  }
-
   return callExpr("Stack", [
     { value: breadcrumbs(humanPlural, slug) },
     {
@@ -1846,8 +1500,7 @@ export function scaffoldList(
         },
       ]),
     },
-    ...(filterFields.length > 0 ? [{ value: callExpr("Group", filterFields) }] : []),
-    { value: listRegion },
+    { value: allView() },
     { name: "testid", value: stringLit(`${slug}-list`) },
   ]);
 }

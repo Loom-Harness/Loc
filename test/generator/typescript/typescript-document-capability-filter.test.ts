@@ -21,7 +21,7 @@ system DocFilter {
         filter !this.isDeleted
         operation softDelete() { isDeleted := true }
       }
-      repository Carts for Cart { find byLabel(l: string): Cart[] where label == l }
+      repository Carts for Cart { find byLabel(l: string): Cart? where label == l }
     }
   }
   api ShopApi from Sales
@@ -75,7 +75,7 @@ system DocTenancy {
         filter this.tenantId == currentUser.tenantId
         operation rename(code: string) { code := code }
       }
-      repository Orders for Order { find byCode(c: string): Order[] where code == c }
+      repository Orders for Order { find byCode(c: string): Order? where code == c }
     }
   }
   api ShopApi from Sales
@@ -122,7 +122,7 @@ describe("node document principal capability filter (DEBT-02 Slice B)", () => {
 
   it("applies the principal capability BEFORE a custom find's own predicate", async () => {
     expect(await principalRepo()).toContain(
-      "all.filter((x) => (x.tenantId === currentUser.tenantId)).filter((x) => x.code === c)",
+      "all.filter((x) => (x.tenantId === currentUser.tenantId)).find((x) => x.code === c) ?? null",
     );
   });
 });

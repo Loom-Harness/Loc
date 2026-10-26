@@ -191,16 +191,7 @@ function corpusFixtures(): { name: string; source: string }[] {
  *  be deleted. */
 const INJECTED_HANDLER_REFUSALS: Record<string, readonly string[]> = {
   "api-call.ddd": ["queryHandler 'ByCodeOrder' returns 'Order option'"],
-  "implicit-find-filter.ddd": ["queryHandler 'InRegionWorkOrder' returns 'WorkOrder paged'"],
-  "paged-nonrelational.ddd": [
-    "queryHandler 'InRegionInvoice' returns 'Invoice paged'",
-    "queryHandler 'ByOwnerAccount' returns 'Account paged'",
-  ],
-  "paged.ddd": [
-    "queryHandler 'RecentOrder' returns 'Order paged'",
-    "queryHandler 'InRegionOrder' returns 'Order paged'",
-  ],
-  "tph-crossings.ddd": ["queryHandler 'ByCourierParcel' returns 'Parcel paged'"],
+  "paged.ddd": ["queryHandler 'AllOrder' returns 'Order paged'"],
   "union-find-absence.ddd": [
     "queryHandler 'ByCodeOrder' returns 'Order or NotFound'",
     "queryHandler 'MaybeFirstOrder' returns 'Order option'",

@@ -28,7 +28,7 @@ system Fleets {
       aggregate Truck extends Vehicle { payload: int }
       repository Cars for Car { }
       repository Trucks for Truck {
-        find byPlateAll(plate: string): Truck[] where this.plate == plate ignoring softDeletable
+        find byPlateAll(plate: string): Truck? where this.plate == plate ignoring softDeletable
       }
       ${extra}
     }

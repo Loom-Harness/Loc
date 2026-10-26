@@ -2,7 +2,7 @@
 // emitted hook's own signature accepts (field-test finding B1).
 //
 // The defect: `QueryView { of: Tracking.Issue.openIssues }` over
-// `find openIssues(): Issue[] where …` emits `useOpenIssuesIssue()` — the
+// `find openIssues(): Issue? where …` emits `useOpenIssuesIssue()` — the
 // walker's `adjustFindHookArgs` builds a query bag only when the call site
 // passed arguments — against `export function useOpenIssuesIssue(query:
 // OpenIssuesQuery)`.  Every JS frontend rejected it (TS2554 "Expected 1
@@ -38,8 +38,8 @@ system Fable {
       }
 
       repository Issues for Issue {
-        find openIssues(): Issue[] where this.status != Closed
-        find byStatus(status: IssueStatus): Issue[] where this.status == status
+        find openIssues(): Issue? where this.status != Closed
+        find byStatus(status: IssueStatus): Issue? where this.status == status
       }
     }
   }
@@ -58,10 +58,7 @@ system Fable {
           loading: Skeleton { count: 3 },
           error: Alert { "Couldn't load issues" },
           empty: Empty { "Nothing open." },
-          data: rows => Table {
-            rows: rows,
-            Column { "Title", i => Text { i.title } }
-          }
+          data: i => Text { i.title }
         }
       }
     }

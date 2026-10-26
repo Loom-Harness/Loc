@@ -55,16 +55,21 @@ system TphCrossings {
       aggregate Crate extends Shipment with crudish {
         weightKg: int = 0
       }
-      repository Parcels for Parcel {
-        // A declared find, so the capability filter has to reach a read path
-        // that is not `all` — and `paged`, because the carrier is where a
-        // read-side concern gets dropped on the way through.
-        find byCourier(c: string): Parcel paged where this.courier == c
+      repository Parcels for Parcel { }
+      // A declared find, so the capability filter has to reach a read path
+      // that is not `all` — and `paged`, because the carrier is where a
+      // read-side concern gets dropped on the way through.
+      criterion ParcelsByCourier(c: string) of Parcel = this.courier == c
+      queryHandler ListParcelsByCourier(c: string): Parcel paged {
+        let r = Parcels.run(ParcelsByCourier(c))
+        return r
       }
       repository Crates for Crate { }
     }
   }
-  api DepotApi from Depot
+  api DepotApi from Depot {
+    route GET "/parcels/by_courier/{c}" -> Depot.ListParcelsByCourier
+  }
   storage primary { type: postgres }
   resource depotState { for: Depot, kind: state, use: primary }
   deployable d {
@@ -88,12 +93,12 @@ system TphCrossings {
     let moved = api.parcels.getById(p)
     expect(moved.courier).toBe("UPS")
     expect(moved.reference).toBe("REF-1")
-    let gone = api.parcels.byCourier({ c: "DHL", page: 1, pageSize: 10 })
+    let gone = api.depot.listParcelsByCourier("DHL")
     expect(gone.total).toBe(0)
 
     // Both discriminators now have a row in the ONE shared table, and the
     // capability filter is live on only one of them.
-    let listed = api.parcels.byCourier({ c: "UPS", page: 1, pageSize: 10 })
+    let listed = api.depot.listParcelsByCourier("UPS")
     expect(listed.total).toBe(1)
     expect(listed.items.length).toBe(1)
 
@@ -112,7 +117,7 @@ system TphCrossings {
     // page query but not the COUNT answers a total no caller can page to.
     api.parcels.softDelete(p)
     expect(api.parcels.getById(p)).toThrow(404)
-    let after = api.parcels.byCourier({ c: "UPS", page: 1, pageSize: 10 })
+    let after = api.depot.listParcelsByCourier("UPS")
     expect(after.items.length).toBe(0)
     expect(after.total).toBe(0)
     // …and through the auto-findAll too: the filter has to AND into BOTH

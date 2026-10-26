@@ -40,23 +40,35 @@
     {
       "seq": 3,
       "method": "GET",
-      "path": "/api/things/by_label?l=T-1",
+      "path": "/api/things/by_label/T-1",
       "status": 200,
-      "body": [
-        {
-          "amount": 5,
-          "id": "<volatile:key>",
-          "label": "T-1",
-          "version": 1
-        }
-      ]
+      "body": {
+        "items": [
+          {
+            "amount": 5,
+            "id": "<volatile:key>",
+            "label": "T-1",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
     },
     {
       "seq": 4,
       "method": "GET",
-      "path": "/api/things/by_label?l=T-absent",
+      "path": "/api/things/by_label/T-absent",
       "status": 200,
-      "body": []
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
     },
     {
       "seq": 5,

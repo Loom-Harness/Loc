@@ -16,9 +16,9 @@ system DocumentFilter {
         operation softDelete() { isDeleted := true }
       }
       repository Carts for Cart {
-        find byLabel(l: string): Cart[] where label == l
         find first(l: string): Cart? where label == l
       }
+      criterion CartsByLabel(l: string) of Cart = label == l
 
       aggregate Wishlist shape: embedded {
         label: string
@@ -29,9 +29,8 @@ system DocumentFilter {
         operation archive() { archived := true }
         entity WishItem { sku: string }
       }
-      repository Wishlists for Wishlist {
-        find byLabel(l: string): Wishlist[] where label == l
-      }
+      repository Wishlists for Wishlist { }
+      criterion WishlistsByLabel(l: string) of Wishlist = label == l
     }
   }
   api ShopApi from Sales

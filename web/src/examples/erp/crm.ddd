@@ -110,17 +110,13 @@ subdomain Crm {
 
     // Concrete subtypes get ordinary repositories; the abstract base
     // does not (the polymorphic union reader is emitted as infrastructure).
-    repository PersonContacts for PersonContact {
-      find byEmail(email: string): PersonContact? where this.email == email
-    }
+    repository PersonContacts for PersonContact { }
+    criterion PersonContactsByEmail(email: string) of PersonContact = this.email == email
     repository CompanyContacts for CompanyContact { }
-    repository Leads for Lead {
-      find byStatus(status: LeadStatus): Lead[] where this.status == status
-    }
-    repository Opportunities for Opportunity {
-      find byStage(stage: OpportunityStage): Opportunity[] where this.stage == stage
-      find open(): Opportunity[] where OpenOpportunity
-    }
+    repository Leads for Lead { }
+    criterion LeadsByStatus(status: LeadStatus) of Lead = this.status == status
+    repository Opportunities for Opportunity { }
+    criterion OpportunitiesByStage(stage: OpportunityStage) of Opportunity = this.stage == stage
 
     seed default {
       Lead { name: "Jane Prospect", company: "Hooli", status: New, source: "Website", score: 65 }
