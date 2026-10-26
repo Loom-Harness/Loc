@@ -137,7 +137,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.audited-backend-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/storage-inheritance-checks.ts:434",
+    site: "src/ir/validate/checks/storage-inheritance-checks.ts:385",
     what:
       "audit-record emission (`operation … audited`, `audited create|destroy`) ships on every " +
       "backend — fires only when no backend deployable hosts the context",
@@ -237,7 +237,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.event-sourcing-backend-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/storage-inheritance-checks.ts:165",
+    site: "src/ir/validate/checks/storage-inheritance-checks.ts:109",
     what:
       "`persistedAs: eventLog` storage ships on every backend — fires only when no backend " +
       "deployable hosts the context",
@@ -330,7 +330,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.field-mask-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/storage-inheritance-checks.ts:343",
+    site: "src/ir/validate/checks/storage-inheritance-checks.ts:290",
     what:
       "`mask unless` read redaction ships on every backend — fires only when no backend " +
       "deployable hosts the context",
@@ -489,7 +489,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.provenanced-backend-unsupported",
     kind: "seam",
-    site: "src/ir/validate/checks/storage-inheritance-checks.ts:191",
+    site: "src/ir/validate/checks/storage-inheritance-checks.ts:136",
     what:
       "the provenance runtime (lineage column + history flush) ships on every backend — fires " +
       "only when no backend deployable hosts the context",
@@ -603,31 +603,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "sharedTable (TPH) storage ships on every backend — fires only when no backend " +
       "deployable hosts the context",
     mission: "#3372",
-  },
-  {
-    code: "loom.tph-filter-unsupported",
-    // `gap` -> `scope` (D-TPH-SUBTYPE-FILTER, wave C2 packet 2b).  Not
-    // half-built work on a shipping target: the refusal is true and narrow (the
-    // EF adapter only — Dapper generates the identical model), and the drain is
-    // a read-path rewrite whose failure mode is a silent leak of a declared read
-    // restriction across ~30 emitter sites with no compiler help.  Commissioned
-    // as M-T6.72 with a booted-app acceptance instead of swept up in a drain.
-    kind: "scope",
-    site: "src/ir/validate/checks/storage-inheritance-checks.ts:135",
-    what:
-      "a TPH SUBTYPE's capability `filter` reading a column the hierarchy ROOT does not declare, " +
-      "on the .NET EF adapter only — Dapper splices the same predicate into raw SQL, where a " +
-      "subtype column is just a column, so it is NOT gated.  EF Core registers every query " +
-      "filter in an inheritance hierarchy on the " +
-      "root entity type, and a root-hosted filter cannot reach a subtype-only column (verified " +
-      'against EF Core 10.0.10: a CLR downcast raises "No coercion operator is defined between ' +
-      "types 'Truck' and 'Car'\" and EF.Property raises \"the specified property does not exist " +
-      'on the entity type" as soon as the query source is a SIBLING subtype).  Filters reading ' +
-      "ROOT columns — the common `tenantOwned`-on-the-base case — are emitted, discriminator-" +
-      "guarded, and are NOT gated.  Replaces a silent drop (`tph ? [] :`, F2-CB-C2).  Drains if " +
-      "the .NET read path moves capability filters off HasQueryFilter onto the per-read LINQ " +
-      "`.Where(...)`, which is per-DbSet and therefore subtype-typed",
-    mission: "#3391",
   },
   {
     code: "loom.ui-projection-read-unsupported",

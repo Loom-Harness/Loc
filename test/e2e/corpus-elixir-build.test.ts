@@ -241,6 +241,7 @@ function pointTestRepoAtSidecar(projDir: string): void {
 // EXPECTED to fail.
 async function runMixTest(projDir: string, partition: string): Promise<string | undefined> {
   pointTestRepoAtSidecar(projDir);
+  await mix.ready();
   const cmd = mix.dockerRun(
     `-v ${projDir}:/app`,
     `-e MIX_ENV=test -e MIX_TEST_PARTITION=${partition} `,

@@ -105,9 +105,10 @@ describe("tenancy claim name — emitted principal reads follow the declaration"
   });
 
   it("python: filter and stamp read `org_id`", async () => {
-    const repo = await emitted("python", /invoice_repository\.py$/);
-    expect(repo).toContain("InvoiceRow.tenant_id == require_current_user().org_id");
-    expect(repo).not.toContain("require_current_user().tenant_id");
+    // The tenant floor is a read-scope hook criterion over the request principal.
+    const scope = await emitted("python", /app\/db\/read_scope\.py$/);
+    expect(scope).toContain("InvoiceRow.tenant_id == user.org_id");
+    expect(scope).not.toContain("user.tenant_id");
   });
 
   it("dotnet: the EF query filter reads the DECLARED claim", async () => {
@@ -173,12 +174,7 @@ describe("tenancy claim name — emitted principal reads follow the declaration"
         "requireCurrentUser().orgPath",
         "requireCurrentUser().orgId",
       ],
-      [
-        "python",
-        /invoice_repository\.py$/,
-        "require_current_user().org_path",
-        "require_current_user().org_id",
-      ],
+      ["python", /app\/db\/read_scope\.py$/, "user.org_path", "user.org_id"],
       ["java", /InvoiceJpaRepository\.java$/, "user()?.orgPath()", "user()?.orgId()"],
       ["dotnet", /AppDbContext\.cs$/, "_currentUser.User.OrgPath", "_currentUser.User.OrgId"],
     ];

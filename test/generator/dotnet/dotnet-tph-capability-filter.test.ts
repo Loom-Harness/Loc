@@ -1,38 +1,37 @@
-// .NET × TPH × capability `filter` (F2-CB-C2).
+// .NET EF × TPH × read restrictions.
 //
-// The config emitter short-circuited the WHOLE query-filter list to `[]` for
-// any TPH participant (`const filterLines = tph ? [] : …`), so a declared read
-// restriction on a subtype — a criterion, a `softDeletable` visibility rule, a
-// tenancy filter — was absent from every emitted query.  It compiled green, so
-// no compile gate could see it: `LiveCriterion.cs` was emitted and referenced
-// nowhere, and `CarRepository` read `_db.Cars` unfiltered.
-//
-// The short-circuit was hiding a real EF Core constraint rather than solving
-// it.  EF applies a query filter to the ROOT entity type of a hierarchy only —
-// `HasQueryFilter` on `IEntityTypeConfiguration<Car>` throws at MODEL BUILD
-// ("A filter may only be applied to the root entity type 'Vehicle'"), which is
-// exactly what the PRINCIPAL half did emit (`modelBuilder.Entity<Car>()`,
-// never tph-gated), killing the generated app on its first request.
-//
-// So filters move to the root, `kind`-guarded and name-prefixed, and the
-// residue EF structurally cannot express (a predicate reading a SUBTYPE-only
-// column) gets the honest `loom.tph-filter-unsupported` gate — verified against
-// EF Core 10.0.10, where both root-hosting workarounds fail as soon as the
-// query source is a sibling subtype.
+// EF Core registers every query filter of an inheritance hierarchy on the ROOT
+// entity type ("A filter may only be applied to the root entity type
+// 'Vehicle'").  So a subtype's own filter is hosted there, TYPE-guarded —
+// `!(x is Car) || <pred over ((Car)x)>` — which narrows Car rows and leaves
+// every other row alone.  EF translates that guard (and the cast inside it,
+// reading a column only Car has) when the query's source is the root set or
+// `OfType<Car>()` of it; over a SIBLING's own `DbSet<Truck>` the cast fails to
+// build ("No coercion operator is defined between types 'Truck' and 'Car'",
+// EF Core 10.0.10).  Hence the second half of the contract, pinned by the
+// census below: every read of a TPH concrete starts from the root
+// (`_db.Vehicles.OfType<Car>()`), and the AppDbContext exposes no
+// `DbSet<Concrete>` a read could name instead.
 
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { NodeFileSystem } from "langium/node";
 import { parseHelper } from "langium/test";
 import { describe, expect, it } from "vitest";
 import { generateDotnetForContexts } from "../../../src/generator/dotnet/index.js";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
+import type { EnrichedLoomModel } from "../../../src/ir/types/loom-ir.js";
+import { isTphConcrete } from "../../../src/ir/util/inheritance.js";
 import { validateLoomModel } from "../../../src/ir/validate/validate.js";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
+import { plural } from "../../../src/util/naming.js";
 
 async function emit(body: string): Promise<{
   files: Map<string, string>;
   diags: ReturnType<typeof validateLoomModel>;
+  loom: EnrichedLoomModel;
 }> {
   const services = createDddServices(NodeFileSystem);
   const helper = parseHelper(services.Ddd);
@@ -43,13 +42,13 @@ async function emit(body: string): Promise<{
   const dep = sys.deployables.find((d) => d.platform === "dotnet")!;
   const contexts = sys.subdomains.flatMap((m) => m.contexts);
   const ns = dep.name[0]!.toUpperCase() + dep.name.slice(1);
-  return { files: generateDotnetForContexts(contexts, ns, { deployable: dep, sys }), diags };
+  return { files: generateDotnetForContexts(contexts, ns, { deployable: dep, sys }), diags, loom };
 }
 
 /** `abstract Vehicle { name, retired }` + two concretes; `Car` carries the
  *  capability filter.  `criterionBody` picks whose column the criterion reads:
- *  a base one (expressible on the root) or `Car`'s own (not expressible). */
-const model = (criterionBody: string): string => `
+ *  a base one or `Car`'s own. */
+const model = (criterionBody: string, platform = "dotnet"): string => `
   system Acme {
     subdomain Registry {
       context Fleet {
@@ -57,14 +56,16 @@ const model = (criterionBody: string): string => `
         abstract aggregate Vehicle { name: string  retired: bool }
         aggregate Car extends Vehicle { doors: int  filter Live }
         aggregate Truck extends Vehicle { payloadKg: int }
-        repository Cars for Car { }
+        repository Cars for Car {
+          find everyCar(): Car[] where this.doors >= 0 ignoring *
+        }
         repository Trucks for Truck { }
       }
     }
     storage primary { type: postgres }
     resource fleetState { for: Fleet, kind: state, use: primary }
     deployable api {
-      platform: dotnet
+      platform: ${platform}
       contexts: [Fleet]
       dataSources: [fleetState]
       port: 8080
@@ -75,55 +76,40 @@ const model = (criterionBody: string): string => `
 const fileNamed = (files: Map<string, string>, suffix: string): string =>
   [...files].find(([p]) => p.endsWith(suffix))?.[1] ?? "";
 
+const errors = (diags: ReturnType<typeof validateLoomModel>) =>
+  diags.filter((d) => d.severity === "error");
+
 describe(".NET TPH × capability filter", () => {
-  it("a subtype's filter over ROOT columns registers on the root config, kind-guarded", async () => {
+  it("a subtype's filter registers on the root config, type-guarded", async () => {
     const { files, diags } = await emit(model("!this.retired"));
-    expect(
-      diags.filter((d) => d.severity === "error"),
-      "a root-column filter is expressible — nothing is gated",
-    ).toEqual([]);
-
+    expect(errors(diags)).toEqual([]);
     const baseCfg = fileNamed(files, "VehicleConfiguration.cs");
-    expect(baseCfg, "base config emitted").not.toEqual("");
-    // Registered on the ROOT — the only entity type EF accepts a filter on.
     expect(baseCfg, "the subtype's filter lands on the root config").toContain(
-      'builder.HasQueryFilter("Car_LiveFilter", x => EF.Property<string>(x, "kind") != "Car" || (!x.Retired));',
+      'builder.HasQueryFilter("Car_LiveFilter", x => !(x is Car) || (!((Car)x).Retired));',
     );
-
-    // …and NOT on the subtype's own config, which is what threw at model build.
     const carCfg = fileNamed(files, "CarConfiguration.cs");
     expect(carCfg, "concrete config emitted").not.toEqual("");
     expect(carCfg, "a TPH subtype config hosts no query filter").not.toContain("HasQueryFilter");
   });
 
-  it("the guard uses EF.Property, not a CLR downcast", async () => {
-    // Both root-hosting workarounds were tried against EF Core 10.0.10.  A CLR
-    // downcast (`!(x is Car) || ((Car)x).Doors > 0`) builds the model fine but
-    // throws the moment a SIBLING subtype is queried: "No coercion operator is
-    // defined between types 'Truck' and 'Car'".  The discriminator column
-    // exists on every type in the hierarchy, so `EF.Property<string>(x, "kind")`
-    // translates for all of them.
-    const { files } = await emit(model("!this.retired"));
-    const baseCfg = fileNamed(files, "VehicleConfiguration.cs");
-    expect(baseCfg, "no `is` type-test in the guard").not.toContain("x is Car");
-    expect(baseCfg, "no CLR downcast in the guard").not.toContain("((Car)x)");
+  it("a filter reading a SUBTYPE-only column is emitted, not refused", async () => {
+    const { files, diags } = await emit(model("this.doors > 0"));
+    expect(errors(diags)).toEqual([]);
+    expect(fileNamed(files, "VehicleConfiguration.cs")).toContain(
+      'builder.HasQueryFilter("Car_LiveFilter", x => !(x is Car) || (((Car)x).Doors > 0));',
+    );
   });
 
-  it("a filter reading a SUBTYPE-only column is gated, not dropped and not mis-emitted", async () => {
-    const { diags } = await emit(model("this.doors > 0"));
-    const gated = diags.filter((d) => d.code === "loom.tph-filter-unsupported");
-    expect(gated, "exactly one honest gate").toHaveLength(1);
-    expect(gated[0]!.severity).toBe("error");
-    expect(gated[0]!.message, "names the offending column").toContain("'doors'");
-    expect(gated[0]!.message, "names the root it would have to live on").toContain("'Vehicle'");
+  it("`ignoring *` on a TPH concrete names what it drops, never every filter", async () => {
+    // The parameterless `IgnoreQueryFilters()` would lift every filter the root
+    // hosts — a bare `filter`, which `ignoring` cannot name, included.
+    const { files } = await emit(model("this.doors > 0"));
+    const cars = fileNamed(files, "Repositories/CarRepository.cs");
+    expect(cars).toContain("_db.Vehicles.OfType<Car>()");
+    expect(cars).not.toContain(".IgnoreQueryFilters()");
   });
 
-  it("`softDeletable` on the BASE emits its visibility filter (it used to be dropped whole)", async () => {
-    // The realistic shape of C2, not a hand-written criterion: a soft-delete
-    // capability on the hierarchy's base.  The short-circuit dropped its
-    // `HasQueryFilter` entirely, so `_db.Cars` served rows the model says are
-    // deleted.  It reads a ROOT column, so it registers unguarded — it applies
-    // to every subtype, which is what a base-level capability means.
+  it("`softDeletable` on the BASE registers unguarded and reaches every subtype", async () => {
     const { files, diags } = await emit(`
       system Acme {
         subdomain Registry {
@@ -143,23 +129,24 @@ describe(".NET TPH × capability filter", () => {
         }
       }
     `);
-    expect(diags.filter((d) => d.severity === "error")).toEqual([]);
+    expect(errors(diags)).toEqual([]);
     expect(fileNamed(files, "VehicleConfiguration.cs")).toContain(
       'builder.HasQueryFilter("IsDeletedFilter", x => !x.IsDeleted);',
     );
   });
 
-  it("`softDeletable` on the SUBTYPE is gated, and the gate's remedy is the case above", async () => {
-    // The capability's column lands on the subtype, so EF cannot host its
-    // filter — the gate names the column and points at the base.  Before, the
-    // rows a soft delete hides were simply served.
-    const { diags } = await emit(`
+  it("`softDeletable` on the SUBTYPE registers guarded on the root", async () => {
+    const { files, diags } = await emit(`
       system Acme {
         subdomain Registry {
           context Fleet {
             abstract aggregate Vehicle { name: string }
             aggregate Car extends Vehicle with softDeletable, crudish { doors: int }
-            repository Cars for Car { }
+            aggregate Truck extends Vehicle with crudish { payloadKg: int }
+            repository Cars for Car {
+              find withDeleted(): Car[] where this.doors >= 0 ignoring softDeletable
+            }
+            repository Trucks for Truck { }
           }
         }
         storage primary { type: postgres }
@@ -172,47 +159,19 @@ describe(".NET TPH × capability filter", () => {
         }
       }
     `);
-    const gated = diags.filter((d) => d.code === "loom.tph-filter-unsupported");
-    expect(gated).toHaveLength(1);
-    expect(gated[0]!.message).toContain("'isDeleted'");
-  });
-
-  it("the gate is scoped to the EF adapter — Dapper splices the same predicate into raw SQL", async () => {
-    // The restriction is EF's, not .NET's: Dapper builds its capability
-    // predicates as SQL text against the shared table, where a subtype column
-    // is simply a column.  A gate keyed on `platform: dotnet` would have
-    // rejected a model that works — so it is keyed on the ADAPTER.
-    const { diags } = await emit(`
-      system Acme {
-        subdomain Registry {
-          context Fleet {
-            criterion Live of Car = this.doors > 0
-            abstract aggregate Vehicle { name: string  retired: bool }
-            aggregate Car extends Vehicle { doors: int  filter Live }
-            aggregate Truck extends Vehicle { payloadKg: int }
-            repository Cars for Car { }
-            repository Trucks for Truck { }
-          }
-        }
-        storage primary { type: postgres }
-        resource fleetState { for: Fleet, kind: state, use: primary }
-        deployable api {
-          platform: dotnet { persistence: dapper }
-          contexts: [Fleet]
-          dataSources: [fleetState]
-          port: 8080
-        }
-      }
-    `);
-    expect(diags.filter((d) => d.code === "loom.tph-filter-unsupported")).toEqual([]);
+    expect(errors(diags)).toEqual([]);
+    expect(fileNamed(files, "VehicleConfiguration.cs")).toContain(
+      'builder.HasQueryFilter("Car_IsDeletedFilter", x => !(x is Car) || (!((Car)x).IsDeleted));',
+    );
+    expect(fileNamed(files, "Repositories/CarRepository.cs")).toContain(
+      '_db.Vehicles.OfType<Car>().IgnoreQueryFilters(["Car_IsDeletedFilter"])',
+    );
   });
 
   it("a PRINCIPAL filter on a subtype registers on the root, with distinct names per subtype", async () => {
-    // `modelBuilder.Entity<Car>().HasQueryFilter(…)` threw at model build; and
-    // because both subtypes' filters derive the same base name
-    // ("OwnerIdFilter"), hosting them on one root type without a prefix would
-    // have had the second registration silently OVERWRITE the first — one
-    // subtype's isolation vanishing.
+    // Both subtypes' filters derive the same base name ("OwnerIdFilter"); on one
+    // root type without a prefix the second registration would OVERWRITE the
+    // first, and one subtype's isolation would vanish.
     const { files, diags } = await emit(`
       system Acme {
         user { id: guid  tenantId: string }
@@ -236,30 +195,20 @@ describe(".NET TPH × capability filter", () => {
         }
       }
     `);
-    expect(
-      diags.filter((d) => d.code === "loom.tph-filter-unsupported"),
-      "the filters read a ROOT column — expressible, not gated",
-    ).toEqual([]);
-
+    expect(errors(diags)).toEqual([]);
     const dbCtx = fileNamed(files, "AppDbContext.cs");
-    expect(dbCtx, "AppDbContext emitted").not.toEqual("");
     expect(dbCtx, "no filter is registered on a derived entity type").not.toMatch(
       /modelBuilder\.Entity<(Car|Truck)>\(\)\.HasQueryFilter/,
     );
     expect(dbCtx, "Car's filter is on the root, guarded and prefixed").toContain(
-      'modelBuilder.Entity<Vehicle>().HasQueryFilter("Car_OwnerIdFilter", x => EF.Property<string>(x, "kind") != "Car" || (x.OwnerId == _currentUser.User.TenantId));',
+      'modelBuilder.Entity<Vehicle>().HasQueryFilter("Car_OwnerIdFilter", x => !(x is Car) || (((Car)x).OwnerId == _currentUser.User.TenantId));',
     );
-    expect(dbCtx, "Truck's filter is a DISTINCT key, so neither overwrites the other").toContain(
-      '"Truck_OwnerIdFilter"',
-    );
+    expect(dbCtx, "Truck's filter is a DISTINCT key").toContain('"Truck_OwnerIdFilter"');
   });
 
   it("a BASE's principal filter registers once on the root and reaches every subtype", async () => {
-    // The base's capability applies to every subtype (D-INHERITED-CAPABILITIES):
-    // the root registration already constrains each concrete's rows, so a
-    // subtype repeating the capability adds no second, `kind`-guarded copy —
-    // and an `ignoring tenantOwned` on a subtype names the root's filter, the
-    // one EF actually applies.
+    // An `ignoring tenantOwned` on a subtype names the root's filter, the one EF
+    // actually applies.
     const { files } = await emit(`
       system Acme {
         user { id: guid  tenantId: string }
@@ -295,62 +244,82 @@ describe(".NET TPH × capability filter", () => {
     expect(dbCtx, "no per-subtype copy of the inherited filter").not.toMatch(
       /"(Car|Truck)_TenantIdFilter"/,
     );
-    const trucks = fileNamed(files, "Repositories/TruckRepository.cs");
-    expect(trucks, "the bypass lifts the root's filter").toContain(
-      'IgnoreQueryFilters(["TenantIdFilter"])',
+    expect(fileNamed(files, "Repositories/TruckRepository.cs")).toContain(
+      '_db.Vehicles.OfType<Truck>().IgnoreQueryFilters(["TenantIdFilter"])',
     );
+  });
+
+  it("the polymorphic base read: a TPH reader over the root set, routed by-id and paged", async () => {
+    const { files } = await emit(model("this.doors > 0"));
+    expect(fileNamed(files, "Repositories/VehicleRepository.cs")).toContain(
+      "_db.Vehicles.AsNoTracking().OrderBy(x => x.Id).Skip((page - 1) * pageSize).Take(pageSize)",
+    );
+    const ctl = fileNamed(files, "Api/VehiclesController.cs");
+    expect(ctl).toContain('[Route("api/vehicles")]');
+    expect(ctl).toContain('[HttpGet("{id}")]');
+    expect(ctl).toContain('Car __c0 => Tagged("Car", new CarResponse(');
+  });
+
+  it("Dapper emits no TPH reader (it would query the EF root set)", async () => {
+    const { files } = await emit(model("this.doors > 0", "dotnet { persistence: dapper }"));
+    expect(fileNamed(files, "Repositories/VehicleRepository.cs")).toEqual("");
+    expect(fileNamed(files, "Api/VehiclesController.cs")).toEqual("");
+    expect(fileNamed(files, "Program.cs")).not.toContain("IVehicleRepository");
   });
 });
 
 // ---------------------------------------------------------------------------
-// The stamp half of the same capability.  Found while compiling the fixture
-// above: `abstract aggregate Vehicle with tenantOwned` + `Car extends Vehicle
-// with tenantOwned` emitted an `AuditableInterceptor` whose `switch
-// (entry.Entity)` listed the BASE's arm before its subtypes' — and C# matches
-// type patterns in order, so `case Car e:` was unreachable.  Under
-// `/warnaserror` that is `error CS8120` ×2: the generated project did not
-// build at all, which no unit test could see because none of them compiled it.
+// Census: no read of a TPH concrete names the concrete's own set.
+//
+// Over every corpus fixture with an inheritance hierarchy, generated for .NET
+// EF: the AppDbContext declares no `DbSet<Concrete>` for a TPH concrete, and no
+// emitted file reads `_db.<Concretes>` / `__db.<Concretes>` / `Set<Concrete>()`.
+// Either would put a read where the root-hosted, type-guarded filters cannot
+// translate — the shape EF answers with a failed query, or (for the set) a
+// read that silently skips the restrictions a TPH filter carries.
 // ---------------------------------------------------------------------------
-describe(".NET TPH × capability stamp", () => {
-  it("orders the interceptor's switch arms most-derived-first", async () => {
-    const { files } = await emit(`
-      system Acme {
-        user { id: guid  tenantId: string }
-        tenancy by user.tenantId of Org
-        subdomain Registry {
-          context Accounts { aggregate Org { title: string } }
-          context Fleet {
-            abstract aggregate Vehicle with tenantOwned { name: string }
-            aggregate Car extends Vehicle with tenantOwned { doors: int }
-            aggregate Truck extends Vehicle with tenantOwned { payloadKg: int }
-            repository Cars for Car { }
-            repository Trucks for Truck { }
-          }
-        }
-        storage primary { type: postgres }
-        resource fleetState { for: Fleet, kind: state, use: primary }
-        resource accountsState { for: Accounts, kind: state, use: primary }
-        deployable api {
-          platform: dotnet
-          contexts: [Fleet, Accounts]
-          dataSources: [fleetState, accountsState]
-          port: 8080
-          auth: required
-        }
+
+const CORPUS = join(__dirname, "../../fixtures/corpus");
+const HIERARCHY_CASES = readdirSync(CORPUS)
+  .filter((f) => f.endsWith(".ddd"))
+  .filter((f) => /\bextends\b/.test(readFileSync(join(CORPUS, f), "utf8")));
+
+/** Every `_db.<Set>` / `Set<T>()` read of a TPH concrete in `files`. */
+function concreteSetReads(files: Map<string, string>, loom: EnrichedLoomModel): string[] {
+  const hits: string[] = [];
+  for (const ctx of loom.systems.flatMap((s) => s.subdomains.flatMap((m) => m.contexts))) {
+    for (const agg of ctx.aggregates) {
+      if (!isTphConcrete(agg, ctx.aggregates)) continue;
+      const set = plural(agg.name[0]!.toUpperCase() + agg.name.slice(1));
+      const read = new RegExp(`\\b_?_db\\.${set}\\b|\\bSet<${agg.name}>\\(\\)|DbSet<${agg.name}>`);
+      for (const [path, content] of files) {
+        content.split("\n").forEach((line, i) => {
+          if (read.test(line)) hits.push(`${path}:${i + 1}: ${line.trim()}`);
+        });
       }
-    `);
-    const interceptor = fileNamed(files, "AuditableInterceptor.cs");
-    expect(interceptor, "interceptor emitted").not.toEqual("");
-    const at = (name: string) => interceptor.indexOf(`case ${name} e:`);
-    expect(at("Car"), "Car arm present").toBeGreaterThan(-1);
-    expect(at("Truck"), "Truck arm present").toBeGreaterThan(-1);
-    expect(
-      at("Vehicle"),
-      "the base's arm is kept — a subtype with no stamps of its own falls through to it",
-    ).toBeGreaterThan(-1);
-    expect(at("Car"), "Car precedes its base (else CS8120: unreachable case)").toBeLessThan(
-      at("Vehicle"),
+    }
+  }
+  return hits;
+}
+
+describe(".NET EF TPH read-source census", () => {
+  it("covers at least the TPH corpus fixtures", () => {
+    expect(HIERARCHY_CASES).toEqual(
+      expect.arrayContaining([
+        "tph.ddd",
+        "tph-crossings.ddd",
+        "inheritance-read-restrictions.ddd",
+        "inheritance-base-reads.ddd",
+      ]),
     );
-    expect(at("Truck"), "Truck precedes its base").toBeLessThan(at("Vehicle"));
   });
+
+  for (const file of HIERARCHY_CASES) {
+    it(`${file}: every TPH concrete read starts from its root`, async () => {
+      const src = readFileSync(join(CORPUS, file), "utf8").replaceAll("__PLATFORM__", "dotnet");
+      const { files, loom, diags } = await emit(src);
+      expect(errors(diags), "the fixture generates on .NET").toEqual([]);
+      expect(concreteSetReads(files, loom)).toEqual([]);
+    });
+  }
 });

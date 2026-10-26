@@ -66,7 +66,7 @@ import { DEBIAN_CERTS_BLOCK, NODE_CERTS_BLOCK, NPM_INSTALL_BLOCK } from "../_doc
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
 import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
 import { collectWireValidationMessages } from "../_i18n/validation-catalog.js";
-import { pyModule, pyRef } from "../_imports/python.js";
+import { PY_IMPORTS, pyModule, pyRef } from "../_imports/python.js";
 import { ref, spellMarkers } from "../_imports/symbol.js";
 import {
   errorArmProblemJsonSchema,
@@ -86,8 +86,10 @@ import { actorIdAttr, emitPyAuthFiles, renderPyStubUserKwargs } from "./auth-emi
 import {
   abstractBasesOf,
   buildPyBaseReaderFile,
+  buildPyBaseRoutesFile,
   buildPyBaseUnionFile,
   concretesOf,
+  routesPolymorphicRead,
 } from "./base-reader-builder.js";
 import { buildPyChannelsFile } from "./channels-builder.js";
 import { buildPyDispatchFile, dispatchSubscriptionsOf } from "./dispatch-builder.js";
@@ -117,6 +119,7 @@ import { buildPyProjectionsFile } from "./projections-builder.js";
 import { PyOutputMap } from "./py-output.js";
 import { PY } from "./py-symbols.js";
 import { buildPyQueryProjectionsFile } from "./query-projections-builder.js";
+import { buildPyReadScopeFile, PY_INSTALL_READ_SCOPE } from "./read-scope-builder.js";
 import { buildPyRealtimeFile } from "./realtime-builder.js";
 import { buildPyRepositoryFile } from "./repository-builder.js";
 import { buildPyDocumentRepositoryFile } from "./repository-document-builder.js";
@@ -398,7 +401,6 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   out.set("certs/.gitkeep", "");
   out.set("app/__init__.py", "");
   out.set("app/settings.py", renderSettings(slug));
-  out.set("app/db/__init__.py", "");
   out.set("app/db/engine.py", ENGINE_PY);
   out.set("app/db/transaction.py", TRANSACTION_PY);
   out.set("app/obs/__init__.py", "");
@@ -412,9 +414,15 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // + the catalog's HTTP counter/histogram), served at GET /metrics and
   // recorded from the observability middleware's request_end seam.
   out.set("app/obs/metrics.py", renderPythonMetricsFile());
-  const routedAggs = args.contexts.flatMap((c) =>
-    c.aggregates.filter((a) => !a.isAbstract).map((a) => a.name),
+  // A routed polymorphic base read (`GET /<bases>`) mounts beside its
+  // concretes' routers.
+  const routedBases = args.contexts.flatMap((c) =>
+    abstractBasesOf(c).filter((b) => concretesOf(b, c).length > 0 && routesPolymorphicRead(b, c)),
   );
+  const routedAggs = [
+    ...args.contexts.flatMap((c) => c.aggregates.filter((a) => !a.isAbstract).map((a) => a.name)),
+    ...routedBases.map((b) => b.name),
+  ];
   // A command workflow gets a POST route; an observable (correlation-bearing)
   // workflow gets read-only instance endpoints — either means `workflows_routes`
   // exists and `main` mounts it (an event-triggered-only saga is still
@@ -431,6 +439,22 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       ? resolveDataSourceConfig(agg as EnrichedAggregateIR, owning, args.sys)
       : undefined;
   };
+  // The read-scope hook (`app/db/read_scope.py`): every declared read
+  // restriction rides one ORM `do_orm_execute` listener, installed when the
+  // `app.db` package is first imported — by the app, a seed, a worker or a
+  // test alike — so no session reads without it.
+  const readScopeFile = buildPyReadScopeFile(
+    args.contexts,
+    (agg) =>
+      agg.persistedAs !== "eventLog" &&
+      (isTphConcrete(
+        agg,
+        args.contexts.find((c) => c.aggregates.includes(agg))?.aggregates ?? [],
+      ) ||
+        effectiveSavingShape(agg, resolveDs(agg)) !== "document"),
+  );
+  out.set("app/db/__init__.py", readScopeFile ? DB_PACKAGE_INIT_PY : "");
+  if (readScopeFile) out.set("app/db/read_scope.py", readScopeFile);
   // Per-workflow saga-table schema — resolved from the workflow's OWNING
   // context (map-back by name, since `merged` unions several), so its
   // correlation-state / event-log table lands in the context schema.
@@ -602,9 +626,9 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   );
   out.set("app/db/wire.py", WIRE_PY);
   out.set("app/db/migrate.py", MIGRATE_PY);
-  const hasPaged = merged.repositories.some((r) =>
-    r.finds.some((f) => pagedReturn(f.returnType) != null),
-  );
+  const hasPaged =
+    routedBases.length > 0 ||
+    merged.repositories.some((r) => r.finds.some((f) => pagedReturn(f.returnType) != null));
   // The paged carrier lives in the DOMAIN layer (not app.db) so the ORM-neutral
   // repository Protocol can reference it without importing the db package.
   if (hasPaged) out.set("app/domain/paging.py", PAGING_PY);
@@ -814,6 +838,11 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       const baseRepoContent = buildPyBaseReaderFile(base, concretes, ctx);
       out.set(baseRepoPath, baseRepoContent);
       sourcemap?.file(baseRepoPath, out.get(baseRepoPath)!, base.origin, baseConstruct);
+      if (routedBases.includes(base)) {
+        const baseRoutesPath = `app/http/${snake(base.name)}_routes.py`;
+        out.set(baseRoutesPath, buildPyBaseRoutesFile(base, ctx));
+        sourcemap?.file(baseRoutesPath, out.get(baseRoutesPath)!, base.origin, baseConstruct);
+      }
     }
     for (const agg of ctx.aggregates) {
       if (agg.isAbstract) continue;
@@ -1018,6 +1047,21 @@ function renderSettings(slug: string): string {
     "",
   );
 }
+
+/** `app/db/__init__.py` when the deployable has read restrictions: importing
+ *  any `app.db` module installs the read-scope hook first. */
+const DB_PACKAGE_INIT_PY = lines(
+  `"""Persistence package.  Auto-generated.`,
+  "",
+  "Importing any module of it installs the read-scope hook (read_scope.py), so",
+  "every ORM session applies every declared read restriction.",
+  `"""`,
+  "",
+  PY_IMPORTS,
+  "",
+  `${PY_INSTALL_READ_SCOPE}()`,
+  "",
+);
 
 const ENGINE_PY = lines(
   `"""Async SQLAlchemy engine + per-request session factory."""`,

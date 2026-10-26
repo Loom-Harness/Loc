@@ -82,7 +82,8 @@ describe("startsWith — the queryable prefix-match operator", () => {
   it("python/sqlalchemy emits func.strpos == 1", async () => {
     const out = await emitAll("python");
     expect(out).toContain("func.strpos(DocRow.path, prefix) == 1");
-    expect(out).toContain('func.strpos(DocRow.path, "root") == 1');
+    // The filter is a read-scope hook criterion over the lambda's `cls`.
+    expect(out).toContain('func.strpos(cls.path, "root") == 1');
     expect(out).not.toContain("DocRow.path.startswith(");
   });
 

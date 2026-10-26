@@ -139,13 +139,6 @@ export const BEHAVIOURAL_SKIP = {
  */
 export const ADAPTER_ONLY_CASES = {
   "dotnet { persistence: dapper }": {
-    // EF refuses a TPH subtype filter over a non-root column at validation
-    // (`loom.tph-filter-unsupported`, lifted by #3960); Dapper's explicit SQL
-    // guards every read by `kind` and passes both.
-    "tph-crossings":
-      "#3960 — EF refuses the TPH subtype-only-column filter (`loom.tph-filter-unsupported`); the Dapper adapter passes it",
-    "inheritance-read-restrictions":
-      "#3960 — EF refuses the TPH subtype-only-column filter (`loom.tph-filter-unsupported`); the Dapper adapter passes it",
     // EF loses the re-hosted nested parts (#4136); Dapper's explicit SQL
     // deletes and re-inserts them and passes.
     "contained-part-rebuild":
@@ -168,17 +161,6 @@ export const LEG_BACKEND = {
   java: "java",
   python: "python",
   elixir: "vanilla",
-};
-
-/** `.NET` refuses a TPH subtype filter over a column the root does not
- *  declare — at validation, on both adapters (EF Core hosts query filters on
- *  the root entity only).  #3960 lifts the refusal with root-hosted,
- *  type-guarded named filters. */
-const TPH_FILTER_REFUSED = {
-  issue: "#3960",
-  expect: "error",
-  match: "loom\\.tph-filter-unsupported",
-  reason: "`loom.tph-filter-unsupported` refuses the TPH subtype-only-column filter at generate",
 };
 
 /** A folded projection's `valueobject` field: the migration spreads it into
@@ -263,11 +245,6 @@ export const BEHAVIOURAL_XFAIL = {
       reason:
         "M-T6.96 — an EF owned entity cannot move between owners, so deleting the old line deletes the notes the rebuilt line holds",
     },
-    "inheritance-read-restrictions": TPH_FILTER_REFUSED,
-    "tph-crossings": TPH_FILTER_REFUSED,
-    // EF hosts the base's filter on the TPH root entity, so it reaches every
-    // concrete there — the one path #3956's audit found correct.
-    "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
     // EF maps the VO as a scalar onto a column the migration never creates; the
     // emitted project does not build.
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
@@ -299,7 +276,6 @@ export const BEHAVIOURAL_XFAIL = {
       tests: { "a routed extern handler is mounted and fails loudly": "POST [^ ]*/api/orders → 422" },
       reason: "the explicit-route body model declares `customer_id`, so the camelCase wire key is refused (RS-1)",
     },
-    "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
     // `{"st": row.st}` against a model whose only attributes are the leaves.
     "projection-valueobject-row": projectionVoRow({
       expect: "fail",

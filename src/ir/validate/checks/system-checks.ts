@@ -53,7 +53,6 @@ export {
   validateFieldMask,
   validateInheritanceStorage,
   validateProvenancedStorage,
-  validateTphFilterExpressibility,
 } from "./storage-inheritance-checks.js";
 export {
   validateChannelWiring,

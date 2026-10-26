@@ -524,7 +524,7 @@ const FEATURES: readonly Feature[] = [
       node: "not(eq(schema.orders.archived",
       dotnet: "!x.Archived",
       java: '@SQLRestriction("not (archived)")',
-      python: "not_(OrderRow.archived)",
+      python: "with_loader_criteria(OrderRow, lambda cls: not_(cls.archived)",
       // Vanilla Phoenix/Ecto folds the filter into each read's `where:` clause.
       elixir: "not record.archived",
     },
@@ -557,7 +557,7 @@ const FEATURES: readonly Feature[] = [
       node: "not(eq(schema.orders.archived",
       dotnet: "!x.Archived",
       java: '@SQLRestriction("not (archived)")',
-      python: "not_(OrderRow.archived)",
+      python: "with_loader_criteria(OrderRow, lambda cls: not_(cls.archived)",
       elixir: "not record.archived",
     },
   },

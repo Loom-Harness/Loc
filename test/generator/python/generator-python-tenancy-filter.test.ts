@@ -1,19 +1,14 @@
 // ---------------------------------------------------------------------------
-// Python backend — principal (tenancy) capability filter (DEBT-02 python slice).
+// Python backend — principal (tenancy) capability filter.
 //
-// `filter this.tenantId == currentUser.tenantId` can't ride a static WHERE
-// (no compile-time principal), so it AND-s `require_current_user().tenant_id`
-// — the ambient `ContextVar[User | None]` accessor, the SQLAlchemy analogue of
-// node's `requireCurrentUser()` weave / EF Core's `HasQueryFilter` — into every
-// root read in the generated repository:
-//   - the auto find_by_id / all / find_many_by_ids,
-//   - each custom find (its own `where` conjoined via `and_(...)`),
-//   - each custom find.
-// No read method gains a parameter — the accessor reads the request-scoped
-// principal the auth middleware stashed.  `auth: required` emits the User
-// dataclass + `current_user_var` + fail-closed `require_current_user()` the
-// predicate resolves through.  The non-principal predicate path (W1a — see
-// context-filter-emit.test.ts) is unaffected.  The java analogue is
+// `filter this.tenantId == currentUser.tenantId` has no compile-time
+// principal, so the read-scope hook (`app/db/read_scope.py`) builds its
+// criterion from the request's principal on every ORM execution — the
+// ambient `ContextVar[User | None]` the auth middleware sets — and adds it
+// with `with_loader_criteria` to every read of the row class: the auto
+// find_by_id / all / find_many_by_ids and every custom find alike.  No read
+// method gains a parameter and none spells the predicate.  With no principal
+// the criterion is `false()`: a read matches no row.  The java analogue is
 // test/generator/java/generator-java-tenancy-filter.test.ts.
 // ---------------------------------------------------------------------------
 
@@ -24,7 +19,7 @@ import { parseString } from "../../_helpers/index.js";
 
 const SRC = readFileSync("test/e2e/fixtures/python-build/tenancy-filter.ddd", "utf8");
 const REPO = "api/app/db/repositories/account_repository.py";
-const PRINCIPAL = "(AccountRow.tenant_id == require_current_user().tenant_id)";
+const SCOPE = "api/app/db/read_scope.py";
 
 async function build(): Promise<Map<string, string>> {
   const { model, errors } = await parseString(SRC);
@@ -32,46 +27,39 @@ async function build(): Promise<Map<string, string>> {
   return generateSystems(model).files;
 }
 
-async function repo(): Promise<string> {
-  const r = (await build()).get(REPO);
-  expect(r).toBeDefined();
-  return r!;
-}
-
 describe("python generator — principal (tenancy) capability filter", () => {
-  it("AND-s the principal predicate into all() (the bare root read)", async () => {
-    expect(await repo()).toContain(`select(AccountRow).where(${PRINCIPAL})`);
-  });
-
-  it("AND-s the principal into find_by_id so a guessed cross-tenant id can't leak", async () => {
-    expect(await repo()).toContain(
-      `select(AccountRow).where(and_(AccountRow.id == id, ${PRINCIPAL}))`,
+  it("hosts the principal criterion in the read-scope hook", async () => {
+    const scope = (await build()).get(SCOPE)!;
+    expect(scope).toContain("from app.auth.user import current_user");
+    expect(scope).toContain("    user = current_user()");
+    expect(scope).toContain(
+      "with_loader_criteria(AccountRow, (AccountRow.tenant_id == user.tenant_id), include_aliases=True)",
     );
   });
 
-  it("AND-s the principal into find_many_by_ids", async () => {
-    expect(await repo()).toContain(
-      `select(AccountRow).where(and_(AccountRow.id.in_(list(ids)), ${PRINCIPAL}))`,
+  it("fails closed with no principal", async () => {
+    expect((await build()).get(SCOPE)).toContain(
+      "    if user is None:\n        out.append(with_loader_criteria(AccountRow, false(), include_aliases=True))",
     );
   });
 
-  it("ANDs the principal into a custom find's own where", async () => {
-    expect(await repo()).toContain(
-      `select(AccountRow).where(and_((AccountRow.balance >= min), ${PRINCIPAL}))`,
+  it("leaves every repository read to the hook", async () => {
+    const repo = (await build()).get(REPO)!;
+    expect(repo).not.toContain("tenant_id ==");
+    expect(repo).not.toContain("require_current_user");
+    expect(repo).toContain("select(AccountRow).where((AccountRow.balance >= min))");
+    // A guessed cross-tenant id runs SQL the hook narrows.
+    expect(repo).toContain(
+      "select(AccountRow).where(AccountRow.id == id).execution_options(populate_existing=True)",
     );
-  });
-
-  it("imports require_current_user into the repository module", async () => {
-    expect(await repo()).toContain("from app.auth.user import require_current_user");
   });
 
   it("emits the ContextVar carrier + fail-closed accessor in app/auth/user.py", async () => {
     const user = (await build()).get("api/app/auth/user.py")!;
     expect(user).toContain("current_user_var: ContextVar[User | None] = ContextVar(");
+    expect(user).toContain("def current_user() -> User | None:");
     expect(user).toContain("def require_current_user() -> User:");
-    // Fail-closed: an unauthenticated principal-scoped read raises.
     expect(user).toContain('raise PermissionError("unauthorized")');
-    // The User dataclass carries the tenant claim the predicate reads.
     expect(user).toContain("tenant_id: str");
   });
 });

@@ -632,12 +632,14 @@ const LEAK_DENY: Record<VariantId, Edit[]> = {
       to: 'em.unwrap(org.hibernate.Session.class).disableFilter("deny");\n        var result = jpa.everything(c);',
     },
   ],
+  // The deny is a hook criterion no `ignoring` gates; seeded as the one way the
+  // bypass could reach it — the hook gating it like a capability.
   python: [
     {
-      file: /secret_repository\.py$/,
-      after: "def everything(",
-      from: "and_((SecretRow.code == c), and_(SecretRow.id.is_(None), SecretRow.id.isnot(None)))",
-      to: "(SecretRow.code == c)",
+      file: /app\/db\/read_scope\.py$/,
+      after: "def _secret_scope(",
+      from: "    # policy deny\n    out.append(",
+      to: '    # policy deny\n    if not _bypassed("policy", ignoring):\n        out.append(',
     },
   ],
   elixir: [
@@ -691,12 +693,13 @@ const LEAK_AGG: Record<VariantId, Edit[]> = {
       to: "",
     },
   ],
+  // The tenant floor is a hook criterion; seeded as the read lifting it.
   python: [
     {
       file: /query_projections_routes\.py$/,
       after: "def order_volume_projection",
-      from: ".where((OrderRow.tenant_id == require_current_user().tenant_id))",
-      to: "",
+      from: "select(func.count()).select_from(OrderRow)",
+      to: 'select(func.count()).select_from(OrderRow).execution_options(loom_ignoring=frozenset({"*"}))',
     },
   ],
   elixir: [

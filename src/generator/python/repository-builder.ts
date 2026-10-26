@@ -1,3 +1,4 @@
+import { readFilterRestrictions, readScopeFor } from "../../ir/enrich/read-scope.js";
 import { forApiRead, wireFieldsFor } from "../../ir/enrich/wire-projection.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import {
@@ -60,7 +61,6 @@ import { provenancedEntries } from "../_payload/provenanced-wire.js";
 import { renderPyHistoryRepoMethod } from "./emit/audit-history.js";
 import { PY_PROV_SUFFIX, provColumn, provenancedFieldsOf } from "./emit/provenance.js";
 import {
-  contextFilterPredicate,
   documentWriteScopeBody,
   type FilterBypass,
   lowerToSqlAlchemy,
@@ -80,6 +80,7 @@ import {
   valueCollectionRowClassName,
 } from "./py-columns.js";
 import { PY, pyIdType, pyVoOrEnum } from "./py-symbols.js";
+import { pyIgnoringOption } from "./read-scope-builder.js";
 import { renderPyExpr, renderPyType } from "./render-expr.js";
 
 // Imports derived from use (M-T9.84): the symbols the repository modules spell,
@@ -182,17 +183,31 @@ export function declaredAllFilterPredicate(
   );
 }
 
-/** The capability-filter predicate the `all()` read conjoins — the shared one,
- *  unless the `all` find declares an `ignoring` bypass. */
-export function allFindCapabilityFilter(
-  agg: EnrichedAggregateIR,
-  repo: RepositoryIR | undefined,
-  ctx: EnrichedBoundedContextIR,
-  filterPred: PyPredicate | null,
-): PyPredicate | null {
+/** The `ignoring` stance of the `all()` read, as the read-scope execution
+ *  option it carries ("" when it bypasses nothing). */
+export function allFindIgnoring(repo: RepositoryIR | undefined): string {
   const all = allFindOf(repo);
-  if (!all || !(all.bypassAll || (all.bypassCaps?.length ?? 0) > 0)) return filterPred;
-  return contextFilterPredicate(agg, ctx, { bypassAll: all.bypassAll, bypassCaps: all.bypassCaps });
+  return pyIgnoringOption(all && { bypassAll: all.bypassAll, bypassCaps: all.bypassCaps });
+}
+
+/** True when a read of `agg` applies at least one restriction through the
+ *  read-scope hook (`read-scope-builder.ts`).  Such an aggregate's by-id read
+ *  must run SQL: `session.get` answers from the identity map, so a row an
+ *  `ignoring` read loaded earlier in the session would come back unfiltered. */
+export function aggHasReadRestrictions(
+  agg: EnrichedAggregateIR,
+  ctx: EnrichedBoundedContextIR,
+): boolean {
+  return readFilterRestrictions(readScopeFor(agg, ctx.aggregates)).length > 0;
+}
+
+/** The by-id read of a root row into `row`.  With read restrictions it is a
+ *  `select` the hook narrows, re-populated so an identity-map object loaded by
+ *  an earlier read cannot stand in for it; without, the primary-key get. */
+export function byIdReadLine(root: string, scoped: boolean, indent = "        "): string {
+  return scoped
+    ? `${indent}row = (await self._session.execute(${R.select}(${root}).where(${root}.id == id).execution_options(populate_existing=True))).scalars().first()`
+    : `${indent}row = await self._session.get(${root}, id)`;
 }
 
 /** How a read whose predicate references `currentUser` must render it.
@@ -298,17 +313,10 @@ export function buildPyRepositoryFile(
   ctx: EnrichedBoundedContextIR,
 ): string {
   const aggVar = "aggregate";
-  // TPH concretes share the base's table; everyone else owns theirs.
-  const owner = tableOwnerName(agg, ctx.aggregates);
-  const root = schemaRow(rowClassName(owner));
-  const kind = discriminatorValue(agg, ctx.aggregates);
-  // The single AND-able capability-filter predicate for this aggregate
-  // (null when it has no non-principal `filter`).  Conjoined into every
-  // root-table read below via `rootWhere`; child/containment reads
-  // (parent_id-keyed) are unaffected — the filter constrains root rows.
-  // Principal-referencing filters are gated by the IR validator on python
-  // (W1b), so only non-principal predicates reach here.
-  const filterPred = contextFilterPredicate(agg, ctx);
+  // Reads name the aggregate's own row class: a TPH concrete's is the mapped
+  // subclass of its root's, so SQLAlchemy adds the discriminator itself.
+  // Every read restriction is the read-scope hook's (`app/db/read_scope.py`).
+  const root = schemaRow(rowClassName(agg.name));
   // The WRITE-scope guard predicate (authorization) — null unless
   // the aggregate's write scope is narrower than its read scope.
   const writePred = writeScopePredicate(agg, ctx);
@@ -319,25 +327,12 @@ export function buildPyRepositoryFile(
   // analogue of java's `inlineRunBypassesByRetrieval`).  Keyed by retrieval
   // name; empty when no inline read of this aggregate carries `ignoring`.
   const inlineRunBypasses = inlineRunBypassesByRetrieval(ctx, agg.name);
+  const scoped = aggHasReadRestrictions(agg, ctx);
   // Pin the enriched element type — the AggregateIR ∩ Enriched
   // intersection's `.parts` otherwise infers the un-enriched element.
   const parts: EnrichedEntityPartIR[] = agg.parts;
 
-  // `find_by_id` scopes by the id literal AND any kind / capability filter.
-  // No filter: preserve the prior emission byte-for-byte — a kind concrete
-  // uses comma-AND `.where(id, kind)`, a plain aggregate uses the cheap
-  // primary-key `session.get`.  A capability filter forces a single
-  // `rootWhere` so its predicate joins the id (and kind) scoping.
-  const findByIdRead = filterPred
-    ? `        row = (await self._session.execute(${R.select}(${root})${rootWhere(
-        { expr: `${root}.id == id`, ops: new Set() },
-        root,
-        kind,
-        filterPred,
-      )})).scalars().first()`
-    : kind
-      ? `        row = (await self._session.execute(${R.select}(${root}).where(${root}.id == id, ${root}.kind == ${JSON.stringify(kind)}))).scalars().first()`
-      : `        row = await self._session.get(${root}, id)`;
+  const findByIdRead = byIdReadLine(root, scoped);
 
   // The implicit `all` findAll is paged (M-T2.6) for a plain relational
   // aggregate — the same predicate the enrichment applies (document / embedded /
@@ -356,8 +351,7 @@ export function buildPyRepositoryFile(
   // `current_user` parameter.  Its `ignoring` stance narrows the capability
   // filter exactly as a declared find's does.
   const allPred = declaredAllFilterPredicate(agg, repo, ctx);
-  const allFilterPred = allFindCapabilityFilter(agg, repo, ctx, filterPred);
-  const allWhere = rootWhere(allPred, root, kind, allFilterPred);
+  const allWhere = `${whereClause(allPred)}${allFindIgnoring(repo)}`;
   const allSortMap = sortableFields(agg)
     .map((wf) => `${JSON.stringify(wf)}: ${JSON.stringify(pythonIdent(wf))}`)
     .join(", ");
@@ -415,24 +409,19 @@ export function buildPyRepositoryFile(
     ...writeGuardMethod(agg, root, writePred),
     "",
     ...allMethodLines,
-    ...emittableFinds(repo).flatMap((f) => ["", relationalFindMethod(agg, f, ctx, filterPred)]),
+    ...emittableFinds(repo).flatMap((f) => ["", relationalFindMethod(agg, f, ctx)]),
     "",
     `    async def find_many_by_ids(self, ids: list[${pyIdType(agg.name)}]) -> list[${aggRef(agg)}]:`,
-    `        rows = (await self._session.execute(${R.select}(${root})${rootWhere(
-      { expr: `${root}.id.in_(list(ids))`, ops: new Set() },
-      root,
-      kind,
-      filterPred,
-    )})).scalars().all()`,
+    `        rows = (await self._session.execute(${R.select}(${root}).where(${root}.id.in_(list(ids))))).scalars().all()`,
     `        return ${hydrateListExpr(agg)}`,
-    ...queryProjectionViews(agg, ctx).flatMap((v) => ["", viewFindMethod(agg, v, ctx, filterPred)]),
+    ...queryProjectionViews(agg, ctx).flatMap((v) => ["", viewFindMethod(agg, v, ctx)]),
     ...aggregateRetrievals(agg, ctx).flatMap((r) => [
       "",
-      runMethod(agg, r, ctx, filterPred, inlineRunBypasses.get(r.name)),
+      runMethod(agg, r, ctx, inlineRunBypasses.get(r.name)),
     ]),
     "",
     saveMethod(agg, ctx, aggVar),
-    canonicalDestroy(agg) ? ["", deleteMethod(agg, ctx)] : null,
+    canonicalDestroy(agg) ? ["", deleteMethod(agg)] : null,
     "",
     hydrateMethod(agg, ctx),
     hasChildCollections(agg) ? ["", hydrateManyMethod(agg, ctx)] : null,
@@ -459,11 +448,9 @@ export function relationalFindMethod(
   agg: EnrichedAggregateIR,
   find: FindIR,
   ctx: EnrichedBoundedContextIR,
-  filterPred: PyPredicate | null = null,
   bulkHydrate = true,
 ): string {
-  const root = schemaRow(rowClassName(tableOwnerName(agg, ctx.aggregates)));
-  const kind = discriminatorValue(agg, ctx.aggregates);
+  const root = schemaRow(rowClassName(agg.name));
   const params = find.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`);
   // currentUser-scoped finds take the actor as the trailing parameter;
   // the predicate renders `current_user.<claim>` as a plain bind value.
@@ -477,18 +464,9 @@ export function relationalFindMethod(
         lowerToSqlAlchemy(find.filter, agg, ctx),
       )
     : conventionPredicate(agg, find);
-  // Per-find capability filter — a `find … ignoring <Cap>`/`ignoring *` OMITS
-  // the named capability predicate(s) for this method only (the bypass is
-  // baked in statically; no runtime param).  A non-bypassing find keeps the
-  // shared, all-caps predicate.
-  const methodFilterPred =
-    find.bypassAll || (find.bypassCaps?.length ?? 0) > 0
-      ? contextFilterPredicate(agg, ctx, {
-          bypassAll: find.bypassAll,
-          bypassCaps: find.bypassCaps,
-        })
-      : filterPred;
-  const where = rootWhere(pred, root, kind, methodFilterPred);
+  // A `find … ignoring <Cap>`/`ignoring *` drops the named restrictions for
+  // this read only, through the read-scope hook's execution option.
+  const where = `${whereClause(pred)}${pyIgnoringOption(find)}`;
   const isList = find.returnType.kind === "array";
   // Paged find (P3b): count + limit/offset against the same predicate,
   // returning the shared PagedResult carrier (1-based page).
@@ -636,25 +614,13 @@ function conventionPredicate(agg: EnrichedAggregateIR, find: FindIR): PyPredicat
   return { expr: `${R.and_}(${clauses.join(", ")})`, ops: new Set(["and_"]) };
 }
 
-/** Conjoin the predicate terms that scope a root read: an optional find/
- *  retrieval predicate, the TPH `kind` discriminator, and the (non-principal)
- *  capability-`filter` predicate (W1a).  Returns the `.where(...)` suffix, or
- *  empty when no term applies.  When more than one term is present they're
- *  AND-ed via `and_(...)` (NOT double-wrapped — every term contributes one
- *  conjunct). */
-export function rootWhere(
-  pred: PyPredicate | null,
-  root: string,
-  kind: string | undefined,
-  filterPred: PyPredicate | null,
-): string {
-  const terms: string[] = [];
-  if (pred) terms.push(pred.expr);
-  if (kind) terms.push(`${root}.kind == ${JSON.stringify(kind)}`);
-  if (filterPred) terms.push(filterPred.expr);
-  if (terms.length === 0) return "";
-  if (terms.length === 1) return `.where(${terms[0]})`;
-  return `.where(${R.and_}(${terms.join(", ")}))`;
+/** The `.where(...)` suffix of a root read's own predicate (its find /
+ *  retrieval `where`), or "" when it has none.  The read's restrictions — the
+ *  TPH discriminator, capability filters, tenancy — are never spelled here:
+ *  the mapped subclass carries the discriminator and the read-scope hook
+ *  carries the rest. */
+export function whereClause(pred: PyPredicate | null): string {
+  return pred ? `.where(${pred.expr})` : "";
 }
 
 // --- query-time projection reads + retrievals ----------------------------------
@@ -737,10 +703,8 @@ function viewFindMethod(
   agg: EnrichedAggregateIR,
   view: AggregateReadShape,
   ctx: EnrichedBoundedContextIR,
-  filterPred: PyPredicate | null = null,
 ): string {
-  const root = schemaRow(rowClassName(tableOwnerName(agg, ctx.aggregates)));
-  const kind = discriminatorValue(agg, ctx.aggregates);
+  const root = schemaRow(rowClassName(agg.name));
   // Same refusal discipline as `findQueryMethod` above — a declared
   // `view.filter` that fails to lower must not silently drop.
   const pred = view.filter
@@ -749,16 +713,9 @@ function viewFindMethod(
         lowerToSqlAlchemy(view.filter, agg, ctx, principalOpts(view.filter)),
       )
     : null;
-  // A read `… ignoring <Cap>`/`ignoring *` OMITS the named capability
-  // predicate(s) for this read only (baked in statically).
-  const methodFilterPred =
-    view.bypassAll || (view.bypassCaps?.length ?? 0) > 0
-      ? contextFilterPredicate(agg, ctx, {
-          bypassAll: view.bypassAll,
-          bypassCaps: view.bypassCaps,
-        })
-      : filterPred;
-  const where = rootWhere(pred, root, kind, methodFilterPred);
+  // A read `… ignoring <Cap>`/`ignoring *` drops the named restrictions for
+  // this read only.
+  const where = `${whereClause(pred)}${pyIgnoringOption(view)}`;
   const viewParams = (view.params ?? []).map(
     (p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`,
   );
@@ -780,14 +737,9 @@ function runMethod(
   agg: EnrichedAggregateIR,
   retrieval: RetrievalIR,
   ctx: EnrichedBoundedContextIR,
-  filterPred: PyPredicate | null = null,
   bypass?: FilterBypass,
 ): string {
-  const root = schemaRow(rowClassName(tableOwnerName(agg, ctx.aggregates)));
-  const kind = discriminatorValue(agg, ctx.aggregates);
-  // When an inline `ignoring` call-site reaches this retrieval, OMIT the
-  // bypassed capability predicate(s) (the union across sites — baked in).
-  const methodFilterPred = bypass ? contextFilterPredicate(agg, ctx, bypass) : filterPred;
+  const root = schemaRow(rowClassName(agg.name));
   const pred = requireLowered(
     `retrieval '${retrieval.name}' on '${agg.name}'`,
     lowerToSqlAlchemy(retrieval.where, agg, ctx, principalOpts(retrieval.where)),
@@ -806,7 +758,9 @@ function runMethod(
   ];
   return lines(
     `    async def run_${snake(retrieval.name)}(${params.join(", ")}) -> list[${aggRef(agg)}]:`,
-    `        query = ${R.select}(${root})${rootWhere(pred, root, kind, methodFilterPred)}${orderBy}`,
+    // An inline `ignoring` call-site reaching this retrieval drops the
+    // bypassed restrictions (the union across sites).
+    `        query = ${R.select}(${root})${whereClause(pred)}${orderBy}${pyIgnoringOption(bypass)}`,
     "        if offset is not None:",
     "            query = query.offset(offset)",
     "        if limit is not None:",
@@ -1094,7 +1048,7 @@ function buildAggConstruction(
 }
 
 function hydrateMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): string {
-  const root = schemaRow(rowClassName(tableOwnerName(agg, ctx.aggregates)));
+  const root = schemaRow(rowClassName(agg.name));
   const out: string[] = [`    async def _hydrate(self, row: ${root}) -> ${aggRef(agg)}:`];
   out.push(...tphAssertNarrow(agg, ctx, "        "));
   // Load contained collections…
@@ -1149,7 +1103,7 @@ function hydrateMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR):
  *  Turns the list-hydration cost from O(rows × child-types) SELECTs into
  *  O(child-types).  Only emitted for aggregates with child collections. */
 function hydrateManyMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): string {
-  const root = schemaRow(rowClassName(tableOwnerName(agg, ctx.aggregates)));
+  const root = schemaRow(rowClassName(agg.name));
   const out: string[] = [
     `    async def _hydrate_many(self, rows: ${R.Sequence}[${root}]) -> list[${aggRef(agg)}]:`,
     "        if not rows:",
@@ -1774,7 +1728,7 @@ export function recordAuditMethod(): string {
   );
 }
 
-function deleteMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): string {
+function deleteMethod(agg: EnrichedAggregateIR): string {
   const out: string[] = [`    async def delete(self, id: ${pyIdType(agg.name)}) -> None:`];
   for (const c of agg.contains) {
     const partRow = schemaRow(rowClassName(c.partName));
@@ -1788,17 +1742,11 @@ function deleteMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): 
       `        await self._session.execute(${R.delete}(${joinRow}).where(${joinRow}.${assoc.ownerFk} == id))`,
     );
   }
-  const root = schemaRow(rowClassName(tableOwnerName(agg, ctx.aggregates)));
-  // TPH: a concrete's delete targets the hierarchy's SHARED table, so it must
-  // carry the same `kind` predicate every read on that table carries — without
-  // it `car_repo.delete(id)` deletes a Truck row outright, and such ids do
-  // reach it (the polymorphic reader hands each concrete repo a base id).
-  // `null` for a non-TPH aggregate ⇒ byte-identical emission.
-  const kind = discriminatorValue(agg, ctx.aggregates);
-  const rootPred = kind
-    ? `${R.and_}(${root}.id == id, ${root}.kind == ${JSON.stringify(kind)})`
-    : `${root}.id == id`;
-  out.push(`        await self._session.execute(${R.delete}(${root}).where(${rootPred}))`);
+  // A TPH concrete deletes through its mapped subclass: the ORM DELETE carries
+  // `kind IN ('<Concrete>')`, so `car_repo.delete(id)` never removes a Truck
+  // row that shares the table.
+  const root = schemaRow(rowClassName(agg.name));
+  out.push(`        await self._session.execute(${R.delete}(${root}).where(${root}.id == id))`);
   out.push("        await self._session.flush()");
   return out.join("\n");
 }

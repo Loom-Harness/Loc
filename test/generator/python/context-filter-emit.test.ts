@@ -1,14 +1,11 @@
 // ---------------------------------------------------------------------------
-// Python backend — non-principal capability filters (W1a).  A relational
-// aggregate carrying `filter !this.isDeleted` must AND that predicate into
-// EVERY root-table read in the generated SQLAlchemy repository — SQLAlchemy
-// has no automatic global filter (the EF Core HasQueryFilter analogue), so
-// each read site (find_by_id, all, find_many_by_ids, the named finds) carries
-// it explicitly via `contextFilterPredicate` (src/generator/python/
-// find-predicate.ts), conjoined with `and_`.  Half-applying it would be a
-// soft-delete correctness hole.  The node analogue is
-// test/generator/typescript/context-filter-emit.test.ts; the java analogue is
-// test/generator/java/generator-java-context-filter.test.ts.
+// Python backend — capability filters.  A relational aggregate carrying
+// `filter !this.isDeleted` applies that predicate to EVERY read through
+// SQLAlchemy's global-criteria hook: one `do_orm_execute` listener in
+// `app/db/read_scope.py` adds `with_loader_criteria(<Row>, …)` to each ORM
+// SELECT (src/generator/python/read-scope-builder.ts).  The repository reads
+// spell no filter conjunct at all, so no read path can forget one.  The node
+// analogue is test/generator/typescript/context-filter-emit.test.ts.
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
@@ -16,6 +13,7 @@ import { generateSystems } from "../../../src/system/index.js";
 import { parseString } from "../../_helpers/index.js";
 
 const REPO = "api/app/db/repositories/customer_repository.py";
+const SCOPE = "api/app/db/read_scope.py";
 
 const SRC = `
 system Shop {
@@ -44,35 +42,34 @@ async function build(source: string): Promise<Map<string, string>> {
   return generateSystems(model).files;
 }
 
-describe("python generator — capability filter (contextFilterPredicate)", () => {
-  it("AND-s the non-principal filter into every root read site", async () => {
-    const repo = (await build(SRC)).get(REPO)!;
+describe("python generator — capability filter (read-scope hook)", () => {
+  it("hosts the filter in the hook and spells it in no repository read", async () => {
+    const files = await build(SRC);
+    const repo = files.get(REPO)!;
+    const scope = files.get(SCOPE)!;
     expect(repo).toBeDefined();
+    expect(scope).toBeDefined();
 
-    // all(): the bare filter predicate (no id conjunction).
-    expect(repo).toContain("select(CustomerRow).where(not_(CustomerRow.is_deleted))");
-    // find_by_id: id predicate AND-ed with the filter.
-    expect(repo).toContain(
-      "select(CustomerRow).where(and_(CustomerRow.id == id, not_(CustomerRow.is_deleted)))",
+    expect(scope).toContain(
+      "out.append(with_loader_criteria(CustomerRow, lambda cls: not_(cls.is_deleted), include_aliases=True))",
     );
-    // The named find by_name: its own where AND-ed with the filter.
+    expect(scope).toContain('event.listen(Session, "do_orm_execute", _read_scope)');
+    // The package init installs it, so every importer of `app.db` gets it.
+    expect(files.get("api/app/db/__init__.py")).toContain("install_read_scope()");
+
+    // The reads carry only their own predicates.
+    expect(repo).not.toContain("is_deleted)");
+    expect(repo).toContain("select(CustomerRow).where((CustomerRow.name == n))");
+    expect(repo).toContain("select(CustomerRow).where(CustomerRow.id.in_(list(ids)))");
+    // find_by_id runs SQL the hook narrows — never the identity-map get.
     expect(repo).toContain(
-      "select(CustomerRow).where(and_((CustomerRow.name == n), not_(CustomerRow.is_deleted)))",
+      "select(CustomerRow).where(CustomerRow.id == id).execution_options(populate_existing=True)",
     );
-    // find_many_by_ids: the in_() predicate AND-ed with the filter.
-    expect(repo).toContain(
-      "select(CustomerRow).where(and_(CustomerRow.id.in_(list(ids)), not_(CustomerRow.is_deleted)))",
-    );
-    // The import line narrows to include and_ and not_ alongside select — plus
-    // func for the paged findAll's COUNT (M-T2.6).
-    expect(repo).toContain("from sqlalchemy import and_, func, not_, select");
+    expect(repo).not.toContain("self._session.get(");
   });
 
-  it("emits no capability predicate when the aggregate has no filter (byte-identical guard)", async () => {
-    // Regression guard: a future change that always-wraps the read sites would
-    // be caught here — the no-filter path must stay exactly as it was.
-    const repo = (
-      await build(`
+  it("emits no hook and no predicate when the aggregate has no filter", async () => {
+    const files = await build(`
 system Shop {
   subdomain Sales {
     context Sales {
@@ -89,36 +86,31 @@ system Shop {
   resource salesState { for: Sales, kind: state, use: pg }
   deployable api { platform: python, contexts: [Sales], dataSources: [salesState], serves: SalesApi, port: 4000 }
 }
-`)
-    ).get("api/app/db/repositories/plain_repository.py")!;
+`);
+    const repo = files.get("api/app/db/repositories/plain_repository.py")!;
     expect(repo).toBeDefined();
-
-    // all() is paged (M-T2.6) but carries no capability `.where(` — the plain
-    // relational page select with no filter conjunction.
+    expect(files.has(SCOPE)).toBe(false);
+    expect(files.get("api/app/db/__init__.py")).toBe("");
     expect(repo).toContain(
       "await self._session.execute(select(PlainRow).order_by(_order).limit(page_size).offset(offset))",
     );
-    // No `and_(` / `not_(` conjunction anywhere — no capability filter was emitted.
+    expect(repo).toContain("row = await self._session.get(PlainRow, id)");
     expect(repo).not.toContain("and_(");
     expect(repo).not.toContain("not_(");
   });
 });
 
 // ---------------------------------------------------------------------------
-// shape: embedded capability filters (DEBT-02 tail).  An embedded aggregate's
-// root scalars are real columns, so the predicate AND-s into the embedded SQL
-// reads exactly like the relational path — `repository-embedded-builder.ts`
-// threads the SAME `contextFilterPredicate`.  Both the non-principal and the
-// principal (`require_current_user()`) cases are wired; only `shape: document`
-// stays gated (in-app filtering, not built).
+// shape: embedded capability filters.  An embedded aggregate's root scalars
+// are real columns, so its restrictions ride the same hook as the relational
+// path.  Only `shape: document` filters in-app.
 // ---------------------------------------------------------------------------
 
 const EMBED_REPO = "api/app/db/repositories/cart_repository.py";
 
 describe("python generator — capability filter on shape: embedded", () => {
-  it("AND-s a NON-PRINCIPAL filter into every embedded root read", async () => {
-    const repo = (
-      await build(`
+  it("hosts a NON-PRINCIPAL filter in the hook for an embedded root", async () => {
+    const files = await build(`
 system Shop {
   subdomain Sales {
     context Sales {
@@ -134,23 +126,22 @@ system Shop {
   resource salesState { for: Sales, kind: state, use: pg }
   deployable api { platform: python, contexts: [Sales], dataSources: [salesState], serves: SalesApi, port: 4000 }
 }
-`)
-    ).get(EMBED_REPO)!;
+`);
+    const repo = files.get(EMBED_REPO)!;
     expect(repo).toBeDefined();
-    // all(): bare predicate.
-    expect(repo).toContain("select(CartRow).where(not_(CartRow.archived))");
-    // find_by_id: switched off the `session.get` PK fast-path to a filtered select.
-    expect(repo).toContain("select(CartRow).where(and_(CartRow.id == id, not_(CartRow.archived)))");
-    // find_many_by_ids: in_() AND-ed with the filter.
-    expect(repo).toContain(
-      "select(CartRow).where(and_(CartRow.id.in_(list(ids)), not_(CartRow.archived)))",
+    expect(files.get(SCOPE)).toContain(
+      "with_loader_criteria(CartRow, lambda cls: not_(cls.archived), include_aliases=True)",
     );
-    expect(repo).toContain("from sqlalchemy import and_, not_, select");
+    expect(repo).toContain("rows = (await self._session.execute(select(CartRow))).scalars().all()");
+    expect(repo).toContain(
+      "select(CartRow).where(CartRow.id == id).execution_options(populate_existing=True)",
+    );
+    expect(repo).toContain("select(CartRow).where(CartRow.id.in_(list(ids)))");
+    expect(repo).not.toContain("not_(");
   });
 
-  it("renders a PRINCIPAL filter against require_current_user() on an embedded aggregate", async () => {
-    const repo = (
-      await build(`
+  it("builds a PRINCIPAL filter from the request principal, failing closed without one", async () => {
+    const files = await build(`
 system Shop {
   user { id: string  tenantId: string }
   subdomain Sales {
@@ -167,19 +158,24 @@ system Shop {
   resource salesState { for: Sales, kind: state, use: pg }
   deployable api { platform: python, contexts: [Sales], dataSources: [salesState], serves: SalesApi, auth: required, port: 4000 }
 }
-`)
-    ).get(EMBED_REPO)!;
+`);
+    const repo = files.get(EMBED_REPO)!;
+    const scope = files.get(SCOPE)!;
     expect(repo).toBeDefined();
-    // The principal claim renders against the ambient accessor — no read-method param.
-    expect(repo).toContain("(CartRow.tenant_id == require_current_user().tenant_id)");
-    expect(repo).toContain("from app.auth.user import require_current_user");
-    // AND-ed into the id-scoped find_by_id read.
-    expect(repo).toContain(
-      "select(CartRow).where(and_(CartRow.id == id, (CartRow.tenant_id == require_current_user().tenant_id)))",
+    // Built from the principal on each execution: a lambda's closure values
+    // would be cached across requests.
+    expect(scope).toContain("    user = current_user()");
+    expect(scope).toContain(
+      "out.append(with_loader_criteria(CartRow, (CartRow.tenant_id == user.tenant_id), include_aliases=True))",
     );
+    // No principal: the read matches no row.
+    expect(scope).toContain(
+      "    if user is None:\n        out.append(with_loader_criteria(CartRow, false(), include_aliases=True))",
+    );
+    expect(repo).not.toContain("tenant_id ==");
   });
 
-  it("keeps the embedded no-filter path byte-identical (session.get fast-path)", async () => {
+  it("keeps the embedded no-filter path on the primary-key get", async () => {
     const repo = (
       await build(`
 system Shop {
@@ -199,7 +195,6 @@ system Shop {
 `)
     ).get(EMBED_REPO)!;
     expect(repo).toBeDefined();
-    // No filter → find_by_id keeps the cheap primary-key get, no capability where.
     expect(repo).toContain("row = await self._session.get(CartRow, id)");
     expect(repo).toContain("rows = (await self._session.execute(select(CartRow))).scalars().all()");
     expect(repo).not.toContain("and_(");
