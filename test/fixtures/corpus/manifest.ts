@@ -703,6 +703,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Each optional read binds the nullable value as is and every dereference is guarded (`loom.nullable-receiver`), so the compile legs check the null-handling form each backend emits: a criterion read's first-row-or-null retrieval run, `findById` (Java's `Optional` unwrapped with `.orElse(null)`, .NET's `GetByIdAsync`, elixir's `get_<agg>` facade), and an `if let` over a binding already in scope.",
   },
   {
+    id: "nullable-load",
+    title:
+      "a nullable `find …: T?` bound with `let` in a workflow, a queryHandler and a domainService body, read behind a null guard",
+    doc: "language",
+    backends: ALL,
+    note: "`loom.nullable-receiver` refuses an unguarded read of a `T?` binding at the source, so the guarded form is legal; this fixture compiles it on all five and drives each body with a hit and a miss, so a dereferenced miss answers 500 rather than the fallback.",
+  },
+  {
     id: "handler-aggregate-ops",
     title:
       "routed command/query handlers over a live row — load/mutate/save, scalar + aggregate return, value-object body param, repository delete, not-found",

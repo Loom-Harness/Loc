@@ -46,16 +46,16 @@ describe("node", () => {
     );
     expect(crit).toContain("where(productsInRegionCriterion(region))");
     expect(crit).toContain(".limit(1)");
-    expect(crit).not.toContain("isDeleted, true");
+    expect(crit).not.toContain("productScope()");
     const byId = block(
       repo,
       "async findByIdIgnoringSoftDeletable(id: Ids.ProductId): Promise<Product | null>",
       "\n  }\n",
     );
     expect(byId).toContain("where(eq(schema.products.id, id))");
-    expect(byId).not.toContain("isDeleted, true");
+    expect(byId).not.toContain("productScope()");
     expect(block(repo, "async runFindAllByProductsInRegion(", "\n  }\n")).toContain(
-      "not(eq(schema.products.isDeleted, true))",
+      "productScope()",
     );
     const wf = file("node_api/http/workflows.ts");
     expect(wf).toContain("await products.findFirstProductsInRegionIgnoringSoftDeletable(region)");
@@ -190,7 +190,8 @@ describe("dotnet (Dapper)", () => {
     expect(block(repo, "FindByIdIgnoringAll(", "\n    }\n")).toContain(
       'FROM orders WHERE (id = @id) LIMIT 1"',
     );
-    // The plain by-id load keeps the predicate.
-    expect(repo).toContain("FROM orders WHERE id = @id AND (is_deleted = FALSE)");
+    // The plain by-id load keeps the scope predicate.
+    expect(repo).toContain('FROM orders WHERE id = @id AND " + OrderScope.Where');
+    expect(repo).toContain('public const string Where = "(is_deleted = FALSE)";');
   });
 });
