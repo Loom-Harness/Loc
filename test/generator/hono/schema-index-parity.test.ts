@@ -47,7 +47,9 @@ function migrationIndexNames(files: Map<string, string>): Set<string> {
   const out = new Set<string>();
   for (const [path, body] of files) {
     if (path.endsWith("db/schema.ts")) continue;
-    for (const m of body.matchAll(/CREATE (?:UNIQUE )?INDEX (?:IF NOT EXISTS )?"?([a-z0-9_]+)"?/g)) {
+    for (const m of body.matchAll(
+      /CREATE (?:UNIQUE )?INDEX (?:IF NOT EXISTS )?"?([a-z0-9_]+)"?/g,
+    )) {
       out.add(m[1]!);
     }
   }
