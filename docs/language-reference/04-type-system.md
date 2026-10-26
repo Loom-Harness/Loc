@@ -2,7 +2,7 @@
 
 Every type position in the language: the eleven primitive scalars (plus the expression-only `duration`), the distinct `money` type that is precise in the column and a fixed-scale string on the wire, `X id` cross-aggregate references, collections and options, and the closed set of postfix generic carriers `paged` / `envelope` / `option`. Reach for it when you need to know what column a field becomes, why `money` serializes differently than `decimal`, or how a carrier projects onto each backend.
 
-> **Grammar:** `TypeRef`, `TypeAtom`, `BaseType`, `PrimitiveType`, `IdType`, `NamedType`, `GenericCtor`, `DURATION` (the `timerSource` literal) · **Validators:** type-system checks in `src/language/type-system.ts`; `loom.bare-aggregate-in-type`, `loom.generic-position`, `loom.generic-arg-not-carrier`, `loom.union-*`, `loom.intrinsic-nullable-receiver`, `loom.duration-arity` / `loom.duration-arg-type`, `loom.file-field-needs-object-storage`, `loom.token-nullable`, `loom.repository-find-deprecated` · **Docs:** [`../payloads.md`](../payloads.md), [`../conformance-semantics.md`](../conformance-semantics.md) (RS-12 / RS-24 — the numeric wire rules), [`../resources.md`](../resources.md) (`File` storage)
+> **Grammar:** `TypeRef`, `TypeAtom`, `BaseType`, `PrimitiveType`, `IdType`, `NamedType`, `GenericCtor`, `DURATION` (the `timerSource` literal) · **Validators:** type-system checks in `src/language/type-system.ts`; `loom.bare-aggregate-in-type`, `loom.generic-position`, `loom.generic-arg-not-carrier`, `loom.union-*`, `loom.nullable-receiver`, `loom.duration-arity` / `loom.duration-arg-type`, `loom.file-field-needs-object-storage`, `loom.token-nullable`, `loom.repository-find-deprecated` · **Docs:** [`../payloads.md`](../payloads.md), [`../conformance-semantics.md`](../conformance-semantics.md) (RS-12 / RS-24 — the numeric wire rules), [`../resources.md`](../resources.md) (`File` storage)
 
 A `TypeRef` is one `BaseType` head atom, followed by zero or more postfix carrier constructors, an optional `[]` array marker, an optional `?` nullable marker, and an optional `or`-union tail — in that fixed order. Carriers and the array/optional markers bind **tighter** than `or` (`string or int option` ≡ `string or (int option)`). The head `BaseType` is one of: a `PrimitiveType`, an `X id` (`IdType`), a bare `NamedType` (enum / value object / part; an event or payload only in the transport positions that admit them), or the UI-only `slot` / `action` / capability-only `Self id`. All examples below are generated from one scratch system with a backend deployable per platform; output is excerpted.
 
@@ -628,17 +628,50 @@ field :notes, :string                 # migration: add :notes, :text, null: true
 ```
 ::: end
 
-**Nullable receivers.** An intrinsic call on a `T?` receiver is rejected — every backend would emit a bare dereference (`this.path.trim()` on a `string | null`) that the generated project's own compiler refuses or that crashes at runtime:
+**Nullable receivers.** Reading any member of a `T?` value — a field, `.length`, an intrinsic or a collection op — is rejected until the value is narrowed (`loom.nullable-receiver`). Every backend emits a bare dereference (`this._note.length` on a `string | null`) that the generated project's own compiler refuses or that crashes at runtime. A null-narrowing ternary narrows the path it tests, including a `this.` path:
 
 ```ddd
 aggregate Order {
   notes: string?
-  derived trimmed: string = notes.trim()                          // loom.intrinsic-nullable-receiver
-  derived safe:    string = notes != null ? notes.trim() : ""     // OK — the ternary narrows
+  shipTo: Address?
+  derived trimmed: string = notes.trim()                               // loom.nullable-receiver
+  derived city:    string = shipTo.city                                // loom.nullable-receiver
+  derived safe:    string = notes != null ? notes.trim() : ""          // OK — the ternary narrows
+  derived size:    int    = this.notes != null ? this.notes.length : 0 // OK
 }
 ```
 
-*'.trim()' can't be called on 'string?' — the receiver may be null and every backend emits a bare dereference. Guard it with a null-narrowing ternary.* The catalogue checks (`loom.intrinsic-unknown` / `-arity` / `-arg-type` / `-bare` / `-named-arg`) run on the unwrapped type, so a typo on a nullable receiver is caught too. Numeric widening composes through the optional (`int? → long?`), and the `null` literal is assignable to any `T?`.
+`size` on each backend:
+
+::: tabs backend
+== node
+```ts
+get size(): number { return this._notes !== null ? [...this._notes].length : 0; }
+```
+== dotnet
+```csharp
+public int Size => this.Notes != null ? this.Notes.EnumerateRunes().Count() : 0;
+```
+== java
+```java
+public int size() {
+    return this.notes != null ? ((int) this.notes.codePoints().count()) : 0;
+}
+```
+== python
+```python
+def size(self) -> int:
+    return (len(self._notes) if self._notes is not None else 0)
+```
+== elixir
+```elixir
+"size" => (if not is_nil(record.notes), do: length(String.to_charlist(record.notes)), else: 0),
+```
+::: end
+
+In a `ui` or `component` body a *field* read off a nullable record or value object is not a dereference: the frontends spell it null-safe (`order.shipTo?.city`), so a detail page reads an optional value object's leaves unguarded. Calls and scalar members there are refused like anywhere else.
+
+*'.trim()' can't be read on 'string?' — the receiver may be null and every backend emits a bare dereference. Guard it with a null-narrowing ternary.* The catalogue checks (`loom.intrinsic-unknown` / `-arity` / `-arg-type` / `-bare` / `-named-arg`) run on the unwrapped type, so a typo on a nullable receiver is caught too. Numeric widening composes through the optional (`int? → long?`), and the `null` literal is assignable to any `T?`.
 
 ## Generic carriers — `paged`, `envelope`, `option`
 

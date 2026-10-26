@@ -1150,6 +1150,7 @@ export class Elaborator {
     for (let i = start; i < e.suffixes.length; i++) {
       const s = e.suffixes[i]!;
       cur = this.afterSuffix(cur, s, scope);
+      if (cur.kind === "optional") cur = this.narrowedPrefix(e, i, cur);
       this.types.set(s, cur);
     }
     return cur;
@@ -1372,8 +1373,9 @@ export class Elaborator {
     const ms = s as MemberSuffix;
     const name = ms.member;
     const tags = recv.sensitivity;
-    // Scalar intrinsics and collection ops read through ONE optional level
-    // (the validator owns whether the unguarded read is legal).
+    // A member resolves through ONE optional level, so the read has the type
+    // it would have on the narrowed receiver; whether the unguarded read is
+    // legal is `checkNullableReceivers`' judgement, made once for every member.
     const bare = recv.kind === "optional" ? recv.inner : recv;
     // A collection op over a receiver the pass could not type still has the
     // result SHAPE its signature fixes — `xs.map(…)` is a list, `xs.count` an
@@ -1395,36 +1397,34 @@ export class Elaborator {
     }
     if (ms.call && bare.kind !== "record" && bare.kind !== "valueobject")
       this.synthArgs(ms.args, scope);
-    switch (recv.kind) {
+    switch (bare.kind) {
       case "record":
-        return this.recordMember(recv.shape, ms, scope);
+        return this.recordMember(bare.shape, ms, scope);
       case "generic":
-        return genericMember(recv.ctor, recv.arg, name) ?? Ty.unknown("unresolved-member");
+        return genericMember(bare.ctor, bare.arg, name) ?? Ty.unknown("unresolved-member");
       case "valueobject": {
-        if (!recv.ref) return Ty.unknown("unresolved-type");
-        const t = this.memberOf(recv.ref, ms, scope);
+        if (!bare.ref) return Ty.unknown("unresolved-type");
+        const t = this.memberOf(bare.ref, ms, scope);
         if (t) return t;
         // `<vo>.equals(other)` — the value-equality intrinsic every value
         // object answers when it declares no `equals` of its own (`memberOf`
         // found none above).  Call form only: a bare `.equals` stays unresolved
         // and `checkIntrinsicCalls` reports it.  Lowering turns the call into
         // the `binary ==` a `vo == other` writes, whose type is this `bool`.
-        if (ms.call && isValueObjectEqualsIntrinsic(recv.ref.members, ms.member)) {
+        if (ms.call && isValueObjectEqualsIntrinsic(bare.ref.members, ms.member)) {
           this.synthArgs(ms.args, scope);
           return Ty.prim("bool");
         }
         return Ty.unknown("unresolved-member");
       }
       case "id": {
-        if (name === "id") return recv;
-        const target = recv.target;
+        if (name === "id") return bare;
+        const target = bare.target;
         if (!target) return Ty.unknown("unresolved-type");
         return this.memberOf(target, ms, scope) ?? Ty.unknown("unresolved-member");
       }
-      case "primitive":
-      case "optional": {
-        const p = bare.kind === "primitive" ? bare.name : undefined;
-        if (!p) return Ty.unknown("unresolved-member");
+      case "primitive": {
+        const p = bare.name;
         const field = primitiveFieldType(p, name);
         if (field) return withTags(Ty.prim(field), tags);
         if (p === "string" && name === "matches" && ms.call) return Ty.prim("bool");
@@ -1437,7 +1437,7 @@ export class Elaborator {
         return Ty.unknown("unresolved-member");
       }
       default:
-        return recv.kind === "unknown" ? recv : Ty.unknown("unresolved-member");
+        return bare.kind === "unknown" ? bare : Ty.unknown("unresolved-member");
     }
   }
 
@@ -1602,6 +1602,19 @@ export class Elaborator {
     const key = simplePathKey(e);
     if (key === undefined) return t;
     return isNarrowedNonNull(e, key) ? withTags(t.inner, t.sensitivity) : t;
+  }
+
+  /** The same rule for a chain's PREFIX ending at suffix `i` — `this.note` in
+   *  `this.note.length` is a path a guard can name, though no node is it. */
+  private narrowedPrefix(e: PostfixChain, i: number, t: Ty & { kind: "optional" }): Ty {
+    const head = simplePathKey(e.head);
+    if (head === undefined) return t;
+    const parts = [head];
+    for (const s of e.suffixes.slice(0, i + 1)) {
+      if (!isMemberSuffix(s) || s.call) return t;
+      parts.push(s.member);
+    }
+    return isNarrowedNonNull(e, parts.join(".")) ? withTags(t.inner, t.sensitivity) : t;
   }
 }
 

@@ -65,6 +65,7 @@ import {
   checkMatcherArity,
   checkMatchesCalls,
   checkMigrations,
+  checkNullableReceivers,
   checkOrgContextSurface,
   checkOrgPathReferences,
   checkPayloads,
@@ -371,6 +372,8 @@ export class DddValidator {
     // Scalar-intrinsic call-shape gate (src/util/intrinsics.ts): call form,
     // arity, positional-only args, argument primitive types.
     guard("intrinsic-calls", model, () => checkIntrinsicCalls(model, accept));
+    // A member of a `T?` value read without narrowing it (loom.nullable-receiver).
+    guard("nullable-receivers", model, () => checkNullableReceivers(model, accept));
     // A5 duration constructors (days/hours/minutes): arity + int amount.
     guard("duration-constructors", model, () => checkDurationConstructors(model, accept));
     // An integer literal the `INT` terminal could not hold exactly — the

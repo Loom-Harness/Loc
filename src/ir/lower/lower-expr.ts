@@ -537,7 +537,7 @@ function lowerPostfixChain(chain: PostfixChain, env: Env): ExprIR {
 
 /** GUARDED OPTIONAL RECEIVER — unwrap one `optional` level for an INTRINSIC call.
  *
- *  `loom.intrinsic-nullable-receiver` tells the author to guard the deref —
+ *  `loom.nullable-receiver` tells the author to guard the deref —
  *  `x != null ? x.trim() : …` — and `checkIntrinsicCalls` unwraps a `T?`
  *  receiver before consulting the intrinsic catalogue for exactly that reason.
  *  The LOWERER did not.  It stamped the `method-call`'s `receiverType` as the
@@ -564,7 +564,7 @@ function lowerPostfixChain(chain: PostfixChain, env: Env): ExprIR {
  *  check).  Anything else keeps the wrapper, so no other member access changes
  *  shape.  Whether the deref is SAFE stays the author's problem and the
  *  validator's: an UNGUARDED `note2.toUpper()` is still rejected by
- *  `loom.intrinsic-nullable-receiver` before it can reach here.  This decides
+ *  `loom.nullable-receiver` before it can reach here.  This decides
  *  only how the deref renders once it is allowed through. */
 function unwrapGuardedIntrinsicReceiver(recvType: TypeIR, suffix: PostfixSuffix): TypeIR {
   if (recvType.kind !== "optional" || isCallSuffix(suffix)) return recvType;

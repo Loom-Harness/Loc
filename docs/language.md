@@ -982,10 +982,11 @@ suffixes apply to the same `TypeRef`, in either order
 
 ### Null narrowing
 
-A `T?` is not usable where a `T` is required — `+` needs two `string`s, and a
-scalar intrinsic needs a receiver that cannot be null (`loom.intrinsic-nullable-receiver`
-rejects `path.trim()` on a `string?`, because every backend emits a bare
-dereference).  The **ternary is the guard**: a direct null test on its own
+A `T?` is not usable where a `T` is required — `+` needs two `string`s, and
+every member read needs a receiver that cannot be null (`loom.nullable-receiver`
+rejects `path.trim()`, `path.length` and `addr.city` on a `string?` / `Addr?`,
+because every backend emits a bare dereference; a field read in a `ui` body is
+spelled null-safe and passes).  The **ternary is the guard**: a direct null test on its own
 condition narrows the branch the test proves safe.
 
 ```ddd
@@ -1302,7 +1303,7 @@ queryability lives in [`stdlib.md`](stdlib.md) → "Collection operations";
 the scalar intrinsics (`s.trim()`, `n.abs()`, `d.round(2)`, `t.startOfDay()`,
 …) are in the same document — an unknown intrinsic, a wrong arity /
 argument type, or a call on a nullable receiver is rejected
-(`loom.intrinsic-unknown` / `-arity` / `-arg-type` / `-nullable-receiver`).
+(`loom.intrinsic-unknown` / `-arity` / `-arg-type`, and `loom.nullable-receiver`).
 A member *read* on a primitive is judged against the same catalogue plus the
 one field-shaped scalar member (`string.length`): `m.amount` on a `money`
 field, or any other invented member on a primitive, is
