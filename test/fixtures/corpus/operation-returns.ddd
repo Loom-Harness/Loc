@@ -15,6 +15,8 @@ system RU {
         reserved: bool
         operation reject(): string or NotFound { return NotFound { resource: code, attemptedCode: code } }
         operation accept(): string or NotFound { reserved := true  return code }
+        // Mutates, then fails: the error leaves no trace (D-FAILURE-MODEL).
+        operation hold(): string or NotFound { reserved := true  return NotFound { resource: code, attemptedCode: code } }
       }
       repository Orders for Order { }
     }
@@ -30,8 +32,8 @@ system RU {
     port: 4000
   }
 
-  // ORDER MATTERS HERE.  The canonical `update` + read-back run BEFORE the
-  // error-returning `reject`, and deliberately so — see the note below.
+  // The error variants run LAST, so the read-back after them can pin that
+  // they changed nothing.
   test e2e "exception-less op: reject returns the NotFound error (404)" against d {
     let o = api.orders.create({ code: "OR1", reserved: false })
     api.orders.accept(o)
@@ -46,9 +48,7 @@ system RU {
     expect(read.code).toBe("OR2")
     expect(read.reserved).toBe(false)
 
-    // The LIST and DELETE routes — also BEFORE the error variant, for the same
-    // reason: a list read is a full-body read, so it would inherit the open
-    // question below verbatim (`version` diverges after a rolled-back 404).
+    // The LIST and DELETE routes.
     let second = api.orders.create({ code: "OR3", reserved: false })
     let both = api.orders.all({ sort: "code", dir: "asc" })
     expect(both.items.length).toBe(2)
@@ -59,22 +59,14 @@ system RU {
     expect(left.items.length).toBe(1)
     expect(left.total).toBe(1)
 
-    // …and only THEN the error variant, with no read after it.
-    //
-    // OPEN QUESTION, deliberately not pinned (found by this drain): does the
-    // transaction of an operation that returns its `error` variant COMMIT?
-    // Written the other way round — reject first, then update+read — node
-    // reads back `version: 4` and python `version: 3`.  Both emit the same
-    // route shape (`result = agg.reject(); repo.save(agg); if error → 404`),
-    // so the divergence is not in the route: python's per-request
-    // `TransactionMiddleware` commits only on `status < 400` and ROLLS BACK the
-    // 404, discarding the save; node has no status-driven transaction boundary
-    // and commits it.  Which is right is a language decision about
-    // exception-less returns (an `error` variant is a declared VALUE carried on
-    // a 4xx, not a failure), not a backend bug — so this fixture does not
-    // assert either answer.  It also has nothing to do with `update`: reordering
-    // keeps the version deterministic on all five backends and leaves the
-    // question where it belongs.
+    // …and only THEN the error variants.  An operation that returns its
+    // `error` variant leaves no trace (D-FAILURE-MODEL): `hold` sets
+    // `reserved` before it fails, and the read-back finds neither the flag nor
+    // a version bump — the route answers the error before it saves.
     expect(api.orders.reject(o)).toThrow(404)
+    expect(api.orders.hold(o)).toThrow(404)
+    let after = api.orders.getById(o)
+    expect(after.reserved).toBe(false)
+    expect(after.version).toBe(3)
   }
 }

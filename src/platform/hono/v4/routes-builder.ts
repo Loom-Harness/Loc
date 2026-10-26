@@ -1933,6 +1933,9 @@ function auditProvTxLines(args: {
   check: VersionCheck;
   mutation: (pad: string) => string[];
   capture?: boolean;
+  /** The op's `error` variant tags: a captured result carrying one leaves the
+   *  transaction before the save, so nothing is written and no event queued. */
+  errorTags?: readonly string[];
 }): string[] {
   const { agg, op, ctx, audit, prov, usingMikro, check, mutation } = args;
   const out: string[] = [];
@@ -1955,6 +1958,10 @@ function auditProvTxLines(args: {
   out.push(...whenGateLine(agg, op, "      "));
   if (audit) out.push(`      const before = repoTx.toWire(aggregate);`);
   out.push(...mutation("      "));
+  if (args.capture && args.errorTags && args.errorTags.length > 0) {
+    const test = args.errorTags.map((t) => `__result.type === ${JSON.stringify(t)}`).join(" || ");
+    out.push(`      if (${test}) return __result;`);
+  }
   out.push(checkedSaveLine(check, "repoTx", "      "));
   if (audit) {
     out.push(`      const after = repoTx.toWire(aggregate);`);
@@ -2264,6 +2271,7 @@ function emitReturningOperationRoute(
           `${pad}const __result = aggregate.${escapeTargetMember("ts", lowerFirst(op.name))}(${callArgs});`,
         ],
         capture: true,
+        errorTags: errorVariants.map(variantTag),
       }),
     );
   } else {
@@ -2277,12 +2285,13 @@ function emitReturningOperationRoute(
     out.push(
       `    const result = aggregate.${escapeTargetMember("ts", lowerFirst(op.name))}(${callArgs});`,
     );
-    out.push(checkedSaveLine(check, "repo", "    "));
   }
   // Translate each error variant to a ProblemDetails before the success path.
   // Status / title / type come from the stdlib defaults (exception-less.md A1);
   // the error payload's own fields ride along as RFC-7807 §3.2 extension members
-  // (e.g. NotFound's `resource`), with the spec fields overridden.
+  // (e.g. NotFound's `resource`), with the spec fields overridden.  An error
+  // leaves no trace (D-FAILURE-MODEL): it answers BEFORE the save, so the
+  // loaded aggregate and its pending events are dropped.
   for (const v of errorVariants) {
     const tag = variantTag(v);
     const status = statusFor(tag);
@@ -2299,6 +2308,7 @@ function emitReturningOperationRoute(
     !u &&
     op.returnType?.kind === "primitive" &&
     (op.returnType as { name?: string }).name === "money";
+  if (!(audit || prov)) out.push(checkedSaveLine(operationVersionCheck(agg, op), "repo", "    "));
   const successResult = scalarMoneyReturn
     ? `result === null ? null : ${numericEncode(TS_NUMERIC, "money", "dto-map", "result")}`
     : "result";
