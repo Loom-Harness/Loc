@@ -461,6 +461,18 @@ function lowerOn(
   };
 }
 
+/** An `if let` source naming an optional aggregate binding already in scope
+ *  (`if let o = x` over `let x = Orders.findById(id)`). */
+function localOf(
+  source: Expression | undefined,
+  env: Env,
+): { name: string; aggName: string } | undefined {
+  if (!source || !isNameRef(source)) return undefined;
+  const t = env.locals.get(source.name)?.type;
+  if (t?.kind !== "optional" || t.inner.kind !== "entity") return undefined;
+  return { name: source.name, aggName: t.inner.name };
+}
+
 interface LoweredWorkflowStmt {
   /** `null` for a statement phase ④ refuses and the IR has no form for (an
    *  explicit `Repo.save(x)`): it contributes nothing to the body. */
@@ -629,13 +641,19 @@ function lowerWorkflowStatementInner(
     const keySource = keyFind?.op === "load-by-key-optional" ? keyFind : undefined;
     const declaredFind =
       findCall || keyFind ? undefined : matchOptionalFindCall(stmt.source, reposByName, env);
-    const repo =
-      findCall?.repo ??
-      keyFind?.repo ??
-      declaredFind?.repo ??
-      matchRepoCall(stmt.source, reposByName)?.repo;
-    const aggName = repo?.aggregate?.ref?.name ?? "Unknown";
-    const repoName = repo?.name ?? "";
+    // `Repo.findById(id)` — the by-id read that answers absence.
+    const anyRepoCall = matchRepoCall(stmt.source, reposByName);
+    const byIdFind =
+      findCall || keyFind || declaredFind || anyRepoCall?.method !== "findById"
+        ? undefined
+        : anyRepoCall;
+    // `if let o = x` over an optional binding already in scope (`let x =
+    // Repo.find…`): no read, only the narrowing.
+    const boundLocal =
+      findCall || keyFind || declaredFind || byIdFind ? undefined : localOf(stmt.source, env);
+    const repo = findCall?.repo ?? keyFind?.repo ?? declaredFind?.repo ?? anyRepoCall?.repo;
+    const aggName = repo?.aggregate?.ref?.name ?? boundLocal?.aggName ?? "Unknown";
+    const repoName = repo?.name ?? (boundLocal ? (repoForAgg.get(aggName) ?? "") : "");
     const saveRepoName = repoForAgg.get(aggName) ?? plural(aggName);
     const varType: TypeIR = { kind: "entity", name: aggName };
     const { statements: thenBody } = lowerWorkflowStatements(
@@ -669,13 +687,25 @@ function lowerWorkflowStatementInner(
       stmt: {
         kind: "if-let",
         var: stmt.var,
-        op: keySource ? "load-by-key-optional" : declaredFind ? "declared-find" : "select-one",
+        op: keySource
+          ? "load-by-key-optional"
+          : declaredFind
+            ? "declared-find"
+            : byIdFind
+              ? "load-optional"
+              : boundLocal
+                ? "bound"
+                : "select-one",
         repoName,
         aggName,
         retrievalName: findCall ? `findAllBy${findCall.criterionName}` : "",
-        retrievalArgs: (findCall?.criterionArgs ?? keySource?.args ?? declaredFind?.args ?? []).map(
-          (a) => lowerExpr(a, env),
-        ),
+        retrievalArgs: (
+          findCall?.criterionArgs ??
+          keySource?.args ??
+          declaredFind?.args ??
+          byIdFind?.args ??
+          (boundLocal ? [stmt.source] : [])
+        ).map((a) => lowerExpr(a, env)),
         synthCriterion: { name: findCall?.criterionName ?? "" },
         ...(declaredFind ? { findMethod: declaredFind.method } : {}),
         ...(keySource ? { findMethod: keySource.method, key: keyLookupIR(keySource) } : {}),
@@ -828,6 +858,32 @@ function lowerWorkflowStatementInner(
         envAfter: withLocal(env, stmt.name, "let", arrayType),
       };
     }
+    // repo-let over a criterion read: `let c = Repo.find(<Criterion>)` binds
+    // the first match or null (`T?`).  It runs the same `findAllBy<Criterion>`
+    // retrieval an `if let` over the same source does (limit 1).  Checked
+    // before the generic repo-let so the criterion reference is not lowered
+    // as an ordinary argument expression.
+    const findOneCall = matchFindCall(expr, reposByName);
+    if (findOneCall) {
+      const aggName = findOneCall.repo.aggregate?.ref?.name ?? "Unknown";
+      const returnType: TypeIR = { kind: "optional", inner: { kind: "entity", name: aggName } };
+      return {
+        stmt: {
+          kind: "repo-let",
+          name: stmt.name,
+          repoName: findOneCall.repo.name,
+          aggName,
+          op: "select-one",
+          method: "find",
+          args: findOneCall.criterionArgs.map((a) => lowerExpr(a, env)),
+          returnType,
+          retrievalName: `findAllBy${findOneCall.criterionName}`,
+          synthCriterion: { name: findOneCall.criterionName },
+        },
+        envAfter: withLocal(env, stmt.name, "let", returnType),
+        binding: { name: stmt.name, aggName, repoName: findOneCall.repo.name },
+      };
+    }
     // repo-let over a natural-key read: `Repo.getBy(sku: s)` /
     // `Repo.findBy(…)`.  Its arguments follow the matched tuple's column
     // order, and it calls the method enrichment synthesises from `key`.
@@ -861,13 +917,11 @@ function lowerWorkflowStatementInner(
       const aggName = repo.aggregate?.ref?.name ?? "Unknown";
       // The read's type is the single pass's (cutover family 3e) — the same
       // table the domain-service path reads: a declared find's return type,
-      // `getById` the row, the NULLABLE `findById` `T?` (so
-      // `loom.handler-load-nullable-unsupported` sees it), and the built-in
-      // `findAll()` / `all()` the whole collection.
+      // `getById` the row, the NULLABLE `findById` `T?`, and the built-in
+      // `findAll()` / `all()` the whole collection.  The binding takes that
+      // type as is: an optional read binds `T?` (narrowed by `if let`), and
+      // the validator refuses an array.
       const returnType: TypeIR = inferExprType(stmt.expr, env);
-      // The let binding's local type is the unwrapped aggregate
-      // (validator rejects array/optional repo-lets).  Use the
-      // declared return type so the validator can flag misuse.
       const localType: TypeIR = returnType;
       return {
         stmt: {

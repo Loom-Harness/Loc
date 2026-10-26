@@ -43,6 +43,7 @@ import {
 } from "../../util/workflow-own-state.js";
 import { validateWorkflowEffectVocabulary } from "./body-effect-vocabulary.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
+import { isBadIfLetSource } from "./optional-binding-checks.js";
 import { foreignRepositoryOwners } from "./shared.js";
 
 // ---------------------------------------------------------------------------
@@ -1294,6 +1295,83 @@ function validateWorkflowStatements(
     }
     return true;
   };
+  /** The criterion a `Repo.find(<Criterion>)` read names — an `if let`
+   *  source or a `let`-bound `select-one` — resolves, targets the
+   *  repository's aggregate and receives its arguments.  Returns whether it
+   *  passed. */
+  /** `let`s bound to an optional read (`T?`): not op-call receivers until an
+   *  `if let` narrows them. */
+  const optionalBindings = new Set<string>();
+  const checkCriterionRead = (
+    repoName: string,
+    critName: string,
+    argCount: number,
+    aggName: string,
+  ): boolean => {
+    const repo = reposByName.get(repoName);
+    if (!repo) {
+      diags.push({
+        severity: "error",
+        code: "loom.workflow-run-unknown-repository",
+        message: diagMessage("loom.workflow-run-unknown-repository#workflow-a-criterion-query", {
+          name: wf.name,
+          repoName,
+        }),
+        source: `${ctx.name}/${wf.name}`,
+        origin: wf.origin,
+      });
+      return false;
+    }
+    const crit = ctx.criteria.find((c) => c.name === critName);
+    if (!crit) {
+      diags.push({
+        severity: "error",
+        code: "loom.findall-unknown-criterion",
+        message: diagMessage("loom.findall-unknown-criterion", {
+          name: wf.name,
+          repoName,
+          critName,
+        }),
+        source: `${ctx.name}/${wf.name}`,
+        origin: wf.origin,
+      });
+      return false;
+    }
+    const candidate = crit.targetType.kind === "entity" ? crit.targetType.name : "";
+    if (candidate !== aggName) {
+      diags.push({
+        severity: "error",
+        code: "loom.findall-criterion-mismatch",
+        message: diagMessage("loom.findall-criterion-mismatch", {
+          name: wf.name,
+          critName,
+          candidate: candidate || "bool",
+          repoName,
+          aggName,
+        }),
+        source: `${ctx.name}/${wf.name}`,
+        origin: wf.origin,
+      });
+      return false;
+    }
+    if (argCount !== crit.params.length) {
+      diags.push({
+        severity: "error",
+        code: "loom.findall-criterion-arity",
+        message: diagMessage("loom.findall-criterion-arity", {
+          name: wf.name,
+          critName,
+          length: crit.params.length,
+          repoName,
+          retrievalArgsLength: argCount,
+        }),
+        source: `${ctx.name}/${wf.name}`,
+        origin: wf.origin,
+      });
+      return false;
+    }
+    return true;
+  };
   /** The shallow op-call check for a NESTED body — a `for-each` body or an
    *  `if-let` branch.
    *
@@ -1350,7 +1428,11 @@ function validateWorkflowStatements(
           markMutated();
           // A binding poisoned by a cross-context repository read is already
           // reported at its `let` — see the top-level op-call arm.
-          if (!bindingAgg.get(inner.target) && !crossContextBindings.has(inner.target)) {
+          if (
+            !bindingAgg.get(inner.target) &&
+            !crossContextBindings.has(inner.target) &&
+            !optionalBindings.has(inner.target)
+          ) {
             diags.push({
               severity: "error",
               code: "loom.workflow-foreach-unknown-binding",
@@ -1405,7 +1487,9 @@ function validateWorkflowStatements(
       walkWorkflowStmtsDeep(inner, (n) => {
         if (n.kind === "factory-let") checkFactoryLet(n);
       });
-      if (
+      if (inner.kind === "repo-let" && inner.returnType.kind === "optional") {
+        optionalBindings.add(inner.name);
+      } else if (
         (inner.kind === "repo-let" || inner.kind === "factory-let") &&
         !bindingAgg.has(inner.name)
       ) {
@@ -1497,7 +1581,23 @@ function validateWorkflowStatements(
           });
           break;
         }
-        if (st.op !== "load" && !repo.finds.some((f) => f.name === st.method)) {
+        // A criterion read resolves its criterion, not a method.
+        if (st.op === "select-one") {
+          if (
+            checkCriterionRead(
+              st.repoName,
+              st.synthCriterion?.name ?? "",
+              st.args.length,
+              st.aggName,
+            )
+          )
+            optionalBindings.add(st.name);
+          break;
+        }
+        // Only a declared find (or a name that is no contract verb, which rides
+        // `declared-find` too) is looked up among the repository's finds — the
+        // contract verbs are generated on every repository.
+        if (st.op === "declared-find" && !repo.finds.some((f) => f.name === st.method)) {
           diags.push({
             severity: "error",
             code: "loom.workflow-unknown-repository-method",
@@ -1536,38 +1636,28 @@ function validateWorkflowStatements(
           });
           break;
         }
-        // Reject array / nullable returns — workflow body has no
-        // iteration / null-handling vocab in v1.  A `load` is always
-        // a single non-nullable aggregate (the impl throws on miss).
-        if (st.op !== "load") {
-          if (st.returnType.kind === "array") {
-            diags.push({
-              severity: "error",
-              code: "loom.workflow-load-array-unsupported",
-              message: diagMessage("loom.workflow-load-array-unsupported", {
-                name: wf.name,
-                repoName: st.repoName,
-                method: st.method,
-              }),
-              source: `${ctx.name}/${wf.name}`,
-              origin: wf.origin,
-            });
-            break;
-          }
-          if (st.returnType.kind === "optional") {
-            diags.push({
-              severity: "error",
-              code: "loom.workflow-load-nullable-unsupported",
-              message: diagMessage("loom.workflow-load-nullable-unsupported", {
-                name: wf.name,
-                repoName: st.repoName,
-                method: st.method,
-              }),
-              source: `${ctx.name}/${wf.name}`,
-              origin: wf.origin,
-            });
-            break;
-          }
+        // Reject an array return — a `let` binds one row; iterate a list read
+        // with `for … in Repo.findAll(…)`.  A `load` is always a single
+        // non-nullable aggregate (the impl throws on miss).
+        if (st.op !== "load" && st.returnType.kind === "array") {
+          diags.push({
+            severity: "error",
+            code: "loom.workflow-load-array-unsupported",
+            message: diagMessage("loom.workflow-load-array-unsupported", {
+              name: wf.name,
+              repoName: st.repoName,
+              method: st.method,
+            }),
+            source: `${ctx.name}/${wf.name}`,
+            origin: wf.origin,
+          });
+          break;
+        }
+        // An optional read binds `T?`: it is not an op-call receiver until
+        // narrowed (`loom.nullable-receiver`, `optional-binding-checks.ts`).
+        if (st.returnType.kind === "optional") {
+          optionalBindings.add(st.name);
+          break;
         }
         bindingAgg.set(st.name, st.aggName);
         break;
@@ -1739,7 +1829,7 @@ function validateWorkflowStatements(
         // result is never paginated), then shallow-check the branch op-call
         // bindings the way `for-each` does.  `var` is in scope only in the
         // then-branch.
-        if (!st.synthCriterion.name && !st.findMethod) {
+        if (isBadIfLetSource(st)) {
           diags.push({
             severity: "error",
             code: "loom.iflet-bad-source",
@@ -1749,82 +1839,28 @@ function validateWorkflowStatements(
           });
           break;
         }
-        // A declared optional find: the lowerer only sets `findMethod` for a
-        // find the repository declares, so there is no criterion to resolve —
-        // only the branch op-calls to check.
+        // Every source but a criterion read (a declared optional find, a
+        // natural-key `findBy`, `findById`, an optional binding) has no
+        // criterion to resolve — only the branch op-calls to check.
         const checkBranchOpCalls = (body: WorkflowStmtIR[]): void => {
           checkNestedBodyOpCalls(body, st.var, "if-let");
         };
-        if (st.findMethod) {
+        if (st.op !== "select-one") {
           bindingAgg.set(st.var, st.aggName);
           checkBranchOpCalls(st.thenBody);
           bindingAgg.delete(st.var);
           checkBranchOpCalls(st.elseBody ?? []);
           break;
         }
-        const repo = reposByName.get(st.repoName);
-        if (!repo) {
-          diags.push({
-            severity: "error",
-            code: "loom.workflow-run-unknown-repository",
-            message: diagMessage(
-              "loom.workflow-run-unknown-repository#workflow-a-criterion-query",
-              { name: wf.name, repoName: st.repoName },
-            ),
-            source: `${ctx.name}/${wf.name}`,
-            origin: wf.origin,
-          });
+        if (
+          !checkCriterionRead(
+            st.repoName,
+            st.synthCriterion.name,
+            st.retrievalArgs.length,
+            st.aggName,
+          )
+        )
           break;
-        }
-        const critName = st.synthCriterion.name;
-        const crit = ctx.criteria.find((c) => c.name === critName);
-        if (!crit) {
-          diags.push({
-            severity: "error",
-            code: "loom.findall-unknown-criterion",
-            message: diagMessage("loom.findall-unknown-criterion", {
-              name: wf.name,
-              repoName: st.repoName,
-              critName,
-            }),
-            source: `${ctx.name}/${wf.name}`,
-            origin: wf.origin,
-          });
-          break;
-        }
-        const candidate = crit.targetType.kind === "entity" ? crit.targetType.name : "";
-        if (candidate !== st.aggName) {
-          diags.push({
-            severity: "error",
-            code: "loom.findall-criterion-mismatch",
-            message: diagMessage("loom.findall-criterion-mismatch", {
-              name: wf.name,
-              critName,
-              candidate: candidate || "bool",
-              repoName: st.repoName,
-              aggName: st.aggName,
-            }),
-            source: `${ctx.name}/${wf.name}`,
-            origin: wf.origin,
-          });
-          break;
-        }
-        if (st.retrievalArgs.length !== crit.params.length) {
-          diags.push({
-            severity: "error",
-            code: "loom.findall-criterion-arity",
-            message: diagMessage("loom.findall-criterion-arity", {
-              name: wf.name,
-              critName,
-              length: crit.params.length,
-              repoName: st.repoName,
-              retrievalArgsLength: st.retrievalArgs.length,
-            }),
-            source: `${ctx.name}/${wf.name}`,
-            origin: wf.origin,
-          });
-          break;
-        }
         bindingAgg.set(st.var, st.aggName); // `var` bound only in the then-branch
         checkBranchOpCalls(st.thenBody);
         bindingAgg.delete(st.var);
@@ -1834,6 +1870,12 @@ function validateWorkflowStatements(
       case "op-call": {
         const aggName = bindingAgg.get(st.target);
         if (!aggName) {
+          // An op-call on an un-narrowed optional binding is reported by the
+          // nullable-receiver check, which names the actual defect.
+          if (optionalBindings.has(st.target)) {
+            markMutated();
+            break;
+          }
           if (crossContextBindings.has(st.target)) {
             // The binding is missing BECAUSE its `let` read a repository of
             // another context, which `loom.workflow-cross-context-repository`

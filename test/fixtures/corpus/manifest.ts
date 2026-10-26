@@ -660,7 +660,15 @@ export const CORPUS: readonly CorpusFeature[] = [
       "handler-body shapes the emitters mishandled — an aggregate-less handler, a declared `byId` find called with an already-typed `Agg id`, and a dereferenced (non-optional) find",
     doc: "language",
     backends: ALL,
-    note: "The three defects #2652 measured and left unfixed. .NET DROPPED the aggregate-less handler and its route entirely (`if (!primaryAgg(h)) continue`); java renamed a declared `byId` find to `getById` and re-wrapped its already-typed argument (`getById(new OrderId(orderId))`, javac `incompatible types`). The third — an OPTIONAL find bound in a handler body, dereferenced unguarded (TS18047 / CS8602) — is now refused at phase ⑦ (`loom.handler-load-nullable-unsupported`), so this fixture carries the non-optional spelling and the refusal is pinned separately.",
+    note: "The three defects #2652 measured and left unfixed. .NET DROPPED the aggregate-less handler and its route entirely (`if (!primaryAgg(h)) continue`); java renamed a declared `byId` find to `getById` and re-wrapped its already-typed argument (`getById(new OrderId(orderId))`, javac `incompatible types`). The third — an OPTIONAL find bound in a handler body, dereferenced unguarded (TS18047 / CS8602) — now binds `T?` and a dereference without a null test is refused (`loom.nullable-receiver`); the guarded forms are the `optional-let` fixture.",
+  },
+  {
+    id: "optional-let",
+    title:
+      "a `let` bound to an optional repository read (`find(C)`, `findById`, `findBy`, a `T?` find) and the `if let` that narrows it — handlers, a workflow, a reading domain service",
+    doc: "language",
+    backends: ALL,
+    note: "Each optional read binds the nullable value as is and every dereference is guarded (`loom.nullable-receiver`), so the compile legs check the null-handling form each backend emits: a criterion read's first-row-or-null retrieval run, `findById` (Java's `Optional` unwrapped with `.orElse(null)`, .NET's `GetByIdAsync`, elixir's `get_<agg>` facade), and an `if let` over a binding already in scope.",
   },
   {
     id: "handler-aggregate-ops",

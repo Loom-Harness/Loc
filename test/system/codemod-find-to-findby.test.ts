@@ -141,17 +141,15 @@ describe("codemod-find-to-findby", () => {
   repository Orders for Order {
     find mustOwner(o: string): Order where this.owner == o
     find locate(c: string): Order or OrderNotFound where this.code == c
-    find maybe(oid: Order id): Order? where this.id == oid
     find latest(): Order?
     find scoped(o: string): Order? where this.owner == o ignoring *
   }
   workflow w {
-    create(o: string, c: string, oid: Order id) {
+    create(o: string, c: string) {
       let m = Orders.mustOwner(o)
       m.bump()
       let l = Orders.locate(c)
       match l { Order x => { x.bump() } OrderNotFound e => { } }
-      if let q = Orders.maybe(oid) { q.bump() }
     }
   }
 }}}
@@ -163,9 +161,41 @@ describe("codemod-find-to-findby", () => {
       report.filter((r) => r.includes(`Orders.${name} —`)).join("\n");
     expect(byFind("mustOwner")).toContain("no else-branch statement answers a 404");
     expect(byFind("locate")).toContain("matches on the error variant");
-    expect(byFind("maybe")).toContain("is an 'if let' source, which findById is not");
     expect(byFind("latest")).toContain("it reads an arbitrary row");
     expect(byFind("scoped")).toContain("Repo.find(<Criterion>) carries no 'ignoring'");
+  });
+
+  it("rewrites a let-bound T? read, and a findById `if let` source", async () => {
+    // A `let` binds a `T?` read, and `findById` is an `if let` source, so
+    // neither call site blocks its find any more.
+    const src = `system S { subdomain M { context C {
+  aggregate Customer with crudish { email: string }
+  aggregate Product with crudish { sku: string  unique (sku) }
+  aggregate Order with crudish { total: int
+    operation bump() { total := total + 1 } }
+  repository Customers for Customer { find byEmail(e: string): Customer? where this.email == e }
+  repository Products for Product { find bySku(s: string): Product? where this.sku == s }
+  repository Orders for Order { find maybe(oid: Order id): Order? where this.id == oid }
+  workflow w {
+    create(e: string, s: string, oid: Order id) {
+      let c = Customers.byEmail(e)
+      precondition c != null
+      let p = Products.bySku(s)
+      requires p == null
+      let r = Orders.maybe(oid)
+      if let q = Orders.maybe(oid) { q.bump() }
+      if let t = r { t.bump() }
+    }
+  }
+}}}
+`;
+    const { text, report } = migrateSource(src, "m.ddd");
+    expect(report).toEqual([]);
+    expect(text).toContain("let c = Customers.find(CustomersByEmail(e))");
+    expect(text).toContain("let p = Products.findBy(sku: s)");
+    expect(text).toContain("let r = Orders.findById(oid)");
+    expect(text).toContain("if let q = Orders.findById(oid) { q.bump() }");
+    expect(await errorCodes(text)).toEqual([]);
   });
 
   it("migrates a must-exist find nothing calls", () => {

@@ -1193,9 +1193,10 @@ function synthesizeFindAllRetrievals(
   };
   for (const wf of workflows) {
     for (const st of allWorkflowStmts(wf)) {
-      // Both `Repo.findAll(<Criterion>)` (repo-run) and the `if let` /
-      // `Repo.find(<Criterion>)` (if-let) source ride a `findAllBy<Criterion>`
-      // retrieval; an `if let` carries no sort/loads (single-result, takes the
+      // `Repo.findAll(<Criterion>)` (repo-run), the `if let` /
+      // `Repo.find(<Criterion>)` (if-let) source and a `let`-bound
+      // `Repo.find(<Criterion>)` (repo-let) ride a `findAllBy<Criterion>`
+      // retrieval; the single-result two carry no sort/loads (they take the
       // first row).  Collect the criterion + shaping from whichever shape.
       if (st.kind === "repo-run" && st.synthCriterion) {
         materialise({
@@ -1205,6 +1206,9 @@ function synthesizeFindAllRetrievals(
           loadPlan: st.synthLoadPlan,
         });
       } else if (st.kind === "if-let" && st.synthCriterion.name) {
+        materialise({ name: st.synthCriterion.name, retrievalName: st.retrievalName });
+      } else if (st.kind === "repo-let" && st.synthCriterion && st.retrievalName) {
+        // `let c = Repo.find(<Criterion>)` — the same single-result run.
         materialise({ name: st.synthCriterion.name, retrievalName: st.retrievalName });
       }
     }
@@ -1238,6 +1242,9 @@ function synthesizeFindAllRetrievals(
           loadPlan: st.synthLoadPlan,
         });
       } else if (st.kind === "if-let" && st.synthCriterion.name) {
+        materialise({ name: st.synthCriterion.name, retrievalName: st.retrievalName });
+      } else if (st.kind === "repo-let" && st.synthCriterion && st.retrievalName) {
+        // `let c = Repo.find(<Criterion>)` — the same single-result run.
         materialise({ name: st.synthCriterion.name, retrievalName: st.retrievalName });
       }
     }

@@ -430,7 +430,33 @@ export function renderExpr(e: ExprIR, ctx: RenderCtx = DEFAULT): string {
  *  reading service rendered as a context fn (which has the ambient `Repo`)
  *  resolves them as bare same-module calls. */
 export function contextFindFnFor(op: RepoOp, method: string, aggregate: string): string {
-  return op === "load" ? `get_${snake(aggregate)}` : elixirFindFacadeFn(method, aggregate);
+  return op === "load" || op === "load-optional"
+    ? `get_${snake(aggregate)}`
+    : elixirFindFacadeFn(method, aggregate);
+}
+
+/** The context call behind an OPTIONAL repository read and the `case` pattern
+ *  that picks its row out — every other result is `nil`.  A criterion read
+ *  (`Repo.find(<Criterion>)`) runs its `run_<ret>_<agg>` retrieval capped at
+ *  one row (`{:ok, [hit | _]}`); a by-id `findById`, a natural-key `findBy`
+ *  and a declared optional find call their context facade (`{:ok, hit}`, an
+ *  absent row being `{:error, :not_found}` or `{:ok, nil}`).  Shared by the
+ *  `let` and the `if let` over the same read. */
+export function optionalReadLookup(
+  read: { op: RepoOp; method: string; aggregate: string; retrievalName?: string },
+  args: readonly string[],
+  contextModule: string,
+): { call: string; hit: string } {
+  if (read.op === "select-one" && read.retrievalName) {
+    return {
+      call: `${contextModule}.run_${snake(read.retrievalName)}_${snake(read.aggregate)}(${[...args, "limit: 1"].join(", ")})`,
+      hit: "{:ok, [hit | _]}",
+    };
+  }
+  return {
+    call: `${contextModule}.${contextFindFnFor(read.op, read.method, read.aggregate)}(${args.join(", ")})`,
+    hit: "{:ok, hit}",
+  };
 }
 
 /**
@@ -1264,9 +1290,8 @@ function renderCall(args: string[], e: CallExpr, ctx: RenderCtx): string {
       const fn = contextFindFnFor(read.op, read.method, read.aggregate);
       const call = `${fn}(${args.join(", ")})`;
       // `getById` is contractually NON-NULL — it throws rather than returning
-      // absent ("Use getById (throws → 404)", the remedy
-      // `loom.handler-load-nullable-unsupported#domain-service` prescribes), and
-      // `repoReadResultType` (#2968) types it as a bare entity, not `T?`.  The
+      // absent (`findById` is the read that answers absence), and
+      // `repoReadResultType` types it as a bare entity, not `T?`.  The
       // context facade fn it routes to is `find_by_id`, which DOES signal
       // absence (`{:error, :not_found}`), so flattening that to `nil` here
       // contradicted the contract and handed the caller a nil to dereference —
