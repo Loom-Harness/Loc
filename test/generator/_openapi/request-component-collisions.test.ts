@@ -52,7 +52,7 @@ const COLLIDING_SRC = `system Probe {
 
       workflow scheduleWorkOrder {
         create(note: string) {
-          let w = WorkOrder.create({ title: note, scheduled: false })
+          let w = WorkOrder.create(title: note, scheduled: false)
         }
       }
     }
@@ -194,7 +194,7 @@ describe("phoenix request-component modules (F-026)", () => {
 
       workflow scheduleWorkOrder transactional {
         create(note: string) {
-          let w = WorkOrder.create({ title: note, scheduled: false })
+          let w = WorkOrder.create(title: note, scheduled: false)
         }
       }
     }
@@ -277,7 +277,7 @@ describe("phoenix create request is an owner too (F-026)", () => {
       }
       repository WorkOrders for WorkOrder { }
       workflow createWorkOrder {
-        create(note: string) { let w = WorkOrder.create({ title: note, scheduled: false }) }
+        create(note: string) { let w = WorkOrder.create(title: note, scheduled: false) }
       }
     }
   }
@@ -331,7 +331,7 @@ describe("the create request is an owner too (F-026)", () => {
       }
       repository WorkOrders for WorkOrder { }
       workflow createWorkOrder {
-        create(note: string) { let w = WorkOrder.create({ title: note, scheduled: false }) }
+        create(note: string) { let w = WorkOrder.create(title: note, scheduled: false) }
       }
     }
   }

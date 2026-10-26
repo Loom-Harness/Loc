@@ -987,7 +987,7 @@ The op-form spelling `OperationForm { of: Product, op: archive }` names no recor
 
 ```ddd
 workflow registerProduct {
-  create(name: string) { let p = Product.create({ name: name, price: 0.0 }) }
+  create(name: string) { let p = Product.create(name: name, price: 0.0) }
 }
 // …
 page ProductNew { route: "/products/register" body: WorkflowForm { runs: registerProduct, testid: "register" } }

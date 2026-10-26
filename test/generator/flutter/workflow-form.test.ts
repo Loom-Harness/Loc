@@ -15,7 +15,7 @@ system Ops {
     repository Orders for Order {}
     workflow placeOrder transactional {
       create(customer: string, amount: int) {
-        let o = Order.create({ name: customer, total: amount })
+        let o = Order.create(name: customer, total: amount)
       }
     }
   } }

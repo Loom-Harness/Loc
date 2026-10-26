@@ -67,12 +67,12 @@ ${body}
 }
 
 const INLINE_FOR = `      for f in Follows.run(FollowersOf(e.author)) {
-        let n = Note.create({ member: f.follower, post: e.post })
+        let n = Note.create(member: f.follower, post: e.post)
       }`;
 
 const LET_FOR = `      let fs = Follows.run(FollowersOf(e.author), page: { offset: 0, limit: 50 })
       for f in fs {
-        let n = Note.create({ member: f.follower, post: e.post })
+        let n = Note.create(member: f.follower, post: e.post)
       }`;
 
 describe("workflow reactor / handler bodies are validated (not just the create facade)", () => {

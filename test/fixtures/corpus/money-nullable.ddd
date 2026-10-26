@@ -70,7 +70,7 @@ system MoneyNullable {
         }
 
         test "a money? compares null-safely and by value" {
-          let paid = Invoice.create({ subtotal: money("10"), fee: money("10.00") })
+          let paid = Invoice.create(subtotal: money("10"), fee: money("10.00"))
           expect(paid.hasFee).toBe(true)
           expect(paid.noFee).toBe(false)
           expect(paid.feeIsSubtotal).toBe(true)
@@ -83,7 +83,7 @@ system MoneyNullable {
           paid.setFee(null)
           expect(paid.noFee).toBe(true)
 
-          let free = Invoice.create({ subtotal: money("10"), fee: null })
+          let free = Invoice.create(subtotal: money("10"), fee: null)
           expect(free.hasFee).toBe(false)
           expect(free.noFee).toBe(true)
           expect(free.feeIsSubtotal).toBe(false)
@@ -128,7 +128,7 @@ system MoneyNullable {
         }
 
         test "an ordering against an absent money? / decimal? is false" {
-          let full = Quote.create({ fee: money("10.00"), qty: 3, rate: 3.0, cap: 4.5 })
+          let full = Quote.create(fee: money("10.00"), qty: 3, rate: 3.0, cap: 4.5)
           expect(full.feeOverFive).toBe(true)
           expect(full.feeAtMostFive).toBe(false)
           expect(full.fiveUnderFee).toBe(true)
@@ -136,7 +136,7 @@ system MoneyNullable {
           expect(full.qtyOverRate).toBe(false)
           expect(full.qtyIsRate).toBe(true)
 
-          let empty = Quote.create({ fee: null, qty: null, rate: 2.5, cap: null })
+          let empty = Quote.create(fee: null, qty: null, rate: 2.5, cap: null)
           expect(empty.feeOverFive).toBe(false)
           expect(empty.feeAtMostFive).toBe(false)
           expect(empty.fiveUnderFee).toBe(false)

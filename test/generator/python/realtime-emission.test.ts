@@ -33,7 +33,7 @@ ${channel}
     workflow OrderFulfillment {
       orderId: Order id
       create(p: OrderPlaced) by p.order {
-        let ship = Shipment.create({ orderRef: p.order, status: "Pending" })
+        let ship = Shipment.create(orderRef: p.order, status: "Pending")
         emit ShipmentRequested { shipment: ship.id, order: p.order, at: now() }
       }
       on(s: ShipmentRequested) by s.order {

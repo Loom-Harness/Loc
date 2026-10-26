@@ -258,11 +258,11 @@ system FieldOps {
         }
 
         test "a completed work order cannot be cancelled" verifies TC-001 {
-          let wo = WorkOrder.create({
+          let wo = WorkOrder.create(
             customerId: "00000000-0000-0000-0000-000000000001",
             siteId: "00000000-0000-0000-0000-000000000002",
             assetId: null, status: Completed, priority: Normal, currency: "EUR"
-          })
+          )
           expect(wo.cancel()).toThrow()
         }
       }
@@ -453,9 +453,9 @@ system FieldOps {
       workflow notifyOnCompletion {
         workOrderId: WorkOrder id
         create(e: WorkOrderCompleted) by e.workOrder {
-          let n = Notification.create({
+          let n = Notification.create(
             workOrderRef: string(e.workOrder), kind: "work-order-completed", sentAt: e.at
-          })
+          )
         }
       }
     }

@@ -43,11 +43,11 @@ context Sales {
   workflow placeOrder {
     create(customerId: Customer id, placedAt: datetime) {
       let customer = Customers.getById(customerId)
-      let order = Order.create({
+      let order = Order.create(
         customerId: customerId,
         status: Draft,
         placedAt: placedAt
-      })
+      )
       emit OrderPlaced { order: order.id, at: placedAt }
     }
   }
@@ -71,7 +71,7 @@ context Sales {
 | --- | --- |
 | `precondition Expr` | Workflow-level guard.  Failure → 422 (`DomainException` / `DomainError`) — RS-15. |
 | `requires Expr` | Authorization guard.  Same syntactic shape as `precondition`, but failure → 403 (`ForbiddenException` / `ForbiddenError`).  Use this for `currentUser`-based permission checks; use `precondition` for business-rule checks. |
-| `let x = Agg.create({ field: expr, ... })` | Factory call.  Saved at workflow exit. |
+| `let x = Agg.create(field: expr, ...)` | Factory call (named or positional arguments).  Saved at workflow exit. |
 | `let x = Repo.getById(idExpr)` | Load by id; throws `AggregateNotFound` (→ 404) if missing.  Result is non-nullable. |
 | `let x = Repo.<find>(args)` | Call any repo-declared find whose return is a single non-nullable aggregate.  A plain `let` can't bind an array or nullable result. |
 | `let xs = Repo.run(<Retrieval>(args), page?)` / `let xs = Repo.findAll(<Criterion>, page?)` | Bind an aggregate **array**; consumable only by a `for` loop. |
@@ -155,7 +155,7 @@ criterion ForTech(t: Technician id) of TechReplica = tech == t
 
 workflow replicateTechs {
   tech: Technician id                       // the correlation field
-  create(e: TechnicianRegistered) by e.tech { let r = TechReplica.create({ tech: e.tech, skills: e.skills }) }
+  create(e: TechnicianRegistered) by e.tech { let r = TechReplica.create(tech: e.tech, skills: e.skills) }
 }
 workflow assign {
   create(workOrderId: WorkOrder id, assignTo: Technician id) {
@@ -193,7 +193,7 @@ workflow ReserveSeat {
 Both `find` and `findAll` over one criterion share a single internal
 `findAllBy<Criterion>` retrieval (no public endpoint is exposed — unlike a
 declared `find`).  The else-branch may create a fallback aggregate
-(`let s = Seat.create({...})`); branch-local creations / mutations save at the
+(`let s = Seat.create(...)`); branch-local creations / mutations save at the
 end of their branch.
 
 The source may also be a **natural-key read** — `if let o =
@@ -322,7 +322,7 @@ published OpenAPI response carries its schema.
 ```ddd
 workflow openAccount {
   create(owner: Customer id, number: string): Account id {
-    let account = Account.create({ owner: owner, number: number, balance: 0 })
+    let account = Account.create(owner: owner, number: number, balance: 0)
     return account.id
   }
 }
@@ -417,16 +417,17 @@ has) — return the id and read the record back, or use a `commandHandler`.
   of a local that is neither created nor loaded from a repository, and an
   aggregate passed to a mutating service as an expression rather than a
   bound local.
-- **Three spellings, one create.**  `Agg.create(a, b)` (positional),
-  `Agg.create(x: a, y: b)` (named) and `Agg.create({ x: a, y: b })`
-  (record) are the same factory call, created and saved alike.  Positions
+- **Two spellings, one create.**  `Agg.create(a, b)` (positional) and
+  `Agg.create(x: a, y: b)` (named) are the same factory call, created and
+  saved alike; the record form `Agg.create({ x: a })` is retired
+  (`loom.create-record-form`, D-CREATE-CALL-STYLE).  Positions
   bind to the aggregate's create input in order: the parameters of its
   declared `create(…)` (`with crudish` declares one from the writable
   fields), else its properties minus the `managed` / `token` / `internal`
   ones; trailing inputs may be left out when they are optional or
   defaulted.  More positions than inputs, positional and named arguments
   mixed, a name that is not an input, or a name given twice is
-  `loom.workflow-create-args`.
+  `loom.create-args`.
 - **Aggregate-level events** (raised inside an operation via `emit`)
   drain through the aggregate's repository save.  In a
   non-transactional workflow each save commits on its own, so its
@@ -525,7 +526,7 @@ workflow AskForRating {
   ticket: Ticket id
   create(e: TicketResolved) by e.ticket {
     precondition e.email != "boom@example.test"
-    let s = Survey.create({ ticket: e.ticket, email: e.email })
+    let s = Survey.create(ticket: e.ticket, email: e.email)
   }
 }
 ```

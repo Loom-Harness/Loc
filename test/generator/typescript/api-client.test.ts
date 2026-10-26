@@ -35,7 +35,7 @@ system Acme {
       workflow fulfil {
         create(orderId: string) {
           let o = orders.getOrderById(orderId)
-          let s = Shipment.create({ orderCode: o.code, status: "Pending" })
+          let s = Shipment.create(orderCode: o.code, status: "Pending")
         }
       }
     }
@@ -78,7 +78,7 @@ system Acme {
         create(code: string) {
           let o = orders.byCodeOrder(code)
           let note = match o { Order x => x.code, else => "missing" }
-          let s = Shipment.create({ orderCode: note, status: "Pending" })
+          let s = Shipment.create(orderCode: note, status: "Pending")
         }
       }
     }

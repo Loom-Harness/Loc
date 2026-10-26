@@ -77,7 +77,7 @@ system MessagedRules {
         }
 
         test "restock adds to quantity" {
-          let p = Product.create({ name: "Widget", sku: Sku { code: "WID" }, quantity: 2, reorderLevel: 1 })
+          let p = Product.create(name: "Widget", sku: Sku { code: "WID" }, quantity: 2, reorderLevel: 1)
           p.restock(3)
           expect(p.quantity).toBe(5)
         }

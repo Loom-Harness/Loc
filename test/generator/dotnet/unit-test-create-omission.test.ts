@@ -42,15 +42,15 @@ system Acme {
         openedAt: datetime = now()
 
         test "omitting every optional input still constructs" {
-          let t = Ticket.create({ code: "T-1" })
+          let t = Ticket.create(code: "T-1")
           expect(t.code).toBe("T-1")
         }
         test "a supplied optional survives" {
-          let t = Ticket.create({ code: "T-2", note: "kept" })
+          let t = Ticket.create(code: "T-2", note: "kept")
           expect(t.note).toBe("kept")
         }
         test "an empty code is refused" {
-          expect(Ticket.create({ code: "" })).toThrow()
+          expect(Ticket.create(code: "")).toThrow()
         }
       }
       repository Agents for Agent { }

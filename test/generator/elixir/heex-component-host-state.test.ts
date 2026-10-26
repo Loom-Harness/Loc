@@ -80,7 +80,7 @@ system Demo {
         group by c.name
         select name = c.name, n = count()
       }
-      workflow Signup { create(n: string) { let c = Customer.create({ name: n }) } }
+      workflow Signup { create(n: string) { let c = Customer.create(name: n) } }
     }
   }
   api CApi from S

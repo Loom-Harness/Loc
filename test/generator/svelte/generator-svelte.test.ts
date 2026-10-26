@@ -33,11 +33,11 @@ system Shop {
             repository Orders for Order { }
             workflow placeOrder {
                 create(customerId: Customer id) {
-                    let order = Order.create({
+                    let order = Order.create(
                         customerId: customerId,
                         status: Draft,
                         placedAt: now()
-                    })
+                    )
                 }
             }
         }

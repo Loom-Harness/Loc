@@ -260,7 +260,7 @@ export function renderOperationCall(
   return `${recv}.${jid(e.member)}(${args.join(", ")})`;
 }
 
-/** `Agg.create({...})` → the positional `Agg.create(...)` factory call,
+/** `Agg.create(…)` → the positional `Agg.create(...)` factory call,
  *  omitted create-inputs filled with their omission value (the factory
  *  takes every canonical create-input positionally). */
 export function renderCreateCall(
@@ -288,7 +288,7 @@ export function renderCreateCall(
     //
     // This used to render the DEFAULT VALUE here instead, which made the
     // assertion vacuous: `test "an omitted default is applied at construction"`
-    // writes `Item.create({ name: "N" })` and checks `qty == 1`, and the fill
+    // writes `Item.create(name: "N")` and checks `qty == 1`, and the fill
     // emitted `Item.create("N", 1, …)` — passing the value it then asserted.
     // Passing `null` keeps the call compiling AND leaves the domain rule under
     // test as the thing that decides the value.

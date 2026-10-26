@@ -778,7 +778,7 @@ export function checkComponentPropTypes(model: Model, accept: ValidationAcceptor
 /** Arg-check ONE bare member-call statement (`recv.method(args)`) in a workflow
  *  or unit-`test` body.  Neither has a `this` aggregate, so — unlike `checkCallStmt` — the
  *  receiver is resolved ONLY through the body's typed lets / params (`envForNode`,
- *  with the bounded-context anchor that lets `Agg.create({ … })` type as the
+ *  with the bounded-context anchor that lets `Agg.create(…)` type as the
  *  aggregate), with no aggregate-root fallback.  The check FAILS OPEN (returns
  *  silently) whenever the receiver, an intermediate segment, or the final member
  *  doesn't resolve to a callable — workflow-body receiver typing is still partial
@@ -811,7 +811,7 @@ function checkLocalMemberCallStmt(lv: LValue, accept: ValidationAcceptor, admit?
 }
 
 /** Operation/function-call ARGUMENTS inside a unit /
- *  integration `test` body (`let r = Claim.create({ … })` then `r.bump("x")` on
+ *  integration `test` body (`let r = Claim.create(…)` then `r.bump("x")` on
  *  `bump(k: int)`).  A `test` body is not an aggregate operation, so neither
  *  `checkStatement` (which threads `checkExprCallArgs`) nor `checkCallStmt`
  *  (which needs a `this` aggregate) ever visited it: a wrong-typed or miscounted

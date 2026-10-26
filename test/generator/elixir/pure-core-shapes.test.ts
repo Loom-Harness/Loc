@@ -39,14 +39,14 @@ const ES = `system Bank {
         apply(e: Opened) { owner := e.owner  balance := 0 }
         apply(e: Deposited) { balance := balance + e.amount }
         test "opening folds the creation event" {
-          let a = Account.create({ owner: "Ada", balance: 0 })
+          let a = Account.create(owner: "Ada", balance: 0)
           expect(a.owner).toBe("Ada")
-          let b = Account.create({ owner: "Bea", balance: 0 })
+          let b = Account.create(owner: "Bea", balance: 0)
           expect(a.id == b.id).toBe(false)
-          expect(Account.create({ owner: "", balance: 0 })).toThrow()
+          expect(Account.create(owner: "", balance: 0)).toThrow()
         }
         test "deposit folds" {
-          let a = Account.create({ owner: "Ada", balance: 0 })
+          let a = Account.create(owner: "Ada", balance: 0)
           a.deposit(5)
           expect(a.balance).toBe(5)
           expect(a.deposit(0)).toThrow()
@@ -55,7 +55,7 @@ const ES = `system Bank {
       aggregate Statement with crudish {
         title: string
         test "a sibling event-sourced create" {
-          let a = Account.create({ owner: "Bob", balance: 0 })
+          let a = Account.create(owner: "Bob", balance: 0)
           expect(a.owner).toBe("Bob")
         }
       }
@@ -88,7 +88,7 @@ const DOC = `system DocSys {
         }
         operation restage(to: Stage) { stage := to }
         test "document create + ops in memory" {
-          let a = Article.create({ title: "T1", viewCount: 0, stage: Live })
+          let a = Article.create(title: "T1", viewCount: 0, stage: Live)
           expect(a.stage).toBe(Live)
           a.bump()
           expect(a.viewCount).toBe(1)
@@ -101,8 +101,8 @@ const DOC = `system DocSys {
         name: string
         ref: Ref
         test "a sibling document create carries a real id" {
-          let a = Article.create({ title: "T", viewCount: 0, stage: Draft })
-          let s = Shelf.create({ name: "S", ref: Ref { article: a.id, note: "n" } })
+          let a = Article.create(title: "T", viewCount: 0, stage: Draft)
+          let s = Shelf.create(name: "S", ref: Ref { article: a.id, note: "n" })
           expect(s.ref.article == a.id).toBe(true)
           expect(s.id != null).toBe(true)
         }

@@ -7,6 +7,14 @@ import { diagMessage } from "../../diagnostics/messages.js";
 import { nearestName } from "../../util/edit-distance.js";
 import { isInferredContainment } from "../containment.js";
 import type { DddServices } from "../ddd-module.js";
+import {
+  declaredCreateParams,
+  factoryArgs,
+  factoryCallOf,
+  factoryInputFieldNames,
+  factoryInputNames,
+  isRecordFormCreate,
+} from "../factory-call.js";
 import type {
   Aggregate,
   BuilderCall,
@@ -15,7 +23,6 @@ import type {
   Model,
   NameRef,
   PayloadDecl,
-  PostfixChain,
   Property,
   Ui,
   ValueObject,
@@ -27,9 +34,7 @@ import {
   isComponent,
   isContainment,
   isEntityPart,
-  isMemberSuffix,
   isNameRef,
-  isObjectLit,
   isPayloadDecl,
   isPostfixChain,
   isProperty,
@@ -405,52 +410,44 @@ function resolveAggregateByName(name: string, from: AstNode, model: Model): Aggr
 
 // ---------------------------------------------------------------------------
 // `loom.create-unknown-field` / `loom.create-server-field` — validate the
-// object-literal argument of an aggregate's crudish factory call
-// `Agg.create({ … })`.  The generated factory input is the aggregate's
-// create-input contract — declared `Property` members whose access is NOT
-// `managed`/`token`/`internal` (the same `forCreateInput` matrix the wire DTO
-// and every backend's `create(...)` derive from).  Passing a server-owned
-// field (`Task.create({ createdAt: now() })` where `createdAt` is `managed`,
-// or a capability-injected `tenantId`/`version`) or a typo'd key parses + emits
-// clean, then fails the emitted project's OWN `tsc`/`vitest` (the field isn't
-// on the factory input type).  This closes that gap at the call site — the
-// factory twin of `loom.unknown-construction-field` for record builders.
+// argument NAMES of an aggregate factory call `Agg.create(x: a, …)`.  The
+// generated factory input is the aggregate's create-input contract — declared
+// `Property` members whose access is NOT `managed`/`token`/`internal` (the same
+// `forCreateInput` matrix the wire DTO and every backend's `create(...)` derive
+// from).  Passing a server-owned field (`Task.create(createdAt: now())` where
+// `createdAt` is `managed`, or a capability-injected `tenantId`/`version`) or a
+// typo'd name would emit a call the emitted project's OWN `tsc`/`vitest`
+// refuses (the field isn't on the factory input type).  This closes that gap at
+// the call site — the factory twin of `loom.unknown-construction-field` for
+// record builders.
 //
-// Only the crudish RECORD factory form is checked: a single `{ … }`
-// object-literal argument.  A custom positional creator (`create(a, b)`) has a
-// different arg surface owned by the domain-call-argument gate.
+// Only named arguments are read here: positions bind to inputs by
+// construction.  A writable field a declared `create(…)` leaves out is
+// `loom.create-args`.
 // ---------------------------------------------------------------------------
 
 const SERVER_OWNED_ACCESS: ReadonlySet<string> = new Set(["managed", "token", "internal"]);
 
 export function checkFactoryCreateFields(model: Model, accept: ValidationAcceptor): void {
   for (const node of AstUtils.streamAllContents(model)) {
-    if (!isPostfixChain(node)) continue;
-    const chain = node as PostfixChain;
-    const head = chain.head;
-    if (!isNameRef(head)) continue;
-    const first = chain.suffixes[0];
-    // `Agg.create( … )` — first suffix is a call to member `create`.
-    if (!first || !isMemberSuffix(first) || !first.call || first.member !== "create") continue;
-    // Crudish record factory form only: exactly one object-literal argument.
-    if (first.args.length !== 1) continue;
-    const argVal = first.args[0]?.value;
-    if (!argVal || !isObjectLit(argVal)) continue;
-    const agg = resolveAggregateByName(head.name, head, model);
-    if (!agg) continue; // head isn't an aggregate (api client, store, …) — skip
-
-    const createInput = new Set<string>();
+    const fc = factoryCallOf(node);
+    if (!fc || isRecordFormCreate(fc.call.args)) continue;
+    const agg = fc.agg;
+    // The names a call may pass: the factory input, plus the writable fields a
+    // declared `create(…)` leaves out (`loom.create-args` names those).
+    const createInput = new Set<string>(factoryInputNames(agg));
+    const writable = new Set<string>(factoryInputFieldNames(agg));
     const serverOwned = new Map<string, string>();
     for (const m of agg.members) {
       if (!isProperty(m)) continue;
       const access = typeof m.access === "string" ? m.access : "";
       if (SERVER_OWNED_ACCESS.has(access)) serverOwned.set(m.name, access);
-      else createInput.add(m.name);
     }
 
-    for (const entry of argVal.fields) {
-      const name = typeof entry.name === "string" ? entry.name : String(entry.name);
-      if (createInput.has(name)) continue;
+    for (const arg of fc.call.args) {
+      if (!arg.name) continue;
+      const name = String(arg.name);
+      if (createInput.has(name) || writable.has(name)) continue;
       if (serverOwned.has(name)) {
         accept(
           "error",
@@ -459,7 +456,7 @@ export function checkFactoryCreateFields(model: Model, accept: ValidationAccepto
             name2: name,
             serverOwned: serverOwned.get(name),
           }),
-          { node: entry, property: "name", code: "loom.create-server-field" },
+          { node: arg, property: "name", code: "loom.create-server-field" },
         );
       } else {
         accept(
@@ -471,7 +468,7 @@ export function checkFactoryCreateFields(model: Model, accept: ValidationAccepto
             createInput: [...createInput].join(", "),
             suggestion: nearestName(name, createInput),
           }),
-          { node: entry, property: "name", code: "loom.create-unknown-field" },
+          { node: arg, property: "name", code: "loom.create-unknown-field" },
         );
       }
     }
@@ -481,13 +478,13 @@ export function checkFactoryCreateFields(model: Model, accept: ValidationAccepto
 // ---------------------------------------------------------------------------
 // `loom.create-field-type` — the VALUE-type twin of `checkFactoryCreateFields`
 // (M-T6.18 gap #3).  That gate checks the object-literal KEYS of a crudish
-// factory call `Agg.create({ … })` against the create-input contract; this
+// factory call `Agg.create(…)` against the create-input contract; this
 // checks each entry's VALUE against the target field's declared type.  A
-// wrong-typed create input (`Order.create({ qty: "abc" })` where `qty: int`)
+// wrong-typed create input (`Order.create(qty: "abc")` where `qty: int`)
 // names a valid field, so `checkFactoryCreateFields` passes it, then the emitted
 // backend's create-input DTO (`int qty`) fails its OWN tsc/gradle/mix.
 //
-// `Agg.create({ … })` is the WIRE boundary, not a domain assignment — it is
+// `Agg.create(…)` is the WIRE boundary, not a domain assignment — it is
 // deliberately more permissive than `:=` / `emit` (which reject `string` into a
 // `datetime`/`X id` field).  Create-input values are JSON-shaped: a `string`
 // literal is the idiomatic form for `datetime`/`guid` (ISO / UUID text) and for
@@ -544,31 +541,36 @@ function wireFamily(t: Ty): WireFamily {
 
 export function checkFactoryCreateFieldTypes(model: Model, accept: ValidationAcceptor): void {
   for (const node of AstUtils.streamAllContents(model)) {
-    if (!isPostfixChain(node)) continue;
-    const chain = node as PostfixChain;
-    const head = chain.head;
-    if (!isNameRef(head)) continue;
-    const first = chain.suffixes[0];
-    if (!first || !isMemberSuffix(first) || !first.call || first.member !== "create") continue;
-    if (first.args.length !== 1) continue;
-    const argVal = first.args[0]?.value;
-    if (!argVal || !isObjectLit(argVal)) continue;
-    const agg = resolveAggregateByName(head.name, head, model);
-    if (!agg) continue;
+    const fc = factoryCallOf(node);
+    if (!fc || isRecordFormCreate(fc.call.args)) continue;
+    const mapped = factoryArgs(fc.agg, fc.call.args);
+    if (mapped.kind !== "fields") continue; // `loom.create-args` reports it
+    const agg = fc.agg;
 
-    // Create-input contract mapped to declared types — declared `Property`
-    // members whose access is NOT server-owned (`managed`/`token`/`internal`),
-    // the same set `checkFactoryCreateFields` admits by name.
+    // Create-input contract mapped to declared types: the declared
+    // `create(…)` parameters when there are any, else the `Property` members
+    // whose access is NOT server-owned (`managed`/`token`/`internal`), the
+    // same set `checkFactoryCreateFields` admits by name.
     const createInput = new Map<string, Ty>();
-    for (const m of agg.members) {
-      if (!isProperty(m)) continue;
-      const access = typeof m.access === "string" ? m.access : "";
-      if (!SERVER_OWNED_ACCESS.has(access)) createInput.set(m.name, resolveTypeRef(m.type));
+    const params = declaredCreateParams(agg);
+    if (params) {
+      for (const p of params) createInput.set(p.name, resolveTypeRef(p.type));
+    } else {
+      for (const m of agg.members) {
+        if (!isProperty(m)) continue;
+        const access = typeof m.access === "string" ? m.access : "";
+        if (!SERVER_OWNED_ACCESS.has(access)) createInput.set(m.name, resolveTypeRef(m.type));
+      }
     }
 
-    const env = envForNode(argVal);
-    for (const entry of argVal.fields) {
-      const name = typeof entry.name === "string" ? entry.name : String(entry.name);
+    const env = envForNode(fc.chain);
+    const fields = mapped.fields.map((f) => ({
+      name: f.name,
+      value: f.value,
+      node: fc.call.args.find((a) => a.value === f.value)!,
+    }));
+    for (const entry of fields) {
+      const name = entry.name;
       const expected = createInput.get(name);
       if (!expected) continue; // unknown / server-owned key — `checkFactoryCreateFields`' concern
       // Nullability, checked before the wire-family comparison (which strips the
@@ -600,7 +602,7 @@ export function checkFactoryCreateFieldTypes(model: Model, accept: ValidationAcc
                   actual: typeToString(value),
                   src,
                 }),
-            { node: entry, property: "value", code: "loom.create-field-type" },
+            { node: entry.node, property: "value", code: "loom.create-field-type" },
           );
           continue;
         }
@@ -631,7 +633,7 @@ export function checkFactoryCreateFieldTypes(model: Model, accept: ValidationAcc
             expected: typeToString(expected),
             actual: typeToString(actual),
           }),
-          { node: entry, property: "value", code: "loom.create-field-id-target" },
+          { node: entry.node, property: "value", code: "loom.create-field-id-target" },
         );
         continue;
       }
@@ -649,7 +651,7 @@ export function checkFactoryCreateFieldTypes(model: Model, accept: ValidationAcc
           expected: typeToString(expected),
           actual: typeToString(actual),
         }),
-        { node: entry, property: "value", code: "loom.create-field-type" },
+        { node: entry.node, property: "value", code: "loom.create-field-type" },
       );
     }
   }

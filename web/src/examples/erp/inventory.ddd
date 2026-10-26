@@ -75,12 +75,12 @@ subdomain Inventory {
       }
 
       test "stock cannot be issued below the quantity on hand" verifies TC-INV-1 {
-        let s = StockItem.create({
+        let s = StockItem.create(
           productId: "00000000-0000-0000-0000-000000000001",
           warehouseId: "00000000-0000-0000-0000-000000000002",
           onHand: { value: 5, unit: Each },
           reorderPoint: 1
-        })
+        )
         s.receive(Quantity { value: 10, unit: Each })
         expect(s.issue(Quantity { value: 100, unit: Each })).toThrow()
       }

@@ -26,7 +26,7 @@ system LintResidue {
         operation complete() when status == Scheduled { status := Completed }
 
         test "progression" {
-          let wo = WorkOrder.create({ code: "W1" })
+          let wo = WorkOrder.create(code: "W1")
           wo.schedule()
           expect(wo.status).toBe(Scheduled)
           wo.complete()

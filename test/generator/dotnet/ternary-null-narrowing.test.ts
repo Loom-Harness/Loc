@@ -28,19 +28,19 @@ system Desk {
       workflow viaTernary {
         create(s: string, c: Customer id, n: int?) {
           requires true
-          let t = Ticket.create({ subject: s, requester: currentUser.customerId != null ? currentUser.customerId : c, qty: n != null ? n : 0 })
+          let t = Ticket.create(subject: s, requester: currentUser.customerId != null ? currentUser.customerId : c, qty: n != null ? n : 0)
         }
       }
       workflow viaCoalesce {
         create(s: string, c: Customer id) {
           requires true
-          let t = Ticket.create({ subject: currentUser.nick ?? s, requester: currentUser.customerId ?? c })
+          let t = Ticket.create(subject: currentUser.nick ?? s, requester: currentUser.customerId ?? c)
         }
       }
       workflow keepsOptional {
         create(c: Customer id) {
           requires true
-          let t = Ticket.create({ subject: "x", requester: c, watcher: currentUser.customerId != null ? currentUser.customerId : null })
+          let t = Ticket.create(subject: "x", requester: c, watcher: currentUser.customerId != null ? currentUser.customerId : null)
         }
       }
     }

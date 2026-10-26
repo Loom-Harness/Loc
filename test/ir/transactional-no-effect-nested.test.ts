@@ -51,7 +51,7 @@ const CODE = "loom.transactional-no-effect";
 describe("transactional-no-effect sees an effect nested in a for-each", () => {
   it.each([
     ["an emit", "emit Pinged { job: j.id }"],
-    ["a factory let", "let c = Job.create({ name: j.name })"],
+    ["a factory let", "let c = Job.create(name: j.name)"],
     ["a repository delete", "Jobs.delete(j)"],
   ])("%s inside the loop is an effect", async (_label, body) => {
     const diags = await diagnose(body);

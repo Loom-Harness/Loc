@@ -55,7 +55,7 @@ system Sales {
 
       workflow plainCreate transactional {
         create() {
-          let o = Order.create({ total: 0, status: "new" })
+          let o = Order.create(total: 0, status: "new")
         }
       }
     }

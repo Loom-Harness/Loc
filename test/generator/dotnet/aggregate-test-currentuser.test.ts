@@ -30,7 +30,7 @@ system Acme {
           name := newName
         }
         test "renaming to empty is rejected" {
-          let o = Order.create({ name: "demo" })
+          let o = Order.create(name: "demo")
           expect(o.rename("")).toThrow()
         }
       }

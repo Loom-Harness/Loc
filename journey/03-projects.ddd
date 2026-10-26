@@ -77,8 +77,8 @@ system Todo {
           // member of the generated `.create()` input — passing it here
           // compiles the .ddd fine but emits a test that fails `tsc`
           // (build-journal Friction #4). Omit managed fields from `.create()`.
-          let t = Task.create({ project: "00000000-0000-0000-0000-000000000001",
-                                title: "ship it", status: Open, priority: High })
+          let t = Task.create(project: "00000000-0000-0000-0000-000000000001",
+                                title: "ship it", status: Open, priority: High)
           t.complete()
           expect(t.status).toBe(Done)
           t.reopen()

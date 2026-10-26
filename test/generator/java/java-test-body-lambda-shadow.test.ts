@@ -26,7 +26,7 @@ system S {
         }
         contains lines: Line[]
         test "unit shadow" {
-          let o = Order.create({ name: "a", cap: 1 })
+          let o = Order.create(name: "a", cap: 1)
           let t = 2
           expect(o.lines.any(o => o.tags.any(t => t.weight > 0))).toBe(false)
           expect(o.lines.where(t => t.qty > 5).count + t).toBe(2)
@@ -34,7 +34,7 @@ system S {
       }
       repository Orders for Order { }
       test "integration shadow" {
-        let o = Order.create({ name: "a", cap: 1 })
+        let o = Order.create(name: "a", cap: 1)
         let l = 3
         expect(o.lines.any(l => l.qty > 1)).toBe(false)
         expect(o.lines.any(o => o.tags.any(o => o.weight > l))).toBe(false)

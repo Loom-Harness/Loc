@@ -51,8 +51,8 @@ system W {
     workflow openTicket {
       ticket: Ticket id
       create(subject: string, priority: Priority) {
-        let t = Ticket.create({ subject: subject, priority: priority })
-        let g = Tag.create({ label: subject })
+        let t = Ticket.create(subject: subject, priority: priority)
+        let g = Tag.create(label: subject)
       }
     }
     workflow escalateTicket {
@@ -64,8 +64,8 @@ system W {
     workflow noteOnEscalation {
       ticketId: Ticket id
       create(e: TicketEscalated) by e.ticket {
-        let n = Note.create({ body: "escalated" })
-        let p = Pin.create({ label: "escalated" })
+        let n = Note.create(body: "escalated")
+        let p = Pin.create(label: "escalated")
       }
     }
     commandHandler EscalateCmd(ticketId: Ticket id): Ticket id { let t = Tickets.getById(ticketId)  t.escalate()  return t.id }

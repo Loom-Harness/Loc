@@ -5777,3 +5777,45 @@ stamps, saves, audits or publishes (Java also marks the transaction
 rollback-only, since its loaded aggregate is a managed entity); the
 `operation-returns` corpus golden pins the unchanged read-back on every
 behavioural leg.
+
+## D-CREATE-CALL-STYLE — an aggregate's `create` is called like a method; the record form is retired
+
+**Status:** PINNED (owner ruling on #3301, 2026-10-26; #4309).
+
+**Question.** An aggregate factory call had three spellings: positional
+`Order.create(c, m)`, named `Order.create(customerId: c, total: m)` and the
+record form `Order.create({ customerId: c, total: m })`. Only the record form
+lowered to the factory outside workflow bodies; the other two compiled to a
+plain method call that passed the wrong arguments (the generated TS was
+`Order.create(2, "a")` against `static create(input: { … })`). And the record
+form put the create-command wire record into the domain language.
+
+**Decision.**
+
+- An aggregate's `create` is a lifecycle method and is called like any other
+  method: by position, in the create input's order, or by name. The create
+  input is the declared unnamed `create(…)` parameter list when there is one,
+  else the properties minus the server-owned (`managed` / `token` /
+  `internal`) ones. Both spellings lower, in every body (domain bodies,
+  workflows and handlers, unit tests), to the one record each backend's factory
+  takes; named arguments keep the order they are written in, since the record
+  is keyed by name. `src/language/factory-call.ts` is the one mapping the
+  validator and both lowerings share.
+- The record form is an error, `loom.create-record-form`, with no warning
+  window (the #3608 rule: a `scripts/` codemod plus a hard cutover).
+  `scripts/codemod-create-record-to-call.mjs` rewrites each record-form call
+  into the named form, key for key in the author's order, so the generated
+  output is byte-identical; it refuses, with a marker line, a record beside
+  another argument and a key named twice.
+- An argument list that maps onto no record is `loom.create-args` in every body:
+  more positions than inputs, positional and named mixed, a name outside a
+  declared `create(…)`, or a name given twice. A name outside an undeclared
+  create input stays `loom.create-unknown-field` / `loom.create-server-field`.
+
+**Consequences.** Brace literals are untouched: a value object or entity part
+is still built with `Money { amount: 1, currency: "USD" }`, and a `seed` row is
+still `Order { … }`. An HTTP client call in a `test e2e` body,
+`api.orders.create({ … })`, takes a request body; its receiver is a member
+chain, not an aggregate name, so the rule never reaches it. The generated
+backends keep their `static create(input)` factories — this is the language
+surface only.

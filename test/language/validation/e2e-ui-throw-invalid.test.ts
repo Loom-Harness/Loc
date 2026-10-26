@@ -166,7 +166,7 @@ describe("toThrow in a ui e2e body — rejected, never silently weakened", () =>
               name: string
               invariant name.length > 0
               test "empty name is rejected" {
-                expect(Technician.create({ name: "" })).toThrow()
+                expect(Technician.create(name: "")).toThrow()
               }
             }
             repository Technicians for Technician { }

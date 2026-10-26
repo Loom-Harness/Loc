@@ -32,7 +32,7 @@ const sys = (pageBody: string, design = "") => `
       repository Orders for Order { }
       workflow placeOrder {
         create(customerName: string, quantity: int) {
-          let order = Order.create({ name: customerName })
+          let order = Order.create(name: customerName)
         }
       }
     } }

@@ -38,7 +38,7 @@
 //
 //   * a declared `create` / any lifecycle create — including the ones
 //     `with crudish` and the scaffold macros expand into;
-//   * `Agg.create({ … })` anywhere in a workflow create / reactor,
+//   * `Agg.create(…)` anywhere in a workflow create / reactor,
 //     or in a top-level `commandHandler` — found by walking the statement
 //     trees, so a construction inside a `for-each` or an `if-let` branch
 //     counts too;
@@ -67,7 +67,7 @@ import type { LoomDiagnostic } from "./diagnostic.js";
 export function constructibleAggregates(ctx: BoundedContextIR): Set<string> {
   const built = new Set<string>();
 
-  // `Agg.create({ … })` lowers to a `factory-let` in a workflow / handler body.
+  // `Agg.create(…)` lowers to a `factory-let` in a workflow / handler body.
   // `walkWorkflowStmtsDeep` descends the `for-each` / `if-let` bodies, so a
   // construction inside a branch counts — a top-level-only scan would report a
   // FALSE positive on it (`ir-walk-census`, the #2720/#2705 defect class).

@@ -18,6 +18,7 @@ export { checkCallableBodies } from "./callable-bodies.js";
 export { checkCallableSites } from "./callable-sites.js";
 export { checkChannels } from "./channel.js";
 export { checkProjectSingletons, checkTopLevelDomainComposition } from "./composition.js";
+export { checkCreateArgs } from "./create-args.js";
 export { checkCriteria } from "./criterion.js";
 export { checkDataSource } from "./datasource.js";
 export {
@@ -111,5 +112,4 @@ export {
 } from "./ui.js";
 export { checkUnhandledResults } from "./unhandled-result.js";
 export { checkUnions } from "./unions.js";
-export { checkWorkflowCreateArgs } from "./workflow-create-args.js";
 export { checkWorkflowExplicitSave } from "./workflow-explicit-save.js";

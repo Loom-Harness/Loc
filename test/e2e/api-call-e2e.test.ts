@@ -315,14 +315,14 @@ system Acme {
       workflow fulfil {
         create(orderId: Order id) {
           let o = orders.getOrderById(orderId)
-          let s = Shipment.create({ orderCode: o.code, status: "Pending" })
+          let s = Shipment.create(orderCode: o.code, status: "Pending")
         }
       }
       workflow lookup {
         create(code: string) {
           let maybe = orders.byCodeOrder(code)
           let note = match maybe { Order x => x.code, else => "MISSING" }
-          let s = Shipment.create({ orderCode: note, status: "Looked" })
+          let s = Shipment.create(orderCode: note, status: "Looked")
         }
       }
       // A WRITE through the typed client: the row is created in the CALLEE's
@@ -330,7 +330,7 @@ system Acme {
       workflow placeOrder {
         create(code: string) {
           let created = orders.createOrder({ code: code, status: "Draft" })
-          let s = Shipment.create({ orderCode: code, status: "Placed" })
+          let s = Shipment.create(orderCode: code, status: "Placed")
         }
       }
       // A COLLECTION read through the typed client — the callee's paged
@@ -339,7 +339,7 @@ system Acme {
         create(label: string) {
           let listing = orders.allOrder()
           let note = match { listing.total > 0 => "SEEN", else => "EMPTY" }
-          let s = Shipment.create({ orderCode: label, status: note })
+          let s = Shipment.create(orderCode: label, status: note)
         }
       }
     }

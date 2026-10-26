@@ -40,7 +40,7 @@ const SRC = `
     workflow RegisterAccount transactional {
       create(holder: string, balance: Money) {
         precondition Registration.isEmailAvailable(holder)
-        let acct = Account.create({ holder: holder, balance: balance })
+        let acct = Account.create(holder: holder, balance: balance)
       }
     }
   }
@@ -61,7 +61,7 @@ const PURE_SRC = `
     workflow Recompute transactional {
       create(amount: Money) {
         let q = FeeQuote.forAmount(amount)
-        let c = Cart.create({ total: q })
+        let c = Cart.create(total: q)
       }
     }
   }

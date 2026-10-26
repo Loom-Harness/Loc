@@ -375,7 +375,7 @@ function lowerStatement(
 ): BodyLine[] {
   switch (st.kind) {
     case "factory-let": {
-      // `let order = Order.create({ field: value, … })` →
+      // `let order = Order.create(field: value, …)` →
       // `{:ok, order} <- Context.create_order(%{field: value, …})`
       const fields = st.fields
         .map((f) => `${snake(f.name)}: ${renderExpr(f.value, renderCtx)}`)

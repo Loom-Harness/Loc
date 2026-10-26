@@ -59,15 +59,15 @@ const TYPE = "loom.call-arg-type";
 
 describe("workflow-body operation-call statement args (M-T6.18 gap #3 follow-on)", () => {
   it("flags a wrong-typed operation-call arg on a factory-loaded receiver", async () => {
-    expect(await codes('let o = Order.create({ qty: 1 })  o.bump("x")')).toContain(TYPE);
+    expect(await codes('let o = Order.create(qty: 1)  o.bump("x")')).toContain(TYPE);
   });
 
   it("flags a wrong-arity operation-call on a factory-loaded receiver", async () => {
-    expect(await codes("let o = Order.create({ qty: 1 })  o.bump()")).toContain(COUNT);
+    expect(await codes("let o = Order.create(qty: 1)  o.bump()")).toContain(COUNT);
   });
 
   it("is CLEAN for a correctly-typed operation-call", async () => {
-    const c = await codes("let o = Order.create({ qty: 1 })  o.bump(3)");
+    const c = await codes("let o = Order.create(qty: 1)  o.bump(3)");
     expect(c).not.toContain(TYPE);
     expect(c).not.toContain(COUNT);
   });

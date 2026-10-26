@@ -76,7 +76,7 @@ system Ops {
       workflow onCompleted {
         workOrderId: WorkOrder id
         create(e: WorkOrderCompleted) by e.workOrder {
-          let n = Notification.create({ workOrder: e.workOrder, sentAt: e.at })
+          let n = Notification.create(workOrder: e.workOrder, sentAt: e.at)
         }
       }
     }
@@ -307,7 +307,7 @@ system Multi {
       repository Receipts for Receipt { }
       workflow onDone {
         jobId: Job id
-        create(e: Done) by e.job { let r = Receipt.create({ job: e.job, seenAt: e.at }) }
+        create(e: Done) by e.job { let r = Receipt.create(job: e.job, seenAt: e.at) }
       }
     }
   }

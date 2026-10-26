@@ -234,7 +234,7 @@ system Helpdesk {
         ticket: Ticket id
         create(e: TicketResolved) by e.ticket {
           let c = Customers.getById(e.requester)
-          let s = Survey.create({ ticket: e.ticket, requester: e.requester })
+          let s = Survey.create(ticket: e.ticket, requester: e.requester)
           mail.send(c.email, "How did we do?", "Please rate your ticket: /surveys/" + s.id)
         }
       }
@@ -262,7 +262,7 @@ system Helpdesk {
       }
 
       test "resolve then reopen" for Ticket {
-        let t = Ticket.create({ subject: "s", body: "b", requester: "01a107ab-2f97-7ce3-8d30-aae96235b574" })
+        let t = Ticket.create(subject: "s", body: "b", requester: "01a107ab-2f97-7ce3-8d30-aae96235b574")
         expect(t.status).toBe(New)
         expect(t.overdue).toBe(false)
       }
@@ -271,12 +271,12 @@ system Helpdesk {
       workflow openTicket {
         create(subject: string, description: string, priority: Priority) {
           requires currentUser.customerId != null
-          let t = Ticket.create({
+          let t = Ticket.create(
             subject: subject,
             body: description,
             priority: priority,
             requester: currentUser.customerId
-          })
+          )
           emit TicketOpened { ticket: t.id, requester: t.requester, priority: priority }
         }
       }

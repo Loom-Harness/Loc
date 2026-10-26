@@ -38,7 +38,7 @@ system Acme {
         orderId: Order id
         create(orderId: Order id) { }
         on(e: OrderPlaced) by e.orderId {
-          let s = Shipment.create({ orderRef: "from-broker" })
+          let s = Shipment.create(orderRef: "from-broker")
         }
       }
     }

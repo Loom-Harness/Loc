@@ -147,7 +147,7 @@ describe("IR unknown-name diagnostics suggest the nearest real name", () => {
   it("loom.workflow-create-unknown-field", async () => {
     const m = await messageOf("loom.workflow-create-unknown-field", {
       ctx: `workflow W { create(orderId: Order id) {
-              let n = Order.create({ title: "t", total: 1, priority: Low, addr: Addr { city: "x" }, titel: "u" })
+              let n = Order.create(title: "t", total: 1, priority: Low, addr: Addr { city: "x" }, titel: "u")
             } }`,
     });
     expect(m).toContain("unknown field 'titel'. Did you mean 'title'?");

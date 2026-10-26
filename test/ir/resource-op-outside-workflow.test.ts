@@ -207,7 +207,7 @@ describe("loom.resource-op-outside-workflow — the gate", () => {
           name: string
           create(name: string) { }
           test "resource op in a test block" {
-            let o = Order.create({ name: "x" })
+            let o = Order.create(name: "x")
             salesFiles.put("t", o.name)
             expect(o.name).toBe("x")
           }
@@ -224,7 +224,7 @@ describe("loom.resource-op-outside-workflow — the gate", () => {
           name: string
           create(name: string) { }
           test "resource op in an expect" {
-            let o = Order.create({ name: "x" })
+            let o = Order.create(name: "x")
             expect(salesFiles.list("orders/").count).toBe(0)
           }
         }

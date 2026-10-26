@@ -34,7 +34,7 @@ system AuthArray {
         // just runs.  Authorization is asserted at the api tier, where the 403
         // actually happens.  This test asserts the state change instead.
         test "deactivating clears the active flag" {
-          let i = Item.create({ name: "x", active: true })
+          let i = Item.create(name: "x", active: true)
           i.deactivate()
           expect(i.active).toBe(false)
         }
@@ -42,7 +42,7 @@ system AuthArray {
       repository Items for Item { }
       workflow turnOff {
         create(name: string) {
-          let item = Item.create({ name: name, active: true })
+          let item = Item.create(name: name, active: true)
           item.deactivate()
         }
       }

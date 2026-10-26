@@ -1,5 +1,6 @@
 import type { AstNode } from "langium";
 import { AstUtils } from "langium";
+import { factoryRecordFields } from "../../language/factory-call.js";
 import type {
   Aggregate,
   AggregateMember,
@@ -1043,16 +1044,20 @@ function applySuffixToRecv(
         return { recv: callIR, recvType: resultType };
       }
     }
+    // `Agg.create(a, b)` / `Agg.create(x: a)` — an aggregate factory call.
+    // Its arguments map onto the create input (`language/factory-call.ts`)
+    // and lower to the one record every backend's factory takes, so the
+    // positional and named spellings are one IR shape.
+    const factory = ms.member === "create" && recv.kind === "ref";
+    const factoryRecord = factory ? factoryInputRecord(recv.name, ms, args, env) : undefined;
+    const callArgs = factoryRecord ? [factoryRecord] : args;
     const mcIR: ExprIR = {
       kind: "method-call",
       receiver: recv,
       member: ms.member,
-      // `Agg.create({ … })` — the input literal's keys name declared
-      // properties, so they carry the expected type a bare enum value needs.
-      args:
-        ms.member === "create" && recv.kind === "ref"
-          ? retargetCreateInput(recv.name, args, env)
-          : args,
+      // The input record's keys name declared properties, so they carry the
+      // expected type a bare enum value needs.
+      args: factory ? retargetCreateInput(recv.name, callArgs, env) : callArgs,
       receiverType: recvType,
       isCollectionOp: collectionOp,
       ...(isIntrinsicMatcher(ms.member) ? { isIntrinsicMatcher: true } : {}),
@@ -1061,7 +1066,7 @@ function applySuffixToRecv(
       // verbatim; `expectStmtIR` lifts it onto the `expect-throws` node and the
       // validator refuses it anywhere but a unit-tier `toThrow`.
       ...(ms.throwKind && isThrowKind(ms.throwKind) ? { throwKind: ms.throwKind } : {}),
-      ...(argNames.some((n) => n !== undefined) ? { argNames } : {}),
+      ...(!factoryRecord && argNames.some((n) => n !== undefined) ? { argNames } : {}),
     };
     return { recv: mcIR, recvType: passType(suffix, env) };
   }
@@ -2059,16 +2064,36 @@ function calleeParams(name: string, env: Env): { name: string; type: TypeIR }[] 
  *  (F-022).  Positional by index; a named-argument call matches by name, so
  *  `issue(to: Draft)` resolves the same way as `issue(Draft)`.  A no-op for
  *  every argument that is not an ambiguous bare enum value. */
-/** Repoint the fields of an `Agg.create({ … })` input at the aggregate's
+/** Repoint the fields of an `Agg.create(…)` input at the aggregate's
  *  DECLARED property types (F-022).
  *
  *  The create input is a structural object literal, so its fields lower
  *  context-free — but every key NAMES a property, and that property's type is
  *  the slot's expected type exactly as for a field default.  Without this,
- *  `SalesOrder.create({ status: Draft })` in a context that also declares
+ *  `SalesOrder.create(status: Draft)` in a context that also declares
  *  `enum QuoteStatus { Draft, … }` reaches phase (7) looking context-free and
  *  is reported as ambiguous, though the slot says precisely which enum it is.
  *  (`web/src/examples/erp/sales.ddd` is exactly this shape.) */
+/** The create-input record an aggregate factory call's positional / named
+ *  arguments build, or `undefined` when the receiver is no aggregate or the
+ *  arguments map onto no record (refused at phase ④, `loom.create-args`). */
+function factoryInputRecord(
+  aggName: string,
+  ms: MemberSuffix,
+  args: ExprIR[],
+  env: Env,
+): ExprIR | undefined {
+  const agg = findEntityByName(env, aggName);
+  if (!agg || !isAggregate(agg)) return undefined;
+  const fields = factoryRecordFields(agg, ms.args);
+  if (!fields) return undefined;
+  const lowered = new Map(ms.args.map((a, i) => [a.value, args[i]!] as const));
+  return {
+    kind: "object",
+    fields: fields.map((f) => ({ name: f.name, value: lowered.get(f.value)! })),
+  };
+}
+
 function retargetCreateInput(aggName: string, args: ExprIR[], env: Env): ExprIR[] {
   if (!args.some(carriesEnumCandidates)) return args;
   const agg = findEntityByName(env, aggName);

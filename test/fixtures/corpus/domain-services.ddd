@@ -68,7 +68,7 @@ system DomainSvc {
         // stress: a `Money` VO reconstructed from `balance.amount ± amount.amount`
         // and read back, exercising cross-backend decimal coercion in a pure op.
         test "deposit and withdraw adjust the decimal Money balance" {
-          let a = Account.create({ holder: "alice", balance: Money { amount: 100.00, currency: "USD" } })
+          let a = Account.create(holder: "alice", balance: Money { amount: 100.00, currency: "USD" })
           expect(a.balance.amount).toBe(100.00)
           let credit = Money { amount: 50.00, currency: "USD" }
           a.deposit(credit)
@@ -137,7 +137,7 @@ system DomainSvc {
       workflow RegisterAccount transactional {
         create(holder: string, balance: Money) {
           precondition Registration.isHolderFree(holder)
-          let acct = Account.create({ holder: holder, balance: balance })
+          let acct = Account.create(holder: holder, balance: balance)
         }
       }
 

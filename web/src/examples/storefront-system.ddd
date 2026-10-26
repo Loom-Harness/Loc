@@ -157,11 +157,11 @@ system StorefrontSystem {
         }
 
         test "adding a line then confirming yields a confirmed order" verifies TC-001 {
-          let order = Order.create({
+          let order = Order.create(
             customerId: "00000000-0000-0000-0000-000000000001",
             status: Draft,
             placedAt: "2024-01-01T00:00:00Z"
-          })
+          )
           order.addLine("00000000-0000-0000-0000-000000000002", Money { amount: 5.00, currency: "USD" }, 2)
           order.confirm()
           expect(order.status).toBe(Confirmed)
@@ -169,11 +169,11 @@ system StorefrontSystem {
         }
 
         test "lines cannot be added once the order is confirmed" verifies TC-001 {
-          let order = Order.create({
+          let order = Order.create(
             customerId: "00000000-0000-0000-0000-000000000001",
             status: Draft,
             placedAt: "2024-01-01T00:00:00Z"
-          })
+          )
           order.addLine("00000000-0000-0000-0000-000000000002", Money { amount: 5.00, currency: "USD" }, 2)
           order.confirm()
           expect(order.addLine("00000000-0000-0000-0000-000000000002", Money { amount: 5.00, currency: "USD" }, 1)).toThrow()
@@ -206,11 +206,11 @@ system StorefrontSystem {
         create(customerId: Customer id, walletId: Wallet id, productId: Product id, unitPrice: Money, qty: int) {
           precondition qty > 0
           let wallet = Wallets.getById(walletId)
-          let order = Order.create({
+          let order = Order.create(
             customerId: customerId,
             status: Draft,
             placedAt: now()
-          })
+          )
           order.addLine(productId, unitPrice, qty)
           order.confirm()
           wallet.debit(unitPrice)

@@ -59,7 +59,7 @@ system Catalog {
       workflow discardUnreadReads {
         create(ref: string, id: Order id) {
           let probe = Orders.getById(id)
-          let placed = Order.create({ customerId: ref })
+          let placed = Order.create(customerId: ref)
           emit Resolved { label: ref }
         }
       }
@@ -69,8 +69,8 @@ system Catalog {
       workflow discardUnreadRetrieval {
         create(ref: string) {
           let rows = Orders.run(ByCustomer(ref))
-          let extra = Order.create({ customerId: ref })
-          let kept = Order.create({ customerId: ref })
+          let extra = Order.create(customerId: ref)
+          let kept = Order.create(customerId: ref)
         }
       }
 

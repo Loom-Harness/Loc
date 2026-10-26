@@ -29,7 +29,7 @@ const sys = (members: string, extra = "") => `system T {
 async function codes(src: string): Promise<{ code: string; message: string }[]> {
   const { model } = await parseString(src, { validate: false });
   return validateLoomModel(toLoomModel(model))
-    .filter((d) => /create-param|create-call-field-not-in-create/.test(d.code ?? ""))
+    .filter((d) => /create-param/.test(d.code ?? ""))
     .map((d) => ({ code: d.code ?? "", message: d.message }));
 }
 
@@ -149,13 +149,17 @@ describe("the shapes with no honest emission are refused", () => {
     ).toEqual([]);
   });
 
-  it("a call site passing a narrowed-out key", async () => {
-    const ds = await codes(
+  it("a call site passing a narrowed-out field", async () => {
+    const { diagnostics } = await parseString(
       sys(`${FIELDS}
       create(who: string, minutes: int, fee: Fee) { }
-      test "t" { let a = A.create({ who: "w", minutes: 10, fee: Fee { amount: 1 }, status: Done }) }`),
+      test "t" { let a = A.create(who: "w", minutes: 10, fee: Fee { amount: 1 }, status: Done) }`),
+      { validate: true },
     );
-    expect(ds.map((d) => d.code)).toEqual(["loom.create-call-field-not-in-create"]);
-    expect(ds[0]!.message).toContain("`status`");
+    const ds = diagnostics.filter((d) => d.code === "loom.create-args");
+    expect(ds).toHaveLength(1);
+    expect(ds[0]!.message).toContain(
+      "passes 'status', which the declared 'create(…)' does not list",
+    );
   });
 });

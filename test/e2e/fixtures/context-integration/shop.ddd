@@ -12,7 +12,7 @@ system Shop {
       }
       repository Orders for Order { }
       test "places an order and reads it back" {
-        let o = Order.create({ customerId: "c1", status: "Draft" })
+        let o = Order.create(customerId: "c1", status: "Draft")
         o.place()
         let found = Order.findById(o.id)
         expect(found.status).toBe("Placed")

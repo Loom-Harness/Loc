@@ -190,7 +190,7 @@ describe("no generated OpenAPI document mints one component name twice (F-026, t
       }
       repository WorkOrders for WorkOrder { }
       workflow scheduleWorkOrder {
-        create(note: string) { let w = WorkOrder.create({ title: note, scheduled: false }) }
+        create(note: string) { let w = WorkOrder.create(title: note, scheduled: false) }
       }
     }
   }

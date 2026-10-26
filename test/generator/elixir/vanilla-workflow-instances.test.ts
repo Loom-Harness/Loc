@@ -66,7 +66,7 @@ describe("vanilla foundation — workflow-instance read endpoints", () => {
               orderId: Order id
               attempts: int
               create(p: OrderPlaced) by p.order {
-                let ship = Shipment.create({ orderRef: p.order, status: "Pending" })
+                let ship = Shipment.create(orderRef: p.order, status: "Pending")
                 emit ShipmentRequested { shipment: ship.id, order: p.order, at: now() }
               }
               on(s: ShipmentRequested) by s.order {
@@ -124,7 +124,7 @@ describe("workflow-instance LIST wire shape", () => {
       repository Orders for Order {}
       workflow OrderFulfillment {
         orderId: Order id
-        create(code: string) { let o = Order.create({ code: code }) }
+        create(code: string) { let o = Order.create(code: code) }
       }
     } }
     api A from F

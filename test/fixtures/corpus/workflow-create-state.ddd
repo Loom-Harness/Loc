@@ -44,10 +44,10 @@ system WorkflowCreateState {
         }
 
         test "ship transitions a placed order and rejects an unplaced one" {
-          let o = Order.create({ sku: "SKU-1", status: "Placed" })
+          let o = Order.create(sku: "SKU-1", status: "Placed")
           o.ship()
           expect(o.status).toBe("Shipped")
-          let bad = Order.create({ sku: "SKU-2", status: "Draft" })
+          let bad = Order.create(sku: "SKU-2", status: "Draft")
           expect(bad.ship()).toThrow()
         }
       }

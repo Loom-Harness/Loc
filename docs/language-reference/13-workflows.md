@@ -103,9 +103,9 @@ There is no workflow `handle name(params) { body }` member: a named command entr
 workflow placeOrder {
   create(customerId: Customer id, placedAt: datetime) {
     let customer = Customers.getById(customerId)        // load (must exist → 404)
-    let order = Order.create({                          // factory — saved at exit
+    let order = Order.create(                          // factory — saved at exit
       customerId: customerId, status: Draft, placedAt: placedAt
-    })
+    )
     emit OrderPlaced { order: order.id, at: placedAt }  // workflow-level event
   }
 }
@@ -208,7 +208,7 @@ A command-triggered `create` may answer its caller: declare a result type after 
 ```ddd
 workflow openAccount {
   create(owner: Customer id, number: string): Account id {
-    let account = Account.create({ owner: owner, number: number, balance: 0 })
+    let account = Account.create(owner: owner, number: number, balance: 0)
     return account.id
   }
 }
@@ -306,7 +306,7 @@ The workflow body draws from a narrowed statement set — distinct from an aggre
 
 | Form | Meaning |
 |---|---|
-| `let x = Agg.create({ field: expr, … })` | Factory call. Always saved at workflow exit, in declaration order. |
+| `let x = Agg.create(field: expr, …)` | Factory call, named or positional. Always saved at workflow exit, in declaration order. |
 | `let x = Repo.getById(idExpr)` | Load by id — throws `AggregateNotFound` → 404 if missing; result is non-nullable. |
 | `let x = Repo.<find>(args)` | A declared find returning a single non-nullable aggregate. An array (`loom.workflow-load-array-unsupported`) or nullable (`…-nullable-unsupported`) return is rejected here — bind it via `Repo.run`/`find` below. |
 | `let xs = Repo.run(<Retrieval>(args), page?)` / `Repo.findAll(<Criterion>, page?)` | Bind an aggregate **array** — consumable only by a `for` loop. |
@@ -320,7 +320,7 @@ A loaded aggregate is saved **only if** an operation was invoked on it inside th
 
 There is no save statement: `Repo.save(x)` (or `insert` / `update` / `add` / `commit`) in a workflow or handler body is `loom.workflow-explicit-save`. `Repo.delete(x)` / `Repo.remove(x)` is the one repository write a body states.
 
-Which effects a body may have depends on where it sits, not on how a statement is spelled. A `queryHandler` may load, call and return, and nothing else (`loom.query-handler-saves`). A command `create` of a workflow with no id-shaped state field can neither assign nor read that state (`loom.workflow-uncorrelated-state-write` / `loom.workflow-uncorrelated-state-read`). In every body, an aggregate the body mutates must be one a save covers: a mutating call whose result is bound (`let r = a.withdraw(x)`, or a `mutating` domain service bound with `let`) is not saved yet and is `loom.workflow-mutation-unsaved` — write the call as its own statement. A factory call may be positional, named or a record — `Agg.create(a, b)`, `Agg.create(x: a, y: b)` and `Agg.create({ x: a, y: b })` create and save the same aggregate, positions binding to the declared `create(…)` parameters (else the client-writable properties) in order; an argument list that maps onto no record is `loom.workflow-create-args`.
+Which effects a body may have depends on where it sits, not on how a statement is spelled. A `queryHandler` may load, call and return, and nothing else (`loom.query-handler-saves`). A command `create` of a workflow with no id-shaped state field can neither assign nor read that state (`loom.workflow-uncorrelated-state-write` / `loom.workflow-uncorrelated-state-read`). In every body, an aggregate the body mutates must be one a save covers: a mutating call whose result is bound (`let r = a.withdraw(x)`, or a `mutating` domain service bound with `let`) is not saved yet and is `loom.workflow-mutation-unsaved` — write the call as its own statement. A factory call is positional or named — `Agg.create(a, b)` and `Agg.create(x: a, y: b)` create and save the same aggregate (the record form `Agg.create({ x: a })` is `loom.create-record-form`), positions binding to the declared `create(…)` parameters (else the client-writable properties) in order; an argument list that maps onto no record is `loom.create-args`.
 
 ```ddd
 // rejected — the exit save already writes `i`

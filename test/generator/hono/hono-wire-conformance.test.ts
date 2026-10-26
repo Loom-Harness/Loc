@@ -55,7 +55,7 @@ const HONO_FIXTURE = `system AcmeHono {
       repository Orders for Order { }
       workflow placeOrder {
       create(customerId: Customer id) {
-        let order = Order.create({ customerId: customerId, status: Draft })
+        let order = Order.create(customerId: customerId, status: Draft)
       }
     }
     }

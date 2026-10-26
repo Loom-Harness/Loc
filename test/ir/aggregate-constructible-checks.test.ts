@@ -72,7 +72,7 @@ describe("loom.aggregate-not-constructible", () => {
     repository Policies for Policy { }
     workflow issue {
       create(code: string) {
-        let p = Policy.create({ code: code })
+        let p = Policy.create(code: code)
       }
     }`),
     ).toEqual([]);
@@ -91,7 +91,7 @@ describe("loom.aggregate-not-constructible", () => {
     workflow issue {
       create(code: string) {
         if let c = Claims.find(Open) {
-          let p = Policy.create({ code: code })
+          let p = Policy.create(code: code)
         }
       }
     }`),
@@ -104,7 +104,7 @@ describe("loom.aggregate-not-constructible", () => {
     aggregate Policy { code: string }
     repository Policies for Policy { }
     commandHandler Issue(code: string): string {
-      let p = Policy.create({ code: code })
+      let p = Policy.create(code: code)
       return code
     }`),
     ).toEqual([]);

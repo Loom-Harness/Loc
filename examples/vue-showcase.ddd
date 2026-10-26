@@ -131,11 +131,11 @@ system AcmeVue {
                 // TC-001 via `verifies`, so the traceability report shows
                 // both a unit and an e2e test backing the test case.
                 test "confirming an order with no lines is rejected" verifies TC-001 {
-                    let order = Order.create({
+                    let order = Order.create(
                         customerId: "cust-001",
                         status: Draft,
                         placedAt: now()
-                    })
+                    )
                     expect(order.confirm()).toThrow()
                 }
             }
@@ -169,11 +169,11 @@ system AcmeVue {
             workflow placeOrder {
               create(customerId: string, productId: Product id, quantity: int) {
                 precondition quantity > 0
-                  let order = Order.create({
+                  let order = Order.create(
                       customerId: customerId,
                       status: Draft,
                       placedAt: now()
-                  })
+                  )
                   order.addLine(productId, quantity)
               }
             }

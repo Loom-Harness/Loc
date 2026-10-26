@@ -449,7 +449,7 @@ ${
   opts.unitBody
     ? `
         test "probe" {
-          let wo = WorkOrder.create({ reference: "WO-1", status: Draft })
+          let wo = WorkOrder.create(reference: "WO-1", status: Draft)
 ${opts.unitBody}
         }`
     : ""
@@ -461,7 +461,7 @@ ${
   opts.contextTest
     ? `
       test "integration" {
-        let wo = WorkOrder.create({ reference: "WO-1", status: Draft })
+        let wo = WorkOrder.create(reference: "WO-1", status: Draft)
 ${opts.contextTest}
       }`
     : ""
@@ -627,26 +627,26 @@ system TpcUnique {
   // and silently answered AFTER the steps that follow it.
   "loom.workflow-return-not-last": workflowResult(`
       create(n: string): Account id {
-        let a = Account.create({ number: n, balance: 0 })
+        let a = Account.create(number: n, balance: 0)
         return a.id
-        let b = Account.create({ number: n, balance: 1 })
+        let b = Account.create(number: n, balance: 1)
       }`),
   // A `return` with no `: T` — the route would answer a body its contract
   // never published.
   "loom.workflow-return-untyped": workflowResult(`
       create(n: string) {
-        let a = Account.create({ number: n, balance: 0 })
+        let a = Account.create(number: n, balance: 0)
         return a.id
       }`),
   // A `: T` with no `return` — nothing to answer the declared 200 with.
   "loom.workflow-return-missing": workflowResult(`
       create(n: string): Account id {
-        let a = Account.create({ number: n, balance: 0 })
+        let a = Account.create(number: n, balance: 0)
       }`),
   // The returned value disagrees with the declared type.
   "loom.workflow-return-type-mismatch": workflowResult(`
       create(n: string): int {
-        let a = Account.create({ number: n, balance: 0 })
+        let a = Account.create(number: n, balance: 0)
         return a.number
       }`),
   // An `eventSourced` workflow's create may only `emit` — no state for a
@@ -663,7 +663,7 @@ system TpcUnique {
   // An aggregate result has no workflow-route wire projection yet.
   "loom.workflow-return-type-unsupported": workflowResult(`
       create(n: string): Account {
-        let a = Account.create({ number: n, balance: 0 })
+        let a = Account.create(number: n, balance: 0)
         return a
       }`),
   // Ruling D1 — an event starter reaches a claims gate with no `isSystem`
@@ -989,19 +989,6 @@ system P {
     repository Things for Thing { }
   } }
 }`,
-  // `Agg.create({ … })` passing a field the narrowed `create(…)` does not list.
-  "loom.create-call-field-not-in-create": `
-system P {
-  subdomain S { context C {
-    aggregate Thing {
-      name: string
-      rank: int = 1
-      create(name: string) { }
-      test "t" { let t = Thing.create({ name: "a", rank: 2 }) }
-    }
-    repository Things for Thing { }
-  } }
-}`,
   // --- phase ⑦ IR validate, elixir-only -----------------------------------
   // A bare call to a PRIVATE operation whose body reads `currentUser`.  Vanilla
   // lowers the call to a module-local `__op_<name>(record, …)` pure transform
@@ -1142,7 +1129,7 @@ system S {
       invariant lines.all(l => l.currency == currency)
       entity Line { currency: string }
       test "an order can be built" {
-        let o = Order.create({ currency: "EUR" })
+        let o = Order.create(currency: "EUR")
         expect(o.display).toBe("EUR")
       }
     }
@@ -1157,7 +1144,7 @@ system S {
       onHand: int
       derived display: string = sku
       test "part is built" {
-        let p = Part.create({ sku: "a", onHand: 1 })
+        let p = Part.create(sku: "a", onHand: 1)
         expect(p.display).toBe("a")
       }
     }
@@ -1333,7 +1320,7 @@ system S {
     workflow label {
       create(code: string) {
         let outcome = Orders.byCode(code)
-        let n = Note.create({ text: outcome.code })
+        let n = Note.create(text: outcome.code)
       }
     }
   } }
@@ -1894,7 +1881,7 @@ system P {
     repository Claims for Claim { }
     workflow file {
       create(reference: string, notes: string) {
-        let c = Claim.create({ reference: reference })
+        let c = Claim.create(reference: reference)
       }
     }`),
   "loom.workflow-name-collision": repoOnly(`    aggregate Thing with crudish { name: string }
@@ -1958,8 +1945,16 @@ system P {
         let r = o.rename("x")
       }
     }`),
+  // An aggregate factory call in the retired record form.
+  "loom.create-record-form": repoOnly(`    aggregate Order with crudish { name: string }
+    repository Orders for Order { }
+    workflow W {
+      create(n: string) {
+        let o = Order.create({ name: n })
+      }
+    }`),
   // A factory call with more positions than the create input has.
-  "loom.workflow-create-args": repoOnly(`    aggregate Order with crudish { name: string }
+  "loom.create-args": repoOnly(`    aggregate Order with crudish { name: string }
     repository Orders for Order { }
     workflow W {
       create(n: string) {

@@ -8,7 +8,7 @@ In-language tests live beside the domain they exercise. A `test "…" { }` block
 
 ## `test "…"` — an in-process unit test
 
-`test name=STRING ('for' target)? ('verifies' TraceId)? { TestStatement* }`. Nested in an **aggregate**, **value object** or **domain service**, the enclosing declaration is the subject. The body may `let`, construct (`Order.create({…})`, `Money { … }`), call operations and pure functions, and `expect`. A statement that mutates aggregate state from the test itself (`n := 2`) or guards it (`precondition` / `requires` / `emit`) is rejected with `loom.aggregate-test-context` — the test has no `this`. The optional `verifies TC-xxx` back-links the test to a `testCase` in the traceability graph ([Requirements & traceability](19-requirements-traceability.md)).
+`test name=STRING ('for' target)? ('verifies' TraceId)? { TestStatement* }`. Nested in an **aggregate**, **value object** or **domain service**, the enclosing declaration is the subject. The body may `let`, construct (`Order.create(…)`, `Money { … }`), call operations and pure functions, and `expect`. A statement that mutates aggregate state from the test itself (`n := 2`) or guards it (`precondition` / `requires` / `emit`) is rejected with `loom.aggregate-test-context` — the test has no `this`. The optional `verifies TC-xxx` back-links the test to a `testCase` in the traceability graph ([Requirements & traceability](19-requirements-traceability.md)).
 
 ```ddd
 valueobject Money {
@@ -30,7 +30,7 @@ aggregate Order with crudish {
   operation confirm() { precondition lines.count > 0  status := Confirmed }
 
   test "adding a line then confirming yields a confirmed order" verifies TC-001 {
-    let order = Order.create({ customerId: "c-1", status: Draft })
+    let order = Order.create(customerId: "c-1", status: Draft)
     order.addLine("00000000-0000-0000-0000-000000000002", 2)
     order.confirm()
     expect(order.status).toBe(Confirmed)
@@ -125,7 +125,7 @@ A `test` may live outside its subject. Reachability is not a home: the `for` hea
 context Sales {
   aggregate Order with crudish { … }
   test "an order starts as Draft" for Order {           // hoisted — emitted into order.test.ts / OrderTests.cs
-    let order = Order.create({ customerId: "c-2", status: Draft })
+    let order = Order.create(customerId: "c-2", status: Draft)
     expect(order.status).toBe(Draft)
   }
 }
@@ -145,7 +145,7 @@ A `test` nested directly in a `context` (no `for`) is an **in-process integratio
 ```ddd
 context Sales {
   test "a saved order can be read back" {
-    let o = Order.create({ customerId: "c-3", status: Draft })
+    let o = Order.create(customerId: "c-3", status: Draft)
     let read = Order.findById(o.id)
     expect(read.customerId).toBe("c-3")
   }
@@ -513,7 +513,7 @@ The single-argument **kind** form pins the rung. It is legal only in a unit `tes
 
 ```ddd
 test "a fresh work order cannot be completed" {
-  let wo = WorkOrder.create({ reference: "WO-1", customerName: "Ada", status: Draft })
+  let wo = WorkOrder.create(reference: "WO-1", customerName: "Ada", status: Draft)
   expect(wo.complete()).toThrow(precondition)
 }
 ```

@@ -15,8 +15,8 @@ const SYS = (opts: { withCommand: boolean; platform: string; design: string }) =
     repository Ps for P { }
     repository R2s for R2 { }
     event Went { p: P id }
-    ${opts.withCommand ? "workflow Cmd { create(n: string) { let p = P.create({ name: n }) } }" : ""}
-    workflow replicatePolicies { p: P id  create(e: Went) by e.p { let r = R2.create({ p: e.p }) } }
+    ${opts.withCommand ? "workflow Cmd { create(n: string) { let p = P.create(name: n) } }" : ""}
+    workflow replicatePolicies { p: P id  create(e: Went) by e.p { let r = R2.create(p: e.p) } }
   } }
     ui W with scaffold(subdomains: [S]) { }
     storage primary { type: postgres }

@@ -37,7 +37,7 @@ system ChannelsBrokerWorkflowSys {
       // `on(...)` reactor / event-triggered `create … by` anywhere.
       workflow draftOrder {
         create(customerId: string) {
-          let o = Order.create({ customerId: customerId, status: "Draft" })
+          let o = Order.create(customerId: customerId, status: "Draft")
           emit OrderPlaced { order: o.id, at: now() }
         }
       }

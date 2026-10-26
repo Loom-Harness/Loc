@@ -155,7 +155,7 @@ describe("F-022 — bare enum value shared by two enums", () => {
     // The create input is a structural object literal, so its fields lower
     // context-free — but every key names a declared property.  This is the
     // shape `web/src/examples/erp/sales.ddd` uses.
-    const members = `        test "t" { let i = Invoice.create({ status: Draft, label: "x" }) }`;
+    const members = `        test "t" { let i = Invoice.create(status: Draft, label: "x") }`;
     expect(await errorCodes(members)).not.toContain("loom.ambiguous-enum-value");
     expect(await enumRefsOf(members)).not.toContain("Draft@OrderStatus");
     expect(await enumRefsOf(members)).toContain("Draft@InvoiceStatus");

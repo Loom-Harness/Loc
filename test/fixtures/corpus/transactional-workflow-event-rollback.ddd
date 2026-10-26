@@ -45,7 +45,7 @@ system TransactionalWorkflowEventRollback {
       // The consumer whose side effect must not survive a rollback.
       workflow onDebit {
         a: Acct id
-        create(e: Debited) by e.acct { let x = Audit.create({ note: "debited" }) }
+        create(e: Debited) by e.acct { let x = Audit.create(note: "debited") }
       }
 
       // Commits: its `Debited` reaches the reactor once, after the commit.

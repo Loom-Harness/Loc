@@ -134,7 +134,7 @@ const STMTS: readonly { kind: string; src: (s: Scope) => string }[] = [
   { kind: "repo-let", src: (s) => `let o2 = Orders.getById(${s.orderId})` },
   { kind: "repo-delete", src: (s) => `let o3 = Orders.getById(${s.orderId})\n Orders.delete(o3)` },
   { kind: "op-call", src: (s) => `let o4 = Orders.getById(${s.orderId})\n o4.place()` },
-  { kind: "factory-let", src: () => `let o5 = Order.create({ status: "New" })` },
+  { kind: "factory-let", src: () => `let o5 = Order.create(status: "New")` },
   { kind: "if-let", src: () => "if let o6 = Orders.find(Placed) { o6.place() }" },
   { kind: "for", src: () => "for o7 in Orders.all() { o7.place() }" },
   { kind: "domain-service-call", src: () => "let d = Pricing.twice(2)" },

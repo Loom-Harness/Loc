@@ -60,7 +60,7 @@ system TransactionalWorkflowPostCommitDispatch {
         a: Acct id
         create(e: Debited) by e.acct {
           let p = Accts.getById(e.peer)
-          let x = Audit.create({ note: "debited", peerBalance: p.balance })
+          let x = Audit.create(note: "debited", peerBalance: p.balance)
         }
       }
 

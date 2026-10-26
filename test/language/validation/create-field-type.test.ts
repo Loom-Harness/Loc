@@ -43,16 +43,14 @@ describe("loom.create-field-type (factory create-input value types, M-T6.18)", (
   it("rejects a string value in an int create-input field", async () => {
     expect(
       await codes(
-        'test "t" { let x = Task.create({ title: "a", qty: "oops", price: 0, status: Open }) }',
+        'test "t" { let x = Task.create(title: "a", qty: "oops", price: 0, status: Open) }',
       ),
     ).toContain(TYPE);
   });
 
   it("is CLEAN when every entry value type matches", async () => {
     expect(
-      await codes(
-        'test "t" { let x = Task.create({ title: "a", qty: 3, price: 0, status: Open }) }',
-      ),
+      await codes('test "t" { let x = Task.create(title: "a", qty: 3, price: 0, status: Open) }'),
     ).not.toContain(TYPE);
   });
 
@@ -60,15 +58,13 @@ describe("loom.create-field-type (factory create-input value types, M-T6.18)", (
     // `price: 5` (an int literal) into a `money` field — same ergonomic promotion
     // defaults / `:=` / construction values accept.
     expect(
-      await codes(
-        'test "t" { let x = Task.create({ title: "a", qty: 3, price: 5, status: Open }) }',
-      ),
+      await codes('test "t" { let x = Task.create(title: "a", qty: 3, price: 5, status: Open) }'),
     ).not.toContain(TYPE);
   });
 
   it("does not add a type error for an UNKNOWN field name (name gate owns it)", async () => {
     const c = await codes(
-      'test "t" { let x = Task.create({ title: "a", qty: 3, price: 0, status: Open, bogus: "x" }) }',
+      'test "t" { let x = Task.create(title: "a", qty: 3, price: 0, status: Open, bogus: "x") }',
     );
     expect(c).toContain(UNKNOWN);
     expect(c).not.toContain(TYPE);
@@ -77,7 +73,7 @@ describe("loom.create-field-type (factory create-input value types, M-T6.18)", (
   it("suppresses on an unresolvable (unknown) value", async () => {
     expect(
       await codes(
-        'test "t" { let x = Task.create({ title: "a", qty: nope, price: 0, status: Open }) }',
+        'test "t" { let x = Task.create(title: "a", qty: nope, price: 0, status: Open) }',
       ),
     ).not.toContain(TYPE);
   });
@@ -99,7 +95,7 @@ system Demo {
       }
       workflow W {
         create(label: string) {
-          let o = Task.create({ title: "a", qty: "abc", status: Open })
+          let o = Task.create(title: "a", qty: "abc", status: Open)
         }
       }
     }
@@ -149,7 +145,7 @@ context C {
 describe("loom.create-field-id-target — the wrong aggregate's id", () => {
   it("rejects a `B id` where the field declares `A id`", async () => {
     const { diagnostics } = await parseString(
-      twoAggregates(`let r = R.create({ a: bid, n: 1, at: now(), ref: s })`),
+      twoAggregates(`let r = R.create(a: bid, n: 1, at: now(), ref: s)`),
       { validate: true },
     );
     expect(lspCodes(diagnostics)).toContain(ID_TARGET);
@@ -157,7 +153,7 @@ describe("loom.create-field-id-target — the wrong aggregate's id", () => {
 
   it("accepts the matching id", async () => {
     const { diagnostics } = await parseString(
-      twoAggregates(`let r = R.create({ a: aid, n: 1, at: now(), ref: s })`),
+      twoAggregates(`let r = R.create(a: aid, n: 1, at: now(), ref: s)`),
       { validate: true },
     );
     expect(lspCodes(diagnostics)).not.toContain(ID_TARGET);
@@ -168,7 +164,7 @@ describe("loom.create-field-id-target — the wrong aggregate's id", () => {
   // explicitly carved out of.
   it("still accepts a plain string for an id, a datetime and a guid", async () => {
     const { diagnostics } = await parseString(
-      twoAggregates(`let r = R.create({ a: s, n: 1, at: s, ref: s })`),
+      twoAggregates(`let r = R.create(a: s, n: 1, at: s, ref: s)`),
       { validate: true },
     );
     expect(lspCodes(diagnostics)).not.toContain(ID_TARGET);
