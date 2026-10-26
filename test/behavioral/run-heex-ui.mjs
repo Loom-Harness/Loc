@@ -198,6 +198,28 @@ async function waitForHealth(base, exited, timeoutMs = 180_000) {
   }
 }
 
+/** `npx playwright install --with-deps chromium`, retried: on CI runners the
+ *  download sometimes stalls until the timeout kills it, and a fresh attempt
+ *  succeeds.  The twin of `test/e2e/support/playwright-install.ts` (a `.mjs`
+ *  runner cannot import it). */
+function installChromium(cwd) {
+  const backoffMs = [5_000, 20_000];
+  const causes = [];
+  for (let attempt = 1; attempt <= backoffMs.length + 1; attempt++) {
+    try {
+      execFileSync(npx, ["playwright", "install", "--with-deps", "chromium"], { cwd, stdio: "pipe", timeout: 240_000 });
+      return;
+    } catch (e) {
+      const cause = String(e?.message ?? e).split("\n")[0];
+      causes.push(`attempt ${attempt}: ${cause}`);
+      if (attempt > backoffMs.length) break;
+      log(`    playwright install failed (${cause}); retrying in ${backoffMs[attempt - 1] / 1000}s`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, backoffMs[attempt - 1]);
+    }
+  }
+  throw new Error(`playwright install failed ${causes.length} times:\n${causes.join("\n")}`);
+}
+
 async function main() {
   mkdirSync(WORK, { recursive: true });
   const genDir = mkdtempSync(join(tmpdir(), "loom-heex-ui-"));
@@ -303,7 +325,7 @@ async function main() {
         execFileSync(npm, ["install", "--no-audit", "--no-fund", "--no-save", `@playwright/test@${pinned}`], { cwd: e2eDir, stdio: "pipe", timeout: 600_000 });
       }
     } else {
-      execFileSync(npx, ["playwright", "install", "--with-deps", "chromium"], { cwd: e2eDir, stdio: "pipe", timeout: 600_000 });
+      installChromium(e2eDir);
     }
     const reportFile = join(WORK, "report.json");
     rmSync(reportFile, { force: true });
