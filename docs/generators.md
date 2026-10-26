@@ -154,7 +154,7 @@ For a context with aggregates `Order` (containing parts) and `Product`:
 ├── tsconfig.json
 ├── index.ts                         # pg Pool → drizzle → createApp(db) → @hono/node-server.serve
 ├── scheduler.ts                     # timerSource jobs (when the deployable owns any) — see "Timer sources"
-├── drizzle.config.ts                # Drizzle Kit config (db:generate, db:migrate, db:push, db:studio)
+├── drizzle.config.ts                # Drizzle Kit config (db:generate, db:push, db:studio)
 ├── Dockerfile                       # multi-stage node:22-alpine; runtime serves `node out/index.js`
 ├── .dockerignore
 ├── certs/.gitkeep                   # proxy-CA escape hatch (drop *.crt files here at build time)
@@ -1466,7 +1466,7 @@ Postgres-backed emitters lives in
 | Backend | Emits | Applied by |
 | --- | --- | --- |
 | Phoenix | `priv/repo/migrations/<ts>_<name>.exs` (Ecto DSL) | `mix ecto.migrate` at boot via the existing release config |
-| Hono | `db/migrations/<version>_<name>.sql` + `db/migrations/meta/_journal.json` | the generated `db/migrate.ts`: `await migrate(db, { migrationsFolder })` in `index.ts` reads the journal + .sql files and tracks state in `__drizzle_migrations` as Drizzle's migrator does, and applies a `-- loom:no-transaction` file (a `CREATE INDEX CONCURRENTLY` unit) outside a transaction.  `npm run db:migrate` (drizzle-kit migrate) works out of band until the journal holds such a file, which it runs inside its one transaction and so cannot apply |
+| Hono | `db/migrations/<version>_<name>.sql` + `db/migrations/meta/_journal.json` | the generated `db/migrate.ts`: `await migrate(db, { migrationsFolder })` in `index.ts` reads the journal + .sql files and tracks state in `__drizzle_migrations` as Drizzle's migrator does, and applies a `-- loom:no-transaction` file (a `CREATE INDEX CONCURRENTLY` unit) outside a transaction.  `npm run db:migrate` runs the same `migrate` out of band (`tsx db/migrate-cli.ts`, a pool from `DATABASE_URL`); `drizzle-kit migrate` is not wired, since it runs every file inside one transaction |
 | .NET | `Migrations/<Version>_<Name>.cs` (`migrationBuilder.Sql(@"...")`) | `db.Database.Migrate()` in `Program.cs` after `builder.Build()`; no `ModelSnapshot` is emitted — Loom owns SQL generation, so `dotnet ef migrations add` is never run and the runtime migrator is happy without one |
 
 Phoenix stays in Ecto DSL because its output is Elixir.  Hono and
