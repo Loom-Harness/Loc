@@ -109,7 +109,7 @@ describe("python auth gate", () => {
     const files = await build();
     const repo = files.get("api/app/db/repositories/order_repository.py")!;
     expect(repo).toContain("from app.auth.user import User");
-    expect(repo).toContain("async def mine(self, current_user: User) -> list[Order]:");
+    expect(repo).toContain("async def mine(self, current_user: User) -> Order | None:");
     expect(repo).toContain("OrderRow.customer_id == current_user.customer_id");
     const routes = files.get("api/app/http/order_routes.py")!;
     expect(routes).toContain("await repo.mine(current_user)");

@@ -72,16 +72,21 @@ system JavaReservedWords {
         invariant synchronized >= 0
       }
 
-      repository Tickets for Ticket {
-        // The parameter reaches the controller as a QUERY PARAMETER name and
-        // the JPQL as a BIND parameter — two more positions where the java
-        // identifier and the wire spelling have to be told apart.
-        find byLabel(final: bool, label: string): Ticket[] where this.label == label
+      repository Tickets for Ticket { }
+      // The parameter reaches the controller as a QUERY PARAMETER name and
+      // the JPQL as a BIND parameter — two more positions where the java
+      // identifier and the wire spelling have to be told apart.
+      criterion TicketsByLabel(final: bool, label: string) of Ticket = this.label == label
+      queryHandler ListTicketsByLabel(final: bool, label: string): Ticket[] {
+        let r = Tickets.run(TicketsByLabel(final, label))
+        return r
       }
     }
   }
 
-  api SalesApi from Sales
+  api SalesApi from Sales {
+    route GET "/tickets/by_label/{final}/{label}" -> Orders.ListTicketsByLabel
+  }
   storage pg { type: postgres }
   resource ticketState { for: Orders, kind: state, use: pg, index: [Ticket.label] }
   deployable d {
@@ -151,7 +156,7 @@ system JavaReservedWords {
 
     // The find's query-parameter name is the `.ddd` spelling, not the mangled
     // one — a client that sent `?final=` must still be understood.
-    let found = api.tickets.byLabel({ final: false, label: "beta" })
+    let found = api.orders.listTicketsByLabel(false, "beta")
     expect(found.count()).toBe(1)
     expect(found.first().label).toBe("beta")
 

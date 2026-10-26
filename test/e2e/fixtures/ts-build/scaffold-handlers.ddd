@@ -39,10 +39,9 @@ system HandlerScaffold {
         operation cancel() { status := "cancelled" }
         destroy { }
       }
-      repository Orders for Order {
-        find byStatus(status: string): Order[] where this.status == status
-        find byPriority(level: Priority): Order[] where this.priority == level
-      }
+      repository Orders for Order { }
+      criterion OrdersByStatus(status: string) of Order = this.status == status
+      criterion OrdersByPriority(level: Priority) of Order = this.priority == level
     }
   }
   api SalesApi with scaffoldApi(of: Sales)

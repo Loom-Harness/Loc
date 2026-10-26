@@ -109,6 +109,40 @@ const UNPARSEABLE = [
  *  keep refusing — a gate deleted by accident fails here too. */
 const DELIBERATELY_INVALID = [
   "test/cli/fixtures/bad-model.ddd",
+  // Evaluation models — frozen evidence of what the evaluated toolchain
+  // accepted — that declare LIST finds, which `loom.list-find-removed` now
+  // refuses.  They are kept as recorded, not migrated; the control below fails
+  // on any of them that stops refusing.
+  "test/fixtures/eval-models/eval-clinica/repro/r05-criterion-join-system.ddd",
+  "test/fixtures/eval-models/eval-clinica/repro/r08-retrieval-no-route.ddd",
+  "test/fixtures/eval-models/eval-fieldops/repro/H2-rowlevel-denormalized.ddd",
+  "test/fixtures/eval-models/eval-fieldops/repro/broken/09-unqueryable-filter.ddd",
+  "test/fixtures/eval-models/eval/commons/breadth.ddd",
+  "test/fixtures/eval-models/eval/commons/s4.ddd",
+  "test/fixtures/eval-models/eval/fieldops/main-devauth.ddd",
+  "test/fixtures/eval-models/eval/fieldops/main.ddd",
+  "test/fixtures/eval-models/eval/fieldops/scale.ddd",
+  "test/fixtures/eval-models/eval/fieldops/slice2.ddd",
+  "test/fixtures/eval-models/eval/fieldops/with-notifier.ddd",
+  "test/fixtures/eval-models/eval/matrix/be-dotnet.ddd",
+  "test/fixtures/eval-models/eval/matrix/be-elixir.ddd",
+  "test/fixtures/eval-models/eval/matrix/be-java.ddd",
+  "test/fixtures/eval-models/eval/matrix/be-node.ddd",
+  "test/fixtures/eval-models/eval/matrix/be-python.ddd",
+  "test/fixtures/eval-models/eval/matrix/fe-angular-native.ddd",
+  "test/fixtures/eval-models/eval/matrix/fe-angular.ddd",
+  "test/fixtures/eval-models/eval/matrix/fe-feliz.ddd",
+  "test/fixtures/eval-models/eval/matrix/fe-flutter.ddd",
+  "test/fixtures/eval-models/eval/matrix/fe-react.ddd",
+  "test/fixtures/eval-models/eval/matrix/fe-svelte-native.ddd",
+  "test/fixtures/eval-models/eval/matrix/fe-svelte.ddd",
+  "test/fixtures/eval-models/eval/matrix/fe-vue-native.ddd",
+  "test/fixtures/eval-models/eval/matrix/fe-vue.ddd",
+  "test/fixtures/eval-models/eval/phase0/main.ddd",
+  "test/fixtures/eval-models/eval/probe/search.ddd",
+  "test/fixtures/eval-models/eval/repro/broken/b08-unsupported-expr.ddd",
+  "test/fixtures/eval-models/eval/repro/elixir-currentuser-find.ddd",
+  "test/fixtures/eval-models/eval/repro/nullable-claim-find.ddd",
   // The #2922 audit's F-014 repro: a `valueobject Money` constructed with
   // `currency` omitted.  Before #2923 this validated CLEAN — a record named
   // after a walker primitive skipped construction validation entirely — and
@@ -300,5 +334,6 @@ describe("`.ddd` source census — every tracked file, not a hand-kept list", ()
         0,
       );
     }
-  });
+    // The pinned evaluation models are large; same budget as the sweeps.
+  }, 300_000);
 });

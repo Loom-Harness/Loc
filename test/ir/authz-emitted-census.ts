@@ -439,6 +439,23 @@ const CS_HELPERS: readonly Helper[] = [
   },
 ];
 
+/** A criterion read's predicate is reified ONCE per repository file as a
+ *  module-level `const <name>Criterion = (…) => <drizzle expr>;` and the
+ *  `run…` method calls it, so its conjuncts live in that definition. */
+const TS_CRITERION_HELPERS: readonly Helper[] = [
+  {
+    ref: /\b(\w+Criterion)\(/,
+    def: (n) => new RegExp(`const\\s+${esc(n)}\\s*=[^\\n]*`),
+  },
+];
+
+/** The EF `Run…` criterion read lifts query filters only when its CALLER
+ *  passes a bypass (`if (bypass.All) __q = __q.IgnoreQueryFilters(…);`, and the
+ *  per-capability `__ignore` branch).  That guarded lift is a lift for a
+ *  bypass-all site and none for any other. */
+const EF_GUARDED_LIFT =
+  /if \(bypass\.All\) __q = __q\.IgnoreQueryFilters\([^)]*\);|if \(__ignore\.Length > 0\) __q = __q\.IgnoreQueryFilters\(__ignore\);/g;
+
 export const LOCATORS: Record<VariantId, Locator> = {
   // ── Hono + Drizzle ────────────────────────────────────────────────────────
   node: {
@@ -446,6 +463,7 @@ export const LOCATORS: Record<VariantId, Locator> = {
     openers: [TS_METHOD, TS_FUNCTION, TS_ROUTE_PATH, TS_ROUTE_CALL, TS_REGISTER],
     reads: [/\.from\((schema\.\w+)\)/],
     prepare: (files, text) => inlineDrizzleScope(files, text),
+    helpers: TS_CRITERION_HELPERS,
     classify: tsClassify,
     carries: (f, site) =>
       f.kind === "deny"
@@ -515,9 +533,17 @@ export const LOCATORS: Record<VariantId, Locator> = {
       if (f.kind !== "deny" && carriesClaims(site.window, f, CS_PRINCIPAL)) return true;
       const name = efFilterName(f, agg, files);
       if (name === undefined) return false;
-      const lifted = /\.IgnoreQueryFilters\(\s*\)/.test(site.window)
+      const bypassAll = (site as Partial<ClassifiedSite>).bypass?.bypassAll === true;
+      // The deny carve-out is never bypassable, so a guarded lift that reaches
+      // it (a parameterless `IgnoreQueryFilters()` under `bypass.All`) is a
+      // defect at every site; only the bypassable conjuncts discount it.
+      const window =
+        bypassAll || f.kind === "deny"
+          ? site.window
+          : site.window.replace(EF_GUARDED_LIFT, "/*guarded lift*/");
+      const lifted = /\.IgnoreQueryFilters\(\s*\)/.test(window)
         ? true
-        : new RegExp(`\\.IgnoreQueryFilters\\(\\[[^\\]]*"${esc(name)}"`).test(site.window);
+        : new RegExp(`\\.IgnoreQueryFilters\\(\\[[^\\]]*"${esc(name)}"`).test(window);
       return !lifted;
     },
   },
@@ -529,6 +555,9 @@ export const LOCATORS: Record<VariantId, Locator> = {
     reads: [/"[^"\n]*?\bFROM\s+(?:"?\w+"?\.)?"?(\w+)"?/i],
     prepare: (_files, text) => inlineDapperScope(text),
     helpers: CS_HELPERS,
+    // A criterion read assembles its conjuncts into `__caps` AHEAD of the
+    // `FROM` literal (`__caps.Add("1 = 0")`), so the window opens at the method.
+    preamble: true,
     classify: csClassify,
     carries: (f, site) => {
       if (f.kind === "deny")

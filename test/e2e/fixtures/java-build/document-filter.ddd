@@ -17,7 +17,7 @@ system DocFilter {
         operation softDelete() { isDeleted := true }
       }
       repository Articles for Article {
-        find byTitle(t: string): Article[] where this.title == t
+        find byTitle(t: string): Article? where this.title == t
         find first(t: string): Article? where this.title == t
       }
     }

@@ -147,7 +147,7 @@ const externImplModule = (name: string): string =>
  *  type (guid → uuid string, int/long → coerced integer, string → plain);
  *  scalars mirror the same numeric/textual split.  Matches the `corrVt` switch
  *  in `emitInstanceRoutes` (non-guid-id-http-params.md). */
-function pathParamZod(t: TypeIR): string {
+function pathParamZod(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
   if (t.kind === "id") {
     return t.valueType === "guid"
       ? "UuidString"
@@ -165,8 +165,17 @@ function pathParamZod(t: TypeIR): string {
         // `/flag/false` to `true`.  Same four-spelling parse as a query bool.
         return QUERY_BOOL;
       default:
-        return "z.string()";
+        // A path segment is text, exactly like a query value: parse it with the
+        // query schema, so a `datetime` / `money` / `decimal` arrives as the
+        // domain type the handler takes (`z.string()` handed the raw text on).
+        return zodFor(t, "query");
     }
+  }
+  // An enum segment validates against its members.  Inlined: the `<E>Schema`
+  // const a query enum names lives in the aggregate's own routes file.
+  if (t.kind === "enum") {
+    const e = enumPool(ctx).find((x) => x.name === t.name);
+    if (e) return `z.enum([${e.values.map((v) => JSON.stringify(v)).join(", ")}])`;
   }
   return "z.string()";
 }
@@ -229,7 +238,7 @@ function emitPagedRunHandler(
   const reqParts: string[] = [];
   if (pathParams.length > 0) {
     reqParts.push(
-      `params: z.object({ ${pathParams.map((p) => `${p.name}: ${pathParamZod(p.type)}`).join(", ")} })`,
+      `params: z.object({ ${pathParams.map((p) => `${p.name}: ${pathParamZod(p.type, ctx)}`).join(", ")} })`,
     );
   }
   const queryFields = [
@@ -386,7 +395,7 @@ function emitRouteHandler(
   const reqParts: string[] = [];
   if (pathSlots.length > 0) {
     reqParts.push(
-      `params: z.object({ ${pathSlots.map((s) => `${s.name}: ${pathParamZod(s.type)}`).join(", ")} })`,
+      `params: z.object({ ${pathSlots.map((s) => `${s.name}: ${pathParamZod(s.type, ctx)}`).join(", ")} })`,
     );
   }
   if (bodySlots.length > 0) {
@@ -830,9 +839,10 @@ export function buildExplicitRoutesFile(
   const imports: string[] = [];
   imports.push("// Auto-generated.  Do not edit by hand.");
   imports.push(`import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";`);
-  // A money-typed VO field renders (via `zodFor`) as `moneySchema` (the shared
-  // Decimal parse chain), which lives in the helpers module, not this file.
-  if (schemaDecls.some((l) => /\bmoneySchema\b/.test(l))) {
+  // A money-typed VO field or path param renders (via `zodFor`) as
+  // `moneySchema` (the shared Decimal parse chain), which lives in the helpers
+  // module, not this file.
+  if (schemaDecls.some((l) => /\bmoneySchema\b/.test(l)) || /\bmoneySchema\b/.test(bodyStr)) {
     imports.push(`import { moneySchema } from "../lib/schemas";`);
   }
   const problemNamed = [

@@ -21,7 +21,7 @@ workflow fulfillment {
 }
 ```
 
-A workflow with no id-shaped state field keeps no instance row, so a command `create` that assigns its state (`workflow Tally { total: int  create(n: int) { total := n } }`) is `loom.workflow-uncorrelated-state-write` — declare a correlation field and pass it to the create, or drop the state. A workflow with event consumers but no id-shaped state field is `loom.workflow-correlation-required`; two id-shaped fields is `loom.correlation-field-ambiguous`. An `eventSourced` workflow needs exactly one even with no event consumers (only a command `create`), because the correlation field is its event stream's key — both codes apply to it the same way. The correlation field surfaces a read model — each backend emits `GET /api/workflows/<wf>/instances` + `/{id}` returning the instance state (`FulfillmentInstanceResponse { orderId, attempts }`), which clients read to inspect in-flight instances.
+A workflow with no id-shaped state field keeps no instance row, so a command `create` that assigns its state (`workflow Tally { total: int  create(n: int) { total := n } }`) is `loom.workflow-uncorrelated-state-write`, and one that reads it (`precondition total == 0`) is `loom.workflow-uncorrelated-state-read` — declare a correlation field and pass it to the create, or drop the state. A workflow with event consumers but no id-shaped state field is `loom.workflow-correlation-required`; two id-shaped fields is `loom.correlation-field-ambiguous`. An `eventSourced` workflow needs exactly one even with no event consumers (only a command `create`), because the correlation field is its event stream's key — both codes apply to it the same way. The correlation field surfaces a read model — each backend emits `GET /api/workflows/<wf>/instances` + `/{id}` returning the instance state (`FulfillmentInstanceResponse { orderId, attempts }`), which clients read to inspect in-flight instances.
 
 ### `requires` on the header — the instance-read gate
 
@@ -319,6 +319,8 @@ The workflow body draws from a narrowed statement set — distinct from an aggre
 A loaded aggregate is saved **only if** an operation was invoked on it inside the body; fresh `Agg.create` results always save. See [`../workflow.md`](../workflow.md) §"Save + event drain semantics".
 
 There is no save statement: `Repo.save(x)` (or `insert` / `update` / `add` / `commit`) in a workflow or handler body is `loom.workflow-explicit-save`. `Repo.delete(x)` / `Repo.remove(x)` is the one repository write a body states.
+
+Which effects a body may have depends on where it sits, not on how a statement is spelled. A `queryHandler` may load, call and return, and nothing else (`loom.query-handler-saves`). A command `create` of a workflow with no id-shaped state field can neither assign nor read that state (`loom.workflow-uncorrelated-state-write` / `loom.workflow-uncorrelated-state-read`). In every body, an aggregate the body mutates must be one a save covers: a mutating call whose result is bound (`let r = a.withdraw(x)`, or a `mutating` domain service bound with `let`) is not saved yet and is `loom.workflow-mutation-unsaved` — write the call as its own statement. A factory call may be positional, named or a record — `Agg.create(a, b)`, `Agg.create(x: a, y: b)` and `Agg.create({ x: a, y: b })` create and save the same aggregate, positions binding to the declared `create(…)` parameters (else the client-writable properties) in order; an argument list that maps onto no record is `loom.workflow-create-args`.
 
 ```ddd
 // rejected — the exit save already writes `i`

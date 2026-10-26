@@ -106,7 +106,7 @@ const READ_PATHS: readonly { readonly what: string; readonly body: string }[] = 
   {
     what: "a find that DECLARES the principal (its parameter is the binding)",
     body: `      repository WorkOrders for WorkOrder {
-        find mine(): WorkOrder[] where technicianUserId == currentUser.id
+        find mine(): WorkOrder? where technicianUserId == currentUser.id
       }`,
   },
   {
@@ -119,7 +119,7 @@ const READ_PATHS: readonly { readonly what: string; readonly body: string }[] = 
     body: `      criterion Mine() of WorkOrder = this.technicianUserId == currentUser.id
       retrieval MyOrders() of WorkOrder { where: Mine() }
       repository WorkOrders for WorkOrder {
-        find mine(): WorkOrder[] where technicianUserId == currentUser.id
+        find mine(): WorkOrder? where technicianUserId == currentUser.id
       }`,
   },
 ];
@@ -170,7 +170,7 @@ describe("emitted Python never reads `current_user` in a def that never bound it
       system(`      criterion Mine() of WorkOrder = this.technicianUserId == currentUser.id
       retrieval MyOrders() of WorkOrder { where: Mine() }
       repository WorkOrders for WorkOrder {
-        find mine(): WorkOrder[] where technicianUserId == currentUser.id
+        find mine(): WorkOrder? where technicianUserId == currentUser.id
       }`),
     );
     const reading = pyReferencingUnits(files, PY_PRINCIPAL_SCOPE);

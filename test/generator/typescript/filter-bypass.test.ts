@@ -17,9 +17,9 @@ const SRC = `
     subdomain D { context C {
       aggregate Order with softDeletable { total: int }
       repository OrderRepo for Order {
-        find recent(): Order[] where this.total > 0 ignoring softDeletable
-        find allRows(): Order[] ignoring *
-        find normal(): Order[] where this.total > 0
+        find recent(): Order? where this.total > 0 ignoring softDeletable
+        find allRows(): Order? ignoring *
+        find normal(): Order? where this.total > 0
       }
     }}
     storage primary { type: postgres }
@@ -68,7 +68,7 @@ describe("node/Drizzle ignoring filter-bypass emission", () => {
     expect(allRows).not.toContain(".where(");
     // The root select has no filter — bare `from(schema.orders)`.
     expect(allRows).toContain(
-      "this.db.select().from(schema.orders).orderBy(asc(schema.orders.id));",
+      "this.db.select().from(schema.orders).orderBy(asc(schema.orders.id)).limit(1);",
     );
   });
 

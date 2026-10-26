@@ -25,7 +25,7 @@ describe("elixir generator — string.trim() intrinsic (stdlib A1 pilot)", () =>
           context Catalog {
             aggregate Product with crudish { name: string }
             repository Products for Product {
-              find byName(q: string): Product[] where this.name == q.trim()
+              find byName(q: string): Product? where this.name == q.trim()
             }
           }
         }
@@ -60,7 +60,7 @@ system Shop {
         derived slug: string = name.trim().toLower()
       }
       repository Products for Product {
-        find byNameCi(q: string): Product[] where this.name.toLower() == q
+        find byNameCi(q: string): Product? where this.name.toLower() == q
       }
     }
   }
@@ -109,13 +109,13 @@ system Shop {
         derived amountLo: money = amount.min(amount)
       }
       repository Products for Product {
-        find byRoundedRate(q: decimal): Product[] where this.rate.round(2) == q
-        find byWholeRate(q: decimal): Product[] where this.rate.round() == q
-        find byAbsQty(q: int): Product[] where this.qty.abs() == q
-        find byMinCap(cap: money): Product[] where this.amount.min(cap) == cap
-        find byMaxQty(q: int): Product[] where this.qty.max(q) == q
-        find byFloorAmount(q: money): Product[] where this.amount.floor() == q
-        find byCeilRate(q: decimal): Product[] where this.rate.ceil() == q
+        find byRoundedRate(q: decimal): Product? where this.rate.round(2) == q
+        find byWholeRate(q: decimal): Product? where this.rate.round() == q
+        find byAbsQty(q: int): Product? where this.qty.abs() == q
+        find byMinCap(cap: money): Product? where this.amount.min(cap) == cap
+        find byMaxQty(q: int): Product? where this.qty.max(q) == q
+        find byFloorAmount(q: money): Product? where this.amount.floor() == q
+        find byCeilRate(q: decimal): Product? where this.rate.ceil() == q
       }
     }
   }

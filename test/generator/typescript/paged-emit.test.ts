@@ -1,5 +1,6 @@
-// Generator coverage for paged repository finds (payload-transport-layer.md,
-// P3b emission, slice 1 — TS/Hono).  A `find x(): <Agg> paged` emits a
+// Generator coverage for paged repository reads (payload-transport-layer.md,
+// P3b emission, slice 1 — TS/Hono).  A `find all(): <Agg> paged` (and the
+// `findAllBy<Criterion>` a paged queryHandler's `Repo.run` reads) emits a
 // repository method that runs a `count()` + `limit`/`offset` page query and
 // returns the `{ items, page, pageSize, total, totalPages }` envelope, plus a
 // route with auto-injected `page`/`pageSize` query controls and a named
@@ -14,20 +15,24 @@ const SRC = `
   context Inventory {
     aggregate Warehouse { code: string  region: string }
     repository Warehouses for Warehouse {
-      find recent(): Warehouse paged
-      find inRegion(region: string): Warehouse paged where this.region == region
+      find all(): Warehouse paged
+    }
+    criterion InRegion(region: string) of Warehouse = this.region == region
+    queryHandler ListInRegion(region: string): Warehouse paged {
+      let r = Warehouses.run(InRegion(region))
+      return r
     }
   }
 `;
 
-describe("typescript generator — paged finds (P3b)", () => {
+describe("typescript generator — paged reads (P3b)", () => {
   it("emits a paged repository method: count + limit/offset + wrapped return", async () => {
     const model = await parseValid(SRC);
     const repo = generateHono(model).get("db/repositories/warehouse-repository.ts")!;
 
     // Signature gains page/pageSize + sort/dir and returns the pagination envelope.
     expect(repo).toMatch(
-      /async recent\(page: number, pageSize: number, sort: string, dir: string\): Promise<\{ items: Warehouse\[\]; page: number; pageSize: number; total: number; totalPages: number \}>/,
+      /async all\(page: number, pageSize: number, sort: string, dir: string\): Promise<\{ items: Warehouse\[\]; page: number; pageSize: number; total: number; totalPages: number \}>/,
     );
     // Server-side sort (M-T2.6): whitelist map + orderBy on the page query.
     expect(repo).toContain(
@@ -56,15 +61,19 @@ describe("typescript generator — paged finds (P3b)", () => {
     expect(repo).toMatch(/import \{[^}]*\bcount\b[^}]*\} from "drizzle-orm";/);
   });
 
-  it("threads the find's where-clause into both the count and the page query", async () => {
+  it("threads the criterion into both the count and the page query", async () => {
     const model = await parseValid(SRC);
     const repo = generateHono(model).get("db/repositories/warehouse-repository.ts")!;
+    expect(repo).toContain(
+      "const inRegionCriterion = (region: string) => eq(schema.warehouses.region, region);",
+    );
+    expect(repo).toMatch(/async findAllByInRegion\(region: string, page: number, pageSize: number/);
     // count + page query both constrained by the region predicate.
     expect(repo).toContain(
-      "select({ value: count() }).from(schema.warehouses).where(eq(schema.warehouses.region, region))",
+      "select({ value: count() }).from(schema.warehouses).where(inRegionCriterion(region))",
     );
     expect(repo).toMatch(
-      /\.where\(eq\(schema\.warehouses\.region, region\)\)\.orderBy\(orderBy\)\.limit\(pageSize\)\.offset\(offset\)/,
+      /\.where\(inRegionCriterion\(region\)\)\.orderBy\(orderBy\)\.limit\(pageSize\)\.offset\(offset\)/,
     );
   });
 
@@ -95,7 +104,7 @@ describe("typescript generator — paged finds (P3b)", () => {
     expect(routes).toContain('dir: z.string().default("asc"),');
     // Handler passes the controls through and maps page items via toWire.
     expect(routes).toContain(
-      "const result = await repo.recent(params.page, params.pageSize, params.sort, params.dir);",
+      "const result = await repo.all(params.page, params.pageSize, params.sort, params.dir);",
     );
     expect(routes).toContain(
       "return c.json({ ...result, items: result.items.map((r) => repo.toWire(r)) } as z.infer<typeof WarehousePaged>, 200);",

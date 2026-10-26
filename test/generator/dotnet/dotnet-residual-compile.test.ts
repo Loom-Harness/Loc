@@ -44,8 +44,8 @@ system Repro {
       criterion Tok(cancellationToken: string, bypass: string) of Item = name == cancellationToken || name == bypass
       retrieval ByToken(cancellationToken: string) of Item { where: NameIs(cancellationToken) }
       repository Items for Item {
-        find byToken(cancellationToken: string): Item[] where this.name == cancellationToken
-        find byName(name: string): Item[] where this.name == name
+        find byToken(cancellationToken: string): Item? where this.name == cancellationToken
+        find byName(name: string): Item? where this.name == name
       }
       repository Modules for Module { }
       domainService Lookup {

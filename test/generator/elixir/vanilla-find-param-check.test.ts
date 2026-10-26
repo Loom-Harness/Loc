@@ -38,14 +38,14 @@ system Shop {
       }
       repository Items for Item {
         find byName(name: string): Item? where this.name == name
-        find byOwner(owner: Owner id): Item[] where this.ownerId == owner
-        find byQty(min: int): Item[] where this.qty >= min
-        find byBig(b: long): Item[] where this.big == b
-        find byPrice(p: money): Item[] where this.price >= p
-        find byActive(a: bool): Item[] where this.active == a
-        find since(t: datetime): Item[] where this.at >= t
-        find byTier(tier: Tier): Item[] where this.tier == tier
-        find byNote(n: string?): Item[] where this.note == n
+        find byOwner(owner: Owner id): Item? where this.ownerId == owner
+        find byQty(min: int): Item? where this.qty >= min
+        find byBig(b: long): Item? where this.big == b
+        find byPrice(p: money): Item? where this.price >= p
+        find byActive(a: bool): Item? where this.active == a
+        find since(t: datetime): Item? where this.at >= t
+        find byTier(tier: Tier): Item? where this.tier == tier
+        find byNote(n: string?): Item? where this.note == n
       }
       repository Owners for Owner { }
     }

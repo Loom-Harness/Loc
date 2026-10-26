@@ -42,9 +42,8 @@ system ModProbe {
         }
       }
 
-      repository Jobs for Job {
-        find bySeq(s: int): Job? where this.seq == s
-      }
+      repository Jobs for Job { }
+      criterion JobsBySeq(s: int) of Job = this.seq == s
 
       domainService Sharding {
         operation shardOf(n: int): int {

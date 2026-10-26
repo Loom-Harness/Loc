@@ -497,19 +497,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     mission: "#3388",
   },
   {
-    code: "loom.scaffold-filter-param-unsupported",
-    kind: "gap",
-    site: "src/ir/validate/checks/ui-page-structure-checks.ts:307",
-    what:
-      "a scaffolded list page's filter bar drops a repository `find` whose param it cannot " +
-      "render an input for.  M-T1.15 landed `string`/`guid`/`datetime`/`int`/`long`/`bool`/`<X> id`; " +
-      "`enum` waits on the " +
-      "frontend state emitters (an enum `state {}` field is typed as bare `string` while the " +
-      "query param is the zod enum union) and `decimal`/`money` on a per-target zero-literal " +
-      "seam (Feliz types the bar's `0` sentinel as `decimal <> int`)",
-    mission: "#3326",
-  },
-  {
     code: "loom.store-lifetime-target-unsupported",
     kind: "gap",
     site: "src/ir/validate/checks/store-checks.ts:366",
@@ -763,7 +750,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.handler-load-nullable-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/api-checks.ts:166",
+    site: "src/ir/validate/checks/api-checks.ts:131",
     what: "command/query handler load of a nullable result — v1 is single non-nullable",
     mission: "#3376",
     verified: true,
@@ -771,7 +758,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1594",
+    site: "src/ir/validate/checks/workflow-checks.ts:1546",
     what: "workflow load of an array result — v1 is single non-nullable",
     mission: "#3376",
     verified: true,
@@ -795,7 +782,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-nullable-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1608",
+    site: "src/ir/validate/checks/workflow-checks.ts:1560",
     what: "workflow load of a nullable result — v1 is single non-nullable",
     mission: "#3376",
     verified: true,

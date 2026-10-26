@@ -34,7 +34,7 @@ system TenancyShop {
         filter this.tenantId == currentUser.tenantId
       }
       repository Accounts for Account {
-        find byMinBalance(min: int): Account[] where this.balance >= min
+        find byMinBalance(min: int): Account? where this.balance >= min
       }
       retrieval RichAccounts(min: int) of Account { where: balance >= min  sort: [balance desc] }
     }
@@ -154,7 +154,7 @@ system EmbTenancy {
         entity Item { sku: string }
         operation addItem(sku: string) { items += Item { sku: sku } }
       }
-      repository Orders for Order { find byCode(code: string): Order[] where this.code == code }
+      repository Orders for Order { find byCode(code: string): Order? where this.code == code }
     }
   }
   api A from D

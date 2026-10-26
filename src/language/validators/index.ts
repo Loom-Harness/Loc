@@ -49,6 +49,7 @@ export { checkIntegerLiteralPrecision } from "./numeric-literals.js";
 export { checkPayloads } from "./payload.js";
 export { checkPermissionImplies } from "./permissions.js";
 export { checkPolicyFns } from "./policy-fn.js";
+export { checkRepoKeyLookups } from "./repo-key-lookup.js";
 export { checkRepositoryFinds } from "./repository.js";
 export { checkSeeds } from "./seed.js";
 export {
@@ -109,4 +110,5 @@ export {
   checkUi,
 } from "./ui.js";
 export { checkUnions } from "./unions.js";
+export { checkWorkflowCreateArgs } from "./workflow-create-args.js";
 export { checkWorkflowExplicitSave } from "./workflow-explicit-save.js";

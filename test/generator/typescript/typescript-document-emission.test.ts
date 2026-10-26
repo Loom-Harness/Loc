@@ -81,7 +81,7 @@ describe("Hono/Drizzle document-persistence emission (normalised(false))", () =>
     expect(repo).toContain(
       "const all = rows.map((r) => cartFromDoc(r.data as CartDoc, r.version));",
     );
-    expect(repo).toContain("const result = all.filter((x) => x.customerId === customerId);");
+    expect(repo).toContain("const result = all.find((x) => x.customerId === customerId) ?? null;");
     // No Drizzle column predicate against the document table for the find.
     expect(repo).not.toContain("schema.carts.customerId");
   });

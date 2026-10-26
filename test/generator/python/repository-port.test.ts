@@ -13,7 +13,7 @@ const SRC = `
     subdomain D { context C {
       aggregate Order with crudish { total: int }
       repository OrderRepo for Order {
-        find byMin(m: int): Order[] where this.total > m
+        find byMin(m: int): Order? where this.total > m
       }
     }}
     storage primary { type: postgres }
@@ -43,7 +43,7 @@ describe("python repository ports (audit S7)", () => {
       "async def save(self, aggregate: Order, expected_version: int | None = None) -> None: ...",
     );
     expect(port).toContain("async def delete(self, id: OrderId) -> None: ...");
-    expect(port).toContain("async def by_min(self, m: int) -> list[Order]: ...");
+    expect(port).toContain("async def by_min(self, m: int) -> Order | None: ...");
   });
 
   it("the Protocol is ORM-neutral (no SQLAlchemy) and excludes presentation (to_wire) + helpers", async () => {

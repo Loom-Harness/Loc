@@ -20,7 +20,7 @@ system Shop {
         derived slug: string = name.trim().toLower()
       }
       repository Products for Product {
-        find byNameCi(q: string): Product[] where this.name.toLower() == q
+        find byNameCi(q: string): Product? where this.name.toLower() == q
       }
     }
   }
@@ -59,8 +59,8 @@ describe("java generator — string intrinsics batch (stdlib A2)", () => {
 
   it("renders toUpper as JPQL upper() (value side too — works on parameters)", async () => {
     const src = SRC.replace(
-      "find byNameCi(q: string): Product[] where this.name.toLower() == q",
-      "find byNameUc(q: string): Product[] where this.name.toUpper() == q.toUpper()",
+      "find byNameCi(q: string): Product? where this.name.toLower() == q",
+      "find byNameUc(q: string): Product? where this.name.toUpper() == q.toUpper()",
     );
     const { errors } = await parseString(src);
     expect(errors).toEqual([]);

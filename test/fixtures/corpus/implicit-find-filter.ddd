@@ -21,12 +21,23 @@ system ImplicitFindFilter {
       }
       repository WorkOrders for WorkOrder {
         find byReference(reference: string): WorkOrder?
-        find byRegionAndRef(region: string, reference: string): WorkOrder[]
-        find inRegion(region: string): WorkOrder paged
+      }
+      criterion WorkOrdersByRegionAndRef(region: string, reference: string) of WorkOrder = this.region == region && this.reference == reference
+      queryHandler ListWorkOrdersByRegionAndRef(region: string, reference: string): WorkOrder[] {
+        let r = WorkOrders.run(WorkOrdersByRegionAndRef(region, reference))
+        return r
+      }
+      criterion WorkOrdersInRegion(region: string) of WorkOrder = this.region == region
+      queryHandler ListWorkOrdersInRegion(region: string): WorkOrder paged {
+        let r = WorkOrders.run(WorkOrdersInRegion(region))
+        return r
       }
     }
   }
-  api WorkApi from Ops
+  api WorkApi from Ops {
+    route GET "/work_orders/by_region_and_ref/{region}/{reference}" -> Work.ListWorkOrdersByRegionAndRef
+    route GET "/work_orders/in_region/{region}" -> Work.ListWorkOrdersInRegion
+  }
   storage primary { type: postgres }
   resource workState { for: Work, kind: state, use: primary }
   deployable d {
@@ -52,13 +63,13 @@ system ImplicitFindFilter {
     expect(second.region).toBe("south")
 
     // Two parameters AND their pairs — neither alone decides the row.
-    let crossed = api.workOrders.byRegionAndRef({ region: "north", reference: "WO-200" })
+    let crossed = api.work.listWorkOrdersByRegionAndRef("north", "WO-200")
     expect(crossed.length).toBe(0)
-    let matched = api.workOrders.byRegionAndRef({ region: "south", reference: "WO-200" })
+    let matched = api.work.listWorkOrdersByRegionAndRef("south", "WO-200")
     expect(matched.length).toBe(1)
 
     // Paged: the COUNT and the page query both carry the filter.
-    let southPage = api.workOrders.inRegion({ region: "south" })
+    let southPage = api.work.listWorkOrdersInRegion("south")
     expect(southPage.items.length).toBe(1)
     expect(southPage.total).toBe(1)
 
@@ -66,7 +77,7 @@ system ImplicitFindFilter {
     // update wrote, not a cached or unfiltered set.
     api.workOrders.update(first, { reference: "ONLY-ONE", region: "south" })
     expect(api.workOrders.getById(first).region).toBe("south")
-    let moved = api.workOrders.inRegion({ region: "south" })
+    let moved = api.work.listWorkOrdersInRegion("south")
     expect(moved.total).toBe(2)
     let everything = api.workOrders.all()
     expect(everything.total).toBe(2)

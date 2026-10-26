@@ -34,12 +34,17 @@ system CoreShop {
           expect(o.total.amount).toBe(10.00)
         }
       }
-      repository Orders for Order {
-        find byStatus(s: Status): Order[] where this.status == s
+      repository Orders for Order { }
+      criterion OrdersByStatus(s: Status) of Order = this.status == s
+      queryHandler ListOrdersByStatus(s: Status): Order[] {
+        let r = Orders.run(OrdersByStatus(s))
+        return r
       }
     }
   }
-  api OrdersApi from Sales
+  api OrdersApi from Sales {
+    route GET "/orders/by_status/{s}" -> Orders.ListOrdersByStatus
+  }
   storage primary { type: postgres }
   resource ordersState { for: Orders, kind: state, use: primary }
   deployable d {
@@ -93,9 +98,9 @@ system CoreShop {
     // `Draft` must answer none.  Declared enum casing has to survive the trip
     // through a query parameter, which is a different coercion from the body
     // path the create/update above exercise.
-    let placed = api.orders.byStatus({ s: "Placed" })
+    let placed = api.orders.listOrdersByStatus("Placed")
     expect(placed.length).toBe(1)
-    let drafts = api.orders.byStatus({ s: "Draft" })
+    let drafts = api.orders.listOrdersByStatus("Draft")
     expect(drafts.length).toBe(0)
   }
 }

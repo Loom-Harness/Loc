@@ -71,7 +71,9 @@ function readLine(src: string, find: string): string {
   const line = src
     .split("\n")
     .slice(idx + 1, idx + 6)
-    .find((l) => l.includes("this.db.select()") || l.includes("em.find("));
+    .find(
+      (l) => l.includes("this.db.select()") || l.includes("em.find(") || l.includes("em.findOne("),
+    );
   expect(line, `no read emitted for ${find}`).toBeDefined();
   return line!.trim();
 }
@@ -127,16 +129,16 @@ const FINDS = `
           qty: int
         }
         repository Items for Item {
-          find ltRight(): Item[] where 100 < this.qty
-          find ltLeft(): Item[] where this.qty > 100
-          find lteRight(): Item[] where 100 <= this.qty
-          find lteLeft(): Item[] where this.qty >= 100
-          find gtRight(): Item[] where 100 > this.qty
-          find gtLeft(): Item[] where this.qty < 100
-          find gteRight(): Item[] where 100 >= this.qty
-          find gteLeft(): Item[] where this.qty <= 100
-          find eqRight(): Item[] where 100 == this.qty
-          find eqLeft(): Item[] where this.qty == 100
+          find ltRight(): Item? where 100 < this.qty
+          find ltLeft(): Item? where this.qty > 100
+          find lteRight(): Item? where 100 <= this.qty
+          find lteLeft(): Item? where this.qty >= 100
+          find gtRight(): Item? where 100 > this.qty
+          find gtLeft(): Item? where this.qty < 100
+          find gteRight(): Item? where 100 >= this.qty
+          find gteLeft(): Item? where this.qty <= 100
+          find eqRight(): Item? where 100 == this.qty
+          find eqLeft(): Item? where this.qty == 100
         }
 `;
 
@@ -189,7 +191,7 @@ const POSITIONS = `
           where: 500 <= this.qty
         }
         repository Items for Item {
-          find cheap(): Item[] where Cheap()
+          find cheap(): Item? where Cheap()
         }
 `;
 

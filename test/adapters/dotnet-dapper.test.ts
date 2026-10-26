@@ -64,7 +64,7 @@ system D {
         ${body}
       }
       repository Orders for Order {
-        find byCustomer(customer: string): Order[] where this.customer == customer
+        find byCustomer(customer: string): Order? where this.customer == customer
       }
     }
   }
@@ -289,7 +289,7 @@ system D {
         tags: Tag id[]
       }
       repository Orders for Order {
-        find withTag(tag: Tag id): Order[] where this.tags.contains(tag)
+        find withTag(tag: Tag id): Order? where this.tags.contains(tag)
       }
       repository Tags for Tag { }
     }
@@ -676,7 +676,7 @@ system D {
         entity LineItem { sku: string }
       }
       repository Orders for Order {
-        find byCustomer(customer: string): Order[] where this.customer == customer
+        find byCustomer(customer: string): Order? where this.customer == customer
       }
       repository Tags for Tag { }
     }
@@ -833,7 +833,7 @@ system D {
         entity CartLine { sku: string  qty: int }
       }
       repository Carts for Cart {
-        find byCustomer(customer: string): Cart[] where this.customer == customer
+        find byCustomer(customer: string): Cart? where this.customer == customer
       }
     }
   }
@@ -866,7 +866,7 @@ system D {
     );
     // Finds run in-memory over the rehydrated documents (no SQL WHERE).
     expect(repo).toContain("var __all = __rows.Select(__d => Cart.FromSnapshot(");
-    expect(repo).toContain(".Where(x => x.Customer == customer).ToList();");
+    expect(repo).toContain(".Where(x => x.Customer == customer).FirstOrDefault();");
     // Snapshot DTOs are emitted; the EF <Agg>Document POCO / configuration are NOT.
     expect(files.has("api/Domain/Carts/CartSnapshots.cs")).toBe(true);
     expect(files.has("api/Domain/Carts/CartDocument.cs")).toBe(false);
@@ -899,7 +899,7 @@ system D {
         entity Coupon { code: string  percent: int }
       }
       repository Carts for Cart {
-        find byCustomer(customer: string): Cart[] where this.customer == customer
+        find byCustomer(customer: string): Cart? where this.customer == customer
       }
     }
   }
@@ -1216,8 +1216,8 @@ system D {
       }
       aggregate Org with crudish { name: string }
       repository Invoices for Invoice {
-        find byNumber(n: string): Invoice[] where this.number == n
-        find mine(): Invoice[] where this.createdBy == currentUser.id
+        find byNumber(n: string): Invoice? where this.number == n
+        find mine(): Invoice? where this.createdBy == currentUser.id
       }
       repository Orgs for Org { }
     }
@@ -1267,7 +1267,7 @@ system D {
     // its own `@__cu_id` ref + the inherited capability filter's `@__cu_tenantId`
     // from that parameter (not the ambient accessor).
     expect(repo).toContain(
-      "public async Task<List<Invoice>> Mine(User currentUser, CancellationToken cancellationToken = default)",
+      "public async Task<Invoice?> Mine(User currentUser, CancellationToken cancellationToken = default)",
     );
     expect(repo).toContain("WHERE (created_by = @__cu_id) AND (tenant_id = @__cu_tenantId)");
     expect(repo).toContain("__cu_id = currentUser.Id");

@@ -259,6 +259,38 @@ describe.skipIf(!ENABLED)(
       }
     }, 600_000);
 
+    // Natural-key reads (D-REPO-KEY-LOOKUP): `GetBySku` / `FindByRegionAndName`
+    // repository methods (`GetBySkuIgnoringAll` over `IgnoreQueryFilters()`),
+    // called from a workflow, both handler kinds and a domain service.
+    it("system natural-key reads — getBy/findBy methods build under /warnaserror", () => {
+      const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dotnet-kl-"));
+      try {
+        execSync(
+          `node ${cli} generate system test/e2e/fixtures/elixir-vanilla-build/key-lookup.ddd -o ${outDir}`,
+          { stdio: "inherit", cwd: repoRoot },
+        );
+        const proj = path.join(outDir, "dotnet_api");
+        const repo = fs.readFileSync(
+          path.join(proj, "Infrastructure", "Repositories", "ProductRepository.cs"),
+          "utf8",
+        );
+        expect(repo).toContain("public async Task<Product> GetBySku(string sku");
+        expect(repo).toContain("public async Task<Product?> FindByRegionAndName(string region");
+        execSync(`dotnet restore --nologo`, { cwd: proj, stdio: "inherit", timeout: 240_000 });
+        execSync(`dotnet build --no-restore --nologo /warnaserror`, {
+          cwd: proj,
+          stdio: "inherit",
+          timeout: 180_000,
+        });
+      } finally {
+        try {
+          fs.rmSync(outDir, { recursive: true, force: true });
+        } catch {
+          /* ignore */
+        }
+      }
+    }, 600_000);
+
     // Fullstack embed — Angular arm.  A `platform: dotnet` deployable hosting a
     // `framework: angular` ui embeds the Angular SPA under ClientApp/ (parity
     // with the react/vue/svelte arms).  `generate dotnet` above is legacy
@@ -812,7 +844,7 @@ describe.skipIf(!ENABLED)(
     // M-T5.10 handler-param rewrite — the SCAFFOLDED explicit handlers take a
     // single `command`/`query` record param; on .NET the Mediator record flattens
     // the request record's fields (`command.<Field>`) and a read declares
-    // `<Agg>Response` (projected at the boundary; a find `.Select(...).ToList()`).
+    // `<Agg>Response` (projected at the boundary).
     // A Money-typed operation param exercises the value-object arg.  No corpus
     // `.ddd` compiled a scaffolded record-param handler on .NET before.
     it("system scaffolded explicit handlers (command/query record params, dotnet) — builds under /warnaserror", () => {
@@ -827,10 +859,8 @@ describe.skipIf(!ENABLED)(
           path.join(proj, "Api", "SalesApiRoutesController.cs"),
           "utf8",
         );
-        // The command record's fields flatten into the Mediator record + body;
-        // a find projects the array to `<Agg>Response`.
+        // The command record's fields flatten into the Mediator record + body.
         expect(controller).toContain("[FromBody] CreateOrderBody body");
-        expect(controller).toMatch(/\.Select\(__e => new OrderResponse\(/);
         execSync(`dotnet restore --nologo`, { cwd: proj, stdio: "inherit", timeout: 240_000 });
         execSync(`dotnet build --no-restore --nologo /warnaserror`, {
           cwd: proj,

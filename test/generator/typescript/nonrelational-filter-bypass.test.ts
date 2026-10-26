@@ -30,9 +30,9 @@ function src(shape: string, persistence = ""): string {
     subdomain D { context C {
       aggregate Order ${shape} with softDeletable { total: int  status: string }
       repository OrderRepo for Order {
-        find recent(): Order[] where this.total > 0 ignoring softDeletable
-        find allRows(): Order[] ignoring *
-        find normal(): Order[] where this.total > 0
+        find recent(): Order? where this.total > 0 ignoring softDeletable
+        find allRows(): Order? ignoring *
+        find normal(): Order? where this.total > 0
       }
       projection AllOrders {
         status: string

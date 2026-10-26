@@ -54,9 +54,8 @@ system ExternShowcase {
         }
       }
 
-      repository Orders for Order {
-        find draft(): Order[] where this.status == Draft
-      }
+      repository Orders for Order { }
+      criterion OrdersDraft of Order = this.status == Draft
 
       // Workflows can drive a parameterless extern op — the generator
       // emits the same load → preconditions → handler → invariants → save

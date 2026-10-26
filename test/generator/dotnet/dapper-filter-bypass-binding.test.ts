@@ -37,9 +37,9 @@ system BypassShop {
         filter this.label != ""
       }
       repository Deeps for Deep {
-        find allDeep(): Deep[] ignoring *
-        find justCap(): Deep[] ignoring owned
-        find scoped(): Deep[] where this.label != "x"
+        find allDeep(): Deep? ignoring *
+        find justCap(): Deep? ignoring owned
+        find scoped(): Deep? where this.label != "x"
       }
     }
   }
@@ -58,7 +58,7 @@ system BypassShop {
 `;
 
 function methodBody(repo: string, name: string): string {
-  const start = repo.indexOf(`public async Task<List<Deep>> ${name}(`);
+  const start = repo.indexOf(`public async Task<Deep?> ${name}(`);
   if (start < 0) throw new Error(`no ${name} method in the emitted repository`);
   const end = repo.indexOf("\n    public ", start + 1);
   return repo.slice(start, end < 0 ? undefined : end);

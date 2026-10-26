@@ -192,8 +192,8 @@ function crudDomain(): DomainBlock {
       }
 
       // A list read is a criterion + retrieval pair, not a bespoke repository
-      // find (a list-returning "find byX(...)" is deprecated —
-      // loom.repository-find-deprecated).
+      // find (a list-returning "find byX(...)" is an error —
+      // loom.list-find-removed).
       criterion InProject(p: Project id) of Task = project == p
       retrieval TasksInProject(p: Project id) of Task {
         where: InProject(p)

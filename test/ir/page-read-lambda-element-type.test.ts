@@ -40,8 +40,8 @@ function system(pageBody: string, extraFinds = ""): string {
             label: string
           }
           repository Orders for Order {
-            find byId(id: Order id): Order?
             ${extraFinds}
+            find byId(id: Order id): Order?
           }
         }
       }
@@ -122,11 +122,11 @@ describe("page-body read lambda binding carries the record type", () => {
     const tsx = await detailTsx(
       `
       body: QueryView {
-        of: Sales.Order.recent(),
+        of: Sales.Order.all,
         loading: Loader {},
         empty: Empty { "none" },
         data: rows => For { each: rows, o => Text { string(o.qty + 1) } }}`,
-      "find recent(): Order[]",
+      "find all(): Order[]",
     );
     expect(tsx).toContain("String((o.qty + 1))");
     expect(tsx).not.toContain("String(1)");
@@ -139,12 +139,12 @@ describe("page-body read lambda binding carries the record type", () => {
     const tsx = await detailTsx(
       `
       body: QueryView {
-        of: Sales.Order.recent(),
+        of: Sales.Order.all,
         loading: Loader {},
         empty: Empty { "none" },
         data: rows => Table { rows: rows, Column { field: "qty" } }}`,
-      "find recent(): Order[]",
+      "find all(): Order[]",
     );
-    expect(tsx).toContain("orderRecent.data");
+    expect(tsx).toContain("orderAll.data");
   });
 });

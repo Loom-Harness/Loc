@@ -41,18 +41,16 @@ system DapperNet {
         tags:       Tag id[]
       }
 
-      repository Customers for Customer {
-        find byName(name: string): Customer[] where this.name == name
-      }
+      repository Customers for Customer { }
+      criterion CustomersByName(name: string) of Customer = this.name == name
 
       repository Tags for Tag { }
 
-      repository Orders for Order {
-        find byCustomer(customerId: Customer id): Order[] where this.customerId == customerId
-        find byQuantity(quantity: int): Order[] where this.quantity >= quantity
-        // Reference-collection membership → EXISTS subquery over order_tags.
-        find withTag(tag: Tag id): Order[] where this.tags.contains(tag)
-      }
+      repository Orders for Order { }
+      criterion OrdersByCustomer(customerId: Customer id) of Order = this.customerId == customerId
+      criterion OrdersByQuantity(quantity: int) of Order = this.quantity >= quantity
+      // Reference-collection membership → EXISTS subquery over order_tags.
+      criterion OrdersWithTag(tag: Tag id) of Order = this.tags.contains(tag)
 
       // Retrieval bundle on Dapper — Run<Name>Async as parameterised SQL
       // (where + sort + paging), exercising the criterion `this-prop` → column

@@ -70,9 +70,8 @@ system ReservedSys {
         window: Span
         filter Live
       }
-      repository Tickets for Ticket {
-        find byGroup(g: string): Ticket[] where group == g
-      }
+      repository Tickets for Ticket { }
+      criterion TicketsByGroup(g: string) of Ticket = group == g
     }
   }
   api SalesApi from Sales

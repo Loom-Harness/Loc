@@ -47,21 +47,55 @@ system IntrinsicsSystem {
         invariant name.trim().length > 0
       }
       criterion Bobbish of Product as p = p.name.trim() == "Bob"
-      repository Products for Product {
-        find byExactName(q: string): Product[] where this.name.trim() == q
-        find byLowerName(q: string): Product[] where this.name.toLower() == q
-        // Not `x`: a find parameter named `x` collides with the .NET emitter's
-        // EF lambda variable (`Where(x => Math.Floor(x.Price) == x)`, CS0019) —
-        // handed off.
-        find byFloorPrice(whole: money): Product[] where this.price.floor() == whole
-        find byAbsQty(n: int): Product[] where this.qty.abs() == n
-        find bobbish(): Product[] where Bobbish
-        find byTrimmedQuery(q: string): Product[] where this.name == q.trim()
-        find byLoweredQuery(q: string): Product[] where this.name.toLower() == q.toLower()
+      repository Products for Product { }
+      criterion ProductsByExactName(q: string) of Product = this.name.trim() == q
+      queryHandler ListProductsByExactName(q: string): Product[] {
+        let r = Products.run(ProductsByExactName(q))
+        return r
+      }
+      criterion ProductsByLowerName(q: string) of Product = this.name.toLower() == q
+      queryHandler ListProductsByLowerName(q: string): Product[] {
+        let r = Products.run(ProductsByLowerName(q))
+        return r
+      }
+      // Not `x`: a find parameter named `x` collides with the .NET emitter's
+      // EF lambda variable (`Where(x => Math.Floor(x.Price) == x)`, CS0019) —
+      // handed off.
+      criterion ProductsByFloorPrice(whole: money) of Product = this.price.floor() == whole
+      queryHandler ListProductsByFloorPrice(whole: money): Product[] {
+        let r = Products.run(ProductsByFloorPrice(whole))
+        return r
+      }
+      criterion ProductsByAbsQty(n: int) of Product = this.qty.abs() == n
+      queryHandler ListProductsByAbsQty(n: int): Product[] {
+        let r = Products.run(ProductsByAbsQty(n))
+        return r
+      }
+      queryHandler ListBobbish(): Product[] {
+        let r = Products.run(Bobbish())
+        return r
+      }
+      criterion ProductsByTrimmedQuery(q: string) of Product = this.name == q.trim()
+      queryHandler ListProductsByTrimmedQuery(q: string): Product[] {
+        let r = Products.run(ProductsByTrimmedQuery(q))
+        return r
+      }
+      criterion ProductsByLoweredQuery(q: string) of Product = this.name.toLower() == q.toLower()
+      queryHandler ListProductsByLoweredQuery(q: string): Product[] {
+        let r = Products.run(ProductsByLoweredQuery(q))
+        return r
       }
     }
   }
-  api CatalogApi from Catalog
+  api CatalogApi from Catalog {
+    route GET "/products/by_exact_name/{q}" -> Catalog.ListProductsByExactName
+    route GET "/products/by_lower_name/{q}" -> Catalog.ListProductsByLowerName
+    route GET "/products/by_floor_price/{whole}" -> Catalog.ListProductsByFloorPrice
+    route GET "/products/by_abs_qty/{n}" -> Catalog.ListProductsByAbsQty
+    route GET "/bobbish_products" -> Catalog.ListBobbish
+    route GET "/products/by_trimmed_query/{q}" -> Catalog.ListProductsByTrimmedQuery
+    route GET "/products/by_lowered_query/{q}" -> Catalog.ListProductsByLoweredQuery
+  }
   storage primary { type: postgres }
   resource catalogState { for: Catalog, kind: state, use: primary }
   deployable d {
@@ -96,25 +130,25 @@ system IntrinsicsSystem {
     expect(read.absQty).toBe(3)
 
     // ── in SQL: column side, value side, both sides ─────────────────────────
-    let exact = api.products.byExactName({ q: "Ada" })
+    let exact = api.catalog.listProductsByExactName("Ada")
     expect(exact.count()).toBe(1)
     expect(exact.first().cleanName).toBe("Ada")
-    let lower = api.products.byLowerName({ q: "bob" })
+    let lower = api.catalog.listProductsByLowerName("bob")
     expect(lower.count()).toBe(1)
     expect(lower.first().name).toBe("Bob")
-    let floored = api.products.byFloorPrice({ whole: money("18") })
+    let floored = api.catalog.listProductsByFloorPrice(money("18"))
     expect(floored.count()).toBe(1)
     expect(floored.first().cleanName).toBe("Ada")
-    let absolute = api.products.byAbsQty({ n: 3 })
+    let absolute = api.catalog.listProductsByAbsQty(3)
     expect(absolute.count()).toBe(1)
     expect(absolute.first().qty).toBe(-3)
-    let trimmedQ = api.products.byTrimmedQuery({ q: "  Bob  " })
+    let trimmedQ = api.catalog.listProductsByTrimmedQuery("  Bob  ")
     expect(trimmedQ.count()).toBe(1)
     expect(trimmedQ.first().name).toBe("Bob")
-    let loweredQ = api.products.byLoweredQuery({ q: "BOB" })
+    let loweredQ = api.catalog.listProductsByLoweredQuery("BOB")
     expect(loweredQ.count()).toBe(1)
     // …and through a reified criterion.
-    let viaCriterion = api.products.bobbish()
+    let viaCriterion = api.catalog.listBobbish()
     expect(viaCriterion.count()).toBe(1)
     expect(viaCriterion.first().name).toBe("Bob")
 
@@ -123,13 +157,13 @@ system IntrinsicsSystem {
     let bobRead = api.products.getById(bob)
     expect(bobRead.cleanName).toBe("Bob")
     expect(bobRead.absQty).toBe(4)
-    expect(api.products.bobbish().count()).toBe(1)
-    expect(api.products.byExactName({ q: "Bob" }).count()).toBe(1)
+    expect(api.catalog.listBobbish().count()).toBe(1)
+    expect(api.catalog.listProductsByExactName("Bob").count()).toBe(1)
 
     let all = api.products.all()
     expect(all.total).toBe(2)
     api.products.destroy(bob)
     expect(api.products.getById(bob)).toThrow(404)
-    expect(api.products.bobbish().count()).toBe(0)
+    expect(api.catalog.listBobbish().count()).toBe(0)
   }
 }

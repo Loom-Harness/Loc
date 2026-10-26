@@ -72,8 +72,7 @@ describe("ddd new — scaffold matrix", () => {
         expect(report.ok).toBe(true);
         // ...and CLEANLY.  `ok` is true with warnings, so this is the
         // assertion that keeps a fresh `ddd new` from scolding the user on
-        // their first `ddd parse` (a list-returning `find` would draw
-        // `loom.repository-find-deprecated`).  A starter is the one model in
+        // their first `ddd parse`.  A starter is the one model in
         // the repo that must be exemplary.
         expect(
           report.diagnostics ?? [],

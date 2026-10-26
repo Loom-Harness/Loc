@@ -34,11 +34,9 @@ system Helpdesk {
       // prove the emitted 403 filter actually ENFORCES (not a no-op a compile
       // gate can't see).  The dev Keycloak `demo` user carries realm roles
       // [user, agent] (no admin), so the admin-gated `AdminScoped` projection
-      // denies (403) while Ticket's agent-gated `agentScoped` find passes (200 —
+      // denies (403) while Ticket's agent-gated list (`GET /tickets`) passes (200 —
       // the gate-satisfied control).
-      repository Tickets for Ticket {
-        find agentScoped(): Ticket[]
-      }
+      repository Tickets for Ticket { }
       policy { read Ticket requires currentUser.roles.contains("agent") }
       projection AdminScoped requires currentUser.roles.contains("admin") {
         subject: string

@@ -308,21 +308,21 @@ test("Model v2 surfaces invariants as nodes and edits the condition inline", asy
 test("Model v2 edits a repository find's filter inline", async ({ page }) => {
   await page.goto("/");
   await waitForPlaygroundReady(page);
-  // Acme has repositories with finds and filters; storefront-dotnet also.
-  await selectExample(page, /Acme \(multi-deployable system\)/);
+  // Storefront's `repository Customers` carries the filtered single-row
+  // `byEmail(email: string): Customer?` find (a list find is a criterion now).
+  await selectExample(page, /Storefront \(Hono \+ React\)/);
   await page.getByTestId("doc-tab-model").click();
   await expect(page.getByTestId("c4system-v2-pane")).toBeVisible({ timeout: 10_000 });
 
-  // Drill to the first repository node (acme has `repository Products` /
-  // `repository Orders`) and into its find list.
+  // Drill to the repository node and into its find list.
   await page.locator('.react-flow__node[data-id^="system:"]').first().click();
   await page.locator('.react-flow__node[data-id^="subdomain:"]').first().click();
   await page.locator('.react-flow__node[data-id^="context:"]').first().click();
-  const repo = page.locator('[data-construct-kind="repository"]').first();
+  const repo = page.locator('[data-construct-kind="repository"][data-construct-name="Customers"]');
   await expect(repo).toBeVisible();
   await repo.click();
 
-  const find = page.locator('[data-construct-kind="find"]').first();
+  const find = page.locator('[data-construct-kind="find"][data-construct-name="byEmail"]');
   await expect(find).toBeVisible();
   await find.getByTestId("c4system-v2-expr-toggle").click();
   await expect(find.getByTestId("c4system-v2-expression-editor")).toBeVisible({ timeout: 10_000 });
@@ -467,41 +467,41 @@ test("Model edits infra construct properties (deployable platform + port, storag
 test("Model edits a repository find's parameters and return type", async ({ page }) => {
   await page.goto("/");
   await waitForPlaygroundReady(page);
-  // Banking System exposes `repository Accounts` with the parameterised
-  // `byHolder(holder: Customer id): Account[]` find this spec edits.
-  await selectExample(page, /Banking System/);
+  // Storefront exposes `repository Customers` with the parameterised
+  // `byEmail(email: string): Customer?` find this spec edits.
+  await selectExample(page, /Storefront \(Hono \+ React\)/);
   await page.getByTestId("doc-tab-model").click();
   await expect(page.getByTestId("c4system-v2-pane")).toBeVisible({ timeout: 10_000 });
 
   await page.locator('.react-flow__node[data-id^="system:"]').first().click();
   await page.locator('.react-flow__node[data-id^="subdomain:"]').first().click();
   await page.locator('.react-flow__node[data-id^="context:"]').first().click();
-  await page.locator('[data-construct-kind="repository"][data-construct-name="Accounts"]').click();
+  await page.locator('[data-construct-kind="repository"][data-construct-name="Customers"]').click();
 
   // The header clauses + signature live behind the find node's ⋯ toggle (a
   // repository view stacks its finds; expanded by default they would overlap).
-  const find = page.locator('[data-construct-kind="find"][data-construct-name="byHolder"]');
+  const find = page.locator('[data-construct-kind="find"][data-construct-name="byEmail"]');
   await expect(find).toBeVisible();
   await find.getByTestId("c4system-v2-details-toggle").click();
-  await expect(find.getByTestId("c4system-v2-find-return")).toHaveValue("Account[]");
-  await expect(find.getByTestId("c4system-v2-find-param-0")).toHaveValue("holder: Customer id");
+  await expect(find.getByTestId("c4system-v2-find-return")).toHaveValue("Customer?");
+  await expect(find.getByTestId("c4system-v2-find-param-0")).toHaveValue("email: string");
 
   // `+ param` appends one; its `×` takes it away again. Source stays valid.
   await find.getByTestId("c4system-v2-find-param-add").click();
   await expect(
     page
-      .locator('[data-construct-kind="find"][data-construct-name="byHolder"]')
+      .locator('[data-construct-kind="find"][data-construct-name="byEmail"]')
       .getByTestId("c4system-v2-find-param-1"),
   ).toBeVisible({ timeout: 5_000 });
   await expect(page.getByText("Source has syntax errors")).toHaveCount(0);
 
   await page
-    .locator('[data-construct-kind="find"][data-construct-name="byHolder"]')
+    .locator('[data-construct-kind="find"][data-construct-name="byEmail"]')
     .getByTestId("c4system-v2-find-param-1-del")
     .click();
   await expect(
     page
-      .locator('[data-construct-kind="find"][data-construct-name="byHolder"]')
+      .locator('[data-construct-kind="find"][data-construct-name="byEmail"]')
       .getByTestId("c4system-v2-find-param-1"),
   ).toHaveCount(0, { timeout: 5_000 });
   await expect(page.getByText("Source has syntax errors")).toHaveCount(0);

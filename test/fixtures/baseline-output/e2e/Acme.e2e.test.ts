@@ -9,6 +9,28 @@ const ENDPOINTS: Record<string, string> = {
   web_app: process.env.E2E_WEB_APP_BASE ?? "http://localhost:3001",
 };
 
+// One routed-handler call.  `body` is omitted for a bodyless method (GET /
+// DELETE), whose params are all path- or query-bound — `fetch` refuses a body
+// there, and the e2e renderer refuses the call rather than dropping an
+// argument silently.  The thrown message carries `→ <status>`, the shape
+// `expect(...).toThrow(N)` matches on.
+async function __route(method: string, url: string, body?: unknown): Promise<__WireBody> {
+  const headers: Record<string, string> = { ...__authHeaders() };
+  const init: RequestInit = { method, headers };
+  if (body !== undefined) {
+    headers["content-type"] = "application/json";
+    init.body = JSON.stringify(body);
+  }
+  const r = await fetch(url, init);
+  const text = await r.text();
+  if (!r.ok) throw new Error(`${method} ${url} → ${r.status} ${r.statusText}${text ? ": " + text : ""}`);
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(`${method} ${url} → ${r.status}: expected JSON, got ${JSON.stringify(text.slice(0, 200))}`);
+  }
+}
+
 // The parsed JSON body of one generated call.  A generated assertion reads
 // DECLARED wire fields straight off it (`read.code`, `page.items[0].total`),
 // and this project has no DTO types to import — the wire schemas live inside
@@ -313,7 +335,7 @@ describe("Acme e2e", () => {
     const base = ENDPOINTS.api;
     await __resetState(base);
     await __post(`${base}/api/orders`, ({ customerId: "cust-002", status: "Draft", placedAt: "2024-01-02T00:00:00Z" }));
-    const list = await __getQuery(`${base}/api/orders/by_customer`, ({ customerId: "cust-002" }));
+    const list = await __route("GET", `${base}/api/orders/by_customer/${encodeURIComponent(String("cust-002"))}`);
     expect(list.length).toBeGreaterThanOrEqual(1);
   });
 

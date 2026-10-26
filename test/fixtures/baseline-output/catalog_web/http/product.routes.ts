@@ -31,9 +31,6 @@ const AllQuery = z.object({
   sort: z.enum(["id", "sku", ""]).default("id"),
   dir: z.string().default("asc"),
 }).openapi("AllQuery");
-const BySkuQuery = z.object({
-  sku: z.string(),
-}).openapi("BySkuQuery");
 export const ProductResponse = z.object({
   id: z.string(),
   sku: z.string(),
@@ -46,33 +43,6 @@ export const ProductPaged = z.object({ items: z.array(ProductResponse), page: z.
 
 export function productRoutes(repo: ProductRepository): OpenAPIHono {
   const app = newApp();
-
-  // A STATIC sub-path is captured by the sibling `/{id}` route under any
-  // verb it does not itself serve, and the param validator then answers 422
-  // for a path that has no such method at all.  405 is the honest answer and
-  // the only one that can carry an `Allow` the caller can act on (RFC 9110
-  // §15.5.6).  Runs BEFORE the param validator, which is why it is a
-  // middleware; registered under method ALL, so the root router's
-  // method probe (http/index.ts) is unaffected.
-  const staticSubpathMethods: Record<string, string[]> = { by_sku: ["GET"] };
-  app.use("/:__seg", async (c, next) => {
-    const __seg = c.req.path.slice(c.req.path.lastIndexOf("/") + 1);
-    // `Object.hasOwn`, never a bare index: the segment is CALLER-supplied,
-    // so a plain lookup reaches Object.prototype — `/api/items/constructor`
-    // resolved to a function, passed the truthiness guard, and threw on
-    // `.includes` (a 500 from an ordinary URL).  Own keys only.
-    const allow = Object.hasOwn(staticSubpathMethods, __seg)
-      ? staticSubpathMethods[__seg]
-      : undefined;
-    if (allow && !allow.includes(c.req.method)) {
-      return c.body(
-        frameworkProblemBody(405, `method ${c.req.method} is not supported for ${c.req.path}`, c.req.path),
-        405,
-        { "content-type": "application/problem+json", allow: allow.join(", ") },
-      );
-    }
-    await next();
-  });
 
   app.openapi(
     createRoute({
@@ -101,27 +71,6 @@ export function productRoutes(repo: ProductRepository): OpenAPIHono {
       c.get("log").info({ event: "aggregate_created", aggregate: "Product", id: created.id as string });
       recordDomainOperation("Product", "create");
       return c.json({ id: created.id as string }, 201);
-    },
-  );
-
-  app.openapi(
-    createRoute({
-      method: "get",
-      path: "/by_sku",
-      tags: ["products"],
-      operationId: "bySkuProduct",
-      request: { query: BySkuQuery },
-      responses: {
-        200: { description: "OK", content: { "application/json": { schema: ProductResponse } } },
-        404: { description: "Not Found", content: { "application/problem+json": { schema: ProblemDetails } } },
-        422: { description: "Unprocessable Entity", content: { "application/problem+json": { schema: ProblemDetails } } },
-      },
-    }),
-    async (c) => {
-      const params = c.req.valid("query");
-      const result = await repo.bySku(params.sku);
-      if (result == null) throw new AggregateNotFoundError("not_found");
-      return c.json(repo.toWire(result) as z.infer<typeof ProductResponse>, 200);
     },
   );
 

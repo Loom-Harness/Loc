@@ -55,13 +55,26 @@ const SHAPES = `system Pg {
         create open(label: string) { emit Opened { evt: id, label: label } }
         apply(e: Opened) { label := e.label  amount := 0 }
       }
-      repository Rels for Rel { find byLabel(l: string): Rel paged where this.label == l }
-      repository Docs for Doc { find byLabel(l: string): Doc paged where this.label == l }
-      repository Embs for Emb { find byLabel(l: string): Emb paged where this.label == l }
-      repository Evts for Evt { find byLabel(l: string): Evt paged where this.label == l }
+      repository Rels for Rel { }
+      repository Docs for Doc { }
+      repository Embs for Emb { }
+      repository Evts for Evt { }
+      criterion RelLabelled(l: string) of Rel = this.label == l
+      criterion DocLabelled(l: string) of Doc = this.label == l
+      criterion EmbLabelled(l: string) of Emb = this.label == l
+      criterion EvtLabelled(l: string) of Evt = this.label == l
+      queryHandler RelsByLabel(l: string): Rel paged { let r = Rels.run(RelLabelled(l))  return r }
+      queryHandler DocsByLabel(l: string): Doc paged { let r = Docs.run(DocLabelled(l))  return r }
+      queryHandler EmbsByLabel(l: string): Emb paged { let r = Embs.run(EmbLabelled(l))  return r }
+      queryHandler EvtsByLabel(l: string): Evt paged { let r = Evts.run(EvtLabelled(l))  return r }
     }
   }
-  api MainApi from Core
+  api MainApi from Core {
+    route GET "/rels/by_label/{l}" -> Main.RelsByLabel
+    route GET "/docs/by_label/{l}" -> Main.DocsByLabel
+    route GET "/embs/by_label/{l}" -> Main.EmbsByLabel
+    route GET "/evts/by_label/{l}" -> Main.EvtsByLabel
+  }
   storage primary { type: postgres }
   resource mainState { for: Main, kind: state, use: primary }
   resource mainLog { for: Main, kind: eventLog, use: primary }
@@ -85,7 +98,9 @@ const SCOPED = `system PgScoped {
       aggregate Doc shape: document, with crudish, tenantOwned {
         label: string
       }
-      repository Docs for Doc { find byLabel(l: string): Doc paged where this.label == l }
+      repository Docs for Doc { }
+      criterion DocLabelled(l: string) of Doc = this.label == l
+      queryHandler DocsByLabel(l: string): Doc paged { let r = Docs.run(DocLabelled(l))  return r }
     }
     context Registry {
       aggregate Org with crudish {
@@ -95,7 +110,9 @@ const SCOPED = `system PgScoped {
       repository Orgs for Org { }
     }
   }
-  api MainApi from Core
+  api MainApi from Core {
+    route GET "/docs/by_label/{l}" -> Main.DocsByLabel
+  }
   storage primary { type: postgres }
   resource mainState { for: Main, kind: state, use: primary }
   resource registryState { for: Registry, kind: state, use: primary }
@@ -213,19 +230,19 @@ function readElixir(files: Map<string, string>): Emitted {
         if (!defs.has(module)) defs.set(module, new Map());
         const byName = defs.get(module) as Map<string, { min: number; max: number }[]>;
         byName.set(def[1], [...(byName.get(def[1]) ?? []), range]);
-        continue;
       }
-      // A controller's call INTO the context façade — `Main.by_label_doc(…)`.
-      for (const m of line.matchAll(/\b([A-Z][\w.]*)\.([a-z_][\w?!]*)\(/g)) {
-        const open = line.indexOf("(", (m.index ?? 0) + m[0].length - 1);
-        const args = argsAt(line, open);
-        calls.push({
-          module: m[1],
-          fn: m[2],
-          arity: args.trim() === "" ? 0 : splitArgs(args).length,
-          where: path,
-        });
-      }
+    }
+    // A controller's call INTO the context façade — `D.Main.find_all_by_…(…)`,
+    // whose arguments may run over several lines, so the scan is file-wide.
+    for (const m of content.matchAll(/\b([A-Z][\w.]*)\.([a-z_][\w?!]*)\(/g)) {
+      const open = content.indexOf("(", (m.index ?? 0) + m[0].length - 1);
+      const args = argsAt(content, open).replace(/\s+/g, " ");
+      calls.push({
+        module: m[1],
+        fn: m[2],
+        arity: args.trim() === "" ? 0 : splitArgs(args).length,
+        where: path,
+      });
     }
   }
   return { defs, delegates, calls };
@@ -234,7 +251,7 @@ function readElixir(files: Map<string, string>): Emitted {
 const accepts = (ranges: { min: number; max: number }[] | undefined, arity: number): boolean =>
   !!ranges?.some((r) => arity >= r.min && arity <= r.max);
 
-describe("elixir paged finds — arity agrees across repository / context / controller", () => {
+describe("elixir paged reads — arity agrees across repository / context / controller", () => {
   for (const [label, source] of [
     ["every storage shape", SHAPES],
     ["a principal-scoped document read", SCOPED],
@@ -276,21 +293,25 @@ describe("elixir paged finds — arity agrees across repository / context / cont
         }
       }
       expect(delegates.length).toBeGreaterThan(0);
+      expect(
+        calls.some((c) => c.module === "D.Main" && c.fn.startsWith("find_all_by_")),
+        "no controller call into a paged read — the check below would pass vacuously",
+      ).toBe(true);
       const unresolved = calls
-        .filter((c) => c.module === "Main" && c.fn.startsWith("by_label"))
+        .filter((c) => c.module === "D.Main" && c.fn.startsWith("find_all_by_"))
         .filter((c) => !accepts(contextFns.get(c.fn), c.arity))
         .map((c) => `${c.module}.${c.fn}/${c.arity} (${c.where})`);
       expect(unresolved).toEqual([]);
     });
   }
 
-  it("a paged find declares page/page_size/sort/dir on every shape", async () => {
+  it("a paged read declares page/page_size/sort/dir on every shape", async () => {
     const files = await generateSystemFiles(SHAPES);
     const heads: string[] = [];
     for (const [path, content] of files) {
       if (!/_repository\.ex$/.test(path)) continue;
       for (const line of content.split("\n")) {
-        if (/^\s*def by_label\(/.test(line)) heads.push(`${path}::${line.trim()}`);
+        if (/^\s*def find_all_by_\w+_labelled\(/.test(line)) heads.push(`${path}::${line.trim()}`);
       }
     }
     // One per shape — relational, document, embedded, event-sourced.

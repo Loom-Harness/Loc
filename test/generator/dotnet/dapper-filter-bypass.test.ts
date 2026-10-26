@@ -32,9 +32,9 @@ const SRC = `
       criterion BigOrders() of Order = this.total > 0
       aggregate Order with softDeletable, tenantScoped { total: int }
       repository OrderRepo for Order {
-        find recent(): Order[] where this.total > 0 ignoring softDeletable
-        find allRows(): Order[] ignoring *
-        find normal(): Order[] where this.total > 0
+        find recent(): Order? where this.total > 0 ignoring softDeletable
+        find allRows(): Order? ignoring *
+        find normal(): Order? where this.total > 0
       }
       workflow Sweep {
         create(x: int) {
@@ -74,13 +74,13 @@ function method(src: string, signatureFragment: string): string {
 
 describe("dapper ignoring filter-bypass emission", () => {
   it("a find with no `ignoring` still carries every capability predicate", async () => {
-    const normal = method(await repo(), "public async Task<List<Order>> Normal(");
+    const normal = method(await repo(), "public async Task<Order?> Normal(");
     expect(normal).toContain("(is_deleted = FALSE)");
     expect(normal).toContain("(tenant_key = 'acme')");
   });
 
   it("`find … ignoring <Cap>` OMITS that capability's predicate, keeping the others", async () => {
-    const recent = method(await repo(), "public async Task<List<Order>> Recent(");
+    const recent = method(await repo(), "public async Task<Order?> Recent(");
     // The whole point: the bypassed capability's conjunct is gone from the SQL.
     expect(recent).not.toContain("is_deleted = FALSE");
     // …and the capability that was NOT named still scopes the read.
@@ -89,7 +89,7 @@ describe("dapper ignoring filter-bypass emission", () => {
   });
 
   it("`find … ignoring *` drops every capability predicate", async () => {
-    const all = method(await repo(), "public async Task<List<Order>> AllRows(");
+    const all = method(await repo(), "public async Task<Order?> AllRows(");
     expect(all).not.toContain("is_deleted = FALSE");
     expect(all).not.toContain("tenant_key = 'acme'");
     expect(all).toContain("FROM orders");

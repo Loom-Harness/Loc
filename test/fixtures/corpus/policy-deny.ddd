@@ -74,10 +74,13 @@ system PolicyDeny {
         name: string
       }
 
-      repository Secrets for Secret {
-        // A named find on the read-denied aggregate: the deny term must be
-        // AND-ed into the author's own `where`, not just the auto findAll.
-        find byCode(c: string): Secret[] where this.code == c
+      repository Secrets for Secret { }
+      // A named find on the read-denied aggregate: the deny term must be
+      // AND-ed into the author's own `where`, not just the auto findAll.
+      criterion SecretsByCode(c: string) of Secret = this.code == c
+      queryHandler ListSecretsByCode(c: string): Secret[] {
+        let r = Secrets.run(SecretsByCode(c))
+        return r
       }
       repository Accounts for Account { }
       repository Notes for Note { }
@@ -92,7 +95,9 @@ system PolicyDeny {
     }
   }
 
-  api VaultApi from Core
+  api VaultApi from Core {
+    route GET "/secrets/by_code/{c}" -> Vault.ListSecretsByCode
+  }
   storage primary { type: postgres }
   resource vaultState { for: Vault, kind: state, use: primary }
   deployable d {
@@ -137,7 +142,7 @@ system PolicyDeny {
     // the author's own `where this.code == c` rather than replacing it.  The
     // row matches that `where` exactly, so a backend that only filtered the
     // auto findAll returns it here.
-    let found = api.secrets.byCode({ c: "S-1" })
+    let found = api.vault.listSecretsByCode("S-1")
     expect(found.length).toBe(0)
     // The WRITE half of a READ deny: both mutations load before they write, and
     // that load goes through the read filter, so both must 404 on a row that

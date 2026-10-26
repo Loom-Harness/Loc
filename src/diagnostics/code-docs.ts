@@ -165,6 +165,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.paged-param-reserved": "10-repositories-and-queries.md#return-shapes",
   "loom.find-param-unbound":
     "10-repositories-and-queries.md#a-find-without-where--key-lookup-by-parameter-name",
+  "loom.repo-key-not-unique": "10-repositories-and-queries.md#natural-key-reads--getby--findby",
+  "loom.repo-key-incomplete": "10-repositories-and-queries.md#natural-key-reads--getby--findby",
   "loom.paged-query-handler-shape":
     "10-repositories-and-queries.md#reporun--the-paged-queryhandler",
   "loom.let-type-mismatch": "06-behavior-and-statements.md#let--emit",
@@ -217,7 +219,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.projection-aggregate-arg-not-columnar": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-aggregate-arity":
     "10-repositories-and-queries.md#whole-table-aggregation--the-singleton",
-  "loom.single-row-find-not-unique": "10-repositories-and-queries.md#list-finds-are-deprecated",
+  "loom.single-row-find-not-unique": "10-repositories-and-queries.md#list-finds-are-removed",
+  "loom.list-find-removed": "10-repositories-and-queries.md#list-finds-are-removed",
   "loom.persisted-table-collision": "13-workflows.md#13-workflows",
   "loom.projection-aggregate-type-mismatch": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-groupby-join-invalid": "10-repositories-and-queries.md#grouped--group-by",
@@ -282,6 +285,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.workflow-create-correlation-unsupplied": "13-workflows.md#workflow--state",
   "loom.workflow-uncorrelated-state-write": "13-workflows.md#workflow--state",
   "loom.workflow-explicit-save": "13-workflows.md#body-vocabulary",
+  "loom.workflow-uncorrelated-state-read": "13-workflows.md#workflow--state",
+  "loom.workflow-mutation-unsaved": "13-workflows.md#body-vocabulary",
+  "loom.workflow-create-args": "13-workflows.md#body-vocabulary",
   "loom.channel-key-missing-field": "14-apis-storage-resources-channels.md#channel--channelsource",
   "loom.reserved-not-emitted": "14-apis-storage-resources-channels.md#connection-sources",
   "loom.channelsource-incompatible":

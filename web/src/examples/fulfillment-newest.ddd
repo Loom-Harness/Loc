@@ -80,11 +80,7 @@ system FulfillmentSystem {
         sort:  [placedAt asc]
       }
 
-      repository Orders for Order {
-        // The criterion is inlined here — same lowered SQL as a
-        // hand-written `status == Pending` filter.
-        find pending(): Order[] where AwaitingPick
-      }
+      repository Orders for Order { }
 
       // Workflow consuming the retrieval: `Repo.run` returns the page,
       // the `for … in` loop escalates each row (the per-iteration save

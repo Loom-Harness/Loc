@@ -139,7 +139,7 @@ describe.skipIf(!PY)("python: every keyword Loom accepts as a name, in every mem
               function f(${accepted.map((k) => `${k}: int`).join(", ")}): int = this.${accepted[0]}
             }
             repository As for A {
-              find byKw(${accepted[0]}: int): A[] where this.${accepted[0]} == ${accepted[0]}
+              find byKw(${accepted[0]}: int): A? where this.${accepted[0]} == ${accepted[0]}
             }
           }
         }
@@ -192,13 +192,16 @@ describe("python: keyword member names (python-reserved-words)", async () => {
     expect(schema).toContain("    label: Mapped[str] = mapped_column(Text)");
   });
 
-  it("the pydantic wire models and the find route keep the wire key via alias", () => {
+  it("the pydantic wire models and the read route keep the wire key via alias", () => {
     const routes = read("app/http/thing_routes.py");
     expect(routes).toContain('    def_: str = Field(alias="def")');
     expect(routes).toContain('    def_: WireStr = Field(alias="def")');
     expect(routes).toContain('    lambda_: Int32 = Field(ge=0, alias="lambda")');
     expect(routes).toContain('    pass_: bool = Field(default=False, alias="pass")');
-    expect(routes).toContain('def_: Annotated[WireStr, Query(alias="def")]');
+    // The routed read handler binds each param from a path token, by alias.
+    expect(read("app/http/sales_api_routes.py")).toContain(
+      'def_: Annotated[WireStr, Path(alias="def")]',
+    );
     expect(routes).toContain("found.class_(body.except_)");
     // Pydantic resolves a field validator by ATTRIBUTE, not alias: naming the
     // alias (`"lambda"`) is a PydanticUserError at import — uvicorn never boots.
@@ -341,8 +344,8 @@ const TS_RESERVED_SRC = `
         }
 
         repository Things for Thing {
-          find byClass(class: string, new: int): Thing[] where this.class == class && this.new >= new
-          find viaClass(class: string): Thing[] where InClass(class)
+          find byClass(class: string, new: int): Thing? where this.class == class && this.new >= new
+          find viaClass(class: string): Thing? where InClass(class)
         }
 
         domainService Calc {
@@ -447,11 +450,13 @@ describe("node + react: JS/TS reserved words as field / parameter names", async 
     expect(repo).toContain(
       "const inClassCriterion = (class_: string) => eq(schema.things.class, class_);",
     );
-    expect(repo).toContain("  async byClass(class_: string, new_: number): Promise<Thing[]> {");
+    expect(repo).toContain(
+      "  async byClass(class_: string, new_: number): Promise<Thing | null> {",
+    );
     expect(repo).toContain("eq(schema.things.class, class_), gte(schema.things.new, new_)");
     expect(repo).toContain(".where(inClassCriterion(class_))");
     expect(read("api/domain/repository-ports.ts")).toContain(
-      "  byClass(class_: string, new_: number): Promise<Thing[]>;",
+      "  byClass(class_: string, new_: number): Promise<Thing | null>;",
     );
     // The wire (JSON) key is the declared spelling.
     expect(repo).toMatch(/\{ id: root\.id as string, class: root\.class, new: root\.new,/);
@@ -476,7 +481,7 @@ describe("byte-identity: a model with no reserved names keeps its node bindings"
               }
             }
             repository Notes for Note {
-              find byTitle(title: string): Note[] where this.title == title
+              find byTitle(title: string): Note? where this.title == title
             }
           }
         }
@@ -489,7 +494,7 @@ describe("byte-identity: a model with no reserved names keeps its node bindings"
     expect(find("domain/note.ts")).toContain("  public retitle(next: string): void {");
     expect(find("domain/note.ts")).toContain("    const t = next;");
     expect(find("db/repositories/note-repository.ts")).toContain(
-      "  async byTitle(title: string): Promise<Note[]> {",
+      "  async byTitle(title: string): Promise<Note | null> {",
     );
   });
 });

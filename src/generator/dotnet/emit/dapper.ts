@@ -78,7 +78,11 @@ import {
 } from "./dapper-scope.js";
 import { DAPPER_BEGIN_TX, DAPPER_COMMIT_TX, dapperOpenConn } from "./dapper-session.js";
 import { csClaimStampsFor } from "./entity.js";
-import { inMemoryPagedFindLines, renderRetrievalParamsWithCt } from "./repository.js";
+import {
+  inMemoryFilter,
+  inMemoryPagedFindLines,
+  renderRetrievalParamsWithCt,
+} from "./repository.js";
 import { csStateHolderOf } from "./state-holder.js";
 
 /** The locals a relational Dapper `find` method (list / single / paged)
@@ -1982,7 +1986,16 @@ export function renderDapperRepository(
       ...r.params.map((p) => {
         const pt = p.type.kind === "optional" ? p.type.inner : p.type;
         const n = escapeCsharpIdent(p.name);
-        const val = pt.kind === "id" ? `${n}${p.type.kind === "optional" ? "?." : "."}Value` : n;
+        // Id → its wrapped `.Value`; enum → `.ToString()`, for the find path's
+        // reason (Dapper binds a C# enum as its ordinal, and the column is
+        // `text`: `operator does not exist: text = integer`, a 500).
+        const access = p.type.kind === "optional" ? "?." : ".";
+        const val =
+          pt.kind === "id"
+            ? `${n}${access}Value`
+            : pt.kind === "enum"
+              ? `${n}${access}ToString()`
+              : n;
         // The DynamicParameters KEY stays the declared name (it is the `@<name>`
         // placeholder in the SQL); only the C# local holding the bag may move.
         return `        ${L("p")}.Add("${p.name}", ${val});`;
@@ -2215,6 +2228,9 @@ export function renderDapperDocumentRepository(
   repo: RepositoryIR | undefined,
   ns: string,
   findBodies: Array<{ name: string; filterClause: string; projectionClause: string }>,
+  /** Namespaces a find body names beyond the fixed block (a criterion-backed
+   *  filter's `Domain.Criteria`, a regex `where`'s `System.Text.RegularExpressions`). */
+  extraUsings: readonly string[] = [],
   /** The aggregate's context pool — the read-scope fact resolves the `extends`
    *  chain through it.  Defaults to the aggregate alone. */
   pool: readonly EnrichedAggregateIR[] = [agg],
@@ -2360,7 +2376,8 @@ export function renderDapperDocumentRepository(
 
   const findMethods = finds.map((f) => {
     const body = findBodies.find((b) => b.name === f.name);
-    const filter = body?.filterClause ?? "";
+    // In-memory over the rehydrated documents: a criterion's query face compiles to a `Func`.
+    const filter = inMemoryFilter(body?.filterClause ?? "");
     // De-async the EF terminal — finds run in-memory over the rehydrated
     // documents, so the async EF operators become their LINQ-to-objects twins.
     const { ct } = csReadOwnParams(f.params.map((p) => p.name));
@@ -2438,6 +2455,7 @@ export function renderDapperDocumentRepository(
       `using ${ns}.Domain.Enums;`,
       `using ${ns}.Domain.ValueObjects;`,
       `using ${ns}.Domain.Common;`,
+      ...extraUsings.map((n) => `using ${n};`),
       anyFindUsesUser ? `using ${ns}.Auth;` : null,
       audit.usingLine,
       "",
@@ -2525,6 +2543,8 @@ export function renderDapperEventSourcedRepository(
    *  `<ctx>_events` (event-log-architecture.md), shared by every stream in the
    *  context and discriminated by `stream_type`. */
   ctxName: string,
+  /** As `renderDapperDocumentRepository`'s. */
+  extraUsings: readonly string[] = [],
 ): string {
   // BCL type-name collision (#3024) — the dapper adapter is a SECOND repository
   // emitter beside the EF one, with its own using block and its own non-generic
@@ -2593,7 +2613,8 @@ export function renderDapperEventSourcedRepository(
   const findMethods = (repo?.finds ?? []).flatMap((raw) => {
     const f = domainFindShape(raw, agg.name);
     const body = findBodies.find((b) => b.name === f.name);
-    const filter = body?.filterClause ?? "";
+    // In-memory over the folded streams: a criterion's query face compiles to a `Func`.
+    const filter = inMemoryFilter(body?.filterClause ?? "");
     // ES finds load every stream in-memory, so strip the async EF terminal
     // (the projection clause passes the method's own token, `ct`).
     const { ct } = csReadOwnParams(f.params.map((p) => p.name));
@@ -2636,6 +2657,7 @@ export function renderDapperEventSourcedRepository(
       `using ${ns}.Domain.ValueObjects;`,
       `using ${ns}.Domain.Common;`,
       `using ${ns}.Domain.Events;`,
+      ...extraUsings.map((n) => `using ${n};`),
       anyFindUsesUser ? `using ${ns}.Auth;` : null,
       audit.usingLine,
       "",

@@ -95,24 +95,30 @@
     {
       "seq": 7,
       "method": "GET",
-      "path": "/api/articles/popular?min=6",
+      "path": "/api/articles/popular/{id}",
       "status": 200,
-      "body": [
-        {
-          "id": "<volatile:key>",
-          "sections": [
-            {
-              "body": "B",
-              "heading": "H",
-              "id": "<volatile:key>"
-            }
-          ],
-          "stage": "Published",
-          "title": "T2",
-          "version": 4,
-          "viewCount": 6
-        }
-      ]
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "sections": [
+              {
+                "body": "B",
+                "heading": "H",
+                "id": "<volatile:key>"
+              }
+            ],
+            "stage": "Published",
+            "title": "T2",
+            "version": 4,
+            "viewCount": 6
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
     },
     {
       "seq": 8,
@@ -166,9 +172,15 @@
     {
       "seq": 12,
       "method": "GET",
-      "path": "/api/articles/popular?min=0",
+      "path": "/api/articles/popular/{id}",
       "status": 200,
-      "body": []
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
     },
     {
       "seq": 13,
@@ -237,16 +249,22 @@
     {
       "seq": 19,
       "method": "GET",
-      "path": "/api/drafts/by_title?t=Plan",
+      "path": "/api/drafts/by_title/Plan",
       "status": 200,
-      "body": [
-        {
-          "archived": false,
-          "id": "<volatile:key>",
-          "title": "Plan",
-          "version": 1
-        }
-      ]
+      "body": {
+        "items": [
+          {
+            "archived": false,
+            "id": "<volatile:key>",
+            "title": "Plan",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
     },
     {
       "seq": 20,

@@ -106,12 +106,10 @@ subdomain Finance {
       }
     }
 
-    repository Invoices for Invoice {
-      find byStatus(status: InvoiceStatus): Invoice[] where this.status == status
-    }
-    repository Payments for Payment {
-      find byInvoice(invoiceRef: string): Payment[] where this.invoiceRef == invoiceRef
-    }
+    repository Invoices for Invoice { }
+    criterion InvoicesByStatus(status: InvoiceStatus) of Invoice = this.status == status
+    repository Payments for Payment { }
+    criterion PaymentsByInvoice(invoiceRef: string) of Payment = this.invoiceRef == invoiceRef
     repository Receipts for Receipt { }
     repository TagLists for TagList { }
   }
@@ -166,8 +164,7 @@ subdomain Finance {
 
     repository CashAccounts for CashAccount { }
     repository BankAccounts for BankAccount { }
-    repository GeneralLedgerAccounts for GeneralLedgerAccount {
-      find byCode(code: string): GeneralLedgerAccount? where this.code == code
-    }
+    repository GeneralLedgerAccounts for GeneralLedgerAccount { }
+    criterion GeneralLedgerAccountsByCode(code: string) of GeneralLedgerAccount = this.code == code
   }
 }

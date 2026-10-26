@@ -75,8 +75,4 @@ describe(".NET — a single find's `rows=` log value follows its nullability", (
     expect(repo).toContain("FirstOrDefaultAsync(cancellationToken)");
     expect(repo).toContain('"byCode", result == null ? 0 : 1);');
   });
-
-  it("an ARRAY find is unchanged — it counts the list", async () => {
-    expect(await repository("Order[]")).toContain('"byCode", result.Count);');
-  });
 });

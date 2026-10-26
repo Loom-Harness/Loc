@@ -106,7 +106,7 @@ describe("python retrieval reads the principal through require_current_user() (F
 
   it("NON-VACUITY: a `find` still threads the principal as its own parameter", async () => {
     const src = await repo(`      repository WorkOrders for WorkOrder {
-        find mine(): WorkOrder[] where technicianUserId == currentUser.id
+        find mine(): WorkOrder? where technicianUserId == currentUser.id
       }`);
 
     // The find DECLARES the principal, so the bare name is bound here and the

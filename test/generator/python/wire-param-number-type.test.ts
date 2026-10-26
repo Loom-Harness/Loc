@@ -35,9 +35,9 @@ system S {
         rate: decimal
       }
       repository Accounts for Account {
-        find byMinBalance(min: int): Account[] where this.balance >= min
-        find bySeq(lowest: long): Account[] where this.seq >= lowest
-        find byRate(floor: decimal): Account[] where this.rate >= floor
+        find byMinBalance(min: int): Account? where this.balance >= min
+        find bySeq(lowest: long): Account? where this.seq >= lowest
+        find byRate(floor: decimal): Account? where this.rate >= floor
         find byHolder(who: string): Account? where this.holder == who
       }
 

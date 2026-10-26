@@ -90,9 +90,8 @@ system Shop {
       aggregate Cart shape: document with crudish {
         reference: string
       }
-      repository Carts for Cart {
-        find byReference(reference: string): Cart? where this.reference == reference
-      }
+      repository Carts for Cart { }
+      criterion CartsByReference(reference: string) of Cart = this.reference == reference
     }
   }
   storage pg { type: postgres }
@@ -162,9 +161,8 @@ system Shop {
           total := total - price.amount
         }
       }
-      repository Carts for Cart {
-        find pricey(): Cart[] where this.price.amount > 100
-      }
+      repository Carts for Cart { }
+      criterion CartsPricey of Cart = this.price.amount > 100
     }
   }
   storage pg { type: postgres }
@@ -346,9 +344,9 @@ system Shop {
         reference: string
       }
       repository Carts for Cart {
-        find recent(): Cart paged
-        find byRef(reference: string): Cart paged where this.reference == reference
+        find all(): Cart paged
       }
+      criterion CartsByRef(reference: string) of Cart = this.reference == reference
     }
   }
   storage pg { type: postgres }

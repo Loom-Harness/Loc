@@ -51,7 +51,7 @@ system Probe {
       }
       criterion XItem of Item = this.name.startsWith("q")
       repository Items for Item {
-        find xs(): Item[] where this.name.startsWith("w")
+        find xs(): Item? where this.name.startsWith("w")
       }
     }
   }

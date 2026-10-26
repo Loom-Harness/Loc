@@ -36,10 +36,8 @@ system Roster {
           party -= pokemon
         }
       }
-      repository Trainers for Trainer {
-        find holdingInParty(pokemon: Pokemon id): Trainer[]
-            where this.party.contains(pokemon)
-      }
+      repository Trainers for Trainer { }
+      criterion TrainersHoldingInParty(pokemon: Pokemon id) of Trainer = this.party.contains(pokemon)
       criterion NamedLike(needle: string) of Trainer = name == needle
       retrieval ByName(needle: string) of Trainer {
         where: NamedLike(needle)

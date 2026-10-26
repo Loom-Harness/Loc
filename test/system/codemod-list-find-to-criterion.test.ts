@@ -1,7 +1,7 @@
 // The list-find removal codemod (`scripts/codemod-list-find-to-criterion.mjs`,
 // D-LIST-FIND-REMOVED): each list `find` becomes a criterion beside its
 // repository, each call site reads through `run`, and the migrated model
-// validates clean of `loom.repository-find-deprecated`.
+// validates clean of `loom.list-find-removed`.
 
 import { describe, expect, it } from "vitest";
 import { migrateSource, migrateSources } from "../../scripts/codemod-list-find-to-criterion.mjs";
@@ -148,11 +148,11 @@ describe("codemod-list-find-to-criterion", () => {
     expect(diagnostics.filter((d) => d.severity === 1)).toEqual([]);
   });
 
-  it("produces a model with no loom.repository-find-deprecated", async () => {
+  it("produces a model with no loom.list-find-removed", async () => {
     const { text } = migrateSource(SRC);
     const { diagnostics } = await parseString(text);
-    expect(diagnostics.map((d) => d.code)).not.toContain("loom.repository-find-deprecated");
+    expect(diagnostics.map((d) => d.code)).not.toContain("loom.list-find-removed");
     const before = await parseString(SRC);
-    expect(before.diagnostics.map((d) => d.code)).toContain("loom.repository-find-deprecated");
+    expect(before.diagnostics.map((d) => d.code)).toContain("loom.list-find-removed");
   });
 });

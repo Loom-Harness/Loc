@@ -17,9 +17,9 @@ const SRC = `
       criterion BigOrders() of Order = this.total > 0
       aggregate Order with softDeletable { total: int }
       repository OrderRepo for Order {
-        find recent(): Order[] where this.total > 0 ignoring softDeletable
-        find allRows(): Order[] ignoring *
-        find normal(): Order[] where this.total > 0
+        find recent(): Order? where this.total > 0 ignoring softDeletable
+        find allRows(): Order? ignoring *
+        find normal(): Order? where this.total > 0
       }
       workflow Sweep {
         create(x: int) {
@@ -67,7 +67,7 @@ describe("dotnet ignoring filter-bypass emission", () => {
 
   it("find `ignoring *` → parameterless IgnoreQueryFilters()", async () => {
     const repo = get(await files(), "Infrastructure/Repositories/OrderRepository.cs");
-    expect(repo).toContain("_db.Orders.IgnoreQueryFilters().ToListAsync");
+    expect(repo).toContain("_db.Orders.IgnoreQueryFilters().FirstOrDefaultAsync");
   });
 
   it("inline `Repo.findAll(...) ignoring <Cap>` passes a DOMAIN FilterBypass (capability names), not EF filter names (audit S7)", async () => {

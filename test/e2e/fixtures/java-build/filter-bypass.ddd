@@ -29,9 +29,9 @@ system BypassShop {
         filter this.price > 0
       }
       repository Products for Product {
-        find recent(): Product[] where this.name != "" ignoring softDeletable
-        find allRows(): Product[] ignoring *
-        find normal(): Product[] where this.name != ""
+        find recent(): Product? where this.name != "" ignoring softDeletable
+        find allRows(): Product? ignoring *
+        find normal(): Product? where this.name != ""
       }
     }
   }

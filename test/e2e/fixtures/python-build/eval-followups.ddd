@@ -38,7 +38,7 @@ system PyEvalFollowups {
       }
       repository Folders for Folder {
         find all(): Folder[] where ownerUserId == currentUser.id
-        find byTitle(t: string): Folder[] where title == t
+        find byTitle(t: string): Folder? where title == t
       }
 
       aggregate Memo shape: embedded with crudish {
@@ -47,7 +47,7 @@ system PyEvalFollowups {
       }
       repository Memos for Memo {
         find all(): Memo[] where archived == false
-        find byTitle(t: string): Memo[] where title == t
+        find byTitle(t: string): Memo? where title == t
       }
 
       event Opened { account: Account id, owner: string }

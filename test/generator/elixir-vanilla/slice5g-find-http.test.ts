@@ -15,7 +15,7 @@ system S {
     context Shop {
       aggregate Order with crudish { customerId: string  total: int }
       repository Orders for Order {
-        find byCustomer(customerId: string): Order[] where this.customerId == customerId
+        find byCustomer(customerId: string): Order? where this.customerId == customerId
         find latest(): Order?
       }
     }
@@ -42,12 +42,9 @@ describe("vanilla — custom-find HTTP surface", () => {
     expect(latest).toBeLessThan(show);
   });
 
-  it("emits list / single / param-less find actions", async () => {
+  it("emits single / param-less find actions", async () => {
     const ctl = get(await generateSystemFiles(SRC), "/controllers/order_controller.ex");
-    // list → map each element
     expect(ctl).toContain("def by_customer(conn, params) do");
-    expect(ctl).toContain('with {:ok, records} <- Shop.by_customer_order(params["customerId"]) do');
-    expect(ctl).toContain("json(conn, Enum.map(records, &serialize/1))");
     // optional (`Order?`) → 404 on absence (parity with the other backends +
     // its declared OpenAPI `findOptional → [404]`), not a schema-invalid 200
     // `null` body.

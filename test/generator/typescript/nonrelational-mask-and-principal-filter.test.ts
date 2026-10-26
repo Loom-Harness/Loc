@@ -103,7 +103,7 @@ system TenancyDocMikro {
         filter this.tenantId == currentUser.tenantId
       }
       repository Accounts for Account {
-        find byMinBalance(min: int): Account[] where this.balance >= min
+        find byMinBalance(min: int): Account? where this.balance >= min
       }
     }
   }
@@ -264,9 +264,11 @@ describe("F5 — the mikroorm document repository binds the request principal", 
     const files = await generateSystemFiles(MIKRO_DOC_SRC);
     const repo = repoFileOf(files, "account");
 
+    // The other tenant's row comes FIRST: a single-row find returns the first
+    // match, so without the capability filter it would answer `other`.
     const rows = [
-      { data: { id: "a", tenantId: "acme", balance: 100 }, version: 1 },
       { data: { id: "b", tenantId: "other", balance: 200 }, version: 1 },
+      { data: { id: "a", tenantId: "acme", balance: 100 }, version: 1 },
     ];
     const Klass = evalTs(
       `return class R {
@@ -284,15 +286,15 @@ ${methodText(repo, "byMinBalance")}
       },
     ) as new (
       em: unknown,
-    ) => { byMinBalance(min: number): Promise<Array<{ tenantId: string }>> };
+    ) => { byMinBalance(min: number): Promise<{ tenantId: string } | null> };
 
     const em = { fork: () => ({ find: async () => rows }) };
     const result = await new Klass(em).byMinBalance(0);
 
     // Both rows clear the find's own `balance >= 0` predicate, so the ONLY
-    // thing that can drop the second one is the capability filter.  A
+    // thing that can skip the first one is the capability filter.  A
     // repository that emitted the filter but never bound the principal cannot
     // reach this assertion at all — it throws first.
-    expect(result.map((a) => a.tenantId)).toEqual(["acme"]);
+    expect(result?.tenantId).toBe("acme");
   });
 });

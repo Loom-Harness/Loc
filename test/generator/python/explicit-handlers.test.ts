@@ -48,9 +48,8 @@ system Shop {
         create(code: string, status: string, total: Money) { }
         operation reprice(newTotal: Money) { total := newTotal }
       }
-      repository Orders for Order {
-        find byStatus(status: string): Order[] where this.status == status
-      }
+      repository Orders for Order { }
+      criterion OrdersByStatus(status: string) of Order = this.status == status
     }
   }
   api SalesApi with scaffoldApi(of: Sales)
@@ -84,18 +83,6 @@ describe("python — scaffolded handlers consume record params (M-T5.10)", () =>
       "async def reprice_order(session: AsyncSession, order_id: OrderId, new_total: Money) -> None:",
     );
     expect(h).toContain("o.reprice(new_total)");
-  });
-
-  it("find handler projects the <Agg>Response collection via to_wire per element", async () => {
-    const m = await generateSystemFiles(SCAFFOLD_SRC);
-    const h = fileEndingWith(m, "app/application/by_status_order.py");
-    // The declared `ByStatusQuery` record flattens to `status`; the `OrderResponse[]`
-    // return normalises to the entity and projects each element via to_wire.
-    expect(h).toContain(
-      "async def by_status_order(session: AsyncSession, status: str) -> list[dict[str, object]]:",
-    );
-    expect(h).toContain("r = await orders.by_status(status)");
-    expect(h).toContain("return [orders.to_wire(__e) for __e in r]");
   });
 
   it("get-by-id handler projects the single <Agg>Response via to_wire", async () => {

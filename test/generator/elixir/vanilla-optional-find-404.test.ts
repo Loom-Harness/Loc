@@ -24,9 +24,9 @@ system Shop {
         sku: string
       }
       repository Items for Item {
+        find all(): Item[]
         find bySku(sku: string): Item? where this.sku == sku
         find maybeFirst(sku: string): Item option where this.sku == sku
-        find named(name: string): Item[] where this.name == name
       }
     }
   }
@@ -79,12 +79,14 @@ describe("vanilla Phoenix — optional find absence → 404", () => {
     expect(bySku).toContain("json(conn, serialize(record))");
   });
 
-  it("a LIST find is untouched — it has no absence to answer", async () => {
-    // Scope guard: `Item[]` answers `[]`, never a 404 (RS-23).  Without this a
-    // fix that 404'd every nil-ish find would pass the assertions above.
+  it("the LIST read is untouched — it has no absence to answer", async () => {
+    // Scope guard: `find all(): Item[]` answers `[]`, never a 404 (RS-23).
+    // Without this a fix that 404'd every nil-ish find would pass the
+    // assertions above.
     const files = await generateSystemFiles(SOURCE);
     const ctrl = [...files.entries()].find(([p]) => p.endsWith("item_controller.ex"))?.[1];
-    const named = ctrl!.slice(ctrl!.indexOf("def named"));
+    expect(ctrl!.indexOf("def index(")).toBeGreaterThan(-1);
+    const named = ctrl!.slice(ctrl!.indexOf("def index("));
     const body = named.slice(
       0,
       named.indexOf("\n  def ", 1) === -1 ? undefined : named.indexOf("\n  def ", 1),

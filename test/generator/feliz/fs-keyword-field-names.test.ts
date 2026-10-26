@@ -31,7 +31,8 @@ const SYSTEM = `
           plain: string
         }
         repository Circles for Circle {
-          find byMember(member: string): Circle[] where this.member == member
+          find all(): Circle[]
+          find byMember(member: string): Circle? where this.member == member
         }
       }
     }
@@ -43,6 +44,11 @@ const SYSTEM = `
       component Row(member: string, plain: string) {
         derived base: string = member
         body: Stack { Text { member }, Text { plain }, Text { base } }
+      }
+      page Pick {
+        route: "/pick"
+        state { member: string = "" }
+        body: QueryView { of: Circle.byMember(member), data: c => Text { c.plain } }
       }
       page Manual {
         route: "/manual"

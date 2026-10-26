@@ -50,7 +50,7 @@ system R {
       }
     }
     repository Ledgers for Ledger {
-      find over(min: money): Ledger[] where this.balance > min
+      find over(min: money): Ledger? where this.balance > min
     }
   } }
   storage pg { type: postgres }
@@ -184,7 +184,7 @@ describe("java document repository", () => {
   it("imports BigDecimal for a money find param and never auto-detects setters", async () => {
     const repo = await file(BACKEND("java"), "/LedgerRepositoryImpl.java");
     expect(repo).toContain("import java.math.BigDecimal;");
-    expect(repo).toContain("public List<Ledger> over(BigDecimal min)");
+    expect(repo).toContain("public Ledger over(BigDecimal min)");
     // `setLimit(…)` is a domain operation; as a Jackson setter it ran on every read.
     expect(repo).toContain(
       ".withVisibility(PropertyAccessor.SETTER, JsonAutoDetect.Visibility.NONE)",

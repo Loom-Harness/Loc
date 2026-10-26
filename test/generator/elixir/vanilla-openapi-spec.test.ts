@@ -27,7 +27,7 @@ system Shop {
         region: string
       }
       repository Orders for Order {
-        find recent(): Order[]
+        find all(): Order[]
       }
     }
   }

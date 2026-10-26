@@ -2,7 +2,7 @@
 
 Every type position in the language: the eleven primitive scalars (plus the expression-only `duration`), the distinct `money` type that is precise in the column and a fixed-scale string on the wire, `X id` cross-aggregate references, collections and options, and the closed set of postfix generic carriers `paged` / `envelope` / `option`. Reach for it when you need to know what column a field becomes, why `money` serializes differently than `decimal`, or how a carrier projects onto each backend.
 
-> **Grammar:** `TypeRef`, `TypeAtom`, `BaseType`, `PrimitiveType`, `IdType`, `NamedType`, `GenericCtor`, `DURATION` (the `timerSource` literal) · **Validators:** type-system checks in `src/language/type-system.ts`; `loom.bare-aggregate-in-type`, `loom.generic-position`, `loom.generic-arg-not-carrier`, `loom.union-*`, `loom.nullable-receiver`, `loom.duration-arity` / `loom.duration-arg-type`, `loom.file-field-needs-object-storage`, `loom.token-nullable`, `loom.repository-find-deprecated` · **Docs:** [`../payloads.md`](../payloads.md), [`../conformance-semantics.md`](../conformance-semantics.md) (RS-12 / RS-24 — the numeric wire rules), [`../resources.md`](../resources.md) (`File` storage)
+> **Grammar:** `TypeRef`, `TypeAtom`, `BaseType`, `PrimitiveType`, `IdType`, `NamedType`, `GenericCtor`, `DURATION` (the `timerSource` literal) · **Validators:** type-system checks in `src/language/type-system.ts`; `loom.bare-aggregate-in-type`, `loom.generic-position`, `loom.generic-arg-not-carrier`, `loom.union-*`, `loom.nullable-receiver`, `loom.duration-arity` / `loom.duration-arg-type`, `loom.file-field-needs-object-storage`, `loom.token-nullable`, `loom.list-find-removed` · **Docs:** [`../payloads.md`](../payloads.md), [`../conformance-semantics.md`](../conformance-semantics.md) (RS-12 / RS-24 — the numeric wire rules), [`../resources.md`](../resources.md) (`File` storage)
 
 A `TypeRef` is one `BaseType` head atom, followed by zero or more postfix carrier constructors, an optional `[]` array marker, an optional `?` nullable marker, and an optional `or`-union tail — in that fixed order. Carriers and the array/optional markers bind **tighter** than `or` (`string or int option` ≡ `string or (int option)`). The head `BaseType` is one of: a `PrimitiveType`, an `X id` (`IdType`), a bare `NamedType` (enum / value object / part; an event or payload only in the transport positions that admit them), or the UI-only `slot` / `action` / capability-only `Self id`. All examples below are generated from one scratch system with a backend deployable per platform; output is excerpted.
 
@@ -306,9 +306,8 @@ aggregate Patient {
     nextVisit := visit
   }
 }
-repository Patients for Patient {
-  find bornBefore(cutoff: date): Patient[] where this.birthDate < cutoff
-}
+repository Patients for Patient { }
+criterion PatientsBornBefore(cutoff: date) of Patient = this.birthDate < cutoff
 ```
 
 ```sql
@@ -686,13 +685,13 @@ option(T)   → the 2-variant union  union[T, none]  (an untagged 200 / 404 as a
 
 ```ddd
 repository OrderRepo for Order {
-  find recent(): Order paged
+  find all(): Order paged
   find audit(): Order envelope
   find byRef(ref: string): Order option where this.ref == ref
 }
 ```
 
-> A list-shaped `find` (`Order paged`, `Order[]`) is **deprecated** in favour of a `criterion` passed to `Repo.run(…)` or a named `retrieval` (`loom.repository-find-deprecated`, a warning) — see [Repositories & queries](10-repositories-and-queries.md#retrieval). A single-row reconstitution find (`Order` / `Order?` / `Order option`) stays first-class. The carrier shapes below are unchanged by where the query is declared.
+> A list-shaped `find` (`Order paged`, `Order[]`) other than `find all` is an **error** (`loom.list-find-removed`): a list read is a `criterion` passed to `Repo.run(…)` or a named `retrieval` — see [Repositories & queries](10-repositories-and-queries.md#retrieval). A single-row reconstitution find (`Order` / `Order?` / `Order option`) stays first-class. The carrier shapes below are unchanged by where the query is declared.
 
 ### `paged`
 
