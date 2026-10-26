@@ -1,0 +1,100 @@
+// shape: the `notFound` statement — the `else` of an `if let` over a criterion
+// read answering the standard not-found ProblemDetails (#4259).
+//
+// A criterion has no uniqueness guarantee, so a must-exist lookup over one is
+// spelled `if let t = Tickets.find(OpenFor(c)) { … } else { notFound }`.  The
+// 404 that `else` answers must be the SAME response a `getById` miss earns on
+// the backend: same status, title, type and instance, the detail the author
+// wrote (`notFound "no open ticket"`) or the lookup's sentence (`Ticket not
+// found`).  The getById miss at the end is the comparison row in the wire
+// golden.
+//
+// Exercised in a routed commandHandler (both spellings) and in a workflow
+// `create` body.
+system NotFoundStatement {
+  subdomain Help {
+    context Desk {
+      aggregate Ticket with crudish {
+        customer: string
+        open: bool
+        escalated: bool
+
+        operation escalate() {
+          escalated := true
+        }
+      }
+      repository Tickets for Ticket { }
+
+      criterion OpenFor(c: string) of Ticket = this.customer == c && this.open
+
+      commandHandler EscalateOpen(customer: string) {
+        if let t = Tickets.find(OpenFor(customer)) {
+          t.escalate()
+        } else {
+          notFound "no open ticket"
+        }
+      }
+
+      commandHandler CloseOpen(customer: string) {
+        if let t = Tickets.find(OpenFor(customer)) {
+          t.escalate()
+        } else {
+          notFound
+        }
+      }
+
+      workflow escalateFirst {
+        create(customer: string) {
+          if let t = Tickets.find(OpenFor(customer)) {
+            t.escalate()
+          } else {
+            notFound
+          }
+        }
+      }
+    }
+  }
+
+  api DeskApi from Help {
+    route POST "/customers/{customer}/escalations" -> Desk.EscalateOpen
+    route POST "/customers/{customer}/closures" -> Desk.CloseOpen
+  }
+  storage pg { type: postgres }
+  resource deskState { for: Desk, kind: state, use: pg }
+
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Desk]
+    dataSources: [deskState]
+    serves: DeskApi
+    port: 4000
+  }
+
+  test e2e "an else branch answers the not-found rung with notFound" against d {
+    let t = api.tickets.create({ customer: "ann", open: true, escalated: false })
+
+    // A hit runs the then-branch.
+    api.desk.escalateOpen("ann")
+    expect(api.tickets.getById(t).escalated).toBe(true)
+
+    // A miss answers 404 — the authored detail, then the lookup's sentence.
+    expect(api.desk.escalateOpen("bob")).toThrow(404)
+    expect(api.desk.closeOpen("bob")).toThrow(404)
+
+    // The workflow body answers the same way.
+    api.escalateFirst.run({ customer: "ann" })
+    expect(api.escalateFirst.run({ customer: "bob" })).toThrow(404)
+
+    // The rest of the crudish surface, so every derived route has a caller.
+    api.desk.closeOpen("ann")
+    api.tickets.escalate(t)
+    api.tickets.update(t, { customer: "ann", open: false, escalated: true })
+    expect(api.desk.escalateOpen("ann")).toThrow(404)
+    let listed = api.tickets.all()
+    expect(listed.total).toBe(1)
+
+    // The by-id miss the notFound answers must match.
+    api.tickets.destroy(t)
+    expect(api.tickets.getById(t)).toThrow(404)
+  }
+}

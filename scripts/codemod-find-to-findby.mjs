@@ -36,11 +36,22 @@
 //     `domainService` operation (`Repo.find(C(x)) != null`).  Not a `let`:
 //     a `T?` read bound by a `let` is refused in every body.
 //
-// A must-exist (`T` / `T envelope`) find with no unique or id key has no
-// mechanical target: `find(C)` answers absence, and no statement in an `else`
-// branch answers a 404 today (`precondition` is a 422, `requires` a 403), so
-// each of its call sites is reported.  A `T or <Error>` call site that matches
-// on the error variant is reported too.
+// A must-exist (`T` / `T envelope`) find with no unique or id key reads with
+// `find(C)` too, and the miss it used to throw becomes an explicit `notFound`:
+// a `let` of it in a workflow / handler body becomes an `if let` whose then-
+// branch holds the rest of the block, and whose `else` answers the same 404.
+//
+//   let t = Tickets.openFor(c)          if let t = Tickets.find(TicketsOpenFor(c)) {
+//   t.escalate()                    →     t.escalate()
+//                                       } else {
+//                                         notFound
+//                                       }
+//
+// Any other call site of it is reported: a position that is not a `let`, a
+// body where `notFound` is refused, a block whose rest holds a `return`
+// (which must stay last and top-level), or one that reads a second such find
+// (rewrite them one at a time by hand).  A `T or <Error>` call site that
+// matches on the error variant is reported too.
 //
 //   node scripts/codemod-find-to-findby.mjs [--check] [--list] [--add-unique] <path>...
 //
@@ -73,6 +84,7 @@ import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { AstUtils } from "langium";
+import { notFoundAllowedAt } from "../out/language/validators/stmt-placement.js";
 import { upperFirst as pascal, plural, snake } from "../out/util/naming.js";
 import {
   aggregateChain,
@@ -363,8 +375,67 @@ function matchesOnVariant(n) {
   return false;
 }
 
+/** A must-exist criterion read bound by a `let` → `if let … { <rest of the
+ *  block> } else { notFound }`, as one edit spanning the `let` and the rest of
+ *  its block (the binding is in scope only in the then-branch).  `raw` is the
+ *  snippet text the offsets index; `mustExistKeys` names every `<Repo>.<find>`
+ *  rewritten this way, so a block reading two of them is reported rather than
+ *  given overlapping edits. */
+function rewriteMustExist(n, plan, shift, raw, mustExistKeys, argText) {
+  const let_ = n.$container;
+  if (callPosition(n) !== "let")
+    return {
+      blocked:
+        "needs the row (a must-exist find over a non-unique key) where only a 'let' can become 'if let … else { notFound }' — declare the key unique (getBy) or rewrite by hand",
+    };
+  if (!notFoundAllowedAt(let_))
+    return {
+      blocked:
+        "needs the row in a body where 'notFound' is refused (only a workflow / handler body answers a 404) — declare the key unique (getBy) or rewrite by hand",
+    };
+  const block = let_.$container?.[let_.$containerProperty];
+  if (!Array.isArray(block)) return { blocked: "sits outside a statement block" };
+  const rest = block.slice(let_.$containerIndex + 1);
+  const inRest = (pred) => rest.some((st) => [st, ...AstUtils.streamAst(st)].some(pred));
+  if (inRest((x) => x.$type === "ReturnStmt"))
+    return {
+      blocked:
+        "is followed by a 'return', which cannot move into the 'if let' branch — rewrite by hand",
+    };
+  if (
+    inRest(
+      (x) =>
+        x !== n &&
+        x.$type === "PostfixChain" &&
+        x.head?.$type === "NameRef" &&
+        x.suffixes[0]?.$type === "MemberSuffix" &&
+        mustExistKeys.has(`${x.head.name}.${x.suffixes[0].member}`),
+    )
+  )
+    return {
+      blocked: "shares its block with another must-exist read — rewrite them one at a time by hand",
+    };
+  const start = let_.$cstNode.offset - shift;
+  const letEnd = let_.$cstNode.end - shift;
+  const end = rest.length > 0 ? rest[rest.length - 1].$cstNode.end - shift : letEnd;
+  const ind = indentAt(raw, start);
+  let body = raw.slice(letEnd, end);
+  if (body.trim() !== "" && !body.startsWith("\n")) body = `\n${ind}${body.trimStart()}`;
+  body = body.replace(/\n(?=[^\n])/g, "\n  ");
+  const source = `${n.head.name}.find(${plan.target.name}(${argText.join(", ")}))`;
+  return {
+    edits: [
+      {
+        start,
+        end,
+        text: `if let ${let_.name} = ${source} {${body}\n${ind}} else {\n${ind}  notFound\n${ind}}`,
+      },
+    ],
+  };
+}
+
 /** The rewrite of one call site under `plan`, or a reason it cannot take it. */
-function rewriteCall(n, plan, shift) {
+function rewriteCall(n, plan, shift, raw = "", mustExistKeys = new Set()) {
   const s0 = n.suffixes[0];
   const args = s0.args ?? [];
   const start = s0.$cstNode.offset - shift;
@@ -407,11 +478,7 @@ function rewriteCall(n, plan, shift) {
     return { edits: [{ start, end, text: `.${t.verb}(${argText.join(", ")})` }] };
   }
   // criterion
-  if (t.mustExist)
-    return {
-      blocked:
-        "needs the row (a must-exist find over a non-unique key): no else-branch statement answers a 404 — declare the key unique (getBy) or rewrite by hand",
-    };
+  if (t.mustExist) return rewriteMustExist(n, plan, shift, raw, mustExistKeys, argText);
   return { edits: [{ start, end, text: `.find(${t.name}(${argText.join(", ")}))` }] };
 }
 
@@ -441,6 +508,12 @@ export function migrateSources(sources, opts = {}) {
   }
   // Pass 2 — every call site, against its snippet's own finds or (for a
   // `.ddd` file) a related `.ddd` file's.
+  const mustExistKeys = new Set(
+    [...plansBySnippet.values()]
+      .flat()
+      .filter((p) => p.target.kind === "criterion" && p.target.mustExist)
+      .map((p) => p.key),
+  );
   for (const { file, snippets } of parsed) {
     for (const sn of snippets) {
       const local = new Map(plansBySnippet.get(sn).map((p) => [p.key, p]));
@@ -460,7 +533,7 @@ export function migrateSources(sources, opts = {}) {
           if (foreign && related(foreign.dir)) plan = foreign;
         }
         if (!plan) continue;
-        const r = rewriteCall(n, plan, sn.shift);
+        const r = rewriteCall(n, plan, sn.shift, sn.masked, mustExistKeys);
         if (r.blocked)
           plan.blocked.push(`${file}: '${n.$cstNode.text.split("\n")[0]}' ${r.blocked}`);
         else plan.callEdits.push({ sn, edits: r.edits });

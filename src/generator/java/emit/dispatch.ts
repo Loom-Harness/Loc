@@ -617,7 +617,7 @@ export function renderJavaDispatcher(
     imports.add(`${dctx.basePkg}.auth.CurrentUserAccessor`);
     imports.add(`${dctx.basePkg}.auth.User`);
   }
-  // Handler bodies can guard with `precondition` / `requires`, which throw the
+  // Handler bodies can guard with `precondition` / `requires` / `notFound`, which throw the
   // domain.common exceptions — import them when a body uses one (the stmt target
   // emits the `throw` but leaves the import to the host).
   if (methods.some((m) => m.includes("DomainException"))) {
@@ -625,6 +625,9 @@ export function renderJavaDispatcher(
   }
   if (methods.some((m) => m.includes("ForbiddenException"))) {
     imports.add(`${dctx.basePkg}.domain.common.ForbiddenException`);
+  }
+  if (methods.some((m) => m.includes("AggregateNotFoundException"))) {
+    imports.add(`${dctx.basePkg}.domain.common.AggregateNotFoundException`);
   }
   // A resource verb renders as `<Class>.<resource><Verb>(…)` on the client
   // class in the resources package; the typed in-system api client lives there too.

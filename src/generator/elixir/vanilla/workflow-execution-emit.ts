@@ -110,6 +110,8 @@ import { stateDefault, stateDefaultDecls } from "../state-default.js";
 import {
   contextsHaveWireDenials,
   denialOverrides,
+  notFoundStmtClause,
+  notFoundStmtTerm,
   respondErrorTail,
   workflowDenialTerm,
 } from "./denial.js";
@@ -451,6 +453,11 @@ function lowerStatement(
       ];
     }
 
+    case "not-found":
+      // `notFound` → a clause that fails the chain with the tagged not-found
+      // term, answered by the dispatcher's `{:not_found, detail}` arm.
+      return [{ kind: "with-clause", text: notFoundStmtClause(st), bindName: undefined }];
+
     case "expr-let": {
       // `let foo = <expr>` (pure binding inside a workflow body) →
       // `foo <- (<expr>)` — a with-clause binding always succeeds.
@@ -733,7 +740,13 @@ function lowerStatement(
             hit: "{:ok, [hit | _]}",
           };
       const v = escapeElixirIdent(snake(st.var));
-      const renderBranch = (body: WorkflowStmtIR[], present: string): string[] => {
+      const renderBranch = (all: WorkflowStmtIR[], present: string): string[] => {
+        // A branch that ends in `notFound` evaluates to the not-found term
+        // itself rather than a clause that cannot match before `{:ok, _}`.
+        const last = all[all.length - 1];
+        const endsNotFound = last?.kind === "not-found";
+        const result = endsNotFound ? `{:error, ${notFoundStmtTerm(last)}}` : `{:ok, ${present}}`;
+        const body = endsNotFound ? all.slice(0, -1) : all;
         // A branch needs a `with`-chain when it holds a fallible statement that
         // must short-circuit to `{:error, tag}` (so it threads up the outer
         // with-chain): a guard (`precondition` / `requires`) OR nested control
@@ -741,7 +754,10 @@ function lowerStatement(
         // A branch of only flat side-effects keeps the sequential `=`-bind form.
         const needsWith = body.some(
           (s) =>
-            s.kind === "precondition" || s.kind === "requires" || NESTED_FLOW_KINDS.has(s.kind),
+            s.kind === "precondition" ||
+            s.kind === "requires" ||
+            s.kind === "not-found" ||
+            NESTED_FLOW_KINDS.has(s.kind),
         );
         if (needsWith) {
           const clauses: string[] = [];
@@ -755,6 +771,9 @@ function lowerStatement(
                 clauses.push(
                   `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner)}})`,
                 );
+                break;
+              case "not-found":
+                clauses.push(notFoundStmtClause(inner));
                 break;
               case "op-call":
                 clauses.push(`{:ok, _} <- ${opCallSource(inner, renderCtx, contextModule, ctx)}`);
@@ -815,7 +834,7 @@ function lowerStatement(
           return [
             `with ${clauses.join(",\n                  ")} do`,
             ...tail.map((l) => `  ${l}`),
-            `  {:ok, ${present}}`,
+            `  ${result}`,
             `else`,
             `  err -> err`,
             `end`,
@@ -824,7 +843,7 @@ function lowerStatement(
         const stmtLines = body.flatMap((inner, i) =>
           renderBranchStmt(inner, renderCtx, contextModule, body.slice(i + 1), ctx),
         );
-        return [...stmtLines, `{:ok, ${present}}`];
+        return [...stmtLines, result];
       };
       const lines = [
         `{:ok, _} <- (`,
@@ -1091,6 +1110,9 @@ function renderLoopBody(
           `:ok <- (if ${renderExpr(inner.expr, renderCtx)}, do: :ok, else: {:error, ${workflowDenialTerm(inner)}})`,
         );
         break;
+      case "not-found":
+        clauses.push(notFoundStmtClause(inner));
+        break;
       case "expr-let": {
         const bind = bindUsedLater(inner.name, rest) ? escapeElixirIdent(snake(inner.name)) : "_";
         clauses.push(`${bind} <- (${renderExpr(inner.expr, renderCtx)})`);
@@ -1309,6 +1331,7 @@ function renderBranchStmt(
     }
     case "precondition":
     case "requires":
+    case "not-found":
     case "for-each":
     case "if-let":
     case "repo-run":
@@ -1936,8 +1959,8 @@ end
   return { content, statementRegions };
 }
 
-/** Does any body of this workflow load through `getById` (at any depth)?  Gates
- *  the dispatcher's `{:not_found, detail}` arm (M-T5.1 A4). */
+/** Does any body of this workflow load through `getById` or answer `notFound`
+ *  (at any depth)?  Gates the dispatcher's `{:not_found, detail}` arm. */
 function workflowLoadsById(wf: WorkflowIR): boolean {
   const lists: readonly (readonly WorkflowStmtIR[])[] = [
     wf.statements,
@@ -1948,7 +1971,7 @@ function workflowLoadsById(wf: WorkflowIR): boolean {
   for (const list of lists) {
     for (const top of list) {
       walkWorkflowStmtsDeep(top, (s) => {
-        if (s.kind === "repo-let" && s.op === "load") found = true;
+        if ((s.kind === "repo-let" && s.op === "load") || s.kind === "not-found") found = true;
       });
     }
   }

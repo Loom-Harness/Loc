@@ -23,6 +23,7 @@ import {
   isLetStmt,
   isMemberSuffix,
   isNameRef,
+  isNotFoundStmt,
   isOnDecl,
   isPostfixChain,
   isPreconditionStmt,
@@ -556,6 +557,12 @@ function lowerWorkflowStatementInner(
       envAfter: env,
     };
   }
+  if (isNotFoundStmt(stmt)) {
+    return {
+      stmt: { kind: "not-found", ...(stmt.detail !== undefined ? { detail: stmt.detail } : {}) },
+      envAfter: env,
+    };
+  }
   if (isEmitStmt(stmt)) {
     return {
       stmt: {
@@ -646,13 +653,18 @@ function lowerWorkflowStatementInner(
       repoForAgg,
       saveResolver,
     );
-    const { statements: elseBody } = lowerWorkflowStatements(
+    const { statements: loweredElse } = lowerWorkflowStatements(
       stmt.elseBody ?? [],
       env,
       aggsByName,
       reposByName,
       repoForAgg,
       saveResolver,
+    );
+    // A `notFound` directly in the `else` is the miss of THIS lookup, so its
+    // default sentence names the lookup's aggregate (`Ticket not found`).
+    const elseBody = loweredElse.map((s) =>
+      s.kind === "not-found" && aggName !== "Unknown" ? { ...s, subject: aggName } : s,
     );
     const savesInThen = computeSaves(
       thenBody,

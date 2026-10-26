@@ -1160,6 +1160,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `A 'match' used for its EFFECTS (arms that run statements) is frontend-only — it lowers to a page / component / store 'action' handler and has no backend form — but this one is in ${p.owner}, which runs on the backend. Move the effect into the 'action' that invokes it. This is a permanent placement rule, not a missing feature.`,
   "loom.if-let-placement": (p: { owner: unknown }) =>
     `'if let' binds the optional result of a repository read and branches on its presence; only a workflow body ('create' / 'on') or a top-level 'commandHandler' / 'queryHandler' lowers it. This one is in ${p.owner}, which has no such lowering — do the optional read in a workflow or handler and pass the resolved value in. This is a permanent placement rule, not a missing feature.`,
+  "loom.not-found-placement": (p: { owner: unknown }) =>
+    `'notFound' answers the request with the not-found ProblemDetails, so only a body that handles a request may say it: a workflow body ('create' / 'on') or a top-level 'commandHandler' / 'queryHandler'. This one is in ${p.owner}. An operation or domain function refuses with 'precondition' / 'requires' or a declared 'error' variant instead; do the lookup and the 404 in the handler that calls it.`,
+  "loom.not-found-unreachable": () =>
+    "This statement follows a 'notFound', which ends the body — it can never run. Move it before the 'notFound', or into the branch that finds the row.",
   "loom.for-placement": (p: { owner: unknown }) =>
     `'for … in …' is lowered only inside a workflow body ('create' / 'on') or a top-level 'commandHandler' / 'queryHandler' — that lowering owns the per-iteration save the loop needs. This one is in ${p.owner}, where the loop would be dropped silently. Put it in a workflow or handler for now; this is a GAP, not a design rule — mission M-T5.30 tracks lowering 'for' into domain bodies.`,
 

@@ -1239,6 +1239,19 @@ system S {
     }
     repository Orders for Order { }`),
 
+  "loom.not-found-placement": repoOnly(`    aggregate Order with crudish {
+      code: string
+      operation touch() { notFound }
+    }
+    repository Orders for Order { }`),
+
+  "loom.not-found-unreachable": repoOnly(`    aggregate Order with crudish { code: string }
+    repository Orders for Order { }
+    commandHandler Touch(code: string) {
+      notFound
+      precondition code != ""
+    }`),
+
   "loom.if-let-placement": repoOnly(`    aggregate Order with crudish {
       code: string
       operation touch() { if let c = code { code := c } }

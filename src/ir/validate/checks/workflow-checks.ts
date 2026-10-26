@@ -1394,6 +1394,7 @@ function validateWorkflowStatements(
         case "repo-run":
         case "resource-call":
         case "domain-service-call":
+        case "not-found":
           break;
         default: {
           const _exhaustive: never = inner;
@@ -1963,6 +1964,9 @@ function validateWorkflowStatements(
         // `domain-service-call` in the first place, so there is no
         // service/op-existence check to add here; this arm exists so the
         // switch is provably exhaustive instead of accidentally total.
+        break;
+      case "not-found":
+        // A terminal answer: nothing to resolve, no effect.
         break;
       default: {
         const _exhaustive: never = st;

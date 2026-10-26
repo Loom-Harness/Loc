@@ -66,6 +66,8 @@ export function printStmt(node: Statement): string {
     }
     case "ReturnStmt":
       return `return ${printExpr(node.value)}`;
+    case "NotFoundStmt":
+      return node.detail !== undefined ? `notFound ${JSON.stringify(node.detail)}` : "notFound";
     case "MatchStmt": {
       // Effect-form match statement (Stage 2).  Subject prints via the
       // expression printer (an `await <call>` subject renders `await …`).

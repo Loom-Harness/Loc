@@ -586,3 +586,11 @@ export function errorVariantResponse(
     stage: "domain",
   };
 }
+
+/** The `detail` a `notFound` statement answers with: the authored text, else
+ *  the not-found sentence over the statement's subject (`Ticket not found`),
+ *  `Resource` standing in when the statement names none.  One function so all
+ *  five backends say the same words. */
+export function notFoundStmtDetail(st: { detail?: string; subject?: string }): string {
+  return st.detail ?? wireSentenceFor("not-found", st.subject ?? "Resource");
+}
