@@ -1200,6 +1200,18 @@ Two change records sit side by side and are easy to conflate:
   diffable change detectors, but they describe different surfaces (the JSON over the
   wire vs. the tables on disk).
 
+`ddd diff <file.ddd> [--baseline <old.ddd> | --git <ref>]` reads both at once and
+classifies each change: a wire change that moves the contract under an existing
+client is `breaking-for-clients`; a migration the destructive gate above refuses
+(including a reshape) is `breaking-for-data`. That verdict comes from the gate
+itself, through `buildMigrations`' `destructiveRefusals` sink, which records every
+refusing module and derives it as under `--allow-destructive` instead of throwing
+on the first. Everything else is `compatible`. A rename declared in a `migration`
+block is one rename on both sides: a compatible `RENAME COLUMN`, and a single
+`property-renamed` wire change, which is still breaking for clients. With no flag
+the committed chain is the schema baseline. The command exits `1` on a breaking
+change; see [`tools.md`](tools.md) § `diff`.
+
 See [`loom-artifacts.md`](loom-artifacts.md) for the full `.loom/` bundle and
 [`technical.md`](technical.md) § Phase ⑨ for the orchestration walk-through.
 

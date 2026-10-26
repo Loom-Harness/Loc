@@ -300,7 +300,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "loom_diff",
     description:
-      "The evolution diff between a previous `.ddd` source (`baseline`) and the new one (`source`) — the same signals the playground's Migrations dock surfaces for a human. Returns (a) the schema migrations the change implies per module, rendered to Postgres SQL, with each migration's `destructive` data-loss flag (the `--allow-destructive` gate), and (b) the wire-contract delta classified breaking vs additive. `breaking` is true on ANY breaking wire change or destructive migration. Omit `baseline` to derive the first-run (\"Initial\") migration with the wire diff skipped. A broken `source` returns ok:false with diagnostics — repair with loom_validate first.",
+      "The evolution diff between a previous `.ddd` source (`baseline`) and the new one (`source`) — the same signals the playground's Migrations dock surfaces for a human. Returns (a) the schema migrations the change implies per module, rendered to Postgres SQL, with each migration's `destructive` data-loss flag (the `--allow-destructive` gate), and (b) the wire-contract delta classified breaking vs additive. `breaking` is true on ANY breaking wire change or destructive migration; each change's `class` (compatible / breaking-for-clients / breaking-for-data) and the report's `breakingForClients` / `breakingForData` say who it breaks — the same verdict `ddd diff` gives. Omit `baseline` to derive the first-run (\"Initial\") migration with the wire diff skipped. A broken `source` returns ok:false with diagnostics — repair with loom_validate first.",
     inputSchema: {
       type: "object",
       properties: {

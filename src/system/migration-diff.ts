@@ -4,7 +4,8 @@ import { headSnapshots, type MigrationChain } from "./migration-chain.js";
 import {
   buildMigrations,
   type MigrationDelta,
-  MigrationDestructiveError,
+  type MigrationDestructiveError,
+  type MigrationShapeChangeError,
   type MigrationWarning,
 } from "./migrations-builder.js";
 import { memorySnapshotStore, type SnapshotStore } from "./snapshot.js";
@@ -55,9 +56,9 @@ export interface SystemEvolution {
   /** Every owning module's delta, in module order — a module with nothing to
    *  migrate carries an empty `steps`. */
   deltas: MigrationDelta[];
-  /** Module → the `MigrationDestructiveError` message, for the module whose
-   *  delta the destructive gate refused.  Its delta is the one derived with
-   *  the gate off, so the caller still shows the steps the change implies. */
+  /** Module → the destructive gate's refusal message(s), for every module
+   *  whose delta it refused.  Those deltas are derived with the gate off, so
+   *  the caller still shows the steps the change implies. */
   destructive: ReadonlyMap<string, string>;
   /** The wire-contract diff; `null` without a baseline system, where every
    *  shape is new and the diff would be noise. */
@@ -86,15 +87,18 @@ export function evolveSystem(
     }
     store = memorySnapshotStore(seed);
   }
-  const intents = migrationIntents(loom);
+  // The destructive gate decides what is breaking-for-data: every module it
+  // refuses lands in `refusals` and is derived as under `--allow-destructive`,
+  // so the caller still sees the steps the change implies.
+  const refusals: (MigrationDestructiveError | MigrationShapeChangeError)[] = [];
+  const deltas = buildMigrations(curSys, store, {
+    ...migrationIntents(loom),
+    destructiveRefusals: refusals,
+  });
   const destructive = new Map<string, string>();
-  let deltas: MigrationDelta[];
-  try {
-    deltas = buildMigrations(curSys, store, intents);
-  } catch (err) {
-    if (!(err instanceof MigrationDestructiveError)) throw err;
-    destructive.set(err.module, err.message);
-    deltas = buildMigrations(curSys, store, { ...intents, allowDestructive: true });
+  for (const r of refusals) {
+    const prior = destructive.get(r.module);
+    destructive.set(r.module, prior ? `${prior}\n${r.message}` : r.message);
   }
   const wire = baseSys ? diffWireSpec(buildWireSpec(baseSys), buildWireSpec(curSys)) : null;
   return {
