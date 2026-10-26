@@ -2506,6 +2506,26 @@ export function lowerExprInContext(
   return retargetEnumValue(lowerExpr(expr, env), expected);
 }
 
+/** `expr` as a value of the declared type (`let x: T = expr`): the contextual
+ *  lowering above, plus an explicit numeric widening (`int` → `long` /
+ *  `decimal`, `long` → `decimal`) of a non-literal value. A backend that infers
+ *  a local's type from its initializer (`var` in C# and Java) then gets the
+ *  declared type, so a later `/` divides as a `decimal`, not an `int`. */
+export function lowerExprAsDeclared(
+  expr: Expression | undefined,
+  declared: TypeIR,
+  env: Env,
+): ExprIR {
+  const value = lowerExprInContext(expr, declared, env);
+  if (declared.kind !== "primitive" || value.kind === "literal") return value;
+  const from = inferExprType(expr, env);
+  if (from.kind !== "primitive") return value;
+  const widens =
+    (from.name === "int" && (declared.name === "long" || declared.name === "decimal")) ||
+    (from.name === "long" && declared.name === "decimal");
+  return widens ? { kind: "convert", target: declared.name, from: from.name, value } : value;
+}
+
 /** Lower an `emit E { f: <expr>, … }` field list, promoting a bare numeric
  *  literal against the event field's declared type — the same contextual
  *  promotion the aggregate-create service and `:=` paths apply.  Shared by

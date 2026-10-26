@@ -329,6 +329,45 @@ Phoenix.PubSub.broadcast(ExApi.PubSub, "events", loom_event_0)
 ```
 ::: end
 
+`let name: Type = Expr` declares the local's type instead of taking the expression's. The value must fit it (`loom.let-type-mismatch`): a bare numeric literal promotes (`let fee: money = 5`), and a narrower numeric value widens (`int` → `long` / `decimal`, `long` → `decimal`) through the same explicit conversion `long(n)` lowers to, so a backend that infers a local from its initializer still gets the declared type.
+
+```ddd
+operation addLines(n: int) {
+  let fee: money = 5
+  let count: long = n
+  subtotal := subtotal + fee
+  lines := lines + count
+}
+```
+
+::: tabs backend
+== node
+```ts
+const fee = new Decimal("5");
+const count = n;
+```
+== dotnet
+```csharp
+var fee = 5m;
+var count = (long)n;
+```
+== java
+```java
+var fee = new BigDecimal("5");
+var count = (long) n;
+```
+== python
+```python
+fee = Decimal("5")
+count = int(n)
+```
+== elixir
+```elixir
+fee = Decimal.new("5")
+count = n
+```
+::: end
+
 On an event-sourced aggregate (`persistedAs: eventLog`), `emit` does **double duty** — it records the event *and* folds it immediately via `_apply`, so the in-memory aggregate reflects the transition before the command returns. There, command bodies may *only* `emit`; the state change lives in the `apply` block (below). The event-sourced `emit` becomes `{ const __ev: Events.DomainEvent = { type: "Deposited", … }; this._events.push(__ev); this._apply(__ev); }` (node), `{ var __ev = new Deposited(…); _domainEvents.Add(__ev); _Apply(__ev); }` (.NET), the same three-step block on Java, and `__ev = Deposited(…)` / `self._events.append(__ev)` / `self._apply(__ev)` on Python.
 
 ## Assignment — `:=`, `+=`, `-=`

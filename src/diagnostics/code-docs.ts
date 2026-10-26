@@ -163,6 +163,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "10-repositories-and-queries.md#a-find-without-where--key-lookup-by-parameter-name",
   "loom.paged-query-handler-shape":
     "10-repositories-and-queries.md#reporun--the-paged-queryhandler",
+  "loom.let-type-mismatch": "06-behavior-and-statements.md#let--emit",
   "loom.function-return-type-mismatch":
     "07-invariants-derived-functions.md#function--a-pure-helper",
   "loom.create-call-not-constructible":

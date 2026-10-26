@@ -1999,6 +1999,7 @@ system P {
   // expression-form function (`toplevel-function.ts`) and the block-body
   // `return` (`types.ts`) — share this code.
   "loom.function-return-type-mismatch": orderOps('function bad(): int = "x"'),
+  "loom.let-type-mismatch": orderOps('operation bad() { let n: int = "x" }'),
   // An anonymous `retrieval { where: … }` whose `where` is a predicate rather
   // than the criterion reference this release admits.
   "loom.retrieval-where-not-criterion": `
