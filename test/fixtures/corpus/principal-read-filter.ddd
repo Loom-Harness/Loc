@@ -139,7 +139,9 @@ system FieldOps {
     api.work_orders.claim(other)
     expect(api.work_orders.getById(other).technicianUserId).toBe("00000000-0000-0000-0000-000000000000")
     expect(api.work.listWorkOrdersMine().count()).toBe(3)
-    expect(api.work.listWorkOrdersMine().count()).toBe(3)
+    // The generic update hands it back: the filter follows that write too.
+    api.work_orders.update(other, { technicianUserId: "7b0c1c7e-0000-4000-8000-000000000001", title: "Boiler", done: false })
+    expect(api.work.listWorkOrdersMine().count()).toBe(2)
     expect(api.work_orders.getById(other).title).toBe("Boiler")
     expect(api.work_orders.all().total).toBe(3)
     api.work_orders.destroy(ownDone)
