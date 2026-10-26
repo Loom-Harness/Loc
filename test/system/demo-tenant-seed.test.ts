@@ -94,6 +94,17 @@ describe("the bundled Keycloak's demo tenant exists (#26)", () => {
     expect(seeds).toContain("FALSE, 0, now(), now())");
   });
 
+  it("elixir: an auditable registry has no timestamps() pair, so the raw INSERT names neither column", async () => {
+    const src = system("elixir", KEYCLOAK).replace(
+      "aggregate Org { name: string  seats: int  active: bool }",
+      "aggregate Org with auditable { name: string  seats: int  active: bool }",
+    );
+    const files = await generateSystemFiles(src);
+    const seeds = [...files].find(([p]) => p.endsWith("/invoicing/seeds.ex"))?.[1];
+    expect(seeds).toContain(ROW);
+    expect(seeds).not.toContain("inserted_at");
+  });
+
   it("no bundled Keycloak (dev stub) ⇒ no demo tenant row and no LOOM_SEED", async () => {
     const files = await generateSystemFiles(system("node", ""));
     const all = [...files.values()].join("\n");

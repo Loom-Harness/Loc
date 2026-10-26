@@ -411,10 +411,7 @@ function renderSchema(
   // twice ("field/association :inserted_at already exists on schema").  The
   // declared field keeps its wire key and its column; the migration drops its
   // `timestamps()` by the same column test (`migrations-emit.ts`).
-  const timestampsLine =
-    hasUpdatedAt || ownsEctoTimestampColumn(agg.fields)
-      ? ""
-      : "    timestamps(type: :utc_datetime)";
+  const timestampsLine = hasEctoTimestamps(agg.fields) ? "    timestamps(type: :utc_datetime)" : "";
   const refCollBlock = refCollLines.join("\n");
   const schemaBody = [
     kindLine,
@@ -453,6 +450,14 @@ ${pureCoreBlock}end
 
 /** The two columns Ecto's bundled `timestamps()` macro defines. */
 const ECTO_TIMESTAMP_COLUMNS: ReadonlySet<string> = new Set(["inserted_at", "updated_at"]);
+
+/** Does the aggregate's table carry the bundled `timestamps()` pair
+ *  (`inserted_at`/`updated_at`)?  Not when an `updatedAt` audit field maps to
+ *  its own `updated_at` column, nor when a declared field owns one of the
+ *  pair.  The schema, the migration and any raw INSERT must agree on this. */
+export function hasEctoTimestamps(fields: readonly { name: string }[]): boolean {
+  return !fields.some((f) => f.name === "updatedAt") && !ownsEctoTimestampColumn(fields);
+}
 
 /** Does a declared field already own one of the `timestamps()` columns?  The
  *  camelCase `createdAt`/`updatedAt` audit names are NOT counted — they keep

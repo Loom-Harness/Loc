@@ -41,7 +41,7 @@ import {
 } from "../../_persistence/seed-datasets.js";
 import { renderSeedRowInsert } from "../../sql-pg.js";
 import { renderExpr } from "../render-expr.js";
-import { ownsEctoTimestampColumn } from "./schema-emit.js";
+import { hasEctoTimestamps } from "./schema-emit.js";
 
 // A `.ddd`-sourced string reaching this file's emitted Elixir routes through
 // `elixirString` (src/util/naming.ts) — the ONE escape funnel every Elixir
@@ -98,11 +98,12 @@ export function emitVanillaSeeds(
   const aggByName = seederAggs;
 
   // A `raw` INSERT bypasses Ecto's autogenerate, so it must spell the
-  // migration's NOT NULL `timestamps()` columns itself — unless a declared
-  // field owns one of them (the migration then omits the bundled pair).
+  // migration's NOT NULL `timestamps()` columns itself — but only on a table
+  // that has them (an audit `updatedAt` or a declared `inserted_at` replaces
+  // the bundled pair, and naming an absent column fails the INSERT).
   const ownsTimestamps = (aggregate: string): boolean => {
     const agg = ctx.aggregates.find((a) => a.name === aggregate);
-    return agg !== undefined && ownsEctoTimestampColumn(agg.fields);
+    return agg === undefined || !hasEctoTimestamps(agg.fields);
   };
 
   const fnBlocks: string[] = [];
