@@ -19,6 +19,7 @@ import {
   type WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
 import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
+import { findRaisesNotFound } from "../../ir/util/key-lookup.js";
 import { CONCURRENCY_CONFLICT_SUFFIX } from "../../ir/util/openapi-errors.js";
 import { defaultSortOrder } from "../../ir/util/sortable-fields.js";
 
@@ -540,12 +541,16 @@ export function relationalFindMethod(
       "        return items",
     );
   }
+  // A natural-key `getBy` answers the find-absence 404, never a `None`.
+  const raises = findRaisesNotFound(find);
   return lines(
-    `    async def ${pythonIdent(find.name)}(${sig}) -> ${aggRef(agg)} | None:`,
+    `    async def ${pythonIdent(find.name)}(${sig}) -> ${aggRef(agg)}${raises ? "" : " | None"}:`,
     `        row = (await self._session.execute(${R.select}(${root})${where})).scalars().first()`,
     findExecutedLine(agg, find.name, "0 if row is None else 1"),
     "        if row is None:",
-    "            return None",
+    raises
+      ? `            raise ${R.AggregateNotFoundError}("not_found")`
+      : "            return None",
     "        return await self._hydrate(row)",
   );
 }

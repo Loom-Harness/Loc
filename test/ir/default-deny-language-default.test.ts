@@ -31,7 +31,7 @@ system Helpdesk {
         open: bool
         operation close() { open := false }
       }
-      repository Tickets for Ticket { find all(): Ticket[]  find byId(id: Ticket id): Ticket? }
+      repository Tickets for Ticket { find all(): Ticket[]   }
       policy { read Ticket requires true }
     }
   }

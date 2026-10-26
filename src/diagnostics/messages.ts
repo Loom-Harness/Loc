@@ -189,6 +189,38 @@ export const DIAGNOSTIC_MESSAGES = {
     `Unknown builder type '${p.name}'. Expected a ValueObject, EntityPart, user-defined component, or stdlib walker primitive (e.g., Stack, CreateForm, Card).`,
 
   // ----------------------------------------------------------------------
+  // src/language/validators/repo-key-lookup.ts
+  // ----------------------------------------------------------------------
+  "loom.repo-key-not-unique": (p: {
+    repo: unknown;
+    verb: unknown;
+    cols: unknown;
+    agg: unknown;
+    declared: unknown;
+    suggestion: unknown;
+  }) =>
+    `'${p.repo}.${p.verb}(${p.cols})': (${p.cols}) is not a declared unique key of '${p.agg}'. ` +
+    (p.declared
+      ? `Its unique keys are ${p.declared}.${p.suggestion ? ` Did you mean '${p.repo}.${p.verb}(${p.suggestion})'?` : ""} `
+      : `'${p.agg}' declares no 'unique (…)' key. `) +
+    `'${p.verb}' reads ONE row by a natural key, so its named arguments must equal a ` +
+    `'unique (…)' tuple — otherwise two rows can share the key and the read returns whichever ` +
+    `the database yields first. Declare 'unique (${p.cols})' on '${p.agg}', or read a list with ` +
+    `'${p.repo}.findAll(<Criterion>)'.`,
+  "loom.repo-key-incomplete": (p: {
+    repo: unknown;
+    verb: unknown;
+    agg: unknown;
+    tuple: unknown;
+    missing: unknown;
+  }) =>
+    `'${p.repo}.${p.verb}' names part of the unique key (${p.tuple}) of '${p.agg}' but not ` +
+    `${p.missing}. Every column of the tuple is required: a partial key can match many rows.`,
+  "loom.repo-key-incomplete#positional": (p: { repo: unknown; verb: unknown; agg: unknown }) =>
+    `'${p.repo}.${p.verb}' takes NAMED arguments, one per column of a declared unique key of ` +
+    `'${p.agg}' ('${p.repo}.${p.verb}(sku: s)'); a positional argument names no column.`,
+
+  // ----------------------------------------------------------------------
   // src/language/validators/bypass-placement.ts
   // ----------------------------------------------------------------------
   "loom.ignoring-clause-placement": (p: { clause: unknown }) =>

@@ -16,9 +16,8 @@ system Roster {
         apply(e: Recruited) { roster += e.player }
       }
       repository Players for Player { }
-      repository Squads for Squad {
-        find byName(name: string): Squad? where this.name == name
-      }
+      repository Squads for Squad { }
+      criterion SquadsByName(name: string) of Squad = this.name == name
     }
   }
   storage pg { type: postgres }

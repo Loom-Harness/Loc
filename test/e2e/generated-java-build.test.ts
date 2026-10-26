@@ -35,6 +35,10 @@ const FIXTURES: Array<[string, string]> = [
   // collections, derived sums over BigDecimal, declared finds → @Query JPQL,
   // Flyway migration emission.
   ["test/e2e/fixtures/java-build/domain.ddd", "shop_api"],
+  // Natural-key reads (D-REPO-KEY-LOOKUP): `getBy` / `findBy` over declared
+  // `unique (…)` tuples → one @Query method per used tuple, `getBy` raising
+  // AggregateNotFoundException on a miss.
+  ["test/e2e/fixtures/elixir-vanilla-build/key-lookup.ddd", "java_api"],
   // The full showcase surface on java, straight from the conformance
   // fixture (no fork — the showcase-java.ddd twin was retired once the
   // union-find variant-match rendered on the optional twin, #1631): auth

@@ -278,9 +278,7 @@ system Helpdesk {
       policy { read InternalNote requires currentUser.role == "agent" }
       repository SlaSweeps for SlaSweep { }
       policy { read SlaSweep requires currentUser.role == "agent" }
-      repository Tickets for Ticket {
-        find byNumber(number: string): Ticket?
-      }
+      repository Tickets for Ticket { }
       criterion TicketsMyQueue of Ticket = assignee == currentUser.agentId && status != Resolved && status != Closed
       criterion TicketsUnassigned of Ticket = assignee == null && status == Open
       criterion TicketsMine of Ticket = customer == currentUser.customerId

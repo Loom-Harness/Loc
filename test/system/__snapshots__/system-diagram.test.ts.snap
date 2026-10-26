@@ -60,7 +60,6 @@ classDiagram
   class Products {
     <<repository>>
     +all() Product paged
-    +bySku(sku) Product?
   }
   %% Sales / Orders
   class OrderStatus {
@@ -112,7 +111,6 @@ classDiagram
   class Customers {
     <<repository>>
     +all() Customer paged
-    +byEmail(email) Customer?
   }
   Product ..> Money : uses
   Products ..> Product : manages

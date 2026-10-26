@@ -147,9 +147,8 @@ system PokemonWorld {
                 derived display: string = name
             }
 
-            repository Trainers for Trainer {
-                find byName(name: string): Trainer? where this.name == name
-            }
+            repository Trainers for Trainer { }
+            criterion TrainersByName(name: string) of Trainer = this.name == name
             criterion TrainersByRank(rank: TrainerRank) of Trainer = this.rank == rank
             criterion TrainersHoldingInParty(pokemon: Pokemon id) of Trainer = this.party.contains(pokemon)
         }

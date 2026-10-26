@@ -83,10 +83,4 @@ public sealed class ProductRepository : IProductRepository
         _log.LogDebug("{Event} aggregate={Aggregate} find={Find} rows={Rows}", "find_executed", "Product", "all", items.Count);
         return new Paged<Product>(items, page, pageSize, total, totalPages);
     }
-    public async Task<Product?> BySku(string sku, CancellationToken cancellationToken = default)
-    {
-        var result = await _db.Products.Where(x => x.Sku == sku).FirstOrDefaultAsync(cancellationToken);
-        _log.LogDebug("{Event} aggregate={Aggregate} find={Find} rows={Rows}", "find_executed", "Product", "bySku", result == null ? 0 : 1);
-        return result;
-    }
 }

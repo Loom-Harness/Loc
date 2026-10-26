@@ -12,5 +12,4 @@ public interface IProductRepository
     Task SaveAsync(Product aggregate, CancellationToken cancellationToken = default);
     Task DeleteAsync(Product aggregate, CancellationToken cancellationToken = default);
     Task<Paged<Product>> All(int page, int pageSize, string sort, string dir, CancellationToken cancellationToken = default);
-    Task<Product?> BySku(string sku, CancellationToken cancellationToken = default);
 }

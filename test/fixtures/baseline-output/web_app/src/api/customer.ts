@@ -26,10 +26,6 @@ export const AllQuery = z.object({
 });
 export type AllQuery = z.infer<typeof AllQuery>;
 export type AllQueryInput = z.input<typeof AllQuery>;
-export const ByEmailQuery = z.object({
-  email: z.string(),
-});
-export type ByEmailQuery = z.infer<typeof ByEmailQuery>;
 
 export const CustomerResponse = z.object({
   id: z.string(),
@@ -99,17 +95,6 @@ export function useUpdateCustomer(id: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["customers", id] });
       qc.invalidateQueries({ queryKey: ["customers"] });
-    },
-  });
-}
-
-export function useByEmailCustomer(query: ByEmailQuery) {
-  return useQuery({
-    queryKey: ["customers", "find", "by_email", query],
-    queryFn: async () => {
-      const qs = new URLSearchParams(Object.entries(query).map(([k, v]) => [k, String(v)])).toString();
-      const r = await api.get(`/customers/by_email${qs ? "?" + qs : ""}`);
-      return CustomerResponse.nullable().parse(r);
     },
   });
 }

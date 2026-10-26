@@ -52,8 +52,7 @@ context Staffing {
     derived display: string = name.full
   }
 
-  repository Employees for Employee {
-    find byEmail(email: string): Employee? where this.email == email
-  }
+  repository Employees for Employee { }
+  criterion EmployeesByEmail(email: string) of Employee = this.email == email
   repository Contractors for Contractor { }
 }

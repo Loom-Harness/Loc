@@ -107,13 +107,11 @@ subdomain Inventory {
       sort:  [reorderPoint desc]
     }
 
-    repository Products for Product {
-      find bySku(sku: string): Product? where this.sku == sku
-    }
+    repository Products for Product { }
+    criterion ProductsBySku(sku: string) of Product = this.sku == sku
     criterion ProductsActive of Product = this.active == true
-    repository Warehouses for Warehouse {
-      find byCode(code: string): Warehouse? where this.code == code
-    }
+    repository Warehouses for Warehouse { }
+    criterion WarehousesByCode(code: string) of Warehouse = this.code == code
     repository StockItems for StockItem { }
     criterion StockItemsByProduct(productId: Product id) of StockItem = this.productId == productId
     repository StockMovements for StockMovement { }

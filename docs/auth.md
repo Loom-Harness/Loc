@@ -210,6 +210,15 @@ the file.  Two reads of one aggregate that must answer to different principals
 belong on different aggregates (or behind an exposure gate:
 `scaffoldPaged(requires:)`, a route / handler `requires`).
 
+A natural-key read (`Orders.getBy(code: c)` / `Orders.findBy(…)`,
+[D-REPO-KEY-LOOKUP](decisions.md)) has no route of its own, so the policy read
+gate never sits on it: it runs inside a body, and that body's exposure gate (a
+routed handler's `requires`, a workflow `create`'s `requires`) decides who
+reaches it.  A single-row `find` that only existed to be called from a body
+migrates with `node scripts/codemod-find-to-findby.mjs <path>` (to `findBy` /
+`getBy`, the by-id reads, or a criterion read with `Repo.find(C)`) — the gate
+it used to carry already lives in `policy { read … }`.
+
 What's intentionally **not** here yet:
 
 - Workflow bodies calling currentUser-bound finds — the validator

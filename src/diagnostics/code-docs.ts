@@ -163,6 +163,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.paged-param-reserved": "10-repositories-and-queries.md#return-shapes",
   "loom.find-param-unbound":
     "10-repositories-and-queries.md#a-find-without-where--key-lookup-by-parameter-name",
+  "loom.repo-key-not-unique": "10-repositories-and-queries.md#natural-key-reads--getby--findby",
+  "loom.repo-key-incomplete": "10-repositories-and-queries.md#natural-key-reads--getby--findby",
   "loom.paged-query-handler-shape":
     "10-repositories-and-queries.md#reporun--the-paged-queryhandler",
   "loom.let-type-mismatch": "06-behavior-and-statements.md#let--emit",

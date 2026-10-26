@@ -42,7 +42,13 @@ guards.
 > `node scripts/codemod-list-find-to-criterion.mjs <path>` rewrites the old form
 > (see [D-LIST-FIND-REMOVED](decisions.md)).  A **unique-key reconstitution** find (returning a single
 > `T` / `T?` by identity) is *not* a list query and stays legal, and so does
-> `find all(…)`, the override of the repository's list endpoint.  The
+> `find all(…)`, the override of the repository's list endpoint.  Over a declared
+> `unique (…)` key it needs no declaration at all — `Repo.getBy(<col>: v)` /
+> `Repo.findBy(…)` read it ([D-REPO-KEY-LOOKUP](decisions.md);
+> `node scripts/codemod-find-to-findby.mjs` migrates the finds).  A key that is
+> not unique is a query: a criterion, read with `Repo.find(<Criterion>)` — the
+> same codemod writes `criterion <Plural><Find>` for such a find and points its
+> call sites at `find(C)`.  The
 > single-result `Repo.find(<Criterion>)` is **shipped on every backend** as the
 > source of an `if let` workflow statement — `if let x = Repo.find(<Criterion>)
 > { … } else { … }` — which binds the first match (non-null) in the then-branch

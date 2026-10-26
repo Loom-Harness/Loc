@@ -45,9 +45,8 @@ system Denials {
           status := "open"
         }
       }
-      repository Orders for Order {
-        find recent(): Order? where this.total > 0
-      }
+      repository Orders for Order { }
+      criterion OrdersRecent of Order = this.total > 0
     }
   }
   api SalesApi from Sales ${apiBody}

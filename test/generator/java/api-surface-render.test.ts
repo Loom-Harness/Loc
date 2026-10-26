@@ -32,10 +32,9 @@ system P {
         status: string
         operation cancel() when status == "Open" { status := "Cancelled" }
       }
-      repository Orders for Order {
-        find byCode(code: string): Order option
-        find byRef(ref: string): Order or Missing where this.code == ref
-      }
+      repository Orders for Order { }
+      criterion OrdersByCode(code: string) of Order = this.code == code
+      criterion OrdersByRef(ref: string) of Order = this.code == ref
       policy { read Order requires currentUser.role == "admin" }
     }
   }

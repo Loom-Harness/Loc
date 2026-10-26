@@ -73,9 +73,8 @@ system AcmeVue {
                 derived display: string = sku
             }
 
-            repository Products for Product {
-                find bySku(sku: string): Product? where this.sku == sku
-            }
+            repository Products for Product { }
+            criterion ProductsBySku(sku: string) of Product = this.sku == sku
         }
     }
 
@@ -253,9 +252,8 @@ system AcmeVue {
                 derived display: string = username
             }
 
-            repository Customers for Customer {
-                find byEmail(email: string): Customer? where this.email == email
-            }
+            repository Customers for Customer { }
+            criterion CustomersByEmail(email: string) of Customer = this.email == email
         }
     }
 

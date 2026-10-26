@@ -214,6 +214,40 @@ describe.skipIf(!ENABLED)(
       }
     }, 300_000);
 
+    // Natural-key reads (D-REPO-KEY-LOOKUP): `Repo.getBy(sku: s)` /
+    // `Repo.findBy(…)` emit one repository method per used tuple
+    // (`getBySku`, `findByRegionAndName`, `getBySkuIgnoringAll`) and call it
+    // from a workflow, both handler kinds and a domain service.
+    it("system natural-key reads (node) — getBy/findBy methods type-check + bundle", () => {
+      const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-kl-"));
+      try {
+        execSync(
+          `node ${cli} generate system test/e2e/fixtures/elixir-vanilla-build/key-lookup.ddd -o ${outDir}`,
+          {
+            stdio: "inherit",
+            cwd: repoRoot,
+          },
+        );
+        const proj = path.join(outDir, "node_api");
+        const repo = fs.readFileSync(
+          path.join(proj, "db", "repositories", "product-repository.ts"),
+          "utf8",
+        );
+        expect(repo).toContain("async getBySku(sku: string): Promise<Product>");
+        expect(repo).toContain("async findByRegionAndName(region: string, name: string)");
+        installGeneratedProject(proj, { timeout: 180_000 });
+        execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
+        execSync(`npm run build`, { cwd: proj, stdio: "inherit", timeout: 60_000 });
+        expect(fs.existsSync(path.join(proj, "dist", "index.js"))).toBe(true);
+      } finally {
+        try {
+          fs.rmSync(outDir, { recursive: true, force: true });
+        } catch {
+          /* ignore */
+        }
+      }
+    }, 300_000);
+
     // OIDC turnkey auth (D-AUTH-OIDC, Phase 1): a system with an
     // `auth { oidc { … } }` block emits the generated jose-backed verifier
     // (auth/oidc.ts) + the /auth/* handshake (auth/handshake.ts) + the

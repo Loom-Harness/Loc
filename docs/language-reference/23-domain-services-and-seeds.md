@@ -13,7 +13,7 @@ Every tab below is from one five-deployable generation (node / dotnet / python /
 | Tier | The body may… | Callable from |
 |---|---|---|
 | **pure** | params only; `let`, branch, `match`, call other pure services | anywhere — aggregate ops, workflows, other services |
-| **reading** | + read-only repository queries of the **same context** (`Accounts.byHolder(h)`, `getById`, `find`/`findAll`/`run`) | application orchestrators only (workflow / handler) |
+| **reading** | + read-only repository queries of the **same context** (`Accounts.find(AccountsByHolder(h))`, `getById`, `getBy`/`findBy`, `findAll`/`run`) | application orchestrators only (workflow / handler) |
 | **mutating** | + calling operations on the aggregates passed in (`source.withdraw(amount)`) | application orchestrators only |
 
 ```ddd
@@ -25,15 +25,14 @@ context Accounts {
     operation withdraw(amount: Money) { balance := Money { amount: balance.amount - amount.amount, currency: balance.currency } }
     operation deposit(amount: Money)  { balance := Money { amount: balance.amount + amount.amount, currency: balance.currency } }
   }
-  repository Accounts for Account {
-    find byHolder(holder: string): Account? where this.holder == holder
-  }
+  repository Accounts for Account { }
+  criterion AccountsByHolder(holder: string) of Account = this.holder == holder
 
   domainService FeeQuote {                        // pure
     operation forAmount(amount: Money): Money { return Money { amount: amount.amount, currency: amount.currency } }
   }
   domainService Registration {                    // reading
-    operation isHolderFree(holder: string): bool { return Accounts.byHolder(holder) == null }
+    operation isHolderFree(holder: string): bool { return Accounts.find(AccountsByHolder(holder)) == null }
   }
   domainService Transfer {                        // mutating
     operation run(source: Account, dest: Account, amount: Money) {
@@ -58,7 +57,7 @@ export namespace FeeQuote {
 
 export namespace Registration {                   // reading: the repository port is a parameter
   export async function isHolderFree(accounts: AccountRepositoryPort, holder: string): Promise<boolean> {
-      return (await accounts.byHolder(holder)) === null;
+      return ((await accounts.runFindAllByAccountsByHolder(holder))[0] ?? null) === null;
   }
 }
 
@@ -90,7 +89,7 @@ public sealed class Registration
 
     public async Task<bool> IsHolderFreeAsync(string holder, CancellationToken cancellationToken = default)
     {
-        return (await _accounts.ByHolder(holder, cancellationToken)) == null;
+        return ((await _accounts.RunFindAllByAccountsByHolderAsync(holder, cancellationToken: cancellationToken)) switch { [var __first, ..] => __first, _ => null }) == null;
     }
 }
 ```
@@ -104,7 +103,7 @@ public class Registration {
 
     @Transactional(readOnly = true)
     public boolean isHolderFree(String holder) {
-        return accountsRepository.byHolder(holder) == null;
+        return accountsRepository.runFindAllByAccountsByHolder(holder).stream().findFirst().orElse(null) == null;
     }
 }
 ```
@@ -115,7 +114,7 @@ public class Registration {
 from app.domain.repository_ports import AccountRepositoryPort
 
 async def is_holder_free(accounts: AccountRepositoryPort, holder: str) -> bool:
-    return (await accounts.by_holder(holder)) is None
+    return ((lambda __r: __r[0] if __r else None)(await accounts.run_find_all_by_accounts_by_holder(holder))) is None
 ```
 ```python
 # app/domain/services/transfer.py — mutating: bare module functions, no class, no self
@@ -138,7 +137,10 @@ end
 @doc "Reading-tier domain service `Registration.isHolderFree` (ambient Repo — domain-services.md rev. 4)."
 @spec is_holder_free(String.t()) :: boolean()
 def is_holder_free(holder) do
-  # …
+  is_nil((case run_find_all_by_accounts_by_holder_account(holder) do
+    {:ok, [value | _]} -> value
+    _ -> nil
+  end))
 end
 ```
 The mutating tier has no module of its own on Elixir: `Transfer.run(s, d, amount)` inlines into the calling workflow's `with`-chain as `Context.withdraw_account(s, …)` / `Context.deposit_account(d, …)`.

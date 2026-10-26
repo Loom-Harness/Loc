@@ -164,8 +164,7 @@ subdomain Finance {
 
     repository CashAccounts for CashAccount { }
     repository BankAccounts for BankAccount { }
-    repository GeneralLedgerAccounts for GeneralLedgerAccount {
-      find byCode(code: string): GeneralLedgerAccount? where this.code == code
-    }
+    repository GeneralLedgerAccounts for GeneralLedgerAccount { }
+    criterion GeneralLedgerAccountsByCode(code: string) of GeneralLedgerAccount = this.code == code
   }
 }

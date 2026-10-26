@@ -24,9 +24,8 @@ const SRC = `
       }
       derived label: string = holder
     }
-    repository Accounts for Account {
-      find byHolder(holder: string): Account? where this.holder == holder
-    }
+    repository Accounts for Account { }
+    criterion AccountsByHolder(holder: string) of Account = this.holder == holder
 
     domainService FeeQuote {
       operation forAmount(amount: Money): Money {
@@ -35,7 +34,7 @@ const SRC = `
     }
     domainService Registration {
       operation isTaken(holder: string): bool {
-        return Accounts.byHolder(holder) == null
+        return Accounts.find(AccountsByHolder(holder)) == null
       }
     }
     domainService Transfer {
