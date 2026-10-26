@@ -37,6 +37,7 @@ import {
 } from "../../language/generated/ast.js";
 import { declaredKeyTuples } from "../../language/repo-key-tuples.js";
 import {
+  bypassReadMethodName,
   isRepoWriteName,
   keyLookupMethodName,
   namedRepoCallOp,
@@ -45,7 +46,7 @@ import {
   repositoryVerb,
   resolveKeyTuple,
 } from "../../util/repository-contract.js";
-import type { KeyLookupIR, TypeIR } from "../types/loom-ir.js";
+import type { BypassReadIR, KeyLookupIR, TypeIR } from "../types/loom-ir.js";
 import { type Env, lowerType } from "./lower-types.js";
 
 /** A predicate that decides whether a bare `run(<Name>)` / `run(<Name>(args))`
@@ -147,11 +148,7 @@ export function matchKeyLookupCall(
     const v = byName.get(col);
     return v ? [v] : [];
   });
-  const bypass: { bypassAll?: boolean; bypassCaps?: string[] } = expr.bypassAll
-    ? { bypassAll: true }
-    : expr.bypass.length > 0
-      ? { bypassCaps: [...expr.bypass] }
-      : {};
+  const bypass = chainBypass(expr);
   const verb = s.member as "getBy" | "findBy";
   return {
     repo,
@@ -162,6 +159,31 @@ export function matchKeyLookupCall(
     args,
     ...bypass,
   };
+}
+
+/** The `ignoring` stance a read chain carries: `ignoring *` → `bypassAll`,
+ *  `ignoring A, B` → `bypassCaps`, none → `{}`. */
+function chainBypass(expr: { bypassAll?: boolean; bypass?: string[] }): {
+  bypassAll?: boolean;
+  bypassCaps?: string[];
+} {
+  if (expr.bypassAll) return { bypassAll: true };
+  return (expr.bypass?.length ?? 0) > 0 ? { bypassCaps: [...expr.bypass!] } : {};
+}
+
+/** The widened single-row read a chain names, when it carries an `ignoring`
+ *  stance — `undefined` for a plain read. */
+function bypassReadOf(
+  expr: { bypassAll?: boolean; bypass?: string[] },
+  source: BypassReadIR["source"],
+): BypassReadIR | undefined {
+  const bypass = chainBypass(expr);
+  return bypass.bypassAll || bypass.bypassCaps ? { source, ...bypass } : undefined;
+}
+
+/** The method a widened single-row read is emitted as. */
+export function bypassReadMethod(read: BypassReadIR): string {
+  return bypassReadMethodName(read.source, read);
 }
 
 /** The IR record of a natural-key read's tuple + `ignoring` stance. */
@@ -177,6 +199,9 @@ export interface FindMatch {
   repo: Repository;
   criterionName: string;
   criterionArgs: Expression[];
+  /** Set when the read carries an `ignoring` stance: it then calls its own
+   *  method (`bypassReadMethod`) instead of the criterion's shared retrieval. */
+  bypassRead?: BypassReadIR;
 }
 
 /** Recognise `<Repo>.find(<CriterionRef>)` — the single-result sibling of
@@ -198,7 +223,27 @@ export function matchFindCall(
   if (!refArg) return undefined;
   const critRef = criterionRefFromExpr(refArg.value);
   if (!critRef) return undefined;
-  return { repo, criterionName: critRef.name, criterionArgs: critRef.args };
+  const bypassRead = bypassReadOf(expr, { kind: "criterion", name: critRef.name });
+  return {
+    repo,
+    criterionName: critRef.name,
+    criterionArgs: critRef.args,
+    ...(bypassRead ? { bypassRead } : {}),
+  };
+}
+
+/** Recognise `<Repo>.findById(id) ignoring …` — the by-id read widened past
+ *  its capability filters.  A plain `findById` declines: it is the shared
+ *  by-id load, called by name. */
+export function matchByIdBypassCall(
+  expr: Expression | undefined,
+  reposByName: Map<string, Repository>,
+): (RepoMatch & { bypassRead: BypassReadIR }) | undefined {
+  const call = matchRepoCall(expr, reposByName);
+  if (call?.method !== "findById" || !isPostfixChain(expr)) return undefined;
+  if (call.repo.finds.some((f) => f.name === "findById")) return undefined;
+  const bypassRead = bypassReadOf(expr, { kind: "id" });
+  return bypassRead ? { ...call, bypassRead } : undefined;
 }
 
 /** Recognise `<Repo>.<find>(args)` where `<find>` is a DECLARED find whose
@@ -429,6 +474,9 @@ export interface RepoReadMatch {
   /** For a natural-key read — the tuple and `ignoring` stance `method`
    *  names. */
   key?: KeyLookupIR;
+  /** For a widened `find(C)` / `findById` read — the source and stance
+   *  `method` names. */
+  bypassRead?: BypassReadIR;
 }
 
 /** Recognise ANY repository read in an expression position, collapsing the four
@@ -453,6 +501,14 @@ export function matchRepoRead(
       key: keyLookupIR(key),
     };
   const find = matchFindCall(expr, reposByName);
+  if (find?.bypassRead)
+    return {
+      op: "select-one",
+      repo: find.repo,
+      method: bypassReadMethod(find.bypassRead),
+      args: find.criterionArgs,
+      bypassRead: find.bypassRead,
+    };
   if (find)
     return {
       op: "select-one",
@@ -460,6 +516,15 @@ export function matchRepoRead(
       method: "find",
       args: find.criterionArgs,
       criterionName: find.criterionName,
+    };
+  const byId = matchByIdBypassCall(expr, reposByName);
+  if (byId)
+    return {
+      op: "load-optional",
+      repo: byId.repo,
+      method: bypassReadMethod(byId.bypassRead),
+      args: byId.args,
+      bypassRead: byId.bypassRead,
     };
   const findAll = matchFindAllCall(expr, reposByName);
   if (findAll)

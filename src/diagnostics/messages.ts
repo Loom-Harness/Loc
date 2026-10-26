@@ -224,10 +224,12 @@ export const DIAGNOSTIC_MESSAGES = {
   // src/language/validators/bypass-placement.ts
   // ----------------------------------------------------------------------
   "loom.ignoring-clause-placement": (p: { clause: unknown }) =>
-    `'${p.clause}' sits in a position that DROPS it. A capability-filter bypass has three homes: ` +
+    `'${p.clause}' sits in a position that DROPS it. A capability-filter bypass has five homes: ` +
     "a repository 'find … ignoring …', a query-time projection's 'where' slot (before 'join' / " +
-    "'group by' / 'select'), or an inline read bound by a 'let' ('let xs = Repo.findAll(…) " +
-    "ignoring …'). Written on any other expression it parses, binds to that expression, and is " +
+    "'group by' / 'select'), an inline read bound by a 'let' ('let xs = Repo.findAll(…) " +
+    "ignoring …'), an 'if let' source ('if let o = Repo.find(C) ignoring …' / 'Repo.findBy(…) " +
+    "ignoring …'), or a single-row read in a domainService operation ('Repo.findById(id) " +
+    "ignoring … == null'). Written on any other expression it parses, binds to that expression, and is " +
     "never read back — the read still applies every filter you asked it to skip. Move the clause " +
     "to the read it is meant to widen.",
 

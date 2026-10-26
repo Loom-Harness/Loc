@@ -146,4 +146,64 @@ describe("loom.ignoring-clause-placement — the bypass clause only where it is 
     );
     expect(codesOf(diagnostics)).toContain(CODE);
   });
+
+  describe("single-row reads — `find(<Criterion>)` / `findById`", () => {
+    const singleRow = (wfBody: string, svcBody = "return true") => `
+      system S {
+        capability softDeletable { isDeleted: bool  filter this.isDeleted == false }
+        subdomain D { context C {
+          criterion Big(min: int) of Order = this.total > min
+          aggregate Order with softDeletable {
+            total: int
+            operation bump() { total := total + 1 }
+          }
+          repository Orders for Order { }
+          domainService Q {
+            operation probe(id: Order id, min: int): bool { ${svcBody} }
+          }
+          workflow w { create(id: Order id, min: int) { ${wfBody} } }
+        }}
+        storage pg { type: postgres }
+        resource cState { for: C, kind: state, use: pg }
+        deployable api { platform: node  contexts: [C]  dataSources: [cState]  port: 3000 }
+      }`;
+    const errorsOf = async (src: string) =>
+      (await parseString(src)).diagnostics.filter((d) => d.severity === 1).map((d) => d.message);
+
+    it("accepts `if let o = Repo.find(C) ignoring …` — the if-let source reads it", async () => {
+      expect(
+        await errorsOf(
+          singleRow("if let o = Orders.find(Big(min)) ignoring softDeletable { o.bump() }"),
+        ),
+      ).toEqual([]);
+      expect(
+        await errorsOf(singleRow("if let o = Orders.find(Big(min)) ignoring * { o.bump() }")),
+      ).toEqual([]);
+    });
+
+    it("accepts `find(C)` / `findById` with `ignoring` in a domain-service expression", async () => {
+      expect(
+        await errorsOf(
+          singleRow(
+            "",
+            "return Orders.findById(id) ignoring * != null && Orders.find(Big(min)) ignoring softDeletable == null",
+          ),
+        ),
+      ).toEqual([]);
+    });
+
+    it("errors on `findById … ignoring` as an `if let` source — findById is not one", async () => {
+      const { diagnostics } = await parseString(
+        singleRow("if let o = Orders.findById(id) ignoring * { o.bump() }"),
+      );
+      expect(codesOf(diagnostics)).toContain(CODE);
+    });
+
+    it("errors on `findAll(C) … ignoring` in a domain-service expression — the service read drops it", async () => {
+      const { diagnostics } = await parseString(
+        singleRow("", "return (Orders.findAll(Big(min)) ignoring softDeletable).count > 0"),
+      );
+      expect(codesOf(diagnostics)).toContain(CODE);
+    });
+  });
 });

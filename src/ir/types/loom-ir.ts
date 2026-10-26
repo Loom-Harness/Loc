@@ -948,6 +948,12 @@ export interface FindIR {
    *  (fully-resolved IR) — the per-backend filter identity (e.g. the EF
    *  `HasQueryFilter` name) is derived in the emitter. */
   bypassCaps?: string[];
+  /** A single-row find that answers the FIRST row its filter matches, in id
+   *  order, where more than one row may match — the widened
+   *  `Repo.find(<Criterion>) ignoring …` read (`synthesizeBypassReadFinds`),
+   *  which keeps `find(C)`'s first-match meaning.  Absent, a single-row find
+   *  reads a key, and a backend may treat a second match as an error. */
+  takeFirst?: boolean;
   /** Compiler-synthesized find — NOT author-declared and NOT auto-exposed as
    *  its own HTTP route.  Set by enrich when a paged `queryHandler` over
    *  `Repo.run(<Criterion>)` (paged-run) needs the #1904 paged FIND repo-method
@@ -991,6 +997,20 @@ export interface FindIR {
  *  `WHERE` equality per column, capability filters applied as on any read. */
 export interface KeyLookupIR {
   columns: string[];
+  bypassAll?: boolean;
+  bypassCaps?: string[];
+}
+
+/** A single-row read that widens its capability filters —
+ *  `Repo.find(<Criterion>) ignoring …` or `Repo.findById(id) ignoring …`.
+ *  The plain reads share a method with every other caller (the criterion's
+ *  `findAllBy<C>` retrieval, the by-id load), so the widened read is emitted
+ *  as a method of its own, named by `bypassReadMethodName`, which enrichment
+ *  synthesises (`synthesizeBypassReadFinds`) as a `synthesized` find: the
+ *  criterion's predicate (or `this.id == id`) with the read's stance as
+ *  `bypassAll` / `bypassCaps`. */
+export interface BypassReadIR {
+  source: { kind: "criterion"; name: string } | { kind: "id" };
   bypassAll?: boolean;
   bypassCaps?: string[];
 }
@@ -2019,6 +2039,12 @@ export type WorkflowStmtIR =
       findMethod?: string;
       /** A natural-key source's tuple + `ignoring` stance (see `repo-let`). */
       key?: KeyLookupIR;
+      /** A `Repo.find(<Criterion>) ignoring …` source: the criterion and the
+       *  stance of the widened read `findMethod` names.  `synthCriterion`
+       *  still names the criterion (it is validated like any criterion read);
+       *  `retrievalName` is empty, as the read does not run the shared
+       *  retrieval. */
+      bypassRead?: BypassReadIR;
       thenBody: WorkflowStmtIR[];
       elseBody?: WorkflowStmtIR[];
       /** Saves for aggregates created/mutated inside `thenBody` (the bound
@@ -3921,6 +3947,10 @@ export type ExprIR =
         synthCriterion?: { name: string };
         /** A natural-key read's tuple + `ignoring` stance (see `repo-let`). */
         key?: KeyLookupIR;
+        /** A `find(<Criterion>)` / `findById` read that widens its capability
+         *  filters (`ignoring …`): `method` names the read's own method and
+         *  there is no `retrievalName`. */
+        bypassRead?: BypassReadIR;
       };
       /** Populated when `callKind === "store-action"` (Stage 5) — the resolved
        *  store + action a `<Store>.<action>(…)` call dispatches to.  Structured

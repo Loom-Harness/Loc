@@ -1842,7 +1842,9 @@ function validateWorkflowStatements(
         }
         // Every source but a criterion read (a declared optional find, a
         // natural-key `findBy`, `findById`, an optional binding) has no
-        // criterion to resolve — only the branch op-calls to check.
+        // criterion to resolve — only the branch op-calls to check.  A widened
+        // `find(<Criterion>) ignoring …` is still `select-one`, and its
+        // criterion is checked like any other.
         const checkBranchOpCalls = (body: WorkflowStmtIR[]): void => {
           checkNestedBodyOpCalls(body, st.var, "if-let");
         };

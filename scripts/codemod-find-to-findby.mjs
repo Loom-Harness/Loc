@@ -69,8 +69,11 @@
 // alone.  Splices are textual, so formatting and comments outside the rewritten
 // find and call survive byte-for-byte.  Idempotent.
 //
+// A find's `ignoring …` clause moves to each call site, after the new read
+// (`if let o = Orders.find(OrdersByRef(r)) ignoring softDeletable { … }`).
+//
 // Also reported, never guessed: a find with `ignoring` whose target cannot
-// carry it (`findById`, `find(C)`), a `where` that reads `currentUser` (a
+// carry it (`getById`), a `where` that reads `currentUser` (a
 // criterion takes no principal), a find with neither a `where` nor a
 // parameter (it reads an arbitrary row), a find whose route a client reads
 // (`api.<plural>.<find>(…)` in a `test e2e`, a page's `<Ctx>.<Agg>.<find>`),
@@ -278,13 +281,17 @@ function planFinds(ast, text, shift, report, where, addUnique) {
       };
       // Target 2 — the aggregate's id.
       if (key && key.cols.length === 1 && key.cols[0] === "id") {
-        if (ignoring) {
+        // `findById` carries `ignoring`; `getById` does not.
+        if (ignoring && !absent) {
           report.push(
-            `${label} — a by-id find with '${ignoring}': the built-in by-id read carries no 'ignoring'; migrate by hand`,
+            `${label} — a must-exist by-id find with '${ignoring}': getById carries no 'ignoring'; migrate by hand`,
           );
           continue;
         }
-        plans.push({ ...plan, target: { kind: "by-id", verb: absent ? "findById" : "getById" } });
+        plans.push({
+          ...plan,
+          target: { kind: "by-id", verb: absent ? "findById" : "getById", ignoring },
+        });
         continue;
       }
       // Target 1 — a declared (or, opted in, an added) unique tuple.
@@ -308,13 +315,7 @@ function planFinds(ast, text, shift, report, where, addUnique) {
           continue;
         }
       }
-      // Target 3 — a criterion, read with `find(C)`.
-      if (ignoring) {
-        report.push(
-          `${label} — '${ignoring}': Repo.find(<Criterion>) carries no 'ignoring'; declare the key unique (findBy keeps it) or migrate by hand`,
-        );
-        continue;
-      }
+      // Target 3 — a criterion, read with `find(C)` (which carries `ignoring`).
       if (readsCurrentUser(fd.filter)) {
         report.push(
           `${label} — its 'where' reads currentUser, which a criterion cannot; migrate by hand`,
@@ -342,7 +343,7 @@ function planFinds(ast, text, shift, report, where, addUnique) {
         criterionDecl: reused
           ? undefined
           : { comment, text: `criterion ${name}${ps ? `(${ps})` : ""} of ${aggName} = ${body}` },
-        target: { kind: "criterion", name, mustExist: !absent },
+        target: { kind: "criterion", name, mustExist: !absent, ignoring },
       });
     }
   }
@@ -459,25 +460,43 @@ function rewriteCall(n, plan, shift, raw = "", mustExistKeys = new Set()) {
       blocked:
         "is a position a T? read cannot take (only an 'if let' source, a 'let' or a domain-service expression)",
     };
+  // The find's `ignoring …` moves to the call, after the new read, in the
+  // positions that read carries it: a key read bound by `let` / `if let`,
+  // `find(C)` as an `if let` source, and any single-row read in a
+  // domain-service expression.
+  const withIgnoring = (edits, carriers) => {
+    if (!t.ignoring || /\bignoring\b/.test(n.$cstNode.text)) return { edits };
+    if (!carriers.includes(pos))
+      return { blocked: `sits where '${t.ignoring}' cannot follow (bind it with let / if let)` };
+    const chainEnd = n.$cstNode.end - shift;
+    return { edits: [...edits, { start: chainEnd, end: chainEnd, text: ` ${t.ignoring}` }] };
+  };
   if (t.kind === "key") {
     if (args.length !== t.cols.length) return { blocked: "does not pass every parameter" };
-    const edits = [
-      { start, end, text: `.${t.verb}(${argText.map((a, i) => `${t.cols[i]}: ${a}`).join(", ")})` },
-    ];
-    if (t.ignoring && !/\bignoring\b/.test(n.$cstNode.text)) {
-      if (pos !== "let" && pos !== "if-let")
-        return { blocked: `sits where '${t.ignoring}' cannot follow (bind it with let / if let)` };
-      const chainEnd = n.$cstNode.end - shift;
-      edits.push({ start: chainEnd, end: chainEnd, text: ` ${t.ignoring}` });
-    }
-    return { edits };
+    return withIgnoring(
+      [
+        {
+          start,
+          end,
+          text: `.${t.verb}(${argText.map((a, i) => `${t.cols[i]}: ${a}`).join(", ")})`,
+        },
+      ],
+      ["let", "if-let", "service"],
+    );
   }
   if (t.kind === "by-id") {
-    return { edits: [{ start, end, text: `.${t.verb}(${argText.join(", ")})` }] };
+    return withIgnoring([{ start, end, text: `.${t.verb}(${argText.join(", ")})` }], ["service"]);
   }
   // criterion
-  if (t.mustExist) return rewriteMustExist(n, plan, shift, raw, mustExistKeys, argText);
-  return { edits: [{ start, end, text: `.find(${t.name}(${argText.join(", ")}))` }] };
+  if (t.mustExist) {
+    if (t.ignoring && !/\bignoring\b/.test(n.$cstNode.text))
+      return { blocked: `needs the row and carries '${t.ignoring}': rewrite by hand` };
+    return rewriteMustExist(n, plan, shift, raw, mustExistKeys, argText);
+  }
+  return withIgnoring(
+    [{ start, end, text: `.find(${t.name}(${argText.join(", ")}))` }],
+    ["if-let", "service"],
+  );
 }
 
 /** Migrate a set of sources together (call sites may sit in another `.ddd`

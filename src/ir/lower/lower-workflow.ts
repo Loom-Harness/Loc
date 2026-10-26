@@ -80,6 +80,7 @@ import {
 } from "./lower-types.js";
 import { originFor } from "./origin.js";
 import {
+  bypassReadMethod,
   keyLookupIR,
   matchFindAllCall,
   matchFindCall,
@@ -710,7 +711,9 @@ function lowerWorkflowStatementInner(
                 : "select-one",
         repoName,
         aggName,
-        retrievalName: findCall ? `findAllBy${findCall.criterionName}` : "",
+        // A widened criterion source calls its own method, not the shared
+        // retrieval.
+        retrievalName: findCall && !findCall.bypassRead ? `findAllBy${findCall.criterionName}` : "",
         retrievalArgs: (
           findCall?.criterionArgs ??
           keySource?.args ??
@@ -721,6 +724,9 @@ function lowerWorkflowStatementInner(
         synthCriterion: { name: findCall?.criterionName ?? "" },
         ...(declaredFind ? { findMethod: declaredFind.method } : {}),
         ...(keySource ? { findMethod: keySource.method, key: keyLookupIR(keySource) } : {}),
+        ...(findCall?.bypassRead
+          ? { findMethod: bypassReadMethod(findCall.bypassRead), bypassRead: findCall.bypassRead }
+          : {}),
         thenBody,
         ...(elseBody.length > 0 ? { elseBody } : {}),
         savesInThen,

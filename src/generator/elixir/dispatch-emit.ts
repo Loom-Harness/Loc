@@ -1332,7 +1332,7 @@ function renderStmt(
       // handler's with-chain.
       //
       // Every other source answers the row itself or `nil` (a declared optional
-      // find's `{:ok, nil}`, `findById`'s `{:error, :not_found}`, a `bound`
+      // find's, a `findBy`'s or a widened `find(C) ignoring …`'s `{:ok, nil}`, `findById`'s `{:error, :not_found}`, a `bound`
       // source's own value), so its then-arm is guarded on presence.
       const args = st.retrievalArgs.map((a) => renderExpr(a, renderCtx));
       const lookup =
