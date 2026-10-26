@@ -25,6 +25,7 @@ type ResolvedWorkflowBody = {
   correlation: ExprIR | undefined;
 };
 
+import { wireStatus } from "../../ir/enrich/wire-policy.js";
 import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { readPortsForOperation } from "../../ir/util/domain-service-read-ports.js";
@@ -46,7 +47,6 @@ import {
 import { commandCreateResult, emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
 import { emissionSink } from "../../util/emission-sink.js";
-import { resolveErrorStatus } from "../../util/error-defaults.js";
 import { escapeCsharpIdent, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { renderDotnetLogCall } from "../_obs/render-dotnet.js";
 import {
@@ -77,6 +77,7 @@ import { csReadOwnParams } from "./local-names.js";
 import type { CsRenderContext } from "./render-expr.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "./render-expr.js";
 import { collectCsStmtUsings, renderCsStatements } from "./render-stmt.js";
+import { csNotFoundException, wireStatusResolver } from "./wire-policy-cs.js";
 import {
   esCorrIdClass,
   esEventDbSet,
@@ -1887,7 +1888,7 @@ export function csWorkflowStmtTarget(
       if (guardsLoad && st.op === "load") {
         return [
           `${indent}var ${st.name} = ${call}`,
-          `${indent}    ?? throw new AggregateNotFoundException($"${st.aggName} {${argList}} not found");`,
+          `${indent}    ?? throw ${csNotFoundException(null, `${st.aggName} {${argList}}`)};`,
         ];
       }
       return [`${indent}var ${st.name} = ${call};`];
@@ -2292,7 +2293,7 @@ function renderController(
     const errorAttrs = errorStatuses(
       "workflow",
       workflowIsGuarded(wf),
-      (name) => resolveErrorStatus(name, ctx.structuralErrorStatuses),
+      wireStatusResolver(ctx.structuralErrorStatuses),
       { readsAggregate: workflowCanAnswerNotFound(wf, ctx.repositories) },
     )
       .map((s) => `    [ProducesResponseType(typeof(ProblemDetails), ${s})]\n`)
@@ -2564,10 +2565,7 @@ function renderInstancesController(
         )});\n`
       : "";
     const forbiddenAttr = gate
-      ? `    [ProducesResponseType(typeof(ProblemDetails), ${resolveErrorStatus(
-          "Forbidden",
-          ctx.structuralErrorStatuses,
-        )})]\n`
+      ? `    [ProducesResponseType(typeof(ProblemDetails), ${wireStatus("forbidden", ctx.structuralErrorStatuses)})]\n`
       : "";
     blocks.push(
       `    [HttpGet("${slug}/instances")]\n` +
@@ -2594,9 +2592,7 @@ function renderInstancesController(
         // publish a literal 404 while the router's `AggregateNotFoundException`
         // arm answered the override — the declaration/runtime drift the matrix
         // exists to remove.  (422 stays literal: it is a framework tier.)
-        errorStatuses("getById", false, (name) =>
-          resolveErrorStatus(name, ctx.structuralErrorStatuses),
-        )
+        errorStatuses("getById", false, wireStatusResolver(ctx.structuralErrorStatuses))
           .map((s) => `    [ProducesResponseType(typeof(ProblemDetails), ${s})]\n`)
           .join("") +
         `    public async Task<IActionResult> ${upperFirst(camelId(opWorkflowInstanceById(wf.name)))}(${corrClr} id)\n` +

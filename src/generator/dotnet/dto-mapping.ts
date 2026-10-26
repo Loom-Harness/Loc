@@ -26,10 +26,11 @@ import { upperFirst } from "../../util/naming.js";
 import { numericEncode } from "../_numeric/target.js";
 import { PROVENANCED_REQUEST_ERROR } from "../_payload/provenanced-wire.js";
 import { recordPayloadOf } from "../_payload/workflow-param-payloads.js";
-import { MONEY_MAX_EXCLUSIVE, MONEY_RANGE_MESSAGE } from "../money-scale.js";
+import { MONEY_MAX_EXCLUSIVE } from "../money-scale.js";
 import { csProvSibling, PROVENANCED_CS_RECORD } from "./emit/provenance.js";
 import { CS_NUMERIC } from "./numeric-codec.js";
 import { renderCsExpr } from "./render-expr.js";
+import { csMoneyRangeMessage } from "./wire-policy-cs.js";
 
 /** Allocator for the C# pattern-variable names `maskWrap` binds.
  *
@@ -544,7 +545,7 @@ export function wireToCommandArgument(
             `CultureInfo.InvariantCulture, out var ${out})`,
           {
             predicate: (out) => `System.Math.Abs(${out}) < ${MONEY_MAX_EXCLUSIVE}m`,
-            message: MONEY_RANGE_MESSAGE,
+            message: csMoneyRangeMessage(),
           },
         );
       }

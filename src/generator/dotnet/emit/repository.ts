@@ -12,7 +12,6 @@ import type {
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
-import { CONCURRENCY_CONFLICT_SUFFIX } from "../../../ir/util/openapi-errors.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isDenyFilter } from "../../../ir/util/tenant-stance.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
@@ -30,6 +29,7 @@ import {
   renderCsExpr,
   renderCsType,
 } from "../render-expr.js";
+import { csSentence } from "../wire-policy-cs.js";
 import { bypassableFilterNames, hasNonBypassableFilter, queryFilterNames } from "./efcore.js";
 import { csClaimStampsFor } from "./entity.js";
 import { eventDbSetName, eventRecordClass } from "./event-store.js";
@@ -1438,7 +1438,7 @@ export function renderEventSourcedRepositoryImpl(
       '                when (__ex.InnerException is Npgsql.PostgresException { SqlState: "23505" })',
       "            {",
       "                foreach (var __rec in __appended) _db.Entry(__rec).State = EntityState.Detached;",
-      `                throw new Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException($"${agg.name} {__sid} ${CONCURRENCY_CONFLICT_SUFFIX}", __ex);`,
+      `                throw new Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException(${csSentence("version-conflict", `${agg.name} {__sid}`)}, __ex);`,
       "            }",
       // Append-only rows are never updated through this context, so they are
       // detached once written.  Left tracked, a second handle's stale append
