@@ -25,9 +25,8 @@ import { effectiveSavingShape } from "../../../ir/util/resolve-datasource.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { lines as joinLines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, workflowStateTableName } from "../../../util/naming.js";
-import { drizzleIdColumn, drizzleScalarColumn } from "../codec-spelling.js";
-
 import { tableNameFor } from "../../../util/storage-names.js";
+import { drizzleIdColumn, drizzleScalarColumn } from "../codec-spelling.js";
 /** Per-aggregate dataSource lookup the orchestrator passes in.  Lets
  *  the schema emitter ask "what schema / tablePrefix does THIS
  *  aggregate's storage binding say?" without coupling to the
