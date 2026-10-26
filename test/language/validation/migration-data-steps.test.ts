@@ -20,6 +20,7 @@ system Shop {
         status: OrderStatus
         price: Money
         note: string?
+        label: string
         placedAt: datetime
         dueAt: datetime
         tags: string[]
@@ -108,6 +109,51 @@ describe("migration data steps — IR validation (M-T2.3)", () => {
 
   it("rejects NULL into a non-optional column", async () => {
     expect(await irCodes(`migration "x" { Order.quantity = null }`)).toContain(
+      "loom.backfill-type-mismatch",
+    );
+  });
+
+  // An optional sibling into a required column: the UPDATE writes the NULL and
+  // the SET NOT NULL after it fails on that row at boot.
+  const irMessages = async (migration: string, code: string): Promise<string[]> => {
+    const { model } = await parseString(`${SYS}\n${migration}`, { validate: false });
+    return validateLoomModel(enrichLoomModel(lowerModel(model)))
+      .filter((d) => d.code === code)
+      .map((d) => d.message);
+  };
+
+  it("rejects an optional sibling into a required column, suggesting `??`", async () => {
+    expect(
+      await irMessages(`migration "x" { Order.label = note }`, "loom.backfill-type-mismatch"),
+    ).toEqual([
+      "backfill 'Order.label': the value can be null (it reads the optional field(s) 'note'), but 'label' is required — a row the UPDATE leaves NULL makes the following SET NOT NULL fail. Give it a fallback, e.g. `Order.label = note ?? <value>`.",
+    ]);
+  });
+
+  it("NULL propagates through operators — a concatenation with an optional sibling is refused", async () => {
+    expect(await irCodes(`migration "x" { Order.label = "n: " + note }`)).toContain(
+      "loom.backfill-type-mismatch",
+    );
+    expect(await irCodes(`migration "x" { Order.label = quantity > 0 ? note : "none" }`)).toContain(
+      "loom.backfill-type-mismatch",
+    );
+  });
+
+  it("accepts an optional sibling with a fallback, or a presence-tested branch", async () => {
+    for (const value of [
+      `note ?? "none"`,
+      `note == null ? "none" : note`,
+      `note != null ? note : "none"`,
+      `(note == null) ? "none" : note + "!"`,
+    ]) {
+      expect(await irCodes(`migration "x" { Order.label = ${value} }`), value).not.toContain(
+        "loom.backfill-type-mismatch",
+      );
+    }
+  });
+
+  it("an optional target takes an optional source as-is", async () => {
+    expect(await irCodes(`migration "x" { Order.note = note + "!" }`)).not.toContain(
       "loom.backfill-type-mismatch",
     );
   });

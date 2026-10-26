@@ -31,7 +31,6 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
             o.Property(x => x.ProductId).HasConversion(v => v.Value, v => new ProductId(v)).HasColumnName("product_id");
             o.Property(x => x.Quantity).HasColumnName("quantity");
         });
-        builder.HasIndex(x => x.CustomerId);
         builder.Ignore(x => x.DomainEvents);
     }
 }

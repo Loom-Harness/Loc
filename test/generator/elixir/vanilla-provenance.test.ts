@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles } from "../../_helpers/generate.js";
+import { generateEvolvedSystemFiles, generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Provenance runtime on the vanilla (plain Ecto) foundation — DEBT-06.
@@ -112,19 +112,21 @@ describe("vanilla provenance runtime (DEBT-06)", () => {
     expect(prov).toContain("count: length(rows)");
   });
 
-  it("emits the schema-prefixed ALTER; the history table comes from MigrationsIR", async () => {
+  it("takes the co-located column and the history table from the MigrationsIR chain", async () => {
     const files = await generateSystemFiles(SOURCE);
-    const mig = file(files, "_create_provenance.exs");
-    // The orders table lives in the `orders` schema — the ALTER must match.
-    expect(mig).toContain('alter table(:orders, prefix: "orders") do');
-    expect(mig).toContain("add :total_provenance, :map");
-    // The history table's DDL moved to the shared MigrationsIR
-    // (`provenanceTableShape`), so it is rendered by the ordinary Ecto
-    // migration emitter — including BOTH indexes, and deliberately WITHOUT the
-    // bundled `timestamps()` (the flush inserts plain maps via `insert_all`, so
-    // a NOT NULL `inserted_at` would reject every provenanced write and roll
-    // the aggregate save back with it).
-    expect(mig).not.toContain("create table(:provenance_records");
+    const migs = [...files.keys()].filter((k) => k.includes("/priv/repo/migrations/"));
+    // No far-future out-of-chain migration.
+    expect(migs.some((k) => /\/2999/.test(k))).toBe(false);
+    // The column is part of the orders table's own create (in its `orders`
+    // schema).
+    const orders = files.get(migs.find((k) => k.endsWith("_create_orders.exs"))!)!;
+    expect(orders).toContain('create table(:orders, primary_key: false, prefix: "orders") do');
+    expect(orders).toContain("add :total_provenance, :map, null: true");
+    // The history table is rendered by the ordinary Ecto migration emitter —
+    // including BOTH indexes, and deliberately WITHOUT the bundled
+    // `timestamps()` (the flush inserts plain maps via `insert_all`, so a NOT
+    // NULL `inserted_at` would reject every provenanced write and roll the
+    // aggregate save back with it).
     const created = file(files, "_create_provenance_records.exs");
     expect(created).toContain("create table(:provenance_records, primary_key: false) do");
     expect(created).toContain("create index(:provenance_records, [:target_type, :field])");
@@ -132,10 +134,29 @@ describe("vanilla provenance runtime (DEBT-06)", () => {
     expect(created).not.toContain("timestamps()");
   });
 
+  it("marking an existing field `provenanced` adds its column in a NEW Ecto migration", async () => {
+    const v2 = SOURCE.replace("discount: int\n", "discount: int provenanced\n");
+    const before = await generateEvolvedSystemFiles([SOURCE]);
+    const after = await generateEvolvedSystemFiles([SOURCE, v2]);
+    const migs = (m: Map<string, string>) =>
+      [...m.keys()].filter((k) => k.includes("/priv/repo/migrations/")).sort();
+    // Every applied migration is untouched (Ecto never re-runs a recorded one).
+    for (const k of migs(before)) expect(after.get(k)).toBe(before.get(k));
+    const added = migs(after).filter((k) => !before.has(k));
+    expect(added).toHaveLength(1);
+    expect(after.get(added[0]!)).toContain(
+      'alter table(:orders, prefix: "orders") do\n      add_if_not_exists :discount_provenance, :map, null: true\n    end',
+    );
+  });
+
   it("is gated: no provenance files/capture when no field is provenanced", async () => {
     const files = await generateSystemFiles(PLAIN);
     expect([...files.keys()].some((k) => k.endsWith("/provenance.ex"))).toBe(false);
-    expect([...files.keys()].some((k) => k.endsWith("_create_provenance.exs"))).toBe(false);
+    expect(
+      [...files.entries()].some(
+        ([k, v]) => k.includes("/priv/repo/migrations/") && v.includes("provenance"),
+      ),
+    ).toBe(false);
     const ctx = file(files, "/api/stock.ex");
     expect(ctx).not.toContain("Provenance.record(");
     expect(ctx).not.toContain("Repo.transaction(");

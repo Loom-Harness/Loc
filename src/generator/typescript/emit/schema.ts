@@ -3,7 +3,6 @@ import type {
   AssociationIR,
   BoundedContextIR,
   EnrichedBoundedContextIR,
-  ExprIR,
   FieldIR,
   IdValueType,
   ProjectionIR,
@@ -12,7 +11,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../../ir/util/channels.js";
 import { directParentName } from "../../../ir/util/containment-parent.js";
-import { implicitFindMatches } from "../../../ir/util/implicit-find-filter.js";
+import { fkIndexedFields } from "../../../ir/util/fk-index-fields.js";
 import {
   isTphBase,
   isTphConcrete,
@@ -180,10 +179,10 @@ export function renderSchema(
     // Embedded (`shape: embedded`): queryable root row + one jsonb column
     // per containment.  No part tables, no join tables.
     if (shape === "embedded") {
-      tables.push(emitEmbeddedTable(agg, ctx, indexedColumnsFor(agg, ctx), { schema, prefix }));
+      tables.push(emitEmbeddedTable(agg, ctx, indexedColumnsFor(agg, false), { schema, prefix }));
       continue;
     }
-    const indexed = indexedColumnsFor(agg, ctx);
+    const indexed = indexedColumnsFor(agg, true);
     tables.push(
       emitTable(agg.name, agg.fields, undefined, ctx, indexed, agg.idValueType, {
         schema,
@@ -502,82 +501,13 @@ const PROVENANCE_TABLE = `export const provenanceRecords = pgTable("provenance_r
   index("provenance_records_correlation_idx").on(t.correlationId),
 ]);`;
 
-/** Field names on the aggregate root that should be indexed so the
- * generated finds don't run sequential scans.  Walks every find: if
- * it has an explicit `where` clause, indexes the column refs;
- * otherwise indexes the column matching each parameter by name
- * (mirrors the convention in `repository-builder.ts:findQueryMethod`). */
-function indexedColumnsFor(agg: AggregateIR, ctx: BoundedContextIR): Set<string> {
-  const out = new Set<string>();
-  const repo = ctx.repositories.find((r) => r.aggregateName === agg.name);
-  if (!repo) return out;
-  for (const find of repo.finds) {
-    if (find.filter) {
-      collectColumnRefs(find.filter, out);
-    } else {
-      for (const { field: matched } of implicitFindMatches(find, agg)) {
-        out.add(matched.name);
-      }
-    }
-  }
-  return out;
-}
-
-/** Walks a queryable `where` IR expression and adds every `this.<col>`
- * (and `this.<vo>.<sub>` flattened-VO column) it references. */
-function collectColumnRefs(e: ExprIR, out: Set<string>): void {
-  switch (e.kind) {
-    case "binary":
-      collectColumnRefs(e.left, out);
-      collectColumnRefs(e.right, out);
-      return;
-    case "paren":
-      collectColumnRefs(e.inner, out);
-      return;
-    case "unary":
-      collectColumnRefs(e.operand, out);
-      return;
-    case "ref":
-      if (e.refKind === "this-prop" || e.refKind === "this-vo-prop") {
-        out.add(e.name);
-      }
-      return;
-    case "member":
-      if (e.receiver.kind === "this") {
-        out.add(e.member);
-      } else if (e.receiver.kind === "member" && e.receiver.receiver.kind === "this") {
-        // `this.vo.sub` — Drizzle column is `<vo>_<sub>`.
-        out.add(`${e.receiver.member}_${e.member}`);
-      }
-      return;
-    // Contribute no column.  The only consumer is `indexedColumnsFor`, an
-    // INDEX HINT: narrowing this set loses an index, never a predicate — the
-    // query itself is rendered by `lowerToDrizzle`, not from here.  Named
-    // rather than left to a `default:` so a new `ExprIR` kind is a decision
-    // rather than a silent omission.
-    case "action-ref":
-    case "authz-filter":
-    case "call":
-    case "convert":
-    case "duration":
-    case "i18nFormat":
-    case "id":
-    case "lambda":
-    case "list":
-    case "literal":
-    case "match":
-    case "method-call":
-    case "new":
-    case "object":
-    case "ternary":
-    case "this":
-      return;
-    default: {
-      const _exhaustive: never = e;
-      void _exhaustive;
-      return;
-    }
-  }
+/** Root columns that carry a plain index — exactly the FK covering indexes the
+ *  shared migration creates for `X id` columns (`fkIndexedFields`).  Find
+ *  filters contribute nothing: Loom auto-emits no performance index
+ *  (D-INDEX-SUGGEST), and a Drizzle index the migrations never create makes
+ *  `drizzle-kit` diverge from the migrated database. */
+function indexedColumnsFor(agg: AggregateIR, uniqueIndexed: boolean): Set<string> {
+  return new Set(fkIndexedFields(agg, uniqueIndexed).map((f) => f.name));
 }
 
 /** Embedded-children persistence table (`shape: embedded`): the root's

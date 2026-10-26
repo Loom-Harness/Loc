@@ -35,7 +35,9 @@ import {
   type AggPool,
   baseOf,
   discriminatorValue,
+  isTpcBase,
   isTphBase,
+  tpcConcretesOf,
   tphConcretesOf,
 } from "../util/inheritance.js";
 import { defaultSortOrder } from "../util/sortable-fields.js";
@@ -257,4 +259,92 @@ export interface ReadOrderTerm {
  *  database's physical order. */
 export function readOrderFor(declared?: readonly SortTermIR[]): ReadOrderTerm[] {
   return defaultSortOrder(declared) ?? [{ field: "id", direction: "asc" }];
+}
+
+// ---------------------------------------------------------------------------
+// The polymorphic base read — `find all <Base>` as ONE native query.
+//
+// A read of an abstract base returns every row as its real subtype, filtered
+// by each subtype's own restrictions, in ONE global order, paged globally.
+// Concatenating the subtypes' own reads gets all three wrong: the order is per
+// subtype, a page is per subtype, and a backend that forgets one subtype's
+// filter serves the rows it filters.  The fact below is the one answer every
+// backend renders natively:
+//
+//   - TPH (`sharedTable`): one query over the root's table.  `restrictions`
+//     are the root's own (every row passes them); `subtypeRestrictions` are
+//     each concrete's own, root-hosted and discriminator-guarded.  The row's
+//     discriminator picks the variant it hydrates as.
+//   - TPC (`ownTable`): one table per concrete, so each variant carries its
+//     own full `scope`; the backend unions them (`UNION ALL`) or merges the
+//     per-concrete ordered reads, then applies `order` and paging to the merge.
+//
+// Every variant's wire `tag` is the concrete's name: the `type` discriminator
+// a tagged union carries on the wire (docs/payloads.md), so a polymorphic
+// read answers the same tagged body on every backend.
+// ---------------------------------------------------------------------------
+
+/** One concrete subtype a polymorphic base read can return. */
+export interface PolymorphicReadVariant {
+  /** The concrete aggregate's name. */
+  aggregate: string;
+  /** The wire `type` tag the row carries (the concrete's name). */
+  tag: string;
+  /** The `kind` value that selects this variant (TPH only). */
+  discriminator?: string;
+  /** Every restriction a read of this concrete alone applies — what a TPC
+   *  backend puts on this concrete's arm of the union. */
+  scope: ReadScope;
+}
+
+/** A polymorphic read of an abstract base: every row its real subtype, one
+ *  global order, paged globally. */
+export interface PolymorphicRead {
+  base: string;
+  layout: "sharedTable" | "ownTable";
+  /** TPH: the restrictions every row of the root's table must pass.  Empty
+   *  for TPC, which has no base table. */
+  restrictions: readonly ReadRestriction[];
+  /** TPH: each concrete's own restrictions, root-hosted and guarded by its
+   *  discriminator (`kind <> 'Car' OR <pred>`), applied conjunctively.  Empty
+   *  for TPC. */
+  subtypeRestrictions: readonly GuardedReadRestriction[];
+  /** The concretes, in pool order. */
+  variants: readonly PolymorphicReadVariant[];
+  /** The one global order the read returns rows in, before paging. */
+  order: readonly ReadOrderTerm[];
+}
+
+/** The polymorphic read of `base` within `pool`, or undefined when `base` is
+ *  no polymorphic read home.  The read homes are a TPH ROOT base and a TPC
+ *  base, each with at least one concrete; an intermediate abstract TPH base
+ *  owns no table.  The `ignoring` clause applies to the root and to every
+ *  variant alike. */
+export function polymorphicReadFor(
+  base: AggregateIR,
+  pool: AggPool,
+  opts: ReadScopeOptions = {},
+): PolymorphicRead | undefined {
+  const tph = isTphBase(base, pool);
+  if (!tph && !isTpcBase(base, pool)) return undefined;
+  const concretes = tph ? tphConcretesOf(base, pool) : tpcConcretesOf(base, pool);
+  if (concretes.length === 0) return undefined;
+  const variants = concretes.map((c): PolymorphicReadVariant => {
+    const discriminator = tph ? discriminatorValue(c, pool) : undefined;
+    return {
+      aggregate: c.name,
+      tag: c.name,
+      ...(discriminator ? { discriminator } : {}),
+      scope: readScopeFor(c, pool, opts),
+    };
+  });
+  const root = tph ? readScopeFor(base, pool, opts) : undefined;
+  return {
+    base: base.name,
+    layout: tph ? "sharedTable" : "ownTable",
+    restrictions: root?.restrictions ?? [],
+    subtypeRestrictions: root?.subtypeRestrictions ?? [],
+    variants,
+    order: readOrderFor(),
+  };
 }

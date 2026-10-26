@@ -178,31 +178,25 @@ describe("typescript migrations emitter", () => {
       { module: "ModuleA", version: "20260103000000", name: "AddNotes" },
     ];
 
-    function journalFor(
-      gens: Gen[],
-      extra: ReadonlyArray<{ version: string; tag: string }> = [],
-    ): { tag: string; when: number }[] {
+    function journalFor(gens: Gen[]): { tag: string; when: number }[] {
       const out = new Map<string, string>();
       emitTypescriptMigrations(
         gens.map((g, i) => ir([{ op: "dropTable", name: `t${i}` }], g)),
         out,
-        extra,
       );
       return JSON.parse(out.get("db/migrations/meta/_journal.json")!).entries;
     }
 
-    const PROVENANCE = [{ version: "29991231000000", tag: "29991231000000_provenance" }];
-
     it("(1) is strictly increasing", () => {
-      const whens = journalFor(evolved, PROVENANCE).map((e) => e.when);
+      const whens = journalFor(evolved).map((e) => e.when);
       for (let i = 1; i < whens.length; i++) {
         expect(whens[i]).toBeGreaterThan(whens[i - 1]);
       }
     });
 
     it("(2) does not renumber an already-applied entry when a generation is recorded", () => {
-      const before = new Map(journalFor(deployed, PROVENANCE).map((e) => [e.tag, e.when]));
-      const after = new Map(journalFor(evolved, PROVENANCE).map((e) => [e.tag, e.when]));
+      const before = new Map(journalFor(deployed).map((e) => [e.tag, e.when]));
+      const after = new Map(journalFor(evolved).map((e) => [e.tag, e.when]));
       for (const tag of ["20260101000000_module_a_initial", "20260102000000_module_b_initial"]) {
         expect(after.get(tag)).toBe(before.get(tag));
       }
@@ -210,31 +204,28 @@ describe("typescript migrations emitter", () => {
 
     it("(3) gives a newly recorded generation a `when` above every already-applied entry", () => {
       // The watermark the first deploy leaves behind is the HIGHEST `when` in
-      // the journal it applied — which includes the always-last provenance
-      // entry.  A new delta must clear it, or the migrator silently skips it.
-      const watermark = Math.max(...journalFor(deployed, PROVENANCE).map((e) => e.when));
-      const inserted = journalFor(evolved, PROVENANCE).find(
+      // the journal it applied.  A new delta must clear it, or the migrator
+      // silently skips it.
+      const watermark = Math.max(...journalFor(deployed).map((e) => e.when));
+      const inserted = journalFor(evolved).find(
         (e) => e.tag === "20260103000000_module_a_add_notes",
       );
       expect(inserted).toBeDefined();
       expect(inserted!.when).toBeGreaterThan(watermark);
     });
 
-    it("keeps the provenance entry LAST without pinning it above future migrations", () => {
-      const after = journalFor(evolved, PROVENANCE);
-      const provenance = after[after.length - 1];
-      expect(provenance.tag).toBe("29991231000000_provenance");
-      for (const e of after.slice(0, -1)) {
-        expect(provenance.when).toBeGreaterThan(e.when);
-      }
-      // ...but NOT so far ahead that the next generation cannot clear it.
-      const next = journalFor(
-        [...evolved, { module: "ModuleA", version: "20260103000001", name: "AddMore" }],
-        PROVENANCE,
+    it("keeps each entry on its even slot, so a recorded odd-slot watermark never hides one", () => {
+      // A database may hold a `__drizzle_migrations` row at the odd slot just
+      // above its newest entry (an out-of-chain migration this journal no
+      // longer lists).  The next generation's even slot still clears it.
+      const base = Date.UTC(2026, 0, 1, 0, 0, 0);
+      const deployedWhens = journalFor(deployed).map((e) => e.when);
+      expect(deployedWhens).toEqual([base + 2, base + 4]);
+      const oddWatermark = Math.max(...deployedWhens) + 1;
+      const inserted = journalFor(evolved).find(
+        (e) => e.tag === "20260103000000_module_a_add_notes",
       );
-      const added = next.find((e) => e.tag === "20260103000001_module_a_add_more");
-      expect(added).toBeDefined();
-      expect(added!.when).toBeGreaterThan(provenance.when);
+      expect(inserted!.when).toBeGreaterThan(oddWatermark);
     });
   });
 });

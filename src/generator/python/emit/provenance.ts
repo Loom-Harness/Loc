@@ -1,12 +1,5 @@
-import type {
-  AggregateIR,
-  BoundedContextIR,
-  EnrichedAggregateIR,
-  FieldIR,
-  SystemIR,
-} from "../../../ir/types/loom-ir.js";
-import { resolveDataSourceConfig } from "../../../ir/util/resolve-datasource.js";
-import { plural, snake } from "../../../util/naming.js";
+import type { AggregateIR, BoundedContextIR, FieldIR } from "../../../ir/types/loom-ir.js";
+import { snake } from "../../../util/naming.js";
 
 // ---------------------------------------------------------------------------
 // Python provenance runtime — the FastAPI / SQLAlchemy counterpart of the
@@ -27,11 +20,12 @@ import { plural, snake } from "../../../util/naming.js";
 //     (governance stamps included).
 //
 // The co-located `<field>_provenance` jsonb column + the `provenance_records`
-// table ship as one LATE hand-emitted migration (`emit/migrations.ts`,
-// `emitPythonProvenanceMigration`) — provenance is NOT in the shared
-// MigrationsIR.  The per-write capture (ContextVar push + co-located backing
-// field) is wired by `render-stmt.ts`; the flush is wired by
-// `repository-builder.ts` (drain → insert before the save `flush()`).
+// table are ordinary MigrationsIR DDL (`withLineageColumns` /
+// `provenanceTableShape` in migrations-builder.ts), rendered by
+// `emit/migrations.ts` with every other step.  The per-write capture
+// (ContextVar push + co-located backing field) is wired by `render-stmt.ts`;
+// the flush is wired by `repository-builder.ts` (drain → insert before the
+// save `flush()`).
 // ---------------------------------------------------------------------------
 
 /** The provenanced fields declared on an aggregate (root fields only — the
@@ -41,38 +35,16 @@ export function provenancedFieldsOf(agg: AggregateIR): FieldIR[] {
   return agg.fields.filter((f) => f.provenanced);
 }
 
-/** Every provenanced aggregate across the given contexts, with the Postgres
- *  schema its state table lives in (so the migration ALTER TABLE targets the
- *  right `<schema>.<table>`, not `public`).  `schema` is undefined for the
- *  default (`public`) schema. */
-export function provenancedAggregates(
-  contexts: BoundedContextIR[],
-  sys?: SystemIR,
-): Array<{ agg: AggregateIR; fields: FieldIR[]; schema?: string }> {
-  const out: Array<{ agg: AggregateIR; fields: FieldIR[]; schema?: string }> = [];
-  for (const ctx of contexts) {
-    for (const agg of ctx.aggregates) {
-      const fields = provenancedFieldsOf(agg);
-      if (fields.length === 0) continue;
-      const schema = sys
-        ? resolveDataSourceConfig(agg as EnrichedAggregateIR, ctx, sys)?.schema
-        : undefined;
-      out.push({ agg, fields, schema });
-    }
-  }
-  return out;
-}
-
 /** True iff any aggregate in the given contexts declares a `provenanced`
- *  field — gates the whole runtime (SDK modules + migration + capture). */
+ *  field — gates the whole runtime (SDK modules + capture). */
 export function contextsHaveProvenanced(contexts: BoundedContextIR[]): boolean {
-  return provenancedAggregates(contexts).length > 0;
+  return contexts.some((ctx) => ctx.aggregates.some((agg) => provenancedFieldsOf(agg).length > 0));
 }
 
 /** Snake-cased name of the co-located backing column for a provenanced field
  *  (`total` → `total_provenance`).  Shared by the Response DTO, the op-body
- *  capture, the save persist, the hydrate restore, and the migration so all
- *  agree. */
+ *  capture, the save persist and the hydrate restore, so all agree with the
+ *  column `withLineageColumns` derives. */
 export function provColumn(fieldName: string): string {
   return `${snake(fieldName)}${PY_PROV_SUFFIX}`;
 }
@@ -220,33 +192,4 @@ export function emitPyProvenance(contexts: BoundedContextIR[], out: Map<string, 
   if (!contextsHaveProvenanced(contexts)) return;
   out.set("app/domain/provenance.py", PROVENANCE_DOMAIN_PY);
   out.set("app/db/provenance.py", PROVENANCE_DB_PY);
-}
-
-// A version far in the future so this migration sorts after every module's
-// initial + delta migrations (parity with the .NET `29991231235959` / the
-// elixir `29991231000000` provenance migration), regardless of module count.
-const PROVENANCE_MIGRATION_VERSION = "29991231000000";
-
-/** The LATE migration filename (sorts after every module migration). */
-export function provenanceMigrationTag(): string {
-  return `${PROVENANCE_MIGRATION_VERSION}_provenance`;
-}
-
-/** The co-located-column ALTERs, rendered as a single `.sql` file split into
- *  one statement per `--> statement-breakpoint` (asyncpg runs one statement per
- *  call).  Each ALTER is schema-qualified to the owning aggregate's table.  The
- *  `provenance_records` history table is NOT created here — it is a shared
- *  MigrationsIR companion table (`provenanceTableShape`) arriving in the
- *  ordinary module migration. */
-export function renderPyProvenanceMigration(
-  provAggs: Array<{ agg: AggregateIR; fields: FieldIR[]; schema?: string }>,
-): string {
-  const statements: string[] = [];
-  for (const { agg, fields, schema } of provAggs) {
-    const qualified = schema ? `"${schema}".${snake(plural(agg.name))}` : snake(plural(agg.name));
-    for (const f of fields) {
-      statements.push(`ALTER TABLE ${qualified} ADD COLUMN "${provColumn(f.name)}" jsonb;`);
-    }
-  }
-  return `${statements.join("\n--> statement-breakpoint\n")}\n`;
 }

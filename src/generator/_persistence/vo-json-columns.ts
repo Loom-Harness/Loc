@@ -5,6 +5,7 @@ import type {
   MigrationsIR,
   SchemaSnapshot,
 } from "../../ir/types/migrations-ir.js";
+import { qIdent, sqlStr } from "../sql-pg.js";
 
 // ---------------------------------------------------------------------------
 // Value objects stored as ONE json column — the shared projection.
@@ -68,12 +69,14 @@ export function collapseVoGroups(columns: readonly ColumnShape[]): ColumnShape[]
  *  - `dropColumn` of a leaf → one `remove :<group>` when the group is gone from
  *    `next`; nothing when it survives (the value object only lost a field).
  *  - `renameColumn` between two groups (the field was renamed) → one rename of
- *    the map column; a leaf rename inside a surviving group needs no DDL.
+ *    the map column.  A leaf rename (the value object's field was renamed)
+ *    needs no DDL but DOES need its data moved: the stored documents still
+ *    carry the old key, so {@link voKeyRenameSteps} rewrites it in every row.
  *  - `alterColumnType` / `alterColumnDefault` of a leaf → nothing: the column
  *    is the map, whose type and (absent) default do not change.
  *
  *  Every other step passes through unchanged. */
-export function collapseVoSteps(m: MigrationsIR): MigrationStep[] {
+export function collapseVoSteps(m: MigrationsIR, keyCase: VoJsonKeyCase): MigrationStep[] {
   const groupOf = (
     snap: SchemaSnapshot | null,
     table: string,
@@ -159,9 +162,24 @@ export function collapseVoSteps(m: MigrationsIR): MigrationStep[] {
           out.push(step);
           break;
         }
-        if (from === to || !from || !to) break;
-        if (!once("rename", step.table, step.schema, from)) break;
-        out.push({ ...step, from, to, type: MAP });
+        if (!from || !to) break;
+        if (from !== to && once("rename", step.table, step.schema, from)) {
+          out.push({ ...step, from, to, type: MAP });
+        }
+        const fromKey = voJsonKey(leafPath(step.from, from), keyCase);
+        const toKey = voJsonKey(leafPath(step.to, to), keyCase);
+        if (fromKey !== toKey) {
+          out.push(
+            ...voKeyRenameSteps({
+              table: step.table,
+              schema: step.schema,
+              column: to,
+              from: fromKey,
+              to: toKey,
+              list: false,
+            }),
+          );
+        }
         break;
       }
       case "alterColumnType":
@@ -173,4 +191,70 @@ export function collapseVoSteps(m: MigrationsIR): MigrationStep[] {
     }
   }
   return out;
+}
+
+/** How a json-column layout spells a value-object field's key: Phoenix's
+ *  `Loom.ValueObject` dumps snake atom keys (`zip_code`); the Dapper adapter
+ *  serialises the C# record with System.Text.Json's defaults, so the key is
+ *  the PascalCase property name (`ZipCode`). */
+export type VoJsonKeyCase = "snake" | "pascal";
+
+/** The snake leaf path of a value-object leaf column below its group
+ *  (`home_zip_code` in group `home` → `zip_code`). */
+function leafPath(column: string, group: string): string {
+  return column.startsWith(`${group}_`) ? column.slice(group.length + 1) : column;
+}
+
+/** The stored json key for a snake leaf path. */
+export function voJsonKey(leaf: string, keyCase: VoJsonKeyCase): string {
+  if (keyCase === "snake") return leaf;
+  return leaf
+    .split("_")
+    .map((p) => (p ? p[0]!.toUpperCase() + p.slice(1) : p))
+    .join("");
+}
+
+/** The two raw-SQL steps that move a renamed value-object field's data from
+ *  key `from` to key `to` inside json column `column` — in the one object of
+ *  each row, or (`list`) in every element of each row's array of objects.
+ *
+ *  The key is read off the column name, which cannot tell a field of a
+ *  NESTED value object (`home.geo.lat`, column `home_geo_lat`) from a flat
+ *  one (`home.geoLat`), nor recover an acronym's casing.  The rewrite assumes
+ *  the flat key, and the first step checks that assumption against the data:
+ *  if any stored value carries neither the old key nor the new one, the
+ *  migration stops with an error instead of moving nothing.  Both layouts
+ *  write every declared field (a null one as JSON `null`), so a value written
+ *  by the app always has the old key.
+ *
+ *  Each statement is one line: the Dapper runner splits a step's SQL at
+ *  `;` + newline, and Ecto's `execute/1` takes one statement. */
+export function voKeyRenameSteps(args: {
+  table: string;
+  schema: string | undefined;
+  column: string;
+  from: string;
+  to: string;
+  list: boolean;
+}): MigrationStep[] {
+  const t = args.schema ? `${qIdent(args.schema)}.${qIdent(args.table)}` : qIdent(args.table);
+  const c = qIdent(args.column);
+  const from = sqlStr(args.from);
+  const to = sqlStr(args.to);
+  const moved = (v: string) => `(${v} - ${from}) || jsonb_build_object(${to}, ${v} -> ${from})`;
+  const missing = args.list
+    ? `${t}, jsonb_array_elements(CASE WHEN jsonb_typeof(${c}) = 'array' THEN ${c} ELSE '[]'::jsonb END) AS e(v) WHERE jsonb_typeof(e.v) = 'object' AND e.v -> ${from} IS NULL AND e.v -> ${to} IS NULL`
+    : `${t} WHERE jsonb_typeof(${c}) = 'object' AND ${c} -> ${from} IS NULL AND ${c} -> ${to} IS NULL`;
+  const where = `${args.schema ? `${args.schema}.` : ""}${args.table}.${args.column}`;
+  const message = sqlStr(
+    `value-object key ${args.from} not found in ${where}; move it with a sql migration step`,
+  );
+  const guard = `DO $$ BEGIN IF EXISTS (SELECT 1 FROM ${missing}) THEN RAISE EXCEPTION ${message}; END IF; END $$`;
+  const update = args.list
+    ? `UPDATE ${t} SET ${c} = (SELECT jsonb_agg(CASE WHEN jsonb_typeof(e.v) = 'object' AND e.v -> ${from} IS NOT NULL THEN ${moved("e.v")} ELSE e.v END ORDER BY e.o) FROM jsonb_array_elements(${c}) WITH ORDINALITY AS e(v, o)) WHERE jsonb_typeof(${c}) = 'array' AND ${c} <> '[]'::jsonb`
+    : `UPDATE ${t} SET ${c} = ${moved(c)} WHERE jsonb_typeof(${c}) = 'object' AND ${c} -> ${from} IS NOT NULL`;
+  return [
+    { op: "sqlExec", sql: guard },
+    { op: "sqlExec", sql: update },
+  ];
 }

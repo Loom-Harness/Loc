@@ -15,7 +15,7 @@ import { parseString } from "../../_helpers/index.js";
 //     request session (same txn as the save), stamped from RequestContext.
 //   - the route handler: before/after wire snapshots either side of the
 //     mutation + the record_audit call; the record is never on the response.
-//   - the feature-local 29991231 audit migration.
+//   - the `audit_records` table, from the shared MigrationsIR.
 //
 // Boot-verified via LOOM_PYTHON_BUILD against
 // test/e2e/fixtures/python-build/audited-operation.ddd.

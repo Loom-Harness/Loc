@@ -121,7 +121,6 @@ import {
 import {
   dapperSearchPath,
   emitDapperMigrations,
-  renderDapperMigrationClass,
   renderDapperMigrationRunner,
 } from "./emit/dapper-migrations.js";
 import { renderDapperConnectionLease } from "./emit/dapper-session.js";
@@ -139,12 +138,7 @@ import { renderExternHookImpl } from "./emit/extern.js";
 import { renderId } from "./emit/ids.js";
 import { CS_MESSAGES_PATH, renderCsMessages } from "./emit/messages.js";
 import { renderHttpMetrics } from "./emit/metrics.js";
-import {
-  DOTNET_PROV_AUDIT_MIGRATION_ID,
-  dotnetProvenanceColumnStatements,
-  emitDotnetMigrations,
-  emitDotnetProvenanceAuditMigration,
-} from "./emit/migrations.js";
+import { emitDotnetMigrations } from "./emit/migrations.js";
 import { OP_UNION_FILTER_PATH, renderOpUnionResponsesFilter } from "./emit/op-union-filter.js";
 import {
   renderOutboxDelivery,
@@ -1074,28 +1068,12 @@ function emitProjectFromContexts(
   // `Database.Migrate()` (Program.cs branches on `usingDapper` first).
   if (usingDapper && system?.migrations && system.migrations.length > 0) {
     emitDapperMigrations(system.migrations, ns, out);
-    const provStmts = dotnetProvenanceColumnStatements(contexts, system?.sys, {
-      provenance: hasProvenance,
-    });
-    if (provStmts.length > 0) {
-      out.set(
-        `Migrations/${DOTNET_PROV_AUDIT_MIGRATION_ID}.cs`,
-        renderDapperMigrationClass(ns, DOTNET_PROV_AUDIT_MIGRATION_ID, provStmts),
-      );
-    }
   }
+  // The co-located `<field>_provenance` columns are ordinary MigrationsIR
+  // columns, so both runners pick them up from the chain's own generations.
   const hasMigrations = !usingDapper && !!(system?.migrations && system.migrations.length > 0);
   if (hasMigrations) {
     emitDotnetMigrations(system!.migrations!, ns, out);
-    // The provenance/audit DDL ships as one extra migration sorting after every
-    // module's initial migration (so the aggregate tables exist for the
-    // co-located-column ALTERs).  Feature-local — not part of MigrationsIR.
-    if (hasProvenance || hasAudit) {
-      emitDotnetProvenanceAuditMigration(contexts, system?.sys, ns, out, {
-        provenance: hasProvenance,
-        audit: hasAudit,
-      });
-    }
   }
   // First-boot seed data (database-seeding.md) — emits
   // Infrastructure/Persistence/Seed.cs when the served contexts declare any

@@ -172,6 +172,13 @@ const PROJECTION_VO_ROW: readonly Backend[] = ["node", "java", "vanilla"];
 // .NET until that lands — then this becomes ALL.
 const PART_REBUILD: readonly Backend[] = ALL.filter((b) => b !== "dotnet");
 
+// #3959: the polymorphic base read (`GET /<bases>/{id}`, a projection `from
+// <Base>`) passes on node/drizzle only.  The other legs boot the case as a
+// tracked expected failure (`BEHAVIOURAL_XFAIL`), each fixed by its own
+// sub-issue of #3954 (#3960–#3965); each fix adds its backend here, and the
+// row becomes ALL when the last one lands.
+const BASE_READS: readonly Backend[] = ["node"];
+
 export interface CorpusFeature {
   /** Matches `<id>.ddd` in this directory. */
   readonly id: string;
@@ -301,8 +308,8 @@ export const CORPUS: readonly CorpusFeature[] = [
     title:
       "inheritance (TPH + TPC) × a capability on the ABSTRACT BASE × polymorphic base reads (`GET /<base>/{id}`, a projection `from <Base>`)",
     doc: "inheritance",
-    backends: ALL,
-    note: "The half of epic #3954's behavioural fixture that no backend passes yet (#3956 base capabilities are not inherited; #3959 polymorphic base reads).  Every leg boots it as a tracked expected failure pinned to the assertion it fails on (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs); it has no wire golden because the node oracle fails it too, and its assertions move into `inheritance-read-restrictions` once node passes.",
+    backends: BASE_READS,
+    note: "The half of epic #3954's behavioural fixture: base capabilities (#3956) and the polymorphic base reads (#3959).  node/drizzle passes it and is the oracle its wire golden is captured from; every other leg boots it as a tracked expected failure pinned to the assertion it fails on (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs) until its #3954 sub-issue (#3960–#3965) lands and adds the backend to `BASE_READS`.",
   },
   { id: "event-sourcing", title: "`persistedAs: eventLog` — append-only stream + appliers", doc: "workflow", backends: ALL },
   { id: "eventsourced-workflow", title: "event-sourced saga folding its own emitted events", doc: "workflow", backends: ALL },

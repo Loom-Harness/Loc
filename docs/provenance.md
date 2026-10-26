@@ -155,15 +155,29 @@ The .NET backend emits the same runtime shape, in EF Core / CQRS terms:
   `<Agg>Response` component — `Provenanced<int> Total`, the shared
   `Domain/Common` generic record (see "The wire shape" below).
 
-The co-located columns ship as one extra EF migration
-(`Migrations/<late>_ProvenanceAudit.cs`) that sorts after every module's
-initial migration, because they ALTER tables the module migration owns.
-The `provenance_records` table itself is a shared **MigrationsIR companion
-table** (`provenanceTableShape` in `src/system/migrations-builder.ts`,
-alongside the outbox and `audit_records`), so every backend derives its DDL
-from one definition and it arrives in the ordinary module migration.  On the
-`persistence: dapper` path — which emits no migration files — the self-applied
-`DbSchema.cs` bootstrap renders that same shared shape.
+## Schema — part of the migration chain
+
+No backend hand-writes provenance DDL. Both halves are ordinary
+[`MigrationsIR`](migrations.md) schema, derived in
+`src/system/migrations-builder.ts` and rendered by each backend's migration
+emitter with every other step:
+
+- **The co-located column.** Each `provenanced` root field adds a nullable
+  `<field>_provenance JSONB` column to its aggregate's root table
+  (`withLineageColumns`). It is a column like any other: it is in the module's
+  `Initial` when the field starts out provenanced, and marking a field
+  `provenanced` on a live system records an `ADD COLUMN` in a **new**
+  generation (`ddd migrate add`), above every migration already applied.
+  Unlike other adds, it renders `ADD COLUMN IF NOT EXISTS`, because databases
+  deployed while these columns came from a hand-written per-backend migration
+  already hold them. Dropping `provenanced` drops the column as a destructive
+  step.
+- **The history table.** `provenance_records` is a shared companion table
+  (`provenanceTableShape`, alongside the outbox and `audit_records`), present
+  when any context declares a `provenanced` field.
+
+`dotnet`'s `persistence: dapper` path applies the same chain through its own
+runner (`DbSchema.cs`).
 
 ## Governance stamps on each history row
 
@@ -204,11 +218,11 @@ in Elixir's immutable idiom:
   in **one `Repo.transaction`**, so the `provenance_records` rows commit
   atomically with the aggregate update.  Each row is stamped with the ambient
   `RequestContext` ids (correlation / scope / actor / parent).
-- The co-located columns ship as one extra migration
-  (`…_create_provenance.exs`, a high timestamp so it sorts after every module's
-  initial migration), schema-prefixed to match each aggregate's table.  The
-  `provenance_records` table comes from the shared MigrationsIR
-  (`…_create_provenance_records.exs`) — and is one of the tables the Ecto
+- The co-located columns and the `provenance_records` table come from the
+  migration chain (see "Schema" above): the column is an `add … :map` in the
+  aggregate table's create (or an `add_if_not_exists` in a later generation's
+  `alter table`), and the history table is its own
+  `…_create_provenance_records.exs`.  It is one of the tables the Ecto
   emitter deliberately does NOT bundle `timestamps()` into, since the flush
   inserts plain maps via `insert_all` and a NOT NULL `inserted_at` would reject
   every provenanced write (and roll back the aggregate save with it).
