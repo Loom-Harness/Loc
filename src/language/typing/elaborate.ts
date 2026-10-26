@@ -680,13 +680,15 @@ export class Elaborator {
     // The principal — unshadowable when the unit declares a claim block.
     const user = this.index.userBlock();
     if (name === "currentUser" && user) return Ty.record({ of: "principal", ref: user });
-    // Ambient resource handles serving this context — unshadowable.
-    const res = this.index.resourcesFor(f.ctx).find((r) => r.name === name);
-    if (res) return Ty.record({ of: "resource", ref: res });
     if (f.candidateAlias && name === f.candidateAlias)
       return this.thisType(scope) ?? Ty.unknown("unresolved-name");
     const local = scope.lookup(name);
     if (local) return local.ty;
+    // Ambient resource handles serving this context — after the lexical
+    // binders (ruling D7: a param or `let` named like a resource shadows it,
+    // as lowering resolves it), ahead of the enclosing record's fields.
+    const res = this.index.resourcesFor(f.ctx).find((r) => r.name === name);
+    if (res) return Ty.record({ of: "resource", ref: res });
     // `test e2e` call roots are resolved at render time against the target
     // deployable; typing them is cutover family 3f's (a pass gap, not an
     // author error).
@@ -1844,8 +1846,32 @@ function stringifiable(t: Ty): boolean {
   return false;
 }
 
-// Ternary null-narrowing: `<path> != null ? <path is T> : …` (see the long
-// rationale in `type-system.ts` above `simplePathKey`; this is the same rule).
+// Ternary null-narrowing (`x != null ? <x is T> : <x is T?>`).
+//
+// The null test sits in the ternary's condition, so every backend's `ternary`
+// leaf already renders a safe branch; narrowing only tells the checker so.
+//
+// SCOPE, deliberately tight:
+//   • Only a DIRECT null comparison on the ternary's OWN condition:
+//     `<path> != null` / `null != <path>` narrows the THEN branch,
+//     `<path> == null` / `null == <path>` narrows the ELSE branch.
+//   • Only a SIMPLE PATH — a `this` / bare-name head plus plain member
+//     accesses.  `f().x` names no stable storage location, so it never narrows
+//     even when spelled identically twice.
+//   • No flow analysis: `&&` chains, `!`-negated tests, `precondition` guards,
+//     `let`-propagation and early-return guards do not narrow.
+//
+// SOUNDNESS.  Narrowing is sound only if the value cannot change between the
+// test and the use.  An assignment is a statement and a branch is an
+// expression, so no assignment runs inside a branch — but a branch CAN call a
+// sibling `operation`, and an operation body assigns freely:
+//
+//     this.path != null ? this.bump() + this.path : ""
+//
+// with `private operation bump(): string { path := null }` nulls the field
+// between the test and the use.  (A `function` cannot: it is gated pure by
+// `loom.function-block-impure`.)  So `branchBlocksNarrowing` refuses to narrow
+// any branch carrying a call it cannot prove pure.
 
 function simplePathKey(e: AstNode | undefined): string | undefined {
   if (!e) return undefined;

@@ -19,6 +19,10 @@
 // that server and dropped afterwards), otherwise PGlite in-process.
 //
 // Usage:  npm ci  (in this dir, once) ; [PG_URL=postgres://…] node polymorphic-read.mjs
+//
+// Another backend: generate `polymorphic-read.ddd` with its `platform:`, boot
+// it on a fresh database, and run `LOOM_POLY_BASE=http://127.0.0.1:<port> node
+// polymorphic-read.mjs` — the same assertions over HTTP.
 // Exit non-zero on any failed assertion or a boot error.
 
 import { build } from "esbuild";
@@ -172,7 +176,66 @@ async function assertBaseRead(dispatch, layout, path, seeded, ownField) {
   }
 }
 
+/** Every assertion, against one booted backend. */
+async function scenario(dispatch) {
+  // TPH.  `capacity > 0` is the BASE's filter; `doors > 0` is Car's and
+  // `payloadKg < 10000` is Truck's.  `truck-heavy` would pass Car's filter
+  // and `car-doorless` Truck's — each must be judged by its own only.
+  const vehicles = await seed(dispatch, [
+    { label: "car-a", path: "cars", kind: "Car", visible: true, body: { name: "a", capacity: 4, doors: 4 } },
+    { label: "truck-b", path: "trucks", kind: "Truck", visible: true, body: { name: "b", capacity: 2, payloadKg: 5000 } },
+    { label: "car-doorless", path: "cars", kind: "Car", visible: false, body: { name: "x", capacity: 4, doors: 0 } },
+    { label: "truck-heavy", path: "trucks", kind: "Truck", visible: false, body: { name: "y", capacity: 2, payloadKg: 20000 } },
+    { label: "car-empty", path: "cars", kind: "Car", visible: false, body: { name: "z", capacity: 0, doors: 2 } },
+    { label: "truck-empty", path: "trucks", kind: "Truck", visible: false, body: { name: "w", capacity: 0, payloadKg: 1 } },
+    { label: "car-c", path: "cars", kind: "Car", visible: true, body: { name: "c", capacity: 5, doors: 2 } },
+    { label: "truck-d", path: "trucks", kind: "Truck", visible: true, body: { name: "d", capacity: 3, payloadKg: 1 } },
+    { label: "car-e", path: "cars", kind: "Car", visible: true, body: { name: "e", capacity: 1, doors: 5 } },
+  ]);
+  await assertBaseRead(dispatch, "TPH", "vehicles", vehicles, { Car: "doors", Truck: "payloadKg" });
+
+  // The TPH base by-id read: the shared table's one identity, the same
+  // restrictions as the list.
+  process.stdout.write("▶ TPH: GET /api/vehicles/{id}\n");
+  for (const v of vehicles) {
+    const r = await dispatch(`/api/vehicles/${v.id}`, { method: "GET" });
+    if (v.visible) {
+      const b = await r.json();
+      check(`TPH by id: ${v.label} answers 200 tagged ${v.kind}`, r.status === 200 && b.type === v.kind && b.id === v.id, `status=${r.status} ${JSON.stringify(b)}`);
+    } else {
+      check(`TPH by id: filtered ${v.label} is a 404`, r.status === 404, `status=${r.status}`);
+    }
+  }
+
+  // TPC.  No base filter; `age > 0` is Person's, `employees < 100` Company's.
+  const parties = await seed(dispatch, [
+    { label: "person-a", path: "persons", kind: "Person", visible: true, body: { name: "a", age: 30 } },
+    { label: "company-b", path: "companies", kind: "Company", visible: true, body: { name: "b", employees: 10 } },
+    { label: "person-ageless", path: "persons", kind: "Person", visible: false, body: { name: "x", age: 0 } },
+    { label: "company-big", path: "companies", kind: "Company", visible: false, body: { name: "y", employees: 500 } },
+    { label: "person-c", path: "persons", kind: "Person", visible: true, body: { name: "c", age: 40 } },
+    { label: "company-d", path: "companies", kind: "Company", visible: true, body: { name: "d", employees: 0 } },
+    { label: "person-e", path: "persons", kind: "Person", visible: true, body: { name: "e", age: 50 } },
+  ]);
+  await assertBaseRead(dispatch, "TPC", "parties", parties, { Person: "age", Company: "employees" });
+
+  const bad = await dispatch("/api/vehicles?page=0", { method: "GET" });
+  check("a page below 1 is refused (422)", bad.status === 422, `status=${bad.status}`);
+}
+
+/** A backend already running at `base` (any platform): the same scenario over
+ *  HTTP.  The `.ddd` is this directory's, generated with that platform. */
+async function runExternal(base) {
+  process.stdout.write(`▶ dispatching to ${base}\n`);
+  await scenario((path, init) => fetch(base + path, init));
+}
+
 async function main() {
+  if (process.env.LOOM_POLY_BASE) {
+    await runExternal(process.env.LOOM_POLY_BASE);
+    process.stdout.write(`\n${failures === 0 ? "PASS" : `FAIL (${failures} assertion(s))`}\n`);
+    process.exit(failures === 0 ? 0 : 1);
+  }
   const pgUrl = process.env.PG_URL || "";
   const genDir = mkdtempSync(join(tmpdir(), "loom-poly-"));
   const workDir = join(HERE, ".work", "polymorphic-read");
@@ -200,49 +263,7 @@ async function main() {
     const { boot } = await import(pathToFileURL(bundle).href);
     const { dispatch, close } = await boot();
     try {
-      // TPH.  `capacity > 0` is the BASE's filter; `doors > 0` is Car's and
-      // `payloadKg < 10000` is Truck's.  `truck-heavy` would pass Car's filter
-      // and `car-doorless` Truck's — each must be judged by its own only.
-      const vehicles = await seed(dispatch, [
-        { label: "car-a", path: "cars", kind: "Car", visible: true, body: { name: "a", capacity: 4, doors: 4 } },
-        { label: "truck-b", path: "trucks", kind: "Truck", visible: true, body: { name: "b", capacity: 2, payloadKg: 5000 } },
-        { label: "car-doorless", path: "cars", kind: "Car", visible: false, body: { name: "x", capacity: 4, doors: 0 } },
-        { label: "truck-heavy", path: "trucks", kind: "Truck", visible: false, body: { name: "y", capacity: 2, payloadKg: 20000 } },
-        { label: "car-empty", path: "cars", kind: "Car", visible: false, body: { name: "z", capacity: 0, doors: 2 } },
-        { label: "truck-empty", path: "trucks", kind: "Truck", visible: false, body: { name: "w", capacity: 0, payloadKg: 1 } },
-        { label: "car-c", path: "cars", kind: "Car", visible: true, body: { name: "c", capacity: 5, doors: 2 } },
-        { label: "truck-d", path: "trucks", kind: "Truck", visible: true, body: { name: "d", capacity: 3, payloadKg: 1 } },
-        { label: "car-e", path: "cars", kind: "Car", visible: true, body: { name: "e", capacity: 1, doors: 5 } },
-      ]);
-      await assertBaseRead(dispatch, "TPH", "vehicles", vehicles, { Car: "doors", Truck: "payloadKg" });
-
-      // The TPH base by-id read: the shared table's one identity, the same
-      // restrictions as the list.
-      process.stdout.write("▶ TPH: GET /api/vehicles/{id}\n");
-      for (const v of vehicles) {
-        const r = await dispatch(`/api/vehicles/${v.id}`, { method: "GET" });
-        if (v.visible) {
-          const b = await r.json();
-          check(`TPH by id: ${v.label} answers 200 tagged ${v.kind}`, r.status === 200 && b.type === v.kind && b.id === v.id, `status=${r.status} ${JSON.stringify(b)}`);
-        } else {
-          check(`TPH by id: filtered ${v.label} is a 404`, r.status === 404, `status=${r.status}`);
-        }
-      }
-
-      // TPC.  No base filter; `age > 0` is Person's, `employees < 100` Company's.
-      const parties = await seed(dispatch, [
-        { label: "person-a", path: "persons", kind: "Person", visible: true, body: { name: "a", age: 30 } },
-        { label: "company-b", path: "companies", kind: "Company", visible: true, body: { name: "b", employees: 10 } },
-        { label: "person-ageless", path: "persons", kind: "Person", visible: false, body: { name: "x", age: 0 } },
-        { label: "company-big", path: "companies", kind: "Company", visible: false, body: { name: "y", employees: 500 } },
-        { label: "person-c", path: "persons", kind: "Person", visible: true, body: { name: "c", age: 40 } },
-        { label: "company-d", path: "companies", kind: "Company", visible: true, body: { name: "d", employees: 0 } },
-        { label: "person-e", path: "persons", kind: "Person", visible: true, body: { name: "e", age: 50 } },
-      ]);
-      await assertBaseRead(dispatch, "TPC", "parties", parties, { Person: "age", Company: "employees" });
-
-      const bad = await dispatch("/api/vehicles?page=0", { method: "GET" });
-      check("a page below 1 is refused (422)", bad.status === 422, `status=${bad.status}`);
+      await scenario(dispatch);
     } finally {
       await close();
     }

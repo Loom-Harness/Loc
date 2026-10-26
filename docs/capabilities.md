@@ -237,7 +237,17 @@ and elixir has no `document` shape at all.  See *Deferred cases* below.
   `findAll`/`findById` overrides + finds/retrievals.  A
   **non-relational** aggregate filters in-app via `findAll().stream()`
   for `document`, or rides the same `@SQLRestriction` for an `embedded`
-  root.
+  root.  A capability some read `ignoring`s is instead an auto-enabled,
+  by-key named filter (`@FilterDef(autoEnabled = true, applyToLoadByKey =
+  true)` + `@Filter`) that the bypassing read disables.  Under TPH every
+  restriction is hosted on the ROOT entity: the root's own unguarded, each
+  concrete's own guarded by `kind` (a subtype's filter is named
+  `<Concrete>_<cap>`), because Hibernate refuses `@SQLRestriction` on a
+  SINGLE_TABLE subclass and applies a subclass `@Filter` only to queries of
+  that subclass, never to `from <Base>` or `find(<Base>.class, id)`
+  (`src/generator/java/capability-filter.ts` `restrictionHostFor`).  A
+  restricted aggregate's `findById` is a JPQL query: a primary-key `find` of
+  a row the session already manages runs no SQL, so no restriction applies.
 - **Phoenix / Ecto** — a `where` clause AND-ed into each generated read
   in the context module — the platform analog of `HasQueryFilter`
   (`src/generator/elixir/domain-emit.ts`).  A **principal** predicate
@@ -439,8 +449,9 @@ contributed it, whether `ignoring` can drop it, where it is declared, and, for
 fact also gives each concrete's own filters in root-hosted form, guarded by the
 discriminator (`kind <> 'Car' OR <pred>`). A read that declares no order is ordered
 by `id` (`readOrderFor`). Today the node/drizzle read paths take their
-restrictions and their default order from this fact. The other backends still
-derive them from the IR arrays.
+restrictions and their default order from this fact, and Java/Hibernate takes
+its entity restrictions from it. The other backends still derive them from the
+IR arrays.
 
 ## Relationship to macros
 

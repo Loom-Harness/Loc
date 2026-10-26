@@ -35,7 +35,7 @@ import { javaRef } from "../../_imports/java.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import type { SourceMapSubRegion } from "../../_trace/sourcemap.js";
 import { constructionSeededFields, serverSeededFields } from "../../construction-default.js";
-import { promotedFilters, sqlRestrictionFilters } from "../capability-filter.js";
+import type { RestrictionHost } from "../capability-filter.js";
 import { jid } from "../java-ident.js";
 import {
   buildJavaRegexFields,
@@ -45,7 +45,6 @@ import {
   renderJavaType,
   withLambdaScope,
 } from "../render-expr.js";
-import { renderSqlRestriction } from "../render-sql-restriction.js";
 import {
   declarationSubRegion,
   renderJavaStatementChunks,
@@ -214,13 +213,10 @@ export interface JavaEntityOptions {
      *  through the generated `<Enum>.Codec` converter. */
     mangledEnums?: ReadonlySet<string>;
   };
-  /** The §11.6 PROMOTED non-principal capabilities for this aggregate — those
-   *  some read `ignoring`s.  A promoted capability's filter(s) leave the
-   *  always-on `@SQLRestriction` and become a bypassable Hibernate named filter
-   *  (`@FilterDef` + `@Filter`).  Empty / absent → today's behaviour (every
-   *  non-principal cap rides `@SQLRestriction`).  Derived by the orchestrator
-   *  from the context's read-decls (`capability-filter.ts`). */
-  promotedCaps?: ReadonlySet<string>;
+  /** The static restrictions this entity declares — `@SQLRestriction` plus
+   *  the bypassable named filters (capability-filter.ts `restrictionHostFor`).
+   *  Absent → none. */
+  restrictionHost?: RestrictionHost;
   /** `${ctx.name}.${agg.name}` — construct-id prefix for this aggregate's
    *  own operation bodies (source-map).  Only consulted when
    *  `opFragments` is also passed; entity parts never carry operations, so
@@ -1148,50 +1144,16 @@ export function renderJavaEntity(
   ];
   while (body.length > 0 && body[body.length - 1] === "") body.pop();
 
-  // Non-principal capability filters (relational soft-delete et al.) ride
-  // Hibernate's @SQLRestriction: one static WHERE fragment appended to every
-  // SELECT (the HasQueryFilter analog).  PRINCIPAL (tenancy) filters can't —
-  // @SQLRestriction is static SQL with no runtime principal — so they're AND-ed
-  // into the repository's per-query JPQL instead (see emit/repository.ts).
-  //
-  // §11.6 triage: a capability some read `ignoring`s (a PROMOTED cap, threaded
-  // in via `options.promotedCaps`) leaves @SQLRestriction — @SQLRestriction is
-  // unbypassable by design — and becomes a bypassable Hibernate named filter
-  // (`@FilterDef(autoEnabled, applyToLoadByKey)` + `@Filter`).  Everything else
-  // (never-bypassed caps + bare filters) keeps today's @SQLRestriction.
-  const promotedCaps =
-    isRoot && isAgg(entity) ? (options.promotedCaps ?? new Set<string>()) : new Set<string>();
-  const contextFilters = isRoot && isAgg(entity) ? sqlRestrictionFilters(entity, promotedCaps) : [];
-  // A TPH CONCRETE never carries its own `@SQLRestriction`: Hibernate refuses
-  // the annotation on a subclass of a SINGLE_TABLE hierarchy (the restriction
-  // is a property of the shared table's mapping, and only its root may declare
-  // it — `AnnotationException` at boot).  The fragment is hoisted onto the
-  // abstract base, discriminator-guarded (`kind <> '<Sub>' or (<fragment>)`)
-  // so it scopes to this subtype's rows only — see
-  // `renderJavaAbstractBaseEntity`'s `subtypeRestrictions` (the java twin of
-  // the EF adapter's discriminator-guarded root filter).
-  const sqlRestriction =
-    persistence && contextFilters.length > 0 && !superType?.sharesIdentity
-      ? `@${SQL_RESTRICTION}(${JSON.stringify(contextFilters.map(renderSqlRestriction).join(" and "))})`
-      : null;
-  // Promoted capabilities → bypassable Hibernate named filters.  `autoEnabled`
-  // reproduces @SQLRestriction's always-on semantics with no interceptor;
-  // `applyToLoadByKey` keeps by-id / lazy loads filtered — without it a
-  // promoted filter leaks hidden rows on a primary-key load.  The condition is
-  // a constant SQL fragment (parameterless — the validator gates principal /
-  // non-relational shapes off java), so no `@ParamDef`/resolver is needed.
-  const promoted =
-    persistence && isRoot && isAgg(entity) ? promotedFilters(entity, promotedCaps) : [];
-  const filterDefAnnotations: string[] = [];
-  const filterAnnotations: string[] = [];
-  for (const p of promoted) {
-    filterDefAnnotations.push(
-      `@${FILTER_DEF}(name = ${JSON.stringify(p.cap)}, autoEnabled = true, applyToLoadByKey = true)`,
-    );
-    filterAnnotations.push(
-      `@${FILTER}(name = ${JSON.stringify(p.cap)}, condition = ${JSON.stringify(p.condition)})`,
-    );
-  }
+  // The entity's static restrictions (capability-filter.ts
+  // `restrictionHostFor`): never-bypassed ones in `@SQLRestriction`, bypassable
+  // ones as auto-enabled named filters.  A TPH concrete hosts none — its root
+  // does, kind-guarded.  Principal (tenancy) filters are not static SQL, so
+  // they ride the repository's per-query JPQL (emit/repository.ts).
+  const host =
+    persistence && isRoot && isAgg(entity) && !superType?.sharesIdentity
+      ? options.restrictionHost
+      : undefined;
+  const restrictionAnnotations = host ? renderRestrictionAnnotations(host) : [];
   return lines(
     `package ${pkg};`,
     ``,
@@ -1218,9 +1180,7 @@ export function renderJavaEntity(
             voLookup: persistence.voLookup,
           })
         : null,
-    sqlRestriction,
-    ...filterDefAnnotations,
-    ...filterAnnotations,
+    ...restrictionAnnotations,
     // Compose the auditing listener (it stacks with inheritance — no
     // @MappedSuperclass needed, so it doesn't collide with `extends`).
     isAuditable ? `@EntityListeners(${AUDITING_ENTITY_LISTENER}.class)` : null,
@@ -1240,6 +1200,27 @@ export function renderJavaEntity(
   );
 }
 
+/** An entity's restriction annotations.  The never-bypassed restrictions are
+ *  one `@SQLRestriction` (always applied, cannot be disabled).  Each
+ *  bypassable one is a named filter: `autoEnabled` gives it the same always-on
+ *  semantics with no interceptor, and `applyToLoadByKey` keeps by-id and lazy
+ *  loads filtered — without it a primary-key load returns the hidden row. */
+function renderRestrictionAnnotations(host: RestrictionHost): string[] {
+  return [
+    ...(host.sqlRestriction.length > 0
+      ? [`@${SQL_RESTRICTION}(${JSON.stringify(host.sqlRestriction.join(" and "))})`]
+      : []),
+    ...host.filters.map(
+      (f) =>
+        `@${FILTER_DEF}(name = ${JSON.stringify(f.name)}, autoEnabled = true, applyToLoadByKey = true)`,
+    ),
+    ...host.filters.map(
+      (f) =>
+        `@${FILTER}(name = ${JSON.stringify(f.name)}, condition = ${JSON.stringify(f.condition)})`,
+    ),
+  ];
+}
+
 /** The abstract base class for TPC / TPH hierarchies.  TPH bases own the
  *  shared `<Base>Id`; TPC bases are id-less (each concrete keeps its own
  *  typed id).  Fields are package-private like every entity; accessors
@@ -1255,24 +1236,19 @@ export function renderJavaAbstractBaseEntity(
       voLookup: ReadonlyMap<string, readonly FieldIR[]>;
       mangledEnums?: ReadonlySet<string>;
     };
-    /** TPH only: each concrete's static capability-filter fragment (the SQL
-     *  `renderJavaEntity` would have put in the concrete's own
-     *  `@SQLRestriction`), keyed by its discriminator value.  Hibernate refuses
-     *  `@SQLRestriction` on a SINGLE_TABLE subclass, so the root declares ONE
-     *  restriction that guards every fragment by discriminator —
-     *  `(kind <> 'Parcel' or (not (is_deleted)))` — and a sibling kind's rows
-     *  are untouched by a filter that is not theirs. */
-    subtypeRestrictions?: readonly { kind: string; condition: string }[];
+    /** TPH root only: every static restriction of the hierarchy — the
+     *  root's own and each concrete's, kind-guarded.  Hibernate refuses
+     *  `@SQLRestriction` on a SINGLE_TABLE subclass and applies a subclass
+     *  `@Filter` only to queries of that subclass, so the root hosts them all
+     *  (capability-filter.ts `restrictionHostFor`). */
+    restrictionHost?: RestrictionHost;
   } = {},
 ): string {
   const renderCtx: JavaRenderContext = { thisName: "this", agg: base };
-  const subtypeRestrictions = options.tph ? (options.subtypeRestrictions ?? []) : [];
-  const hoistedRestriction =
-    options.persistence && subtypeRestrictions.length > 0
-      ? `@${SQL_RESTRICTION}(${JSON.stringify(
-          subtypeRestrictions.map((r) => `(kind <> '${r.kind}' or (${r.condition}))`).join(" and "),
-        )})`
-      : null;
+  const hostedRestrictions =
+    options.persistence && options.tph && options.restrictionHost
+      ? renderRestrictionAnnotations(options.restrictionHost)
+      : [];
   const persistence = options.persistence;
   // `protected` — concretes may live in a different package (byLayer)
   // and their factories / operations write through these fields.
@@ -1371,7 +1347,7 @@ export function renderJavaAbstractBaseEntity(
           `@Table(name = "${hbIdent(plural(snake(base.name)))}"${persistence.schema ? `, schema = "${persistence.schema}"` : ""})`,
           `@Inheritance(strategy = InheritanceType.SINGLE_TABLE)`,
           `@DiscriminatorColumn(name = "kind")`,
-          ...(hoistedRestriction ? [hoistedRestriction] : []),
+          ...hostedRestrictions,
         ]
       : []),
     persistence && !options.tph ? `@MappedSuperclass` : null,

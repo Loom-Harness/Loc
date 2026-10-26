@@ -28,9 +28,9 @@ import { joinReadFieldNames } from "../../_projection/join-read.js";
 import { MONEY_WIRE_ZERO } from "../../money-scale.js";
 import {
   bypassDrops,
-  bypassedPromotedCaps,
+  bypassedFilterNames,
+  bypassFilterNames,
   type FilterBypass,
-  promotedCapabilities,
 } from "../capability-filter.js";
 import {
   javaLocals,
@@ -270,9 +270,7 @@ function aggregationScope(
   return {
     where: conjuncts.length > 0 ? ` where ${conjuncts.join(" and ")}` : "",
     binds: [...principalAccessors],
-    disableCaps: sourceAgg
-      ? bypassedPromotedCaps(new Set(promotedCapabilities(sourceAgg, ctx)), bypass)
-      : [],
+    disableCaps: sourceAgg ? bypassedFilterNames(bypassFilterNames(sourceAgg, ctx), bypass) : [],
   };
 }
 

@@ -18,7 +18,7 @@ import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import {
   bypassDrops,
-  bypassedPromotedCaps,
+  bypassedFilterNames,
   type FilterBypass,
   wrapWithFilterBypass,
 } from "../capability-filter.js";
@@ -95,6 +95,14 @@ export interface JavaRepoCtx {
    *  entity (capability-filter.ts).  A find / retrieval that drops one of
    *  these is wrapped with `session.disableFilter`/`enableFilter` in the impl. */
   promotedCaps?: ReadonlySet<string>;
+  /** The Hibernate named filters a read of this aggregate runs under, by
+   *  capability (capability-filter.ts `bypassFilterNames`) — under TPH they
+   *  are hosted on the root, so a concrete's bypass names the root's filters. */
+  bypassFilters?: ReadonlyMap<string, readonly string[]>;
+  /** True when this aggregate's entity host declares a static restriction
+   *  (capability-filter.ts `hasStaticRestriction`): its `findById` is then a
+   *  JPQL query, so a row already in the session is still re-checked in SQL. */
+  staticRestriction?: boolean;
   /** §11.6: per-retrieval-name UNION bypass spec, drawn from the inline
    *  `Repo.run(<Retrieval>(…)) ignoring …` call-sites in the context's workflows.
    *  A retrieval's `run<Name>` impl method is SHARED across call-sites, so its
@@ -549,6 +557,16 @@ export function renderJavaSpringDataRepository(
       `    ${OPTIONAL}<${agg.name}> findById(@${PARAM}("id") ${idClass} id);`,
       ``,
     );
+  } else if (ctx.staticRestriction) {
+    // `JpaRepository.findById` is `EntityManager.find`: for a row the session
+    // already manages it answers from the persistence context, with no SQL
+    // and so no `@SQLRestriction` / `@Filter` — a row soft-deleted earlier in
+    // the same transaction reads back.  A query flushes and re-filters.
+    principalOverrides.push(
+      `    @${QUERY}("select e from ${agg.name} e where e.id = :id")`,
+      `    ${OPTIONAL}<${agg.name}> findById(@${PARAM}("id") ${idClass} id);`,
+      ``,
+    );
   }
   // Command-load path (authorization): a WRITE-scope-narrowed
   // `findByIdForWrite` the impl's `getById` loads through when the aggregate's
@@ -715,10 +733,10 @@ export function renderJavaRepositoryImpl(
   // The impl wraps the delegate body with `session.disableFilter/enableFilter`;
   // the @SQLRestriction-resident caps + principal filters are unaffected here
   // (the latter omit the conjunct in the JpaRepository @Query instead).
-  const promotedCaps = ctx.promotedCaps ?? new Set<string>();
+  const bypassFilters = ctx.bypassFilters ?? new Map<string, readonly string[]>();
   let needsEntityManager = false;
   const wrapBypass = (bypass: FilterBypass | undefined, body: string[]): string[] => {
-    const caps = bypassedPromotedCaps(promotedCaps, bypass);
+    const caps = bypassedFilterNames(bypassFilters, bypass);
     if (caps.length === 0) return body;
     needsEntityManager = true;
     return wrapWithFilterBypass(caps, body);
