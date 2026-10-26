@@ -1360,7 +1360,7 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
             ? `((await ${call}) switch { [var __first, ..] => __first, _ => null })`
             : `(await ${call})`;
         }
-        const method = csRepoReadMethod(read.op, read.method);
+        const method = csRepoReadMethod(read.op, read.method, read.bypassRead !== undefined);
         const ctArg = argList.length > 0 ? `${argList}, cancellationToken` : "cancellationToken";
         // `getById` is contractually NON-NULL — it throws rather than returning
         // absent (`findById` is the read that answers absence), which is what
@@ -1406,8 +1406,10 @@ function renderCall(args: string[], e: CallExpr, ctx: CsRenderContext): string {
  *  → `csFindMethodName` (declared finds get no `Async` suffix — `Task<Account?>
  *  ByHolder(...)` — and are escaped when they would collide with a built-in
  *  method).  A criterion / retrieval read never reaches here: it
- *  carries a `retrievalName` and renders the retrieval method. */
-function csRepoReadMethod(op: RepoOp, method: string): string {
+ *  carries a `retrievalName` and renders the retrieval method.  A widened read
+ *  (`findById(id) ignoring …`) calls its own derived method. */
+function csRepoReadMethod(op: RepoOp, method: string, widened: boolean): string {
+  if (widened) return csFindMethodName(method);
   return op === "load" || op === "load-optional" ? "GetByIdAsync" : csFindMethodName(method);
 }
 
