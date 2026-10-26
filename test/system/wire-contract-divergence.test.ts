@@ -180,7 +180,13 @@ function corpusFixtures(): { name: string; source: string }[] {
     .filter((f) => f.startsWith("test/fixtures/corpus/") && f.endsWith(".ddd"))
     .map((f) => ({
       name: f.slice("test/fixtures/corpus/".length),
-      source: dddSourceOf(f).replace(/^(\s*context\s+\w+)\s*\{/gm, "$1 with scaffoldHandlers {"),
+      // A context that already carries a `with` clause gets the macro appended
+      // to it; one that does not gets a clause.
+      source: dddSourceOf(f).replace(
+        /^(\s*context\s+\w+)(\s+with\s+[^{]*?)?\s*\{/gm,
+        (_m, head: string, clause?: string) =>
+          clause ? `${head}${clause}, scaffoldHandlers {` : `${head} with scaffoldHandlers {`,
+      ),
     }));
 }
 

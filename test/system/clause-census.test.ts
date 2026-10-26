@@ -113,11 +113,10 @@ const UNAUTHORED_CLAUSES: Record<string, string> = {
   // module, and the Playwright page objects silently dropped one of them. See
   // `test/generator/page-emit-identity.test.ts` + `test/ir/ui-page-identity-gate.test.ts`.
   //
-  // Macro arguments of int / string kind. The stdlib macros in use take bools
-  // and refs (`crudish(updateOnly: true)`, `scaffold(aggregates: [X])`), so the
-  // two literal arms of `MacroArgValue` have never been parsed from a fixture.
+  // Macro arguments of int kind. The stdlib macros in use take bools, refs and
+  // one string (`crudish(updateOnly: true)`, `scaffoldGet(of: X, key: "k")`), so
+  // the int arm of `MacroArgValue` has never been parsed from a fixture.
   MacroArgInt: "no fixture passes an INT macro argument (`with m(n: 2)`)",
-  MacroArgString: 'no fixture passes a STRING macro argument (`with m(s: "x")`)',
 };
 
 describe("clause census — what the corpus authors, and what it never does", () => {
