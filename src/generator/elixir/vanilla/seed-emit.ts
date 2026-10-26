@@ -41,6 +41,7 @@ import {
 } from "../../_persistence/seed-datasets.js";
 import { renderSeedRowInsert } from "../../sql-pg.js";
 import { renderExpr } from "../render-expr.js";
+import { hasEctoTimestamps } from "./schema-emit.js";
 
 // A `.ddd`-sourced string reaching this file's emitted Elixir routes through
 // `elixirString` (src/util/naming.ts) — the ONE escape funnel every Elixir
@@ -96,6 +97,15 @@ export function emitVanillaSeeds(
   const seedable = new Set(seederAggs.keys());
   const aggByName = seederAggs;
 
+  // A `raw` INSERT bypasses Ecto's autogenerate, so it must spell the
+  // migration's NOT NULL `timestamps()` columns itself — but only on a table
+  // that has them (an audit `updatedAt` or a declared `inserted_at` replaces
+  // the bundled pair, and naming an absent column fails the INSERT).
+  const ownsTimestamps = (aggregate: string): boolean => {
+    const agg = ctx.aggregates.find((a) => a.name === aggregate);
+    return agg === undefined || !hasEctoTimestamps(agg.fields);
+  };
+
   const fnBlocks: string[] = [];
   const callLines: string[] = [];
   // Whether any emitted row goes through the domain `insert!/3` guard.  A
@@ -109,7 +119,9 @@ export function emitVanillaSeeds(
     const entries = ds.entries.filter((e) => e.raw || seedable.has(e.row.aggregate));
     if (entries.length === 0) continue;
     if (entries.some((e) => !e.raw)) anyDomainRow = true;
-    fnBlocks.push(...renderDatasetFn(ds.name, entries, ctxModule, aggByName, schemaFor));
+    fnBlocks.push(
+      ...renderDatasetFn(ds.name, entries, ctxModule, aggByName, schemaFor, ownsTimestamps),
+    );
     callLines.push(`    seed_${snake(ds.name)}(requested)`);
   }
   if (callLines.length === 0) return null;
@@ -237,10 +249,20 @@ function renderDatasetFn(
   ctxModule: string,
   aggByName: Map<string, SeederAggregate>,
   schemaFor: SeedSchemaFor,
+  ownsTimestamps: (aggregate: string) => boolean,
 ): string[] {
   const rowLines = entries.map((e) => {
     if (e.raw) {
-      const sql = renderSeedRowInsert(e.row.aggregate, e.row.fields, schemaFor(e.row.aggregate));
+      const now: ExprIR = { kind: "literal", lit: "now", value: "now" };
+      const fields = ownsTimestamps(e.row.aggregate)
+        ? e.row.fields
+        : [
+            ...e.row.fields,
+            ...["inserted_at", "updated_at"]
+              .filter((c) => !e.row.fields.some((f) => snake(f.name) === c))
+              .map((name) => ({ name, value: now })),
+          ];
+      const sql = renderSeedRowInsert(e.row.aggregate, fields, schemaFor(e.row.aggregate));
       return `    Repo.query!(${elixirString(sql)})`;
     }
     const agg = aggByName.get(e.row.aggregate);

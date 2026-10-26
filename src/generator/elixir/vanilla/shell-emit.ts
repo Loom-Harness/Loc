@@ -1730,6 +1730,22 @@ if config_env() == :prod do
       port: port
     ],
     secret_key_base: secret_key_base
+
+  # Runtime log-level knob, same contract as the other backends: LOG_LEVEL
+  # (default "info"), case-insensitive trace/debug/info/warn/error, anything
+  # else falls back to info.  Elixir has no :trace, and Ecto logs every SQL
+  # statement at :debug, so :info keeps queries out of the production stream.
+  log_level =
+    case String.downcase(System.get_env("LOG_LEVEL") || "info") do
+      "trace" -> :debug
+      "debug" -> :debug
+      "warn" -> :warning
+      "warning" -> :warning
+      "error" -> :error
+      _ -> :info
+    end
+
+  config :logger, level: log_level
 end
 
 # OpenTelemetry export: turn the OTLP/HTTP exporter ON only when a

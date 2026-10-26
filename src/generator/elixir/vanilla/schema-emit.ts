@@ -411,10 +411,7 @@ function renderSchema(
   // twice ("field/association :inserted_at already exists on schema").  The
   // declared field keeps its wire key and its column; the migration drops its
   // `timestamps()` by the same column test (`migrations-emit.ts`).
-  const timestampsLine =
-    hasUpdatedAt || ownsEctoTimestampColumn(agg.fields)
-      ? ""
-      : "    timestamps(type: :utc_datetime)";
+  const timestampsLine = hasEctoTimestamps(agg.fields) ? "    timestamps(type: :utc_datetime)" : "";
   const refCollBlock = refCollLines.join("\n");
   const schemaBody = [
     kindLine,
@@ -453,6 +450,14 @@ ${pureCoreBlock}end
 
 /** The two columns Ecto's bundled `timestamps()` macro defines. */
 const ECTO_TIMESTAMP_COLUMNS: ReadonlySet<string> = new Set(["inserted_at", "updated_at"]);
+
+/** Does the aggregate's table carry the bundled `timestamps()` pair
+ *  (`inserted_at`/`updated_at`)?  Not when an `updatedAt` audit field maps to
+ *  its own `updated_at` column, nor when a declared field owns one of the
+ *  pair.  The schema, the migration and any raw INSERT must agree on this. */
+export function hasEctoTimestamps(fields: readonly { name: string }[]): boolean {
+  return !fields.some((f) => f.name === "updatedAt") && !ownsEctoTimestampColumn(fields);
+}
 
 /** Does a declared field already own one of the `timestamps()` columns?  The
  *  camelCase `createdAt`/`updatedAt` audit names are NOT counted — they keep
@@ -524,9 +529,13 @@ function singleValueObjectName(t: TypeIR): string | null {
 /** Render a simple literal default to its Ecto `default:` value, or `null`
  *  for a non-literal default (skipped — keeps the field's struct default
  *  unset rather than emitting an expression Ecto can't evaluate at compile
- *  time).  Shared with the DOCUMENT embed (`document-emit.ts`), whose
- *  `<Agg>.Data` fields need the same treatment for the same reason. */
+ *  time), except an enum case, which is an atom.  Shared with the DOCUMENT
+ *  embed (`document-emit.ts`), whose `<Agg>.Data` fields need the same
+ *  treatment for the same reason. */
 export function renderEctoDefault(e: ExprIR): string | null {
+  // An enum case is an `Ecto.Enum` atom in its declared casing — the same
+  // spelling as the field's `values:` list.
+  if (e.kind === "ref" && e.refKind === "enum-value") return `:${e.name}`;
   if (e.kind !== "literal") return null;
   switch (e.lit) {
     case "string":
