@@ -24,6 +24,10 @@
 // scalar `+=` over `money` (the representation that has no `+` operator on
 // three of five backends — `Decimal.add` / `BigDecimal.add` / `decimal.js`),
 // and a collection `+=` / `-=` over a `string[]` column that starts null.
+//
+// The compile legs catch a dropped `let` (an unbound identifier).  A dropped
+// `+=` compiles and leaves the column null, so the `test e2e` block reads the
+// ACCUMULATED values back off the folded row after each event.
 system FoldStatementsSys {
   subdomain Ledger {
     context Ledger {
@@ -93,5 +97,32 @@ system FoldStatementsSys {
     dataSources: [ledgerState]
     serves: LedgerApi
     port: 4000
+  }
+
+  test e2e "every pure-fold statement kind accumulates on the read model" against d {
+    let a = api.accounts.create({ owner: "Ada", status: "Draft" })
+    api.accounts.openIt(a)
+    let opened = api.accountBoard.byKey(a.id)
+    expect(opened.status).toBe("Opened")
+    expect(opened.entries).toBe(10)
+    expect(opened.tags.length).toBe(1)
+    expect(opened.tags.first()).toBe("opened")
+
+    api.accounts.closeIt(a)
+    let closed = api.accountBoard.byKey(a.id)
+    expect(closed.status).toBe("Closed")
+    expect(closed.entries).toBe(6)
+    expect(closed.tags.length).toBe(0)
+
+    // The derived surface, so each derived route has a runtime caller.
+    expect(api.accounts.getById(a).status).toBe("Closed")
+    api.accounts.update(a, { owner: "Grace", status: "Closed" })
+    expect(api.accounts.getById(a).owner).toBe("Grace")
+    expect(api.accounts.all().items.length).toBe(1)
+    // The read model is keyed by event, not by row: deleting the account
+    // leaves its folded board in place.
+    api.accounts.destroy(a)
+    expect(api.accounts.getById(a)).toThrow(404)
+    expect(api.accountBoard.byKey(a.id).status).toBe("Closed")
   }
 }

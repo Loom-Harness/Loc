@@ -3,6 +3,9 @@
 // handler declares only its signature (params + return contract); Loom
 // scaffolds a user-owned impl file once and the generated dispatch calls it,
 // preserving the user's implementation across regenerations.
+//
+// The compile legs gate the scaffold and the dispatch wiring; the `test e2e`
+// block gates the runtime half of the scaffold's contract.
 system ExternHandlerSys {
   subdomain Sales {
     context Sales {
@@ -27,5 +30,19 @@ system ExternHandlerSys {
     dataSources: [salesState]
     serves: SalesApi
     port: 4000
+  }
+
+  // The scaffold's contract until the user fills an impl (docs/extern.md): the
+  // routed handler is mounted under `/api` on every backend, and the stub
+  // fails LOUDLY — a 500 — rather than answering a silent no-op.  (An
+  // unimplemented extern OPERATION answers 501 on node; #3543 settles one
+  // status for both, and this block's golden moves with it.)
+  test e2e "a routed extern handler is mounted and fails loudly until implemented" against d {
+    expect(api.sales.getQuote("SKU-1")).toThrow(500)
+    expect(api.sales.placeOrder("c-1")).toThrow(500)
+    // The failed command wrote nothing.  `Order` declares no create, so its
+    // derived reads answer an empty table.
+    expect(api.orders.all().items.length).toBe(0)
+    expect(api.orders.getById("00000000-0000-4000-8000-000000000001")).toThrow(404)
   }
 }

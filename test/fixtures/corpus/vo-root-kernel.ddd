@@ -24,49 +24,28 @@
 //     context-local VO that references it, from a different pool than the one
 //     the emitter walks in declaration order.
 //
-// This is the evaluation's F-007, whose two halves have diverged since:
+// This is the evaluation's F-007: an emitter that walks VOs in declaration
+// order emits `Outer` before the root-level `UnLocode` it references.
 //
-//   react/vue/svelte  FIXED.  `web/src/api/<agg>.ts` now emits `UnLocodeSchema`
-//                     ahead of `OuterSchema`, so the `z.object` const it
-//                     references is initialised first.
-//   node              STILL BROKEN at mint time, and this fixture is how we
-//                     know.  `http/<agg>.routes.ts` emits the context-local
-//                     `OuterSchema` FIRST and the root-level `UnLocodeSchema`
-//                     after it, so the initialiser reads a `const` in its
-//                     temporal dead zone: `error TS2448: Block-scoped variable
-//                     'UnLocodeSchema' used before its declaration` (+ TS2454).
-//                     Same defect the evaluation reported on the FRONTENDS,
-//                     surviving on the backend after the frontend half was
-//                     fixed — which is exactly why the shape, not the symptom,
-//                     is what a fixture has to carry.  Excluded from this row's
-//                     `backends:` via the manifest's named
-//                     `ORDERED_ROOT_VO_EMISSION` set; ordering the emission by
-//                     dependency returns the key.
-//   python            STILL BROKEN TOO, on the SAME defect in two more files:
-//                     `app/domain/value_objects.py` and `app/http/wire_models.py`
-//                     both emit `class Outer` (annotating `origin: UnLocode`)
-//                     ahead of `class UnLocode`, so ruff reports
-//                     `F821 Undefined name 'UnLocode'` four times.  ONE
-//                     emission-order bug, two backends — which is the argument for
-//                     carrying the SHAPE in the shared corpus rather than
-//                     per-backend.  Excluded alongside node in the same
-//                     `ORDERED_ROOT_VO_EMISSION` set; both keys return together.
+//   react/vue/svelte  `web/src/api/<agg>.ts` emits `UnLocodeSchema` ahead of
+//                     `OuterSchema`.
+//   node              `http/<agg>.routes.ts` and the schema builders route
+//                     through `orderValueObjectsByDependency`
+//                     (src/ir/util/reachable-types.ts); declaration order would
+//                     read `UnLocodeSchema` in its temporal dead zone (TS2448 /
+//                     TS2454) and throw at module load.
+//   python            `app/domain/value_objects.py` and `app/http/wire_models.py`
+//                     order their classes the same way; declaration order is
+//                     ruff `F821 Undefined name 'UnLocode'`.
 //   dotnet/java       free — both hoist type declarations (a C# record / Java
 //                     class has no initialisation order), so nesting direction
 //                     cannot matter.  Carried as the contrast.
 //   elixir            free — a VO is one `:map` (jsonb) cell, no per-VO schema
 //                     const is emitted at all.
 //
-// `orderValueObjectsByDependency` (src/ir/util/reachable-types.ts) already exists
-// to solve exactly this; the routes emitter does not route through it.
-//
-// COMPILE-TIER ONLY — no runtime block, same reason as `vo-cross-context.ddd`:
-// a recorded behavioural case must ship a reviewed wire golden
-// (`golden-coverage.test.ts`), and this shape currently makes the node routes
-// module fail at evaluation (a TDZ read, above) and python's classes fail to
-// resolve — so on two of the five backends there is no booted stack to record
-// from, and a captured golden would freeze the defect as the answer key.  Add
-// the runtime block with the fix.
+// The compile legs gate the ordering; the `test e2e` block gates the round
+// trip of a shared-kernel value through both nesting directions, and that the
+// root VO's invariant is enforced at the wire boundary in both positions.
 
 // The shared kernel: declared at FILE scope, outside every context.
 valueobject UnLocode {
@@ -108,5 +87,25 @@ system VoRootKernel {
     dataSources: [routingState]
     serves: FreightApi
     port: 4000
+  }
+
+  test e2e "a shared-kernel value object round-trips through both nesting directions" against d {
+    let sh = api.shipments.create({ reference: "SH-1", route: { origin: { value: "DEHAM" }, destination: { value: "USNYC" } }, tag: { value: "NLRTM" } })
+    let read = api.shipments.getById(sh)
+    expect(read.route.origin.value).toBe("DEHAM")
+    expect(read.route.destination.value).toBe("USNYC")
+    expect(read.tag.value).toBe("NLRTM")
+
+    api.shipments.update(sh, { reference: "SH-2", route: { origin: { value: "FRLEH" }, destination: { value: "CNSHA" } }, tag: { value: "BEANR" } })
+    let updated = api.shipments.getById(sh)
+    expect(updated.route.origin.value).toBe("FRLEH")
+    expect(updated.tag.value).toBe("BEANR")
+
+    // The root VO's invariant holds wherever it is nested.
+    expect(api.shipments.create({ reference: "SH-3", route: { origin: { value: "DEHAM" }, destination: { value: "USNYC" } }, tag: { value: "NL" } })).toThrow(422)
+    expect(api.shipments.create({ reference: "SH-4", route: { origin: { value: "DE" }, destination: { value: "USNYC" } }, tag: { value: "NLRTM" } })).toThrow(422)
+    expect(api.shipments.all().items.length).toBe(1)
+    api.shipments.destroy(sh)
+    expect(api.shipments.getById(sh)).toThrow(404)
   }
 }
