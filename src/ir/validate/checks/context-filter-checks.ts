@@ -187,7 +187,6 @@ function bypassReadsInContext(ctx: BoundedContextIR): BypassRead[] {
   }
   for (const wf of ctx.workflows) {
     for (const c of wf.creates) collectBypassRepoRuns(c.statements, wf.name, out);
-    for (const h of wf.handlers ?? []) collectBypassRepoRuns(h.statements, wf.name, out);
     for (const on of wf.subscriptions ?? []) collectBypassRepoRuns(on.statements, wf.name, out);
   }
   // A query-time projection's `ignoring` clause bypasses its `from` source

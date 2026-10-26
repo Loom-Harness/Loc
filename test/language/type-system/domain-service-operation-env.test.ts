@@ -3,7 +3,7 @@
 //
 // `DomainServiceOperation` is its own grammar rule (`stmts+=Statement*`), NOT an
 // `Operation` (`body+=Statement*`).  `envForNode` had arms for Operation,
-// FunctionDecl, FindDecl, Create, HandleDecl, Page, Component, Criterion,
+// FunctionDecl, FindDecl, Create, Page, Component, Criterion,
 // Retrieval and PolicyDecl — and none for it, so inside a service body NO
 // parameter was bound and NO `let` was typed.  Every receiver came back
 // `unknown`, and because each type-based validator suppresses on `unknown`

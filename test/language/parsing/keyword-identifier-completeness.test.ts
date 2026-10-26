@@ -109,7 +109,6 @@ const DOMAIN_WORD_FLOOR = [
   "env",
   "error",
   "filter",
-  "handle",
   "immutable",
   "instance",
   "internal",

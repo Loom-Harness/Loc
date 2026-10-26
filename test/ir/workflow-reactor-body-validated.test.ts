@@ -1,10 +1,10 @@
-// A workflow's REACTOR / named-create / named-handle bodies must walk the same
+// A workflow's REACTOR / named-create bodies must walk the same
 // body checks its primary `create` body does.
 //
 // They did not.  `validateWorkflowBody` iterated `wf.statements` — which is only
 // a FACADE over the primary (unnamed, command-triggered) create — so every
-// `on(e: Event)` reactor body, every non-primary `create`, and every named
-// `handle` body bypassed the entire workflow-body check set.
+// `on(e: Event)` reactor body, and every non-primary `create`
+// body bypassed the entire workflow-body check set.
 //
 // The construct that exposed it is a notification fan-out:
 //
@@ -92,19 +92,6 @@ describe("workflow reactor / handler bodies are validated (not just the create f
     // can act on it without reading the compiler.
     expect(hit?.message).toContain("for f in");
     expect(hit?.message).toContain("Repo.run(...)");
-  });
-
-  it("rejects the same shape inside a NAMED `handle` body", async () => {
-    const diags = await irDiagnostics(
-      model(
-        `    create(postId: Post id) { }\n` +
-          `    handle fan(author: Member id, post: Post id) {\n` +
-          `      for f in Follows.run(FollowersOf(author)) {\n` +
-          `        let n = Note.create({ member: f.follower, post: post })\n` +
-          `      }\n    }`,
-      ),
-    );
-    expect(diags.map((d) => d.code)).toContain("loom.workflow-foreach-source");
   });
 
   it("accepts the supported `let xs = Repo.run(...)` + `for x in xs` spelling in a reactor", async () => {

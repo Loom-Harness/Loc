@@ -2,7 +2,7 @@
 // `loom.workflow-param-unused` — a command entry's parameter that its body
 // never reads.
 //
-// A workflow `create` / `handle` parameter list IS the request contract: each
+// A workflow `create` parameter list IS the request contract: each
 // param becomes a REQUIRED field of the emitted request schema
 // (`ignoredNote: z.string()`), is destructured into a local, and is then
 // dropped on the floor if the body never mentions it.  The caller is obliged
@@ -48,7 +48,7 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import type { BoundedContextIR, CreateIR, HandleIR, WorkflowIR } from "../../types/loom-ir.js";
+import type { BoundedContextIR, CreateIR, WorkflowIR } from "../../types/loom-ir.js";
 import { walkWorkflowStmtExprsDeep } from "../../util/walk.js";
 import { commandCreateCorrelationParam, facadeCreate } from "../../util/workflow-own-state.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
@@ -74,7 +74,7 @@ function paramNamesRead(statements: readonly { kind: string }[]): Set<string> {
 }
 
 function checkEntry(
-  entry: CreateIR | HandleIR,
+  entry: CreateIR,
   label: string,
   wf: WorkflowIR,
   ctxName: string,
@@ -110,9 +110,6 @@ export function validateWorkflowUnusedParams(ctx: BoundedContextIR, diags: LoomD
     for (const cr of wf.creates) {
       const exempt = cr === facade ? corr : undefined;
       checkEntry(cr, `create${cr.name ? ` ${cr.name}` : ""}`, wf, ctx.name, exempt, diags);
-    }
-    for (const h of wf.handlers ?? []) {
-      checkEntry(h, `handle ${h.name}`, wf, ctx.name, undefined, diags);
     }
   }
 }

@@ -982,9 +982,7 @@ function printWorkflow(node: Workflow): string {
             ? printProperty(m)
             : m.$type === "Apply"
               ? printApply(m)
-              : m.$type === "FunctionDecl"
-                ? printFunctionDecl(m)
-                : printHandleDecl(m),
+              : printFunctionDecl(m),
     ),
   );
 }
@@ -1000,15 +998,6 @@ function printWorkflowCreateDecl(node: import("../generated/ast.js").WorkflowCre
   // the modifier slots bracket it exactly as the grammar orders them.
   return block(
     `${callableLead(node)}create${name}(${params})${callableSig(node)}${ret}${by}${callableGates(node)}`,
-    () => node.body.map(printStmt),
-  );
-}
-
-// `handle name(params) { … }` command-handler member (workflow-and-applier.md A2).
-function printHandleDecl(node: import("../generated/ast.js").HandleDecl): string {
-  const params = node.params.map(printParameter).join(", ");
-  return block(
-    `${callableLead(node)}handle ${node.name}(${params})${callableSig(node)}${callableGates(node)}`,
     () => node.body.map(printStmt),
   );
 }

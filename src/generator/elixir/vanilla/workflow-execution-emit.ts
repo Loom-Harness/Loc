@@ -1939,7 +1939,6 @@ function workflowLoadsById(wf: WorkflowIR): boolean {
     wf.statements,
     ...wf.creates.map((c) => c.statements),
     ...(wf.subscriptions ?? []).map((o) => o.statements),
-    ...(wf.handlers ?? []).map((h) => h.statements),
   ];
   let found = false;
   for (const list of lists) {

@@ -43,7 +43,7 @@ import type { Model, Parameter } from "../generated/ast.js";
 /** The callable sites whose lowerer passes `defaults: false` to
  *  `lowerCallableParams` (`src/ir/lower/callable-params.ts`): the grammar
  *  parses `param: T = <expr>` at every site (one shared `Parameter` rule), but
- *  these five lower NO default — the emitters never see one, so a caller that
+ *  these four lower NO default — the emitters never see one, so a caller that
  *  omits the argument reaches a generated signature that still requires it.
  *  Until a site grows the capability on every target, a default there is
  *  refused (`loom.param-default-unsupported`) rather than dropped in silence.
@@ -51,7 +51,6 @@ import type { Model, Parameter } from "../generated/ast.js";
  *  `defaults: false` call name this set. */
 const DEFAULT_DROPPING_SITES: ReadonlySet<string> = new Set([
   "DomainServiceOperation",
-  "HandleDecl",
   "CommandHandler",
   "QueryHandler",
   "FunctionDecl",
