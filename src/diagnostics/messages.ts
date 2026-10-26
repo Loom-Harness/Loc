@@ -5254,24 +5254,23 @@ export const DIAGNOSTIC_MESSAGES = {
     repoName: unknown;
     method: unknown;
   }) =>
-    `workflow '${p.name}': '${p.repoName}.${p.method}(...)' returns a nullable; a 'let' binds only single non-nullable aggregates.  Use getById (throws → 404) instead — or, to branch on the absent row, bind it with 'if let x = ${p.repoName}.${p.method}(...) { … } else { … }', or declare the find '… option' (or '… or NotFound') and read it through a variant 'match'.`,
+    `workflow '${p.name}': '${p.repoName}.${p.method}(...)' is a built-in optional read, which a plain 'let' cannot bind here.  Branch on the absent row with 'if let x = ${p.repoName}.${p.method}(...) { … } else { … }', use getById / getBy (throws → 404), or declare a 'find …: T?' and read its binding behind a null guard.`,
   "loom.handler-load-nullable-unsupported": (p: {
     kind: unknown;
     name: unknown;
     repoName: unknown;
     method: unknown;
   }) =>
-    `${p.kind} '${p.name}': '${p.repoName}.${p.method}(...)' returns a nullable, so a 'let' binding is dereferenced unguarded (TS18047 on node, CS8602 on .NET).  Branch on the absent row with 'if let x = ${p.repoName}.${p.method}(...) { … } else { … }', use getById (throws → 404), or declare the find non-optional.`,
+    `${p.kind} '${p.name}': '${p.repoName}.${p.method}(...)' is a built-in optional read, which a plain 'let' cannot bind here.  Branch on the absent row with 'if let x = ${p.repoName}.${p.method}(...) { … } else { … }', use getById / getBy (throws → 404), or declare a 'find …: T?' and read its binding behind a null guard.`,
   "loom.handler-load-nullable-unsupported#domain-service": (p: {
     name: unknown;
     repoName: unknown;
     method: unknown;
   }) =>
-    `domainService '${p.name}': '${p.repoName}.${p.method}(...)' returns a nullable, and a ` +
-    `domain-service body has no null-handling vocabulary either — the binding is dereferenced ` +
-    `unguarded on every backend (TS18047 on node, CS8602 on .NET under /warnaserror, an NPE on ` +
-    `java, AttributeError on python, KeyError on nil in elixir).  Use getById (throws → 404), ` +
-    `or declare the find non-optional.`,
+    `domainService '${p.name}': '${p.repoName}.${p.method}(...)' is a built-in optional read, ` +
+    `which a service body cannot call on every backend (only declared finds are emitted under ` +
+    `their own names on .NET and elixir).  Use getById / getBy (throws → 404), or declare a ` +
+    `'find …: T?' and read its binding behind a null guard.`,
   "loom.workflow-run-unknown-repository#workflow-a-criterion-query": (p: {
     name: unknown;
     repoName: unknown;

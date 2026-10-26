@@ -4271,11 +4271,12 @@ export function workflowIsGuarded(wf: WorkflowIR): boolean {
  *  WHAT THROWS.  Two producers, and only two:
  *
  *  1. A `repo-let` (`let w = Wallets.getById(id)` / `let w = Wallets.byRef(r)`).
- *     Always throwing: `getById` throws by construction on every backend, and
- *     a repo-let bound to a DECLARED find is validator-constrained to a
- *     non-optional, non-array return (`loom.workflow-load-nullable-unsupported`
- *     / `loom.workflow-load-array-unsupported`), which leaves the emitted
- *     repository method no way to report an empty result except by throwing.
+ *     `getById` throws by construction on every backend, and so does a
+ *     DECLARED find whose return is a bare aggregate: the emitted repository
+ *     method has no way to report an empty result except by throwing.  A
+ *     declared `T?` find answers `null` instead (the body reads it behind a
+ *     guard), so it is not a producer; the built-in optional reads are refused
+ *     as a `repo-let` (`loom.workflow-load-nullable-unsupported`).
  *  2. A NAMED read inside an expression — the `reading` domain-service tier
  *     (`domain-services.md`), whose read port is threaded from this very
  *     workflow.  Here optionality is NOT validator-constrained (the canonical
@@ -4319,7 +4320,8 @@ export function workflowCanAnswerNotFound(
     // body or an `if-let` branch counts; a hand-rolled recursion here is the
     // drifting copy `ir/util/walk.ts` exists to prevent.
     walkWorkflowStmtsDeep(top, (s) => {
-      if (s.kind === "repo-let") canNotFound = true;
+      if (s.kind !== "repo-let") return;
+      if (s.op !== "declared-find" || readThrows(s.repoName, s.op, s.method)) canNotFound = true;
     });
     // Producer 2 — the expression form (a `reading` domain service's own
     // repository read).  `walkWorkflowStmtExprsDeep` already descends through

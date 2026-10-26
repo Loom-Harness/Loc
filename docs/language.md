@@ -2047,8 +2047,10 @@ the binding is a plain `T`).  To BRANCH on the absent row instead, declare the
 find `: T or NotFound` / `: T option` and read the binding through a variant
 `match` (`match r { Order o => o.code, NotFound => "–" }`).  Reading such a
 binding straight through — `r.code`, `r.touch()` — is refused with
-`loom.union-read-undiscriminated`; a `: T?` find stays a native nullable and is
-refused in workflow / handler / domain-service bodies
+`loom.union-read-undiscriminated`; a `: T?` find stays a native nullable, and
+its binding is read behind a null guard (`loom.nullable-receiver`) in every body.
+A plain `let` of a BUILT-IN optional read (`findById` / `findBy`) is refused in
+workflow / handler / domain-service bodies — branch on it with `if let`
 (`loom.workflow-load-nullable-unsupported` / `loom.handler-load-nullable-unsupported`).
 See [`payloads.md`](payloads.md) → "Union finds".
 

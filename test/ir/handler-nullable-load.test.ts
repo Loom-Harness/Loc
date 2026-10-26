@@ -1,28 +1,21 @@
-// `loom.handler-load-nullable-unsupported` (#2659) — the third of the three
-// handler-body defects #2652 measured and left unfixed.
+// `loom.handler-load-nullable-unsupported` and its workflow twin — what a
+// plain `let` may bind from an OPTIONAL repository read in a handler, workflow
+// or domain-service body.
 //
-// A `commandHandler` / `queryHandler` body binding an OPTIONAL repository read
-// (`let o = Orders.byCode(c)` over `find byCode(c: string): Order?`) used to
-// pass every gate and then emit an UNGUARDED dereference:
-//
-//   node   const o = await orders.byCode(c);  return o.status;   // TS18047
-//   .NET   var o = await _orders.ByCode(...); return o.Status;   // CS8602
-//
-// A WORKFLOW body refuses exactly that load — `loom.workflow-load-nullable-
-// unsupported`, "v1 supports only single non-nullable aggregates" — because
-// the statement vocabulary both bodies render through has no null-handling arm.
-// The handler body renders through the SAME vocabulary (`WorkflowStmtIR` via
-// `renderWorkflowStmtChunks`), so it carries the same limit; it just never said
-// so.  This gate mirrors the refusal rather than inventing a 404-on-absent
-// semantics the author did not ask for.
-//
-// (`if let o = Orders.byCode(c) { … } else { … }` is the null-handling form for
-// the same read: it binds the row only in the then-branch — pinned in
-// `if-let-declared-find.test.ts`.)
+// A DECLARED `find …: T?` binds like any value: `loom.nullable-receiver`
+// refuses an unguarded read of the binding at the source (`'.status' can't be
+// read on 'Order?'`), and every backend renders the guarded read — the
+// `nullable-load` corpus fixture compiles and drives it on all five.  The
+// BUILT-IN optional reads (`findById`, `findBy`) are still refused for a plain
+// `let`: only declared finds are emitted under their own names on .NET and
+// elixir, so the call would not resolve there.  `if let` is their branching
+// form (`if-let-declared-find.test.ts`).
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
+import { workflowCanAnswerNotFound } from "../../src/ir/types/loom-ir.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
+import { buildLoomModel, enrichedContexts } from "../_helpers/ir.js";
 import { parseString } from "../_helpers/parse.js";
 
 /** `find` return type + the handler kind that consumes it. */
@@ -59,24 +52,20 @@ async function irDiagnostics(source: string) {
 
 const codes = async (source: string) => (await irDiagnostics(source)).map((d) => d.code);
 
-describe("an optional find bound in a handler body is refused, not silently mis-emitted", () => {
-  it("refuses the queryHandler leg with the coded diagnostic", async () => {
-    const diags = await irDiagnostics(system({ findRet: "Order?" }));
-    const hit = diags.find((d) => d.code === "loom.handler-load-nullable-unsupported");
-    expect(hit, `got: ${diags.map((d) => d.code).join(", ") || "(none)"}`).toBeDefined();
-    expect(hit!.severity).toBe("error");
-    expect(hit!.source).toBe("Sales/CodeStatus");
-    // The message names the call and the alternative, not just the rule.
-    expect(hit!.message).toContain("queryHandler 'CodeStatus'");
-    expect(hit!.message).toContain("'Orders.byCode(...)'");
-    expect(hit!.message).toContain("getById");
+const GUARDED = 'let o = Orders.byCode(c)\n        return o != null ? o.status : "missing"';
+
+describe("an optional read bound in a handler body", () => {
+  it("binds a DECLARED `T?` find — the guard is the source rule's business", async () => {
+    for (const kind of ["queryHandler", "commandHandler"]) {
+      expect(await codes(system({ findRet: "Order?", kind, body: GUARDED }))).not.toContain(
+        "loom.handler-load-nullable-unsupported",
+      );
+    }
   });
 
-  it("refuses the commandHandler leg the same way", async () => {
-    const hit = (await irDiagnostics(system({ findRet: "Order?", kind: "commandHandler" }))).find(
-      (d) => d.code === "loom.handler-load-nullable-unsupported",
-    );
-    expect(hit?.message).toContain("commandHandler 'CodeStatus'");
+  it("leaves the unguarded read of a declared `T?` to loom.nullable-receiver", async () => {
+    const { diagnostics } = await parseString(system({ findRet: "Order?" }), { validate: true });
+    expect(diagnostics.map((d) => d.code)).toContain("loom.nullable-receiver");
   });
 
   it("CONTROL — the non-optional find (the supported spelling) is clean", async () => {
@@ -113,21 +102,31 @@ describe("an optional find bound in a handler body is refused, not silently mis-
     expect(hit!.message).toContain("getById");
   });
 
-  it("CONTROL — the workflow twin still owns the workflow body", async () => {
+  it("a workflow body binds a DECLARED `T?` find too", async () => {
+    const src = system({ findRet: "Order?", body: GUARDED }).replace(
+      /queryHandler CodeStatus\(c: string\): string \{[\s\S]*?\n {6}\}/,
+      `workflow W {
+        create(c: string) {
+          let o = Orders.byCode(c)
+          let s = o != null ? o.status : "missing"
+        }
+      }`,
+    );
+    expect(src).toContain("workflow W");
+    expect(await codes(src)).not.toContain("loom.workflow-load-nullable-unsupported");
+  });
+
+  it("CONTROL — the workflow twin still refuses a built-in optional read", async () => {
     const src = `
 system S {
   subdomain D {
     context Sales {
-      aggregate Order { code: string  status: string
-        operation cancel() { status := "x" } }
-      repository Orders for Order {
-        find byCode(c: string): Order? where code == c
-      }
-      command Cmd { c: string }
+      aggregate Order { code: string  status: string  unique (code) }
+      repository Orders for Order { }
       workflow W {
-        create(x: Cmd) {
-          let o = Orders.byCode(x.c)
-          o.cancel()
+        create(c: string) {
+          let o = Orders.findBy(code: c)
+          let s = o != null ? o.status : "missing"
         }
       }
     }
@@ -145,11 +144,7 @@ system S {
 });
 
 // ---------------------------------------------------------------------------
-// The THIRD body kind (domainservice-nullable-load-ungated).  The gate above
-// walked `ctx.commandHandlers`/`ctx.queryHandlers` and its workflow twin walked
-// workflow bodies; nothing walked `ctx.domainServices[].operations[].body`, so
-// the identical load parsed `0 error(s), 0 warning(s)` and emitted an unguarded
-// deref on ALL FIVE backends.
+// The domain-service body: the same split, read off the `repo-read` call.
 // ---------------------------------------------------------------------------
 const svcSystem = (findRet: string, body: string) => `
 system S {
@@ -173,19 +168,18 @@ system S {
 }
 `;
 
-describe("an optional find bound in a DOMAIN SERVICE body is refused too", () => {
+describe("an optional read bound in a DOMAIN SERVICE body", () => {
   const CODE = "loom.handler-load-nullable-unsupported";
 
-  it("refuses the optional load with the coded diagnostic", async () => {
-    const diags = await irDiagnostics(
-      svcSystem("Order?", "let o = Orders.byCode(c)\n          return o.status"),
-    );
-    const hit = diags.find((d) => d.code === CODE);
-    expect(hit, `got: ${diags.map((d) => d.code).join(", ") || "(none)"}`).toBeDefined();
-    expect(hit!.severity).toBe("error");
-    expect(hit!.source).toBe("Sales/Lookup.statusOf");
-    expect(hit!.message).toContain("domainService 'Lookup.statusOf'");
-    expect(hit!.message).toContain("Orders.byCode(...)");
+  it("binds a DECLARED `T?` find", async () => {
+    expect(
+      await codes(
+        svcSystem(
+          "Order?",
+          'let o = Orders.byCode(c)\n          return o != null ? o.status : "none"',
+        ),
+      ),
+    ).not.toContain(CODE);
   });
 
   it("CONTROL — the non-optional find is clean", async () => {
@@ -217,6 +211,8 @@ describe("an optional find bound in a DOMAIN SERVICE body is refused too", () =>
     const hit = diags.find((d) => d.code === CODE);
     expect(hit, `got: ${diags.map((d) => d.code).join(", ") || "(none)"}`).toBeDefined();
     expect(hit!.severity).toBe("error");
+    expect(hit!.source).toBe("Sales/Lookup.statusOf");
+    expect(hit!.message).toContain("domainService 'Lookup.statusOf'");
     expect(hit!.message).toContain("Orders.findById(...)");
   });
 
@@ -232,11 +228,51 @@ describe("an optional find bound in a DOMAIN SERVICE body is refused too", () =>
     const hits = (
       await irDiagnostics(
         svcSystem(
-          "Order?",
-          "let o = Orders.byCode(c)\n          let p = Orders.byCode(c)\n          return o.status + p.status",
-        ),
+          "Order",
+          "let o = Orders.findById(oid)\n          let p = Orders.findById(oid)\n          return o.status + p.status",
+        ).replace("statusOf(c: string)", "statusOf(oid: Order id)"),
       )
     ).filter((d) => d.code === CODE);
     expect(hits).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A workflow route declares the not-found rung only when its body can send it.
+// A declared `T?` find answers `null` rather than throwing, so a body whose only
+// read is one must not declare a 404 it can never answer.
+// ---------------------------------------------------------------------------
+describe("workflowCanAnswerNotFound over a declared find", () => {
+  const wfSystem = (findRet: string) => `
+system S {
+  subdomain D {
+    context Sales {
+      aggregate Order { code: string  status: string }
+      aggregate Note with crudish { text: string }
+      repository Orders for Order {
+        find byCode(c: string): ${findRet} where code == c
+      }
+      repository Notes for Note { }
+      workflow W {
+        create(c: string) {
+          let o = Orders.byCode(c)
+          let n = Note.create({ text: ${findRet === "Order?" ? 'o != null ? o.status : "missing"' : "o.status"} })
+        }
+      }
+    }
+  }
+}
+`;
+  const canNotFound = async (findRet: string) => {
+    const c = enrichedContexts(await buildLoomModel(wfSystem(findRet)))[0]!;
+    return workflowCanAnswerNotFound(c.workflows[0]!, c.repositories);
+  };
+
+  it("a declared `T?` read is not a not-found producer", async () => {
+    expect(await canNotFound("Order?")).toBe(false);
+  });
+
+  it("CONTROL — a declared bare-aggregate read throws on a miss", async () => {
+    expect(await canNotFound("Order")).toBe(true);
   });
 });

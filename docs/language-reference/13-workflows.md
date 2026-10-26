@@ -308,13 +308,35 @@ The workflow body draws from a narrowed statement set — distinct from an aggre
 |---|---|
 | `let x = Agg.create({ field: expr, … })` | Factory call. Always saved at workflow exit, in declaration order. |
 | `let x = Repo.getById(idExpr)` | Load by id — throws `AggregateNotFound` → 404 if missing; result is non-nullable. |
-| `let x = Repo.<find>(args)` | A declared find returning a single non-nullable aggregate. An array (`loom.workflow-load-array-unsupported`) or nullable (`…-nullable-unsupported`) return is rejected here — bind it via `Repo.run`/`find` below. |
+| `let x = Repo.<find>(args)` | A declared single-row find. A bare-aggregate return throws → 404 on a miss; a `T?` return binds a nullable `x`, read behind a null guard (`loom.nullable-receiver` refuses the unguarded read) — see below. An array return (`loom.workflow-load-array-unsupported`), or a plain `let` of a built-in optional read (`findById` / `findBy`, `loom.workflow-load-nullable-unsupported`), is rejected — bind those via `if let` or `Repo.run`. |
 | `let xs = Repo.run(<Retrieval>(args), page?)` / `Repo.findAll(<Criterion>, page?)` | Bind an aggregate **array** — consumable only by a `for` loop. |
 | `for x in xs { … }` | Iterate an aggregate array; per-iteration op-calls save inside the loop. |
-| `if let x = Repo.find(<Criterion>) { … } else { … }` / `if let x = Repo.<find>(args) { … }` | Single-result lookup — a criterion, or a declared optional `find` (`T?`); `x` bound (non-null) only in the then-branch. The body's only option-handling construct. |
+| `if let x = Repo.find(<Criterion>) { … } else { … }` / `if let x = Repo.<find>(args) { … }` | Single-result lookup — a criterion, or a declared optional `find` (`T?`); `x` bound (non-null) only in the then-branch. |
 | `name.op(args)` | Invoke a public operation on a let-bound aggregate (its own preconditions / invariants run inside the call). `private` ops are rejected (`loom.workflow-private-operation`). |
 | `precondition Expr` / `requires Expr` | Guard → 400 (`DomainError`) / 403 (`ForbiddenError`). |
 | `emit Event { … }` | Workflow-level event; drains after all saves (after commit when `transactional`). |
+
+A `let` over a declared `T?` find, read behind its guard:
+
+```ddd
+repository Orders for Order {
+  find byCode(c: string): Order? where this.code == c
+}
+workflow Labeller {
+  create(c: string) {
+    let o = Orders.byCode(c)
+    let text = o != null ? o.status : "missing"
+    let n = Note.create({ text: text })
+  }
+}
+```
+```ts
+// http/workflows.ts (node)
+const o = await orders.byCode(c);
+const text = o !== null ? o.status : "missing";
+const n = Note.create({ text: text });
+await notes.save(n);
+```
 
 A loaded aggregate is saved **only if** an operation was invoked on it inside the body; fresh `Agg.create` results always save. See [`../workflow.md`](../workflow.md) §"Save + event drain semantics".
 

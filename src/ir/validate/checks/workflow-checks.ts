@@ -1536,9 +1536,8 @@ function validateWorkflowStatements(
           });
           break;
         }
-        // Reject array / nullable returns — workflow body has no
-        // iteration / null-handling vocab in v1.  A `load` is always
-        // a single non-nullable aggregate (the impl throws on miss).
+        // A `load` is a single non-nullable aggregate (the impl throws on
+        // miss); an array return has no iteration vocabulary here.
         if (st.op !== "load") {
           if (st.returnType.kind === "array") {
             diags.push({
@@ -1554,7 +1553,12 @@ function validateWorkflowStatements(
             });
             break;
           }
-          if (st.returnType.kind === "optional") {
+          // A DECLARED `T?` find binds like any value: `loom.nullable-receiver`
+          // refuses an unguarded read of it at the source, and every backend
+          // renders the guarded one.  The built-in optional reads (`findById`,
+          // `findBy`) are not emitted under a callable name in these bodies on
+          // every backend, so they stay `if let` sources only.
+          if (st.returnType.kind === "optional" && st.op !== "declared-find") {
             diags.push({
               severity: "error",
               code: "loom.workflow-load-nullable-unsupported",

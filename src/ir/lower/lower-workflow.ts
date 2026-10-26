@@ -865,9 +865,9 @@ function lowerWorkflowStatementInner(
       // `loom.handler-load-nullable-unsupported` sees it), and the built-in
       // `findAll()` / `all()` the whole collection.
       const returnType: TypeIR = inferExprType(stmt.expr, env);
-      // The let binding's local type is the unwrapped aggregate
-      // (validator rejects array/optional repo-lets).  Use the
-      // declared return type so the validator can flag misuse.
+      // The binding is typed by the read's return: a declared `T?` find binds
+      // a nullable local, read behind the guard `loom.nullable-receiver`
+      // requires; the validator flags the read kinds a `let` cannot bind.
       const localType: TypeIR = returnType;
       return {
         stmt: {

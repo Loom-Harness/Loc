@@ -78,13 +78,9 @@ function aggregatesTouched(h: CommandHandlerIR | QueryHandlerIR): Set<string> {
  *    - `loom.query-handler-saves` — a `queryHandler` must not mutate/save.
  *    - `loom.command-handler-multi-aggregate` — a `commandHandler` may touch
  *      only ONE aggregate; a cross-aggregate orchestration must be a workflow.
- *    - `loom.handler-load-nullable-unsupported` — a handler body may not bind an
- *      OPTIONAL repository read (`let o = Orders.byCode(c)` over a
- *      `find byCode(...): Order?`).  Same v1 limit the workflow body carries
- *      (`loom.workflow-load-nullable-unsupported`): the shared statement
- *      vocabulary these two bodies render through has no null-handling arm, so
- *      the binding lowers to an UNGUARDED dereference — TS18047 on node,
- *      CS8602 on .NET, in the generated project rather than here.
+ *    - `loom.handler-load-nullable-unsupported` — a handler body may not bind a
+ *      BUILT-IN optional read (`findById` / `findBy`) with a plain `let`; a
+ *      declared `T?` find binds, its reads guarded by `loom.nullable-receiver`.
  *    - `loom.iflet-bad-source` — an `if let` source must be `Repo.find(<Criterion>)`
  *      or a declared optional find, the two forms every backend renders.
  *    - `loom.handler-param-reserved-id` — a handler parameter may not be named
@@ -101,11 +97,10 @@ export function validateApplicationHandlers(ctx: BoundedContextIR, diags: LoomDi
   ];
   for (const [handlers, kind] of handlerKinds) {
     for (const h of handlers) {
-      // An OPTIONAL repository read has nowhere to go in a handler body — the
-      // shared workflow statement vocabulary it renders through has no
-      // null-handling arm, so the bound name is dereferenced unguarded.  The
-      // workflow body refuses the same load for the same reason; refuse it here
-      // rather than emit a generated project that does not compile.
+      // A DECLARED `T?` find binds like any value (`loom.nullable-receiver`
+      // guards its reads at the source).  The built-in optional reads are not
+      // emitted under a callable name here on every backend, so the workflow
+      // body's twin refuses them for a plain `let` and so does this one.
       forEachStmtDeep(h.statements, (s) => {
         // An `if let` source the lowerer recognised as neither a criterion
         // find nor a declared optional find has no repository read to render —
@@ -124,7 +119,7 @@ export function validateApplicationHandlers(ctx: BoundedContextIR, diags: LoomDi
           });
           return;
         }
-        if (s.kind !== "repo-let" || s.op === "load") return;
+        if (s.kind !== "repo-let" || s.op === "load" || s.op === "declared-find") return;
         if (s.returnType.kind !== "optional") return;
         diags.push({
           severity: "error",
