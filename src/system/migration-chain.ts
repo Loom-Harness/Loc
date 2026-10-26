@@ -42,7 +42,7 @@ export const INITIAL_RESERVATION = 1_000_000n;
 /** Version numbers reserved after a generation that has a non-transactional
  *  unit (a `CREATE INDEX CONCURRENTLY`, `src/ir/util/migration-steps.ts`):
  *  the unit's Ecto migration file is numbered `version + 1`. */
-export const NON_TRANSACTIONAL_RESERVATION = 1n;
+const NON_TRANSACTIONAL_RESERVATION = 1n;
 
 const CHAIN_FORMAT = 1;
 

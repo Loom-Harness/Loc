@@ -13,7 +13,7 @@ import type { MigrationStep } from "../types/migrations-ir.js";
 // ---------------------------------------------------------------------------
 
 /** True for a step that Postgres cannot run inside a transaction block. */
-export function isNonTransactionalStep(step: MigrationStep): boolean {
+function isNonTransactionalStep(step: MigrationStep): boolean {
   return step.op === "addIndex" && step.concurrently === true;
 }
 
