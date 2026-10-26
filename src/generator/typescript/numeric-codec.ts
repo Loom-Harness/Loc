@@ -1,5 +1,7 @@
+import { moneyWire } from "../../ir/enrich/codec.js";
 import type { NumericTarget } from "../_numeric/target.js";
-import { MONEY_WIRE_SCALE } from "../money-scale.js";
+
+const MONEY_WIRE_SCALE = moneyWire().scale;
 
 // ---------------------------------------------------------------------------
 // TypeScript's `NumericTarget` (M-T9.36) — the ONE place `.toFixed(4)` /

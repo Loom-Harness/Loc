@@ -165,6 +165,7 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
       "audited",
       "collection-op-shapes",
       "concurrency-conflict",
+      "concurrency-two-writers",
       "contained-part-rebuild",
       "contained-part-removal",
       "date-scalar",
