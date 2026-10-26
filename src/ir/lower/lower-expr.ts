@@ -2114,7 +2114,7 @@ export function retargetCallArgs(
  *  aggregate identity.  (The binders that can claim the name are exactly the
  *  ones whose name slot is `LooseName`: `Parameter.name`, shared by all 18
  *  `params+=Parameter` declarations — `find`, `criterion`, `retrieval`,
- *  `projection`, `operation`, `create`, `destroy`, `handle`, the handlers,
+ *  `projection`, `operation`, `create`, `destroy`, the handlers,
  *  `function`, `page`, `component`, `action`, a `domainService` operation — so
  *  this was never workflow-specific; plus the three inline event-handler params
  *  `Apply.param` / `OnDecl.param` / `ProjectionOn.param`, which bind through

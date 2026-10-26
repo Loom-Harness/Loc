@@ -130,7 +130,6 @@ function bypassesForAggregate(agg: AggregateIR, ctx: BoundedContextIR): FilterBy
   const repoRuns: { aggName: string; bypass: FilterBypass }[] = [];
   for (const wf of ctx.workflows) {
     for (const c of wf.creates) collectRepoRunBypasses(c.statements, repoRuns);
-    for (const h of wf.handlers ?? []) collectRepoRunBypasses(h.statements, repoRuns);
     for (const on of wf.subscriptions ?? []) collectRepoRunBypasses(on.statements, repoRuns);
   }
   for (const r of repoRuns) {
@@ -257,7 +256,6 @@ export function inlineRunBypassesByRetrieval(
   };
   for (const wf of ctx.workflows) {
     for (const c of wf.creates) collect(c.statements);
-    for (const h of wf.handlers ?? []) collect(h.statements);
     for (const on of wf.subscriptions ?? []) collect(on.statements);
   }
   const acc = new Map<string, { bypassAll: boolean; caps: Set<string> }>();

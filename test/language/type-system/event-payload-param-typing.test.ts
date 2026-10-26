@@ -1,7 +1,7 @@
 // Field-level type-checking of transport (`event` / `payload`) parameters.
 //
 // A workflow command parameter (`create(e: PaymentReceived) by …`,
-// `handle h(c: SettleOrder)`) and the `on`/`apply` event bindings carry a
+// `create(c: SettleOrder)`) and the `on`/`apply` event bindings carry a
 // transport record.  The AST type system types these as `{ kind: "payload" }`
 // so member access (`e.amount`) resolves the field's type — without it the
 // binding cascades to `unknown` and *every* downstream type check (comparison,
@@ -50,8 +50,8 @@ describe("transport-param field typing — type checks no longer suppressed", ()
     expect(e, e.join("\n")).toEqual([]);
   });
 
-  it("flags `&&` on a string payload field (handle)", async () => {
-    const e = await errs(`workflow W { handle settle(c: SettleOrder) { let x = c.note && true } }`);
+  it("flags `&&` on a string payload field (command create)", async () => {
+    const e = await errs(`workflow W { create settle(c: SettleOrder) { let x = c.note && true } }`);
     expect(
       e.some((s) => /requires boolean operands/.test(s)),
       e.join("\n"),
@@ -69,7 +69,7 @@ describe("transport-param field typing — type checks no longer suppressed", ()
   });
 
   it("accepts a well-typed payload field comparison (handle)", async () => {
-    const e = await errs(`workflow W { handle settle(c: SettleOrder) { let x = c.note == "ok" } }`);
+    const e = await errs(`workflow W { create settle(c: SettleOrder) { let x = c.note == "ok" } }`);
     expect(e, e.join("\n")).toEqual([]);
   });
 });

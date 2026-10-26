@@ -912,16 +912,6 @@
     "stateField"
   ],
   "guid": [],
-  "handle": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "header": [
     "fieldName",
     "fieldNameAfterField",
