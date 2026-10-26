@@ -16,6 +16,7 @@ import type {
   BinaryChain,
   DerivedProp,
   EntityPart,
+  EnumDecl,
   Expression,
   FunctionDecl,
   IfStmt,
@@ -38,6 +39,7 @@ import {
   isCriterion,
   isDerivedProp,
   isDestroy,
+  isEnumDecl,
   isFunctionDecl,
   isIfStmt,
   isLambda,
@@ -199,6 +201,27 @@ const BARE_REJECTED_COLLECTION_ACCESSORS: ReadonlySet<string> = new Set([
   "max",
 ]);
 
+/** A chain `E.m` whose head is a bare name that is not a typed binding but
+ *  names enum(s) declared in this document, none of which declares `m`.
+ *  Fail-open: several same-named enums count as the union of their values, and
+ *  a name with no enum in the document is never reported here. */
+function absentQualifiedEnumValue(
+  chain: PostfixChain,
+  headType: Ty,
+): { suffix: MemberSuffix; member: string; enumName: string } | undefined {
+  if (!isNameRef(chain.head) || headType.kind !== "unknown") return undefined;
+  const first = chain.suffixes[0];
+  if (!first || !isMemberSuffix(first) || first.call) return undefined;
+  const enumName = chain.head.name;
+  const enums: EnumDecl[] = [];
+  for (const n of AstUtils.streamAllContents(AstUtils.findRootNode(chain))) {
+    if (isEnumDecl(n) && n.name === enumName) enums.push(n);
+  }
+  if (enums.length === 0) return undefined;
+  if (enums.some((e) => e.values.some((v) => v.name === first.member))) return undefined;
+  return { suffix: first, member: first.member, enumName };
+}
+
 export function checkUnknownMemberAccess(model: Model, accept: ValidationAcceptor): void {
   for (const node of AstUtils.streamAllContents(model)) {
     if (!isPostfixChain(node)) continue;
@@ -214,6 +237,22 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
     if (AstUtils.getContainerOfType(chain, isTestE2E)) continue;
     const env = envForNode(chain);
     let recvType = typeOf(chain.head, env);
+    // `Status.live` — a qualified enum value whose member the enum does not
+    // declare.  The head `Status` is a bare name (no type), so the record
+    // gate below never sees it; the lowerer then leaves the access
+    // unresolved and the backends emit a non-existent member.
+    const absentEnumValue = absentQualifiedEnumValue(chain, recvType);
+    if (absentEnumValue) {
+      accept(
+        "error",
+        diagMessage("loom.unknown-member", {
+          member: absentEnumValue.member,
+          record: absentEnumValue.enumName,
+        }),
+        { node: absentEnumValue.suffix, property: "member", code: "loom.unknown-member" },
+      );
+      continue;
+    }
     for (const suffix of chain.suffixes) {
       if (isMemberSuffix(suffix)) {
         const ms = suffix as MemberSuffix;
