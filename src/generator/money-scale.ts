@@ -1,5 +1,6 @@
-// Canonical money wire/storage scale — the single source of truth every
-// backend's money serialization derives from.
+// Canonical money wire/storage scale, as the emitters read it.  The values are
+// chosen once, by the `Codec` fact (`src/ir/enrich/codec.ts`); this module
+// names the derived bounds and re-exports them for the generator layer.
 //
 // `money` persists as `NUMERIC(19,4)` on every SQL backend (see
 // `python/py-columns.ts`, `typescript/emit/schema.ts`, `typescript/emit/
@@ -12,11 +13,14 @@
 // this fixed scale at the wire boundary is the one lossless choice that keeps
 // the storage precision intact.
 
-/** Fractional-digit count money carries on the wire (and in `NUMERIC(19,4)`). */
-export const MONEY_WIRE_SCALE = 4;
+import { MONEY_PRECISION, MONEY_SCALE } from "../ir/enrich/codec.js";
+
+/** Fractional-digit count money carries on the wire (and in `NUMERIC(19,4)`) —
+ *  the `Codec` fact's money scale (`src/ir/enrich/codec.ts`). */
+export const MONEY_WIRE_SCALE = MONEY_SCALE;
 
 /** Total significant digits of the money storage type (`NUMERIC(19,4)`). */
-export const MONEY_PRECISION = 19;
+export { MONEY_PRECISION };
 
 /**
  * Integer digits `NUMERIC(19,4)` can hold — `MONEY_PRECISION - MONEY_WIRE_SCALE`.

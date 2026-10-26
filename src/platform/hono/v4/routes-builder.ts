@@ -3,12 +3,6 @@ import {
   serverSourcedDefaultFields,
 } from "../../../generator/_frontend/server-default.js";
 import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
-import {
-  INT32_MAX,
-  INT32_MIN,
-  LONG_SAFE_MAX,
-  LONG_SAFE_MIN,
-} from "../../../generator/_numeric/codec.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import { requestComponentNamer } from "../../../generator/_openapi/request-component-names.js";
@@ -30,6 +24,7 @@ import {
   PG_REFERENCED_IN_USE_SQLSTATES,
   PG_UNIQUE_VIOLATION,
 } from "../../../generator/_persistence/pg-sqlstate.js";
+import { tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
 import {
   historyMapperArgs,
   historyMapperName,
@@ -2694,12 +2689,14 @@ const PLAIN_STRING_BASE = "z.string()";
  *  zod's own text, which is both framework-worded and zod-major-specific
  *  ("Too big: expected number to be <=…" on 4, "Number must be less than or
  *  equal to …" on 3). */
-const INT32_RANGE = `.min(${INT32_MIN}, ${JSON.stringify(fieldFixedMessage("integer-range"))}).max(${INT32_MAX}, ${JSON.stringify(fieldFixedMessage("integer-range"))})`;
+const INT32_BOUND = tsIntegerRange("int");
+const LONG_BOUND = tsIntegerRange("long");
+const INT32_RANGE = `.min(${INT32_BOUND.min}, ${JSON.stringify(fieldFixedMessage("integer-range"))}).max(${INT32_BOUND.max}, ${JSON.stringify(fieldFixedMessage("integer-range"))})`;
 /** `long`'s enforced-but-unpublished safe-integer bound — see the block comment
  *  above.  A `.refine` is invisible to the OpenAPI emitter, so the published
  *  shape stays the plain integer every other backend publishes while this
  *  backend refuses the values it cannot carry exactly. */
-const LONG_SAFE = `.refine((n: number) => n >= ${LONG_SAFE_MIN} && n <= ${LONG_SAFE_MAX})`;
+const LONG_SAFE = `.refine((n: number) => n >= ${LONG_BOUND.min} && n <= ${LONG_BOUND.max})`;
 /** The published `format`, WITHOUT the bound.  This is the whole RESPONSE
  *  half: a response value came out of the very `int4` column the bound
  *  describes, so validating it again buys nothing — but the published shape

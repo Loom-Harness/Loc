@@ -16,17 +16,17 @@ import { BOOT_DB_RETRY } from "../../../generator/_obs/boot-db-retry.js";
 import { renderHonoBaseLogCall } from "../../../generator/_obs/render-hono.js";
 import type { SourceMapRecorder } from "../../../generator/_trace/sourcemap.js";
 import {
-  MONEY_INTEGER_DIGITS,
-  MONEY_PRECISION,
-  MONEY_WIRE_SCALE,
-} from "../../../generator/money-scale.js";
-import {
   buildBaseReaderFile,
   buildBaseRoutesFile,
   buildBaseUnionFile,
   buildTpcBaseReaderFile,
   routesPolymorphicRead,
 } from "../../../generator/typescript/base-reader-builder.js";
+import {
+  TS_MONEY_GRAMMAR,
+  tsMoneyColumnLabel,
+  tsMoneyIntegerDigits,
+} from "../../../generator/typescript/codec-spelling.js";
 import { addTsExtensionsForNodeDebug } from "../../../generator/typescript/debug-imports.js";
 import {
   renderAuditActorModule,
@@ -1907,7 +1907,7 @@ import { z } from "@hono/zod-openapi";
  * a 400 with the field name attached, not an uncaught throw.
  */
 export const moneySchema = z.string().transform((s: string, ctx: any) => {
-  if (!/^-?\\d+(\\.\\d+)?$/.test(s)) {
+  if (!${TS_MONEY_GRAMMAR}.test(s)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: \`${fieldValuePrefix("money-grammar")}: \${JSON.stringify(s)}\`,
@@ -1917,10 +1917,10 @@ export const moneySchema = z.string().transform((s: string, ctx: any) => {
   // RANGE, not format: the grammar above already passed, and what is left is a
   // magnitude question the COLUMN answers.  Without this a 40-digit price is a
   // well-formed decimal string every parser accepts, so it reached
-  // NUMERIC(${MONEY_PRECISION},${MONEY_WIRE_SCALE}) and the DATABASE refused it
+  // ${tsMoneyColumnLabel()} and the DATABASE refused it
   // — a 500 for a client fault (M-T6.60 divergence 3).  Counted on the digits
   // rather than computed, so a value too large to hold is never constructed.
-  if (s.replace(/^-/, "").split(".")[0]!.replace(/^0+(?=\\d)/, "").length > ${MONEY_INTEGER_DIGITS}) {
+  if (s.replace(/^-/, "").split(".")[0]!.replace(/^0+(?=\\d)/, "").length > ${tsMoneyIntegerDigits()}) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: \`${fieldValuePrefix("money-range")}: \${JSON.stringify(s)}\`,

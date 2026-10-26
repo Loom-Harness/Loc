@@ -1,6 +1,7 @@
-import { integralWireRange, numericKindOf } from "../../../generator/_numeric/codec.js";
+import { numericKindOf } from "../../../generator/_numeric/codec.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
+import { tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
 import { whereToMikroFilter } from "../../../generator/typescript/emit/mikroorm.js";
 import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
 import {
@@ -1081,7 +1082,7 @@ function coerceAggregate(sel: AggregateSelect, expr: string): string {
   // wrapped, .NET's cast and python's `Int32` bound already failed).
   const kind = numericKindOf(sel.type);
   if (kind === "int" || kind === "long") {
-    const { min, max } = integralWireRange(kind);
+    const { min, max } = tsIntegerRange(kind);
     const checked = (e: string) => `__intWire(${e}, ${min}, ${max}, ${JSON.stringify(sel.field)})`;
     // `count` is never optional (`AggregateCoercion.optional` excludes it), so
     // the null arm below is the `sum`/`min`/`max`-over-an-empty-table one.

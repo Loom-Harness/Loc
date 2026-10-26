@@ -141,6 +141,20 @@ const FOREIGN_ID_LIST: readonly Backend[] = ALL.filter((b) => b !== "vanilla");
  *  (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs, #4023). */
 const PROJECTION_VO_ROW: readonly Backend[] = ["node", "java", "vanilla"];
 
+/** The backends that write a provenanced `money` value into its lineage in the
+ *  `Codec` fact's lineage encoding — the RS-12 wire string (owner ruling on
+ *  #3527).  Only node is on the fact so far.  The other four generate the case
+ *  cleanly, and each boots it as a tracked expected failure
+ *  (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs):
+ *  - **dotnet** / **java**: the lineage's `object` slot serializes a JSON
+ *    number (`3000.3`).
+ *  - **python**: the lineage jsonb bind cannot serialize a `Decimal`; the
+ *    write answers 500.
+ *  - **elixir** (`vanilla`): Jason encodes the `Decimal` unscaled (`"3000.3"`).
+ *  Each backend joins this row in the change that moves it onto the fact and
+ *  deletes its expected-failure entry. */
+const MONEY_LINEAGE_WIRE: readonly Backend[] = ["node"];
+
 // M-T6.96: .NET EF cannot re-host a part's nested OWNED instances under a new
 // owner (they are deleted with the old one), so the rebuild shape is held off
 // .NET until that lands — then this becomes ALL.
@@ -707,6 +721,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     deployables: ["orders_svc", "shipping_svc"],
   },
   { id: "provenance", title: "provenanced stored fields — per-write-site rule snapshots", doc: "provenance", backends: ALL },
+  {
+    id: "provenance-money",
+    title:
+      "a provenanced `money` field's lineage — `inputs[].value` and `computedValue` carry money as the RS-12 wire string",
+    doc: "provenance",
+    backends: MONEY_LINEAGE_WIRE,
+    note: "The `Codec` fact (`src/ir/enrich/codec.ts`) rules a money value's lineage encoding to be its wire encoding (owner ruling on #3527).  node writes it through the money wire encoder; the other four legs boot it as tracked expected failures (`BEHAVIOURAL_XFAIL`, #3527) until each is moved onto the fact — java and .NET send a JSON number, elixir an unscaled Decimal string, python 500s on the write",
+  },
   {
     id: "audited",
     title: "command audit — aggregate-wide `audited` + per-command `audited`, transactional audit_records rows",
