@@ -34,7 +34,7 @@ import {
   isOperation,
   isRepository,
 } from "../../../language/generated/ast.js";
-import { lowerFirst, snake, upperFirst } from "../../../util/naming.js";
+import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
 
 import { routeSegmentFor } from "../../../util/storage-names.js";
 /** The id parameter name a generated handler takes: `<agg>Id` (`Order` →
