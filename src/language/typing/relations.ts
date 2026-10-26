@@ -114,6 +114,25 @@ export function typesEqual(a: Ty, b: Ty): boolean {
   }
 }
 
+/** An aggregate or entity part crossing a transport boundary takes its wire
+ *  shape: the synthesized `response <Name>Response` record of its API read
+ *  fields (D4, handle in process, wire at the boundary). A read handler declared
+ *  `: OrderResponse` returns the loaded `Order`; the transport projects it,
+ *  element-wise through `[]` and `?` (`Order[]` → `OrderResponse[]`). */
+function isWireProjection(value: Ty, target: Ty): boolean {
+  if (value.kind === "array" && target.kind === "array")
+    return isWireProjection(value.element, target.element);
+  if (value.kind === "optional" && target.kind === "optional")
+    return isWireProjection(value.inner, target.inner);
+  if (value.kind === "record" && target.kind === "optional")
+    return isWireProjection(value, target.inner);
+  if (value.kind !== "record" || target.kind !== "record") return false;
+  if (value.shape.of !== "aggregate" && value.shape.of !== "part") return false;
+  if (target.shape.of !== "payload") return false;
+  const p = target.shape.ref;
+  return p.kind === "response" && p.name === `${value.shape.ref.name}Response`;
+}
+
 /** An enum value several enums declare (`candidates`) fits whichever of them
  *  the context names. */
 function enumCandidateFits(value: Ty, target: Ty): boolean {
@@ -137,6 +156,7 @@ function guidStringBridge(a: PrimitiveName, b: PrimitiveName): boolean {
  *    only when its own inner type fits (`int? := string?` stays an error);
  *  - numeric widening `int → long → decimal`, the guid/string bridge;
  *  - the empty list literal (`never[]`) fits any list;
+ *  - an aggregate or part fits its `<Name>Response` wire record;
  *  - a union value fits only when EVERY variant does — a value that may be
  *    `NotFound` does not fit an `Order` slot; a union slot takes a value that
  *    fits one of its variants. `none` is a variant like any other: `null` is
@@ -148,6 +168,7 @@ export function isAssignable(value: Ty, target: Ty): boolean {
   if (typesEqual(value, target)) return true;
   if (value.kind === "any" || target.kind === "any") return true;
   if (enumCandidateFits(value, target)) return true;
+  if (isWireProjection(value, target)) return true;
   if (value.kind === "union") return value.variants.every((v) => isAssignable(v, target));
   if (target.kind === "union") return target.variants.some((v) => isAssignable(value, v));
   if (target.kind === "optional") {

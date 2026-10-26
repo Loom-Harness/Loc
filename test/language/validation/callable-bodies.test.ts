@@ -72,6 +72,22 @@ describe("callable returns", () => {
     expect(c.filter((x) => x === MISMATCH)).toHaveLength(2);
   });
 
+  it("lets an operation whose result includes its aggregate fall through to `this`", async () => {
+    const c = await codes(`operation adj(n: int): Account or Declined { balance := balance + n }`);
+    expect(c).not.toContain(MISSING);
+    expect(await codes("operation q(): int { balance := 1 }")).toContain(MISSING);
+  });
+
+  it("accepts a read handler returning the aggregate as its `<Agg>Response` record", async () => {
+    const c = await codes(
+      "",
+      `response AccountResponse { id: Account id  balance: int }
+       queryHandler get(id: Account id): AccountResponse { let a = Accounts.getById(id)  return a }
+       queryHandler all(): AccountResponse[] { let r = Accounts.findAll()  return r }`,
+    );
+    expect(c).not.toContain(MISMATCH);
+  });
+
   it("leaves an operation without a declared result alone", async () => {
     expect(await codes("operation q() { balance := 1 }")).not.toContain(MISSING);
   });

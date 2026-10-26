@@ -34,6 +34,7 @@ import {
   type TypeRef,
 } from "../generated/ast.js";
 import { envForNode, isAssignable, resolveTypeRef, typeOf, typeToString } from "../type-system.js";
+import type { Ty } from "../typing/ty.js";
 import { canPromoteLiteralTo, warnSensitivityDrop } from "./_shared.js";
 import {
   checkConstructionArgTypes,
@@ -90,6 +91,19 @@ export function definitelyReturns(stmts: readonly Statement[]): boolean {
   });
 }
 
+/** An operation whose declared result includes its own aggregate (or part)
+ *  may end without a `return`: it falls through to `this`, the success
+ *  variant. */
+function fallsThroughToThis(c: Callable, declared: Ty): boolean {
+  if (!isOperation(c)) return false;
+  const host = c.$container;
+  const isHost = (t: Ty) =>
+    t.kind === "record" &&
+    (t.shape.of === "aggregate" || t.shape.of === "part") &&
+    t.shape.ref === host;
+  return declared.kind === "union" ? declared.variants.some(isHost) : isHost(declared);
+}
+
 function checkReturns(
   c: Callable,
   returnType: TypeRef,
@@ -98,6 +112,10 @@ function checkReturns(
 ): void {
   const declared = resolveTypeRef(returnType);
   if (declared.kind === "unknown") return;
+  // A `paged` handler's body has one supported shape, `let r = Repo.run(…);
+  // return r`, and `loom.paged-query-handler-shape` owns it: the run's rows
+  // are the page's items, which a plain assignability check cannot say.
+  if (declared.kind === "generic" && declared.ctor === "paged") return;
   const label = callableLabel(c);
   for (const n of AstUtils.streamAllContents(c)) {
     if (!isReturnStmt(n) || owningCallable(n) !== c) continue;
@@ -119,7 +137,7 @@ function checkReturns(
     }
     warnSensitivityDrop(actual, declared, accept, { node: n, property: "value" });
   }
-  if (!definitelyReturns(body)) {
+  if (!definitelyReturns(body) && !fallsThroughToThis(c, declared)) {
     accept(
       "error",
       diagMessage("loom.return-missing", { label, declared: typeToString(declared) }),
