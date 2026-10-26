@@ -1315,44 +1315,16 @@ describe(".NET generator", () => {
       }
     `;
 
-    it("emits + registers the OIDC verifier and adds the NuGet refs under `auth { oidc }`", async () => {
-      const files = await emitForAuthSystem(SRC_OIDC);
-      const verifier = files.get("Auth/OidcUserVerifier.cs")!;
-      expect(verifier).toContain("public sealed class OidcUserVerifier : IUserVerifier");
-      expect(verifier).toContain("ConfigurationManager<OpenIdConnectConfiguration>");
-      expect(verifier).toContain("ValidateTokenAsync");
-      // explicit claim mapping wins; id defaults to `sub`; dotted paths resolve
-      expect(verifier).toContain(
-        'if (ClaimString(payload, "realm_access.roles") is not { } claimRole)',
-      );
-      expect(verifier).toContain('if (ClaimString(payload, "sub") is not { } claimId)');
-      expect(verifier).toContain('Permissions: ClaimStringList(payload, "permissions")');
-      // The verifier also reads the session cookie issued by the handshake.
-      expect(verifier).toContain('request.Cookies["session"]');
-      const program = files.get("Program.cs")!;
-      expect(program).toContain("builder.Services.AddScoped<IUserVerifier, OidcUserVerifier>();");
-      const csproj = files.get("Api.csproj")!;
-      expect(csproj).toContain("Microsoft.IdentityModel.Protocols.OpenIdConnect");
-    });
-
-    // A declared NON-OPTIONAL array claim absent from the token is the EMPTY
-    // SET, not null.  `string[]` has a real reader (ClaimStringList, itself
-    // empty-on-missing); every OTHER element type used to fall through to
-    // `default!` — a NULL List<T> on a non-nullable record property — so a
-    // `mask unless currentUser.levels.contains(…)` threw
-    // NullReferenceException and answered 500 instead of redacting: the
-    // fail-OPEN-shaped crash of a feature whose failure is a data leak.
-    it("defaults a non-string array claim to an empty list, never `default!`", async () => {
+    // The verifier's registration and its claim projection (`sub` → id, a
+    // dotted claim path, a string-array claim, an absent non-string array
+    // claim → empty list) are carried by `corpus/auth-oidc` on every booted
+    // leg.  The session-cookie read and the dev stub's empty-list default are
+    // not exercised there.
+    it("reads the session cookie and defaults the dev stub's non-string array claim to an empty list", async () => {
       const files = await emitForAuthSystem(
         SRC_OIDC.replace("permissions: string[]", "permissions: string[] levels: int[]"),
       );
-      const verifier = files.get("Auth/OidcUserVerifier.cs")!;
-      // D16: the claim is now DECODED; an absent one still folds to the empty list.
-      expect(verifier).toContain(
-        'Levels: ClaimList<int>(payload, "levels", AsInt) ?? new System.Collections.Generic.List<int>()',
-      );
-      expect(verifier).not.toContain("Levels: default!");
-      // The dev stub — the other principal-construction site — already agreed.
+      expect(files.get("Auth/OidcUserVerifier.cs")!).toContain('request.Cookies["session"]');
       const stub = files.get("Auth/DevStubUserVerifier.cs")!;
       expect(stub).toContain("Levels: new System.Collections.Generic.List<int>()");
     });
