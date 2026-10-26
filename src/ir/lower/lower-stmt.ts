@@ -19,6 +19,7 @@ import {
   isErrorVariantTag,
   lowerEmitFields,
   lowerExpr,
+  lowerExprAsDeclared,
   lowerExprInContext,
   passTargetSteps,
   passType,
@@ -32,6 +33,7 @@ import {
   findFunctionInEnv,
   findOperationInEnv,
   lowerAtom,
+  lowerType,
   withLocal,
 } from "./lower-types.js";
 import { originFor } from "./origin.js";
@@ -90,8 +92,10 @@ function lowerStatementInner(stmt: Statement, env: Env): { stmt: StmtIR; envAfte
     };
   }
   if (isLetStmt(stmt)) {
-    const expr = lowerExpr(stmt.expr, env);
-    const t = inferExprType(stmt.expr, env);
+    // `let x: T = e` binds `T` and lowers `e` against it (a bare literal
+    // promotes: `let z: long = 1`).
+    const t = stmt.type ? lowerType(stmt.type, env) : inferExprType(stmt.expr, env);
+    const expr = stmt.type ? lowerExprAsDeclared(stmt.expr, t, env) : lowerExpr(stmt.expr, env);
     const next = withLocal(env, stmt.name, "let", t);
     return {
       stmt: { kind: "let", name: stmt.name, expr, type: t },

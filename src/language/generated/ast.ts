@@ -1926,12 +1926,14 @@ export interface LetStmt extends langium.AstNode {
     readonly $type: 'LetStmt';
     expr: Expression;
     name: CommonSoftKeywords | string;
+    type?: TypeRef;
 }
 
 export const LetStmt = {
     $type: 'LetStmt',
     expr: 'expr',
-    name: 'name'
+    name: 'name',
+    type: 'type'
 } as const;
 
 export function isLetStmt(item: unknown): item is LetStmt {
@@ -4043,7 +4045,7 @@ export function isTypeAtom(item: unknown): item is TypeAtom {
 }
 
 export interface TypeRef extends langium.AstNode {
-    readonly $container: ActionType | CommandHandler | Criterion | DerivedProp | DomainServiceOperation | FindDecl | FunctionDecl | Operation | Parameter | PolicyDecl | Property | QueryHandler | Retrieval | StateField | UiFunction | UserField | WorkflowCreateDecl;
+    readonly $container: ActionType | CommandHandler | Criterion | DerivedProp | DomainServiceOperation | FindDecl | FunctionDecl | LetStmt | Operation | Parameter | PolicyDecl | Property | QueryHandler | Retrieval | StateField | UiFunction | UserField | WorkflowCreateDecl;
     readonly $type: 'TypeRef';
     alternatives: Array<TypeAtom>;
     array: boolean;
@@ -6106,6 +6108,10 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                 },
                 name: {
                     name: LetStmt.name
+                },
+                type: {
+                    name: LetStmt.type,
+                    optional: true
                 }
             },
             superTypes: [Statement.$type, TestStatement.$type]

@@ -1979,6 +1979,7 @@ system P {
   // expression-form function (`toplevel-function.ts`) and the block-body
   // `return` (`types.ts`) — share this code.
   "loom.function-return-type-mismatch": orderOps('function bad(): int = "x"'),
+  "loom.let-type-mismatch": orderOps('operation bad() { let n: int = "x" }'),
   // Every other callable with a declared result type: an operation here; the
   // domain-service operation and handler arms share the check.
   "loom.return-type-mismatch": orderOps('operation bad(): int { return "x" }'),

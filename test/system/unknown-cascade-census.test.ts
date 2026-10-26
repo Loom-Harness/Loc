@@ -74,6 +74,9 @@ const SUPPRESSION_BASELINE: Record<string, number> = {
   "src/language/validators/builder-call.ts": 1,
   // Interpolation-hole typing in a template literal.
   "src/language/validators/template.ts": 1,
+  // A `let` whose declared type did not resolve: the type reference is
+  // reported where it is written ("Unknown type").
+  "src/language/validators/let-annotation.ts": 1,
   // A callable whose declared result type did not resolve: the type reference
   // is reported where it is written ("Unknown type"), so its returns are not
   // checked against it.
