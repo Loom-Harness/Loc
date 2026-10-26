@@ -133,7 +133,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
             // Its gate is the first STATEMENT of the body, not a header clause.
             // The generic arm below says "add a `requires <expr>`" without
             // saying where, and every SIBLING declaration (`operation` / `find`
-            // / `projection` / `handle`) takes one in the header — so the author
+            // / `projection`) takes one in the header — so the author
             // writes `create(...) requires P() { }`, gets `Expecting token of
             // type '{'`, and concludes the posture is unsatisfiable.  That is
             // how finding F-004 reached "denyByDefault and persistedAs: eventLog
@@ -380,9 +380,6 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
         ? undefined
         : (c.queryHandlers ?? []).find((h) => h.name === route.target.handler);
       const handler = cmd ?? qry;
-      // A workflow `handle` can also be a route target; those are already
-      // covered by `workflowCommandEntries` above, so skip rather than
-      // double-report.
       if (!handler) continue;
       if (isGated(handler.statements)) continue;
       const params = {
@@ -420,7 +417,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
 }
 
 /** The client-reachable command endpoints of a workflow: each command-triggered
- *  `create` starter and each named `handle` continuation.  Event-triggered
+ *  `create` starter.  Event-triggered
  *  creates and `on(...)` reactors fire on internal events, never a client POST,
  *  so they are excluded — the validate-layer analogue of the generator's
  *  `emitsCommandRoute`. */
@@ -436,9 +433,6 @@ function workflowCommandEntries(
       key: cr.name ?? "create",
       statements: cr.statements,
     });
-  }
-  for (const h of wf.handlers ?? []) {
-    entries.push({ label: `${wf.name}.${h.name}`, key: h.name, statements: h.statements });
   }
   return entries;
 }

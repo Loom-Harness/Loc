@@ -91,7 +91,6 @@ import {
   isFindDecl,
   isForStmt,
   isFunctionDecl,
-  isHandleDecl,
   isIdRef,
   isIdType,
   isIfLetStmt,
@@ -433,7 +432,6 @@ export class Elaborator {
       isFunctionDecl(node) ||
       isDomainServiceOperation(node) ||
       isWorkflowCreateDecl(node) ||
-      isHandleDecl(node) ||
       isCommandHandler(node) ||
       isQueryHandler(node) ||
       isFindDecl(node) ||

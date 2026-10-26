@@ -38,7 +38,7 @@
 //
 //   * a declared `create` / any lifecycle create — including the ones
 //     `with crudish` and the scaffold macros expand into;
-//   * `Agg.create({ … })` anywhere in a workflow create / reactor / `handle`,
+//   * `Agg.create({ … })` anywhere in a workflow create / reactor,
 //     or in a top-level `commandHandler` — found by walking the statement
 //     trees, so a construction inside a `for-each` or an `if-let` branch
 //     counts too;
@@ -87,10 +87,6 @@ export function constructibleAggregates(ctx: BoundedContextIR): Set<string> {
     for (const c of wf.creates ?? []) {
       for (const s of c.savesAtExit) built.add(s.aggName);
       scan(c.statements);
-    }
-    for (const h of wf.handlers ?? []) {
-      for (const s of h.savesAtExit ?? []) built.add(s.aggName);
-      scan(h.statements);
     }
     for (const o of wf.subscriptions ?? []) {
       for (const s of o.savesAtExit ?? []) built.add(s.aggName);

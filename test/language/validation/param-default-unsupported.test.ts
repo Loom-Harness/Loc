@@ -1,8 +1,8 @@
 // `loom.param-default-unsupported` — M-T5.42 item V2.
 //
 // `param: T = <expr>` parses at every callable site (one shared `Parameter`
-// rule), but five lowerers pass `defaults: false` to `lowerCallableParams`: a
-// `domainService` operation, a workflow `handle`, a `commandHandler`, a
+// rule), but four lowerers pass `defaults: false` to `lowerCallableParams`: a
+// `domainService` operation, a `commandHandler`, a
 // `queryHandler` and a `function`.  The default used to vanish between the
 // parser and the emitters with `0 error(s)`, so every generated signature still
 // required the argument the author thought was optional.  Refused now; the
@@ -41,13 +41,6 @@ describe("loom.param-default-unsupported", () => {
     ],
     ["a commandHandler", `commandHandler touch(n: int = 3): int { return n }`],
     ["a queryHandler", `queryHandler peek(n: int = 3): int { return n }`],
-    [
-      "a workflow handle",
-      `workflow flow {
-        create(name: string) { }
-        handle touch(n: int = 3) { }
-      }`,
-    ],
   ])("refuses a default on %s", async (_label, body) => {
     expect(await codesFor(body)).toEqual([CODE]);
   });

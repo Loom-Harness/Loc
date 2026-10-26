@@ -216,7 +216,6 @@ export function validateWorkflows(
     validateWorkflowUncorrelatedStateWrite(ctx, wf, diags);
     validateWorkflowCreates(wf, diags, ctx.name);
     validateWorkflowFunctions(wf, diags, ctx.name);
-    validateWorkflowHandlers(wf, diags, ctx.name);
     validateWorkflowStarter(wf, diags, ctx.name);
   }
 }
@@ -326,7 +325,6 @@ function workflowBodiesLabeled(wf: WorkflowIR): { label: string; statements: Wor
       label: c.name === null ? "create" : `create ${c.name}`,
       statements: c.statements,
     })),
-    ...(wf.handlers ?? []).map((h) => ({ label: `handle ${h.name}`, statements: h.statements })),
     ...(wf.subscriptions ?? []).map((s) => ({ label: `on(${s.event})`, statements: s.statements })),
   ];
 }
@@ -536,31 +534,6 @@ function validateWorkflowUnresolvedNames(
 // `<corr> := <param>` assignment and only fires when the body touches own
 // state.  Nothing was kept from the draft.
 // -------------------------------------------------------------------------
-
-// D5 / decision D-1(c).  `handle <name>(…)` is documented as the multi-command
-// saga surface (`docs/workflow.md`) and emits NOTHING on any of the five
-// backends — searching a generated tree for the handler name finds only the
-// mermaid diagram.  So a saga can be started and read (`/instances`,
-// `/instances/{id}`) and never advanced, silently.
-//
-// The ruling is to REJECT, not to emit: the silence is the bug, and whether
-// Loom grows multi-command sagas is a feature decision that should not be
-// taken under time pressure (tracked as its own mission).  The message names
-// the two spellings that DO work today, so the author is not merely refused.
-function validateWorkflowHandlers(wf: WorkflowIR, diags: LoomDiagnostic[], ctxName: string): void {
-  for (const h of wf.handlers ?? []) {
-    diags.push({
-      severity: "error",
-      code: "loom.workflow-handle-unsupported",
-      message: diagMessage("loom.workflow-handle-unsupported", {
-        name: wf.name,
-        handler: h.name,
-      }),
-      source: `${ctxName}/${wf.name}`,
-      origin: wf.origin,
-    });
-  }
-}
 
 // G2.  A workflow with `on(…)` reactors and no `create(…)` starter compiles
 // clean and is a runtime no-op forever: nothing ever inserts a correlation row,
@@ -943,7 +916,7 @@ function payloadFieldMatch(
 // context.  Nothing said so, and the boundary failed in two DIFFERENT ways for
 // the same model shape.
 //
-// THE MECHANISM.  `lowerWorkflow` (and `ctxAggRepoMaps`, the `handle`/`on`
+// THE MECHANISM.  `lowerWorkflow` (and `ctxAggRepoMaps`, the handler/`on`
 // twin) index `reposByName` from `ctx.members` ALONE, so `matchRepoCall`
 // DECLINES a foreign repository name.  The `let` therefore never becomes a
 // `repo-let` `WorkflowStmtIR` at all — it falls through to the generic
@@ -995,7 +968,7 @@ function payloadFieldMatch(
 // SCOPE.  A bare `ref` that (a) did not resolve (`refKind: "unknown"`, so a
 // param or local shadowing the name is never flagged) and (b) names a
 // repository declared in some OTHER context of the model.  Covers EVERY
-// workflow body — the primary create, named `create`s, `handle`s and `on`
+// workflow body — the primary create, named `create`s and `on`
 // reactors — not just the one `validateWorkflowBody` sees.  Defence-in-depth:
 // a `repo-let` / `repo-run` / `repo-delete` node that somehow DID carry a
 // foreign `repoName` is caught too, so if lowering ever learns to resolve the
@@ -1025,7 +998,6 @@ function workflowBodiesLabeledCrossContext(
       : // Legacy/partial IR with no `creates` — fall back to the facade so the
         // primary body is still scanned.
         [{ label: "create", statements: wf.statements }]),
-    ...(wf.handlers ?? []).map((h) => ({ label: `handle '${h.name}'`, statements: h.statements })),
     ...(wf.subscriptions ?? []).map((s) => ({
       label: `on(${s.event})`,
       statements: s.statements,
@@ -1101,8 +1073,8 @@ function validateWorkflowCrossContextRepositories(
  *
  *  `wf.statements` is only a FACADE over the primary (unnamed,
  *  command-triggered) create — so validating it alone left every `on(e: Event)`
- *  reactor, every non-primary / event-triggered `create`, and every named
- *  `handle` body completely unchecked.  That blind spot is what let
+ *  reactor and every non-primary / event-triggered `create` body completely
+ *  unchecked.  That blind spot is what let
  *  `for f in Follows.run(FollowersOf(e.author))` — a shape
  *  `loom.workflow-foreach-source` rejects in a `create` body — reach codegen
  *  from a reactor body: the elixir reactor emitter then THREW
@@ -1114,7 +1086,6 @@ function workflowBodies(wf: {
   statements: import("../../types/loom-ir.js").WorkflowStmtIR[];
   creates?: { statements: import("../../types/loom-ir.js").WorkflowStmtIR[] }[];
   subscriptions?: { statements: import("../../types/loom-ir.js").WorkflowStmtIR[] }[];
-  handlers?: { statements: import("../../types/loom-ir.js").WorkflowStmtIR[] }[];
 }): import("../../types/loom-ir.js").WorkflowStmtIR[][] {
   // `creates` is the source of truth and CONTAINS the primary, so `statements`
   // is only the fallback for a shape that lowered no creates at all.
@@ -1122,7 +1093,6 @@ function workflowBodies(wf: {
   return [
     ...(creates.length > 0 ? creates.map((c) => c.statements) : [wf.statements]),
     ...(wf.subscriptions ?? []).map((s) => s.statements),
-    ...(wf.handlers ?? []).map((h) => h.statements),
   ];
 }
 
@@ -1166,7 +1136,6 @@ function validateWorkflowBody(
     statements: import("../../types/loom-ir.js").WorkflowStmtIR[];
     creates?: { statements: import("../../types/loom-ir.js").WorkflowStmtIR[] }[];
     subscriptions?: { statements: import("../../types/loom-ir.js").WorkflowStmtIR[] }[];
-    handlers?: { statements: import("../../types/loom-ir.js").WorkflowStmtIR[] }[];
     transactional: boolean;
     eventSourced?: boolean;
     isolation?: import("../../types/loom-ir.js").IsolationLevel;

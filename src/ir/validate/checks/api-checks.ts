@@ -235,15 +235,15 @@ export function validateApplicationHandlers(ctx: BoundedContextIR, diags: LoomDi
  *  `loom.read-context-repo-write`). */
 const READ_ROUTE_METHODS = new Set(["GET"]);
 
-/** Whole-model: every `route` target must resolve to a `commandHandler`,
- *  `queryHandler`, or workflow `handle` member in the named context
+/** Whole-model: every `route` target must resolve to a `commandHandler`
+ *  or `queryHandler` member in the named context
  *  (`loom.route-handler-unresolved`).  The route's `target.context` is a real
  *  Langium cross-ref (already resolved), but the `handler` segment is a plain
  *  name the linker doesn't chase, so it's checked here.
  *
  *  Also gates `loom.read-context-repo-write` (read-path-architecture.md): a
  *  READ-method route (GET/HEAD) may not target a handler on the WRITE face — a
- *  mutating `commandHandler` or a workflow `handle`.  This generalises the
+ *  mutating `commandHandler`.  This generalises the
  *  shipped `reading`-tier read-only setting (`domain-service-no-repo-write`) and
  *  the `queryHandler` read-only gate (`query-handler-saves`) to the remaining
  *  read position — the api read route — so a read structurally cannot save. */
@@ -271,7 +271,6 @@ export function validateRoutes(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
         const handlerNames = new Set<string>([
           ...(ctx.commandHandlers ?? []).map((h) => h.name),
           ...(ctx.queryHandlers ?? []).map((h) => h.name),
-          ...ctx.workflows.flatMap((w) => (w.handlers ?? []).map((h) => h.name)),
         ]);
         if (!handlerNames.has(route.target.handler)) {
           diags.push({
@@ -288,18 +287,13 @@ export function validateRoutes(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
           continue;
         }
         // `loom.read-context-repo-write` — a READ-method route may only reach the
-        // read-only face (a `queryHandler`).  A mutating `commandHandler` or a
-        // workflow `handle` is the WRITE face, so a GET/HEAD bound to one lets a
+        // read-only face (a `queryHandler`).  A mutating `commandHandler` is the
+        // WRITE face, so a GET/HEAD bound to one lets a
         // read save — exactly what the `reading`-tier gate forbids in a service
         // body, generalised here to the transport edge.
         if (READ_ROUTE_METHODS.has((route.method ?? "").toUpperCase())) {
           const cmd = (ctx.commandHandlers ?? []).find((h) => h.name === route.target.handler);
-          const isWorkflowHandle = ctx.workflows.some((w) =>
-            (w.handlers ?? []).some((h) => h.name === route.target.handler),
-          );
-          const writes = (cmd && !cmd.extern && handlerMutates(cmd)) || isWorkflowHandle;
-          if (writes) {
-            const targetKind = isWorkflowHandle ? "workflow handle" : "commandHandler";
+          if (cmd && !cmd.extern && handlerMutates(cmd)) {
             diags.push({
               severity: "error",
               code: "loom.read-context-repo-write",
@@ -307,7 +301,6 @@ export function validateRoutes(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
                 name: api.name,
                 label,
                 method: route.method,
-                targetKind,
                 context: route.target.context,
                 handler: route.target.handler,
               }),

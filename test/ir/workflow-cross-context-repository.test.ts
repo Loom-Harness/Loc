@@ -128,11 +128,11 @@ system SameContextTest {
 }
 `;
 
-/** A cross-context read inside a named `handle` member — a body
+/** A cross-context read inside a NAMED `create` member — a body
  *  `validateWorkflowBody` never even visits (it only sees the primary create),
  *  so only the new gate can catch it. */
-const IN_HANDLE = `
-system HandleCrossContext {
+const IN_NAMED_CREATE = `
+system NamedCreateCrossContext {
   subdomain Core {
     context Directory {
       aggregate Technician with crudish { skills: string[] }
@@ -150,7 +150,7 @@ system HandleCrossContext {
           let wo = WorkOrders.getById(workOrderId)
           wo.assign()
         }
-        handle reassign(workOrderId: WorkOrder id, assignTo: Technician id) {
+        create reassign(workOrderId: WorkOrder id, assignTo: Technician id) {
           let tech = Technicians.getById(assignTo)
           precondition tech.skills.count > 0
         }
@@ -220,12 +220,12 @@ describe("workflow reading a repository from another context", () => {
     expect(codes).not.toContain("loom.transactional-no-effect");
   });
 
-  it("a cross-context read inside a `handle` member is caught too", async () => {
-    const diags = await diagnose(IN_HANDLE);
+  it("a cross-context read inside a named `create` member is caught too", async () => {
+    const diags = await diagnose(IN_NAMED_CREATE);
     const hits = diags.filter((d) => d.code === CODE);
     expect(hits).toHaveLength(1);
     // The `where` names the member, so the author knows WHICH body to fix.
-    expect(hits[0]!.message).toContain("handle 'reassign'");
+    expect(hits[0]!.message).toContain("create 'reassign'");
   });
 
   it("the same system with both aggregates in ONE context stays valid", async () => {

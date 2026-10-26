@@ -1,6 +1,6 @@
 // Transactional legality (workflow-and-applier.md A2-S5e): a `transactional`
 // workflow is one DB transaction and cannot carry continuation handlers
-// (`on(...)` / `handle`), which run in their own later transactions.
+// (`on(...)` reactors), which run in their own later transactions.
 
 import { describe, expect, it } from "vitest";
 import { parseString } from "../_helpers/index.js";
@@ -30,12 +30,5 @@ describe("workflow transactional legality (A2-S5e)", () => {
     expect(errors.some((e) => /transactional.*continuation|continuation handler/.test(e))).toBe(
       true,
     );
-  });
-
-  it("rejects a transactional workflow with a handle member", async () => {
-    const { errors } = await parseString(
-      ctx(`workflow Bad transactional { handle go(n: int) { let z = n } }`),
-    );
-    expect(errors.some((e) => /continuation handler/.test(e))).toBe(true);
   });
 });

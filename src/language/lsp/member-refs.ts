@@ -19,7 +19,6 @@ import {
   isEnumDecl,
   isEnumValue,
   isFunctionDecl,
-  isHandleDecl,
   isLambda,
   isLetStmt,
   isLValue,
@@ -214,10 +213,10 @@ function localShadows(node: AstNode, name: string): boolean {
       return true;
     }
     // A workflow body is members-only (A2-S5f) — params + free statements live
-    // inside `create`/`handle` members, so the param/let shadowing checks live
+    // inside `create` members, so the param/let shadowing checks live
     // on those, not on the workflow itself.
     if (
-      (isWorkflowCreateDecl(n) || isHandleDecl(n)) &&
+      isWorkflowCreateDecl(n) &&
       (n.params.some((p) => p.name === name) || n.body.some((s) => isLetStmt(s) && s.name === name))
     ) {
       return true;
