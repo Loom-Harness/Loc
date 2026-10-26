@@ -2259,6 +2259,7 @@ Statement:
   | IfLetStmt
   | IfStmt
   | ReturnStmt
+  | NotFoundStmt
   // A `match SUBJECT { Variant b => <stmts> }` used for its EFFECTS — the
   // statement form of the match, whose arms run statements (`state := …`,
   // `navigate(…)`) rather than yield a value.  Keyword-led, so no ambiguity
@@ -2321,6 +2322,16 @@ IfStmt:
 // HTTP 200.
 ReturnStmt:
     'return' value=Expression;
+
+// `notFound` / `notFound "detail"` — end a handler or workflow body with the
+// standard ProblemDetails not-found answer, the same response a `getById` miss
+// earns on that backend.  The `else` of an `if let … = Repo.find(C(args))` is
+// the canonical home: a criterion read has no uniqueness guarantee, so a
+// must-exist lookup over one is spelled as a branch, and this is how its empty
+// side answers.  Placement (handler / workflow bodies only, last in its block)
+// is the AST validator's (`loom.not-found-placement`, `loom.not-found-unreachable`).
+NotFoundStmt:
+    {infer NotFoundStmt} 'notFound' (detail=STRING)?;
 
 // `for <var> in <iterable> { <body> }` — iterate an aggregate array
 // (typically `Repo.run(<Retrieval>(args), page?)`), binding each element

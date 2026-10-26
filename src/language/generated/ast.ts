@@ -223,6 +223,7 @@ export type DddKeywordNames =
     | "mysql"
     | "nats"
     | "node"
+    | "notFound"
     | "now"
     | "null"
     | "objectStore"
@@ -2433,6 +2434,21 @@ export function isNameRefIdent(item: unknown): item is NameRefIdent {
     return isCommonSoftKeywords(item) || item === 'contains' || item === 'create' || item === 'destroy' || item === 'ignoring' || item === 'page' || (typeof item === 'string' && (/[_a-zA-Z][\w_]*/.test(item)));
 }
 
+export interface NotFoundStmt extends langium.AstNode {
+    readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | VariantStmtArm | WorkflowCreateDecl;
+    readonly $type: 'NotFoundStmt';
+    detail?: string;
+}
+
+export const NotFoundStmt = {
+    $type: 'NotFoundStmt',
+    detail: 'detail'
+} as const;
+
+export function isNotFoundStmt(item: unknown): item is NotFoundStmt {
+    return reflection.isInstance(item, NotFoundStmt.$type);
+}
+
 export interface NowExpr extends langium.AstNode {
     readonly $container: ActionDecl | Apply | AssignOrCallStmt | AwaitExpr | BinaryChain | BodyProp | BuilderEntry | CallArg | ColumnStep | CommandHandler | Component | Create | Criterion | DerivedProp | Destroy | DomainServiceOperation | EmitField | ExpectStmt | FilterDecl | FindDecl | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Invariant | LValue | Lambda | LayoutNamedSlot | LetStmt | ListLit | MatchArm | MatchExpr | MatchStmt | MenuLinkProp | MenuMetaEntry | ObjectFieldInit | OnDecl | Operation | Parameter | ParenExpr | PolicyDecl | PolicyReadRule | PostfixChain | PreconditionStmt | PrimitiveConversion | Projection | ProjectionJoin | ProjectionOn | ProjectionSelect | Property | QueryHandler | RequirementProp | RequiresProp | RequiresStmt | Retrieval | RetrievalLiteral | ReturnStmt | StateField | TemplateHole | TernaryExpr | TitleProp | UnaryExpr | VariantArm | Workflow | WorkflowCreateDecl;
     readonly $type: 'NowExpr';
@@ -3566,7 +3582,7 @@ export function isStateFieldName(item: unknown): item is StateFieldName {
     return isCommonSoftKeywords(item) || item === 'page' || (typeof item === 'string' && (/[_a-zA-Z][\w_]*/.test(item)));
 }
 
-export type Statement = AssignOrCallStmt | EmitStmt | ForStmt | IfLetStmt | IfStmt | LetStmt | MatchStmt | PreconditionStmt | RequiresStmt | ReturnStmt;
+export type Statement = AssignOrCallStmt | EmitStmt | ForStmt | IfLetStmt | IfStmt | LetStmt | MatchStmt | NotFoundStmt | PreconditionStmt | RequiresStmt | ReturnStmt;
 
 export const Statement = {
     $type: 'Statement'
@@ -4530,6 +4546,7 @@ export type DddAstType = {
     NameRef: NameRef
     NamedDecl: NamedDecl
     NamedType: NamedType
+    NotFoundStmt: NotFoundStmt
     NowExpr: NowExpr
     NullLit: NullLit
     ObjectFieldInit: ObjectFieldInit
@@ -6402,6 +6419,16 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                 }
             },
             superTypes: [BaseType.$type]
+        },
+        NotFoundStmt: {
+            name: NotFoundStmt.$type,
+            properties: {
+                detail: {
+                    name: NotFoundStmt.detail,
+                    optional: true
+                }
+            },
+            superTypes: [Statement.$type]
         },
         NowExpr: {
             name: NowExpr.$type,

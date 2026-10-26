@@ -1526,6 +1526,7 @@ function tailBindType(stmt: WorkflowStmtIR): TypeIR | undefined {
     case "emit":
     case "for-each":
     case "if-let":
+    case "not-found":
     case "op-call":
     case "precondition":
     case "repo-delete":

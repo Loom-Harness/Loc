@@ -64,6 +64,7 @@ function collectStmtEffects(st: WorkflowStmtIR, scope: readonly EffectScopeIR[],
     // Guards, pure bindings and the call statements (whose `call` effect the
     // expression scan above already produced) add no structural effect.
     case "precondition":
+    case "not-found":
     case "requires":
     case "expr-let":
     case "resource-call":

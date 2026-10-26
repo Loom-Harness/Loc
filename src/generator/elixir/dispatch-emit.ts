@@ -38,7 +38,7 @@ import { internalCreateFn, internalDeleteFn } from "./lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "./render-expr.js";
 import { type StateDefaultDecls, stateDefault, stateDefaultDecls } from "./state-default.js";
 import { normalizeDatetime } from "./vanilla/datetime-type-emit.js";
-import { denialTerm } from "./vanilla/denial.js";
+import { denialTerm, notFoundStmtTerm } from "./vanilla/denial.js";
 import { bodyUsesParam, renderFunctionBodyLines } from "./vanilla/function-emit.js";
 import { emitsRestDelete } from "./vanilla/rest-surface.js";
 import { mapTypeToEcto } from "./vanilla/schema-emit.js";
@@ -1213,6 +1213,10 @@ function renderStmt(
       const expr = renderExpr(st.expr, renderCtx);
       return [{ kind: "guard", text: `unless ${expr}, do: throw({:error, ${denialTerm(st)}})` }];
     }
+    // `notFound` — the guard shape with no condition: the same thrown term a
+    // tagged `getById` miss carries.
+    case "not-found":
+      return [{ kind: "guard", text: `throw({:error, ${notFoundStmtTerm(st)}})` }];
     case "repo-run": {
       // `let xs = Repo.run(<Retrieval>(args), page?)` →
       // `{:ok, xs} <- <Ctx>.run_<ret>_<agg>(args…, limit: N, offset: M)`.

@@ -2017,6 +2017,19 @@ export type WorkflowStmtIR =
       origin?: OriginRef;
     }
   | {
+      // `notFound` / `notFound "detail"` — end the body with the standard
+      // not-found ProblemDetails, the same answer a `getById` miss earns on
+      // that backend (status `NotFound` resolves to, its reason-phrase title).
+      // The detail sentence is `notFoundStmtDetail` (`ir/enrich/wire-policy.ts`):
+      // the authored `detail`, else `<subject> not found`.  `subject` is the
+      // aggregate of the `if let` whose `else` the statement sits in directly —
+      // lowering knows it from the branch's source, no later pass does.
+      kind: "not-found";
+      detail?: string;
+      subject?: string;
+      origin?: OriginRef;
+    }
+  | {
       // `field := value` — assignment to one of the workflow's OWN state
       // fields inside a `create`/`on` body (workflow.md, "own-state
       // mutation").  The `target` PathIR resolves to a `this-prop`
@@ -4268,7 +4281,7 @@ export function workflowIsGuarded(wf: WorkflowIR): boolean {
  *  unreachable declared one with equal suspicion), so the shape the honest
  *  contract needs is this predicate, threaded into the table.
  *
- *  WHAT THROWS.  Two producers, and only two:
+ *  WHAT THROWS.  Three producers, and only three:
  *
  *  1. A `repo-let` (`let w = Wallets.getById(id)` / `let w = Wallets.byRef(r)`).
  *     Always throwing: `getById` throws by construction on every backend, and
@@ -4290,6 +4303,9 @@ export function workflowIsGuarded(wf: WorkflowIR): boolean {
  *     against a read-port handle that was never threaded.  When that lands, the
  *     rung follows the read into it without anyone having to rediscover this
  *     function — which is cheaper than the arm is dead-weight.
+ *
+ *  3. A `notFound` statement — the body answering the rung explicitly (the
+ *     `else` of an `if let` over a criterion read).
  *
  *  Everything else that reads is absence-shaped and cannot throw: `repo-run` /
  *  `findAll` return arrays, `if-let` exists precisely to handle the empty case,
@@ -4319,7 +4335,7 @@ export function workflowCanAnswerNotFound(
     // body or an `if-let` branch counts; a hand-rolled recursion here is the
     // drifting copy `ir/util/walk.ts` exists to prevent.
     walkWorkflowStmtsDeep(top, (s) => {
-      if (s.kind === "repo-let") canNotFound = true;
+      if (s.kind === "repo-let" || s.kind === "not-found") canNotFound = true;
     });
     // Producer 2 — the expression form (a `reading` domain service's own
     // repository read).  `walkWorkflowStmtExprsDeep` already descends through

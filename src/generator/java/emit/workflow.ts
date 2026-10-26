@@ -1,3 +1,4 @@
+import { notFoundStmtDetail } from "../../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type {
   EnrichedBoundedContextIR,
@@ -239,6 +240,7 @@ function reposInBodies(
           case "assign":
           case "resource-call":
           case "domain-service-call":
+          case "not-found":
             // No repository of their own.
             break;
           default: {
@@ -520,6 +522,11 @@ export function javaWorkflowStmtTarget(
     domainServiceCall: (s, indent) => {
       return [`${indent}${renderJavaExpr(s.call, renderCtx)};`];
     },
+    // The exception a by-id miss throws, so the advice's not-found arm renders
+    // the identical ProblemDetails.
+    notFound: (s, indent) => [
+      `${indent}throw new AggregateNotFoundException(${JSON.stringify(notFoundStmtDetail(s))});`,
+    ],
   };
 }
 
@@ -637,6 +644,7 @@ export function workflowBoundNames(bodies: readonly (readonly WorkflowStmtIR[])[
           case "assign":
           case "resource-call":
           case "domain-service-call":
+          case "not-found":
             break;
           default: {
             const _exhaustive: never = s;

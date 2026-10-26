@@ -4,7 +4,7 @@ import type { WorkflowStmtIR } from "../../ir/types/loom-ir.js";
 // The shared workflow statement-sequence spine — the `WorkflowStmtIR`
 // analogue of the `ExprTarget` seam in `_expr/target.ts`.
 //
-// Every backend's workflow emitter walks the same body: the 10-kind
+// Every backend's workflow emitter walks the same body: the
 // `WorkflowStmtIR` sequence in declaration order, recursing into `for-each`
 // bodies. Only the per-kind *spelling* diverges (let syntax, block syntax,
 // guard idiom, the expression renderer) plus the indent unit. Without this
@@ -53,6 +53,10 @@ export interface WorkflowStmtTarget {
    *  statement; the aggregates it mutates persist via the workflow's exit-saves
    *  (`savesAtExit`), not here. */
   domainServiceCall(st: ByKind<"domain-service-call">, indent: string): string[];
+  /** `notFound` — end the body with the backend's not-found answer: raise the
+   *  SAME error a `getById` miss raises, carrying `notFoundStmtDetail(st)` as
+   *  its message, so the route answers the identical ProblemDetails 404. */
+  notFound(st: ByKind<"not-found">, indent: string): string[];
 
   /** `for-each`: `renderedBody` is the loop body already rendered at
    *  `indent + indentUnit` by the spine; the target wraps it in the backend's
@@ -171,5 +175,7 @@ function renderWorkflowStmt(
       return target.resourceCall(st, indent);
     case "domain-service-call":
       return target.domainServiceCall(st, indent);
+    case "not-found":
+      return target.notFound(st, indent);
   }
 }
