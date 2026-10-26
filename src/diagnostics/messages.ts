@@ -1563,6 +1563,8 @@ export const DIAGNOSTIC_MESSAGES = {
     "'toThrow(<status>)' pins an HTTP status and is only valid in a 'test e2e' block; use a bare 'toThrow()' in an in-process test.",
   "loom.tothrow-arity": (p: { got: unknown }) =>
     `'toThrow' takes at most one argument (an HTTP status), got ${p.got}.`,
+  "loom.not-throw-invalid":
+    "'.not.toThrow()' is not supported — 'toThrow' has no negated form. Call the operation directly; an unexpected throw already fails the test.",
   "loom.tothrow-status-not-int":
     "'toThrow(<status>)' requires an integer HTTP status literal, e.g. toThrow(404).",
   // The four `matches(<regex>)` rules stay four codes: arity, named-argument,
