@@ -574,6 +574,25 @@ export function checkPredicateSlotArgs(model: Model, accept: ValidationAcceptor)
   }
 }
 
+/** Every `store` in the model by name, in document order.  Built once per root
+ *  (a re-parse yields a new root, so edits invalidate it) so each call site is a
+ *  lookup instead of a whole-model scan. */
+const storeIndexByModel = new WeakMap<Model, Map<string, Store[]>>();
+function storesByName(model: Model): Map<string, Store[]> {
+  let idx = storeIndexByModel.get(model);
+  if (!idx) {
+    idx = new Map();
+    for (const n of AstUtils.streamAllContents(model)) {
+      if (!isStore(n)) continue;
+      const list = idx.get(n.name);
+      if (list) list.push(n);
+      else idx.set(n.name, [n]);
+    }
+    storeIndexByModel.set(model, idx);
+  }
+  return idx;
+}
+
 /** Resolve a store-action call `<store>.<action>(args)` to its `ActionDecl`, or
  *  `undefined` when `head` names no store / `action` no action on it.  A store is
  *  a `ui` member referenced by bare name; the enclosing `ui` wins, else any store
@@ -595,11 +614,9 @@ function resolveStoreAction(
       }
     }
   }
-  for (const n of AstUtils.streamAllContents(model)) {
-    if (isStore(n) && n.name === head) {
-      const a = findIn(n);
-      if (a) return a;
-    }
+  for (const store of storesByName(model).get(head) ?? []) {
+    const a = findIn(store);
+    if (a) return a;
   }
   return undefined;
 }
