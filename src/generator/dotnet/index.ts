@@ -534,7 +534,11 @@ function emitProjectFromContexts(
     for (const agg of ctx.aggregates) {
       emitAggregate(agg, ctx, ns, out, routePrefix, emitTrace, emitCtx, sourcemap, sourceTexts);
     }
-    emitBaseReaders(ctx, ns, out, sourcemap);
+    emitBaseReaders(ctx, ns, out, sourcemap, {
+      dapper: system?.deployable.persistence === "dapper",
+      routePrefix,
+      emitCtx,
+    });
     // Domain services (domain-services.md) — stateless pure calculators, one
     // `public static class` per `domainService` + its `or`-union return records.
     emitDomainServices(ctx, ns, out);

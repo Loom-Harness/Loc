@@ -213,12 +213,12 @@ and elixir has no `document` shape at all.  See *Deferred cases* below.
   hierarchy ROOT** — EF accepts a filter nowhere else.  A filter the root
   declares is registered there once and reaches every subtype, so a subtype's
   `ignoring <rootCap>` names the root's filter; a subtype's own filter is
-  registered on the root config, guarded by the `kind` discriminator
-  (`EF.Property<string>(x, "kind") != "Car" || (…)`) and prefixed
-  (`"Car_LiveFilter"`) so two subtypes carrying the same capability keep
-  distinct keys.  A subtype filter reading a column only that subtype declares
-  is the one shape EF cannot express and is gated
-  (`loom.tph-filter-unsupported`, docs/inheritance.md).  EF Core resolves the
+  registered on the root config, type-guarded
+  (`!(x is Car) || (!((Car)x).IsDeleted)`) — so it may read a column only that
+  subtype declares — and prefixed (`"Car_IsDeletedFilter"`) so two subtypes
+  carrying the same capability keep distinct keys.  Every read of a TPH
+  concrete starts from the root set (`_db.Vehicles.OfType<Car>()`), the source
+  over which EF translates the guard (docs/inheritance.md).  EF Core resolves the
   DI-scoped principal and queries jsonb transparently, so .NET has no other
   deferred cases.  See
   `src/generator/dotnet/emit/efcore.ts`.

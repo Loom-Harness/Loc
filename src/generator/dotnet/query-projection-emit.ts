@@ -31,6 +31,7 @@ import { numericEncode } from "../_numeric/target.js";
 import { joinReadFieldNames } from "../_projection/join-read.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { dtoParam, projectEntityArgs, projectToResponse, wireType } from "./dto-mapping.js";
+import { efReadSource } from "./ef-read-source.js";
 import {
   collectFilterPrincipalRefs,
   type DapperColumn,
@@ -41,7 +42,7 @@ import {
   whereToSql,
 } from "./emit/dapper.js";
 import { dapperProjectionColumns, dapperWorkflowStateColumns } from "./emit/dapper-workflow.js";
-import { queryFilterNames } from "./emit/efcore.js";
+import { bypassedFilterNames } from "./emit/efcore.js";
 import { queryActionParam } from "./explicit-handlers-emit.js";
 import { CS_NUMERIC } from "./numeric-codec.js";
 import {
@@ -506,19 +507,11 @@ function efAggregationIgnoreClause(
   const bypassAll = q.bypassAll ?? false;
   const caps = new Set(q.bypassCaps ?? []);
   if (!bypassAll && caps.size === 0) return "";
-  // Index-for-index the INVERSE of `aggregationCapabilityFilters` above: the
-  // named filter at position i drops exactly when that function would have
-  // dropped the predicate at position i.  Spelled out rather than reusing the
-  // repository's `ignoreFiltersClause`, because that helper maps `*` to the
-  // PARAMETERLESS `IgnoreQueryFilters()` — which also drops a bare
-  // (origin-less) `filter <expr>`, while `ignoring *` is documented, and
-  // implemented by the Dapper twin, as "every CAPABILITY filter".
-  const names = queryFilterNames(agg, ctx.aggregates);
-  const origins = agg.contextFilterOrigins ?? [];
-  const dropped = names.filter((_, i) => {
-    const origin = origins[i];
-    return origin != null && (bypassAll || caps.has(origin));
-  });
+  // The named filters this read drops: exactly the CAPABILITY filters the
+  // clause names (or every one, for `*`) — never the parameterless
+  // `IgnoreQueryFilters()`, which would also drop a bare `filter <expr>`.  On a
+  // TPH root that includes each subtype's root-hosted filters.
+  const dropped = bypassedFilterNames(agg, ctx.aggregates, { bypassAll, bypassCaps: [...caps] });
   if (dropped.length === 0) return "";
   return `.IgnoreQueryFilters([${dropped.map((n) => JSON.stringify(n)).join(", ")}])`;
 }
@@ -776,7 +769,7 @@ function renderAggregateHandler(
   const handlerName = `${upperFirst(proj.name)}QpHandler`;
   const source = proj.query!.source!;
   const srcAgg = ctx.aggregates.find((a) => a.name === source);
-  const dbSet = plural(upperFirst(source));
+  const dbSet = efReadSource({ name: source }, ctx.aggregates);
 
   const usings = new Set<string>();
   const filter = proj.query!.filter;
@@ -941,7 +934,7 @@ function renderGroupedHandler(
   const handlerName = `${upperFirst(proj.name)}QpHandler`;
   const source = proj.query!.source!;
   const srcAgg = ctx.aggregates.find((a) => a.name === source);
-  const dbSet = plural(upperFirst(source));
+  const dbSet = efReadSource({ name: source }, ctx.aggregates);
 
   // The distinct grouping columns as entity property names, in `group by`
   // order — the GroupBy key, the ORDER BY chain, and (via `g.Key`) the
