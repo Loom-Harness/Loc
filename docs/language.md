@@ -391,12 +391,13 @@ No grammar keyword switches it on — any aggregate field whose type is
 `X id[]` is a reference collection.  **Semantically it is a set of
 references**: the same target appears at most once per owner (the join
 table's composite `(owner_id, target_id)` primary key enforces this),
-and **iteration order is not part of the contract** — different
-backends may return the list in different orders, even across reads
-of the same row.  If a position is part of the domain (e.g. a battle
-slot number where slot 1 attacks first), model it as a separate
-ordinal field on a dedicated child aggregate rather than relying on
-list order.
+and **no position is stored** — the join table has no ordinal column.
+Every backend reads the list back sorted by target id, so the order is
+stable across reads and backends, but it is an id order, not one the
+domain chose: a `+=` lands wherever its id sorts.  If a position is
+part of the domain (e.g. a battle slot number where slot 1 attacks
+first), model it as a separate ordinal field on a dedicated child
+aggregate rather than relying on list order.
 
 Mutate the collection from operations with `+=` / `-=`:
 

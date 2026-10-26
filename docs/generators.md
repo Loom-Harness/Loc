@@ -119,7 +119,7 @@ gaps that remain are language-level rather than per-backend — see
 | `abstract aggregate` + `extends` / `inheritanceUsing` | **TPC** (`ownTable`): standalone Drizzle table per concrete; a read-only `<Base>Repository.findAll()` union reader + `<Base>` discriminated-union type. **TPH** (`sharedTable`, default): one shared table + `kind` discriminator + nullable per-concrete columns; `<Base> id` refs + base reader supported. | **TPC**: `abstract class <Base>` carrying shared fields, concretes `: <Base>`, EF `Ignore<<Base>>()` (each concrete maps standalone); read-only `I<Base>Repository` / `<Base>Repository` → `IReadOnlyList<<Base>>`. **TPH** (`sharedTable`): one shared table via EF Core native `HasDiscriminator<string>("kind")`; the abstract base owns the shared `Id` and `DbSet<<Base>>`, concretes inherit it (own columns only); `<Base> id` refs + base reader supported. | Concrete subtypes carry the merged base fields in their wire shape; no base-specific page. |
 | `persistedAs: eventLog` + `apply(...)` (event sourcing) | Append-only `<agg>_events` stream table (`stream_id, version, type, data, occurred_at`); appliers render as a `_apply(ev)` fold + `_fromEvents(id, events)` rehydrator; `emit` records **and** folds; `create` builds an empty shell + runs its emit-only body (POST body = create params); repository folds the stream on load and appends pending events on save (fold-from-zero MVP). Both node persistences supported — **Drizzle** (default) and **MikroORM** (EntityManager event store + `<agg>_events` `EntitySchema`). | EF Core **and** Dapper supported — `<agg>_events` table (on the `DbContext` / raw Npgsql), C# `_Apply<Event>` methods + `_FromEvents` rehydrator + `_Apply` dispatch switch; EF-only, **not** a dedicated Marten backend (D-DOCUMENT-AXIS). The persistence-agnostic fold + CQRS create chain are reused across both. | (n/a — wire shape unchanged) |
 | `contains` (collection) | Drizzle table with `parent_id` FK; auto-loaded in repo | EF owned-collection; auto-loaded by tracker | Sub-table on detail; not editable in the create form |
-| `X id[]` (reference collection) | Auto-derived many-to-many **join table** (composite PK enforces set semantics); save diff-syncs join rows, `.contains(param)` lowers to an `inArray` subquery against the join table. The join table also carries an `ordinal` column written on every `+=`, but the wire contract is unordered — see "What the generators don't do" below. | EF Core join entity + `DbSet<JoinEntity>` (composite PK + `Ordinal`); `GetByIdAsync` loads via the join entity, `SaveAsync` diff-syncs, `.contains(param)` lowers to `_db.<JoinDbSet>.Any(...)`. (Phoenix/Ecto backend: a `many_to_many` association through the `<join>` table + the id-array wire shape projected from the loaded association, set on create/update via `put_assoc`; `.contains` lowers to an `EXISTS` subquery against the join table.) | `X id[]` appears in the wire shape as `string[]`; populated/displayed via the response, but no first-class editor yet |
+| `X id[]` (reference collection) | Auto-derived many-to-many **join table** (composite PK enforces set semantics); save diff-syncs join rows, `.contains(param)` lowers to an `inArray` subquery against the join table. The join table is just the composite key — no `ordinal` column; reads come back sorted by target id — see "What the generators don't do" below. | EF Core join entity + `DbSet<JoinEntity>` (composite PK); `GetByIdAsync` loads via the join entity, `SaveAsync` diff-syncs, `.contains(param)` lowers to `_db.<JoinDbSet>.Any(...)`. (Phoenix/Ecto backend: a `many_to_many` association through the `<join>` table + the id-array wire shape projected from the loaded association, set on create/update via `put_assoc`; `.contains` lowers to an `EXISTS` subquery against the join table.) | `X id[]` appears in the wire shape as `string[]`; populated/displayed via the response, but no first-class editor yet |
 | `derived` | Getter that calls into the expression | Computed property that calls into the expression | Read-only field on detail; included in the response Zod schema |
 | `invariant` | Private `_assertInvariants()` called at the end of every mutator | Private `AssertInvariants()` called at the end of every mutator | (enforced server-side; surfaces as 422 in the UI) |
 | `provenanced` property | `domain/provenance.ts` SDK + `recordTrace(...)` after each write; `ddd snapshot` captures rule snapshots to `.loom/snapshots/*.loomsnap.json` | `Domain/Common/ProvLineage.cs` SDK + inline lineage capture after each write; co-located `<field>_provenance` jsonb column; `provenance_records` flushed in the EF save transaction; current lineage exposed on `<Agg>Response`. **Elixir** emits the same shape — the `<App>.Provenance` SDK (process-dictionary trace buffer + `flush/1`), a co-located `<field>_provenance` jsonb column, inline capture at each named-op write site, and a `provenance_records` flush inside the save `Repo.transaction`. | (n/a — wire shape unaffected) |
@@ -1544,21 +1544,17 @@ Out of scope for v1 (intentional):
   out of scope is a **server-side** typeahead: the picker loads the
   target's list, so a target with more rows than a page is not
   searchable beyond what it loaded.
-- **Ordering on `X id[]` collections**: the wire contract is
-  unordered — a relational join table is naturally a set, and the five
-  backends realise that differently.  TS/Drizzle and .NET/EF happen to
-  write a per-row `ordinal` and load `ORDER BY ordinal`.  Phoenix/Ecto,
-  Java/JPA, and Python/SQLAlchemy treat `Target id[]` as a set with no
-  ordinal column at all (Java: `@ElementCollection` join table, no
-  `@OrderColumn`, `jpa-annotations.ts:158`; Python: the ref-collection
-  join table carries no ordinal, `repository-builder.ts:60`), returning
-  rows in whatever order Postgres yields.  Either way the contract is
-  unordered — treat `party[0]` as "some
-  element of `party`," not "the first element of `party`."  When
-  position is part of the domain (a battle slot, a draft pick
-  number), model it as an explicit ordinal field on a separate child
-  aggregate instead of relying on collection order — that's the
-  honest spelling and aligns with set semantics across all backends.
+- **Ordering on `X id[]` collections**: `Target id[]` is a set
+  ([D-REFCOLL-SET](decisions.md)).  On all five backends the join table
+  is only the composite `(owner, target)` key — no `ordinal` column —
+  and every backend reads the rows back sorted by the target FK id
+  (Drizzle/EF/Dapper/SQLAlchemy `ORDER BY` it, JPA's argument-less
+  `@OrderBy`, Ecto's `preload_order: [asc: :id]`).  So the order is
+  stable, but it is an id order the domain never chose: treat
+  `party[0]` as "some element of `party`," not "the first element of
+  `party`."  When position is part of the domain (a battle slot, a
+  draft pick number), model it as an explicit ordinal field on a
+  separate child aggregate instead of relying on collection order.
 - **Server-side rendering**: client-only Vite.  Next.js variant
   would be a separate platform.
 - **Generated CI pipelines**: project-init concerns, not derived from
