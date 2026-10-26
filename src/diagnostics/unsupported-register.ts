@@ -442,7 +442,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.mikroorm-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/migration-checks.ts:284",
+    site: "src/ir/validate/checks/migration-checks.ts:314",
     what:
       "on MikroORM: the two self-provisioning limits — declared migration steps and Postgres " +
       "schema placement (migration-checks.ts, `#migrations` / `#schema-split` / " +
@@ -719,7 +719,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // drain backlog.  THIS row is the half that IS work.
     code: "loom.throw-kind-integration-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/test-checks.ts:157",
+    site: "src/ir/validate/checks/test-checks.ts:189",
     what:
       "`toThrow(precondition|invariant)` is refused in a CONTEXT-INTEGRATION test.  Unlike the " +
       "e2e half this is not a semantic limit — that rung runs in-process against a real DB and " +
@@ -745,7 +745,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.e2e-unsupported-statement",
     kind: "scope",
-    site: "src/ir/validate/checks/test-checks.ts:341",
+    site: "src/ir/validate/checks/test-checks.ts:373",
     what: "e2e bodies accept a closed statement set (expect/let/expression/…)",
     mission: "#3378",
     verified: true,
@@ -754,8 +754,11 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     code: "loom.migration-expr-unsupported",
     kind: "scope",
     site: "src/ir/validate/checks/migration-checks.ts:74",
-    what: "backfill exprs are a narrow validated ExprIR subset by design",
-    mission: "#3513",
+    what:
+      "backfill exprs are a narrow validated ExprIR subset — a permanent, documented limit " +
+      "(docs/migrations.md § Data migrations), widened only for a shape a real model needs.  " +
+      "No successor: the owning item renames the code out of the suffix",
+    mission: "#4217",
     verified: true,
   },
   {

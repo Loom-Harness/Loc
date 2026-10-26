@@ -992,16 +992,15 @@ export async function runFieldDefaultEvolutionGate(): Promise<void> {
 // `provenanced` fixture pair, which is the shape a real system has, and asserts
 // the two things F-012 observed on a booted stack:
 //
-//   (1) the new migration ACTUALLY RUNS.  Its version lands in module Catalog's
-//       block (`20260101500001`), below Billing's already-applied initial
-//       (`20260102000000`) — and below the year-2999 provenance sentinel.  Under
-//       a watermark migrator that meant the correct SQL was emitted and never
+//   (1) the new migration ACTUALLY RUNS.  Its version can land in module
+//       Catalog's block, below Billing's already-applied initial.  Under a
+//       watermark migrator that meant the correct SQL was emitted and never
 //       executed, with no error: `notes` simply did not exist.
 //
-//   (2) a `provenanced` model still BOOTS.  The provenance migration was pinned
-//       last forever, so it was always the entry the positional key renumbered,
-//       so it always re-ran — and `ADD COLUMN "total_provenance"` against a
-//       column that already exists exits the process before it is healthy.
+//   (2) a `provenanced` model still BOOTS on its second deploy.  Its
+//       `<field>_provenance` column is an ordinary column of the module's
+//       Initial, so no entry re-adds it; a renumbered entry that did would exit
+//       the process before it is healthy.
 //
 // Plus the structural invariant underneath both: an entry the database has
 // already applied keeps its exact `when`, so the journal and
@@ -1053,10 +1052,12 @@ export async function runJournalOrderingGate(driver: BackendDriver): Promise<voi
     // The fixture has to actually carry the two things that reach the defect,
     // or this gate silently degrades into the single-module one that already
     // passed. Asserted here rather than assumed.
+    const billingInitial = v1Journal.find((e) => e.tag.endsWith("_billing_initial"));
+    expect(billingInitial, `journal: ${v1Journal.map((e) => e.tag).join(", ")}`).toBeDefined();
     expect(
-      v1Journal.some((e) => e.tag.endsWith("_provenance")),
-      `fixture must emit the late provenance migration; journal: ${v1Journal.map((e) => e.tag).join(", ")}`,
-    ).toBe(true);
+      fs.readFileSync(path.join(appDir, "db", "migrations", `${billingInitial!.tag}.sql`), "utf8"),
+      "the provenanced field's lineage column ships in the module's Initial",
+    ).toContain('"total_provenance"');
     expect(
       new Set(v1Journal.filter((e) => e.tag.endsWith("_initial")).map((e) => e.tag)).size,
       "fixture must span two modules (two initial migrations)",
@@ -1090,7 +1091,6 @@ export async function runJournalOrderingGate(driver: BackendDriver): Promise<voi
     for (const e of v2Journal) {
       const prior = before.get(e.tag);
       if (prior === undefined) continue; // the newly inserted delta
-      if (e.tag.endsWith("_provenance")) continue; // re-homed on purpose; idempotent SQL
       expect(e.when, `\`when\` of already-applied ${e.tag} must not move`).toBe(prior);
     }
     // …and the new entry must clear the recorded watermark, or the migrator
@@ -1102,8 +1102,8 @@ export async function runJournalOrderingGate(driver: BackendDriver): Promise<voi
       `inserted ${inserted[0].tag} must sort above the applied watermark ${appliedBefore}`,
     ).toBeGreaterThan(Number(appliedBefore));
 
-    // (2) The boot itself is the assertion: the provenance migration re-running
-    // against an existing `total_provenance` column used to exit the process.
+    // (2) The boot itself is the assertion: an entry re-adding the existing
+    // `total_provenance` column would exit the process.
     const v2 = await boot(pg);
 
     // (1) The delta actually ran.  This is the exact query F-012 reported as
@@ -1135,7 +1135,7 @@ export async function runJournalOrderingGate(driver: BackendDriver): Promise<voi
     expect(row.notes, "the nullable add reads NULL on the pre-existing row").toBeNull();
 
     // The journal and the database now agree: the watermark advanced to the
-    // newest entry rather than being stuck behind a year-2999 sentinel.
+    // newest entry.
     const appliedAfter = psql(
       server,
       "journal",

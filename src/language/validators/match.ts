@@ -124,6 +124,13 @@ function trailingMatcher(expr: Expression): MemberSuffix | undefined {
   return undefined;
 }
 
+/** True when the matcher call is preceded by a `.not` member suffix. */
+function isNegated(expr: Expression): boolean {
+  if (!isPostfixChain(expr)) return false;
+  const prev = expr.suffixes.at(-2);
+  return !!prev && isMemberSuffix(prev) && !prev.call && prev.member === "not";
+}
+
 /** Assertions are method-based: every `expect(...)` must end in an intrinsic
  *  matcher.  Reject the bare-boolean form, and enforce the `toThrow` argument
  *  rules — at most one argument, which (when present) pins an HTTP status and
@@ -203,6 +210,16 @@ export function checkExpectMatcher(model: Model, accept: ValidationAcceptor): vo
       continue;
     }
     if (matcher.member !== "toThrow") continue;
+    // `toThrow` has no negated lowering: the `expect-throws` rewrite drops the
+    // `.not` receiver, so the assertion would invert (or not compile).
+    if (isNegated(stmt.expr)) {
+      accept("error", diagMessage("loom.not-throw-invalid"), {
+        node: matcher,
+        property: "member",
+        code: "loom.not-throw-invalid",
+      });
+      continue;
+    }
     // `toThrow(<kind>)` — the failure RUNG (`precondition` / `invariant`).
     // UNIT TIER ONLY.  In-process the rung is observable: elixir carries a
     // structural `:kind` on `GuardError`, the other four a stable message

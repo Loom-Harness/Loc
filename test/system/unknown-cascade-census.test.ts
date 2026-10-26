@@ -77,6 +77,10 @@ const SUPPRESSION_BASELINE: Record<string, number> = {
   // A `let` whose declared type did not resolve: the type reference is
   // reported where it is written ("Unknown type").
   "src/language/validators/let-annotation.ts": 1,
+  // A callable whose declared result type did not resolve: the type reference
+  // is reported where it is written ("Unknown type"), so its returns are not
+  // checked against it.
+  "src/language/validators/callable-bodies.ts": 1,
 };
 
 /** The band the measured `unknown` share must stay inside.  Measured at

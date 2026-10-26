@@ -105,9 +105,10 @@ describe("D13 — the delta over a pre-fix snapshot is RENAME + DROP INDEX only"
     // Default policy (no --allow-destructive): a destructive step would throw.
     const [m] = buildMigrations(s, memorySnapshotStore({ S: baseline }));
     const steps: MigrationStep[] = m!.steps;
+    // Table renames lead the delta: every later step names a table by its new name.
     expect(steps).toEqual([
-      { op: "dropIndex", name: "r2s_p_idx", table: "r2s", schema: "a" },
       { op: "renameTable", from: "replicate_policieses", to: "replicate_policies", schema: "a" },
+      { op: "dropIndex", name: "r2s_p_idx", table: "r2s", schema: "a" },
     ]);
     expect(steps.some((x) => x.op === "dropTable" || x.op === "createTable")).toBe(false);
     // The next snapshot records the corrected names, so the following

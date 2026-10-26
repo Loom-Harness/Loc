@@ -35,6 +35,7 @@ import {
   checkBindableInputArgs,
   checkBuilderCallType,
   checkBypassPlacement,
+  checkCallableBodies,
   checkCallableSites,
   checkChannels,
   checkComponent,
@@ -387,6 +388,9 @@ export class DddValidator {
     // The `extern` ↔ body pairing on commandHandler / queryHandler
     // (loom.extern-handler-has-body / loom.handler-missing-body).
     guard("handler-bodies", model, () => checkHandlerBodies(model, accept));
+    // Every callable's `return`s against its declared result type, and the
+    // expression checks for the bodies the aggregate statement walk never visits.
+    guard("callable-bodies", model, () => checkCallableBodies(model, accept));
     // Unresolved bare-identifier heads (`total := amout`, `let x = amout`):
     // a `NameRef` is not a cross-reference, so an unresolvable head types as
     // `T.unknown` and every downstream gate suppresses on it — the finding-1

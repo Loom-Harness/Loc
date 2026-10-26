@@ -116,6 +116,18 @@ const PINNED: Record<string, Pin> = {
       "WeakMap keyed by the AST ROOT node the index was built from; a re-parse " +
       "produces a fresh root, so the entry dies with the document version it describes.",
   },
+  "src/language/validators/types.ts:ENUM_VALUES_BY_ROOT": {
+    discipline: "keyed-cache",
+    reason: "WeakMap keyed by the AST root node; a re-parse produces a fresh root.",
+  },
+  "src/language/validators/statements.ts:storeIndexByModel": {
+    discipline: "keyed-cache",
+    reason: "WeakMap keyed by the Model root node; a re-parse produces a fresh root.",
+  },
+  "src/language/typing/qualified-policy.ts:contextIndexByRoot": {
+    discipline: "keyed-cache",
+    reason: "WeakMap keyed by the AST root node; a re-parse produces a fresh root.",
+  },
   "src/language/print/print-expr.ts:printStatement": {
     discipline: "wiring-injection",
     reason:

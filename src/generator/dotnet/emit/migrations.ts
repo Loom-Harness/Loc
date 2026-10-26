@@ -1,7 +1,5 @@
-import type { EnrichedBoundedContextIR, SystemIR } from "../../../ir/types/loom-ir.js";
 import type { MigrationsIR } from "../../../ir/types/migrations-ir.js";
-import { resolveDataSourceConfig } from "../../../ir/util/resolve-datasource.js";
-import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { upperFirst } from "../../../util/naming.js";
 import { renderPgStep } from "../../sql-pg.js";
 
 // ---------------------------------------------------------------------------
@@ -41,78 +39,6 @@ export function emitDotnetMigrations(
     const sql = m.steps.map(renderPgStep).join("\n\n");
     out.set(`Migrations/${slug}.cs`, renderMigrationClass(ns, className, slug, sql));
   }
-}
-
-// Provenance / per-operation audit DDL is NOT part of the platform-neutral
-// MigrationsIR (it is feature-local, mirroring the Hono Drizzle schema), so the
-// .NET backend emits it as one extra migration that sorts AFTER every
-// migration-chain generation.  By then every aggregate table
-// exists, so the co-located `<field>_provenance` column ALTERs apply cleanly.
-// EF runs the raw SQL via `migrationBuilder.Sql(...)` (no model diff), so the
-// DbContext model + this DDL only need to be runtime-consistent.
-const PROV_AUDIT_VERSION = "29991231235959";
-
-/** The late provenance migration's statements: one `ADD COLUMN IF NOT EXISTS
- *  <field>_provenance jsonb` per provenanced field, on its owning aggregate's
- *  table.  Shared by the EF migration class below and the Dapper one
- *  (`dapper-migrations.ts`), which apply the same DDL through different
- *  runners.  Empty when `provenance` is off or no field is provenanced. */
-export function dotnetProvenanceColumnStatements(
-  contexts: EnrichedBoundedContextIR[],
-  sys: SystemIR | undefined,
-  opts: { provenance: boolean },
-): string[] {
-  const stmts: string[] = [];
-  if (opts.provenance) {
-    // The `provenance_records` DDL lives in the shared MigrationsIR
-    // (`provenanceTableShape`) so all five backends derive it from one place; a
-    // per-backend copy drifts (one such copy created only the
-    // `(target_type, field)` index, silently omitting the `correlation_id` one
-    // its siblings emit).  What stays here is the per-aggregate half:
-    // Co-located current-lineage column per provenanced field, on each owning
-    // aggregate's table.  The table is schema-/prefix-qualified the same way
-    // efcore.ts `ToTable` derives it from the resolved dataSource binding, so
-    // the ALTER hits the real table (e.g. `ordering.orders`), not a bare name.
-    for (const ctx of contexts) {
-      for (const agg of ctx.aggregates) {
-        if (agg.isAbstract) continue;
-        const ds = sys ? resolveDataSourceConfig(agg, ctx, sys) : undefined;
-        const base = snake(plural(agg.name));
-        const local = ds?.tablePrefix ? `${ds.tablePrefix}${base}` : base;
-        const table = ds?.schema ? `${ds.schema}.${local}` : local;
-        for (const f of agg.fields) {
-          if (!f.provenanced) continue;
-          stmts.push(
-            `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${snake(f.name)}_provenance jsonb;`,
-          );
-        }
-      }
-    }
-  }
-  // The `audit_records` DDL moved to the shared MigrationsIR
-  // (`auditTableShape`) so all five backends derive it from one place.  Hono
-  // emitted none at all, so audited commands failed at runtime there.
-  return stmts;
-}
-
-/** The late provenance/audit migration's id — sorts after every module's
- *  block, so every aggregate table exists before its columns are added. */
-export const DOTNET_PROV_AUDIT_MIGRATION_ID = `${PROV_AUDIT_VERSION}_ProvenanceAudit`;
-
-/** Emit `Migrations/<late>_ProvenanceAudit.cs` when the served contexts use
- *  provenance: ADD the co-located `<field>_provenance` columns.  No-op
- *  (nothing emitted) when no field is provenanced. */
-export function emitDotnetProvenanceAuditMigration(
-  contexts: EnrichedBoundedContextIR[],
-  sys: SystemIR | undefined,
-  ns: string,
-  out: Map<string, string>,
-  opts: { provenance: boolean; audit: boolean },
-): void {
-  const stmts = dotnetProvenanceColumnStatements(contexts, sys, opts);
-  if (stmts.length === 0) return;
-  const slug = DOTNET_PROV_AUDIT_MIGRATION_ID;
-  out.set(`Migrations/${slug}.cs`, renderMigrationClass(ns, `M${slug}`, slug, stmts.join("\n\n")));
 }
 
 function renderMigrationClass(

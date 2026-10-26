@@ -123,17 +123,21 @@ describe("hono provenance_records — the SQL migration and the Drizzle schema a
       expect(fromSql.get(notNull), notNull).toBe(false);
   });
 
-  it("creates the table from the SHARED MigrationsIR migration, not the late provenance one", async () => {
+  it("creates the table and the co-located column from the MigrationsIR chain alone", async () => {
     const files = await generateSystemFiles(SRC);
-    const late = [...files.entries()].find(([p]) => p.endsWith("_provenance.sql"))?.[1];
-    // The late migration keeps only the per-aggregate co-located columns; the
-    // history table is a shared companion table now, so it lands in the
-    // ordinary module migration alongside the outbox and audit tables.
-    expect(late).toBeDefined();
-    expect(late).toContain("total_provenance");
-    expect(late).not.toContain("CREATE TABLE");
-    const initial = [...files.entries()].find(([p]) => p.endsWith("_sales_initial.sql"))?.[1];
+    const sqlFiles = [...files.keys()].filter(
+      (p) => p.includes("db/migrations/") && p.endsWith(".sql"),
+    );
+    // One generation, no out-of-chain migration beside it.
+    expect(sqlFiles).toEqual([expect.stringMatching(/_sales_initial\.sql$/)]);
+    const initial = files.get(sqlFiles[0]!)!;
     expect(initial).toContain('CREATE TABLE "provenance_records"');
     expect(initial).toContain('CREATE INDEX "provenance_records_correlation_idx"');
+    // The co-located lineage column is a nullable jsonb on the aggregate's own
+    // table, on both runtime paths: the SQL CREATE and the Drizzle `orders`
+    // table `synthDDL` reads.
+    expect(initial).toMatch(/CREATE TABLE "s"\."orders" \([^;]*"total_provenance" JSONB NULL/);
+    const schema = files.get([...files.keys()].find((p) => p.endsWith("db/schema.ts"))!)!;
+    expect(schema).toMatch(/total_provenance: jsonb\("total_provenance"\)\.\$type<[^>]*>\(\),/);
   });
 });

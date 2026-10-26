@@ -171,6 +171,7 @@ export const COVERED_ELSEWHERE: readonly string[] = [
   "loom.inheritance-modifier-misplaced",
   "loom.instance-effect-needs-route-id",
   "loom.integration-find-must-bind",
+  "loom.integration-repository-call",
   "loom.interp-format-unknown",
   "loom.interp-hole-type",
   "loom.intrinsic-arg-type",

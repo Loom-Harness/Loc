@@ -215,6 +215,30 @@ function corpusFixtures(): { name: string; source: string }[] {
     }));
 }
 
+/** Injected handlers the validator refuses, per fixture: `scaffoldHandlers`
+ *  declares a read handler over a `paged` / `option` / `or` find as a single
+ *  `<Agg>Response`, and that handler's emitted code does not serve its declared
+ *  shape (#4262). The refusal is the honest answer, so these errors are
+ *  expected; every other error still fails, and an entry that stops firing must
+ *  be deleted. */
+const INJECTED_HANDLER_REFUSALS: Record<string, readonly string[]> = {
+  "api-call.ddd": ["queryHandler 'ByCodeOrder' returns 'Order option'"],
+  "implicit-find-filter.ddd": ["queryHandler 'InRegionWorkOrder' returns 'WorkOrder paged'"],
+  "paged-nonrelational.ddd": [
+    "queryHandler 'InRegionInvoice' returns 'Invoice paged'",
+    "queryHandler 'ByOwnerAccount' returns 'Account paged'",
+  ],
+  "paged.ddd": [
+    "queryHandler 'RecentOrder' returns 'Order paged'",
+    "queryHandler 'InRegionOrder' returns 'Order paged'",
+  ],
+  "tph-crossings.ddd": ["queryHandler 'ByCourierParcel' returns 'Parcel paged'"],
+  "union-find-absence.ddd": [
+    "queryHandler 'ByCodeOrder' returns 'Order or NotFound'",
+    "queryHandler 'MaybeFirstOrder' returns 'Order option'",
+  ],
+};
+
 async function census(): Promise<{
   found: Record<string, Divergence>;
   nodes: number;
@@ -227,7 +251,15 @@ async function census(): Promise<{
     const { model, errors } = await parseString(source, { validate: true });
     // Injection must never break a fixture — a fixture that stops parsing would
     // silently leave the census, which is how a denominator rots.
-    expect(errors, `${name}: scaffoldHandlers injection must parse`).toEqual([]);
+    const refused = INJECTED_HANDLER_REFUSALS[name] ?? [];
+    for (const r of refused) {
+      expect(
+        errors.some((e) => e.includes(r)),
+        `${name}: the expected refusal "${r}" no longer fires — delete it from INJECTED_HANDLER_REFUSALS`,
+      ).toBe(true);
+    }
+    const unexpected = errors.filter((e) => !refused.some((r) => e.includes(r)));
+    expect(unexpected, `${name}: scaffoldHandlers injection must parse`).toEqual([]);
     const enriched = enrichLoomModel(lowerModel(model));
     const contexts: BoundedContextIR[] = [...enriched.contexts];
     for (const sys of enriched.systems)

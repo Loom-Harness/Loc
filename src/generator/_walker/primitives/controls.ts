@@ -746,6 +746,10 @@ export function emitQueryView(
     // `.member` is the operation name, not the aggregate.
     const listDetected = single ? undefined : tryDetectApiHook(ofArg, ctx);
     const listAgg = listDetected?.kind === "aggregate" ? listDetected.aggregateName : undefined;
+    // Whole-table projections answer ONE object: the same set the gate uses.
+    const recordProjections = new Set(
+      [...(ctx.projectionsByName ?? [])].filter((n) => !ctx.listShapedProjections?.has(n)),
+    );
     const childCtx: WalkContext = {
       ...ctx,
       lambdaParams: extendLambdaParams(ctx, data.param, dataAccess),
@@ -764,7 +768,7 @@ export function emitQueryView(
       // nodes are collection-op sites — a disagreement in the "gate allows,
       // walker doesn't recognise" direction would re-open the verbatim
       // emission `loom.frontend-collection-op-unsupported` exists to prevent.
-      rowSetBindings: rowSetLambdaParam(call)
+      rowSetBindings: rowSetLambdaParam(call, recordProjections)
         ? new Set([...(ctx.rowSetBindings ?? []), data.param])
         : // `single: true` binds ONE record — SHADOW an outer binding of the
           // same name rather than inheriting it (the same rebind discipline

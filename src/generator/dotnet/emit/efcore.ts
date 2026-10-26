@@ -12,7 +12,7 @@ import type {
 import { exprUsesCurrentUser, isMaterializedProjection } from "../../../ir/types/loom-ir.js";
 import { directParentName } from "../../../ir/util/containment-parent.js";
 import { aggregateHasFileField } from "../../../ir/util/file-field.js";
-import { implicitFindMatches } from "../../../ir/util/implicit-find-filter.js";
+import { fkIndexedFields } from "../../../ir/util/fk-index-fields.js";
 import {
   type AggPool,
   inheritedFilterCount,
@@ -632,12 +632,14 @@ export function renderConfiguration(
           ? embeddedRefCollectionLines(a)
           : [`        builder.Ignore(x => x.${upperFirst(a.fieldName)});`],
       );
-  // HasIndex for every root column referenced by a repository find — same set
-  // the Drizzle schema indexes; without them `find byEmail` scans sequentially.
+  // HasIndex for exactly the FK covering indexes the shared migration creates
+  // (`fkIndexedFields`) — the same set the Drizzle schema declares.  A find's
+  // filter columns get no index (D-INDEX-SUGGEST), so the EF model never names
+  // an index the migrated database lacks.
   const indexLines = tph
     ? []
-    : [...indexedColumnsFor(agg, ctx)].map(
-        (col) => `        builder.HasIndex(x => x.${pascalCol(col, agg)});`,
+    : fkIndexedFields(agg, !options.embedded).map(
+        (f) => `        builder.HasIndex(x => x.${pascalCol(f.name, agg)});`,
       );
   // Context filters: one NAMED `builder.HasQueryFilter("<Name>", ...)` per
   // propagated predicate (EF Core 10 named query filters — efcore10.md).
@@ -820,25 +822,6 @@ function embeddedRefCollectionLines(a: AssociationIR): string[] {
     `                    v => v.Aggregate(0, (__acc, __e) => System.HashCode.Combine(__acc, __e.GetHashCode())),`,
     `                    v => v.ToList()));`,
   ];
-}
-
-/** Aggregate-root columns referenced by any of this aggregate's
- * repository finds — either explicitly via `where this.<col>` or
- * implicitly via convention-based parameter-name matching. */
-function indexedColumnsFor(agg: AggregateIR, ctx: BoundedContextIR): Set<string> {
-  const out = new Set<string>();
-  const repo = ctx.repositories.find((r) => r.aggregateName === agg.name);
-  if (!repo) return out;
-  for (const find of repo.finds) {
-    if (find.filter) {
-      collectColumnRefs(find.filter, out);
-    } else {
-      for (const { field: matched } of implicitFindMatches(find, agg)) {
-        out.add(matched.name);
-      }
-    }
-  }
-  return out;
 }
 
 /** The FINAL, disambiguated EF named-query-filter names for an aggregate,
@@ -1029,10 +1012,10 @@ function collectColumnRefs(e: ExprIR, out: Set<string>): void {
         out.add(e.member);
       }
       return;
-    // Contribute no column.  Narrowing this set can only lose an INDEX HINT or
-    // fall a filter's derived NAME back to the positional `Filter<n>` — both
-    // callers (`indexedColumnsFor`, `queryFilterName`) are advisory, and
-    // neither changes what the query DOES.  Named rather than left to a
+    // Contribute no column.  Narrowing this set can only fall a filter's
+    // derived NAME back to the positional `Filter<n>` — the caller
+    // (`queryFilterName`) is advisory and never changes what the query DOES.
+    // Named rather than left to a
     // `default:` so a new `ExprIR` kind is a decision rather than a silent
     // omission.
     case "action-ref":

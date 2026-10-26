@@ -157,7 +157,7 @@ const REFUSED_CASES: Record<string, Case> = {
     }`,
   },
   "CommandHandlerIR.returnValue": {
-    body: `commandHandler Stash(name: string): string {
+    body: `commandHandler Stash(name: string): json? {
       let matches = Orders.byName(name)
       return salesFiles.get("k/" + name)
     }`,

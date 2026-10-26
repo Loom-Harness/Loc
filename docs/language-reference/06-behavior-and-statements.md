@@ -950,7 +950,7 @@ Pick by *what the body must be allowed to touch*, not by what feels natural to w
 | aggregate `create` / `destroy` | Factory / terminator of the root | `create`: the new instance; `destroy`: nothing | One aggregate save | `POST /api/<aggs>` / `DELETE /api/<aggs>/{id}` | No | `create`: yes; `destroy`: no (body is `requires` only) | `create(total: int) { emit OrderPlaced { order: id } }` |
 | aggregate `apply` (`persistedAs: eventLog` only) | Pure fold of one emitted event into state | `this`; assignments and `let` only | None — runs when events are appended and replayed | No | No | No | `apply(e: OrderPlaced) { status := Status.Placed }` |
 | `function` (aggregate / entity / workflow / value object) | Reusable pure calculation | No | None | No | No | No | `function isDraft(): bool = status == Status.Draft` |
-| `domainService` `operation` | Cross-aggregate calculation or decision | Only the aggregates passed in, and only in the `mutating` tier | None — the calling orchestrator owns the commit | No | No | No | `operation withTax(base: int): int { return base + base / 5 }` |
+| `domainService` `operation` | Cross-aggregate calculation or decision | Only the aggregates passed in, and only in the `mutating` tier | None — the calling orchestrator owns the commit | No | No | No | `operation withTax(base: int): int { return base + base.divTrunc(5) }` |
 | workflow `create` / `handle` | Use-case that spans aggregates | Via aggregate operations (`:=` is rejected in the body) | Per save; one DB transaction with `transactional` | `POST /api/workflows/<wf>…` | Yes — not inside a `transactional` span | Yes (orchestration-level `emit`) | `create(target: Order id) by target { … }` |
 | workflow `on(e: Event)` | React to an event (saga step) | As `handle` | As `handle` | No — driven by the event | As `handle` | Yes | `on(paid: PaymentReceived) by paid.order { … }` |
 | `commandHandler` | One-aggregate use-case without a workflow | One aggregate (`loom.command-handler-multi-aggregate`); save is implied | The one aggregate save | Only through an explicit `api { route … -> Ctx.Name }` | Yes | Yes | `commandHandler PlaceOrder(orderId: Order id): Order { … }` |
@@ -981,7 +981,7 @@ system Shop {
       repository Orders for Order { }
 
       domainService Pricing {
-        operation withTax(base: int): int { return base + base / 5 }
+        operation withTax(base: int): int { return base + base.divTrunc(5) }
       }
 
       workflow checkout transactional {

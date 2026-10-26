@@ -32,12 +32,14 @@ const NULL_LIT: Ty = opt({ kind: "never" });
 
 let order: Ty;
 let notFound: Ty;
+let orderResponse: Ty;
 
 beforeAll(async () => {
   const model = (
     await parseString(
       `system S { subdomain D { context C {
         error NotFound { resource: string }
+        response OrderResponse { code: string }
         aggregate Order { code: string }
       } } }`,
       { validate: false },
@@ -45,9 +47,11 @@ beforeAll(async () => {
   ).model as Model;
   const nodes = [...AstUtils.streamAst(model)];
   const agg = nodes.find(isAggregate) as Aggregate;
-  const err = nodes.find(isPayloadDecl) as PayloadDecl;
+  const payloads = nodes.filter(isPayloadDecl) as PayloadDecl[];
+  const named = (n: string) => payloads.find((p) => p.name === n) as PayloadDecl;
   order = { kind: "record", shape: { of: "aggregate", ref: agg } };
-  notFound = { kind: "record", shape: { of: "payload", ref: err } };
+  notFound = { kind: "record", shape: { of: "payload", ref: named("NotFound") } };
+  orderResponse = { kind: "record", shape: { of: "payload", ref: named("OrderResponse") } };
 });
 
 describe("isAssignable", () => {
@@ -70,6 +74,15 @@ describe("isAssignable", () => {
     expect(isAssignable(order, union(order, notFound))).toBe(true);
     expect(isAssignable(prim("int"), union(prim("long"), prim("string")))).toBe(true);
     expect(isAssignable(prim("money"), union(order, notFound))).toBe(false);
+  });
+
+  it("an aggregate fits its `<Agg>Response` wire record, element-wise through `[]`", () => {
+    expect(isAssignable(order, orderResponse)).toBe(true);
+    expect(
+      isAssignable({ kind: "array", element: order }, { kind: "array", element: orderResponse }),
+    ).toBe(true);
+    expect(isAssignable(order, notFound)).toBe(false);
+    expect(isAssignable(orderResponse, order)).toBe(false);
   });
 
   it("`null` is not an option's absent case", () => {
