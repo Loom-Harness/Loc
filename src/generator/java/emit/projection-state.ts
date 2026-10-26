@@ -6,13 +6,13 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
-import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { snake, upperFirst } from "../../../util/naming.js";
+import { tableNameFor } from "../../../util/storage-names.js";
 import { jid } from "../java-ident.js";
 import { renderJavaType } from "../render-expr.js";
 import { hbIdent } from "../sql-ident.js";
 import { jpaClassAnnotations, jpaFieldAnnotations } from "./jpa-annotations.js";
 import { setterName } from "./workflow-state.js";
-
 // ---------------------------------------------------------------------------
 // Persisted projection read-model row (Java / JPA) — the projection.md read
 // half, mirroring the saga-state emitter (`workflow-state.ts`) with the command
@@ -45,7 +45,7 @@ export function projectionRowClass(proj: ProjectionIR): string {
 /** The read-model table name — matches `projectionTableShape` in the migrations
  *  builder (`plural(snake(name))`). */
 export function projectionRowTable(proj: ProjectionIR): string {
-  return plural(snake(proj.name));
+  return tableNameFor(proj.name);
 }
 
 function correlationField(proj: ProjectionIR): FieldIR {

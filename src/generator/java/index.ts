@@ -63,6 +63,7 @@ import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
+import { tableNameFor } from "../../util/storage-names.js";
 import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js";
 import { brokerChannelBindings } from "../_channels/bindings.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
@@ -1193,7 +1194,7 @@ function emitProjectFromContexts(
         if (effectiveSavingShape(a, cfg) !== "document" || a.persistedAs === "eventLog") {
           return undefined;
         }
-        const bare = plural(snake(a.name));
+        const bare = tableNameFor(a.name);
         return cfg?.schema ? `${cfg.schema}.${bare}` : bare;
       },
     });
@@ -1465,7 +1466,7 @@ function emitProjectFromContexts(
         const regAgg = ctx.aggregates.find((a) => a.name === reg.name);
         if (regAgg) {
           const schema = resolveDataSourceConfig(regAgg, ctx, system.sys)?.schema;
-          const table = plural(snake(reg.name));
+          const table = tableNameFor(reg.name);
           orgPathRegistry = {
             table: schema ? `${schema}.${table}` : table,
             idValueType: reg.idValueType,
@@ -1839,7 +1840,7 @@ function emitAggregate(
           isDocument || isEmbedded
             ? undefined
             : {
-                tableName: plural(snake(part.name)),
+                tableName: tableNameFor(part.name),
                 schema,
                 // `_parent` @OneToOne (single only) + the `parentId` mirror both
                 // reference the DIRECT parent, so JPA navigates the real
@@ -1878,7 +1879,7 @@ function emitAggregate(
         agg.persistedAs === "eventLog" || isDocument
           ? undefined
           : {
-              tableName: plural(snake(agg.name)),
+              tableName: tableNameFor(agg.name),
               schema,
               containmentOwnerName: ownerName,
               embedded: isEmbedded,

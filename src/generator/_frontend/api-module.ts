@@ -39,6 +39,7 @@ import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-
 import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/validate/invariant-classify.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../util/uuid-wire.js";
 import { PROVENANCED_REQUEST_ERROR } from "../_payload/provenanced-wire.js";
 import { hookFnName } from "../_walker/js-target-helpers.js";
@@ -56,7 +57,6 @@ import {
   emitAuditEntrySchemas,
   provenancedZod,
 } from "./zod-schemas.js";
-
 // ---------------------------------------------------------------------------
 // Per-aggregate API module: Zod schemas + TanStack Query hooks.
 //
@@ -386,7 +386,7 @@ export function buildApiModule(
   // ---------------------------------------------------------------------
   // Hooks
   // ---------------------------------------------------------------------
-  const tag = snake(plural(agg.name));
+  const tag = routeSegmentFor(agg.name);
   const aggKey = `["${tag}"]`;
   const detailKey = `["${tag}", id]`;
 

@@ -28,7 +28,8 @@ import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
-import { plural, snake } from "../../../util/naming.js";
+import { snake } from "../../../util/naming.js";
+import { tableNameFor } from "../../../util/storage-names.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { javaRef } from "../../_imports/java.js";
@@ -1385,7 +1386,7 @@ export function renderJavaAbstractBaseEntity(
     ...(persistence && options.tph
       ? [
           `@Entity`,
-          `@Table(name = "${hbIdent(plural(snake(base.name)))}"${persistence.schema ? `, schema = "${persistence.schema}"` : ""})`,
+          `@Table(name = "${hbIdent(tableNameFor(base.name))}"${persistence.schema ? `, schema = "${persistence.schema}"` : ""})`,
           `@Inheritance(strategy = InheritanceType.SINGLE_TABLE)`,
           `@DiscriminatorColumn(name = "kind")`,
           ...hostedRestrictions,

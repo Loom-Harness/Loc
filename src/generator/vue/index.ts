@@ -23,6 +23,7 @@ import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, plural, snake } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_GATE_VUE, AUTH_SESSION_TS, AUTH_USE_SESSION_VUE } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
@@ -97,7 +98,6 @@ import {
   renderVuePage,
 } from "./walker/page-shell.js";
 import { vueTarget } from "./walker/vue-target.js";
-
 // ---------------------------------------------------------------------------
 // Vue 3 + vue-query + Zod + Vuetify generator.
 //
@@ -997,7 +997,7 @@ function deriveNavSections(
       aggregates.push({
         to: page.route,
         label,
-        testId: `nav-${snake(plural(o.aggregateName))}`,
+        testId: `nav-${routeSegmentFor(o.aggregateName)}`,
         activeArgs: JSON.stringify(page.route),
         ...(requiresJs ? { requiresJs } : {}),
       });

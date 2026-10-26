@@ -34,14 +34,8 @@ import type {
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
 import { typeUsesMoney } from "../../../ir/types/loom-ir.js";
-import {
-  escapeTsIdent,
-  humanize,
-  lowerFirst,
-  plural,
-  snake,
-  upperFirst,
-} from "../../../util/naming.js";
+import { escapeTsIdent, humanize, lowerFirst, plural, upperFirst } from "../../../util/naming.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
 import { coerceMoneyStateInit, usesDecimalBinding } from "../../_expr/js-intrinsics.js";
 import {
   paramPropTsType,
@@ -203,7 +197,7 @@ function renderFormOfWiring(
     aggregateName: agg.name,
     aggregateNameCamel: lowerFirst(agg.name),
     pluralAggregateName: plural(agg.name),
-    snakePluralAggregate: snake(plural(agg.name)),
+    snakePluralAggregate: routeSegmentFor(agg.name),
     humanAgg: humanize(agg.name),
     humanAggLower: humanize(agg.name).toLowerCase(),
     idTargets: idTargets.map((t) => ({
@@ -291,7 +285,7 @@ function renderFormOpWiring(
       JSON.stringify(chromeMessage(opDialogChrome(humanize(op.name)).close)),
     modalTitle: state.modalTitle || humanize(op.name),
     modalTitleExpr: state.modalTitleExpr ?? JSON.stringify(humanize(op.name)),
-    slug: snake(plural(agg.name)),
+    slug: routeSegmentFor(agg.name),
     idTargets: idTargets.map((t) => ({
       name: t.name,
       nameCamel: lowerFirst(t.name),

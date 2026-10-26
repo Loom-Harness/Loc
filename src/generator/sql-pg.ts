@@ -8,8 +8,9 @@ import type {
   MigrationStep,
   TableShape,
 } from "../ir/types/migrations-ir.js";
-import { plural, snake } from "../util/naming.js";
+import { snake } from "../util/naming.js";
 
+import { tableNameFor } from "../util/storage-names.js";
 // ---------------------------------------------------------------------------
 // Postgres SQL renderer shared by the TS/Hono and .NET/EF migration emitters.
 //
@@ -397,7 +398,7 @@ export function renderSeedRowInsert(
   fields: { name: string; value: ExprIR }[],
   schema?: string,
 ): string {
-  const bare = qIdent(plural(snake(aggregate)));
+  const bare = qIdent(tableNameFor(aggregate));
   const table = schema ? `${qIdent(schema)}.${bare}` : bare;
   const cols = fields.map((f) => qIdent(snake(f.name))).join(", ");
   const vals = fields.map((f) => seedSqlLiteral(f.value)).join(", ");

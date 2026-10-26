@@ -1,6 +1,7 @@
 import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
-import { humanize, lowerFirst, plural, snake } from "../../util/naming.js";
+import { humanize, lowerFirst } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { giveUp } from "../_walker/give-up.js";
 import { localizedPageChromeText, localizedPageChromeValue } from "../_walker/i18n-emit.js";
 import { emitActionThen } from "../_walker/primitives/controls.js";
@@ -8,7 +9,6 @@ import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
 import type { WalkContext } from "../_walker/walker-core.js";
 import { addNg, formStyle } from "./form-fields.js";
 import { angularSink } from "./walker/sink.js";
-
 // ---------------------------------------------------------------------------
 // Angular `DestroyForm(of: <Agg>, then?: navigate(...))` renderer — the
 // confirmation form for the aggregate's CANONICAL destroy (loom-forms.md),
@@ -96,7 +96,7 @@ export function renderAngularDestroyForm(
     thenJs = prefixThis(emitActionThen(thenArg, ctx), fieldNames);
   } else {
     ctx.usesNavigate = true;
-    thenJs = `this.router.navigateByUrl(${JSON.stringify(`/${snake(plural(agg.name))}`)})`;
+    thenJs = `this.router.navigateByUrl(${JSON.stringify(`/${routeSegmentFor(agg.name)}`)})`;
   }
 
   // The prompt and the button label are emitter-built chrome: `chrome.*` keys
@@ -108,7 +108,7 @@ export function renderAngularDestroyForm(
   const label = localizedPageChromeText(ctx, "deleteEntity", [
     { name: "entity", expr: JSON.stringify(humanize(agg.name)) },
   ]);
-  const ns = stringNamed(call, "testid") ?? `${snake(plural(agg.name))}-destroy`;
+  const ns = stringNamed(call, "testid") ?? `${routeSegmentFor(agg.name)}-destroy`;
   ctx.collectedTestids.add(ns);
 
   const style = formStyle(ctx);

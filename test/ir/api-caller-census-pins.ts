@@ -747,6 +747,9 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
   // by-key folds one), the same not-lifted workflow-route class as above.
   // …and the plain (state-table) saga's by-key read (M-T9.42 own-state).
   "corpus/saga": ["api.orderFulfillment.instance (no such aggregate)"],
+  // The acronym-named saga's by-key instance read — the same not-lifted
+  // workflow-route class; it is the read of the workflow's state table.
+  "corpus/acronym-names": ["api.restockSKU.instance (no such aggregate)"],
   "corpus/eventsourced-workflow": [
     "api.archiveTracker.instance (no such aggregate)",
     "api.archiveTracker.instances (no such aggregate)",

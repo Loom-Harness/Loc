@@ -58,6 +58,7 @@ import {
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
 import { wireToDomainExpr, zodFor } from "./routes-builder.js";
 
 // ---------------------------------------------------------------------------
@@ -505,7 +506,7 @@ function emitQueryProjectionRoute(
 ): string[] {
   const T = upperFirst(p.name);
   const source = p.query!.source!;
-  const aggSlug = snake(plural(source));
+  const aggSlug = routeSegmentFor(source);
   // The PHYSICAL column each aggregation argument names — a value-object leaf
   // is a flattened `amount_amount`, not the outermost member.  One resolver per
   // route, shared by the drizzle and mikro arms so they cannot disagree.

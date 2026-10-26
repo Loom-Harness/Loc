@@ -99,6 +99,10 @@ const BASELINE: Record<string, Divergence> = {
   // abstract `Claim` exactly as `tph.ddd`'s concretes do.  Drains with A2.
   "projection-tph-source.ddd Claims.AutoClaim": "missing-in-record",
   "projection-tph-source.ddd Claims.PropertyClaim": "missing-in-record",
+  // The acronym-names fixture's TPH concretes: the same A2 class, a new-fixture
+  // witness (`title` inherited from `CatalogSKU`), not a regression.
+  "acronym-names.ddd Catalog.PhysicalSKU": "missing-in-record",
+  "acronym-names.ddd Catalog.DigitalSKU": "missing-in-record",
 
   // ── class B — the same field, described differently ─────────────────────
   // B1. a containment names the part's own `<Part>Response` record (context
@@ -107,6 +111,8 @@ const BASELINE: Record<string, Divergence> = {
   //     `isResponsePayloadName`.  A re-derivation has to undo it.
   "collection-op-shapes.ddd Sales.Order": "containment-response-suffix",
   "core-domain.ddd Orders.Order": "containment-response-suffix",
+  // acronym-names' `contains variants: VariantSKU[]` — the same deliberate B1 shape.
+  "acronym-names.ddd Catalog.ProductSKU": "containment-response-suffix",
   // (added with the RS-37 witness — a fixture carrying a containment, so the
   // same deliberate B1 shape; not a new divergence class.)
   "decimal-exact.ddd Lab.Sample": "containment-response-suffix",

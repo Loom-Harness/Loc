@@ -34,6 +34,7 @@ import { CAPABILITIES_TAG } from "../../../util/capability-tag.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { PRINCIPAL_TYPE_NAME } from "../../../util/principal.js";
 import { PROVENANCE_VALUE_FIELD } from "../../../util/provenance-carrier.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
 import {
   binaryExpr,
   boolLit,
@@ -51,11 +52,10 @@ import {
 } from "../../api/index.js";
 import { VERSIONED_TOKEN_FIELD } from "../../prelude.js";
 import { ROW_COUNT } from "./_dashboard-shared.js";
-
 /** `scaffoldNewForm` — scaffolds the create page body:
  *  `Stack(Breadcrumbs, Heading "Create <agg>", Card(CreateForm(of:)))`. */
 export function scaffoldNewForm(aggName: string): Expression {
-  const slug = snake(plural(aggName));
+  const slug = routeSegmentFor(aggName);
   const humanPlural = humanize(plural(aggName));
   const humanAgg = humanize(aggName);
   return callExpr("Stack", [
@@ -122,7 +122,7 @@ function removesRecordFromReads(op: Operation): boolean {
  *  shape `DestroyForm` already uses for the hard delete: do the thing, then
  *  leave the page that no longer has anything to show. */
 export function scaffoldOperations(agg: Aggregate, instanceVar?: string): Expression {
-  const slug = snake(plural(agg.name));
+  const slug = routeSegmentFor(agg.name);
   const publicOps = agg.members.filter(
     (m): m is Operation => m.$type === "Operation" && !m.private,
   );
@@ -605,7 +605,7 @@ export function scaffoldDetails(agg: Aggregate, opts: { apiHandle?: string } = {
  *  scaffolded read has — an audit trail that silently renders nothing while
  *  in-flight reads as "this entity was never touched", which is a lie. */
 function scaffoldHistorySection(agg: Aggregate, queryRoot: () => Expression): Expression {
-  const slug = snake(plural(agg.name));
+  const slug = routeSegmentFor(agg.name);
   const timeline = callExpr("Timeline", [
     { name: "of", value: nameRefExpr("entries") },
     { name: "testid", value: stringLit(`${slug}-detail-history-timeline`) },
@@ -657,7 +657,7 @@ export function scaffoldDetailsParts(
   agg: Aggregate,
   opts: { apiHandle?: string; withOperations?: boolean } = {},
 ): Array<{ name?: string; value: Expression }> {
-  const slug = snake(plural(agg.name));
+  const slug = routeSegmentFor(agg.name);
   const humanPlural = humanize(plural(agg.name));
   const humanAgg = humanize(agg.name);
   const lowerAgg = humanAgg.toLowerCase();
@@ -739,7 +739,7 @@ function buildDataCardParts(
   agg: Aggregate,
   cellVar: string,
 ): { card: Expression; related: Expression[] } {
-  const slug = snake(plural(agg.name));
+  const slug = routeSegmentFor(agg.name);
   const rows: Array<{ name?: string; value: Expression }> = [];
   for (const f of userFacingProperties(agg)) {
     if (f.type.array) continue;
@@ -1561,7 +1561,7 @@ export function scaffoldList(
   // shapes keep the bare `T[]` and a CLIENT-paged list.  Defaults to paged so
   // relational callers that don't classify stay server-paged.
   const serverPagedAll = opts.paged ?? true;
-  const slug = snake(plural(aggName));
+  const slug = routeSegmentFor(aggName);
   const humanPlural = humanize(plural(aggName));
   const humanLower = humanPlural.toLowerCase();
   const singular = humanize(aggName).toLowerCase();

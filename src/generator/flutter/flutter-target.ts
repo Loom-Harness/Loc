@@ -38,7 +38,8 @@
 
 import { isConstructible } from "../../ir/enrich/wire-projection.js";
 import type { AggregateIR, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
-import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import { renderValueEqualsCall } from "../_frontend/value-equals.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
@@ -755,7 +756,7 @@ export const flutterTarget: WalkerTarget = {
         `Action(${opRef.receiver.name}.${opRef.member}): no parameter-less public operation in scope (use OperationForm for an op with parameters)`,
       );
     }
-    const coll = snake(plural(agg.name));
+    const coll = routeSegmentFor(agg.name);
     const opPath = snake(op.routeSlug ?? op.name);
     // Address a detail record by the page's route `id` — on a byId detail page
     // (where `paramTypes` resolves the instance) it IS the loaded record's id,

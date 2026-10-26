@@ -38,6 +38,7 @@
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { nearestName } from "../../../util/edit-distance.js";
 import { lowerFirst, plural, snake } from "../../../util/naming.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
 import {
   buildCreateInput,
   forApiRead,
@@ -653,7 +654,7 @@ function resolveAggregate(
     for (const agg of ctx.aggregates) {
       if (
         lowerFirst(agg.name) === slug ||
-        snake(plural(agg.name)) === slug ||
+        routeSegmentFor(agg.name) === slug ||
         lowerFirst(plural(agg.name)) === slug
       ) {
         const repo = contexts

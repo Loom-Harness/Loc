@@ -10,7 +10,8 @@
 import type { BoundedContextIR, ExprIR, FieldIR, ParamIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { enumPool } from "../../ir/util/reachable-types.js";
 import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
-import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
 import { giveUp } from "../_walker/give-up.js";
 import {
@@ -69,7 +70,6 @@ import {
   readFieldName,
   wfHasForm,
 } from "./wire.js";
-
 /** The view-level toast an `Action { …, then: toast(…) }` calls (M-FT.5) —
  *  declared by index.ts (`renderFelizActionToast`) only when a view calls it. */
 export const FELIZ_ACTION_TOAST = "actionToast";
@@ -741,7 +741,7 @@ export const felizTarget: WalkerTarget = {
     // The testid namespace the SHARED page objects fill against — the scaffold's
     // `testid:` arg (`orders-new`) when present, else the same `<plural>-new`
     // default the page-object builder computes from the aggregate.
-    const base = stringNamed(call, "testid") ?? `${snake(plural(agg.name))}-new`;
+    const base = stringNamed(call, "testid") ?? `${routeSegmentFor(agg.name)}-new`;
     const { inputs, formError } = withServerErrors(form.formField, form.fields, base, true);
     const arrays = form.fieldArrays.map((fa) => renderFieldArray(form.formField, fa));
     const disabled =
@@ -799,7 +799,7 @@ export const felizTarget: WalkerTarget = {
     // `<plural>-op-<op>` default the page-object builder computes.  The form
     // container is `<base>-form`, the submit `<base>-submit` — the exact ids the
     // op page-object method waits for / clicks.
-    const base = stringNamed(call, "testid") ?? `${snake(plural(agg.name))}-op-${op.name}`;
+    const base = stringNamed(call, "testid") ?? `${routeSegmentFor(agg.name)}-op-${op.name}`;
     const { inputs, formError } = withServerErrors(
       form.formField,
       form.fields,

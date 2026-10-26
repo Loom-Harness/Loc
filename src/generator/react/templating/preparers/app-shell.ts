@@ -13,6 +13,7 @@
 import { emitsRestCreate } from "../../../../ir/enrich/wire-projection.js";
 import type { AggregateIR, PageIR, WorkflowIR } from "../../../../ir/types/loom-ir.js";
 import { humanize, plural, snake } from "../../../../util/naming.js";
+import { routeSegmentFor } from "../../../../util/storage-names.js";
 import { renderGateExpr } from "../../../_frontend/gate-expr.js";
 import { JSX_NAV_LABELS, withNavLabelTokens } from "../../../_frontend/nav-labels.js";
 import {
@@ -66,7 +67,7 @@ export function defaultNavSections(
   sections.push({
     label: "Aggregates",
     entries: aggregates.map((a) => {
-      const slug = snake(plural(a.name));
+      const slug = routeSegmentFor(a.name);
       const requiresJs = gateForRoute(`/${slug}`);
       const entry: NavEntryVM = {
         to: `/${slug}`,
@@ -231,7 +232,7 @@ export function prepareAppShellVM(
 
   // Per-aggregate pages.
   for (const agg of aggregates) {
-    const slug = snake(plural(agg.name));
+    const slug = routeSegmentFor(agg.name);
     const cap = upperFirst(agg.name);
     // The `New` page (scaffold create form) is dropped for a read-only
     // aggregate with no REST create surface — `dropNonConstructibleNewPages`
