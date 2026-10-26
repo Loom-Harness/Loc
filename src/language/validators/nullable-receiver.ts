@@ -9,20 +9,21 @@
 // optional level and narrows each chain prefix a guard names, so the receiver
 // type a suffix sees is already the narrowed one; this check only reads it.
 //
-// Two reads are not dereferences:
+// Two kinds of read are not refused:
 //   - a FIELD read in a `ui` / `component` body: the frontends spell it
 //     null-safe (`p.budget?.amount`, `_frontend/optional-member.ts`), so a
 //     detail page reads an optional value object's leaves without a guard;
-//   - a test matcher (`expect(t.note).toBe("kept")`) asserts on the value,
-//     null included.
+//   - anything in a `test` body: a null there fails the test, which is what an
+//     assertion over the value (`expect(p.office.line1).toBe(…)`) means.
 
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
-import { isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
 import {
   isComponent,
   isMemberSuffix,
   isPostfixChain,
+  isTestBlock,
+  isTestE2E,
   isUi,
   type MemberSuffix,
   type Model,
@@ -38,8 +39,14 @@ function inFrontend(node: AstNode): boolean {
   );
 }
 
+function inTest(node: AstNode): boolean {
+  return (
+    AstUtils.getContainerOfType(node, isTestE2E) !== undefined ||
+    AstUtils.getContainerOfType(node, isTestBlock) !== undefined
+  );
+}
+
 function isDereference(recv: Ty & { kind: "optional" }, ms: MemberSuffix, frontend: boolean) {
-  if (ms.call && isIntrinsicMatcher(ms.member)) return false;
   const inner = recv.inner.kind;
   const fieldRead = !ms.call && (inner === "record" || inner === "valueobject" || inner === "id");
   return !(frontend && fieldRead);
@@ -47,6 +54,7 @@ function isDereference(recv: Ty & { kind: "optional" }, ms: MemberSuffix, fronte
 
 export function checkNullableReceivers(model: Model, accept: ValidationAcceptor): void {
   for (const chain of AstUtils.streamAllContents(model).filter(isPostfixChain)) {
+    if (inTest(chain)) continue;
     const typing = typingFor(chain);
     const frontend = inFrontend(chain);
     let recv = typing.synthAt(chain.head);

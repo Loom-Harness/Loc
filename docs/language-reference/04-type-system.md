@@ -628,7 +628,7 @@ field :notes, :string                 # migration: add :notes, :text, null: true
 ```
 ::: end
 
-**Nullable receivers.** Reading any member of a `T?` value — a field, `.length`, an intrinsic or a collection op — is rejected until the value is narrowed (`loom.nullable-receiver`). Every backend emits a bare dereference (`this._note.length` on a `string | null`) that the generated project's own compiler refuses or that crashes at runtime. A null-narrowing ternary narrows the path it tests, including a `this.` path:
+**Nullable receivers.** Reading any member of a `T?` value — a field, `.length`, an intrinsic or a collection op — is rejected until the value is narrowed (`loom.nullable-receiver`). Every backend emits a bare dereference (`this._note.length` on a `string | null`) that the generated project's own compiler refuses or that crashes at runtime. A null test narrows the path it tests (including a `this.` path) in the part of the expression it decides: a ternary's branch, and the later operands of an `&&` (`!= null`) or `||` (`== null`) chain:
 
 ```ddd
 aggregate Order {
@@ -638,6 +638,7 @@ aggregate Order {
   derived city:    string = shipTo.city                                // loom.nullable-receiver
   derived safe:    string = notes != null ? notes.trim() : ""          // OK — the ternary narrows
   derived size:    int    = this.notes != null ? this.notes.length : 0 // OK
+  invariant notes == null || notes.length <= 200                      // OK — the rule skips an absent value
 }
 ```
 

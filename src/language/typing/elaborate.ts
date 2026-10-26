@@ -1150,7 +1150,11 @@ export class Elaborator {
     for (let i = start; i < e.suffixes.length; i++) {
       const s = e.suffixes[i]!;
       cur = this.afterSuffix(cur, s, scope);
-      if (cur.kind === "optional") cur = this.narrowedPrefix(e, i, cur);
+      // The last suffix keeps its declared type: the whole chain is narrowed by
+      // `synth`, and a member's own type is what an emitter reads to decide
+      // whether its target can narrow the read itself.
+      if (cur.kind === "optional" && i < e.suffixes.length - 1)
+        cur = this.narrowedPrefix(e, i, cur);
       this.types.set(s, cur);
     }
     return cur;
@@ -1869,19 +1873,23 @@ function stringifiable(t: Ty): boolean {
   return false;
 }
 
-// Ternary null-narrowing (`x != null ? <x is T> : <x is T?>`).
+// Expression null-narrowing (`x != null ? <x is T> : <x is T?>`,
+// `x != null && <x is T>`, `x == null || <x is T>`).
 //
-// The null test sits in the ternary's condition, so every backend's `ternary`
-// leaf already renders a safe branch; narrowing only tells the checker so.
+// The null test sits in the same expression as the use, and every backend
+// renders a ternary and a short-circuit `&&` / `||` as such, so the use is
+// reached only when the test held; narrowing only tells the checker so.
 //
 // SCOPE, deliberately tight:
-//   • Only a DIRECT null comparison on the ternary's OWN condition:
-//     `<path> != null` / `null != <path>` narrows the THEN branch,
-//     `<path> == null` / `null == <path>` narrows the ELSE branch.
+//   • A null comparison that decides the use: `<path> != null` narrows a
+//     ternary's THEN branch and every later operand of the `&&` chain it is an
+//     operand of; `<path> == null` narrows the ELSE branch and every later
+//     operand of its `||` chain.  A ternary condition that is itself such a
+//     chain counts through its operands (`x != null && ok ? <x is T> : …`).
 //   • Only a SIMPLE PATH — a `this` / bare-name head plus plain member
 //     accesses.  `f().x` names no stable storage location, so it never narrows
 //     even when spelled identically twice.
-//   • No flow analysis: `&&` chains, `!`-negated tests, `precondition` guards,
+//   • No statement flow: `!`-negated tests, `precondition` guards,
 //     `let`-propagation and early-return guards do not narrow.
 //
 // SOUNDNESS.  Narrowing is sound only if the value cannot change between the
@@ -1894,7 +1902,8 @@ function stringifiable(t: Ty): boolean {
 // with `private operation bump(): string { path := null }` nulls the field
 // between the test and the use.  (A `function` cannot: it is gated pure by
 // `loom.function-block-impure`.)  So `branchBlocksNarrowing` refuses to narrow
-// any branch carrying a call it cannot prove pure.
+// any branch carrying a call it cannot prove pure — and, in a chain, any
+// operand between the test and the use carrying one.
 
 function simplePathKey(e: AstNode | undefined): string | undefined {
   if (!e) return undefined;
@@ -1931,6 +1940,32 @@ function condTestsNull(cond: AstNode | undefined, key: string, op: "==" | "!="):
   return simplePathKey(lNull ? r : l) === key;
 }
 
+/** Does `cond` being TRUE (`want` "!=") or FALSE (`want` "==") prove `key`
+ *  non-null?  The test itself, or one operand of the `&&` (resp. `||`) chain
+ *  `cond` is — the chain is true only when every conjunct is. */
+function decidesNonNull(cond: AstNode | undefined, key: string, want: "==" | "!="): boolean {
+  if (condTestsNull(cond, key, want)) return true;
+  const c = unparen(cond);
+  const join = want === "!=" ? "&&" : "||";
+  if (!c || !isBinaryChain(c) || !c.ops.every((o) => o === join)) return false;
+  return [c.head, ...c.rest].some((o) => decidesNonNull(o, key, want));
+}
+
+/** In the `&&` / `||` chain `chain`, is operand `child` reached only when an
+ *  earlier operand proved `key` non-null, with no impure call in between? */
+function narrowedInChain(chain: BinaryChain, child: AstNode, key: string): boolean {
+  const join = chain.ops[0];
+  if (join !== "&&" && join !== "||") return false;
+  const operands: AstNode[] = [chain.head, ...chain.rest];
+  const k = operands.indexOf(child);
+  const want = join === "&&" ? "!=" : "==";
+  for (let j = 0; j < k; j++) {
+    if (!decidesNonNull(operands[j], key, want)) continue;
+    if (operands.slice(j + 1, k + 1).every((o) => !branchBlocksNarrowing(o))) return true;
+  }
+  return false;
+}
+
 function branchBlocksNarrowing(branch: AstNode): boolean {
   const opNames = new Set<string>();
   for (let c: AstNode | undefined = branch; c; c = c.$container) {
@@ -1963,12 +1998,13 @@ function isNarrowedNonNull(node: AstNode, key: string): boolean {
       const inElse = parent.elseExpr === child;
       if (
         (inThen || inElse) &&
-        condTestsNull(parent.cond, key, inThen ? "!=" : "==") &&
+        decidesNonNull(parent.cond, key, inThen ? "!=" : "==") &&
         !branchBlocksNarrowing(child)
       ) {
         return true;
       }
     }
+    if (isBinaryChain(parent) && narrowedInChain(parent, child, key)) return true;
   }
   return false;
 }

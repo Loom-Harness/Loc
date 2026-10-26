@@ -44,8 +44,33 @@ describe("loom.nullable-receiver", () => {
     ["a guarded `this` path", "derived len: int = this.note != null ? this.note.length : 0"],
     ["a guarded value-object read", 'derived city: string = addr != null ? addr.city : ""'],
     ["the null branch of `== null`", "derived len: int = note == null ? 0 : note.length"],
+    ["a later `&&` operand", "derived some: bool = note != null && note.length > 0"],
+    ["a later `||` operand", "invariant note == null || note.length <= 10"],
+    [
+      "a ternary on an `&&` condition",
+      'derived up: string = note != null && name != "" ? note.toUpper() : ""',
+    ],
   ])("admits %s", async (_what, member) => {
     expect(await codes(member)).toEqual([]);
+  });
+
+  it.each([
+    ["an earlier `&&` operand", "derived some: bool = note.length > 0 && note != null"],
+    ["an `||` operand after `!= null`", "derived some: bool = note != null || note.length > 0"],
+    [
+      "the else branch of an `&&` condition",
+      'derived up: string = note != null && name != "" ? "" : note.toUpper()',
+    ],
+  ])("does not narrow %s", async (_what, member) => {
+    expect(await codes(member)).toEqual([NULLABLE]);
+  });
+
+  it("does not narrow across an operation call between the test and the use", async () => {
+    expect(
+      await codes(`
+        operation bump(): bool { note := null  return true }
+        derived some: bool = note != null && bump() && note.length > 0`),
+    ).toContain(NULLABLE);
   });
 
   it("does not narrow a different path than the one the guard tests", async () => {
