@@ -391,6 +391,8 @@ function tsClassify(label: string): ReadKind | undefined {
   const l = norm(label);
   if (["save", "delete", "insert", "update", "persist", "remove", "saveall"].includes(l))
     return "write";
+  // `findPage` is the polymorphic base reader's paged list (its count and its
+  // window): a root read carrying the same conjuncts as `findAll`.
   if (
     [
       "findbyid",
