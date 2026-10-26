@@ -117,6 +117,15 @@ jobs:
         working-directory: test/behavioral
         run: node pagination.mjs
 
+      # The polymorphic base read (`GET /api/<bases>`, TPH + TPC): a row filtered
+      # by the base's or by its own subtype's restriction is absent, every row
+      # carries its subtype's `type` tag, and order + paging are global across
+      # subtypes.  The DSL `test e2e` cannot reach an abstract base's route.
+      # Locally `PG_URL=postgres://… node polymorphic-read.mjs` runs it on Postgres.
+      - name: Run polymorphic base-read acceptance (TPH + TPC)
+        working-directory: test/behavioral
+        run: node polymorphic-read.mjs
+
       # A declared `create(…)`'s parameter list is the POST contract: post a
       # FORGED body (a `when`-gated `status`, `notes`, defaulted fields) to the
       # booted backend and assert each took its declared default.  The emitted
