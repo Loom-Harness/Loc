@@ -72,14 +72,20 @@ describe("notFound — per-backend emission raises the by-id miss's own error", 
 
   it("dotnet: AggregateNotFoundException", async () => {
     const files = await generateSystemFiles(on("dotnet"));
-    fileWith(files, 'throw new AggregateNotFoundException("no open ticket");');
-    fileWith(files, 'throw new AggregateNotFoundException("Ticket not found");');
+    for (const line of [
+      'throw new AggregateNotFoundException("no open ticket");',
+      'throw new AggregateNotFoundException("Ticket not found");',
+    ])
+      expect(fileWith(files, line)).toContain(line);
   });
 
   it("java: AggregateNotFoundException", async () => {
     const files = await generateSystemFiles(on("java"));
-    fileWith(files, 'throw new AggregateNotFoundException("no open ticket");');
-    fileWith(files, 'throw new AggregateNotFoundException("Ticket not found");');
+    for (const line of [
+      'throw new AggregateNotFoundException("no open ticket");',
+      'throw new AggregateNotFoundException("Ticket not found");',
+    ])
+      expect(fileWith(files, line)).toContain(line);
   });
 
   it("python: AggregateNotFoundError, imported", async () => {

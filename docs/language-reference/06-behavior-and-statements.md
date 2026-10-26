@@ -968,6 +968,25 @@ The two codes say different things on purpose. `loom.if-let-placement` is a **pe
 
 Before the gates landed, `operation touch() { for n in notes { owner := n } }` validated clean (`0 error(s), 0 warning(s)`) and every backend emitted a call to a method that does not exist — `this.<unknown>()` (node/.NET/Java), `self._<unknown>()` (Python), `_ = <unknown>(record)` (Elixir).
 
+## `notFound` — the not-found answer
+
+`notFound` / `notFound "detail"` ends a workflow or handler body with the standard ProblemDetails 404 — the same response a `getById` miss produces, because each backend raises its by-id read's own error (`AggregateNotFoundError` on node / python, `AggregateNotFoundException` on .NET / Java, the tagged `{:not_found, detail}` on Elixir). Its home is the `else` of an `if let` over a criterion read, which has no uniqueness guarantee and so no must-exist `get`:
+
+```ddd
+commandHandler EscalateOpen(customer: string) {
+  if let t = Tickets.find(OpenFor(customer)) { t.escalate() } else { notFound "no open ticket" }
+}
+```
+
+```ts
+// node (Hono)
+} else {
+  throw new AggregateNotFoundError("no open ticket");
+}
+```
+
+A bare `notFound` in an `if let` else names the lookup's aggregate (`Ticket not found`). Two placement rules: it is refused outside a workflow / handler body (`loom.not-found-placement` — an operation is called *by* a handler and refuses with `precondition` / `requires` / a declared `error` variant), and it must be the last statement of its block (`loom.not-found-unreachable` — anything after it can never run). See [`workflow.md`](../workflow.md).
+
 ## Choosing a callable kind
 
 Pick by *what the body must be allowed to touch*, not by what feels natural to write. Each row is a different capability set; the validators below enforce the "no" cells.
