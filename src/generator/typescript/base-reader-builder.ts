@@ -8,8 +8,8 @@
 // `GET /api/<bases>` route that answers it as a paged list of tagged rows.
 //
 // The read is the polymorphic-read fact (`polymorphicReadFor`,
-// `src/ir/enrich/read-scope.ts`) rendered on drizzle, which has no inheritance
-// mapping and no global filter, so every restriction is spelled here:
+// `src/ir/enrich/read-scope.ts`).  On drizzle, which has no inheritance mapping
+// and no global filter, every restriction is spelled in the reader:
 //
 //   - TPH: ONE select over the shared table.  The root's restrictions apply to
 //     every row; each concrete's own restrictions apply root-hosted and
@@ -20,6 +20,12 @@
 //   - TPC: one table per concrete, so the reader runs each concrete's own read
 //     (which applies that concrete's whole scope) and merges them in the one
 //     global order before it pages.
+//
+// On MikroORM the scope is declared on the entity schemas (single-table
+// inheritance + root-hosted default filters, see mikroorm-schema-filters.ts),
+// so the TPH reader is one `em.find(<Root>Row, {}, { orderBy, limit, offset })`
+// and states no restriction itself; the ORM hydrates each row as its subclass
+// and applies every concrete's guarded filter.
 
 import { type PolymorphicRead, polymorphicReadFor } from "../../ir/enrich/read-scope.js";
 import type {
@@ -33,6 +39,7 @@ import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, snake } from "../../util/naming.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
+import { rowClassOf } from "./emit/mikroorm-entities.js";
 import { isRefCollection } from "./repository-associations-builder.js";
 import { hydrateRootExpr } from "./repository-find-hydrate.js";
 import {
@@ -308,9 +315,11 @@ export function buildTpcBaseReaderFile(
   base: EnrichedAggregateIR,
   concretes: EnrichedAggregateIR[],
   read: PolymorphicRead,
+  persistence: "drizzle" | "mikroorm" = "drizzle",
 ): string {
+  const mikro = persistence === "mikroorm";
   const body = lines(
-    `type Db = NodePgDatabase<typeof schema>;`,
+    mikro ? `type Db = EntityManager;` : `type Db = NodePgDatabase<typeof schema>;`,
     "",
     `// Polymorphic ${base.name} reader (TPC / ownTable): each concrete's own read`,
     `// applies that concrete's whole scope; the reads merge in one global \`id\``,
@@ -351,11 +360,133 @@ export function buildTpcBaseReaderFile(
   return lines(
     "// Auto-generated.  Do not edit by hand.",
     ...derivedImports(body, [
-      { from: "drizzle-orm/node-postgres", types: ["NodePgDatabase"] },
-      { from: "../schema", namespace: "schema" },
+      mikro
+        ? { from: "@mikro-orm/postgresql", values: ["EntityManager"] }
+        : { from: "drizzle-orm/node-postgres", types: ["NodePgDatabase"] },
+      ...(mikro ? [] : [{ from: "../schema", namespace: "schema" }]),
       { from: "../../domain/events", types: ["DomainEventDispatcher"] },
       { from: "../../domain/ids", namespace: "Ids" },
       ...concretes.map((c) => ({ from: `../../domain/${lowerFirst(c.name)}`, values: [c.name] })),
+      ...concretes.map((c) => ({
+        from: `./${lowerFirst(c.name)}-repository`,
+        values: [repoCtor(c.name)],
+      })),
+      { from: `../../domain/${lowerFirst(base.name)}`, types: [base.name] },
+    ]),
+    "",
+    body,
+    "",
+  );
+}
+
+/** The read-only `<Base>Repository` for a TPH (`sharedTable`) hierarchy on
+ *  MikroORM: ONE `em.find` of the root's single-table-inheritance schema.  The
+ *  schema's default filters carry the root's restrictions and every concrete's
+ *  own (discriminator-guarded) ones, so this states none of them; the global
+ *  order (`id`) and the page window are the database's, over the whole
+ *  hierarchy.  Each row hydrates as the concrete its `kind` names. */
+export function buildMikroBaseReaderFile(
+  base: EnrichedAggregateIR,
+  concretes: EnrichedAggregateIR[],
+  ctx: EnrichedBoundedContextIR,
+  read: PolymorphicRead,
+): string {
+  const rootRow = rowClassOf(base.name);
+  const orderBy = `{ ${read.order.map((t) => `${t.field}: ${JSON.stringify(t.direction)}`).join(", ")} }`;
+  const byConcrete = new Map(concretes.map((c) => [c.name, c]));
+  const childLoaded = read.variants
+    .map((v) => byConcrete.get(v.aggregate)!)
+    .filter((c) => !hydratesFromRow(c));
+  const dispatchArms = read.variants.flatMap((v) => {
+    const c = byConcrete.get(v.aggregate)!;
+    const arm = JSON.stringify(v.discriminator);
+    return hydratesFromRow(c)
+      ? [
+          `        case ${arm}: {`,
+          `          const r = row as ${rowClassOf(c.name)};`,
+          `          return [${hydrateRootExpr(c, "r", ctx)}];`,
+          `        }`,
+        ]
+      : [
+          `        case ${arm}: {`,
+          `          const hit = ${lowerFirst(c.name)}ById.get(row.id);`,
+          `          return hit ? [hit] : [];`,
+          `        }`,
+        ];
+  });
+  const body = lines(
+    `// Polymorphic ${base.name} reader (TPH / sharedTable): ONE \`em.find\` of the`,
+    `// single-table-inheritance root.  The root schema's default filters apply the`,
+    `// root's restrictions and each subtype's own, kind-guarded, in one global`,
+    `// order; each row hydrates as its \`kind\`.`,
+    `// Read-only; writes go through the per-concrete repos.`,
+    `export class ${base.name}Repository {`,
+    `  private readonly em: EntityManager;`,
+    ...concretes.map((c) => `  private readonly ${repoField(c.name)}: ${repoCtor(c.name)};`),
+    `  constructor(em: EntityManager, events: DomainEventDispatcher) {`,
+    `    this.em = em;`,
+    ...concretes.map((c) => `    this.${repoField(c.name)} = new ${repoCtor(c.name)}(em, events);`),
+    `  }`,
+    "",
+    `  async findById(id: Ids.${base.name}Id): Promise<${base.name} | null> {`,
+    `    const em = this.em.fork({ keepTransactionContext: true });`,
+    `    const row = await em.findOne(${rootRow}, { id: id as string });`,
+    `    return row === null ? null : ((await this.hydrate([row]))[0] ?? null);`,
+    `  }`,
+    "",
+    `  async findAll(): Promise<${base.name}[]> {`,
+    `    const em = this.em.fork({ keepTransactionContext: true });`,
+    `    const rows = await em.find(${rootRow}, {}, { orderBy: ${orderBy} });`,
+    `    return this.hydrate(rows);`,
+    `  }`,
+    "",
+    `  async findPage(page: number, pageSize: number): Promise<{ items: ${base.name}[]; page: number; pageSize: number; total: number; totalPages: number }> {`,
+    `    const em = this.em.fork({ keepTransactionContext: true });`,
+    `    const total = await em.count(${rootRow}, {});`,
+    `    const totalPages = pageSize > 0 ? Math.ceil(total / pageSize) : 0;`,
+    `    const rows = await em.find(${rootRow}, {}, { orderBy: ${orderBy}, limit: pageSize, offset: (page - 1) * pageSize });`,
+    `    return { items: await this.hydrate(rows), page, pageSize, total, totalPages };`,
+    `  }`,
+    "",
+    ...toWireLines(base, read),
+    "",
+    `  private async hydrate(rows: ${rootRow}[]): Promise<${base.name}[]> {`,
+    ...childLoaded.flatMap((c) => [
+      `    const ${lowerFirst(c.name)}Ids = rows.filter((r) => r.kind === ${JSON.stringify(c.name)}).map((r) => Ids.${c.name}Id(r.id));`,
+      `    const ${lowerFirst(c.name)}ById = new Map((await this.${repoField(c.name)}.findManyByIds(${lowerFirst(c.name)}Ids)).map((a) => [a.id as string, a]));`,
+    ]),
+    `    return rows.flatMap((row): ${base.name}[] => {`,
+    `      switch (row.kind) {`,
+    ...dispatchArms,
+    `        default: return [];`,
+    `      }`,
+    `    });`,
+    `  }`,
+    `}`,
+  );
+  const scan = stripStringLiterals(body);
+  const voOrEnum = [
+    ...new Set(concretes.flatMap((c) => [...collectValueObjects(c, ctx), ...collectEnums(c, ctx)])),
+  ];
+  const isValueUsed = (n: string): boolean => new RegExp(`new\\s+${n}\\(|\\b${n}\\.\\w`).test(scan);
+  return lines(
+    "// Auto-generated.  Do not edit by hand.",
+    ...derivedImports(body, [
+      { from: "decimal.js", defaultName: "Decimal" },
+      { from: "@mikro-orm/postgresql", values: ["EntityManager"] },
+      {
+        from: "../entities",
+        values: [rootRow],
+        types: concretes.map((c) => rowClassOf(c.name)),
+      },
+      { from: "../../domain/events", types: ["DomainEventDispatcher"] },
+      { from: "../../domain/ids", namespace: "Ids" },
+      ...concretes.map((c) => ({ from: `../../domain/${lowerFirst(c.name)}`, values: [c.name] })),
+      {
+        from: "../../domain/value-objects",
+        values: voOrEnum.filter(isValueUsed),
+        types: voOrEnum.filter((n) => !isValueUsed(n)),
+      },
       ...concretes.map((c) => ({
         from: `./${lowerFirst(c.name)}-repository`,
         values: [repoCtor(c.name)],

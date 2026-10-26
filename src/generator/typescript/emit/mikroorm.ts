@@ -29,9 +29,5 @@ export {
   MIKRO_INTRINSIC_SQL,
   whereToMikroFilter,
 } from "./mikroorm-filter.js";
-export {
-  renderMikroBaseReader,
-  renderMikroRepository,
-  renderMikroTpcBaseReader,
-} from "./mikroorm-relational.js";
+export { renderMikroRepository } from "./mikroorm-relational.js";
 export { mikroBypassedFilters } from "./mikroorm-schema-filters.js";

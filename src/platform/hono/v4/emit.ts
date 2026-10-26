@@ -25,6 +25,7 @@ import {
   buildBaseReaderFile,
   buildBaseRoutesFile,
   buildBaseUnionFile,
+  buildMikroBaseReaderFile,
   buildTpcBaseReaderFile,
   routesPolymorphicRead,
 } from "../../../generator/typescript/base-reader-builder.js";
@@ -48,14 +49,12 @@ import {
   MIKRO_INDEX_IMPORTS,
   MIKRO_ORM_VERSION,
   mikroConnectionSetup,
-  renderMikroBaseReader,
   renderMikroConfig,
   renderMikroDocumentRepository,
   renderMikroEmbeddedRepository,
   renderMikroEntities,
   renderMikroEventSourcedRepository,
   renderMikroRepository,
-  renderMikroTpcBaseReader,
 } from "../../../generator/typescript/emit/mikroorm.js";
 import { emitMikroSeeds, emitTypescriptSeeds } from "../../../generator/typescript/emit/seed.js";
 import {
@@ -1383,12 +1382,12 @@ export function generateTypeScriptForContexts(
         "drizzle-repository",
         base.name,
         usingMikro
-          ? renderMikroBaseReader(base, concretes)
+          ? buildMikroBaseReaderFile(base, concretes, ctx, read)
           : buildBaseReaderFile(base, concretes, ctx, read),
         base.origin,
         baseConstruct,
       );
-      if (!usingMikro && routesPolymorphicRead(base, ctx)) {
+      if (routesPolymorphicRead(base, ctx)) {
         place(
           "http-routes",
           base.name,
@@ -1419,13 +1418,11 @@ export function generateTypeScriptForContexts(
       place(
         "drizzle-repository",
         base.name,
-        usingMikro
-          ? renderMikroTpcBaseReader(base, concretes)
-          : buildTpcBaseReaderFile(base, concretes, read),
+        buildTpcBaseReaderFile(base, concretes, read, usingMikro ? "mikroorm" : "drizzle"),
         base.origin,
         baseConstruct,
       );
-      if (!usingMikro && routesPolymorphicRead(base, ctx)) {
+      if (routesPolymorphicRead(base, ctx)) {
         place(
           "http-routes",
           base.name,

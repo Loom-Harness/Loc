@@ -185,11 +185,9 @@ export function renderHttpIndex(
     `import { ${a.name}Repository } from "../db/repositories/${lowerFirst(a.name)}-repository";`,
   ]);
   // Polymorphic base reads (aggregate-inheritance.md) — the paged
-  // `GET /api/<bases>` of each abstract base whose read is routed.  Drizzle
-  // only: the MikroORM reader does not yet render the polymorphic-read fact.
-  const routedBases = usingMikro
-    ? []
-    : ctx.aggregates.filter((a) => a.isAbstract && routesPolymorphicRead(a, ctx));
+  // `GET /api/<bases>` of each abstract base whose read is routed, on either
+  // persistence adapter.
+  const routedBases = ctx.aggregates.filter((a) => a.isAbstract && routesPolymorphicRead(a, ctx));
   const baseImports = routedBases.flatMap(baseRoutesImports);
   const baseRoutes = routedBases.map(baseRoutesMount);
   const aggregateRoutes = aggregates.map((a) => {

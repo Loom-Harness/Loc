@@ -252,9 +252,7 @@ function baseReads({ passes = [], pins = {} } = {}) {
  */
 export const BEHAVIOURAL_XFAIL = {
   node: {},
-  mikroorm: {
-    "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
-  },
+  mikroorm: {},
   dotnet: {
     "contained-part-rebuild": {
       issue: "#4136",

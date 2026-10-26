@@ -858,19 +858,39 @@ export function renderMikroEntities(
           `  abstract: true,`,
           `  discriminatorColumn: "kind",`,
           `  discriminatorMap: { ${concretes
-            .map(
-              (c) =>
-                `${JSON.stringify(discriminatorValue(c, aggs))}: ${JSON.stringify(rowClassOf(c.name))}`,
-            )
+            .map((c) => `${JSON.stringify(discriminatorValue(c, aggs))}: ${rowClassOf(c.name)}`)
             .join(", ")} },`,
         ]
       : [];
+    const taken = new Set(cols.map((c) => c.prop));
+    const concreteCols = concretes.map((c) => ({
+      agg: c,
+      cls: rowClassOf(c.name),
+      cols: tphConcreteColumns(c, agg, taken, ctx),
+    }));
+    // A TPH root's `discriminatorMap` names the concrete CLASSES, so every class
+    // of the hierarchy is declared before the first schema is built.
+    if (tph) {
+      blocks.push(
+        lines(
+          `export class ${cls} {`,
+          ...classFields,
+          `}`,
+          "",
+          ...concreteCols.flatMap((c) => [
+            `export class ${c.cls} extends ${cls} {`,
+            ...c.cols.map(
+              (col) => `  ${col.prop}!: ${col.tsType}${col.nullable ? " | null" : ""};`,
+            ),
+            `}`,
+            "",
+          ]),
+        ),
+      );
+    }
     blocks.push(
       lines(
-        `export class ${cls} {`,
-        ...classFields,
-        `}`,
-        "",
+        ...(tph ? [] : [`export class ${cls} {`, ...classFields, `}`, ""]),
         `export const ${schemaName} = new EntitySchema<${cls}>({`,
         `  class: ${cls},`,
         `  tableName: "${tableOf(agg.name)}",`,
@@ -884,23 +904,18 @@ export function renderMikroEntities(
         "",
       ),
     );
-    const taken = new Set(cols.map((c) => c.prop));
-    for (const concrete of concretes) {
-      const ccls = rowClassOf(concrete.name);
-      const cschema = `${ccls}Schema`;
-      const ccols = tphConcreteColumns(concrete, agg, taken, ctx);
+    // Each concrete is a subclass schema: only its own columns are declared, the
+    // table, discriminator and filters are the root's.
+    for (const c of concreteCols) {
+      const cschema = `${c.cls}Schema`;
       schemaNames.push(cschema);
       blocks.push(
         lines(
-          `export class ${ccls} extends ${cls} {`,
-          ...ccols.map((c) => `  ${c.prop}!: ${c.tsType}${c.nullable ? " | null" : ""};`),
-          `}`,
-          "",
-          `export const ${cschema} = new EntitySchema<${ccls}, ${cls}>({`,
-          `  class: ${ccls},`,
-          `  extends: ${schemaName},`,
+          `export const ${cschema} = new EntitySchema<${c.cls}, ${cls}>({`,
+          `  class: ${c.cls},`,
+          `  extends: ${cls},`,
           `  properties: {`,
-          ...ccols.map(mikroPropertyLine),
+          ...c.cols.map(mikroPropertyLine),
           `  },`,
           `});`,
           "",

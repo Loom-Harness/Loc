@@ -149,12 +149,13 @@ export function mikroSchemaFilterLines(
   const entry = (f: MikroSchemaFilter): string => {
     const name = JSON.stringify(f.name);
     if (f.guarded.length === 0) {
-      return `    ${name}: { cond: () => (${conj(f.base)}), default: true },`;
+      return `    ${name}: { name: ${name}, cond: () => (${conj(f.base)}), default: true },`;
     }
     // The concretes' conditions join per queried entity (see `guarded`).
     const rootRow = JSON.stringify(rowOf(host.name));
     return [
       `    ${name}: {`,
+      `      name: ${name},`,
       `      args: false,`,
       `      default: true,`,
       `      cond: (_args, _type, _em, _options, entity) => {`,

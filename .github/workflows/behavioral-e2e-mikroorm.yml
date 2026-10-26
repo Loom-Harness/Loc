@@ -12,7 +12,7 @@ name: Behavioral e2e — node/Hono (MikroORM)
 # systems), with one source transform: a `persistence: mikroorm` realization
 # clause injected onto the `platform: node` deployable before `generate system`.
 # So the drained MikroORM adapter gets the SAME runtime coverage as drizzle —
-# schema applies via `orm.schema.updateSchema()` at boot, CRUD round-trips —
+# schema applies via `orm.schema.update()` at boot, CRUD round-trips —
 # not merely tsc-compile coverage.
 #
 # Reuses the boot pattern from the cross-backend behavioral runners
@@ -108,7 +108,17 @@ jobs:
 
       # Boots the generated Hono/mikroorm backend as a real process (npm install
       # + `tsx index.ts`) against the Postgres sidecar and runs the emitted api
-      # e2e suite over HTTP. `updateSchema()` applies the schema at boot.
+      # e2e suite over HTTP. `schema.update()` applies the schema at boot.
       - name: Run node/mikroorm behavioral tier (api gate, real Postgres)
         working-directory: test/behavioral
         run: node run-mikroorm.mjs
+
+      # The polymorphic base read (`GET /api/<bases>`, TPH + TPC) on the MikroORM
+      # adapter: single-table inheritance + default filters must answer the same
+      # membership, tags, global `id` order and paging as the drizzle build.
+      - name: Run polymorphic base-read acceptance on MikroORM (TPH + TPC)
+        working-directory: test/behavioral
+        env:
+          PG_URL: postgres://postgres:postgres@localhost:5432/d
+          LOOM_POLY_PERSISTENCE: mikroorm
+        run: node polymorphic-read.mjs
