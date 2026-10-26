@@ -19,6 +19,7 @@ import type {
 } from "../../types/loom-ir.js";
 import { allContexts } from "../../types/loom-ir.js";
 import { walkWorkflowStmtsDeep } from "../../util/walk.js";
+import { handlerWrites, validateHandlerEffectVocabulary } from "./body-effect-vocabulary.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 /** Visit every workflow statement in `stmts`, descending into the nested
@@ -28,42 +29,6 @@ import type { LoomDiagnostic } from "./diagnostic.js";
  *  a third one lands. */
 function forEachStmtDeep(stmts: WorkflowStmtIR[], fn: (s: WorkflowStmtIR) => void): void {
   for (const s of stmts) walkWorkflowStmtsDeep(s, fn);
-}
-
-/** Does a workflow statement of this kind MUTATE — write state, create, delete,
- *  raise an event, or dispatch a command?
- *
- *  An exhaustive table rather than an `||` chain of `kind ===` tests: a new
- *  `WorkflowStmtIR` kind must be RULED ON here (`tsc` refuses a missing key)
- *  instead of defaulting to "read-only", which is the answer that makes
- *  `loom.query-handler-mutates` stop firing. */
-const MUTATING_WORKFLOW_STMT = {
-  assign: true,
-  "domain-service-call": true,
-  emit: true,
-  "factory-let": true,
-  "op-call": true,
-  "repo-delete": true,
-  "expr-let": false,
-  "for-each": false,
-  "if-let": false,
-  precondition: false,
-  "repo-let": false,
-  "repo-run": false,
-  requires: false,
-  "resource-call": false,
-} as const satisfies Record<WorkflowStmtIR["kind"], boolean>;
-
-/** True when a handler body performs any mutation — a save (an aggregate
- *  dirty at exit), an aggregate op-call, a factory create, an emitted event, a
- *  mutating domain-service call, or an own-state assignment. */
-function handlerMutates(h: CommandHandlerIR | QueryHandlerIR): boolean {
-  if (h.savesAtExit.length > 0) return true;
-  let mutates = false;
-  forEachStmtDeep(h.statements, (s) => {
-    if (MUTATING_WORKFLOW_STMT[s.kind]) mutates = true;
-  });
-  return mutates;
 }
 
 /** The distinct set of aggregates a handler body touches — every aggregate it
@@ -191,20 +156,9 @@ export function validateApplicationHandlers(ctx: BoundedContextIR, diags: LoomDi
       }
     }
   }
-  for (const q of ctx.queryHandlers ?? []) {
-    // An extern handler has no DSL body to analyse — its implementation lives in
-    // a scaffold-once user file — so the body-mutation gate doesn't apply.
-    if (q.extern) continue;
-    if (handlerMutates(q)) {
-      diags.push({
-        severity: "error",
-        code: "loom.query-handler-saves",
-        message: diagMessage("loom.query-handler-saves", { name: ctx.name, qName: q.name }),
-        source: `${ctx.name}/${q.name}`,
-        origin: ctx.origin,
-      });
-    }
-  }
+  // `loom.query-handler-saves` and `loom.workflow-mutation-unsaved`: each body
+  // against its position's effect vocabulary.
+  validateHandlerEffectVocabulary(ctx, diags);
   for (const c of ctx.commandHandlers ?? []) {
     // Extern: no DSL body, so the single-aggregate gate has nothing to count.
     if (c.extern) continue;
@@ -235,15 +189,15 @@ export function validateApplicationHandlers(ctx: BoundedContextIR, diags: LoomDi
  *  `loom.read-context-repo-write`). */
 const READ_ROUTE_METHODS = new Set(["GET"]);
 
-/** Whole-model: every `route` target must resolve to a `commandHandler`,
- *  `queryHandler`, or workflow `handle` member in the named context
+/** Whole-model: every `route` target must resolve to a `commandHandler`
+ *  or `queryHandler` member in the named context
  *  (`loom.route-handler-unresolved`).  The route's `target.context` is a real
  *  Langium cross-ref (already resolved), but the `handler` segment is a plain
  *  name the linker doesn't chase, so it's checked here.
  *
  *  Also gates `loom.read-context-repo-write` (read-path-architecture.md): a
  *  READ-method route (GET/HEAD) may not target a handler on the WRITE face — a
- *  mutating `commandHandler` or a workflow `handle`.  This generalises the
+ *  mutating `commandHandler`.  This generalises the
  *  shipped `reading`-tier read-only setting (`domain-service-no-repo-write`) and
  *  the `queryHandler` read-only gate (`query-handler-saves`) to the remaining
  *  read position — the api read route — so a read structurally cannot save. */
@@ -271,7 +225,6 @@ export function validateRoutes(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
         const handlerNames = new Set<string>([
           ...(ctx.commandHandlers ?? []).map((h) => h.name),
           ...(ctx.queryHandlers ?? []).map((h) => h.name),
-          ...ctx.workflows.flatMap((w) => (w.handlers ?? []).map((h) => h.name)),
         ]);
         if (!handlerNames.has(route.target.handler)) {
           diags.push({
@@ -288,18 +241,13 @@ export function validateRoutes(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
           continue;
         }
         // `loom.read-context-repo-write` — a READ-method route may only reach the
-        // read-only face (a `queryHandler`).  A mutating `commandHandler` or a
-        // workflow `handle` is the WRITE face, so a GET/HEAD bound to one lets a
+        // read-only face (a `queryHandler`).  A mutating `commandHandler` is the
+        // WRITE face, so a GET/HEAD bound to one lets a
         // read save — exactly what the `reading`-tier gate forbids in a service
         // body, generalised here to the transport edge.
         if (READ_ROUTE_METHODS.has((route.method ?? "").toUpperCase())) {
           const cmd = (ctx.commandHandlers ?? []).find((h) => h.name === route.target.handler);
-          const isWorkflowHandle = ctx.workflows.some((w) =>
-            (w.handlers ?? []).some((h) => h.name === route.target.handler),
-          );
-          const writes = (cmd && !cmd.extern && handlerMutates(cmd)) || isWorkflowHandle;
-          if (writes) {
-            const targetKind = isWorkflowHandle ? "workflow handle" : "commandHandler";
+          if (cmd && !cmd.extern && handlerWrites(ctx, cmd)) {
             diags.push({
               severity: "error",
               code: "loom.read-context-repo-write",
@@ -307,7 +255,6 @@ export function validateRoutes(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
                 name: api.name,
                 label,
                 method: route.method,
-                targetKind,
                 context: route.target.context,
                 handler: route.target.handler,
               }),

@@ -6,11 +6,10 @@
 // macros and the top-level composer share one source of truth.
 
 import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
 import type { Aggregate, Area, Expression, Page, Ui, Workflow } from "../../api/index.js";
 import { area, boolLit, callExpr, page, stringLit } from "../../api/index.js";
 import {
-  filterFindsForAggregate,
-  filterStateFields,
   listReadGateForAggregate,
   listShapeForAggregate,
   scaffoldDetailsParts,
@@ -21,7 +20,6 @@ import {
   scaffoldNewForm,
   scaffoldWorkflowForm,
   scaffoldWorkflowsIndex,
-  viewFindsForAggregate,
 } from "./_body-builders.js";
 import { dashboardFieldsFor, summableFields } from "./_dashboard-shared.js";
 import { cloneGateInliningPolicies } from "./_policy-inline.js";
@@ -96,11 +94,10 @@ function declaredFindAll(agg: Aggregate): { returnType: { ctors?: string[] } } |
 }
 
 export function pagesForAggregate(agg: Aggregate, ui: Ui): Page[] {
-  const pluralSnake = snake(plural(agg.name));
+  const pluralSnake = routeSegmentFor(agg.name);
   const aggName = agg.name;
   const labelPlural = humanize(plural(aggName));
   const apiHandle = firstApiHandle(ui);
-  const filters = filterFindsForAggregate(agg);
   // The `policy { read T requires … }` gate guards `GET /<aggs>` — the very
   // read this List page makes.  Same reasoning as the workflow-instance pages:
   // the nav link's visibility is rendered from the PAGE's gate, so without this
@@ -115,15 +112,13 @@ export function pagesForAggregate(agg: Aggregate, ui: Ui): Page[] {
       route: `/${pluralSnake}`,
       requires: listGate ? cloneGateInliningPolicies(listGate, agg) : undefined,
       // The full Breadcrumbs/Toolbar/QueryView/Table tree, emitted directly as
-      // unfoldable source (no IR-phase sentinel expansion).  The find-filter
-      // inputs bind to page state named by `filterStateFields`.
+      // unfoldable source (no IR-phase sentinel expansion).
       body: scaffoldList(aggName, list.columns, {
         apiHandle,
-        filters,
         paged: aggregateHasPagedFindAll(agg),
         label: list.label,
       }),
-      // Filter-bar state + the interactive-table sort/page state (M-T1.1):
+      // The interactive-table sort/page state (M-T1.1):
       // `sortKey`/`sortDir` (string-init "", unsorted) drive column sort;
       // `pageNum` (1-based int) drives the client-side pager.  Consumed on the
       // JSX frontends; Feliz/HEEx ignore the Table's sort/page args (plain
@@ -132,12 +127,7 @@ export function pagesForAggregate(agg: Aggregate, ui: Ui): Page[] {
       // (M-T1.3 Defect B), so a `page` state field parses and round-trips
       // through `unfold`.  Left as `pageNum` because renaming it is emitted-
       // output churn across six frontends for no behavioural gain.
-      state: [
-        ...filterStateFields(filters),
-        "sortKey",
-        "sortDir",
-        { name: "pageNum", type: "int", init: 1 } as const,
-      ],
+      state: ["sortKey", "sortDir", { name: "pageNum", type: "int", init: 1 } as const],
       menu: {
         section: stringLit("Aggregates"),
         label: stringLit(labelPlural),
@@ -164,56 +154,7 @@ export function pagesForAggregate(agg: Aggregate, ui: Ui): Page[] {
       ]),
       menu: { hidden: boolLit(true) },
     }),
-    ...viewPagesForAggregate(agg, apiHandle, list),
   ];
-}
-
-/** Page names a view page never takes: the per-aggregate area's role names,
- *  and the singleton names `classifyPage` reads as a dashboard wherever they
- *  sit. */
-const RESERVED_PAGE_NAMES: ReadonlySet<string> = new Set([
-  "List",
-  "New",
-  "Detail",
-  "Home",
-  "WorkflowsIndex",
-]);
-
-/** One read-only list page per parameterless list `find` the author declared
- *  (`viewFindsForAggregate`) — `find mine(): Ticket[]` becomes "Tickets: Mine"
- *  at `/tickets/views/mine`.  The author named the view, so it is a place to go:
- *  the page lists the find's rows with the List page's columns, gated by the
- *  find's own `requires`, and gets a sidebar entry beside the List.
- *
- *  The route sits under `views/` so it never competes with `/<plural>/:id` for
- *  a single segment (Angular matches routes in declaration order). */
-function viewPagesForAggregate(
-  agg: Aggregate,
-  apiHandle: string | undefined,
-  list: ReturnType<typeof listShapeForAggregate>,
-): Page[] {
-  const pluralSnake = snake(plural(agg.name));
-  const labelPlural = humanize(plural(agg.name));
-  return viewFindsForAggregate(agg).map((f) => {
-    const base = upperFirst(f.name);
-    const title = humanize(f.name);
-    return page({
-      name: RESERVED_PAGE_NAMES.has(base) ? `${base}View` : base,
-      route: `/${pluralSnake}/views/${snake(f.name)}`,
-      requires: f.gate ? cloneGateInliningPolicies(f.gate, agg) : undefined,
-      body: scaffoldList(agg.name, list.columns, {
-        apiHandle,
-        label: list.label,
-        paged: false,
-        view: { find: f.name, title },
-      }),
-      state: ["sortKey", "sortDir", { name: "pageNum", type: "int", init: 1 } as const],
-      menu: {
-        section: stringLit("Aggregates"),
-        label: stringLit(`${labelPlural}: ${title}`),
-      },
-    });
-  });
 }
 
 /** An event-triggered-only workflow (every `create` carries a `by`
@@ -352,7 +293,7 @@ export function homePage(
         .filter((agg) => !listReadGateForAggregate(agg))
         .map((agg) => ({
           label: humanize(plural(agg.name)),
-          route: `/${snake(plural(agg.name))}`,
+          route: `/${routeSegmentFor(agg.name)}`,
         })),
     }),
     menu: { hidden: boolLit(true) },

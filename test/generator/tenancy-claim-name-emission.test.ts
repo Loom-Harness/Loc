@@ -3,8 +3,8 @@
 // `tenancy by user.<claim>` is documented as taking any claim name, but the
 // `tenantOwned` capability hardcoded `currentUser.tenantId` on the principal
 // side of its stamp and filter — so the feature only worked when the author
-// happened to name the claim `tenantId`, which every fixture did.  Enrichment
-// now binds the declared claim (`bindTenancyClaim`).
+// happened to name the claim `tenantId`, which every fixture did.  The expander
+// now splices the declared claim (`resolveTenancyClaim`).
 //
 // This pins the emitted result on all five backends, because the IR-level test
 // (`test/ir/tenancy-claim-binding.test.ts`) cannot see a backend that reaches
@@ -57,9 +57,8 @@ system TenantClaimNameDeep {
         number: string
         amountDue: int
       }
-      repository Invoices for Invoice {
-        find byNumber(n: string): Invoice[] where this.number == n
-      }
+      repository Invoices for Invoice { }
+      criterion InvoicesByNumber(n: string) of Invoice = this.number == n
       policy {
         allow deep on Invoice
       }
@@ -118,10 +117,11 @@ describe("tenancy claim name — emitted principal reads follow the declaration"
     expect(ctx).not.toContain("_currentUser.User.TenantId");
   });
 
-  it("java: the JPQL principal accessor reads the DECLARED claim", async () => {
-    const repo = await emitted("java", /InvoiceJpaRepository\.java$/);
-    expect(repo).toContain("e.tenantId = :#{@currentUserAccessor.user()?.orgId()}");
-    expect(repo).not.toContain("user()?.tenantId()");
+  it("java: the tenant filter's parameter resolver reads the DECLARED claim", async () => {
+    const entity = await emitted("java", /features\/invoices\/Invoice\.java$/);
+    expect(entity).toContain("tenant_id = :__cuOrgId");
+    expect(entity).toContain("return __cu == null ? null : __cu.orgId();");
+    expect(entity).not.toContain("__cu.tenantId()");
   });
 
   it("elixir: the Ecto filter reads the DECLARED claim", async () => {
@@ -176,7 +176,7 @@ describe("tenancy claim name — emitted principal reads follow the declaration"
         "requireCurrentUser().orgId",
       ],
       ["python", /app\/db\/read_scope\.py$/, "user.org_path", "user.org_id"],
-      ["java", /InvoiceJpaRepository\.java$/, "user()?.orgPath()", "user()?.orgId()"],
+      ["java", /features\/invoices\/Invoice\.java$/, "__cu.orgPath()", "__cu.orgId()"],
       ["dotnet", /AppDbContext\.cs$/, "_currentUser.User.OrgPath", "_currentUser.User.OrgId"],
     ];
     for (const [platform, file, anchor, tenant] of cases) {

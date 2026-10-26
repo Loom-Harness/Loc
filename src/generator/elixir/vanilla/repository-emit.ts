@@ -27,6 +27,7 @@ import type {
   SystemIR,
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
+import { findRaisesNotFound } from "../../../ir/util/key-lookup.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
@@ -355,7 +356,7 @@ function renderRepository(
     ? `  @spec list(pos_integer(), pos_integer(), String.t(), String.t()${listPrincipal ? ", map() | nil" : ""}) :: {:ok, map()} | {:error, term()}
   def list(${listPagedArgs}) do
     query = ${listQuery}
-    total = Repo.aggregate(query, :count, :id${listOpts ? `, ${listOpts}` : ""})
+    total = Repo.aggregate(query, :count${listOpts ? `, ${listOpts}` : ""})
     offset = (page - 1) * page_size
 
     sort_col =
@@ -698,7 +699,7 @@ function renderFindFn(
     return `${spec}
   def ${fnName}(${headFor(query)}) do
     query = ${query}
-    total = Repo.aggregate(query, :count, :id${opts ? `, ${opts}` : ""})
+    total = Repo.aggregate(query, :count${opts ? `, ${opts}` : ""})
     offset = (page - 1) * page_size
 
     sort_col =
@@ -730,6 +731,20 @@ ${
        total: total,
        totalPages: if(page_size > 0, do: ceil(total / page_size), else: 0)
      }}
+  end`;
+  }
+
+  // A natural-key `getBy` answers the find-absence 404 (`{:error,
+  // :not_found}`, the term the by-id read answers), never `{:ok, nil}`.
+  if (findRaisesNotFound(f)) {
+    return `  @spec ${fnName}(${specArgs.join(", ")}) :: {:ok, ${aggModule}.t()} | {:error, :not_found}
+  def ${fnName}(${headFor(query)}) do
+    query = ${query}
+
+    case ${fetchCall} do
+      nil -> {:error, :not_found}
+      found -> {:ok, found}
+    end
   end`;
   }
 

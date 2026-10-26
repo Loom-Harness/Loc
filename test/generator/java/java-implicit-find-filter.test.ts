@@ -24,9 +24,9 @@ system FieldOps {
       }
       repository WorkOrders for WorkOrder {
         find byReference(reference: string): WorkOrder?
-        find byRegionAndRef(region: string, reference: string): WorkOrder[]
-        find bySite(siteId: Site id): WorkOrder[]
-        find inRegion(region: string): WorkOrder paged
+        find byRegionAndRef(region: string, reference: string): WorkOrder?
+        find bySite(siteId: Site id): WorkOrder?
+        find inRegion(region: string): WorkOrder?
         find explicitRef(r: string): WorkOrder? where this.reference == r
       }
       aggregate Note shape: document {
@@ -35,7 +35,7 @@ system FieldOps {
       }
       repository Notes for Note {
         find bySlug(slug: string): Note?
-        find bodies(body: string): Note paged
+        find bodies(body: string): Note?
       }
     }
     context Accounts {
@@ -68,19 +68,19 @@ async function file(rel: string): Promise<string> {
 }
 
 describe("java — a clause-less find applies its implicit key-match filter (N2)", () => {
-  it("JPA: single, multi-param, `<field>Id` and paged finds carry the where", async () => {
+  it("JPA: single, multi-param and `<field>Id` finds carry the where", async () => {
     const jpa = await file("workorders/WorkOrderJpaRepository.java");
     expect(jpa).toContain(
       `@Query("select e from WorkOrder e where e.reference = :reference")\n    WorkOrder byReference(`,
     );
     expect(jpa).toContain(
-      `@Query("select e from WorkOrder e where e.region = :region and e.reference = :reference")\n    List<WorkOrder> byRegionAndRef(`,
+      `@Query("select e from WorkOrder e where e.region = :region and e.reference = :reference")\n    WorkOrder byRegionAndRef(`,
     );
     expect(jpa).toContain(
-      `@Query("select e from WorkOrder e where e.site = :siteId")\n    List<WorkOrder> bySite(`,
+      `@Query("select e from WorkOrder e where e.site = :siteId")\n    WorkOrder bySite(`,
     );
     expect(jpa).toContain(
-      `@Query("select e from WorkOrder e where e.region = :region")\n    Page<WorkOrder> inRegion(`,
+      `@Query("select e from WorkOrder e where e.region = :region")\n    WorkOrder inRegion(`,
     );
   });
 
@@ -91,13 +91,13 @@ describe("java — a clause-less find applies its implicit key-match filter (N2)
     );
   });
 
-  it("document store: single and paged finds filter in-app", async () => {
+  it("document store: clause-less finds filter in-app", async () => {
     const impl = await file("notes/NoteRepositoryImpl.java");
     expect(impl).toContain(
       "findAll().stream().filter(x -> Objects.equals(x.slug(), slug)).findFirst().orElse(null);",
     );
     expect(impl).toContain(
-      "var all = findAll().stream().filter(x -> Objects.equals(x.body(), body)).toList();",
+      "findAll().stream().filter(x -> Objects.equals(x.body(), body)).findFirst().orElse(null);",
     );
     expect(impl).toContain("import java.util.Objects;");
   });

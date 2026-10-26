@@ -433,12 +433,30 @@ const CS_HELPERS: readonly Helper[] = [
   },
 ];
 
+/** A criterion read's predicate is reified ONCE per repository file as a
+ *  module-level `const <name>Criterion = (…) => <drizzle expr>;` and the
+ *  `run…` method calls it, so its conjuncts live in that definition. */
+const TS_CRITERION_HELPERS: readonly Helper[] = [
+  {
+    ref: /\b(\w+Criterion)\(/,
+    def: (n) => new RegExp(`const\\s+${esc(n)}\\s*=[^\\n]*`),
+  },
+];
+
+/** The EF `Run…` criterion read lifts query filters only when its CALLER
+ *  passes a bypass (`if (bypass.All) __q = __q.IgnoreQueryFilters(…);`, and the
+ *  per-capability `__ignore` branch).  That guarded lift is a lift for a
+ *  bypass-all site and none for any other. */
+const EF_GUARDED_LIFT =
+  /if \(bypass\.All\) __q = __q\.IgnoreQueryFilters\([^)]*\);|if \(__ignore\.Length > 0\) __q = __q\.IgnoreQueryFilters\(__ignore\);/g;
+
 export const LOCATORS: Record<VariantId, Locator> = {
   // ── Hono + Drizzle ────────────────────────────────────────────────────────
   node: {
     files: TS_FILES,
     openers: [TS_METHOD, TS_FUNCTION, TS_ROUTE_PATH, TS_ROUTE_CALL, TS_REGISTER],
     reads: [/\.from\((schema\.\w+)\)/],
+    helpers: TS_CRITERION_HELPERS,
     classify: tsClassify,
     carries: (f, site) =>
       f.kind === "deny"
@@ -493,9 +511,17 @@ export const LOCATORS: Record<VariantId, Locator> = {
       if (f.kind !== "deny" && carriesClaims(site.window, f, CS_PRINCIPAL)) return true;
       const name = efFilterName(f, agg, files);
       if (name === undefined) return false;
-      const lifted = /\.IgnoreQueryFilters\(\s*\)/.test(site.window)
+      const bypassAll = (site as Partial<ClassifiedSite>).bypass?.bypassAll === true;
+      // The deny carve-out is never bypassable, so a guarded lift that reaches
+      // it (a parameterless `IgnoreQueryFilters()` under `bypass.All`) is a
+      // defect at every site; only the bypassable conjuncts discount it.
+      const window =
+        bypassAll || f.kind === "deny"
+          ? site.window
+          : site.window.replace(EF_GUARDED_LIFT, "/*guarded lift*/");
+      const lifted = /\.IgnoreQueryFilters\(\s*\)/.test(window)
         ? true
-        : new RegExp(`\\.IgnoreQueryFilters\\(\\[[^\\]]*"${esc(name)}"`).test(site.window);
+        : new RegExp(`\\.IgnoreQueryFilters\\(\\[[^\\]]*"${esc(name)}"`).test(window);
       return !lifted;
     },
   },
@@ -506,6 +532,9 @@ export const LOCATORS: Record<VariantId, Locator> = {
     openers: [CS_METHOD()],
     reads: [/"[^"\n]*?\bFROM\s+(?:"?\w+"?\.)?"?(\w+)"?/i],
     helpers: CS_HELPERS,
+    // A criterion read assembles its conjuncts into `__caps` AHEAD of the
+    // `FROM` literal (`__caps.Add("1 = 0")`), so the window opens at the method.
+    preamble: true,
     classify: csClassify,
     carries: (f, site) => {
       if (f.kind === "deny")
@@ -525,12 +554,16 @@ export const LOCATORS: Record<VariantId, Locator> = {
   },
 
   // ── Spring Boot + JPA ─────────────────────────────────────────────────────
-  // Sites: JPQL `@Query` strings (the principal conjunct is per-query SpEL),
-  // `entityManager.createQuery` in the projection reads, the document
-  // repository's raw jdbc reads.  The deny carve-out is ENTITY-level
-  // (`@SQLRestriction("1 = 0")`, which no `disableFilter` can lift) — or, if it
-  // were ever rendered as a named `@Filter`, a site that disables that filter
-  // lifts it.
+  // Sites: JPQL `@Query` strings, `entityManager.createQuery` in the
+  // projection reads, the document repository's raw jdbc reads.  A principal
+  // (tenancy) conjunct is ENTITY-level: an auto-enabled Hibernate `@Filter`
+  // whose condition binds the claim as a `:__cu<Claim>` parameter, on the
+  // aggregate's entity or (TPH) its root — carried by every query of that
+  // entity except one that `disableFilter`s it.  A document read renders it
+  // in-app, and a native read inline.  The deny carve-out is ENTITY-level too
+  // (`@SQLRestriction("1 = 0")`, which no `disableFilter` can lift) — or, if
+  // it were ever rendered as a named `@Filter`, a site that disables that
+  // filter lifts it.
   java: {
     files: (p) => p.endsWith(".java") && !/\/src\/test\//.test(p),
     openers: [JAVA_METHOD, JAVA_QUERY_METHOD],
@@ -567,6 +600,12 @@ export const LOCATORS: Record<VariantId, Locator> = {
     classify: javaClassify,
     preamble: true,
     carries: (f, site, agg, files) => {
+      // The write scope is the entity's `<Agg>_writeScope` filter, which is not
+      // auto-enabled: only a command load that ENABLES it carries it.
+      if (f === agg.writeScope) {
+        const name = javaWriteScopeFilter(agg, files);
+        if (name) return new RegExp(`enableFilter\\("${esc(name)}"\\)`).test(site.window);
+      }
       if (f.kind === "deny") {
         // Inline at the site: a JPQL `and 1 = 0` (the write scope) or an
         // in-app `&& (false)` (a document read).
@@ -578,6 +617,12 @@ export const LOCATORS: Record<VariantId, Locator> = {
           : null;
         if (named) return !new RegExp(`disableFilter\\("${esc(named[1]!)}"\\)`).test(site.window);
         return false;
+      }
+      const filters = javaPrincipalFilterNames(f, agg, files);
+      if (filters.length > 0) {
+        // A Spring Data `@Query` runs under whatever its impl caller disabled.
+        const scope = `${site.window}\n${javaCallerWindow(site, files)}`;
+        return !filters.some((n) => new RegExp(`disableFilter\\("${esc(n)}"\\)`).test(scope));
       }
       return carriesClaims(
         site.window,
@@ -813,6 +858,8 @@ function javaClassify(label: string): ReadKind | undefined {
   )
     return "root";
   if (l === "rehydrateall") return "helper";
+  // The polymorphic base read (`<Bases>Controller`): `all<Base>`, `get<Base>ById`.
+  if (/^all\w+$/.test(l) || /^get\w+byid$/.test(l)) return "root";
   // Java's `getById` is the COMMAND load (a command handler's load-then-
   // mutate path; the GET route reads `findById`), so it answers to the write
   // scope when there is one — `jpa.findByIdForWrite`.
@@ -866,6 +913,74 @@ function efFilterName(
     }
   }
   return undefined;
+}
+
+/** The write-scope filter `agg`'s entity (or, TPH, its root) declares. */
+function javaWriteScopeFilter(
+  agg: AggFacts,
+  files: ReadonlyMap<string, string>,
+): string | undefined {
+  const want = `${agg.name}_writeScope`;
+  const seen = new Set<string>();
+  let name: string | undefined = agg.name;
+  while (name && !seen.has(name)) {
+    seen.add(name);
+    const entity = javaEntityFile({ ...agg, name }, files);
+    if (!entity) return undefined;
+    if (entity.includes(`@FilterDef(name = "${want}", autoEnabled = false`)) return want;
+    name = /\bclass\s+\w+\s+extends\s+(\w+)/.exec(entity)?.[1];
+  }
+  return undefined;
+}
+
+/** The impl method that calls a Spring Data repository method — where the
+ *  `disableFilter` of a bypassing read lives.  Empty for any other site. */
+function javaCallerWindow(site: ReadSite, files: ReadonlyMap<string, string>): string {
+  if (!site.file.endsWith("JpaRepository.java")) return "";
+  const call = new RegExp(`\\bjpa\\.${esc(site.scope)}\\(`);
+  for (const [p, text] of files) {
+    if (!p.endsWith("RepositoryImpl.java")) continue;
+    const m = call.exec(text);
+    if (!m) continue;
+    const start = text.lastIndexOf("\n    public ", m.index);
+    const end = text.indexOf("\n    }\n", m.index);
+    return text.slice(Math.max(0, start), end < 0 ? undefined : end);
+  }
+  return "";
+}
+
+/** The names of the auto-enabled Hibernate `@Filter`s that carry principal
+ *  conjunct `f` for `agg`: a filter on the aggregate's entity, or on an entity
+ *  it `extends` (a TPH concrete's are hosted on the root), whose condition
+ *  binds every claim of `f` as a `:__cu<Claim>` parameter. */
+function javaPrincipalFilterNames(
+  f: FilterFact,
+  agg: AggFacts,
+  files: ReadonlyMap<string, string>,
+): string[] {
+  if (f.claims.length === 0) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  let name: string | undefined = agg.name;
+  while (name && !seen.has(name)) {
+    seen.add(name);
+    const entity = javaEntityFile({ ...agg, name }, files);
+    if (!entity) break;
+    for (const m of entity.matchAll(
+      /@Filter\(name\s*=\s*"(\w+)",\s*condition\s*=\s*"([^"]*)"\)/g,
+    )) {
+      const cond = m[2] ?? "";
+      if (
+        f.claims.every((c) =>
+          new RegExp(`:__cu(?:Subtree|IsNull|Name)?${esc(pascal(c))}(?:AsUuid)?\\b`).test(cond),
+        )
+      ) {
+        out.push(m[1]!);
+      }
+    }
+    name = /\bclass\s+\w+\s+extends\s+(\w+)/.exec(entity)?.[1];
+  }
+  return out;
 }
 
 function javaEntityFile(agg: AggFacts, files: ReadonlyMap<string, string>): string | undefined {
@@ -1297,7 +1412,6 @@ export function gateFacts(model: LoomModel): GateFact[] {
             ...wf.creates
               .filter((c) => c.triggerKind === "command")
               .map((c) => ({ name: c.name ?? "create", stmts: c.statements })),
-            ...(wf.handlers ?? []).map((h) => ({ name: h.name, stmts: h.statements })),
           ];
           for (const e of entries) {
             for (const src of workflowRequiresIn(e.stmts)) {

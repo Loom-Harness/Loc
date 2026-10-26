@@ -73,6 +73,11 @@ describe("java generator — project shell (S1)", () => {
     expect(yml).toContain("open-in-view: false");
   });
 
+  it("application.yml turns off Flyway's transactional lock, which would block CREATE INDEX CONCURRENTLY", async () => {
+    const yml = (await files()).get("shop_api/src/main/resources/application.yml")!;
+    expect(yml).toMatch(/flyway:\n {4}postgresql:\n {6}transactional-lock: false/);
+  });
+
   it("emits a multi-stage Gradle Dockerfile", async () => {
     const docker = (await files()).get("shop_api/Dockerfile")!;
     expect(docker).toContain("FROM gradle:9-jdk25 AS build");

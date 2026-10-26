@@ -12,6 +12,7 @@ import type {
 } from "../ir/types/loom-ir.js";
 import { intrinsicMatcherSig } from "../util/intrinsic-matchers.js";
 import { escapeTsIdent, lowerFirst, plural, snake, upperFirst } from "../util/naming.js";
+import { routeSegmentFor } from "../util/storage-names.js";
 import { DURATION_UNIT_MS } from "../util/temporal.js";
 import { renderExpectStmt } from "./expect-stmt.js";
 
@@ -624,7 +625,7 @@ function renderAggregateCall(
   const agg = findAggregateBySlug(call.aggregateSlug, ctx.contexts);
   if (!agg) {
     const known = ctx.contexts
-      .flatMap((c) => c.aggregates.map((a) => snake(plural(a.name))))
+      .flatMap((c) => c.aggregates.map((a) => routeSegmentFor(a.name)))
       .sort()
       .join(", ");
     throw new Error(
@@ -683,7 +684,7 @@ function renderOperationCall(
 ): string {
   if (args.length < 1) {
     throw new Error(
-      `ui e2e: ui.${snake(plural(agg.name))}.${op.name}(target, body?) requires a target argument`,
+      `ui e2e: ui.${routeSegmentFor(agg.name)}.${op.name}(target, body?) requires a target argument`,
     );
   }
   const cap = upperFirst(agg.name);
@@ -709,7 +710,7 @@ function findAggregateBySlug(slug: string, contexts: BoundedContextIR[]): Aggreg
   for (const c of contexts) {
     for (const a of c.aggregates) {
       if (lowerFirst(a.name) === slug) return a;
-      if (snake(plural(a.name)) === slug) return a;
+      if (routeSegmentFor(a.name) === slug) return a;
       if (lowerFirst(plural(a.name)) === slug) return a;
     }
   }

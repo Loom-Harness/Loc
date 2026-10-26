@@ -28,7 +28,7 @@ system Shop {
     context Catalog {
       aggregate Product { name: string }
       repository Products for Product {
-        find byName(q: string): Product[] where this.name == q.trim()
+        find byName(q: string): Product? where this.name == q.trim()
       }
     }
   }
@@ -57,7 +57,7 @@ system Shop {
         derived slug: string = name.trim().toLower()
       }
       repository Products for Product {
-        find byNameCi(q: string): Product[] where this.name.toLower() == q
+        find byNameCi(q: string): Product? where this.name.toLower() == q
       }
     }
   }
@@ -101,10 +101,10 @@ system Shop {
         derived weightCeil: decimal = weight.ceil()
       }
       repository Products for Product {
-        find byRoundedPrice(q: money): Product[] where this.price.round(2) == q
-        find byWholeWeight(q: decimal): Product[] where this.weight.round() == q
-        find byMinQty(q: int): Product[] where this.qty.min(5) == q
-        find byNormalizedWeight(q: decimal): Product[] where this.weight == q.round(1)
+        find byRoundedPrice(q: money): Product? where this.price.round(2) == q
+        find byWholeWeight(q: decimal): Product? where this.weight.round() == q
+        find byMinQty(q: int): Product? where this.qty.min(5) == q
+        find byNormalizedWeight(q: decimal): Product? where this.weight == q.round(1)
       }
     }
   }

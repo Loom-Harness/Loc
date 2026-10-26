@@ -85,7 +85,7 @@ describe("elixir/vanilla — abstract base reader applies the concretes' read re
     expect(repo).toContain(
       "query = from(record in Api.Fleet.Vehicle.base_query(), where: record.kind in ^Map.keys(@kinds))",
     );
-    expect(repo).toContain("Repo.aggregate(query, :count, :id, current_user: current_user)");
+    expect(repo).toContain("Repo.aggregate(query, :count, current_user: current_user)");
     expect(repo).toContain("|> order_by([record], asc: record.id)");
     expect(repo).toContain("|> Enum.map(&as_concrete/1)");
     // Never a concrete repository, and never a spelled restriction.

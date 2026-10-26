@@ -15,14 +15,14 @@
 
 import type { ExprIR } from "../../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
-import { humanize, lowerFirst, plural, snake } from "../../../util/naming.js";
+import { humanize, lowerFirst } from "../../../util/naming.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
 import { giveUp } from "../../_walker/give-up.js";
 import { localizedPageChromeText, localizedPageChromeValue } from "../../_walker/i18n-emit.js";
 import { emitActionThen } from "../../_walker/primitives/controls.js";
 import { renderPrimitive } from "../../_walker/render-primitive.js";
 import { namedArgValue, stringNamed } from "../../_walker/shared/args.js";
 import type { WalkContext } from "../../_walker/walker-core.js";
-
 export function renderVueDestroyForm(
   call: ExprIR,
   ctx: WalkContext,
@@ -76,7 +76,7 @@ export function renderVueDestroyForm(
     thenJs = emitActionThen(thenArg, ctx);
   } else {
     ctx.usesNavigate = true;
-    thenJs = `navigate(${JSON.stringify(`/${snake(plural(agg.name))}`)})`;
+    thenJs = `navigate(${JSON.stringify(`/${routeSegmentFor(agg.name)}`)})`;
   }
   // The prompt and the button label are emitter-built chrome: `chrome.*` keys
   // with the entity name as an ICU hole, as on every frontend.
@@ -89,7 +89,7 @@ export function renderVueDestroyForm(
     `const ${handlerName} = () => { if (window.confirm(${confirmMsg})) void ${localVar}.mutateAsync(id ?? "").then(() => { ${thenJs}; }); };`,
   );
 
-  const testidNamespace = stringNamed(call, "testid") ?? `${snake(plural(agg.name))}-destroy`;
+  const testidNamespace = stringNamed(call, "testid") ?? `${routeSegmentFor(agg.name)}-destroy`;
   ctx.collectedTestids.add(testidNamespace);
   return renderPrimitive(ctx, "primitive-button", {
     label: localizedPageChromeText(ctx, "deleteEntity", [

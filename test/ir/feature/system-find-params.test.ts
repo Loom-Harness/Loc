@@ -50,8 +50,8 @@ describe("System builder — repository find params", () => {
   it("reads the return type", () => {
     expect(findReturnSpec(parse(sales), "Orders", "byCustomer")).toEqual({
       base: { kind: "named", target: "Order" },
-      array: true,
-      optional: false,
+      array: false,
+      optional: true,
     });
   });
 

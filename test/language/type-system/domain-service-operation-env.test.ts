@@ -3,7 +3,7 @@
 //
 // `DomainServiceOperation` is its own grammar rule (`stmts+=Statement*`), NOT an
 // `Operation` (`body+=Statement*`).  `envForNode` had arms for Operation,
-// FunctionDecl, FindDecl, Create, HandleDecl, Page, Component, Criterion,
+// FunctionDecl, FindDecl, Create, Page, Component, Criterion,
 // Retrieval and PolicyDecl — and none for it, so inside a service body NO
 // parameter was bound and NO `let` was typed.  Every receiver came back
 // `unknown`, and because each type-based validator suppresses on `unknown`
@@ -78,7 +78,7 @@ const SRC = `
       // these on main, so whatever this column reports is the correct answer
       // the service column must match.
       operation inAggregate(t: string, oid: Owner id) {
-        let arr = Owners.byTier(t)
+        let arr = Owners.run(OwnersByTier(t))
         let maybeOwner = Owners.byLabel(t)
         let one = Owners.getById(oid)
         label := t
@@ -86,15 +86,15 @@ const SRC = `
     }
 
     repository Owners for Owner {
-      find byTier(tier: string): Owner[] where this.tier == tier
       find byLabel(label: string): Owner? where this.label == label
     }
+    criterion OwnersByTier(tier: string) of Owner = this.tier == tier
 
     domainService Probe {
       // THE SUBJECT.  Byte-for-byte the same params and lets, in a
       // 'domainService' operation instead.
       operation inService(t: string, oid: Owner id): bool {
-        let arr = Owners.byTier(t)
+        let arr = Owners.run(OwnersByTier(t))
         let maybeOwner = Owners.byLabel(t)
         let one = Owners.getById(oid)
         return t != null
@@ -182,9 +182,8 @@ function twoPositionSrc(expr: string): { agg: string; svc: string } {
       label: string
       operation probe(oid: Owner id) { ${body}  ${aggStmt} }
     }
-    repository Owners for Owner {
-      find byTier(tier: string): Owner[] where this.tier == tier
-    }
+    repository Owners for Owner { }
+    criterion OwnersByTier(tier: string) of Owner = this.tier == tier
     domainService Probe {
       operation probe(oid: Owner id): bool { ${body}  ${svcStmt} }
     }

@@ -577,16 +577,6 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/java/explicit-handlers-emit.ts#reposUsed": DELEGATES_TO_SANCTIONED_WALKER,
   "src/generator/python/explicit-handlers-emit.ts#walk": DELEGATES_TO_SANCTIONED_WALKER,
   "src/generator/python/workflows-builder.ts#visit": DELEGATES_TO_SANCTIONED_WALKER,
-  // Already rides `walkExprDeep`; the flagged three-arm chain is the per-node
-  // NAME EXTRACTION layered on top ("which callable / member does this node
-  // name?"), not a dispatch that has to cover every kind.  A node kind it does
-  // not name contributes nothing to a set used only to SUPPRESS a warning
-  // (`loom.scaffold-filter-param-dropped`), so the worst case is the warning
-  // firing where the author had in fact bound the find — advisory, and in the
-  // noisy direction.  STANDING: the site is already in the shape the
-  // convention asks for.
-  "src/ir/validate/checks/ui-page-structure-checks.ts#namesReadByBody":
-    DELEGATES_TO_SANCTIONED_WALKER,
 
   // --- CR1-f: the former `THROWING_DISPATCHER` bucket, per-site ------------
   // 32 in, 27 out (+1 new, for this packet's own gate).  FIVE waivers DELETED, not rewritten — `mermaid.ts`'s two,
@@ -621,7 +611,7 @@ const WAIVERS: Record<string, Waiver> = {
   // `loom.context-filter-no-principal`, which refuses the one shape the
   // `authz-filter` arm cannot render statically (a principal-referencing
   // `scope` filter).
-  "src/generator/java/render-sql-restriction.ts#renderSqlRestriction": STANDING_QUERYABLE_SUBSET,
+  "src/generator/java/render-sql-restriction.ts#renderSql": STANDING_QUERYABLE_SUBSET,
   // Migration backfill expressions, not find predicates: bounded by
   // `loom.migration-expr-unsupported` (migration-checks.ts) BEFORE phase ⑨
   // renders them, and the residue routes through `refuseOutOfVocabulary`, so

@@ -10,9 +10,9 @@ system Catalog {
         total: int
       }
       repository Orders for Order {
-        find byCustomer(customerId: string): Order[] where this.customerId == customerId
         find latest(): Order?
       }
+      criterion OrdersByCustomer(customerId: string) of Order = this.customerId == customerId
     }
   }
   api CatalogApi from Core

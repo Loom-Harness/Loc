@@ -8,6 +8,7 @@ import {
   repoOpVerb,
   repositoryVerb,
   repoVerbOp,
+  resolveKeyTuple,
 } from "../../src/util/repository-contract.js";
 
 // The declared repository contract is the one table typing, lowering, the IR
@@ -25,6 +26,8 @@ describe("the contract table", () => {
     expect(Object.fromEntries(REPOSITORY_CONTRACT.map((c) => [c.verb, c.op]))).toStrictEqual({
       getById: "load",
       findById: "load-optional",
+      getBy: "load-by-key",
+      findBy: "load-by-key-optional",
       find: "select-one",
       findAll: "select-many",
       all: "select-many",
@@ -46,6 +49,8 @@ describe("the contract table", () => {
     }
     expect(repoOpResult("load")).toBe("row");
     expect(repoOpResult("load-optional")).toBe("optional-row");
+    expect(repoOpResult("load-by-key")).toBe("row");
+    expect(repoOpResult("load-by-key-optional")).toBe("optional-row");
     expect(repoOpResult("select-one")).toBe("optional-row");
     expect(repoOpResult("select-many")).toBe("rows");
     expect(repoOpResult("remove")).toBe("none");
@@ -95,6 +100,37 @@ describe("named repository calls", () => {
   it("a reference-taking verb is not resolved by name alone", () => {
     expect(namedRepoCallOp("find", false)).toBeUndefined();
     expect(namedRepoCallOp("run", false)).toBeUndefined();
+  });
+
+  it("a natural-key verb is not resolved by name alone (its tuple decides the method)", () => {
+    expect(namedRepoCallOp("getBy", false)).toBeUndefined();
+    expect(namedRepoCallOp("findBy", false)).toBeUndefined();
+  });
+});
+
+describe("natural-key tuple resolution", () => {
+  const tuples = [["sku"], ["region", "name"]];
+
+  it("matches a tuple exactly, in any argument order, in declared column order", () => {
+    expect(resolveKeyTuple(["sku"], tuples)).toEqual({ kind: "match", tuple: ["sku"] });
+    expect(resolveKeyTuple(["name", "region"], tuples)).toEqual({
+      kind: "match",
+      tuple: ["region", "name"],
+    });
+  });
+
+  it("reports a partial tuple with its missing columns", () => {
+    expect(resolveKeyTuple(["name"], tuples)).toEqual({
+      kind: "incomplete",
+      tuple: ["region", "name"],
+      missing: ["region"],
+    });
+  });
+
+  it("reports a positional argument, and a name set no tuple covers", () => {
+    expect(resolveKeyTuple([undefined], tuples)).toEqual({ kind: "positional" });
+    expect(resolveKeyTuple(["sku", "name"], tuples)).toEqual({ kind: "not-unique" });
+    expect(resolveKeyTuple(["sku"], [])).toEqual({ kind: "not-unique" });
   });
 });
 

@@ -242,12 +242,26 @@ and elixir has no `document` shape at all.  See *Deferred cases* below.
   `document` aggregate filters in-app over the rehydrated instance.
 - **Java / Hibernate** — a static `@SQLRestriction("…")` on the
   entity for the non-principal predicate (`src/generator/java/emit/entity.ts`);
-  a **principal** predicate instead AND-s a SpEL-principal JPQL clause
-  (`:#{@currentUserAccessor.user()?.tenantId()}`) into the scoped
-  `findAll`/`findById` overrides + finds/retrievals.  A
+  a **principal** predicate (tenancy) is an auto-enabled `@Filter` whose
+  claims are `@ParamDef` parameters, each resolved from the request
+  principal per query (`CurrentUserAccessor.currentOrNull()`; no principal
+  binds null and matches no row) — so it scopes every query of the entity,
+  Spring Data's `findAll`/`existsById` and the `bumpVersion` update
+  included, and no `@Query` spells it.  A write scope narrower than the read
+  scope is a `<Agg>_writeScope` filter the command load enables.  A
   **non-relational** aggregate filters in-app via `findAll().stream()`
   for `document`, or rides the same `@SQLRestriction` for an `embedded`
-  root.
+  root.  A capability some read `ignoring`s is instead an auto-enabled,
+  by-key named filter (`@FilterDef(autoEnabled = true, applyToLoadByKey =
+  true)` + `@Filter`) that the bypassing read disables.  Under TPH every
+  restriction is hosted on the ROOT entity: the root's own unguarded, each
+  concrete's own guarded by `kind` (a subtype's filter is named
+  `<Concrete>_<cap>`), because Hibernate refuses `@SQLRestriction` on a
+  SINGLE_TABLE subclass and applies a subclass `@Filter` only to queries of
+  that subclass, never to `from <Base>` or `find(<Base>.class, id)`
+  (`src/generator/java/capability-filter.ts` `restrictionHostFor`).  A
+  restricted aggregate's `findById` is a JPQL query: a primary-key `find` of
+  a row the session already manages runs no SQL, so no restriction applies.
 - **Phoenix / Ecto** — the schema module hosts the read scope
   (`src/generator/elixir/vanilla/read-scope-emit.ts`): `base_query/0`
   carries the TPH `kind` and the restrictions no `ignoring` can drop, and
@@ -458,8 +472,9 @@ contributed it, whether `ignoring` can drop it, where it is declared, and, for
 fact also gives each concrete's own filters in root-hosted form, guarded by the
 discriminator (`kind <> 'Car' OR <pred>`). A read that declares no order is ordered
 by `id` (`readOrderFor`). Today the node/drizzle read paths take their
-restrictions and their default order from this fact. The other backends still
-derive them from the IR arrays.
+restrictions and their default order from this fact, and Java/Hibernate takes
+its entity restrictions from it. The other backends still derive them from the
+IR arrays.
 
 ## Relationship to macros
 

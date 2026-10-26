@@ -76,7 +76,7 @@ context Sales {
 | `let x = Repo.<find>(args)` | Call any repo-declared find whose return is a single non-nullable aggregate.  A plain `let` can't bind an array or nullable result. |
 | `let xs = Repo.run(<Retrieval>(args), page?)` / `let xs = Repo.findAll(<Criterion>, page?)` | Bind an aggregate **array**; consumable only by a `for` loop. |
 | `for x in xs { ... }` | Iterate an aggregate array, binding each element to `x`; per-iteration mutations save inside the loop. |
-| `if let x = Repo.find(<Criterion>) { ... } else { ... }` / `if let x = Repo.<find>(args) { ... }` | Look up a **single** aggregate by criterion (the shared `findAllBy<Criterion>` retrieval, capped at one row) or through a declared optional `find` (`T?`).  `x` is bound (non-null) only in the then-branch; `else` runs on no match.  The body's only option/null-handling construct.  `else` is optional. |
+| `if let x = Repo.find(<Criterion>) { ... } else { ... }` / `if let x = Repo.findBy(<col>: v, ...) { ... }` | Look up a **single** aggregate by criterion (the shared `findAllBy<Criterion>` retrieval, capped at one row), by a declared `unique (…)` key (`findBy`), or through a declared optional `find` (`T?`).  `x` is bound (non-null) only in the then-branch; `else` runs on no match.  The body's only option/null-handling construct.  `else` is optional. |
 | `name.opName(args)` | Invoke a public operation on a let-bound aggregate.  The op's own preconditions / invariants run inside that call. |
 | `let x = expr` | Plain expression binding. |
 | `emit EventName { field: expr, ... }` | Workflow-level event.  Event must be declared in the same context.  Drains through `IDomainEventDispatcher` after all saves (after commit when `transactional`). |
@@ -196,30 +196,43 @@ declared `find`).  The else-branch may create a fallback aggregate
 (`let s = Seat.create({...})`); branch-local creations / mutations save at the
 end of their branch.
 
-The source may also be a **declared optional find** — `if let o =
-Orders.byCode(c.code) { … }` over `find byCode(c: string): Order?`.  The
-generated code calls the repository's own find (no retrieval is synthesised)
-and branches on presence, exactly as above; the same form works in a
-`commandHandler` / `queryHandler` body.  Any other source (`getById`, a
-non-optional or union-valued find) is `loom.iflet-bad-source`.
+The source may also be a **natural-key read** — `if let o =
+Orders.findBy(code: c.code) { … }` over an aggregate declaring `unique (code)`
+([chapter 10](language-reference/10-repositories-and-queries.md#natural-key-reads--getby--findby)).
+The generated code calls the repository's `findByCode` method (derived from the
+call; no retrieval is synthesised) and branches on presence, exactly as above;
+the same form works in a `commandHandler` / `queryHandler` body, and a trailing
+`ignoring …` widens the read.  A declared optional find (`find byCode(c:
+string): Order?`) is the older spelling of the same source.  Any other source
+(`getById`, `getBy`, a non-optional or union-valued find) is
+`loom.iflet-bad-source`.  A row the body must have reads with
+`let o = Orders.getBy(code: c.code)` — a miss answers the standard 404.
 
 ```ddd
 commandHandler BumpByCode(code: string, n: int) {
-  if let hit = Orders.byCode(code) { hit.bump(n) }
+  if let hit = Orders.findBy(code: code) { hit.bump(n) }
 }
 ```
 
 ```ts
 // node (Hono) — the handler body
-const hit = await orders.byCode(code);
+const hit = await orders.findByCode(code);
 if (hit !== null) {
   hit.bump(n);
   await orders.save(hit);
 }
 ```
 
+```python
+# python (FastAPI) — the handler body
+hit = await orders.find_by_code(code)
+if hit is not None:
+    hit.bump(n)
+    await orders.save(hit)
+```
+
 Own-state assignment (`field := value`) — writing one of the workflow's own
-declared state fields — is allowed inside a `create` / `handle` / `on` body; it
+declared state fields — is allowed inside a `create` / `on` body; it
 mutates the persisted saga-instance row (`attempts := 1`).  The compound mutation
 forms (`+=`, `-=`) and any cross-aggregate write (`order.status := …`) belong to
 aggregate operation bodies and stay rejected inside a workflow.  An *event-sourced*
@@ -236,7 +249,7 @@ dance the auto HTTP route does), and can't `findById` (use
 
 A workflow is a state-bearing entity like an aggregate, so it carries the same
 private-helper member: a `function`.  It factors a shared, side-effect-free
-expression out of the `create` / `handle` / `on` bodies that use it:
+expression out of the `create` / `on` bodies that use it:
 
 ```ddd
 workflow FulfillOrder {
@@ -392,7 +405,28 @@ has) — return the id and read the record back, or use a `commandHandler`.
 - **State needs a key.**  A command `create` that assigns workflow state
   on a workflow with no id-shaped state field is an error,
   `loom.workflow-uncorrelated-state-write`: without a correlation key no
-  instance row is kept, so no later step could read the write.
+  instance row is kept, so no later step could read the write.  Reading
+  that state (`precondition total == 0`) is an error for the same reason,
+  `loom.workflow-uncorrelated-state-read`: there is no instance to read.
+- **A mutation needs a save.**  Every aggregate a body mutates must be one
+  the exit save (or a loop's / branch's save) writes.  A mutating call
+  whose result is bound — `let r = a.withdraw(x)`, or
+  `let r = Transfer.run(src, dst, x)` on a `mutating` domain service — is
+  not saved yet, so it is an error, `loom.workflow-mutation-unsaved`;
+  write the call as its own statement.  The same code refuses a mutation
+  of a local that is neither created nor loaded from a repository, and an
+  aggregate passed to a mutating service as an expression rather than a
+  bound local.
+- **Three spellings, one create.**  `Agg.create(a, b)` (positional),
+  `Agg.create(x: a, y: b)` (named) and `Agg.create({ x: a, y: b })`
+  (record) are the same factory call, created and saved alike.  Positions
+  bind to the aggregate's create input in order: the parameters of its
+  declared `create(…)` (`with crudish` declares one from the writable
+  fields), else its properties minus the `managed` / `token` / `internal`
+  ones; trailing inputs may be left out when they are optional or
+  defaulted.  More positions than inputs, positional and named arguments
+  mixed, a name that is not an input, or a name given twice is
+  `loom.workflow-create-args`.
 - **Aggregate-level events** (raised inside an operation via `emit`)
   drain through the aggregate's repository save.  In a
   non-transactional workflow each save commits on its own, so its
@@ -613,13 +647,13 @@ is members-only — `workflow X { create(...) { ... } }`):
 | Member | Trigger |
 | --- | --- |
 | `create [name](params) [by <expr>] { ... }` | A starter.  The parameter shape discriminates the trigger (resolved at lowering): positional domain params synthesise an implicit command; a single payload param (`create(c: PlaceOrder)`) is an explicit command; a single event param with a `by` clause (`create(e: OrderPlaced) by e.order`) is event-triggered. |
-| `handle name(params) { ... }` | **Not implemented — refused by the compiler** (`loom.workflow-handle-unsupported`).  Parses and reaches the IR, but no backend emits a route, a handler, or a method for it, so a saga could be started and read and never advanced.  See [below](#handle-is-refused-not-shipped). |
 | `on(e: Event) [by <expr>] { ... }` | An external-event reactor. |
 
+A named command entry that is not a starter is a context-level
+`commandHandler`, not a workflow member — see [below](#there-is-no-handle).
+
 A `create` parameter may be typed by an **event** or a
-**payload** (`command` / `query` / `response` / `error`) named directly
-(`handle` accepts the same parameter forms grammatically, but is refused — see
-below):
+**payload** (`command` / `query` / `response` / `error`) named directly:
 
 ```ddd
 command SettleOrder { order: Order id, note: string }
@@ -633,36 +667,44 @@ workflow Fulfillment {
 }
 ```
 
-### `handle` is refused, not shipped
-
-`handle name(params) { ... }` parses and type-checks, and **no backend has ever
-emitted anything for it** — searching a generated tree for the handler's name
-finds only the mermaid diagram.  This page previously advertised it as the
-multi-command saga surface; that was wrong, and a model using it compiled into a
-saga that could be started and read (`/instances`, `/instances/{id}`) but never
-advanced, with no diagnostic (audit #2864 D5).
-
-The compiler now refuses it outright rather than emitting silence:
-
-```
-error: workflow 'Review': 'handle approve(…)' is not emitted by any backend …
-```
-
-Model a continuation one of the two ways that do work today:
-
-* **as an aggregate `operation`** — the aggregate owns the state transition, and
-  the operation gets a route on every backend; or
-* **as a second workflow** started by the event the first one emits.
-
-Whether Loom grows real multi-command sagas is a deferred feature decision
-(mission **M-T6.58**), not a documentation gap.
-
 The bound parameter is a flat transport record: `paid.amount` resolves
 to the field's declared type and is type-checked like any other
 expression (`paid.amount == "x"` is a type error).  These transport
-types are in scope **only** in `create` / `handle` parameter positions —
+types are in scope **only** in `create` parameter positions (and a
+`commandHandler` / `queryHandler` contract) —
 elsewhere a bare event/payload name stays unresolved.  See the
 [language reference](language.md#type-references).
+
+### There is no `handle`
+
+A workflow has no `handle name(params) { … }` member
+([D-HANDLE-REMOVAL](decisions.md#d-handle-removal--workflow-handle-is-removed-commandhandler-is-the-named-command-entry)).
+It had no correlation surface — nothing said *which* saga instance a call
+continued — and no backend ever emitted a route for it.  A named command entry
+is a context-level `commandHandler`, which every backend routes:
+
+```ddd
+// before — no longer parses               // after
+workflow Settle {                          workflow Settle {
+  create(orderId: Order id) { … }            create(orderId: Order id) { … }
+  handle close(orderId: Order id) {        }
+    let o = Orders.getById(orderId)        commandHandler close(orderId: Order id) {
+    o.close()                                let o = Orders.getById(orderId)
+  }                                          o.close()
+}                                          }
+```
+
+A leftover `handle` is a parse error naming the replacement.
+`node scripts/codemod-workflow-handle.mjs <path>` lifts each `handle` into a
+`commandHandler` after its workflow, and leaves in place — marked
+`// codemod-workflow-handle: not lifted — <reason>` — the ones with no faithful
+rewrite: a body that reads the workflow's own state or helpers, a handle of an
+`eventSourced` workflow, a `requires` gate (a `commandHandler` takes none; gate
+the aggregate operation it calls), a parameter named `id`, a body reaching more
+than one aggregate, or a name another handler of the context already holds.
+Model those continuations as an aggregate `operation` (the aggregate owns the
+state transition, and the operation gets a route on every backend), or as a
+second workflow started by the event the first one emits.
 
 > **Principal.** A reactor / event starter has no request, so it runs as the
 > **system principal** ([D-REACTOR-SYSTEM-PRINCIPAL](decisions.md#d-reactor-system-principal--event-reactors-run-as-a-tenant-scoped-system-principal)): `currentUser.isSystem` is true, every claim is

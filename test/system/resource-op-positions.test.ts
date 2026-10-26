@@ -42,9 +42,8 @@ system RP {
         name: string
         operation place() { emit OrderPlaced { orderRef: id, label: name } }
       }
-      repository Orders for Order {
-        find byName(name: string): Order[] where this.name == name
-      }
+      repository Orders for Order { }
+      criterion OrdersByName(name: string) of Order = this.name == name
       event OrderPlaced { orderRef: Order id  label: string }
       ${ctxBody}
     }
@@ -91,16 +90,9 @@ const POSITIVE_CASES: Record<string, Case> = {
       on(e: OrderPlaced) by e.orderRef { salesFiles.put("k/" + e.label, e.label) }
     }`,
   },
-  "HandleIR.statements": {
-    body: `workflow track {
-      orderRef: Order id
-      create(o: Order id) { orderRef := o }
-      handle stash(name: string) { salesFiles.put("k/" + name, name) }
-    }`,
-  },
   "CommandHandlerIR.statements": {
     body: `commandHandler Stash(name: string): int {
-      let matches = Orders.byName(name)
+      let matches = Orders.run(OrdersByName(name))
       salesFiles.put("k/" + name, name)
       return matches.count
     }`,
@@ -108,7 +100,7 @@ const POSITIVE_CASES: Record<string, Case> = {
   },
   "QueryHandlerIR.statements": {
     body: `queryHandler Peek(name: string): int {
-      let matches = Orders.byName(name)
+      let matches = Orders.run(OrdersByName(name))
       let blob = salesFiles.get("k/" + name)
       return matches.count
     }`,
@@ -158,7 +150,7 @@ const REFUSED_CASES: Record<string, Case> = {
   },
   "CommandHandlerIR.returnValue": {
     body: `commandHandler Stash(name: string): json? {
-      let matches = Orders.byName(name)
+      let matches = Orders.run(OrdersByName(name))
       return salesFiles.get("k/" + name)
     }`,
     api: `route POST "/stash/{name}" -> Sales.Stash`,

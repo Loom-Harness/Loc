@@ -62,7 +62,8 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import { errorTypeUri } from "../../util/error-defaults.js";
-import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { giveUp } from "../_walker/give-up.js";
 import type { WalkerTarget } from "../_walker/target.js";
@@ -80,7 +81,6 @@ import { dartType } from "./dart-types.js";
 import { dartNavigateArgs, flutterTarget } from "./flutter-target.js";
 import { flutterPack } from "./pack.js";
 import { storeProviderName } from "./store-names.js";
-
 /** The projected Riverpod triad for one stateful page. */
 export interface RiverpodProjection {
   /** Provider variable name (`counterProvider`). */
@@ -425,7 +425,7 @@ function renderVariantMatchNotifier(
     );
   }
   const bc = contexts.find((c) => c.aggregates.some((a) => a.name === agg.name));
-  const coll = snake(plural(agg.name));
+  const coll = routeSegmentFor(agg.name);
   const opPath = snake(op.routeSlug ?? op.name);
   // Request payload — the op's params filled from the awaited call's positional
   // args (matching the op signature; validated upstream by loom.match-await-*).

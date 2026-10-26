@@ -302,17 +302,14 @@ export function checkUnknownMemberAccess(model: Model, accept: ValidationAccepto
         // declare the claim in `user { }`, not to correct a typo on a domain
         // record, and the message has to say so.
         //
-        // SOURCE-WRITTEN ACCESSES ONLY (`ms.$cstNode`).  The `tenantOwned`
-        // prelude capability splices `currentUser.tenantId` as a PLACEHOLDER —
-        // the claim it really binds is `tenancy by user.<claim>`, and the
-        // rewrite happens in phase ⑥ (`bindTenancyClaim`), long after this
-        // validator runs.  Under `tenancy by user.orgId`, that placeholder is
-        // by construction not a declared claim, and reporting it would fail
-        // every hierarchical-tenancy model in the corpus at 1:1 with a
-        // diagnostic naming text the author never wrote.  A capability /
-        // macro splice carries no CST node; a hand-written access always does,
-        // and where a macro CLONES a user expression the original still
-        // carries its own CST and is reported exactly once.
+        // SOURCE-WRITTEN ACCESSES ONLY (`ms.$cstNode`).  A capability / macro
+        // splice carries no CST node, and a claim it reads is not text the
+        // author wrote: the `tenantOwned` capability reads the claim
+        // `tenancy by user.<claim>` declares, or `tenantId` when the workspace
+        // declares no tenancy, and the tenancy checks own that pairing.  A
+        // hand-written access always has a CST node, and where a macro CLONES
+        // a user expression the original still carries its own CST and is
+        // reported exactly once.
         const claims = ms.$cstNode ? absentUserClaim(recvType, ms.member) : undefined;
         if (claims) {
           accept(
@@ -501,13 +498,11 @@ export function checkAvgProjection(model: Model, accept: ValidationAcceptor): vo
 
 /** `<vo>.equals(other)` (src/util/value-object-intrinsics.ts) — the same
  *  call-shape judgements `checkIntrinsicCalls` makes for a scalar intrinsic,
- *  under the same `loom.intrinsic-*` codes: a call (not a bare member), on a
- *  non-null receiver, with exactly one positional argument of the SAME value
- *  object type.  Fail-open on an `unknown` argument.  Returns true when it
+ *  under the same `loom.intrinsic-*` codes: a call (not a bare member), with
+ *  exactly one positional argument of the SAME value object type.  Fail-open on an `unknown` argument.  Returns true when it
  *  reported (the caller stops walking the chain). */
 function checkValueObjectEquals(
   ms: MemberSuffix,
-  recvType: Ty,
   vo: Extract<Ty, { kind: "valueobject" }>,
   env: Env,
   accept: ValidationAcceptor,
@@ -521,17 +516,6 @@ function checkValueObjectEquals(
         signature: signature.split("):")[0],
       }),
       { node: ms, property: "member", code: "loom.intrinsic-bare" },
-    );
-    return true;
-  }
-  if (recvType.kind === "optional") {
-    accept(
-      "error",
-      diagMessage("loom.intrinsic-nullable-receiver", {
-        member: ms.member,
-        recv: typeToString(recvType),
-      }),
-      { node: ms, property: "member", code: "loom.intrinsic-nullable-receiver" },
     );
     return true;
   }
@@ -576,16 +560,11 @@ function checkValueObjectEquals(
  *  types as `unknown` (anti-double-reporting, like the operand checks).
  *
  *  NULLABLE RECEIVERS.  A `T?` receiver is UNWRAPPED before the catalogue is
- *  consulted, and the nullability is then judged on its own.  Before this,
- *  the whole function was skipped on an optional receiver (`recvType.kind`
- *  was `"optional"`, never `"primitive"`), so `s.totallyMadeUp("")` was
- *  rejected on a `string` and silently ACCEPTED on a `string?` — the same
- *  call, the same garbage emission, one of them un-gated.  Unwrapping
- *  restores the whole catalogue check; the deref itself is then rejected by
- *  `loom.intrinsic-nullable-receiver`, because every backend emits a bare
- *  deref (`this.path.trim()` on a `string | null`) that the generated
- *  project's own compiler rejects, or that crashes at runtime.  The guarded
- *  form — `x != null ? x.trim() : …` — narrows and passes. */
+ *  consulted, so `s.totallyMadeUp("")` is the same `loom.intrinsic-unknown`
+ *  on a `string?` as on a `string`.  A member that DOES exist on a `T?`
+ *  receiver is `checkNullableReceivers`' site (`loom.nullable-receiver`, one
+ *  rule for every member); its arity and arguments are not judged here too,
+ *  so the site carries one diagnostic. */
 export function checkIntrinsicCalls(model: Model, accept: ValidationAcceptor): void {
   for (const node of AstUtils.streamAllContents(model)) {
     if (!isPostfixChain(node)) continue;
@@ -594,8 +573,7 @@ export function checkIntrinsicCalls(model: Model, accept: ValidationAcceptor): v
     let recvType = typeOf(chain.head, env);
     for (const suffix of chain.suffixes) {
       // A single optional level is transparent to member RESOLUTION (as it
-      // already is in `absentRecordMember` / `membersOfType`); whether the
-      // deref is legal is a separate judgement, made below.
+      // already is in `absentRecordMember` / `membersOfType`).
       const bare = recvType.kind === "optional" ? recvType.inner : recvType;
       const nullableReceiver = recvType.kind === "optional";
       if (
@@ -604,27 +582,15 @@ export function checkIntrinsicCalls(model: Model, accept: ValidationAcceptor): v
         bare.ref !== undefined &&
         isValueObjectEqualsIntrinsic(bare.ref.members, (suffix as MemberSuffix).member)
       ) {
-        if (checkValueObjectEquals(suffix as MemberSuffix, recvType, bare, env, accept)) break;
+        if (nullableReceiver) break;
+        if (checkValueObjectEquals(suffix as MemberSuffix, bare, env, accept)) break;
       } else if (isMemberSuffix(suffix) && bare.kind === "primitive") {
         const ms = suffix as MemberSuffix;
         const sig = intrinsicFor(bare.name, ms.member);
         // `matches` is the string regex operation — not a catalogue row, but
         // a real call that derefs its receiver exactly like one.
         const isStringMatches = bare.name === "string" && ms.member === "matches";
-        if ((sig || isStringMatches) && ms.call && nullableReceiver) {
-          // A REAL intrinsic on a possibly-null receiver — an unguarded
-          // deref.  Reported instead of the arity/arg checks below (one
-          // diagnostic per site; the receiver is the primary defect).
-          accept(
-            "error",
-            diagMessage("loom.intrinsic-nullable-receiver", {
-              member: ms.member,
-              recv: typeToString(recvType),
-            }),
-            { node: ms, property: "member", code: "loom.intrinsic-nullable-receiver" },
-          );
-          break;
-        }
+        if ((sig || isStringMatches) && nullableReceiver) break;
         if (sig) {
           if (!ms.call) {
             accept(

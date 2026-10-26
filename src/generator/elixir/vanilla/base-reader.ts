@@ -135,7 +135,7 @@ defmodule ${baseModule}Repository do
 
 ${listHead}
     query = from(record in ${baseModule}.base_query(), where: record.kind in ^Map.keys(@kinds))
-    total = Repo.aggregate(query, :count, :id, current_user: current_user)
+    total = Repo.aggregate(query, :count, current_user: current_user)
     offset = (page - 1) * page_size
 
     items =
@@ -192,7 +192,7 @@ end
     return `      fn window ->
         query = ${mod}.base_query()
 
-        {Repo.aggregate(query, :count, :id, current_user: current_user),
+        {Repo.aggregate(query, :count, current_user: current_user),
          query |> order_by([record], asc: record.id) |> limit(^window) |> Repo.all(current_user: current_user)}
       end`;
   });

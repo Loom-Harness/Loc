@@ -1,5 +1,5 @@
 // The policy read gate on a find route, Python/FastAPI (D-AUTH-OIDC / default-deny).  A
-// `policy { read T requires <expr> }` over a `find f(): T[] where <pred>` emits a 403 gate at the top of
+// `policy { read T requires <expr> }` over a `find f(…): T? where <pred>` emits a 403 gate at the top of
 // the `GET /<plural>/<f>` route — the read-side twin of the view gate —
 // evaluated against the request's currentUser before the query.  ForbiddenError
 // maps to 403 via the app exception handler.  Ungated → no gate.
@@ -14,7 +14,7 @@ function src(findClause: string): string {
     subdomain Sales { context Tickets {
       aggregate Ticket { subject: string  open: bool }
       repository Tickets for Ticket {
-        find openOnes(): Ticket[] where open == true${findClause ? `\n}\npolicy { read Ticket ${findClause}` : ""}
+        find bySubject(s: string): Ticket? where this.subject == s${findClause ? `\n}\npolicy { read Ticket ${findClause}` : ""}
       }
     } }
     storage primary { type: postgres }
@@ -40,9 +40,9 @@ describe("python find requires gate", () => {
     expect(rf).toContain("from app.auth.user import User");
     expect(rf).toContain("    current_user: User = request.state.current_user");
     expect(rf).toContain('    if not (current_user.role == "agent"):');
-    expect(rf).toContain('        raise ForbiddenError("Forbidden: find openOnes")');
+    expect(rf).toContain('        raise ForbiddenError("Forbidden: find bySubject")');
     const gateIdx = rf.indexOf("raise ForbiddenError");
-    const queryIdx = rf.indexOf("await repo.open_ones()");
+    const queryIdx = rf.indexOf("await repo.by_subject(");
     expect(gateIdx).toBeGreaterThan(0);
     expect(queryIdx).toBeGreaterThan(gateIdx);
   });
@@ -55,6 +55,6 @@ describe("python find requires gate", () => {
   it("`requires true` emits an always-pass gate without threading the principal", async () => {
     const rf = await routesFile("requires true ");
     expect(rf).toContain("    if not (True):");
-    expect(rf).toContain('        raise ForbiddenError("Forbidden: find openOnes")');
+    expect(rf).toContain('        raise ForbiddenError("Forbidden: find bySubject")');
   });
 });

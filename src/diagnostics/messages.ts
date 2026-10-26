@@ -189,6 +189,38 @@ export const DIAGNOSTIC_MESSAGES = {
     `Unknown builder type '${p.name}'. Expected a ValueObject, EntityPart, user-defined component, or stdlib walker primitive (e.g., Stack, CreateForm, Card).`,
 
   // ----------------------------------------------------------------------
+  // src/language/validators/repo-key-lookup.ts
+  // ----------------------------------------------------------------------
+  "loom.repo-key-not-unique": (p: {
+    repo: unknown;
+    verb: unknown;
+    cols: unknown;
+    agg: unknown;
+    declared: unknown;
+    suggestion: unknown;
+  }) =>
+    `'${p.repo}.${p.verb}(${p.cols})': (${p.cols}) is not a declared unique key of '${p.agg}'. ` +
+    (p.declared
+      ? `Its unique keys are ${p.declared}.${p.suggestion ? ` Did you mean '${p.repo}.${p.verb}(${p.suggestion})'?` : ""} `
+      : `'${p.agg}' declares no 'unique (…)' key. `) +
+    `'${p.verb}' reads ONE row by a natural key, so its named arguments must equal a ` +
+    `'unique (…)' tuple — otherwise two rows can share the key and the read returns whichever ` +
+    `the database yields first. Declare 'unique (${p.cols})' on '${p.agg}', or read a list with ` +
+    `'${p.repo}.findAll(<Criterion>)'.`,
+  "loom.repo-key-incomplete": (p: {
+    repo: unknown;
+    verb: unknown;
+    agg: unknown;
+    tuple: unknown;
+    missing: unknown;
+  }) =>
+    `'${p.repo}.${p.verb}' names part of the unique key (${p.tuple}) of '${p.agg}' but not ` +
+    `${p.missing}. Every column of the tuple is required: a partial key can match many rows.`,
+  "loom.repo-key-incomplete#positional": (p: { repo: unknown; verb: unknown; agg: unknown }) =>
+    `'${p.repo}.${p.verb}' takes NAMED arguments, one per column of a declared unique key of ` +
+    `'${p.agg}' ('${p.repo}.${p.verb}(sku: s)'); a positional argument names no column.`,
+
+  // ----------------------------------------------------------------------
   // src/language/validators/bypass-placement.ts
   // ----------------------------------------------------------------------
   "loom.ignoring-clause-placement": (p: { clause: unknown }) =>
@@ -221,7 +253,7 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `'${p.feature}' is not allowed on ${p.label}. A domain service is a stateless, context-internal calculator: no instance to gate, no route to authorize, no persistence to audit — and its body already refuses repository / extern / emit / this-write. Move the rule to the aggregate operation that owns the state.`,
   "loom.callable-modifier-not-allowed-here#workflow": (p: { feature: unknown; label: unknown }) =>
-    `'${p.feature}' is not allowed on ${p.label}. A workflow member is orchestration, not an aggregate method: there is no 'this' for a 'when' canCommand gate to read, and the aggregate-only modifiers ('private' / 'extern' / 'audited') have no member to attach to. A workflow's command entries ('create' / 'handle') take 'requires'; the workflow header takes its own 'requires' for the instance READ.`,
+    `'${p.feature}' is not allowed on ${p.label}. A workflow member is orchestration, not an aggregate method: there is no 'this' for a 'when' canCommand gate to read, and the aggregate-only modifiers ('private' / 'extern' / 'audited') have no member to attach to. A workflow's command entry ('create') takes 'requires'; the workflow header takes its own 'requires' for the instance READ.`,
   "loom.callable-modifier-not-allowed-here#page-action": (p: {
     feature: unknown;
     label: unknown;
@@ -637,19 +669,11 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/language/validators/duplicates.ts
   // ----------------------------------------------------------------------
-  // The route half of this message used to over-promise: it implied a
-  // `route -> Ctx.<handle>` naming a workflow `handle` was meaningful, when no
-  // backend has ever emitted one (M-T6.58's "three places promise routing
-  // works, zero deliver").  M-T5.34 refuses `handle` outright
-  // (`loom.workflow-handle-unsupported`), so the name-collision rule below is
-  // now genuinely about the two APPLICATION handler kinds; a workflow `handle`
-  // in scope is already an error on its own line.
+  // The two APPLICATION handler kinds share one route-target namespace.
   "loom.duplicate-handler": (p: { name: unknown; ctxName: unknown; kind: unknown }) =>
     `Duplicate handler '${p.name}' in context '${p.ctxName}'; a ${p.kind} shares its name ` +
-    `with another handler or a workflow 'handle'. A 'route -> ${p.ctxName}.${p.name}' would ` +
-    `be ambiguous — handler and workflow-handle names must be unique within a context. ` +
-    `(A workflow 'handle' is itself refused — see 'loom.workflow-handle-unsupported' — so only ` +
-    `a commandHandler / queryHandler can carry a route today.)`,
+    `with another handler. A 'route -> ${p.ctxName}.${p.name}' would ` +
+    `be ambiguous — commandHandler and queryHandler names must be unique within a context.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/generics.ts
@@ -776,15 +800,15 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.migration-duplicate-name": (p: { name: unknown }) =>
     `Duplicate migration block name ${p.name}.`,
   "loom.rename-to-self#table": (p: { fromTable: unknown; to: unknown }) =>
-    `Table rename '${p.fromTable} -> ${p.to}' names the same aggregate on both sides — a rename must change the name.`,
+    `Table step '${p.fromTable} -> ${p.to}' names the same declaration on both sides — a rename must change the name, a move the context.`,
   "loom.rename-to-self#field": (p: { agg: unknown; field: unknown }) =>
     `Rename of '${p.agg}.${p.field}' names the same field on both sides — a rename must change the name.`,
   "loom.rename-duplicate-source#table-is-renamed-more-than": (p: { fromTable: unknown }) =>
-    `Table '${p.fromTable}' is renamed more than once — an aggregate can be renamed FROM only once (ambiguous origin).`,
+    `Table '${p.fromTable}' is renamed or moved more than once — a declaration can be renamed or moved FROM only once (ambiguous origin).`,
   "loom.rename-duplicate-source#field-is-renamed-more-than": (p: { sourceKey: unknown }) =>
     `Field '${p.sourceKey}' is renamed more than once — a column can be renamed FROM only once (ambiguous origin).`,
   "loom.rename-duplicate-target#two-renames-target-aggregate": (p: { to: unknown }) =>
-    `Two renames target aggregate '${p.to}' — an aggregate can be renamed TO only once (ambiguous destination).`,
+    `Two table steps target '${p.to}' — a declaration can be renamed or moved TO only once (ambiguous destination).`,
   "loom.rename-duplicate-target#two-renames-target-a-column": (p: { targetKey: unknown }) =>
     `Two renames target '${p.targetKey}' — a column can be renamed TO only once (ambiguous destination).`,
   "loom.migration-sql-empty": "Empty sql step — a raw migration statement must not be blank.",
@@ -859,13 +883,13 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/language/validators/repository.ts
   // ----------------------------------------------------------------------
-  "loom.repository-find-deprecated": (p: { name: unknown }) =>
-    `repository find '${p.name}' is a wire-shaped list query — declare a 'criterion' ` +
-    `(run it with Repo.run(<Criterion>(args))) or a 'retrieval' instead of accreting a ` +
-    `bespoke list finder on the repository, and put it on the wire with ` +
-    `'scaffoldPaged(of: <it>)' on the context plus 'scaffoldPagedApi(of: <it>)' on the api ` +
-    `when a client must call it; 'node scripts/codemod-list-find-to-criterion.mjs <path>' ` +
-    `rewrites it. (A unique-key reconstitution find returning a single 'T' / 'T?' stays fine.)`,
+  "loom.list-find-removed": (p: { name: unknown }) =>
+    `repository find '${p.name}' returns a list, and list finds are removed — declare a ` +
+    `'criterion' (run it with Repo.run(<Criterion>(args))) or a 'retrieval' instead, and put ` +
+    `it on the wire with 'scaffoldPaged(of: <it>)' on the context plus ` +
+    `'scaffoldPagedApi(of: <it>)' on the api when a client must call it; ` +
+    `'node scripts/codemod-list-find-to-criterion.mjs <path>' rewrites it. (A unique-key ` +
+    `find returning a single 'T' / 'T?' stays fine.)`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/seed.ts
@@ -1135,9 +1159,9 @@ export const DIAGNOSTIC_MESSAGES = {
   "loom.variant-match-placement": (p: { owner: unknown }) =>
     `A 'match' used for its EFFECTS (arms that run statements) is frontend-only — it lowers to a page / component / store 'action' handler and has no backend form — but this one is in ${p.owner}, which runs on the backend. Move the effect into the 'action' that invokes it. This is a permanent placement rule, not a missing feature.`,
   "loom.if-let-placement": (p: { owner: unknown }) =>
-    `'if let' binds the optional result of a repository read and branches on its presence; only a workflow body ('create' / 'handle' / 'on') or a top-level 'commandHandler' / 'queryHandler' lowers it. This one is in ${p.owner}, which has no such lowering — do the optional read in a workflow or handler and pass the resolved value in. This is a permanent placement rule, not a missing feature.`,
+    `'if let' binds the optional result of a repository read and branches on its presence; only a workflow body ('create' / 'on') or a top-level 'commandHandler' / 'queryHandler' lowers it. This one is in ${p.owner}, which has no such lowering — do the optional read in a workflow or handler and pass the resolved value in. This is a permanent placement rule, not a missing feature.`,
   "loom.for-placement": (p: { owner: unknown }) =>
-    `'for … in …' is lowered only inside a workflow body ('create' / 'handle' / 'on') or a top-level 'commandHandler' / 'queryHandler' — that lowering owns the per-iteration save the loop needs. This one is in ${p.owner}, where the loop would be dropped silently. Put it in a workflow or handler for now; this is a GAP, not a design rule — mission M-T5.30 tracks lowering 'for' into domain bodies.`,
+    `'for … in …' is lowered only inside a workflow body ('create' / 'on') or a top-level 'commandHandler' / 'queryHandler' — that lowering owns the per-iteration save the loop needs. This one is in ${p.owner}, where the loop would be dropped silently. Put it in a workflow or handler for now; this is a GAP, not a design rule — mission M-T5.30 tracks lowering 'for' into domain bodies.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/workflow-explicit-save.ts
@@ -1195,7 +1219,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `Each inbound event routes to one reactor; if these are intentional alternates, distinguish them by their 'by' clause.`,
   "loom.transactional-with-continuations": (p: { name: unknown }) =>
     `Workflow '${p.name}' is 'transactional' but declares a continuation handler. ` +
-    `A reactor / handle runs in its own transaction — drop 'transactional', or remove the continuation.`,
+    `An on(...) reactor runs in its own transaction — drop 'transactional', or remove the continuation.`,
   // `create(…): T { … return <expr> }` — a command starter's result (B-03).
   "loom.workflow-return-no-caller": (p: { workflow: unknown; create: unknown }) =>
     `Workflow '${p.workflow}': '${p.create}' is event-triggered ('by …'), so nothing calls it and ` +
@@ -1756,6 +1780,12 @@ export const DIAGNOSTIC_MESSAGES = {
     `'let ${p.name}' is declared '${p.declared}' but its value is '${p.actual}'.`,
   "loom.return-type-mismatch": (p: { label: unknown; actual: unknown; declared: unknown }) =>
     `${p.label} returns '${p.actual}' but is declared to return '${p.declared}'.`,
+  "loom.unhandled-result": (p: { call: unknown; type: unknown; errors: unknown }) =>
+    `'${p.call}' returns '${p.type}' and its ${p.errors} case is discarded. ` +
+    `Match it, return it from a caller whose declared result admits it, or bind it with 'let' and use it.`,
+  "loom.unhandled-result#unread-let": (p: { name: unknown; type: unknown; errors: unknown }) =>
+    `'let ${p.name}' holds a '${p.type}' that is never read, so its ${p.errors} case is discarded. ` +
+    `Match it, return it, or use it.`,
   "loom.return-missing": (p: { label: unknown; declared: unknown }) =>
     `${p.label} is declared to return '${p.declared}' but not every path ends in a \`return\`. ` +
     `End each branch with \`return <value>\` (an \`if\` needs an \`else\` that returns too).`,
@@ -1880,9 +1910,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.member}' argument ${p.i} is '${p.actual}' but the signature ${p.member}${p.signature} expects '${p.expected}'.`,
   "loom.intrinsic-unknown": (p: { name: unknown; member: unknown; known: unknown }) =>
     `'${p.name}' has no intrinsic '.${p.member}()'${p.known}.`,
-  "loom.intrinsic-nullable-receiver": (p: { member: unknown; recv: unknown }) =>
-    `'.${p.member}()' can't be called on '${p.recv}' — the receiver may be null and every backend emits a bare dereference. ` +
-    `Guard it with a null-narrowing ternary: '<expr> != null ? <expr>.${p.member}(…) : …'.`,
+  "loom.nullable-receiver": (p: { member: unknown; recv: unknown }) =>
+    `'${p.member}' can't be read on '${p.recv}' — the receiver may be null and every backend emits a bare dereference. ` +
+    `Guard it with a null test the read depends on: '<expr> != null ? <expr>${p.member} : …', ` +
+    `'<expr> != null && <expr>${p.member} …' or '<expr> == null || <expr>${p.member} …'.`,
   "loom.ternary-condition": (p: { condT: unknown }) =>
     `Ternary condition must be of type 'bool', got '${p.condT}'.`,
   "loom.ternary-branches": (p: { thenT: unknown; elseT: unknown }) =>
@@ -2039,18 +2070,17 @@ export const DIAGNOSTIC_MESSAGES = {
     handler: unknown;
   }) =>
     `api '${p.name}': route '${p.label}' targets '${p.context}.${p.handler}', ` +
-    `but context '${p.context}' has no commandHandler, queryHandler, or workflow handle ` +
+    `but context '${p.context}' has no commandHandler or queryHandler ` +
     `named '${p.handler}'.`,
   "loom.read-context-repo-write": (p: {
     name: unknown;
     label: unknown;
     method: unknown;
-    targetKind: unknown;
     context: unknown;
     handler: unknown;
   }) =>
     `api '${p.name}': route '${p.label}' is a read (${p.method}) but targets ` +
-    `${p.targetKind} '${p.context}.${p.handler}', which writes. A read ` +
+    `commandHandler '${p.context}.${p.handler}', which writes. A read ` +
     `position (an api read route, a queryHandler, or a 'reading' service) may not reach the ` +
     `mutating repository face — bind the read to a queryHandler.`,
 
@@ -2195,6 +2225,19 @@ export const DIAGNOSTIC_MESSAGES = {
     field: unknown;
   }) =>
     `backfill '${p.aggregate}.${p.field}': a collection field needs no backfill — adding it to a populated table fills every existing row with an empty collection. Remove this step.`,
+  "loom.migration-step-unknown-context": (p: { step: unknown; context: unknown }) =>
+    `migration step '${p.step}' moves into context '${p.context}', which the model does not declare. Name the context the declaration lives in now.`,
+  "loom.migration-step-target-missing": (p: { step: unknown; name: unknown }) =>
+    `migration step '${p.step}': '${p.name}' is not an aggregate, workflow or projection of the model. The right-hand side names the declaration as it is NOW (after the rename or move).`,
+  "loom.migration-step-ambiguous": (p: { step: unknown; name: unknown; candidates: unknown }) =>
+    `migration step '${p.step}': '${p.name}' names more than one declaration (${p.candidates}). Qualify both sides with their contexts: migration "…" { <OldContext>.<Old> -> <NewContext>.<New> }`,
+  "loom.migration-move-across-databases": (p: {
+    step: unknown;
+    from: unknown;
+    to: unknown;
+    deployables: unknown;
+  }) =>
+    `migration step '${p.step}' moves tables from module '${p.from}' to module '${p.to}', but deployable(s) ${p.deployables} apply '${p.to}' migrations to a database that never held '${p.from}' tables, so there is nothing there to move. Host both modules on the same deployables, or migrate the data with a raw \`sql\` step.`,
   "loom.migration-expr-unsupported": (p: { aggregate: unknown; field: unknown; reason: unknown }) =>
     `backfill '${p.aggregate}.${p.field}': ${p.reason}.`,
   "loom.backfill-type-mismatch": (p: {
@@ -2260,6 +2303,11 @@ export const DIAGNOSTIC_MESSAGES = {
     why: unknown;
   }) =>
     `ADD COLUMN ${p.column} NOT NULL (no default) — contributed by \`with ${p.capability}\`. ${p.why} Declare what the existing rows hold in a migration block (\`migration "…" { <Agg>.<field> = <value> }\`), or add the capability before the table holds data.`,
+  /** One line of `loom.migration-destructive` when a TABLE is dropped: a
+   *  rename, or a move of the declaration to another context, reads as a
+   *  drop + create to the diff, and the table step keeps the rows. */
+  "loom.migration-destructive#table-dropped":
+    'A dropped table whose aggregate, workflow or projection was renamed or moved to another context keeps its rows with a migration-block table step: migration "…" { <Old> -> <New> } for a rename, migration "…" { <OldContext>.<Old> -> <NewContext>.<New> } for a move.',
   "loom.migration-destructive#capability-tenant-owned":
     "Loom cannot infer which tenant owns a row written before tenancy, and a wrong guess hands it to another tenant, so there is no automatic backfill.",
   "loom.migration-destructive#capability-auditable":
@@ -3262,6 +3310,15 @@ export const DIAGNOSTIC_MESSAGES = {
     `event-sourced create route gateable in place is mission M-T3.16.`,
   "loom.default-deny-ungated#denybydefault-projection": (p: { name: unknown }) =>
     `denyByDefault: projection '${p.name}' is served as a read endpoint on an 'auth: required' deployable but declares no \`requires\` gate. Add a \`requires <expr>\` after its declaration header (use \`requires true\` to allow anonymous access).`,
+  // Same rule, but the projection came from a MACRO (`scaffoldDashboard`),
+  // which copies the source aggregate's policy read gate onto it — so the
+  // missing gate is that policy rule, and the fix is to write it.
+  "loom.default-deny-ungated#denybydefault-projection-macro": (p: {
+    name: unknown;
+    macroName: unknown;
+    source: unknown;
+  }) =>
+    `denyByDefault: projection '${p.name}' (from \`with ${p.macroName}\`) is served as a read endpoint on an 'auth: required' deployable but has no read gate — it summarises '${p.source}', which declares no \`policy { read ${p.source} requires <expr> }\` rule. Add that rule to the context: \`${p.macroName}\` copies it onto the projection, and it gates every other read of '${p.source}' too (use \`requires true\` to allow anonymous access).`,
   "loom.default-deny-ungated#denybydefault-workflow-instances": (p: { name: unknown }) =>
     `denyByDefault: workflow '${p.name}' serves its instance reads (\`/workflows/${String(p.name).toLowerCase()}/instances\`) on an 'auth: required' deployable but declares no \`requires\` gate. Add a \`requires <expr>\` to the workflow header (use \`requires true\` to allow anonymous access) — it gates the READS; the command entries keep their own body gates.`,
   "loom.default-deny-ungated#denybydefault-handler": (p: {
@@ -4194,22 +4251,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `where inference is weaker — a region that renders blank forever with nothing, anywhere, ` +
     `reporting a problem.  Check the spelling, or bind the read through an ` +
     `\`api <Handle>: <Api>\` param on the ui.`,
-  "loom.scaffold-filter-param-unsupported": (p: {
-    where: unknown;
-    find: unknown;
-    param: unknown;
-    type: unknown;
-    aggregate: unknown;
-  }) =>
-    `the scaffolded list filter bar has no input for \`${p.param}: ${p.type}\`, ` +
-    `so repository find '${p.find}' is omitted from it entirely and '${p.aggregate}' cannot be ` +
-    `filtered by that column from this page.  The bar renders \`string\`, \`guid\`, ` +
-    `\`date\`, \`datetime\`, \`int\`, \`long\`, \`bool\` and \`<X> id\` params.  Two kinds are still held ` +
-    `back, each for a reason outside the scaffold macro: \`decimal\`/\`money\` have no ` +
-    `zero-sentinel that type-checks on Feliz (\`decimal <> 0\` is \`decimal <> int\`), and an ` +
-    `\`enum\` state field is typed as bare \`string\` by every frontend while the query param ` +
-    `is the zod enum union.  Change the param's type, or write the page body by hand ` +
-    `(\`page List { … }\` overrides the scaffolded one by name) and bind the find yourself.`,
   "loom.slot-outside-component": (_p: { where: unknown }) =>
     `\`Slot { }\` renders the children a CALLER passed in, so it only means ` +
     `something inside a \`component\` body.  A page has no caller and no children ` +
@@ -4973,7 +5014,7 @@ export const DIAGNOSTIC_MESSAGES = {
     `repository '${p.repo}': find '${p.find}' returns a single '${p.agg}' by (${p.cols}), but no ` +
     `'unique (${p.cols})' makes that a natural key — when two rows share it, every backend ` +
     `returns whichever row the database yields first. Declare 'unique (${p.cols})' on '${p.agg}' ` +
-    `(it also derives the DB unique index and the 409 on a duplicate), or return a list.`,
+    `(it also derives the DB unique index and the 409 on a duplicate), or read every match through a criterion (Repo.run).`,
   "loom.persisted-table-collision": (p: {
     ctx: unknown;
     first: unknown;
@@ -5061,6 +5102,55 @@ export const DIAGNOSTIC_MESSAGES = {
     `workflow has no id-shaped state field to correlate on, so no instance row is kept and no ` +
     `later step could ever read the value. Either declare one id-shaped state field (for example ` +
     `'orderId: Order id') and pass it to the create, or drop the state and the assignment.`,
+  // The read twin of the rule above: the create reads state the workflow keeps
+  // no row for, so there is no instance to read it from.
+  "loom.workflow-uncorrelated-state-read": (p: { name: unknown; fields: unknown }) =>
+    `workflow '${p.name}': the command 'create' reads workflow state (${p.fields}), but the ` +
+    `workflow has no id-shaped state field to correlate on, so no instance row is kept and ` +
+    `there is no instance to read the value from. Either declare one id-shaped state field (for ` +
+    `example 'orderId: Order id') and pass it to the create, or drop the state and pass the ` +
+    `value in as a parameter.`,
+  // A factory call in a workflow / handler body whose arguments map onto no
+  // create-input record (`language/factory-call.ts`).
+  "loom.workflow-create-args": (p: {
+    agg: unknown;
+    owner: unknown;
+    given: unknown;
+    count: unknown;
+    inputs: unknown;
+  }) =>
+    `'${p.agg}.create(…)' in ${p.owner} passes ${p.given} positional argument(s), but ` +
+    `'${p.agg}' has ${p.count} create input(s), in order: ${p.inputs}. Positions bind to ` +
+    `those inputs in order; drop the extra arguments, or name each one.`,
+  "loom.workflow-create-args#mixed": (p: { agg: unknown; owner: unknown }) =>
+    `'${p.agg}.create(…)' in ${p.owner} mixes positional and named arguments. Pass every ` +
+    `input by position (in the create input's order) or every one by name.`,
+  "loom.workflow-create-args#unknown-name": (p: {
+    agg: unknown;
+    owner: unknown;
+    name: unknown;
+    inputs: unknown;
+  }) =>
+    `'${p.agg}.create(…)' in ${p.owner} names '${p.name}', which is not a create input of ` +
+    `'${p.agg}'. Its inputs are: ${p.inputs}.`,
+  "loom.workflow-create-args#duplicate": (p: { agg: unknown; owner: unknown; name: unknown }) =>
+    `'${p.agg}.create(…)' in ${p.owner} passes '${p.name}' twice. Pass each input once.`,
+  // A body mutates an aggregate that none of its saves covers (effect IR: a
+  // `mutate` with no `persist` of the same local in an enclosing scope).
+  "loom.workflow-mutation-unsaved": (p: { owner: unknown; call: unknown; name: unknown }) =>
+    `${p.owner}: '${p.call}' mutates '${p.name}', but no save covers '${p.name}', so the ` +
+    `change would never be written. A body saves an aggregate it created, or loaded from a ` +
+    `repository, and then mutated through a bare call statement; binding the result of a ` +
+    `mutating call ('let r = ${p.call}(…)') is not saved yet. Write the call as its own ` +
+    `statement, and load '${p.name}' with a repository read if it is not one.`,
+  "loom.workflow-mutation-unsaved#unbound": (p: {
+    owner: unknown;
+    call: unknown;
+    aggName: unknown;
+  }) =>
+    `${p.owner}: '${p.call}' mutates the '${p.aggName}' passed to it, but that argument is an ` +
+    `expression rather than a bound local, so nothing can save the change. Bind the ` +
+    `'${p.aggName}' with 'let' first and pass the local.`,
   // A workflow that declares `on(…)` reactors but no `create(…)` starter.
   // Sibling of `loom.reactor-event-uncarried` above, which performs this class
   // of check for a different cause (no channel carries the event).  Here the
@@ -5075,17 +5165,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `and returns. Add a starter — an event-triggered 'create(e: <Event>) by <expr> { … }' for ` +
     `the event that begins the saga, or a command-triggered 'create(…) { … }' that supplies ` +
     `the correlation key.`,
-  // D5 / decision D-1(c).  `handle <name>(…)` parses, type-checks and reaches
-  // the IR, and NO backend emits anything for it — not a route, not a handler,
-  // not a method.  Rejecting is the ruling: the silence is the bug, and the
-  // emitter is a feature decision taken separately (the follow-up mission row).
-  "loom.workflow-handle-unsupported": (p: { name: unknown; handler: unknown }) =>
-    `workflow '${p.name}': 'handle ${p.handler}(…)' is not emitted by any backend — no route, ` +
-    `no handler, no method — so the continuation is unreachable at runtime and the saga can ` +
-    `be started and read but never advanced. Model the continuation as an aggregate ` +
-    `'operation' (the aggregate owns the state transition, and the operation gets a route on ` +
-    `every backend), or as a second workflow started by the event the first one emits. ` +
-    `Multi-command sagas via 'handle' are deferred, not shipped.`,
   "loom.workflow-unknown-name": (p: { name: unknown; kind: unknown; exprName: unknown }) =>
     `workflow '${p.name}': ${p.kind} references unknown name '${p.exprName}'.`,
   "loom.workflow-unknown-name#projection-receiver": (p: {
@@ -5370,6 +5449,10 @@ export const DIAGNOSTIC_MESSAGES = {
     "Macro emitted a node targeting a destination outside the host's subtree.  " +
     "Macros may only modify their host or its descendants (e.g. a context-level macro " +
     "may invoke an aggregate-level macro against an aggregate inside the context).",
+  "loom.scaffold-aggregate-unserved": (p: { agg: unknown; context: unknown; repo: unknown }) =>
+    `scaffoldHandlers/scaffoldApi skip aggregate '${p.agg}' in context '${p.context}': it has no ` +
+    `repository, so nothing can load it by id and no handlers or routes are emitted for its ` +
+    `operations, create, or destroy.  Add \`repository ${p.repo} for ${p.agg} { }\` to serve it.`,
   "loom.macro-arg-duplicate": (p: { name: unknown; macroName: unknown }) =>
     `Duplicate argument '${p.name}' in call to macro '${p.macroName}'.`,
   "loom.macro-arg-unknown": (p: { name: unknown; macroName: unknown; spec: unknown }) =>
@@ -5534,6 +5617,14 @@ export const DIAGNOSTIC_MESSAGES = {
     `\`policy { read ${p.aggregate} requires <expr> }\` in its context, and it gates every ` +
     `read of '${p.aggregate}'. Move the gate there (\`node scripts/codemod-find-gate-to-policy.mjs\` ` +
     `does it for a whole project).`,
+  // A workflow `handle` member — the declaration was removed (D-HANDLE-REMOVAL):
+  // it had no correlation surface and no backend ever routed it.  The named
+  // command entry is a context-level `commandHandler` (`src/language/parse-errors.ts`).
+  "loom.parse-error#workflow-handle-removed": (p: { workflow: unknown; handler: unknown }) =>
+    `workflow '${p.workflow}': 'handle ${p.handler}(…)' is no longer part of the language. ` +
+    `A named command entry is a context-level \`commandHandler ${p.handler}(…) { … }\` — move ` +
+    `it out of the workflow (\`node scripts/codemod-workflow-handle.mjs\` does it for a whole ` +
+    `project, and names any handle it cannot lift).`,
 } satisfies Record<string, MessageEntry>;
 
 type Catalog = typeof DIAGNOSTIC_MESSAGES;

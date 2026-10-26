@@ -1,6 +1,7 @@
 import { descriptorFor } from "../../platform/metadata.js";
 import { defaultErrorStatus, STRUCTURAL_CONFLICT_ERRORS } from "../../util/error-defaults.js";
 import { plural, snake } from "../../util/naming.js";
+import { isKeyLookupOp } from "../../util/repository-contract.js";
 import { defaultInterfaceFor } from "../../util/source-types.js";
 import {
   forEachGenericInstance,
@@ -75,7 +76,6 @@ import {
   isDenyFilter,
   TENANCY_SELF_SCOPE_ORIGIN,
   TENANT_OWNED_CAPABILITY,
-  TENANT_OWNED_TENANT_ID_FIELD,
   tenancyClaimBinding,
   tenancyPrincipalClaim,
 } from "../util/tenant-stance.js";
@@ -84,6 +84,7 @@ import { applyDefaultDenyReads } from "./default-deny-reads.js";
 import { applyDemoTenantSeed } from "./demo-tenant.js";
 import { bindFindParams } from "./find-param-bindings.js";
 import { inheritBaseCapabilities } from "./inherited-capabilities.js";
+import { type KeyLookupRead, synthesizeKeyLookupFinds } from "./key-lookup-finds.js";
 import { applyPolicyReadGates } from "./policy-read-gates.js";
 import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
 
@@ -271,10 +272,6 @@ function enrichSystem(
   // declaration.  See `applyRegistrySelfScope` below.
   const subdomainsScoped = subdomainsWithSiblings
     .map((m) => applyRegistrySelfScope(m, sys))
-    // Bind the `tenantOwned` capability's hardcoded principal claim to the
-    // system's declared one.  BEFORE the read-level passes, so they see (and
-    // rebuild from) a correctly-bound floor.  See `bindTenancyClaim`.
-    .map((m) => bindTenancyClaim(m, sys))
     .map((m) => applyPolicyReadLevels(m, sys))
     .map((m) => applyPolicyWriteLevels(m, sys))
     // DENY WINS: runs AFTER the allow read/write-level passes, so an
@@ -504,87 +501,6 @@ function applyRegistrySelfScope(m: EnrichedSubdomainIR, sys: SystemIR): Enriched
             buildRegistrySelfScopeFilter(agg, tenancy.claimField, claimType),
           ],
           contextFilterOrigins: [...origins, TENANCY_SELF_SCOPE_ORIGIN],
-        };
-      }),
-    })),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Tenancy claim binding — the principal side of the `tenantOwned` capability.
-//
-// `tenancy by user.<claim> of <Registry>` lets the author name the claim that
-// carries the tenant.  The registry half honours it (`applyRegistrySelfScope`
-// passes `tenancy.claimField` straight into the derived self-scope filter).
-// The `tenantOwned` half could not: the capability is a PRELUDE definition
-// (`src/macros/prelude.ts`), built once at language-module init with no system
-// in scope — so it hardcodes `currentUser.tenantId` in both its read filter and
-// its create stamp.
-//
-// That is the right place for the macro to give up and the right place for
-// enrichment to take over: phase ⑥ is where per-system facts get bound onto
-// otherwise system-agnostic IR, exactly as the registry self-scope already is.
-// This pass rewrites the capability's two principal references to the declared
-// claim.
-//
-// It rewrites ONLY capability-derived nodes — the `tenantOwned`-origin
-// `contextFilters` entry (its RHS; the LHS is the row column the capability
-// owns), and a stamp assignment whose TARGET is that same column and whose
-// SOURCE is `currentUser.tenantId`.  An author's own `currentUser.tenantId` —
-// in a `requires`, a hand-written filter, a `find … where` — is left alone:
-// under a system whose claim is `orgId`, a principal may still legitimately
-// carry an unrelated `tenantId` field.
-//
-// Byte-neutral for every model that declares no tenancy, or declares the claim
-// as `tenantId` — which is every fixture that predates `tenancy-claim-name`.
-// ---------------------------------------------------------------------------
-
-/** True when `e` reads `currentUser.<TENANT_OWNED_TENANT_ID_FIELD>` — the
- *  capability's hardcoded principal reference, and the only thing this pass
- *  rebinds. */
-function isHardcodedTenantClaimRead(e: ExprIR): boolean {
-  return (
-    e.kind === "member" &&
-    e.member === TENANT_OWNED_TENANT_ID_FIELD &&
-    e.receiver.kind === "ref" &&
-    e.receiver.refKind === "current-user"
-  );
-}
-
-function bindTenancyClaim(m: EnrichedSubdomainIR, sys: SystemIR): EnrichedSubdomainIR {
-  const claim = tenancyPrincipalClaim(sys);
-  if (claim === TENANT_OWNED_TENANT_ID_FIELD) return m;
-  const rebind = (e: ExprIR): ExprIR => (e.kind === "member" ? { ...e, member: claim } : e);
-  return {
-    ...m,
-    contexts: m.contexts.map((ctx) => ({
-      ...ctx,
-      aggregates: ctx.aggregates.map((agg) => {
-        if (!hasTenantOwned(agg)) return agg;
-        // (1) the read filter — the `tenantOwned`-origin entry, RHS only.
-        const filters = agg.contextFilters ?? [];
-        const origins = agg.contextFilterOrigins ?? filters.map(() => undefined);
-        const i = origins.indexOf(TENANT_OWNED_CAPABILITY);
-        const floor = i >= 0 ? filters[i] : undefined;
-        let nextFilters = filters;
-        if (floor?.kind === "binary" && isHardcodedTenantClaimRead(floor.right)) {
-          nextFilters = [...filters];
-          nextFilters[i] = { ...floor, right: rebind(floor.right) };
-        }
-        // (2) the create stamp — `this.tenantId := currentUser.tenantId`.
-        const stamps = agg.contextStamps;
-        const nextStamps = stamps?.map((s) => ({
-          ...s,
-          assignments: s.assignments.map((a) =>
-            a.field === TENANT_OWNED_TENANT_ID_FIELD && isHardcodedTenantClaimRead(a.value)
-              ? { ...a, value: rebind(a.value) }
-              : a,
-          ),
-        }));
-        return {
-          ...agg,
-          ...(nextFilters === filters ? {} : { contextFilters: nextFilters }),
-          ...(nextStamps ? { contextStamps: nextStamps } : {}),
         };
       }),
     })),
@@ -982,19 +898,23 @@ export function enrichContext(
   // so the aggregate router does NOT auto-expose it (the queryHandler's own
   // route is the exposure).
   const repositories = bindFindParams(
-    synthesizePagedQueryHandlerFinds(
-      // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
-      // find's gate + `ignoring` stance, so the implicit `all` must exist first.
-      // `applyPolicyReadGates` sits between them: it puts the
-      // `policy { read X requires … }` gate on the injected `all` (and every
-      // declared find), which history then copies.
-      ensureHistoryFind(
-        aggregates,
-        applyPolicyReadGates(ensureFindAll(aggregates, ctx.repositories), ctx.policyReadGates),
+    synthesizeKeyLookupFinds(
+      synthesizePagedQueryHandlerFinds(
+        // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
+        // find's gate + `ignoring` stance, so the implicit `all` must exist first.
+        // `applyPolicyReadGates` sits between them: it puts the
+        // `policy { read X requires … }` gate on the injected `all` (and every
+        // declared find), which history then copies.
+        ensureHistoryFind(
+          aggregates,
+          applyPolicyReadGates(ensureFindAll(aggregates, ctx.repositories), ctx.policyReadGates),
+        ),
+        ctx.queryHandlers,
+        ctx.criteria,
+        ctx.retrievals,
       ),
-      ctx.queryHandlers,
-      ctx.criteria,
-      ctx.retrievals,
+      aggregates,
+      keyLookupReads(ctx),
     ),
     aggregates,
   );
@@ -1079,7 +999,6 @@ function allWorkflowStmts(wf: WorkflowIR): WorkflowStmtIR[] {
   // calls), so they carry no `Repo.findAll` — excluded from the walk.
   const roots: WorkflowStmtIR[][] = [
     ...(wf.creates ?? []).map((c) => c.statements),
-    ...(wf.handlers ?? []).map((h) => h.statements),
     ...(wf.subscriptions ?? []).map((s) => s.statements),
   ];
   const out: WorkflowStmtIR[] = [];
@@ -1094,6 +1013,43 @@ function allWorkflowStmts(wf: WorkflowIR): WorkflowStmtIR[] {
     }
   };
   for (const r of roots) walk(r);
+  return out;
+}
+
+/** Every natural-key read (`Repo.getBy(…)` / `Repo.findBy(…)`) the context's
+ *  bodies make — workflows, explicit handlers and domain-service operations,
+ *  the three bodies a repository read lowers in.  Each names the method
+ *  `synthesizeKeyLookupFinds` adds to its repository. */
+function keyLookupReads(ctx: BoundedContextIR): KeyLookupRead[] {
+  const out: KeyLookupRead[] = [];
+  const noteStmt = (st: WorkflowStmtIR): void => {
+    if (st.kind === "repo-let" && st.key && isKeyLookupOp(st.op)) {
+      out.push({ repoName: st.repoName, op: st.op, method: st.method, key: st.key });
+    } else if (st.kind === "if-let" && st.key && st.findMethod) {
+      out.push({
+        repoName: st.repoName,
+        op: st.op as KeyLookupRead["op"],
+        method: st.findMethod,
+        key: st.key,
+      });
+    }
+  };
+  for (const wf of ctx.workflows) for (const st of allWorkflowStmts(wf)) noteStmt(st);
+  for (const h of [...(ctx.queryHandlers ?? []), ...(ctx.commandHandlers ?? [])]) {
+    for (const st of flattenHandlerStmts(h.statements)) noteStmt(st);
+  }
+  for (const svc of ctx.domainServices ?? []) {
+    for (const op of svc.operations) {
+      for (const stmt of op.body) {
+        walkStmtExprsDeep(stmt, (e) => {
+          const read = e.kind === "call" && e.callKind === "repo-read" ? e.repoRead : undefined;
+          if (read?.key && isKeyLookupOp(read.op)) {
+            out.push({ repoName: read.repo, op: read.op, method: read.method, key: read.key });
+          }
+        });
+      }
+    }
+  }
   return out;
 }
 
@@ -1206,7 +1162,7 @@ function synthesizeFindAllRetrievals(
 /** Walk a flat handler statement body (`queryHandler` / `commandHandler`),
  *  descending into `for-each` / `if-let` bodies — the handler-body twin of
  *  `allWorkflowStmts` (handlers carry a flat `WorkflowStmtIR[]`, not the
- *  create/handle/subscribe roots a workflow does). */
+ *  create/subscribe roots a workflow does). */
 function flattenHandlerStmts(statements: WorkflowStmtIR[]): WorkflowStmtIR[] {
   const out: WorkflowStmtIR[] = [];
   const walk = (stmts: WorkflowStmtIR[]): void => {

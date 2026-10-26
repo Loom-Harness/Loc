@@ -63,41 +63,6 @@ type Divergence =
  *  SHRINK-ONLY: a fix deletes its row. */
 const BASELINE: Record<string, Divergence> = {
   // ── class A — the record OMITS a field the wire carries ──────────────────
-  // A1. capability-injected fields (`softDeletable` / `auditable` /
-  //     `tenantRegistry` prelude mixins) reach the derived walk but not the
-  //     AST-level `apiReadFields` the record is built from.
-  "find-bypass.ddd Orders.Order": "missing-in-record",
-  "find-bypass.ddd Orders.Note": "missing-in-record",
-  "projection-agg-filters.ddd Orders.Order": "missing-in-record",
-  "scaffold-macros.ddd Catalog.Item": "missing-in-record",
-  "stamps.ddd Shop.Order": "missing-in-record",
-  "policy-document.ddd Registry.Org": "missing-in-record",
-  "tenancy-hierarchy.ddd Books.Org": "missing-in-record",
-  // The same A1 row, witnessed by a NEW fixture rather than a regression: the
-  // `org-context` registry `implements tenantRegistry` exactly as
-  // `tenancy-hierarchy`'s does, so its capability-injected `parent`/`dataKey`
-  // reach the wire and not the record.  Drains with the A1 class fix.
-  "org-context.ddd Books.Org": "missing-in-record",
-  // Two more NEW-fixture witnesses of A1 (M-T9.42, wave C3 3d), not
-  // regressions: audit-history's `Memo with softDeletable` carries the
-  // injected `deletedAt`, and stamps-principal's `Ticket implements owned`
-  // carries the capability's `createdAt`/`createdBy` — both reach the wire and
-  // not the record.  Drain with the A1 class fix.
-  "audit-history.ddd Ordering.Memo": "missing-in-record",
-  "stamps-principal.ddd Desk.Ticket": "missing-in-record",
-  // Two more A1 witnesses from wave C3F F5's fixtures, not regressions:
-  // audit-history's `Order implements timestamped` (`createdAt`/`updatedAt`)
-  // and stamps-principal's `Note with auditable` (the four prelude stamps).
-  "audit-history.ddd Ordering.Order": "missing-in-record",
-  "stamps-principal.ddd Journal.Note": "missing-in-record",
-  // audit-history-guarded's `Employee with auditable` — the same A1 class (the
-  // mixin's `createdAt`/`createdBy`/`updatedAt`/`updatedBy`), a new-fixture
-  // witness rather than a regression.
-  "audit-history-guarded.ddd Staff.Employee": "missing-in-record",
-  // Wave C5 5b: the RS-38 witness soft-deletes a join target, so its `Venue`
-  // carries the `softDeletable` mixin — one more instance of THIS class, not
-  // a new divergence.
-  "datetime-wire.ddd Booking.Venue": "missing-in-record",
   // A2. fields inherited from an `abstract aggregate` base.  Enrichment merges
   //     the extends chain into the concrete; the record's walk does not — the
   //     coordination note's item 3 (`aggregate-inheritance.md` I2, "the chain
@@ -112,13 +77,10 @@ const BASELINE: Record<string, Divergence> = {
   "tph-crossings.ddd Depot.Crate": "missing-in-record",
   // The #3954 fixtures (#3595): the same A2 class, over both layouts and a
   // capability on the abstract base (whose fields the record walk also misses).
-  "inheritance-base-reads.ddd Fleet.Vehicle": "missing-in-record",
   "inheritance-base-reads.ddd Fleet.Car": "missing-in-record",
   "inheritance-base-reads.ddd Fleet.Truck": "missing-in-record",
-  "inheritance-base-reads.ddd Fleet.Equipment": "missing-in-record",
   "inheritance-base-reads.ddd Fleet.Crane": "missing-in-record",
   "inheritance-base-reads.ddd Fleet.Forklift": "missing-in-record",
-  "inheritance-base-reads.ddd Fleet.Crew": "missing-in-record",
   "inheritance-base-reads.ddd Fleet.Driver": "missing-in-record",
   "inheritance-base-reads.ddd Fleet.Dispatcher": "missing-in-record",
   "inheritance-read-restrictions.ddd Fleet.Car": "missing-in-record",
@@ -137,6 +99,10 @@ const BASELINE: Record<string, Divergence> = {
   // abstract `Claim` exactly as `tph.ddd`'s concretes do.  Drains with A2.
   "projection-tph-source.ddd Claims.AutoClaim": "missing-in-record",
   "projection-tph-source.ddd Claims.PropertyClaim": "missing-in-record",
+  // The acronym-names fixture's TPH concretes: the same A2 class, a new-fixture
+  // witness (`title` inherited from `CatalogSKU`), not a regression.
+  "acronym-names.ddd Catalog.PhysicalSKU": "missing-in-record",
+  "acronym-names.ddd Catalog.DigitalSKU": "missing-in-record",
 
   // ── class B — the same field, described differently ─────────────────────
   // B1. a containment names the part's own `<Part>Response` record (context
@@ -145,6 +111,8 @@ const BASELINE: Record<string, Divergence> = {
   //     `isResponsePayloadName`.  A re-derivation has to undo it.
   "collection-op-shapes.ddd Sales.Order": "containment-response-suffix",
   "core-domain.ddd Orders.Order": "containment-response-suffix",
+  // acronym-names' `contains variants: VariantSKU[]` — the same deliberate B1 shape.
+  "acronym-names.ddd Catalog.ProductSKU": "containment-response-suffix",
   // (added with the RS-37 witness — a fixture carrying a containment, so the
   // same deliberate B1 shape; not a new divergence class.)
   "decimal-exact.ddd Lab.Sample": "containment-response-suffix",
@@ -223,16 +191,7 @@ function corpusFixtures(): { name: string; source: string }[] {
  *  be deleted. */
 const INJECTED_HANDLER_REFUSALS: Record<string, readonly string[]> = {
   "api-call.ddd": ["queryHandler 'ByCodeOrder' returns 'Order option'"],
-  "implicit-find-filter.ddd": ["queryHandler 'InRegionWorkOrder' returns 'WorkOrder paged'"],
-  "paged-nonrelational.ddd": [
-    "queryHandler 'InRegionInvoice' returns 'Invoice paged'",
-    "queryHandler 'ByOwnerAccount' returns 'Account paged'",
-  ],
-  "paged.ddd": [
-    "queryHandler 'RecentOrder' returns 'Order paged'",
-    "queryHandler 'InRegionOrder' returns 'Order paged'",
-  ],
-  "tph-crossings.ddd": ["queryHandler 'ByCourierParcel' returns 'Parcel paged'"],
+  "paged.ddd": ["queryHandler 'AllOrder' returns 'Order paged'"],
   "union-find-absence.ddd": [
     "queryHandler 'ByCodeOrder' returns 'Order or NotFound'",
     "queryHandler 'MaybeFirstOrder' returns 'Order option'",

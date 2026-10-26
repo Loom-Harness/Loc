@@ -23,7 +23,7 @@
     {
       "seq": 2,
       "method": "GET",
-      "path": "/api/orders/recent",
+      "path": "/api/orders",
       "status": 200,
       "body": {
         "items": [
@@ -68,7 +68,7 @@
     {
       "seq": 5,
       "method": "GET",
-      "path": "/api/orders/in_region?region=EU",
+      "path": "/api/orders/in_region/EU",
       "status": 200,
       "body": {
         "items": [
@@ -154,7 +154,7 @@
     {
       "seq": 10,
       "method": "GET",
-      "path": "/api/orders/in_region?region=EU",
+      "path": "/api/orders/in_region/EU",
       "status": 200,
       "body": {
         "items": [],

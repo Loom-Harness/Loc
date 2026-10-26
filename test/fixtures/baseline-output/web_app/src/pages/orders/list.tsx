@@ -3,16 +3,14 @@ import { useState } from "react";
 import { useNavigate, Link as RouterLink } from "react-router";
 import { t } from "../../i18n";
 import { DateTimeValue, IdValue } from "../../lib/format";
-import { Alert, Anchor, Badge, Breadcrumbs, Button, Center, Group, Paper, Skeleton, Stack, Table, Text, TextInput, Title } from "@mantine/core";
-import { useAllOrders, useByCustomerOrder } from "../../api/order";
+import { Alert, Anchor, Badge, Breadcrumbs, Button, Center, Group, Paper, Skeleton, Stack, Table, Text, Title } from "@mantine/core";
+import { useAllOrders } from "../../api/order";
 
 export default function OrderList() {
   const navigate = useNavigate();
-  const [byCustomerCustomerId, setByCustomerCustomerId] = useState<string>("");
   const [sortKey, setSortKey] = useState<string>("");
   const [sortDir, setSortDir] = useState<string>("");
   const [pageNum, setPageNum] = useState<number>(1);
-  const orderByCustomer = useByCustomerOrder({ customerId: byCustomerCustomerId });
   const orderAll = useAllOrders({ page: pageNum, pageSize: 10, sort: sortKey, dir: sortDir });
   return (
     <Stack gap="md" data-testid="orders-list">
@@ -24,88 +22,46 @@ export default function OrderList() {
         <Title order={2}>{t("page.List.heading.xf3i18", "Orders")}</Title>
         <Button onClick={() => navigate("/orders/new")} data-testid="orders-list-create">{t("page.List.button.i38a1x", "New order")}</Button>
       </Group>
-      <Group gap="xs">
-        <TextInput label={t("page.List.inputLabel.0ysfxy", "Customer Id")} value={byCustomerCustomerId} onChange={(e) => setByCustomerCustomerId(e.currentTarget.value)} data-testid="orders-filter-by_customer_customer_id" />
-      </Group>
-      {((byCustomerCustomerId !== "")) ? (<>
-          { orderByCustomer.isLoading && (
-            <Stack gap="xs" aria-hidden="true">
+      <>
+        { orderAll.isLoading && (
+          <Stack gap="xs" aria-hidden="true">
     { Array.from({ length: 5 }).map((_, i) => (
     <Skeleton key={i} height={ 28 } radius="sm" />
     )) }
     </Stack>
-          ) }
-          { orderByCustomer.isError && (
-            <Alert color="red" variant="light">{t("page.List.alert.cpshqe", "Couldn't load orders")}</Alert>
-          ) }
-          { orderByCustomer.data && orderByCustomer.data.length === 0 && (
-            <Center mih={200}><Text c="dimmed">{t("page.List.empty.louti1", "No orders yet.")}</Text></Center>
-          ) }
-          { orderByCustomer.data && orderByCustomer.data.length > 0 && (
-            <Paper p="md">
-              <><div className="loom-table-scroll" style={{ width: "100%", overflowX: "auto" }}><Table striped highlightOnHover stickyHeader>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "id") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("id"); setSortDir("asc"); } }}>{t("page.List.columnHeader.o4495s", "ID")}{sortKey === "id" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
-                    <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "customerId") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("customerId"); setSortDir("asc"); } }}>{t("page.List.columnHeader.0ysfxy", "Customer Id")}{sortKey === "customerId" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
-                    <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "status") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("status"); setSortDir("asc"); } }}>{t("page.List.columnHeader.03pd73", "Status")}{sortKey === "status" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
-                    <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "placedAt") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("placedAt"); setSortDir("asc"); } }}>{t("page.List.columnHeader.cl05q5", "Placed At")}{sortKey === "placedAt" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
+        ) }
+        { orderAll.isError && (
+          <Alert color="red" variant="light">{t("page.List.alert.cpshqe", "Couldn't load orders")}</Alert>
+        ) }
+        { orderAll.data && orderAll.data.items.length === 0 && (
+          <Center mih={200}><Text c="dimmed">{t("page.List.empty.louti1", "No orders yet.")}</Text></Center>
+        ) }
+        { orderAll.data && orderAll.data.items.length > 0 && (
+          <Paper p="md">
+            <><div className="loom-table-scroll" style={{ width: "100%", overflowX: "auto" }}><Table striped highlightOnHover stickyHeader>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "id") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("id"); setSortDir("asc"); } }}>{t("page.List.columnHeader.o4495s", "ID")}{sortKey === "id" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
+                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "customerId") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("customerId"); setSortDir("asc"); } }}>{t("page.List.columnHeader.0ysfxy", "Customer Id")}{sortKey === "customerId" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
+                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "status") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("status"); setSortDir("asc"); } }}>{t("page.List.columnHeader.03pd73", "Status")}{sortKey === "status" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
+                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "placedAt") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("placedAt"); setSortDir("asc"); } }}>{t("page.List.columnHeader.cl05q5", "Placed At")}{sortKey === "placedAt" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                { orderAll.data.items.map((row) => (
+                  <Table.Tr key={ row.id } data-testid={ ("orders-row-" + row.id) }>
+                    <Table.Td><RouterLink to={`/orders/${ row.id }`}><IdValue id={ row.id } /></RouterLink></Table.Td>
+                    <Table.Td><Text>{row.customerId}</Text></Table.Td>
+                    <Table.Td><Badge tt="none">{ row.status }</Badge></Table.Td>
+                    <Table.Td><DateTimeValue iso={ row.placedAt } /></Table.Td>
                   </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  { ([...(orderByCustomer.data)].sort((a, b) => { if (!sortKey) { return 0; } const sv = (v: unknown) => (v === null || typeof v !== "object" || Array.isArray(v)) ? v : (Number.isNaN(Number(v)) ? v : Number(v)); const av = sv((a as Record<string, unknown>)[sortKey]); const bv = sv((b as Record<string, unknown>)[sortKey]); const c = av === bv ? 0 : (av as number) < (bv as number) ? -1 : 1; return sortDir === "desc" ? -c : c; })).slice((pageNum - 1) * 10, pageNum * 10).map((row) => (
-                    <Table.Tr key={ row.id } data-testid={ ("orders-row-" + row.id) }>
-                      <Table.Td><RouterLink to={`/orders/${ row.id }`}><IdValue id={ row.id } /></RouterLink></Table.Td>
-                      <Table.Td><Text>{row.customerId}</Text></Table.Td>
-                      <Table.Td><Badge tt="none">{ row.status }</Badge></Table.Td>
-                      <Table.Td><DateTimeValue iso={ row.placedAt } /></Table.Td>
-                    </Table.Tr>
-                  )) }
-                </Table.Tbody>
-              </Table></div>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.5rem", marginTop: "0.75rem" }} data-testid="pager"><button type="button" disabled={pageNum <= 1} onClick={() => setPageNum(pageNum - 1)}>{t("chrome.prev", "Prev")}</button><span>{t("chrome.pageOf", "Page {page} of {pages}", { page: pageNum, pages: Math.max(1, Math.ceil(([...(orderByCustomer.data)].sort((a, b) => { if (!sortKey) { return 0; } const sv = (v: unknown) => (v === null || typeof v !== "object" || Array.isArray(v)) ? v : (Number.isNaN(Number(v)) ? v : Number(v)); const av = sv((a as Record<string, unknown>)[sortKey]); const bv = sv((b as Record<string, unknown>)[sortKey]); const c = av === bv ? 0 : (av as number) < (bv as number) ? -1 : 1; return sortDir === "desc" ? -c : c; })).length / 10)) })}</span><button type="button" disabled={pageNum >= Math.max(1, Math.ceil(([...(orderByCustomer.data)].sort((a, b) => { if (!sortKey) { return 0; } const sv = (v: unknown) => (v === null || typeof v !== "object" || Array.isArray(v)) ? v : (Number.isNaN(Number(v)) ? v : Number(v)); const av = sv((a as Record<string, unknown>)[sortKey]); const bv = sv((b as Record<string, unknown>)[sortKey]); const c = av === bv ? 0 : (av as number) < (bv as number) ? -1 : 1; return sortDir === "desc" ? -c : c; })).length / 10))} onClick={() => setPageNum(pageNum + 1)}>{t("chrome.next", "Next")}</button></div></>
-            </Paper>
-          ) }
-        </>) : <>
-          { orderAll.isLoading && (
-            <Stack gap="xs" aria-hidden="true">
-    { Array.from({ length: 5 }).map((_, i) => (
-    <Skeleton key={i} height={ 28 } radius="sm" />
-    )) }
-    </Stack>
-          ) }
-          { orderAll.isError && (
-            <Alert color="red" variant="light">{t("page.List.alert.cpshqe", "Couldn't load orders")}</Alert>
-          ) }
-          { orderAll.data && orderAll.data.items.length === 0 && (
-            <Center mih={200}><Text c="dimmed">{t("page.List.empty.louti1", "No orders yet.")}</Text></Center>
-          ) }
-          { orderAll.data && orderAll.data.items.length > 0 && (
-            <Paper p="md">
-              <><div className="loom-table-scroll" style={{ width: "100%", overflowX: "auto" }}><Table striped highlightOnHover stickyHeader>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "id") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("id"); setSortDir("asc"); } }}>{t("page.List.columnHeader.o4495s", "ID")}{sortKey === "id" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
-                    <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "customerId") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("customerId"); setSortDir("asc"); } }}>{t("page.List.columnHeader.0ysfxy", "Customer Id")}{sortKey === "customerId" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
-                    <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "status") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("status"); setSortDir("asc"); } }}>{t("page.List.columnHeader.03pd73", "Status")}{sortKey === "status" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
-                    <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "placedAt") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("placedAt"); setSortDir("asc"); } }}>{t("page.List.columnHeader.cl05q5", "Placed At")}{sortKey === "placedAt" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  { orderAll.data.items.map((row) => (
-                    <Table.Tr key={ row.id } data-testid={ ("orders-row-" + row.id) }>
-                      <Table.Td><RouterLink to={`/orders/${ row.id }`}><IdValue id={ row.id } /></RouterLink></Table.Td>
-                      <Table.Td><Text>{row.customerId}</Text></Table.Td>
-                      <Table.Td><Badge tt="none">{ row.status }</Badge></Table.Td>
-                      <Table.Td><DateTimeValue iso={ row.placedAt } /></Table.Td>
-                    </Table.Tr>
-                  )) }
-                </Table.Tbody>
-              </Table></div>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.5rem", marginTop: "0.75rem" }} data-testid="pager"><button type="button" disabled={pageNum <= 1} onClick={() => setPageNum(pageNum - 1)}>{t("chrome.prev", "Prev")}</button><span>{t("chrome.pageOf", "Page {page} of {pages}", { page: pageNum, pages: Math.max(1, orderAll.data.totalPages) })}</span><button type="button" disabled={pageNum >= Math.max(1, orderAll.data.totalPages)} onClick={() => setPageNum(pageNum + 1)}>{t("chrome.next", "Next")}</button></div></>
-            </Paper>
-          ) }
-        </>}
+                )) }
+              </Table.Tbody>
+            </Table></div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.5rem", marginTop: "0.75rem" }} data-testid="pager"><button type="button" disabled={pageNum <= 1} onClick={() => setPageNum(pageNum - 1)}>{t("chrome.prev", "Prev")}</button><span>{t("chrome.pageOf", "Page {page} of {pages}", { page: pageNum, pages: Math.max(1, orderAll.data.totalPages) })}</span><button type="button" disabled={pageNum >= Math.max(1, orderAll.data.totalPages)} onClick={() => setPageNum(pageNum + 1)}>{t("chrome.next", "Next")}</button></div></>
+          </Paper>
+        ) }
+      </>
     </Stack>
   );
 }

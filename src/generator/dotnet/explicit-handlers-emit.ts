@@ -84,7 +84,8 @@ const INDENT = "        ";
 
 type Handler = CommandHandlerIR | QueryHandlerIR;
 
-/** The repos a handler body references (repo-let loads + exit-saves), keyed by
+/** The repos a handler body references (repo-let loads, `Repo.run` reads,
+ *  deletes + exit-saves), keyed by
  *  repo name → aggregate name.  These become the handler's injected
  *  `I<Agg>Repository _<repo>` fields — matching the field naming the shared
  *  workflow stmt target emits (`_<repoLowerFirst>`).
@@ -99,6 +100,15 @@ function collectRepos(h: Handler): Map<string, string> {
   for (const s of h.statements) {
     walkWorkflowStmtsDeep(s, (st) => {
       if (st.kind === "repo-let" || st.kind === "repo-delete") repos.set(st.repoName, st.aggName);
+      // A `Repo.run(<Criterion>(…))` read injects the same repository.
+      if (st.kind === "repo-run") repos.set(st.repoName, st.aggName);
+    });
+  }
+  // An `if let` source reads through its repository too, and its then-branch
+  // saves through it.
+  for (const s of h.statements) {
+    walkWorkflowStmtsDeep(s, (st) => {
+      if (st.kind === "if-let" && st.repoName) repos.set(st.repoName, st.aggName);
     });
   }
   for (const save of h.savesAtExit) repos.set(save.repoName, save.aggName);
@@ -296,8 +306,21 @@ function renderHandlerClass(
   const saveLines = h.savesAtExit.map(
     (s) => `        await ${repoField(s.repoName)}.SaveAsync(${s.name}, cancellationToken);`,
   );
+  // A `Repo.run(…)` binding is the repository's `IReadOnlyList<T>`; the
+  // handler's declared `T[]` is the Mediator record's `List<T>`, so returning
+  // that binding as-is is CS0266.  Materialise it.
+  const runBindings = new Set<string>();
+  for (const s of h.statements) {
+    walkWorkflowStmtsDeep(s, (st) => {
+      if (st.kind === "repo-run") runBindings.add(st.name);
+    });
+  }
+  const returnsRunList =
+    retType?.kind === "array" &&
+    h.returnValue?.kind === "ref" &&
+    runBindings.has(h.returnValue.name);
   const returnLine = h.returnValue
-    ? `        return ${renderArg(h.returnValue)};`
+    ? `        return ${renderArg(h.returnValue)}${returnsRunList ? ".ToList()" : ""};`
     : "        return Unit.Value;";
   const body = [...stmtLines, ...saveLines, returnLine].join("\n");
 

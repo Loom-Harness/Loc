@@ -32,7 +32,7 @@ shape of the compiler pipeline that turns these features into code.
 | 10 | [Repositories & queries](10-repositories-and-queries.md) | `repository`, `find`, the queryable subset, `criterion`, `retrieval`, `loads`, `ignoring`, pagination, query-time `projection` (shorthand `select`-less form, `group by`). |
 | 11 | [Capabilities, filters & stamps](11-capabilities-filters-stamps.md) | `capability`, `with`/`implements`, `filter`, `stamp`, `ignoring`, `auditable`/`softDeletable`/`crudish`. |
 | 12 | *(retired)* | The `view` chapter went with the `view` feature (#2200); its successor, `projection`, lives in chapter 10 today (see the gaps list below for the folded form). |
-| 13 | [Workflows](13-workflows.md) | `create`/`handle`/`on`/`apply`, `eventSourced`, `transactional`, isolation, resource consumption. |
+| 13 | [Workflows](13-workflows.md) | `create`/`on`/`apply`, `eventSourced`, `transactional`, isolation, resource consumption. |
 | 14 | [APIs, storage, resources & channels](14-apis-storage-resources-channels.md) | `api`, `storage`, `resource`, `channel`, `channelSource`. |
 | 15 | [UI: pages & structure](15-ui-pages-structure.md) | `ui`, `page`, `component`, `area`, `state`, `derived`, `action`, `menu`, `layout`, `scaffold`. |
 | 16 | [UI: the walker primitive library](16-ui-walker-primitives.md) | Layout/display/input/action/formatter primitives, `Form`, `match`, `For`, `QueryView`. |

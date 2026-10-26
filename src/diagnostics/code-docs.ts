@@ -71,6 +71,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.duplicate-resource": "14-apis-storage-resources-channels.md#resource",
   // --- src/language/validators/structural.ts (M-T9.56 drain) --------------
   "loom.audited-no-command": "22-macros.md#audit--the-built-in-capability-auditable",
+  "loom.scaffold-aggregate-unserved": "22-macros.md#scaffold-family--application--transport",
   "loom.duplicate-entity-part": "03-domain-modeling.md#entity-parts--contains",
   "loom.valueobject-contains-entity": "03-domain-modeling.md#valueobject",
   "loom.containment-optional-collection": "03-domain-modeling.md#entity-parts--contains",
@@ -88,6 +89,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.generic-arg-not-carrier": "04-type-system.md#generic-carriers--paged-envelope-option",
   "loom.generic-position": "04-type-system.md#generic-carriers--paged-envelope-option",
   "loom.token-nullable": "04-type-system.md#options--t",
+  "loom.nullable-receiver": "04-type-system.md#options--t",
   "loom.bare-aggregate-in-type": "04-type-system.md#x-id--cross-aggregate-references",
   "loom.money-literal-malformed": "05-expressions.md#money-literals-vs-moneyx-conversion",
   "loom.interp-format-dropped-in-domain": "05-expressions.md#string-interpolation",
@@ -163,11 +165,14 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.paged-param-reserved": "10-repositories-and-queries.md#return-shapes",
   "loom.find-param-unbound":
     "10-repositories-and-queries.md#a-find-without-where--key-lookup-by-parameter-name",
+  "loom.repo-key-not-unique": "10-repositories-and-queries.md#natural-key-reads--getby--findby",
+  "loom.repo-key-incomplete": "10-repositories-and-queries.md#natural-key-reads--getby--findby",
   "loom.paged-query-handler-shape":
     "10-repositories-and-queries.md#reporun--the-paged-queryhandler",
   "loom.let-type-mismatch": "06-behavior-and-statements.md#let--emit",
   "loom.return-type-mismatch": "06-behavior-and-statements.md#return--the-exception-less-outcome",
   "loom.return-missing": "06-behavior-and-statements.md#return--the-exception-less-outcome",
+  "loom.unhandled-result": "06-behavior-and-statements.md#return--the-exception-less-outcome",
   "loom.function-return-type-mismatch":
     "07-invariants-derived-functions.md#function--a-pure-helper",
   "loom.create-call-not-constructible":
@@ -215,7 +220,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.projection-aggregate-arg-not-columnar": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-aggregate-arity":
     "10-repositories-and-queries.md#whole-table-aggregation--the-singleton",
-  "loom.single-row-find-not-unique": "10-repositories-and-queries.md#list-finds-are-deprecated",
+  "loom.single-row-find-not-unique": "10-repositories-and-queries.md#list-finds-are-removed",
+  "loom.list-find-removed": "10-repositories-and-queries.md#list-finds-are-removed",
   "loom.persisted-table-collision": "13-workflows.md#13-workflows",
   "loom.projection-aggregate-type-mismatch": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-groupby-join-invalid": "10-repositories-and-queries.md#grouped--group-by",
@@ -259,19 +265,16 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.workflow-return-type-mismatch": "13-workflows.md#returning-a-result",
   "loom.workflow-return-type-unsupported": "13-workflows.md#returning-a-result",
   "loom.workflow-return-event-sourced": "13-workflows.md#returning-a-result",
-  "loom.canonical-create-duplicate-workflow":
-    "13-workflows.md#create--handle--starters--continuations",
+  "loom.canonical-create-duplicate-workflow": "13-workflows.md#create--starters",
   "loom.create-field-id-target": "04-type-system.md#x-id--cross-aggregate-references",
-  "loom.create-name-conflict-workflow": "13-workflows.md#create--handle--starters--continuations",
-  "loom.workflow-param-unused": "13-workflows.md#create--handle--starters--continuations",
-  "loom.workflow-handle-unsupported": "13-workflows.md#create--handle--starters--continuations",
-  "loom.workflow-applier-on-non-event-sourced":
-    "13-workflows.md#create--handle--starters--continuations",
+  "loom.create-name-conflict-workflow": "13-workflows.md#create--starters",
+  "loom.workflow-param-unused": "13-workflows.md#create--starters",
+  "loom.workflow-applier-on-non-event-sourced": "13-workflows.md#create--starters",
   "loom.correlation-type-mismatch": "13-workflows.md#one-event--the-event-reactor",
   // M-T5.34.  The missing-starter ruling documents against the reactor section
   // (that is the member whose behaviour is inert without a starter); the
-  // command-side correlation ruling and the `handle` refusal both belong to the
-  // starters-and-continuations section that declares those two members.
+  // command-side correlation ruling belongs to the
+  // starters section that declares that member.
   "loom.reactor-without-starter": "13-workflows.md#one-event--the-event-reactor",
   "loom.correlation-uninferrable": "13-workflows.md#one-event--the-event-reactor",
   "loom.resource-op-in-transaction": "13-workflows.md#resource-consumption",
@@ -283,6 +286,9 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.workflow-create-correlation-unsupplied": "13-workflows.md#workflow--state",
   "loom.workflow-uncorrelated-state-write": "13-workflows.md#workflow--state",
   "loom.workflow-explicit-save": "13-workflows.md#body-vocabulary",
+  "loom.workflow-uncorrelated-state-read": "13-workflows.md#workflow--state",
+  "loom.workflow-mutation-unsaved": "13-workflows.md#body-vocabulary",
+  "loom.workflow-create-args": "13-workflows.md#body-vocabulary",
   "loom.channel-key-missing-field": "14-apis-storage-resources-channels.md#channel--channelsource",
   "loom.reserved-not-emitted": "14-apis-storage-resources-channels.md#connection-sources",
   "loom.channelsource-incompatible":
@@ -508,6 +514,13 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.migration-block-applied":
     "../migrations.md#a-spent-block-says-so--loommigration-block-applied",
   "loom.migration-sql-placement": "../migrations.md#data-migrations-m-t23",
+  "loom.migration-step-unknown-context":
+    "../migrations.md#table-steps--renames-and-cross-context-moves",
+  "loom.migration-step-target-missing":
+    "../migrations.md#table-steps--renames-and-cross-context-moves",
+  "loom.migration-step-ambiguous": "../migrations.md#table-steps--renames-and-cross-context-moves",
+  "loom.migration-move-across-databases":
+    "../migrations.md#table-steps--renames-and-cross-context-moves",
   "loom.migration-chain-invalid":
     "../migrations.md#the-migration-chain--migrations-beside-the-source",
   "loom.diff-baseline-invalid": "../mcp.md#the-loom_-tool-catalog",

@@ -51,7 +51,7 @@ const DEEP_AND_DENY = `system PD {
         body: string
       }
       repository Things for Thing {
-        find byLabel(l: string): Thing[] where this.label == l
+        find byLabel(l: string): Thing? where this.label == l
       }
       repository Notes for Note { }
       policy {
@@ -90,7 +90,7 @@ const NON_PRINCIPAL = `system SD {
         label: string
       }
       repository Docs for Doc {
-        find byLabel(l: string): Doc[] where this.label == l
+        find byLabel(l: string): Doc? where this.label == l
       }
     }
   }
@@ -120,8 +120,8 @@ const DOC_IGNORING = `system DI {
         note: string
       }
       repository Docs for Doc {
-        find byLabel(l: string): Doc[] where this.label == l
-        find byLabelAll(l: string): Doc[] where this.label == l ignoring softDeletable
+        find byLabel(l: string): Doc? where this.label == l
+        find byLabelAll(l: string): Doc? where this.label == l ignoring softDeletable
         find byNoteAny(n: string): Doc? where this.note == n ignoring *
       }
     }
@@ -151,7 +151,6 @@ const codeOf = (src: string): string =>
     .join("\n");
 
 const THING_REPO = "d/lib/d/main/thing_repository.ex";
-const NOTE_REPO = "d/lib/d/main/note_repository.ex";
 const DOC_REPO = "d/lib/d/main/doc_repository.ex";
 const CONTEXT = "d/lib/d/main.ex";
 
@@ -206,19 +205,6 @@ describe("elixir/vanilla — capability filter on a shape: document aggregate", 
     );
     // The prefix is INTERPOLATED, not concatenated — `nil <> "."` raises.
     expect(repo).not.toContain('current_user.org_path) <> "."');
-  });
-
-  it("renders `deny` as an always-false conjunct — the aggregate reads as invisible", async () => {
-    const repo = (await generateSystemFiles(DEEP_AND_DENY)).get(NOTE_REPO)!;
-    expect(codeOf(repo)).not.toContain("fragment(");
-    // Tenant floor AND the always-false carve-out.
-    expect(repo).toContain("record.tenant_id == (current_user && current_user.tenant_id)");
-    // NOT the literal `false`: the compiler folds it, and `… and false` is a
-    // typing violation whose narrowed return type also makes each CALLER's
-    // `{:ok, _}` branch dead code — both `--warnings-as-errors` failures.
-    expect(repo).toContain("and (__denied?(row))");
-    expect(repo).toContain("defp __denied?(row), do: Enum.member?([], row)");
-    expect(codeOf(repo)).not.toContain("and (false)");
   });
 
   it("is fail-closed for an actor-less read (a nil principal matches no rows)", async () => {

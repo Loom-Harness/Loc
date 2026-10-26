@@ -7,14 +7,14 @@ import type {
 import { exprUsesCurrentUser, isMaterializedProjection } from "../../../ir/types/loom-ir.js";
 import { enumPool } from "../../../ir/util/reachable-types.js";
 import { resolveContextSchema } from "../../../ir/util/resolve-datasource.js";
-import { plural, snake, upperFirst } from "../../../util/naming.js";
+import { snake, upperFirst } from "../../../util/naming.js";
+import { tableNameFor } from "../../../util/storage-names.js";
 import type { ApiRoute } from "../api-emit.js";
 import { ectoIdType, projectionRowModule } from "../dispatch-emit.js";
 import { renderExpr } from "../render-expr.js";
 import { denialOverrides, denialResponse } from "./denial.js";
 import { effectiveGate } from "./gate.js";
 import { mapTypeToEcto } from "./schema-emit.js";
-
 // ---------------------------------------------------------------------------
 // Vanilla foundation — projection read models (projection.md), the read half.
 //
@@ -86,7 +86,7 @@ function renderProjectionRowSchema(
   const corrField = proj.stateFields.find((f) => f.name === corr);
   const pkType =
     corrField && corrField.type.kind === "id" ? ectoIdType(corrField.type.valueType) : ":string";
-  const table = plural(snake(proj.name));
+  const table = tableNameFor(proj.name);
   const fieldLines = proj.stateFields
     .filter((f) => f.name !== corr)
     .map((f) => {

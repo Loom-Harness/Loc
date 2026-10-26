@@ -154,7 +154,7 @@ For a context with aggregates `Order` (containing parts) and `Product`:
 ├── tsconfig.json
 ├── index.ts                         # pg Pool → drizzle → createApp(db) → @hono/node-server.serve
 ├── scheduler.ts                     # timerSource jobs (when the deployable owns any) — see "Timer sources"
-├── drizzle.config.ts                # Drizzle Kit config (db:generate, db:migrate, db:push, db:studio)
+├── drizzle.config.ts                # Drizzle Kit config (db:generate, db:push, db:studio)
 ├── Dockerfile                       # multi-stage node:22-alpine; runtime serves `node out/index.js`
 ├── .dockerignore
 ├── certs/.gitkeep                   # proxy-CA escape hatch (drop *.crt files here at build time)
@@ -1148,7 +1148,7 @@ Per deployable it emits:
 | Auth | `auth: required` + `user {}` → typed `User` record, `UserVerifier` boundary + accept-all dev stub, 401 filter, ThreadLocal accessor; `currentUser` threads into ops as a trailing parameter |
 | Workflows | `POST /workflows/<snake>` via a per-context `@Service` (loops over `Repo.run(...)` retrievals incl. the call-site `page:` tuple, workflow-level `emit` logging the `domain_event` envelope) |
 | Retrievals / criteria | reified criteria → `<Agg>Criteria` `Specification<T>` factories (java consumes `CriterionIR` directly — the first backend to); `run<Name>` port methods: an exact-criterion-ref retrieval rides `JpaSpecificationExecutor.findAll(spec, Sort)`, composed `where`s fall back to `@Query` JPQL with `order by`; paged runs via the `OffsetLimitPageRequest` Pageable |
-| Paged finds | `find x(): T paged` → `Paged<T>` envelope over Spring Data `Pageable` (1-based, `page=1&pageSize=20` defaults) |
+| Paged finds | `find all(): T paged` → `Paged<T>` envelope over Spring Data `Pageable` (1-based, `page=1&pageSize=20` defaults) |
 | Exception-less returns | `operation f(): X or NotFound` → sealed domain union + variant records, Jackson-polymorphic `<U>Response` wire DTO (`type` tag), controller switch: error variants → RFC-7807 `ProblemDetail` at their mapped status, success → 200 |
 | Inheritance | TPC via `@MappedSuperclass`; TPH (`sharedTable`) via JPA `SINGLE_TABLE` — the base owns the shared table + `@DiscriminatorColumn("kind")`, concretes carry `@DiscriminatorValue` and share the base `<Base>Id` |
 | Single containments | hidden owning `_parent` `@OneToOne` on the part (JPA has no unidirectional one-to-one with the FK on the part table) + inverse `mappedBy` with cascade/orphanRemoval on the root |
@@ -1295,7 +1295,7 @@ aggregate Thing with crudish {
   def: string
   operation class(except: int) { … }
 }
-repository Things for Thing { find byDef(def: string): Thing[] where this.def == def }
+repository Things for Thing { find byDef(def: string): Thing? where this.def == def }
 ```
 
 | position | what is emitted |
@@ -1466,7 +1466,7 @@ Postgres-backed emitters lives in
 | Backend | Emits | Applied by |
 | --- | --- | --- |
 | Phoenix | `priv/repo/migrations/<ts>_<name>.exs` (Ecto DSL) | `mix ecto.migrate` at boot via the existing release config |
-| Hono | `db/migrations/<version>_<name>.sql` + `db/migrations/meta/_journal.json` | Drizzle's runtime migrator: `await migrate(db, { migrationsFolder })` in `index.ts` reads the journal + .sql files, tracks state in `__drizzle_migrations`.  `npm run db:migrate` (drizzle-kit migrate) works out of band |
+| Hono | `db/migrations/<version>_<name>.sql` + `db/migrations/meta/_journal.json` | the generated `db/migrate.ts`: `await migrate(db, { migrationsFolder })` in `index.ts` reads the journal + .sql files and tracks state in `__drizzle_migrations` as Drizzle's migrator does, and applies a `-- loom:no-transaction` file (a `CREATE INDEX CONCURRENTLY` unit) outside a transaction.  `npm run db:migrate` runs the same `migrate` out of band (`tsx db/migrate-cli.ts`, a pool from `DATABASE_URL`); `drizzle-kit migrate` is not wired, since it runs every file inside one transaction |
 | .NET | `Migrations/<Version>_<Name>.cs` (`migrationBuilder.Sql(@"...")`) | `db.Database.Migrate()` in `Program.cs` after `builder.Build()`; no `ModelSnapshot` is emitted — Loom owns SQL generation, so `dotnet ef migrations add` is never run and the runtime migrator is happy without one |
 
 Phoenix stays in Ecto DSL because its output is Elixir.  Hono and

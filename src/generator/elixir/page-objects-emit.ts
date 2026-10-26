@@ -29,9 +29,9 @@ import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import type { AggregateIR, BoundedContextIR, PageIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { classifyPage, type PageNameCtx, pageEmitName } from "../../ir/util/page-kind.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { unwrapOpt } from "../_frontend/form-helpers.js";
 import { fillBlock } from "../_frontend/page-objects-builder.js";
-
 export interface BuildPlaywrightPageObjectArgs {
   page: PageIR;
   appName: string;
@@ -228,7 +228,7 @@ function buildAggregateListPageObject(
   _ctx: BoundedContextIR,
   emitName: string,
 ): string {
-  const slug = snake(plural(agg.name));
+  const slug = routeSegmentFor(agg.name);
   const aggPascal = upperFirst(agg.name);
   const className = `${upperFirst(emitName)}Page`;
   const route = page.route ?? `/${slug}`;
@@ -382,7 +382,7 @@ function buildAggregateNewPageObject(
   ctx: BoundedContextIR,
   emitName: string,
 ): string {
-  const slug = snake(plural(agg.name));
+  const slug = routeSegmentFor(agg.name);
   const aggPascal = upperFirst(agg.name);
   const className = `${upperFirst(emitName)}Page`;
   const route = page.route ?? `/${slug}/new`;
@@ -455,7 +455,7 @@ function buildAggregateDetailPageObject(
   ctx: BoundedContextIR,
   emitName: string,
 ): string {
-  const slug = snake(plural(agg.name));
+  const slug = routeSegmentFor(agg.name);
   const className = `${upperFirst(emitName)}Page`;
   const ops = agg.operations.filter((o) => o.visibility === "public");
 

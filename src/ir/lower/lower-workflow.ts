@@ -1,9 +1,9 @@
+import { factoryArgs } from "../../language/factory-call.js";
 import type {
   Aggregate,
   BoundedContext,
   CommandHandler,
   Expression,
-  HandleDecl,
   LoadPath,
   OnDecl,
   QueryHandler,
@@ -19,12 +19,10 @@ import {
   isEmitStmt,
   isForStmt,
   isFunctionDecl,
-  isHandleDecl,
   isIfLetStmt,
   isLetStmt,
   isMemberSuffix,
   isNameRef,
-  isObjectLit,
   isOnDecl,
   isPostfixChain,
   isPreconditionStmt,
@@ -47,7 +45,6 @@ import type {
   ExprIR,
   FieldIR,
   FunctionIR,
-  HandleIR,
   LoadPlanIR,
   LoadSegmentIR,
   OnIR,
@@ -82,8 +79,10 @@ import {
 } from "./lower-types.js";
 import { originFor } from "./origin.js";
 import {
+  keyLookupIR,
   matchFindAllCall,
   matchFindCall,
+  matchKeyLookupCall,
   matchOptionalFindCall,
   matchRepoCall,
   matchRetrievalRunCall,
@@ -120,12 +119,11 @@ export function lowerWorkflow(
       }
     : undefined;
   // A workflow is a state-bearing entity (workflow-and-applier.md A2-S5f): bind
-  // `this` to it so every member body (create / handle / on / apply) resolves
+  // `this` to it so every member body (create / on / apply) resolves
   // bare names / `this.field` against the workflow's `Property` state fields.
   // The body is members-only — no header params, no free statements.
   const paramEnv = inWorkflow(env, wf);
   const subscriptions: OnIR[] = [];
-  const handlers: HandleIR[] = [];
   const creates: CreateIR[] = [];
   // Workflow state fields (`Property` members) — the correlation field +
   // saga state (A2-S2).  Lowered with the same `lowerField` aggregates use.
@@ -145,8 +143,6 @@ export function lowerWorkflow(
       );
     } else if (isOnDecl(m)) {
       subscriptions.push(lowerOn(m, paramEnv, aggsByName, reposByName, repoForAgg, saveResolver));
-    } else if (isHandleDecl(m)) {
-      handlers.push(lowerHandle(m, paramEnv, aggsByName, reposByName, repoForAgg, saveResolver));
     }
     // Property / Apply handled above.
   }
@@ -175,7 +171,6 @@ export function lowerWorkflow(
     ...(stateFields.length > 0 ? { stateFields } : {}),
     ...(correlationField ? { correlationField } : {}),
     ...(appliers.length > 0 ? { appliers } : {}),
-    ...(handlers.length > 0 ? { handlers } : {}),
     ...(functions.length > 0 ? { functions } : {}),
     // The instance-read gate lowers in the BARE context env, not `paramEnv` —
     // the same stance the projection gate takes.  `paramEnv` binds `this` to
@@ -199,7 +194,7 @@ function serviceOpResolver(
 }
 
 // Lower a `create [name](params) [by <expr>] { … }` workflow starter
-// (workflow-and-applier.md A2-S5f).  Mirrors `lowerHandle`: params bind as
+// (workflow-and-applier.md A2-S5f).  Params bind as
 // locals on the workflow `this`-env, the body lowers via
 // `lowerWorkflowStatement`.  Trigger kind is discriminated from the shape — a
 // `by` clause (and a sole event-typed param) marks an event-triggered starter.
@@ -270,43 +265,6 @@ function lowerWorkflowCreate(
   };
 }
 
-// Lower a `handle name(params) { … }` command handler (workflow-and-applier.md
-// A2-S5c).  Structurally the legacy paren-form workflow body: params bind as
-// locals on top of the workflow `this`-env, the body lowers through
-// `lowerWorkflowStatement`, and exit-saves are derived the same way.
-function lowerHandle(
-  h: HandleDecl,
-  baseEnv: Env,
-  aggsByName: Map<string, Aggregate>,
-  reposByName: Map<string, Repository>,
-  repoForAgg: Map<string, string>,
-  saveResolver?: SaveResolver,
-): HandleIR {
-  // A workflow `handle` parameter default is not lowered today — the same
-  // deliberate hold the domain-service row records (`callable-params.ts`).
-  const boundParams = lowerCallableParams(h.params, baseEnv, { defaults: false });
-  const params = boundParams.params;
-  const inner = boundParams.env;
-  // `requires Expr` — authorization gate (authorization.md §11.3), lowered as a
-  // prepended 403 pre-check in the param-bound env (currentUser + command
-  // params).  See `lowerWorkflowCreate`.
-  const { statements } = lowerWorkflowStatements(
-    h.body,
-    inner,
-    aggsByName,
-    reposByName,
-    repoForAgg,
-    saveResolver,
-    h.gate ? [{ kind: "requires", expr: lowerExpr(h.gate, inner), source: cstText(h.gate) }] : [],
-  );
-  return {
-    name: h.name,
-    params,
-    statements,
-    savesAtExit: computeSaves(statements, repoForAgg, undefined, saveResolver),
-  };
-}
-
 /** Build the `(aggregate | repository)` lookup maps a workflow / handler body
  *  needs to resolve loads, saves, and repo calls within its context.  Mirrors
  *  the inline pass at the top of `lowerWorkflow`. */
@@ -342,7 +300,7 @@ type SecondPassLowered = { aggregates: AggregateIR[]; domainServices: DomainServ
 
 /** Lower a top-level `commandHandler name(params): T { … }` application-layer
  *  member (unfoldable-api-derivation.md, Layer 3).  Structurally a workflow
- *  `handle` lifted to the context — params bind as `refKind: "param"` locals on
+ *  command entry at context level — params bind as `refKind: "param"` locals on
  *  the context env (no workflow `this`), the body lowers through
  *  `lowerWorkflowStatement`, and exit-saves derive the same way.  `returnType`
  *  is optional. */
@@ -663,11 +621,19 @@ function lowerWorkflowStatementInner(
     // env; `var` (the unwrapped match) is in scope only in `thenBody`, never
     // in `elseBody`.
     const findCall = matchFindCall(stmt.source, reposByName);
-    const declaredFind = findCall
-      ? undefined
-      : matchOptionalFindCall(stmt.source, reposByName, env);
+    // A natural-key `Repo.findBy(…)` is the third source form: the backends
+    // call its synthesised nullable method exactly like a declared optional
+    // find's.  (`getBy` never answers absence, so it is not an `if let`
+    // source — it falls through to `loom.iflet-bad-source`.)
+    const keyFind = findCall ? undefined : matchKeyLookupCall(stmt.source, reposByName);
+    const keySource = keyFind?.op === "load-by-key-optional" ? keyFind : undefined;
+    const declaredFind =
+      findCall || keyFind ? undefined : matchOptionalFindCall(stmt.source, reposByName, env);
     const repo =
-      findCall?.repo ?? declaredFind?.repo ?? matchRepoCall(stmt.source, reposByName)?.repo;
+      findCall?.repo ??
+      keyFind?.repo ??
+      declaredFind?.repo ??
+      matchRepoCall(stmt.source, reposByName)?.repo;
     const aggName = repo?.aggregate?.ref?.name ?? "Unknown";
     const repoName = repo?.name ?? "";
     const saveRepoName = repoForAgg.get(aggName) ?? plural(aggName);
@@ -703,15 +669,16 @@ function lowerWorkflowStatementInner(
       stmt: {
         kind: "if-let",
         var: stmt.var,
-        op: declaredFind ? "declared-find" : "select-one",
+        op: keySource ? "load-by-key-optional" : declaredFind ? "declared-find" : "select-one",
         repoName,
         aggName,
         retrievalName: findCall ? `findAllBy${findCall.criterionName}` : "",
-        retrievalArgs: (findCall?.criterionArgs ?? declaredFind?.args ?? []).map((a) =>
-          lowerExpr(a, env),
+        retrievalArgs: (findCall?.criterionArgs ?? keySource?.args ?? declaredFind?.args ?? []).map(
+          (a) => lowerExpr(a, env),
         ),
         synthCriterion: { name: findCall?.criterionName ?? "" },
         ...(declaredFind ? { findMethod: declaredFind.method } : {}),
+        ...(keySource ? { findMethod: keySource.method, key: keyLookupIR(keySource) } : {}),
         thenBody,
         ...(elseBody.length > 0 ? { elseBody } : {}),
         savesInThen,
@@ -859,6 +826,29 @@ function lowerWorkflowStatementInner(
           returnType: arrayType,
         },
         envAfter: withLocal(env, stmt.name, "let", arrayType),
+      };
+    }
+    // repo-let over a natural-key read: `Repo.getBy(sku: s)` /
+    // `Repo.findBy(…)`.  Its arguments follow the matched tuple's column
+    // order, and it calls the method enrichment synthesises from `key`.
+    const keyCall = matchKeyLookupCall(expr, reposByName);
+    if (keyCall) {
+      const aggName = keyCall.repo.aggregate?.ref?.name ?? "Unknown";
+      const returnType: TypeIR = inferExprType(stmt.expr, env);
+      return {
+        stmt: {
+          kind: "repo-let",
+          name: stmt.name,
+          repoName: keyCall.repo.name,
+          aggName,
+          op: keyCall.op,
+          method: keyCall.method,
+          args: keyCall.args.map((a) => lowerExpr(a, env)),
+          returnType,
+          key: keyLookupIR(keyCall),
+        },
+        envAfter: withLocal(env, stmt.name, "let", returnType),
+        binding: { name: stmt.name, aggName, repoName: keyCall.repo.name },
       };
     }
     // repo-let: `Repo.method(args)`
@@ -1173,19 +1163,15 @@ function matchFactoryCall(
   if (s.member !== "create") return undefined;
   const recv = expr.head;
   if (!isNameRef(recv)) return undefined;
-  if (!aggsByName.has(recv.name)) return undefined;
-  if (s.args.length !== 1) return undefined;
-  const argWrap = s.args[0];
-  // Factory calls take a single object literal positional
-  // arg.  Reject the named-arg form here; the caller falls through
-  // to a generic call lowering rather than the factory shape.
-  if (!argWrap || argWrap.name) return undefined;
-  const arg = argWrap.value;
-  if (!isObjectLit(arg)) return undefined;
-  return {
-    aggName: recv.name,
-    fields: arg.fields.map((f) => ({ name: f.name, value: f.value })),
-  };
+  const agg = aggsByName.get(recv.name);
+  if (!agg) return undefined;
+  // The record, positional and named shapes all mean one record keyed by
+  // field name (`language/factory-call.ts`).  An argument list that maps onto
+  // no record is refused at phase ④ (`loom.workflow-create-args`); it falls
+  // through to the generic `let` here.
+  const mapped = factoryArgs(agg, s.args);
+  if (mapped.kind !== "fields") return undefined;
+  return { aggName: recv.name, fields: mapped.fields };
 }
 
 /** Lower a structural `LoadPath` AST node (`lines[].product`) to its

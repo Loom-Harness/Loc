@@ -64,10 +64,9 @@ system Carting {
         }
       }
       // Scalar custom finds (DEBT-07) — in-memory filter over loaded rows.
-      repository Carts for Cart {
-        find byReference(reference: string): Cart? where this.reference == reference
-        find checkedOutOnes(): Cart[] where this.status == checkedOut
-      }
+      repository Carts for Cart { }
+      criterion CartsByReference(reference: string) of Cart = this.reference == reference
+      criterion CartsCheckedOutOnes of Cart = this.status == checkedOut
     }
   }
   api CartsApi from Sales

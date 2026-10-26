@@ -25,9 +25,8 @@ const SRC = `
       entity Slip { note: string }
       entity Item { sku: string price: Money }
     }
-    repository Carts for Cart {
-      find byCustomer(customer: string): Cart[] where this.customer == customer
-    }
+    repository Carts for Cart { }
+    criterion CartsByCustomer(customer: string) of Cart = this.customer == customer
   }
 `;
 

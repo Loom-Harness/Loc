@@ -650,6 +650,11 @@ function pathParamNames(path: string): Set<string> {
   return names;
 }
 
+/** Whether a bound param's Java type names a domain enum (bare or optional). */
+function isEnumType(t: TypeIR): boolean {
+  return t.kind === "enum" || (t.kind === "optional" && t.inner.kind === "enum");
+}
+
 /** The wire-typed `@PathVariable` declaration + the domain-coerced call
  *  argument for a PATH-bound handler param: id → `UUID`/`long`/`String` path
  *  param wrapped in `new <Agg>Id(...)`; scalar → the rendered domain type
@@ -846,6 +851,9 @@ export function emitExplicitRouteController(
   // (see the serialisation note below).  Injected AFTER the route loop so every
   // existing controller keeps its field/ctor-param order.
   let usesJsonString = false;
+  // Set when any route binds an enum-typed path / query param — the action
+  // signature names the domain enum, so the header imports its package.
+  let usesEnumParam = false;
   for (const r of routes) {
     const ctx = byName.get(r.target.context);
     if (!ctx) continue;
@@ -862,6 +870,7 @@ export function emitExplicitRouteController(
     // `Paged<Agg>`) and returns the wire-projected `Paged<Agg>Response`.
     if (h.returnType && pagedReturn(h.returnType)) {
       usesPaged = true;
+      if (h.params.some((p) => isEnumType(p.type))) usesEnumParam = true;
       actions.push(
         ...emitPagedRunAction(r, explicitRoutePath(r), h, ctx, field, responsePkgOf, responsePkgs),
       );
@@ -880,6 +889,7 @@ export function emitExplicitRouteController(
     const effParams = h.extern ? h.params : flatHandlerParams(h, ctx);
     const pathParams = effParams.filter((p) => pathNames.has(p.name));
     const bodyParams = effParams.filter((p) => !pathNames.has(p.name));
+    if (pathParams.some((p) => isEnumType(p.type))) usesEnumParam = true;
     // The path params are the action's own parameters, next to the
     // `@RequestBody … body` record, the `result` local, the injected handler
     // field the action dereferences and the static `JSON` mapper — a token
@@ -1004,9 +1014,10 @@ export function emitExplicitRouteController(
       // Paged-run queryHandler routes return the `Paged<>` envelope.
       usesPaged ? `import ${basePkg}.domain.common.Paged;` : null,
       // Body records reference domain value objects / enums by their wildcard
-      // packages (Money, etc.); only pulled in when a route carries body params
-      // so the no-body header stays byte-identical to the path-only emitter.
-      bodyRecords.length > 0 ? `import ${basePkg}.domain.enums.*;` : null,
+      // packages (Money, etc.), and an enum path / query param names its enum
+      // in the action signature; each is pulled in only when used, so a header
+      // with neither stays byte-identical to the path-only emitter.
+      bodyRecords.length > 0 || usesEnumParam ? `import ${basePkg}.domain.enums.*;` : null,
       bodyRecords.length > 0 ? `import ${basePkg}.domain.valueobjects.*;` : null,
       ``,
       `@RestController`,

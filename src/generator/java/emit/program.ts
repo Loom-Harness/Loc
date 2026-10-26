@@ -354,6 +354,14 @@ export function renderApplicationYml(slug: string, nativePort = 8080): string {
     `    hibernate:`,
     `      ddl-auto: none`,
     `    open-in-view: false`,
+    // Flyway's PostgreSQL lock is transactional by default: it holds an open
+    // transaction on a second connection for the whole run, and
+    // `CREATE INDEX CONCURRENTLY` (a non-transactional `…Concurrent.sql`
+    // unit) waits for every open transaction, so it would wait forever.  The
+    // session-level advisory lock still serialises concurrent boots.
+    `  flyway:`,
+    `    postgresql:`,
+    `      transactional-lock: false`,
     // Prometheus scrape target at /metrics (M-T7.1).  Actuator's base-path is
     // moved to "/" and only the `prometheus` endpoint is exposed, remapped
     // from its default id to `metrics` — so the exposition lands at exactly

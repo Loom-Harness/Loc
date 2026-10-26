@@ -57,9 +57,8 @@ const withApi = (
           status: string
           operation confirm() { status := "confirmed" }
         }
-        repository Orders for Order {
-          find active(): Order[] where this.status == "confirmed"
-        }
+        repository Orders for Order { }
+        criterion OrdersActive of Order = this.status == "confirmed"
       }
     }
     api CApi from S

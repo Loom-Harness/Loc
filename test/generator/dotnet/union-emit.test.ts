@@ -108,10 +108,10 @@ const ABSENCE_SRC = `
     aggregate Order { code: string }
     error Missing { resource: string }
     repository Orders for Order {
+      find all(): Order[]
       find optionFind(code: string): Order option
       find nullableFind(code: string): Order?
       find errorFind(code: string): Order or Missing
-      find listFind(code: string): Order[]
     }
   }
 `;
@@ -124,7 +124,7 @@ describe("dotnet generator — find-absence 404 (RS-22/RS-27)", () => {
     // Premise: all four find shapes really are on this controller, so the
     // assertions below are about the ABSENCE arm and not about a find the
     // emitter dropped.
-    for (const route of ["option_find", "nullable_find", "error_find", "list_find"]) {
+    for (const route of ["option_find", "nullable_find", "error_find"]) {
       expect(ctrl).toContain(`[HttpGet("${route}")]`);
     }
 
@@ -143,11 +143,14 @@ describe("dotnet generator — find-absence 404 (RS-22/RS-27)", () => {
     expect(ctrl).toContain('problem.Extensions["resource"] = "Order";');
   });
 
-  it("a LIST find is untouched — it has no absence to answer", async () => {
-    // Scope guard: `Order[]` answers `[]`, never a 404 (RS-23).  Without this,
-    // a fix that threw on every null-ish find would pass the test above.
+  it("the LIST read is untouched — it has no absence to answer", async () => {
+    // Scope guard: `find all(): Order[]` answers `[]`, never a 404 (RS-23).
+    // Without this, a fix that threw on every null-ish find would pass the
+    // test above.
     const ctrl = find(await generateDotnet(await parseValid(ABSENCE_SRC)), "OrdersController.cs");
-    const arm = ctrl.slice(ctrl.indexOf('[HttpGet("list_find")]'));
+    const at = ctrl.indexOf("[HttpGet]\n");
+    expect(at).toBeGreaterThan(-1);
+    const arm = ctrl.slice(at);
     const next = arm.indexOf("[HttpGet", 1);
     const body = next === -1 ? arm : arm.slice(0, next);
     expect(body).toContain("return Ok(result);");

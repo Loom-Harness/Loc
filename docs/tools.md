@@ -402,7 +402,7 @@ There is no separate `db:generate` / `dotnet ef migrations add` step
 
 | Backend | Files emitted | Applied by |
 |---|---|---|
-| Hono (Drizzle) | `<deployable>/db/migrations/<ts>_<name>.sql` + `db/migrations/meta/_journal.json` | `drizzle-orm/node-postgres/migrator`'s `migrate()` called from `index.ts` at startup; `npm run db:migrate` also wired for out-of-band runs. |
+| Hono (Drizzle) | `<deployable>/db/migrations/<ts>_<name>.sql` + `db/migrations/meta/_journal.json` | `migrate()` from the generated `db/migrate.ts` (Drizzle's migrator over the same `__drizzle_migrations` ledger, plus the non-transactional `CREATE INDEX CONCURRENTLY` files, see [migrations.md](migrations.md#locks-on-a-populated-table)) called from `index.ts` at startup; `npm run db:migrate` runs the same `migrate()` out of band (`tsx db/migrate-cli.ts` against `DATABASE_URL`). |
 | .NET (EF Core) | `<deployable>/Infrastructure/Persistence/Migrations/<Ts>_<Name>.cs` with `b.Sql(...)` raw-SQL `Up` / `Down` bodies | `db.Database.Migrate()` in `Program.cs` at startup (idempotent — EF's `__EFMigrationsHistory` table tracks what's been applied). |
 | Phoenix (Ecto) | `<deployable>/priv/repo/migrations/<ts>_<name>.exs` Ecto migrations | `mix ecto.migrate` from the entrypoint script; `mix ecto.setup` on first boot. |
 | Python (SQLAlchemy) | `<deployable>/migrations/<version>_<module>_<name>.sql` raw-SQL files | `run_migrations()` from the FastAPI lifespan applies pending files in order, tracking applied tags in a `__loom_migrations` table (the Drizzle-runtime-migrator pattern). |

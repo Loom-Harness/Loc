@@ -77,10 +77,7 @@ aggregate Ticket {
   operation assign(agent: Agent id) when isOpen { requires currentUser.role == "agent" … }
   operation close() when isOpen { requires currentUser.role == "agent" || currentUser.customerId == customer … }
 }
-repository Tickets for Ticket {
-  find all(): Ticket[]
-  find unassigned(): Ticket[] where assignee == null
-}
+repository Tickets for Ticket { }
 policy { read Ticket requires currentUser.role == "agent" }
 ```
 
@@ -105,15 +102,6 @@ policy { read Ticket requires currentUser.role == "agent" }
 
 - **Derived values on Detail.** Each scalar `derived` renders read-only after
   the stored fields (`KeyValueRow("Is Open", Text(data.isOpen ? "Yes" : "No"))`).
-
-- **A page per declared view.** A parameterless list find becomes
-  `area Tickets { page Unassigned { route: "/tickets/views/unassigned"
-  requires currentUser.role == "agent" … } }` with a sidebar entry
-  "Tickets: Unassigned".  A find with parameters stays a filter-bar arm on the
-  List page.  Each view page carries the aggregate's `policy { read … }`
-  gate; when the browser cannot evaluate it (a `null` literal, a `policy`
-  reference, a call other than `.contains`) no view page is emitted, since the
-  page gate check would refuse its copy.
 
 - **Home cards.** Home links only to List pages with no `requires`.  A gated
   List stays reachable from the sidebar, which hides it per principal; Home is
@@ -166,6 +154,13 @@ Notes:
 
 - **One projection per aggregate**, not per context: a query-time projection has
   a single `from` source.
+- **It carries the aggregate's read gate.** A totals row discloses the
+  aggregate's data, so each emitted projection (totals and per-day series)
+  copies the context's `policy { read <Agg> requires … }` gate onto its header
+  — `projection OrderTotals requires currentUser.role == "clerk" { … }` — and
+  every backend answers 403 before the query.  With no such rule the projection
+  is ungated; under `enforcement: denyByDefault` that is refused
+  (`loom.default-deny-ungated`, naming the policy rule to add).
 - **A hand-written `<Agg>Totals` wins** — the macro skips a name the context
   already declares, and the ui side binds whatever fields that projection
   declares. So the dashboard works without the macro too.

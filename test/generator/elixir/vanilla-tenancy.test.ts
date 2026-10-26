@@ -34,7 +34,7 @@ system TenancyShop {
         filter this.tenantId == currentUser.tenantId
       }
       repository Accounts for Account {
-        find byMinBalance(min: int): Account[] where this.balance >= min
+        find byMinBalance(min: int): Account? where this.balance >= min
       }
       retrieval RichAccounts(min: int) of Account { where: balance >= min  sort: [balance desc] }
     }
@@ -78,7 +78,7 @@ describe("vanilla tenancy — principal filter threaded + pinned", () => {
     );
     // Custom find carries the actor too.
     expect(repo).toContain("def by_min_balance(min, current_user \\\\ nil) do");
-    expect(repo).toContain("Repo.all(query, current_user: current_user)");
+    expect(repo).toContain("Repo.one(query, current_user: current_user)");
     // No read spells the tenant predicate: the schema hosts it, unskippable.
     expect(repo).not.toContain("tenant_id ==");
     const schema = file(await gen(), "/ledger/account.ex");
@@ -159,7 +159,7 @@ system EmbTenancy {
         entity Item { sku: string }
         operation addItem(sku: string) { items += Item { sku: sku } }
       }
-      repository Orders for Order { find byCode(code: string): Order[] where this.code == code }
+      repository Orders for Order { find byCode(code: string): Order? where this.code == code }
     }
   }
   api A from D

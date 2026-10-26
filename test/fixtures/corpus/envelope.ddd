@@ -21,11 +21,11 @@ system EnvelopeShop {
       repository Orders for Order {
         // Bare carrier — the shape the audit finding reproduced.
         find audit(): Order envelope
-        // …and a PARAMETERISED one with a `where`, so the carrier is exercised
-        // on the filtered find path too (a different emitter branch on every
-        // backend than the filterless one above).
-        find latestInRegion(region: string): Order envelope where this.region == region
       }
+      // …and a PARAMETERISED one with a `where`, so the carrier is exercised
+      // on the filtered find path too (a different emitter branch on every
+      // backend than the filterless one above).
+      criterion OrdersLatestInRegion(region: string) of Order = this.region == region
     }
   }
   api OrdersApi from Sales

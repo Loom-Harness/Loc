@@ -3,15 +3,18 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // §11c — nested entity parts on a RELATIONAL (default-shape) vanilla (plain
-// Ecto) aggregate.  `contains pipelines: Pipeline[]` persists as a child TABLE
-// (`pipelines`): the part schema is table-backed (`schema "pipelines"`) with a
-// `belongs_to` back to its owner (the `project_id` FK the shared child-table
-// migration emits), the root `has_many`s + `cast_assoc`s it, and every read
-// `Repo.preload`s it — the vanilla analogue of the value-object collection
-// `has_many` path.  Persist + read AND in-operation mutation
-// (`pipelines += Pipeline { … }`) are wired: the op persist tail `put_assoc`s the
-// mutated part-struct list (the schema's `on_replace: :delete` rewrites the child
-// rows) — the relational analogue of the embedded `put_embed` path.
+// Ecto) aggregate.  `contains pipelines: Pipeline[]` persists as a child TABLE:
+// a table-backed part schema with a `belongs_to` back to its owner, a root
+// `has_many` + `cast_assoc`, and an operation persist tail that `put_assoc`s
+// the mutated part list.
+//
+// Reading the parts back, persisting an in-operation append / single assign /
+// removal / nested rebuild, are asserted by value on the elixir behavioural leg
+// (`corpus/contained-part-removal`, `contained-part-rebuild`,
+// `single-containment`).  What stays here is what no booted case reaches: the
+// schema and migration shapes, the create-body `cast_assoc` (no corpus create
+// carries parts), the update seam leaving the containment alone, the insert
+// and update preloads, and a value-object collection's row rebuild.
 // ---------------------------------------------------------------------------
 
 const SOURCE = `
@@ -24,9 +27,8 @@ system RelParts {
         contains pipelines: Pipeline[]
         entity Pipeline { label: string  runCount: int }
       }
-      repository Projects for Project {
-        find byName(n: string): Project[] where this.name == n
-      }
+      repository Projects for Project { }
+      criterion ProjectsByName(n: string) of Project = this.name == n
     }
   }
   api CatalogApi from Core
@@ -95,11 +97,8 @@ describe("vanilla relational entity parts (§11c)", () => {
     expect(updateCs).not.toContain("cast_assoc(:pipelines");
   });
 
-  it("the repository preloads the containment on every read (so the wire shape materialises)", async () => {
+  it("the repository preloads the containment on the update and insert seams", async () => {
     const repo = file(await generateSystemFiles(SOURCE), "/catalog/project_repository.ex");
-    // list + find_by_id both preload :pipelines.
-    expect(repo).toContain("|> Repo.all() |> Repo.preload([:pipelines])");
-    expect(repo).toContain("record -> {:ok, record |> Repo.preload([:pipelines])}");
     // update preloads the existing assoc before cast_assoc.
     expect(repo).toContain("record |> Repo.preload([:pipelines])");
     // insert preloads the containment on its RESULT: a create body that omits
@@ -126,121 +125,6 @@ describe("vanilla relational entity parts (§11c)", () => {
 // rows.  Mirrors `vanilla-embed-parts.test.ts`'s `put_embed` assertion.
 // ---------------------------------------------------------------------------
 
-const MUTATION_SOURCE = `
-system RelMut {
-  subdomain Core {
-    context Catalog {
-      aggregate Project {
-        name: string
-        contains pipelines: Pipeline[]
-        entity Pipeline { label: string }
-        operation addPipeline(label: string) {
-          pipelines += Pipeline { label: label }
-        }
-      }
-      repository Projects for Project {
-        find byName(n: string): Project[] where this.name == n
-      }
-    }
-  }
-  api CatalogApi from Core
-  storage pg { type: postgres }
-  resource projectState { for: Catalog, kind: state, use: pg }
-  deployable api {
-    platform: elixir
-    contexts: [Catalog]
-    dataSources: [projectState]
-    serves: CatalogApi
-    port: 4000
-  }
-}
-`;
-
-describe("vanilla relational containment mutation (§11c put_assoc)", () => {
-  it("the op body appends the part struct and persists via put_assoc(__put_assoc_parts), not put_embed", async () => {
-    const ctx = file(await generateSystemFiles(MUTATION_SOURCE), "/catalog.ex");
-    // The body appends a part STRUCT (renderNew emits `%Ctx.Part{…}`) to the
-    // threaded record's containment list.
-    expect(ctx).toContain(
-      "record = %{record | pipelines: (record.pipelines || []) ++ [%Api.Catalog.Pipeline{label: label}]}",
-    );
-    // RELATIONAL containment → put_assoc over the list NORMALISED to maps by the
-    // context helper (a bare struct with a nil PK is not inserted by put_assoc —
-    // boot-verified).  The schema carries `on_replace: :delete`.
-    expect(ctx).toContain(
-      "|> Ecto.Changeset.put_assoc(:pipelines, __put_assoc_parts(record.pipelines))",
-    );
-    // NOT the embedded path's put_embed.
-    expect(ctx).not.toContain("put_embed(:pipelines");
-    // The normalising helper is emitted once on the context module — the list
-    // clause maps element-wise back through the shared per-element clauses (which
-    // also handle a single `has_one` value, B9).
-    expect(ctx).toContain(
-      "defp __put_assoc_parts(list) when is_list(list), do: Enum.map(list, &__put_assoc_parts/1)",
-    );
-    expect(ctx).toContain("|> Map.drop([:__meta__, :inserted_at, :updated_at])");
-  });
-});
-
-// B9 — a SINGLE (non-collection) relational containment mutated by an `assign`
-// (`shipment := Shipment { … }`, not a `+=` collection add) also persists via
-// `put_assoc(..., __put_assoc_parts(record.<field>))`.  The bug: the persist tail
-// emitted that call, but the helper-emission gate only fired for collection
-// `add`/`remove`, so `__put_assoc_parts/1` was undefined (compile error) — and
-// even when defined, its `is_list` clause couldn't take a lone `has_one` struct.
-const SINGLE_SOURCE = `
-system SingleContain {
-  subdomain Core {
-    context Shop {
-      aggregate Order {
-        code: string
-        contains shipment: Shipment
-        entity Shipment { carrier: string  trackingCode: string }
-        operation ship(carrier: string, tracking: string) {
-          shipment := Shipment { carrier: carrier, trackingCode: tracking }
-        }
-      }
-      repository Orders for Order { }
-    }
-  }
-  api ShopApi from Core
-  storage pg { type: postgres }
-  resource orderState { for: Shop, kind: state, use: pg }
-  deployable api {
-    platform: elixir
-    contexts: [Shop]
-    dataSources: [orderState]
-    serves: ShopApi
-    port: 4000
-  }
-}
-`;
-
-describe("vanilla single (has_one) relational containment mutation (B9)", () => {
-  it("the assign persists via put_assoc(__put_assoc_parts) AND the helper is defined", async () => {
-    const ctx = file(await generateSystemFiles(SINGLE_SOURCE), "/shop.ex");
-    // has_one child → put_assoc over the (single) struct, normalised by the helper.
-    expect(ctx).toContain(
-      "|> Ecto.Changeset.put_assoc(:shipment, __put_assoc_parts(record.shipment))",
-    );
-    expect(ctx).not.toContain("put_embed(:shipment");
-    // The gate must ALSO fire for the `assign` mutation, so the helper is DEFINED
-    // (the B9 compile error was a call with no matching def).
-    expect(ctx).toContain("defp __put_assoc_parts(%{__struct__: _} = part) do");
-    // The per-element struct clause handles the lone `has_one` value directly (no
-    // list wrapper), so the single struct normalises like a collection element.
-    expect(ctx).toContain("defp __put_assoc_parts(other), do: other");
-  });
-});
-
-// M-T6.94 — a REMOVAL has to reach the database.  The persist changeset is built
-// over the struct AS LOADED (`record_before`), so `put_assoc` diffs the real
-// before/after and DELETEs the dropped child; built over the already-mutated
-// `record`, the diff was empty and the child row stayed.  A value-object
-// collection is an association too, so it `put_assoc`s rebuilt rows instead of
-// `force_change` (which Ecto refuses for an assoc — a 500).  The runtime oracle
-// is the `contained-part-removal` / `contained-part-rebuild` corpus cases; these
-// pin the emitted shape.
 const REMOVAL_SOURCE = `
 system Removal {
   subdomain Core {
@@ -283,18 +167,6 @@ function fnBody(src: string, head: string): string {
 }
 
 describe("vanilla containment removal persists (M-T6.94)", () => {
-  it("a removal op (named and returning) builds its changeset over record_before", async () => {
-    const ctx = file(await generateSystemFiles(REMOVAL_SOURCE), "/shop.ex");
-    for (const head of ["def drop_cart(", "def drop_counted_cart("]) {
-      const body = fnBody(ctx, head);
-      expect(body).toContain("record_before = record");
-      expect(body).toMatch(/record_before\n\s+\|> Ecto\.Changeset\.change\(%\{\}\)/);
-      expect(body).toContain("Ecto.Changeset.put_assoc(:lines, __put_assoc_parts(record.lines))");
-    }
-    // A scalar-only op is unchanged — no unused `record_before` binding.
-    expect(fnBody(ctx, "def rename_cart(")).not.toContain("record_before");
-  });
-
   it("a value-object collection op put_assocs rebuilt rows, never force_change", async () => {
     const ctx = file(await generateSystemFiles(REMOVAL_SOURCE), "/shop.ex");
     const body = fnBody(ctx, "def drop_charge_cart(");
@@ -302,13 +174,5 @@ describe("vanilla containment removal persists (M-T6.94)", () => {
     expect(body).toContain("Ecto.Changeset.put_assoc(:charges, __put_value_rows(record.charges))");
     expect(ctx).not.toContain("force_change(:charges");
     expect(ctx).toContain("defp __put_value_rows(list) when is_list(list) do");
-  });
-
-  it("nested parts are normalised to maps, not passed as loaded structs", async () => {
-    const ctx = file(await generateSystemFiles(REMOVAL_SOURCE), "/shop.ex");
-    expect(ctx).toContain("|> Map.new(fn {k, v} -> {k, __put_assoc_nested(v)} end)");
-    expect(ctx).toContain(
-      "defp __put_assoc_nested(%{__meta__: %Ecto.Schema.Metadata{}} = part), do: __put_assoc_parts(part)",
-    );
   });
 });

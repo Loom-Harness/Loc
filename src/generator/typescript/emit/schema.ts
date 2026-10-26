@@ -26,6 +26,7 @@ import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/va
 import { lines as joinLines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, workflowStateTableName } from "../../../util/naming.js";
 
+import { tableNameFor } from "../../../util/storage-names.js";
 /** Per-aggregate dataSource lookup the orchestrator passes in.  Lets
  *  the schema emitter ask "what schema / tablePrefix does THIS
  *  aggregate's storage binding say?" without coupling to the
@@ -369,7 +370,7 @@ export function renderSchema(
  *  `emitWorkflowStateTable`: the `keyed by` correlation column is the PK, the
  *  remaining state fields are columns.  No idempotent marker in v1. */
 function emitProjectionTable(proj: ProjectionIR, ctx: BoundedContextIR, schema?: string): string {
-  const tableName = snake(plural(proj.name));
+  const tableName = tableNameFor(proj.name);
   const lines: string[] = [];
   const factory = schema ? `${schemaConstName(schema)}.table` : "pgTable";
   lines.push(`export const ${lowerFirst(plural(proj.name))} = ${factory}("${tableName}", {`);
@@ -522,7 +523,7 @@ function emitEmbeddedTable(
   indexedColumns: Set<string>,
   options: { schema?: string; prefix?: string } = {},
 ): string {
-  const baseTable = snake(plural(agg.name));
+  const baseTable = tableNameFor(agg.name);
   const tableName = options.prefix ? `${options.prefix}${baseTable}` : baseTable;
   const tableFactory = options.schema ? `${schemaConstName(options.schema)}.table` : "pgTable";
   const lines: string[] = [];
@@ -633,7 +634,7 @@ function emitDocumentTable(
   idType: IdValueType,
   options: { schema?: string; prefix?: string } = {},
 ): string {
-  const baseTable = snake(plural(name));
+  const baseTable = tableNameFor(name);
   const tableName = options.prefix ? `${options.prefix}${baseTable}` : baseTable;
   const tableFactory = options.schema ? `${schemaConstName(options.schema)}.table` : "pgTable";
   return [
@@ -659,7 +660,7 @@ function emitTphTable(
   ctx: BoundedContextIR,
   options: { schema?: string; prefix?: string } = {},
 ): string {
-  const baseTable = snake(plural(base.name));
+  const baseTable = tableNameFor(base.name);
   const tableName = options.prefix ? `${options.prefix}${baseTable}` : baseTable;
   const tableFactory = options.schema ? `${schemaConstName(options.schema)}.table` : "pgTable";
   const lines: string[] = [];
@@ -744,7 +745,7 @@ function emitTable(
   idType: IdValueType,
   options: { schema?: string; prefix?: string; uniqueOf?: AggregateIR } = {},
 ): string {
-  const baseTable = snake(plural(name));
+  const baseTable = tableNameFor(name);
   const tableName = options.prefix ? `${options.prefix}${baseTable}` : baseTable;
   const lines: string[] = [];
   // dataSource-driven schema routing: when the owning aggregate's

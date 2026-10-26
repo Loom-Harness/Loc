@@ -32,7 +32,7 @@ declaration surface but is unified into the same payload view at the IR layer.
 Payload names share one namespace per context with value objects and events;
 duplicates and empty/repeated field names are rejected (`loom.*` payload
 checks). Payloads are offered as a **type** only where a transport record makes
-sense — today that is a workflow `create` / `handle` parameter, a generic
+sense — today that is a workflow `create` parameter, a generic
 carrier argument, a union variant, and (auto-synthesized) the per-aggregate
 `<Agg>Wire`. They are **not** admissible as a stored aggregate field type.
 
@@ -142,7 +142,7 @@ with **ML-postfix** syntax — the carrier keyword follows its type argument:
 
 ```
 repository Orders for Order {
-  find recent(): Order paged                 # paged(Order)   — the { items, page, … } wrapper
+  find all(): Order paged                    # paged(Order)   — the { items, page, … } wrapper
   find latest(): OrderPlaced envelope        # envelope(…)    — a single-row read; the BARE body
 }
 ```

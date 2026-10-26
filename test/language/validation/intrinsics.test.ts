@@ -76,7 +76,7 @@ describe("validation — scalar intrinsic calls", () => {
       context C {
         aggregate Product { name: string }
         repository Products for Product {
-          find bad(q: string): Product[] where this.name.substring(0, 3) == q
+          find bad(q: string): Product? where this.name.substring(0, 3) == q
         }
       }
     `;
@@ -158,9 +158,9 @@ describe("validation — scalar intrinsic calls", () => {
       context C {
         aggregate Product { qty: int amount: decimal }
         repository Products for Product {
-          find q1(n: int): Product[] where this.qty.abs() > n
-          find q2(a: decimal): Product[] where this.amount.round(2) == a
-          find q3(a: decimal): Product[] where this.amount.min(a) == a
+          find q1(n: int): Product? where this.qty.abs() > n
+          find q2(a: decimal): Product? where this.amount.round(2) == a
+          find q3(a: decimal): Product? where this.amount.min(a) == a
         }
       }
     `;
@@ -209,7 +209,7 @@ describe("validation — scalar intrinsic calls", () => {
       `),
     );
     expect(
-      errors.some((e) => e.includes("'.trim()' can't be called on 'string?'")),
+      errors.some((e) => e.includes("'.trim()' can't be read on 'string?'")),
       JSON.stringify(errors),
     ).toBe(true);
   });
@@ -222,19 +222,22 @@ describe("validation — scalar intrinsic calls", () => {
       `),
     );
     expect(
-      errors.some((e) => e.includes("'.matches()' can't be called on 'string?'")),
+      errors.some((e) => e.includes("'.matches()' can't be read on 'string?'")),
       JSON.stringify(errors),
     ).toBe(true);
   });
 
-  it("bare member ACCESS on a nullable receiver stays un-gated (`.length`)", async () => {
+  it("bare member ACCESS on a nullable receiver is a deref too (`.length`)", async () => {
     const { errors } = await parseString(
       wrap(`
         path: string?
         derived a: int = path.length
       `),
     );
-    expect(errors, JSON.stringify(errors)).toEqual([]);
+    expect(
+      errors.some((e) => e.includes("'.length' can't be read on 'string?'")),
+      JSON.stringify(errors),
+    ).toBe(true);
   });
 
   it("a non-nullable receiver still accepts every catalogue call", async () => {
@@ -252,7 +255,7 @@ describe("validation — scalar intrinsic calls", () => {
       context C {
         aggregate Product { name: string }
         repository Products for Product {
-          find byName(q: string): Product[] where this.name.trim().toLower() == q
+          find byName(q: string): Product? where this.name.trim().toLower() == q
         }
       }
     `;

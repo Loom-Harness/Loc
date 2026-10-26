@@ -54,7 +54,9 @@ export function readFixture(
     | "field-default-evolved"
     | "journal-order-base"
     | "journal-order-evolved"
-    | "unique-evo-base",
+    | "unique-evo-base"
+    | "move-base"
+    | "move-evolved",
 ): string {
   return fs.readFileSync(path.join(fixtureDir, `${name}.ddd`), "utf8");
 }
@@ -1448,6 +1450,182 @@ migration "harden" { sql before "DELETE FROM ledger.accounts WHERE is_deleted = 
       fs.rmSync(tree, { recursive: true, force: true });
     } catch {
       /* best-effort */
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Cross-context move gate — a table step `A.Note -> B.Note` keeps the rows.
+//
+// move-base.ddd holds a relational `Note` (with contained `Line` parts) and an
+// event-sourced `Ledger` in context `A` of module Notes; move-evolved.ddd moves
+// both into context `B` of a NEW module, Archive, through one migration block.
+// Without the block that is a drop of every `a.*` table and a create of the
+// `b.*` ones; with it the Archive module's first generation moves them
+// (`ALTER TABLE … SET SCHEMA`, the event log renamed `a_events → b_events`) and
+// the Notes module's generation only records the hand-off.
+//
+// Seeds a row in each table under v1, applies the v2 chain on top, and proves:
+//   (a) the seeded rows come out of the `b.*` tables, and nothing is left in
+//       `a` but the untouched `keeps`;
+//   (b) the migrated schema is the one a fresh create of v2 builds.
+//
+// Deliberately does NOT boot the backend — the move is DDL, so applying the
+// migrations and reading the tables back with psql is a complete proof.  With
+// no driver it applies the shared SQL the node backend emits (the one renderer
+// node, python, java and dotnet share) with psql.  With a driver that migrates
+// out of band (Ecto), the driver applies its own migration files, so the
+// backend-specific renderer is what gets proven.
+// ---------------------------------------------------------------------------
+
+/** Where a platform writes its migration files, and their extension. */
+const MIGRATION_FILES: Readonly<Record<string, { dir: string[]; ext: string }>> = {
+  node: { dir: ["db", "migrations"], ext: ".sql" },
+  elixir: { dir: ["priv", "repo", "migrations"], ext: ".exs" },
+};
+
+/**
+ * INSERT one row, also filling every NOT NULL column the table has with no
+ * default that the caller did not name (Ecto's `inserted_at`/`updated_at`)
+ * with `now()` — those are the only such columns the move fixtures carry, so
+ * the seed stays one statement per table on every backend.
+ */
+function insertRow(
+  s: PgServer,
+  db: string,
+  schema: string,
+  table: string,
+  values: Record<string, string>,
+): void {
+  const extra = psql(
+    s,
+    db,
+    `SELECT string_agg(column_name, ',') FROM information_schema.columns
+      WHERE table_schema = '${schema}' AND table_name = '${table}'
+        AND is_nullable = 'NO' AND column_default IS NULL
+        AND data_type LIKE 'timestamp%'`,
+  )
+    .split(",")
+    .filter((c) => c && !(c in values));
+  const cols = [...Object.keys(values), ...extra].map((c) => `"${c}"`).join(", ");
+  const vals = [...Object.values(values).map((v) => `'${v}'`), ...extra.map(() => "now()")].join(
+    ", ",
+  );
+  psql(s, db, `INSERT INTO "${schema}"."${table}" (${cols}) VALUES (${vals})`);
+}
+
+export async function runCrossContextMoveGate(driver?: BackendDriver): Promise<void> {
+  if (driver && !driver.toolchain.check()) {
+    throw new Error(
+      `cross-context move ${driver.platform}: \`${driver.toolchain.name}\` not on PATH.`,
+    );
+  }
+  const platform = driver?.platform ?? "node";
+  const layout = MIGRATION_FILES[platform];
+  if (!layout) throw new Error(`cross-context move: no migration layout for ${platform}`);
+  const v1 = readFixture("move-base");
+  const v2 = readFixture("move-evolved");
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), `loom-mev-move-${platform}-`));
+  const fresh = fs.mkdtempSync(path.join(os.tmpdir(), `loom-mev-move-${platform}-fresh-`));
+  let server: PgServer | undefined;
+  const appDir = (root: string) => path.join(root, "d");
+  const migDir = (root: string) => path.join(appDir(root), ...layout.dir);
+  const migFiles = (root: string) =>
+    fs
+      .readdirSync(migDir(root))
+      .filter((f) => f.endsWith(layout.ext))
+      .sort();
+  // Apply the migrations `files` adds to the chain on `root`: the driver's own
+  // out-of-band migrate when it has one, else the SQL files one by one.
+  const apply = (root: string, db: string, files: string[]) => {
+    if (driver?.migrate) {
+      driver.migrate(appDir(root), connFor(server!, db));
+      return;
+    }
+    for (const f of files) psql(server!, db, fs.readFileSync(path.join(migDir(root), f), "utf8"));
+  };
+  try {
+    generate(v1, platform, tree);
+    driver?.install(appDir(tree));
+    const v1Files = migFiles(tree);
+    server = await startPgServer();
+    resetDatabase(server, "move");
+    apply(tree, "move", v1Files);
+
+    const noteId = "11111111-1111-1111-1111-111111111111";
+    insertRow(server, "move", "a", "notes", { id: noteId, text: "kept", version: "1" });
+    insertRow(server, "move", "a", "lines", {
+      id: "22222222-2222-2222-2222-222222222222",
+      note_id: noteId,
+      sku: "SKU-1",
+    });
+    insertRow(server, "move", "a", "a_events", {
+      stream_type: "Ledger",
+      stream_id: "L-1",
+      version: "1",
+      type: "Charged",
+      data: '{"amount": 5}',
+    });
+
+    // v2 records with NO --allow-destructive: the declared move is not
+    // destructive.
+    generate(v2, platform, tree);
+    driver?.rebuild?.(appDir(tree));
+    const deltas = migFiles(tree).filter((f) => !v1Files.includes(f));
+    if (deltas.length === 0) throw new Error(`no v2 migration emitted under ${migDir(tree)}`);
+    // Ecto spells the SQL inside escaped Elixir strings; unescape the quotes
+    // so one expectation reads both renderers.
+    const all = deltas
+      .map((f) => fs.readFileSync(path.join(migDir(tree), f), "utf8"))
+      .join("\n")
+      .replaceAll('\\"', '"');
+    expect(all).not.toMatch(/drop table/i);
+    expect(all).toContain(`ALTER TABLE "a"."notes" SET SCHEMA "b"`);
+    apply(tree, "move", deltas);
+
+    // (a) The rows survived the move.
+    expect(psql(server, "move", `SELECT "text" FROM "b"."notes" WHERE "id" = '${noteId}'`)).toBe(
+      "kept",
+    );
+    expect(
+      psql(server, "move", `SELECT "sku" FROM "b"."lines" WHERE "note_id" = '${noteId}'`),
+    ).toBe("SKU-1");
+    expect(
+      psql(server, "move", `SELECT "stream_type" || '/' || "stream_id" FROM "b"."b_events"`),
+    ).toBe("Ledger/L-1");
+    expect(
+      psql(
+        server,
+        "move",
+        `SELECT string_agg(table_name, ',' ORDER BY table_name) FROM information_schema.tables WHERE table_schema = 'a'`,
+      ),
+    ).toBe("keeps");
+    // The moved log still assigns its cursor — the sequence moved with it.
+    insertRow(server, "move", "b", "b_events", {
+      stream_type: "Ledger",
+      stream_id: "L-1",
+      version: "2",
+      type: "Charged",
+      data: '{"amount": 1}',
+    });
+
+    // (b) The chain built the schema a fresh create of v2 builds.
+    generate(v2, platform, fresh);
+    driver?.install(appDir(fresh));
+    resetDatabase(server, "movefresh");
+    apply(fresh, "movefresh", migFiles(fresh));
+    assertSchemaEquivalent(
+      fingerprintSchema(server, "move"),
+      fingerprintSchema(server, "movefresh"),
+    );
+  } finally {
+    server?.stop();
+    for (const dir of [tree, fresh]) {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* best-effort */
+      }
     }
   }
 }

@@ -1,20 +1,14 @@
 // Java/Spring Boot — a query-time projection AGGREGATION carries the source
 // aggregate's capability filters (audit A1).
 //
-// Java splits the filter set in two on the row path, and the aggregation has to
-// honour BOTH halves:
-//
-//   - NON-principal (`softDeletable`) rides the entity's `@SQLRestriction`, or —
-//     when some read `ignoring`s it — a PROMOTED `@Filter(autoEnabled = true)`.
-//     Hibernate applies both to a JPQL query, so the aggregation inherits them;
-//     what it did NOT do was DISABLE a promoted filter its own `ignoring` names.
-//   - PRINCIPAL (tenancy) has no static SQL form, so the repository AND-s it
-//     into each `@Query`.  The aggregation builds JPQL through
-//     `EntityManager.createQuery`, which has no Spring Data SpEL layer, so it
-//     was emitting no tenant predicate at all — a cross-tenant COUNT/SUM.
-//
-// `gradle testClasses` proves the JPQL string compiles as a string.  What is
-// pinned here is the predicate itself and its binding.
+// Every capability filter — tenancy included — is the entity's: the
+// never-bypassed ones its `@SQLRestriction`, the rest auto-enabled `@Filter`s
+// (tenancy's binding the claim through a per-query `@ParamDef` resolver).
+// Hibernate applies both to the `EntityManager.createQuery` JPQL an
+// aggregation runs, so the aggregation names only its own `where`, and a read
+// that `ignoring`s a capability disables that capability's filters for itself.
+// Before, the aggregation emitted no tenant predicate at all — a cross-tenant
+// COUNT/SUM (audit A1); `test/ir/authz-emitted-census.test.ts` re-seeds it.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
@@ -92,51 +86,33 @@ async function service(): Promise<string> {
 }
 
 describe("java query-projection aggregations apply the source capability filters", () => {
-  it("the WHOLE-TABLE aggregation ANDs the tenant predicate into the same JPQL as its `where`", async () => {
+  it("the aggregations name only their own `where`; the tenant filter is the entity's", async () => {
     const src = await service();
     expect(src).toContain(
-      '"select count(e), sum(e.total) from Order e where (e.status = ' +
-        'com.loom.d.domain.enums.OrderStatus.Confirmed) and (e.tenantId = :__cuTenantId)"',
+      '"select count(e), sum(e.total) from Order e where e.status = com.loom.d.domain.enums.OrderStatus.Confirmed"',
     );
-  });
-
-  it("an UNFILTERED aggregation gets the tenant predicate as its entire WHERE", async () => {
-    const src = await service();
-    expect(src).toContain('"select count(e) from Order e where (e.tenantId = :__cuTenantId)"');
-  });
-
-  it("the GROUPED aggregation carries it before GROUP BY", async () => {
-    const src = await service();
+    expect(src).toContain('"select count(e) from Order e"');
     expect(src).toContain(
-      '"select e.status, count(e) from Order e where (e.tenantId = :__cuTenantId) ' +
-        'group by e.status order by e.status"',
+      '"select e.status, count(e) from Order e group by e.status order by e.status"',
     );
-  });
-
-  it("binds the claim off the ambient accessor — `createQuery` has no SpEL layer", async () => {
-    const src = await service();
-    expect(src).toContain("var __cu = com.loom.d.auth.CurrentUserAccessor.currentOrNull();");
-    expect(src).toContain('.setParameter("__cuTenantId", __cu == null ? null : __cu.tenantId())');
-    // The Spring Data SpEL form is a legal parameter name ONLY inside a @Query;
-    // emitting it here would fail at query preparation.
-    expect(src).not.toContain("#{@currentUserAccessor");
-    // …while the repository @Query keeps it, unchanged.
+    expect(src).not.toMatch(/tenantId|currentUserAccessor|CurrentUserAccessor/);
     const f = await files();
-    const jpa = [...f.keys()].find((k) => k.endsWith("OrderJpaRepository.java"));
-    expect(f.get(jpa!)!).toContain("e.tenantId = :#{@currentUserAccessor.user()?.tenantId()}");
+    const entity = [...f.keys()].find((k) => k.endsWith("orders/Order.java"));
+    expect(f.get(entity!)!).toContain(
+      '@Filter(name = "Order_tenantOwned", condition = "tenant_id = :__cuTenantId")',
+    );
   });
 
-  it("`ignoring softDeletable` disables the promoted named filter for that read only", async () => {
+  it("`ignoring softDeletable` disables that filter for that read only", async () => {
     const src = await service();
     expect(src).toContain("public AllTimeVolumeRow allTimeVolume() {");
     expect(src).toContain("var __session = entityManager.unwrap(org.hibernate.Session.class);");
     expect(src).toContain('__session.disableFilter("softDeletable");');
     expect(src).toContain('__session.enableFilter("softDeletable");');
-    // The tenant predicate it did NOT name still applies.
-    expect(src).toContain('"select count(e) from Order e where (e.tenantId = :__cuTenantId)"');
+    // The tenant filter it did NOT name stays enabled.
+    expect(src).not.toContain('disableFilter("Order_tenantOwned")');
     // The non-bypassing reads must not disable anything.
     expect(src.match(/disableFilter/g)?.length).toBe(1);
-    // …and the not-deleted half rides the entity, exactly as on the row path.
     const f = await files();
     const entity = [...f.keys()].find((k) => k.endsWith("orders/Order.java"));
     expect(f.get(entity!)!).toContain(

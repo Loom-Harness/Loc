@@ -1,5 +1,5 @@
 // The policy read gate on a find route, Hono (D-AUTH-OIDC / default-deny).  A
-// `policy { read T requires <expr> }` over a `find f(): T[] where <pred>` on a repository emits an
+// `policy { read T requires <expr> }` over a `find f(…): T? where <pred>` on a repository emits an
 // in-handler 403 gate at the top of the GET /<plural>/<f> route — the read-side
 // twin of the view gate — evaluated against the request's currentUser before
 // the query runs.  An ungated find emits no gate.
@@ -16,7 +16,7 @@ function sys(findClause: string): string {
       context Tickets {
         aggregate Ticket { subject: string open: bool }
         repository Tickets for Ticket {
-          find openOnes(): Ticket[] where open == true${findClause ? `\n}\npolicy { read Ticket ${findClause}` : ""}
+          find bySubject(s: string): Ticket? where this.subject == s${findClause ? `\n}\npolicy { read Ticket ${findClause}` : ""}
         }
       }
     }
@@ -40,10 +40,10 @@ describe("Hono find requires gate", () => {
     const rf = await routesFile('requires currentUser.role == "agent" ');
     expect(rf).toContain('.get("currentUser")');
     expect(rf).toContain(
-      'if (!(currentUser.role === "agent")) throw new ForbiddenError("Forbidden: find openOnes");',
+      'if (!(currentUser.role === "agent")) throw new ForbiddenError("Forbidden: find bySubject");',
     );
     const gateIdx = rf.indexOf("throw new ForbiddenError");
-    const queryIdx = rf.indexOf("await repo.openOnes(");
+    const queryIdx = rf.indexOf("await repo.bySubject(");
     expect(gateIdx).toBeGreaterThan(0);
     expect(queryIdx).toBeGreaterThan(gateIdx);
   });

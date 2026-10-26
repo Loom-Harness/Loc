@@ -1358,6 +1358,10 @@ export function generateTypeScriptForContexts(
       inProcessDispatcher: /^export function createInProcessDispatcher\(/m.test(
         out.get("http/workflows.ts") ?? "",
       ),
+      // The project's own runner whenever it ships one (see `hasMigrations`).
+      ...(!usingMikro && (system?.migrations?.length ?? 0) > 0
+        ? { migrator: "../db/migrate" }
+        : {}),
     });
     if (integrationTests) {
       out.set(`test/${lowerFirst(ctx.name)}.integration.test.ts`, integrationTests);
@@ -1623,6 +1627,7 @@ export function generateTypeScriptForContexts(
       withKafkaChannels: hasChannels && channelBindings.some((b) => b.transport === "kafka"),
       resourceDeps,
       hasSeeds,
+      hasMigrations: out.has("db/migrate-cli.ts"),
       persistence: usingMikro ? "mikroorm" : "drizzle",
       // (Node debug wiring): a `debug` script only when
       // `--sourcemap` is on — see the `addTsExtensionsForNodeDebug` call
@@ -1759,6 +1764,8 @@ function projectPackageJson(
     withKafkaChannels?: boolean;
     resourceDeps?: Record<string, string>;
     hasSeeds?: boolean;
+    /** The project ships `db/migrate-cli.ts` (a drizzle migration chain). */
+    hasMigrations?: boolean;
     persistence?: "drizzle" | "mikroorm";
     /** (Node debug wiring) — a `debug` script that runs
      *  the project under plain Node (no tsx/tsup loader), chaining Node's
@@ -1802,14 +1809,15 @@ function projectPackageJson(
   const dbScripts = mikro
     ? {}
     : {
-        // We emit Drizzle-format `meta/_journal.json` + .sql files so
-        // both `drizzle-kit migrate` (the CLI) and
-        // `drizzle-orm/.../migrator` (called from index.ts at boot)
-        // can apply them.  `drizzle-kit generate` is left available
-        // for users who want to introspect the schema, but Loom owns
-        // the SQL generation end-to-end.
+        // Loom owns the SQL generation end-to-end; `drizzle-kit` stays for
+        // introspection (`generate`, `push`, `studio`).  `db:migrate` runs
+        // the generated runner (`db/migrate-cli.ts` → `db/migrate.ts`, the one
+        // the boot path calls), never `drizzle-kit migrate`: that wraps every
+        // pending file in one transaction and cannot apply a
+        // `-- loom:no-transaction` `CREATE INDEX CONCURRENTLY` file.  Emitted
+        // only when the project has a migration chain to apply.
         "db:generate": "drizzle-kit generate",
-        "db:migrate": "drizzle-kit migrate",
+        ...(opts.hasMigrations ? { "db:migrate": "tsx db/migrate-cli.ts" } : {}),
         "db:push": "drizzle-kit push",
         "db:studio": "drizzle-kit studio",
       };
@@ -2016,11 +2024,11 @@ function renderHonoBootMigrate(): string {
   const { maxAttempts, baseDelayMs, maxDelayMs } = BOOT_DB_RETRY;
   return lines(
     "",
-    "// Apply pending schema migrations before serving traffic.  Drizzle's",
-    "// runtime migrator reads db/migrations/meta/_journal.json + each",
+    "// Apply pending schema migrations before serving traffic.  The runtime",
+    "// migrator (db/migrate.ts) reads db/migrations/meta/_journal.json + each",
     "// referenced .sql file, tracking state in `__drizzle_migrations`;",
     "// idempotent across boots.  Bracketed with the catalog migration",
-    "// lifecycle events (observability.md) — drizzle's migrator runs the",
+    "// lifecycle events (observability.md) — the migrator runs the",
     "// whole batch in one opaque call, so there's no per-migration",
     "// `migration_applied` seam (Hono limitation; Python/.NET emit it).",
     "// A database that is not reachable YET (refused / DNS / starting up) is",
@@ -2105,9 +2113,9 @@ function renderProjectIndexTs(
   // queue / api) so their clients instantiate at boot.  Empty for
   // deployables with no such resources — byte-identical to before.
   const resourceImportBlock = resourceImports.length > 0 ? `${resourceImports.join("\n")}\n` : "";
-  const migImport = runMigrationsAtBoot
-    ? `import { migrate } from "drizzle-orm/node-postgres/migrator";\n`
-    : "";
+  // `db/migrate.ts` — Drizzle's migrator plus the non-transactional files a
+  // `CREATE INDEX CONCURRENTLY` needs (`emitTypescriptMigrations`).
+  const migImport = runMigrationsAtBoot ? `import { migrate } from "./db/migrate";\n` : "";
   const seedImport = runSeedsAtBoot ? `import { runSeeds } from "./db/seed";\n` : "";
   const seedCall = runSeedsAtBoot
     ? `\n// Apply first-boot seed data after migrations (database-seeding.md).\n// Ship-once per dataset via the __loom_seed marker; idempotent across boots.\nawait runSeeds(db);\n`

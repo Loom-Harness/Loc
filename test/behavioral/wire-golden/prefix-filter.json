@@ -106,7 +106,7 @@
     {
       "seq": 7,
       "method": "GET",
-      "path": "/api/docs/under?prefix=root.",
+      "path": "/api/docs/under/root.",
       "status": 200,
       "body": [
         {
@@ -126,7 +126,7 @@
     {
       "seq": 8,
       "method": "GET",
-      "path": "/api/docs/under?prefix=root%",
+      "path": "/api/docs/under/root%25",
       "status": 200,
       "body": [
         {
@@ -140,7 +140,7 @@
     {
       "seq": 9,
       "method": "GET",
-      "path": "/api/docs/under?prefix=root",
+      "path": "/api/docs/under/root",
       "status": 200,
       "body": [
         {
@@ -178,7 +178,7 @@
     {
       "seq": 10,
       "method": "GET",
-      "path": "/api/docs/under?prefix=root.a.b",
+      "path": "/api/docs/under/root.a.b",
       "status": 200,
       "body": [
         {
@@ -218,7 +218,7 @@
     {
       "seq": 14,
       "method": "GET",
-      "path": "/api/docs/under?prefix=root",
+      "path": "/api/docs/under/root",
       "status": 200,
       "body": [
         {
@@ -259,7 +259,7 @@
     {
       "seq": 16,
       "method": "GET",
-      "path": "/api/docs/under?prefix=other",
+      "path": "/api/docs/under/other",
       "status": 200,
       "body": []
     },

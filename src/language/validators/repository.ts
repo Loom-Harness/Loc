@@ -1,16 +1,14 @@
-// Repository `find` checks (read-path-architecture.md, migration).
+// Repository `find` checks.
 //
-//   - loom.repository-find-deprecated — a wire-shaped LIST `find` on a
-//     repository (a bespoke list query returning `T[]` or `T paged`) is
-//     deprecated in favour of criterion-driven reads: pass a `criterion` to
-//     `run` (`Repo.run(<Criterion>(args))`) or name a `retrieval`, and expose
-//     it on the wire with `scaffoldPaged(of: …)` + `scaffoldPagedApi(of: …)`
-//     when a client must call it.  This kills the
-//     "repository-with-40-finders" smell — every distinct list query stops
-//     minting a `find byX` method.  A **unique-key reconstitution** find
-//     (returning a single `T` / `T?` by identity) is NOT a list query and
-//     stays legal (proposal Open Q4).  A WARNING, not an error: existing
-//     `.ddd` keeps parsing.
+//   - loom.list-find-removed — a LIST `find` on a repository (a bespoke list
+//     query returning `T[]` or `T paged`) is an error: list reads are a
+//     `criterion` (run it with `Repo.run(<Criterion>(args))`) or a
+//     `retrieval`, exposed on the wire with `scaffoldPaged(of: …)` +
+//     `scaffoldPagedApi(of: …)` when a client calls it
+//     (D-LIST-FIND-REMOVED).  `scripts/codemod-list-find-to-criterion.mjs`
+//     rewrites a source.  Two shapes stay legal: a unique-key reconstitution
+//     find returning a single `T` / `T?`, and `find all(…)`, the author's own
+//     override of the repository's list endpoint.
 //
 // This is an AST-level check over author-declared `FindDecl` nodes, so the
 // compiler-SYNTHESIZED finds (the auto-`findAll`, and the paged find a
@@ -85,11 +83,11 @@ export function checkRepositoryFinds(model: Model, accept: ValidationAcceptor): 
       continue;
     }
     if (!isFindDecl(node)) continue;
-    if (!returnsCollection(node)) continue;
-    accept("warning", diagMessage("loom.repository-find-deprecated", { name: node.name }), {
+    if (node.name === "all" || !returnsCollection(node)) continue;
+    accept("error", diagMessage("loom.list-find-removed", { name: node.name }), {
       node,
       property: "name",
-      code: "loom.repository-find-deprecated",
+      code: "loom.list-find-removed",
     });
   }
 }

@@ -27,7 +27,7 @@ system RC {
         party: Pokemon id[]
       }
       repository Trainers for Trainer {
-        find holdingInParty(pokemon: Pokemon id): Trainer[]
+        find holdingInParty(pokemon: Pokemon id): Trainer?
             where this.party.contains(pokemon)
       }
       repository Pokemons for Pokemon {}

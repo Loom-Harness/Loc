@@ -1264,9 +1264,8 @@ describe("validation", () => {
       const { errors } = await parse(`
         context T {
           aggregate Customer { name: string  derived display: string = name }
-          repository Customers for Customer {
-            find byName(n: string): Customer? where this.name == n
-          }
+          repository Customers for Customer { }
+          criterion CustomersByName(n: string) of Customer = this.name == n
         }
       `);
       expect(errors, errors.join("\n")).toEqual([]);
@@ -1274,7 +1273,7 @@ describe("validation", () => {
 
     it("accepts an event name as a workflow create parameter type", async () => {
       // Transport types (`event` / payload) are offered in scope only in a
-      // workflow `create`/`handle` parameter, so `create(e: PaymentReceived)`
+      // workflow `create` parameter, so `create(e: PaymentReceived)`
       // resolves where a bare event name elsewhere would not.
       const { errors } = await parse(`
         context T {
@@ -1289,14 +1288,14 @@ describe("validation", () => {
       expect(errors, errors.join("\n")).toEqual([]);
     });
 
-    it("accepts a payload (command) name as a workflow handle parameter type", async () => {
+    it("accepts a payload (command) name as a workflow create parameter type", async () => {
       const { errors } = await parse(`
         context T {
           aggregate Order { total: int }
           repository Orders for Order { }
           command SettleOrder { order: Order id, note: string }
           workflow Fulfillment {
-            handle settle(c: SettleOrder) { let n = c.note }
+            create(c: SettleOrder) { let n = c.note }
           }
         }
       `);
@@ -1702,7 +1701,7 @@ describe("Loom IR validation (post-lowering)", async () => {
           entity OrderLine { qty: int }
         }
         repository Orders for Order {
-          find big(): Order[] where this.lines.count > 0
+          find big(): Order? where this.lines.count > 0
         }
       }
     `);
@@ -1727,7 +1726,7 @@ describe("Loom IR validation (post-lowering)", async () => {
           entity OrderLine { qty: int }
         }
         repository Orders for Order {
-          find anyBig(): Order[] where this.lines.any(l => l.qty > 5)
+          find anyBig(): Order? where this.lines.any(l => l.qty > 5)
         }
       }
     `);
@@ -1750,7 +1749,7 @@ describe("Loom IR validation (post-lowering)", async () => {
           status: OrderStatus
         }
         repository Orders for Order {
-          find activeForCustomer(c: string): Order[]
+          find activeForCustomer(c: string): Order?
             where this.customerId == c && this.status == Open
         }
       }
@@ -1974,7 +1973,7 @@ describe("Loom IR validation (post-lowering)", async () => {
       context T {
         aggregate Task { name: string  derived display: string = name }
         repository Tasks for Task {
-          find byUnknown(p: string): Task[] where this.unknownField == p
+          find byUnknown(p: string): Task? where this.unknownField == p
         }
       }
     `);
@@ -1993,7 +1992,7 @@ describe("Loom IR validation (post-lowering)", async () => {
       context T {
         aggregate Task { name: string, alt: string  derived display: string = name }
         repository Tasks for Task {
-          find both(): Task[] where this.name == this.alt
+          find both(): Task? where this.name == this.alt
         }
       }
     `);
@@ -2271,11 +2270,11 @@ describe("Loom IR validation (post-lowering)", async () => {
           tier: string
         }
         repository Customers for Customer {
-          find byTier(tier: string): Customer[] where this.tier == tier
+          find all(): Customer[]
         }
         workflow w {
       create(tier: string) {
-          let cs = Customers.byTier(tier)
+          let cs = Customers.all()
         }
     }
       }
@@ -2563,7 +2562,7 @@ describe("Loom IR validation (post-lowering)", async () => {
           context T {
             aggregate Order { customerId: string }
             repository Orders for Order {
-              find mine(): Order[] where customerId == currentUser.id
+              find mine(): Order? where customerId == currentUser.id
             }
           }
         }

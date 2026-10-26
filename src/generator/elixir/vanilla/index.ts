@@ -429,7 +429,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     // `defdelegate run_<ret>_<agg>` on the context facade (emitted by
     // `context-emit.ts`).  Consumed by a workflow's `repo-run` lowering
     // (a separate follow-up slice).
-    emitVanillaRetrievals(appName, appModule, ctx, out);
+    emitVanillaRetrievals(appName, appModule, ctx, out, sys);
     // Workflow-instance read endpoints — saga-state Ecto schema + a
     // read-only WorkflowInstancesController (the deferred-Phoenix gap closer).
     apiRoutes.push(...emitVanillaWorkflowInstances(appName, appModule, ctx, out));

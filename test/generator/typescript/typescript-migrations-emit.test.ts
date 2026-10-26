@@ -100,7 +100,7 @@ describe("typescript migrations emitter", () => {
     expect(journal.entries[0].when).toBeLessThan(journal.entries[1].when);
   });
 
-  it("skips empty-step migrations entirely (no .sql, no journal)", () => {
+  it("skips empty-step migrations entirely (no .sql, no journal — only the runner)", () => {
     const out = new Map<string, string>();
     emitTypescriptMigrations(
       [
@@ -116,7 +116,9 @@ describe("typescript migrations emitter", () => {
       ],
       out,
     );
-    expect(out.size).toBe(0);
+    // `index.ts` imports `./db/migrate` whenever the project migrates at boot,
+    // and `npm run db:migrate` runs it through `db/migrate-cli.ts`.
+    expect([...out.keys()]).toEqual(["db/migrate.ts", "db/migrate-cli.ts"]);
   });
 
   it("keeps two modules' generations distinct (module-qualified tags)", () => {

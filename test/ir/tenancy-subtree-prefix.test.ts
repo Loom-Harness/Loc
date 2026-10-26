@@ -37,15 +37,20 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { corpusSource } from "../fixtures/corpus/harness.js";
 
-/** The shipped hierarchical-tenancy fixture, specialised per backend. */
+/** The shipped hierarchical-tenancy fixture, specialised per backend: its
+ *  repositories, plus java's entities (where its tenant filter lives). */
 async function emitFor(platform: string): Promise<string> {
   const files = await generateSystemFiles(
     corpusSource("tenancy-hierarchy").replaceAll("__PLATFORM__", platform),
   );
   return (
     [...files]
-      // python hosts every read restriction in its read-scope hook.
-      .filter(([p]) => /repositor|JpaRepository|_repository|read_scope/i.test(p))
+      // python hosts every read restriction in its read-scope hook; java on the entity.
+      .filter(
+        ([p]) =>
+          /repositor|JpaRepository|_repository|read_scope/i.test(p) ||
+          /\/features\/\w+\/\w+\.java$/.test(p),
+      )
       .map(([, c]) => c)
       .join("\n")
   );
@@ -77,11 +82,7 @@ describe("hierarchical tenancy — the subtree test is anchored; any LIKE is an 
       'requireCurrentUser().orgPath + ".%"',
     ],
     ["python", 'func.strpos(AccountRow.data_key, user.org_path + ".") == 1', ".startswith("],
-    [
-      "java",
-      "locate(concat(:#{@currentUserAccessor.user()?.orgPath()}, '.'), e.dataKey) = 1",
-      "concat(:#{@currentUserAccessor.user()?.orgPath()}, '.%')",
-    ],
+    ["java", "position(concat(:__cuOrgPath, '.') in data_key) = 1", "concat(:__cuOrgPath, '.%')"],
     ["elixir", "strpos(?, ? || '.') = 1", "LIKE ? || '.%'"],
     // The SECOND node persistence adapter.  MikroORM's FilterQuery operators
     // have no prefix test, so the predicate is a `raw()` SQL fragment used as a
@@ -122,7 +123,7 @@ describe("hierarchical tenancy — the subtree test is anchored; any LIKE is an 
       ["node", '.replace(/[!%_]/g, "!$&")'],
       ["node { persistence: mikroorm }", '.replace(/[!%_]/g, "!$&")'],
       ["python", '.replace("!", "!!").replace("%", "!%").replace("_", "!_")'],
-      ["java", "?.replace('!', '!!')?.replace('%', '!%')?.replace('_', '!_')"],
+      ["java", '.replace("!", "!!").replace("%", "!%").replace("_", "!_")'],
       ["elixir", 'String.replace("!", "!!")'],
     ];
     for (const [platform, chain] of chains) {
@@ -134,14 +135,13 @@ describe("hierarchical tenancy — the subtree test is anchored; any LIKE is an 
     }
   });
 
-  // Java has a SECOND renderer for the same sentinel.  The `@Query` JPQL above
-  // scopes the repository's own reads; a REIFIED retrieval reads through
-  // `JpaSpecificationExecutor.findAll(spec)`, which bypasses those, so the
-  // scope is re-rendered as a `tenantScope(User)` Criteria factory
-  // (`render-criteria.ts`).  It had the identical wildcard bug and is reached
-  // only when the context declares a criterion, which the corpus fixture does
-  // not — so it needs its own case or the fix goes unpinned on that path.
-  it("java's Criteria tenantScope factory is anchored too", async () => {
+  // Java renders the sentinel ONCE, as the entity's Hibernate `@Filter`, which
+  // also scopes a REIFIED retrieval's `JpaSpecificationExecutor.findAll(spec)`.
+  // It once had a second renderer — a `tenantScope(User)` Criteria factory with
+  // the identical wildcard bug — reached only when the context declares a
+  // criterion, so this case pins that the reified path carries no scope of its
+  // own and the one filter is anchored.
+  it("java's reified retrieval rides the one anchored entity filter", async () => {
     const files = await generateSystemFiles(`
 system TenantCriteria {
   user { id: guid  tenantId: string  orgPath: string }
@@ -181,15 +181,17 @@ system TenantCriteria {
       .filter(([p]) => /domain\/criteria\/.*\.java$/.test(p))
       .map(([, c]) => c)
       .join("\n");
-    expect(criteria).toContain("tenantScope(User currentUser)");
+    expect(criteria).toContain("RichAccount(");
+    expect(criteria).not.toContain("tenantScope");
+    const entity = [...files].find(([p]) => p.endsWith("/accounts/Account.java"))![1];
     // The anchored test that decides the row…
-    expect(criteria).toContain("cb.locate(");
+    expect(entity).toContain("position(concat(:__cuOrgPath, '.') in data_key) = 1");
     // …and the prefilter beside it carries the escape character AND an escaped
-    // pattern — never `currentUser.orgPath() + ".%"` raw.
-    expect(criteria).toContain(
-      'currentUser.orgPath().replace("!", "!!").replace("%", "!%").replace("_", "!_") + ".%"',
+    // pattern — never `orgPath() + ".%"` raw.
+    expect(entity).toContain(
+      '__cu.orgPath().replace("!", "!!").replace("%", "!%").replace("_", "!_") + ".%"',
     );
-    expect(criteria).not.toContain('currentUser.orgPath() + ".%"');
-    expect(unescapedLikeLines(criteria)).toHaveLength(0);
+    expect(entity).not.toContain('orgPath() + ".%"');
+    expect(unescapedLikeLines(entity)).toHaveLength(0);
   });
 });

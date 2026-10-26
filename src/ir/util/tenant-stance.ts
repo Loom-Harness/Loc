@@ -496,8 +496,8 @@ export function deepScopeTenantClaim(e: ExprIR): string {
  *  The single source of truth every consumer reads instead of spelling
  *  `tenantId`: that constant is the ROW column the `tenantOwned` capability
  *  provides, and the two names coincide only when the claim happens to be
- *  called `tenantId`.  Enrichment rebinds the capability's hardcoded principal
- *  side through this (`bindTenancyClaim`); emitters that reference the
+ *  called `tenantId`.  The capability's principal side is already the declared
+ *  claim when it is spliced (`resolveTenancyClaim`); emitters that reference the
  *  principal directly — the realtime room key on all four SSE backends — read
  *  it off the derived plan.  Twin of {@link deepScopeTenantClaim}, which
  *  answers the same question for a subtree sentinel. */

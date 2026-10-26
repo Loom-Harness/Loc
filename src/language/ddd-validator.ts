@@ -66,6 +66,7 @@ import {
   checkMatcherArity,
   checkMatchesCalls,
   checkMigrations,
+  checkNullableReceivers,
   checkOrgContextSurface,
   checkOrgPathReferences,
   checkPayloads,
@@ -74,6 +75,7 @@ import {
   checkPredicateSlotArgs,
   checkPrimitiveConversions,
   checkProjectSingletons,
+  checkRepoKeyLookups,
   checkRepositoryFinds,
   checkRetrievalLiteral,
   checkSeeds,
@@ -96,10 +98,12 @@ import {
   checkTraceability,
   checkTypeReferences,
   checkUi,
+  checkUnhandledResults,
   checkUnions,
   checkUnknownMemberAccess,
   checkUnknownNameRefs,
   checkUserVisibleConcat,
+  checkWorkflowCreateArgs,
   checkWorkflowExplicitSave,
 } from "./validators/index.js";
 
@@ -208,6 +212,8 @@ export class DddValidator {
     // A workflow / handler body persists at its exit, so an explicit
     // `Repo.save(x)` statement is refused rather than reinterpreted.
     guard("workflow-explicit-save", model, () => checkWorkflowExplicitSave(model, accept));
+    // …and a factory call whose arguments map onto a create-input record.
+    guard("workflow-create-args", model, () => checkWorkflowCreateArgs(model, accept));
     // Match expressions: warn on a missing `else` arm.
     // Type-checking arm conditions is best-effort here (the lowering's
     // type system is the source of truth); structural checks run
@@ -315,8 +321,8 @@ export class DddValidator {
     // may appear only in a transport position (find return / payload field).
     guard("generic-carriers", model, () => checkGenericCarriers(model, accept));
 
-    // loom.repository-find-deprecated — a wire-shaped list `find` warns (steer
-    // to run(criterion)/retrieval); reconstitution finds stay legal.
+    // loom.list-find-removed — a list `find` is an error (a criterion or a
+    // retrieval replaces it); reconstitution finds and `find all` stay legal.
     guard("repository-finds", model, () => checkRepositoryFinds(model, accept));
     // loom.permission-implies-* — `implies` targets resolve by name against the
     // subdomain catalogue; self-implication is rejected.
@@ -372,6 +378,8 @@ export class DddValidator {
     // Scalar-intrinsic call-shape gate (src/util/intrinsics.ts): call form,
     // arity, positional-only args, argument primitive types.
     guard("intrinsic-calls", model, () => checkIntrinsicCalls(model, accept));
+    // A member of a `T?` value read without narrowing it (loom.nullable-receiver).
+    guard("nullable-receivers", model, () => checkNullableReceivers(model, accept));
     // A5 duration constructors (days/hours/minutes): arity + int amount.
     guard("duration-constructors", model, () => checkDurationConstructors(model, accept));
     // An integer literal the `INT` terminal could not hold exactly — the
@@ -391,6 +399,9 @@ export class DddValidator {
     // Every callable's `return`s against its declared result type, and the
     // expression checks for the bodies the aggregate statement walk never visits.
     guard("callable-bodies", model, () => checkCallableBodies(model, accept));
+    // An `A or E` result dropped by a call statement or an unread `let`
+    // (loom.unhandled-result).
+    guard("unhandled-results", model, () => checkUnhandledResults(model, accept));
     // Unresolved bare-identifier heads (`total := amout`, `let x = amout`):
     // a `NameRef` is not a cross-reference, so an unresolvable head types as
     // `T.unknown` and every downstream gate suppresses on it — the finding-1
@@ -427,6 +438,9 @@ export class DddValidator {
     // expression (`group by o.status ignoring softDeletable`) and is then
     // silently dropped.  See `validators/bypass-placement.ts`.
     guard("bypass-placement", model, () => checkBypassPlacement(model, accept));
+    // Natural-key reads (`Repo.getBy(sku: s)`): the named arguments must equal
+    // a declared `unique (…)` tuple.  See `validators/repo-key-lookup.ts`.
+    guard("repo-key-lookups", model, () => checkRepoKeyLookups(model, accept));
     // The callable legality table: the grammar's callable fragments
     // accept the whole modifier/clause surface at every site, so an excluded
     // modifier reports WHY (`CALLABLE_SITES`) instead of failing as an

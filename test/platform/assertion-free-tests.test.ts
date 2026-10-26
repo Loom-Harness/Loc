@@ -85,13 +85,16 @@ const PINNED: Record<string, number> = {
   // information_schema probes, and throws on a failed boot.  The last one in
   // every file is the unique-index gate, delegating to
   // `runUniqueIndexEvolutionGate` (which `expect`s each indexdef and every
-  // 201/409 across the three generations).
-  "test/e2e/migration-evolution.test.ts": 6,
+  // 201/409 across the three generations).  The cross-context move gate
+  // delegates to `runCrossContextMoveGate`, which `expect`s the moved rows,
+  // the emptied old schema and the chain ≡ fresh fingerprint (node's psql
+  // leg here, Ecto's own migrations in the elixir file).
+  "test/e2e/migration-evolution.test.ts": 7,
   // dotnet: the EF evolution gate and its unique-index gate, then the Dapper
   // leg's evolution gate — each delegates to a harness function that
   // `expect`s the rows and the history.
   "test/e2e/migration-evolution-dotnet.test.ts": 3,
-  "test/e2e/migration-evolution-elixir.test.ts": 2,
+  "test/e2e/migration-evolution-elixir.test.ts": 3,
   "test/e2e/migration-evolution-java.test.ts": 2,
   "test/e2e/migration-evolution-python.test.ts": 2,
 };

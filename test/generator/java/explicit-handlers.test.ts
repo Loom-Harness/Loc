@@ -66,9 +66,8 @@ system Shop {
         operation cancel() { status := "cancelled" }
         destroy { }
       }
-      repository Orders for Order {
-        find byStatus(status: string): Order[] where this.status == status
-      }
+      repository Orders for Order { }
+      criterion OrdersByStatus(status: string) of Order = this.status == status
     }
   }
   api SalesApi with scaffoldApi(of: Sales)
@@ -101,12 +100,6 @@ describe("java — scaffolded handlers consume command/query record params", () 
     expect(getH).toContain("public Order handle(OrderId orderId) {");
     expect(getH).toContain("return o;");
     expect(getH).not.toContain("OrderResponse");
-    // find: a collection read types on List<Order>, returns the raw list.
-    const byStatusH = fileEndingWith(m, "ByStatusOrderHandler.java");
-    expect(byStatusH).toContain("public List<Order> handle(String status) {");
-    expect(byStatusH).toContain("var r = ordersRepository.byStatus(status);");
-    expect(byStatusH).toContain("return r;");
-    expect(byStatusH).not.toContain("OrderResponse");
   });
 
   it("the controller reads the record's fields + projects the response at the boundary", async () => {
@@ -124,10 +117,6 @@ describe("java — scaffolded handlers consume command/query record params", () 
     expect(ctrl).toContain("setNoteOrderHandler.handle(new OrderId(orderId), body.note());");
     // getById projects the entity to its wire DTO at the boundary.
     expect(ctrl).toContain("return ResponseEntity.ok(OrderResponse.from(result));");
-    // find projects EACH element of the collection.
-    expect(ctrl).toContain(
-      "return ResponseEntity.ok(result.stream().map(OrderResponse::from).toList());",
-    );
   });
 });
 

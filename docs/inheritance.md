@@ -92,7 +92,7 @@ the `denyByDefault` one) or whose wire masks a field keeps the reader unrouted.
 | `dotnet` (.NET / EF Core) | a read-only `I<Base>Repository` / `<Base>Repository`. TPH: one query over `DbSet<Base>`, where EF applies the root's filters and every subtype's type-guarded ones, `OrderBy(Id)` + `Skip`/`Take`, each row materialised as its concrete type. TPC (the base excluded via `modelBuilder.Ignore<<Base>>()`): each concrete repo's own read, merged in `Id` order, then paged. Routed as `GET /api/<bases>` (+ `/{id}` under TPH), each item the concrete's `<Concrete>Response` plus `type`. EF only — the Dapper adapter keeps the TPC reader and no route |
 | `phoenix` (Ecto) | a read-only `<Base>Repository`. TPH: one query from the root schema's `base_query/0` — the root's schema hosts its own restrictions and every subtype's, kind-guarded, and `Repo.prepare_query/3` applies them — ordered by `id`, paged in SQL, each row projected onto its concrete schema by `kind` (then its associations preloaded). TPC: each concrete's scoped read (`base_query/0` + `prepare_query`) up to the page window, merged in `id` order, then paged; a `shape: document` concrete's in-app filtered repository stands in. `list(page, page_size, current_user)` / `find_by_id(id, current_user)`; the controller tags each row with its concrete's `serialize_<concrete>/1` + `"type"`. A projection `from <TPH base>` reads the root's scoped `base_query/0` |
 | `python` (FastAPI / SQLAlchemy) | native SQLAlchemy single-table inheritance: the root row class is mapped `polymorphic_on` its `kind` (`polymorphic_abstract`), each concrete is a mapped subclass with its `polymorphic_identity`, and every restriction rides the read-scope hook (`app/db/read_scope.py`, a `do_orm_execute` listener adding `with_loader_criteria`), each subtype's own root-hosted and kind-guarded. TPH: a read-only `<Base>Repository` whose reads are one `select(<Base>Row)` ordered by `id` and paged in SQL, each row hydrated as its subclass. TPC: each concrete repo's own read, merged in `id` order, then paged. Routed as `GET /api/<bases>` (+ `/{id}` under TPH) with a `<Base>Response` discriminated union. A query-time projection `from <TPH base>` gets the guarded subtype restrictions from the same hook |
-| `java` (Spring Boot / JPA) | a read-only `<Base>Repository` whose `findAll()` concatenates each concrete repo's reads; a `<Base>` union response type |
+| `java` (Spring Boot / JPA) | a `<Bases>Controller` serving `GET /api/<bases>` (+ `/{id}` under TPH). TPH: one JPQL `select e from <Base> e order by e.id`, paged with `setFirstResult`/`setMaxResults`. Hibernate hydrates each row as its `@DiscriminatorValue` subclass. Every restriction of the hierarchy is hosted on the root entity, kind-guarded (`@SQLRestriction`, or an auto-enabled `@Filter` when some read `ignoring`s it or it reads the principal), so the query applies the base's restrictions and each row's own subtype's. The by-id read is a query, not `EntityManager.find`. TPC (`@MappedSuperclass`, which JPQL cannot select from): each concrete repository's scoped `findAll()`, merged in `id` order, then paged. Each item is the concrete's own response body plus `type`. Tenancy is one of those root-hosted filters (its claims per-query `@ParamDef` parameters), so a tenant-scoped hierarchy is routed too |
 
 Under TPC, identity stays **per-concrete** (each concrete keeps its own
 strongly-typed `<Concrete>Id`); there is no shared `<Base>Id`, and a polymorphic
@@ -221,9 +221,9 @@ capability tags and tenancy stance onto each concrete (D-INHERITED-CAPABILITIES)
 abstract aggregate Vehicle with softDeletable { name: string  plate: string }
 aggregate Car   extends Vehicle { seats: int }
 aggregate Truck extends Vehicle { payload: int }
-repository Trucks for Truck {
-  find byPlateAll(plate: string): Truck[] where this.plate == plate ignoring softDeletable
-}
+repository Trucks for Truck { }
+criterion TrucksByPlate(plate: string) of Truck = this.plate == plate
+// … let all = Trucks.run(TrucksByPlate(plate)) ignoring softDeletable
 ```
 
 ```ts

@@ -39,7 +39,7 @@ system Cover {
         }
       }
       repository Clms for Clm {
-        find byPol(p: Pol id): Clm[] where pol == p
+        find byPol(p: Pol id): Clm? where pol == p
       }
     }
   }

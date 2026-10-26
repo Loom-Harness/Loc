@@ -191,15 +191,16 @@ describe("api-surface — 422 follows the PARSED request part, not the kind (F6)
   it("declares it on the by-id read, the destroy, and a paged or param-carrying find — and not on a find that parses nothing", async () => {
     // The pre-fix sets were `[404]`, `[404, 409]`, `[]` and `[]`: every one of
     // those routes parses something and answers 422 on a bad value, and none of
-    // them said so.  The last one is the honest half — `find recent(): Order[]`
+    // them said so.  The last one is the honest half — `find recent(): Order?`
     // takes no parameter and is not paged, so it really cannot 422, and
-    // declaring it there would be the inverse defect.
+    // declaring it there would be the inverse defect.  Both single-row finds
+    // also answer 404 on a miss (the shared not-found rung).
     const model = await buildLoomModel(
       SYS(`
       aggregate Order with crudish { code: string }
       repository Orders for Order {
-        find byCode(code: string): Order[]
-        find recent(): Order[]
+        find byCode(code: string): Order?
+        find recent(): Order?
       }
     `),
     );
@@ -209,8 +210,8 @@ describe("api-surface — 422 follows the PARSED request part, not the kind (F6)
     // The auto-`all` find is PAGED — its `?page=`/`?pageSize=` bounds are
     // parsed even though the find declares no parameter of its own.
     expect(opByKey(ops, "get", "/api/orders")?.errorStatuses).toEqual([422]);
-    expect(opByKey(ops, "get", "/api/orders/by_code")?.errorStatuses).toEqual([422]);
-    expect(opByKey(ops, "get", "/api/orders/recent")?.errorStatuses).toEqual([]);
+    expect(opByKey(ops, "get", "/api/orders/by_code")?.errorStatuses).toEqual([404, 422]);
+    expect(opByKey(ops, "get", "/api/orders/recent")?.errorStatuses).toEqual([404]);
   });
 
   it("findValidatesRequest is the predicate, and it keys on params OR paging", async () => {
@@ -218,8 +219,8 @@ describe("api-surface — 422 follows the PARSED request part, not the kind (F6)
       SYS(`
       aggregate Order with crudish { code: string }
       repository Orders for Order {
-        find byCode(code: string): Order[]
-        find recent(): Order[]
+        find byCode(code: string): Order?
+        find recent(): Order?
       }
     `),
     );

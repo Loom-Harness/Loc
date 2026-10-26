@@ -250,7 +250,7 @@ export interface OptionalSplitSpec {
  *  with the referenced record's `display` instead of its truncated id. */
 export interface RefLabelSpec {
   /** The referenced aggregate's collection route RELATIVE to the api base,
-   *  with a trailing slash (`/projects/`) — the same `snake(plural(<Agg>))`
+   *  with a trailing slash (`/projects/`) — the same `routeSegmentFor(<Agg>)`
    *  tag every frontend's by-id read already GETs. */
   apiPath: string;
   /** The rendered id expression the link points at (`row.project`). */

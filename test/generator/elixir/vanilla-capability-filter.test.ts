@@ -25,7 +25,7 @@ system Catalog {
         filter !this.archived
       }
       repository Orders for Order {
-        find byCustomer(customerId: string): Order[] where this.customerId == customerId
+        find byCustomer(customerId: string): Order? where this.customerId == customerId
       }
       retrieval BigOrders(min: int) of Order { where: total >= min  sort: [total desc] }
     }

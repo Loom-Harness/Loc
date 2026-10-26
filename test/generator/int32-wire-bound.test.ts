@@ -55,7 +55,7 @@ system S {
         label: string
       }
       repository Orders for Order {
-        find byQty(qty: int): Order[]
+        find byQty(qty: int): Order?
       }
     }
   }

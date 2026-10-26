@@ -77,7 +77,7 @@ context Shopping {
   }
 
   repository Carts for Cart {
-    find byCustomer(customerId: Customer id): Cart[]
+    find byCustomer(customerId: Customer id): Cart?
   }
 
   repository Customers for Customer { }
@@ -109,6 +109,6 @@ context Shopping {
   }
 
   repository Wishlists for Wishlist {
-    find byCustomer(customerId: Customer id): Wishlist[]
+    find byCustomer(customerId: Customer id): Wishlist?
   }
 }

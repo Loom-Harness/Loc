@@ -37,12 +37,10 @@ system RP {
       aggregate Ledger with crudish {
         code: string
       }
-      repository Accounts for Account {
-        find byHolder(holder: string): Account? where this.holder == holder
-      }
-      repository Ledgers for Ledger {
-        find byCode(code: string): Ledger? where this.code == code
-      }
+      repository Accounts for Account { }
+      criterion AccountsByHolder(holder: string) of Account = this.holder == holder
+      repository Ledgers for Ledger { }
+      criterion LedgersByCode(code: string) of Ledger = this.code == code
       // PURE — params only, no repository read: zero ports (the control).
       domainService FeeQuote {
         operation forAmount(amount: int): int {
@@ -52,7 +50,7 @@ system RP {
       // READING — one port.
       domainService Registration {
         operation isHolderFree(holder: string): bool {
-          return Accounts.byHolder(holder) == null
+          return Accounts.find(AccountsByHolder(holder)) == null
         }
       }
       // READING over TWO distinct repositories: two ports, in first-read order,
@@ -60,7 +58,7 @@ system RP {
       // never touches.
       domainService Audit {
         operation bothFree(holder: string, code: string): bool {
-          return Accounts.byHolder(holder) == null && Ledgers.byCode(code) == null
+          return Accounts.find(AccountsByHolder(holder)) == null && Ledgers.find(LedgersByCode(code)) == null
         }
       }
       queryHandler CheckHolder(holder: string): bool {

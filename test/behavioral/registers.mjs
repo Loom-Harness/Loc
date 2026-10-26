@@ -265,9 +265,7 @@ export const BEHAVIOURAL_XFAIL = {
     "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
   },
-  java: {
-    "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
-  },
+  java: {},
   python: {
     // A routed command handler's body model takes snake_case keys.
     "extern-handlers": {

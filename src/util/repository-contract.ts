@@ -23,6 +23,10 @@
  *
  *  - `load`          — by id; the row must exist (absent → not-found).
  *  - `load-optional` — by id; absent is a value (`T?`).
+ *  - `load-by-key`   — by a declared `unique (…)` tuple; the row must exist
+ *                      (absent → not-found).
+ *  - `load-by-key-optional` — by a declared `unique (…)` tuple; absent is a
+ *                      value (`T?`).
  *  - `select-one`    — the first row matching a criterion (`T?`).
  *  - `select-many`   — every row matching a criterion / retrieval, or the whole
  *                      collection when none is given (`T[]`).
@@ -32,6 +36,8 @@
 export type RepoOp =
   | "load"
   | "load-optional"
+  | "load-by-key"
+  | "load-by-key-optional"
   | "select-one"
   | "select-many"
   | "remove"
@@ -43,6 +49,9 @@ export type RepoFace = "read" | "write";
 /** The argument a contract verb takes.
  *
  *  - `id`                     — one aggregate id.
+ *  - `key`                    — named arguments equal to one declared
+ *                               `unique (…)` tuple of the aggregate, in any
+ *                               order (`Products.getBy(sku: s)`).
  *  - `none`                   — no argument.
  *  - `criterion`              — a criterion reference (`Name` / `Name(args)`).
  *  - `criterion-or-none`      — a criterion reference, or no argument (the
@@ -52,6 +61,7 @@ export type RepoFace = "read" | "write";
  *  - `entity`                 — a loaded aggregate value. */
 export type RepoArgShape =
   | "id"
+  | "key"
   | "none"
   | "criterion"
   | "criterion-or-none"
@@ -71,6 +81,8 @@ export type RepoVerbPosition = "body" | "integration-test";
 export type ContractVerb =
   | "getById"
   | "findById"
+  | "getBy"
+  | "findBy"
   | "find"
   | "findAll"
   | "all"
@@ -99,6 +111,8 @@ export type RepoVerbEffect = "load" | "delete" | "persist";
 export const REPO_VERB_EFFECT: Readonly<Record<RepoVerb, RepoVerbEffect>> = {
   getById: "load",
   findById: "load",
+  getBy: "load",
+  findBy: "load",
   find: "load",
   findAll: "load",
   all: "load",
@@ -128,8 +142,8 @@ export interface RepoVerbContract {
   /** `page:` is accepted beside the argument. */
   readonly paged: boolean;
   /** The call consumes a chain-borne `ignoring` filter bypass (the matchers
-   *  that read it are `matchRetrievalRunCall` / `matchFindAllCall` in
-   *  `ir/lower/repo-read.ts`). */
+   *  that read it are `matchRetrievalRunCall` / `matchFindAllCall` /
+   *  `matchKeyLookupCall` in `ir/lower/repo-read.ts`). */
   readonly ignoring: boolean;
   readonly positions: readonly RepoVerbPosition[];
 }
@@ -155,6 +169,26 @@ export const REPOSITORY_CONTRACT: readonly RepoVerbContract[] = [
     paged: false,
     ignoring: false,
     positions: ["body", "integration-test"],
+  },
+  {
+    verb: "getBy",
+    op: "load-by-key",
+    face: "read",
+    args: "key",
+    result: "row",
+    paged: false,
+    ignoring: true,
+    positions: ["body"],
+  },
+  {
+    verb: "findBy",
+    op: "load-by-key-optional",
+    face: "read",
+    args: "key",
+    result: "optional-row",
+    paged: false,
+    ignoring: true,
+    positions: ["body"],
   },
   {
     verb: "find",
@@ -273,7 +307,10 @@ export function namedRepoCallOp(name: string, isDeclaredFind: boolean): RepoOp |
   // A verb whose argument is a criterion / retrieval REFERENCE is that verb
   // only when the reference is recognised (the reference matchers in
   // `ir/lower/repo-read.ts` own that); called with anything else it is not.
-  if (!c || c.args === "criterion" || c.args === "retrieval-or-criterion") return undefined;
+  // A natural-key read is likewise recognised only by `matchKeyLookupCall`,
+  // which resolves its named arguments against the declared tuples.
+  if (!c || c.args === "criterion" || c.args === "retrieval-or-criterion" || c.args === "key")
+    return undefined;
   return c.op;
 }
 
@@ -283,4 +320,70 @@ export function repoOpResult(op: Exclude<RepoOp, "declared-find">): RepoResultSh
   const hit = REPOSITORY_CONTRACT.find((c) => c.op === op);
   if (!hit) throw new Error(`repository contract has no verb for op '${op}'`);
   return hit.result;
+}
+
+/** True for the two natural-key reads (`getBy` / `findBy`). */
+export function isKeyLookupOp(op: RepoOp): op is "load-by-key" | "load-by-key-optional" {
+  return op === "load-by-key" || op === "load-by-key-optional";
+}
+
+/** The repository method a natural-key read is emitted as: the verb, `By`,
+ *  then the tuple's columns in their declared order joined by `And`
+ *  (`findBy` over `(sku)` → `findBySku`; `getBy` over `(tenant, code)` →
+ *  `getByTenantAndCode`).  A read that bypasses capability filters gets its
+ *  own method, so the stance is part of the name: `ignoring *` →
+ *  `…IgnoringAll`, `ignoring softDeletable` → `…IgnoringSoftDeletable`.
+ *  Every backend renders this one name through its own find-method escaping. */
+export function keyLookupMethodName(
+  verb: "getBy" | "findBy",
+  columns: readonly string[],
+  bypass?: { bypassAll?: boolean; bypassCaps?: readonly string[] },
+): string {
+  const cap = (s: string) => (s.length ? s[0]!.toUpperCase() + s.slice(1) : s);
+  const base = `${verb}${columns.map(cap).join("And")}`;
+  if (bypass?.bypassAll) return `${base}IgnoringAll`;
+  const caps = bypass?.bypassCaps ?? [];
+  return caps.length > 0 ? `${base}Ignoring${[...caps].sort().map(cap).join("And")}` : base;
+}
+
+/** How a natural-key read's named arguments line up with the aggregate's
+ *  declared `unique (…)` tuples.
+ *
+ *  - `match`      — the argument names equal one tuple exactly (any order);
+ *                   `tuple` is that tuple in its declared column order.
+ *  - `incomplete` — the names are a strict subset of a tuple; `tuple` is the
+ *                   smallest such tuple and `missing` its absent columns.
+ *  - `positional` — an argument has no name.
+ *  - `not-unique` — no tuple covers the names. */
+export type KeyTupleResolution =
+  | { readonly kind: "match"; readonly tuple: readonly string[] }
+  | {
+      readonly kind: "incomplete";
+      readonly tuple: readonly string[];
+      readonly missing: readonly string[];
+    }
+  | { readonly kind: "positional" }
+  | { readonly kind: "not-unique" };
+
+/** Match a natural-key read's argument names (`undefined` for a positional
+ *  argument) against the declared `unique (…)` tuples.  The one rule
+ *  validation and lowering share. */
+export function resolveKeyTuple(
+  argNames: readonly (string | undefined)[],
+  tuples: readonly (readonly string[])[],
+): KeyTupleResolution {
+  if (argNames.some((n) => n === undefined)) return { kind: "positional" };
+  const names = new Set(argNames as string[]);
+  for (const t of tuples) {
+    if (t.length === names.size && t.every((c) => names.has(c))) return { kind: "match", tuple: t };
+  }
+  let best: readonly string[] | undefined;
+  for (const t of tuples) {
+    const set = new Set(t);
+    if (t.length > names.size && [...names].every((n) => set.has(n))) {
+      if (!best || t.length < best.length) best = t;
+    }
+  }
+  if (best) return { kind: "incomplete", tuple: best, missing: best.filter((c) => !names.has(c)) };
+  return { kind: "not-unique" };
 }

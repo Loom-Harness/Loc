@@ -100,7 +100,7 @@ import {
 } from "../../language/generated/ast.js";
 import { stdFunctions } from "../../language/stdlib.js";
 import { descriptorFor } from "../../platform/metadata.js";
-import { plural, snake } from "../../util/naming.js";
+import { routeSegmentFor } from "../../util/storage-names.js";
 import { parseDurationMs } from "../../util/timer.js";
 import { enrichContext } from "../enrich/enrichments.js";
 import { emitsRestCreate } from "../enrich/wire-projection.js";
@@ -223,7 +223,6 @@ import { lowerComponent, lowerLayout, lowerUi } from "./lower-ui.js";
 import { lowerCommandHandler, lowerQueryHandler, lowerWorkflow } from "./lower-workflow.js";
 import { originFor } from "./origin.js";
 import { buildExpandContext, type WalkerExpandContext } from "./walker-primitive-expander.js";
-
 // ---------------------------------------------------------------------------
 // Lowering — structure layer.
 //
@@ -477,10 +476,10 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
     else if (isMigration(m)) {
       // Schema-evolution intents (M-T2.1 renames + M-T2.3 data steps): each
       // step becomes an intent the phase-⑨ migration builder folds into its
-      // diff.  The live aggregate is resolved to its owning bounded context so
-      // the builder can pin the module + Postgres schema.  Names stay RAW (the
-      // builder snake-cases them exactly as it does aggregate fields / table
-      // names).
+      // diff.  A column or backfill step's live aggregate is resolved to its
+      // owning bounded context so the builder can pin the module + Postgres
+      // schema.  Names stay RAW (the builder snake-cases them exactly as it
+      // does aggregate fields / table names).
       m.steps.forEach((step, index) => {
         if (isSqlStep(step)) {
           sqlMigrationSteps.push({
@@ -522,15 +521,16 @@ export function lowerProject(models: ReadonlyArray<Model>): RawLoomModel {
             });
           }
         } else {
-          // Table/aggregate rename (`OldName -> NewAggregate`).  Only the NEW
-          // aggregate is cross-referenced (the old name is gone); it pins the
-          // context/module.  `fromTable` is the old, now-absent name.
-          const agg = step.toAggregate.ref;
+          // Table step (`Old -> New`, or the qualified move `A.Old -> B.New`).
+          // Names stay raw: the target may be declared in another file, so it
+          // is resolved on the merged IR (`resolveTableStepTarget`).
           tableRenameIntents.push({
             migration: m.name,
-            fromAggregate: step.fromTable,
-            toAggregate: agg?.name ?? step.toAggregate.$refText,
-            context: AstUtils.getContainerOfType(agg, isBoundedContext)?.name ?? "",
+            from: step.fromTable,
+            to: step.to,
+            ...(step.fromContext !== undefined
+              ? { fromContext: step.fromContext, toContext: step.toContext }
+              : {}),
             origin: originFor(step),
           });
         }
@@ -960,7 +960,7 @@ function stripNonConstructibleListCreate(sys: SystemIR): void {
       if (kind.kind !== "aggregate-list" || !page.body) continue;
       const agg = ctx.aggregatesByName.get(kind.aggregateName);
       if (!agg || emitsRestCreate(agg)) continue;
-      page.body = stripCreateButton(page.body, `${pluralSnake(agg.name)}-list-create`);
+      page.body = stripCreateButton(page.body, `${routeSegmentFor(agg.name)}-list-create`);
     }
   }
 }
@@ -1056,7 +1056,7 @@ function conventionalEmitPath(kind: PageKind, ctx: WalkerExpandContext): string 
   ) {
     const agg = ctx.aggregatesByName.get(kind.aggregateName);
     if (!agg) return undefined;
-    const slug = pluralSnake(agg.name);
+    const slug = routeSegmentFor(agg.name);
     const file =
       kind.kind === "aggregate-list" ? "list" : kind.kind === "aggregate-new" ? "new" : "detail";
     return `src/pages/${slug}/${file}.tsx`;
@@ -1085,10 +1085,6 @@ function snakeOnly(s: string): string {
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
     .toLowerCase();
-}
-
-function pluralSnake(s: string): string {
-  return plural(snake(s));
 }
 
 function lowerTheme(block: ThemeBlock): ThemeIR {

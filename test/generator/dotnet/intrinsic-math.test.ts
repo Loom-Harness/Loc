@@ -37,12 +37,12 @@ const SRC = `
       }
     }
     repository Invoices for Invoice {
-      find pricierThan(q: money): Invoice[] where this.amount.round(2) > q
-      find wholeAbove(q: money): Invoice[] where this.amount.round() > q
-      find byAbsQty(n: int): Invoice[] where this.qty.abs() > n
-      find cappedAt(q: money): Invoice[] where this.amount.min(q) == q
-      find byMaxBig(l: long): Invoice[] where this.big.max(l) == l
-      find byRateBand(r: decimal): Invoice[] where this.rate.floor() <= r && this.rate.ceil() >= r
+      find pricierThan(q: money): Invoice? where this.amount.round(2) > q
+      find wholeAbove(q: money): Invoice? where this.amount.round() > q
+      find byAbsQty(n: int): Invoice? where this.qty.abs() > n
+      find cappedAt(q: money): Invoice? where this.amount.min(q) == q
+      find byMaxBig(l: long): Invoice? where this.big.max(l) == l
+      find byRateBand(r: decimal): Invoice? where this.rate.floor() <= r && this.rate.ceil() >= r
     }
   }
 `;

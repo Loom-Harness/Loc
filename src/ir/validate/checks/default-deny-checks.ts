@@ -6,14 +6,13 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { descriptorFor } from "../../../platform/metadata.js";
-import { plural, snake } from "../../../util/naming.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
 import type { SystemIR, WorkflowIR, WorkflowStmtIR } from "../../types/loom-ir.js";
 import { isMacroEmitted, macroNameOf } from "../../types/origin.js";
 import { deriveContextOperations, isAllFind } from "../../util/api-surface.js";
 import { esCreateGateUnsupportedOn } from "../../util/op-gates.js";
 import { aggregateIsEventSourced } from "../../util/resolve-datasource.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
-
 // Page/component `derived name: T = expr` bindings are supported on every
 // frontend now — React/Vue/Svelte/Angular hoist a reactive computed
 // (`useMemo` / `computed` / `$derived` / `computed`); Phoenix/HEEx
@@ -114,7 +113,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
                 message: diagMessage("loom.default-deny-es-create-ungateable", {
                   name: a.name,
                   opName: op.name,
-                  path: `/api/${plural(snake(a.name))}`,
+                  path: `/api/${routeSegmentFor(a.name)}`,
                 }),
                 source: `${a.name}/${op.name}`,
                 origin: op.origin,
@@ -133,7 +132,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
             // Its gate is the first STATEMENT of the body, not a header clause.
             // The generic arm below says "add a `requires <expr>`" without
             // saying where, and every SIBLING declaration (`operation` / `find`
-            // / `projection` / `handle`) takes one in the header — so the author
+            // / `projection`) takes one in the header — so the author
             // writes `create(...) requires P() { }`, gets `Expecting token of
             // type '{'`, and concludes the posture is unsatisfiable.  That is
             // how finding F-004 reached "denyByDefault and persistedAs: eventLog
@@ -293,7 +292,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
             code: "loom.audit-history-ungated",
             message: diagMessage("loom.audit-history-ungated", {
               aggregateName: repo.aggregateName,
-              aggregateName2: snake(plural(repo.aggregateName)),
+              aggregateName2: routeSegmentFor(repo.aggregateName),
             }),
             source: `find/${repo.name}.history`,
             origin: repo.origin,
@@ -310,22 +309,26 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
       // demanding one is satisfiable.
       for (const proj of c.projections) {
         if (proj.query?.requires) continue;
-        // A MACRO-emitted projection has no declaration header, so the
-        // diagnostic's "add a `requires` after its declaration header" names a
-        // line the author cannot open — `scaffoldDashboard` emits one singleton
-        // totals projection per aggregate, which made `scaffold` and
-        // `denyByDefault` an uncompilable pair.  Exempt for the same stated
-        // reason the enrichment-injected `find all` is exempt one loop up: it
-        // is compiler-synthesized and has no author source line
-        // (`src/ir/util/read-gates.ts`).  Derived from the origin chain the
-        // lowering already records — nothing new is stamped.
-        if (isMacroEmitted(proj.origin)) continue;
+        // A MACRO-emitted projection has no declaration header, so "add a
+        // `requires` after its declaration header" names a line the author
+        // cannot open.  `scaffoldDashboard` copies the source aggregate's
+        // `policy { read X requires … }` gate onto each projection it emits,
+        // so an ungated one means that rule is missing — and the fix is to
+        // write it.  NOT exempt: unlike the injected `find all` (which fails
+        // closed at runtime), an ungated projection is SERVED, publishing the
+        // aggregate's totals to callers its rows refuse.
         diags.push({
           severity: "error",
           code: "loom.default-deny-ungated",
-          message: diagMessage("loom.default-deny-ungated#denybydefault-projection", {
-            name: proj.name,
-          }),
+          message: isMacroEmitted(proj.origin)
+            ? diagMessage("loom.default-deny-ungated#denybydefault-projection-macro", {
+                name: proj.name,
+                macroName: macroNameOf(proj.origin),
+                source: proj.query?.source ?? "<source>",
+              })
+            : diagMessage("loom.default-deny-ungated#denybydefault-projection", {
+                name: proj.name,
+              }),
           source: `projection/${proj.name}`,
           origin: proj.origin,
         });
@@ -380,9 +383,6 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
         ? undefined
         : (c.queryHandlers ?? []).find((h) => h.name === route.target.handler);
       const handler = cmd ?? qry;
-      // A workflow `handle` can also be a route target; those are already
-      // covered by `workflowCommandEntries` above, so skip rather than
-      // double-report.
       if (!handler) continue;
       if (isGated(handler.statements)) continue;
       const params = {
@@ -420,7 +420,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
 }
 
 /** The client-reachable command endpoints of a workflow: each command-triggered
- *  `create` starter and each named `handle` continuation.  Event-triggered
+ *  `create` starter.  Event-triggered
  *  creates and `on(...)` reactors fire on internal events, never a client POST,
  *  so they are excluded — the validate-layer analogue of the generator's
  *  `emitsCommandRoute`. */
@@ -436,9 +436,6 @@ function workflowCommandEntries(
       key: cr.name ?? "create",
       statements: cr.statements,
     });
-  }
-  for (const h of wf.handlers ?? []) {
-    entries.push({ label: `${wf.name}.${h.name}`, key: h.name, statements: h.statements });
   }
   return entries;
 }

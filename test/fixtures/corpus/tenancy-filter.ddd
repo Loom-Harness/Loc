@@ -10,12 +10,17 @@ system Tenancy {
         balance: int
         filter this.tenantId == currentUser.tenantId
       }
-      repository Accounts for Account {
-        find byMinBalance(min: int): Account[] where this.balance >= min
+      repository Accounts for Account { }
+      criterion AccountsByMinBalance(min: int) of Account = this.balance >= min
+      queryHandler ListAccountsByMinBalance(min: int): Account[] {
+        let r = Accounts.run(AccountsByMinBalance(min))
+        return r
       }
     }
   }
-  api LedgerApi from Core
+  api LedgerApi from Core {
+    route GET "/accounts/by_min_balance/{min}" -> Ledger.ListAccountsByMinBalance
+  }
   storage primary { type: postgres }
   resource ledgerState { for: Ledger, kind: state, use: primary }
   deployable d {
@@ -37,7 +42,7 @@ system Tenancy {
   test e2e "capability filter scopes reads to the authenticated principal's tenant" against d {
     let mineAcct = api.accounts.create({ tenantId: "acme", balance: 100 })
     let theirAcct = api.accounts.create({ tenantId: "other", balance: 200 })
-    let mine = api.accounts.byMinBalance({ min: 0 })
+    let mine = api.ledger.listAccountsByMinBalance(0)
     expect(mine.length).toBe(1)
 
     // The WRITE side of the same capability filter, which no test reached: the

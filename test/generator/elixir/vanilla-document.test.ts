@@ -7,7 +7,14 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // `(id, data, version)` table.  Writes validate the domain fields through a
 // SCHEMALESS changeset (cast + validate_required + invariant validators — the
 // same contract the relational `base_changeset` runs) and store the validated
-// map; reads merge `data` back over the id.  v1 scope: CRUD.
+// map; reads merge `data` back over the id.
+//
+// The camelCase key normalisation, the wire projection rooted at the embed,
+// and an operation's re-embed (scalar bump and containment append alike) are
+// asserted by value on the elixir behavioural leg (`corpus/document`).  What
+// stays here is what that case does not reach: the schema and migration
+// shapes, the version/conflict mapping, finds, union and paged finds, audited
+// and returning ops, and the guard denials.
 // ---------------------------------------------------------------------------
 
 const DOC = `
@@ -101,11 +108,8 @@ describe("vanilla shape: document persistence (DEBT-07)", () => {
     expect(cs).toContain("|> put_change(:version, version)");
   });
 
-  it("repository CRUD round-trips the document (cast_embed + version bump)", async () => {
+  it("the document update guards the write with the client's expected version", async () => {
     const repo = file(await generateSystemFiles(DOC), "/carts/cart_repository.ex");
-    // Insert: cast attrs into a fresh embed, version 1.
-    expect(repo).toContain("|> Api.Carts.CartChangeset.document_changeset(attrs, 1)");
-    expect(repo).toContain("%Api.Carts.Cart{}");
     // Update: cast_embed(on_replace: :update) merges onto the existing embed;
     // default-on versioning (M-T3.4) guards the write with `optimistic_lock`
     // over the client's expected version (stamped as the changeset's current
@@ -126,31 +130,6 @@ describe("vanilla shape: document persistence (DEBT-07)", () => {
     // Same fn names as the relational repo (so context defdelegates are unchanged).
     expect(repo).toContain("def list do");
     expect(repo).toContain("def find_by_id(id)");
-  });
-
-  it("serializes the document via the shared wireShape projection rooted at the embed (§14)", async () => {
-    const ctrl = file(await generateSystemFiles(DOC), "/controllers/cart_controller.ex");
-    // Route A slice 4: the document controller roots the SAME wireShape serializer
-    // at the rehydrated `%<Agg>.Data{}` embed (`record = row.data`), id off the
-    // root row — camelCase keys, VO via the shared serialize_<vo>/1 helper (wire
-    // byte-identical to the pre-slice-4 map projection).
-    expect(ctrl).toContain("defp serialize(row) do");
-    expect(ctrl).toContain("record = row.data");
-    expect(ctrl).toContain('"id" => row.id');
-    expect(ctrl).toContain('"itemCount" => record.item_count');
-    expect(ctrl).toContain('"reference" => record.reference');
-    // The VO projects through the shared camelCase helper (key-agnostic subfield read).
-    expect(ctrl).toContain('"subtotal" => serialize_money(record.subtotal)');
-    expect(ctrl).toContain("defp serialize_money(record) do");
-  });
-
-  it("normalizes camelCase inbound keys to snake before the embedded cast (§15)", async () => {
-    const schema = file(await generateSystemFiles(DOC), "/carts/cart.ex");
-    // Route A: normalization lives on the `<Agg>.Data` changeset (a camelCase
-    // `itemCount` body casts into `:item_count` instead of silently dropping).
-    expect(schema).toContain("attrs = __normalize_keys(attrs)");
-    expect(schema).toContain("defp __normalize_keys(attrs) when is_map(attrs) do");
-    expect(schema).toContain("{k, v} when is_binary(k) -> {Macro.underscore(k), v}");
   });
 
   it("emits the canonical (id, data, version) document migration", async () => {
@@ -200,7 +179,7 @@ system Carting {
       }
       repository Carts for Cart {
         find byReference(reference: string): Cart? where this.reference == reference
-        find checkedOutOnes(): Cart[] where this.status == checkedOut
+        find checkedOutOnes(): Cart? where this.status == checkedOut
       }
     }
   }
@@ -220,15 +199,14 @@ system Carting {
 describe("vanilla shape: document scalar finds + named ops (Route A slice 2 — struct mode)", () => {
   it("emits in-memory custom finds that read the rehydrated embed struct", async () => {
     const repo = file(await generateSystemFiles(DOC_OPS), "/carts/cart_repository.ex");
-    // A list find returns every match; the predicate reads the rehydrated
-    // `%<Agg>.Data{}` embed bound as `record` (struct access, no docMap fork),
-    // enums compared as their stored strings.
+    // The predicate reads the rehydrated `%<Agg>.Data{}` embed bound as
+    // `record` (struct access, no docMap fork), enums compared as their stored
+    // strings.
     expect(repo).toContain("def checked_out_ones() do");
     expect(repo).toContain("|> Repo.all()");
     expect(repo).toContain("|> Enum.filter(fn row ->");
     expect(repo).toContain("record = row.data");
     expect(repo).toContain('record.status == "checkedOut"');
-    expect(repo).toContain("{:ok, results}");
     // A single-return find (`Cart?`) yields the first match (or nil).
     expect(repo).toContain("def by_reference(reference) do");
     expect(repo).toContain("record.reference == reference");
@@ -353,71 +331,6 @@ describe("vanilla shape: document non-scalar residual (DEBT-07 follow-up)", () =
 });
 
 // ---------------------------------------------------------------------------
-// Document containments (Route A slice 4) — nested entity parts fold into the
-// `<Agg>.Data` embed as embeds_many + project through the shared serialize helper.
-// ---------------------------------------------------------------------------
-const DOC_CONTAIN = `
-system Ordering {
-  subdomain Sales {
-    context Orders {
-      aggregate Order shape: document with crudish {
-        reference: string
-        contains lines: OrderLine[]
-        entity OrderLine { sku: string  qty: int }
-      }
-      repository Orders for Order { }
-    }
-  }
-  api OrdersApi from Sales
-  storage pg { type: postgres }
-  resource orderState { for: Orders, kind: state, use: pg }
-  deployable api {
-    platform: elixir
-    contexts: [Orders]
-    dataSources: [orderState]
-    serves: OrdersApi
-    port: 4000
-  }
-}
-`;
-
-describe("vanilla shape: document containments (Route A slice 4)", () => {
-  it("folds the part into the <Agg>.Data embed as embeds_many + cast_embed", async () => {
-    const schema = file(await generateSystemFiles(DOC_CONTAIN), "/orders/order.ex");
-    expect(schema).toContain("embeds_many :lines, Api.Orders.OrderLine");
-    expect(schema).toContain("|> cast_embed(:lines)");
-  });
-
-  it("projects the containment through the shared camelCase serialize helper", async () => {
-    const ctrl = file(await generateSystemFiles(DOC_CONTAIN), "/controllers/order_controller.ex");
-    // Rooted at the embed, id off the row; the part list maps through serialize_order_line/1.
-    expect(ctrl).toContain("defp serialize(row) do");
-    expect(ctrl).toContain("record = row.data");
-    expect(ctrl).toContain('"id" => row.id');
-    expect(ctrl).toContain('"lines" => Enum.map(record.lines || [], &serialize_order_line/1)');
-    expect(ctrl).toContain("defp serialize_order_line(record) do");
-    expect(ctrl).toContain('"sku" => record.sku');
-  });
-
-  it("emits an in-op containment mutation that appends a part struct + re-embeds (Route A slice 4b)", async () => {
-    const DOC_MUT = DOC_CONTAIN.replace(
-      "entity OrderLine { sku: string  qty: int }",
-      `entity OrderLine { sku: string  qty: int }
-        operation addLine(sku: string, qty: int) {
-          lines += OrderLine { sku: sku, qty: qty }
-        }`,
-    );
-    const ctx = file(await generateSystemFiles(DOC_MUT), "/orders.ex");
-    // `lines += OrderLine{…}` appends a part struct to the rehydrated embed list…
-    expect(ctx).toContain(
-      "record = %{record | lines: (record.lines || []) ++ [%Api.Orders.OrderLine{sku: sku, qty: qty}]}",
-    );
-    // …then re-embeds the whole mutated struct (the struct-list casts into embeds_many).
-    expect(ctx).toContain("|> Ecto.Changeset.put_embed(:data, Map.from_struct(record))");
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Paged custom finds (Route A slice 4c) — the document find fn builds the
 // %{items, page, pageSize, total, totalPages} wire envelope IN MEMORY.
 // ---------------------------------------------------------------------------
@@ -431,13 +344,15 @@ system Shop {
         title: string
         status: Status
       }
-      repository Tickets for Ticket {
-        find recent(): Ticket paged
-        find byStatus(status: Status): Ticket paged where this.status == status
+      repository Tickets for Ticket { }
+      criterion ByStatus(status: Status) of Ticket = this.status == status
+      queryHandler ListByStatus(status: Status): Ticket paged {
+        let r = Tickets.run(ByStatus(status))
+        return r
       }
     }
   }
-  api ShopApi from Sales
+  api ShopApi from Sales { route GET "/tickets/by_status/{status}" -> Shop.ListByStatus }
   storage pg { type: postgres }
   resource shopState { for: Shop, kind: state, use: pg }
   deployable api { platform: elixir, contexts: [Shop], dataSources: [shopState], serves: ShopApi, port: 4000 }
@@ -451,10 +366,7 @@ system Shop {
     // defdelegate + the controller's paged action call through at that arity
     // (test/generator/elixir/paged-find-arity.test.ts).
     expect(repo).toContain(
-      'def recent(page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc") do',
-    );
-    expect(repo).toContain(
-      'def by_status(status, page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc") do',
+      'def find_all_by_by_status(status, page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc") do',
     );
     // Filter the whole table, then order + slice the page in memory.
     expect(repo).toContain("|> Repo.all()");
@@ -465,11 +377,9 @@ system Shop {
     // camelCase envelope keys (Jason serialises the atoms verbatim).
     expect(repo).toContain("pageSize: page_size");
     expect(repo).toContain("totalPages: if(page_size > 0, do: ceil(total / page_size), else: 0)");
-    // A filtered paged find still reads the embed (struct-mode predicate).
+    // The paged read still reads the embed (struct-mode predicate).
     expect(repo).toContain("record = row.data");
     expect(repo).toContain("record.status == status");
-    // An unfiltered paged find must NOT bind an unused `record` (else -Werror).
-    expect(repo).toContain("|> Enum.filter(fn _row -> true end)");
   });
 });
 

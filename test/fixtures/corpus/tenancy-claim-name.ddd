@@ -26,8 +26,11 @@ system TenantClaimName {
         number: string
         amountDue: int
       }
-      repository Invoices for Invoice {
-        find byNumber(n: string): Invoice[] where this.number == n
+      repository Invoices for Invoice { }
+      criterion InvoicesByNumber(n: string) of Invoice = this.number == n
+      queryHandler ListInvoicesByNumber(n: string): Invoice[] {
+        let r = Invoices.run(InvoicesByNumber(n))
+        return r
       }
 
       // The realtime half of the claim-name bug class.  A broadcast channel
@@ -63,7 +66,9 @@ system TenantClaimName {
       }
     }
   }
-  api BillingApi from Core
+  api BillingApi from Core {
+    route GET "/invoices/by_number/{n}" -> Billing.ListInvoicesByNumber
+  }
   storage primary { type: postgres }
   resource billingState { for: Billing, kind: state, use: primary }
   resource accountsState { for: Accounts, kind: state, use: primary }
@@ -83,7 +88,7 @@ system TenantClaimName {
   // writes NULL and the filtered read returns 0.
   test e2e "the tenant claim binds by its declared name, not by `tenantId`" against d {
     let inv = api.invoices.create({ number: "INV-1", amountDue: 100 })
-    let mine = api.invoices.byNumber({ n: "INV-1" })
+    let mine = api.billing.listInvoicesByNumber("INV-1")
     expect(mine.length).toBe(1)
 
     // The write path binds the same claim under its declared name: the

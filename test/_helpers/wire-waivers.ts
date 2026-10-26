@@ -138,7 +138,7 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
   ...(
     [
       ["projection-join", "GET /api/projections/order_with_customer"],
-      ["prefix-filter", "GET /api/docs/under?prefix=root"],
+      ["prefix-filter", "GET /api/docs/under/root"],
       ["datetime-wire", "GET /api/projections/slot_board"],
     ] as const
   ).map(
@@ -159,6 +159,7 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
   ...(
     [
       "absent-optional",
+      "acronym-names",
       "audit-history-guarded",
       "audit-history",
       "audited",

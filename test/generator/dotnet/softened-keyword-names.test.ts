@@ -35,8 +35,8 @@ system S {
         create(system: string, enum: int, static: int, origin: Origin) { }
       }
       repository Plugins for Plugin {
-        find byLevel(enum: int, static: int): Plugin[] where this.enum == enum && this.static >= static
-        find bySystem(system: string): Plugin[] where this.system == system
+        find byLevel(enum: int, static: int): Plugin? where this.enum == enum && this.static >= static
+        find bySystem(system: string): Plugin? where this.system == system
       }
       criterion StaticAtLeast(static: int) of Plugin = this.static >= static
       test "a plugin builds" {

@@ -1,18 +1,12 @@
-// Tenancy claim binding — the principal side of the `tenantOwned` capability
-// (M-T3.7(a)).
+// Tenancy claim binding — the principal side of the `tenantOwned` capability.
 //
 // `tenancy by user.<claim> of <Registry>` lets the author name the claim that
-// carries the tenant.  The `tenantOwned` prelude capability cannot read that
-// declaration — it is built once at language-module init with no system in
-// scope — so it hardcodes `currentUser.tenantId` in both its read filter and
-// its create stamp.  Enrichment (phase ⑥) binds it to the declared claim, the
-// same way it already derives the registry self-scope.
-//
-// Before this pass the two halves of the feature disagreed in one generated
-// project: the registry read `currentUser.orgId` while the tenant-owned
-// aggregate read `currentUser.tenantId` — a claim the emitted principal type
-// does not have.  Typed backends failed to compile; dynamic ones 500'd per
-// request.
+// carries the tenant.  The `tenantOwned` prelude capability is built with no
+// system in scope, so it writes `currentUser.tenantId`; the expander splices
+// the DECLARED claim instead (`resolveTenancyClaim`), so the stamp and the
+// read filter read a member the principal really has, as the registry
+// self-scope does.  If they disagreed, typed backends would fail to compile
+// and dynamic ones would 500 per request.
 //
 // The ROW column stays `tenantId` throughout: the capability owns that name,
 // and it is not the author's to choose.  Only the principal side moves.
@@ -143,5 +137,20 @@ describe("tenancy claim binding — tenantOwned principal side", () => {
       (f) => f.kind === "binary" && f.left.kind === "member" && f.left.member === "legacyTenant",
     );
     expect(authored).toMatchObject({ right: { member: "tenantId" } });
+  });
+});
+
+describe("tenancy claim binding — an incomplete `tenancy` declaration", () => {
+  it("expands without a claim to bind (the source is still being typed)", async () => {
+    const { parseString } = await import("../_helpers/index.js");
+    const src = `system S {
+  user { id: guid }
+  tenancy by user.
+  subdomain Core { context C {
+    aggregate Invoice with tenantOwned, crudish { number: string }
+  } }
+}`;
+    const r = await parseString(src, { validate: true });
+    expect(r.model).toBeDefined();
   });
 });

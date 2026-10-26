@@ -505,7 +505,7 @@ describe("Model v2 — view-graph per level", () => {
   }
   repository Orders for Order {
     find bySku(sku: string): Order? where this.sku == sku
-    find allActive(): Order[] where true
+    find allActive(): Order? where true
   }
 }`;
     const g = buildViewGraph(parse(REPO_SRC), [{ kind: "repository", name: "Orders" }]);

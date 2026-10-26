@@ -372,8 +372,8 @@ describe("a repository read in MEMBER-RECEIVER position is refused, not mis-emit
   it("flags `Repo.find(...).member` in a domain-service body", async () => {
     const d = await diags(`
       domainService Lookup {
-        operation tierOf(t: string): string {
-          return Customers.byTier(t).tier
+        operation tierOf(c: Customer id): string {
+          return Customers.getById(c).tier
         }
       }
     `);
@@ -381,9 +381,9 @@ describe("a repository read in MEMBER-RECEIVER position is refused, not mis-emit
     expect(hit, `got: ${d.map((x) => x.code).join(", ") || "(none)"}`).toBeDefined();
     expect(hit!.severity).toBe("error");
     expect(hit!.source).toBe("Sales/Lookup.tierOf");
-    expect(hit!.message).toContain("Customers.byTier");
+    expect(hit!.message).toContain("Customers.getById");
     // The message must name the WORKING spelling, not just the rule.
-    expect(hit!.message).toContain("let x = Customers.byTier(…)");
+    expect(hit!.message).toContain("let x = Customers.getById(…)");
   });
 
   it("CONTROL — the `let`-bound spelling is the supported one and stays clean", async () => {

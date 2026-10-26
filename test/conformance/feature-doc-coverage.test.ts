@@ -50,6 +50,8 @@ const FEATURE_DOCS: readonly string[] = [
   "extern",
   "inheritance",
   "language",
+  // Table naming (`acronym-names.ddd`): one table name per declaration.
+  "migrations",
   "payloads",
   "provenance",
   "resources",

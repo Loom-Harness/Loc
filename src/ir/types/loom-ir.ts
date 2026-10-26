@@ -983,6 +983,18 @@ export interface FindIR {
   defaultDenied?: boolean;
 }
 
+/** A natural-key read's key (`Repo.getBy(sku: s)` / `Repo.findBy(…)`,
+ *  D-REPO-KEY-LOOKUP): the declared `unique (…)` tuple it names, in declared
+ *  column order, and the read's `ignoring` stance.  The read is emitted as a
+ *  repository method named by `keyLookupMethodName`, which enrichment
+ *  synthesises (`synthesizeKeyLookupFinds`) as a `synthesized` find — one
+ *  `WHERE` equality per column, capability filters applied as on any read. */
+export interface KeyLookupIR {
+  columns: string[];
+  bypassAll?: boolean;
+  bypassCaps?: string[];
+}
+
 export interface RepositoryIR {
   name: string;
   aggregateName: string;
@@ -1425,11 +1437,6 @@ export interface WorkflowIR {
    *  (A2-S5a), so bodies fold events into workflow state.  Omitted when the
    *  workflow declares none. */
   appliers?: ApplyIR[];
-  /** Named orchestration command handlers declared via `handle name(params)
-   *  { … }` members (A2-S5c) — a multi-command saga's continuation commands.
-   *  Each carries its own params + saves, lowered like the legacy paren-form
-   *  body.  Omitted when the workflow declares none. */
-  handlers?: HandleIR[];
   /** Private pure helpers declared via `function f(...): T = expr` or the block
    *  form `function f(...): T { let … return … }` — the aggregate-parity helper
    *  (a workflow is a state-bearing entity, so it factors shared expressions the
@@ -1483,24 +1490,12 @@ export interface WorkflowIR {
   origin?: OriginRef;
 }
 
-/** A named `handle name(params) { … }` command handler on a workflow
- *  (workflow-and-applier.md A2-S5c) — structurally the legacy paren-form
- *  workflow body, but named and repeatable. */
-export interface HandleIR {
-  name: string;
-  params: ParamIR[];
-  statements: WorkflowStmtIR[];
-  /** Which let-bound aggregates need a save call at handler exit, in
-   *  declaration order — same derivation as `WorkflowIR.savesAtExit`. */
-  savesAtExit: { name: string; aggName: string; repoName: string }[];
-}
-
 /** A top-level `commandHandler name(params): T { … }` application-layer member
- *  (unfoldable-api-derivation.md, Layer 3) — a workflow `handle` lifted out of a
- *  workflow when the orchestration is single-aggregate.  `returnType` is optional
+ *  (unfoldable-api-derivation.md, Layer 3) — a context's named command entry
+ *  point.  `returnType` is optional
  *  (a `commandHandler` may omit it, `: void`-equivalent).  Body statements are
- *  `WorkflowStmtIR` (load → mutate → save → return), same as `HandleIR`.  Every
- *  backend's explicit-handlers emitter reads these. */
+ *  `WorkflowStmtIR` (load → mutate → save → return), same as a workflow
+ *  `create`.  Every backend's explicit-handlers emitter reads these. */
 export interface CommandHandlerIR {
   name: string;
   params: ParamIR[];
@@ -1835,11 +1830,16 @@ export type WorkflowStmtIR =
       repoName: string;
       aggName: string;
       /** What the call does (`util/repository-contract.ts`).  Emitters
-       *  dispatch on it; `method` is kept for a declared find's own name. */
+       *  dispatch on it; `method` is kept for a declared find's own name and
+       *  a natural-key read's method (`findBySku`). */
       op: RepoOp;
       method: string;
       args: ExprIR[];
       returnType: TypeIR;
+      /** A natural-key read (`load-by-key` / `load-by-key-optional`): the
+       *  tuple `args` follow and the `ignoring` stance.  Enrichment
+       *  synthesises the repository method `method` names from it. */
+      key?: KeyLookupIR;
       origin?: OriginRef;
     }
   | {
@@ -1985,8 +1985,9 @@ export type WorkflowStmtIR =
       kind: "if-let";
       var: string;
       /** `select-one` for a criterion source, `declared-find` for a declared
-       *  optional find (`findMethod` names it). */
-      op: Extract<RepoOp, "select-one" | "declared-find">;
+       *  optional find (`findMethod` names it), `load-by-key-optional` for a
+       *  natural-key `Repo.findBy(…)` (`findMethod` names its method). */
+      op: Extract<RepoOp, "select-one" | "declared-find" | "load-by-key-optional">;
       repoName: string;
       aggName: string;
       /** Name of the shared synthetic retrieval (`findAllBy<Criterion>`);
@@ -1997,8 +1998,11 @@ export type WorkflowStmtIR =
       retrievalArgs: ExprIR[];
       synthCriterion: { name: string };
       /** The declared optional find the source calls, when the source is
-       *  `Repo.<find>(args)` rather than `Repo.find(<Criterion>)`. */
+       *  `Repo.<find>(args)` rather than `Repo.find(<Criterion>)` — or the
+       *  method a natural-key `Repo.findBy(…)` source is emitted as. */
       findMethod?: string;
+      /** A natural-key source's tuple + `ignoring` stance (see `repo-let`). */
+      key?: KeyLookupIR;
       thenBody: WorkflowStmtIR[];
       elseBody?: WorkflowStmtIR[];
       /** Saves for aggregates created/mutated inside `thenBody` (the bound
@@ -2014,8 +2018,8 @@ export type WorkflowStmtIR =
     }
   | {
       // `field := value` — assignment to one of the workflow's OWN state
-      // fields inside a `create`/`handle`/`on` body (workflow.md, "handle =
-      // own-state mutation").  The `target` PathIR resolves to a `this-prop`
+      // fields inside a `create`/`on` body (workflow.md, "own-state
+      // mutation").  The `target` PathIR resolves to a `this-prop`
       // on the workflow's persisted correlation/instance state row; the write
       // lands on that state object (NOT an aggregate `this`).  Mirrors the
       // aggregate-op `StmtIR` `assign` (loom-ir.ts) exactly.  Only `:=` lowers
@@ -2085,12 +2089,12 @@ export interface LoomModel {
    *  baked into the baseline snapshot.  Empty when the source declares no
    *  migration block. */
   renameIntents: RenameIntentIR[];
-  /** Table/aggregate rename intents (M-T2.1) — lowered from `OldName ->
-   *  NewAggregate` steps in a `migration` block.  Sibling of `renameIntents`
-   *  (column renames); consumed only by the migration builder, which turns
-   *  each into a `renameTable` step for the aggregate's root table plus the
-   *  owned-child cascade (part / value-collection / association tables and
-   *  their owner FK columns).  Empty when no table renames are declared. */
+  /** Table step intents — lowered from `OldName -> NewName` (rename) and
+   *  `A.Name -> B.Name` (cross-context move) steps in a `migration` block.
+   *  Sibling of `renameIntents` (column renames); consumed only by the
+   *  migration builder, which turns each into `renameTable` steps (moving the
+   *  schema on the qualified form) for the target's tables plus the
+   *  owned-child cascade.  Empty when no table step is declared. */
   tableRenameIntents: TableRenameIntentIR[];
   /** Backfill intents (M-T2.3) — lowered from `Agg.field = <expr>` steps in
    *  a `migration` block.  Consumed only by the migration builder: a NOT-NULL
@@ -2128,23 +2132,26 @@ export interface RenameIntentIR {
   origin?: OriginRef;
 }
 
-/** One `OldName -> NewAggregate` step lowered from a `migration` block — a
- *  whole-aggregate (table) rename.  `fromAggregate` is the OLD, now-absent
- *  aggregate name (its old table is `plural(snake(fromAggregate))`);
- *  `toAggregate` is the live post-rename aggregate name (resolves the owning
- *  context/module/schema and enumerates the owned child tables to cascade).
- *  Both are RAW names — the builder snake-cases + pluralises them exactly as
- *  it does elsewhere. */
+/** One table step lowered from a `migration` block: `OldName -> NewName`
+ *  (rename in place) or `OldCtx.OldName -> NewCtx.NewName` (a move to another
+ *  bounded context, renaming too when the names differ).  The new side names
+ *  a live aggregate, workflow or projection; the old side names what the
+ *  model no longer declares.  All four names are RAW source names: the target
+ *  is resolved on demand against the model's contexts
+ *  (`resolveTableStepTarget`, `src/ir/util/table-step-target.ts`), never
+ *  stamped here, because it may live in another file of the project than the
+ *  block that names it. */
 export interface TableRenameIntentIR {
   /** Block label — the `"<name>"` on the owning `migration` block. */
   migration: string;
-  /** Old (pre-rename) aggregate name — table `plural(snake(fromAggregate))`. */
-  fromAggregate: string;
-  /** New (post-rename) aggregate name — the live cross-referenced aggregate. */
-  toAggregate: string;
-  /** Owning bounded-context name (of the new aggregate) — for module/schema
-   *  resolution. */
-  context: string;
+  /** Old (pre-step) declaration name — its old table is derived from it. */
+  from: string;
+  /** New (post-step) declaration name — an aggregate, workflow or projection. */
+  to: string;
+  /** Old bounded context, on the qualified (move) form only. */
+  fromContext?: string;
+  /** New bounded context, on the qualified (move) form only. */
+  toContext?: string;
   /** Provenance back to the step's `.ddd` source. */
   origin?: OriginRef;
 }
@@ -2850,14 +2857,14 @@ export interface UiChannelParamIR {
 /** A `refetch(<Aggregate>)` action inside an `on` handler body — the
  *  realtime analogue of a mutation's `onSuccess` cache invalidation.
  *  Fully resolved: `queryTag` is the exact `["<tag>"]` query key the
- *  frontend api modules register (`snake(plural(aggregate))`), so a
+ *  frontend api modules register (`routeSegmentFor(aggregate)`), so a
  *  realtime invalidation and a mutation-success invalidation hit the
  *  same cache entries.  Backends never re-derive the tag. */
 export interface RefetchTargetIR {
   /** The aggregate whose queries are invalidated (resolved to a real
    *  aggregate in the enclosing system by the validator). */
   aggregate: string;
-  /** The query-key tag — `snake(plural(aggregate))`.  Frontends emit
+  /** The query-key tag — `routeSegmentFor(aggregate)`.  Frontends emit
    *  `qc.invalidateQueries({ queryKey: ["<queryTag>"] })`, prefix-matching
    *  the aggregate's list / detail / find queries. */
   queryTag: string;
@@ -2911,7 +2918,7 @@ export interface ApiIR {
 /** A single explicit `route <METHOD> <PATH> -> <Context>.<Handler>` transport
  *  binding (unfoldable-api-derivation.md, Layer 4).  `target.handler` is a plain
  *  name resolved by the IR validator (`loom.route-handler-unresolved`) against
- *  the commandHandler / queryHandler / workflow-handle members of
+ *  the commandHandler / queryHandler members of
  *  `target.context`. */
 export interface RouteIR {
   /** HTTP method — `GET` | `POST` | `PUT` | `PATCH` | `DELETE`. */
@@ -3883,6 +3890,8 @@ export type ExprIR =
          *  workflow `synthCriterion` names).  Absent for a retrieval run and a
          *  read called by name. */
         synthCriterion?: { name: string };
+        /** A natural-key read's tuple + `ignoring` stance (see `repo-let`). */
+        key?: KeyLookupIR;
       };
       /** Populated when `callKind === "store-action"` (Stage 5) — the resolved
        *  store + action a `<Store>.<action>(…)` call dispatches to.  Structured
@@ -4295,7 +4304,7 @@ export function workflowCanAnswerNotFound(
    *  phase-⑦ error (`loom.workflow-unknown-repository{,-method}`), so the
    *  declared set for a model that does not compile is moot either way. */
   const readThrows = (repoName: string, op: RepoOp, method: string): boolean => {
-    if (op === "load") return true;
+    if (op === "load" || op === "load-by-key") return true;
     if (op !== "declared-find") return false;
     const find = repositories
       .find((r) => r.name === repoName)

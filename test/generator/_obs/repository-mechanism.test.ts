@@ -23,7 +23,7 @@ system S {
         status: string
       }
       repository Orders for Order {
-        find byCustomer(customerId: string): Order[] where this.customerId == customerId
+        find byCustomer(customerId: string): Order? where this.customerId == customerId
       }
     }
   }
@@ -62,7 +62,7 @@ describe("S5 — repository mechanism debug events", () => {
       );
       // declared find — rows is the integer cardinality.
       expect(py).toContain(
-        'log("debug", "find_executed", aggregate="Order", find="byCustomer", rows=len(items))',
+        'log("debug", "find_executed", aggregate="Order", find="byCustomer", rows=0 if row is None else 1)',
       );
       // the facade is imported.
       expect(py).toContain("from app.obs.log import");
@@ -80,7 +80,7 @@ describe("S5 — repository mechanism debug events", () => {
         'CatalogLog.event("repository_save", "debug", "aggregate", "Order", "id", String.valueOf(saved.id().value()));',
       );
       expect(java).toContain(
-        'CatalogLog.event("find_executed", "debug", "aggregate", "Order", "find", "byCustomer", "rows", result.size());',
+        'CatalogLog.event("find_executed", "debug", "aggregate", "Order", "find", "byCustomer", "rows", result == null ? 0 : 1);',
       );
       // CatalogLog is imported into the repository impl file.
       expect(java).toMatch(/import [\w.]+\.config\.CatalogLog;/);

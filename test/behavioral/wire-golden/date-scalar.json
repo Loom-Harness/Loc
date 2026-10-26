@@ -84,7 +84,7 @@
     {
       "seq": 6,
       "method": "GET",
-      "path": "/api/patients/born_before?cutoff=2000-01-01",
+      "path": "/api/patients/born_before/2000-01-01",
       "status": 200,
       "body": [
         {
@@ -104,7 +104,7 @@
     {
       "seq": 7,
       "method": "GET",
-      "path": "/api/patients/born_before?cutoff=2026-01-01",
+      "path": "/api/patients/born_before/2026-01-01",
       "status": 200,
       "body": [
         {
@@ -124,7 +124,7 @@
     {
       "seq": 8,
       "method": "GET",
-      "path": "/api/patients/born_before?cutoff=1999-12-31",
+      "path": "/api/patients/born_before/1999-12-31",
       "status": 200,
       "body": []
     },

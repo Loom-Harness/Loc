@@ -35,6 +35,10 @@ const FIXTURES: Array<[string, string]> = [
   // collections, derived sums over BigDecimal, declared finds → @Query JPQL,
   // Flyway migration emission.
   ["test/e2e/fixtures/java-build/domain.ddd", "shop_api"],
+  // Natural-key reads (D-REPO-KEY-LOOKUP): `getBy` / `findBy` over declared
+  // `unique (…)` tuples → one @Query method per used tuple, `getBy` raising
+  // AggregateNotFoundException on a miss.
+  ["test/e2e/fixtures/elixir-vanilla-build/key-lookup.ddd", "java_api"],
   // The full showcase surface on java, straight from the conformance
   // fixture (no fork — the showcase-java.ddd twin was retired once the
   // union-find variant-match rendered on the optional twin, #1631): auth
@@ -70,22 +74,20 @@ const FIXTURES: Array<[string, string]> = [
   // (disableFilter/enableFilter); the bare `filter price > 0` stays @SQLRestriction.
   // Compiles the @Filter machinery + EntityManager-unwrap bypass under Hibernate 7.x.
   ["test/e2e/fixtures/java-build/filter-bypass.ddd", "api"],
-  // Principal (tenancy) capability filter: SpEL-principal JPQL clause
-  // (`:#{@currentUserAccessor.user()?.tenantId()}`) AND-ed into the scoped
-  // findAll/findById overrides + custom find + view, with the auth
-  // (CurrentUserAccessor/UserFilter) the SpEL resolves through.
+  // Principal (tenancy) capability filter: an auto-enabled Hibernate @Filter on
+  // the entity whose claim is a @ParamDef with a nested Supplier resolver
+  // reading CurrentUserAccessor — compiles the @ParamDef/resolver machinery.
   ["test/e2e/fixtures/java-build/tenancy-filter.ddd", "api1"],
-  // Tenancy filter AND-ed into a REIFIED criterion retrieval: the
-  // `tenantScope(User)` Specification factory + injected CurrentUserAccessor
-  // + `findAll(spec.and(tenantScope(...)))` (the JpaSpecificationExecutor path
-  // the @Query overrides don't cover).
+  // Tenancy under a REIFIED criterion retrieval: the JpaSpecificationExecutor
+  // path runs the bare criterion spec under the entity's tenant @Filter.
   ["test/e2e/fixtures/java-build/tenancy-reified.ddd", "api1"],
   // Multi-tenancy P2.2: HIERARCHY — the registry (`implements tenantRegistry`)
   // carries a `data_key` column, so `currentUser.orgPath` resolves to the
   // caller org's materialized path, read per request via the generated
   // OrgPathResolver (a JdbcTemplate `SELECT data_key … WHERE id = <claim>`
   // closure registered at boot), fail-safe to the claim.  A `with tenantOwned`
-  // aggregate filters on `currentUser.orgPath` (the SpEL accessor use-site).
+  // aggregate's @Filter binds `currentUser.orgPath` and its escaped subtree
+  // LIKE pattern as @ParamDef parameters.
   ["test/e2e/fixtures/java-build/tenancy-hierarchy.ddd", "api1"],
   // DEBT-24 — a PRINCIPAL criterion used directly in a find/retrieval `where`.
   // java does not reify a principal criterion into a `Criteria` factory; it
@@ -159,10 +161,8 @@ const FIXTURES: Array<[string, string]> = [
   ["test/e2e/fixtures/java-build/embedded-filter.ddd", "emb_api"],
   // DEBT-02 Slice A: a PRINCIPAL-referencing capability filter on an EMBEDDED
   // aggregate — the root scalars are real columns, so it reuses the
-  // relational-principal path: the OrderJpaRepository gets scoped
-  // findAll/findById overrides carrying a @Query with the SpEL clause
-  // (`:#{@currentUserAccessor.user()?.tenantId()}`), under `auth: required`.
-  // Previously gated by `loom.context-filter-no-principal`.
+  // relational-principal path: an auto-enabled @Filter on the embedded root
+  // entity, under `auth: required`.
   ["test/e2e/fixtures/java-build/embedded-tenancy.ddd", "emb_api"],
   // DEBT-02 Slice B: a PRINCIPAL-referencing capability filter on a DOCUMENT
   // aggregate — the whole aggregate is one jsonb column, so the principal can't

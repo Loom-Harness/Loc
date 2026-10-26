@@ -516,6 +516,29 @@ const FIXTURE_HOST_OPTIONS: Record<string, ToolkitOptions> = {
 };
 
 const FIRING_FIXTURES: Record<string, string> = {
+  // Migration table steps (`Old -> New`, `A.Old -> B.New`), resolved on the
+  // merged IR: a context the model lacks, a target it lacks, a name two
+  // contexts declare, and a move between modules on different databases.
+  "loom.migration-step-unknown-context": `${systemScope("")}
+migration "m" { C.Thing -> Nowhere.Thing }`,
+  "loom.migration-step-target-missing": `${systemScope("")}
+migration "m" { Gone -> Missing }`,
+  "loom.migration-step-ambiguous": `
+system S {
+  subdomain D {
+    context A { aggregate Thing with crudish { name: string }  repository Things for Thing { } }
+    context B { aggregate Thing with crudish { name: string }  repository Things for Thing { } }
+  }
+}
+migration "m" { Old -> Thing }`,
+  "loom.migration-move-across-databases": `
+system S {
+  subdomain D1 { context A { aggregate Keep with crudish { name: string }  repository Keeps for Keep { } } }
+  subdomain D2 { context B { aggregate Note with crudish { name: string }  repository Notes for Note { } } }
+  deployable one { platform: node, contexts: [A], port: 3000 }
+  deployable two { platform: node, contexts: [B], port: 3001 }
+}
+migration "m" { A.Note -> B.Note }`,
   // A construct its target's capability table refuses: `DataGrid` on Flutter
   // (no JS runtime, so no TanStack row model).
   "loom.target-unsupported": `
@@ -820,8 +843,11 @@ system TestVocab {
 system PagedParam {
   subdomain S { context Shop {
     aggregate Thing with crudish { rank: int }
-    repository Things for Thing {
-      find byRank(page: int): Thing paged where this.rank == page
+    repository Things for Thing { }
+    criterion ThingsByRank(page: int) of Thing = this.rank == page
+    queryHandler ListThingsByRank(page: int): Thing paged {
+      let r = Things.run(ThingsByRank(page))
+      return r
     }
   } }
 }`,
@@ -1219,6 +1245,12 @@ system S {
     }
     repository Orders for Order { }`),
 
+  // A list find: a criterion replaces it.
+  "loom.list-find-removed": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing {
+      find byName(n: string): Thing[] where this.name == n
+    }`),
+
   "loom.criterion-retrieval-name-clash": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing { }
     criterion Named(n: string) of Thing = this.name == n
@@ -1233,8 +1265,8 @@ system S {
 
   "loom.duplicate-find": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing {
-      find byName(n: string): Thing[] where this.name == n
-      find byName(n: string): Thing[] where this.name == n
+      find byName(n: string): Thing? where this.name == n
+      find byName(n: string): Thing? where this.name == n
     }`),
 
   // An abstract inheritance base owning its own `contains`.  The part's table
@@ -1267,6 +1299,16 @@ system S {
       group by o.code ignoring softDeletable
       select code = o.code, orders = count()
     }`),
+
+  // --- natural-key reads (repo-key-lookup) ---------------------------------
+  "loom.repo-key-not-unique":
+    repoOnly(`    aggregate Product with crudish { sku: string  name: string  unique (sku) }
+    repository Products for Product { }
+    workflow w { create(n: string) { if let p = Products.findBy(name: n) { } } }`),
+  "loom.repo-key-incomplete":
+    repoOnly(`    aggregate Product with crudish { region: string  name: string  unique (region, name) }
+    repository Products for Product { }
+    workflow w { create(n: string) { if let p = Products.findBy(name: n) { } } }`),
 
   // --- variant match (structural-checks + the AST-level subject rule) ------
   "loom.match-unknown-variant": unionMatch(
@@ -1328,16 +1370,15 @@ system S {
       select orders = count
     }`),
 
-  // --- scalar intrinsics on a NULLABLE receiver ---------------------------
-  // `checkIntrinsicCalls` used to test `recvType.kind === "primitive"`, which a
-  // `T?` receiver never satisfies, so the ENTIRE catalogue check was skipped on
-  // one.  A real intrinsic on a `T?` is an unguarded deref every backend emits
-  // bare (`this.path.trim()` over a `string | null`).  The guarded form —
-  // `this.path != null ? this.path.trim() : ""` — narrows and passes.
-  "loom.intrinsic-nullable-receiver": repoOnly(`    aggregate Thing with crudish {
+  // --- a member of a NULLABLE receiver ------------------------------------
+  // Every member of a `T?` (field, property, intrinsic, collection op) is an
+  // unguarded deref every backend emits bare (`this.path.length` over a
+  // `string | null`).  The guarded form —
+  // `this.path != null ? this.path.length : 0` — narrows and passes.
+  "loom.nullable-receiver": repoOnly(`    aggregate Thing with crudish {
       path: string?
-      label: string
-      operation relabel() { label := this.path.trim() }
+      size: int
+      operation measure() { size := this.path.length }
     }
     repository Things for Thing { }`),
 
@@ -1346,6 +1387,12 @@ system S {
   "loom.macro-arg-duplicate": uiWith("scaffoldAggregate(of: Thing, of: Thing)"),
   "loom.macro-arg-kind-mismatch": uiWith(`scaffoldAggregate(of: "Thing")`),
   "loom.capability-host-invalid": uiWith("auditable"),
+  "loom.scaffold-aggregate-unserved": `
+system S {
+  subdomain Sub { context C with scaffoldHandlers {
+    aggregate Thing with crudish { name: string }
+  } }
+}`,
 
   // --- handler body (#2659) -----------------------------------------------
   // An OPTIONAL repository read bound in a handler body.  The shared workflow
@@ -1891,6 +1938,34 @@ system P {
       total: int
       create(n: int) { total := n }
     }`),
+  // The read twin: the create reads state the workflow keeps no row for.
+  "loom.workflow-uncorrelated-state-read":
+    repoOnly(`    aggregate Order with crudish { name: string }
+    repository Orders for Order { }
+    workflow Tally {
+      total: int
+      create(n: int) { precondition total == 0 }
+    }`),
+  // A let-bound mutating call: `a.rename` mutates `o`, but no save covers it.
+  "loom.workflow-mutation-unsaved": repoOnly(`    aggregate Order with crudish {
+      name: string
+      operation rename(n: string): string { name := n  return n }
+    }
+    repository Orders for Order { }
+    workflow W {
+      create(oid: Order id) {
+        let o = Orders.getById(oid)
+        let r = o.rename("x")
+      }
+    }`),
+  // A factory call with more positions than the create input has.
+  "loom.workflow-create-args": repoOnly(`    aggregate Order with crudish { name: string }
+    repository Orders for Order { }
+    workflow W {
+      create(n: string) {
+        let o = Order.create(n, n)
+      }
+    }`),
   // An explicit persistence statement in a workflow body: the body persists at
   // its exit, so `Orders.save(o)` is refused rather than reinterpreted.
   "loom.workflow-explicit-save": repoOnly(`    aggregate Order with crudish {
@@ -1954,7 +2029,7 @@ system P {
   ),
   "loom.when-not-bool": orderOps("operation p() when name { total := total + 1 }"),
   // The `requires` gate at the OPERATION site.  Its four siblings — the in-body
-  // `requires` statement, the workflow create/handle gate (`structural.ts`),
+  // `requires` statement, the workflow create gate (`structural.ts`),
   // the read-path find/projection gate (`repository.ts`) and the handler-body
   // statement (`types.ts`) — share this code, so one fixture covers the family.
   "loom.requires-not-bool": orderOps("operation p() requires name { total := total + 1 }"),
@@ -1984,6 +2059,13 @@ system P {
   // domain-service operation and handler arms share the check.
   "loom.return-type-mismatch": orderOps('operation bad(): int { return "x" }'),
   "loom.return-missing": orderOps("operation bad(): int { if total > 0 { return 1 } }"),
+  // A dropped `or E` result: the call statement throws the `error` case away.
+  "loom.unhandled-result": repoOnly(`    error Rejected { reason: string }
+    aggregate Order with crudish {
+      code: string
+      operation probe(): Order or Rejected { return Rejected { reason: code } }
+      operation touch() { probe() }
+    }`),
   // An anonymous `retrieval { where: … }` whose `where` is a predicate rather
   // than the criterion reference this release admits.
   "loom.retrieval-where-not-criterion": `
@@ -2384,27 +2466,6 @@ system S {
     framework: react
     api C: Api
     page Home { route: "/"  body: Button { "Save", variant: "filled" } }
-  }
-  storage pg { type: postgres }
-  resource st { for: C, kind: state, use: pg }
-  deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
-}`,
-  // The scaffolded list filter bar renders `string`/`guid`/`datetime`/`int`/
-  // `long`/`bool`/`<X> id` params; an `enum` one is dropped whole (the FRONTEND
-  // state emitters type an enum state as bare `string` while the query param is
-  // the zod enum union).
-  "loom.scaffold-filter-param-unsupported": `
-system S {
-  subdomain Sub { context C {
-    enum Status { Open, Closed }
-    aggregate Order with crudish { title: string  status: Status }
-    repository Orders for Order { find byStatus(s: Status): Order[] where this.status == s }
-  } }
-  api Api from Sub
-  ui WebApp with scaffold(aggregates: [Order]) {
-    framework: react
-    api C: Api
   }
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
@@ -3782,26 +3843,9 @@ system S {
     domainService Calc {
       operation twice(x: int = 3): int { return x * 2 }
     }`),
-  // --- M-T5.34: the four rulings (#2864 D5/D6/G2, #2850 case B) ------------
+  // --- M-T5.34: the rulings (#2864 D6/G2, #2850 case B) ---------------
   // Each fixture is minimal and ISOLATING — it raises its own code and no
   // sibling from the packet, so a future regression names one gate.
-  //
-  // `handle` on a workflow whose command create DOES supply the correlation
-  // key ('doc'), so `loom.workflow-create-correlation-unsupplied` stays quiet
-  // and this fixture is about the handler alone.
-  "loom.workflow-handle-unsupported": `
-system S {
-  subdomain D { context Ops {
-    aggregate Doc { title: string }
-    repository Docs for Doc { }
-    workflow Review {
-      doc: Doc id
-      st: string
-      create(doc: Doc id) { st := "Filed" }
-      handle approve() { st := "Approved" }
-    }
-  } }
-}`,
   // An entity-part-typed parameter on a PUBLIC operation.  The value-object
   // spelling of the very same model is the passing sibling (it emits
   // `z.array(LineSchema)` + `new Line(e.sku, e.qty)`), pinned in

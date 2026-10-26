@@ -60,6 +60,7 @@ import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
 import { claimsDerivedSlot, pathParamNames } from "../../_api/explicit-route-mount.js";
 import type { ApiRoute } from "../api-emit.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
+import { aggregateUsesPrincipalContextFilter, findUsesPrincipal } from "./capability-filter.js";
 import { renderControllerSerialize } from "./controller-serialize.js";
 import {
   contextsHaveWireDenials,
@@ -75,6 +76,7 @@ import {
   pagingElseArm,
 } from "./page-param.js";
 import { renderRequiredParamsPlug, requiredWireParams } from "./problem-details-emit.js";
+import { retrievalReadsActor } from "./retrieval-emit.js";
 import {
   type BodyLine,
   collectParamRefs,
@@ -299,6 +301,10 @@ function renderHandlerModule(
   // fields (destructured off the string-keyed `run/1` map) and rewrite the
   // body's `cmd.<field>` reads to those flat locals via `renderCtx.recordParams`.
   const { entries, records } = handlerDestructure(h, ctx);
+  // A principal-filtered `Repo.run` read needs the request actor: `run` takes
+  // it as a second argument (the routes controller passes the conn's
+  // `current_user`) and the read forwards it as the retrieval's opt.
+  const threadsActor = handlerThreadsActor(h, ctx);
   const renderCtx: RenderCtx = {
     thisName: "record",
     contextModule: contextModuleFq,
@@ -323,6 +329,7 @@ function renderHandlerModule(
     // resolves to `undefined` here and keeps the module shape, byte-identical.
     domainServiceTier: (service, opName) => lookupServiceTier(ctx, service, opName),
     readingServiceModule: contextModuleFq,
+    ...(threadsActor ? { repoRunActor: true } : {}),
   };
 
   // The `return <expr>` is rendered into the with-chain's do-branch by
@@ -363,12 +370,30 @@ defmodule ${moduleName} do
   """
 ${contextAlias}
 
-  @spec run(map()) :: {:ok, term()} | {:error, term()}
-  def run(params) when is_map(params) do
+${
+  threadsActor
+    ? `  @spec run(map(), term()) :: {:ok, term()} | {:error, term()}
+  def run(params, current_user \\\\ nil) when is_map(params) do`
+    : `  @spec run(map()) :: {:ok, term()} | {:error, term()}
+  def run(params) when is_map(params) do`
+}
 ${paramDestructure}${aliasedBody}
   end
 end
 `;
+}
+
+/** Does a (non-extern) handler run a `Repo.run` read whose retrieval reads the
+ *  request actor?  Then its `run` takes `current_user` and the route passes it. */
+function handlerThreadsActor(h: Handler, ctx: EnrichedBoundedContextIR): boolean {
+  if (h.extern) return false;
+  let found = false;
+  for (const top of h.statements) {
+    walkWorkflowStmtsDeep(top, (st) => {
+      if (st.kind === "repo-run" && retrievalReadsActor(st.retrievalName, ctx)) found = true;
+    });
+  }
+  return found;
 }
 
 /** Emit the `run/1` handler modules for every explicit `commandHandler` /
@@ -450,10 +475,12 @@ function resolveRoute(
  *  already typed, and re-parsing it would be wrong.
  *
  *  A path value is unconditionally a binary, so no `is_binary/1` guard is
- *  needed.  `datetime` and `guid` are deliberately absent: a guid IS its string
- *  form here (the id types are string-backed), and a `datetime` path param stays
- *  a binary — an exotic shape this fixture does not reach, and parsing it is a
- *  separate decision rather than something to guess at inside a route emitter. */
+ *  needed.  `guid` is deliberately absent: a guid IS its string form here (the
+ *  id types are string-backed).  A `datetime` / `date` parses from its ISO text,
+ *  as the declared-find controller does: Postgrex refuses to encode a binary
+ *  where the parameter is a timestamp (`DBConnection.EncodeError`, a 500), and
+ *  an in-memory compare against a binary is silently wrong.  A value that does
+ *  not parse passes through unchanged. */
 function coerceExpr(name: string, t: TypeIR): string | undefined {
   if (t.kind !== "primitive") return undefined;
   switch (t.name) {
@@ -465,6 +492,14 @@ function coerceExpr(name: string, t: TypeIR): string | undefined {
       return `Decimal.new(params[${JSON.stringify(name)}])`;
     case "bool":
       return `params[${JSON.stringify(name)}] == "true"`;
+    case "datetime": {
+      const raw = `params[${JSON.stringify(name)}]`;
+      return `(case DateTime.from_iso8601(${raw}) do {:ok, dt, _} -> dt; _ -> ${raw} end)`;
+    }
+    case "date": {
+      const raw = `params[${JSON.stringify(name)}]`;
+      return `(case Date.from_iso8601(${raw}) do {:ok, d} -> d; _ -> ${raw} end)`;
+    }
     default:
       return undefined;
   }
@@ -562,9 +597,24 @@ export function emitExplicitRoutesController(
       const run = pagedRunStmt(handler, ctx);
       const pathNames = new Set([...r.path.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!));
       const ctxFn = `${appModule}.${upperFirst(ctx.name)}.${snake(pagedRunFindName(run))}_${snake(run.aggName)}`;
-      const critArgs = handler.params.map(
-        (p) => `params[${JSON.stringify(pathNames.has(p.name) ? snake(p.name) : p.name)}]`,
+      // A path-bound criterion param is coerced exactly as a plain route's is
+      // (`pathParamCoercions`) — the paged FIND over a document carrier filters
+      // in memory, where `6 >= "6"` is silently false.
+      const critArgs = handler.params.map((p) =>
+        pathNames.has(p.name)
+          ? (coerceExpr(snake(p.name), p.type) ?? `params[${JSON.stringify(snake(p.name))}]`)
+          : `params[${JSON.stringify(p.name)}]`,
       );
+      // The paged FIND takes the trailing `current_user` when its read is
+      // principal-scoped (the same predicate as its context defdelegate); a
+      // call that leaves it at the `nil` default scopes to no rows.
+      const runAgg = ctx.aggregates.find((a) => a.name === run.aggName);
+      const runFind = (ctx.repositories ?? [])
+        .find((rp) => rp.aggregateName === run.aggName)
+        ?.finds.find((f) => f.name === pagedRunFindName(run));
+      const findTakesActor =
+        (runAgg ? aggregateUsesPrincipalContextFilter(runAgg) : false) ||
+        (runFind ? findUsesPrincipal(runFind) : false);
       const callArgs = [
         ...critArgs,
         // Bound by the `with` clauses below (page-param.ts) — an out-of-range
@@ -572,6 +622,7 @@ export function emitExplicitRoutesController(
         ...PAGE_CALL_ARGS,
         `Map.get(params, "sort", ${JSON.stringify(pagedRunSortDefault(handler, ctx))})`,
         `Map.get(params, "dir", "asc")`,
+        ...(findTakesActor ? ["Map.get(conn.assigns, :current_user)"] : []),
       ];
       const read = `    with ${PAGE_WITH_CLAUSES.join(",\n         ")},
          {:ok, result} <-
@@ -645,8 +696,11 @@ ${pagingElseArm("ProblemDetails", "    ")}
         requiredWireParams(slots.filter((f) => !routeTokens.has(f.name))),
       );
     }
+    const runArgs = handlerThreadsActor(handler, ctx)
+      ? "params, Map.get(conn.assigns, :current_user)"
+      : "params";
     actions.push(`  def ${action}(conn, params) do
-${coercions}    respond(conn, ${handlerMod}.run(params))
+${coercions}    respond(conn, ${handlerMod}.run(${runArgs}))
   end`);
     apiRoutes.push(routeEntry(r, action));
   }

@@ -22,13 +22,12 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 //      `provenance-emit` already truncate their own writes — the OPERATION
 //      assignment arm never reached the rule.  (`corpus/scaffold-macros`'
 //      `softDelete`.)
-//   3. FIND PARAM.  Phoenix delivers query params as STRINGS.  On the
-//      relational path Ecto casts them against the schema, so it never showed;
-//      an in-memory filter (`shape: document`) compares directly, and Erlang's
-//      term order makes `6 >= "6"` false — the find silently answers `[]` for
-//      every row.  The emitter already knew this for paging (`page_param/3`);
-//      the find's own params were the arm that did not.  (`corpus/document`'s
-//      `popular`.)
+//   3. FIND PARAM.  Phoenix delivers query params as STRINGS, and an
+//      in-memory filter (`shape: document`) compares them directly — Erlang's
+//      term order makes `6 >= "6"` false.  The parse is asserted by value on
+//      the elixir behavioural leg (`corpus/document`'s `popular`), and an
+//      unused coercion helper is a `--warnings-as-errors` failure on its
+//      compile, so nothing of it stays here.
 // ---------------------------------------------------------------------------
 
 const SOURCE = `
@@ -43,8 +42,8 @@ system Shop {
         operation rename(to: string) { name := to }
       }
       repository Items for Item {
-        find popular(min: int): Item[] where this.viewCount >= min
-        find named(label: string): Item[] where this.name == label
+        find popular(min: int): Item? where this.viewCount >= min
+        find named(label: string): Item? where this.name == label
       }
     }
   }
@@ -101,30 +100,5 @@ describe("vanilla Phoenix — operation params are coerced to their declared typ
     // A NON-datetime column on the same persist pipeline is untouched — the
     // scope guard against truncating everything.
     expect(ctxMod).toContain("Ecto.Changeset.force_change(:is_deleted, record.is_deleted)");
-  });
-});
-
-describe("vanilla Phoenix — find query params are coerced to their declared type", () => {
-  it("an `int` find param parses; a `string` find param binds bare", async () => {
-    const ctrl = await fileEndingWith("item_controller.ex");
-
-    // Premise: both finds are routed.
-    expect(ctrl).toContain("def popular(conn, params)");
-    expect(ctrl).toContain("def named(conn, params)");
-
-    expect(ctrl).toContain('Catalog.popular_item(__find_int(params["min"]))');
-    expect(ctrl).toContain("defp __find_int(v) when is_integer(v), do: v");
-    // The string param keeps the bare read.
-    expect(ctrl).toContain('Catalog.named_item(params["label"])');
-    expect(ctrl).not.toContain('__find_int(params["label"])');
-  });
-
-  it("emits no coercion helper a controller does not use", async () => {
-    // The helpers are gated on need so a string-only controller stays
-    // byte-identical and no unused private fn trips
-    // `mix compile --warnings-as-errors`.
-    const ctrl = await fileEndingWith("item_controller.ex");
-    expect(ctrl).not.toContain("__find_decimal");
-    expect(ctrl).not.toContain("__find_bool");
   });
 });

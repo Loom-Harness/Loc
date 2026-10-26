@@ -219,8 +219,10 @@ const A32 = `
           operation cancel() { status := "cancelled" }
           destroy { }
         }
+        // NON-optional: a handler body cannot bind an optional find
+        // (loom.handler-load-nullable-unsupported), and list finds are removed.
         repository Orders for Order {
-          find byStatus(status: string): Order[] where this.status == status
+          find byStatus(status: string): Order where this.status == status
         }
       }
     }
@@ -255,7 +257,7 @@ describe("scaffoldHandlers + scaffoldApi — A3.2 create / find source kinds", (
     expect(cmd.returnType?.base.$type).toBe("IdType");
   });
 
-  it("emits a ByStatusOrder queryHandler running the repository find, returning Order[]", async () => {
+  it("emits a ByStatusOrder queryHandler running the repository find, returning Order", async () => {
     const { model } = await parseString(A32, { validate: false });
     const q = [...AstUtils.streamAllContents(model)]
       .filter(isQueryHandler)
@@ -267,9 +269,9 @@ describe("scaffoldHandlers + scaffoldApi — A3.2 create / find source kinds", (
       "ByStatusOrderQuery",
     );
     expect(q.body.map((s) => s.$type)).toEqual(["LetStmt", "ReturnStmt"]);
-    // A find over the aggregate declares `<Agg>Response[]` (the wire is already
+    // A find over the aggregate declares `<Agg>Response` (the wire is already
     // that shape via transport projection).
-    expect(q.returnType.array).toBe(true);
+    expect(q.returnType.array).toBe(false);
     expect((q.returnType.base as { target: { $refText: string } }).target.$refText).toBe(
       "OrderResponse",
     );
@@ -356,5 +358,65 @@ describe("scaffoldHandlers — a narrowed create's params are the command record
       .filter(isCommandHandler)
       .find((c) => c.name === "CreateOrder") as CommandHandler;
     expect(printStructural(cmd)).toContain("Order.create({ code: cmd.code, status: cmd.status })");
+  });
+});
+
+// `scaffoldHandlers` and `scaffoldApi` share one eligibility predicate
+// (`servedAggregates`) and both expand after every aggregate-level `with`
+// clause has spliced, so a `with crudish` aggregate is served by both or reported
+// as skipped — never routed to handlers that were not emitted.
+describe("scaffoldHandlers + scaffoldApi — crudish aggregates and repository-less aggregates", () => {
+  const src = (opts: { repo: boolean; apiFirst?: boolean }): string => {
+    const api = "api SalesApi with scaffoldApi(of: Sales)";
+    return `
+  system Shop {
+    ${opts.apiFirst ? api : ""}
+    subdomain Sales {
+      context Ordering with scaffoldHandlers {
+        aggregate Order {
+          status: string
+          operation cancel() { status := "cancelled" }
+        }
+        repository Orders for Order { }
+        aggregate Item with crudish { name: string }
+        ${opts.repo ? "repository Items for Item { }" : ""}
+      }
+    }
+    ${opts.apiFirst ? "" : api}
+    storage pg { type: postgres }
+    resource st { for: Ordering, kind: state, use: pg }
+    deployable api { platform: node, contexts: [Ordering], dataSources: [st], serves: SalesApi, port: 5001 }
+  }
+`;
+  };
+
+  for (const apiFirst of [false, true]) {
+    it(`serves a crudish aggregate end to end (api ${apiFirst ? "before" : "after"} the subdomain)`, async () => {
+      const { model, errors } = await parseString(src({ repo: true, apiFirst }));
+      expect(errors).toEqual([]);
+      const handlers = [...AstUtils.streamAllContents(model)]
+        .filter(isCommandHandler)
+        .map((h) => h.name);
+      expect(handlers).toEqual(
+        expect.arrayContaining(["CreateItem", "UpdateItem", "DestroyItem", "CancelOrder"]),
+      );
+    });
+  }
+
+  it("warns (never silently skips) a repository-less aggregate with a write surface", async () => {
+    const { errors, warnings } = await parseString(src({ repo: false }));
+    expect(errors).toEqual([]);
+    const w = warnings.filter((m) => m.includes("skip aggregate 'Item'"));
+    expect(w).toHaveLength(1);
+    expect(w[0]).toContain("repository Items for Item");
+  });
+
+  it("skips a repository-less aggregate with no write surface in both macros", async () => {
+    const plain = src({ repo: true })
+      .replace("aggregate Item with crudish { name: string }", "aggregate Item { name: string }")
+      .replace("repository Items for Item { }", "");
+    const { errors, warnings } = await parseString(plain);
+    expect(errors).toEqual([]);
+    expect(warnings.filter((m) => m.includes("skip aggregate"))).toEqual([]);
   });
 });

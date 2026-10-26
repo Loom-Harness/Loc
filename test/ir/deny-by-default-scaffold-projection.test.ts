@@ -1,27 +1,31 @@
-// `denyByDefault` vs the projections a MACRO emits.
+// The read gate on the projections `scaffoldDashboard` emits.
 //
-// #2523 closed the last read surface default-deny walked past: an ungated
-// projection is a GET endpoint publishing its rows, so under `denyByDefault` it
-// must carry a `requires`.  Right rule — but it was applied to every projection
-// in the context, including the singleton totals `scaffoldDashboard` emits per
-// aggregate.  Those have no declaration header in the `.ddd` at all, so the
-// diagnostic ("Add a `requires <expr>` after its declaration header") named a
-// line the author cannot open, and `scaffold` + `denyByDefault` became an
-// uncompilable combination.
+// A dashboard totals row discloses the aggregate's data — its row count and the
+// sum of every numeric column — so it must be guarded exactly like the rows it
+// summarises.  The macro copies the source aggregate's
+// `policy { read X requires … }` gate onto each projection's header, and every
+// backend renders a projection's `requires` before the query (403).
 //
-// The exemption already exists one loop up and for the same reason: the
-// enrichment-injected `find all` is skipped because it "is compiler-synthesized
-// and has no author source line" (`src/ir/util/read-gates.ts`).  A macro-emitted
-// projection is the same case, and it is DERIVED — `ProjectionIR.origin` already
-// carries the macro provenance, so nothing new is stamped.
+// When there is no such rule, the projection is ungated: under `denyByDefault`
+// that is refused (`loom.default-deny-ungated`) with a hint naming the policy
+// rule to write — the projection has no header of its own to gate, but the
+// fix the author owns is the rule the macro copies.  An ungated projection is
+// SERVED (unlike the injected `find all`, which fails closed at runtime), so it
+// cannot be exempt.
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
+import { allContexts } from "../../src/ir/types/loom-ir.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 import { parseString } from "../_helpers/parse.js";
 
-const SYSTEM = (extra = ""): string => `
+const POLICY = `policy { read Order requires currentUser.role == "clerk" }`;
+
+const SYSTEM = (
+  opts: { policy?: string; extra?: string; enforcement?: string; platform?: string } = {},
+): string => `
 system Shop {
   user { role: string }
   subdomain Sales {
@@ -29,19 +33,18 @@ system Shop {
       aggregate Order {
         code: string
         total: money
+        createdAt: datetime
       }
-      repository Orders for Order {
-        find all(): Order[]
-      }
-      policy { read Order requires currentUser.role == "clerk" }${extra}
+      repository Orders for Order { }
+      ${opts.policy ?? POLICY}${opts.extra ?? ""}
     }
   }
   api SalesApi from Sales
   storage pg { type: postgres }
   resource ordersState { for: Orders, kind: state, use: pg }
-  auth { oidc { issuer: "https://issuer.example", clientId: "web", enforcement: denyByDefault } }
+  auth { enforcement: ${opts.enforcement ?? "denyByDefault"} oidc { issuer: "https://issuer.example", clientId: "web" } }
   deployable d {
-    platform: node
+    platform: ${opts.platform ?? "node"}
     contexts: [Orders]
     dataSources: [ordersState]
     serves: SalesApi
@@ -51,31 +54,73 @@ system Shop {
 }
 `;
 
-async function denyDiags(src: string): Promise<string[]> {
+async function analyse(src: string) {
   const { model } = await parseString(src, { validate: false });
-  return validateLoomModel(enrichLoomModel(lowerModel(model)))
-    .filter((d) => d.severity === "error" && d.code === "loom.default-deny-ungated")
-    .map((d) => d.source ?? "")
-    .filter((s) => s.startsWith("projection/"));
+  const loom = enrichLoomModel(lowerModel(model));
+  return { loom, diags: validateLoomModel(loom) };
 }
 
-describe("denyByDefault — macro-emitted projections", () => {
-  it("does not demand a gate on a projection the scaffold emitted", async () => {
-    // `scaffoldDashboard` emits `OrderTotals` (and `OrderPerDay` when the
-    // aggregate has a datetime).  Neither has a header to gate.
+async function denyDiags(src: string): Promise<Array<{ source: string; message: string }>> {
+  const { diags } = await analyse(src);
+  return diags
+    .filter((d) => d.severity === "error" && d.code === "loom.default-deny-ungated")
+    .map((d) => ({ source: d.source ?? "", message: d.message }))
+    .filter((d) => d.source.startsWith("projection/"));
+}
+
+describe("scaffoldDashboard — projections inherit the aggregate's read gate", () => {
+  it("copies the policy read gate onto the totals and per-day projections", async () => {
+    for (const enforcement of ["denyByDefault", "opt"]) {
+      const { loom } = await analyse(SYSTEM({ enforcement }));
+      const ctx = allContexts(loom).find((c) => c.name === "Orders");
+      const gated = (ctx?.projections ?? []).map((p) => [p.name, !!p.query?.requires]);
+      expect(gated).toEqual([
+        ["OrderTotals", true],
+        ["OrderPerDay", true],
+      ]);
+    }
+  });
+
+  it("emits the gate on the generated routes (node, python)", async () => {
+    const node = await generateSystemFiles(SYSTEM());
+    const nodeRoutes = node.get("d/http/query-projections.ts") ?? "";
+    expect(nodeRoutes).toContain(
+      `if (!(currentUser.role === "clerk")) throw new ForbiddenError("Forbidden: projection OrderTotals")`,
+    );
+    expect(nodeRoutes).toContain(`Forbidden: projection OrderPerDay`);
+
+    const py = await generateSystemFiles(SYSTEM({ platform: "python" }));
+    const pyRoutes = py.get("d/app/http/query_projections_routes.py") ?? "";
+    expect(pyRoutes).toContain(`if not (current_user.role == "clerk"):`);
+    expect(pyRoutes).toContain(`raise ForbiddenError("Forbidden: projection OrderTotals")`);
+  });
+
+  it("is accepted under denyByDefault when the policy rule exists", async () => {
     expect(await denyDiags(SYSTEM())).toEqual([]);
   });
 
-  it("still demands one on an author-declared projection", async () => {
-    // The rule itself is untouched — only the no-source-line case is exempt.
+  it("refuses an ungated scaffolded projection under denyByDefault, naming the policy rule", async () => {
+    const diags = await denyDiags(SYSTEM({ policy: "" }));
+    expect(diags.map((d) => d.source)).toEqual([
+      "projection/OrderTotals",
+      "projection/OrderPerDay",
+    ]);
+    expect(diags[0]!.message).toContain("`with scaffoldDashboard`");
+    expect(diags[0]!.message).toContain("policy { read Order requires <expr> }");
+  });
+
+  it("still demands a header gate on an author-declared projection", async () => {
     const diags = await denyDiags(
-      SYSTEM(`
+      SYSTEM({
+        extra: `
       projection OpenOrders {
         code: string
         from Order as o
         select code = o.code
-      }`),
+      }`,
+      }),
     );
-    expect(diags).toEqual(["projection/OpenOrders"]);
+    expect(diags.map((d) => d.source)).toEqual(["projection/OpenOrders"]);
+    expect(diags[0]!.message).toContain("after its declaration header");
   });
 });

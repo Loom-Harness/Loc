@@ -2514,7 +2514,7 @@ it.
 | # | tag | default in one line |
 |---|---|---|
 | 1 | `D-ENVELOPE-RATIFY` | `X envelope` = a single-row find; the `{id, ts, body}` carrier is dropped |
-| 2 | `D-HANDLE-REMOVAL` | remove workflow `handle` / named `create` — **owner-only** |
+| 2 | `D-HANDLE-REMOVAL` | remove workflow `handle`; `commandHandler` is the named command entry — APPLIED (owner-signed) |
 | 3 | `D-FOR-IN-DOMAIN` | `for` in a domain body = honest gap + named successor; `variant-match` / `if let` = permanent refusals |
 | 4 | `D-NUMERIC-INGRESS-STRICT` | strict on both real narrowings — **owner-only** |
 | 5 | `D-DECIMAL-EXACT-MOMENT` | one PR: node + python + all 54 goldens re-captured; mint **RS-35** |
@@ -2602,10 +2602,17 @@ F21; PR #2852; `src/ir/stdlib/generics.ts`, `src/ir/enrich/enrichments.ts`,
 
 ---
 
-## D-HANDLE-REMOVAL — workflow `handle` and named `create` are removed, not routed
+## D-HANDLE-REMOVAL — workflow `handle` is removed; `commandHandler` is the named command entry
 
-**Status:** proposed — **owner-only, no default.** Nothing proceeds on M-T6.58
-without a signature; this entry deletes surface syntax.
+**Status:** applied — the owner signed option (b), remove, on 2026-10-21
+(#3316 / M-T6.58, recorded on #3458), and the removal shipped as a hard cutover
+with a codemod per the breaking-change policy (#3608): `HandleDecl` left the
+grammar together with `HandleIR`, `WorkflowIR.handlers`, `lowerHandle` and
+`loom.workflow-handle-unsupported`; a leftover `handle` is the parse error
+`loom.parse-error#workflow-handle-removed`, which names `commandHandler` and
+`scripts/codemod-workflow-handle.mjs`.  The named-`create` half of the original
+question is NOT part of this removal — a named command-triggered `create` still
+parses, and its missing route is tracked on #4094.
 
 **Question.** Does the workflow `handle name(...) { … }` declaration become a
 shipping HTTP entry point on all five backends, or is it removed as redundant
@@ -2616,8 +2623,8 @@ surface it lacks; (b) remove the declaration — grammar, lowering, and the
 diagnostic that promises it — and point authors at `commandHandler`; (c) keep it
 parsing behind an honest refusal.
 
-**Decision (proposed).** (b) — remove. (c) is the acceptable transitional step in
-the same PR if the grammar removal cannot land in one go.
+**Decision.** (b) — remove, in one step: the grammar removal and the refusal
+(a parse error naming `commandHandler`) landed together, so (c) was not needed.
 
 **Rationale.**
 
@@ -2643,14 +2650,17 @@ the same PR if the grammar removal cannot land in one go.
 - **Owner-only** because a default must never take a keyword out of the language
   unattended.
 
-**Consequences.** `handle` and the named `create` form stop parsing; `HandleIR`,
+**Consequences.** `handle` stops parsing (it is an ordinary name again); `HandleIR`,
 `WorkflowIR.handlers` and `lowerHandle` are deleted; `loom.duplicate-handler`
-loses its workflow-`handle` clause and keeps the handler-vs-handler arm; the
-removal ships with a migration note naming `commandHandler` as the replacement.
-If the owner picks (a) instead, the correlation surface (`handle f(…) by <expr>`)
-is designed FIRST as its own mission and this tag is superseded rather than
-edited. Either way the work is **blocked behind M-T6.62** — option (a) would be
-built on a workflow-`create` path that miscompiles on all five backends.
+loses its workflow-`handle` clause and keeps the handler-vs-handler arm.  The
+migration is `scripts/codemod-workflow-handle.mjs`: it lifts each `handle` into a
+`commandHandler` written after its workflow, and leaves in place, marked, the
+ones with no faithful rewrite — a body reading the workflow's own state or
+helpers, an `eventSourced` workflow, a `requires` gate or modifier (a
+`commandHandler` takes none), a parameter named `id`, a body reaching more than
+one aggregate, or a name clash.  `docs/workflow.md` § "There is no `handle`"
+carries the migration note.  No correlation-addressed continuation
+(`handle f(…) by <expr>`) will be designed.
 
 **Unblocks.** M-T6.58 → wave **C1 packet 1a**.
 
@@ -5214,11 +5224,11 @@ gate the exposure instead. The `find all` exemption from
 ## D-LIST-FIND-REMOVED — a list read is a criterion; a list `find` and a criterion/retrieval name clash are errors
 
 **Status:** PINNED (owner rulings on #3463 item 6 and #3608, 2026-10-21; slice 2 of #3949).
-The name-clash error and the codemod hold now; the codemod run over the
-corpus and the list-find hard error land together with #4049.
+In force: the name-clash error, the codemod, the corpus run and the list-find
+hard error (`loom.list-find-removed`).
 
 **Question.** Two read-path rules were soft. A repository `find` returning a
-list (`T[]` / `T paged`) is only a warning (`loom.repository-find-deprecated`),
+list (`T[]` / `T paged`) was only a warning,
 so a new list query can still mint one more `find byX` method on the
 repository. And a name declared both as a `criterion` and as a `retrieval`
 was resolved by a precedence rule (the retrieval won), so `Repo.run(<Name>)`
@@ -5258,8 +5268,71 @@ silently picked one meaning.
 the list check is by return type, and removing `FindDecl` altogether belongs
 to #3951. The emitters' find paths stay: each is still reached by single-row
 finds, `find all`, or the synthesised paged finds. The scaffolded list page's
-filter bar is built from list finds only, so it goes with the hard error
-(#4049).
+filter bar and its per-view pages were built from list finds only, so they
+went with the hard error.
+
+## D-REPO-KEY-LOOKUP — a natural-key read is `getBy` / `findBy` over a declared `unique (…)` tuple
+
+**Status:** PINNED (owner ruling on #3949, 2026-10-25; slice 3 of #3949, #3951).
+The two verbs, their diagnostics, the emission on all five backends and the
+codemod hold now. Removing `FindDecl` from the grammar follows once the list
+finds are gone (#4049).
+
+**Question.** A single-row lookup by a natural key was a repository `find`
+the author wrote by hand — `find bySku(s: string): Product? where this.sku ==
+s` — one method per key, with nothing tying the key to a uniqueness rule. A
+key no `unique (…)` covered returned whichever duplicate the database yielded
+first (`loom.single-row-find-not-unique` was only advisory). And
+`T or <Error>` finds let one lookup answer a declared error body on a miss.
+
+**Decision.**
+
+- `Repo.getBy(<col>: v, …)` yields the row; `Repo.findBy(<col>: v, …)` yields
+  `T?`. Their named arguments must equal one declared `unique (…)` tuple of
+  the aggregate (inherited tuples count) exactly, in any order:
+  `loom.repo-key-not-unique` when no tuple covers the names (with a
+  did-you-mean over the declared tuples), `loom.repo-key-incomplete` for part
+  of a tuple or a positional argument. The tuple rule is one function,
+  `resolveKeyTuple` in `src/util/repository-contract.ts`, read by the
+  validator and the lowerer alike; the contract rows are `getBy` →
+  `load-by-key` and `findBy` → `load-by-key-optional`.
+- A `getBy` miss answers the standard ProblemDetails 404 (`"not_found"`) on
+  every backend. `findBy` is an `if let` source; bound by a plain `let` it is
+  the nullable-load refusal every `T?` read gets.
+- Capability filters apply as on any read. A trailing `ignoring …` widens one
+  call — on a `let` or an `if let` source, the two positions that bind a read.
+- Each backend emits one repository method per used (verb, tuple, `ignoring`
+  stance), named from the columns in declared order (`findBySku`,
+  `getByRegionAndName`, `getBySkuIgnoringAll`, `keyLookupMethodName`) with a
+  `WHERE` on exactly those columns. The method is DERIVED from the calls in
+  enrichment (`src/ir/enrich/key-lookup-finds.ts`) as a `synthesized` find,
+  so it rides each backend's existing find emitter and escaping and has no
+  HTTP route; `findRaisesNotFound` (`src/ir/util/key-lookup.ts`) is the one
+  predicate the java / python / elixir repository emitters read to raise
+  not-found where node and .NET already did for a `T` find.
+- `T or <Error>` finds are dropped: a miss is `T?`, and a `getBy` miss is the
+  standard 404. `T option` maps like `T?`, `T envelope` like `T`.
+- `findBy` / `getBy` stay unique-only (owner ruling, 2026-10-25, second
+  comment): they promise zero-or-one, and only a declared `unique (…)` makes
+  that true. A single-row find over any other key is a specification query —
+  a `criterion` read with `Repo.find(<Criterion>)` (first match, `T?`).
+- `scripts/codemod-find-to-findby.mjs` migrates every single-row find: a
+  declared tuple → `findBy` / `getBy` (carrying `ignoring`); the `id` →
+  `findById` / `getById`; anything else → `criterion <Plural><Find>` beside
+  the repository (an existing one reused) and `Repo.find(<Criterion>(args))`.
+  A clause-less find binding its parameters by name counts as the equality
+  conjunction. A find moves only when every call site takes its target; a
+  `T?` read is accepted as an `if let` source or in a domain-service
+  expression, and a must-exist find over a non-unique key has no target (no
+  `else` statement answers a 404), so those call sites are reported and the
+  find stays. `--add-unique` declares the key instead; never by default.
+
+**Consequences.** A natural-key read no longer needs a repository body. The
+synthesised method is not on the wire: a client that read a find's route
+needs a routed `queryHandler` over the read. What the codemod reports (route
+reads, must-exist finds over non-unique keys, variant matches on a
+`T or <Error>` read, row-less finds) is what the `FindDecl` removal still has
+to settle by hand.
 
 ## D-TARGET-MATRIX-FROZEN — no new backends or frontends: the target set is five backends and six frontends
 
@@ -5605,3 +5678,45 @@ answers, and backends render it:
 sentence a node emitter picks itself. The other four backends move onto it one
 at a time; until each does, its wire-golden legs carry a per-golden waiver in
 `test/_helpers/wire-waivers.ts` for the missing-field sentence.
+
+## D-FAILURE-MODEL — Loom has no exceptions: each failure kind has one construct, and an expected failure is a value the caller must handle
+
+**Status:** PINNED (owner rulings 2026-10-25 on #4134, #4146, #3951, #3916;
+parent #4120).
+
+**Question.** A domain operation can fail in five different ways, and the
+language had a construct for each, but nothing made a caller deal with the one
+kind that is the caller's business: an expected failure declared in the
+signature (`operation withdraw(amt: money): Account or InsufficientCredit`). A
+call statement dropped it, and a workflow answered 204.
+
+**Decision.** One construct per failure kind, chosen by who can act on it:
+
+| kind | construct | outcome |
+|---|---|---|
+| absence | `T?` + narrowing | `null` |
+| invalid input | value-object invariant, wire validation | 422 |
+| precondition | `precondition` (RS-15) | 422 `DomainError` |
+| expected failure | `A or E` with an `error` record (`httpStatus` maps it) | the caller's to handle; at the wire, problem+json at the mapped status |
+| bug | aggregate invariant | 500 |
+
+- **An expected failure is a value, handled in process.** An `or E` result
+  whose `E` is an `error` must be matched, returned through a caller whose own
+  declared result admits it, or bound and read (`loom.unhandled-result`). A call
+  statement and an unread `let` discard it. There is no implicit propagation
+  and no `?` operator. (#4134)
+- **Returning `E` discards the operation's writes.** An operation that returns
+  an `error` variant leaves the aggregate as it was; nothing it assigned is
+  saved. (#4146)
+- **A read does not encode absence as an error.** `T or NotFound` finds go; a
+  read that may miss is `T?` (`find…`), one that must hit is `T` (`get…`, the
+  standard 404). (#3951)
+- **Workflows return `or E` too**, once a workflow body can `match` a result
+  (#3367). (#3916)
+- **The wire is the boundary.** In process an `E` is a value; a route renders
+  it as problem+json at its `httpStatus` (D-WIRE-POLICY,
+  `errorVariantResponse`), never as a 200 union.
+
+**Consequences.** `loom.unhandled-result` refuses a dropped `or E`
+(`src/language/validators/unhandled-result.ts`). In a workflow body the only
+handling route until #3367 lands is binding the result and reading it.

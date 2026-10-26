@@ -32,8 +32,8 @@ system Blog {
         operation publish() { title := title }
       }
       repository Articles for Article {
-        find byOwner(who: string): Article[] where this.owner == who
-        find recent(): Article[] where this.title != ""
+        find byOwner(who: string): Article? where this.owner == who
+        find recent(): Article? where this.title != ""
       }
     }
   }

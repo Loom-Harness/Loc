@@ -106,6 +106,12 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
     lookup — so a denied caller cannot distinguish "forbidden" from "no such
     key".
 
+  The projections `scaffoldDashboard` emits carry the source aggregate's
+  `policy { read X requires … }` gate on their header, so a dashboard total is
+  guarded exactly like the rows it summarises.  Without that rule, under
+  `denyByDefault`, the scaffolded projection is refused
+  (`loom.default-deny-ungated`) with a hint to write it.
+
   A folded projection used to be unable to carry a gate at all: the keyword
   lived inside the query-clause fragment, which a folded projection has none
   of, and `loom.projection-gate-without-source` rejected the combination.  Both
@@ -209,6 +215,15 @@ list read's gate, writes a review comment naming the dropped ones, and reports
 the file.  Two reads of one aggregate that must answer to different principals
 belong on different aggregates (or behind an exposure gate:
 `scaffoldPaged(requires:)`, a route / handler `requires`).
+
+A natural-key read (`Orders.getBy(code: c)` / `Orders.findBy(…)`,
+[D-REPO-KEY-LOOKUP](decisions.md)) has no route of its own, so the policy read
+gate never sits on it: it runs inside a body, and that body's exposure gate (a
+routed handler's `requires`, a workflow `create`'s `requires`) decides who
+reaches it.  A single-row `find` that only existed to be called from a body
+migrates with `node scripts/codemod-find-to-findby.mjs <path>` (to `findBy` /
+`getBy`, the by-id reads, or a criterion read with `Repo.find(C)`) — the gate
+it used to carry already lives in `policy { read … }`.
 
 What's intentionally **not** here yet:
 
@@ -392,22 +407,28 @@ needs.
 
 ### Row-level visibility (slice 1C)
 
-`currentUser` is admissible inside repository find
-`where` clauses; the renderer threads the resolved User through
-the generated method as a closure-captured parameter:
+`currentUser` is admissible inside a `criterion` body (and a
+single-row find's `where`); the renderer reads the resolved User
+inside the generated repository method:
 
 ```ddd
-repository Orders for Order {
-  find mine(): Order[] where customerId == currentUser.customerId
-}
+repository Orders for Order { }
+criterion OrdersMine of Order = customerId == currentUser.customerId
 ```
 
 What gets emitted:
 
-| Backend | Repo method signature | Caller threads user via |
-| --- | --- | --- |
-| .NET   | `Task<...> Mine(User currentUser, CancellationToken ct)` | Mediator handler injects `ICurrentUserAccessor`, calls `_repo.Mine(_currentUser.User, ct)` |
-| Hono   | `async mine(currentUser: User): Promise<Order[]>` | Route reads `c.get("currentUser")` and passes it in |
+A `queryHandler` runs it with `Orders.run(OrdersMine())`:
+
+```ts
+// db/repositories/order-repository.ts (Hono)
+const ordersMineCriterion = () => eq(schema.orders.customerId, requireCurrentUser().customerId);
+
+async runFindAllByOrdersMine(page?: { offset?: number; limit?: number }): Promise<Order[]> {
+  let query = this.db.select().from(schema.orders).where(ordersMineCriterion()).orderBy(asc(schema.orders.id)).$dynamic();
+  // …
+}
+```
 
 The Drizzle / EF predicate translates `currentUser.customerId`
 into a closure-captured value — Drizzle parametrises it into the
@@ -415,8 +436,8 @@ SQL bind, EF lifts it via Linq-to-Entities — so no string
 interpolation hits the SQL surface.
 
 Slice 1C does **not** yet support workflow bodies calling such
-finds; the validator points users at `getById` (with an explicit
-id parameter) or asks them to call the user-aware find from the
+reads; the validator points users at `getById` (with an explicit
+id parameter) or asks them to call the user-aware read from the
 route layer.
 
 ### `requires` clauses (slice 2)
@@ -511,10 +532,9 @@ operation cancel() requires currentUser.role == "manager" {
   status := Cancelled
 }
 
-// workflow starter / command handler carry it too
+// a workflow starter carries it too
 workflow Fulfil {
   create open(ref: string) requires currentUser.role == "ops" { … }
-  handle retry(order: Order id) requires currentUser.role == "agent" { … }
 }
 ```
 
@@ -610,9 +630,7 @@ end
 ```
 
 A workflow `create` gate scopes to `currentUser` + the starter's command params
-(a saga has no aggregate `this`) and renders identically.  (A workflow `handle`
-gate lowers the same way but is inert until `handle` command handlers are
-surfaced as HTTP routes.)
+(a saga has no aggregate `this`) and renders identically.
 
 `currentUser` types against the system's `user { … }` claim block, so a gate
 that is a **bare boolean claim expression** — the simplest permission check —
@@ -1025,9 +1043,7 @@ Who may read an aggregate is one line in its context's `policy` block, beside
 the `allow` / `deny` ladder:
 
 ```ddd
-repository Tickets for Ticket {
-  find openOnes(): Ticket[] where open == true
-}
+repository Tickets for Ticket { }
 policy {
   read Ticket requires currentUser.role == "agent"
   read Product requires true          // intentionally public
@@ -1035,8 +1051,7 @@ policy {
 ```
 
 The gate covers **every read** of the aggregate: the list `GET /<plural>`, the
-by-id `GET /<plural>/{id}`, each declared find's route
-(`GET /<plural>/open_ones`), the audit history read
+by-id `GET /<plural>/{id}`, each declared find's route, the audit history read
 (`GET /<plural>/{id}/history`), and the scaffolded List page (client-side, so
 its nav entry hides for a refused principal).  An exposure-level gate — a
 `scaffoldPaged(requires:)`, a route / handler `requires` — still ANDs on top.

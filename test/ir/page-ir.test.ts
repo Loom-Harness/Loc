@@ -330,9 +330,8 @@ describe("page metamodel — IR shape", () => {
         subdomain M {
           context C {
             aggregate Order { x: int }
-            repository Orders for Order {
-              find expensive(min: int): Order[] where x > min
-            }
+            repository Orders for Order { }
+            criterion OrdersExpensive(min: int) of Order = x > min
           }
         }
       }

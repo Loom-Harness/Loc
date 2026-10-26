@@ -40,7 +40,8 @@ import { requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { byIdRouteFind, listReadFind } from "../../../ir/util/read-gates.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { resolveErrorStatus } from "../../../util/error-defaults.js";
-import { elixirOpAction, plural, snake, upperFirst } from "../../../util/naming.js";
+import { elixirOpAction, snake, upperFirst } from "../../../util/naming.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { renderPhoenixDomainOperation, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
@@ -207,7 +208,7 @@ export function emitVanillaApiControllers(
   for (const agg of ctx.aggregates) {
     const aggPascal = upperFirst(agg.name);
     const aggSnake = snake(agg.name);
-    const aggsPath = snake(plural(agg.name)); // "tasks" for Task
+    const aggsPath = routeSegmentFor(agg.name); // "tasks" for Task
     const controllerName = `${aggPascal}Controller`;
     const memberOps = memberOperations(agg);
     const es = isEventSourced(agg);

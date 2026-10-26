@@ -10,7 +10,8 @@ import { durableEventTypes, realtimeEventTypes } from "../../../ir/util/channels
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { API_BASE_PATH, AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst, plural, snake } from "../../../util/naming.js";
+import { lowerFirst } from "../../../util/naming.js";
+import { routeSegmentFor } from "../../../util/storage-names.js";
 import {
   resetTableDiscoverySql,
   TEST_RESET_ENV,
@@ -25,7 +26,6 @@ import {
   routesPolymorphicRead,
 } from "../base-reader-builder.js";
 import { tsNotFoundThrow, tsSentence } from "../wire-policy-ts.js";
-
 // The per-aggregate routes file is built procedurally in
 // `routes-builder.ts` because the OpenAPI annotations push it past
 // what's pleasant to read in a template.  This file owns just the
@@ -207,7 +207,7 @@ export function renderHttpIndex(
       !!canonicalDestroy(a)?.audited;
     const repoArg = `new ${a.name}Repository(db, events)`;
     const args = needsTx ? `${repoArg}, db, events` : repoArg;
-    return `  app.route("${API_BASE_PATH}/${snake(plural(a.name))}", ${lowerFirst(a.name)}Routes(${args}));`;
+    return `  app.route("${API_BASE_PATH}/${routeSegmentFor(a.name)}", ${lowerFirst(a.name)}Routes(${args}));`;
   });
   // Extern operations (extern (b)) re-home to aggregate-owned hooks
   // implemented by a scaffold-once subclass — a missing implementation is a

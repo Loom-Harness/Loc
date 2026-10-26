@@ -39,9 +39,8 @@ system Cover {
           others -= p
         }
       }
-      repository Clms for Clm {
-        find holding(p: Pol id): Clm[] where this.others.contains(p)
-      }
+      repository Clms for Clm { }
+      criterion ClmsHolding(p: Pol id) of Clm = this.others.contains(p)
     }
   }
   storage primary { type: postgres }

@@ -42,7 +42,10 @@ system Shop {
       }
       repository Orders for Order {
         find byCode(code: string): Order? where this.code == code
-        find active(): Order[] where this.status == confirmed
+      }
+      aggregate Note with crudish { text: string }
+      repository Notes for Note {
+        find all(): Note[]
       }
       workflow placeOrder {
         create(code: string) {
@@ -81,7 +84,7 @@ async function customizer(): Promise<string> {
 describe("java OpenApiCustomizer — list array wrappers", () => {
   it("registers the named <Agg>ListResponse array wrapper", async () => {
     const c = await customizer();
-    expect(c).toContain('new Wrapper("OrderListResponse", "OrderResponse")');
+    expect(c).toContain('new Wrapper("NoteListResponse", "NoteResponse")');
   });
 
   it("emits the paged auto-findAll GET with no list wrapper (springdoc derives <Agg>Paged)", async () => {
@@ -98,10 +101,10 @@ describe("java OpenApiCustomizer — list array wrappers", () => {
     );
   });
 
-  it("retargets a `T[]` find to the list wrapper", async () => {
+  it("retargets a `find all(): T[]` list to the list wrapper", async () => {
     const c = await customizer();
     expect(c).toContain(
-      'new Route("get", "/api/orders/active", "OrderListResponse", new int[] {}, null, 0)',
+      'new Route("get", "/api/notes", "NoteListResponse", new int[] {}, null, 0)',
     );
   });
 

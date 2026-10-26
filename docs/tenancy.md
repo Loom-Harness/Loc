@@ -187,7 +187,7 @@ runtime-gated by the isolation e2e):
 | .NET (EF Core) | `HasQueryFilter("IdFilter", x => x.Id == __SelfScopeId_Organization_0)`, a hoisted `OrganizationId?` member | `Guid.TryParse(…) ? new OrganizationId(g) : null` → `= NULL` |
 | elixir (Ecto) | `fragment("? = ?", record.id, ^…)` — cast in Elixir, compared on the uuid column so the PK index still serves it | `Ecto.UUID.cast/1` → `nil` → `= NULL` |
 | python (SQLAlchemy) | `OrganizationRow.id == user.guid_claim("tenant_id")`, a `with_loader_criteria` the read-scope hook (`app/db/read_scope.py`) builds from the request principal on every ORM read (`false()` with no principal) | `guid_claim` → `None` → `IS NULL` |
-| java (Spring/JPA) | `e.id.value = :#{@currentUserAccessor.user()?.tenantIdAsUuid()}` scoped `@Query` overrides on findAll/findById + every find (and the same accessor in the `tenantScope(User)` Specification a reified retrieval uses) | `<claim>AsUuid()` → `null` → `= NULL` |
+| java (Spring/JPA) | an auto-enabled, by-key `@Filter(name = "Organization_tenancy", condition = "id = :__cuTenantIdAsUuid")` on the entity, the claim a `@ParamDef` whose resolver reads the request principal per query — so every query of the entity carries it, `@Query` finds, Criteria and Spring Data's own `findAll`/`existsById` alike | `<claim>AsUuid()` → `null` → `= NULL` |
 
 The derived filter is provenance-tagged `tenancy` in
 `contextFilterOrigins`. `tenancy` is not a capability, so a named
@@ -314,7 +314,7 @@ half follows the declaration while the row column stays `tenantId`.
 | .NET (EF Core) | `HasQueryFilter(x => x.TenantId == RequestContext.Current!.CurrentUser!.TenantId)` | `SaveChangesInterceptor` sets both on `Added` — `x.TenantId` off `…CurrentUser!.TenantId`, `x.DataKey` off `…CurrentUser!.OrgPath` |
 | elixir (Ecto) | a `Repo.prepare_query/3` clause on the schema, fail-closed `^(current_user && current_user.tenant_id)` against the read's `current_user:` or the ambient principal; raises when neither is set (`Repo.async/1` carries it into a task) | `put_change(:tenant_id, current_user && current_user.tenant_id) \|> put_change(:data_key, current_user && current_user.org_path)` |
 | python (FastAPI/SQLAlchemy) | one `do_orm_execute` hook (`app/db/read_scope.py`) adds `with_loader_criteria(<Row>, <Row>.tenant_id == user.tenant_id)` to every ORM read; `false()` with no principal | `self._tenant_id = current_user.tenant_id` + `self._data_key = current_user.org_path` in the create factory |
-| java (Spring/JPA) | principal predicate composed into the repository specification | `@PrePersist` hook reading `CurrentUserAccessor.currentOrNull()`, setting `this.tenantId = currentUser.tenantId()` and `this.dataKey = currentUser.orgPath()` |
+| java (Spring/JPA) | an auto-enabled `@Filter(condition = "tenant_id = :__cuTenantId")` on the entity (a TPH hierarchy's on its root), the claim a per-query `@ParamDef` resolver; `ignoring tenantOwned` disables it for that read | `@PrePersist` hook reading `CurrentUserAccessor.currentOrNull()`, setting `this.tenantId = currentUser.tenantId()` and `this.dataKey = currentUser.orgPath()` |
 
 Frontends need nothing: enforcement is server-side, and neither `tenantId` nor
 `dataKey` ever appears in create forms. `tenantId` (like `softDeletable`'s
@@ -479,7 +479,7 @@ Generated `deep` filter, one line per backend (for `allow deep on Account`):
 | node (Hono/MikroORM) | `raw("((data_key is not null and (data_key = ? or (data_key like ? escape '!' and strpos(data_key, ?) = 1))) or (data_key is null and tenant_id = ?))", […])` |
 | .NET (EF Core) | `(x.DataKey != null && (x.DataKey == u.OrgPath \|\| (EF.Functions.Like(x.DataKey, esc(u.OrgPath), "!") && x.DataKey.StartsWith(u.OrgPath + ".")))) \|\| (x.DataKey == null && x.TenantId == u.TenantId)` |
 | Python (SQLAlchemy) | `or_(and_(R.data_key.isnot(None), or_(R.data_key == u.org_path, and_(R.data_key.like(esc(u.org_path), escape="!"), func.strpos(R.data_key, u.org_path + ".") == 1))), and_(R.data_key.is_(None), R.tenant_id == u.tenant_id))` |
-| Java (JPA) | `(e.dataKey is not null and (e.dataKey = :#{…orgPath} or (e.dataKey like :#{…orgPath?.replace(…)?.concat('.%')} escape '!' and locate(concat(:#{…orgPath}, '.'), e.dataKey) = 1))) or (e.dataKey is null and e.tenantId = :#{…tenantId})` |
+| Java (Hibernate `@Filter`) | `((data_key is not null and (data_key = :__cuOrgPath or (data_key like :__cuSubtreeOrgPath escape '!' and position(concat(:__cuOrgPath, '.') in data_key) = 1))) or (data_key is null and tenant_id = :__cuTenantId))`, each `:__cu…` a `@ParamDef` resolved from the request principal per query |
 | Elixir (Ecto) | `fragment("(? IS NOT NULL AND (? = ? OR (? LIKE ? ESCAPE '!' AND strpos(?, ? \|\| '.') = 1))) OR (? IS NULL AND ? = ?)", …)` with `^`-pinned fail-closed principal |
 
 (`esc(…)` above is each language's inline escape chain — `!`→`!!`, `%`→`!%`,

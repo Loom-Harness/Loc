@@ -107,6 +107,7 @@ import { isForeignRefColl, refCollFieldNames, refCollFields } from "./ref-collec
 import { renderRefLabelFacade } from "./ref-label.js";
 import { customFindsOf } from "./repository-emit.js";
 import { emitsRestDelete } from "./rest-surface.js";
+import { emitsRetrievalModule } from "./retrieval-emit.js";
 import { usesRelationalContainments } from "./schema-emit.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
 import { valueRowFieldsOf } from "./value-collection-schema-emit.js";
@@ -969,7 +970,7 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
   // `Retrievals.<Name>`.  Workflow `repo-run` lowerings (follow-up
   // slice) call through this seam.
   const retrievalLines = (ctx.retrievals ?? [])
-    .filter((r) => r.targetType.kind === "entity")
+    .filter((r) => emitsRetrievalModule(r, ctx))
     .map((r) => {
       const aggName = (r.targetType as { kind: "entity"; name: string }).name;
       const retSnake = snake(r.name);

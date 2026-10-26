@@ -51,8 +51,8 @@ system Shop {
         status: Status
       }
       repository Orders for Order {
-        find byStatus(s: Status): Order[] where this.status == s
-        find byCode(c: string): Order[] where this.code == c
+        find byStatus(s: Status): Order? where this.status == s
+        find byCode(c: string): Order? where this.code == c
       }
     }
   }
@@ -79,8 +79,8 @@ describe("Dapper binds an enum find parameter by name", () => {
 
     // Premise: both finds are emitted, and the enum one really does key on the
     // enum column — so a failure below is about the BINDING, not a missing find.
-    expect(repo).toContain("public async Task<List<Order>> ByStatus(Status s,");
-    expect(repo).toContain("public async Task<List<Order>> ByCode(string c,");
+    expect(repo).toContain("public async Task<Order?> ByStatus(Status s,");
+    expect(repo).toContain("public async Task<Order?> ByCode(string c,");
     expect(repo).toContain("WHERE (status = @s)");
 
     // The fix: the enum parameter is bound as its declared name.

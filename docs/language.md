@@ -342,7 +342,7 @@ order:
 | `repository Name for Aggregate { find … }` | Repository declaration with optional find queries (see [Repositories](#repositories)). |
 | `criterion Name(params) of Aggregate = Expr` / `retrieval Name of Aggregate { where: Expr sort: [field desc, other asc] }` | Reusable, SQL-inlinable predicate specifications and the named list-read shapes `Repo.run(...)` consumes.  A retrieval also has a one-line form, `retrieval Name of Aggregate = Expr`.  **The block's clauses are NOT comma-separated** — `where:` / `sort:` follow one another directly (a newline between them is the readable spelling); only the items *inside* `sort: [...]` take commas.  The grammar also admits a `loads: [path, …]` clause, but declaring one is rejected today (`loom.retrieval-loads-unsupported` — a retrieval loads the whole aggregate).  See [`criterion.md`](criterion.md). |
 | `projection Name[(params)] [keyed by <field>] [requires Expr] { <fields> from <Source> [as x] [where …] [ignoring …] [join Agg as a on …] [group by …] select f = …, … }` / `projection Name keyed by k { <fields> on(e: Event) [by e.key] { … } }` | A read model: **query-time** (a `select` over an aggregate / projection / workflow source — optional `where`, `join`, `group by`, whole-table aggregation, paged reads) or **folded** (`on(e: Event)` arms folding a stream into a keyed row).  Exposed as `GET /projections/<name>` and readable from pages.  ~50 `loom.projection-*` gates; see [`language-reference/10-repositories-and-queries.md`](language-reference/10-repositories-and-queries.md) and [`scaffold-macros.md`](scaffold-macros.md) (`scaffoldDashboard`). |
-| `workflow Name { create(...)[: T] …, handle …, on(e: Event) …, function … }` | Context-level orchestration across aggregates, with `create` / `handle` / `on` reactors and workflow-local state.  A command-triggered `create(…): T { … return <expr> }` answers its `POST` with 200 + the value (an `X id` / `string` / `int` / `long` / `bool`); without `: T` it stays 204.  See [`workflow.md`](workflow.md#returning-a-result--createt). |
+| `workflow Name { create(...)[: T] …, on(e: Event) …, function … }` | Context-level orchestration across aggregates, with `create` starters, `on` reactors and workflow-local state (a named command entry is a context-level `commandHandler` — there is no workflow `handle`).  A command-triggered `create(…): T { … return <expr> }` answers its `POST` with 200 + the value (an `X id` / `string` / `int` / `long` / `bool`); without `: T` it stays 204.  See [`workflow.md`](workflow.md#returning-a-result--createt). |
 | `[extern] commandHandler Name(cmd: Cmd)[: Response] { … }` / `[extern] queryHandler Name(q: Query): Response { … }` | Application-layer handlers — a single-aggregate `handle` lifted out of a workflow (load → mutate → save → `return`), routable from an `api { … }` body.  `queryHandler` must not save (`loom.query-handler-saves`); `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`).  An `extern` handler is bodyless (`;`) — see [`extern.md`](extern.md). |
 | `domainService Name { operation calc(...): T { … } }` | A stateless, pure cross-aggregate calculator.  See [`domain-services.md`](domain-services.md). |
 | `channel Name { carries: EventA, EventB, delivery: broadcast\|queue, retention: ephemeral\|log\|work, key: field }` | Publisher-side contract for how a context's events are transported (paired with a system `channelSource`).  **`carries:` takes a bare comma-separated event list — no `[ ]`** (unlike `contexts:` / `dataSources:` on a deployable, which do take brackets).  See [`channels.md`](channels.md). |
@@ -951,7 +951,7 @@ A bare `Identifier` in type position must resolve to one of:
 | Enum (any context) | An `enum` value. |
 | Value object (any context) | An embedded value object — copied by value into the wire shape. |
 | Entity part of the *same* aggregate | An addressable child of this aggregate, by-reference at runtime (the engine has the loaded object). |
-| Event / payload — **workflow `create` / `handle` parameter only** | The transport record that triggers the starter / command — `create(e: PaymentReceived) by …`, `handle settle(c: SettleOrder)`.  Offered as a type *only* in these two positions (see below). |
+| Event / payload — **workflow `create` parameter only** | The transport record that triggers the starter — `create(e: PaymentReceived) by …`, `create(c: SettleOrder)`.  Offered as a type *only* in that position (see below). |
 
 Cross-aggregate references must use **`X id`** — an explicit foreign
 key.  The validator rejects a bare aggregate name in storage / wire
@@ -962,13 +962,13 @@ pointing at the owning aggregate's id.
 
 **Events and payloads as parameter types.** An `event` or a `payload`
 (`command` / `query` / `response` / `error`) may be named by a bare
-identifier as the type of a workflow **`create`** or **`handle`**
+identifier as the type of a workflow **`create`**
 parameter — the workflow command surface (`create(c: PlaceOrder)`,
-`create(e: OrderPlaced) by e.order`, `handle settle(c: SettleOrder)`;
+`create(e: OrderPlaced) by e.order`;
 see [`workflow.md`](workflow.md)).  The bound parameter is a flat
 transport record: `e.field` resolves to the field's declared type and
 participates in the usual comparison / arithmetic / assignment checks.
-These types are scoped **only** to those two positions — a stray event
+These types are scoped **only** to that position — a stray event
 name in an aggregate field, operation parameter, or UI position stays
 an unresolved reference, and `Event id` is not a valid `X id` link.
 
@@ -982,11 +982,15 @@ suffixes apply to the same `TypeRef`, in either order
 
 ### Null narrowing
 
-A `T?` is not usable where a `T` is required — `+` needs two `string`s, and a
-scalar intrinsic needs a receiver that cannot be null (`loom.intrinsic-nullable-receiver`
-rejects `path.trim()` on a `string?`, because every backend emits a bare
-dereference).  The **ternary is the guard**: a direct null test on its own
-condition narrows the branch the test proves safe.
+A `T?` is not usable where a `T` is required — `+` needs two `string`s, and
+every member read needs a receiver that cannot be null (`loom.nullable-receiver`
+rejects `path.trim()`, `path.length` and `addr.city` on a `string?` / `Addr?`,
+because every backend emits a bare dereference; a field read in a `ui` body is
+spelled null-safe and passes).  A **null test is the guard**: it narrows the
+ternary branch it proves safe, the later operands of an `&&` (`x != null && …`)
+or `||` (`x == null || …`) chain, an `if` block, and the rest of a body after a
+`precondition x != null` or an `if x == null { return … }` guard
+([06 § Null narrowing in a body](language-reference/06-behavior-and-statements.md#null-narrowing-in-a-body)).
 
 ```ddd
 // dataKey: string?  — a root tenant has no parent path
@@ -1302,7 +1306,7 @@ queryability lives in [`stdlib.md`](stdlib.md) → "Collection operations";
 the scalar intrinsics (`s.trim()`, `n.abs()`, `d.round(2)`, `t.startOfDay()`,
 …) are in the same document — an unknown intrinsic, a wrong arity /
 argument type, or a call on a nullable receiver is rejected
-(`loom.intrinsic-unknown` / `-arity` / `-arg-type` / `-nullable-receiver`).
+(`loom.intrinsic-unknown` / `-arity` / `-arg-type`, and `loom.nullable-receiver`).
 A member *read* on a primitive is judged against the same catalogue plus the
 one field-shaped scalar member (`string.length`): `m.amount` on a `money`
 field, or any other invented member on a primitive, is
@@ -1420,7 +1424,7 @@ decimal`.
 | Form | Purpose |
 | --- | --- |
 | `precondition Expression [message "…"]` | Runtime check; failure throws a domain error (HTTP 422 — RS-15).  The optional `message` is the user-facing text. |
-| `requires Expression` | Authorization gate (HTTP 403) — `currentUser` / `permissions.<x>` predicate; distinct from `precondition` (validity) and the header `when` (state, 409).  Also a header clause on `operation` / `handle` / `projection`, and the gate of a `policy { read X requires … }` rule (who may read aggregate X).  **Not as a header clause on `create` / `destroy`** — the grammar parses one there, but the validator refuses it (`'requires' is not allowed on a create`: there is no loaded instance for a header gate to read).  Gate a hand-written `create` with a leading body statement `requires <expr>` instead (emitted as a 403 on all five backends — pinned by `test/generator/lifecycle-forbidden-remap.test.ts`), with `with crudish(requires: <Policy>)`, or by gating the `workflow` that constructs the aggregate.  See [`auth.md`](auth.md). |
+| `requires Expression` | Authorization gate (HTTP 403) — `currentUser` / `permissions.<x>` predicate; distinct from `precondition` (validity) and the header `when` (state, 409).  Also a header clause on `operation` / workflow `create` / `projection`, and the gate of a `policy { read X requires … }` rule (who may read aggregate X).  **Not as a header clause on `create` / `destroy`** — the grammar parses one there, but the validator refuses it (`'requires' is not allowed on a create`: there is no loaded instance for a header gate to read).  Gate a hand-written `create` with a leading body statement `requires <expr>` instead (emitted as a 403 on all five backends — pinned by `test/generator/lifecycle-forbidden-remap.test.ts`), with `with crudish(requires: <Policy>)`, or by gating the `workflow` that constructs the aggregate.  See [`auth.md`](auth.md). |
 | `lhs := Expression` | Assignment to a property reachable from `this`, optionally spelled with an explicit `this.` prefix (`this.name := name`), which is what makes the assignment type-check against the field rather than against a same-named parameter — see [Behavior & statements](language-reference/06-behavior-and-statements.md#assignment-----).  Derived properties are not assignable; under `persistedAs: eventLog` assignments live only in `apply` bodies. |
 | `coll += value` | Append to a contained collection (or an `X id[]` reference collection). |
 | `coll -= value` | Remove from a contained collection. |
@@ -1973,10 +1977,9 @@ repository Orders for Order {
     // unique-key reconstitution: parameter names match aggregate properties.
     find byNumber(number: string): Order?
 
-    // explicit predicate; `this` refers to the aggregate root.
-    find activeForCustomer(forCustomer: Customer id): Order[]
-        where this.customerId == forCustomer && this.status == Draft
 }
+// explicit predicate; `this` refers to the aggregate root.
+criterion OrdersActiveForCustomer(forCustomer: Customer id) of Order = this.customerId == forCustomer && this.status == Draft
 ```
 
 The full form is `find name(params): T | T? | T or NotFound | T option | T[] | T paged
@@ -1986,16 +1989,13 @@ covers every find), and `ignoring` bypasses a capability's contributed query
 filter (e.g. `softDeletable`).  Each `find` declaration becomes a method
 on the generated repository plus a Mediator query in the .NET backend.
 
-> **List finds warn.**  A `find` returning a collection (`T[]` / `T paged`)
-> is flagged `loom.repository-find-deprecated`: the list read-path is
-> `Repo.run(<Criterion>(args))` / a named `retrieval` (composable, page-able,
-> SQL-inlined — see [`criterion.md`](criterion.md)), so a bespoke list finder
-> on the repository is discouraged.  A unique-key find returning `T` / `T?`
-> is the intended shape.  (The `activeForCustomer` find above still generates;
-> it just carries the warning.)  **Interim scope:** the warning fires only in a
-> context that already declares a `criterion` or a `retrieval` — until the
-> replacement carries its own route, a model with neither has nothing of equal
-> power to migrate to ([`criterion.md`](criterion.md#advisories--the-compiler-steers-you-toward-criteria)).
+> **List finds are an error.**  A `find` returning a collection (`T[]` /
+> `T paged`), other than `find all`, is `loom.list-find-removed`: the list
+> read-path is `Repo.run(<Criterion>(args))` / a named `retrieval`
+> (composable, page-able, SQL-inlined — see [`criterion.md`](criterion.md)),
+> which is why `activeForCustomer` above is a criterion.  A unique-key find
+> returning `T` / `T?` is the intended shape.
+> `node scripts/codemod-list-find-to-criterion.mjs <path>` rewrites a source.
 
 - **TypeScript**: when no `where` is given, parameters are equality-
   matched against aggregate columns and lowered to a Drizzle
@@ -2014,15 +2014,15 @@ on the generated repository plus a Mediator query in the .NET backend.
 null-aware on every backend: `this.col == v` with `v` null matches the rows
 whose `col` IS NULL, `!=` matches the rows where it is NOT NULL, and an
 ordering (`<`, `>`, …) against null matches no row.  So
-`find mine(): WorkOrder[] where this.technicianId == currentUser.technicianId`
-returns the unassigned orders for a principal with no `technicianId` rather
+`criterion Mine of WorkOrder = this.technicianId == currentUser.technicianId`
+matches the unassigned orders for a principal with no `technicianId` rather
 than none (or, on Ecto, a raised `ArgumentError`).  An absent principal stays
 fail-closed.
 
-A repository `where` clause may use `this.<refColl>.contains(param)` to
-query membership over an `X id[]` reference collection — for example,
-`find holdingInParty(pokemon: Pokemon id): Trainer[] where
-this.party.contains(pokemon)`.  The TypeScript backend lowers this to
+A query filter (a criterion body, a find's `where`) may use
+`this.<refColl>.contains(param)` to query membership over an `X id[]`
+reference collection — for example, `criterion HoldingInParty(pokemon:
+Pokemon id) of Trainer = this.party.contains(pokemon)`.  The TypeScript backend lowers this to
 an `inArray(...subquery...)` against the field's join table; other
 collection operations (`.count`, `.any`, `.where`, …) remain rejected
 by the queryable-subset validator.
@@ -2063,7 +2063,7 @@ The validator runs after parsing and reports errors for:
   surface — `private`, `extern`, `audited`, `requires`, `when` — at every site
   that runs a named body (`operation`, `create`, `destroy`, `apply`,
   `function`, `commandHandler` / `queryHandler`, a `domainService` operation, a
-  workflow `create` / `handle` / `on`, a page `action`); what each site
+  workflow `create` / `on`, a page `action`); what each site
   actually carries is a declared table, so `audited` on a domain-service
   operation is an error that *explains itself* rather than a bare parse
   failure. The per-site table is in
@@ -2140,12 +2140,12 @@ validator raises is in it).  By family, with the doc that explains each:
 | Family (prefix) | What it gates | Reference |
 |---|---|---|
 | `loom.projection-*` (~35) | Projection sources / `select` / `group by` / `keyed` / folds / paging / per-backend support | [`language-reference/10-repositories-and-queries.md`](language-reference/10-repositories-and-queries.md) |
-| `loom.workflow-*` (~30), `loom.applier-*`, `loom.lifecycle-*` | Workflow bodies, reactors, `create`/`handle`, appliers, event-sourced lifecycle | [`workflow.md`](workflow.md) |
+| `loom.workflow-*` (~30), `loom.applier-*`, `loom.lifecycle-*` | Workflow bodies, reactors, `create`, appliers, event-sourced lifecycle | [`workflow.md`](workflow.md) |
 | `loom.policy-*`, `loom.permission-*`, `loom.field-mask-*`, `loom.auth-*`, `loom.*-gate-not-current-user`, `loom.guard-principal-without-auth` | Policy ladder / deny carve-outs / named policy functions, `implies`, `mask unless`, OIDC config, `requires` gates | [`auth.md`](auth.md) |
 | `loom.tenancy-*`, `loom.tenant-*`, `loom.cross-tenant-without-tenancy`, `loom.orgpath-without-tenancy` | The explicit-stance rule, registry / claim wiring, `crossTenant` | [`tenancy.md`](tenancy.md) |
 | `loom.migration-*`, `loom.rename-*`, `loom.backfill-*`, `loom.unique-*` | `migration { … }` ledger steps, destructive / rebaseline gating, `unique (…)` | [`migrations.md`](migrations.md) |
 | `loom.handler-*`, `loom.command-handler-*`, `loom.query-handler-*`, `loom.route-handler-unresolved`, `loom.extern-*` | `commandHandler` / `queryHandler` contracts, `api` routes, extern pairing | [`extern.md`](extern.md), [`architecture.md`](architecture.md) |
-| `loom.criterion-*`, `loom.retrieval-*`, `loom.find-*`, `loom.findall-*`, `loom.repository-find-deprecated` | Criteria purity / arity / aliasing, retrievals, the queryable subset | [`criterion.md`](criterion.md) |
+| `loom.criterion-*`, `loom.retrieval-*`, `loom.find-*`, `loom.findall-*`, `loom.list-find-removed` | Criteria purity / arity / aliasing, retrievals, the queryable subset | [`criterion.md`](criterion.md) |
 | `loom.union-*`, `loom.payload-*`, `loom.generic-*`, `loom.match-*` | `A or B` unions, payload records, `paged` / `envelope` / `option` carriers, `match` exhaustiveness and subjects | [`payloads.md`](payloads.md) |
 | `loom.channel*`, `loom.reactor-*`, `loom.relay-*`, `loom.timer-*` | Channels, channelSources, reactors, timers | [`channels.md`](channels.md) |
 | `loom.resource-*`, `loom.datasource-*`, `loom.file-*`, `loom.config-*`, `loom.index-suggestion` | Resource bindings, storage kinds, `File` fields, vendor config, index advice | [`resources.md`](resources.md) |

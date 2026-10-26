@@ -24,9 +24,9 @@ system Catalog {
         total: int
       }
       repository Orders for Order {
-        find recent(): Order[] where this.total > 0 ignoring softDeletable
-        find allRows(): Order[] ignoring *
-        find normal(): Order[] where this.total > 0
+        find recent(): Order? where this.total > 0 ignoring softDeletable
+        find allRows(): Order? ignoring *
+        find normal(): Order? where this.total > 0
       }
       workflow Sweep {
         create(min: int) {
@@ -86,7 +86,7 @@ describe("vanilla ignoring filter-bypass — skip_filters on the read", () => {
     expect(recent).toContain(
       "from(record in Api.Shop.Order.base_query(), where: record.total > 0)",
     );
-    expect(recent).toContain("Repo.all(query, skip_filters: [:soft_deletable])");
+    expect(recent).toContain("Repo.one(query, skip_filters: [:soft_deletable])");
     expect(recent).not.toContain("is_deleted");
   });
 
@@ -94,14 +94,14 @@ describe("vanilla ignoring filter-bypass — skip_filters on the read", () => {
     const repo = file(await gen(), "/shop/order_repository.ex");
     const allRows = defBody(repo, "all_rows");
     expect(allRows).toContain("query = Api.Shop.Order.base_query()");
-    expect(allRows).toContain("Repo.all(query, skip_filters: :all)");
+    expect(allRows).toContain("Repo.one(query, skip_filters: :all)");
   });
 
   it("a non-bypassing find skips nothing and spells no restriction", async () => {
     const repo = file(await gen(), "/shop/order_repository.ex");
     const normal = defBody(repo, "normal");
     expect(normal).toContain("where: record.total > 0)");
-    expect(normal).toContain("Repo.all(query)");
+    expect(normal).toContain("Repo.one(query)");
     expect(normal).not.toContain("is_deleted");
   });
 

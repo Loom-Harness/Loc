@@ -41,10 +41,14 @@ import {
   isCapability,
   isCriterion,
   isImplementsDecl,
+  isMemberSuffix,
+  isNameRef,
   isPolicyDecl,
+  isPostfixChain,
   isRetrieval,
   isSubdomain,
   isSystem,
+  isTenancyDecl,
   isUi,
   isWorkflow,
   type MacroArg,
@@ -171,6 +175,9 @@ interface Inventory {
   /** Typed capability declarations (typed-capabilities.md) keyed by name.
    * A `with <cap>` clause resolves against this when no macro matches. */
   Capability: Map<string, Capability>;
+  /** The claim `tenancy by user.<claim> of …` names (its written name: macro
+   *  expansion runs before linking), when the workspace declares one. */
+  tenancyClaim?: string;
 }
 
 function buildInventory(model: Model, shared?: LangiumSharedServices): Inventory {
@@ -202,6 +209,10 @@ function buildInventory(model: Model, shared?: LangiumSharedServices): Inventory
       // `policy X(): bool = …` from the read-ladder `policy X { … }`.
       else if (isPolicyDecl(node) && node.returnType) inv.Policy.set(named.name, node);
       else if (isCapability(node)) inv.Capability.set(named.name, node);
+    }
+    for (const node of AstUtils.streamAllContents(root)) {
+      const claim = isTenancyDecl(node) ? node.claim?.$refText : undefined;
+      if (claim) inv.tenancyClaim = claim;
     }
   };
   // Sibling documents first, then the local model — so a local
@@ -244,6 +255,21 @@ function expandModel(model: Model, doc: LangiumDocument, shared?: LangiumSharedS
     else if (isBoundedContext(node)) expandHost(node, "context", doc, inv, buildRef);
     else if (isApi(node)) expandHost(node, "api", doc, inv, buildRef);
   }
+  // Second sweep: `late` macros (they read the finished aggregate surface of
+  // their scope), now that every aggregate's own `with` clause has spliced.
+  for (const node of [...AstUtils.streamAllContents(model)]) {
+    const kind = isUi(node)
+      ? "ui"
+      : isBoundedContext(node)
+        ? "context"
+        : isApi(node)
+          ? "api"
+          : undefined;
+    if (!kind) continue;
+    for (const call of (node as { withClause?: { calls?: MacroCall[] } }).withClause?.calls ?? []) {
+      if (isLateCall(call)) expandOneCall(call, node as never, kind, doc, inv, buildRef);
+    }
+  }
   void isSystem; // imported for symmetry with future system-level macros
   // ALWAYS-ON, after `with` expansion so scaffold-generated pages are seen too
   // (they already carry their paging controls, so they pass through untouched).
@@ -251,6 +277,12 @@ function expandModel(model: Model, doc: LangiumDocument, shared?: LangiumSharedS
   // scaffold emits — otherwise it renders the backend's default first page with
   // no pager and no way to reach the rest.  See `stdlib/auto-paged-table.ts`.
   autoPagePagedTables(model);
+}
+
+/** True iff the call names a registered `late` macro (see
+ * `MacroDefinition.late`) — deferred to the expander's second sweep. */
+function isLateCall(call: MacroCall): boolean {
+  return !!call.name && lookupMacro(call.name)?.late === true;
 }
 
 function expandHost(
@@ -263,6 +295,7 @@ function expandHost(
   const wc = host.withClause;
   if (wc) {
     for (const call of wc.calls ?? []) {
+      if (isLateCall(call)) continue;
       expandOneCall(call, host, kind, doc, inv, buildRef);
     }
   }
@@ -277,7 +310,7 @@ function expandHost(
       if (!isImplementsDecl(m) || !m.cap) continue;
       const capDecl = inv.Capability.get(m.cap);
       if (capDecl) {
-        expandCapability(capDecl, host, kind, m, doc, buildRef);
+        expandCapability(capDecl, host, kind, m, doc, buildRef, inv);
       } else {
         recordDiagnostic(doc, {
           severity: "error",
@@ -358,7 +391,7 @@ function applyDefaultVersioning(
   }
   const cap = inv.Capability.get("versioned");
   if (!cap) return; // the prelude always provides it; stay defensive
-  expandCapability(cap, agg, "aggregate", agg, doc, buildRef);
+  expandCapability(cap, agg, "aggregate", agg, doc, buildRef, inv);
 }
 
 /** The aggregate's own `version` PROPERTY, or undefined.  Only a property can
@@ -443,7 +476,7 @@ function expandOneCall(
     // purely additive.
     const cap = inv.Capability.get(name);
     if (cap) {
-      expandCapability(cap, host, hostKind, call, doc, buildRef);
+      expandCapability(cap, host, hostKind, call, doc, buildRef, inv);
       return;
     }
     recordDiagnostic(doc, {
@@ -558,6 +591,14 @@ function expandOneCall(
         args: argResult.values,
         origin,
         invokeMacro,
+        warn: (code, message) =>
+          recordDiagnostic(doc, {
+            severity: "warning",
+            code,
+            message,
+            node: call,
+            property: "name",
+          }),
       }),
     );
   } catch (err) {
@@ -616,6 +657,7 @@ function expandCapability(
   at: AstNode,
   doc: LangiumDocument,
   buildRef: BuildRef,
+  inv: Inventory,
 ): void {
   if (hostKind === "ui" || hostKind === "api") {
     recordDiagnostic(doc, {
@@ -715,6 +757,8 @@ function expandCapability(
     const cloned: unknown[] = (cap.members ?? []).map((m) => AstUtils.copyAstNode(m, buildRef));
     for (const m of cloned) {
       resolveSelfTypes(m as AstNode, agg.name, buildRef);
+      if (cap.name === "tenantOwned" && inv.tenancyClaim)
+        resolveTenancyClaim(m as AstNode, inv.tenancyClaim);
       // Tag a spliced `filter` member with the capability that contributed it,
       // so lowering can populate `contextFilterOrigins` — the provenance the
       // `ignoring <Cap>` bypass surface resolves against.  Transient ($-key),
@@ -748,6 +792,21 @@ function resolveSelfTypes(root: AstNode, hostName: string, buildRef: BuildRef): 
     idNode.$container = container;
     idNode.$containerProperty = "base";
     container.base = idNode;
+  }
+}
+
+/** Point `tenantOwned`'s principal reads at the claim the system's
+ *  `tenancy by user.<claim>` declares.  The prelude writes them as
+ *  `currentUser.tenantId` (the capability cannot know the system); after this
+ *  the stamp and filter read a member the principal really has, so they type
+ *  and lower like any other claim read.  The ROW column stays `tenantId`:
+ *  the capability owns that name. */
+function resolveTenancyClaim(root: AstNode, claim: string): void {
+  for (const node of [root, ...AstUtils.streamAllContents(root)]) {
+    if (!isPostfixChain(node) || !isNameRef(node.head) || node.head.name !== "currentUser")
+      continue;
+    const first = node.suffixes[0];
+    if (first && isMemberSuffix(first) && first.member === "tenantId") first.member = claim;
   }
 }
 

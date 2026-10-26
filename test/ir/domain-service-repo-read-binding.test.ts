@@ -43,13 +43,13 @@ system RosterSys {
     retrieval TopOwners of Owner { where: InTier("gold") }
 
     repository Owners for Owner {
-      find byTier(tier: string): Owner[] where this.tier == tier
+      find byTier(tier: string): Owner where this.tier == tier
       find byLabel(label: string): Owner? where this.label == label
     }
 
     domainService Roster {
       // 'named' — a DECLARED find carries its own return type.
-      operation declaredList(t: string): bool { let f = Owners.byTier(t)  return f.count > 0 }
+      operation declaredSingle(t: string): bool { let f = Owners.byTier(t)  return f.label == "" }
       operation declaredOptional(l: string): bool { let f = Owners.byLabel(l)  return f == null }
       // 'named' — the BUILT-IN verbs every repository auto-emits.  None is in
       // 'finds', so none has a declared return type to read, and they do NOT
@@ -62,7 +62,7 @@ system RosterSys {
       // (and .NET/elixir emit a method name that does not even exist, since only
       // DECLARED finds are emitted under their own names).
       operation builtinGetById(o: Owner id): string { let f = Owners.getById(o)  return f.label }
-      operation builtinFindById(o: Owner id): string { let f = Owners.findById(o)  return f.label }
+      operation builtinFindById(o: Owner id): string { let f = Owners.findById(o)  return f != null ? f.label : "" }
       operation builtinFindAll(): bool { let f = Owners.findAll()  return f.count > 0 }
       operation builtinAll(): bool { let f = Owners.all()  return f.count > 0 }
       // the criterion / retrieval shapes
@@ -117,7 +117,7 @@ function bindingType(svc: DomainServiceIR, opName: string): TypeIR | undefined {
 describe("domainService: the IR type of a let-bound repository read (F1)", () => {
   it.each([
     // op                  expected binding type
-    ["declaredList", { kind: "array", element: OWNER }],
+    ["declaredSingle", OWNER],
     ["declaredOptional", { kind: "optional", inner: OWNER }],
     ["builtinGetById", OWNER],
     // findById is the RETURN-ABSENT sibling of the throwing getById.  This row
@@ -151,11 +151,8 @@ describe("domainService: the IR type of a let-bound repository read (F1)", () =>
     const ir = await lower();
     const ctx = ir.systems[0]!.subdomains[0]!.contexts[0]!;
     const repo = ctx.repositories.find((r) => r.name === "Owners");
-    expect(repo?.finds.find((f) => f.name === "byTier")?.returnType).toEqual({
-      kind: "array",
-      element: OWNER,
-    });
-    expect(bindingType(serviceFrom(ir, "Roster"), "declaredList")).toEqual(
+    expect(repo?.finds.find((f) => f.name === "byTier")?.returnType).toEqual(OWNER);
+    expect(bindingType(serviceFrom(ir, "Roster"), "declaredSingle")).toEqual(
       repo?.finds.find((f) => f.name === "byTier")?.returnType,
     );
   });

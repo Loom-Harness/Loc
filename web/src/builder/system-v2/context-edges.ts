@@ -25,19 +25,18 @@ import type {
 } from "../../../../src/language/generated/ast.js";
 import {
   isApply,
-  isHandleDecl,
   isOnDecl,
   isWorkflowCreateDecl,
 } from "../../../../src/language/generated/ast.js";
 import { computeAggregateRelations } from "./aggregate-edges";
 
 /** A2-S5f: a workflow body is members-only; its sequential statements live
- *  inside `create` / `handle` / `on` / `apply` member bodies.  Flatten them so
+ *  inside `create` / `on` / `apply` member bodies.  Flatten them so
  *  edge collection sees every aggregate / repository / event touch. */
 function workflowStatements(wf: Workflow): Statement[] {
   const out: Statement[] = [];
   for (const m of wf.members) {
-    if (isWorkflowCreateDecl(m) || isHandleDecl(m) || isOnDecl(m) || isApply(m)) {
+    if (isWorkflowCreateDecl(m) || isOnDecl(m) || isApply(m)) {
       out.push(...m.body);
     }
   }

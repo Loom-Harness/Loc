@@ -101,14 +101,17 @@ const LEAK_SHAPES = `system LeakShapes {
         status: OrderStatus
       }
 
+      // Single-row finds: an \`ignoring\` is a per-METHOD fact on a find (a
+      // criterion takes it per call, at each \`Repo.run\`), so the bypass
+      // shapes stay finds.
       repository Secrets for Secret {
-        find byCode(c: string): Secret[] where this.code == c
-        find anyTenant(c: string): Secret[] where this.code == c ignoring tenantOwned
-        find everything(c: string): Secret[] where this.code == c ignoring *
+        find byCode(c: string): Secret? where this.code == c
+        find anyTenant(c: string): Secret? where this.code == c ignoring tenantOwned
+        find everything(c: string): Secret? where this.code == c ignoring *
       }
 
       repository Orders for Order {
-        find allTenants(c: string): Order[] where this.code == c ignoring *
+        find allTenants(c: string): Order? where this.code == c ignoring *
       }
 
       projection OrderVolume {
@@ -182,8 +185,8 @@ const GATE_SHAPES = `system GateShapes {
       }
       repository Tickets for Ticket {
         find all(): Ticket[]
-        find openOnes(): Ticket[] where this.open == true
       }
+      criterion TicketsOpenOnes of Ticket = this.open == true
       policy { read Ticket requires currentUser.role == "auditor" }
       projection OpenCount requires currentUser.role == "lead" {
         total: int
@@ -688,8 +691,8 @@ const LEAK_AGG: Record<VariantId, Edit[]> = {
     {
       file: /StoreQueryProjections\.java$/,
       after: "orderVolume()",
-      from: " where (e.tenantId = :__cuTenantId)",
-      to: "",
+      from: "        Object r = entityManager.createQuery(",
+      to: '        entityManager.unwrap(org.hibernate.Session.class).disableFilter("Order_tenantOwned");\n        Object r = entityManager.createQuery(',
     },
   ],
   // The tenant floor is a hook criterion; seeded as the read lifting it.

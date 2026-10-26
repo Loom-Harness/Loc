@@ -132,5 +132,8 @@
     <!-- FluentValidation — wire-boundary validators (Mediator pipeline) -->
     <PackageReference Include="FluentValidation" Version="12.1.1" />
     <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />
+    <!-- Ardalis.Specification — reified retrieval/criterion query objects -->
+    <PackageReference Include="Ardalis.Specification" Version="9.3.1" />
+    <PackageReference Include="Ardalis.Specification.EntityFrameworkCore" Version="9.3.1" />
   </ItemGroup>
 </Project>
