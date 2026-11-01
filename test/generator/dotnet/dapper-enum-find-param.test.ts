@@ -86,8 +86,12 @@ describe("Dapper binds an enum read parameter by name", () => {
 
     // Premise: both reads are emitted, and the enum one really does key on the
     // enum column — so a failure below is about the BINDING, not a missing read.
-    expect(repo).toContain("public async Task<IReadOnlyList<Order>> RunFindAllByOrdersByStatusAsync(Status s,");
-    expect(repo).toContain("public async Task<IReadOnlyList<Order>> RunFindAllByOrdersByCodeAsync(string c,");
+    expect(repo).toContain(
+      "public async Task<IReadOnlyList<Order>> RunFindAllByOrdersByStatusAsync(Status s,",
+    );
+    expect(repo).toContain(
+      "public async Task<IReadOnlyList<Order>> RunFindAllByOrdersByCodeAsync(string c,",
+    );
     expect(repo).toContain("WHERE (status = @s)");
 
     // The fix: the enum parameter is bound as its declared name.

@@ -50,8 +50,12 @@ describe("dapper repository — single-row contract", () => {
     );
     expect(handler).toContain("var p = __pHits.Count > 0 ? __pHits[0] : null;");
     // …and the retrieval pushes that limit into the SQL.
-    expect(impl).toContain('var sql = "SELECT id, sku, name, version FROM products WHERE (sku = @sku)";');
-    expect(impl).toContain('if (pg.limit is { } lim) { sql += " LIMIT @__lim"; p.Add("__lim", lim); }');
+    expect(impl).toContain(
+      'var sql = "SELECT id, sku, name, version FROM products WHERE (sku = @sku)";',
+    );
+    expect(impl).toContain(
+      'if (pg.limit is { } lim) { sql += " LIMIT @__lim"; p.Add("__lim", lim); }',
+    );
     // A second matching row must not be able to throw: the strict single-row
     // read may survive ONLY on the PK-keyed GetById.
     const strict = [

@@ -165,6 +165,8 @@ describe("dotnet method locals yield to a same-named .ddd param", () => {
     const files = await generateSystemFiles(SOURCE("efcore"));
     const ctl = files.get("d/Api/SalesApiRoutesController.cs")!;
     expect(ctl).toContain("GetTicketByUni([FromQuery] string result, [FromQuery] string problem)");
-    expect(ctl).toMatch(/var __result = await _mediator\.Send\(new GetTicketByUniQuery\(result, problem\)\);/);
+    expect(ctl).toMatch(
+      /var __result = await _mediator\.Send\(new GetTicketByUniQuery\(result, problem\)\);/,
+    );
   });
 });

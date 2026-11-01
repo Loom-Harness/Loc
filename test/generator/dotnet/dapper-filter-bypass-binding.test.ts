@@ -114,9 +114,7 @@ describe("dapper — `ignoring` drops the principal BINDING, not just the SQL", 
       "IReadOnlyList<Deep>",
     );
     expect(body).toContain("tenant_id = @__cu_tenantId");
-    expect(body).toContain(
-      'p.Add("__cu_tenantId", RequestContext.Current!.CurrentUser!.TenantId)',
-    );
+    expect(body).toContain('p.Add("__cu_tenantId", RequestContext.Current!.CurrentUser!.TenantId)');
   });
 
   it("GetById keeps the full filter set — it carries no bypass", async () => {

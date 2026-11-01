@@ -127,7 +127,10 @@ describe("policy deny survives `ignoring *` — efcore", () => {
   });
 
   it("`find(C) … ignoring *` bypasses only the NAMED bypassable filters", async () => {
-    const all = method(await repo(EF), "public async Task<Secret?> FindFirstAllIgnoringIgnoringAll(");
+    const all = method(
+      await repo(EF),
+      "public async Task<Secret?> FindFirstAllIgnoringIgnoringAll(",
+    );
     expect(all).toContain('IgnoreQueryFilters(["IsDeletedFilter"])');
   });
 
