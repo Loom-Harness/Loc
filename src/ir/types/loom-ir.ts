@@ -4417,7 +4417,7 @@ export function workflowEmitsCommandRoute(wf: WorkflowIR): boolean {
  *  request-scoped auth actor) before the rendered guard/expr — which
  *  emits the bare token `currentUser` — can resolve.  Shared by the
  *  Hono and .NET workflow emitters. */
-export function workflowUsesCurrentUser(wf: WorkflowIR): boolean {
+export function workflowUsesCurrentUser(wf: Pick<WorkflowIR, "statements">): boolean {
   return wf.statements.some(workflowStmtUsesCurrentUser);
 }
 
