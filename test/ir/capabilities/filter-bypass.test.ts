@@ -36,13 +36,13 @@ const LOWER_SRC = `
     subdomain D { context C {
       criterion BigOrders() of Order = this.total > 0
       aggregate Order with softDeletable { total: int }
-      repository OrderRepo for Order {
-        find allRows(): Order? ignoring *
-      }
+      repository OrderRepo for Order
       criterion OrdersRecent of Order = this.total > 0
-      criterion OrdersNormal of Order = this.total > 0
+      criterion AllRows of Order = this.total >= 0
       workflow Sweep {
         create(x: int) {
+          if let r = OrderRepo.find(OrdersRecent()) ignoring softDeletable { }
+          if let a = OrderRepo.find(AllRows()) ignoring * { }
           let xs = OrderRepo.findAll(BigOrders()) ignoring softDeletable
           let ys = OrderRepo.findAll(BigOrders()) ignoring *
           for o in xs { }
@@ -54,19 +54,20 @@ const LOWER_SRC = `
 `;
 
 describe("ignoring filter-bypass lowering", () => {
-  it("resolves capability names onto FindIR.bypassCaps and `*` to bypassAll", async () => {
+  it("resolves capability names onto the widened read's FindIR.bypassCaps and `*` to bypassAll", async () => {
     const ir = await buildLoomModel(LOWER_SRC);
-    const recent = findInModel(ir, "recent");
+    const recent = findInModel(ir, "findFirstOrdersRecentIgnoringSoftDeletable");
     expect(recent.bypassCaps).toEqual(["softDeletable"]);
     expect(recent.bypassAll).toBeUndefined();
 
-    const allRows = findInModel(ir, "allRows");
+    const allRows = findInModel(ir, "findFirstAllRowsIgnoringAll");
     expect(allRows.bypassAll).toBe(true);
     expect(allRows.bypassCaps).toBeUndefined();
 
-    const normal = findInModel(ir, "normal");
-    expect(normal.bypassAll).toBeUndefined();
-    expect(normal.bypassCaps).toBeUndefined();
+    // The list read nothing widened keeps every filter.
+    const all = findInModel(ir, "all");
+    expect(all.bypassAll).toBeUndefined();
+    expect(all.bypassCaps).toBeUndefined();
   });
 
   it("resolves inline repo-run bypass (named + `*`) in the workflow body", async () => {
@@ -125,18 +126,18 @@ const systemWith = (ctxBody: string, platform = "dotnet") => `
 describe("ignoring filter-bypass validator gates", () => {
   it("accepts a valid bypass on a dotnet deployable (no diagnostics)", async () => {
     const diags = await bypassDiags(
-      systemWith(`repository R for Order {
-        find recent(): Order? where this.total > 0 ignoring softDeletable
-      }`),
+      systemWith(`repository R for Order
+      criterion Recent of Order = this.total > 0
+      workflow Peek { create(x: int) { if let o = R.find(Recent()) ignoring softDeletable { } } }`),
     );
     expect(diags).toEqual([]);
   });
 
   it("accepts `ignoring *` on a dotnet deployable", async () => {
     const diags = await bypassDiags(
-      systemWith(`repository R for Order {
-        find allRows(): Order? ignoring *
-      }`),
+      systemWith(`repository R for Order
+      criterion AllRows of Order = this.total >= 0
+      workflow Peek { create(x: int) { if let o = R.find(AllRows()) ignoring * { } } }`),
     );
     expect(diags).toEqual([]);
   });
@@ -144,9 +145,9 @@ describe("ignoring filter-bypass validator gates", () => {
   it("accepts a valid bypass on a node deployable (Slice 2 — Drizzle omits the conjunct)", async () => {
     const diags = await bypassDiags(
       systemWith(
-        `repository R for Order {
-          find recent(): Order? where this.total > 0 ignoring softDeletable
-        }`,
+        `repository R for Order
+      criterion Recent of Order = this.total > 0
+      workflow Peek { create(x: int) { if let o = R.find(Recent()) ignoring softDeletable { } } }`,
         "node",
       ),
     );
@@ -156,9 +157,9 @@ describe("ignoring filter-bypass validator gates", () => {
   it("accepts a valid bypass on an elixir VANILLA deployable (Slice 2 — Ecto omits the where)", async () => {
     const diags = await bypassDiags(
       systemWith(
-        `repository R for Order {
-          find recent(): Order? where this.total > 0 ignoring softDeletable
-        }`,
+        `repository R for Order
+      criterion Recent of Order = this.total > 0
+      workflow Peek { create(x: int) { if let o = R.find(Recent()) ignoring softDeletable { } } }`,
         ELIXIR_VANILLA,
       ),
     );
@@ -168,9 +169,9 @@ describe("ignoring filter-bypass validator gates", () => {
   it("accepts a valid bypass on an elixir ASH deployable (Slice 3 — §11.6 base_filter→per-read triage)", async () => {
     const diags = await bypassDiags(
       systemWith(
-        `repository R for Order {
-          find recent(): Order? where this.total > 0 ignoring softDeletable
-        }`,
+        `repository R for Order
+      criterion Recent of Order = this.total > 0
+      workflow Peek { create(x: int) { if let o = R.find(Recent()) ignoring softDeletable { } } }`,
         "elixir",
       ),
     );
@@ -180,9 +181,9 @@ describe("ignoring filter-bypass validator gates", () => {
   it("accepts a valid bypass on a java deployable (§11.6 @SQLRestriction→bypassable @Filter triage)", async () => {
     const diags = await bypassDiags(
       systemWith(
-        `repository R for Order {
-          find recent(): Order? where this.total > 0 ignoring softDeletable
-        }`,
+        `repository R for Order
+      criterion Recent of Order = this.total > 0
+      workflow Peek { create(x: int) { if let o = R.find(Recent()) ignoring softDeletable { } } }`,
         "java",
       ),
     );
@@ -192,9 +193,9 @@ describe("ignoring filter-bypass validator gates", () => {
   it("accepts a valid bypass on a python deployable (SQLAlchemy omits the conjunct)", async () => {
     const diags = await bypassDiags(
       systemWith(
-        `repository R for Order {
-          find recent(): Order? where this.total > 0 ignoring softDeletable
-        }`,
+        `repository R for Order
+      criterion Recent of Order = this.total > 0
+      workflow Peek { create(x: int) { if let o = R.find(Recent()) ignoring softDeletable { } } }`,
         "python",
       ),
     );
@@ -203,35 +204,35 @@ describe("ignoring filter-bypass validator gates", () => {
 
   it("loom.filter-bypass-unknown-capability — capability not implemented", async () => {
     const diags = await bypassDiags(
-      systemWith(`repository R for Order {
-        find recent(): Order? where this.total > 0 ignoring tenantScoped
-      }`),
+      systemWith(`repository R for Order
+      criterion Recent of Order = this.total > 0
+      workflow Peek { create(x: int) { if let o = R.find(Recent()) ignoring tenantScoped { } } }`),
     );
     expect(diags.map((d) => d.code)).toEqual(["loom.filter-bypass-unknown-capability"]);
   });
 
   it("loom.filter-bypass-no-filter — capability contributes no filter (stamps-only)", async () => {
     const diags = await bypassDiags(
-      systemWith(`repository R for Order {
-        find recent(): Order? where this.total > 0 ignoring auditable
-      }`),
+      systemWith(`repository R for Order
+      criterion Recent of Order = this.total > 0
+      workflow Peek { create(x: int) { if let o = R.find(Recent()) ignoring auditable { } } }`),
     );
     expect(diags.map((d) => d.code)).toEqual(["loom.filter-bypass-no-filter"]);
   });
 
   it("fires on an inline repo-run bypass of an unknown capability", async () => {
     const diags = await bypassDiags(
-      systemWith(`repository R for Order {
-        find recent(): Order? where this.total > 0 ignoring tenantScoped
-      }`),
+      systemWith(`repository R for Order
+      criterion Recent of Order = this.total > 0
+      workflow Peek { create(x: int) { if let o = R.find(Recent()) ignoring tenantScoped { } } }`),
     );
     expect(diags.map((d) => d.code)).toEqual(["loom.filter-bypass-unknown-capability"]);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Query-time projection `ignoring` — the projection twin of a repository
-// `find … ignoring` (the synthesised source find carries the same bypass, so
+// Query-time projection `ignoring` — the projection twin of a widened
+// repository read (the synthesised source find carries the same bypass, so
 // the three gates apply to a projection read identically).
 // ---------------------------------------------------------------------------
 

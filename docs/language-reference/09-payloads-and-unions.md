@@ -172,6 +172,17 @@ So whatever the host-language representation — a Zod discriminated union, a `J
 
 A repository `find` once returned the absence shape `Order or NotFound` / `Order option`, answered untagged at a status code.  `find` declarations are removed ([D-FINDDECL-REMOVED](../decisions.md)) and the 2026-10-25 ruling dropped the shape: a miss is `T?` (`findById`, `findBy`, `find(<Criterion>)`), and a must-exist read (`getById`, `getBy`) answers the standard ProblemDetails 404.  The tagged union wire is for operation returns.
 
+### Reading a union in a body — `match` first
+
+An `or`-returning operation binds ONE of its variants, so a body reads the
+result through a variant `match` — never straight through
+(`loom.union-read-undiscriminated`).  The arm binding is narrowed to its
+variant:
+
+```ddd
+let t = match r { Order o => o.code, NotFound => "missing" }
+```
+
 ## Named union — `payload Foo = A | B`
 
 The named form declares the variant set up front with identity **by name** (nominal — unlike the structural anonymous form). Use `=` and `|` (the `PayloadDecl` `'=' variants+=TypeAtom ('|' variants+=TypeAtom)*` arm):
