@@ -224,14 +224,12 @@ describe("RS-39 — an absent required field: one 422 everywhere; a create with 
     ).toContain("Body(default_factory=CreateTicketRequest)");
   });
 
-  it("dotnet: both missing-field arms carry MissingField", async () => {
+  it('dotnet: both missing-field arms read "<field> is required"', async () => {
     const vp = fileEndingWith(await files("dotnet"), "Api/ValidationProblem.cs");
+    expect(vp).toContain('private const string MissingSuffix = " is required";');
+    expect(vp).toContain('["message"] = MissingFieldMessage(name),');
     expect(vp).toContain(
-      `private const string MissingField = ${JSON.stringify(MISSING_FIELD_MESSAGE)};`,
-    );
-    expect(vp).toContain('["message"] = MissingField,');
-    expect(vp).toContain(
-      "IsRequiredMessage(error.ErrorMessage) ? MissingField : error.ErrorMessage",
+      "IsRequiredMessage(error.ErrorMessage) ? MissingFieldMessage(PointerOf(entry.Key)) : error.ErrorMessage",
     );
   });
 

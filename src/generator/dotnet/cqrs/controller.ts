@@ -1,3 +1,4 @@
+import { errorVariantResponse } from "../../../ir/enrich/wire-policy.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import { unionInstanceName } from "../../../ir/stdlib/unions.js";
 import type {
@@ -15,7 +16,6 @@ import {
 } from "../../../ir/util/api-surface.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
-import { defaultErrorStatus, errorTitle, errorTypeUri } from "../../../util/error-defaults.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { findUnionSpec, unionMembers } from "../../_payload/union-wire.js";
@@ -137,7 +137,7 @@ function buildReturnUnionSpec(
     return v.kind === "entity" && ctx.payloads.some((p) => p.name === v.name && p.kind === "error");
   };
   const arms: ReturnUnionArm[] = members.map((m, i) => {
-    const status = ctx.errorStatusOverrides?.[m.tag] ?? defaultErrorStatus(m.tag);
+    const variant = errorVariantResponse(m.tag, ctx.errorStatusOverrides);
     const ctorArgs =
       m.shape === "none"
         ? []
@@ -147,9 +147,9 @@ function buildReturnUnionSpec(
     return {
       tag: m.tag,
       isError: isError(i),
-      status,
-      title: errorTitle(m.tag),
-      typeUri: errorTypeUri(m.tag),
+      status: variant.status,
+      title: variant.title,
+      typeUri: variant.type,
       ctorArgs,
       errorFields:
         m.shape === "record"
@@ -309,11 +309,9 @@ export function emitController(
             ? ({ kind: "none" } as const)
             : ({
                 kind: "error",
-                status:
-                  ctx.errorStatusOverrides?.[spec.absent.tag] ??
-                  defaultErrorStatus(spec.absent.tag),
-                title: errorTitle(spec.absent.tag),
-                typeUri: errorTypeUri(spec.absent.tag),
+                status: errorVariantResponse(spec.absent.tag, ctx.errorStatusOverrides).status,
+                title: errorVariantResponse(spec.absent.tag).title,
+                typeUri: errorVariantResponse(spec.absent.tag).type,
                 // The `resource` extension carries the aggregate name when the
                 // error payload declares it — matching the cross-backend absent
                 // body (Hono / Python / Java / Phoenix / vanilla all emit it).

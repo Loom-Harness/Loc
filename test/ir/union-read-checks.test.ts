@@ -1,7 +1,7 @@
 // `loom.union-read-undiscriminated` (M-T5.1 A4) — an `or`-union value read
 // straight through, without a variant `match`.
 //
-// A union find (`Order or NotFound`, `Order option`) and an `or`-returning
+// A union find (`Order or NotFound`) and an `or`-returning
 // operation bind ONE of their variants.  Reading `r.code` — or invoking
 // `r.touch()` — without discriminating validated `0 error(s)` and emitted an
 // unguarded dereference of a nullable on every backend (TS18047 on node,
@@ -55,7 +55,9 @@ describe("loom.union-read-undiscriminated", () => {
     expect(msgs[0]).toContain("Order | NotFound");
   });
 
-  it("refuses the `option` spelling too — it is the same absence union", async () => {
+  it("leaves the `option` spelling to loom.nullable-receiver — it lowers to `T?`", async () => {
+    // `Order option` is `Order?` (D-ABSENCE-MODEL), so the unguarded read is
+    // the AST rule's `'.code' can't be read on 'Order?'`, not a union read.
     const msgs = await flagged(`
     workflow label {
       create(code: string) {
@@ -63,8 +65,7 @@ describe("loom.union-read-undiscriminated", () => {
         let n = Note.create({ text: m.code })
       }
     }`);
-    expect(msgs).toHaveLength(1);
-    expect(msgs[0]).toContain("'m.code'");
+    expect(msgs).toHaveLength(0);
   });
 
   it("refuses an operation invoked on a union-bound workflow local", async () => {

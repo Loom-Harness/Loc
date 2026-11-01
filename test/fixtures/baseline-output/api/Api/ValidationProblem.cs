@@ -12,7 +12,11 @@ public static class ValidationProblem
     /// leaves out (RS-39) — whether System.Text.Json noticed the absence (a
     /// value-typed member) or DataAnnotations' [Required] did (a reference one).
     /// </summary>
-    private const string MissingField = "Required";
+    private const string MissingSuffix = " is required";
+
+    /// <summary>"&lt;field&gt; is required" — the field is the LAST key of the pointer.</summary>
+    private static string MissingFieldMessage(string pointer) =>
+        pointer[(pointer.LastIndexOf('/') + 1)..] + MissingSuffix;
 
     /// <summary>[Required]'s own sentence — "The X field is required." —
     /// recognised so it carries the shared wording instead.</summary>
@@ -105,7 +109,7 @@ public static class ValidationProblem
                         ? names.Select(name => new Dictionary<string, object>
                         {
                             ["pointer"] = "/" + name,
-                            ["message"] = MissingField,
+                            ["message"] = MissingFieldMessage(name),
                         })
                         : new[] { new Dictionary<string, object>
                         {
@@ -157,6 +161,45 @@ public static class ValidationProblem
                 ContentTypes = { "application/problem+json" },
             };
         }
+        // A value of the WRONG JSON TYPE for its field — "5" for an int, 12.5 for
+        // a money, 5.5 for an int — is a FIELD refusal at the field's pointer,
+        // not a malformed body (D-NUMERIC-INGRESS-STRICT: no coercion, and the
+        // refusal is the schema tier's).  System.Text.Json raises it as a
+        // JsonException whose text starts "The JSON value could not be
+        // converted to <type>." and keys the entry by the field's JSON path; a
+        // SYNTAX fault is a different exception and keeps the 400 below.  The
+        // framework's sentence names the CLR request type (an internal name), so
+        // the message is the neutral one below instead.
+        static string MismatchText(ModelError error) =>
+            error.Exception?.Message ?? error.ErrorMessage;
+        static bool IsTypeMismatch(ModelError error) =>
+            MismatchText(error).StartsWith("The JSON value could not be converted", StringComparison.Ordinal);
+        var mismatched = context.ModelState
+            .Where(entry => entry.Value is not null && entry.Value.Errors.Any(IsTypeMismatch))
+            .ToArray();
+        if (mismatched.Length > 0)
+        {
+            var mismatchProblem = new ProblemDetails
+            {
+                Type = "about:blank",
+                Title = "Validation failed",
+                Status = 422,
+                Detail = "One or more fields are invalid.",
+                Instance = context.HttpContext.Request.Path,
+            };
+            mismatchProblem.Extensions["errors"] = mismatched
+                .Select(entry => new Dictionary<string, object>
+                {
+                    ["pointer"] = PointerOf(entry.Key.TrimStart('$').TrimStart('.')),
+                    ["message"] = "Invalid value",
+                })
+                .ToArray();
+            return new ObjectResult(mismatchProblem)
+            {
+                StatusCode = 422,
+                ContentTypes = { "application/problem+json" },
+            };
+        }
         var malformed = context.ModelState.Any(entry =>
             entry.Key.StartsWith('$')
             || entry.Value?.Errors.Any(error => error.Exception is JsonException) == true);
@@ -189,7 +232,7 @@ public static class ValidationProblem
                 : entry.Value.Errors.Select(error => new Dictionary<string, object>
                 {
                     ["pointer"] = PointerOf(entry.Key),
-                    ["message"] = IsRequiredMessage(error.ErrorMessage) ? MissingField : error.ErrorMessage,
+                    ["message"] = IsRequiredMessage(error.ErrorMessage) ? MissingFieldMessage(PointerOf(entry.Key)) : error.ErrorMessage,
                 }))
             .ToArray();
         return new ObjectResult(problem)

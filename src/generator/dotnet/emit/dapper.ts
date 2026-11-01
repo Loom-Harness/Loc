@@ -71,6 +71,7 @@ import {
   renderCsExpr,
   renderCsType,
 } from "../render-expr.js";
+import { csFindAbsentException } from "../wire-policy-cs.js";
 import {
   buildDapperScope,
   csSqlInterpolated,
@@ -1903,14 +1904,11 @@ export function renderDapperRepository(
     // /warnaserror` rejects it with CS8603 ("Possible null reference return").
     // Nothing caught it because the `dotnet-build` fixture matrix has no
     // `persistence: dapper` case that declares a non-optional find.
-    const absent =
-      f.returnType.kind === "optional"
-        ? "null"
-        : `throw new AggregateNotFoundException("not_found")`;
+    const absent = f.returnType.kind === "optional" ? "null" : `throw ${csFindAbsentException()}`;
     const absentGuard =
       f.returnType.kind === "optional"
         ? `        if (${L("r")} is null) return null;`
-        : `        if (${L("r")} is null) throw new AggregateNotFoundException("not_found");`;
+        : `        if (${L("r")} is null) throw ${csFindAbsentException()};`;
     return lines(
       `    public async Task<${ret}> ${name}(${renderParams(f.params, [], usesUser)})`,
       `    {`,
