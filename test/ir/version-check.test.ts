@@ -46,7 +46,7 @@ system V {
         create(doc: Doc id, t: string) {
           let d = Docs.getById(doc)
           d.rename(t)
-          let fresh = Doc.create({ title: t })
+          let fresh = Doc.create(title: t)
         }
       }
       workflow relabel {
