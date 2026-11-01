@@ -838,6 +838,9 @@ export function renderReturningOpFunction(
   const bodyStmts = op.statements.filter((s, idx) => {
     if (s.kind === "requires" || s.kind === "precondition") return false;
     if (hoistEmits && s.kind === "emit") return false;
+    // A body ending in an error return leaves no trace (D-FAILURE-MODEL): its
+    // events are dropped with the unpersisted record, never broadcast.
+    if (trailingIsError && s.kind === "emit") return false;
     if (persists && trailingReturn !== undefined && idx === lastIdx) return false;
     return true;
   });

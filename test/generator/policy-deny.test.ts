@@ -7,6 +7,8 @@
 // `--warnings-as-errors`).
 
 import { describe, expect, it } from "vitest";
+import { inlineDapperScope } from "../_helpers/dapper-scope.js";
+import { inlineDrizzleScope } from "../_helpers/drizzle-scope.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 // `Secret` is READ-denied (invisible); `Account` is WRITE-denied (read-only).
@@ -54,8 +56,13 @@ async function files(platform: string): Promise<Map<string, string>> {
 async function allText(platform: string): Promise<string> {
   return [...(await files(platform)).values()].join("\n\n");
 }
+/** The first file whose path contains `needle`, with each scope-helper reference
+ *  (drizzle `secretScope()`, Dapper `SecretScope.Where`) resolved to the predicate it holds. */
 async function fileContaining(platform: string, needle: string): Promise<string> {
-  for (const [path, body] of await files(platform)) if (path.includes(needle)) return body;
+  const all = await files(platform);
+  for (const [path, body] of all) {
+    if (path.includes(needle)) return inlineDrizzleScope(all, inlineDapperScope(body));
+  }
   return "";
 }
 
@@ -271,17 +278,20 @@ describe("policy deny — node (Hono/MikroORM)", () => {
   const mikro = "node { persistence: mikroorm }";
 
   it("ANDs the always-false FilterQuery contradiction into every read (deny read)", async () => {
-    const secret = await fileContaining(mikro, "repositories/secret-repository");
-    // Spliced into EVERY read site — findById, findManyByIds, the findAll page
-    // and its count.  A contradiction that reached only one of them still leaks.
-    const readSites = [
-      ...secret.matchAll(/\{ \$and: \[\{ id: null \}, \{ id: \{ \$ne: null \} \}\] \}/g),
-    ];
-    expect(readSites.length).toBeGreaterThanOrEqual(4);
-    // The deny term rides the same `$and` composition as the tenant floor.
-    expect(secret).toContain(
-      "em.findOne(SecretRow, { $and: [{ id: id as string }, { tenantId: requireCurrentUser().tenantId }, { $and: [{ id: null }, { id: { $ne: null } }] }] })",
+    // The contradiction is declared ONCE, as a default schema filter named
+    // `loom.deny` — which MikroORM applies to every read of the entity
+    // (findById, findManyByIds, the findAll page and its count, native writes),
+    // so no read site can omit it.  No `ignoring` clause can switch it off: the
+    // bypassable filters have capability names, this one has a fixed name.
+    const entities = await fileContaining(mikro, "db/entities");
+    expect(entities).toContain(
+      '"loom.deny": { name: "loom.deny", cond: () => ({ $and: [{ id: null }, { id: { $ne: null } }] }), default: true },',
     );
+    // The read sites carry no hand-ANDed copy of it.
+    const secret = await fileContaining(mikro, "repositories/secret-repository");
+    expect(secret).toContain("em.findOne(SecretRow, { id: id as string })");
+    expect(secret).not.toContain("{ id: null }");
+    expect(secret).not.toContain("loom.deny");
   });
 
   it("emits the write-scope existence pre-guard on getById (deny write)", async () => {

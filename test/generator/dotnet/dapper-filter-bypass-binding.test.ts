@@ -19,6 +19,7 @@
 // names.  Compile-verified under sdk:10.0 with /warnaserror.
 
 import { describe, expect, it } from "vitest";
+import { inlineDapperScope } from "../../_helpers/dapper-scope.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = `
@@ -69,16 +70,18 @@ async function repository(): Promise<string> {
     k.endsWith("Infrastructure/Repositories/DeepRepository.cs"),
   );
   if (!key) throw new Error("no DeepRepository.cs");
-  return files.get(key)!;
+  return inlineDapperScope(files.get(key)!);
 }
 
 describe("dapper — `ignoring` drops the principal BINDING, not just the SQL", () => {
   it("`ignoring *` binds no principal param and never dereferences CurrentUser", async () => {
     const body = methodBody(await repository(), "AllDeep");
-    // Both capability conjuncts are gone from the statement …
+    // The capability conjunct is gone from the statement; the origin-less
+    // `filter this.label != ""` is no capability's, so `ignoring *` keeps it
+    // (the read-scope fact: only a capability-contributed restriction is droppable) …
     expect(body).not.toContain("tenant_id = @__cu_tenantId");
-    expect(body).not.toContain("label <> ''");
-    // … so neither may be bound, and the ambient principal must not be read.
+    expect(body).toContain("label <> ''");
+    // … so the dropped one may not be bound, and the ambient principal must not be read.
     expect(body, "an ignoring * read still binds a claim its SQL never names").not.toContain(
       "__cu_tenantId",
     );

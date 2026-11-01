@@ -281,7 +281,7 @@ export const R = {
    *     repositories always write `version` explicitly).
    *   • the MikroORM adapter ignores the dataSource `schema:` altogether: its
    *     `EntitySchema`s are mapped `tableName: "<plural>"` with no schema and it
-   *     creates them with `orm.schema.updateSchema()` instead of running the
+   *     creates them with `orm.schema.update()` instead of running the
    *     emitted migration chain — so the same `.ddd` puts its tables in
    *     `"<ctx>"` on drizzle and in `public` on mikroorm.  A THIRD source of
    *     truth for one table.  Its raw seed INSERT is therefore left unqualified
@@ -590,6 +590,8 @@ export const UNATTRIBUTED_CALLS: Record<string, readonly string[]> = {
     "api.debitOnce.run (no such aggregate)",
     "api.debitTwice.run (no such aggregate)",
   ],
+  // A workflow run (`POST /api/workflows/labeller`) — the `notLifted` class.
+  "corpus/nullable-load": ["api.labeller.run (no such aggregate)"],
   // Workflow runs (M-T6.98) — not a lifted route class.
   "corpus/workflow-two-handles-document-eventlog": [
     "api.hitSameTwice.run (no such aggregate)",
@@ -1018,6 +1020,11 @@ export const E2E_LESS_CORPUS_FIXTURES: readonly string[] = [
   // (open).  The sidecar blocker is unchanged — the two routes exist to do
   // objectStore / queue / mailer I/O, and no behavioural leg stands those up.
   "handler-resource-ops",
+  // COMPILE-TIER WITNESS — `let`-bound optional repository reads and the
+  // `if let` that narrows them.  The emitted null-handling form is what the
+  // compile legs read; the booted block over the absent-row and present-row
+  // branches is #4335.
+  "optional-let",
   // `handler-triad` DRAINED (M-T6.73), and it took THREE attempts — the first two
   // are the reason this note is long.
   //

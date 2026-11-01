@@ -210,7 +210,7 @@ export function validateDapperSupport(sys: SystemIR, diags: LoomDiagnostic[]): v
 //
 // `loom.mikroorm-unsupported` is still raised, from `migration-checks.ts`
 // (`#migrations`, `#schema-split`, `#schema-ignored`) — the two genuinely
-// unmappable self-provisioning limits this adapter's `orm.schema.updateSchema()`
+// unmappable self-provisioning limits this adapter's `orm.schema.update()`
 // boot-time schema owner cannot express: a declared migration STEP (no
 // migration chain to apply it through) and Postgres schema PLACEMENT.  Before
 // adding a further clause under that code, answer both questions this gate has

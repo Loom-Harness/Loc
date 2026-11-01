@@ -161,10 +161,12 @@ const MONEY_LINEAGE_WIRE: readonly Backend[] = ["node"];
 const PART_REBUILD: readonly Backend[] = ALL.filter((b) => b !== "dotnet");
 
 // #3959: the polymorphic base read (`GET /<bases>/{id}`, a projection `from
-// <Base>`) passes on node/drizzle, python/SQLAlchemy, .NET EF and java.  The other legs boot the case as a
-// tracked expected failure (`BEHAVIOURAL_XFAIL`), each fixed by its own
-// sub-issue of #3954 (#3960–#3965); each fix adds its backend here, and the
-// row becomes ALL when the last one lands.
+// <Base>`) passes on node — both persistence adapters, drizzle and MikroORM
+// (`node` is the manifest key of both behavioural legs) — python/SQLAlchemy,
+// .NET EF and java.  The other legs boot the case as a tracked expected failure
+// (`BEHAVIOURAL_XFAIL`), each fixed by its own sub-issue of #3954
+// (#3960–#3965); each fix adds its backend here, and the row becomes ALL when
+// the last one lands.
 const BASE_READS: readonly Backend[] = ["node", "python", "dotnet", "java"];
 
 export interface CorpusFeature {
@@ -319,7 +321,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "inheritance (TPH + TPC) × a capability on the ABSTRACT BASE × polymorphic base reads (`GET /<base>/{id}`, a projection `from <Base>`)",
     doc: "inheritance",
     backends: BASE_READS,
-    note: "The half of epic #3954's behavioural fixture: base capabilities (#3956) and the polymorphic base reads (#3959).  node/drizzle, python/SQLAlchemy, .NET EF and java pass it (node is the oracle its wire golden is captured from); every other leg boots it as a tracked expected failure pinned to the assertion it fails on (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs) until its #3954 sub-issue (#3960–#3965) lands and adds the backend to `BASE_READS`.",
+    note: "The half of epic #3954's behavioural fixture: base capabilities (#3956) and the polymorphic base reads (#3959).  node/drizzle, python/SQLAlchemy, .NET (EF and Dapper) and java pass it (drizzle is the oracle its wire golden is captured from; the MikroORM leg replays that golden); every other leg boots it as a tracked expected failure pinned to the assertion it fails on (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs) until its #3954 sub-issue (#3960–#3965) lands and adds the backend to `BASE_READS`.",
   },
   { id: "event-sourcing", title: "`persistedAs: eventLog` — append-only stream + appliers", doc: "workflow", backends: ALL },
   { id: "eventsourced-workflow", title: "event-sourced saga folding its own emitted events", doc: "workflow", backends: ALL },
@@ -704,7 +706,23 @@ export const CORPUS: readonly CorpusFeature[] = [
       "handler-body shapes the emitters mishandled — an aggregate-less handler, a declared `byId` find called with an already-typed `Agg id`, and a dereferenced (non-optional) find",
     doc: "language",
     backends: ALL,
-    note: "The three defects #2652 measured and left unfixed. .NET DROPPED the aggregate-less handler and its route entirely (`if (!primaryAgg(h)) continue`); java renamed a declared `byId` find to `getById` and re-wrapped its already-typed argument (`getById(new OrderId(orderId))`, javac `incompatible types`). The third — an OPTIONAL find bound in a handler body, dereferenced unguarded (TS18047 / CS8602) — is now refused at phase ⑦ (`loom.handler-load-nullable-unsupported`), so this fixture carries the non-optional spelling and the refusal is pinned separately.",
+    note: "The three defects #2652 measured and left unfixed. .NET DROPPED the aggregate-less handler and its route entirely (`if (!primaryAgg(h)) continue`); java renamed a declared `byId` find to `getById` and re-wrapped its already-typed argument (`getById(new OrderId(orderId))`, javac `incompatible types`). The third — an OPTIONAL find bound in a handler body, dereferenced unguarded (TS18047 / CS8602) — now binds `T?` and a dereference without a null test is refused (`loom.nullable-receiver`); the guarded forms are the `optional-let` fixture.",
+  },
+  {
+    id: "optional-let",
+    title:
+      "a `let` bound to an optional repository read (`find(C)`, `findById`, `findBy`, a `T?` find) and the `if let` that narrows it — handlers, a workflow, a reading domain service",
+    doc: "language",
+    backends: ALL,
+    note: "Each optional read binds the nullable value as is and every dereference is guarded (`loom.nullable-receiver`), so the compile legs check the null-handling form each backend emits: a criterion read's first-row-or-null retrieval run, `findById` (Java's `Optional` unwrapped with `.orElse(null)`, .NET's `GetByIdAsync`, elixir's `get_<agg>` facade), and an `if let` over a binding already in scope.",
+  },
+  {
+    id: "nullable-load",
+    title:
+      "a nullable `find …: T?` bound with `let` in a workflow, a queryHandler and a domainService body, read behind a null guard",
+    doc: "language",
+    backends: ALL,
+    note: "`loom.nullable-receiver` refuses an unguarded read of a `T?` binding at the source, so the guarded form is legal; this fixture compiles it on all five and drives each body with a hit and a miss, so a dereferenced miss answers 500 rather than the fallback.",
   },
   {
     id: "handler-aggregate-ops",
@@ -713,6 +731,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "language",
     backends: ALL,
     note: "Promoted from the five per-backend `explicit-handlers.test.ts` string copies (M-T9.42 slice 2), which pinned each emitter's spelling of the handler body — `await orders.save(o)`, `new OrderResponse(...)`, `@RequestBody` record splits — and could not tell whether a handler that compiled actually saved, projected or deleted. `handler-triad` already drives mount + param binding on an EMPTY table; this fixture is the half that needs a row: every effect is read BACK through a different route (the derived getById, or a sibling handler), so a missed save, a raw-entity return, a dropped body param or a no-op delete is a wrong value, not a 200.",
+  },
+  {
+    id: "handler-paged-run",
+    title:
+      "a paged `queryHandler` over `Repo.run(<Criterion>(args))` — the synthesized paged FIND, the envelope, and `page`/`pageSize`/`sort`/`dir` on the routed handler",
+    doc: "language",
+    backends: ALL,
+    note: "Promoted from the paged-run copies in the five per-backend `explicit-handlers.test.ts` files.  The block reads the WINDOW of a sorted match, so a handler that paged in memory before filtering, or counted the page instead of the match, answers a wrong number.",
   },
   { id: "seeding", title: "seed datasets — default / demo / wired-raw", doc: "language", backends: ALL },
   {

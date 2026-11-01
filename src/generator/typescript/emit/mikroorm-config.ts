@@ -49,7 +49,7 @@ export function renderMikroConfig(): string {
  *  written and its children not — while the drizzle sibling has always run the
  *  same statements inside `this.db.transaction(...)` (G2667-C4).
  *
- *  `em.transactional` defaults to `TransactionPropagation.NESTED` (MikroORM 6
+ *  `em.transactional` defaults to `TransactionPropagation.NESTED` (MikroORM
  *  `TransactionManager.handle`), so this composes with the ambient
  *  `db.transactional(...)` the audited / provenanced routes open: an existing
  *  transaction context yields a SAVEPOINT rather than a competing transaction,
@@ -98,7 +98,7 @@ export function mikroConnectionSetup(): readonly string[] {
     `// own database, so this runs cleanly.  Replace with 'mikro-orm migration:up'`,
     `// for production.`,
     `//`,
-    `// \`safe: true\` is NOT cosmetic.  \`updateSchema()\` defaults to`,
+    `// \`safe: true\` is NOT cosmetic.  \`schema.update()\` defaults to`,
     `// \`dropTables: true\` over an UNPRUNED introspection, so every table the`,
     `// entity metadata does not describe is diffed as removed and dropped — on`,
     `// the SECOND boot onward.  That reaches real infrastructure this backend`,
@@ -111,7 +111,7 @@ export function mikroConnectionSetup(): readonly string[] {
     `// under the running one.  Safe mode still creates missing tables and adds`,
     `// columns; it only refuses to destroy.  (Drizzle has no equivalent:`,
     `// \`drizzle-kit migrate\` never drops unknown tables.)`,
-    `await orm.schema.updateSchema({ safe: true });`,
+    `await orm.schema.update({ safe: true });`,
     `const db = orm.em;`,
   ];
 }
@@ -126,7 +126,9 @@ export const MIKRO_INDEX_IMPORTS: readonly string[] = [
 
 /** package.json dependency rows (JSON-shaped, like the drizzle adapter). */
 
+export const MIKRO_ORM_VERSION = "7.2.5";
+
 export const MIKRO_DEPS: readonly string[] = [
-  `"@mikro-orm/core": "6.6.17",`,
-  `"@mikro-orm/postgresql": "6.6.17",`,
+  `"@mikro-orm/core": "${MIKRO_ORM_VERSION}",`,
+  `"@mikro-orm/postgresql": "${MIKRO_ORM_VERSION}",`,
 ];

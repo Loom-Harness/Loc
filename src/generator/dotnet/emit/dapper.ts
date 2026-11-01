@@ -45,7 +45,6 @@ import {
   deepScopeAnchorClaim,
   deepScopeTenantClaim,
   guidFromStringSelfScope,
-  isDenyFilter,
   TENANT_OWNED_DATA_KEY_FIELD,
   TENANT_OWNED_TENANT_ID_FIELD,
 } from "../../../ir/util/tenant-stance.js";
@@ -72,6 +71,12 @@ import {
   renderCsExpr,
   renderCsType,
 } from "../render-expr.js";
+import {
+  buildDapperScope,
+  csSqlInterpolated,
+  csSqlLiteral,
+  documentReadPredicates,
+} from "./dapper-scope.js";
 import { DAPPER_BEGIN_TX, DAPPER_COMMIT_TX, dapperOpenConn } from "./dapper-session.js";
 import { csClaimStampsFor } from "./entity.js";
 import {
@@ -453,7 +458,7 @@ function embeddedContainmentColumn(cont: ContainmentIR): DapperColumn {
   };
 }
 
-function columnsOf(
+export function columnsOf(
   agg: EnrichedAggregateIR,
   embedded = false,
   idClass = `${agg.name}Id`,
@@ -1052,7 +1057,7 @@ const CLAIM_GUID_HELPER =
   "Guid.TryParse(__s, out var __g) ? __g : (Guid?)null;";
 
 /** `CLAIM_GUID_HELPER` when any of `refs` binds through it, else nothing. */
-function claimGuidHelperLines(refs: readonly FilterPrincipalRef[]): string[] {
+export function claimGuidHelperLines(refs: readonly FilterPrincipalRef[]): string[] {
   return refs.some((r) => r.needsGuidParse) ? ["", CLAIM_GUID_HELPER] : [];
 }
 
@@ -1323,6 +1328,9 @@ export function renderDapperRepository(
    *  shared `<Base>Id` (this concrete declares no id of its own).  Undefined for
    *  a standalone aggregate / TPC concrete (byte-identical off this path). */
   tph?: { baseName: string; discriminator: string },
+  /** The aggregate's context pool — the read-scope fact resolves the `extends`
+   *  chain through it.  Defaults to the aggregate alone (a standalone one). */
+  pool: readonly EnrichedAggregateIR[] = [agg],
 ): string {
   // BCL type-name collision (#3024) — the dapper adapter is a SECOND repository
   // emitter beside the EF one, with its own using block and its own non-generic
@@ -1338,6 +1346,10 @@ export function renderDapperRepository(
   const idClass = tph ? `${tph.baseName}Id` : `${agg.name}Id`;
   const table = sqlIdent(tableOf(tph ? tph.baseName : agg.name));
   const sqlCtx: WhereSqlCtx = { agg, table };
+  // The read scope: ONE generated `<Agg>Scope` helper holds the `kind` scope and
+  // every capability / tenancy / deny predicate; each statement below splices a
+  // member of it (see dapper-scope.ts).
+  const scope = buildDapperScope(agg, pool, (e) => whereToSql(e, sqlCtx));
   const cols = columnsOf(agg, embedded, idClass);
   const colList = cols.map((c) => sqlIdent(c.col)).join(", ");
   const insertVals = cols.map((c) => `@${c.col}${c.cast}`).join(", ");
@@ -1347,7 +1359,7 @@ export function renderDapperRepository(
   const insertColList = tph
     ? [sqlIdent(cols[0]!.col), "kind", ...cols.slice(1).map((c) => sqlIdent(c.col))].join(", ")
     : colList;
-  const kindLiteral = tph ? `'${tph.discriminator.replace(/'/g, "''")}'` : "";
+  const kindLiteral = tph ? scope.kindLiteral : "";
   // Lifecycle stamps (`stamp onCreate/onUpdate { field: expr }` →
   // `contextStamps`).  EF applies these via SaveChangesInterceptor (writing the
   // stamped column through EF metadata, so the entity's `{ get; private set; }`
@@ -1461,13 +1473,13 @@ export function renderDapperRepository(
         `        ${dapperOpenConn(ns)}`,
         `        ${DAPPER_BEGIN_TX}`,
         "        var __expected = RequestContext.Current?.ExpectedVersion ?? aggregate.Version;",
-        `        var __affected = await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (${insertColList}) VALUES (${versionedInsertValsTph}) ON CONFLICT (id) DO UPDATE SET ${versionedSetClause} WHERE ${table}.${versionCol} = @ExpectedVersion", new { ${saveParams}, ExpectedVersion = __expected }, transaction: __tx, cancellationToken: cancellationToken));`,
+        `        var __affected = await conn.ExecuteAsync(new CommandDefinition(${csSqlLiteral(`INSERT INTO ${table} (${insertColList}) VALUES (${versionedInsertValsTph}) ON CONFLICT (id) DO UPDATE SET ${versionedSetClause} WHERE ${table}.${versionCol} = @ExpectedVersion${tph ? ` AND ${scope.writeKindOn(table)}` : ""}`)}, new { ${saveParams}, ExpectedVersion = __expected }, transaction: __tx, cancellationToken: cancellationToken));`,
         `        if (__affected == 0) throw new ConcurrencyConflictException("${agg.name}", aggregate.Id.Value);`,
       ]
     : [
         `        ${dapperOpenConn(ns)}`,
         `        ${DAPPER_BEGIN_TX}`,
-        `        await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${table} (${insertColList}) VALUES (${insertValsTph}) ON CONFLICT (id) DO UPDATE SET ${upsertSet}", new { ${saveParams} }, transaction: __tx, cancellationToken: cancellationToken));`,
+        `        await conn.ExecuteAsync(new CommandDefinition(${csSqlLiteral(`INSERT INTO ${table} (${insertColList}) VALUES (${insertValsTph}) ON CONFLICT (id) DO UPDATE SET ${upsertSet}${tph ? ` WHERE ${scope.writeKindOn(table)}` : ""}`)}, new { ${saveParams} }, transaction: __tx, cancellationToken: cancellationToken));`,
       ];
 
   // Capability filters (`filter !this.isDeleted`, `filter this.tenantId ==
@@ -1480,67 +1492,7 @@ export function renderDapperRepository(
   // HasQueryFilter.  A predicate outside the Dapper SQL subset throws here
   // (loud) rather than silently dropping the filter — half-applying a
   // soft-delete/tenant filter would be a correctness hole.
-  const capabilityFilters = agg.contextFilters ?? [];
-  // The TPH discriminator predicate (`kind = '<Concrete>'`) is ANDed into every
-  // SELECT alongside the capability filters — the raw-SQL mirror of EF's
-  // per-derived-type discriminator filter, so a concrete repo never reads a
-  // sibling's rows out of the shared table.
-  // Each capability predicate paired with the capability that CONTRIBUTED it
-  // (`agg.contextFilterOrigins`, index-aligned with `agg.contextFilters`) — the
-  // Dapper twin of the EF `(capability, filterName)` pairs in `emit/repository.ts`.
-  // The origin is what an `ignoring <Cap>` clause resolves against; a filter
-  // with no origin (a plain context filter) can only be dropped by `ignoring *`.
-  const filterOrigins = agg.contextFilterOrigins ?? [];
-  const capabilityFilterParts: {
-    sql: string;
-    /** The predicate the `sql` was rendered from — kept so the principal-param
-     *  collection can be taken over the SURVIVING conjuncts (see
-     *  `filterPrincipalRefsFor`), not over the declared set. */
-    expr: ExprIR;
-    origin: string | undefined;
-    bypassable: boolean;
-  }[] = capabilityFilters.map((p, i) => {
-    try {
-      // A `policy { deny on X }` always-false sentinel is a CARVE-OUT, not a
-      // capability filter: deny wins over an authored `ignoring *`, so this
-      // conjunct is never dropped (the raw-SQL twin of the EF rule in
-      // `find-emit.ts` — and of the TPH discriminator rule just below).
-      return {
-        sql: whereToSql(p, sqlCtx),
-        expr: p,
-        origin: filterOrigins[i],
-        bypassable: !isDenyFilter(p),
-      };
-    } catch {
-      throw new Error(
-        `dapper: capability filter on '${agg.name}' is outside the Dapper SQL subset; ` +
-          `use 'persistence: efcore' or simplify the predicate.`,
-      );
-    }
-  });
-  /** The capability filter parts a read carrying `bypass` still applies
-   *  (named-filter-bypass.md §11).  `ignoring *` drops every BYPASSABLE one;
-   *  `ignoring A, B` drops the ones those capabilities contributed.  Dapper has
-   *  no EF `IgnoreQueryFilters`, so the bypass is expressed by OMITTING the
-   *  conjunct from the generated WHERE — the raw-SQL equivalent.
-   *
-   *  THE decision that both the SQL and its parameter binding must agree on
-   *  (F2-ADP-9): they used to disagree, because only the SQL consulted the
-   *  bypass. */
-  const keptFilterParts = (bypass?: { bypassAll?: boolean; bypassCaps?: string[] }) => {
-    const caps = new Set(bypass?.bypassCaps ?? []);
-    return capabilityFilterParts.filter(
-      (p) =>
-        !p.bypassable || !(bypass?.bypassAll === true || (p.origin != null && caps.has(p.origin))),
-    );
-  };
-  const capabilityFilterSqlFor = (bypass?: {
-    bypassAll?: boolean;
-    bypassCaps?: string[];
-  }): string | null => {
-    const kept = keptFilterParts(bypass);
-    return kept.length > 0 ? kept.map((p) => p.sql).join(" AND ") : null;
-  };
+  const capabilityFilters = scope.declaredExprs;
   /** `currentUser.<claim>` refs the SURVIVING capability conjuncts read.
    *
    *  A read that bypasses every principal-bearing filter names no claim in its
@@ -1550,22 +1502,14 @@ export function renderDapperRepository(
    *  evaluated on a read whose whole point is that it runs without the
    *  principal scope.  `ignoring *` on an unauthenticated call NREs. */
   const filterPrincipalRefsFor = (bypass?: { bypassAll?: boolean; bypassCaps?: string[] }) =>
-    collectFilterPrincipalRefs(keptFilterParts(bypass).map((p) => p.expr));
-  /** The full spliced WHERE fragment (TPH discriminator + surviving capability
-   *  predicates).  The TPH discriminator is NEVER bypassable: it is a type
-   *  mapping, not a query filter — EF's `IgnoreQueryFilters()` leaves it in
-   *  place too, so a concrete repo can never read a sibling's rows. */
-  const filterSqlFor = (bypass?: { bypassAll?: boolean; bypassCaps?: string[] }): string | null =>
-    [tph ? `kind = ${kindLiteral}` : null, capabilityFilterSqlFor(bypass)]
-      .filter((s) => s !== null)
-      .join(" AND ") || null;
+    collectFilterPrincipalRefs(scope.keptExprs(bypass));
+  /** ` AND <scope>` / ` WHERE <scope>` for a read carrying `bypass`: a marker
+   *  that `csSqlLiteral` turns into a `<Agg>Scope` member reference.  The TPH
+   *  discriminator is never bypassable — a type mapping, not a query filter. */
   const andFilter = (
     existingWhere: boolean,
     bypass?: { bypassAll?: boolean; bypassCaps?: string[] },
-  ): string => {
-    const sql = filterSqlFor(bypass);
-    return sql ? `${existingWhere ? " AND " : " WHERE "}${sql}` : "";
-  };
+  ): string => scope.andScope(existingWhere, bypass);
   // Principal-filter param bindings appended to every SELECT's parameter object
   // (`__cu_tenantId = RequestContext.Current!.CurrentUser!.TenantId`).  Empty
   // for a non-principal (or no) filter, so those SELECTs stay byte-identical.
@@ -1627,7 +1571,7 @@ export function renderDapperRepository(
         `    public async Task<${agg.name}?> GetByIdForWriteAsync(${idClass} id, CancellationToken cancellationToken = default)`,
         "    {",
         `        ${dapperOpenConn(ns)}`,
-        `        var __inScope = await conn.ExecuteScalarAsync<bool>(new CommandDefinition("SELECT EXISTS (SELECT 1 FROM ${table} WHERE id = @id AND (${writeScopeSql})${andFilter(true)})", new { id = id.Value${writePrincSuffix} }, cancellationToken: cancellationToken));`,
+        `        var __inScope = await conn.ExecuteScalarAsync<bool>(new CommandDefinition(${csSqlLiteral(`SELECT EXISTS (SELECT 1 FROM ${table} WHERE id = @id AND (${writeScopeSql})${andFilter(true)})`)}, new { id = id.Value${writePrincSuffix} }, cancellationToken: cancellationToken));`,
         "        if (!__inScope) return null;",
         "        return await GetByIdAsync(id, cancellationToken);",
         "    }",
@@ -1899,9 +1843,9 @@ export function renderDapperRepository(
               `        var ${L("orderClause")} = ${L("sortColumn")} is null ? "${declaredOrder}" : $"{${L("sortColumn")}} {${L("sortDir")}}";`,
             ]
           : []),
-        `        var ${L("total")} = await ${L("conn")}.ExecuteScalarAsync<int>(new CommandDefinition("SELECT COUNT(*) ${fromClause}"${paramObj}, cancellationToken: ${ct}));`,
+        `        var ${L("total")} = await ${L("conn")}.ExecuteScalarAsync<int>(new CommandDefinition(${csSqlLiteral(`SELECT COUNT(*) ${fromClause}`)}${paramObj}, cancellationToken: ${ct}));`,
         `        var ${L("totalPages")} = pageSize > 0 ? (int)System.Math.Ceiling((double)${L("total")} / pageSize) : 0;`,
-        `        var ${L("rows")} = await ${L("conn")}.QueryAsync<Row>(new CommandDefinition($"SELECT ${colList} ${fromClause} ORDER BY ${declaredOrder ? `{${L("orderClause")}}` : `{${L("sortColumn")}} {${L("sortDir")}}`} LIMIT @__take OFFSET @__offset", new { __take = pageSize, __offset = ${L("offset")}${allFindParamsSuffix} }, cancellationToken: ${ct}));`,
+        `        var ${L("rows")} = await ${L("conn")}.QueryAsync<Row>(new CommandDefinition($"SELECT ${colList} ${csSqlInterpolated(fromClause)} ORDER BY ${declaredOrder ? `{${L("orderClause")}}` : `{${L("sortColumn")}} {${L("sortDir")}}`} LIMIT @__take OFFSET @__offset", new { __take = pageSize, __offset = ${L("offset")}${allFindParamsSuffix} }, cancellationToken: ${ct}));`,
         ...(hasContains
           ? [
               `        var ${L("items")} = await HydrateAsync(${L("conn")}, ${L("rows")}.ToList(), ${ct});`,
@@ -1924,7 +1868,7 @@ export function renderDapperRepository(
         `    public async Task<${ret}> ${name}(${renderParams(f.params, [], usesUser)})`,
         `    {`,
         `        ${dapperOpenConn(ns, L("conn"), ct)}`,
-        `        var ${L("rows")} = await ${L("conn")}.QueryAsync<Row>(new CommandDefinition("${sql}"${paramObj}, cancellationToken: ${ct}));`,
+        `        var ${L("rows")} = await ${L("conn")}.QueryAsync<Row>(new CommandDefinition(${csSqlLiteral(sql)}${paramObj}, cancellationToken: ${ct}));`,
         ...(hasContains
           ? hasAssoc
             ? [
@@ -1971,7 +1915,7 @@ export function renderDapperRepository(
       `    public async Task<${ret}> ${name}(${renderParams(f.params, [], usesUser)})`,
       `    {`,
       `        ${dapperOpenConn(ns, L("conn"), ct)}`,
-      `        var ${L("r")} = await ${L("conn")}.QueryFirstOrDefaultAsync<Row>(new CommandDefinition("${sql} LIMIT 1"${paramObj}, cancellationToken: ${ct}));`,
+      `        var ${L("r")} = await ${L("conn")}.QueryFirstOrDefaultAsync<Row>(new CommandDefinition(${csSqlLiteral(`${sql} LIMIT 1`)}${paramObj}, cancellationToken: ${ct}));`,
       ...(hasContains
         ? [
             absentGuard,
@@ -2026,31 +1970,19 @@ export function renderDapperRepository(
         : "";
     // A retrieval's `ignoring` clause arrives at RUNTIME (the `FilterBypass
     // bypass` port param a workflow's inline `Repo.run(...) ignoring …` binds),
-    // so unlike the find path the SQL cannot be decided at emit time.  The
-    // non-bypassable head (`where` + the TPH discriminator) is baked; each
-    // capability predicate is appended only when the caller's `bypass` does not
-    // name its contributing capability — the raw-SQL twin of the adapter-side
-    // `IgnoreQueryFilters` translation in `emit/repository.ts`.  Paging is
-    // concatenated after, so the ORDER BY has to be concatenated too rather
-    // than baked into the head.
-    const headSql = `SELECT ${colList} FROM ${table} WHERE ${whereSql}${tph ? ` AND kind = ${kindLiteral}` : ""}`;
-    const bypassLines =
-      capabilityFilterParts.length > 0
-        ? [
-            `        var ${L("__caps")} = new List<string>();`,
-            ...capabilityFilterParts.map((part) => {
-              // A non-bypassable conjunct (the `policy { deny }` sentinel) is
-              // added unconditionally — no runtime `bypass` can drop it.
-              const guard = !part.bypassable
-                ? ""
-                : part.origin != null
-                  ? `if (!${own.bypass}.All && ${own.bypass}.Capabilities?.Contains(${JSON.stringify(part.origin)}) != true) `
-                  : `if (!${own.bypass}.All) `;
-              return `        ${guard}${L("__caps")}.Add("${part.sql}");`;
-            }),
-            `        var ${L("sql")} = "${headSql}" + (${L("__caps")}.Count > 0 ? " AND " + string.Join(" AND ", ${L("__caps")}) : "")${orderSql ? ` + "${orderSql}"` : ""};`,
-          ]
-        : [`        var ${L("sql")} = "${headSql}${orderSql}";`];
+    // so unlike the find path the SQL cannot be decided at emit time: the
+    // `<Agg>Scope.Runtime(bypass)` tail applies the `kind` scope and every
+    // non-bypassable conjunct, and each capability predicate unless the caller's
+    // `bypass` names its contributing capability — the raw-SQL twin of the
+    // adapter-side `IgnoreQueryFilters` translation in `emit/repository.ts`.
+    // Paging is concatenated after, so the ORDER BY is concatenated here too
+    // rather than baked into the head.
+    const headSql = `SELECT ${colList} FROM ${table} WHERE ${whereSql}`;
+    const scopeTail =
+      capabilityFilters.length > 0 ? scope.runtimeTail(own.bypass) : scope.andScope(true);
+    const bypassLines = [
+      `        var ${L("sql")} = ${csSqlLiteral(`${headSql}${scopeTail}${orderSql}`)};`,
+    ];
     const paramAdds = [
       ...r.params.map((p) => {
         const pt = p.type.kind === "optional" ? p.type.inner : p.type;
@@ -2111,7 +2043,7 @@ export function renderDapperRepository(
         delTx ? `        ${DAPPER_BEGIN_TX}` : null,
         ...assocDeleteLines,
         ...containDeleteLines,
-        `        await conn.ExecuteAsync(new CommandDefinition("DELETE FROM ${table} WHERE id = @id", new { id = aggregate.Id.Value }, ${delTx}cancellationToken: cancellationToken));`,
+        `        await conn.ExecuteAsync(new CommandDefinition(${csSqlLiteral(`DELETE FROM ${table} WHERE id = @id${tph ? scope.andWriteKind() : ""}`)}, new { id = aggregate.Id.Value }, ${delTx}cancellationToken: cancellationToken));`,
         // Drain the staged `destroy audited` row onto the same transaction.
         // Gated on the AUDIT seam, not on `delTx` — `delTx` is now also set for
         // an un-audited multi-statement delete, which has nothing to drain.
@@ -2197,7 +2129,7 @@ export function renderDapperRepository(
       `    public async Task<${agg.name}?> GetByIdAsync(${idClass} id, CancellationToken cancellationToken = default)`,
       "    {",
       `        ${dapperOpenConn(ns)}`,
-      `        var r = await conn.QuerySingleOrDefaultAsync<Row>(new CommandDefinition("SELECT ${colList} FROM ${table} WHERE id = @id${andFilter(true)}", new { id = id.Value${princSuffix} }, cancellationToken: cancellationToken));`,
+      `        var r = await conn.QuerySingleOrDefaultAsync<Row>(new CommandDefinition(${csSqlLiteral(`SELECT ${colList} FROM ${table} WHERE id = @id${andFilter(true)}`)}, new { id = id.Value${princSuffix} }, cancellationToken: cancellationToken));`,
       ...(hasContains
         ? [
             "        if (r is null) return null;",
@@ -2222,7 +2154,7 @@ export function renderDapperRepository(
       "    {",
       "        if (ids.Count == 0) return Array.Empty<" + agg.name + ">();",
       `        ${dapperOpenConn(ns)}`,
-      `        var rows = await conn.QueryAsync<Row>(new CommandDefinition("SELECT ${colList} FROM ${table} WHERE id = ANY(@ids)${andFilter(true)}", new { ids = ids.Select(x => x.Value).ToArray()${princSuffix} }, cancellationToken: cancellationToken));`,
+      `        var rows = await conn.QueryAsync<Row>(new CommandDefinition(${csSqlLiteral(`SELECT ${colList} FROM ${table} WHERE id = ANY(@ids)${andFilter(true)}`)}, new { ids = ids.Select(x => x.Value).ToArray()${princSuffix} }, cancellationToken: cancellationToken));`,
       ...(hasContains
         ? hasAssoc
           ? [
@@ -2274,6 +2206,7 @@ export function renderDapperRepository(
       ...findMethods.flatMap((m) => ["", m]),
       ...retrievalMethods.flatMap((m) => ["", m]),
       "}",
+      ...scope.renderClass(),
     ) + "\n"
   );
 }
@@ -2299,6 +2232,9 @@ export function renderDapperDocumentRepository(
   /** Namespaces a find body names beyond the fixed block (a criterion-backed
    *  filter's `Domain.Criteria`, a regex `where`'s `System.Text.RegularExpressions`). */
   extraUsings: readonly string[] = [],
+  /** The aggregate's context pool — the read-scope fact resolves the `extends`
+   *  chain through it.  Defaults to the aggregate alone. */
+  pool: readonly EnrichedAggregateIR[] = [agg],
 ): string {
   // BCL type-name collision (#3024) — the dapper adapter is a SECOND repository
   // emitter beside the EF one, with its own using block and its own non-generic
@@ -2352,9 +2288,10 @@ export function renderDapperDocumentRepository(
   // renders the constant `false` — inlined that makes the next statement
   // unreachable (CS0162 → an error under /warnaserror), while `=> false;` as a
   // method body is clean.
+  const docFilters = documentReadPredicates(agg, pool);
   const capPredicate =
-    (agg.contextFilters ?? []).length > 0
-      ? (agg.contextFilters ?? [])
+    docFilters.length > 0
+      ? docFilters
           .map(
             (p) =>
               `(${renderCsExpr(p, { thisName: "x", agg, currentUserExpr: AMBIENT_CURRENT_USER })})`,

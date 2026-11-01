@@ -78,7 +78,7 @@ describe("MikroORM folded-projection read model", () => {
     expect(entities).toContain('orderRef: { type: "string", primary: true },');
     expect(entities).toContain('status: { type: "string", nullable: true },');
     expect(entities).toContain('at: { type: "datetime", nullable: true },');
-    // registered in the entities array so `updateSchema()` materialises the table.
+    // registered in the entities array so `schema.update()` materialises the table.
     expect(entities).toMatch(/export const entities = \[[^\]]*OrderBoardRowSchema[^\]]*\];/);
   });
 

@@ -6,6 +6,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { installGeneratedProject } from "./support/npm-install.js";
+import { installPlaywrightChromium } from "./support/playwright-install.js";
 
 // ---------------------------------------------------------------------------
 // Runtime e2e for the Angular frontend (angular-frontend-plan.md Slice 6 —
@@ -191,7 +192,7 @@ describe.skipIf(!ENABLED)("generated angular project runs (ng build + Playwright
       const e2e = path.join(project, "e2e");
       expect(fs.existsSync(path.join(e2e, "smoke.spec.ts")), "smoke spec emitted").toBe(true);
       installGeneratedProject(e2e, { timeout: 900_000 });
-      run("npx playwright install --with-deps chromium", e2e);
+      installPlaywrightChromium(e2e);
       run(`E2E_BASE_URL=${baseUrl} npx playwright test smoke.spec.ts`, e2e);
     } finally {
       // Kill the server process group (detached → negative pid).

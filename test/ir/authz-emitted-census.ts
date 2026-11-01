@@ -51,6 +51,8 @@ import { tableOwnerName } from "../../src/ir/util/inheritance.js";
 import { lifecycleGates } from "../../src/ir/util/op-gates.js";
 import { walkExprDeep, walkStmtsDeep, walkWorkflowStmtsDeep } from "../../src/ir/util/walk.js";
 import { plural, snake } from "../../src/util/naming.js";
+import { inlineDapperScope } from "../_helpers/dapper-scope.js";
+import { inlineDrizzleScope } from "../_helpers/drizzle-scope.js";
 import type { Backend } from "../fixtures/corpus/backends.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -337,6 +339,10 @@ export interface Locator {
   /** Helper definitions to inline into a window that references them: given a
    *  helper name referenced in a window, its body in the same file. */
   readonly helpers?: readonly Helper[];
+  /** Resolve a generated scope-helper reference to the predicate it stands for
+   *  before the file is windowed, so a site is judged by what it APPLIES rather
+   *  than by where the predicate is spelled. */
+  readonly prepare?: (files: ReadonlyMap<string, string>, text: string) => string;
   /** The window starts at the enclosing SCOPE, not at the site: a delegating
    *  method's setup before its read (`session.disableFilter("…")` ahead of
    *  `jpa.find…`) is part of that read. */
@@ -456,6 +462,7 @@ export const LOCATORS: Record<VariantId, Locator> = {
     files: TS_FILES,
     openers: [TS_METHOD, TS_FUNCTION, TS_ROUTE_PATH, TS_ROUTE_CALL, TS_REGISTER],
     reads: [/\.from\((schema\.\w+)\)/],
+    prepare: (files, text) => inlineDrizzleScope(files, text),
     helpers: TS_CRITERION_HELPERS,
     classify: tsClassify,
     carries: (f, site) =>
@@ -465,6 +472,13 @@ export const LOCATORS: Record<VariantId, Locator> = {
   },
 
   // ── Hono + MikroORM ───────────────────────────────────────────────────────
+  // The read scope is MODEL-level — a named `default: true` filter on the
+  // entity's `EntitySchema` (a TPH concrete's is hosted on its root's) — so a
+  // site carries a conjunct iff the schema declares it AND the site does not
+  // switch it off (`{ filters: { "<name>": false } }`).  A QueryBuilder read
+  // applies filters only through `qb.applyFilters(…)`.  A conjunct rendered at
+  // the site itself (a find's own principal `where`, the write-scope
+  // pre-guard, a document aggregate's in-app check) is read off the window.
   mikroorm: {
     files: TS_FILES,
     openers: [TS_METHOD, TS_FUNCTION, TS_ROUTE_PATH, TS_ROUTE_CALL, TS_REGISTER],
@@ -473,11 +487,19 @@ export const LOCATORS: Record<VariantId, Locator> = {
       /\.createQueryBuilder\((\w+)/,
     ],
     classify: tsClassify,
-    carries: (f, site) =>
-      f.kind === "deny"
-        ? /\{\s*id:\s*null\s*\},\s*\{\s*id:\s*\{\s*\$ne:\s*null\s*\}\s*\}/.test(site.window) ||
-          INAPP_FALSE.test(site.window)
-        : carriesClaims(site.window, f, NODE_PRINCIPAL),
+    carries: (f, site, _agg, files) => {
+      const inline =
+        f.kind === "deny"
+          ? /\{\s*id:\s*null\s*\},\s*\{\s*id:\s*\{\s*\$ne:\s*null\s*\}\s*\}/.test(site.window) ||
+            INAPP_FALSE.test(site.window)
+          : carriesClaims(site.window, f, NODE_PRINCIPAL);
+      if (inline) return true;
+      const name = mikroFilterName(f, site.storage, files);
+      if (name === undefined) return false;
+      if (/\bcreateQueryBuilder\(/.test(site.window) && !/\bapplyFilters\(/.test(site.window))
+        return false;
+      return !new RegExp(`"${esc(name)}"\\s*:\\s*false`).test(site.window);
+    },
   },
 
   // ── .NET + EF Core ────────────────────────────────────────────────────────
@@ -531,6 +553,7 @@ export const LOCATORS: Record<VariantId, Locator> = {
     files: (p) => p.endsWith(".cs") && !/(^|\/)(Tests?|Migrations)\//.test(p),
     openers: [CS_METHOD()],
     reads: [/"[^"\n]*?\bFROM\s+(?:"?\w+"?\.)?"?(\w+)"?/i],
+    prepare: (_files, text) => inlineDapperScope(text, { runtime: true }),
     helpers: CS_HELPERS,
     // A criterion read assembles its conjuncts into `__caps` AHEAD of the
     // `FROM` literal (`__caps.Add("1 = 0")`), so the window opens at the method.
@@ -914,6 +937,38 @@ function javaPrincipalFilterNames(
   return out;
 }
 
+/** The MikroORM schema filter that renders conjunct `f` on the entity a read of
+ *  `storage` queries, read off the emitted `db/entities.ts`.  A TPH concrete
+ *  (`class CarRow extends VehicleRow`) is filtered by its ROOT's schema. */
+function mikroFilterName(
+  f: FilterFact,
+  storage: string,
+  files: ReadonlyMap<string, string>,
+): string | undefined {
+  const entities = [...files.entries()].find(([p]) => p.endsWith("db/entities.ts"))?.[1];
+  if (!entities) return undefined;
+  const cls = storage.split(/[.\s]/).filter(Boolean).pop() ?? storage;
+  const host = entities.match(new RegExp(`export class ${esc(cls)} extends (\\w+)`))?.[1] ?? cls;
+  const at = entities.indexOf(`export const ${host}Schema = new EntitySchema`);
+  if (at < 0) return undefined;
+  const next = entities.indexOf("\nexport const ", at + 1);
+  const schema = entities.slice(at, next < 0 ? entities.length : next);
+  const fAt = schema.indexOf("  filters: {");
+  if (fAt < 0) return undefined;
+  const block = schema.slice(fAt, schema.indexOf("\n  },", fAt));
+  const starts = [...block.matchAll(/^ {4}"([^"]+)": \{/gm)];
+  const entries = starts.map((m, i) => ({
+    name: m[1]!,
+    body: block.slice(m.index!, starts[i + 1]?.index ?? block.length),
+  }));
+  if (f.kind === "deny") return entries.find((e) => e.name === "loom.deny")?.name;
+  const principal = entries.filter((e) => /requireCurrentUser\(/.test(e.body));
+  const named = f.origin === undefined ? "loom.filter" : f.origin;
+  return (
+    principal.find((e) => e.name === named) ?? (f.origin === undefined ? principal[0] : undefined)
+  )?.name;
+}
+
 function javaEntityFile(agg: AggFacts, files: ReadonlyMap<string, string>): string | undefined {
   for (const [p, text] of files) {
     if (p.endsWith(`/${agg.name}.java`) && /@Entity\b/.test(text)) return text;
@@ -978,8 +1033,9 @@ function helperDef(
 export function readSites(variant: VariantId, files: ReadonlyMap<string, string>): ReadSite[] {
   const loc = LOCATORS[variant];
   const out: ReadSite[] = [];
-  for (const [file, text] of files) {
+  for (const [file, rawText] of files) {
     if (!loc.files(file)) continue;
+    const text = loc.prepare ? loc.prepare(files, rawText) : rawText;
     const hits: { at: number; storage: string }[] = [];
     for (const re of loc.reads) {
       const g = new RegExp(re.source, re.flags.includes("g") ? re.flags : `${re.flags}g`);

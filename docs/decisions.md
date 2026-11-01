@@ -5297,8 +5297,10 @@ first (`loom.single-row-find-not-unique` was only advisory). And
   validator and the lowerer alike; the contract rows are `getBy` →
   `load-by-key` and `findBy` → `load-by-key-optional`.
 - A `getBy` miss answers the standard ProblemDetails 404 (`"not_found"`) on
-  every backend. `findBy` is an `if let` source; bound by a plain `let` it is
-  the nullable-load refusal every `T?` read gets.
+  every backend. `findBy` is an `if let` source, and a plain `let` binds it
+  as `T?` — like every `T?` read (#4258: `find(C)`, `findById`, a `T?` find),
+  read through a null test or narrowed by `if let`, its un-narrowed
+  dereference being `loom.nullable-receiver`.
 - Capability filters apply as on any read. A trailing `ignoring …` widens one
   call — on a `let` or an `if let` source, the two positions that bind a read.
 - Each backend emits one repository method per used (verb, tuple, `ignoring`
@@ -5322,7 +5324,7 @@ first (`loom.single-row-find-not-unique` was only advisory). And
   the repository (an existing one reused) and `Repo.find(<Criterion>(args))`.
   A clause-less find binding its parameters by name counts as the equality
   conjunction. A find moves only when every call site takes its target; a
-  `T?` read is accepted as an `if let` source or in a domain-service
+  `T?` read is accepted as an `if let` source, a `let` or in a domain-service
   expression, and a must-exist find over a non-unique key has no target (no
   `else` statement answers a 404), so those call sites are reported and the
   find stays. `--add-unique` declares the key instead; never by default.
@@ -5723,6 +5725,12 @@ emitter chooses itself. The other four backends move onto the fact one at a
 time. Until each does, it boots `corpus/provenance-money` as a tracked
 expected failure (`BEHAVIOURAL_XFAIL`, #3527).
 
+java/Spring renders the fact through `src/generator/java/wire-policy-java.ts`
+(`test/generator/java/wire-policy-census.test.ts` is its census, with the
+Jackson coercion table derived from `ingressFor`). Known java subject gap: the
+still-referenced 409 detail reads `This resource is still referenced…` because
+the shared advice does not know the aggregate.
+
 ## D-FAILURE-MODEL — Loom has no exceptions: each failure kind has one construct, and an expected failure is a value the caller must handle
 
 **Status:** PINNED (owner rulings 2026-10-25 on #4134, #4146, #3951, #3916;
@@ -5750,8 +5758,10 @@ call statement dropped it, and a workflow answered 204.
   statement and an unread `let` discard it. There is no implicit propagation
   and no `?` operator. (#4134)
 - **Returning `E` discards the operation's writes.** An operation that returns
-  an `error` variant leaves the aggregate as it was; nothing it assigned is
-  saved. (#4146)
+  an `error` variant leaves no trace: nothing it assigned is saved, and the
+  events it raised are neither published nor written to the outbox — the same
+  as a failed `precondition`. A failed attempt that must be recorded is
+  recorded explicitly. (#4146)
 - **A read does not encode absence as an error.** `T or NotFound` finds go; a
   read that may miss is `T?` (`find…`), one that must hit is `T` (`get…`, the
   standard 404). (#3951)
@@ -5764,3 +5774,8 @@ call statement dropped it, and a workflow answered 204.
 **Consequences.** `loom.unhandled-result` refuses a dropped `or E`
 (`src/language/validators/unhandled-result.ts`). In a workflow body the only
 handling route until #3367 lands is binding the result and reading it.
+Every backend's operation route or handler checks the error variant before it
+stamps, saves, audits or publishes (Java also marks the transaction
+rollback-only, since its loaded aggregate is a managed entity); the
+`operation-returns` corpus golden pins the unchanged read-back on every
+behavioural leg.

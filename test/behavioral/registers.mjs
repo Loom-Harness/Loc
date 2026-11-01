@@ -249,9 +249,7 @@ export const RACE_PROBE_TEST = "two writers with the same If-Match";
 
 export const BEHAVIOURAL_XFAIL = {
   node: {},
-  mikroorm: {
-    "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
-  },
+  mikroorm: {},
   dotnet: {
     "contained-part-rebuild": {
       issue: "#4136",
@@ -278,7 +276,6 @@ export const BEHAVIOURAL_XFAIL = {
       },
       reason: "`find … ignoring` on a `shape: document` aggregate still applies the filters it names on Dapper",
     },
-    "inheritance-base-reads": baseReads({ passes: ["tphBaseCap", "tpcBaseCap"] }),
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
     "provenance-money": moneyLineage('to be "3000\\.3000"'),
   },

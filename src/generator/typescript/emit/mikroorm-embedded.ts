@@ -41,14 +41,9 @@ import {
 } from "./audit-stamp.js";
 import { mikroSaveTxLines } from "./mikroorm-config.js";
 import { rowClassOf } from "./mikroorm-entities.js";
-import {
-  AMBIENT_PRINCIPAL,
-  mikroContextFilters,
-  mikroGetByIdLines,
-  whereToMikroFilter,
-  withContextFilters,
-} from "./mikroorm-filter.js";
+import { AMBIENT_PRINCIPAL, mikroGetByIdLines, whereToMikroFilter } from "./mikroorm-filter.js";
 import { valueCollFieldsOf } from "./mikroorm-relational.js";
+import { mikroFilterOption } from "./mikroorm-schema-filters.js";
 import { maskUserImport, tsParamType, usesRawFragment } from "./mikroorm-shared.js";
 
 // ---------------------------------------------------------------------------
@@ -109,7 +104,10 @@ export function renderMikroEmbeddedRepository(
 ): string {
   const row = rowClassOf(agg.name);
   const idVar = `Ids.${agg.name}Id`;
-  const baseFilters = mikroContextFilters(agg);
+  const pool = ctx.aggregates;
+  /** `<where>[, <options>]` — the call tail of a read. */
+  const readArgs = (where: string, options: string | null): string =>
+    options ? `${where}, ${options}` : where;
   const scalarFields = agg.fields.filter(
     (f) => !isRefCollection(f.type) && !isValueCollectionType(f.type),
   );
@@ -157,11 +155,14 @@ export function renderMikroEmbeddedRepository(
   const updateSet = audited ? stampUpdateCall(agg, rootRowUpdate) : rootRowUpdate;
   const versionedSaveLines = [
     `    const expected = expectedVersion ?? aggregate.version;`,
-    `    const existing = await em.findOne(${row}, { id: aggregate.id as string });`,
+    // The save's statements are scoped by id (and version) alone: they bypass
+    // the read scope, so a loaded-`ignoring` aggregate stays savable and a
+    // soft-deleted row is still found as existing.
+    `    const existing = await em.findOne(${row}, { id: aggregate.id as string }, { filters: false });`,
     `    if (existing === null) {`,
     `      await em.insert(${row}, ${insertValues});`,
     `    } else {`,
-    `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, version: expected }, ${updateSet});`,
+    `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, version: expected }, ${updateSet}, { filters: false });`,
     `      if (affected === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
     `    }`,
   ];
@@ -186,19 +187,21 @@ export function renderMikroEmbeddedRepository(
     const baseParams = f.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
     const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
     let filter: string;
+    // The aggregate's scope applies by itself (schema filters); this read's
+    // `ignoring` clause switches off the named ones.
+    const ignoring = mikroFilterOption(agg, pool, {
+      bypassAll: f.bypassAll,
+      bypassCaps: f.bypassCaps,
+    });
     try {
-      const caps = mikroContextFilters(agg, { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps });
       // The find's OWN predicate reads the declared `currentUser` parameter;
-      // the capability filters (`caps`) keep the ambient accessor, because they
-      // ride reads that have no such parameter.
-      // A clause-less find still filters — by its implicit key match.
+      // the schema filters keep the ambient accessor, because they ride reads
+      // that have no such parameter.  A clause-less find still filters — by its
+      // implicit key match.
       const own = effectiveFindFilter(f, agg);
-      filter = withContextFilters(
-        own
-          ? whereToMikroFilter(own, usesUser ? "currentUser" : AMBIENT_PRINCIPAL, agg.associations)
-          : "{}",
-        caps,
-      );
+      filter = own
+        ? whereToMikroFilter(own, usesUser ? "currentUser" : AMBIENT_PRINCIPAL, agg.associations)
+        : "{}";
     } catch {
       return lines(
         `  async ${name}(${paged ? `${params}${params ? ", " : ""}page: number, pageSize: number, sort: string, dir: string` : params}): Promise<${paged ? `{ items: ${agg.name}[]; page: number; pageSize: number; total: number; totalPages: number }` : ret}> {`,
@@ -229,9 +232,9 @@ export function renderMikroEmbeddedRepository(
         `    const ${L.sortable} = new Set<string>([${sortable}]);`,
         `    const ${L.sortField} = ${L.sortable}.has(sort) ? sort : "id";`,
         `    const ${L.orderBy}: Record<string, "asc" | "desc"> = { [${L.sortField}]: dir === "desc" ? "desc" : "asc" };`,
-        `    const ${L.total} = await em.count(${row}, ${filter});`,
+        `    const ${L.total} = await em.count(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
         `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
-        `    const rows = await em.find(${row}, ${filter}, { limit: pageSize, offset: (page - 1) * pageSize, ${L.orderBy === "orderBy" ? "orderBy" : `orderBy: ${L.orderBy}`} });`,
+        `    const rows = await em.find(${row}, ${filter}, { limit: pageSize, offset: (page - 1) * pageSize, ${L.orderBy === "orderBy" ? "orderBy" : `orderBy: ${L.orderBy}`}${ignoring ? `, ${ignoring}` : ""} });`,
         dbg(f.name, "rows.length"),
         `    const ${L.items} = rows.map((row) => {`,
         ...embeddedHydrateLocals(agg, "row", "      ", ctx),
@@ -245,7 +248,7 @@ export function renderMikroEmbeddedRepository(
       return lines(
         `  async ${name}(${params}): Promise<${agg.name}[]> {`,
         `    const em = this.em.fork({ keepTransactionContext: true });`,
-        `    const rows = await em.find(${row}, ${filter});`,
+        `    const rows = await em.find(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
         dbg(f.name, "rows.length"),
         `    return rows.map((row) => {`,
         ...embeddedHydrateLocals(agg, "row", "      ", ctx),
@@ -257,7 +260,7 @@ export function renderMikroEmbeddedRepository(
     return lines(
       `  async ${name}(${params}): Promise<${agg.name} | null> {`,
       `    const em = this.em.fork({ keepTransactionContext: true });`,
-      `    const row = await em.findOne(${row}, ${filter});`,
+      `    const row = await em.findOne(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
       `    if (row === null) return null;`,
       ...embeddedHydrateLocals(agg, "row", "    ", ctx),
       `    return ${hydrateRootExpr(agg, "row", ctx)};`,
@@ -268,7 +271,7 @@ export function renderMikroEmbeddedRepository(
   const deleteMethod = canonicalDestroy(agg)
     ? lines(
         `  async delete(id: ${idVar}): Promise<void> {`,
-        `    await this.em.fork({ keepTransactionContext: true }).nativeDelete(${row}, ${withContextFilters("{ id: id as string }", [])});`,
+        `    await this.em.fork({ keepTransactionContext: true }).nativeDelete(${row}, { id: id as string }, { filters: false });`,
         `  }`,
       )
     : "";
@@ -287,7 +290,7 @@ export function renderMikroEmbeddedRepository(
     "",
     `  async findById(id: ${idVar}): Promise<${agg.name} | null> {`,
     `    const em = this.em.fork({ keepTransactionContext: true });`,
-    `    const row = await em.findOne(${row}, ${withContextFilters("{ id: id as string }", baseFilters)});`,
+    `    const row = await em.findOne(${row}, { id: id as string });`,
     `    if (row === null) {`,
     `      requestLog().debug({ event: "aggregate_loaded", aggregate: "${agg.name}", id: id as string, found: false });`,
     `      return null;`,
@@ -303,7 +306,7 @@ export function renderMikroEmbeddedRepository(
     `  async findManyByIds(ids: ${idVar}[]): Promise<${agg.name}[]> {`,
     `    if (ids.length === 0) return [];`,
     `    const em = this.em.fork({ keepTransactionContext: true });`,
-    `    const rows = await em.find(${row}, ${withContextFilters("{ id: { $in: ids as string[] } }", baseFilters)});`,
+    `    const rows = await em.find(${row}, { id: { $in: ids as string[] } });`,
     `    return rows.map((row) => {`,
     ...embeddedHydrateLocals(agg, "row", "      ", ctx),
     `      return ${hydrateRootExpr(agg, "row", ctx)};`,

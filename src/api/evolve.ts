@@ -28,6 +28,7 @@ import { enrichLoomModel } from "../ir/enrich/enrichments.js";
 import { lowerModel, mergeLoomModels } from "../ir/lower/lower.js";
 import { allContexts, type EnrichedLoomModel } from "../ir/types/loom-ir.js";
 import { resolveTableStepTarget, tableStepFromContext } from "../ir/util/table-step-target.js";
+import { validateLoomModel } from "../ir/validate/validate.js";
 import { createDddServices } from "../language/ddd-module.js";
 import type { Model } from "../language/generated/ast.js";
 import { captureSnapshots } from "../system/loomsnap.js";
@@ -35,7 +36,7 @@ import { headSnapshots, MigrationChainError, parseChain } from "../system/migrat
 import { evolveSystem, wireChangeEntity } from "../system/migration-diff.js";
 import type { SnapshotStore } from "../system/snapshot.js";
 import type { WireContractChange } from "../system/wire-spec-diff.js";
-import { langiumDiagnosticToJson } from "./report.js";
+import { irDiagnosticToJson, langiumDiagnosticToJson } from "./report.js";
 
 type EnrichedSystemIR = EnrichedLoomModel["systems"][number];
 
@@ -355,6 +356,13 @@ export async function diff(
       ...curJson,
       loweringDiag(diagMessage("loom.ir-internal#evolve-lowering")),
     ]);
+  }
+  // A model the IR validator refuses (an `index:` on a removed field, a
+  // dangling cross-reference) derives migrations that cannot apply — the same
+  // gate `ddd migrate add` and `ddd diff` run before deriving anything.
+  const curIr = validateLoomModel(curLoom).map((d) => irDiagnosticToJson(d, cur.doc));
+  if (curIr.some((d) => d.severity === "error")) {
+    return emptyReport(false, false, [...curJson, ...curIr]);
   }
 
   // Load the baseline if given.  One that does not load is an error, never

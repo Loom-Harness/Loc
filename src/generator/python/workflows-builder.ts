@@ -1,6 +1,7 @@
 import { notFoundStmtDetail } from "../../ir/enrich/wire-policy.js";
 import {
   type EnrichedBoundedContextIR,
+  type ExprIR,
   exprUsesCurrentUser,
   type OperationIR,
   type SystemIR,
@@ -941,6 +942,11 @@ export function pyWorkflowStmtTarget(
   usedLets: ReadonlySet<string> | undefined,
   saveLines: PySaveLines,
 ): WorkflowStmtTarget {
+  /** The awaited criterion retrieval run capped at one row — the
+   *  single-result read behind `Repo.find(<Criterion>)` in a `let` and an
+   *  `if let`. */
+  const runFirstRow = (repoName: string, retrievalName: string, args: readonly ExprIR[]): string =>
+    `await ${snake(repoName)}.run_${snake(retrievalName)}(${[...args.map((a) => renderPyExpr(a, rctx)), "limit=1"].join(", ")})`;
   return {
     indentUnit: "    ",
     precondition: (st, i) => [
@@ -964,6 +970,15 @@ export function pyWorkflowStmtTarget(
       return [`${i}${snake(st.name)} = ${aggClassRef(st.aggName)}.create(${kwargs})`];
     },
     repoLet: (st, i) => {
+      // A criterion read (`let c = Repo.find(<Criterion>)`) runs the shared
+      // retrieval for one row and binds it or `None` — the `if let` lookup.
+      if (st.op === "select-one" && st.retrievalName) {
+        const run = runFirstRow(st.repoName, st.retrievalName, st.args);
+        if (usedLets && !usedLets.has(st.name)) return [`${i}${run}`];
+        const v = snake(st.name);
+        const hits = `__${v}_hits`;
+        return [`${i}${hits} = ${run}`, `${i}${v} = ${hits}[0] if ${hits} else None`];
+      }
       const args = st.args.map((a) => renderPyExpr(a, rctx)).join(", ");
       const call = `await ${snake(st.repoName)}.${snake(st.method)}(${args})`;
       // A load nothing reads, mutates or saves is an existence check: keep the
@@ -1057,21 +1072,27 @@ export function pyWorkflowStmtTarget(
       const v = snake(st.var);
       const hits = `__${v}_hits`;
       const inner = `${i}    `;
-      const args = [...st.retrievalArgs.map((a) => renderPyExpr(a, rctx)), "limit=1"].join(", ");
       const thenSaves = st.savesInThen.flatMap((s) => saveLines(s, inner));
       const elseSaves = st.savesInElse.flatMap((s) => saveLines(s, inner));
       const thenAll = [...thenLines, ...thenSaves];
       const elseAll = [...elseLines, ...elseSaves];
-      // A declared optional find (`findMethod`) already answers the row or
-      // `None`, so it binds directly.
-      const lookup = st.findMethod
-        ? [
-            `${i}${v} = await ${snake(st.repoName)}.${snake(st.findMethod)}(${st.retrievalArgs.map((a) => renderPyExpr(a, rctx)).join(", ")})`,
-          ]
-        : [
-            `${i}${hits} = await ${snake(st.repoName)}.run_${snake(st.retrievalName)}(${args})`,
-            `${i}${v} = ${hits}[0] if ${hits} else None`,
-          ];
+      // A declared optional find (`findMethod`) and `find_by_id` already
+      // answer the row or `None`, so they bind directly; a `bound` source
+      // narrows an optional binding already in scope.
+      const byName = (method: string): string[] => [
+        `${i}${v} = await ${snake(st.repoName)}.${snake(method)}(${st.retrievalArgs.map((a) => renderPyExpr(a, rctx)).join(", ")})`,
+      ];
+      const lookup =
+        st.op === "bound"
+          ? [`${i}${v} = ${st.retrievalArgs.map((a) => renderPyExpr(a, rctx)).join(", ")}`]
+          : st.op === "load-optional"
+            ? byName("findById")
+            : st.findMethod
+              ? byName(st.findMethod)
+              : [
+                  `${i}${hits} = ${runFirstRow(st.repoName, st.retrievalName, st.retrievalArgs)}`,
+                  `${i}${v} = ${hits}[0] if ${hits} else None`,
+                ];
       const out = [
         ...lookup,
         `${i}if ${v} is not None:`,

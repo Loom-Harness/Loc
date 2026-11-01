@@ -1820,6 +1820,29 @@ export function csWorkflowStmtTarget(
     csReadOwnParams(
       (ctx.retrievals ?? []).find((r) => r.name === retrievalName)?.params.map((p) => p.name) ?? [],
     );
+  /** Bind `name` to the first row of a criterion retrieval run, or `null` —
+   *  the single-result read behind `Repo.find(<Criterion>)` in a `let` and an
+   *  `if let`. */
+  const firstRowLines = (
+    indent: string,
+    name: string,
+    fieldName: string,
+    retrievalName: string,
+    renderedArgs: readonly string[],
+  ): string[] => {
+    // page: limit 1, no offset — single result.  Named `cancellationToken` —
+    // it follows the optional `ignore*` params.
+    const callArgs = [
+      ...renderedArgs,
+      "(null, 1)",
+      `${runOwnParams(retrievalName).ct}: cancellationToken`,
+    ].join(", ");
+    const hits = `__${name}Hits`;
+    return [
+      `${indent}var ${hits} = await ${fieldName}.Run${upperFirst(retrievalName)}Async(${callArgs});`,
+      `${indent}var ${name} = ${hits}.Count > 0 ? ${hits}[0] : null;`,
+    ];
+  };
   return {
     indentUnit: "    ",
     precondition: (st, indent) => {
@@ -1867,13 +1890,23 @@ export function csWorkflowStmtTarget(
     },
     repoLet: (st, indent) => {
       const fieldName = `_${st.repoName.charAt(0).toLowerCase() + st.repoName.slice(1)}`;
+      // A criterion read (`let c = Repo.find(<Criterion>)`) runs the shared
+      // retrieval for one row and binds it or `null` — the `if let` lookup.
+      if (st.op === "select-one" && st.retrievalName) {
+        return firstRowLines(indent, st.name, fieldName, st.retrievalName, st.args.map(renderArg));
+      }
       const argList = st.args.map(renderArg).join(", ");
       const callArgs = argList.length > 0 ? `${argList}, cancellationToken` : `cancellationToken`;
-      // The by-id `load` is emitted on the repo as `GetByIdAsync`.
-      // A user find (`locate`, `byHandle`) is emitted WITHOUT an `Async` suffix
-      // (matching the CQRS query handler's `_repo.<Find>(...)` call convention),
-      // so don't append one or the method won't resolve (CS1061).
-      const methodName = st.op === "load" ? "GetByIdAsync" : csFindMethodName(st.method);
+      // Both by-id reads are emitted on the repo as `GetByIdAsync`, which
+      // answers `Task<T?>`: `load` guards the null below, `findById`
+      // (`load-optional`) binds it.  A user find (`locate`, `byHandle`) is
+      // emitted WITHOUT an `Async` suffix (matching the CQRS query handler's
+      // `_repo.<Find>(...)` call convention), so don't append one or the
+      // method won't resolve (CS1061).
+      const methodName =
+        st.op === "load" || st.op === "load-optional"
+          ? "GetByIdAsync"
+          : csFindMethodName(st.method);
       const call = `await ${fieldName}.${methodName}(${callArgs})`;
       // `load` is load-or-throw (Hono's returns non-null; the .NET
       // op-command handler guards the same way).  Guard the `Task<T?>` result
@@ -2051,13 +2084,6 @@ export function csWorkflowStmtTarget(
       // (or `null`), and branch.  `is not null` narrows `o` in the then-branch;
       // each branch's dirty bindings save inside it.
       const fieldName = `_${st.repoName.charAt(0).toLowerCase() + st.repoName.slice(1)}`;
-      const args = st.retrievalArgs.map(renderArg);
-      args.push("(null, 1)"); // page: limit 1, no offset — single result
-      // Named `cancellationToken` — it now follows the optional `ignore*` params.
-      const callArgs = [...args, `${runOwnParams(st.retrievalName).ct}: cancellationToken`].join(
-        ", ",
-      );
-      const hits = `__${st.var}Hits`;
       const inner = `${indent}    `;
       const saveLine = (sv: { repoName: string; name: string }): string => {
         const f = `_${sv.repoName.charAt(0).toLowerCase() + sv.repoName.slice(1)}`;
@@ -2067,15 +2093,25 @@ export function csWorkflowStmtTarget(
       const elseSaves = st.savesInElse.map(saveLine);
       // A declared optional find (`findMethod`) is emitted under its own name
       // with no `Async` suffix (the `repoLet` convention) and already answers
-      // `Task<T?>`, so it binds directly.
-      const lookup = st.findMethod
-        ? [
-            `${indent}var ${st.var} = await ${fieldName}.${csFindMethodName(st.findMethod)}(${[...st.retrievalArgs.map(renderArg), "cancellationToken"].join(", ")});`,
-          ]
-        : [
-            `${indent}var ${hits} = await ${fieldName}.Run${upperFirst(st.retrievalName)}Async(${callArgs});`,
-            `${indent}var ${st.var} = ${hits}.Count > 0 ? ${hits}[0] : null;`,
-          ];
+      // `Task<T?>`, so it binds directly; so does `findById` (`GetByIdAsync`).
+      // A `bound` source narrows an optional binding already in scope.
+      const byName = (method: string): string[] => [
+        `${indent}var ${st.var} = await ${fieldName}.${method}(${[...st.retrievalArgs.map(renderArg), "cancellationToken"].join(", ")});`,
+      ];
+      const lookup =
+        st.op === "bound"
+          ? [`${indent}var ${st.var} = ${st.retrievalArgs.map(renderArg).join(", ")};`]
+          : st.op === "load-optional"
+            ? byName("GetByIdAsync")
+            : st.findMethod
+              ? byName(csFindMethodName(st.findMethod))
+              : firstRowLines(
+                  indent,
+                  st.var,
+                  fieldName,
+                  st.retrievalName,
+                  st.retrievalArgs.map(renderArg),
+                );
       const out = [
         ...lookup,
         `${indent}if (${st.var} is not null)`,

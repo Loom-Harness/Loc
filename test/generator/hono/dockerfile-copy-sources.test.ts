@@ -5,7 +5,7 @@
 // behavioural leg boots through `npm run dev` (tsx).  The Dockerfile was one
 // constant for both adapters and ended with
 //   COPY --from=build /app/db/migrations ./db/migrations
-// — but MikroORM applies its schema with `orm.schema.updateSchema()` and emits
+// — but MikroORM applies its schema with `orm.schema.update()` and emits
 // no `db/migrations`, so every mikroorm image failed to build:
 //   "/app/db/migrations": not found
 // (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-10-04-tested-vs-shipped.md, D-1).

@@ -67,7 +67,8 @@ describe("toolkit: generate", () => {
 // change (the reverse direction drops it, which is destructive).
 const SYS_V1 = `system Shop {
   storage primary { type: postgres }
-  deployable api { platform: node, contexts: [Sales] }
+  resource st { for: Sales, kind: state, use: primary }
+  deployable api { platform: node, contexts: [Sales], dataSources: [st] }
 
   subdomain Selling {
     context Sales {
@@ -126,8 +127,8 @@ describe("toolkit: diff (evolution)", () => {
   }
   resource salesState { for: Sales, kind: state, use: primary }
   resource stockState { for: Stock, kind: state, use: primary }
-  deployable sales { platform: node, contexts: [Sales], dataSources: [salesState] }
-  deployable stock { platform: node, contexts: [Stock], dataSources: [stockState] }
+  deployable sales { platform: node, contexts: [Sales], dataSources: [salesState], port: 3000 }
+  deployable stock { platform: node, contexts: [Stock], dataSources: [stockState], port: 3001 }
 }
 `;
     const r = await diff(twoModules(""), twoModules("note: string?"));
@@ -159,6 +160,19 @@ describe("toolkit: diff (evolution)", () => {
     expect(r.ok).toBe(false);
     expect(r.migrations).toEqual([]);
     expect(r.diagnostics.length).toBeGreaterThan(0);
+  });
+
+  it("a current source the IR validator refuses is not ok, so no migration is derived from it", async () => {
+    // `index:` names a field the aggregate no longer has: the AST checks pass,
+    // phase ⑦ refuses it.
+    const stale = SYS_V1.replace(
+      "resource st { for: Sales, kind: state, use: primary }",
+      "resource st { for: Sales, kind: state, use: primary, index: [Order.note] }",
+    );
+    const r = await diff(stale, SYS_V1);
+    expect(r.ok).toBe(false);
+    expect(r.migrations).toEqual([]);
+    expect(r.diagnostics.map((d) => d.code)).toContain("loom.resource-index-unknown-column");
   });
 });
 

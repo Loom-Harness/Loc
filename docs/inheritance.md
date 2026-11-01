@@ -88,11 +88,28 @@ the `denyByDefault` one) or whose wire masks a field keeps the reader unrouted.
 | Backend (`platform:`) | polymorphic base reader |
 |---|---|
 | `node` (Hono / Drizzle) | a read-only `<Base>Repository`. TPH: one select over the shared table carrying the root's and every subtype's kind-guarded restrictions, ordered by `id`, paged in SQL, each row hydrated as its `kind`. TPC: each concrete repo's own read, merged in `id` order, then paged. Routed as `GET /api/<bases>` (+ `/{id}` under TPH) with a `<Base>Response` discriminated union. A query-time projection `from <TPH base>` applies the same guarded subtype restrictions |
-| `node` (Hono / MikroORM) | a read-only `<Base>Repository` whose `findAll()` concatenates each concrete repo's `all()`; not routed |
-| `dotnet` (.NET / EF Core) | a read-only `I<Base>Repository` / `<Base>Repository`. TPH: one query over `DbSet<Base>`, where EF applies the root's filters and every subtype's type-guarded ones, `OrderBy(Id)` + `Skip`/`Take`, each row materialised as its concrete type. TPC (the base excluded via `modelBuilder.Ignore<<Base>>()`): each concrete repo's own read, merged in `Id` order, then paged. Routed as `GET /api/<bases>` (+ `/{id}` under TPH), each item the concrete's `<Concrete>Response` plus `type`. EF only — the Dapper adapter keeps the TPC reader and no route |
+| `node` (Hono / MikroORM 7) | a read-only `<Base>Repository` with the same `findById` / `findPage` / `toWire` as the Drizzle one, routed the same way. TPH is **native single-table inheritance**: an abstract root `EntitySchema` with `discriminatorColumn: "kind"` + `discriminatorMap`, and an `extends` schema per concrete, so the read is ONE `em.find(<Root>Row, {}, { orderBy: { id: "asc" }, limit, offset })` that the ORM hydrates as each row's subclass. The read scope is declared once on the schemas as named `default: true` filters (below), so the reader states no restriction. TPC: each concrete repo's own read, merged in `id` order, then paged |
+| `dotnet` (.NET / Dapper, TPH) | a read-only `I<Base>Repository` / `<Base>Repository`: one `SELECT` over the shared table under the root's and every subtype's kind-guarded restrictions (the base's generated `<Base>Scope.Polymorphic`), `ORDER BY id LIMIT/OFFSET` plus a `COUNT(*)` for `total`, and `reader.GetRowParser<BaseRow>(typeof(<Concrete>Row))` switching the row parser per `kind`. A concrete with contained parts or `X id[]` references cannot hydrate from its root row, so its ids are loaded in order through its own repository (same scope). Routed as `GET /api/<bases>` (+ `/{id}`) answering the concrete's own `<Concrete>Response` plus the `type` tag. Dapper TPC shares the EF merged-in-`Id`-order reader |
+| `dotnet` (.NET / EF Core) | a read-only `I<Base>Repository` / `<Base>Repository`. TPH: one query over `DbSet<Base>`, where EF applies the root's filters and every subtype's type-guarded ones, `OrderBy(Id)` + `Skip`/`Take`, each row materialised as its concrete type. TPC (the base excluded via `modelBuilder.Ignore<<Base>>()`): each concrete repo's own read, merged in `Id` order, then paged. Routed as `GET /api/<bases>` (+ `/{id}` under TPH), each item the concrete's `<Concrete>Response` plus `type`. The Dapper TPH reader is the row above |
 | `phoenix` (Ecto) | a read-only `<Base>Repository` whose `list` concatenates each concrete repository's `list` (draining a paged concrete's pages) and whose `find_by_id` tries each concrete in turn; the context's `list_<bases>` / `get_<base>` delegate to it and take `current_user \\ nil` whenever a concrete read does. TPH included: the `kind` conjunct and every capability / inline filter live in the concrete repositories. A `shape: document` concrete is flattened (`row.data`) before the base serializer runs |
 | `python` (FastAPI / SQLAlchemy) | native SQLAlchemy single-table inheritance: the root row class is mapped `polymorphic_on` its `kind` (`polymorphic_abstract`), each concrete is a mapped subclass with its `polymorphic_identity`, and every restriction rides the read-scope hook (`app/db/read_scope.py`, a `do_orm_execute` listener adding `with_loader_criteria`), each subtype's own root-hosted and kind-guarded. TPH: a read-only `<Base>Repository` whose reads are one `select(<Base>Row)` ordered by `id` and paged in SQL, each row hydrated as its subclass. TPC: each concrete repo's own read, merged in `id` order, then paged. Routed as `GET /api/<bases>` (+ `/{id}` under TPH) with a `<Base>Response` discriminated union. A query-time projection `from <TPH base>` gets the guarded subtype restrictions from the same hook |
 | `java` (Spring Boot / JPA) | a `<Bases>Controller` serving `GET /api/<bases>` (+ `/{id}` under TPH). TPH: one JPQL `select e from <Base> e order by e.id`, paged with `setFirstResult`/`setMaxResults`. Hibernate hydrates each row as its `@DiscriminatorValue` subclass. Every restriction of the hierarchy is hosted on the root entity, kind-guarded (`@SQLRestriction`, or an auto-enabled `@Filter` when some read `ignoring`s it or it reads the principal), so the query applies the base's restrictions and each row's own subtype's. The by-id read is a query, not `EntityManager.find`. TPC (`@MappedSuperclass`, which JPQL cannot select from): each concrete repository's scoped `findAll()`, merged in `id` order, then paged. Each item is the concrete's own response body plus `type`. Tenancy is one of those root-hosted filters (its claims per-query `@ParamDef` parameters), so a tenant-scoped hierarchy is routed too |
+
+**Read scope helpers (drizzle and Dapper).** Neither has a global query filter or
+an inheritance mapping, so the `kind` scope and every capability / tenancy / deny
+predicate must be applied by every read *and* write statement. Both adapters render
+the read-scope fact once per aggregate into a generated helper and every statement
+calls it: drizzle's `db/read-scopes.ts` exports `<agg>Scope({ ignoring?, write? })`
+(`forkliftScope()` for a read, `forkliftScope({ ignoring: ["softDeletable"] })` for an
+`ignoring` read, `forkliftScope({ write: true })` for the `kind` scope alone on a
+save / delete); Dapper emits an `internal static class <Agg>Scope` beside each
+repository (`"… WHERE id = @id AND " + ForkliftScope.Where`, a `Where…Ignoring_<cap>`
+constant per `ignoring` clause, `Runtime(FilterBypass)` for a retrieval whose clause
+arrives at runtime). Only a capability-contributed restriction is droppable by
+`ignoring`; the `kind` scope, a `deny` carve-out and a bare `filter` never are.
+`test/generator/hono/drizzle-read-scope-census.test.ts` and
+`test/generator/dotnet/dapper-read-scope-census.test.ts` pin that no other generated
+statement spells a scope predicate.
 
 Under TPC, identity stays **per-concrete** (each concrete keeps its own
 strongly-typed `<Concrete>Id`); there is no shared `<Base>Id`, and a polymorphic
@@ -100,6 +117,78 @@ strongly-typed `<Concrete>Id`); there is no shared `<Base>Id`, and a polymorphic
 polymorphic `findById` target. Under TPH the shared table does carry a
 single identity, so `<Base> id` refs and a `findById` on the base reader are
 available there.
+
+### MikroORM: schema filters, not hand-ANDed predicates
+
+`persistence: mikroorm` declares an aggregate's read scope **once**, on its
+`EntitySchema` (`src/generator/typescript/emit/mikroorm-schema-filters.ts`,
+rendered from `readScopeFor`), and the repositories state only their own `where`:
+
+```ddd
+abstract aggregate Vehicle inheritanceUsing: sharedTable with tenantOwned { plate: string }
+aggregate Car extends Vehicle with tenantOwned, softDeletable, softDelete {
+  seats: int
+  filter this.seats > 0
+}
+repository Cars for Car {
+  find byPlate(p: string): Car? where this.plate == p
+  find byPlateAll(p: string): Car? where this.plate == p ignoring softDeletable
+}
+```
+
+```ts
+// db/entities.ts — the root hosts its own AND every concrete's restrictions
+export const VehicleRowSchema = new EntitySchema<VehicleRow>({
+  class: VehicleRow, tableName: "vehicles", abstract: true,
+  discriminatorColumn: "kind",
+  discriminatorMap: { "Car": CarRow, "Truck": TruckRow },
+  properties: { /* id, kind, plate, tenantId … */ },
+  filters: {
+    "tenantOwned":  { name: "tenantOwned", cond: () => ({ tenantId: requireCurrentUser().tenantId }), default: true },
+    "softDeletable": {
+      name: "softDeletable", args: false, default: true,
+      cond: (_args, _type, _em, _options, entity) => {
+        const parts: object[] = [];
+        if (entity === "VehicleRow" || entity === "CarRow") parts.push({ $or: [{ kind: { $ne: "Car" } }, { isDeleted: false }] });
+        return parts.length === 0 ? {} : { $and: parts };
+      },
+    },
+    "loom.filter": { /* Car's bare `filter this.seats > 0`, guarded the same way */ },
+  },
+});
+export const CarRowSchema = new EntitySchema<CarRow, VehicleRow>({ class: CarRow, extends: VehicleRow, properties: { seats: { … } } });
+
+// db/repositories/car-repository.ts — no `kind`, no capability conjunct
+em.findOne(CarRow, { plate: p })
+em.findOne(CarRow, { plate: p }, { filters: { "softDeletable": false } })   // ignoring softDeletable
+```
+
+- **Named by provenance.** A capability's filter is named after the capability, so
+  `ignoring X` is `{ filters: { X: false } }`. A bare `filter` and a `policy`
+  deny have fixed names (`loom.filter`, `loom.deny`) no `ignoring` can name.
+- **Root-hosted, kind-guarded.** MikroORM applies a filter declared on a subclass
+  only to queries *of* that subclass, so a retired `Car` would leak from
+  `find(Vehicle)`. The root therefore hosts every concrete's restrictions, guarded
+  by its discriminator. A concrete's predicate may name a column only that
+  concrete has, and MikroORM rejects a condition on a property the queried entity
+  lacks, so the guarded condition joins the filter only for a query of the root
+  or of that concrete (the `entity` argument of the `cond`).
+- **Fail closed.** A principal predicate is a function `cond`: it reads the
+  request principal through the ambient accessor when the query *runs*, so a query
+  with no principal throws instead of reading unscoped.
+- **Writes.** Filters also apply to `nativeUpdate` / `nativeDelete` and to the
+  versioned save's existence probe. Those statements are scoped by id (and
+  version) alone — the caller already loaded the row through the read scope — so
+  they pass `{ filters: false }`: a soft-deleted row is still found as existing
+  (else the save would INSERT a duplicate key) and an `ignoring`-loaded aggregate
+  stays savable. The UPDATE runs through the concrete's Row, so a foreign-subtype
+  id matches nothing and raises `ConcurrencyError`. The discriminator is only
+  *stamped* on an insert/upsert payload (a native insert does not set it).
+- **QueryBuilder reads** (query-time projection aggregations) are not filtered by
+  themselves: they call `await qb.applyFilters({ … })` (the same `ignoring` map).
+- **Not filtered:** the tenant-registry `orgPath` lookup that *builds* the principal
+  (`{ filters: false }`), and `shape: document` / event-sourced aggregates, which
+  have no queryable columns and evaluate their scope in the app.
 
 ## Backend gating
 

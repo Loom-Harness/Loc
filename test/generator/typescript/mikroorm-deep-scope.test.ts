@@ -4,15 +4,14 @@
 // The `deep`/`global` read level lowers to the materialized-path `authz-filter`
 // SENTINEL.  MikroORM's FilterQuery OPERATORS genuinely cannot express a prefix
 // test — but a FilterQuery key may be a `raw()` SQL fragment, and the predicate
-// is ordinary SQL.  The old arm threw, `mikroContextFilters` CAUGHT that throw
-// and left the filter unapplied, and the validator refused the whole feature to
-// stop the silent cross-tenant read that resulted.
+// is ordinary SQL.  The fragment lives in the aggregate's default schema filter
+// (`db/entities.ts`), whose function `cond` builds it afresh per query.
 //
 // Three things have to agree, and none of them is visible to `tsc --noEmit`:
 //   (1) the SQL text (a sargable escaped-LIKE prefilter ANDed with the
 //       anchored prefix RECHECK that actually decides the row — M-T3.17),
 //   (2) the `?` binding ARITY and order (a raw fragment binds positionally),
-//   (3) the `raw` IMPORT in every repository file that emits one.
+//   (3) the `raw` IMPORT in the schema module that emits one.
 // (3) is a compile error, but only in the generated project — and (1)/(2) are
 // runtime-only.  Runtime agreement (subtree reads, the delimiter trap, the
 // WILDCARD trap, the NULL-dataKey floor) is gated by
@@ -64,11 +63,18 @@ async function files(): Promise<Map<string, string>> {
   return cache;
 }
 
+/** An aggregate's `EntitySchema` block of `db/entities.ts` — where its read
+ *  scope (the default filters) is declared. */
 async function repo(agg: string): Promise<string> {
   const all = await files();
-  const key = [...all.keys()].find((k) => k.endsWith(`db/repositories/${agg}-repository.ts`));
-  expect(key, `${agg}-repository.ts not emitted`).toBeDefined();
-  return all.get(key!)!;
+  const key = [...all.keys()].find((k) => k.endsWith("db/entities.ts"));
+  expect(key, "db/entities.ts not emitted").toBeDefined();
+  const text = all.get(key!)!;
+  const cls = `${agg[0]!.toUpperCase()}${agg.slice(1)}Row`;
+  const at = text.indexOf(`export const ${cls}Schema = new EntitySchema`);
+  expect(at, `${cls}Schema not emitted`).toBeGreaterThanOrEqual(0);
+  const next = text.indexOf("\nexport class ", at);
+  return text.slice(at, next < 0 ? text.length : next);
 }
 
 /** Split a `raw()` binding list on its TOP-LEVEL commas — commas nested inside
@@ -142,20 +148,17 @@ describe("the deep/global subtree sentinel renders as a raw() FilterQuery key", 
     const src = await repo("memo");
     expect(src).toContain("tenantId: requireCurrentUser().tenantId");
     expect(src).not.toContain("strpos(");
-    // …and therefore no `raw` import: a repository that emits no fragment keeps
-    // a byte-identical import list.
-    expect(src).not.toContain('from "@mikro-orm/core"');
+    // …and therefore no raw fragment in its schema.
+    expect(src).not.toContain("raw(");
   });
 });
 
 describe("every raw() fragment is importable and binds what it names", () => {
-  it("a repository that emits a fragment imports `raw`", async () => {
-    for (const agg of ["account", "entry"]) {
-      const src = await repo(agg);
-      expect(src, `${agg}: raw() is used but not imported`).toContain(
-        'import { raw } from "@mikro-orm/core";',
-      );
-    }
+  it("the schema module that emits a fragment imports `raw`", async () => {
+    const all = await files();
+    const entities = all.get([...all.keys()].find((k) => k.endsWith("db/entities.ts"))!)!;
+    expect(entities).toContain("raw(");
+    expect(entities).toMatch(/import \{[^}]*\braw\b[^}]*\} from "@mikro-orm\/core";/);
   });
 
   it("`?` placeholder count matches the bound-param count, per fragment", async () => {
@@ -177,20 +180,24 @@ describe("every raw() fragment is importable and binds what it names", () => {
     }
   });
 
-  it("each fragment is built INSIDE its own statement, never hoisted to a shared const", async () => {
+  it("each fragment is built INSIDE the filter's cond, never hoisted to a shared const", async () => {
     // A `RawQueryFragment`'s cache key is consumed on first use.  The paged find
-    // runs `em.count(...)` and `em.find(...)` over the same predicate; if the
-    // emitter hoisted one fragment into a `const` and spliced it twice, the
-    // second statement would look up a key that has already been evicted and
-    // silently treat it as a plain column name.  Two literal `raw(` call sites
-    // is what keeps them two fragments.
-    const src = await repo("account");
-    const countLine = src.split("\n").find((l) => l.includes("const total = await em.count("));
-    const findLine = src.split("\n").find((l) => l.includes("limit: pageSize"));
-    expect(countLine, "paged count not emitted").toBeDefined();
-    expect(findLine, "paged find not emitted").toBeDefined();
-    expect(countLine!, "the paged COUNT must build its own raw() fragment").toContain("raw(");
-    expect(findLine!, "the paged PAGE query must build its own raw() fragment").toContain("raw(");
+    // runs `em.count(...)` and `em.find(...)` over the same scope; if the emitter
+    // hoisted one fragment into a module-level `const` and the filter returned it
+    // twice, the second statement would look up a key that has already been
+    // evicted and silently treat it as a plain column name.  The default filter's
+    // `cond` is a FUNCTION the ORM calls per query, and the `raw(` call sits in
+    // its body — a fresh fragment each time.
+    for (const agg of ["account", "entry"]) {
+      const src = await repo(agg);
+      const rawLines = src.split("\n").filter((l) => l.includes("raw("));
+      expect(rawLines.length, `${agg}: no raw() fragment emitted`).toBeGreaterThan(0);
+      for (const l of rawLines)
+        expect(l, `${agg}: raw() outside a cond function`).toContain("cond: () =>");
+    }
+    const all = await files();
+    const entities = all.get([...all.keys()].find((k) => k.endsWith("db/entities.ts"))!)!;
+    expect(entities, "no module-level raw() const").not.toMatch(/^const \w+ = raw\(/m);
   });
 });
 
@@ -203,7 +210,9 @@ describe("the tenant-registry orgPath resolver is registered on this adapter too
   it("boot reads the registry Row's dataKey through the EntityManager", async () => {
     const src = await indexTs();
     expect(src).toContain("registerOrgPathResolver(async (claim) => {");
-    expect(src).toContain("db.fork().findOne(OrgRow, { id: claim })");
+    // The lookup that BUILDS the principal is the one read the registry's
+    // principal-reading self-scope filter must not scope.
+    expect(src).toContain("db.fork().findOne(OrgRow, { id: claim }, { filters: false })");
     expect(src).toContain("return row?.dataKey ?? null;");
     // …and it imports both halves (a missing import is a generated-project
     // TS2304, which only the tsc tier would catch).

@@ -166,7 +166,7 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
   // duplicate id.  The guard belongs on the WRITE, so a foreign-subtype id
   // matches nothing, changes nothing, and raises the same ConcurrencyError the
   // lost-race path raises.  `null` for a non-TPH aggregate ⇒ byte-identical.
-  const kindPred = drizzleKindPredicate(agg, ctx, tableName);
+  const kindPred = drizzleKindPredicate(agg, ctx);
 
   // Optimistic concurrency (`versioned` capability, versioned-capability.ts):
   // the unconditional `insert...onConflictDoUpdate` upsert becomes a guarded

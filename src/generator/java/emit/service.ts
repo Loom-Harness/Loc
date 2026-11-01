@@ -586,6 +586,22 @@ export function renderJavaService(
       // change) via the injected AuditRecordRepository.  The actor / correlation
       // / scope / parent ids are stamped from the ambient RequestContext.
       const audited = !!op.audited;
+      // An error variant leaves no trace (D-FAILURE-MODEL): it returns before
+      // the save, the audit row and the event drain, and marks the transaction
+      // rollback-only — the loaded aggregate is a managed entity, so a plain
+      // return would still flush its mutated fields at commit.
+      const errorArms = spec ? spec.arms.filter((a) => a.isError) : [];
+      const errorGuard =
+        errorArms.length > 0
+          ? [
+              `        if (${errorArms
+                .map((a) => `result instanceof ${ctx.entityPkg}.${spec!.name}_${a.tag}`)
+                .join(" || ")}) {`,
+              `            org.springframework.transaction.interceptor.TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();`,
+              `            return result;`,
+              `        }`,
+            ]
+          : [];
       return [
         `    public ${retType} ${jid(op.name)}(${paramSig}) {`,
         ...lets,
@@ -598,6 +614,7 @@ export function renderJavaService(
         returnsValue
           ? `        var result = aggregate.${jid(op.name)}(${args});`
           : `        aggregate.${jid(op.name)}(${args});`,
+        ...errorGuard,
         `        repository.save(aggregate);`,
         audited ? `        var __after = ${agg.name}Response.from(aggregate);` : null,
         audited ? `        auditRecords.save(new AuditRecord(` : null,

@@ -1,3 +1,11 @@
+import {
+  fieldFixedMessage,
+  type WireRejectionClass,
+  wireFixedDetail,
+  wireSentenceFor,
+  wireStatus,
+  wireTitle,
+} from "../../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type {
   EnrichedAggregateIR,
@@ -14,26 +22,11 @@ import {
 } from "../../../ir/util/api-surface.js";
 import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
-import {
-  CONCURRENCY_CONFLICT_SUFFIX,
-  DANGLING_REFERENCE_DETAIL,
-  MISSING_FIELD_MESSAGE,
-  problemTitle,
-  UNPROCESSABLE_ENTITY,
-  UNSUPPORTED_MEDIA_TYPE_DETAIL,
-} from "../../../ir/util/openapi-errors.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { listReadFind } from "../../../ir/util/read-gates.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
-import {
-  defaultErrorStatus,
-  errorTitle,
-  errorTypeUri,
-  resolveErrorStatus,
-} from "../../../util/error-defaults.js";
 import { plural, upperFirst } from "../../../util/naming.js";
-import { INTEGER_RANGE_MESSAGE } from "../../../util/numeric-range.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
@@ -41,6 +34,12 @@ import { findUnionSpec } from "../../_payload/union-wire.js";
 import { PG_FOREIGN_KEY_VIOLATION, PG_RESTRICT_VIOLATION } from "../../_persistence/pg-sqlstate.js";
 import { javaLocals, jid, localOf, requestParam } from "../java-ident.js";
 import { renderJavaExpr, renderJavaType } from "../render-expr.js";
+import {
+  javaErrorVariantLines,
+  javaLit,
+  javaMissingFieldMessage,
+  javaSentence,
+} from "../wire-policy-java.js";
 import { javaAuditApiPkg, javaHistoryFind, renderJavaHistoryRoute } from "./audit-history.js";
 import { JAVA_FIND_ABSENCE_THROW, JAVA_PAGED_QUERY_PARAMS } from "./common.js";
 import { EMPTY_COMMAND_BODY_PARAM } from "./empty-body-filter.js";
@@ -257,15 +256,18 @@ export function renderJavaController(
             const props = a.member.shape === "record" ? a.member.fields : [];
             return [
               `            case ${spec.name}_${a.tag} v -> {`,
-              `                var problem = ${PROBLEM_DETAIL}.forStatus(${a.status});`,
-              `                problem.setTitle(${JSON.stringify(a.title)});`,
-              `                problem.setType(URI.create(${JSON.stringify(a.typeUri)}));`,
-              `                problem.setDetail(${JSON.stringify(a.title)});`,
-              ...props.map(
-                (f) =>
-                  `                problem.setProperty(${JSON.stringify(f.name)}, v.${jid(f.name)}()${f.isId ? ".value()" : ""});`,
-              ),
-              `                yield ResponseEntity.status(${a.status}).contentType(${MEDIA_TYPE}.APPLICATION_PROBLEM_JSON).body(problem);`,
+              ...javaErrorVariantLines({
+                tag: a.tag,
+                overrides: ctx.boundedContext?.errorStatusOverrides,
+                problemType: PROBLEM_DETAIL,
+                mediaType: MEDIA_TYPE,
+                indent: "                ",
+                props: props.map(
+                  (f) =>
+                    `problem.setProperty(${JSON.stringify(f.name)}, v.${jid(f.name)}()${f.isId ? ".value()" : ""});`,
+                ),
+                emit: "yield",
+              }),
               `            }`,
             ];
           }
@@ -397,19 +399,17 @@ export function renderJavaController(
               // real ProblemDetail.
               [`            throw ${JAVA_FIND_ABSENCE_THROW};`]
             : (() => {
-                const tag = spec.absent.tag;
-                const status =
-                  ctx.boundedContext?.errorStatusOverrides?.[tag] ?? defaultErrorStatus(tag);
-                return [
-                  `            var problem = ${PROBLEM_DETAIL}.forStatus(${status});`,
-                  `            problem.setTitle(${JSON.stringify(errorTitle(tag))});`,
-                  `            problem.setType(URI.create(${JSON.stringify(errorTypeUri(tag))}));`,
-                  `            problem.setDetail(${JSON.stringify(errorTitle(tag))});`,
-                  ...(spec.absent.hasResource
-                    ? [`            problem.setProperty("resource", "${agg.name}");`]
-                    : []),
-                  `            return ResponseEntity.status(${status}).contentType(${MEDIA_TYPE}.APPLICATION_PROBLEM_JSON).body(problem);`,
-                ];
+                return javaErrorVariantLines({
+                  tag: spec.absent.tag,
+                  overrides: ctx.boundedContext?.errorStatusOverrides,
+                  problemType: PROBLEM_DETAIL,
+                  mediaType: MEDIA_TYPE,
+                  indent: "            ",
+                  props: spec.absent.hasResource
+                    ? [`problem.setProperty("resource", "${agg.name}");`]
+                    : [],
+                  emit: "return",
+                });
               })();
         return [
           `    @GetMapping("${relativeOpPath(entry)}")`,
@@ -893,28 +893,37 @@ export function renderApiExceptionAdvice(
   // (expressible-builtins.md §3 / M-T3.4a): a literal 409 by default, or the
   // api's `httpStatus <Conflict> -> <Code>` override. Baked into the emitted Java
   // so the runtime arm and the OpenAPI declaration can't drift.
-  const disallowedStatus = resolveErrorStatus("Disallowed", structuralErrorStatuses);
-  const uniquenessStatus = resolveErrorStatus("UniquenessConflict", structuralErrorStatuses);
-  const referencedInUseStatus = resolveErrorStatus("ReferencedInUse", structuralErrorStatuses);
-  const concurrencyStatus = resolveErrorStatus("ConcurrencyConflict", structuralErrorStatuses);
+  const disallowedStatus = wireStatus("state-gate", structuralErrorStatuses);
+  const uniquenessStatus = wireStatus("unique-conflict", structuralErrorStatuses);
+  const referencedInUseStatus = wireStatus("referenced-in-use", structuralErrorStatuses);
+  const concurrencyStatus = wireStatus("version-conflict", structuralErrorStatuses);
   // M-T5.20 — the domain floor and the `requires` denial resolve through the
   // same `httpStatus` map as the structural conflicts above, instead of the
   // same `httpStatus` map; the defaults are those same 422 / 403 literals.
-  const domainStatus = resolveErrorStatus("DomainError", structuralErrorStatuses);
-  const forbiddenStatus = resolveErrorStatus("Forbidden", structuralErrorStatuses);
+  const domainStatus = wireStatus("domain-floor", structuralErrorStatuses);
+  const forbiddenStatus = wireStatus("forbidden", structuralErrorStatuses);
   // The domain not-found rung — the ladder's last literal.  The FRAMEWORK 404
   // arm further down (`no route for <verb> <path>`) is a different concern and
   // stays literal, on this backend and on the other four.
-  const notFoundStatus = resolveErrorStatus("NotFound", structuralErrorStatuses);
+  const notFoundStatus = wireStatus("not-found", structuralErrorStatuses);
+  // Every title and fixed detail below is the fact's, resolved against the
+  // api's `httpStatus` overrides.
+  const title = (cls: WireRejectionClass): string =>
+    javaLit(wireTitle(cls, structuralErrorStatuses));
+  const fixed = (cls: WireRejectionClass): string => javaLit(wireFixedDetail(cls));
+  const fieldInvalid = wireStatus("field-invalid");
+  // The advice does not know which aggregate a restrict violation concerns, so
+  // the subject is the generic "This resource".
+  const referencedDetail = javaLit(wireSentenceFor("referenced-in-use", "This resource"));
+  const danglingDetail = fixed("dangling-reference");
+  const uniqueDetail = fixed("unique-conflict");
+  const fieldInvalidProblem = `problem(${fieldInvalid}, ${title("field-invalid")}, ${fixed("field-invalid")}, request)`;
   // One handler, three integrity arms — emitted when ANY can fire.  Note
   // `hasReferencedDelete` implies `hasDanglingRef` (it requires that something
   // holds a reference, which is the whole of the dangling gate), so this is
   // `hasUniqueKeys || hasDanglingRef` in practice; both are named so the reason
   // each arm exists stays readable.
   const hasIntegrityHandler = hasUniqueKeys || hasReferencedDelete || hasDanglingRef;
-  const domainTitle = problemTitle(domainStatus);
-  const forbiddenTitle = problemTitle(forbiddenStatus);
-  const notFoundTitle = problemTitle(notFoundStatus);
   return lines(
     `package ${basePkg}.api;`,
     ``,
@@ -969,9 +978,9 @@ export function renderApiExceptionAdvice(
     // key (a messaged rule); the message-less sentinel code is omitted.
     `    @ExceptionHandler(MethodArgumentNotValidException.class)`,
     `    public ResponseEntity<ProblemDetail> onValidation(MethodArgumentNotValidException e, WebRequest request) {`,
-    `        CatalogLog.event(${javaLogEvent("domainError")}, "message", "Validation failed", "status", 422);`,
+    `        CatalogLog.event(${javaLogEvent("domainError")}, "message", ${title("field-invalid")}, "status", ${fieldInvalid});`,
     `        httpMetrics.recordDomainFault("domain_error");`,
-    `        var problem = problem(422, "Validation failed", "One or more fields are invalid.", request);`,
+    `        var problem = ${fieldInvalidProblem};`,
     // The lookup locale is the AMBIENT request locale (D-CTX-SHAPE), not Spring's
     // own LocaleContextHolder: RequestContext.locale() is the one request-stable
     // value every other governance slice reads, and two locale sources could
@@ -991,14 +1000,14 @@ export function renderApiExceptionAdvice(
     // An absent required field (`@NotNull` on the boxed record component) reads
     // the same on every backend (RS-39).
     localizeMessages
-      ? `                entry.put("message", "NotNull".equals(err.getCode()) ? ${JSON.stringify(MISSING_FIELD_MESSAGE)} : resolveMessage(err, locale));`
-      : `                entry.put("message", "NotNull".equals(err.getCode()) ? ${JSON.stringify(MISSING_FIELD_MESSAGE)} : err.getDefaultMessage());`,
+      ? `                entry.put("message", "NotNull".equals(err.getCode()) ? ${javaMissingFieldMessage('(String) entry.get("pointer")')} : resolveMessage(err, locale));`
+      : `                entry.put("message", "NotNull".equals(err.getCode()) ? ${javaMissingFieldMessage('(String) entry.get("pointer")')} : err.getDefaultMessage());`,
     `                var code = err.getCode();`,
     `                if (code != null && code.startsWith("msg.")) entry.put("code", code);`,
     `                return entry;`,
     `            })`,
     `            .collect(Collectors.toList()));`,
-    `        return respond(problem, 422);`,
+    `        return respond(problem, ${fieldInvalid});`,
     `    }`,
     ``,
     // A FieldError with NO default message (nothing the wire validators emit, but
@@ -1020,7 +1029,7 @@ export function renderApiExceptionAdvice(
     `    public ResponseEntity<ProblemDetail> onForbidden(ForbiddenException e, WebRequest request) {`,
     `        CatalogLog.event(${javaLogEvent("forbidden")}, "message", e.getMessage(), "status", ${forbiddenStatus});`,
     `        httpMetrics.recordDomainFault("forbidden");`,
-    `        return respond(problem(${forbiddenStatus}, "${forbiddenTitle}", ${forbiddenDetail}, request), ${forbiddenStatus});`,
+    `        return respond(problem(${forbiddenStatus}, ${title("forbidden")}, ${forbiddenDetail}, request), ${forbiddenStatus});`,
     `    }`,
     ``,
     // The WIRE-FORMAT tier (M-T6.48): the bytes never parsed, so nothing about
@@ -1033,14 +1042,14 @@ export function renderApiExceptionAdvice(
     // fault reported as a server fault.
     `    @ExceptionHandler(WireFormatException.class)`,
     `    public ResponseEntity<ProblemDetail> onWireFormat(WireFormatException e, WebRequest request) {`,
-    `        CatalogLog.event("domain_error", "warn", "message", e.getMessage(), "status", ${UNPROCESSABLE_ENTITY});`,
+    `        CatalogLog.event("domain_error", "warn", "message", e.getMessage(), "status", ${fieldInvalid});`,
     `        httpMetrics.recordDomainFault("domain_error");`,
-    `        var problem = problem(${UNPROCESSABLE_ENTITY}, "Validation failed", "One or more fields are invalid.", request);`,
+    `        var problem = ${fieldInvalidProblem};`,
     `        var entry = new java.util.LinkedHashMap<String, Object>();`,
     `        entry.put("pointer", e.getPointer());`,
     `        entry.put("message", e.getMessage());`,
     `        problem.setProperty("errors", java.util.List.of(entry));`,
-    `        return respond(problem, ${UNPROCESSABLE_ENTITY});`,
+    `        return respond(problem, ${fieldInvalid});`,
     `    }`,
     ``,
     // M-T5.1 — a value object refused INSIDE a domain body: the domain-floor
@@ -1059,7 +1068,7 @@ export function renderApiExceptionAdvice(
           `    private ResponseEntity<ProblemDetail> domainFloorWithEntry(DomainException e, String ruleCode, String pointer, WebRequest request) {`,
           `        CatalogLog.event(${javaLogEvent("domainError")}, "message", e.getMessage(), "status", ${domainStatus});`,
           `        httpMetrics.recordDomainFault("domain_error");`,
-          `        var problem = problem(${domainStatus}, "${domainTitle}", e.getMessage(), request);`,
+          `        var problem = problem(${domainStatus}, ${title("domain-floor")}, e.getMessage(), request);`,
           `        var entry = new java.util.LinkedHashMap<String, Object>();`,
           `        entry.put("pointer", pointer);`,
           localizeMessages
@@ -1099,14 +1108,14 @@ export function renderApiExceptionAdvice(
       : []),
     `        CatalogLog.event(${javaLogEvent("domainError")}, "message", e.getMessage(), "status", ${domainStatus});`,
     `        httpMetrics.recordDomainFault("domain_error");`,
-    `        return respond(problem(${domainStatus}, "${domainTitle}", e.getMessage(), request), ${domainStatus});`,
+    `        return respond(problem(${domainStatus}, ${title("domain-floor")}, e.getMessage(), request), ${domainStatus});`,
     `    }`,
     ``,
     `    @ExceptionHandler(DisallowedException.class)`,
     `    public ResponseEntity<ProblemDetail> onDisallowed(DisallowedException e, WebRequest request) {`,
     `        CatalogLog.event(${javaLogEvent("disallowed")}, "message", e.getMessage(), "status", ${disallowedStatus});`,
     `        httpMetrics.recordDomainFault("disallowed");`,
-    `        return respond(problem(${disallowedStatus}, "Disallowed", e.getMessage(), request), ${disallowedStatus});`,
+    `        return respond(problem(${disallowedStatus}, ${title("state-gate")}, e.getMessage(), request), ${disallowedStatus});`,
     `    }`,
     ``,
     hasIntegrityHandler && [
@@ -1124,10 +1133,10 @@ export function renderApiExceptionAdvice(
       hasReferencedDelete &&
         `        if (${JSON.stringify(PG_RESTRICT_VIOLATION)}.equals(sqlState(e))) {`,
       hasReferencedDelete &&
-        `            CatalogLog.event(${javaLogEvent("conflict")}, "message", "This resource is still referenced and cannot be deleted.", "status", ${referencedInUseStatus});`,
+        `            CatalogLog.event(${javaLogEvent("conflict")}, "message", ${referencedDetail}, "status", ${referencedInUseStatus});`,
       hasReferencedDelete && `            httpMetrics.recordDomainFault("conflict");`,
       hasReferencedDelete &&
-        `            return respond(problem(${referencedInUseStatus}, "Conflict", "This resource is still referenced and cannot be deleted.", request), ${referencedInUseStatus});`,
+        `            return respond(problem(${referencedInUseStatus}, ${title("referenced-in-use")}, ${referencedDetail}, request), ${referencedInUseStatus});`,
       hasReferencedDelete && `        }`,
       // A reference that is absent is a well-formed request refused on SEMANTIC
       // grounds — the domain floor (422 by default), which every write route
@@ -1135,14 +1144,14 @@ export function renderApiExceptionAdvice(
       hasDanglingRef &&
         `        if (${JSON.stringify(PG_FOREIGN_KEY_VIOLATION)}.equals(sqlState(e))) {`,
       hasDanglingRef &&
-        `            CatalogLog.event(${javaLogEvent("domainError")}, "message", ${JSON.stringify(DANGLING_REFERENCE_DETAIL)}, "status", ${domainStatus});`,
+        `            CatalogLog.event(${javaLogEvent("domainError")}, "message", ${danglingDetail}, "status", ${domainStatus});`,
       hasDanglingRef && `            httpMetrics.recordDomainFault("domain_error");`,
       hasDanglingRef &&
-        `            return respond(problem(${domainStatus}, ${JSON.stringify(domainTitle)}, ${JSON.stringify(DANGLING_REFERENCE_DETAIL)}, request), ${domainStatus});`,
+        `            return respond(problem(${domainStatus}, ${title("dangling-reference")}, ${danglingDetail}, request), ${domainStatus});`,
       hasDanglingRef && `        }`,
-      `        CatalogLog.event(${javaLogEvent("disallowed")}, "message", "A resource with these values already exists.", "status", ${uniquenessStatus});`,
+      `        CatalogLog.event(${javaLogEvent("disallowed")}, "message", ${uniqueDetail}, "status", ${uniquenessStatus});`,
       `        httpMetrics.recordDomainFault("disallowed");`,
-      `        return respond(problem(${uniquenessStatus}, "Conflict", "A resource with these values already exists.", request), ${uniquenessStatus});`,
+      `        return respond(problem(${uniquenessStatus}, ${title("unique-conflict")}, ${uniqueDetail}, request), ${uniquenessStatus});`,
       `    }`,
       ``,
     ],
@@ -1156,10 +1165,10 @@ export function renderApiExceptionAdvice(
       `        // Return a friendly 409 instead of leaking a 500.  RS-40: the detail`,
       `        // names the aggregate and the row — every raise site passes`,
       `        // (<Aggregate>.class, id.value()).`,
-      `        String detail = (e.getPersistentClass() != null ? e.getPersistentClass().getSimpleName() : e.getPersistentClassName()) + " " + e.getIdentifier() + ${JSON.stringify(` ${CONCURRENCY_CONFLICT_SUFFIX}`)};`,
+      `        String detail = ${javaSentence("version-conflict", '(e.getPersistentClass() != null ? e.getPersistentClass().getSimpleName() : e.getPersistentClassName()) + " " + e.getIdentifier()')};`,
       `        CatalogLog.event(${javaLogEvent("conflict")}, "message", detail, "status", ${concurrencyStatus});`,
       `        httpMetrics.recordDomainFault("conflict");`,
-      `        return respond(problem(${concurrencyStatus}, "Conflict", detail, request), ${concurrencyStatus});`,
+      `        return respond(problem(${concurrencyStatus}, ${title("version-conflict")}, detail, request), ${concurrencyStatus});`,
       `    }`,
       ``,
     ],
@@ -1167,7 +1176,7 @@ export function renderApiExceptionAdvice(
     `    public ResponseEntity<ProblemDetail> onNotFound(AggregateNotFoundException e, WebRequest request) {`,
     `        CatalogLog.event(${javaLogEvent("notFound")}, "status", ${notFoundStatus});`,
     `        httpMetrics.recordDomainFault("not_found");`,
-    `        return respond(problem(${notFoundStatus}, "${notFoundTitle}", e.getMessage(), request), ${notFoundStatus});`,
+    `        return respond(problem(${notFoundStatus}, ${title("not-found")}, e.getMessage(), request), ${notFoundStatus});`,
     `    }`,
     ``,
     // An integral body field past its Java type's range (`{"n": 3000000000}`
@@ -1182,9 +1191,9 @@ export function renderApiExceptionAdvice(
     `    public ResponseEntity<ProblemDetail> onUnreadable(HttpMessageNotReadableException e, WebRequest request) {`,
     `        var overflow = integerOverflowPointer(e);`,
     `        if (overflow != null) {`,
-    `            return onWireFormat(new WireFormatException(overflow, ${JSON.stringify(INTEGER_RANGE_MESSAGE)}), request);`,
+    `            return onWireFormat(new WireFormatException(overflow, ${javaLit(fieldFixedMessage("integer-range"))}), request);`,
     `        }`,
-    `        return respond(problem(400, "Bad Request", "Malformed JSON in request body", request), 400);`,
+    `        return respond(problem(${wireStatus("malformed-body")}, ${title("malformed-body")}, ${fixed("malformed-body")}, request), ${wireStatus("malformed-body")});`,
     `    }`,
     ``,
     `    /** The RFC 6901 pointer of the integral field Jackson refused as out of`,
@@ -1226,17 +1235,19 @@ export function renderApiExceptionAdvice(
     // shape the body tier emits (`/id`, not the whole document).
     `    @ExceptionHandler(MethodArgumentTypeMismatchException.class)`,
     `    public ResponseEntity<ProblemDetail> onParamTypeMismatch(MethodArgumentTypeMismatchException e, WebRequest request) {`,
-    `        CatalogLog.event("domain_error", "warn", "message", "Validation failed", "status", ${UNPROCESSABLE_ENTITY});`,
+    `        CatalogLog.event("domain_error", "warn", "message", ${title("field-invalid")}, "status", ${fieldInvalid});`,
     `        httpMetrics.recordDomainFault("domain_error");`,
-    `        var problem = problem(${UNPROCESSABLE_ENTITY}, "Validation failed", "One or more fields are invalid.", request);`,
+    `        var problem = ${fieldInvalidProblem};`,
     `        var entry = new java.util.LinkedHashMap<String, Object>();`,
     `        entry.put("pointer", pointerOf(e.getName()));`,
     `        var required = e.getRequiredType();`,
-    `        entry.put("message", required != null`,
-    `            ? "Expected " + required.getSimpleName() + "."`,
+    `        // A path/query id that is not a uuid reads the fact's malformed-id message;`,
+    `        // any other type mismatch is the framework's own text.`,
+    `        entry.put("message", java.util.UUID.class.equals(required) ? ${javaLit(fieldFixedMessage("malformed-id"))}`,
+    `            : required != null ? "Expected " + required.getSimpleName() + "."`,
     `            : "Invalid value.");`,
     `        problem.setProperty("errors", java.util.List.of(entry));`,
-    `        return respond(problem, ${UNPROCESSABLE_ENTITY});`,
+    `        return respond(problem, ${fieldInvalid});`,
     `    }`,
     ``,
     // A PAGED BOUND REFUSED — `GET /api/customers?pageSize=0`, outside the
@@ -1261,9 +1272,9 @@ export function renderApiExceptionAdvice(
     // well-formed request carrying an out-of-contract value.
     `    @ExceptionHandler(org.springframework.web.method.annotation.HandlerMethodValidationException.class)`,
     `    public ResponseEntity<ProblemDetail> onParamValidation(org.springframework.web.method.annotation.HandlerMethodValidationException e, WebRequest request) {`,
-    `        CatalogLog.event("domain_error", "warn", "message", "Validation failed", "status", ${UNPROCESSABLE_ENTITY});`,
+    `        CatalogLog.event("domain_error", "warn", "message", ${title("field-invalid")}, "status", ${fieldInvalid});`,
     `        httpMetrics.recordDomainFault("domain_error");`,
-    `        var problem = problem(${UNPROCESSABLE_ENTITY}, "Validation failed", "One or more fields are invalid.", request);`,
+    `        var problem = ${fieldInvalidProblem};`,
     `        var entries = new java.util.ArrayList<java.util.Map<String, Object>>();`,
     `        for (var result : e.getParameterValidationResults()) {`,
     // `getParameterName()` needs javac's `-parameters`, which Spring Boot's
@@ -1280,7 +1291,7 @@ export function renderApiExceptionAdvice(
     `            }`,
     `        }`,
     `        problem.setProperty("errors", entries);`,
-    `        return respond(problem, ${UNPROCESSABLE_ENTITY});`,
+    `        return respond(problem, ${fieldInvalid});`,
     `    }`,
     ``,
     // A MALFORMED QUERY STRING — `GET /api/customers?=%C3%A0`, a parameter with
@@ -1307,7 +1318,7 @@ export function renderApiExceptionAdvice(
     // brings Tomcat, so the class is always on the classpath.
     `    @ExceptionHandler(org.apache.tomcat.util.http.InvalidParameterException.class)`,
     `    public ResponseEntity<ProblemDetail> onMalformedQuery(org.apache.tomcat.util.http.InvalidParameterException e, WebRequest request) {`,
-    `        var status = e.getErrorCode() >= 400 ? e.getErrorCode() : 400;`,
+    `        var status = e.getErrorCode() >= 400 ? e.getErrorCode() : ${wireStatus("malformed-body")};`,
     `        var reason = HttpStatus.valueOf(status).getReasonPhrase();`,
     `        CatalogLog.event(${javaLogEvent("clientError")}, "error", "Malformed query string", "status", status);`,
     `        return respond(problem(status, reason, "Malformed query string", request), status);`,
@@ -1347,9 +1358,9 @@ export function renderApiExceptionAdvice(
     `                ((org.springframework.web.context.request.ServletWebRequest) request).getRequest();`,
     `            var path = servletRequest.getRequestURI();`,
     `            var detail = switch (status) {`,
-    `                case 404 -> "no route for " + servletRequest.getMethod() + " " + path;`,
-    `                case 405 -> "method " + servletRequest.getMethod() + " is not supported for " + path;`,
-    `                case 415 -> ${JSON.stringify(UNSUPPORTED_MEDIA_TYPE_DETAIL)};`,
+    `                case ${wireStatus("no-route")} -> ${javaSentence("no-route", 'servletRequest.getMethod() + " " + path')};`,
+    `                case ${wireStatus("method-not-allowed")} -> "method " + servletRequest.getMethod() + " is not supported for " + path;`,
+    `                case ${wireStatus("unsupported-media-type")} -> ${fixed("unsupported-media-type")};`,
     `                default -> er.getBody().getDetail() != null ? er.getBody().getDetail() : reason;`,
     `            };`,
     `            CatalogLog.event(${javaLogEvent("clientError")}, "error", detail, "status", status);`,
@@ -1362,9 +1373,9 @@ export function renderApiExceptionAdvice(
     // node, python and .NET have always sent them.
     `            return respond(problem(status, reason, detail, request), status, er.getHeaders());`,
     `        }`,
-    `        CatalogLog.event(${javaLogEvent("internalError")}, "error", e.getMessage(), "status", 500);`,
+    `        CatalogLog.event(${javaLogEvent("internalError")}, "error", e.getMessage(), "status", ${wireStatus("internal")});`,
     `        e.printStackTrace();`,
-    `        return respond(problem(500, "Internal Server Error", "internal", request), 500);`,
+    `        return respond(problem(${wireStatus("internal")}, ${title("internal")}, ${fixed("internal")}, request), ${wireStatus("internal")});`,
     `    }`,
     ``,
     // RS-9 — the RFC 7807 `type` member must be PRESENT and "about:blank",
@@ -1436,6 +1447,13 @@ export function renderApiExceptionAdvice(
     `            out.append('/').append(seg.replace("~", "~0").replace("/", "~1"));`,
     `        }`,
     `        return out.toString();`,
+    `    }`,
+    ``,
+    // The last key of an RFC 6901 pointer, unescaped — the field a missing-field
+    // message names (`/lines/0/qty` → `qty`).
+    `    private static String lastKey(String pointer) {`,
+    `        var seg = pointer.substring(pointer.lastIndexOf('/') + 1);`,
+    `        return seg.replace("~1", "/").replace("~0", "~");`,
     `    }`,
     // M-T6.36: a `.ddd` member named after a Java reserved word is declared
     // with a mangled host identifier (`case` -> `case_`) plus `@JsonProperty`,

@@ -140,7 +140,7 @@ describe("java/Spring — messages.properties ResourceBundle + MessageSource res
     expect(advice).toContain("ApiExceptionAdvice(HttpMetrics httpMetrics, MessageSource messages)");
     expect(advice).toContain("Locale.forLanguageTag(RequestContext.locale()");
     expect(advice).toContain(
-      'entry.put("message", "NotNull".equals(err.getCode()) ? "Required" : resolveMessage(err, locale));',
+      'entry.put("message", "NotNull".equals(err.getCode()) ? lastKey((String) entry.get("pointer")) + " is required" : resolveMessage(err, locale));',
     );
     // A FieldError with no default message must not turn the 422 into a 500.
     expect(advice).toContain("catch (NoSuchMessageException ex)");
@@ -283,7 +283,7 @@ describe("cross-backend parity", () => {
       "localize_message",
     );
     expect(bySuffix(await filesFor("java", NO_MESSAGES), "ApiExceptionAdvice.java")).toContain(
-      'entry.put("message", "NotNull".equals(err.getCode()) ? "Required" : err.getDefaultMessage());',
+      'entry.put("message", "NotNull".equals(err.getCode()) ? lastKey((String) entry.get("pointer")) + " is required" : err.getDefaultMessage());',
     );
   });
 });

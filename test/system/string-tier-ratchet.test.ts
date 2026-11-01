@@ -75,7 +75,11 @@ const CEILINGS: Record<string, number> = {
   // 2900 → 3100 (#3263): the money-comparison pins (money-compare-leftovers.test.ts)
   // assert each emitter's spelling across 5 backends + 6 frontends; the runtime proof
   // is the money-nullable corpus fixture and money-compare-ui.
-  "(cross-target)": 3100,
+  // 3100 → 3300 (#4261): repo-bypass-read.test.ts pins, per backend + Dapper, that a
+  // widened find(C)/findById read omits exactly the capability predicate it names —
+  // an absence in the emitted SQL no compile gate sees; the key-lookup fixture
+  // compiles the same reads on all five backends.
+  "(cross-target)": 3300,
   _expr: 200,
   _frontend: 400,
   _i18n: 200,
@@ -88,7 +92,7 @@ const CEILINGS: Record<string, number> = {
   _walker: 700,
   _workflow: 200,
   angular: 1000,
-  dotnet: 2500, // 2300 → 2500 (#3249): the EF identity-parity pins assert the emitted C# (tracker fork, 409 path) per leg
+  dotnet: 2400, // the EF identity-parity pins assert the emitted C# (tracker fork, 409 path) per leg
   elixir: 3400, // the Ecto delta-migration pins assert the emitted create/rename/key-move per step; runtime proof is migration-evolution-elixir
   "elixir-vanilla": 500,
   feliz: 1500,

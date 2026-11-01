@@ -202,3 +202,35 @@ describe("runEvolution against a committed chain", () => {
     expect(r.diagnostics.some((d) => d.code === "loom.migration-chain-invalid")).toBe(true);
   });
 });
+
+describe("a model the IR validator refuses is never diffed or recorded", () => {
+  // `index:` still names `email` after the field was renamed: the AST checks
+  // pass, phase ⑦ refuses it, and the migration it implies would rebuild an
+  // index on a column that no longer exists.
+  const STALE_INDEX = V1.replace("email: string", "contactEmail: string").replace(
+    "use: primary }",
+    "use: primary, index: [Customer.email] }",
+  );
+
+  it("refuses to record, with the validator's code, as `ddd migrate add` does", async () => {
+    const chain = await record(V1, "initial");
+    const r = await recordMigration({
+      current: tree(STALE_INDEX, chain),
+      name: "rename-email",
+      now: "20261025130000",
+    });
+    expect(r.ok).toBe(false);
+    expect(r.diagnostics.map((d) => d.code)).toContain("loom.resource-index-unknown-column");
+  });
+
+  it("refuses to diff the live tree", async () => {
+    const r = await runEvolution({ baseline: tree(V1), current: tree(STALE_INDEX) });
+    expect(r.ok).toBe(false);
+    expect(r.diagnostics.map((d) => d.code)).toContain("loom.resource-index-unknown-column");
+  });
+
+  it("still diffs against a pinned baseline the validator would refuse", async () => {
+    const r = await runEvolution({ baseline: tree(STALE_INDEX), current: tree(V2_ADDED) });
+    expect(r.ok, JSON.stringify(r.diagnostics)).toBe(true);
+  });
+});

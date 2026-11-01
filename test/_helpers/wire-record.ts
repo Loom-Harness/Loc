@@ -516,6 +516,12 @@ export interface WireWaiver {
   readonly path: string;
   /** Divergence kinds it covers; omit for every kind at that path. */
   readonly kinds?: readonly RecordDivergenceKind[];
+  /** The VALUES it covers, as regex sources matched against the golden and the
+   *  actual string at that path; omit to cover any value.  Needed when one
+   *  path carries both the tolerated divergence and ones that must gate — an
+   *  `errors[*].message` path holds every rule's sentence, not just the one a
+   *  waiver is about. */
+  readonly values?: { readonly golden: string; readonly actual: string };
   /** Why this is tolerated AND what closes it — an RS-rule id or a mission id. */
   readonly reason: string;
 }
@@ -560,7 +566,17 @@ export function waiverCovers(
   if (w.cases && !w.cases.includes(caseName)) return false;
   if (w.kinds && !w.kinds.includes(d.kind)) return false;
   if (w.request && !requestMatches(w.request, d.request)) return false;
+  if (w.values && !valuesMatch(w.values, d)) return false;
   return pathMatches(w.path, d.path);
+}
+
+function valuesMatch(v: NonNullable<WireWaiver["values"]>, d: RecordDivergence): boolean {
+  return (
+    typeof d.golden === "string" &&
+    typeof d.actual === "string" &&
+    new RegExp(v.golden).test(d.golden) &&
+    new RegExp(v.actual).test(d.actual)
+  );
 }
 
 export interface WaiverSplit {

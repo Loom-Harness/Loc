@@ -108,13 +108,15 @@ describe("a queryable intrinsic lowers through a raw() fragment", () => {
 
   it("a `criterion` installed as a capability `filter` rides every read", async () => {
     // The criterion's literal argument binds too — it is a VALUE, not SQL text.
-    const src = await file(PREFIX, "db/repositories/doc-repository.ts");
-    expect(src).toContain('[raw("starts_with(path, ?)", ["root"])]: []');
+    // It is a default schema filter, so it applies to every read of the entity…
+    const entities = await file(PREFIX, "db/entities.ts");
+    expect(entities).toContain('[raw("starts_with(path, ?)", ["root"])]: []');
     // …including the by-id read, which is where a filter silently not applying
-    // is least visible.
-    const byId = src.split("\n").find((l) => l.includes("em.findOne(DocRow, { $and: [{ id:"));
-    expect(byId, "findById did not AND the capability filter").toBeDefined();
-    expect(byId!).toContain("starts_with(path, ?)");
+    // is least visible: the read states only its own `where`.
+    const src = await file(PREFIX, "db/repositories/doc-repository.ts");
+    const byId = src.split("\n").find((l) => l.includes("em.findOne(DocRow, { id: id as string }"));
+    expect(byId, "findById reads through the entity's default filters").toBeDefined();
+    expect(byId!).not.toContain("starts_with");
   });
 
   it("`starts_with`, never a LIKE pattern — a `%` in the VALUE is data", async () => {
@@ -182,19 +184,16 @@ describe("a principal-referencing find declares the parameter its caller passes"
   it("a capability filter still uses the AMBIENT accessor, not the parameter", async () => {
     // Capability filters ride reads that have no principal parameter
     // (`findById`, the bulk id load), so they must not name one.
-    const src = await file(
-      system(`
+    const src = system(`
         aggregate Doc with crudish, tenantOwned {
           title: string
         }
         aggregate Org with crudish { name: string  implements tenantRegistry }
         repository Docs for Doc { }
         repository Orgs for Org { }
-      `).replace("subdomain D {", "tenancy by user.tenantId of Org\n    subdomain D {"),
-      "db/repositories/doc-repository.ts",
-    );
-    expect(src).toContain("tenantId: requireCurrentUser().tenantId");
-    expect(src).not.toContain("currentUser: User");
+      `).replace("subdomain D {", "tenancy by user.tenantId of Org\n    subdomain D {");
+    expect(await file(src, "db/entities.ts")).toContain("tenantId: requireCurrentUser().tenantId");
+    expect(await file(src, "db/repositories/doc-repository.ts")).not.toContain("currentUser: User");
   });
 });
 

@@ -18,6 +18,11 @@
 // Database: real Postgres when `PG_URL` is set (a fresh database is created on
 // that server and dropped afterwards), otherwise PGlite in-process.
 //
+// `LOOM_POLY_PERSISTENCE=mikroorm` (requires `PG_URL`) runs the same assertions
+// against the `persistence: mikroorm` build of the fixture, booted as a real
+// process (MikroORM needs a real Postgres): single-table inheritance + default
+// filters answer the polymorphic read there.
+//
 // Usage:  npm ci  (in this dir, once) ; [PG_URL=postgres://…] node polymorphic-read.mjs
 //
 // Another backend: generate `polymorphic-read.ddd` with its `platform:`, boot
@@ -26,16 +31,52 @@
 // Exit non-zero on any failed assertion or a boot error.
 
 import { build } from "esbuild";
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import pg from "pg";
 import { MIGRATOR_IMPORT, applyMigrationsStmt } from "./emitted-schema.mjs";
+import { stopServer, waitForPort, waitForPortFree } from "./proc.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "..", "..");
 const DDD = join(HERE, "polymorphic-read.ddd");
+const MIKRO = process.env.LOOM_POLY_PERSISTENCE === "mikroorm";
+const MIKRO_PORT = Number(process.env.LOOM_POLY_PORT ?? "8127");
+
+/** Boot the GENERATED `persistence: mikroorm` backend as a real process
+ *  against a fresh database on `pgUrl`, and return a `fetch` dispatch to it. */
+async function bootMikro(deplDir, pgUrl) {
+  execFileSync("npm", ["install", "--no-audit", "--no-fund", "--loglevel=error"], { cwd: deplDir, stdio: "pipe" });
+  const admin = new pg.Client({ connectionString: pgUrl });
+  await admin.connect();
+  const name = "loom_poly_mikro_" + process.pid + "_" + Date.now();
+  await admin.query("create database " + name);
+  const url = new URL(pgUrl);
+  url.pathname = "/" + name;
+  await waitForPortFree(MIKRO_PORT);
+  const server = spawn("npm", ["run", "dev"], {
+    cwd: deplDir,
+    stdio: "pipe",
+    detached: true,
+    env: { ...process.env, DATABASE_URL: url.toString(), PORT: String(MIKRO_PORT) },
+  });
+  let log = "";
+  server.stdout.on("data", (d) => { log += d; });
+  server.stderr.on("data", (d) => { log += d; });
+  const exited = new Promise((_, rej) => server.on("exit", (code) => rej(new Error(`server exited early (code ${code})\n${log.slice(-2000)}`))));
+  await Promise.race([waitForPort(MIKRO_PORT, 90_000), exited]);
+  const base = `http://127.0.0.1:${MIKRO_PORT}`;
+  const dispatch = (path, init) => fetch(base + path, init);
+  const close = async () => {
+    await stopServer(server);
+    await admin.query("drop database if exists " + name + " with (force)");
+    await admin.end();
+  };
+  return { dispatch, close };
+}
 
 /** The boot module: a `boot()` that returns a `fetch`-like dispatch bound to
  *  the generated Hono app over PGlite or node-postgres. */
@@ -241,27 +282,42 @@ async function main() {
   const workDir = join(HERE, ".work", "polymorphic-read");
   mkdirSync(workDir, { recursive: true });
   try {
-    process.stdout.write(`▶ generating ${DDD}\n`);
-    execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", DDD, "-o", genDir], {
+    if (MIKRO && !pgUrl) throw new Error("LOOM_POLY_PERSISTENCE=mikroorm needs PG_URL (a real Postgres)");
+    process.stdout.write(`▶ generating ${DDD}${MIKRO ? " [mikroorm]" : ""}\n`);
+    let source = DDD;
+    if (MIKRO) {
+      const injected = readFileSync(DDD, "utf8").replace(/platform: node\b/, "platform: node { persistence: mikroorm }");
+      if (!injected.includes("persistence: mikroorm")) throw new Error("no `platform: node` deployable to force mikroorm onto");
+      source = join(workDir, "polymorphic-read.mikroorm.ddd");
+      writeFileSync(source, injected);
+    }
+    execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", source, "-o", genDir], {
       stdio: "pipe",
     });
     const deplDir = join(genDir, "api");
-    const entry = join(workDir, "entry.mts");
-    const bundle = join(workDir, "bundle.mjs");
-    writeFileSync(entry, entrySource(deplDir, pgUrl));
-    await build({
-      entryPoints: [entry],
-      outfile: bundle,
-      bundle: true,
-      platform: "node",
-      format: "esm",
-      target: "node20",
-      packages: "external",
-      logLevel: "warning",
-    });
-    process.stdout.write(`▶ booting on ${pgUrl ? "Postgres (PG_URL)" : "PGlite"}\n`);
-    const { boot } = await import(pathToFileURL(bundle).href);
-    const { dispatch, close } = await boot();
+    let booted;
+    if (MIKRO) {
+      process.stdout.write("▶ booting on Postgres (PG_URL), real process\n");
+      booted = await bootMikro(deplDir, pgUrl);
+    } else {
+      const entry = join(workDir, "entry.mts");
+      const bundle = join(workDir, "bundle.mjs");
+      writeFileSync(entry, entrySource(deplDir, pgUrl));
+      await build({
+        entryPoints: [entry],
+        outfile: bundle,
+        bundle: true,
+        platform: "node",
+        format: "esm",
+        target: "node20",
+        packages: "external",
+        logLevel: "warning",
+      });
+      process.stdout.write(`▶ booting on ${pgUrl ? "Postgres (PG_URL)" : "PGlite"}\n`);
+      const { boot } = await import(pathToFileURL(bundle).href);
+      booted = await boot();
+    }
+    const { dispatch, close } = booted;
     try {
       await scenario(dispatch);
     } finally {

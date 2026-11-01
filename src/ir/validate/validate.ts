@@ -30,6 +30,7 @@ import {
   validateSelfProvisioningSchemaSupport,
   validateTableSteps,
 } from "./checks/migration-checks.js";
+import { validateOptionalBindings } from "./checks/optional-binding-checks.js";
 import { validatePagedParamNames } from "./checks/paged-param-checks.js";
 import {
   mikroOrmOnlyContexts,
@@ -383,6 +384,7 @@ export function validateLoomModel(
     // Explicit application-layer handlers (unfoldable-api-derivation.md, Layer 3):
     // queryHandler-read-only + commandHandler-single-aggregate layering contracts.
     validateApplicationHandlers(c, diags);
+    validateOptionalBindings(c, diags);
     // Ruling D1: a reactor's gates are evaluated against the system principal;
     // warn on one it can never satisfy.
     validateReactorGates(c, diags);

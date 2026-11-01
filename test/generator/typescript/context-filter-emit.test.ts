@@ -8,6 +8,7 @@
 // Half-applying it would be a soft-delete correctness hole.
 
 import { describe, expect, it } from "vitest";
+import { scopeFn } from "../../_helpers/drizzle-scope.js";
 import { generateHono, generateSystemFiles } from "../../_helpers/generate.js";
 import { parseValid } from "../../_helpers/parse.js";
 
@@ -31,26 +32,35 @@ describe("typescript generator — capability filter (contextFilters)", () => {
     const repo = files.get("db/repositories/doc-repository.ts")!;
     expect(repo).toBeDefined();
 
-    // findById: `eq(schema.docs.id, id)` AND-ed with `not(...)`.
+    // Every root read calls the aggregate's generated scope helper …
+    // findById: `eq(schema.docs.id, id)` AND-ed with the scope.
     expect(repo).toMatch(
-      /findById[\s\S]*?\.where\(and\(eq\(schema\.docs\.id, id\), not\(eq\(schema\.docs\.isDeleted, true\)\)\)\)/,
+      /findById[\s\S]*?\.where\(and\(eq\(schema\.docs\.id, id\), docScope\(\)\)\)/,
     );
-    // findManyByIds: `inArray(...)` AND-ed with the filter.
+    // findManyByIds: `inArray(...)` AND-ed with the scope.
     expect(repo).toMatch(
-      /findManyByIds[\s\S]*?\.where\(and\(inArray\(schema\.docs\.id, ids\), not\(eq\(schema\.docs\.isDeleted, true\)\)\)\)/,
+      /findManyByIds[\s\S]*?\.where\(and\(inArray\(schema\.docs\.id, ids\), docScope\(\)\)\)/,
     );
-    // The named find: its own `where` AND-ed with the filter.
+    // The named find: its own `where` AND-ed with the scope.
     expect(repo).toMatch(
-      /bySubject[\s\S]*?\.where\(and\(eq\(schema\.docs\.subject, s\), not\(eq\(schema\.docs\.isDeleted, true\)\)\)\)/,
+      /bySubject[\s\S]*?\.where\(and\(eq\(schema\.docs\.subject, s\), docScope\(\)\)\)/,
     );
-    // `not` must be imported from drizzle-orm (import narrower keeps it).
-    expect(repo).toMatch(/import \{[^}]*\bnot\b[^}]*\} from "drizzle-orm";/);
+    // … and the repository spells the predicate nowhere itself.
+    expect(repo).not.toContain("not(eq(schema.docs.isDeleted, true))");
+    expect(repo).toContain('import { docScope } from "../read-scopes";');
+    // The predicate lives once, in the helper.
+    const scope = scopeFn(files, "docScope");
+    expect(scope).toContain("not(eq(schema.docs.isDeleted, true))");
+    expect(files.get("db/read-scopes.ts")).toMatch(
+      /import \{[^}]*\bnot\b[^}]*\} from "drizzle-orm";/,
+    );
   });
 
-  it("reifies a filter that is exactly one named criterion (module-level fn)", async () => {
-    // reified-criteria.md, the anonymous-`filter` row: `filter NotDeleted`
-    // calls the criterion's module-level predicate fn instead of re-inlining
-    // its body — deduped with find/retrieval consumers of the same criterion.
+  it("a filter that is exactly one named criterion is inlined in the scope helper", async () => {
+    // The scope helper (`db/read-scopes.ts`) is a project-level module, so it
+    // cannot call a criterion fn that lives in a repository file: the criterion's
+    // body is rendered into the helper, and the repository's finds and retrievals
+    // that consume the same criterion keep their module-level predicate fn.
     const model = await parseValid(`
       context Sales {
         criterion NotDeleted of Doc = !this.isDeleted
@@ -64,20 +74,18 @@ describe("typescript generator — capability filter (contextFilters)", () => {
         }
       }
     `);
-    const repo = generateHono(model).get("db/repositories/doc-repository.ts")!;
-    // One module-level predicate fn, body = the lowered criterion.
-    expect(repo).toContain(
-      "const notDeletedCriterion = () => not(eq(schema.docs.isDeleted, true));",
-    );
-    // Every root read calls the fn (no re-inlined body at the use sites).
+    const files = generateHono(model);
+    const repo = files.get("db/repositories/doc-repository.ts")!;
+    // Every root read calls the scope helper (no re-inlined body at the use sites).
     expect(repo).toMatch(
-      /findById[\s\S]*?\.where\(and\(eq\(schema\.docs\.id, id\), notDeletedCriterion\(\)\)\)/,
+      /findById[\s\S]*?\.where\(and\(eq\(schema\.docs\.id, id\), docScope\(\)\)\)/,
     );
     expect(repo).toMatch(
-      /bySubject[\s\S]*?\.where\(and\(eq\(schema\.docs\.subject, s\), notDeletedCriterion\(\)\)\)/,
+      /bySubject[\s\S]*?\.where\(and\(eq\(schema\.docs\.subject, s\), docScope\(\)\)\)/,
     );
-    // The criterion body appears exactly once (the fn) — use sites call it.
-    expect(repo.match(/not\(eq\(schema\.docs\.isDeleted, true\)\)/g)).toHaveLength(1);
+    expect(repo).not.toContain("not(eq(schema.docs.isDeleted, true))");
+    // The criterion body appears exactly once: in the helper.
+    expect(scopeFn(files, "docScope")).toContain("not(eq(schema.docs.isDeleted, true))");
   });
 
   it("AND-s the capability filter into criterion retrievals (run<Name>) — silent-leak regression", async () => {
@@ -107,14 +115,14 @@ system T {
   resource st { for: Sales, kind: state, use: pg }
   deployable d { platform: node, contexts: [Sales], dataSources: [st], serves: A, port: 4000 }
 }`;
-    const repo = (await generateSystemFiles(RETRIEVAL_SRC)).get(
-      "d/db/repositories/doc-repository.ts",
-    )!;
+    const files = await generateSystemFiles(RETRIEVAL_SRC);
+    const repo = files.get("d/db/repositories/doc-repository.ts")!;
     expect(repo).toBeDefined();
-    // runByCategory: its criterion `where` AND-ed with the capability filter.
+    // runByCategory: its criterion `where` AND-ed with the aggregate's scope helper.
     expect(repo).toMatch(
-      /runByCategory[\s\S]*?\.where\(and\(inCategoryCriterion\(c\), not\(eq\(schema\.docs\.isDeleted, true\)\)\)\)/,
+      /runByCategory[\s\S]*?\.where\(and\(inCategoryCriterion\(c\), docScope\(\)\)\)/,
     );
+    expect(scopeFn(files, "docScope")).toContain("not(eq(schema.docs.isDeleted, true))");
   });
 
   it("leaves a criterion retrieval bare when the aggregate has no filter", async () => {
@@ -143,7 +151,7 @@ system T {
     )!;
     // No capability filter → the retrieval keeps its bare criterion where.
     expect(repo).toMatch(/runByCategory[\s\S]*?\.where\(inCategoryCriterion\(c\)\)/);
-    expect(repo).not.toContain("isDeleted");
+    expect(repo).not.toContain("not(eq(schema.docs.isDeleted, true))");
   });
 
   it("emits no capability predicate when the aggregate has no filter", async () => {
@@ -194,17 +202,22 @@ system Bank {
 
 describe("typescript generator — principal capability filter (DEBT-01)", () => {
   it("AND-s the tenancy predicate (via requireCurrentUser()) into every root read", async () => {
-    const repo = (await generateSystemFiles(PRINCIPAL_SRC)).get(
-      "api/db/repositories/account-repository.ts",
-    )!;
+    const files = await generateSystemFiles(PRINCIPAL_SRC);
+    const repo = files.get("api/db/repositories/account-repository.ts")!;
     expect(repo).toBeDefined();
 
-    const tenancy = "eq(schema.accounts.tenantId, requireCurrentUser().tenantId)";
-    // findById and findManyByIds both AND the tenancy predicate in.
-    expect(repo).toContain(`.where(and(eq(schema.accounts.id, id), ${tenancy}))`);
-    expect(repo).toContain(`.where(and(inArray(schema.accounts.id, ids), ${tenancy}))`);
-    // The ambient accessor is imported; no read method takes a currentUser param.
-    expect(repo).toContain('import { requireCurrentUser } from "../../auth/middleware";');
+    // findById and findManyByIds both AND the aggregate's scope helper in.
+    expect(repo).toContain(".where(and(eq(schema.accounts.id, id), accountScope()))");
+    expect(repo).toContain(".where(and(inArray(schema.accounts.id, ids), accountScope()))");
+    // The tenancy predicate renders against the ambient accessor, inside the helper …
+    expect(scopeFn(files, "accountScope")).toContain(
+      "eq(schema.accounts.tenantId, requireCurrentUser().tenantId)",
+    );
+    expect(files.get("api/db/read-scopes.ts")).toContain(
+      'import { requireCurrentUser } from "../auth/middleware";',
+    );
+    // … so the repository needs no accessor, and no read method takes a currentUser param.
+    expect(repo).not.toContain("requireCurrentUser");
     expect(repo).toContain("async findById(id: Ids.AccountId): Promise<Account | null>");
   });
 

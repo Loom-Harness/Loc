@@ -3,6 +3,7 @@
 // class per file — Java's rule) + the DomainEvent marker interface.
 // ---------------------------------------------------------------------------
 
+import { FIND_ABSENT_DETAIL, fieldValuePrefix } from "../../../ir/enrich/wire-policy.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -10,12 +11,8 @@ import {
   PAGED_MAX_PAGE_SIZE,
 } from "../../../ir/stdlib/generics.js";
 import { lines } from "../../../util/code-builder.js";
-import {
-  MONEY_INTEGER_DIGITS,
-  MONEY_PRECISION,
-  MONEY_RANGE_MESSAGE,
-  MONEY_WIRE_SCALE,
-} from "../../money-scale.js";
+import { MONEY_INTEGER_DIGITS, MONEY_PRECISION, MONEY_WIRE_SCALE } from "../../money-scale.js";
+import { javaIngressCoercions, javaLit, javaSentence } from "../wire-policy-java.js";
 
 /**
  * The four pagination query parameters of a paged read, as Spring
@@ -228,11 +225,11 @@ export function renderWireFormatException(basePkg: string): string {
     `     *  nothing is re-parsed. */`,
     `    public static BigDecimal money(String value, String pointer) {`,
     `        if (value == null || !MONEY.matcher(value).matches()) {`,
-    `            throw new WireFormatException(pointer, "Invalid decimal: " + quote(value));`,
+    `            throw new WireFormatException(pointer, ${javaLit(`${fieldValuePrefix("money-grammar")}: `)} + quote(value));`,
     `        }`,
     `        BigDecimal parsed = new BigDecimal(value);`,
     `        if (parsed.precision() - parsed.scale() > ${MONEY_INTEGER_DIGITS}) {`,
-    `            throw new WireFormatException(pointer, ${JSON.stringify(`${MONEY_RANGE_MESSAGE}: `)} + quote(value));`,
+    `            throw new WireFormatException(pointer, ${javaLit(`${fieldValuePrefix("money-range")}: `)} + quote(value));`,
     `        }`,
     `        return parsed;`,
     `    }`,
@@ -349,7 +346,7 @@ export function renderAggregateNotFoundException(basePkg: string): string {
  * yields the bare id — byte-identical to what node/.NET/python/elixir send.
  */
 export function javaNotFoundThrow(aggName: string, idExpr = "id"): string {
-  return `new AggregateNotFoundException("${aggName} " + ${idExpr} + " not found")`;
+  return `new AggregateNotFoundException(${javaSentence("not-found", `"${aggName} " + ${idExpr}`)})`;
 }
 
 /**
@@ -377,7 +374,7 @@ export function javaNotFoundThrow(aggName: string, idExpr = "id"): string {
  * (`corpus/inheritance`'s `byEmail`) got their first callers, and the java leg
  * read `golden {…} ≠ java ""`.
  */
-export const JAVA_FIND_ABSENCE_THROW = `new AggregateNotFoundException("not_found")`;
+export const JAVA_FIND_ABSENCE_THROW = `new AggregateNotFoundException(${javaLit(FIND_ABSENT_DETAIL)})`;
 
 export function renderPagedRecord(basePkg: string): string {
   return lines(
@@ -506,6 +503,10 @@ export function renderWireNumberStrictness(basePkg: string): string {
     ` * rides the java wire as a String too, so {@code {"amount": 12.5}} was`,
     ` * accepted there by the same coercion. Failing Integer / Float / Boolean →`,
     ` * Textual closes both.`,
+    ` *`,
+    ` * <p>The coercions are derived from the wirePolicy ingress table, one group per`,
+    ` * Jackson logical type: a {@code decimal} accepts only a JSON number and a`,
+    ` * {@code bool} only a JSON boolean.`,
     ` */`,
     `@Configuration`,
     `public class WireNumberStrictness {`,
@@ -513,16 +514,24 @@ export function renderWireNumberStrictness(basePkg: string): string {
     `    JsonMapperBuilderCustomizer loomStrictNumbers() {`,
     `        return builder -> {`,
     `            builder.disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT);`,
-    `            builder.withCoercionConfig(`,
-    `                LogicalType.Integer,`,
-    `                cfg -> cfg.setCoercion(CoercionInputShape.String, CoercionAction.Fail));`,
-    `            builder.withCoercionConfig(`,
-    `                LogicalType.Textual,`,
-    `                cfg -> {`,
-    `                    cfg.setCoercion(CoercionInputShape.Integer, CoercionAction.Fail);`,
-    `                    cfg.setCoercion(CoercionInputShape.Float, CoercionAction.Fail);`,
-    `                    cfg.setCoercion(CoercionInputShape.Boolean, CoercionAction.Fail);`,
-    `                });`,
+    ...javaIngressCoercions().flatMap(({ logical, reject }) =>
+      reject.length === 1
+        ? [
+            `            builder.withCoercionConfig(`,
+            `                LogicalType.${logical},`,
+            `                cfg -> cfg.setCoercion(CoercionInputShape.${reject[0]}, CoercionAction.Fail));`,
+          ]
+        : [
+            `            builder.withCoercionConfig(`,
+            `                LogicalType.${logical},`,
+            `                cfg -> {`,
+            ...reject.map(
+              (r) =>
+                `                    cfg.setCoercion(CoercionInputShape.${r}, CoercionAction.Fail);`,
+            ),
+            `                });`,
+          ],
+    ),
     `        };`,
     `    }`,
     `}`,
