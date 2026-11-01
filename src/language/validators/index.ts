@@ -50,7 +50,7 @@ export { checkPayloads } from "./payload.js";
 export { checkPermissionImplies } from "./permissions.js";
 export { checkPolicyFns } from "./policy-fn.js";
 export { checkRepoKeyLookups } from "./repo-key-lookup.js";
-export { checkRepositoryFinds } from "./repository.js";
+export { checkReadGates } from "./repository.js";
 export { checkSeeds } from "./seed.js";
 export {
   checkAssignOrCall,

@@ -34,9 +34,7 @@ system S {
       }
       criterion ByEmail(e: string) of Customer = email == e
       repository Customers for Customer { }
-      repository Orders for Order {
-        find byCode(c: string): Order? where this.code == c
-      }
+      repository Orders for Order { }
       command C { e: string  oid: Order id  code: string }
       commandHandler H(e: string, oid: Order id, code: string) {
         ${body.handler ?? "let c = Customers.find(ByEmail(e))\n        precondition c != null"}
@@ -126,11 +124,11 @@ describe("lowering", () => {
 
   it("a body whose only reads are optional cannot answer not-found", async () => {
     const ctx = await ctxOf(sys({}));
-    expect(workflowCanAnswerNotFound(ctx.workflows[0]!, ctx.repositories)).toBe(false);
+    expect(workflowCanAnswerNotFound(ctx.workflows[0]!)).toBe(false);
     const must = await ctxOf(
       sys({ workflow: "let o = Orders.getById(c.oid)\n          o.touch()" }),
     );
-    expect(workflowCanAnswerNotFound(must.workflows[0]!, must.repositories)).toBe(true);
+    expect(workflowCanAnswerNotFound(must.workflows[0]!)).toBe(true);
   });
 });
 

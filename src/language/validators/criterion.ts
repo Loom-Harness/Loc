@@ -30,13 +30,11 @@ import {
   isCallSuffix,
   isCriterion,
   isEnumDecl,
-  isFindDecl,
   isMemberSuffix,
   isNamedType,
   isNameRef,
   isPostfixChain,
   isPrimitiveType,
-  isRepository,
   isRetrieval,
   type Model,
   type NameRef,
@@ -201,17 +199,10 @@ function participatesInCycle(start: Criterion, byName: Map<string, Criterion>): 
   return false;
 }
 
-/** The candidate aggregate of the *use site* enclosing `node`: a
- *  repository find's aggregate, or the enclosing aggregate (invariant /
- *  operation / derived / function body).  Used to check criterion candidate
- *  compatibility. */
+/** The candidate aggregate of the *use site* enclosing `node`: the
+ *  enclosing aggregate (invariant / operation / derived / function body).
+ *  Used to check criterion candidate compatibility. */
 function hostAggregate(node: AstNode): Aggregate | undefined {
-  const find = AstUtils.getContainerOfType(node, isFindDecl);
-  if (find) {
-    const repo = AstUtils.getContainerOfType(find, isRepository);
-    const agg = repo?.aggregate?.ref;
-    if (agg && isAggregate(agg)) return agg;
-  }
   return AstUtils.getContainerOfType(node, isAggregate);
 }
 

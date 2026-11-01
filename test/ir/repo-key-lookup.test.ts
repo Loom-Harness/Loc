@@ -133,7 +133,7 @@ describe("enrichment — one synthesized method per used (verb, tuple, stance)",
 
   it("a getBy read can answer not-found", async () => {
     const c = await ctx();
-    expect(workflowCanAnswerNotFound(c.workflows[0]!, c.repositories)).toBe(true);
+    expect(workflowCanAnswerNotFound(c.workflows[0]!)).toBe(true);
   });
 });
 

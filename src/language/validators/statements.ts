@@ -17,7 +17,6 @@ import type {
   Destroy,
   EmitStmt,
   Expression,
-  FindDecl,
   FunctionDecl,
   LValue,
   Model,
@@ -37,7 +36,6 @@ import {
   isDerivedProp,
   isEmitStmt,
   isFilterDecl,
-  isFindDecl,
   isFunctionDecl,
   isLetStmt,
   isMemberSuffix,
@@ -519,13 +517,13 @@ export function checkExprCallArgs(
 
 /** Arg-type + construction-value checking at the EXPRESSION
  *  slots the operation/function/default/invariant/derived walk never reaches:
- *  repository `find … where` / `… requires`, retrieval `where:` (named +
+ *  retrieval `where:` (named +
  *  anonymous), criterion / policy-fn bodies, and operation `requires` / `when`
  *  gates.  Each holds an `Expression` that can nest a criterion/policy predicate
  *  call, a free/member domain call, or a record construction — all already
  *  type-checkable by the shared `checkExprCallArgs` / `checkConstructionArgTypes`
- *  under the slot's lexical env (`envForNode`, which binds a find's `for`
- *  aggregate + params and an operation's `this` + params).  Predicate-call ARITY
+ *  under the slot's lexical env (`envForNode`, which binds a criterion's
+ *  candidate + params and an operation's `this` + params).  Predicate-call ARITY
  *  is already model-wide (`loom.criterion-arity` / `loom.policy-fn-arity`); this
  *  adds the per-argument TYPE those gates don't touch, reusing the same
  *  `loom.call-arg-type` / `loom.construction-field-type` codes as the statement
@@ -539,9 +537,7 @@ export function checkPredicateSlotArgs(model: Model, accept: ValidationAcceptor)
     checkExprCallArgs(expr, env, accept);
   };
   for (const node of AstUtils.streamAllContents(model)) {
-    if (isFindDecl(node)) {
-      visit((node as FindDecl).filter);
-    } else if (isRetrieval(node)) {
+    if (isRetrieval(node)) {
       visit((node as Retrieval).where);
     } else if (isRetrievalLiteral(node)) {
       visit(node.where);

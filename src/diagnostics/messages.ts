@@ -5239,14 +5239,9 @@ export const DIAGNOSTIC_MESSAGES = {
     name: unknown;
     repoName: unknown;
     method: unknown;
-    finds: unknown;
     suggestion?: unknown;
   }) =>
-    `workflow '${p.name}': repository '${p.repoName}' has no method '${p.method}'.${didYouMean(p.suggestion)}  Available: getById, ${p.finds}.`,
-  "loom.workflow-currentuser-find": (p: { name: unknown; repoName: unknown; method: unknown }) =>
-    `workflow '${p.name}': '${p.repoName}.${p.method}(...)' references a currentUser-bound find, ` +
-    `which workflows don't yet pass the user into.  Use 'getById' with an explicit id parameter, ` +
-    `or call the user-aware find from the route layer instead.`,
+    `workflow '${p.name}': repository '${p.repoName}' has no method '${p.method}'.${didYouMean(p.suggestion)}  A repository declares no reads of its own: read with getById / findById, getBy / findBy over a declared \`unique (…)\` key, or find / findAll / run over a criterion.`,
   "loom.workflow-load-array-unsupported": (p: {
     name: unknown;
     repoName: unknown;
@@ -5591,13 +5586,16 @@ export const DIAGNOSTIC_MESSAGES = {
   // below.  Say the order (`src/language/parse-errors.ts`).
   "loom.parse-error#access-modifier-after-default": (p: { modifier: unknown; fixed: unknown }) =>
     `The access modifier '${p.modifier}' goes before the default: \`${p.fixed}\`.`,
-  // A `requires` gate on a repository find — the clause moved to the policy
-  // block (`src/language/parse-errors.ts`).
-  "loom.parse-error#find-requires-moved": (p: { aggregate: unknown }) =>
-    `A repository find carries no \`requires\` gate: who may read an aggregate is ` +
-    `\`policy { read ${p.aggregate} requires <expr> }\` in its context, and it gates every ` +
-    `read of '${p.aggregate}'. Move the gate there (\`node scripts/codemod-find-gate-to-policy.mjs\` ` +
-    `does it for a whole project).`,
+  // A `find` declared in a repository body — the declaration was removed
+  // (D-FINDDECL-REMOVED): every read is the repository contract
+  // (`src/language/parse-errors.ts`).
+  "loom.parse-error#find-removed": (p: { repository: unknown; aggregate: unknown }) =>
+    `A repository declares no \`find\`s any more: read '${p.aggregate}' through the ` +
+    `repository contract instead — \`${p.repository}.findById(id)\` / \`getById(id)\`, ` +
+    `\`${p.repository}.findBy(<column>: v)\` / \`getBy(…)\` over a declared \`unique (…)\` key, ` +
+    `or a \`criterion\` read with \`${p.repository}.find(C)\` (the first match), ` +
+    `\`findAll(C)\` or \`run(C)\`. A read a client calls is a \`queryHandler\` or ` +
+    `\`scaffoldGet\`. Leave the repository body empty (\`repository ${p.repository} for ${p.aggregate}\`).`,
   // A workflow `handle` member — the declaration was removed (D-HANDLE-REMOVAL):
   // it had no correlation surface and no backend ever routed it.  The named
   // command entry is a context-level `commandHandler` (`src/language/parse-errors.ts`).

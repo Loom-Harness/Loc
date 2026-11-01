@@ -44,7 +44,7 @@ describe("the contract table", () => {
 
   it("gives each op one result shape", () => {
     for (const c of REPOSITORY_CONTRACT) {
-      if (c.op === "declared-find") continue;
+      if (c.op === "unknown-read") continue;
       expect(repoOpResult(c.op), c.verb).toBe(c.result);
     }
     expect(repoOpResult("load")).toBe("row");
@@ -66,7 +66,7 @@ describe("the contract table", () => {
     expect(repoOpVerb("load")).toBe("getById");
     expect(repoOpVerb("load-optional")).toBe("findById");
     expect(repoOpVerb("select-many", "retrieval-or-criterion")).toBe("run");
-    expect(() => repoOpVerb("declared-find")).toThrow();
+    expect(() => repoOpVerb("unknown-read")).toThrow();
   });
 
   it("looks a verb up by its exact spelling", () => {
@@ -85,26 +85,25 @@ describe("the contract table", () => {
 });
 
 describe("named repository calls", () => {
-  it("a declared find wins over a contract verb of the same name", () => {
-    expect(namedRepoCallOp("all", true)).toBe("declared-find");
-    expect(namedRepoCallOp("byCode", true)).toBe("declared-find");
+  it("a name no contract verb spells resolves to nothing", () => {
+    expect(namedRepoCallOp("byCode")).toBeUndefined();
   });
 
   it("a by-name contract verb resolves to its op", () => {
-    expect(namedRepoCallOp("getById", false)).toBe("load");
-    expect(namedRepoCallOp("findById", false)).toBe("load-optional");
-    expect(namedRepoCallOp("findAll", false)).toBe("select-many");
-    expect(namedRepoCallOp("all", false)).toBe("select-many");
+    expect(namedRepoCallOp("getById")).toBe("load");
+    expect(namedRepoCallOp("findById")).toBe("load-optional");
+    expect(namedRepoCallOp("findAll")).toBe("select-many");
+    expect(namedRepoCallOp("all")).toBe("select-many");
   });
 
   it("a reference-taking verb is not resolved by name alone", () => {
-    expect(namedRepoCallOp("find", false)).toBeUndefined();
-    expect(namedRepoCallOp("run", false)).toBeUndefined();
+    expect(namedRepoCallOp("find")).toBeUndefined();
+    expect(namedRepoCallOp("run")).toBeUndefined();
   });
 
   it("a natural-key verb is not resolved by name alone (its tuple decides the method)", () => {
-    expect(namedRepoCallOp("getBy", false)).toBeUndefined();
-    expect(namedRepoCallOp("findBy", false)).toBeUndefined();
+    expect(namedRepoCallOp("getBy")).toBeUndefined();
+    expect(namedRepoCallOp("findBy")).toBeUndefined();
   });
 });
 

@@ -458,25 +458,32 @@ export function fieldAccessKeywords(): ReadonlySet<string> {
 }
 
 /**
- * A `requires` gate on a repository find — `find all(): T[] requires G`.  The
- * clause is gone: who may read an aggregate is `policy { read T requires G }`.
- * Chevrotain only says it wanted the repository's `}`; name the new home (and
- * the codemod) at the stray `requires`.  `undefined` for every other failure.
+ * A `find` declared in a repository body — `repository Orders for Order {
+ * find byCode(c: string): Order? }`.  The declaration is gone
+ * (D-FINDDECL-REMOVED): a repository declares no reads of its own, and every
+ * read is the repository contract.  Chevrotain only says it wanted the
+ * repository's `}`; name the replacements at the stray `find`.  Only directly
+ * inside a `repository … for … {`, so a `find` anywhere else keeps
+ * chevrotain's message.  `undefined` for every other failure.
  */
-export function findRequiresMoved(
+export function findDeclRemoved(
   err: IRecognitionException,
   text: string,
 ): RefinedParseError | undefined {
   const token = err.token;
-  if (!token || Number.isNaN(token.startOffset) || token.image !== "requires") return undefined;
-  const before = text.slice(0, token.startOffset);
-  if (!/\bfind\s+[A-Za-z_]\w*\s*\([^)]*\)\s*:[^{}=;]*$/.test(before)) return undefined;
-  const repos = [...before.matchAll(/\brepository\s+[A-Za-z_]\w*\s+for\s+([A-Za-z_]\w*)\s*\{/g)];
-  const aggregate = repos[repos.length - 1]?.[1] ?? "<Aggregate>";
+  if (!token || Number.isNaN(token.startOffset) || token.image !== "find") return undefined;
+  const repo =
+    /\brepository\s+([A-Za-z_]\w*)\s+for\s+([A-Za-z_]\w*)\s*\{(?:\s|\/\/[^\n]*\n|\/\*[\s\S]*?\*\/)*$/.exec(
+      text.slice(0, token.startOffset),
+    );
+  if (!repo) return undefined;
   return {
     offset: token.startOffset,
     length: token.image.length,
-    message: diagMessage("loom.parse-error#find-requires-moved", { aggregate }),
+    message: diagMessage("loom.parse-error#find-removed", {
+      repository: repo[1],
+      aggregate: repo[2],
+    }),
   };
 }
 

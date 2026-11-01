@@ -8,7 +8,6 @@ import {
   type EnumDecl,
   type EnumValue,
   type EventDecl,
-  type FindDecl,
   type FunctionDecl,
   type Invariant,
   isAggregate,
@@ -19,7 +18,6 @@ import {
   isEnumValue,
   isEventDecl,
   isExpression,
-  isFindDecl,
   isFunctionDecl,
   isIdRef,
   isInvariant,
@@ -79,7 +77,6 @@ export class DddHoverProvider extends AstNodeHoverProvider {
     if (isFunctionDecl(node)) return renderFunction(node);
     if (isOperation(node)) return renderOperation(node);
     if (isRepository(node)) return renderRepository(node);
-    if (isFindDecl(node)) return renderFind(node);
     if (isInvariant(node)) return renderInvariant(node);
     // Expressions cover every literal / ref / member-access / call /
     // operator node — type them via typeOf + envForNode.
@@ -160,12 +157,6 @@ function renderOperation(op: Operation): string {
 
 function renderRepository(r: Repository): string {
   return code(`repository ${r.name} for ${refName(r.aggregate)}`);
-}
-
-function renderFind(f: FindDecl): string {
-  const params = f.params.map(propertySig).join(", ");
-  const ret = typeToString(resolveTypeRef(f.returnType));
-  return code(`find ${f.name}(${params}): ${ret}`);
 }
 
 function renderInvariant(_i: Invariant): string {

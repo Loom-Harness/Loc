@@ -22,7 +22,6 @@ import type {
   BoundedContext,
   Create,
   Destroy,
-  FindDecl,
   HttpMethod,
   Operation,
   Repository,
@@ -79,12 +78,6 @@ export type HandlerTarget =
       readonly agg: Aggregate;
       readonly repo: Repository;
       readonly create: Create;
-    }
-  | {
-      readonly kind: "find";
-      readonly agg: Aggregate;
-      readonly repo: Repository;
-      readonly find: FindDecl;
     }
   | { readonly kind: "getById"; readonly agg: Aggregate; readonly repo: Repository }
   | {
@@ -169,11 +162,8 @@ export function unservedAggregateMessages(ctx: BoundedContext): string[] {
 export function handlerTargets(ctx: BoundedContext): HandlerTarget[] {
   const out: HandlerTarget[] = [];
   for (const { agg, repo } of partitionAggregates(ctx).served) {
-    // Read side first: get-by-id, then each declared find.
+    // Read side first: get-by-id.
     out.push({ kind: "getById", agg, repo });
-    for (const find of repo.finds ?? []) {
-      out.push({ kind: "find", agg, repo, find });
-    }
     // Write side: each `create` factory action.  Creates are never `private`.
     for (const create of (agg.members ?? []).filter(isCreate)) {
       out.push({ kind: "create", agg, repo, create });
@@ -198,19 +188,11 @@ export function handlerTargets(ctx: BoundedContext): HandlerTarget[] {
  *   - operation → `<Op><Agg>`            (`cancel` on `Order` → `CancelOrder`)
  *   - create    → `Create<Agg>`, or `<Name><Agg>` for a named factory
  *                 (`create place(...)` → `PlaceOrder`)
- *   - find      → `<Find><Agg>`           (`byStatus` on `Order` → `ByStatusOrder`)
  *   - getById   → `Get<Agg>`             (`Order` → `GetOrder`)
  *   - destroy   → `Destroy<Agg>`         (`Order` → `DestroyOrder`)
  *
- * Every kind is aggregate-QUALIFIED (the aggregate name is the suffix).  This
- * matters for `find`: two aggregates in one context can declare a find of the
- * same name (`Orders.byStatus` + `Customers.byStatus`), and their routes are
- * already distinct (`/orders/by_status` vs `/customers/by_status`).  A bare
- * `<Find>` name would collide — the scope-local override-by-name in the expander
- * silently drops the second `queryHandler`/`<Find>Query` record BEFORE
- * validation, so both routes bind to the surviving handler and one serves the
- * wrong aggregate's data with no diagnostic.  Qualifying keeps handler, contract
- * record, and route in lock-step per aggregate. */
+ * Every kind is aggregate-QUALIFIED (the aggregate name is the suffix), so two
+ * aggregates in one context never mint the same handler name. */
 export function targetHandlerName(t: HandlerTarget): string {
   switch (t.kind) {
     case "operation":
@@ -219,8 +201,6 @@ export function targetHandlerName(t: HandlerTarget): string {
       return t.create.name
         ? `${upperFirst(t.create.name)}${upperFirst(t.agg.name)}`
         : `Create${upperFirst(t.agg.name)}`;
-    case "find":
-      return `${upperFirst(t.find.name)}${upperFirst(t.agg.name)}`;
     case "getById":
       return `Get${upperFirst(t.agg.name)}`;
     case "destroy":
@@ -229,13 +209,12 @@ export function targetHandlerName(t: HandlerTarget): string {
 }
 
 /** The HTTP method a target binds to: POST for writes (create / operation),
- * GET for reads (find / get-by-id), DELETE for `destroy`. */
+ * GET for the get-by-id read, DELETE for `destroy`. */
 export function targetMethod(t: HandlerTarget): HttpMethod {
   switch (t.kind) {
     case "create":
     case "operation":
       return "POST";
-    case "find":
     case "getById":
       return "GET";
     case "destroy":
@@ -246,7 +225,6 @@ export function targetMethod(t: HandlerTarget): HttpMethod {
 /** The route path for a target:
  *   - operation → `/<coll>/{<agg>Id}/<op>`
  *   - create    → `/<coll>`
- *   - find      → `/<coll>/<find>`
  *   - getById   → `/<coll>/{<agg>Id}`
  *   - destroy   → `/<coll>/{<agg>Id}` (same resource, DELETE method) */
 export function targetPath(t: HandlerTarget): string {
@@ -255,8 +233,6 @@ export function targetPath(t: HandlerTarget): string {
       return routePath(t.agg.name, t.op.name);
     case "create":
       return collectionPath(t.agg.name);
-    case "find":
-      return `${collectionPath(t.agg.name)}/${snake(t.find.name)}`;
     case "getById":
     case "destroy":
       return `${collectionPath(t.agg.name)}/{${idParamName(t.agg.name)}}`;

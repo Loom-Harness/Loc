@@ -928,7 +928,7 @@ function emitWorkflowRoute(
   // Conditional because a workflow that touches no repository genuinely cannot
   // send it; `workflowCanAnswerNotFound` is the shared predicate the other four
   // backends thread into `errorStatuses("workflow", …, { readsAggregate })`.
-  if (workflowCanAnswerNotFound(wf, ctx.repositories)) {
+  if (workflowCanAnswerNotFound(wf)) {
     const wfRouteNotFoundStatus = wireStatus("not-found", ctx.structuralErrorStatuses);
     out.push(
       `      ${wfRouteNotFoundStatus}: { description: ${JSON.stringify(

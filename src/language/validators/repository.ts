@@ -1,26 +1,13 @@
-// Repository `find` checks.
+// Read-path gate checks: the `policy { read X requires … }` rule and the
+// query-time projection gate, the read-side twins of the operation gate.
 //
-//   - loom.list-find-removed — a LIST `find` on a repository (a bespoke list
-//     query returning `T[]` or `T paged`) is an error: list reads are a
-//     `criterion` (run it with `Repo.run(<Criterion>(args))`) or a
-//     `retrieval`, exposed on the wire with `scaffoldPaged(of: …)` +
-//     `scaffoldPagedApi(of: …)` when a client calls it
-//     (D-LIST-FIND-REMOVED).  `scripts/codemod-list-find-to-criterion.mjs`
-//     rewrites a source.  Two shapes stay legal: a unique-key reconstitution
-//     find returning a single `T` / `T?`, and `find all(…)`, the author's own
-//     override of the repository's list endpoint.
-//
-// This is an AST-level check over author-declared `FindDecl` nodes, so the
-// compiler-SYNTHESIZED finds (the auto-`findAll`, and the paged find a
-// paged-run queryHandler mints — both made in enrich, never in source) are
-// naturally exempt: they don't exist at this layer.
+// A repository declares no reads of its own (D-FINDDECL-REMOVED): a leftover
+// `find` in a repository body is a parse error (`parse-errors.ts`).
 
 import { AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import {
   type Expression,
-  type FindDecl,
-  isFindDecl,
   isPolicyReadRule,
   isProjection,
   type Model,
@@ -54,16 +41,7 @@ function checkGateIsBool(
 /** The words a `policy { }` rule may start with. */
 const POLICY_RULE_HEADS: ReadonlySet<string> = new Set(["allow", "deny", "read"]);
 
-/** A find whose return type is a COLLECTION — an array (`T[]`) or the `paged`
- *  list carrier (`T paged`).  These are list queries; a single (`T`) or
- *  optional-single (`T?`) return is reconstitution, not a list. */
-function returnsCollection(find: FindDecl): boolean {
-  const rt = find.returnType;
-  if (!rt) return false;
-  return rt.array === true || rt.ctors.includes("paged");
-}
-
-export function checkRepositoryFinds(model: Model, accept: ValidationAcceptor): void {
+export function checkReadGates(model: Model, accept: ValidationAcceptor): void {
   for (const node of AstUtils.streamAllContents(model)) {
     // Read-path `requires` gate bool check — the policy read gate
     // (`policy { read X requires … }`) and the query-time projection gate,
@@ -78,16 +56,6 @@ export function checkRepositoryFinds(model: Model, accept: ValidationAcceptor): 
       });
       continue;
     }
-    if (isProjection(node) || isPolicyReadRule(node)) {
-      checkGateIsBool(node.gate, node, accept);
-      continue;
-    }
-    if (!isFindDecl(node)) continue;
-    if (node.name === "all" || !returnsCollection(node)) continue;
-    accept("error", diagMessage("loom.list-find-removed", { name: node.name }), {
-      node,
-      property: "name",
-      code: "loom.list-find-removed",
-    });
+    if (isProjection(node) || isPolicyReadRule(node)) checkGateIsBool(node.gate, node, accept);
   }
 }

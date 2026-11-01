@@ -41,7 +41,6 @@ import type {
   BuilderCall,
   BuilderEntry,
   Expression,
-  FindDecl,
   Lambda,
   Model,
   Page,
@@ -56,7 +55,6 @@ import {
   isNameRef,
   isPage,
   isPostfixChain,
-  isRepository,
   isStateBlock,
   isUi,
 } from "../../language/generated/ast.js";
@@ -145,22 +143,6 @@ function bareRead(of: Expression): { aggregate: string; operation: string } | un
         ? of.head.name
         : undefined;
   return aggregate ? { aggregate, operation } : undefined;
-}
-
-/** Does `<aggregate>.all` return the paged envelope?  True unless the model
- *  declares its own `find all` with a non-paged return — see the header note on
- *  `ensureFindAll`. */
-function allIsPaged(model: Model, aggregate: string): boolean {
-  let declared: FindDecl | undefined;
-  for (const node of AstUtils.streamAllContents(model)) {
-    if (!isRepository(node) || node.aggregate?.$refText !== aggregate) continue;
-    for (const f of node.finds) {
-      if (f.name === "all") declared = f;
-    }
-  }
-  // No user-declared `all` ⇒ enrichment synthesises the paged auto-`findAll`.
-  if (!declared) return true;
-  return (declared.returnType?.ctors ?? []).includes("paged");
 }
 
 /** Merge the paging state fields into a page's `state {}`, creating the block
@@ -312,7 +294,7 @@ function repointBindingReaders(lambda: Lambda, param: string): void {
 }
 
 /** The one rewrite.  Returns true when it fired (for tests / diagnostics). */
-function upgradeQueryView(model: Model, page: Page, qv: BuilderCall): boolean {
+function upgradeQueryView(page: Page, qv: BuilderCall): boolean {
   // Author already opted into the envelope — their body reads `rows.items`
   // itself and drives its own controls.
   if (entry(qv, "paged") || entry(qv, "single")) return false;
@@ -321,7 +303,6 @@ function upgradeQueryView(model: Model, page: Page, qv: BuilderCall): boolean {
   if (!ofEntry || !dataEntry) return false;
   const read = bareRead(ofEntry.value);
   if (read?.operation !== "all") return false;
-  if (!allIsPaged(model, read.aggregate)) return false;
   if (!isLambda(dataEntry.value)) return false;
   const lambda = dataEntry.value as Lambda;
   const param = lambda.param;
@@ -422,7 +403,7 @@ export function autoPagePagedTables(model: Model): number {
     for (const page of pagesOf(node)) {
       for (const prop of page.props) {
         for (const call of builderCallsIn(prop)) {
-          if (call.type === "QueryView" && upgradeQueryView(model, page, call)) fired++;
+          if (call.type === "QueryView" && upgradeQueryView(page, call)) fired++;
         }
       }
     }

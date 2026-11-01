@@ -491,7 +491,7 @@ export function buildJavaOpenApiContract(
         path: `${routePrefix}/workflows/${snake(wf.name)}`,
         errors: err(
           errorStatuses("workflow", workflowIsGuarded(wf), resolveStatus, {
-            readsAggregate: workflowCanAnswerNotFound(wf, ctx.repositories),
+            readsAggregate: workflowCanAnswerNotFound(wf),
           }),
         ),
         // Workflow command operationId carries a `Workflow` suffix on the other

@@ -316,14 +316,6 @@ export function listValidApiOperations(agg: Aggregate): string[] {
   for (const m of agg.members ?? []) {
     if (m.$type === "Operation" && !m.private) ops.add(m.name);
   }
-  const ctx = agg.$container;
-  if (ctx?.$type === "BoundedContext") {
-    for (const m of ctx.members ?? []) {
-      if (m.$type !== "Repository") continue;
-      if (m.aggregate?.ref !== agg) continue;
-      for (const f of m.finds ?? []) ops.add(f.name);
-    }
-  }
   return [...ops].sort();
 }
 

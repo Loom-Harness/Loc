@@ -2335,7 +2335,7 @@ function renderController(
       "workflow",
       workflowIsGuarded(wf),
       (name) => resolveErrorStatus(name, ctx.structuralErrorStatuses),
-      { readsAggregate: workflowCanAnswerNotFound(wf, ctx.repositories) },
+      { readsAggregate: workflowCanAnswerNotFound(wf) },
     )
       .map((s) => `    [ProducesResponseType(typeof(ProblemDetails), ${s})]\n`)
       .join("");
