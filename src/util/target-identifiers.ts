@@ -521,3 +521,17 @@ const RESERVED_MEMBERS: Partial<Record<IdentTarget, ReadonlySet<string>>> = {
 export function escapeTargetMember(target: IdentTarget, name: string): string {
   return RESERVED_MEMBERS[target]?.has(name) ? `${name}_` : name;
 }
+
+/** Names a target reserves as the class member backing a FIELD (a property
+ *  read off an instance), narrower than {@link RESERVED_MEMBERS}.  TS: a getter
+ *  named `constructor` is rejected (TS1341), and an instance's own
+ *  `.constructor` is the class anyway.  Only the class-member spelling is
+ *  escaped — the wire key, column name and plain-object keys stay as declared. */
+const RESERVED_FIELD_MEMBERS: Partial<Record<IdentTarget, ReadonlySet<string>>> = {
+  ts: new Set(["constructor"]),
+};
+
+/** `name` as the instance-member (getter / read) spelling of a field in `target`. */
+export function escapeTargetFieldMember(target: IdentTarget, name: string): string {
+  return RESERVED_FIELD_MEMBERS[target]?.has(name) ? `${name}_` : name;
+}

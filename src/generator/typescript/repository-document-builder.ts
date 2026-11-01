@@ -22,6 +22,7 @@ import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { lines } from "../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst, plural } from "../../util/naming.js";
+import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
 import { desugarAuthzFilterInApp } from "../_expr/authz-filter-inapp.js";
 import { numericEncode } from "../_numeric/target.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
@@ -684,7 +685,7 @@ export function serializeField(t: TypeIR, accessor: string, ctx: EnrichedBounded
   if (t.kind === "valueobject") {
     const vo = findValueObjectInScope(ctx, t.name);
     if (!vo) return accessor;
-    return `{ ${vo.fields.map((vf) => `${vf.name}: ${serializeField(vf.type, `${accessor}.${vf.name}`, ctx)}`).join(", ")} }`;
+    return `{ ${vo.fields.map((vf) => `${vf.name}: ${serializeField(vf.type, `${accessor}.${escapeTargetFieldMember("ts", vf.name)}`, ctx)}`).join(", ")} }`;
   }
   if (t.kind === "array") {
     if (t.element.kind === "id") return `${accessor}.map((x) => x as string)`;

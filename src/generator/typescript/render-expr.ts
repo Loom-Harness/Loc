@@ -5,7 +5,7 @@ import { isPrincipalIsSystem } from "../../ir/util/system-principal.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import { escapeTsIdent, lowerFirst, upperFirst, workflowFnCamel } from "../../util/naming.js";
-import { escapeTargetMember } from "../../util/target-identifiers.js";
+import { escapeTargetFieldMember, escapeTargetMember } from "../../util/target-identifiers.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
 import { tsCodePointLength } from "../_expr/code-point.js";
 import { JS_COLLECTION_RENDERERS } from "../_expr/js-collection-ops.js";
@@ -299,11 +299,13 @@ function renderRef(e: RefExpr, ctx: TsRenderContext): string {
       // Inside the aggregate class: read the private backing field.
       // Outside (projection reads, e.g. row `r`): use the public
       // getter, which is just the bare name on the runtime instance.
-      return fromOutside ? `${ctx.thisName}.${e.name}` : `this._${e.name}`;
+      return fromOutside
+        ? `${ctx.thisName}.${escapeTargetFieldMember("ts", e.name)}`
+        : `this._${e.name}`;
     case "this-vo-prop":
-      return fromOutside ? `${ctx.thisName}.${e.name}` : `this.${e.name}`;
+      return `${fromOutside ? ctx.thisName : "this"}.${escapeTargetFieldMember("ts", e.name)}`;
     case "this-derived":
-      return fromOutside ? `${ctx.thisName}.${e.name}` : `this.${e.name}`;
+      return `${fromOutside ? ctx.thisName : "this"}.${escapeTargetFieldMember("ts", e.name)}`;
     case "helper-fn":
       return fromOutside
         ? `${ctx.thisName}.${escapeTargetMember("ts", lowerFirst(e.name))}`
@@ -365,7 +367,7 @@ function renderMember(recv: string, e: MemberExpr): string {
   ) {
     return tsCodePointLength(recv);
   }
-  return `${recv}.${e.member}`;
+  return `${recv}.${escapeTargetFieldMember("ts", e.member)}`;
 }
 
 // Scalar-intrinsic snippet table — MOVED to `../_expr/js-intrinsics.ts` and

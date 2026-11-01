@@ -30,6 +30,7 @@ system TargetReservedWords {
         cond: string
         const: string
         constraint: string
+        constructor: string
         continue: string
         copy: string
         covariant: string
@@ -190,6 +191,24 @@ system TargetReservedWords {
         import: string
         static: string
         kind: Keyword
+      }
+
+      valueobject Ctor {
+        constructor: string
+        k: int
+        derived constructor2: string = constructor
+      }
+
+      aggregate Members with crudish {
+        name: string
+        tag: Ctor
+        contains constructor: Slot[]
+        derived self: string = name
+        derived constructor2: string = tag.constructor
+
+        entity Slot {
+          constructor: string
+        }
       }
 
       aggregate Verbs with crudish {
