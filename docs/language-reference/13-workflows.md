@@ -327,7 +327,7 @@ workflow Labeller {
   create(c: string) {
     let o = Orders.byCode(c)
     let text = o != null ? o.status : "missing"
-    let n = Note.create({ text: text })
+    let n = Note.create(text: text)
   }
 }
 ```
