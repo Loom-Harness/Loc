@@ -129,10 +129,12 @@ describe("java service/validator/controller locals never collide with the method
   });
 
   it("routes controller: a handler param named `result` binds `result_` under the `result` query key", async () => {
-    const files = (cached ??= await generateSystemFiles(SOURCE));
-    const c = files.get("d/src/main/java/com/loom/d/api/CoreApiRoutesController.java")!;
+    cached ??= await generateSystemFiles(SOURCE);
+    const c = cached.get("d/src/main/java/com/loom/d/api/CoreApiRoutesController.java")!;
     expect(c).toContain('@RequestParam("result") int result_');
-    expect(c).toContain("var result = listByResultHandler.handle(result_, page, pageSize, sort, dir);");
+    expect(c).toContain(
+      "var result = listByResultHandler.handle(result_, page, pageSize, sort, dir);",
+    );
   });
 
   it("repository impl: a criterion param named `result` moves off the delegate's `result` local", async () => {
