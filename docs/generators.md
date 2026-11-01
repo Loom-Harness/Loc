@@ -37,7 +37,7 @@ Schema evolution differs between them. **Dapper** applies the same versioned
 jsonb value-object layout. A database provisioned by the old `CREATE TABLE IF
 NOT EXISTS` bootstrap is baselined on its first migration-aware boot. See
 [`migrations.md`](migrations.md) → "`persistence: dapper`". **MikroORM** still
-self-provisions with `updateSchema()`, and declared `migration` steps are
+self-provisions with `schema.update()`, and declared `migration` steps are
 refused on it.
 
 > **Scope note.** The construct-by-construct matrix below tracks the three

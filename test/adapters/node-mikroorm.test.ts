@@ -89,11 +89,11 @@ describe("mikroorm persistence adapter — node/hono (Phase 5d)", () => {
     expect(files.get("api/package.json")).toContain("@mikro-orm/postgresql");
     expect(files.get("api/package.json")).not.toContain("drizzle");
     expect(files.get("api/index.ts")).toContain("MikroORM.init");
-    // Safe mode, not the bare call: `updateSchema()` defaults to
+    // Safe mode, not the bare call: `schema.update()` defaults to
     // `dropTables: true` over an unpruned introspection, which destroys every
     // table outside the entity metadata on the SECOND boot (the timer watermark,
     // `__loom_seed`, pg-boss's schema).  See node-mikroorm-timers.test.ts.
-    expect(files.get("api/index.ts")).toContain("orm.schema.updateSchema({ safe: true })");
+    expect(files.get("api/index.ts")).toContain("orm.schema.update({ safe: true })");
   });
 
   it("the drizzle default is unchanged (drizzle schema, no entities)", async () => {
@@ -135,7 +135,7 @@ system D {
     expect(entities).toContain('tableName: "o_events"');
     expect(entities).toContain('streamType: { type: "string", primary: true }');
     // `seq` is a real Postgres `bigserial` (sequence-backed DB default), NOT a
-    // bare `bigint autoincrement`: MikroORM's `updateSchema()` only turns an
+    // bare `bigint autoincrement`: MikroORM's `schema.update()` only turns an
     // autoincrement PRIMARY into a serial, so on this non-PK column a bare
     // `bigint` ships with no default and every event insert (which omits `seq`)
     // fails the not-null constraint at runtime (caught by the mikroorm
@@ -291,9 +291,9 @@ describe("mikroorm — widened find predicates (bare boolean / unary NOT)", () =
 });
 
 // ---------------------------------------------------------------------------
-// `filter` capability predicates (wave 1) — MikroORM has no global query
-// filter, so the repository ANDs each non-principal predicate (a FilterQuery)
-// into every root read via `$and`, honoring a read's `ignoring` bypass.
+// `filter` capability predicates — declared once on the entity schema as named
+// `default: true` MikroORM filters (not ANDed into each read by hand); a read's
+// `ignoring` clause switches the named ones off.
 // ---------------------------------------------------------------------------
 describe("mikroorm — `filter` capability predicates", () => {
   const FILTER_SRC = `system M {
@@ -323,25 +323,23 @@ describe("mikroorm — `filter` capability predicates", () => {
     expect(errors).toEqual([]);
   });
 
-  it("ANDs the filters into findById / findManyByIds / find / findAll", async () => {
+  it("declares the filters on the schema; reads state only their own where", async () => {
     const { files } = await emit(FILTER_SRC);
+    const entities = files.get("api/db/entities.ts")!;
+    // Each `filter` is a named default filter on the Order schema (a bare filter
+    // takes a fixed name no `ignoring` can name).
+    expect(entities).toContain(
+      '"loom.filter": { name: "loom.filter", cond: () => ({ $and: [{ status: "Active" }, { deleted: false }] }), default: true },',
+    );
     const repo = files.get("api/db/repositories/order-repository.ts")!;
-    // findById — the `{ id }` base joined with both filters under `$and`.
-    expect(repo).toContain(
-      'await em.findOne(OrderRow, { $and: [{ id: id as string }, { status: "Active" }, { deleted: false }] });',
-    );
-    // findManyByIds — the `$in` base joined too.
-    expect(repo).toContain(
-      'await em.find(OrderRow, { $and: [{ id: { $in: ids as string[] } }, { status: "Active" }, { deleted: false }] });',
-    );
-    // A declared find — its own `where` joined with the filters.
-    expect(repo).toContain(
-      'await em.findOne(OrderRow, { $and: [{ customer: customer }, { status: "Active" }, { deleted: false }] });',
-    );
-    // The auto-`findAll` (paged, empty base) — the `{}` base is dropped.
-    expect(repo).toContain(
-      'await em.find(OrderRow, { $and: [{ status: "Active" }, { deleted: false }] }, { limit: pageSize,',
-    );
+    // findById / findManyByIds / a declared find / the paged auto-findAll carry
+    // no hand-ANDed conjunct: the ORM applies the schema filters.
+    expect(repo).toContain("await em.findOne(OrderRow, { id: id as string });");
+    expect(repo).toContain("await em.find(OrderRow, { id: { $in: ids as string[] } });");
+    expect(repo).toContain("await em.findOne(OrderRow, { customer: customer });");
+    expect(repo).toContain("await em.find(OrderRow, {}, { limit: pageSize,");
+    expect(repo).not.toContain('status: "Active"');
+    expect(repo).not.toContain("$and");
   });
 
   it("honors `ignoring <Cap>` / `ignoring *` on a read (softDeletable capability)", async () => {
@@ -366,17 +364,22 @@ describe("mikroorm — `filter` capability predicates", () => {
     const { files, errors } = await emit(src);
     expect(errors).toEqual([]);
     const repo = files.get("api/db/repositories/order-repository.ts")!;
-    // The softDeletable filter (`!this.isDeleted` → `{ isDeleted: false }`) is
-    // applied to the plain read…
-    expect(repo).toContain(
-      "async active(customer: string): Promise<Order | null> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const row = await em.findOne(OrderRow, { $and: [{ customer: customer }, { isDeleted: false }] });",
+    const entities = files.get("api/db/entities.ts")!;
+    // The softDeletable filter (`!this.isDeleted` → `{ isDeleted: false }`) is a
+    // named default filter on the schema…
+    expect(entities).toContain(
+      '"softDeletable": { name: "softDeletable", cond: () => ({ isDeleted: false }), default: true },',
     );
-    // …and dropped when the read bypasses it by name or with `*`.
+    // …so the plain read states only its own where…
     expect(repo).toContain(
-      "async withDeleted(customer: string): Promise<Order | null> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const row = await em.findOne(OrderRow, { customer: customer });",
+      "async active(customer: string): Promise<Order | null> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const row = await em.findOne(OrderRow, { customer: customer });",
+    );
+    // …and a read that bypasses it by name or with `*` switches that filter off.
+    expect(repo).toContain(
+      'async withDeleted(customer: string): Promise<Order | null> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const row = await em.findOne(OrderRow, { customer: customer }, { filters: { "softDeletable": false } });',
     );
     expect(repo).toContain(
-      "async reallyAll(customer: string): Promise<Order | null> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const row = await em.findOne(OrderRow, { customer: customer });",
+      'async reallyAll(customer: string): Promise<Order | null> {\n    const em = this.em.fork({ keepTransactionContext: true });\n    const row = await em.findOne(OrderRow, { customer: customer }, { filters: { "softDeletable": false } });',
     );
   });
 });
@@ -402,20 +405,22 @@ describe("mikroorm — principal-referencing (tenancy) `filter` predicates", () 
   deployable api { platform: node { persistence: mikroorm }  contexts: [O]  dataSources: [s]  serves: A  port: 8080  auth: required }
 }`;
 
-  it("applies (not drops) the tenant scope via the ambient requireCurrentUser()", async () => {
+  it("applies (not drops) the tenant scope: a default filter reading the principal when the query runs", async () => {
     const { files, errors } = await emit(PRINCIPAL_SRC);
     expect(errors).toEqual([]);
+    const entities = files.get("api/db/entities.ts")!;
+    // The principal accessor import is pulled into the schema module…
+    expect(entities).toContain('import { requireCurrentUser } from "../auth/middleware";');
+    // …where the tenant scope is a function `cond`: evaluated per query, it
+    // throws with no principal instead of reading unscoped (fail closed).
+    expect(entities).toContain(
+      "cond: () => ({ tenantId: requireCurrentUser().tenantId }), default: true",
+    );
+    // The reads carry no tenant conjunct of their own.
     const repo = files.get("api/db/repositories/account-repository.ts")!;
-    // The principal accessor import is pulled in.
-    expect(repo).toContain('import { requireCurrentUser } from "../../auth/middleware";');
-    // findById ANDs the tenant scope onto the id lookup.
-    expect(repo).toContain(
-      "await em.findOne(AccountRow, { $and: [{ id: id as string }, { tenantId: requireCurrentUser().tenantId }] });",
-    );
-    // A declared find's own `where` is joined with the tenant scope.
-    expect(repo).toContain(
-      "await em.findOne(AccountRow, { $and: [{ balance: { $gte: min } }, { tenantId: requireCurrentUser().tenantId }] });",
-    );
+    expect(repo).toContain("await em.findOne(AccountRow, { id: id as string });");
+    expect(repo).toContain("await em.findOne(AccountRow, { balance: { $gte: min } });");
+    expect(repo).not.toContain("requireCurrentUser");
     // The scope is a real FilterQuery, not a dropped/stubbed predicate.
     expect(repo).not.toContain("this find's predicate is not yet supported");
   });
@@ -555,7 +560,7 @@ describe("mikroorm — `seed` data", () => {
     expect(cli).toContain('import { MikroORM } from "@mikro-orm/postgresql";');
     // …and the seed CLI is non-destructive for the same reason — it would
     // otherwise drop the `__loom_seed` marker it is about to write.
-    expect(cli).toContain("await orm.schema.updateSchema({ safe: true });");
+    expect(cli).toContain("await orm.schema.update({ safe: true });");
     expect(cli).toContain("await runSeeds(orm.em);");
     // Boot path runs the seeds after schema update.
     expect(files.get("api/index.ts")).toContain("await runSeeds(db);");
@@ -749,45 +754,53 @@ describe("mikroorm — aggregate inheritance (wave 2)", () => {
     expect(errors).toEqual([]);
   });
 
-  it("TPH emits ONE shared Row with a kind discriminator + every concrete's columns nullable", async () => {
+  it("TPH emits native single-table inheritance: an abstract root with a discriminator + one subclass schema per concrete", async () => {
     const { files } = await emit(inh("sharedTable"));
     const entities = files.get("api/db/entities.ts")!;
-    // The abstract base owns the single shared table…
+    // The abstract base owns the single shared table and the discriminator…
     expect(entities).toContain('tableName: "payment_methods"');
     expect(entities).toContain("kind!: string;");
-    // …base columns keep their nullability, concrete-own columns are nullable.
+    expect(entities).toContain("abstract: true,");
+    expect(entities).toContain('discriminatorColumn: "kind",');
+    expect(entities).toContain(
+      'discriminatorMap: { "CreditCard": CreditCardRow, "BankAccount": BankAccountRow },',
+    );
+    // …base columns keep their nullability…
     expect(entities).toContain("holderName!: string;");
+    // …and each concrete is a subclass schema declaring only its own columns,
+    // nullable (only rows of that `kind` populate them).
+    expect(entities).toContain("export class CreditCardRow extends PaymentMethodRow {");
     expect(entities).toContain("network!: string | null;");
     expect(entities).toContain("routingNumber!: string | null;");
-    // No per-concrete Row table under TPH.
-    expect(entities).not.toContain("CreditCardRow");
-    expect(entities).not.toContain("BankAccountRow");
+    expect(entities).toContain("new EntitySchema<CreditCardRow, PaymentMethodRow>({");
+    expect(entities).toContain("extends: PaymentMethodRow,");
+    // Only the root names a table.
+    expect(entities.match(/tableName: "payment_methods"/g)).toHaveLength(1);
   });
 
-  it("TPH concrete repo reads/writes the shared Row scoped to its kind", async () => {
+  it("TPH concrete repo reads/writes through its own Row; the ORM scopes it to its kind", async () => {
     const { files } = await emit(inh("sharedTable"));
     const repo = files.get("api/db/repositories/creditCard-repository.ts")!;
-    expect(repo).toContain("PaymentMethodRow");
-    expect(repo).toContain('{ kind: "CreditCard" }');
-    // save stamps the discriminator.
+    expect(repo).toContain("CreditCardRow");
+    // No hand-written discriminator conjunct on a read…
+    expect(repo).not.toContain('{ kind: "CreditCard" }');
+    // …it is only STAMPED on a write (a native insert does not set it).
     expect(repo).toContain('kind: "CreditCard"');
   });
 
-  it("TPH emits a polymorphic base reader that DELEGATES to the concretes", async () => {
-    // It used to scan the shared Row itself (`em.find(PaymentMethodRow, {})`)
-    // and hydrate by `kind`, which read the shared table through none of the
-    // machinery the concrete repositories apply to it — no capability `filter`,
-    // no tenancy predicate, no contained parts (F2-CB-C12; the drizzle twin is
-    // fixed the same way).  Delegating makes all of that ride along.
+  it("TPH emits a polymorphic base reader that reads the root's STI schema", async () => {
+    // ONE `em.find` of the single-table-inheritance root: the schema's default
+    // filters carry the root's restrictions and every concrete's own, the
+    // discriminator hydrates each row as its subclass, and `id` orders the whole
+    // hierarchy (the polymorphic-read contract, epic #3954).
     const { files } = await emit(inh("sharedTable"));
     const reader = files.get("api/db/repositories/paymentMethod-repository.ts")!;
     expect(reader).toContain("class PaymentMethodRepository");
     expect(reader).toContain("new CreditCardRepository(em, events)");
-    expect(reader).toContain("this.creditCardRepo.all()");
-    expect(reader, "no direct read of the shared Row").not.toContain(
-      "em.find(PaymentMethodRow, {})",
-    );
-    expect(reader, "no inline kind dispatch").not.toContain("switch (row.kind)");
+    expect(reader).toContain('em.find(PaymentMethodRow, {}, { orderBy: { id: "asc" } })');
+    expect(reader).toContain("switch (row.kind)");
+    expect(reader).toContain("findPage(");
+    expect(reader).toContain("toWire(root: PaymentMethod)");
   });
 
   it("TPC gives each concrete its own table + a delegating base reader", async () => {
@@ -799,9 +812,11 @@ describe("mikroorm — aggregate inheritance (wave 2)", () => {
     // TPC concrete tables carry the merged base fields.
     expect(entities).toContain("holderName!: string;");
     const reader = files.get("api/db/repositories/paymentMethod-repository.ts")!;
-    expect(reader).toContain("new CreditCardRepository(em, events)");
+    expect(reader).toContain("new CreditCardRepository(db, events)");
     expect(reader).toContain("this.creditCardRepo.all()");
     expect(reader).toContain("results.flat()");
+    // The merge is ordered by id and paged globally.
+    expect(reader).toContain("findPage(");
   });
 });
 
@@ -1244,7 +1259,7 @@ describe("mikroorm — persist-time audit stamping", () => {
       /await em\.insert\(OrderRow, stampInsertOrder\([\s\S]*?version: 1 \}\)\);/,
     );
     expect(repo).toMatch(
-      /await em\.nativeUpdate\(OrderRow, \{ id: aggregate\.id as string, version: expected \}, stampUpdateOrder\([\s\S]*?version: expected \+ 1 \}\)\);/,
+      /await em\.nativeUpdate\(OrderRow, \{ id: aggregate\.id as string, version: expected \}, stampUpdateOrder\([\s\S]*?version: expected \+ 1 \}\), \{ filters: false \}\);/,
     );
   });
 
@@ -1481,12 +1496,14 @@ describe("mikroorm — aggregate-inheritance participant + contained parts", () 
     expect(entities).toContain('tableName: "payment_methods"');
     expect(entities).toContain("export class ChargeRow");
     expect(entities).toContain("export class SplitRow");
-    // No per-concrete Row under TPH (its columns live in the shared table).
-    expect(entities).not.toContain("class CreditCardRow");
+    // The concrete is a subclass schema of the shared table's root (its columns
+    // live in that one table; it owns no table of its own).
+    expect(entities).toContain("class CreditCardRow extends PaymentMethodRow");
     const repo = files.get("api/db/repositories/creditCard-repository.ts")!;
-    // The repo composes the `kind` scope (reads/writes the shared PaymentMethodRow)…
-    expect(repo).toContain("PaymentMethodRow");
-    expect(repo).toContain('{ kind: "CreditCard" }');
+    // The repo reads/writes through the concrete's Row; the ORM scopes it to its
+    // `kind`, which is only stamped on a write…
+    expect(repo).toContain("CreditCardRow");
+    expect(repo).not.toContain('{ kind: "CreditCard" }');
     // …with the containment child-table hydrate + diff-sync.
     expect(repo).toContain("ChargeRow");
     expect(repo).toContain("await em.upsert(ChargeRow,");

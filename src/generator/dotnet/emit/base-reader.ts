@@ -29,11 +29,11 @@ import { csPagedQueryParams, dotnetNotFoundThrow } from "./common.js";
 // Read-only: writes go through the per-concrete repositories.
 
 /** True when a polymorphic reader is emitted for `base`: it has a read home
- *  (`polymorphicReadFor`), and a TPH reader — which queries the root `DbSet` —
- *  only on EF.  Program.cs registers exactly these. */
-export function emitsBaseReader(base: AggregateIR, pool: AggPool, dapper: boolean): boolean {
-  const read = polymorphicReadFor(base, pool);
-  return !!read && !(read.layout === "sharedTable" && dapper);
+ *  (`polymorphicReadFor`).  A TPH reader queries the root `DbSet` on EF and the
+ *  shared table directly on Dapper (`dapper-base-reader.ts`).  Program.cs
+ *  registers exactly these. */
+export function emitsBaseReader(base: AggregateIR, pool: AggPool): boolean {
+  return !!polymorphicReadFor(base, pool);
 }
 
 /** One concrete of the read, with its enriched node. */

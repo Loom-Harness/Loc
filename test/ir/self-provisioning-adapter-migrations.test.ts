@@ -3,7 +3,7 @@
 //
 // `persistence: mikroorm` opts out of the phase-⑨ `MigrationsIR` chain
 // (`hasMigrations = !usingMikro`, `src/platform/hono/v4/emit.ts`, shared by
-// v5) and syncs its schema at boot with `orm.schema.updateSchema()`, which has
+// v5) and syncs its schema at boot with `orm.schema.update()`, which has
 // no rename intent to consult: it resolves `old -> new` as DROP + ADD, i.e. it
 // DELETES the data the rename existed to preserve.  The gate lives at phase ⑦
 // because that is where the DECLARED intents live (`renameIntents` /
@@ -81,7 +81,7 @@ describe("declared migrations vs. the self-provisioning persistence adapters", (
 
   describe("persistence: mikroorm", () => {
     for (const [label, block] of CASES) {
-      it(`refuses a ${label} — updateSchema() would resolve it as DROP + ADD`, async () => {
+      it(`refuses a ${label} — schema.update() would resolve it as DROP + ADD`, async () => {
         const diags = await diagsFor("node { persistence: mikroorm }", block);
         const gate = diags.filter(
           (d) => d.severity === "error" && d.code === "loom.mikroorm-unsupported",

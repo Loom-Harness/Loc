@@ -18,6 +18,8 @@
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { inlineDapperScope } from "../_helpers/dapper-scope.js";
+import { inlineDrizzleScope } from "../_helpers/drizzle-scope.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 const FIXTURE = readFileSync("test/fixtures/corpus/tenancy-claim-name.ddd", "utf8");
@@ -28,7 +30,7 @@ async function emitted(platform: string, match: RegExp): Promise<string> {
   const files = await generateSystemFiles(src(platform));
   const hits = [...files.entries()].filter(([p]) => match.test(p));
   expect(hits.length, `no emitted file matched ${match} for ${platform}`).toBeGreaterThan(0);
-  return hits.map(([, c]) => c).join("\n");
+  return hits.map(([, c]) => inlineDrizzleScope(files, inlineDapperScope(c))).join("\n");
 }
 
 /** The fixture's SECOND axis — the same `tenancy by user.orgId` system with a
@@ -89,7 +91,7 @@ async function emittedDeep(platform: string, match: RegExp): Promise<string> {
   const files = await generateSystemFiles(HIERARCHICAL.replace("__PLATFORM__", platform));
   const hits = [...files.entries()].filter(([p]) => match.test(p));
   expect(hits.length, `no emitted file matched ${match} for ${platform}`).toBeGreaterThan(0);
-  return hits.map(([, c]) => c).join("\n");
+  return hits.map(([, c]) => inlineDrizzleScope(files, inlineDapperScope(c))).join("\n");
 }
 
 describe("tenancy claim name — emitted principal reads follow the declaration", () => {

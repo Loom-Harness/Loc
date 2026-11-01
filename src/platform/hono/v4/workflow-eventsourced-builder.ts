@@ -1,3 +1,4 @@
+import { tsTodayCalendarDate } from "../../../generator/typescript/codec-spelling.js";
 import { eventRowClassOf } from "../../../generator/typescript/emit/mikroorm.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
 import { tsParamType } from "../../../generator/typescript/repository-document-builder.js";
@@ -74,7 +75,7 @@ function initialValueFor(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
       case "datetime":
         return "new Date()";
       case "date":
-        return "new Date().toISOString().slice(0, 10)";
+        return tsTodayCalendarDate();
       case "json":
         return "{}";
       default:

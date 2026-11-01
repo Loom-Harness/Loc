@@ -11,6 +11,7 @@ import { domainFloorCode, domainFloorPointer } from "../_i18n/domain-floor.js";
 import { collectLeaves, indentNested, provTempNames, wrapProvCapture } from "../_stmt/leaves.js";
 import { renderStmtChunksWith, renderStmtsWith, type StmtTarget } from "../_stmt/target.js";
 import type { ChunkMark } from "../_trace/sourcemap.js";
+import { tsLineageValue } from "./codec-spelling.js";
 import { renderTsExpr, renderTsExprWithMarks } from "./render-expr.js";
 
 // ---------------------------------------------------------------------------
@@ -197,7 +198,15 @@ function tsStmtTarget(emitProvenance: boolean, traceCtx: TraceCtx): StmtTarget {
       // NOTE the wrap ORDER: node puts `value_computed` OUTSIDE the provenance
       // capture; .NET / java / python put it inside.  Preserved verbatim — see
       // `withValueComputed`.
-      const wrapped = withTrace(base, s.prov, s.target, s.value, emitProvenance, ix.prov);
+      const wrapped = withTrace(
+        base,
+        s.prov,
+        s.target,
+        s.value,
+        emitProvenance,
+        ix.prov,
+        s.targetType,
+      );
       return withValueComputed(wrapped, s.target, traceCtx);
     },
 
@@ -362,14 +371,16 @@ function withTrace(
   value: ExprIR,
   emitProvenance: boolean,
   index: number,
+  targetType?: TypeIR,
 ): string {
   if (!emitProvenance || !prov) return base;
   const targetLit = JSON.stringify(prov.target);
   const inputs = collectLeaves(value, renderTsExpr)
-    .map((l) => `{ path: ${JSON.stringify(l.path)}, value: ${l.value} }`)
+    .map((l) => `{ path: ${JSON.stringify(l.path)}, value: ${tsLineageValue(l.value, l.type)} }`)
     .join(", ");
   const { tmp, lin } = provTempNames(index);
-  const computed = renderPath(target);
+  // A collection target (`add` / `remove`) records the collection as it is.
+  const computed = tsLineageValue(renderPath(target), targetType);
   const field = prov.target.field;
   return wrapProvCapture(base, {
     snapshot: `${INDENT}const ${tmp} = [${inputs}];`,

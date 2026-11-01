@@ -8,6 +8,7 @@
 // change.
 // -------------------------------------------------------------------------
 
+import type { CodecPrimitive } from "../../../ir/enrich/codec.js";
 import type {
   AssociationIR,
   EnrichedAggregateIR,
@@ -21,19 +22,26 @@ import type {
 import { isMaterializedProjection } from "../../../ir/types/loom-ir.js";
 import { durableEventTypes } from "../../../ir/util/channels.js";
 import {
+  discriminatorValue,
   isTphBase,
   isTphConcrete,
   ownFieldsOf,
-  tphConcretesOf,
 } from "../../../ir/util/inheritance.js";
 import { findValueObjectInScope } from "../../../ir/util/reachable-types.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst, workflowStateTableName } from "../../../util/naming.js";
 import { tableNameFor } from "../../../util/storage-names.js";
+import { type MikroScalar, mikroScalar } from "../codec-spelling.js";
 import { joinColumnName, joinTableConstName } from "../emit.js";
 import { isRefCollection } from "../repository-associations-builder.js";
 import { docFieldType } from "../repository-document-builder.js";
+import {
+  mikroSchemaFilterLines,
+  mikroSchemaFilters,
+  tphConcreteAggregates,
+} from "./mikroorm-schema-filters.js";
+import { usesRawFragment } from "./mikroorm-shared.js";
 
 /** Postgres table for an aggregate — lowercase plural (e.g. `orders`). */
 
@@ -87,37 +95,12 @@ function unwrapOptional(t: TypeIR): { type: TypeIR; nullable: boolean } {
   return t.kind === "optional" ? { type: t.inner, nullable: true } : { type: t, nullable: false };
 }
 
-/** MikroORM type + Row TS type for a primitive. */
-
-function primTypes(name: string): { mikro: string; ts: string; columnType?: string } {
-  switch (name) {
-    case "int":
-      return { mikro: "integer", ts: "number" };
-    case "long":
-      return { mikro: "bigint", ts: "number" };
-    case "decimal":
-      // Unbounded `numeric` — matches the drizzle backend's `numeric(col)`
-      // (no precision/scale).  MikroORM's bare `type: "decimal"` DEFAULTS to
-      // `numeric(10,0)` (scale 0), which rounds every fractional value to an
-      // integer on store (9.99 → 10); pin `columnType: "numeric"` so the DDL
-      // is scale-free and fractional decimals survive the round-trip.
-      return { mikro: "decimal", ts: "string", columnType: "numeric" };
-    case "money":
-      return { mikro: "decimal", ts: "string", columnType: "numeric(19,4)" };
-    case "bool":
-      return { mikro: "boolean", ts: "boolean" };
-    case "date":
-      // MikroORM's `date` type hydrates the column as its `YYYY-MM-DD` text.
-      return { mikro: "date", ts: "string" };
-    case "datetime":
-      return { mikro: "datetime", ts: "Date" };
-    case "guid":
-      return { mikro: "uuid", ts: "string" };
-    case "json":
-      return { mikro: "json", ts: "unknown" };
-    default:
-      return { mikro: "string", ts: "string" };
-  }
+/** MikroORM type + Row TS type for a primitive — the `Codec` fact's column,
+ *  spelled by `mikroScalar`. */
+function primTypes(name: string): MikroScalar {
+  return name === "duration"
+    ? { mikro: "string", ts: "string" }
+    : mikroScalar(name as CodecPrimitive);
 }
 
 /** Expand a single field into its column(s). VO fields flatten into one column
@@ -263,37 +246,45 @@ function columnsOf(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): Mik
   ];
 }
 
-/** TPH shared-table columns (aggregate-inheritance.md, sharedTable): one Row
- *  for the whole hierarchy — `id`, the `kind` discriminator, the abstract
- *  base's own columns (declared nullability kept), then every concrete's own
- *  columns forced nullable (only rows of that `kind` populate them).  Mirrors
- *  the drizzle `emitTphTable` column set so the shared save/hydrate seams line
- *  up.  De-duped by property name (first declaration wins). */
+/** TPH root columns (aggregate-inheritance.md, sharedTable): `id`, the `kind`
+ *  discriminator, then the abstract base's own columns with their declared
+ *  nullability.  Every concrete's own columns live on its subclass schema
+ *  (`tphConcreteColumns`) — only rows of that `kind` populate them, so they are
+ *  nullable in the shared table. */
 
-function tphSharedColumns(
-  base: EnrichedAggregateIR,
-  aggs: readonly EnrichedAggregateIR[],
-  ctx: EnrichedBoundedContextIR,
-): MikroColumn[] {
+function tphRootColumns(base: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): MikroColumn[] {
   const cols: MikroColumn[] = [
     { prop: "id", mikroType: "string", tsType: "string", nullable: false, primary: true },
     { prop: "kind", mikroType: "string", tsType: "string", nullable: false, primary: false },
   ];
   const seen = new Set(cols.map((c) => c.prop));
-  const push = (c: MikroColumn): void => {
-    if (seen.has(c.prop)) return;
-    seen.add(c.prop);
-    cols.push(c);
-  };
   for (const f of base.fields) {
     if (isRefCollection(f.type)) continue;
-    for (const c of fieldColumns(f, ctx)) push(c);
+    for (const c of fieldColumns(f, ctx)) {
+      if (seen.has(c.prop)) continue;
+      seen.add(c.prop);
+      cols.push(c);
+    }
   }
-  for (const concrete of tphConcretesOf(base, aggs)) {
-    for (const f of ownFieldsOf(concrete, base)) {
-      if (isRefCollection(f.type)) continue;
-      // Force nullable: only rows of this concrete's `kind` populate it.
-      for (const c of fieldColumns(f, ctx)) push({ ...c, nullable: true });
+  return cols;
+}
+
+/** The columns one TPH concrete adds to the shared table, forced nullable. */
+
+function tphConcreteColumns(
+  concrete: EnrichedAggregateIR,
+  base: EnrichedAggregateIR,
+  taken: ReadonlySet<string>,
+  ctx: EnrichedBoundedContextIR,
+): MikroColumn[] {
+  const cols: MikroColumn[] = [];
+  const seen = new Set(taken);
+  for (const f of ownFieldsOf(concrete, base)) {
+    if (isRefCollection(f.type)) continue;
+    for (const c of fieldColumns(f, ctx)) {
+      if (seen.has(c.prop)) continue;
+      seen.add(c.prop);
+      cols.push({ ...c, nullable: true });
     }
   }
   return cols;
@@ -373,7 +364,7 @@ function mikroPropertyLine(c: MikroColumn): string {
   const parts = [`type: "${c.mikroType}"`];
   if (c.primary) parts.push("primary: true");
   if (c.array) {
-    // `array: true` alone is inert on a SCALAR property: MikroORM 6 wraps a
+    // `array: true` alone is inert on a SCALAR property: MikroORM wraps a
     // scalar in its `ArrayType` only for a `string[]`/`number[]`/`array` TYPE
     // name (or an enum with `items`), so the value went through the element's
     // scalar type instead — an `int[]` was bound as the JSON text `[7,2,9]`
@@ -591,9 +582,9 @@ export const MIKRO_TIMER_RUNS_ROW_CLASS = "LoomTimerRunsRow";
  *  table itself with `CREATE TABLE IF NOT EXISTS` (it is self-owned
  *  infrastructure, deliberately outside the domain MigrationsIR), and on drizzle
  *  that is the end of the story.  On MikroORM it must ALSO be an entity: a table
- *  absent from the entity metadata is diffed as removed by `updateSchema()`, and
+ *  absent from the entity metadata is diffed as removed by `schema.update()`, and
  *  `safe: true` alone would spare it without making it part of the model.  With
- *  the entity, `updateSchema()` creates it on boot 1 and the raw
+ *  the entity, `schema.update()` creates it on boot 1 and the raw
  *  `CREATE TABLE IF NOT EXISTS` becomes the no-op it reads as. */
 
 function timerRunsRowEntity(): { block: string; schemaName: string } {
@@ -606,7 +597,7 @@ function timerRunsRowEntity(): { block: string; schemaName: string } {
 /** Transactional outbox Row (`__loom_outbox`) — the MikroORM edition of the
  *  drizzle `loomOutbox` pgTable (dispatch-delivery-semantics.md).  Column
  *  divergence from drizzle is deliberate on two properties, because MikroORM
- *  owns this schema through `updateSchema()` rather than a migration:
+ *  owns this schema through `schema.update()` rather than a migration:
  *    - `id` is a TEXT pk the capture site fills with `randomUUID()`, not a
  *      `uuid DEFAULT gen_random_uuid()` — every other id in the mikro model is
  *      an application-generated text id, and a DB-side default would have to be
@@ -741,7 +732,7 @@ function projectionStateColumns(proj: ProjectionIR, ctx: EnrichedBoundedContextI
 
 /** The `uniques:` block for each `unique (...)` key the aggregate declares —
  *  the index the migration creates (`<table>_<cols>_uq`).  This adapter's
- *  schema comes from `orm.schema.updateSchema()` over the entity metadata, not
+ *  schema comes from `orm.schema.update()` over the entity metadata, not
  *  from the migration files, so a key absent here has NO index at run time and
  *  a duplicate write commits.  A `softDeletable` key is partial (`WHERE
  *  is_deleted = false`, so a soft-deleted row frees its key), which MikroORM
@@ -777,7 +768,7 @@ export function renderMikroEntities(
   // per-context `<ctx>_events` stream row (event-log-architecture.md),
   // discriminated by `stream_type`, rather than one table each.  Emitted once
   // after the per-aggregate walk; MikroORM owns the schema (via
-  // `updateSchema()`), so the composite `(stream_type, stream_id, version)` PK
+  // `schema.update()`), so the composite `(stream_type, stream_id, version)` PK
   // + inert `seq` cursor land as real columns.
   // An event-sourced WORKFLOW folds the same `<ctx>_events` stream (it has no
   // state table — see the correlation-row loop below), so it needs the stream
@@ -815,8 +806,9 @@ export function renderMikroEntities(
     const shape = shapeOf(agg);
     const embedded = shape === "embedded";
     const document = shape === "document";
-    const cols = isTphBase(agg, aggs)
-      ? tphSharedColumns(agg, aggs, ctx)
+    const tph = isTphBase(agg, aggs);
+    const cols = tph
+      ? tphRootColumns(agg, ctx)
       : document
         ? documentColumnsOf()
         : embedded
@@ -827,23 +819,86 @@ export function renderMikroEntities(
     schemaNames.push(schemaName);
     const classFields = cols.map((c) => `  ${c.prop}!: ${c.tsType}${c.nullable ? " | null" : ""};`);
     const propLines = cols.map(mikroPropertyLine);
+    // The aggregate's read scope, declared once as named default filters.  A
+    // `document` row is an opaque blob (no queryable columns) — its repository
+    // evaluates the scope in the app instead.
+    const filterLines = document
+      ? []
+      : mikroSchemaFilterLines(agg, mikroSchemaFilters(agg, aggs), rowClassOf);
+    // A TPH root is the ABSTRACT parent of one subclass schema per concrete
+    // (single-table inheritance): the discriminator column and its map live
+    // here, so the ORM scopes `find(CarRow)` to `kind = 'Car'` and hydrates
+    // `find(VehicleRow)` as the right subclass.
+    const concretes = tph ? tphConcreteAggregates(agg, aggs) : [];
+    const stiLines = tph
+      ? [
+          `  abstract: true,`,
+          `  discriminatorColumn: "kind",`,
+          `  discriminatorMap: { ${concretes
+            .map((c) => `${JSON.stringify(discriminatorValue(c, aggs))}: ${rowClassOf(c.name)}`)
+            .join(", ")} },`,
+        ]
+      : [];
+    const taken = new Set(cols.map((c) => c.prop));
+    const concreteCols = concretes.map((c) => ({
+      agg: c,
+      cls: rowClassOf(c.name),
+      cols: tphConcreteColumns(c, agg, taken, ctx),
+    }));
+    // A TPH root's `discriminatorMap` names the concrete CLASSES, so every class
+    // of the hierarchy is declared before the first schema is built.
+    if (tph) {
+      blocks.push(
+        lines(
+          `export class ${cls} {`,
+          ...classFields,
+          `}`,
+          "",
+          ...concreteCols.flatMap((c) => [
+            `export class ${c.cls} extends ${cls} {`,
+            ...c.cols.map(
+              (col) => `  ${col.prop}!: ${col.tsType}${col.nullable ? " | null" : ""};`,
+            ),
+            `}`,
+            "",
+          ]),
+        ),
+      );
+    }
     blocks.push(
       lines(
-        `export class ${cls} {`,
-        ...classFields,
-        `}`,
-        "",
+        ...(tph ? [] : [`export class ${cls} {`, ...classFields, `}`, ""]),
         `export const ${schemaName} = new EntitySchema<${cls}>({`,
         `  class: ${cls},`,
         `  tableName: "${tableOf(agg.name)}",`,
+        ...stiLines,
         `  properties: {`,
         ...propLines,
         `  },`,
+        ...filterLines,
         ...mikroUniquesLines(agg),
         `});`,
         "",
       ),
     );
+    // Each concrete is a subclass schema: only its own columns are declared, the
+    // table, discriminator and filters are the root's.
+    for (const c of concreteCols) {
+      const cschema = `${c.cls}Schema`;
+      schemaNames.push(cschema);
+      blocks.push(
+        lines(
+          `export const ${cschema} = new EntitySchema<${c.cls}, ${cls}>({`,
+          `  class: ${c.cls},`,
+          `  extends: ${cls},`,
+          `  properties: {`,
+          ...c.cols.map(mikroPropertyLine),
+          `  },`,
+          `});`,
+          "",
+        ),
+      );
+    }
     // `Id[]` reference-collection associations persist as pivot Row entities
     // (composite-PK join tables), one per declared collection field.  Under
     // document (whole blob) OR embedded (id-string array folded onto the root
@@ -899,7 +954,7 @@ export function renderMikroEntities(
         // `seq` — context-global monotonic cursor (bigserial), inert until the
         // replay reader lands; not part of the PK.  Must be a real Postgres
         // `bigserial` (sequence-backed DB DEFAULT), like the drizzle event
-        // store: MikroORM's `updateSchema()` only turns an autoincrement
+        // store: MikroORM's `schema.update()` only turns an autoincrement
         // *primary* into a serial, so a bare `bigint autoincrement` on this
         // non-PK column ships as a plain NOT NULL bigint with no default and
         // every event insert (which omits `seq`) fails the not-null constraint.
@@ -986,9 +1041,16 @@ export function renderMikroEntities(
       "// MikroORM persistence model — Row entities mapped to the relational",
       "// tables.  Kept separate from the rich domain aggregates; the per-",
       "// aggregate repository maps between them.",
-      blocks.some((b) => b.includes("new ArrayType("))
-        ? `import { ArrayType, EntitySchema } from "@mikro-orm/core";`
-        : `import { EntitySchema } from "@mikro-orm/core";`,
+      `import { ${[
+        blocks.some((b) => b.includes("new ArrayType(")) && "ArrayType",
+        "EntitySchema",
+        blocks.some(usesRawFragment) && "raw",
+      ]
+        .filter(Boolean)
+        .join(", ")} } from "@mikro-orm/core";`,
+      // The filters read the request principal when a query RUNS.
+      blocks.some((b) => /\brequireCurrentUser\(/.test(b)) &&
+        `import { requireCurrentUser } from "../auth/middleware";`,
       "",
       ...blocks,
       `export const entities = [${schemaNames.join(", ")}];`,

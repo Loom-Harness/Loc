@@ -28,7 +28,7 @@
 // value), so it lives here rather than being restated four times.
 // ---------------------------------------------------------------------------
 
-import type { ExprIR } from "../../ir/types/loom-ir.js";
+import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { walkExprChildren } from "../../ir/util/walk.js";
 
 /** One snapshotted leaf input of a provenanced write's RHS. */
@@ -37,6 +37,9 @@ export interface ProvLeaf {
   path: string;
   /** The leaf value rendered as target-language source. */
   value: string;
+  /** The leaf's declared type, so a backend can write it in the lineage
+   *  encoding the `Codec` fact names (`lineageUsesWire`). */
+  type?: TypeIR;
 }
 
 /** Dotted source-side path for a member-access chain (e.g. `line.price`). */
@@ -62,12 +65,12 @@ export function collectLeaves(
     // --- The leaf-selection rule (unchanged) -------------------------------
     case "ref":
       if (e.refKind === "this-prop" || e.refKind === "param" || e.refKind === "let") {
-        out.push({ path: e.name, value: render(e) });
+        out.push({ path: e.name, value: render(e), type: e.type });
       }
       break;
     case "member":
       // Recorded WHOLE (`line.price`), never descended into.
-      out.push({ path: leafPath(e), value: render(e) });
+      out.push({ path: leafPath(e), value: render(e), type: e.memberType });
       break;
 
     // --- Slots that INTRODUCE A BINDING — deliberately not descended -------

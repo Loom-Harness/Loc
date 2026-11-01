@@ -9,7 +9,7 @@
 // $1)`, a syntax error on the first request.
 //
 // Nothing else catches it: the fragment is a TS string literal, so `tsc
-// --noEmit` and `tsup` are blind, and MikroORM's own `updateSchema()` quotes
+// --noEmit` and `tsup` are blind, and MikroORM's own `schema.update()` quotes
 // the column when it CREATES it — the table is fine and only the query breaks.
 // The sibling adapters already get this right (drizzle interpolates the schema
 // column object, dapper quotes explicitly), so this pins the third one.

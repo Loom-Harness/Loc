@@ -1,0 +1,85 @@
+// The write-path concurrency contract (`checksVersion`, src/ir/enrich/version-check.ts).
+//
+// Every named operation of a `versioned` aggregate reads the client's
+// `If-Match` — not only the canonical `update` — whatever the operation returns
+// and whatever the saving shape.  A write whose precondition is stale answers
+// the RS-40 409 and keeps the row as the winning write left it.
+//
+// The sequential half is the `test e2e` block below: a stale tag on a void
+// operation, a value-returning operation and a `shape: document` aggregate's
+// operation.  The concurrent half is the wire tier's two-writer probe
+// (`test/behavioral/wire-differential.mjs`): it replays the first `If-Match`
+// write this block makes — `rename` — as pairs of simultaneous writers carrying
+// the same tag, and expects exactly one 409 per pair.
+//
+// The block ends with the row still there, so the probe has something to write.
+system ConcurrencyTwoWritersSystem {
+  subdomain Docs {
+    context Docs {
+      aggregate Doc with crudish {
+        title: string
+
+        operation rename(t: string) { title := t }
+        operation retitle(t: string): string { title := t  return title }
+      }
+      repository DocRepo for Doc { }
+
+      aggregate Memo shape: document with crudish {
+        body: string
+
+        operation rewrite(b: string) { body := b }
+      }
+      repository MemoRepo for Memo { }
+    }
+  }
+  api DocsApi from Docs
+  storage pg { type: postgres }
+  resource docsState { for: Docs, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Docs]
+    dataSources: [docsState]
+    serves: DocsApi
+    port: 4000
+  }
+
+  test e2e "a stale If-Match on a named operation is refused with the 409, on every write path" against d {
+    let n = api.docs.create({ title: "first" })
+    let read = api.docs.getById(n)
+
+    // The current version is accepted on a named operation, and moves the row.
+    api.docs.rename(n, { t: "second" }, { ifMatch: read.version })
+    let moved = api.docs.getById(n)
+    expect(moved.title).toBe("second")
+    expect(moved.version).toBe(read.version + 1)
+
+    // The same — now stale — version is refused, on a void and on a
+    // value-returning operation; the row keeps the winning write.
+    expect(api.docs.rename(n, { t: "lost" }, { ifMatch: read.version })).toThrow(409)
+    expect(api.docs.retitle(n, { t: "lost" }, { ifMatch: read.version })).toThrow(409)
+    let kept = api.docs.getById(n)
+    expect(kept.title).toBe("second")
+    expect(kept.version).toBe(moved.version)
+
+    // A `shape: document` aggregate: the same contract on its guarded upsert.
+    let m = api.memos.create({ body: "draft" })
+    let mread = api.memos.getById(m)
+    api.memos.rewrite(m, { b: "final" }, { ifMatch: mread.version })
+    expect(api.memos.rewrite(m, { b: "lost" }, { ifMatch: mread.version })).toThrow(409)
+    let mkept = api.memos.getById(m)
+    expect(mkept.body).toBe("final")
+    expect(mkept.version).toBe(mread.version + 1)
+
+    // The derived routes the case does not otherwise reach (the api-caller
+    // census wants every one driven).  The row `n` stays for the probe.
+    api.docs.update(n, { title: "fourth" })
+    let spare = api.docs.create({ title: "spare" })
+    api.docs.destroy(spare)
+    let docs = api.docs.all()
+    expect(docs.total).toBe(1)
+    api.memos.update(m, { body: "edited" })
+    api.memos.destroy(m)
+    let memos = api.memos.all()
+    expect(memos.length).toBe(0)
+  }
+}

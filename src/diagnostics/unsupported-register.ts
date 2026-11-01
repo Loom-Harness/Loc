@@ -434,13 +434,13 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     what:
       "on MikroORM: the two self-provisioning limits — declared migration steps and Postgres " +
       "schema placement (migration-checks.ts, `#migrations` / `#schema-split` / " +
-      "`#schema-ignored`) — this adapter's boot-time `orm.schema.updateSchema()` schema owner " +
+      "`#schema-ignored`) — this adapter's boot-time `orm.schema.update()` schema owner " +
       "does not express today.  BOTH are OWNER-RULED as builds, not as permanent limits: " +
       "`#migrations` by D-DAPPER-ALTER (its mikroorm twin is ruled the same way there) — " +
       "render the MigrationsIR chain behind a `__loom_migrations` ledger and flip " +
       "`!usingMikro` at `src/platform/hono/v4/emit.ts`, a named T2 mission, with the widened " +
       "refusal landing first as the interim), and `#schema-*` by measurement (C2 packet 2c): " +
-      "a MikroORM `EntitySchema` takes a `schema:` key and `updateSchema` provisions it, so " +
+      "a MikroORM `EntitySchema` takes a `schema:` key and `schema.update` provisions it, so " +
       "the gap is that `renderMikroEntities` is never handed the per-aggregate " +
       "`resolveDataSourceConfig` the drizzle `renderSchema` already receives at the same call " +
       "site (`emit.ts:705`).  Two prior residents drained: the root SCALAR/ENUM " +
@@ -748,18 +748,10 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: true,
   },
   {
-    code: "loom.handler-load-nullable-unsupported",
-    kind: "scope",
-    site: "src/ir/validate/checks/api-checks.ts:131",
-    what: "command/query handler load of a nullable result — v1 is single non-nullable",
-    mission: "#3376",
-    verified: true,
-  },
-  {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1546",
-    what: "workflow load of an array result — v1 is single non-nullable",
+    site: "src/ir/validate/checks/workflow-checks.ts:1638",
+    what: "workflow load of an array result — a `let` binds one row",
     mission: "#3376",
     verified: true,
   },
@@ -774,17 +766,9 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     // `lower-domain-service.ts`) retires this row.
     code: "loom.domain-service-read-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/domain-service-checks.ts:274",
+    site: "src/ir/validate/checks/domain-service-checks.ts:200",
     what: "a repository read used as a MEMBER RECEIVER in a domainService body — v1 binds it first",
     mission: "#3375",
-    verified: true,
-  },
-  {
-    code: "loom.workflow-load-nullable-unsupported",
-    kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1560",
-    what: "workflow load of a nullable result — v1 is single non-nullable",
-    mission: "#3376",
     verified: true,
   },
   {

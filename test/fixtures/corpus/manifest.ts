@@ -141,16 +141,32 @@ const FOREIGN_ID_LIST: readonly Backend[] = ALL.filter((b) => b !== "vanilla");
  *  (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs, #4023). */
 const PROJECTION_VO_ROW: readonly Backend[] = ["node", "java", "vanilla"];
 
+/** The backends that write a provenanced `money` value into its lineage in the
+ *  `Codec` fact's lineage encoding — the RS-12 wire string (owner ruling on
+ *  #3527).  Only node is on the fact so far.  The other four generate the case
+ *  cleanly, and each boots it as a tracked expected failure
+ *  (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs):
+ *  - **dotnet** / **java**: the lineage's `object` slot serializes a JSON
+ *    number (`3000.3`).
+ *  - **python**: the lineage jsonb bind cannot serialize a `Decimal`; the
+ *    write answers 500.
+ *  - **elixir** (`vanilla`): Jason encodes the `Decimal` unscaled (`"3000.3"`).
+ *  Each backend joins this row in the change that moves it onto the fact and
+ *  deletes its expected-failure entry. */
+const MONEY_LINEAGE_WIRE: readonly Backend[] = ["node"];
+
 // M-T6.96: .NET EF cannot re-host a part's nested OWNED instances under a new
 // owner (they are deleted with the old one), so the rebuild shape is held off
 // .NET until that lands — then this becomes ALL.
 const PART_REBUILD: readonly Backend[] = ALL.filter((b) => b !== "dotnet");
 
 // #3959: the polymorphic base read (`GET /<bases>/{id}`, a projection `from
-// <Base>`) passes on node/drizzle, python/SQLAlchemy, .NET EF, java and elixir/Ecto.  The other legs boot the case as a
-// tracked expected failure (`BEHAVIOURAL_XFAIL`), each fixed by its own
-// sub-issue of #3954 (#3960–#3965); each fix adds its backend here, and the
-// row becomes ALL when the last one lands.
+// <Base>`) passes on node — both persistence adapters, drizzle and MikroORM
+// (`node` is the manifest key of both behavioural legs) — python/SQLAlchemy,
+// .NET EF, java and elixir/Ecto.  The other legs boot the case as a tracked expected failure
+// (`BEHAVIOURAL_XFAIL`), each fixed by its own sub-issue of #3954
+// (#3960–#3965); each fix adds its backend here, and the row becomes ALL when
+// the last one lands.
 const BASE_READS: readonly Backend[] = ["node", "python", "dotnet", "java", "vanilla"];
 
 export interface CorpusFeature {
@@ -291,7 +307,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "inheritance (TPH + TPC) × a capability on the ABSTRACT BASE × polymorphic base reads (`GET /<base>/{id}`, a projection `from <Base>`)",
     doc: "inheritance",
     backends: BASE_READS,
-    note: "The half of epic #3954's behavioural fixture: base capabilities (#3956) and the polymorphic base reads (#3959).  node/drizzle, python/SQLAlchemy, .NET EF and java pass it (node is the oracle its wire golden is captured from); every other leg boots it as a tracked expected failure pinned to the assertion it fails on (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs) until its #3954 sub-issue (#3960–#3965) lands and adds the backend to `BASE_READS`.",
+    note: "The half of epic #3954's behavioural fixture: base capabilities (#3956) and the polymorphic base reads (#3959).  node/drizzle, python/SQLAlchemy, .NET (EF and Dapper) and java pass it (drizzle is the oracle its wire golden is captured from; the MikroORM leg replays that golden); every other leg boots it as a tracked expected failure pinned to the assertion it fails on (`BEHAVIOURAL_XFAIL`, test/behavioral/registers.mjs) until its #3954 sub-issue (#3960–#3965) lands and adds the backend to `BASE_READS`.",
   },
   { id: "event-sourcing", title: "`persistedAs: eventLog` — append-only stream + appliers", doc: "workflow", backends: ALL },
   { id: "eventsourced-workflow", title: "event-sourced saga folding its own emitted events", doc: "workflow", backends: ALL },
@@ -334,6 +350,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "workflow",
     backends: POST_COMMIT_WORKFLOW_DISPATCH,
     note: "Minted by banking-eval B-04 (#3137).  Every repository `save()` dispatched its drained events when its own write returned — inside a transactional workflow that is a savepoint on the outer transaction, so a later failure (here a duplicate `unique (reference)` Transfer insert) rolled the debit back after `Debited` had already reached the `onDebit` reactor.  Booted node stack: 1×204 + 2×409 → balance shows ONE debit, audits THREE.  The e2e cannot drive the unique-reference repro itself — this tier's PGlite DDL is synthesised from the drizzle schema, which has no unique index — so it forces the later-save failure with an optimistic-concurrency conflict (two handles on one row, `debitTwice`, 409) and asserts the committed `debitOnce` produced exactly one Audit and the rolled-back run none; on single-connection PGlite the pre-fix shape hangs instead (the reactor queries the connection the open transaction holds).  Backend scope is the named `POST_COMMIT_WORKFLOW_DISPATCH` set above (node + python + dotnet + elixir — the elixir leg armed by M-T6.92, pre-fix a 500 instead of the 409).  On .NET the same e2e gates two fixes: the Dapper unit of work's atomicity (#3224, pre-fix `expected 80 to be 90`) and, on EF, that two `getById` loads of one row are independent handles (M-T6.90, pre-fix `expected the call to reject, but it resolved`).",
+  },
+  {
+    id: "not-found-statement",
+    title:
+      "`notFound` / `notFound \"detail\"` in the `else` of an `if let` over a criterion read — a routed commandHandler and a workflow body answer the same ProblemDetails 404 a `getById` miss does",
+    doc: "workflow",
+    backends: ALL,
+    note: "#4259.  A criterion read has no uniqueness guarantee, so `get(C)` is refused and a must-exist lookup is an `if let … else { notFound }`.  The wire golden carries the statement's 404 next to a by-id miss, so a backend that answered it with a different envelope (or status) diverges per-PR.",
   },
   {
     id: "transactional-workflow-post-commit-dispatch",
@@ -668,7 +692,23 @@ export const CORPUS: readonly CorpusFeature[] = [
       "handler-body shapes the emitters mishandled — an aggregate-less handler, a declared `byId` find called with an already-typed `Agg id`, and a dereferenced (non-optional) find",
     doc: "language",
     backends: ALL,
-    note: "The three defects #2652 measured and left unfixed. .NET DROPPED the aggregate-less handler and its route entirely (`if (!primaryAgg(h)) continue`); java renamed a declared `byId` find to `getById` and re-wrapped its already-typed argument (`getById(new OrderId(orderId))`, javac `incompatible types`). The third — an OPTIONAL find bound in a handler body, dereferenced unguarded (TS18047 / CS8602) — is now refused at phase ⑦ (`loom.handler-load-nullable-unsupported`), so this fixture carries the non-optional spelling and the refusal is pinned separately.",
+    note: "The three defects #2652 measured and left unfixed. .NET DROPPED the aggregate-less handler and its route entirely (`if (!primaryAgg(h)) continue`); java renamed a declared `byId` find to `getById` and re-wrapped its already-typed argument (`getById(new OrderId(orderId))`, javac `incompatible types`). The third — an OPTIONAL find bound in a handler body, dereferenced unguarded (TS18047 / CS8602) — now binds `T?` and a dereference without a null test is refused (`loom.nullable-receiver`); the guarded forms are the `optional-let` fixture.",
+  },
+  {
+    id: "optional-let",
+    title:
+      "a `let` bound to an optional repository read (`find(C)`, `findById`, `findBy`, a `T?` find) and the `if let` that narrows it — handlers, a workflow, a reading domain service",
+    doc: "language",
+    backends: ALL,
+    note: "Each optional read binds the nullable value as is and every dereference is guarded (`loom.nullable-receiver`), so the compile legs check the null-handling form each backend emits: a criterion read's first-row-or-null retrieval run, `findById` (Java's `Optional` unwrapped with `.orElse(null)`, .NET's `GetByIdAsync`, elixir's `get_<agg>` facade), and an `if let` over a binding already in scope.",
+  },
+  {
+    id: "nullable-load",
+    title:
+      "a nullable `find …: T?` bound with `let` in a workflow, a queryHandler and a domainService body, read behind a null guard",
+    doc: "language",
+    backends: ALL,
+    note: "`loom.nullable-receiver` refuses an unguarded read of a `T?` binding at the source, so the guarded form is legal; this fixture compiles it on all five and drives each body with a hit and a miss, so a dereferenced miss answers 500 rather than the fallback.",
   },
   {
     id: "handler-aggregate-ops",
@@ -677,6 +717,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "language",
     backends: ALL,
     note: "Promoted from the five per-backend `explicit-handlers.test.ts` string copies (M-T9.42 slice 2), which pinned each emitter's spelling of the handler body — `await orders.save(o)`, `new OrderResponse(...)`, `@RequestBody` record splits — and could not tell whether a handler that compiled actually saved, projected or deleted. `handler-triad` already drives mount + param binding on an EMPTY table; this fixture is the half that needs a row: every effect is read BACK through a different route (the derived getById, or a sibling handler), so a missed save, a raw-entity return, a dropped body param or a no-op delete is a wrong value, not a 200.",
+  },
+  {
+    id: "handler-paged-run",
+    title:
+      "a paged `queryHandler` over `Repo.run(<Criterion>(args))` — the synthesized paged FIND, the envelope, and `page`/`pageSize`/`sort`/`dir` on the routed handler",
+    doc: "language",
+    backends: ALL,
+    note: "Promoted from the paged-run copies in the five per-backend `explicit-handlers.test.ts` files.  The block reads the WINDOW of a sorted match, so a handler that paged in memory before filtering, or counted the page instead of the match, answers a wrong number.",
   },
   { id: "seeding", title: "seed datasets — default / demo / wired-raw", doc: "language", backends: ALL },
   {
@@ -708,6 +756,14 @@ export const CORPUS: readonly CorpusFeature[] = [
   },
   { id: "provenance", title: "provenanced stored fields — per-write-site rule snapshots", doc: "provenance", backends: ALL },
   {
+    id: "provenance-money",
+    title:
+      "a provenanced `money` field's lineage — `inputs[].value` and `computedValue` carry money as the RS-12 wire string",
+    doc: "provenance",
+    backends: MONEY_LINEAGE_WIRE,
+    note: "The `Codec` fact (`src/ir/enrich/codec.ts`) rules a money value's lineage encoding to be its wire encoding (owner ruling on #3527).  node writes it through the money wire encoder; the other four legs boot it as tracked expected failures (`BEHAVIOURAL_XFAIL`, #3527) until each is moved onto the fact — java and .NET send a JSON number, elixir an unscaled Decimal string, python 500s on the write",
+  },
+  {
     id: "audited",
     title: "command audit — aggregate-wide `audited` + per-command `audited`, transactional audit_records rows",
     doc: "audit",
@@ -720,6 +776,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "capabilities",
     backends: ALL,
     note: "Minted by M-T6.91: the concurrency 409 `detail` was node's `<Aggregate> <id> was modified by another request` on node and a fixed `The resource was modified by another request; reload and retry.` on the other four, and the one golden that recorded the 409 (`transactional-workflow-event-rollback`) ran on three legs.  This case drives the route every backend shares — a stale `If-Match` on the versioned `update`, via the e2e call's `{ ifMatch: v }` third argument — so the golden diff pins the sentence on every wire-gated leg.",
+  },
+  {
+    id: "concurrency-two-writers",
+    title:
+      "the write-path concurrency contract — a stale `If-Match` on any named operation (void, returning, `shape: document`) answers the 409, and two simultaneous writers with one tag yield exactly one 409",
+    doc: "capabilities",
+    backends: ALL,
+    note: "Minted with the `checksVersion` fact (#3593 item 6).  Node and elixir read `If-Match` only on the canonical `update`, so a stale tag on any other operation overwrote newer data with a 204 (#3531); java's guarded save let two simultaneous writers carrying the same tag both land (#3521).  The `test e2e` block drives the sequential half; the wire tier's two-writer probe replays the block's first `If-Match` write as concurrent pairs.",
   },
   {
     id: "workflow-two-handles-document-eventlog",

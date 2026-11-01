@@ -660,7 +660,15 @@ function renderFindFn(
       .map((p) => `record.${snake(p.name)} == ^${escapeElixirIdent(snake(p.name))}`)
       .join(" and ");
   }
-  const fetchCall = (single ? `Repo.one(${fetchArgs})` : `Repo.all(${fetchArgs})`) + preload;
+  // A first-match read (`takeFirst`) may match many rows; `Repo.one` raises
+  // on a second, so it takes the first in id order.
+  const firstMatch = "from(record in query, order_by: [asc: record.id], limit: 1)";
+  const fetchCall =
+    (single
+      ? f.takeFirst
+        ? `Repo.one(${[firstMatch, opts].filter(Boolean).join(", ")})`
+        : `Repo.one(${fetchArgs})`
+      : `Repo.all(${fetchArgs})`) + preload;
   const specTail = paged
     ? `{:ok, map()} | {:error, term()}`
     : single

@@ -40,7 +40,7 @@ describe("python create request model — declared field default", () => {
     const block = routes.slice(start, routes.indexOf("class CreateCustomerResponse", start));
     // The declared default (True) must be the create default — omitting
     // `active` yields True.
-    expect(block).toMatch(/active: bool = True/);
+    expect(block).toMatch(/active: StrictBool = True/);
     expect(block, "create model must not fall back to the bool zero value").not.toMatch(
       /active: bool = False/,
     );

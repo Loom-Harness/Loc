@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { scopeFn } from "../../_helpers/drizzle-scope.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
@@ -40,26 +41,28 @@ async function repo(src = SOURCE): Promise<string> {
 }
 
 describe("node embedded capability filter (DEBT-02 slice 2)", () => {
-  it("ANDs the capability predicate into findById's SQL where", async () => {
+  it("the capability predicate lives once, in the aggregate's scope helper", async () => {
+    const files = await generateSystemFiles(SOURCE);
+    expect(scopeFn(files, "wishlistScope")).toContain("not(eq(schema.wishlists.archived, true))");
+    expect(await repo()).not.toContain("archived, true");
+  });
+
+  it("ANDs the scope into findById's SQL where", async () => {
+    expect(await repo()).toContain("where(and(eq(schema.wishlists.id, id), wishlistScope()))");
+  });
+
+  it("ANDs the scope into findManyByIds", async () => {
     expect(await repo()).toContain(
-      "where(and(eq(schema.wishlists.id, id), not(eq(schema.wishlists.archived, true))))",
+      "where(and(inArray(schema.wishlists.id, ids), wishlistScope()))",
     );
   });
 
-  it("ANDs the capability predicate into findManyByIds", async () => {
-    expect(await repo()).toContain(
-      "where(and(inArray(schema.wishlists.id, ids), not(eq(schema.wishlists.archived, true))))",
-    );
+  it("emits the scope alone on the synthesized findAll", async () => {
+    expect(await repo()).toContain("where(wishlistScope())");
   });
 
-  it("emits the capability filter alone on the synthesized findAll", async () => {
-    expect(await repo()).toContain("where(not(eq(schema.wishlists.archived, true)))");
-  });
-
-  it("ANDs the capability into a custom find's own predicate", async () => {
-    expect(await repo()).toContain(
-      "where(and(eq(schema.wishlists.label, l), not(eq(schema.wishlists.archived, true))))",
-    );
+  it("ANDs the scope into a custom find's own predicate", async () => {
+    expect(await repo()).toContain("where(and(eq(schema.wishlists.label, l), wishlistScope()))");
   });
 
   it("leaves a filter-free embedded aggregate's reads byte-identical", async () => {
@@ -112,27 +115,32 @@ async function principalRepo(): Promise<string> {
 }
 
 describe("node embedded principal (tenancy) capability filter (DEBT-02 Slice A)", () => {
-  it("imports requireCurrentUser from the auth middleware", async () => {
-    expect(await principalRepo()).toContain(
-      'import { requireCurrentUser } from "../../auth/middleware"',
+  it("the scope helper imports requireCurrentUser from the auth middleware; the repository does not", async () => {
+    const files = await generateSystemFiles(PRINCIPAL_SOURCE);
+    expect(files.get("api/db/read-scopes.ts")).toContain(
+      'import { requireCurrentUser } from "../auth/middleware"',
+    );
+    expect(await principalRepo()).not.toContain("requireCurrentUser");
+  });
+
+  it("the principal predicate renders against the ambient accessor, inside the helper", async () => {
+    const files = await generateSystemFiles(PRINCIPAL_SOURCE);
+    expect(scopeFn(files, "orderScope")).toContain(
+      "eq(schema.orders.tenantId, requireCurrentUser().tenantId)",
     );
   });
 
-  it("weaves the principal predicate into the synthesized findAll", async () => {
-    expect(await principalRepo()).toContain(
-      "where(eq(schema.orders.tenantId, requireCurrentUser().tenantId))",
-    );
+  it("weaves the scope into the synthesized findAll", async () => {
+    expect(await principalRepo()).toContain("where(orderScope())");
   });
 
-  it("ANDs the principal into findById so a guessed cross-tenant id can't leak", async () => {
-    expect(await principalRepo()).toContain(
-      "where(and(eq(schema.orders.id, id), eq(schema.orders.tenantId, requireCurrentUser().tenantId)))",
-    );
+  it("ANDs the scope into findById so a guessed cross-tenant id can't leak", async () => {
+    expect(await principalRepo()).toContain("where(and(eq(schema.orders.id, id), orderScope()))");
   });
 
-  it("ANDs the principal into a custom find's own predicate", async () => {
+  it("ANDs the scope into a custom find's own predicate", async () => {
     expect(await principalRepo()).toContain(
-      "where(and(eq(schema.orders.code, code), eq(schema.orders.tenantId, requireCurrentUser().tenantId)))",
+      "where(and(eq(schema.orders.code, code), orderScope()))",
     );
   });
 });

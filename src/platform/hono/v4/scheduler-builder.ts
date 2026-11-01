@@ -22,6 +22,7 @@
 // reactor fires with no new machinery.  Emitted ONLY when the deployable owns at
 // least one timerSource; a timer-free deployable is byte-identical to before.
 
+import { tsTodayCalendarDate } from "../../../generator/typescript/codec-spelling.js";
 import type { EventIR, FieldIR, TimerSourceIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 
@@ -39,7 +40,7 @@ function tickFieldValue(field: FieldIR): string {
         return "new Date()";
       case "date":
         // The fire time's UTC calendar date — `datetime.toDate()`'s rule.
-        return "new Date().toISOString().slice(0, 10)";
+        return tsTodayCalendarDate();
       case "int":
       case "long":
       case "decimal":

@@ -131,7 +131,7 @@ available. The matured axis today is **`persistence:`**:
   fields, retrievals, seeds, and the workflow outbox all emit. `dapper` ≡ EF
   Core; `mikroorm` ≡ Drizzle. Neither adapter rejects a SHAPE any more:
   `loom.mikroorm-unsupported` now fires only for declared migration steps
-  (`orm.schema.updateSchema()` has no rename intent to consult), and its last
+  (`orm.schema.update()` has no rename intent to consult), and its last
   shape reject — an abstract inheritance base owning its own `contains` — turned
   out to be impossible on every target and became the target-neutral
   `loom.abstract-aggregate-contains` (see [`inheritance.md`](inheritance.md)).

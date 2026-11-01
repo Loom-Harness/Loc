@@ -15,7 +15,7 @@
 // drizzle's own pin for the identical shape), and the validator no longer
 // fires for it at all.
 //
-// MikroORM 6 does NOT wrap a scalar `array: true` property in `ArrayType` (it
+// MikroORM does NOT wrap a scalar `array: true` property in `ArrayType` (it
 // does so only for a `string[]`/`number[]`/`array` TYPE name or an enum with
 // `items`), so that spelling bound an `int[]` as the JSON text `[7,2,9]` and
 // hydrated a `text[]` as the raw `{a,b}` literal (wave C3 D1/D3, booted on

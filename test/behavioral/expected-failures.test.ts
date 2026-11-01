@@ -13,6 +13,7 @@ import {
   hasBehaviouralBlock,
   LEG_BACKEND,
   LEGS,
+  RACE_PROBE_TEST,
 } from "./registers.mjs";
 
 // ---------------------------------------------------------------------------
@@ -119,6 +120,38 @@ describe("settle — the rule every runner leg judges an expected failure by", (
     expect(settle(e, { kind: "error", message: "… loom.example-refusal …" }).verdict).toBe("xfail");
     expect(settle(e, { kind: "error", message: "ECONNREFUSED" }).verdict).toBe("mismatch");
   });
+
+  describe("a `race` entry — a defect only overlapping requests can show", () => {
+    const race: Entry = {
+      issue: "#3",
+      expect: "fail",
+      tests: { [RACE_PROBE_TEST]: "pair \\d+: 204, 204" },
+      race: "r",
+      reason: "r",
+    };
+    const probe = `${RACE_PROBE_TEST}: exactly one 409 per pair (/api/docs/{id}/rename)`;
+
+    it("settles a run where the race overlapped as expected", () => {
+      expect(settle(race, failures([probe, "pair 1: 204, 204"])).verdict).toBe("xfail");
+    });
+
+    it("settles a run where the race did NOT overlap as expected too — not as the ratchet", () => {
+      expect(settle(race, { kind: "pass" }).verdict).toBe("xfail");
+    });
+
+    it("still refuses every failure it does not pin, and every other outcome kind", () => {
+      expect(
+        settle(race, failures([probe, "pair 1: 204, 204"], ["the e2e block", "boom"])).verdict,
+      ).toBe("mismatch");
+      expect(settle(race, failures([probe, "pair 1: 200, 500"])).verdict).toBe("mismatch");
+      expect(settle(race, { kind: "wire" }).verdict).toBe("mismatch");
+    });
+
+    it("is the only kind of entry that forgives a pass", () => {
+      const { race: _r, ...strict } = race;
+      expect(settle(strict, { kind: "pass" }).verdict).toBe("xpass");
+    });
+  });
 });
 
 describe("BEHAVIOURAL_XFAIL — the register's shape", () => {
@@ -154,6 +187,31 @@ describe("BEHAVIOURAL_XFAIL — the register's shape", () => {
       for (const re of [e.match, ...Object.values(e.tests ?? {})])
         if (re) expect(() => new RegExp(re)).not.toThrow();
     }
+  });
+
+  it("a `race` entry pins only the two-writer probe, so no deterministic failure can hide behind it", () => {
+    const bad = entries.filter(
+      ({ e }) =>
+        e.race !== undefined &&
+        (e.expect !== "fail" ||
+          !e.race.trim() ||
+          Object.keys(e.tests ?? {}).some((name) => name !== RACE_PROBE_TEST)),
+    );
+    expect(bad.map((x) => `${x.leg}/${x.name}`)).toEqual([]);
+  });
+
+  it("the two-writer case forgives a non-overlapping run on java (#3521) only; every other leg stays strict", () => {
+    const java = XFAIL.java?.["concurrency-two-writers"] ?? null;
+    expect(java?.race).toBeTruthy();
+    expect(settle(java, { kind: "pass" }).verdict).toBe("xfail");
+    for (const leg of LEGS.filter((l) => l !== "java")) {
+      expect(XFAIL[leg]?.["concurrency-two-writers"]?.race, leg).toBeUndefined();
+    }
+  });
+
+  it("the probe's test name is the one a `race` entry pins", () => {
+    const preamble = fs.readFileSync(path.join(HERE, "wire-differential.mjs"), "utf8");
+    expect(preamble).toContain(`const name = "${RACE_PROBE_TEST}: `);
   });
 
   it("only boots cases that carry a behavioural block", () => {

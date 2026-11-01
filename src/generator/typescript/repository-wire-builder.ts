@@ -18,6 +18,7 @@ import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { numericEncode } from "../_numeric/target.js";
 import { provenancedEntries } from "../_payload/provenanced-wire.js";
+import { tsInstantWire } from "./codec-spelling.js";
 import { TS_NUMERIC } from "./numeric-codec.js";
 import { tsProvSibling } from "./prov-names.js";
 import { renderTsExpr } from "./render-expr.js";
@@ -137,7 +138,7 @@ function wireProjectionEntity(
  *  python's `.120000Z` in a third spelling (ledger `F2-W-06`,
  *  D-ABSENT-JOIN-DATETIME-WIRE).  Only the whole `.000` group is dropped now. */
 export function canonicalIsoExpr(dateExpr: string): string {
-  return `${dateExpr}.toISOString().replace(/\\.000Z$/, "Z")`;
+  return tsInstantWire(dateExpr);
 }
 
 /** Render one DOMAIN value to its wire form.  Exported because the query-time

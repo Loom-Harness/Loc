@@ -1,5 +1,7 @@
+import { notFoundStmtDetail } from "../../ir/enrich/wire-policy.js";
 import {
   type EnrichedBoundedContextIR,
+  type ExprIR,
   exprUsesCurrentUser,
   type OperationIR,
   type SystemIR,
@@ -33,7 +35,6 @@ import {
 import { commandCreateResult, commandWorkflowsOf } from "../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../ir/util/workflow-instances.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
-import { resolveErrorStatus } from "../../util/error-defaults.js";
 import {
   pythonIdent,
   pythonWireIdent,
@@ -79,6 +80,7 @@ import {
   requestFieldDecl,
 } from "./routes-builder.js";
 import { type PySaveLines, pySaveRenderer } from "./stamp-call.js";
+import { pyNotFoundRaise, wireStatusResolver } from "./wire-policy-py.js";
 import { esFns } from "./workflow-eventsourced-emit.js";
 
 // ---------------------------------------------------------------------------
@@ -507,6 +509,7 @@ export function collectLiveLetNames(
         case "resource-call":
         case "domain-service-call":
         case "assign":
+        case "not-found":
           return;
         default: {
           const _exhaustive: never = n;
@@ -832,7 +835,7 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
         `        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: workflow ${wf.name} instances`)})`,
       ]
     : null;
-  const resolve = (name: string): number => resolveErrorStatus(name, ctx.structuralErrorStatuses);
+  const resolve = wireStatusResolver(ctx.structuralErrorStatuses);
   const listKwarg = errorResponsesKwarg("findList", !!gate, [], resolve);
   const byIdKwarg = gate
     ? errorResponsesKwarg("findOptional", true, [], resolve)
@@ -881,7 +884,7 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
         gateLines,
         `    __stream = await ${dispatchFn(fns.load)}(session, ${idAsKey})`,
         "    if not __stream:",
-        `        raise ${H.AggregateNotFoundError}(f"${T} {id} not found")`,
+        `        ${pyNotFoundRaise(H.AggregateNotFoundError, T, "id")}`,
         `    row = ${dispatchFn(fns.fold)}(${idAsKey}, __stream)`,
         `    return {${proj("row")}}`,
       )
@@ -891,7 +894,7 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
         gateLines,
         `    row = await session.get(${row}, id)`,
         "    if row is None:",
-        `        raise ${H.AggregateNotFoundError}(f"${T} {id} not found")`,
+        `        ${pyNotFoundRaise(H.AggregateNotFoundError, T, "id")}`,
         `    return {${proj("row")}}`,
       );
   return [list, byId].join("\n\n\n");
@@ -939,6 +942,11 @@ export function pyWorkflowStmtTarget(
   usedLets: ReadonlySet<string> | undefined,
   saveLines: PySaveLines,
 ): WorkflowStmtTarget {
+  /** The awaited criterion retrieval run capped at one row — the
+   *  single-result read behind `Repo.find(<Criterion>)` in a `let` and an
+   *  `if let`. */
+  const runFirstRow = (repoName: string, retrievalName: string, args: readonly ExprIR[]): string =>
+    `await ${snake(repoName)}.run_${snake(retrievalName)}(${[...args.map((a) => renderPyExpr(a, rctx)), "limit=1"].join(", ")})`;
   return {
     indentUnit: "    ",
     precondition: (st, i) => [
@@ -962,6 +970,15 @@ export function pyWorkflowStmtTarget(
       return [`${i}${snake(st.name)} = ${aggClassRef(st.aggName)}.create(${kwargs})`];
     },
     repoLet: (st, i) => {
+      // A criterion read (`let c = Repo.find(<Criterion>)`) runs the shared
+      // retrieval for one row and binds it or `None` — the `if let` lookup.
+      if (st.op === "select-one" && st.retrievalName) {
+        const run = runFirstRow(st.repoName, st.retrievalName, st.args);
+        if (usedLets && !usedLets.has(st.name)) return [`${i}${run}`];
+        const v = snake(st.name);
+        const hits = `__${v}_hits`;
+        return [`${i}${hits} = ${run}`, `${i}${v} = ${hits}[0] if ${hits} else None`];
+      }
       const args = st.args.map((a) => renderPyExpr(a, rctx)).join(", ");
       const call = `await ${snake(st.repoName)}.${snake(st.method)}(${args})`;
       // A load nothing reads, mutates or saves is an existence check: keep the
@@ -1055,21 +1072,27 @@ export function pyWorkflowStmtTarget(
       const v = snake(st.var);
       const hits = `__${v}_hits`;
       const inner = `${i}    `;
-      const args = [...st.retrievalArgs.map((a) => renderPyExpr(a, rctx)), "limit=1"].join(", ");
       const thenSaves = st.savesInThen.flatMap((s) => saveLines(s, inner));
       const elseSaves = st.savesInElse.flatMap((s) => saveLines(s, inner));
       const thenAll = [...thenLines, ...thenSaves];
       const elseAll = [...elseLines, ...elseSaves];
-      // A declared optional find (`findMethod`) already answers the row or
-      // `None`, so it binds directly.
-      const lookup = st.findMethod
-        ? [
-            `${i}${v} = await ${snake(st.repoName)}.${snake(st.findMethod)}(${st.retrievalArgs.map((a) => renderPyExpr(a, rctx)).join(", ")})`,
-          ]
-        : [
-            `${i}${hits} = await ${snake(st.repoName)}.run_${snake(st.retrievalName)}(${args})`,
-            `${i}${v} = ${hits}[0] if ${hits} else None`,
-          ];
+      // A declared optional find (`findMethod`) and `find_by_id` already
+      // answer the row or `None`, so they bind directly; a `bound` source
+      // narrows an optional binding already in scope.
+      const byName = (method: string): string[] => [
+        `${i}${v} = await ${snake(st.repoName)}.${snake(method)}(${st.retrievalArgs.map((a) => renderPyExpr(a, rctx)).join(", ")})`,
+      ];
+      const lookup =
+        st.op === "bound"
+          ? [`${i}${v} = ${st.retrievalArgs.map((a) => renderPyExpr(a, rctx)).join(", ")}`]
+          : st.op === "load-optional"
+            ? byName("findById")
+            : st.findMethod
+              ? byName(st.findMethod)
+              : [
+                  `${i}${hits} = ${runFirstRow(st.repoName, st.retrievalName, st.retrievalArgs)}`,
+                  `${i}${v} = ${hits}[0] if ${hits} else None`,
+                ];
       const out = [
         ...lookup,
         `${i}if ${v} is not None:`,
@@ -1096,5 +1119,10 @@ export function pyWorkflowStmtTarget(
       const bare = rendered.startsWith("(await ") ? rendered.slice(1, -1) : rendered;
       return [`${i}${bare}`];
     },
+    // The error a by-id miss raises, so the app's not-found handler renders
+    // the identical ProblemDetails.
+    notFound: (st, i) => [
+      `${i}raise ${PY.AggregateNotFoundError}(${JSON.stringify(notFoundStmtDetail(st))})`,
+    ],
   };
 }

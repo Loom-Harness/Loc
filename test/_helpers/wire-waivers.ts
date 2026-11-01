@@ -165,6 +165,7 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
       "audited",
       "collection-op-shapes",
       "concurrency-conflict",
+      "concurrency-two-writers",
       "contained-part-rebuild",
       "contained-part-removal",
       "date-scalar",
@@ -219,10 +220,11 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
     ] as const
   ).map(
     (c): WireWaiver => ({
-      backends: ["dotnet", "dapper", "java", "python", "elixir"],
+      backends: ["dotnet", "dapper", "elixir"],
       cases: [c],
       path: "$.errors[*].message",
       kinds: ["value"],
+      values: { golden: " is required$", actual: "^Required$" },
       reason:
         '#3881 — only node renders the wirePolicy missing-field sentence `"<field> is required"` yet; the other legs send `"Required"`',
     }),

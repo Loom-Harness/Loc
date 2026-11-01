@@ -1,0 +1,113 @@
+// Optional repository reads bound by a `let` (`T?`), and the `if let` that
+// narrows them, across the three bodies a repository read lowers in: routed
+// handlers, workflows (a command create and an event reactor), and a reading
+// domain service.
+//
+//   let c = Customers.find(ByEmail(e))     // Customer? — the first match
+//   let o = Orders.findById(oid)           // Order?
+//   let p = Products.findBy(sku: sku)      // Product?  — a declared unique key
+//   let x = Orders.byCode(code)            // Order?    — a declared `T?` find
+//   if let o = Orders.findById(oid) { … }  // findById as an `if let` source
+//   if let o = x { … }                     // narrowing a binding in scope
+//
+// Each backend binds the nullable value as is (`T | null`, `T?`, `None`,
+// `nil`, Java's `Optional` unwrapped with `.orElse(null)`); a member read
+// needs a null test first (`loom.nullable-receiver`), so every read below is
+// guarded by `!= null` or an `if let`.
+system OptionalLet {
+  subdomain D {
+    context Sales {
+      aggregate Customer with crudish { email: string  name: string }
+      aggregate Order with crudish {
+        code: string
+        qty: int
+        unique (code)
+        operation touch() { qty := qty + 1 }
+        operation ping() { emit Pinged { order: id, code: code } }
+      }
+      event Pinged { order: Order id  code: string }
+      aggregate Product with crudish {
+        sku: string
+        price: int
+        unique (sku)
+      }
+      criterion ByEmail(e: string) of Customer = email == e
+      repository Customers for Customer { }
+      repository Products for Product { }
+      repository Orders for Order {
+        find byCode(c: string): Order? where this.code == c
+      }
+      command Place { e: string  oid: Order id }
+
+      queryHandler CustomerName(e: string): string {
+        let c = Customers.find(ByEmail(e))
+        return c != null ? c.name : "none"
+      }
+      queryHandler OrderQty(oid: Order id): int {
+        let o = Orders.findById(oid)
+        return o != null ? o.qty : 0
+      }
+      queryHandler HasProduct(sku: string): bool {
+        let p = Products.findBy(sku: sku)
+        return p != null
+      }
+      commandHandler TouchById(oid: Order id) {
+        if let o = Orders.findById(oid) { o.touch() }
+      }
+      commandHandler TouchByCode(code: string) {
+        let x = Orders.byCode(code)
+        if let o = x { o.touch() }
+      }
+
+      domainService Lookup {
+        operation known(e: string): bool {
+          let c = Customers.find(ByEmail(e))
+          return c != null
+        }
+        operation qtyOf(oid: Order id): int {
+          let o = Orders.findById(oid)
+          return o != null ? o.qty : 0
+        }
+      }
+
+      // A REACTOR body: the elixir backend renders it through its own
+      // dispatcher emitter, not the command path's.
+      workflow Follow {
+        orderId: Order id
+        create(orderId: Order id) { }
+        on(e: Pinged) by e.order {
+          if let o = Orders.findById(e.order) { o.touch() }
+          if let q = Orders.byCode(e.code) { q.touch() }
+          let k = Orders.findBy(code: e.code)
+          if let p = k { p.touch() }
+        }
+      }
+
+      workflow PlaceFlow {
+        create(c: Place) {
+          let cust = Customers.find(ByEmail(c.e))
+          precondition cust != null
+          if let o = Orders.findById(c.oid) { o.touch() }
+          let again = Orders.findById(c.oid)
+          if let a = again { a.touch() }
+        }
+      }
+    }
+  }
+  api A from D {
+    route GET  "/customers/{e}/name" -> Sales.CustomerName
+    route GET  "/orders/{oid}/qty" -> Sales.OrderQty
+    route GET  "/products/{sku}/exists" -> Sales.HasProduct
+    route POST "/orders/{oid}/touch" -> Sales.TouchById
+    route POST "/orders/by-code/{code}/touch" -> Sales.TouchByCode
+  }
+  storage pg { type: postgres }
+  resource salesState { for: Sales, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Sales]
+    dataSources: [salesState]
+    serves: A
+    port: 4000
+  }
+}

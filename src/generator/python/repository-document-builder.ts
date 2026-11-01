@@ -12,7 +12,6 @@ import { exprUsesCurrentUser, findUsesCurrentUser } from "../../ir/types/loom-ir
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
-import { CONCURRENCY_CONFLICT_SUFFIX } from "../../ir/util/openapi-errors.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
@@ -49,6 +48,7 @@ import {
   toWireMethod,
   writeGuardInApp,
 } from "./repository-builder.js";
+import { pyConflictRaise, pyNotFoundRaise } from "./wire-policy-py.js";
 
 // ---------------------------------------------------------------------------
 // Document-shaped (`shape: document`) repository for the Python backend —
@@ -142,7 +142,7 @@ export function buildPyDocumentRepositoryFile(
     "        found = await self.find_by_id(id)",
     `        ${PY.log}("debug", "aggregate_loaded", aggregate=${JSON.stringify(agg.name)}, id=str(id), found=found is not None)`,
     "        if found is None:",
-    `            raise ${R.AggregateNotFoundError}(f"${agg.name} {id} not found")`,
+    `            ${pyNotFoundRaise(R.AggregateNotFoundError, agg.name, "id")}`,
     "        return found",
     // Command load (authorization): the whole aggregate lives in
     // one jsonb blob, so the write-scope guard is checked IN-APP over the loaded
@@ -219,7 +219,7 @@ export function buildPyDocumentRepositoryFile(
           `            .returning(${row}.id)`,
           "        )",
           "        if _guarded.first() is None:",
-          `            raise ${R.ConcurrencyError}(f"${agg.name} {aggregate.id} ${CONCURRENCY_CONFLICT_SUFFIX}")`,
+          `            ${pyConflictRaise(R.ConcurrencyError, agg.name, "aggregate.id")}`,
         ]
       : [
           `        existing = await self._session.get(${row}, aggregate.id)`,

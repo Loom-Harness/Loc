@@ -79,11 +79,42 @@ describe("e2e call options — `{ ifMatch: v }`", () => {
     ).toEqual(["loom.e2e-call-options"]);
   });
 
-  it("refuses `ifMatch` on an operation not every backend reads If-Match on", async () => {
-    // elixir's named operations do not read the header — only `update` does on
-    // all five, so a stale precondition there would pass on four and not one.
-    expect(await codesFor(sys(`api.notes.retitle(n, { text: "b" }, { ifMatch: 1 })`))).toEqual([
-      "loom.e2e-call-options",
-    ]);
+  it("accepts `ifMatch` on a named operation of a versioned aggregate (its contract reads it)", async () => {
+    const src = sys(`api.notes.retitle(n, { text: "b" }, { ifMatch: 1 })`);
+    expect(await codesFor(src)).toEqual([]);
+    const e2e = (await generateSystemFiles(src)).get("e2e/Pad.e2e.test.ts")!;
+    expect(e2e).toContain(
+      'await __postIfMatch(`${base}/api/notes/${n.id}/retitle`, ({ text: "b" }), 1)',
+    );
+  });
+
+  it("refuses `ifMatch` on an event-sourced operation (checked against its stream, not the header)", async () => {
+    const src = `
+      system Pad {
+        subdomain D {
+          context C {
+            event Opened { account: Account id, owner: string }
+            event Renamed { account: Account id, owner: string }
+            aggregate Account persistedAs: eventLog {
+              owner: string
+              create open(owner: string) { emit Opened { account: id, owner: owner } }
+              operation rename(owner: string) { emit Renamed { account: id, owner: owner } }
+              apply(e: Opened) { owner := e.owner }
+              apply(e: Renamed) { owner := e.owner }
+            }
+            repository Accounts for Account { }
+          }
+        }
+        api A from D
+        storage pg { type: postgres }
+        resource log { for: C, kind: eventLog, use: pg }
+        deployable d { platform: node, contexts: [C], dataSources: [log], serves: A, port: 4000 }
+        test e2e "t" against d {
+          let a = api.accounts.create({ owner: "a" })
+          api.accounts.rename(a, { owner: "b" }, { ifMatch: 1 })
+        }
+      }
+    `;
+    expect(await codesFor(src)).toEqual(["loom.e2e-call-options"]);
   });
 });

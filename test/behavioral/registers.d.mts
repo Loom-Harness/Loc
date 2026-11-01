@@ -35,8 +35,16 @@ export interface ExpectedFailure {
   readonly match?: string;
   /** `fail`: test-name fragment → message regex, claiming EXACTLY the failing set. */
   readonly tests?: Readonly<Record<string, string>>;
+  /** `fail` only: the pinned failures show only when simultaneous requests
+   *  overlap, so a run where they did not may pass — settled as expected, not
+   *  as the ratchet.  Allowed only on the two-writer probe's test
+   *  (`RACE_PROBE_TEST`); says why the race cannot be forced. */
+  readonly race?: string;
   readonly reason: string;
 }
+
+/** The one test name a `race` entry may pin — the wire tier's two-writer probe. */
+export const RACE_PROBE_TEST: string;
 
 /** Per-leg map of corpus case → its tracked expected failure. */
 export const BEHAVIOURAL_XFAIL: Readonly<Record<string, Readonly<Record<string, ExpectedFailure>>>>;

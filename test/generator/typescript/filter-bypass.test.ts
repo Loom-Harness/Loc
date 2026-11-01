@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateSystems } from "../../../src/system/index.js";
+import { scopeFn } from "../../_helpers/drizzle-scope.js";
 import { parseValid } from "../../_helpers/parse.js";
 
 const SRC = `
@@ -73,15 +74,18 @@ describe("node/Drizzle ignoring filter-bypass emission", () => {
 
   it("a non-bypassing find keeps the full capability conjunction", async () => {
     const r = await repo();
-    expect(whereClause(r, "normal")).toBe(
-      "and(gt(schema.orders.total, 0), eq(schema.orders.isDeleted, false))",
+    // The find AND-s the aggregate's scope helper …
+    expect(whereClause(r, "normal")).toBe("and(gt(schema.orders.total, 0), orderScope())");
+    // … which carries the capability conjunct, droppable by `ignoring softDeletable` / `*`.
+    expect(scopeFn(cache!, "orderScope")).toContain(
+      'drops(use, "softDeletable") ? undefined : eq(schema.orders.isDeleted, false)',
     );
   });
 
   it("CRUD reads (findById / findManyByIds) keep the capability filter", async () => {
     const r = await repo();
-    expect(whereClause(r, "findById")).toContain("eq(schema.orders.isDeleted, false)");
-    expect(whereClause(r, "findManyByIds")).toContain("eq(schema.orders.isDeleted, false)");
+    expect(whereClause(r, "findById")).toContain("orderScope()");
+    expect(whereClause(r, "findManyByIds")).toContain("orderScope()");
   });
 });
 
@@ -123,6 +127,6 @@ describe("node/Drizzle projection `ignoring` emission", () => {
 
   it("a projection with no `ignoring` keeps the capability filter", async () => {
     const r = await projRepo();
-    expect(whereClause(r, "liveOrders")).toContain("eq(schema.orders.isDeleted, false)");
+    expect(whereClause(r, "liveOrders")).toContain("orderScope()");
   });
 });

@@ -29,18 +29,27 @@
 // it stays declared and the call sites that block it are reported.  Where each
 // target is accepted:
 //
-//   - `findBy` / `getBy` / `getById` — wherever the find was called;
-//   - `findById` — anywhere but an `if let` source (not an `if let` source
-//     today);
-//   - `find(<Criterion>)` — an `if let` source, or an expression in a
-//     `domainService` operation (`Repo.find(C(x)) != null`).  Not a `let`:
-//     a `T?` read bound by a `let` is refused in every body.
+//   - `findBy` / `getBy` / `getById` / `findById` — wherever the find was
+//     called;
+//   - `find(<Criterion>)` — an `if let` source, a `let` (it binds `T?`), or an
+//     expression in a `domainService` operation (`Repo.find(C(x)) != null`).
 //
-// A must-exist (`T` / `T envelope`) find with no unique or id key has no
-// mechanical target: `find(C)` answers absence, and no statement in an `else`
-// branch answers a 404 today (`precondition` is a 422, `requires` a 403), so
-// each of its call sites is reported.  A `T or <Error>` call site that matches
-// on the error variant is reported too.
+// A must-exist (`T` / `T envelope`) find with no unique or id key reads with
+// `find(C)` too, and the miss it used to throw becomes an explicit `notFound`:
+// a `let` of it in a workflow / handler body becomes an `if let` whose then-
+// branch holds the rest of the block, and whose `else` answers the same 404.
+//
+//   let t = Tickets.openFor(c)          if let t = Tickets.find(TicketsOpenFor(c)) {
+//   t.escalate()                    →     t.escalate()
+//                                       } else {
+//                                         notFound
+//                                       }
+//
+// Any other call site of it is reported: a position that is not a `let`, a
+// body where `notFound` is refused, a block whose rest holds a `return`
+// (which must stay last and top-level), or one that reads a second such find
+// (rewrite them one at a time by hand).  A `T or <Error>` call site that
+// matches on the error variant is reported too.
 //
 //   node scripts/codemod-find-to-findby.mjs [--check] [--list] [--add-unique] <path>...
 //
@@ -60,8 +69,11 @@
 // alone.  Splices are textual, so formatting and comments outside the rewritten
 // find and call survive byte-for-byte.  Idempotent.
 //
+// A find's `ignoring …` clause moves to each call site, after the new read
+// (`if let o = Orders.find(OrdersByRef(r)) ignoring softDeletable { … }`).
+//
 // Also reported, never guessed: a find with `ignoring` whose target cannot
-// carry it (`findById`, `find(C)`), a `where` that reads `currentUser` (a
+// carry it (`getById`), a `where` that reads `currentUser` (a
 // criterion takes no principal), a find with neither a `where` nor a
 // parameter (it reads an arbitrary row), a find whose route a client reads
 // (`api.<plural>.<find>(…)` in a `test e2e`, a page's `<Ctx>.<Agg>.<find>`),
@@ -73,6 +85,7 @@ import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { AstUtils } from "langium";
+import { notFoundAllowedAt } from "../out/language/validators/stmt-placement.js";
 import { upperFirst as pascal, plural, snake } from "../out/util/naming.js";
 import {
   aggregateChain,
@@ -268,13 +281,17 @@ function planFinds(ast, text, shift, report, where, addUnique) {
       };
       // Target 2 — the aggregate's id.
       if (key && key.cols.length === 1 && key.cols[0] === "id") {
-        if (ignoring) {
+        // `findById` carries `ignoring`; `getById` does not.
+        if (ignoring && !absent) {
           report.push(
-            `${label} — a by-id find with '${ignoring}': the built-in by-id read carries no 'ignoring'; migrate by hand`,
+            `${label} — a must-exist by-id find with '${ignoring}': getById carries no 'ignoring'; migrate by hand`,
           );
           continue;
         }
-        plans.push({ ...plan, target: { kind: "by-id", verb: absent ? "findById" : "getById" } });
+        plans.push({
+          ...plan,
+          target: { kind: "by-id", verb: absent ? "findById" : "getById", ignoring },
+        });
         continue;
       }
       // Target 1 — a declared (or, opted in, an added) unique tuple.
@@ -298,13 +315,7 @@ function planFinds(ast, text, shift, report, where, addUnique) {
           continue;
         }
       }
-      // Target 3 — a criterion, read with `find(C)`.
-      if (ignoring) {
-        report.push(
-          `${label} — '${ignoring}': Repo.find(<Criterion>) carries no 'ignoring'; declare the key unique (findBy keeps it) or migrate by hand`,
-        );
-        continue;
-      }
+      // Target 3 — a criterion, read with `find(C)` (which carries `ignoring`).
       if (readsCurrentUser(fd.filter)) {
         report.push(
           `${label} — its 'where' reads currentUser, which a criterion cannot; migrate by hand`,
@@ -332,7 +343,7 @@ function planFinds(ast, text, shift, report, where, addUnique) {
         criterionDecl: reused
           ? undefined
           : { comment, text: `criterion ${name}${ps ? `(${ps})` : ""} of ${aggName} = ${body}` },
-        target: { kind: "criterion", name, mustExist: !absent },
+        target: { kind: "criterion", name, mustExist: !absent, ignoring },
       });
     }
   }
@@ -363,8 +374,67 @@ function matchesOnVariant(n) {
   return false;
 }
 
+/** A must-exist criterion read bound by a `let` → `if let … { <rest of the
+ *  block> } else { notFound }`, as one edit spanning the `let` and the rest of
+ *  its block (the binding is in scope only in the then-branch).  `raw` is the
+ *  snippet text the offsets index; `mustExistKeys` names every `<Repo>.<find>`
+ *  rewritten this way, so a block reading two of them is reported rather than
+ *  given overlapping edits. */
+function rewriteMustExist(n, plan, shift, raw, mustExistKeys, argText) {
+  const let_ = n.$container;
+  if (callPosition(n) !== "let")
+    return {
+      blocked:
+        "needs the row (a must-exist find over a non-unique key) where only a 'let' can become 'if let … else { notFound }' — declare the key unique (getBy) or rewrite by hand",
+    };
+  if (!notFoundAllowedAt(let_))
+    return {
+      blocked:
+        "needs the row in a body where 'notFound' is refused (only a workflow / handler body answers a 404) — declare the key unique (getBy) or rewrite by hand",
+    };
+  const block = let_.$container?.[let_.$containerProperty];
+  if (!Array.isArray(block)) return { blocked: "sits outside a statement block" };
+  const rest = block.slice(let_.$containerIndex + 1);
+  const inRest = (pred) => rest.some((st) => [st, ...AstUtils.streamAst(st)].some(pred));
+  if (inRest((x) => x.$type === "ReturnStmt"))
+    return {
+      blocked:
+        "is followed by a 'return', which cannot move into the 'if let' branch — rewrite by hand",
+    };
+  if (
+    inRest(
+      (x) =>
+        x !== n &&
+        x.$type === "PostfixChain" &&
+        x.head?.$type === "NameRef" &&
+        x.suffixes[0]?.$type === "MemberSuffix" &&
+        mustExistKeys.has(`${x.head.name}.${x.suffixes[0].member}`),
+    )
+  )
+    return {
+      blocked: "shares its block with another must-exist read — rewrite them one at a time by hand",
+    };
+  const start = let_.$cstNode.offset - shift;
+  const letEnd = let_.$cstNode.end - shift;
+  const end = rest.length > 0 ? rest[rest.length - 1].$cstNode.end - shift : letEnd;
+  const ind = indentAt(raw, start);
+  let body = raw.slice(letEnd, end);
+  if (body.trim() !== "" && !body.startsWith("\n")) body = `\n${ind}${body.trimStart()}`;
+  body = body.replace(/\n(?=[^\n])/g, "\n  ");
+  const source = `${n.head.name}.find(${plan.target.name}(${argText.join(", ")}))`;
+  return {
+    edits: [
+      {
+        start,
+        end,
+        text: `if let ${let_.name} = ${source} {${body}\n${ind}} else {\n${ind}  notFound\n${ind}}`,
+      },
+    ],
+  };
+}
+
 /** The rewrite of one call site under `plan`, or a reason it cannot take it. */
-function rewriteCall(n, plan, shift) {
+function rewriteCall(n, plan, shift, raw = "", mustExistKeys = new Set()) {
   const s0 = n.suffixes[0];
   const args = s0.args ?? [];
   const start = s0.$cstNode.offset - shift;
@@ -379,40 +449,54 @@ function rewriteCall(n, plan, shift) {
       blocked: "matches on the error variant; a miss is T? now — rewrite the match by hand",
     };
   // An absence-returning read (`findBy`, `findById`, `find(C)`) is a `T?`,
-  // which only an `if let` source or a domain-service expression can take.
+  // which an `if let` source, a `let` (binding `T?`) or a domain-service
+  // expression can take.
   const absentVerb =
     (t.kind === "key" && t.verb === "findBy") ||
     (t.kind === "by-id" && t.verb === "findById") ||
     (t.kind === "criterion" && !t.mustExist);
-  if (absentVerb && pos !== "if-let" && pos !== "service")
-    return {
-      blocked: `is a ${pos === "let" ? "'let'" : "position"} a T? read cannot take (only an 'if let' source or a domain-service expression)`,
-    };
-  if (t.kind === "key") {
-    if (args.length !== t.cols.length) return { blocked: "does not pass every parameter" };
-    const edits = [
-      { start, end, text: `.${t.verb}(${argText.map((a, i) => `${t.cols[i]}: ${a}`).join(", ")})` },
-    ];
-    if (t.ignoring && !/\bignoring\b/.test(n.$cstNode.text)) {
-      if (pos !== "let" && pos !== "if-let")
-        return { blocked: `sits where '${t.ignoring}' cannot follow (bind it with let / if let)` };
-      const chainEnd = n.$cstNode.end - shift;
-      edits.push({ start: chainEnd, end: chainEnd, text: ` ${t.ignoring}` });
-    }
-    return { edits };
-  }
-  if (t.kind === "by-id") {
-    if (t.verb === "findById" && pos === "if-let")
-      return { blocked: "is an 'if let' source, which findById is not" };
-    return { edits: [{ start, end, text: `.${t.verb}(${argText.join(", ")})` }] };
-  }
-  // criterion
-  if (t.mustExist)
+  if (absentVerb && pos !== "if-let" && pos !== "let" && pos !== "service")
     return {
       blocked:
-        "needs the row (a must-exist find over a non-unique key): no else-branch statement answers a 404 — declare the key unique (getBy) or rewrite by hand",
+        "is a position a T? read cannot take (only an 'if let' source, a 'let' or a domain-service expression)",
     };
-  return { edits: [{ start, end, text: `.find(${t.name}(${argText.join(", ")}))` }] };
+  // The find's `ignoring …` moves to the call, after the new read, in the
+  // positions that read carries it: a key read bound by `let` / `if let`,
+  // `find(C)` as an `if let` source, and any single-row read in a
+  // domain-service expression.
+  const withIgnoring = (edits, carriers) => {
+    if (!t.ignoring || /\bignoring\b/.test(n.$cstNode.text)) return { edits };
+    if (!carriers.includes(pos))
+      return { blocked: `sits where '${t.ignoring}' cannot follow (bind it with let / if let)` };
+    const chainEnd = n.$cstNode.end - shift;
+    return { edits: [...edits, { start: chainEnd, end: chainEnd, text: ` ${t.ignoring}` }] };
+  };
+  if (t.kind === "key") {
+    if (args.length !== t.cols.length) return { blocked: "does not pass every parameter" };
+    return withIgnoring(
+      [
+        {
+          start,
+          end,
+          text: `.${t.verb}(${argText.map((a, i) => `${t.cols[i]}: ${a}`).join(", ")})`,
+        },
+      ],
+      ["let", "if-let", "service"],
+    );
+  }
+  if (t.kind === "by-id") {
+    return withIgnoring([{ start, end, text: `.${t.verb}(${argText.join(", ")})` }], ["service"]);
+  }
+  // criterion
+  if (t.mustExist) {
+    if (t.ignoring && !/\bignoring\b/.test(n.$cstNode.text))
+      return { blocked: `needs the row and carries '${t.ignoring}': rewrite by hand` };
+    return rewriteMustExist(n, plan, shift, raw, mustExistKeys, argText);
+  }
+  return withIgnoring(
+    [{ start, end, text: `.find(${t.name}(${argText.join(", ")}))` }],
+    ["if-let", "service"],
+  );
 }
 
 /** Migrate a set of sources together (call sites may sit in another `.ddd`
@@ -441,6 +525,12 @@ export function migrateSources(sources, opts = {}) {
   }
   // Pass 2 — every call site, against its snippet's own finds or (for a
   // `.ddd` file) a related `.ddd` file's.
+  const mustExistKeys = new Set(
+    [...plansBySnippet.values()]
+      .flat()
+      .filter((p) => p.target.kind === "criterion" && p.target.mustExist)
+      .map((p) => p.key),
+  );
   for (const { file, snippets } of parsed) {
     for (const sn of snippets) {
       const local = new Map(plansBySnippet.get(sn).map((p) => [p.key, p]));
@@ -460,7 +550,7 @@ export function migrateSources(sources, opts = {}) {
           if (foreign && related(foreign.dir)) plan = foreign;
         }
         if (!plan) continue;
-        const r = rewriteCall(n, plan, sn.shift);
+        const r = rewriteCall(n, plan, sn.shift, sn.masked, mustExistKeys);
         if (r.blocked)
           plan.blocked.push(`${file}: '${n.$cstNode.text.split("\n")[0]}' ${r.blocked}`);
         else plan.callEdits.push({ sn, edits: r.edits });

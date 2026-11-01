@@ -62,7 +62,7 @@ export function emitTypescriptSeeds(
  *
  *  Deliberately UNQUALIFIED, unlike the drizzle sibling: this adapter's
  *  `EntitySchema`s are mapped `tableName: "<plural>"` with no `schema`, and the
- *  adapter creates its own tables via `orm.schema.updateSchema()` rather than
+ *  adapter creates its own tables via `orm.schema.update()` rather than
  *  running the emitted migration chain — so its tables really are in `public`,
  *  and a `"<ctx>".` qualifier would point the raw INSERT at a table the ORM
  *  never created.  (That the adapter IGNORES the dataSource `schema:` the
@@ -399,14 +399,14 @@ function renderMikroSeedCliFile(): string {
       "// Standalone seeding (`npm run db:seed`) — the server boot path calls",
       "// the exported `runSeeds(db)` from index.ts instead, after schema update.",
       "//",
-      "// `safe: true` for the same reason the boot path uses it: `updateSchema()`",
+      "// `safe: true` for the same reason the boot path uses it: `schema.update()`",
       "// defaults to `dropTables: true` over an unpruned introspection, so every",
       "// table outside the entity metadata is dropped — including the `__loom_seed`",
       "// marker this very CLI is about to write, and pg-boss's schema.  Running the",
       "// seeder must never be destructive.",
       "async function main(): Promise<void> {",
       "  const orm = await MikroORM.init(mikroConfig);",
-      "  await orm.schema.updateSchema({ safe: true });",
+      "  await orm.schema.update({ safe: true });",
       "  try {",
       "    await runSeeds(orm.em);",
       "  } finally {",

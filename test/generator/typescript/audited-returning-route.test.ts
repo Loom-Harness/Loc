@@ -174,7 +174,7 @@ describe("an audited operation that returns a value gets the returning route", (
     const src = [...files.entries()].find(([p]) => p.endsWith("http/parcel.routes.ts"))![1];
     const handler = settleHandler(src);
     expect(handler).toContain("const result = aggregate.settle(body.fee);");
-    expect(handler).toContain("await repo.save(aggregate);");
+    expect(handler).toContain("await repo.save(aggregate, expectedVersion);");
     expect(handler).not.toContain("db.transaction(");
   });
 });

@@ -52,9 +52,10 @@ guards.
 > single-result `Repo.find(<Criterion>)` is **shipped on every backend** as the
 > source of an `if let` workflow statement — `if let x = Repo.find(<Criterion>)
 > { … } else { … }` — which binds the first match (non-null) in the then-branch
-> and runs `else` on no match (the workflow body's option/null-handling
-> construct; it rides the same shared `findAllBy<Criterion>` retrieval as
-> `findAll`, capped at one row, so no public endpoint leaks).  A composed
+> and runs `else` on no match, and bound by a plain `let`
+> (`let c = Customers.find(ByEmail(e))` binds `Customer?`).  Both ride the same
+> shared `findAllBy<Criterion>` retrieval as `findAll`, capped at one row, so no
+> public endpoint leaks.  A composed
 > anonymous `where:` and the `from <Criterion>(args)` parameter binding are
 > **not yet shipped**.
 

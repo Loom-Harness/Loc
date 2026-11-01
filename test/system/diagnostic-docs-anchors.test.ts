@@ -179,7 +179,11 @@ describe("the undocumented-codes ratchet", () => {
 // migration blocks (its home is docs/migrations.md § Rename detection).  Raised
 // deliberately; #3073's docs-root anchor escape (`../migrations.md#…`) is the
 // way to shrink both once it lands.
-const UNDOCUMENTED_BASELINE = 349;
+// 349 -> 347: `loom.handler-load-nullable-unsupported` and
+// `loom.workflow-load-nullable-unsupported` deleted — a `let` binds a `T?`
+// read now, and its un-narrowed dereference is the documented
+// `loom.nullable-receiver`.
+const UNDOCUMENTED_BASELINE = 347;
 
 describe("the undocumented-codes LENGTH ratchet", () => {
   it("only shrinks", () => {

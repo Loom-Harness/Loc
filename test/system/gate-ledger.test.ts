@@ -105,6 +105,8 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
     "the deep/global/local read ladder is a runtime row-visibility question; `test:tenancy-hierarchy-*` boots it outside the corpus tier.  The corpus cell needs a principal whose claim is a registry ROW id (a registry read narrows to `this.id == currentUser.<claim>`), which the behavioural harness does not mint — #3422",
   "handler-resource-ops":
     "outbound I/O inside a handler body; needs the resource's container — #4212",
+  "optional-let":
+    "the emitted null-handling form of a `let`-bound optional read is a compile-tier fact (an unwrapped java `Optional`, a .NET `GetByIdAsync`, an elixir nil match); the booted block over the absent-row and present-row branches is #4335",
   resources: "objectStore / queue / api / mailer clients need their containers — #4212",
   "api-call":
     "in-system api call; needs both deployables booted.  BY DESIGN for the corpus tier, which boots one deployable per case: the `api-call-e2e` leg boots both and gates the runtime half",
@@ -142,7 +144,9 @@ describe("gate ledger", () => {
     // per-feature register above would be the wrong shape to describe it.
     const split = [...new Set(ledger.cells.map((c) => c.feature))].filter((f) => {
       const cs = ledger.cells.filter((c) => c.feature === f);
-      return cs.some((c) => c.behavioural) && cs.some((c) => !c.behavioural);
+      // A tracked expected failure is booted and ratcheted by its own
+      // `BEHAVIOURAL_XFAIL` entry — not hidden — so it is no split.
+      return cs.some((c) => c.behavioural) && cs.some((c) => !c.behavioural && !c.expectedFailure);
     });
     expect(split).toEqual([]);
   });

@@ -234,14 +234,14 @@ function sqlExprFamily(e: ExprIR): string | undefined {
 //
 //   - `persistence: mikroorm` — `hasMigrations = !usingMikro`
 //     (`src/platform/hono/v4/emit.ts`, shared by v5); schema comes from
-//     `orm.schema.updateSchema()`.
+//     `orm.schema.update()`.
 //
 // (`persistence: dapper` was the other one until D-DAPPER-ALTER / M-T2.17: it
 // now applies the same versioned chain as EF — `dapper-migrations.ts` — so a
 // declared `migration` block reaches it like any other step.)
 //
 // That is fine for a FIRST boot.  It cannot carry a declared `migration`
-// block, and the failure is SILENT in the worst way: `updateSchema()` has no
+// block, and the failure is SILENT in the worst way: `schema.update()` has no
 // rename intent to consult, so it sees a dropped column and an added one — it
 // DROPS the old column and ADDS the new one, i.e. it deletes the very data the
 // rename existed to keep.

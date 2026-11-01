@@ -69,7 +69,7 @@ system M {
 }`;
 
 describe("MikroORM transactional outbox", () => {
-  it("emits the __loom_outbox Row EntitySchema and registers it for updateSchema()", async () => {
+  it("emits the __loom_outbox Row EntitySchema and registers it for schema.update()", async () => {
     const entities = (await emit(sys("mikroorm"))).get("api/db/entities.ts")!;
     expect(entities).toContain("export class LoomOutboxRow {");
     expect(entities).toContain("new EntitySchema<LoomOutboxRow>({");
