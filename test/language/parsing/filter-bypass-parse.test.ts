@@ -7,10 +7,10 @@ import { describe, expect, it } from "vitest";
 import {
   type BoundedContext,
   isPostfixChain,
-  type PostfixChain,
   isSubdomain,
   isSystem,
   type Model,
+  type PostfixChain,
 } from "../../../src/language/generated/ast.js";
 import { parseErrorsOf, parseString } from "../../_helpers/parse.js";
 

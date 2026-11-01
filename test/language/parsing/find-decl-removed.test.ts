@@ -15,23 +15,26 @@ async function onlyError(src: string): Promise<string> {
   return errors[0]!;
 }
 
-const ctx = (repo: string) =>
-  `context A {\n  aggregate Order { code: string }\n  ${repo}\n}`;
+const ctx = (repo: string) => `context A {\n  aggregate Order { code: string }\n  ${repo}\n}`;
 
 describe("a leftover `find` names the repository contract", () => {
   it("a single-row find, at the `find`", async () => {
     const err = await onlyError(
-      ctx("repository Orders for Order {\n    find byCode(c: string): Order? where this.code == c\n  }"),
+      ctx(
+        "repository Orders for Order {\n    find byCode(c: string): Order? where this.code == c\n  }",
+      ),
     );
     expect(err).toMatch(/^4:5 A repository declares no `find`s any more: read 'Order'/);
     expect(err).toContain("`Orders.findById(id)` / `getById(id)`");
-    expect(err).toContain("`Orders.findBy(<column>: v)` / `getBy(…)` over a declared `unique (…)` key");
+    expect(err).toContain(
+      "`Orders.findBy(<column>: v)` / `getBy(…)` over a declared `unique (…)` key",
+    );
     expect(err).toContain("`Orders.find(C)` (the first match), `findAll(C)` or `run(C)`");
     expect(err).toContain("`queryHandler` or `scaffoldGet`");
   });
 
   it("`find all` and a list find too, after a comment", async () => {
-    for (const decl of ["find all(): Order[]", "find big(): Order paged where this.code != \"\""]) {
+    for (const decl of ["find all(): Order[]", 'find big(): Order paged where this.code != ""']) {
       const err = await onlyError(
         ctx(`repository Orders for Order {\n    // was the list read\n    ${decl}\n  }`),
       );

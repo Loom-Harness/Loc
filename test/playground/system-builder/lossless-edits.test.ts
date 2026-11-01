@@ -27,13 +27,6 @@ import {
   retypeField,
   type TypeSpec,
 } from "../../../web/src/builder/system/fields.js";
-import {
-  addFindParam,
-  deleteFindParam,
-  renameFindParam,
-  retypeFindParam,
-  setFindReturnType,
-} from "../../../web/src/builder/system/find-params.js";
 import { contextMembersOf, nodeName } from "../../_helpers/ast.js";
 import { parseRaw as parse } from "../../_helpers/index.js";
 
@@ -230,87 +223,6 @@ describe("builder lossless edits — fields", () => {
     expect(addField(SRC, "aggregate", "Nope", "x", prim("int"))).toBeNull();
     expect(deleteField(SRC, "aggregate", "Order", 99)).toBeNull();
     expect(retypeField(SRC, "aggregate", "Order", 99, prim("int"))).toBeNull();
-  });
-});
-
-describe("builder lossless edits — repository find params", () => {
-  it("addFindParam extends the param list in place", () => {
-    const out = addFindParam(SRC, "Orders", "byCustomer", "since", prim("datetime"));
-    expectHunk(
-      SRC,
-      out,
-      ["      find byCustomer(customerId: Customer id): Order?"],
-      ["      find byCustomer(customerId: Customer id, since: datetime): Order?"],
-    );
-    expectCommentsIntact(out);
-  });
-
-  it("addFindParam fills an empty param list", () => {
-    const out = addFindParam(SRC, "Orders", "all", "limit", prim("int"));
-    expectHunk(SRC, out, ["      find all(): Order[]"], ["      find all(limit: int): Order[]"]);
-    expectCommentsIntact(out);
-  });
-
-  it("deleteFindParam empties the list without disturbing the repository", () => {
-    const out = deleteFindParam(SRC, "Orders", "byCustomer", 0);
-    expectHunk(
-      SRC,
-      out,
-      ["      find byCustomer(customerId: Customer id): Order?"],
-      ["      find byCustomer(): Order?"],
-    );
-    expectCommentsIntact(out);
-  });
-
-  it("deleteFindParam takes the separating comma with it", () => {
-    const two = addFindParam(SRC, "Orders", "byCustomer", "since", prim("datetime")) as string;
-    expect(deleteFindParam(two, "Orders", "byCustomer", 0)).toContain(
-      "find byCustomer(since: datetime): Order?",
-    );
-    expect(deleteFindParam(two, "Orders", "byCustomer", 1)).toContain(
-      "find byCustomer(customerId: Customer id): Order?",
-    );
-  });
-
-  it("retypeFindParam / setFindReturnType rewrite only their own type", () => {
-    expectHunk(
-      SRC,
-      retypeFindParam(SRC, "Orders", "byCustomer", 0, prim("string")),
-      ["      find byCustomer(customerId: Customer id): Order?"],
-      ["      find byCustomer(customerId: string): Order?"],
-    );
-    expectHunk(
-      SRC,
-      setFindReturnType(SRC, "Orders", "byCustomer", {
-        base: { kind: "named", target: "Order" },
-        array: false,
-        optional: false,
-      }),
-      ["      find byCustomer(customerId: Customer id): Order?"],
-      ["      find byCustomer(customerId: Customer id): Order"],
-    );
-  });
-
-  it("renameFindParam rewrites the token and its filter usage, verbatim elsewhere", () => {
-    const out = renameFindParam(SRC, "Orders", "drafts", 0, "cust");
-    expectHunk(
-      SRC,
-      out,
-      [
-        "      find drafts(forCustomer: Customer id): Order?",
-        "        where this.customerId == forCustomer",
-      ],
-      ["      find drafts(cust: Customer id): Order?", "        where this.customerId == cust"],
-    );
-    expectCommentsIntact(out);
-  });
-
-  it("returns null on a source with parser errors", () => {
-    expect(addFindParam(BROKEN, "Orders", "byCustomer", "since", prim("int"))).toBeNull();
-    expect(deleteFindParam(BROKEN, "Orders", "byCustomer", 0)).toBeNull();
-    expect(retypeFindParam(BROKEN, "Orders", "byCustomer", 0, prim("int"))).toBeNull();
-    expect(renameFindParam(BROKEN, "Orders", "byCustomer", 0, "x")).toBeNull();
-    expect(setFindReturnType(BROKEN, "Orders", "byCustomer", prim("int"))).toBeNull();
   });
 });
 

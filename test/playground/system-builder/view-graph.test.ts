@@ -45,7 +45,6 @@ describe("Model v2 — view-graph per level", () => {
     status: string
   }
   repository Orders for Order { }
-  criterion OrdersById(id: int) of Order = this.id == id
   event Placed {
   }
 }`;
@@ -495,20 +494,16 @@ describe("Model v2 — view-graph per level", () => {
     ]);
   });
 
-  it("repository view returns one node per find (drillable repository)", () => {
+  it("a repository is a leaf: it declares no reads of its own", () => {
     const REPO_SRC = `context C {
   aggregate Order {
     sku: string
   }
-  repository Orders for Order { }
-  criterion OrdersBySku(sku: string) of Order = this.sku == sku
-  criterion OrdersAllActive of Order = true
+  repository Orders for Order
 }`;
-    const g = buildViewGraph(parse(REPO_SRC), [{ kind: "repository", name: "Orders" }]);
-    expect(g.title).toBe("repository Orders");
-    const finds = childNodes(g);
-    expect(finds.map((n) => n.id)).toEqual(["find:bySku", "find:allActive"]);
-    expect(finds.every((n) => n.kind === "find")).toBe(true);
+    const g = buildViewGraph(parse(REPO_SRC), [{ kind: "context", name: "C" }]);
+    const repo = g.nodes.find((n) => n.id === "repository:Orders");
+    expect(repo).toMatchObject({ kind: "repository", drillable: false });
   });
 
   it("system view surfaces deployable bindings as edges", () => {

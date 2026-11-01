@@ -127,9 +127,7 @@ const withMember = (where: "agg" | "cmd" | "qry", member: string) => `
         ${where === "agg" ? `let o = Orders.getById(oid)  if (o.${member} != null) { name := "x" }` : `name := "y"`}
       }
     }
-    repository Orders for Order {
-      find byName(name: string): Order? where this.name == name
-    }
+    repository Orders for Order
     ${where === "cmd" ? `commandHandler Probe(oid: Order id): bool { let o = Orders.getById(oid)  return o.${member} != null }` : ""}
     ${where === "qry" ? `queryHandler Probe(oid: Order id): bool { let o = Orders.getById(oid)  return o.${member} != null }` : ""}
   }

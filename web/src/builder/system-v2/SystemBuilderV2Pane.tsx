@@ -68,15 +68,6 @@ import {
   setFieldSensitivity,
 } from "../system/fields";
 import {
-  addFindParam,
-  deleteFindParam,
-  freshParamName,
-  listFindParams,
-  renameFindParam,
-  retypeFindParam,
-  setFindReturnType,
-} from "../system/find-params";
-import {
   PLATFORMS,
   STORAGE_TYPES,
   deployablePlatform,
@@ -99,12 +90,10 @@ import {
 import {
   addOpParam,
   deleteOpParam,
-  findSurface,
   freshOpParamName,
   opSurface,
   renameOpParam,
   retypeOpParam,
-  setFindIgnoring,
   setOpGate,
   setOpModifier,
   setOpReturnType,
@@ -164,7 +153,6 @@ const KIND_COLOR: Record<ViewKind, string> = {
   valueobject: "var(--mantine-color-cyan-7)",
   event: "var(--mantine-color-grape-7)",
   repository: "var(--mantine-color-indigo-7)",
-  find: "var(--mantine-color-indigo-8)",
   invariant: "var(--mantine-color-yellow-8)",
   function: "var(--mantine-color-yellow-8)",
   derived: "var(--mantine-color-cyan-7)",
@@ -364,7 +352,6 @@ const AST_TYPE_BY_VIEW: Partial<Record<ViewKind, string>> = {
   valueobject: "ValueObject",
   event: "EventDecl",
   repository: "Repository",
-  find: "FindDecl",
   api: "Api",
   storage: "Storage",
   ui: "Ui",
@@ -910,9 +897,8 @@ function Inner({ ctx, path, setPath, onOverview }: {
     const m = new Map<string, ConstructNodeData>();
     const aggOwner = path[path.length - 1];
 
-    // Inline structured editor + toggle for an expression slot — shared by
-    // invariant (`{kind:"invariant", owner, index}`) and find filter
-    // (`{kind:"findFilter", owner, name}`). The pane's `structuredKey` is a
+    // Inline structured editor + toggle for an expression slot — an
+    // invariant (`{kind:"invariant", owner, index}`). The pane's `structuredKey` is a
     // single string identifying which expression is open (any view); toggling
     // the same key collapses it. Renders the v1 `ExprSlotEditor` keyed by
     // `rev` so it re-seeds on commit.
@@ -999,7 +985,7 @@ function Inner({ ctx, path, setPath, onOverview }: {
       }
 
       // Aggregate field / containment names are plain text tokens in
-      // expressions (`this.field`, `x.field`, view binds, find filters), not
+      // expressions (`this.field`, `x.field`, view binds, criteria), not
       // Langium cross-refs — so they need v1's `renameMember` resolver.
       // Delete uses `deleteField` (preserves comma / whitespace layout).
       if ((n.kind === "field" || n.kind === "containment") && aggOwner?.kind === "aggregate") {
@@ -1266,108 +1252,6 @@ function Inner({ ctx, path, setPath, onOverview }: {
         }
       }
 
-      // Inline filter editor on a find node (only meaningful inside a
-      // repository view, where the parent path step is the repo) — plus the
-      // two header clauses that sit beside the `where` filter and have no
-      // expression tree of their own: the `requires` gate and `ignoring`.
-      let expressionEditor: ReactNode | undefined;
-      let onToggleExpression: (() => void) | undefined;
-      if (n.kind === "find" && aggOwner?.kind === "repository") {
-        const repoName = aggOwner.name;
-        const t = buildExprToggle(
-          { kind: "findFilter", owner: repoName, name: n.name },
-          `find:${repoName}:${n.name}`,
-        );
-        expressionEditor = t.expressionEditor;
-        onToggleExpression = t.onToggleExpression;
-        const surface = findSurface(parsed.ast, repoName, n.name);
-        if (surface) {
-          const findName = n.name;
-          const find = on(`find ${findName}`);
-          // Collapsed: the header clauses plus the signature are five-plus
-          // fields, and a repository view stacks its finds — expanded by
-          // default they overlap the next find's node.
-          detailsLabel = "clauses";
-          inputs = [
-            {
-              label: "ignoring",
-              value: surface.ignoring === "*" ? "*" : (surface.ignoring ?? []).join(", "),
-              placeholder: "* or Cap1, Cap2",
-              testid: "c4system-v2-find-ignoring",
-              onCommit: (v) => {
-                const text = v.trim();
-                const spec = text === "" ? null : text === "*" ? "*" : text.split(",").map((s) => s.trim());
-                find.applyOrRefuse(setFindIgnoring(ctx.getSource(), repoName, findName, spec));
-              },
-            },
-            // The find's SIGNATURE — the surface v1's inspector owned: the
-            // return type plus one row per parameter (`name: Type`, editable
-            // and deletable) and a `+ param` action.
-            {
-              label: "returns",
-              value: surface.returnTypeText,
-              testid: "c4system-v2-find-return",
-              onCommit: (v) => {
-                const text = v.trim();
-                if (!text) {
-                  refusal.refuse({ what: `find ${findName}`, why: "a find needs a return type" });
-                  return;
-                }
-                find.applyOrRefuse(setFindReturnType(ctx.getSource(), repoName, findName, text));
-              },
-            },
-            ...surface.params.map((p, i) => ({
-              label: `param ${i + 1}`,
-              value: `${p.name}: ${p.baseLabel}${p.array ? "[]" : ""}${p.optional ? "?" : ""}`,
-              testid: `c4system-v2-find-param-${i}`,
-              // `name: Type` in one field, committed as (at most) two narrow
-              // splices — the rename first, then the retype on its result, so
-              // a rejected half leaves the other half applied to nothing.
-              onCommit: (v: string): void => {
-                const param = on(`find ${findName} param ${p.name}`);
-                const cut = v.indexOf(":");
-                const name = cut < 0 ? "" : v.slice(0, cut).trim();
-                const type = cut < 0 ? "" : v.slice(cut + 1).trim();
-                if (!name || !type) {
-                  refusal.refuse({ what: `find ${findName} param ${p.name}`, why: "expected `name: Type`" });
-                  return;
-                }
-                let src = ctx.getSource();
-                if (name !== p.name) {
-                  const renamed = renameFindParam(src, repoName, findName, i, name);
-                  if (renamed == null) {
-                    param.applyOrRefuse(null);
-                    return;
-                  }
-                  src = renamed;
-                }
-                const retyped = retypeFindParam(src, repoName, findName, i, type);
-                param.applyOrRefuse(retyped ?? (src === ctx.getSource() ? null : src));
-              },
-              onDelete: (): void => {
-                on(`find ${findName} param ${p.name}`).applyOrRefuse(deleteFindParam(ctx.getSource(), repoName, findName, i));
-              },
-            })),
-          ];
-          actions = [
-            {
-              label: "+ param",
-              testid: "c4system-v2-find-param-add",
-              onClick: () => {
-                const next = addFindParam(
-                  ctx.getSource(),
-                  repoName,
-                  findName,
-                  freshParamName(parsed.ast, repoName, findName),
-                  { base: { kind: "primitive", name: "string" }, array: false, optional: false },
-                );
-                find.applyOrRefuse(next);
-              },
-            },
-          ];
-        }
-      }
-
       m.set(n.id, {
         kind: n.kind,
         name: n.name,
@@ -1381,8 +1265,6 @@ function Inner({ ctx, path, setPath, onOverview }: {
         actions,
         detailsLabel,
         ...(detailsLabel ? detailToggle(n.id) : {}),
-        expressionEditor,
-        onToggleExpression,
         compact,
         unused: n.unused,
         summary: n.summary,
@@ -1392,7 +1274,7 @@ function Inner({ ctx, path, setPath, onOverview }: {
     return m;
     // structuredKey + exprMode drive the inline ƒx editor (buildExprToggle);
     // without them the toggle flips state but this memo never rebuilds the
-    // node data, so the editor never opens for invariant / find / view slots.
+    // node data, so the editor never opens for invariant / view slots.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, parsed, path, rev, compact, structuredKey, exprMode, detailsKey]);
 

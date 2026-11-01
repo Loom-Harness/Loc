@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 import type {
   Aggregate,
   Model,
-  Repository,
   ValueObject,
   Workflow,
 } from "../../../src/language/generated/ast.js";
@@ -18,7 +17,6 @@ import {
   listDerived,
   listInvariants,
   memberCandidates,
-  repoSlotOptions,
   slotCandidates,
   slotExpr,
   workflowSlotOptions,
@@ -197,14 +195,18 @@ describe("structured expression editor — model", () => {
   });
 
   it("structures member access (receiver + member)", () => {
-    // find activeForCustomer where this.customerId == forCustomer && this.status == Draft
     const tree = seedExpr(
-      slotExpr(parse(sales), { kind: "findFilter", owner: "Orders", name: "activeForCustomer" })!,
+      slotExpr(
+        parse(
+          `system S { context C { enum Status { Draft, Done } aggregate Order { customerId: string  status: Status  invariant this.customerId != "" && this.status == Draft } } }`,
+        ),
+        { kind: "invariant", owner: "Order", index: 0 },
+      )!,
     );
     if (tree.kind !== "binary") throw new Error("expected a binary");
     expect(tree.left).toMatchObject({
       kind: "binary",
-      op: "==",
+      op: "!=",
       left: {
         kind: "member",
         member: "customerId",
@@ -212,7 +214,7 @@ describe("structured expression editor — model", () => {
         receiver: { kind: "raw", text: "this" },
       },
     });
-    expect(emitExpr(tree)).toBe("this.customerId == forCustomer && this.status == Draft");
+    expect(emitExpr(tree)).toBe('this.customerId != "" && this.status == Draft');
   });
 
   it("lists invariants (by predicate) and derived props (by name)", () => {
@@ -401,31 +403,6 @@ describe("structured expression editor — workflow statement slots", () => {
   });
 });
 
-describe("structured expression editor — repository find slots", () => {
-  it("exposes only finds that declare a where filter", () => {
-    // `byCustomer` has no where; `activeForCustomer` does.
-    const opts = repoSlotOptions(owner<Repository>(parse(sales), "Repository", "Orders"));
-    expect(opts.map((o) => o.value)).toEqual(["find:activeForCustomer"]);
-  });
-
-  it("decomposes a compound find filter into an operator tree", () => {
-    const tree = seedExpr(
-      slotExpr(parse(sales), { kind: "findFilter", owner: "Orders", name: "activeForCustomer" })!,
-    );
-    expect(tree.kind).toBe("binary");
-    expect(tree).toMatchObject({ kind: "binary", op: "&&" });
-  });
-
-  it("edits a find's where filter", () => {
-    const out = editExprSlot(
-      sales,
-      { kind: "findFilter", owner: "Orders", name: "activeForCustomer" },
-      "this.status == Draft",
-    )!;
-    expect(out).toMatch(/where this\.status == Draft/);
-  });
-});
-
 describe("structured expression editor — scope-aware name candidates", () => {
   const names = (slot: ExprSlot): string[] => slotCandidates(parse(sales), slot);
 
@@ -437,11 +414,6 @@ describe("structured expression editor — scope-aware name candidates", () => {
   it("offers aggregate properties, derived props, helpers and enum values", () => {
     const c = names({ kind: "function", owner: "Order", name: "isMutable" });
     expect(c).toEqual(expect.arrayContaining(["status", "lines", "total", "isMutable", "Draft"]));
-  });
-
-  it("offers find params alongside the aggregate's names", () => {
-    const c = names({ kind: "findFilter", owner: "Orders", name: "activeForCustomer" });
-    expect(c).toEqual(expect.arrayContaining(["forCustomer", "status"]));
   });
 });
 
@@ -459,13 +431,11 @@ describe("structured expression editor — type-directed member candidates", () 
     expect(m.get("f0a0b")).toEqual(["amount", "currency", "equals"]);
   });
 
-  it("types a `this`-rooted receiver in a find filter", async () => {
-    // activeForCustomer where this.customerId == forCustomer && this.status == Draft
-    const m = await memberCandidates(sales, {
-      kind: "findFilter",
-      owner: "Orders",
-      name: "activeForCustomer",
-    });
+  it("types a `this`-rooted receiver in an invariant", async () => {
+    const m = await memberCandidates(
+      `system S { context C { enum Status { Draft, Done } aggregate Order { customerId: string  status: Status  invariant this.customerId != "" && this.status == Draft } } }`,
+      { kind: "invariant", owner: "Order", index: 0 },
+    );
     expect(m.get("LL")).toEqual(expect.arrayContaining(["customerId", "status", "id"]));
   });
 

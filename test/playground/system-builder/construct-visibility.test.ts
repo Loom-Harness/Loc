@@ -469,12 +469,6 @@ describe("Model v2 — authz visibility", () => {
     expect(byId(aggGraph(), "field:sku").badges).toBeUndefined();
   });
 
-  it("a repository find carries no gate badge — the read gate is a policy rule", () => {
-    const g = buildViewGraph(AST, [{ kind: "repository", name: "Orders" }]);
-    expect(byId(g, "find:byId").badges).toBeUndefined();
-    expect(byId(g, "find:open").badges).toBeUndefined();
-  });
-
   it("a gated projection read gets a `requires` badge too", () => {
     expect(byId(ctxGraph(), "projection:OrderRow").badges).toEqual([
       { label: "requires", detail: "permissions.read" },

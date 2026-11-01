@@ -1,9 +1,8 @@
-// Operation / find HEADER editing for the visual builder.
+// Operation HEADER editing for the visual builder.
 //
 // `body.ts` owns everything inside an operation's braces; `op-surface.ts` owns
 // everything before them — the parameter list, the return type, the `requires`
-// / `when` gates, the `private` / `extern` / `audited` modifiers, and a find's
-// `ignoring` clause.
+// / `when` gates, and the `private` / `extern` / `audited` modifiers.
 //
 // The invariant every mutator keeps: an edit is a narrow CST splice guarded by
 // an output re-parse, so everything outside the edited span — the operation's
@@ -17,12 +16,10 @@ import type { PrimitiveName, TypeSpec } from "../../../web/src/builder/system/fi
 import {
   addOpParam,
   deleteOpParam,
-  findSurface,
   freshOpParamName,
   opSurface,
   renameOpParam,
   retypeOpParam,
-  setFindIgnoring,
   setOpGate,
   setOpModifier,
   setOpReturnType,
@@ -73,11 +70,7 @@ const SRC = `system Shop {
     // Reads over the order book.
     repository Orders for Order {
       // one customer's own orders
-      find byCustomer(customerId: Customer id): Order?
-      find everything(): Order? ignoring *
     }
-    criterion OrdersDrafts(forCustomer: Customer id) of Order = this.customerId == forCustomer
-    criterion OrdersSecured of Order = this.total > 0
     policy { read Order requires currentUser.isAdmin }
   }
 }`;
@@ -151,27 +144,9 @@ describe("operation surface — the read surface", () => {
     expect([s?.private, s?.extern, s?.audited]).toEqual([false, false, false]);
   });
 
-  it("reports a find's params / return / filter / ignoring", () => {
-    expect(findSurface(parse(SRC), "Orders", "secured")).toEqual({
-      name: "secured",
-      params: [],
-      returnType: { base: { kind: "named", target: "Order" }, array: false, optional: true },
-      returnTypeText: "Order?",
-      where: "this.total > 0",
-      ignoring: ["tenantOwned"],
-    });
-    expect(findSurface(parse(SRC), "Orders", "everything")?.ignoring).toBe("*");
-    expect(findSurface(parse(SRC), "Orders", "byCustomer")?.ignoring).toBeNull();
-    expect(findSurface(parse(SRC), "Orders", "drafts")?.where).toBe(
-      "this.customerId == forCustomer",
-    );
-  });
-
-  it("returns null for an unknown aggregate / operation / repository / find", () => {
+  it("returns null for an unknown aggregate / operation", () => {
     expect(opSurface(parse(SRC), "Nope", "confirm")).toBeNull();
     expect(opSurface(parse(SRC), "Order", "nope")).toBeNull();
-    expect(findSurface(parse(SRC), "Nope", "byCustomer")).toBeNull();
-    expect(findSurface(parse(SRC), "Orders", "nope")).toBeNull();
   });
 
   it("freshOpParamName skips the names the operation already binds", () => {
@@ -549,64 +524,6 @@ describe("operation surface — modifiers", () => {
   it("returns null on a broken source / unknown op", () => {
     expect(setOpModifier(BROKEN, "Order", "confirm", "private", true)).toBeNull();
     expect(setOpModifier(SRC, "Order", "nope", "private", true)).toBeNull();
-  });
-});
-
-describe("find surface — ignoring clause", () => {
-  it("appends a name list after the filter", () => {
-    expectHunk(
-      SRC,
-      setFindIgnoring(SRC, "Orders", "drafts", ["tenantOwned", "softDeletable"]),
-      ["        where this.customerId == forCustomer"],
-      ["        where this.customerId == forCustomer ignoring tenantOwned, softDeletable"],
-    );
-    expectCommentsIntact(setFindIgnoring(SRC, "Orders", "drafts", ["tenantOwned"]));
-  });
-
-  it("appends after the return type when there is no filter", () => {
-    expectHunk(
-      SRC,
-      setFindIgnoring(SRC, "Orders", "byCustomer", "*"),
-      ["      find byCustomer(customerId: Customer id): Order?"],
-      ["      find byCustomer(customerId: Customer id): Order? ignoring *"],
-    );
-  });
-
-  it("replaces an existing clause in both directions", () => {
-    expectHunk(
-      SRC,
-      setFindIgnoring(SRC, "Orders", "secured", "*"),
-      ["      find secured(): Order? where this.total > 0 ignoring tenantOwned"],
-      ["      find secured(): Order? where this.total > 0 ignoring *"],
-    );
-    expectHunk(
-      SRC,
-      setFindIgnoring(SRC, "Orders", "everything", ["tenantOwned"]),
-      ["      find everything(): Order? ignoring *"],
-      ["      find everything(): Order? ignoring tenantOwned"],
-    );
-  });
-
-  it("removes the clause on null / an empty list", () => {
-    expectHunk(
-      SRC,
-      setFindIgnoring(SRC, "Orders", "everything", null),
-      ["      find everything(): Order? ignoring *"],
-      ["      find everything(): Order?"],
-    );
-    expectHunk(
-      SRC,
-      setFindIgnoring(SRC, "Orders", "secured", []),
-      ["      find secured(): Order? where this.total > 0 ignoring tenantOwned"],
-      ["      find secured(): Order? where this.total > 0"],
-    );
-    expect(setFindIgnoring(SRC, "Orders", "byCustomer", null)).toBe(SRC);
-  });
-
-  it("returns null on a broken source / unknown find / a bad capability name", () => {
-    expect(setFindIgnoring(BROKEN, "Orders", "drafts", "*")).toBeNull();
-    expect(setFindIgnoring(SRC, "Orders", "nope", "*")).toBeNull();
-    expect(setFindIgnoring(SRC, "Orders", "drafts", ["not an id"])).toBeNull();
   });
 });
 

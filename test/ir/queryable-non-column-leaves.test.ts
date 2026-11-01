@@ -40,8 +40,8 @@ import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
-import { generateSystemFiles } from "../_helpers/generate.js";
 import { criterionReadOfFind } from "../_helpers/criterion-read.js";
+import { generateSystemFiles } from "../_helpers/generate.js";
 import { parseErrorsOf, parseString } from "../_helpers/parse.js";
 
 /** The predicate a census row spells as a find, as the criterion read that
@@ -137,6 +137,8 @@ describe("queryable gate — leaves no query renderer emits are refused, not cra
     const key = [...files.keys()].find((k) => k.endsWith("db/repositories/customer-repository.ts"));
     expect(key, "customer-repository.ts not emitted").toBeDefined();
     // The criterion reifies into the repository module, temporal arithmetic and all.
-    expect(files.get(key!)).toContain("lt(schema.customers.dueDate, sql`${q}::timestamptz + make_interval(days => ${2})`)");
+    expect(files.get(key!)).toContain(
+      "lt(schema.customers.dueDate, sql`${q}::timestamptz + make_interval(days => ${2})`)",
+    );
   });
 });
