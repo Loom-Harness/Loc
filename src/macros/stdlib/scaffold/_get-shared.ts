@@ -59,7 +59,7 @@ export function getReadSource(of: unknown, key: string, macro: string): GetReadS
 
 /** The read's name segment: the criterion's name, or `By<Col>And<Col>` for a
  *  key (`(code)` → `ByCode`). */
-export function getReadName(src: GetReadSource): string {
+function getReadName(src: GetReadSource): string {
   return src.kind === "criterion"
     ? src.criterion.name
     : `By${src.columns.map((c) => upperFirst(c)).join("And")}`;
