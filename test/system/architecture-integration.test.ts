@@ -21,11 +21,10 @@ system Acme {
 
   // ── LAYER 1: domain ─────────────────────────────────────────
   subdomain Sales {
-    context Orders {
-      aggregate Customer { name: string }
-      repository Customers for Customer {
-        find byEmail(email: string): Customer?
-      }
+    context Orders with scaffoldPaged(of: Email) {
+      aggregate Customer { name: string  email: string }
+      repository Customers for Customer
+      criterion Email(email: string) of Customer = this.email == email
     }
   }
   subdomain Marketing {
@@ -35,7 +34,7 @@ system Acme {
   }
 
   // ── LAYER 2: api contracts ──────────────────────────────────
-  api SalesApi      from Sales
+  api SalesApi      with scaffoldPagedApi(of: Email) from Sales
   api MarketingApi  from Marketing
 
   // ── LAYER 3: storage instances ──────────────────────────────
@@ -72,7 +71,7 @@ system Acme {
 
     page Lookup(email: string) {
       route: "/customers/lookup/:email"
-      body: Text { Sales.Customer.byEmail(email).isLoading }
+      body: Text { Customer.findAllByEmail(email).isLoading }
     }
   }
 
@@ -148,15 +147,18 @@ describe("Architecture integration — full Acme example", () => {
     expect(newPage).toMatch(/customerCreate\.mutate\(\{ name: name \}\)/);
   });
 
-  it("generates Lookup page with parameterized `useByEmailCustomer({ email })`", async () => {
+  it("generates Lookup page with parameterized `useFindAllByEmailCustomer({ email, … })`", async () => {
     const { files } = await build(ACME_EXPLICIT);
     const lookup = files.get("web_app/src/pages/lookup.tsx")!;
     expect(lookup).toBeDefined();
-    expect(lookup).toMatch(/import \{ useByEmailCustomer \} from "\.\.\/api\/customer";/);
+    expect(lookup).toMatch(/import \{ useFindAllByEmailCustomer \} from "\.\.\/api\/customer";/);
     // Object-shaped query arg — the emitted hook signature takes the
     // find's `<Find>Query` object (api-builder.ts), built from the
-    // positional DSL args by the walker's find-hook adjustment.
-    expect(lookup).toMatch(/const customerByEmail = useByEmailCustomer\(\{ email: email \}\);/);
+    // positional DSL args by the walker's find-hook adjustment; the paged
+    // find the `scaffoldPaged` handler runs adds its page window.
+    expect(lookup).toMatch(
+      /const customerFindAllByEmail = useFindAllByEmailCustomer\(\{ email: email, page: 1, pageSize: 20, sort: "id", dir: "asc" \}\);/,
+    );
     // route param destructured from useParams above the hook.
     expect(lookup).toMatch(/const \{ email \} = useParams<\{ email: string \}>\(\);/);
   });
