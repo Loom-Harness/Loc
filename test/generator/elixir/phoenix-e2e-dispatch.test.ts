@@ -123,12 +123,12 @@ describe("e2e dispatch to phoenixLiveView", () => {
     expect(e2e).toMatch(/__post\(`\$\{base\}\/api\/items\/\$\{it\.id\}\/archive`/);
   });
 
-  it("prefixes find (repository query) calls with /api for phoenix", async () => {
+  it("prefixes a routed single-row read (scaffoldGet) with /api for phoenix", async () => {
     const model = await buildFixture();
     const { files } = generateSystems(model);
     const e2e = files.get("e2e/PhoenixShop.e2e.test.ts")!;
     // GET /api/items/by_name?name=...
-    expect(e2e).toMatch(/__getQuery\(`\$\{base\}\/api\/items\/by_name`/);
+    expect(e2e).toContain('__route("GET", __qs(`${base}/api/items/by_name`, { name: "Gadget" }))');
   });
 
   it("adds the /api prefix to hono/dotnet deployables too", async () => {
