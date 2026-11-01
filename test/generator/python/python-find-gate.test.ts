@@ -39,9 +39,13 @@ async function emitted(readGate: string): Promise<{ handler: string; routes: str
 describe("python single-row read gate (policy read)", () => {
   it("emits a 403 ForbiddenError gate before the query", async () => {
     const { handler } = await emitted('requires currentUser.role == "agent"');
-    expect(handler).toContain("from app.domain.errors import AggregateNotFoundError, ForbiddenError");
+    expect(handler).toContain(
+      "from app.domain.errors import AggregateNotFoundError, ForbiddenError",
+    );
     expect(handler).toContain('    if not (current_user.role == "agent"):');
-    expect(handler).toContain('        raise ForbiddenError("Forbidden: currentUser.role == \\"agent\\"")');
+    expect(handler).toContain(
+      '        raise ForbiddenError("Forbidden: currentUser.role == \\"agent\\"")',
+    );
     const gateIdx = handler.indexOf("raise ForbiddenError");
     const queryIdx = handler.indexOf("await tickets.run_find_all_by_by_subject(s, limit=1)");
     expect(gateIdx).toBeGreaterThan(0);
