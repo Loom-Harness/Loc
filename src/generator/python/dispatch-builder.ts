@@ -17,7 +17,13 @@ import type {
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { reactorNeedsPrincipal } from "../../ir/util/system-principal.js";
 import { walkWorkflowStmtsDeep, workflowEmits } from "../../ir/util/walk.js";
-import { LOOM_OUTBOX_ORIGIN_KEY } from "../../util/channels.js";
+import {
+  LOOM_OUTBOX_ORIGIN_KEY,
+  OUTBOX_PURGE_BATCH,
+  OUTBOX_PURGE_INTERVAL_SECONDS,
+  OUTBOX_RETENTION_DEFAULT_DAYS,
+  OUTBOX_RETENTION_ENV,
+} from "../../util/channels.js";
 import { lines } from "../../util/code-builder.js";
 import { escapePythonIdent, pythonIdent, snake } from "../../util/naming.js";
 import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
@@ -71,6 +77,8 @@ const AWAITABLE = pyRef("collections.abc", "Awaitable");
 const CALLABLE = pyRef("collections.abc", "Callable");
 const ENGINE = pyRef("app.db.engine", "engine");
 const OUTBOX_ROW = pyRef("app.db.schema", "LoomOutboxRow");
+const DELETE = pyRef("sqlalchemy", "delete");
+const OS = ref(pyModule("os"));
 const PUBLISH = pyRef("app.channels", "publish_event");
 const PUBLISH_RELAY = pyRef("app.channels", "publish_event_from_relay");
 const REALTIME = pyRef("app.realtime", "RealtimeDispatcher");
@@ -956,7 +964,7 @@ function esHandlerFn(
  *  relay.  `make_dispatcher` returns the wrapper, so durable events drained
  *  from an aggregate land in `__loom_outbox` inside the request
  *  transaction; the relay redelivers them through the in-process
- *  dispatcher at-least-once, ordered by `occurred_at`, dead-lettering
+ *  dispatcher at-least-once, ordered by `occurred_at`, dead-lettering (`dead_at`)
  *  after `max_attempts`.
  *
  *  `durableBroker` (design §5): drained rows whose channel
@@ -967,6 +975,47 @@ function esHandlerFn(
  *  `hasRealtime` (channels.md Part I): the relay redelivers through the same
  *  realtime-teed in-process dispatcher as the request path (mirrors Hono),
  *  so durable broadcast events reach the SSE wire when redelivered. */
+/** A drained row's failure arm, shared by both relay shapes: bump `attempts`;
+ *  once they reach `max_attempts` stamp `dead_at` (the row leaves the poll)
+ *  and log `event_dead_lettered` once, with the row id an operator replays
+ *  it by. */
+const OUTBOX_FAIL_BLOCK: readonly string[] = [
+  "            next_attempts = attempts + 1",
+  "            dead = next_attempts >= max_attempts",
+  `            async with AsyncSession(${ENGINE}) as fail_session:`,
+  "                await fail_session.execute(",
+  `                    ${UPDATE}(${OUTBOX_ROW})`,
+  `                    .where(${OUTBOX_ROW}.id == event_id)`,
+  `                    .values(attempts=next_attempts, dead_at=${PY.datetime}.now(${PY.UTC}) if dead else None)`,
+  "                )",
+  "                await fail_session.commit()",
+  "            if dead:",
+  `                ${PY.log}("warn", "event_dead_lettered", id=event_id, type=event_type, attempts=next_attempts, error=str(exc))`,
+];
+
+/** The retention purge, shared by both relay shapes: the window read from the
+ *  environment (a missing, non-numeric or non-positive value falls back to
+ *  the default) and one bounded-batch DELETE of the dispatched rows older
+ *  than it.  Dead rows are never dispatched, so they are never purged. */
+const OUTBOX_PURGE_FNS: readonly string[] = [
+  "def _outbox_retention_days() -> int:",
+  "    try:",
+  `        days = int(${OS}.environ.get("${OUTBOX_RETENTION_ENV}", ""))`,
+  "    except ValueError:",
+  `        return ${OUTBOX_RETENTION_DEFAULT_DAYS}`,
+  `    return days if days > 0 else ${OUTBOX_RETENTION_DEFAULT_DAYS}`,
+  "",
+  "",
+  "async def _purge_outbox() -> None:",
+  `    cutoff = ${PY.datetime}.now(${PY.UTC}) - ${PY.timedelta}(days=_outbox_retention_days())`,
+  `    expired = ${SELECT}(${OUTBOX_ROW}.id).where(${OUTBOX_ROW}.dispatched_at < cutoff).limit(${OUTBOX_PURGE_BATCH})`,
+  `    async with AsyncSession(${ENGINE}) as session:`,
+  `        await session.execute(${DELETE}(${OUTBOX_ROW}).where(${OUTBOX_ROW}.id.in_(expired)))`,
+  "        await session.commit()",
+  "",
+  "",
+];
+
 /** The outbox row's payload expression: the event's wire payload, plus its
  *  EVENT ORIGIN under the reserved key when the deployable carries auth. */
 function capturedPayload(carriesOrigin: boolean): string {
@@ -1060,7 +1109,7 @@ function outboxBlock(
     "            await session.execute(",
     `                ${SELECT}(${OUTBOX_ROW})`,
     `                .where(${OUTBOX_ROW}.dispatched_at.is_(None))`,
-    `                .where(${OUTBOX_ROW}.attempts < max_attempts)`,
+    `                .where(${OUTBOX_ROW}.dead_at.is_(None))`,
     `                .order_by(${OUTBOX_ROW}.occurred_at.asc())`,
     "                .limit(batch_size)",
     "            )",
@@ -1115,28 +1164,25 @@ function outboxBlock(
           "                await session.commit()",
         ]),
     "        except Exception as exc:  # noqa: BLE001 — relay isolates one row's failure",
-    "            next_attempts = attempts + 1",
-    `            async with AsyncSession(${ENGINE}) as fail_session:`,
-    "                await fail_session.execute(",
-    `                    ${UPDATE}(${OUTBOX_ROW})`,
-    `                    .where(${OUTBOX_ROW}.id == event_id)`,
-    "                    .values(attempts=next_attempts)",
-    "                )",
-    "                await fail_session.commit()",
-    "            if next_attempts >= max_attempts:",
-    `                ${PY.log}("warn", "event_dead_lettered", type=event_type, attempts=next_attempts, error=str(exc))`,
+    ...OUTBOX_FAIL_BLOCK,
     "        finally:",
     "            _current_event_id.reset(token)",
     "",
     "",
+    ...OUTBOX_PURGE_FNS,
     "async def _run_outbox_relay(",
     "    interval: float = 0.5, max_attempts: int = 5, batch_size: int = 50",
     ") -> None:",
-    `    """Background relay: drains undispatched __loom_outbox rows in`,
+    `    """Background relay: drains pending __loom_outbox rows in`,
     "    occurred_at order through the in-process dispatcher (at-least-once).",
     `    """`,
+    `    loop = ${ASYNCIO}.get_running_loop()`,
+    "    last_purge = loop.time()",
     "    while True:",
     "        try:",
+    `            if loop.time() - last_purge >= ${OUTBOX_PURGE_INTERVAL_SECONDS}:`,
+    "                last_purge = loop.time()",
+    "                await _purge_outbox()",
     "            await _drain_outbox(max_attempts, batch_size)",
     "        except Exception as exc:  # noqa: BLE001 — keep the relay alive",
     `            ${PY.log}("warn", "outbox_relay_error", error=str(exc))`,
@@ -1207,7 +1253,7 @@ function pureProducerOutboxBlock(
     "            await session.execute(",
     `                ${SELECT}(${OUTBOX_ROW})`,
     `                .where(${OUTBOX_ROW}.dispatched_at.is_(None))`,
-    `                .where(${OUTBOX_ROW}.attempts < max_attempts)`,
+    `                .where(${OUTBOX_ROW}.dead_at.is_(None))`,
     `                .order_by(${OUTBOX_ROW}.occurred_at.asc())`,
     "                .limit(batch_size)",
     "            )",
@@ -1234,26 +1280,23 @@ function pureProducerOutboxBlock(
     "                )",
     "                await session.commit()",
     "        except Exception as exc:  # noqa: BLE001 — relay isolates one row's failure",
-    "            next_attempts = attempts + 1",
-    `            async with AsyncSession(${ENGINE}) as fail_session:`,
-    "                await fail_session.execute(",
-    `                    ${UPDATE}(${OUTBOX_ROW})`,
-    `                    .where(${OUTBOX_ROW}.id == event_id)`,
-    "                    .values(attempts=next_attempts)",
-    "                )",
-    "                await fail_session.commit()",
-    "            if next_attempts >= max_attempts:",
-    `                ${PY.log}("warn", "event_dead_lettered", type=event_type, attempts=next_attempts, error=str(exc))`,
+    ...OUTBOX_FAIL_BLOCK,
     "",
     "",
+    ...OUTBOX_PURGE_FNS,
     "async def _run_outbox_relay(",
     "    interval: float = 0.5, max_attempts: int = 5, batch_size: int = 50",
     ") -> None:",
-    `    """Background relay: drains undispatched __loom_outbox rows in`,
+    `    """Background relay: drains pending __loom_outbox rows in`,
     "    occurred_at order to the broker (at-least-once).",
     `    """`,
+    `    loop = ${ASYNCIO}.get_running_loop()`,
+    "    last_purge = loop.time()",
     "    while True:",
     "        try:",
+    `            if loop.time() - last_purge >= ${OUTBOX_PURGE_INTERVAL_SECONDS}:`,
+    "                last_purge = loop.time()",
+    "                await _purge_outbox()",
     "            await _drain_outbox(max_attempts, batch_size)",
     "        except Exception as exc:  # noqa: BLE001 — keep the relay alive",
     `            ${PY.log}("warn", "outbox_relay_error", error=str(exc))`,

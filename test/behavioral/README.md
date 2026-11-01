@@ -4,6 +4,14 @@ Boots the **generated** Hono backend on **PGlite** (Postgres-in-WASM,
 in-process — no docker, no separate Postgres) and runs the suites Loom
 **emits** from the DSL:
 
+`run.mjs` runs each case's bundle in its own short-lived worker process
+(`case-worker.mjs`), so a case's module graph and PGlite heap are released
+before the next case. Two ceilings make a memory regression fail by name
+rather than as an OOM-killed runner: `LOOM_BH_CASE_RSS_LIMIT_MB` (one case's
+peak, default 1536) and `LOOM_BH_RUNNER_RSS_LIMIT_MB` (the runner itself,
+default 1024). `LOOM_BH_MEMLOG=1` prints each case's wall time, peak RSS and
+the runner's RSS.
+
 - **api** — the generated `e2e/<Sys>.e2e.test.ts` (from `test e2e "…"
   against <node backend>`), dispatched straight into `app.fetch`.
   (`run.mjs`)

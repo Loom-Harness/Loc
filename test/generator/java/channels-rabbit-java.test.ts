@@ -117,7 +117,7 @@ describe("rabbitmq queue transport — java leg (M-T4.4 slice 7c)", () => {
     expect(entity).toContain('@Table(name = "__loom_outbox")');
     expect(entity).toContain("@JdbcTypeCode(SqlTypes.JSON)");
     expect(find(files, "sales_api", "LoomOutboxRepository.java")).toContain(
-      "findTop50ByDispatchedAtIsNullAndAttemptsLessThanOrderByOccurredAtAsc",
+      "findTop50ByDispatchedAtIsNullAndDeadAtIsNullOrderByOccurredAtAsc",
     );
   });
 

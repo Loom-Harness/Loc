@@ -40,7 +40,7 @@ const repo = path.resolve(here, "../..");
  * run, and update the table in docs/ci-gating.md in the same commit.
  */
 const BUDGETS: ReadonlyArray<readonly [workflow: string, minutes: number]> = [
-  ["behavioral-e2e.yml", 10],
+  ["behavioral-e2e.yml", 15],
   ["behavioral-e2e-python.yml", 10],
   ["behavioral-e2e-java.yml", 30],
   ["behavioral-e2e-dotnet.yml", 25],
@@ -51,13 +51,14 @@ const BUDGETS: ReadonlyArray<readonly [workflow: string, minutes: number]> = [
 
 /**
  * The job-execution p95 each budget above was derived FROM, in seconds (java
- * measured 2026-09-10 at n=40; the rest 2026-10-05 at n=20). Kept so the
+ * measured 2026-09-10 at n=40; node 2026-11-01, censored; the rest 2026-10-05
+ * at n=20). Kept so the
  * ratchet can re-run the rule rather than trusting the arithmetic was done
  * right once — the number in the workflow must be what the rule produces from
  * the number in the doc, not merely a number three files agree on.
  */
 const MEASURED_P95_SECONDS: Readonly<Record<string, number>> = {
-  "behavioral-e2e.yml": 237, // 3m57s
+  "behavioral-e2e.yml": 600, // censored at the old 10m cap (2026-11-01), see docs/ci-gating.md
   "behavioral-e2e-python.yml": 385, // 6m25s
   "behavioral-e2e-java.yml": 1186, // 19m46s — censored, see docs/ci-gating.md
   "behavioral-e2e-dotnet.yml": 828, // 13m48s

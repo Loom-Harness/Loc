@@ -82,7 +82,7 @@ describe("rabbitmq queue transport — elixir leg (M-T4.4 slice 7d)", () => {
     expect(outbox).toContain('schema "__loom_outbox"');
     const relay = files.get("sales_api/lib/sales_api/outbox_relay.ex") ?? "";
     expect(relay).toContain("SalesApi.Channels.publish_from_relay(row.type, row.payload, row.id)");
-    expect(relay).toContain("where: is_nil(o.dispatched_at) and o.attempts < @max_attempts");
+    expect(relay).toContain("where: is_nil(o.dispatched_at) and is_nil(o.dead_at)");
     // The outbox migration must NOT bundle Ecto timestamps() — the relay
     // writers never populate inserted_at.
     const migration =
