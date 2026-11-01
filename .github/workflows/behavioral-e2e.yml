@@ -78,11 +78,11 @@ jobs:
     # toolchain build.
     # Budget per docs/ci-gating.md § "Sizing a job's `timeout-minutes`":
     # 50 % margin over the measured p95, rounded up to 5 min, floor 10.
-    # Measured 2026-11-01: successful runs took 7-9 min, and every run after
-    # the per-case worker landed was cancelled at the old 10 min budget, so
-    # p95 is ~11-12 min -> 20.
+    # Measured 2026-11-01 after the per-case worker landed: a successful job
+    # took 6m33s, and four were killed at the old 10m cap, so the p95 is
+    # censored at 600 s -> 15. Re-derive once uncensored samples exist.
     # Re-derive with `node test/behavioral/ci-budget-report.mjs`.
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
 
