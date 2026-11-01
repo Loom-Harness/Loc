@@ -7,6 +7,7 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { nearestName } from "../../../util/edit-distance.js";
+import { frameworksSupporting } from "../../../util/target-capabilities.js";
 import { walkerPrimitiveArgValues } from "../../../util/walker-primitive-arg-values.js";
 import {
   WALKER_PRIMITIVE_NAMED_ARGS,
@@ -278,15 +279,9 @@ function walkRenderedPrimitives(
  *  look identical from outside, and the only honest way to tell them apart is
  *  to remove one and watch the diagnostic come back. */
 
-export const TABLE_FILTER_FRAMEWORKS: ReadonlySet<string> = new Set([
-  "react",
-  "vue",
-  "svelte",
-  "angular",
-  "feliz",
-  "flutter",
-  "phoenixLiveView",
-]);
+export const TABLE_FILTER_FRAMEWORKS: ReadonlySet<string> = frameworksSupporting(
+  "primitive:Table-filter@body",
+);
 
 /** True when a `Table` call carries a `filter:` bound to a page-state ref —
  *  exactly what `emitTable`'s `refArgName(call, "filter")` reads. */
@@ -377,11 +372,9 @@ export function checkTableFilterSupport(
  *  the thing is indistinguishable from a dead one unless a test removes an
  *  entry and watches the diagnostic return. */
 
-export const CONTROLLED_MODAL_OP_FORM_FRAMEWORKS: ReadonlySet<string> = new Set([
-  "angular",
-  "feliz",
-  "phoenixLiveView",
-]);
+export const CONTROLLED_MODAL_OP_FORM_FRAMEWORKS: ReadonlySet<string> = frameworksSupporting(
+  "primitive:Modal-open-op-form@body",
+);
 
 export function checkControlledModalOpForm(
   host: PageIR | ComponentIR,

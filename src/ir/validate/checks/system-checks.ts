@@ -61,7 +61,6 @@ export {
   validateSystem,
 } from "./system-compose-channel-checks.js";
 export {
-  PROJECTION_READ_FRAMEWORKS,
   validateAuthUiFramework,
   validateComponentChildrenSupport,
   validateCurrentUserNeedsAuthUi,
