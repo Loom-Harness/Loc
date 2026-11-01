@@ -1,6 +1,6 @@
-// Generator coverage for `criterion`: a criterion inlined into a
-// repository `find ... where` flows through the existing where→Drizzle
-// path, producing the same query the equivalent inline filter does — no
+// Generator coverage for `criterion`: a criterion composed of other criteria
+// (`ActiveCustomer && InRegion(r)`) flows through the existing where→Drizzle
+// path, producing the same query the equivalent inline predicate does — no
 // per-backend query-engine change is needed.
 
 import { describe, expect, it } from "vitest";
@@ -15,19 +15,36 @@ const SRC = `
     criterion CustomersInRegionInline(r: string) of Customer = active == true && region == r
     criterion ActiveCustomer of Customer = active == true
     criterion InRegion(rgn: string) of Customer = region == rgn
+    queryHandler ListViaCriterion(r: string): Customer[] {
+      let x = Customers.findAll(CustomersInRegionViaCriterion(r))
+      return x
+    }
+    queryHandler ListInline(r: string): Customer[] {
+      let x = Customers.findAll(CustomersInRegionInline(r))
+      return x
+    }
   }
 `;
 
 describe("typescript generator — criterion", () => {
-  it("lowers a criterion-driven find to the same Drizzle where as the inline find", async () => {
+  it("lowers a criterion-composed read to the same Drizzle where as the inline one", async () => {
     const model = await parseValid(SRC);
     const files = generateHono(model);
     const repo = files.get("db/repositories/customer-repository.ts")!;
-    const expected =
-      /\.where\(and\(eq\(schema\.customers\.active, true\), eq\(schema\.customers\.region, r\)\)\)/;
-    // Both the inline find and the criterion-driven find emit it.
-    expect(repo.match(new RegExp(expected, "g"))?.length ?? 0).toBeGreaterThanOrEqual(2);
+    const expected = "and(eq(schema.customers.active, true), eq(schema.customers.region, r))";
+    // Both the composed and the inline criterion reify to the same predicate…
+    expect(repo).toContain(
+      `const customersInRegionViaCriterionCriterion = (r: string) => ${expected};`,
+    );
+    expect(repo).toContain(`const customersInRegionInlineCriterion = (r: string) => ${expected};`);
+    // …and each read narrows by its own.
+    expect(repo).toMatch(
+      /async runFindAllByCustomersInRegionViaCriterion\(r: string[\s\S]*?\.where\(customersInRegionViaCriterionCriterion\(r\)\)/,
+    );
+    expect(repo).toMatch(
+      /async runFindAllByCustomersInRegionInline\(r: string[\s\S]*?\.where\(customersInRegionInlineCriterion\(r\)\)/,
+    );
     // No unresolved-name fallout reached the emitter.
-    expect(repo).not.toMatch(/TODO: translate where-clause[\s\S]*inRegionViaCriterion/);
+    expect(repo).not.toMatch(/TODO: translate where-clause/);
   });
 });
