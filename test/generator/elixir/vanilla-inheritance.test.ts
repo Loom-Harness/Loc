@@ -21,7 +21,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 const TPH = `
 system Parties {
   subdomain Registry {
-    context Parties {
+    context Parties with scaffoldPaged(of: CustomersByEmail) {
       abstract aggregate Party inheritanceUsing: sharedTable {
         name: string
         email: string
@@ -35,7 +35,7 @@ system Parties {
       repository Vendors for Vendor { }
     }
   }
-  api PartiesApi from Registry
+  api PartiesApi with scaffoldPagedApi(of: CustomersByEmail) from Registry
   storage pg { type: postgres }
   resource partiesState { for: Parties, kind: state, use: pg }
   deployable api {
@@ -106,8 +106,10 @@ describe("vanilla aggregate inheritance — TPH (sharedTable)", () => {
     expect(repo).toMatch(/def find_by_id\(id\)[\s\S]*record\.kind == "Customer"/);
     // insert stamps the discriminator so the shared-table row is routable back.
     expect(repo).toContain('Ecto.Changeset.put_change(:kind, "Customer")');
-    // a custom find ALSO scopes to the subtype.
-    expect(repo).toMatch(/def by_email\([\s\S]*record\.kind == "Customer"/);
+    // a criterion's find ALSO scopes to the subtype.
+    expect(repo).toMatch(
+      /def find_all_by_customers_by_email\([^\n]*\n[^\n]*where: \(record\.email == \^email\) and \(record\.kind == "Customer"\)/,
+    );
   });
 
   it("the abstract base emits a read-only polymorphic reader that delegates to the concrete repositories", async () => {
