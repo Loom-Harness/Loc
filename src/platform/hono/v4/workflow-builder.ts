@@ -1569,7 +1569,7 @@ const TS_DEAD_LETTERED_LOG = `baseLogger.warn({ event: "event_dead_lettered", id
  *  falling back to the default on a missing, non-numeric or non-positive value. */
 function emitOutboxRetention(): string[] {
   return [
-    `/** Days a dispatched outbox row is kept before the relay's purge deletes it. */`,
+    `/** Days a dispatched outbox row is kept before the relay purge deletes it. */`,
     `function outboxRetentionDays(): number {`,
     `  const days = Number.parseInt(process.env.${OUTBOX_RETENTION_ENV} ?? "", 10);`,
     `  return Number.isFinite(days) && days > 0 ? days : ${OUTBOX_RETENTION_DEFAULT_DAYS};`,

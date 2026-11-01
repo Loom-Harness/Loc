@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/index.js";
 
@@ -204,4 +205,24 @@ describe("outbox relay retention + dead letters", () => {
       expect(ddl).toMatch(/"dead_at"|:dead_at/);
     });
   }
+
+  // The node workflow file derives its imports by scanning the body with the
+  // string literals stripped; a quote inside emitted relay text (a comment's
+  // apostrophe) would open a phantom literal and hide later references.
+  it("node: every runtime helper the outbox workflow file calls is imported", async () => {
+    const src = readFileSync("test/fixtures/corpus/outbox.ddd", "utf8").replaceAll(
+      "__PLATFORM__",
+      "node",
+    );
+    const files = await generateSystemFiles(src);
+    const workflows = [...files.entries()].filter(([p]) => p.endsWith("http/workflows.ts"));
+    expect(workflows.length).toBeGreaterThan(0);
+    for (const [path, content] of workflows) {
+      if (/(?<!\.)\brandomUUID\(/.test(content)) {
+        expect(content, `${path} calls randomUUID()`).toContain(
+          'import { randomUUID } from "node:crypto";',
+        );
+      }
+    }
+  });
 });
