@@ -10,6 +10,7 @@ import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { csIdValueClrType, projectEntityExpr } from "../dto-mapping.js";
 import { efSetName } from "../ef-read-source.js";
+import { csProducesProblem } from "../wire-policy-cs.js";
 import { csPagedQueryParams, dotnetNotFoundThrow } from "./common.js";
 // The polymorphic base read (aggregate-inheritance.md): a read of an abstract
 // base returns every row as its real subtype, filtered by each subtype's own
@@ -276,7 +277,7 @@ export function renderBaseController(
       "",
       "    [HttpGet]",
       "    [ProducesResponseType(typeof(Paged<JsonObject>), 200)]",
-      "    [ProducesResponseType(typeof(ProblemDetails), 422)]",
+      csProducesProblem("field-invalid"),
       `    public async Task<ActionResult<Paged<JsonObject>>> All${B}(${pageParam}, ${pageSizeParam})`,
       "    {",
       "        var result = await _repo.FindPageAsync(page, pageSize, HttpContext.RequestAborted);",
@@ -287,8 +288,8 @@ export function renderBaseController(
             "",
             '    [HttpGet("{id}")]',
             "    [ProducesResponseType(typeof(JsonObject), 200)]",
-            "    [ProducesResponseType(typeof(ProblemDetails), 404)]",
-            "    [ProducesResponseType(typeof(ProblemDetails), 422)]",
+            csProducesProblem("not-found"),
+            csProducesProblem("field-invalid"),
             `    public async Task<ActionResult<JsonObject>> Get${B}ById([FromRoute] ${idClr} id)`,
             "    {",
             `        var found = await _repo.GetByIdAsync(new ${B}Id(id), HttpContext.RequestAborted);`,

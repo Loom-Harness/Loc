@@ -23,11 +23,11 @@
 // requirement is FAILING in the rollup.
 
 import { build, transform } from "esbuild";
-import { execFileSync } from "node:child_process";
+import { execFileSync, fork } from "node:child_process";
 import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
 import { makeCaseLoop } from "./case-loop.mjs";
 import { authzLadderTail, makeWireGate, recorderPreamble } from "./wire-differential.mjs";
@@ -43,6 +43,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "..", "..");
 const WORK = join(HERE, ".work");
 const SHIM = join(HERE, "vitest-shim.mjs");
+const WORKER = join(HERE, "case-worker.mjs");
 
 /** The in-process mock OIDC issuer, started on demand when the corpus contains
  *  an `auth {}` (OIDC) system.  `null` until then; runCase reads its token. */
@@ -156,6 +157,9 @@ const SHIM = ${J(SHIM)};
 
 export async function run() {
   const pglite = new PGlite();
+  const out = [];
+  // try/finally: a case that throws must still release its WASM Postgres.
+  try {
   const db = drizzle(pglite, { schema });
   ${applyMigrationsStmt(deplDir)}
   ${seedRun}
@@ -170,7 +174,6 @@ export async function run() {
     return { ok: true, response: { status: r.status, statusText: r.statusText, headers, body: await r.text() }, durationMs: 0 };
   });
 
-  const out = [];
   if (E2E_FILE) {
     const compile = async (ts) => (await esbuildTransform(ts, { loader: "ts", format: "cjs" })).code;
     const cases = await loadApiTests({ source: readFileSync(E2E_FILE, "utf8"), compile, dispatch, env: { E2E_DEV_CLAIMS: DEV_CLAIMS, LOOM_TEST_RESET_TOKEN: process.env.LOOM_TEST_RESET_TOKEN${bearerEnv} } });
@@ -199,9 +202,10 @@ export async function run() {
     for (const r of await runTests(harness.tests)) out.push({ tier: "unit", ...r });
     delete globalThis.__loomUnit;
   }
-
-  __releaseDispatch();
-  await pglite.close?.();
+  } finally {
+    __releaseDispatch();
+    await pglite.close?.();
+  }
 
   // Definition-of-Done rollup: join these outcomes onto the generated
   // requirements graph (.loom/traceability.json) via the same
@@ -234,6 +238,29 @@ export async function run() {
   return { results: out, verification, wire: __wire };
 }
 `;
+}
+
+/** Import + run one case's bundle in a fresh child process (case-worker.mjs)
+ *  and resolve with its `run()` result.  The process exits after the case, so
+ *  the case's module graph and PGlite heap are released before the next case
+ *  starts — in-process, every bundle stayed in the ESM cache for the whole run
+ *  and the leg was OOM-killed partway through the corpus.  A `run()` throw
+ *  re-throws here with the same message; a worker that dies without answering
+ *  is a case error naming its exit code/signal. */
+function runInWorker(bundle) {
+  return new Promise((resolve, reject) => {
+    const child = fork(WORKER, [bundle], { cwd: HERE, stdio: "inherit", serialization: "advanced" });
+    let reply = null;
+    child.once("message", (m) => {
+      reply = m;
+    });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (reply?.ok) resolve(reply.out);
+      else if (reply) reject(new Error(reply.message));
+      else reject(new Error(`case worker exited without a result (code ${code}, signal ${signal})`));
+    });
+  });
 }
 
 /** Load the typed feature corpus (`test/fixtures/corpus/manifest.ts`) via a
@@ -300,8 +327,7 @@ async function runCase(c) {
       seedFile, mountsFiles,
     }));
     await build({ entryPoints: [entry], outfile: bundle, bundle: true, platform: "node", format: "esm", target: "node20", packages: "external", logLevel: "warning" });
-    const { run } = await import(pathToFileURL(bundle).href);
-    return await run();
+    return await runInWorker(bundle);
   } finally {
     rmSync(genDir, { recursive: true, force: true });
   }

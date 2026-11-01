@@ -254,7 +254,7 @@ The oracle comes in two halves, because a predicate and a value are different qu
 | `T[]` | collection — `find all` only (`loom.list-find-removed` otherwise) | returns a list |
 | `T paged` | a page of `T` — `find all` only | takes `page`/`pageSize`/`sort`/`dir`, returns `{ items, page, pageSize, total, totalPages }` |
 | `T envelope` | `{ id, ts, body }` wrapper | see [Type system → carriers](04-type-system.md#generic-carriers--paged-envelope-option) |
-| `T option` / `T or <Error>` | the absence shape | untagged: `T` at 200, 404 / the error's status on miss — [chapter 9](09-payloads-and-unions.md#union-finds--the-untagged-exception) |
+| `T?` / `T or <Error>` | the absence shape (`T option` is a deprecated spelling of `T?`) | untagged: `T` at 200, 404 / the error's status on miss — [chapter 9](09-payloads-and-unions.md#union-finds--the-untagged-exception) |
 
 A paged read auto-gains `page`/`pageSize`/`sort`/`dir` parameters and a `total`/`totalPages` count query (the same shape the auto-`findAll` and a paged `queryHandler` use).  Those four names are therefore **reserved** on a paged read: a declared parameter spelled `page`, `pageSize`, `sort` or `dir` — compared in snake form, so `page_size` and `Dir` too — on a paged `find all`, a paged `queryHandler`, or a criterion a paged `queryHandler` runs is refused (`loom.paged-param-reserved`), since it would be a second value for the same query key and a duplicate parameter in every generated signature. Rename it (`pageNo`, `sortKey`, …):
 
