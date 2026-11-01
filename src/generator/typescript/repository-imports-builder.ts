@@ -17,7 +17,11 @@ import {
   valueObjectPool,
 } from "../../ir/util/reachable-types.js";
 
-export function collectValueObjects(agg: EnrichedAggregateIR, ctx: BoundedContextIR): string[] {
+export function collectValueObjects(
+  agg: EnrichedAggregateIR,
+  ctx: BoundedContextIR,
+  extraTypes: readonly TypeIR[] = [],
+): string[] {
   const used = new Set<string>();
   const visit = (t: TypeIR) => {
     if (t.kind === "valueobject" && !used.has(t.name)) {
@@ -31,6 +35,7 @@ export function collectValueObjects(agg: EnrichedAggregateIR, ctx: BoundedContex
     if (t.kind === "array") visit(t.element);
     if (t.kind === "optional") visit(t.inner);
   };
+  for (const t of extraTypes) visit(t);
   for (const f of agg.fields) visit(f.type);
   for (const part of agg.parts) for (const f of part.fields) visit(f.type);
   return valueObjectPool(ctx)
@@ -38,7 +43,11 @@ export function collectValueObjects(agg: EnrichedAggregateIR, ctx: BoundedContex
     .map((v) => v.name);
 }
 
-export function collectEnums(agg: EnrichedAggregateIR, ctx: BoundedContextIR): string[] {
+export function collectEnums(
+  agg: EnrichedAggregateIR,
+  ctx: BoundedContextIR,
+  extraTypes: readonly TypeIR[] = [],
+): string[] {
   const used = new Set<string>();
   const seenVos = new Set<string>();
   // Hydrating a value-object element casts its enum fields (`r.effect as
@@ -54,6 +63,7 @@ export function collectEnums(agg: EnrichedAggregateIR, ctx: BoundedContextIR): s
     if (t.kind === "array") visit(t.element);
     if (t.kind === "optional") visit(t.inner);
   };
+  for (const t of extraTypes) visit(t);
   for (const f of agg.fields) visit(f.type);
   for (const part of agg.parts) for (const f of part.fields) visit(f.type);
   return enumPool(ctx)
