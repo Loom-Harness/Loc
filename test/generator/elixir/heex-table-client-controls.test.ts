@@ -5,8 +5,8 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 // CLIENT-side `Table` controls on HEEx — F2-MT640-SORT-DEAD (the gate ledger's
 // one P1), the `G2646` pager arm, and `loom.table-filter-unsupported` (M-T1.1).
 //
-// A `find all(): T[]` (or any hand-written `Table` over a plain array) binds
-// the WHOLE list, not a server window.  The four JSX frontends sort it, filter
+// An unpaged `all` (a `shape: document` aggregate's, or any hand-written
+// `Table` over a plain array) binds the WHOLE list, not a server window.  The four JSX frontends sort it, filter
 // it and slice it in the browser; Phoenix used to drop all three args, so the
 // same `.ddd` rendered an unsorted, unpaged, unfiltered table there and the
 // scaffold's `sort_key` / `sort_dir` / `page_num` mount assigns sat dead.
@@ -23,7 +23,8 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 //   6. a SERVER-paged table is untouched by any of it.
 // ---------------------------------------------------------------------------
 
-/** Scaffolded list over a NON-paged author `find all` → client sort + pager.
+/** Scaffolded list over a NON-paged `all` (a document aggregate's) → client
+ *  sort + pager.
  *  A react deployable serves the same ui so the two frontends can be compared
  *  on one model (rule 12: the expectation comes from outside the emitter under
  *  test). */
@@ -31,7 +32,7 @@ const CLIENT_SRC = `
 system Sales {
   subdomain M {
     context C {
-      aggregate Order {
+      aggregate Order shape: document {
         code: string
         total: money
         derived display: string = code
@@ -53,14 +54,14 @@ system Sales {
 }
 `;
 
-/** A hand-written page with `Table { filter: q }` over a plain-array find —
+/** A hand-written page with `Table { filter: q }` over a plain-array read —
  *  the shape `auto-paged-table.ts` leaves alone (it upgrades a table over a
  *  PAGED read, not over an array), so the filter reaches the walker. */
 const FILTER_SRC = `
 system Shop {
   subdomain M {
     context C {
-      aggregate Product {
+      aggregate Product shape: document {
         sku: string
         name: string
         derived display: string = sku
@@ -101,7 +102,7 @@ system Shop {
 }
 `;
 
-/** Scaffolded list over a PAGED find — the server leg, unchanged. */
+/** Scaffolded list over a PAGED `all` — the server leg, unchanged. */
 const SERVER_SRC = `
 system Depot {
   subdomain M {

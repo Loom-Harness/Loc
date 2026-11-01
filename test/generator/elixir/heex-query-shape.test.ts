@@ -30,9 +30,7 @@ const phoenixSystem = (route: string, uiBody: string): string => `
     subdomain M {
       context C {
         aggregate Doc with crudish { name: string  derived display: string = name }
-        repository Docs for Doc {
-          find named(name: string): Doc? where this.name == name
-        }
+        repository Docs for Doc
         aggregate Note shape: document, with crudish { title: string  derived display: string = title }
         repository Notes for Note
       }
@@ -118,7 +116,7 @@ describe("HEEx QueryView — the read's shape is derived, not declared", () => {
         data: rows => Table { rows: rows, Column { "Title", o => Text { o.title } } }
       }`,
     );
-    // A declared `find all(): Note[]` is a bare array — neither paged nor
+    // A document aggregate's `all` is a bare array — neither paged nor
     // single — so no `.items` unwrap, and the collection cond.
     expect(heex).toContain("Enum.empty?(@items)");
     expect(heex).toContain("rows={@items}");

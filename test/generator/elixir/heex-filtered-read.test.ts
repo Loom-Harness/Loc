@@ -7,13 +7,11 @@
 //
 //   | page body                          | react                        | phoenix (was)        |
 //   | `of: Item.findAllByLiveItems()`    | `useFindAllByLiveItemsItem()` | `list_items()`       |
-//   | `of: Item.byState(Live)`           | `useByStateItem({state})`     | `list_items(:Live)`  |
+//   | `of: Item.findAllByItemsByState(Live)` | `useFindAllByItemsByStateItem(…)` | `list_items(:Live)` |
 //
 // The second row is not merely wrong data: `list_items/4` is
 // `(page \\ 1, page_size \\ 20, sort \\ "id", dir \\ "asc")`, so the FILTER VALUE
-// arrived as the page number.  The single-record path had the twin defect — a
-// find returning `T?` became `get_<agg>(socket.assigns.id)`, reaching for a route
-// assign a filtered page never binds.
+// arrived as the page number.
 //
 // So these tests assert the CALLED FUNCTION, per read shape, against the
 // `defdelegate` the context module actually emits (`vanilla/context-emit.ts`) —
@@ -34,13 +32,13 @@ import { generateSystemFiles, generateSystemFilesUnchecked } from "../../_helper
 import { parseString } from "../../_helpers/parse.js";
 
 /** One elixir deployable mounting a ui whose pages carry `pages`.  `Shop` grows
- *  a criterion-backed paged find (via `scaffoldPaged`), a parameterised find and
- *  a single-record find, so every read shape below names a real declaration. */
+ *  two criterion-backed paged finds (via `scaffoldPaged`) — one param-less, one
+ *  parameterised — so every read shape below names a real declaration. */
 function sys(pages: string): string {
   return `
 system HeexRead {
   subdomain Core {
-    context Shop with scaffoldPaged(of: LiveItems) {
+    context Shop with scaffoldPaged(of: LiveItems), scaffoldPaged(of: ItemsByState) {
       enum St { Draft, Live }
       aggregate Item {
         name: string
@@ -49,11 +47,10 @@ system HeexRead {
       }
       repository Items for Item { }
       criterion ItemsByState(state: St) of Item = this.st == state
-      criterion ItemsByName(n: string) of Item = this.name == n
       criterion LiveItems of Item = st == Live
     }
   }
-  api ShopApi with scaffoldPagedApi(of: LiveItems) { }
+  api ShopApi with scaffoldPagedApi(of: LiveItems), scaffoldPagedApi(of: ItemsByState) { }
   ui WebApp {
     ${pages}
   }
@@ -102,29 +99,17 @@ describe("HEEx page reads call the function the page named", () => {
   });
 
   it("a parameterised find passes its ARGUMENT to that find, not to `list/4`'s page slot", async () => {
-    const out = await emitted(LIST_PAGE("ByState", "/by-state", "Item.byState(Live)"));
+    const out = await emitted(
+      LIST_PAGE("ByState", "/by-state", "Item.findAllByItemsByState(Live)"),
+    );
     const page = out.live("by_state_live.ex");
-    expect(page).toContain("case Api.Shop.by_state_item(:Live) do");
+    expect(page).toContain("case Api.Shop.find_all_by_items_by_state_item(:Live) do");
     expect(page).not.toContain("list_items(:Live)");
-    // `by_state_item/1` takes the filter; `list_items/4` takes the page number.
-    // The old emit passed `:Live` to the latter.
-    expect(out.context).toContain("defdelegate by_state_item(state)");
-  });
-
-  it("a single-record find loads that find with ITS argument, not `get_<agg>(route id)`", async () => {
-    const out = await emitted(`
-    page OneItem {
-      route: "/one"
-      title: "OneItem"
-      body: QueryView { of: Item.byName("abc"), data: d => Text { d.name } }
-    }`);
-    const page = out.live("one_item_live.ex");
-    expect(page).toContain(`case Api.Shop.by_name_item("abc") do`);
-    expect(page).not.toContain("get_item(socket.assigns.id)");
-    // `Repo.one/1` yields `{:ok, nil}` on a miss — without this arm the page
-    // renders its DATA slot over `nil`.  The by-id fetch never yields it, so the
-    // arm is emitted only here.
-    expect(page).toContain("{:ok, nil} -> assign(socket, :d, :not_found)");
+    // The find takes the filter FIRST, its page slot after; `list_items/4`
+    // takes the page number first.  The old emit passed `:Live` to the latter.
+    expect(out.context).toContain(
+      "defdelegate find_all_by_items_by_state_item(state, page \\\\ 1, page_size \\\\ 20,",
+    );
   });
 
   it("the auto-`findAll` and `byId` still route to `list_<agg>s` / `get_<agg>`", async () => {
