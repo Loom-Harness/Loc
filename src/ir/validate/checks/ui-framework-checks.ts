@@ -7,6 +7,12 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { FLUTTER_DEFERRED_BUILDER_NAMES } from "../../../util/flutter-deferred-primitives.js";
+import {
+  frameworksOwned,
+  frameworksSupporting,
+  frameworksWithScope,
+  uiCapabilityOfFrameworkOrPlatform,
+} from "../../../util/target-capabilities.js";
 import type {
   ActionIR,
   DeployableIR,
@@ -45,7 +51,7 @@ import { walkExpr } from "./shared.js";
 // the diagnostic below is its message — a deployable whose resolved UI framework
 // is absent would otherwise silently emit no guard at all.
 
-const AUTH_UI_FRAMEWORKS = new Set(["react", "vue", "svelte", "angular", "feliz", "flutter"]);
+const AUTH_UI_FRAMEWORKS: ReadonlySet<string> = frameworksSupporting("auth:ui-guard@deployable");
 
 /** Frontends whose component props and extern-function signatures are emitted
  *  as TYPESCRIPT, through the two shared `_frontend/` modules
@@ -53,7 +59,7 @@ const AUTH_UI_FRAMEWORKS = new Set(["react", "vue", "svelte", "angular", "feliz"
  *  props record and Flutter its own Dart widget args, so neither goes through
  *  the TS mapping this gate describes; HEEx has no props file at all. */
 
-const TS_PROP_FRAMEWORKS: ReadonlySet<string> = new Set(["react", "vue", "svelte", "angular"]);
+const TS_PROP_FRAMEWORKS: ReadonlySet<string> = frameworksWithScope("props:typescript");
 
 /** A declared component param / extern-function signature type the TS prop
  *  layer cannot spell (§18 sentinels — `_frontend/component-prop-type.ts` and
@@ -187,19 +193,8 @@ export function mountedUis(sys: SystemIR, d: DeployableIR): { ui: UiIR; fw: stri
 // way to tell them apart is to remove a framework and watch the diagnostic
 // come back (`projection-select-unresolved.test.ts`).
 
-export const PROJECTION_READ_FRAMEWORKS = new Set([
-  "react",
-  "vue",
-  "svelte",
-  "angular",
-  "feliz",
-  "flutter",
-  // Phoenix is the odd leg: it emits no projection CLIENT at all.  A LiveView
-  // deployable hosts its contexts in the same OTP app, so the read is an
-  // in-process `<Ctx>.QueryProjections.<Proj>.run/1` call — see
-  // `renderProjectionLoaders` (generator/elixir/liveview-emit.ts).
-  "phoenixLiveView",
-]);
+// The membership is read from the capability table on every call (not frozen
+// at import), so a test can flip a row and watch the diagnostic return.
 
 /** `loom.ui-projection-read-unsupported`, the FRAMEWORK half.  The FLAVOUR half
  *  (a keyed / folded projection, unreadable on every target) is F3 in
@@ -209,9 +204,10 @@ export const PROJECTION_READ_FRAMEWORKS = new Set([
 export function validateUiProjectionReadFramework(sys: SystemIR, diags: LoomDiagnostic[]): void {
   const readable = readableProjectionNames(sys.subdomains.flatMap((sd) => sd.contexts));
   if (readable.size === 0) return;
+  const projectionReadFrameworks = frameworksSupporting("read:projection@body");
   for (const d of sys.deployables) {
     for (const { ui, fw } of mountedUis(sys, d)) {
-      if (PROJECTION_READ_FRAMEWORKS.has(fw)) continue;
+      if (projectionReadFrameworks.has(fw)) continue;
       const handles = new Set(ui.apiParams.map((p) => p.name));
       // Components read projections too — F3 walks their bodies, so this half
       // must as well or a read simply moved into a component slips the gate.
@@ -235,7 +231,7 @@ export function validateUiProjectionReadFramework(sys: SystemIR, diags: LoomDiag
               fw: fw || "unknown",
               // Named from the gate itself, so a port that widens the set can't
               // leave the message advertising a stale list.
-              frameworks: [...PROJECTION_READ_FRAMEWORKS].sort().join(", "),
+              frameworks: [...projectionReadFrameworks].sort().join(", "),
             }),
             source: `${ui.name}/${what}`,
             origin,
@@ -366,23 +362,8 @@ function hostReadsCurrentUser(host: UiRenderHost): boolean {
 // handler is honored ONLY when the target backend serves that wire
 // (`backendServesRealtime`).  `static` hosts one of these framework bundles.
 
-const SSE_REALTIME_FRONTENDS = new Set<string>([
-  "react",
-  "vue",
-  "svelte",
-  "angular",
-  "feliz",
-  // Flutter subscribes through `generator/flutter/realtime.ts` — the browser's
-  // own `EventSource` on the web, a line parser over a streamed `package:http`
-  // response natively, behind one conditional-import façade.
-  "flutter",
-  "static",
-]);
-
 // Frontends that realize realtime NATIVELY (Phoenix LiveView pushes over its
 // own socket), so no separate SSE wire — a `on` handler is always honored.
-
-const NATIVE_REALTIME_FRONTENDS = new Set<string>(["elixir", "phoenixLiveView"]);
 
 /** Honesty gate for `on <channel>.<Event>` live-event handlers (channels.md
  *  Part I).  A handler on a ui that cannot receive the event compiles clean
@@ -417,8 +398,12 @@ export function validateUiRealtimeSupport(sys: SystemIR, diags: LoomDiagnostic[]
       // The serving framework: the ui's declared `framework:` wins (a `static`
       // host or a Phoenix surface states it), else the deployable's platform.
       const framework = ui.framework ?? d.uiFramework ?? d.platform;
-      if (NATIVE_REALTIME_FRONTENDS.has(framework)) continue;
-      if (SSE_REALTIME_FRONTENDS.has(framework)) continue;
+      if (
+        uiCapabilityOfFrameworkOrPlatform(framework, "handler:live-event@ui").verdict ===
+        "supported"
+      ) {
+        continue;
+      }
       // Unknown / non-consuming frontend — no realtime path.  No SHIPPED
       // frontend sits here any more (flutter was the last, and joined
       // `SSE_REALTIME_FRONTENDS`); this is the seam a new one warns on until it
@@ -654,9 +639,13 @@ function awaitedAggregateOp(e: ExprIR): { aggregate: string; operation: string }
   return undefined;
 }
 
-export function validateFlutterActionBodies(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  // aggregate name → its DECLARED operation names: the set the Flutter
-  // `match await` emitter resolves against.
+/** Every awaited STANDARD aggregate op (`match await <Agg>.delete()`) in a
+ *  ui's action bodies — the shape the Riverpod and Elmish action renderers
+ *  resolve through `agg.operations` and cannot find.  One entry per
+ *  (action, `Agg.op`), in source order with the ops of an action sorted. */
+export function standardOpAwaitUses(sys: SystemIR, ui: UiIR): { where: string; name: string }[] {
+  // aggregate name → its DECLARED operation names: the set the renderers
+  // resolve `match await` against.
   const declaredOps = new Map<string, Set<string>>();
   for (const sub of sys.subdomains) {
     for (const ctx of sub.contexts) {
@@ -665,62 +654,55 @@ export function validateFlutterActionBodies(sys: SystemIR, diags: LoomDiagnostic
       }
     }
   }
+  const out: { where: string; name: string }[] = [];
+  const actionHosts: { where: string; actions: readonly ActionIR[] }[] = [
+    ...ui.pages.map((p) => ({ where: `page '${p.name}'`, actions: p.actions })),
+    ...ui.components.map((c) => ({ where: `component '${c.name}'`, actions: c.actions })),
+  ];
+  for (const host of actionHosts) {
+    for (const action of host.actions) {
+      const where = `${host.where} action '${action.name}'`;
+      const unresolved = new Set<string>();
+      for (const stmt of action.body) {
+        walkStmtDeep(stmt, (s) => {
+          // Both view effects (`navigate`, `toast`) have a way out of the
+          // Notifier, so only the awaited-op lookup is left.
+          if (s.kind !== "variant-match") return;
+          const op = awaitedAggregateOp(s.subject);
+          if (!op) return;
+          // Only the DECLARED-op lookup the emitters perform; an aggregate this
+          // ui cannot reach at all is a different gate's.
+          const ops = declaredOps.get(op.aggregate);
+          if (!ops || ops.has(op.operation)) return;
+          if (STANDARD_AGG_OPS.has(op.operation)) unresolved.add(`${op.aggregate}.${op.operation}`);
+        });
+      }
+      for (const name of [...unresolved].sort()) out.push({ where, name });
+    }
+  }
+  return out;
+}
+
+export function validateFlutterActionBodies(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  const owners = frameworksOwned("stmt:match-await-standard-op@action");
   for (const d of sys.deployables) {
     for (const { ui, fw } of mountedUis(sys, d)) {
-      if (fw !== "flutter") continue;
-      // The message KEY is spelled out at each call site rather than built from
+      if (!owners.has(fw)) continue;
+      // The message KEY is spelled out at the call site rather than built from
       // a slug: `diagnostic-catalog.test.ts` reads the key as a string literal
-      // to check it belongs to the `code:` beside it, and a template literal is
-      // invisible to that scan (it read as inline wording AND as an orphaned
-      // catalog entry — the gate working).
-      const push = (where: string, message: string): void => {
+      // to check it belongs to the `code:` beside it.
+      for (const use of standardOpAwaitUses(sys, ui)) {
         diags.push({
           severity: "error",
           code: "loom.flutter-action-body-unsupported",
-          message,
-          source: `${ui.name}/${where}`,
-        });
-      };
-      const flagStandardOp = (where: string, detail: string): void =>
-        push(
-          where,
-          diagMessage("loom.flutter-action-body-unsupported#match-await-standard-op", {
-            where,
+          message: diagMessage("loom.flutter-action-body-unsupported#match-await-standard-op", {
+            where: use.where,
             uiName: ui.name,
             dName: d.name,
-            detail,
+            detail: use.name,
           }),
-        );
-      const actionHosts: { where: string; actions: readonly ActionIR[] }[] = [
-        ...ui.pages.map((p) => ({ where: `page '${p.name}'`, actions: p.actions })),
-        ...ui.components.map((c) => ({ where: `component '${c.name}'`, actions: c.actions })),
-      ];
-      for (const host of actionHosts) {
-        for (const action of host.actions) {
-          const where = `${host.where} action '${action.name}'`;
-          const unresolved = new Set<string>();
-          for (const stmt of action.body) {
-            walkStmtDeep(stmt, (s) => {
-              // Both view effects now have a way out of the Notifier: a
-              // `GlobalKey<NavigatorState>` for `navigate` (`lib/nav.dart`,
-              // wave C1 packet 1e-ii, ledger row F2-CFE-1) and a
-              // `GlobalKey<ScaffoldMessengerState>` for `toast`
-              // (`lib/toast.dart`, wave C2 packet 2l).  The `#view-effect` arm
-              // that stood here is deleted with the second bridge.
-              if (s.kind !== "variant-match") return;
-              const op = awaitedAggregateOp(s.subject);
-              if (!op) return;
-              // Only the DECLARED-op lookup the Flutter emitter performs; an
-              // aggregate this ui cannot reach at all is a different gate's.
-              const ops = declaredOps.get(op.aggregate);
-              if (!ops || ops.has(op.operation)) return;
-              if (STANDARD_AGG_OPS.has(op.operation)) {
-                unresolved.add(`${op.aggregate}.${op.operation}`);
-              }
-            });
-          }
-          for (const name of [...unresolved].sort()) flagStandardOp(where, name);
-        }
+          source: `${ui.name}/${use.where}`,
+        });
       }
     }
   }
@@ -777,7 +759,9 @@ const BACKEND_BODY_UI_STMT_KINDS: Readonly<Record<string, string>> = {
  *  The set is kept rather than spelled `fw !== "phoenixLiveView"` so a frontend
  *  that ports them joins ONE list. */
 
-const BACKEND_BODY_STMT_FRAMEWORKS: ReadonlySet<string> = new Set(["phoenixLiveView"]);
+const BACKEND_BODY_STMT_FRAMEWORKS: ReadonlySet<string> = frameworksSupporting(
+  "stmt:backend-body@ui-body",
+);
 
 /** The backend-body statement kinds in `stmts` (or nested in one of them, or in
  *  a block-body lambda one of them carries), deduped, in a stable order. */
@@ -1047,14 +1031,9 @@ const GATE_LITERAL_KINDS: ReadonlySet<string> = new Set([
  *  Spelled as the membership set rather than `fw !== "phoenixLiveView"` so a
  *  new frontend joins ONE list — the same shape `BACKEND_BODY_STMT_FRAMEWORKS`
  *  above uses for its own inverse. */
-const CLOSED_GATE_FRAMEWORKS: ReadonlySet<string> = new Set([
-  "react",
-  "vue",
-  "svelte",
-  "angular",
-  "feliz",
-  "flutter",
-]);
+const CLOSED_GATE_FRAMEWORKS: ReadonlySet<string> = frameworksOwned(
+  "gate:page-requires-full-expr@page",
+);
 
 /** Why `e` is outside the page-gate subset, or `undefined` when it is inside.
  *  Mirrors the three renderers' `switch` arms exactly — including the two
