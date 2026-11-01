@@ -22,6 +22,7 @@ import {
 import { renderQuery, renderQueryHandler } from "../emit.js";
 import { csFindMethodName } from "../find-method-name.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "../render-expr.js";
+import { csNotFoundException } from "../wire-policy-cs.js";
 
 /** `<ns>.Domain.Common` holds the types a DTO PROJECTION can name —
  *  `RequestContext` (a `mask unless` field's `maskWrap`) and `Provenanced<T>`
@@ -87,7 +88,7 @@ export function emitCanOpQueriesAndHandlers(
         ],
         body:
           `        var aggregate = await _repo.GetByIdAsync(query.Id, cancellationToken)\n` +
-          `            ?? throw new AggregateNotFoundException($"${agg.name} {query.Id} not found");\n` +
+          `            ?? throw ${csNotFoundException(null, `${agg.name} {query.Id}`)};\n` +
           `        return new CanResponse(${pred});\n`,
       }),
     );
@@ -234,7 +235,7 @@ export function emitHistoryQueryAndHandler(
     `        var __target = await _repo.GetByIdAsync(query.Id, cancellationToken);`,
     `        if (__target is null)`,
     `        {`,
-    `            throw new AggregateNotFoundException($"${agg.name} {query.Id} not found");`,
+    `            throw ${csNotFoundException(null, `${agg.name} {query.Id}`)};`,
     `        }`,
     `        var __rows = await _history.ReadAsync(${JSON.stringify(agg.name)}, query.Id.Value.ToString(), cancellationToken);`,
     `        var __entries = new List<AuditEntry>(__rows.Count);`,

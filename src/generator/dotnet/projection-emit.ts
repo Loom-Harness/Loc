@@ -1,4 +1,5 @@
 import { deriveEventSubscriptions } from "../../ir/enrich/enrichments.js";
+import { wireStatus } from "../../ir/enrich/wire-policy.js";
 import type {
   EnrichedBoundedContextIR,
   ProjectionIR,
@@ -8,7 +9,6 @@ import type {
   WireField,
 } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, isMaterializedProjection } from "../../ir/types/loom-ir.js";
-import { resolveErrorStatus } from "../../util/error-defaults.js";
 import { escapeCsharpIdent, snake, upperFirst } from "../../util/naming.js";
 import {
   collectWireUsings,
@@ -399,10 +399,7 @@ function renderProjectionsController(
         )});\n`
       : "";
     const forbiddenAttr = gate
-      ? `    [ProducesResponseType(typeof(ProblemDetails), ${resolveErrorStatus(
-          "Forbidden",
-          ctx.structuralErrorStatuses,
-        )})]\n`
+      ? `    [ProducesResponseType(typeof(ProblemDetails), ${wireStatus("forbidden", ctx.structuralErrorStatuses)})]\n`
       : "";
     blocks.push(
       `    [HttpGet("${slug}")]\n` +
@@ -416,10 +413,7 @@ function renderProjectionsController(
         `    [HttpGet("${slug}/{key}")]\n` +
         `    [ProducesResponseType(typeof(${T}Response), 200)]\n` +
         forbiddenAttr +
-        `    [ProducesResponseType(typeof(ProblemDetails), ${resolveErrorStatus(
-          "NotFound",
-          ctx.structuralErrorStatuses,
-        )})]\n` +
+        `    [ProducesResponseType(typeof(ProblemDetails), ${wireStatus("not-found", ctx.structuralErrorStatuses)})]\n` +
         `    public async Task<IActionResult> Get${T}(${corrClr} key)\n` +
         `    {\n` +
         gateLines +

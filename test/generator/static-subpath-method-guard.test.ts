@@ -161,7 +161,7 @@ describe("each backend mounts the guard ahead of routing", () => {
     const files = await generateSystemFiles(src("dotnet"));
     const program = fileEndingWith(files, "Program.cs");
     expect(program).toContain('["/api/customers/by_email"] = new[] { "GET" },');
-    expect(program).toContain("StatusCodes.Status405MethodNotAllowed");
+    expect(program).toContain("http.Response.StatusCode = 405;");
     expect(program).toContain('http.Response.Headers["Allow"] = string.Join(", ", allow);');
 
     // INSIDE UseStatusCodePages and BEFORE MapControllers. The guard writes no
