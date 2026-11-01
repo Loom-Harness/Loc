@@ -13,6 +13,10 @@ const SRC = `
       aggregate Order with crudish { total: int }
       repository OrderRepo for Order { }
       criterion OrdersByMin(m: int) of Order = this.total > m
+      queryHandler ListByMin(m: int): Order[] {
+        let r = OrderRepo.findAll(OrdersByMin(m))
+        return r
+      }
     }}
     storage primary { type: postgres }
     resource cState { for: C, kind: state, use: primary }
@@ -37,13 +41,15 @@ describe("repository ports (audit S7)", () => {
     const port = get(await files(), "domain/repository-ports.ts");
     expect(port).toBeDefined();
     expect(port).toContain("export interface OrderRepositoryPort {");
-    // The full domain-facing surface (CRUD + each find), in domain terms.
+    // The full domain-facing surface (CRUD + each criterion read), in domain terms.
     expect(port).toContain("findById(id: Ids.OrderId): Promise<Order | null>;");
     expect(port).toContain("getById(id: Ids.OrderId): Promise<Order>;");
     expect(port).toContain("findManyByIds(ids: Ids.OrderId[]): Promise<Order[]>;");
     expect(port).toContain("save(aggregate: Order, expectedVersion?: number): Promise<void>;");
     expect(port).toContain("delete(id: Ids.OrderId): Promise<void>;");
-    expect(port).toContain("byMin(m: number): Promise<Order | null>;");
+    expect(port).toContain(
+      "runFindAllByOrdersByMin(m: number, page?: { offset?: number; limit?: number }): Promise<Order[]>;",
+    );
   });
 
   it("the port is ORM-neutral (no Drizzle vocabulary) and excludes presentation (toWire)", async () => {

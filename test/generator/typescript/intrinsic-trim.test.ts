@@ -1,6 +1,6 @@
 // A1 pilot for the scalar-intrinsic catalogue (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md):
 // `string.trim()` end-to-end on the Hono backend — in-memory rendering in
-// domain bodies AND SQL rendering in a queryable `find … where` position.
+// domain bodies AND SQL rendering in a queryable criterion read.
 // The catalogue row lives in src/util/intrinsics.ts; the TS snippet in
 // render-expr.ts (TS_INTRINSIC_RENDERERS); the SQL snippet in
 // repository-find-predicate.ts (DRIZZLE_INTRINSIC_SQL).
@@ -52,6 +52,18 @@ describe("typescript generator — A3 math intrinsics end-to-end", () => {
       criterion InvoicesPricier(m: money) of Invoice = this.price.round(2) > m
       criterion InvoicesQtyNear(n: int) of Invoice = this.qty.abs() == n.abs()
       criterion InvoicesCapped(a: decimal) of Invoice = this.amount.min(a) == a
+      queryHandler ListPricier(m: money): Invoice[] {
+        let r = Invoices.findAll(InvoicesPricier(m))
+        return r
+      }
+      queryHandler ListQtyNear(n: int): Invoice[] {
+        let r = Invoices.findAll(InvoicesQtyNear(n))
+        return r
+      }
+      queryHandler ListCapped(a: decimal): Invoice[] {
+        let r = Invoices.findAll(InvoicesCapped(a))
+        return r
+      }
     }
   `;
 
