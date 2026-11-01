@@ -207,6 +207,11 @@ export function addCsExprUsing(x: ExprIR, into: Set<string>, ns: string): void {
         into.add("System.Text.RegularExpressions");
       }
       break;
+    case "ref":
+      // `Effect.Require` renders the enum name unqualified, so the hosting
+      // file must import the namespace the generated enums live in.
+      if (x.refKind === "enum-value") into.add(`${ns}.Domain.Enums`);
+      break;
     case "call":
       // A domain-service member call (`Pricing.Quote(...)`) reaches into
       // the generated `Domain.Services` namespace — the call leaf renders
@@ -236,7 +241,6 @@ export function addCsExprUsing(x: ExprIR, into: Set<string>, ns: string): void {
     case "new":
     case "object":
     case "paren":
-    case "ref":
     case "ternary":
     case "this":
     case "unary":

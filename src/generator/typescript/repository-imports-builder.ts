@@ -40,8 +40,17 @@ export function collectValueObjects(agg: EnrichedAggregateIR, ctx: BoundedContex
 
 export function collectEnums(agg: EnrichedAggregateIR, ctx: BoundedContextIR): string[] {
   const used = new Set<string>();
+  const seenVos = new Set<string>();
+  // Hydrating a value-object element casts its enum fields (`r.effect as
+  // Effect`), so enums reached through a VO's own fields (transitively) are
+  // referenced by the repository body too.
   const visit = (t: TypeIR) => {
     if (t.kind === "enum") used.add(t.name);
+    if (t.kind === "valueobject" && !seenVos.has(t.name)) {
+      seenVos.add(t.name);
+      const vo = findValueObjectInScope(ctx, t.name);
+      for (const f of vo?.fields ?? []) visit(f.type);
+    }
     if (t.kind === "array") visit(t.element);
     if (t.kind === "optional") visit(t.inner);
   };
