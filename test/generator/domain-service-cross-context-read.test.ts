@@ -38,17 +38,15 @@ const SRC = (platform: string) => `
 system Shop {
   subdomain Sales {
     context Billing {
-      aggregate Customer { name: string }
-      repository Customers for Customer {
-        find byName(name: string): Customer? where this.name == name
-      }
+      aggregate Customer { name: string  unique (name) }
+      repository Customers for Customer
     }
     context Ordering {
       aggregate Order { ref: string }
       repository Orders for Order { }
       domainService Naming {
         operation isFree(r: string): bool {
-          return Customers.byName(r) == null
+          return Customers.findBy(name: r) == null
         }
       }
     }
@@ -67,26 +65,26 @@ system Shop {
 
 /**
  * Per backend: the generated domain-service file, and the DANGLING IDENTIFIER
- * it renders for the unresolved cross-context receiver.  Captured 2026-08-23 by
+ * it renders for the unresolved cross-context receiver.  Captured by
  * generating this exact system on each backend:
  *
- *   TS      `return Customers.byName(r) === null;` in a file importing nothing
+ *   TS      `return Customers.findBy(r) === null;` in a file importing nothing
  *           that defines `Customers`               → TS2304.
- *   .NET    `Customers.ByName(r)` in a static class → CS0103.
- *   Java    `Customers.byName(r)`                   → "cannot find symbol".
- *   Python  `Customers.by_name(r)`                  → NameError (F821).
- *   Phoenix `is_nil(customers.by_name(r))` — the ref is snake-cased into a
+ *   .NET    `Customers.FindBy(r)` in a static class → CS0103.
+ *   Java    `Customers.findBy(r)`                   → "cannot find symbol".
+ *   Python  `Customers.find_by(r)`                  → NameError (F821).
+ *   Phoenix `is_nil(customers.find_by(r))` — the ref is snake-cased into a
  *           LOCAL that was never bound            → "undefined variable".
  *
  * If a backend ever learns to render a cross-context read for real, the gate is
  * what has to change first — this table is the evidence it rests on.
  */
 const BACKENDS: { platform: string; file: string; dangling: string }[] = [
-  { platform: "node", file: "domain/services.ts", dangling: "Customers.byName(r)" },
-  { platform: "dotnet", file: "Domain/Services/Naming.cs", dangling: "Customers.ByName(r)" },
-  { platform: "java", file: "domain/services/Naming.java", dangling: "Customers.byName(r)" },
-  { platform: "python", file: "app/domain/services/naming.py", dangling: "Customers.by_name(r)" },
-  { platform: "elixir", file: "domain/services/naming.ex", dangling: "customers.by_name(r)" },
+  { platform: "node", file: "domain/services.ts", dangling: "Customers.findBy(r)" },
+  { platform: "dotnet", file: "Domain/Services/Naming.cs", dangling: "Customers.FindBy(r)" },
+  { platform: "java", file: "domain/services/Naming.java", dangling: "Customers.findBy(r)" },
+  { platform: "python", file: "app/domain/services/naming.py", dangling: "Customers.find_by(r)" },
+  { platform: "elixir", file: "domain/services/naming.ex", dangling: "customers.find_by(r)" },
 ];
 
 function bySuffix(files: Map<string, string>, suffix: string): string {
