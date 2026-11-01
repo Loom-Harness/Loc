@@ -48,11 +48,13 @@ async function emitFor(platform: string): Promise<string> {
   return (
     [...files]
       // python hosts every read restriction in its read-scope hook, java on the
-      // entity, MikroORM on its entity schemas.
+      // entity, MikroORM on its entity schemas, Ecto on the schema module
+      // (`__loom_filter__/3`, applied by `Repo.prepare_query/3`).
       .filter(
-        ([p]) =>
+        ([p, c]) =>
           /repositor|JpaRepository|_repository|read_scope|db\/entities\.ts$/i.test(p) ||
-          /\/features\/\w+\/\w+\.java$/.test(p),
+          /\/features\/\w+\/\w+\.java$/.test(p) ||
+          (p.endsWith(".ex") && c.includes("def __loom_filters__")),
       )
       .map(([, c]) => inlineDrizzleScope(files, inlineDapperScope(c)))
       .join("\n")

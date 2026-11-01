@@ -13,6 +13,7 @@
 import { describe, expect, it } from "vitest";
 import { inlineDapperScope } from "../_helpers/dapper-scope.js";
 import { inlineDrizzleScope } from "../_helpers/drizzle-scope.js";
+import { ectoScope } from "../_helpers/ecto-scope.js";
 import { generateSystemFiles } from "../_helpers/index.js";
 
 type Layout = "sharedTable" | "ownTable";
@@ -104,9 +105,18 @@ describe.each<Layout>(["sharedTable", "ownTable"])("inherited softDeletable — 
   });
 
   it("elixir (ecto)", async () => {
-    const repo = file(await gen("elixir", layout), "fleet/truck_repository.ex");
-    expect(lineWith(repo, "Repo.one(", "record.id == ^id")).toContain("not record.is_deleted");
-    expect(lineWith(repo, "record.plate == ^plate")).not.toContain("is_deleted");
+    const files = await gen("elixir", layout);
+    const repo = file(files, "fleet/truck_repository.ex");
+    // Both reads start from Truck's schema scope, where `Repo.prepare_query/3`
+    // applies the inherited filter unless the read's `skip_filters:` lifts it.
+    const byId = lineWith(repo, "Repo.one(", "record.id == ^id");
+    expect(byId).toContain("Api.Fleet.Truck.base_query()");
+    expect(byId).not.toContain("skip_filters");
+    expect(ectoScope(files, "Api.Fleet.Truck")).toContain("not record.is_deleted");
+    // The bypassing find lifts exactly that filter.
+    expect(lineWith(repo, "record.plate == ^plate")).toContain("Api.Fleet.Truck.base_query()");
+    expect(repo).toContain("{:ok, Repo.one(query, skip_filters: [:soft_deletable])}");
+    expect(ectoScope(files, "Api.Fleet.Truck", ["soft_deletable"])).not.toContain("is_deleted");
   });
 
   it("java (hibernate)", async () => {

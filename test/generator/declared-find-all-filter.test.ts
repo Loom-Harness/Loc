@@ -15,7 +15,7 @@ import { generateSystemFiles } from "../_helpers/generate.js";
 //
 // Non-vacuity: each positive assertion names the rendered predicate itself, so
 // a regression that drops it (the pre-fix shape: `select(DocRow)` /
-// `Repo.all(Api.C.Doc)`) fails on the exact line.
+// `Repo.all(Api.C.Doc.base_query())`) fails on the exact line.
 // ---------------------------------------------------------------------------
 
 function source(platform: string, finds: string, extra = ""): string {
@@ -94,10 +94,10 @@ describe("declared `find all() where …` keeps its filter (eval item 2)", () =>
         EX_REPO,
       );
       expect(body).toContain(
-        `{:ok, from(record in Api.C.Doc, where: record.owner_user_id != "") |> Repo.all()}`,
+        `{:ok, from(record in Api.C.Doc.base_query(), where: record.owner_user_id != "") |> Repo.all()}`,
       );
       expect(body).toContain("import Ecto.Query");
-      expect(body).not.toContain("{:ok, Repo.all(Api.C.Doc)}");
+      expect(body).not.toContain("{:ok, Repo.all(Api.C.Doc.base_query())}");
     });
 
     it("ANDs the predicate into the PAGED `list` read", async () => {
@@ -106,9 +106,9 @@ describe("declared `find all() where …` keeps its filter (eval item 2)", () =>
         EX_REPO,
       );
       expect(body).toContain(
-        `query = from(record in Api.C.Doc, where: record.owner_user_id != "")`,
+        `query = from(record in Api.C.Doc.base_query(), where: record.owner_user_id != "")`,
       );
-      expect(body).not.toContain("query = from(record in Api.C.Doc)\n");
+      expect(body).not.toContain("query = Api.C.Doc.base_query()\n");
     });
 
     it("threads the actor through repo, context and controller for a `currentUser` predicate", async () => {

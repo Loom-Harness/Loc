@@ -12,6 +12,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
 import { inlineDrizzleScope } from "../_helpers/drizzle-scope.js";
+import { ectoScope } from "../_helpers/ecto-scope.js";
 import { generateSystemFiles } from "../_helpers/index.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -109,9 +110,16 @@ describe("elixir", () => {
     expect(get.slice(0, get.indexOf("\n  end"))).toContain("nil -> {:error, :not_found}");
     const find = repo.slice(repo.indexOf("def find_by_sku(sku)"));
     expect(find.slice(0, find.indexOf("\n  end"))).toContain("{:ok, Repo.one(query)}");
-    expect(repo).toContain(
-      "where: (record.region == ^region and record.name == ^name) and (not record.is_deleted)",
+    // A key lookup starts from the schema's scope and lifts nothing: the
+    // soft-delete filter is the schema's, applied by `Repo.prepare_query/3`.
+    const byRegion = repo.slice(repo.indexOf("def find_by_region_and_name(region, name)"));
+    expect(byRegion.slice(0, byRegion.indexOf("\n  end"))).toContain(
+      "query = from(record in ElixirApi.Catalog.Product.base_query(), where: record.region == ^region and record.name == ^name)\n    {:ok, Repo.one(query)}",
     );
+    expect(ectoScope(files, "ElixirApi.Catalog.Product")).toContain("not record.is_deleted");
+    // …while `ignoring *` lifts every bypassable filter.
+    const any = repo.slice(repo.indexOf("def get_by_sku_ignoring_all(sku)"));
+    expect(any.slice(0, any.indexOf("\n  end"))).toContain("Repo.one(query, skip_filters: :all)");
     expect(file("elixir_api/lib/elixir_api/catalog.ex")).toContain(
       "defdelegate get_by_sku_product(sku), to: ElixirApi.Catalog.ProductRepository, as: :get_by_sku",
     );
