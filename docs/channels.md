@@ -146,6 +146,35 @@ raising dispatcher, so a failure is redelivered and finally dead-lettered.
 Pick `retention: work` for a reaction that must eventually happen, such as
 sending a CSAT survey mail.
 
+### Outbox retention and dead letters
+
+Every backend's relay behaves the same way on `__loom_outbox`:
+
+- **Poll.** The relay drains the *pending* rows, `WHERE dispatched_at IS NULL
+  AND dead_at IS NULL ORDER BY occurred_at`, 50 per pass every 500 ms. The
+  partial index `__loom_outbox_pending_idx` carries the same predicate, so the
+  poll cost tracks the backlog, not the table's history.
+- **Dead letters.** A failed delivery increments `attempts`. On the 5th
+  failure the relay sets `dead_at = now()`. The row then leaves the poll and is
+  never retried or purged. Each row going dead logs one `event_dead_lettered`
+  warning (`id`, `type`, `attempts`, `error`).
+- **Retention.** Every 5 minutes the relay deletes dispatched rows whose
+  `dispatched_at` is older than `LOOM_OUTBOX_RETENTION_DAYS` days (default `7`;
+  a missing, non-numeric or non-positive value uses the default). The raw-SQL
+  and Ecto/SQLAlchemy relays (.NET Dapper, Java, Elixir, Python) delete at most
+  1000 rows per pass; the ORM relays (Node, .NET EF) delete every expired row in
+  one statement. Dead rows have no `dispatched_at`, so retention never touches
+  them.
+
+To replay a dead row once the cause is fixed, clear its marker and its attempt
+count. The relay picks it up on the next poll:
+
+```sql
+UPDATE __loom_outbox SET dead_at = NULL, attempts = 0 WHERE id = '<row id>';
+```
+
+To discard it instead, `DELETE FROM __loom_outbox WHERE id = '<row id>';`.
+
 ## Per-broker topology
 
 Addresses are derived, never configured: channel address

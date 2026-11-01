@@ -6,6 +6,7 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { frameworksSupporting } from "../../../util/target-capabilities.js";
 import { pagedReturn } from "../../stdlib/generics.js";
 import type { AggregateIR, ComponentIR, ExprIR, FindIR, UiIR } from "../../types/loom-ir.js";
 import { felizComponentStateInit } from "../../util/feliz-component-state-init.js";
@@ -458,20 +459,9 @@ function flutterDeferrals(c: ComponentIR, ctx: DeferCtx): ComponentDeferral[] {
  *  hatch joins ONE list, and `COMPONENT_FILTERING_FRAMEWORKS` members outside
  *  it are gated automatically. */
 
-const EXTERN_COMPONENT_FRAMEWORKS: ReadonlySet<string> = new Set([
-  "react",
-  "vue",
-  "svelte",
-  "angular",
-  "feliz",
-  // Listed though `checkUserComponentSupport` never runs for it today (HEEx is
-  // not in `COMPONENT_FILTERING_FRAMEWORKS`): the set is the MEASURED record of
-  // which frontends honour the hatch, and leaving the one that does out of it
-  // would make a future reader re-measure.  `liveview-emit.ts` skips `c.extern`
-  // with "their rendering is a hand-written LiveComponent embedded via
-  // `<.live_component>`" — verified, not taken on trust.
-  "phoenixLiveView",
-]);
+const EXTERN_COMPONENT_FRAMEWORKS: ReadonlySet<string> = frameworksSupporting(
+  "decl:extern-component@ui",
+);
 
 /** Per-framework deferral analysers — one per member of
  *  `COMPONENT_FILTERING_FRAMEWORKS`, and the two are pinned against each other

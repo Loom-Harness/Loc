@@ -17,6 +17,7 @@ export {
 } from "./ui-collection-display-checks.js";
 export { validateUiPageIdentity } from "./ui-page-identity-checks.js";
 
+import { frameworksWithScope } from "../../../util/target-capabilities.js";
 import type { AggregateIR, EnrichedLoomModel, FindIR, ProjectionIR } from "../../types/loom-ir.js";
 import { allAggregates, allContexts } from "../../types/loom-ir.js";
 import { pagedFindRoutes } from "../../util/paged-find-routes.js";
@@ -520,8 +521,6 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
  *  component filter without joining the set — a gate whose scope is a hand-kept
  *  list only ratchets if something independent re-derives the list. */
 
-export const COMPONENT_FILTERING_FRAMEWORKS: ReadonlySet<string> = new Set([
-  "feliz",
-  "angular",
-  "flutter",
-]);
+export const COMPONENT_FILTERING_FRAMEWORKS: ReadonlySet<string> = frameworksWithScope(
+  "components:deferral-filtered",
+);

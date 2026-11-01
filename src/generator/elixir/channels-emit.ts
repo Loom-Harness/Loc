@@ -1,5 +1,11 @@
 import type { EventIR, TypeIR } from "../../ir/types/loom-ir.js";
-import { LOOM_OUTBOX_ORIGIN_KEY } from "../../util/channels.js";
+import {
+  LOOM_OUTBOX_ORIGIN_KEY,
+  OUTBOX_PURGE_BATCH,
+  OUTBOX_PURGE_INTERVAL_SECONDS,
+  OUTBOX_RETENTION_DEFAULT_DAYS,
+  OUTBOX_RETENTION_ENV,
+} from "../../util/channels.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { type BrokerBinding, kafkaStartsAtEarliest } from "../_channels/bindings.js";
@@ -298,6 +304,119 @@ function originHelpers(webModule: string, outbox: boolean, envelope: boolean): s
   }`;
 }
 
+/** The outbox relay GenServer shared by the standalone and broker tiers —
+ *  only the per-row delivery (`deliverBody`, the lines before the row is
+ *  marked dispatched) differs.  It polls the pending rows (undispatched, not
+ *  dead); a row whose attempts reach the budget is stamped `dead_at`, leaves
+ *  the poll and logs event_dead_lettered once.  A separate timer purges
+ *  dispatched rows older than the retention window in bounded batches;
+ *  dead rows are never purged. */
+function elixirOutboxRelayModule(appModule: string, name: string, deliverBody: string): string {
+  const deadLetteredLog = renderPhoenixLogCall("eventDeadLettered", [
+    { name: "id", valueExpr: "row.id" },
+    { name: "type", valueExpr: "row.type" },
+    { name: "attempts", valueExpr: "attempts" },
+    { name: "error", valueExpr: "inspect(error)" },
+  ]);
+  const purgeErrorLog = renderPhoenixLogCall("outboxRelayError", [
+    { name: "error", valueExpr: "inspect(error)" },
+  ]);
+  return `defmodule ${appModule}.${name} do
+  use GenServer
+  import Ecto.Query
+  require Logger
+
+  @interval_ms 500
+  @max_attempts 5
+  @batch 50
+  @purge_interval_ms ${OUTBOX_PURGE_INTERVAL_SECONDS * 1000}
+  @purge_batch ${OUTBOX_PURGE_BATCH}
+  @default_retention_days ${OUTBOX_RETENTION_DEFAULT_DAYS}
+
+  def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
+
+  @impl true
+  def init(:ok) do
+    Process.send_after(self(), :drain, @interval_ms)
+    Process.send_after(self(), :purge, @purge_interval_ms)
+    {:ok, %{}}
+  end
+
+  @impl true
+  def handle_info(:drain, state) do
+    drain()
+    Process.send_after(self(), :drain, @interval_ms)
+    {:noreply, state}
+  end
+
+  def handle_info(:purge, state) do
+    purge()
+    Process.send_after(self(), :purge, @purge_interval_ms)
+    {:noreply, state}
+  end
+
+  defp drain do
+    ${appModule}.Repo.all(
+      from(o in ${appModule}.LoomOutbox,
+        where: is_nil(o.dispatched_at) and is_nil(o.dead_at),
+        order_by: [asc: o.occurred_at],
+        limit: @batch
+      )
+    )
+    |> Enum.each(&deliver/1)
+  end
+
+  # Retention: delete a bounded batch of dispatched rows older than
+  # ${OUTBOX_RETENTION_ENV} days.  A failed purge is logged and retried on the
+  # next interval — it never blocks delivery.
+  defp purge do
+    cutoff = DateTime.add(DateTime.utc_now(), -retention_days() * 86_400, :second)
+
+    expired =
+      from(o in ${appModule}.LoomOutbox,
+        where: o.dispatched_at < ^cutoff,
+        select: o.id,
+        limit: @purge_batch
+      )
+
+    ${appModule}.Repo.delete_all(from(o in ${appModule}.LoomOutbox, where: o.id in subquery(expired)))
+  rescue
+    error ->
+      ${purgeErrorLog}
+  end
+
+  defp retention_days do
+    case Integer.parse(System.get_env(${JSON.stringify(OUTBOX_RETENTION_ENV)}) || "") do
+      {days, ""} when days > 0 -> days
+      _ -> @default_retention_days
+    end
+  end
+
+  defp deliver(row) do
+${deliverBody}
+
+    ${appModule}.Repo.update_all(
+      from(o in ${appModule}.LoomOutbox, where: o.id == ^row.id),
+      set: [dispatched_at: DateTime.utc_now()]
+    )
+  rescue
+    error ->
+      attempts = row.attempts + 1
+      dead_at = if attempts >= @max_attempts, do: DateTime.utc_now()
+
+      ${appModule}.Repo.update_all(
+        from(o in ${appModule}.LoomOutbox, where: o.id == ^row.id),
+        set: [attempts: attempts, dead_at: dead_at]
+      )
+
+      if dead_at do
+        ${deadLetteredLog}
+      end
+  end
+end
+`;
+}
+
 export function emitElixirStandaloneOutbox(
   appName: string,
   appModule: string,
@@ -415,86 +534,29 @@ defmodule ${appModule}.LoomOutbox do
     field :payload, :map
     field :dispatched_at, :utc_datetime_usec
     field :attempts, :integer, default: 0
+    field :dead_at, :utc_datetime_usec
   end
 end
 `,
   );
-  const deadLetteredLog = renderPhoenixLogCall("eventDeadLettered", [
-    { name: "type", valueExpr: "row.type" },
-    { name: "attempts", valueExpr: "attempts" },
-    { name: "error", valueExpr: "inspect(error)" },
-  ]);
   files.set(
     `lib/${appName}/local_outbox_relay.ex`,
     `# Auto-generated.  Standalone transactional-outbox relay
-# (dispatch-delivery-semantics.md §2): drains undispatched __loom_outbox rows in
+# (dispatch-delivery-semantics.md §2): drains pending __loom_outbox rows in
 # occurred_at order and delivers them to the LOCAL context dispatchers
 # at-least-once.  The row id rides the process dictionary so a saga handler's
-# last_event_id marker no-ops on a redelivery.  Rows that exhaust the attempt
-# budget stay in the table and log event_dead_lettered once.
-defmodule ${appModule}.LocalOutboxRelay do
-  use GenServer
-  import Ecto.Query
-  require Logger
-
-  @interval_ms 500
-  @max_attempts 5
-  @batch 50
-
-  def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
-
-  @impl true
-  def init(:ok) do
-    Process.send_after(self(), :drain, @interval_ms)
-    {:ok, %{}}
-  end
-
-  @impl true
-  def handle_info(:drain, state) do
-    drain()
-    Process.send_after(self(), :drain, @interval_ms)
-    {:noreply, state}
-  end
-
-  defp drain do
-    ${appModule}.Repo.all(
-      from(o in ${appModule}.LoomOutbox,
-        where: is_nil(o.dispatched_at) and o.attempts < @max_attempts,
-        order_by: [asc: o.occurred_at],
-        limit: @batch
-      )
-    )
-    |> Enum.each(&deliver/1)
-  end
-
-  defp deliver(row) do
-    Process.put(:loom_event_id, row.id)
+# last_event_id marker no-ops on a redelivery.
+${elixirOutboxRelayModule(
+  appModule,
+  "LocalOutboxRelay",
+  `    Process.put(:loom_event_id, row.id)
 
     try do
       ${appModule}.Channels.dispatch_from_relay(row.type, row.payload)
     after
       Process.delete(:loom_event_id)
-    end
-
-    ${appModule}.Repo.update_all(
-      from(o in ${appModule}.LoomOutbox, where: o.id == ^row.id),
-      set: [dispatched_at: DateTime.utc_now()]
-    )
-  rescue
-    error ->
-      attempts = row.attempts + 1
-
-      ${appModule}.Repo.update_all(
-        from(o in ${appModule}.LoomOutbox, where: o.id == ^row.id),
-        set: [attempts: attempts]
-      )
-
-      if attempts >= @max_attempts do
-        ${deadLetteredLog}
-      end
-  end
-end
-`,
+    end`,
+)}`,
   );
   children.push(`      ${appModule}.LocalOutboxRelay`);
   return { files, children };
@@ -951,11 +1013,6 @@ end
   }
 
   if (opts.durableBroker) {
-    const deadLetteredLog = renderPhoenixLogCall("eventDeadLettered", [
-      { name: "type", valueExpr: "row.type" },
-      { name: "attempts", valueExpr: "attempts" },
-      { name: "error", valueExpr: "inspect(error)" },
-    ]);
     files.set(
       `lib/${appName}/loom_outbox.ex`,
       `# Auto-generated.  One owed durable event (dispatch-delivery-semantics.md):
@@ -974,6 +1031,7 @@ defmodule ${appModule}.LoomOutbox do
     field :payload, :map
     field :dispatched_at, :utc_datetime_usec
     field :attempts, :integer, default: 0
+    field :dead_at, :utc_datetime_usec
   end
 end
 `,
@@ -981,67 +1039,14 @@ end
     files.set(
       `lib/${appName}/outbox_relay.ex`,
       `# Auto-generated.  Transactional-outbox relay:
-# drains undispatched __loom_outbox rows in occurred_at order and publishes
+# drains pending __loom_outbox rows in occurred_at order and publishes
 # them to the broker at-least-once — the envelope carries the row id, the
-# consumer-side idempotency key.  Rows that exhaust the attempt budget stay
-# in the table and log event_dead_lettered once.
-defmodule ${appModule}.OutboxRelay do
-  use GenServer
-  import Ecto.Query
-  require Logger
-
-  @interval_ms 500
-  @max_attempts 5
-  @batch 50
-
-  def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
-
-  @impl true
-  def init(:ok) do
-    Process.send_after(self(), :drain, @interval_ms)
-    {:ok, %{}}
-  end
-
-  @impl true
-  def handle_info(:drain, state) do
-    drain()
-    Process.send_after(self(), :drain, @interval_ms)
-    {:noreply, state}
-  end
-
-  defp drain do
-    ${appModule}.Repo.all(
-      from(o in ${appModule}.LoomOutbox,
-        where: is_nil(o.dispatched_at) and o.attempts < @max_attempts,
-        order_by: [asc: o.occurred_at],
-        limit: @batch
-      )
-    )
-    |> Enum.each(&deliver/1)
-  end
-
-  defp deliver(row) do
-    ${appModule}.Channels.publish_from_relay(row.type, row.payload, row.id)
-
-    ${appModule}.Repo.update_all(
-      from(o in ${appModule}.LoomOutbox, where: o.id == ^row.id),
-      set: [dispatched_at: DateTime.utc_now()]
-    )
-  rescue
-    error ->
-      attempts = row.attempts + 1
-
-      ${appModule}.Repo.update_all(
-        from(o in ${appModule}.LoomOutbox, where: o.id == ^row.id),
-        set: [attempts: attempts]
-      )
-
-      if attempts >= @max_attempts do
-        ${deadLetteredLog}
-      end
-  end
-end
-`,
+# consumer-side idempotency key.
+${elixirOutboxRelayModule(
+  appModule,
+  "OutboxRelay",
+  `    ${appModule}.Channels.publish_from_relay(row.type, row.payload, row.id)`,
+)}`,
     );
     children.push(`      ${appModule}.OutboxRelay`);
   }

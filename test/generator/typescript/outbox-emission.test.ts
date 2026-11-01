@@ -50,7 +50,7 @@ describe("transactional outbox emission (retention: log)", () => {
     );
     expect(wf).toContain("export function startOutboxRelay(");
     expect(wf).toContain(
-      "and(isNull(schema.loomOutbox.dispatchedAt), lt(schema.loomOutbox.attempts, maxAttempts))",
+      "and(isNull(schema.loomOutbox.dispatchedAt), isNull(schema.loomOutbox.deadAt))",
     );
     expect(wf).toContain('event: "event_dead_lettered"');
   });

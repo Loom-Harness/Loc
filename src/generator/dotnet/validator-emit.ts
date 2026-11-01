@@ -7,6 +7,7 @@ import type {
   TypeIR,
   ValueObjectIR,
 } from "../../ir/types/loom-ir.js";
+import { walkExprDeep } from "../../ir/util/walk.js";
 import {
   type ClassifyContext,
   classifyForWire,
@@ -375,6 +376,13 @@ export function renderRequestValidators(
         ns,
       );
       for (const u of usings) fileUsings.add(u);
+      // An enum-guarded rule renders `Effect.Require` unqualified, and this
+      // file's fixed header is only `using FluentValidation;`.
+      if (
+        vo.invariants.some((inv) => referencesEnumValue(inv.expr) || referencesEnumValue(inv.guard))
+      ) {
+        fileUsings.add(`${ns}.Domain.Enums`);
+      }
       classes.push(
         `public sealed class ${voName}RequestValidator : AbstractValidator<${voName}Request>\n` +
           `{\n    public ${voName}RequestValidator()\n    {\n${ruleLines.join("\n")}\n    }\n}`,
@@ -721,4 +729,13 @@ public sealed class ValidationBehavior<TRequest, TResponse>
     }
 }
 `;
+}
+
+/** Does `e` read an enum member (`Effect.Require`) anywhere inside it? */
+function referencesEnumValue(e: ExprIR | undefined): boolean {
+  let found = false;
+  walkExprDeep(e, (x) => {
+    if (x.kind === "ref" && x.refKind === "enum-value") found = true;
+  });
+  return found;
 }

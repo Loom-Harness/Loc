@@ -29,21 +29,15 @@
 // `test/generator/elixir/heex-component-host-state.test.ts`, which generates
 // each member inside a component and asserts its binding reaches the host.
 
+import { TARGET_CAPABILITIES } from "../../util/target-capabilities.js";
 import type { ExprIR, UiIR } from "../types/loom-ir.js";
 import { walkExprDeep } from "./walk.js";
 
 /** Page-body primitives whose HEEx rendering needs the host LiveView to supply
  *  an assign, an upload or a `handle_event` clause. */
-export const HEEX_HOST_STATE_PRIMITIVES: ReadonlySet<string> = new Set([
-  "CreateForm",
-  "OperationForm",
-  "WorkflowForm",
-  "DestroyForm",
-  "QueryView",
-  "Table",
-  "FileUpload",
-  "Chart",
-]);
+export const HEEX_HOST_STATE_PRIMITIVES: ReadonlySet<string> = new Set(
+  TARGET_CAPABILITIES.elixir.ui?.hostStatePrimitives ?? [],
+);
 
 /** Does this body use a host-state primitive directly? */
 function usesHostStatePrimitive(body: ExprIR | undefined): boolean {

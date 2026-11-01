@@ -124,14 +124,16 @@ describe("MikroORM transactional outbox", () => {
     expect(wf).toContain("export function startOutboxRelay(\n  db: EntityManager,");
     // A FRESH fork per drain — the relay outlives every request.
     expect(wf).toContain("const em = db.fork();");
-    expect(wf).toContain("{ dispatchedAt: null, attempts: { $lt: maxAttempts } },");
+    expect(wf).toContain("{ dispatchedAt: null, deadAt: null },");
     expect(wf).toContain('{ orderBy: { occurredAt: "asc" }, limit: batchSize },');
     expect(wf).toContain("__loomEventId: row.id");
     expect(wf).toContain(
       "await em.nativeUpdate(LoomOutboxRow, { id: row.id }, { dispatchedAt: new Date() });",
     );
     // Failure path: bump the attempt counter, dead-letter once at the ceiling.
-    expect(wf).toContain("await em.nativeUpdate(LoomOutboxRow, { id: row.id }, { attempts });");
+    expect(wf).toContain(
+      "await em.nativeUpdate(LoomOutboxRow, { id: row.id }, { attempts, deadAt: dead ? new Date() : null });",
+    );
     expect(wf).toContain('event: "event_dead_lettered"');
   });
 

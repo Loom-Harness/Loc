@@ -113,3 +113,26 @@ export const LOOM_ENVELOPE_OPTIONAL = [
  *  three attributes onto the broker envelope.  Lives inside the JSON payload
  *  (no outbox schema change); every backend strips it before decoding. */
 export const LOOM_OUTBOX_ORIGIN_KEY = "__loomOrigin";
+
+/** The `__loom_outbox` rows a relay still owes delivery: neither dispatched
+ *  nor dead-lettered.  Every backend's poll filters on exactly this, and the
+ *  shared migration's partial index `__loom_outbox_pending_idx` carries it as
+ *  its predicate, so the poll stays an index range read however much history
+ *  the table holds. */
+export const OUTBOX_PENDING_PREDICATE = "dispatched_at IS NULL AND dead_at IS NULL";
+
+/** Outbox retention: every relay deletes DISPATCHED rows older than this many
+ *  days (env `LOOM_OUTBOX_RETENTION_DAYS`; a missing, non-numeric or
+ *  non-positive value falls back to the default).  Dead-lettered rows are
+ *  never purged — they wait for an operator's replay or delete. */
+export const OUTBOX_RETENTION_ENV = "LOOM_OUTBOX_RETENTION_DAYS";
+export const OUTBOX_RETENTION_DEFAULT_DAYS = 7;
+
+/** How often (seconds) a relay runs its retention purge — a few minutes, not
+ *  every poll tick. */
+export const OUTBOX_PURGE_INTERVAL_SECONDS = 300;
+
+/** The most dispatched rows one purge pass deletes, on the backends whose
+ *  store can bound a DELETE (raw SQL / a LIMITed id subquery); the rest
+ *  delete every expired row in one statement. */
+export const OUTBOX_PURGE_BATCH = 1000;

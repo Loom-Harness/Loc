@@ -2,6 +2,7 @@ import type { BoundedContextIR, EnumIR, TypeIR, ValueObjectIR } from "../../../i
 import { lines } from "../../../util/code-builder.js";
 import { messageCode } from "../../../util/message-code.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
+import { escapeTargetFieldMember } from "../../../util/target-identifiers.js";
 import { renderTsExpr, renderTsType } from "../render-expr.js";
 import { renderTsStatements } from "../render-stmt.js";
 
@@ -144,7 +145,9 @@ function renderValueObject(v: ValueObjectIR): string[] {
   // unflagged type stripping (Node 24) rejects outright
   // (`ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`); see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/dap-node-debug.md
   // "Non-erasable syntax". Semantically identical output otherwise.
-  const fieldDecls = v.fields.map((f) => `  readonly ${f.name}: ${renderTsType(f.type)};`);
+  const fieldDecls = v.fields.map(
+    (f) => `  readonly ${escapeTargetFieldMember("ts", f.name)}: ${renderTsType(f.type)};`,
+  );
   // A constructor PARAMETER is a binding, so a field named after a reserved
   // word (`yield`, a strict-mode reserved word in every ES module) binds under
   // its escaped spelling; the property keeps the declared name — any string is
@@ -153,7 +156,9 @@ function renderValueObject(v: ValueObjectIR): string[] {
     (f, i) =>
       `    ${escapeTsIdent(f.name)}: ${renderTsType(f.type)}${i < v.fields.length - 1 ? "," : ""}`,
   );
-  const ctorAssignments = v.fields.map((f) => `    this.${f.name} = ${escapeTsIdent(f.name)};`);
+  const ctorAssignments = v.fields.map(
+    (f) => `    this.${escapeTargetFieldMember("ts", f.name)} = ${escapeTsIdent(f.name)};`,
+  );
   // Invariant violations throw DomainError, not a bare Error (S9): a VO
   // tripping on request input must surface through the ProblemDetails
   // taxonomy (400), never as an unclassified 500.
@@ -168,7 +173,8 @@ function renderValueObject(v: ValueObjectIR): string[] {
     return `    ${check} throw new ValueObjectInvariantError(${JSON.stringify(v.name)}, ${JSON.stringify(text)}${code});`;
   });
   const derived = v.derived.map(
-    (d) => `  get ${d.name}(): ${renderTsType(d.type)} { return ${renderTsExpr(d.expr)}; }`,
+    (d) =>
+      `  get ${escapeTargetFieldMember("ts", d.name)}(): ${renderTsType(d.type)} { return ${renderTsExpr(d.expr)}; }`,
   );
   const fns = v.functions.flatMap((fn) => {
     const params = fn.params
@@ -185,7 +191,13 @@ function renderValueObject(v: ValueObjectIR): string[] {
   });
   // Value equality — field-wise, type-driven (nested VOs recurse through
   // their own `equals`, Decimal/Date compare by value, arrays element-wise).
-  const fieldEqs = v.fields.map((f) => fieldEquals(`this.${f.name}`, `other.${f.name}`, f.type));
+  const fieldEqs = v.fields.map((f) =>
+    fieldEquals(
+      `this.${escapeTargetFieldMember("ts", f.name)}`,
+      `other.${escapeTargetFieldMember("ts", f.name)}`,
+      f.type,
+    ),
+  );
   const equalsBody = fieldEqs.length > 0 ? `return ${fieldEqs.join(" && ")};` : "return true;";
   return [
     `export class ${v.name} {`,
