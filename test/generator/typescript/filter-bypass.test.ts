@@ -16,11 +16,25 @@ const SRC = `
     capability softDeletable { isDeleted: bool  filter this.isDeleted == false }
     subdomain D { context C {
       aggregate Order with softDeletable { total: int }
-      repository OrderRepo for Order {
-        find allRows(): Order? ignoring *
-      }
+      repository OrderRepo for Order
       criterion OrdersRecent of Order = this.total > 0
       criterion OrdersNormal of Order = this.total > 0
+      criterion OrdersAny of Order = this.total > 0
+      queryHandler ListAny(): Order[] {
+        let xs = OrderRepo.findAll(OrdersAny()) ignoring softDeletable
+        return xs
+      }
+      queryHandler GetRecent(): Order {
+        if let x = OrderRepo.find(OrdersRecent()) ignoring softDeletable { return x } else { notFound "not_found" }
+      }
+      queryHandler GetNormal(): Order {
+        if let x = OrderRepo.find(OrdersNormal()) { return x } else { notFound "not_found" }
+      }
+      domainService Probe {
+        operation exists(id: Order id): bool {
+          return OrderRepo.findById(id) ignoring * != null
+        }
+      }
     }}
     storage primary { type: postgres }
     resource cState { for: C, kind: state, use: primary }
@@ -54,32 +68,41 @@ function whereClause(src: string, name: string): string {
 }
 
 describe("node/Drizzle ignoring filter-bypass emission", () => {
-  it("`ignoring <Cap>` drops the bypassed conjunct from THAT find only", async () => {
+  it("`ignoring <Cap>` drops the bypassed conjunct from THAT read only", async () => {
     const r = await repo();
-    const w = whereClause(r, "recent");
-    // The total predicate stays; the isDeleted conjunct is gone.
-    expect(w).toBe("gt(schema.orders.total, 0)");
+    const w = whereClause(r, "findFirstOrdersRecentIgnoringSoftDeletable");
+    // The criterion's total predicate stays; the scope (isDeleted) conjunct is gone.
+    expect(w).toBe("ordersRecentCriterion()");
+    expect(r).toContain("const ordersRecentCriterion = () => gt(schema.orders.total, 0);");
+    expect(w).not.toContain("orderScope");
     expect(w).not.toContain("isDeleted");
   });
 
-  it("`ignoring *` drops ALL capability conjuncts (no where clause at all)", async () => {
+  it("`ignoring *` drops ALL capability conjuncts (only the read's own key remains)", async () => {
     const r = await repo();
-    const allRows = methodBody(r, "allRows");
-    expect(allRows).not.toContain(".where(");
-    // The root select has no filter — bare `from(schema.orders)`.
-    expect(allRows).toContain(
-      "this.db.select().from(schema.orders).orderBy(asc(schema.orders.id)).limit(1);",
-    );
+    expect(whereClause(r, "findByIdIgnoringAll")).toBe("eq(schema.orders.id, id)");
   });
 
-  it("a non-bypassing find keeps the full capability conjunction", async () => {
+  it("a non-bypassing read keeps the full capability conjunction", async () => {
     const r = await repo();
-    // The find AND-s the aggregate's scope helper …
-    expect(whereClause(r, "normal")).toBe("and(gt(schema.orders.total, 0), orderScope())");
+    // The read AND-s the aggregate's scope helper …
+    expect(whereClause(r, "runFindAllByOrdersNormal")).toBe(
+      "and(ordersNormalCriterion(), orderScope())",
+    );
     // … which carries the capability conjunct, droppable by `ignoring softDeletable` / `*`.
     expect(scopeFn(cache!, "orderScope")).toContain(
       'drops(use, "softDeletable") ? undefined : eq(schema.orders.isDeleted, false)',
     );
+  });
+
+  // KNOWN DEFECT: a widened LIST read (`let xs = Repo.findAll(C) ignoring …`,
+  // which the validator accepts as a bypass home) keeps the scope conjunct —
+  // the `ignoring` is silently dropped and the read narrows by
+  // `and(ordersAnyCriterion(), orderScope())`.  Flip to `it` once it widens.
+  it.fails("`findAll(C) ignoring <Cap>` drops the bypassed conjunct from the list read", async () => {
+    const r = await repo();
+    expect(r).toContain(".where(ordersAnyCriterion())");
+    expect(r).not.toContain(".where(and(ordersAnyCriterion(), orderScope()))");
   });
 
   it("CRUD reads (findById / findManyByIds) keep the capability filter", async () => {
@@ -91,7 +114,7 @@ describe("node/Drizzle ignoring filter-bypass emission", () => {
 
 // A query-time projection's `ignoring` rides the synthesised source find, so the
 // emitted `repo.<projName>()` read drops the bypassed conjunct exactly like a
-// hand-written `find … ignoring`.
+// widened `Repo.find(C) ignoring …` read.
 const PROJ_SRC = `
   system S {
     capability softDeletable { isDeleted: bool  filter this.isDeleted == false }
