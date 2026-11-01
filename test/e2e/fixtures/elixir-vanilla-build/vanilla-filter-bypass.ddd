@@ -3,14 +3,14 @@
 // `ignoring` clause OMITS the named capability's `where:` predicate from its
 // conjunction — for that read only; every non-bypassing read keeps the full
 // soft-delete scoping.  Compiled by build-generated-elixir-vanilla so the
-// gated `where(query, [record], ...)` retrieval stages + the per-find dropped
+// gated `where(query, [record], ...)` retrieval stages + the per-read dropped
 // conjuncts pass `mix compile --warnings-as-errors`.
 //
 // Covered shapes:
-//   - find with `ignoring <Cap>` (drops the named conjunct, keeps a `where`)
-//   - find with `ignoring *` (drops ALL capability conjuncts → bare `from`)
-//   - find with no bypass (full conjunction retained)
-//   - view with `ignoring <Cap>`
+//   - `if let x = Repo.find(C) ignoring <Cap>` (drops the named conjunct,
+//     keeps the criterion's `where`)
+//   - `if let x = Repo.find(C) ignoring *` (drops ALL capability conjuncts)
+//   - a criterion's paged find with no bypass (full conjunction retained)
 //   - inline `Repo.findAll(...) ignoring <Cap>` / `ignoring *` in a workflow
 //     (rides as `ignore_filters: [...]` / `ignore_all_filters: true` opts onto
 //     the gated retrieval stages)
@@ -20,17 +20,30 @@ system Catalog {
     filter this.isDeleted == false
   }
   subdomain Core {
-    context Shop {
+    context Shop with scaffoldPaged(of: Normal) {
       criterion BigOrders() of Order = this.total > 0
       aggregate Order with softDeletable {
         customerId: string
         total: int
       }
-      repository Orders for Order {
-        find all(): Order[] ignoring *
+      repository Orders for Order
+      criterion Recent of Order = this.total > 0
+      criterion AllRows of Order = this.total >= 0
+      criterion Normal of Order = this.total > 0
+      queryHandler GetRecent(): Order {
+        if let x = Orders.find(Recent()) ignoring softDeletable {
+          return x
+        } else {
+          notFound "not_found"
+        }
       }
-      criterion OrdersRecent of Order = this.total > 0
-      criterion OrdersNormal of Order = this.total > 0
+      queryHandler GetAnyRow(): Order {
+        if let x = Orders.find(AllRows()) ignoring * {
+          return x
+        } else {
+          notFound "not_found"
+        }
+      }
       workflow Sweep {
         create(min: int) {
           let xs = Orders.findAll(BigOrders()) ignoring softDeletable
@@ -41,7 +54,10 @@ system Catalog {
       }
     }
   }
-  api CatalogApi from Core
+  api CatalogApi with scaffoldPagedApi(of: Normal) from Core {
+    route GET "/orders/recent" -> Shop.GetRecent
+    route GET "/orders/any_row" -> Shop.GetAnyRow
+  }
   storage pg { type: postgres }
   resource orderState { for: Shop, kind: state, use: pg }
   deployable api {
