@@ -4,8 +4,8 @@
 // Semantics contract (src/util/intrinsics.ts): substring is 0-based CLAMPING
 // (JS-slice) over CODE POINTS, startsWith/endsWith/contains are ordinal, replace hits all
 // occurrences literally, split keeps empty segments.  Only toUpper/toLower
-// are queryable — they reach EF via the same renderCsExpr LINQ lambda path
-// as trim (no separate SQL table on .NET).
+// are queryable — they reach EF through a criterion's expression tree, the
+// same renderCsExpr path as trim (no separate SQL table on .NET).
 
 import { describe, expect, it } from "vitest";
 import { generateDotnet } from "../../_helpers/generate.js";
@@ -21,7 +21,7 @@ const SRC = `
       derived branded: bool = name.startsWith("ACME") || name.endsWith("!") || name.contains("-")
       invariant name.substring(0, 3).length <= 3
     }
-    repository Products for Product { }
+    repository Products for Product
     criterion ProductsByNormalizedName(q: string) of Product = this.name.toLower() == q
   }
 `;
@@ -53,10 +53,10 @@ describe("dotnet generator — string intrinsics (stdlib A2 batch)", () => {
     );
   });
 
-  it("renders queryable toLower inside the find Where lambda (EF-translatable)", async () => {
+  it("renders queryable toLower inside the criterion's expression tree (EF-translatable)", async () => {
     const model = await parseValid(SRC);
-    const repo = generateDotnet(model).get("Infrastructure/Repositories/ProductRepository.cs")!;
-    expect(repo).toContain(".Where(x => x.Name.ToLower() == q)");
+    const crit = generateDotnet(model).get("Domain/Criteria/ProductsByNormalizedNameCriterion.cs")!;
+    expect(crit).toContain("ToExpression() => candidate => candidate.Name.ToLower() == q;");
   });
 
   it("renders 1-arg substring and split in a derived body", async () => {
