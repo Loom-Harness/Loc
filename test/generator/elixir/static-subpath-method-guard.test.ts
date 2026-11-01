@@ -25,18 +25,20 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 const SRC = `
 system Blog {
   subdomain Writing {
-    context Content {
+    context Content with scaffoldGet(of: ByOwner), scaffoldGet(of: Recent) {
       aggregate Article with crudish {
         title: string
         owner: string
         operation publish() { title := title }
       }
       repository Articles for Article { }
-      criterion ArticlesByOwner(who: string) of Article = this.owner == who
-      criterion ArticlesRecent of Article = this.title != ""
+      criterion ByOwner(who: string) of Article = this.owner == who
+      criterion Recent of Article = this.title != ""
     }
   }
-  api ContentApi from Writing
+  // Each scaffoldGetApi mounts GET /articles/<read> — a one-segment
+  // static sub-path beside /articles/:id.
+  api ContentApi with scaffoldGetApi(of: ByOwner), scaffoldGetApi(of: Recent) from Writing
   storage primary { type: postgres }
   resource contentState { for: Content, kind: state, use: primary }
   deployable api {
