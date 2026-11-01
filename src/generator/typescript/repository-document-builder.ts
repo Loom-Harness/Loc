@@ -30,7 +30,7 @@ import { aggregateIsAudited, stampImportLine, stampInsertCall } from "./emit/aud
 import { TS_NUMERIC } from "./numeric-codec.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "./paged-locals.js";
 import { synthProjectionFinds } from "./projection-finds.js";
-import { renderTsExpr } from "./render-expr.js";
+import { renderTsExpr, renderTsType } from "./render-expr.js";
 import type { FilterBypass } from "./repository-find-predicate.js";
 import {
   allContextFilterEntries,
@@ -766,6 +766,9 @@ export function docFieldType(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
 }
 
 export function tsParamType(t: TypeIR): string {
+  // A collection keeps its element type (`string[]`, `Ids.XId[]`); the shared
+  // TS type renderer owns the element mapping.
+  if (t.kind === "array") return renderTsType(t);
   if (t.kind === "id") return `Ids.${t.targetName}Id`;
   if (t.kind === "enum") return t.name;
   if (t.kind === "primitive") {
