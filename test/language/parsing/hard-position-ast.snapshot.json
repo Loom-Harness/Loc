@@ -860,8 +860,7 @@
             "name": "Orders",
             "aggregate": {
               "$ref": "Order"
-            },
-            "finds": []
+            }
           },
           {
             "$type": "PayloadDecl",
@@ -1051,8 +1050,7 @@
             "name": "Orders",
             "aggregate": {
               "$ref": "Order"
-            },
-            "finds": []
+            }
           }
         ]
       },
@@ -1204,16 +1202,14 @@
             "name": "Orgs",
             "aggregate": {
               "$ref": "Org"
-            },
-            "finds": []
+            }
           },
           {
             "$type": "Repository",
             "name": "Docs",
             "aggregate": {
               "$ref": "Doc"
-            },
-            "finds": []
+            }
           }
         ]
       },
@@ -1307,8 +1303,7 @@
             "name": "Orders",
             "aggregate": {
               "$ref": "Order"
-            },
-            "finds": []
+            }
           }
         ]
       },
@@ -1576,8 +1571,7 @@
             "name": "Orders",
             "aggregate": {
               "$ref": "Order"
-            },
-            "finds": []
+            }
           },
           {
             "$type": "Criterion",
@@ -1936,8 +1930,7 @@
             "name": "Orders",
             "aggregate": {
               "$ref": "Order"
-            },
-            "finds": []
+            }
           },
           {
             "$type": "Criterion",
@@ -2296,8 +2289,7 @@
             "name": "Orders",
             "aggregate": {
               "$ref": "Order"
-            },
-            "finds": []
+            }
           },
           {
             "$type": "Criterion",
@@ -2656,8 +2648,7 @@
             "name": "Orders",
             "aggregate": {
               "$ref": "Order"
-            },
-            "finds": []
+            }
           },
           {
             "$type": "Criterion",
@@ -3016,8 +3007,7 @@
             "name": "Orders",
             "aggregate": {
               "$ref": "Order"
-            },
-            "finds": []
+            }
           },
           {
             "$type": "Criterion",
@@ -3376,8 +3366,7 @@
             "name": "Orders",
             "aggregate": {
               "$ref": "Order"
-            },
-            "finds": []
+            }
           },
           {
             "$type": "Criterion",
@@ -3736,8 +3725,7 @@
             "name": "Orders",
             "aggregate": {
               "$ref": "Order"
-            },
-            "finds": []
+            }
           },
           {
             "$type": "Criterion",
@@ -4096,8 +4084,7 @@
             "name": "Orders",
             "aggregate": {
               "$ref": "Order"
-            },
-            "finds": []
+            }
           },
           {
             "$type": "Criterion",
@@ -4289,8 +4276,7 @@
             "name": "Orders",
             "aggregate": {
               "$ref": "Order"
-            },
-            "finds": []
+            }
           },
           {
             "$type": "PayloadDecl",
@@ -4541,8 +4527,7 @@
             "name": "Orders",
             "aggregate": {
               "$ref": "Order"
-            },
-            "finds": []
+            }
           },
           {
             "$type": "PayloadDecl",
@@ -4793,8 +4778,7 @@
             "name": "Orders",
             "aggregate": {
               "$ref": "Order"
-            },
-            "finds": []
+            }
           },
           {
             "$type": "PayloadDecl",
@@ -5045,8 +5029,7 @@
             "name": "Orders",
             "aggregate": {
               "$ref": "Order"
-            },
-            "finds": []
+            }
           },
           {
             "$type": "PayloadDecl",
@@ -5297,8 +5280,7 @@
             "name": "Orders",
             "aggregate": {
               "$ref": "Order"
-            },
-            "finds": []
+            }
           },
           {
             "$type": "PayloadDecl",
@@ -5599,8 +5581,7 @@
             "name": "Orders",
             "aggregate": {
               "$ref": "Order"
-            },
-            "finds": []
+            }
           }
         ]
       },
@@ -5710,8 +5691,7 @@
             "name": "Orders",
             "aggregate": {
               "$ref": "Order"
-            },
-            "finds": []
+            }
           }
         ]
       },
@@ -5821,8 +5801,7 @@
             "name": "Orders",
             "aggregate": {
               "$ref": "Order"
-            },
-            "finds": []
+            }
           }
         ]
       },
@@ -5932,8 +5911,7 @@
             "name": "Orders",
             "aggregate": {
               "$ref": "Order"
-            },
-            "finds": []
+            }
           }
         ]
       },
@@ -6043,8 +6021,7 @@
             "name": "Orders",
             "aggregate": {
               "$ref": "Order"
-            },
-            "finds": []
+            }
           }
         ]
       },
@@ -6154,8 +6131,7 @@
             "name": "Orders",
             "aggregate": {
               "$ref": "Order"
-            },
-            "finds": []
+            }
           }
         ]
       },
@@ -6265,8 +6241,7 @@
             "name": "Orders",
             "aggregate": {
               "$ref": "Order"
-            },
-            "finds": []
+            }
           }
         ]
       },

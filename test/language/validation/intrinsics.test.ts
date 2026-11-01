@@ -71,12 +71,16 @@ describe("validation — scalar intrinsic calls", () => {
     expect(errors).toEqual([]);
   });
 
-  it("a non-queryable intrinsic in a find where is rejected with its name (IR gate)", async () => {
+  it("a non-queryable intrinsic in a criterion a read runs is rejected with its name (IR gate)", async () => {
     const src = `
       context C {
-        aggregate Product { name: string }
+        aggregate Product with crudish { name: string }
         repository Products for Product { }
         criterion ProductsBad(q: string) of Product = this.name.substring(0, 3) == q
+        queryHandler ListBad(q: string): Product[] {
+          let r = Products.run(ProductsBad(q))
+          return r
+        }
       }
     `;
     const { model, errors } = await parseString(src);

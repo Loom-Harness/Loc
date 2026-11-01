@@ -141,27 +141,4 @@ describe("filter-capability selectability validation", () => {
     expect(diags.length).toBe(1);
     expect(diags[0]).toContain("no column on either side");
   });
-
-  it("does not admit a principal term in a find `where` (that is what `requires` is for)", async () => {
-    const { model } = await parseString(
-      `
-      system Demo {
-        ${ROLE_USER}
-        subdomain M { context C {
-          enum Tier { Gold, Basic }
-          aggregate Customer { name: string }
-          aggregate Ticket { subject: string  customer: Customer id }
-          repository Tickets for Ticket {
-            find mine(): Ticket? where currentUser.role == "agent" || customer == currentUser.customerId
-          }
-        }}
-      }
-    `,
-      { validate: false },
-    );
-    const codes = validateLoomModel(enrichLoomModel(lowerModel(model)))
-      .filter((d) => d.severity === "error")
-      .map((d) => d.code);
-    expect(codes).toContain("loom.find-where-not-queryable");
-  });
 });

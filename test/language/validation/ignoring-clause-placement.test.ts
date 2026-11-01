@@ -59,9 +59,7 @@ const LEGAL_READS = `
     subdomain D { context C {
       criterion BigOrders() of Order = this.total > 0
       aggregate Order with softDeletable { total: int }
-      repository OrderRepo for Order {
-        find all(): Order[] ignoring *
-      }
+      repository OrderRepo for Order
       criterion OrdersRecent of Order = this.total > 0
       workflow Sweep {
         create(x: int) {

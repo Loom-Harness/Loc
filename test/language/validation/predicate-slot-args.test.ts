@@ -53,11 +53,6 @@ async function codes(members: string): Promise<string[]> {
   const { diagnostics } = await parseString(sys(members), { validate: true });
   return lspCodes(diagnostics);
 }
-async function repoCodes(finds: string): Promise<string[]> {
-  const { diagnostics } = await parseString(sysRepo(finds), { validate: true });
-  return lspCodes(diagnostics);
-}
-
 const TYPE = "loom.call-arg-type";
 
 describe("predicate-slot arg types (M-T6.18 gap #3)", () => {
@@ -117,15 +112,6 @@ system Demo {
       { validate: true },
     );
     expect(lspCodes(diagnostics)).not.toContain(TYPE);
-  });
-
-  // --- repository find `where` ---------------------------------------------
-  it("flags a wrong-typed criterion arg in a repository `find … where`", async () => {
-    expect(await repoCodes("find inR(): Order[] where InRegion(5)")).toContain(TYPE);
-  });
-
-  it("is CLEAN for a correctly-typed criterion arg in a `find … where`", async () => {
-    expect(await repoCodes('find inR(): Order[] where InRegion("EU")')).not.toContain(TYPE);
   });
 
   // --- capability `filter` declaration site --------------------------------

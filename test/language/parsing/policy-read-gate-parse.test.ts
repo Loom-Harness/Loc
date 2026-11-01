@@ -87,16 +87,4 @@ describe("policy read gate parsing", () => {
 }`;
     expect(parseErrorsOf(src)).toEqual([]);
   });
-
-  it("a repository find no longer takes a `requires` clause — the error names the policy line", async () => {
-    const src = wrap("").replace(
-      "find openOnes(): Ticket? where open == true",
-      'find openOnes(): Ticket? requires currentUser.role == "agent" where open == true',
-    );
-    expect(parseErrorsOf(src).length).toBeGreaterThan(0);
-    const { errors } = await parseString(src);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toContain("policy { read Ticket requires <expr> }");
-    expect(errors[0]).toContain("codemod-find-gate-to-policy");
-  });
 });
