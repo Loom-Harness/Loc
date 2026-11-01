@@ -12,8 +12,8 @@
 //
 // and an operation param `result` on a value-returning op emitted a second
 // `var result = aggregate.bump(...)`.  The wire validator (`target` /
-// `errors` / `request`) and the find routes (`service`, `response`, `result`)
-// had the same shape.
+// `errors` / `request`), the handler routes and the paged criterion read
+// (`result`) have the same shape.
 //
 // The fix renames ONLY the colliding local (`request_`) via `javaLocals`
 // (java-ident.ts); the wire accessor `request.request()`, the request/response
@@ -50,7 +50,6 @@ system Collide {
         }
       }
       repository Tickets for Ticket { }
-      criterion TicketsByFound(found: int) of Ticket = this.found == found
 
       aggregate Counter {
         result: int
@@ -66,9 +65,15 @@ system Collide {
       }
       repository Counters for Counter { }
       criterion CountersByResult(result: int) of Counter = this.result == result
+      queryHandler ListByResult(result: int): Counter paged {
+        let r = Counters.run(CountersByResult(result))
+        return r
+      }
     }
   }
-  api CoreApi from Core
+  api CoreApi from Core {
+    route GET "/counters/by_result" -> Core.ListByResult
+  }
   storage primary { type: postgres }
   resource coreState { for: Core, kind: state, use: primary }
   deployable d {
@@ -116,12 +121,6 @@ describe("java service/validator/controller locals never collide with the method
     expect(svc).toContain("        auditRecords.save(new AuditRecord(");
   });
 
-  it("finder: a `found` param moves off the `found` local", async () => {
-    const svc = await file("tickets/TicketService.java");
-    expect(svc).toContain("    public TicketResponse byFound(int found_) {");
-    expect(svc).toContain("        var found = repository.byFound(found_);");
-  });
-
   it("validator: `request` / `errors` fields move; the rejectValue path keeps the wire name", async () => {
     const v = await file("tickets/CreateTicketValidator.java");
     expect(v).toContain("        var request = (CreateTicketRequest) target;");
@@ -129,16 +128,21 @@ describe("java service/validator/controller locals never collide with the method
     expect(v).toContain('if (!(errors_ >= 0)) errors.rejectValue("errors",');
   });
 
-  it("controller: a find param named `result` binds `result_` under the `result` query key", async () => {
-    const c = await file("counters/CountersController.java");
+  it("routes controller: a handler param named `result` binds `result_` under the `result` query key", async () => {
+    const files = (cached ??= await generateSystemFiles(SOURCE));
+    const c = files.get("d/src/main/java/com/loom/d/api/CoreApiRoutesController.java")!;
     expect(c).toContain('@RequestParam("result") int result_');
-    expect(c).toContain("service.byResult(result_)");
+    expect(c).toContain("var result = listByResultHandler.handle(result_, page, pageSize, sort, dir);");
   });
 
-  it("repository impl: a find param named `result` moves off the delegate's `result` local", async () => {
+  it("repository impl: a criterion param named `result` moves off the delegate's `result` local", async () => {
     const impl = await file("counters/CounterRepositoryImpl.java");
-    expect(impl).toContain("    public Counter byResult(int result_) {");
-    expect(impl).toContain("        var result = jpa.byResult(result_);");
+    expect(impl).toContain(
+      "    public Paged<Counter> findAllByCountersByResult(int result_, int page, int pageSize, String sort, String dir) {",
+    );
+    expect(impl).toContain(
+      "        var result = jpa.findAllByCountersByResult(result_, PageRequest.of(page - 1, pageSize, __sort));",
+    );
   });
 
   it("the wire records keep the `.ddd` spelling", async () => {
