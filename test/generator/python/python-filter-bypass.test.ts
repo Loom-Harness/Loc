@@ -38,10 +38,24 @@ function method(repo: string, name: string): string {
   return out.join("\n");
 }
 
-// softDeletable contributes an `is_deleted` capability filter; `recent`
-// ignores it; `normal` does not; `allRows` ignores * (every capability filter).
-// A bare `filter this.total > 0` (undefined origin) is NEVER bypassable.
-function sys(repoBody: string, extraFilters = ""): string {
+// softDeletable contributes an `is_deleted` capability filter.  Each read is a
+// criterion read (`if let d = Docs.find(<C>) [ignoring …]`) in a queryHandler:
+// `Recent` ignores softDeletable, `Normal` does not, `AllRows` ignores *
+// (every capability filter).  A bare `filter this.total > 0` (no capability
+// origin) is NEVER bypassable.
+function read(crit: string, ignoring = ""): string {
+  return `
+      criterion ${crit} of Doc = this.subject != ""
+      queryHandler Get${crit}(): Doc {
+        if let d = Docs.find(${crit})${ignoring ? ` ignoring ${ignoring}` : ""} {
+          return d
+        } else {
+          notFound
+        }
+      }`;
+}
+
+function sys(reads: string, extraFilters = ""): string {
   return `
 system Sys {
   capability softDeletable { isDeleted: bool  filter this.isDeleted == false }
@@ -52,9 +66,8 @@ system Sys {
         total: int
         ${extraFilters}
       }
-      repository Docs for Doc {
-        ${repoBody}
-      }
+      repository Docs for Doc
+      ${reads}
     }
   }
   api DocsApi from Sales
@@ -72,38 +85,26 @@ system Sys {
 }
 
 describe("python filter-bypass (ignoring <Cap> / *)", () => {
-  it("a bypassing find names the capability it drops; a normal find names none", async () => {
-    const repo = (
-      await build(
-        sys(`find recent(): Doc? where this.subject != "" ignoring softDeletable
-          find normal(): Doc? where this.subject != ""`),
-      )
-    ).get(REPO)!;
+  it("a bypassing read names the capability it drops; a normal read names none", async () => {
+    const repo = (await build(sys(read("Recent", "softDeletable") + read("Normal")))).get(REPO)!;
     expect(repo).toBeDefined();
-    const recent = method(repo, "recent");
+    const recent = method(repo, "find_first_recent_ignoring_soft_deletable");
     expect(recent).toContain('.execution_options(loom_ignoring=frozenset({"softDeletable"}))');
     expect(recent).toContain("DocRow.subject !=");
     expect(recent).not.toContain("is_deleted");
-    expect(method(repo, "normal")).not.toContain("loom_ignoring");
+    expect(method(repo, "run_find_all_by_normal")).not.toContain("loom_ignoring");
   });
 
   it("`ignoring *` carries the wildcard", async () => {
-    const repo = (
-      await build(
-        sys(`find allRows(): Doc? ignoring *
-          find normal(): Doc? where this.subject != ""`),
-      )
-    ).get(REPO)!;
-    expect(method(repo, "all_rows")).toContain(
+    const repo = (await build(sys(read("AllRows", "*") + read("Normal")))).get(REPO)!;
+    expect(method(repo, "find_first_all_rows_ignoring_all")).toContain(
       '.execution_options(loom_ignoring=frozenset({"*"}))',
     );
-    expect(method(repo, "normal")).not.toContain("loom_ignoring");
+    expect(method(repo, "run_find_all_by_normal")).not.toContain("loom_ignoring");
   });
 
   it("the hook drops a capability restriction only when the read names it", async () => {
-    const scope = (
-      await build(sys(`find recent(): Doc? where this.subject != "" ignoring softDeletable`))
-    ).get(SCOPE)!;
+    const scope = (await build(sys(read("Recent", "softDeletable")))).get(SCOPE)!;
     expect(scope).toContain('    return "*" in ignoring or capability in ignoring');
     expect(scope).toContain(
       '    if not _bypassed("softDeletable", ignoring):\n        out.append(with_loader_criteria(DocRow, lambda cls: (cls.is_deleted == False), include_aliases=True))',
@@ -114,9 +115,7 @@ describe("python filter-bypass (ignoring <Cap> / *)", () => {
   });
 
   it("a bare (non-capability) filter is NEVER dropped, even by `ignoring *`", async () => {
-    const scope = (
-      await build(sys(`find allRows(): Doc? ignoring *`, `filter this.total > 0`))
-    ).get(SCOPE)!;
+    const scope = (await build(sys(read("AllRows", "*"), `filter this.total > 0`))).get(SCOPE)!;
     // Unconditional: no `_bypassed` guard precedes it.
     expect(scope).toContain(
       "    # filter\n    out.append(with_loader_criteria(DocRow, lambda cls: (cls.total > 0), include_aliases=True))",

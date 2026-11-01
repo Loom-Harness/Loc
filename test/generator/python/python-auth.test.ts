@@ -10,7 +10,7 @@ import { generateSystemFiles, generateSystemFilesUnchecked } from "../../_helper
 // registry + Starlette middleware; a `requires`-guarded operation
 // gains a trailing `current_user: User` parameter (threaded from
 // `request.state.current_user`, denied with RFC 7807 403), a
-// currentUser-scoped find threads the actor into the repository
+// currentUser-scoped criterion read reads the actor into the repository
 // predicate, and domain tests inject a synthetic full-access actor.
 // Verified live (401 / 403 / 204 / row-level `mine` scoping).
 // ---------------------------------------------------------------------------
@@ -105,14 +105,20 @@ describe("python auth gate", () => {
     expect(gate).toBeLessThan(call);
   });
 
-  it("currentUser-scoped find threads the actor into the repository predicate", async () => {
+  it("a currentUser-scoped criterion read reads the actor into the repository predicate", async () => {
     const files = await build();
     const repo = files.get("api/app/db/repositories/order_repository.py")!;
-    expect(repo).toContain("from app.auth.user import User");
-    expect(repo).toContain("async def mine(self, current_user: User) -> Order | None:");
-    expect(repo).toContain("OrderRow.customer_id == current_user.customer_id");
-    const routes = files.get("api/app/http/order_routes.py")!;
-    expect(routes).toContain("await repo.mine(current_user)");
+    expect(repo).toContain("from app.auth.user import require_current_user");
+    expect(repo).toContain(
+      "async def run_find_all_by_mine(self, offset: int | None = None, limit: int | None = None) -> list[Order]:",
+    );
+    expect(repo).toContain(
+      "select(OrderRow).where((OrderRow.customer_id == require_current_user().customer_id))",
+    );
+    const handler = files.get("api/app/application/get_order_by_mine.py")!;
+    expect(handler).toContain("await orders.run_find_all_by_mine(limit=1)");
+    const routes = files.get("api/app/http/orders_api_routes.py")!;
+    expect(routes).toContain('@router.get("/orders/mine", operation_id="getOrderByMine")');
   });
 
   it("guarded workflow binds the actor, threads gated op-calls, declares 403", async () => {
