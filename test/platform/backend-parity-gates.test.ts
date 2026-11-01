@@ -525,7 +525,8 @@ const FEATURES: readonly Feature[] = [
       dotnet: "!x.Archived",
       java: '@SQLRestriction("not (archived)")',
       python: "with_loader_criteria(OrderRow, lambda cls: not_(cls.archived)",
-      // Vanilla Phoenix/Ecto folds the filter into each read's `where:` clause.
+      // Phoenix/Ecto hosts it on the schema (`__loom_filter__/3`), applied
+      // to every read by the generated `Repo.prepare_query/3`.
       elixir: "not record.archived",
     },
   },
@@ -806,7 +807,9 @@ const FEATURES: readonly Feature[] = [
       // test carries exactly one capability filter (see the fixture note above).
       java: '__session.disableFilter("softDeletable");',
       python: 'select(ProductRow).where((ProductRow.name != ""))',
-      elixir: 'query = from(record in Api.Catalog.Product, where: record.name != "")',
+      // Ecto: the filter is the schema's `prepare_query` clause, so the
+      // bypass is the read's `skip_filters:` option (`normal()` passes none).
+      elixir: "{:ok, Repo.one(query, skip_filters: [:soft_deletable])}",
     },
   },
 ];

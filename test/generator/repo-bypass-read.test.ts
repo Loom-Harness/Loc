@@ -13,6 +13,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
+import { ectoScope } from "../_helpers/ecto-scope.js";
 import { generateSystemFiles } from "../_helpers/index.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -145,13 +146,20 @@ describe("elixir", () => {
   it("the widened reads omit the is_deleted conjunct; a criterion read takes one row", () => {
     const repo = file("elixir_api/lib/elixir_api/catalog/product_repository.ex");
     const crit = block(repo, "def find_first_products_in_region_ignoring_soft_deletable(", "  end");
+    // The soft-delete filter is the schema's `prepare_query` clause; a widened
+    // read lifts exactly it (`skip_filters:`), the plain read lifts nothing.
+    expect(ectoScope(files, "ElixirApi.Catalog.Product")).toContain("not record.is_deleted");
     expect(crit).toContain("where: record.region == ^region)");
     expect(crit).not.toContain("is_deleted");
-    expect(crit).toContain("Repo.one(from(record in query, order_by: [asc: record.id], limit: 1))");
+    expect(crit).toContain(
+      "Repo.one(from(record in query, order_by: [asc: record.id], limit: 1), skip_filters: [:soft_deletable])",
+    );
     const byId = block(repo, "def find_by_id_ignoring_soft_deletable(", "  end");
     expect(byId).toContain("where: record.id == ^id)");
-    expect(byId).not.toContain("is_deleted");
-    expect(block(repo, "def find_by_sku(", "  end")).toContain("not record.is_deleted");
+    expect(byId).toContain("Repo.one(query, skip_filters: [:soft_deletable])");
+    const plain = block(repo, "def find_by_sku(", "  end");
+    expect(plain).toContain("ElixirApi.Catalog.Product.base_query()");
+    expect(plain).not.toContain("skip_filters");
     // The correlated reactor's `if let` calls the widened method too.
     const reactor = file("catalog/workflows/listing_watch/on_listing_closed.ex");
     expect(reactor).toContain(

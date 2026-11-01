@@ -20,6 +20,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { inlineDapperScope } from "../_helpers/dapper-scope.js";
 import { inlineDrizzleScope } from "../_helpers/drizzle-scope.js";
+import { ectoScope } from "../_helpers/ecto-scope.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 const FIXTURE = readFileSync("test/fixtures/corpus/tenancy-claim-name.ddd", "utf8");
@@ -127,6 +128,12 @@ describe("tenancy claim name — emitted principal reads follow the declaration"
   });
 
   it("elixir: the Ecto filter reads the DECLARED claim", async () => {
+    // The tenant floor is the Invoice schema's `:tenant_owned` clause, applied
+    // by `Repo.prepare_query/3`; the repository's create stamp reads it too.
+    const files = await generateSystemFiles(src("elixir"));
+    const scope = ectoScope(files, "D.Billing.Invoice");
+    expect(scope).toContain("record.tenant_id == ^(current_user && current_user.org_id)");
+    expect(scope).not.toContain("current_user.tenant_id");
     const repo = await emitted("elixir", /invoice_repository\.ex$/);
     expect(repo).toContain("current_user.org_id");
     expect(repo).not.toContain("current_user.tenant_id");
@@ -142,14 +149,22 @@ describe("tenancy claim name — emitted principal reads follow the declaration"
   // at three of four call sites, emitting `current_user.tenant_id` for a
   // principal that carries `orgId`: a `KeyError` on every deep/global read.
   it("elixir: the deep-scope floor compares against the DECLARED claim, not `tenantId`", async () => {
-    const repo = await emittedDeep("elixir", /invoice_repository\.ex$/);
+    // The sentinel is the Invoice schema's `:tenant_owned` clause, which
+    // `Repo.prepare_query/3` applies to every read starting from `base_query/0`.
+    const files = await generateSystemFiles(HIERARCHICAL.replace("__PLATFORM__", "elixir"));
+    const scope = ectoScope(files, "D.Billing.Invoice");
     // The sentinel is what is under test — assert we are reading the deep form.
-    expect(repo).toContain("record.data_key");
+    expect(scope).toContain("record.data_key");
     // The floor arm: `(? IS NULL AND ? = ?)` binds the row column against the
     // principal's DECLARED claim.
-    expect(repo).toContain("record.tenant_id, ^(current_user && current_user.org_id)");
+    expect(scope).toContain("record.tenant_id, ^(current_user && current_user.org_id)");
     // The anchor claim is a different field and stays `orgPath`.
-    expect(repo).toContain("current_user.org_path");
+    expect(scope).toContain("current_user.org_path");
+    expect(scope).not.toContain("current_user.tenant_id");
+    const repo = await emittedDeep("elixir", /invoice_repository\.ex$/);
+    expect(repo).toContain(
+      "from(record in D.Billing.Invoice.base_query(), where: record.id == ^id)",
+    );
     expect(repo).not.toContain("current_user.tenant_id");
   });
 

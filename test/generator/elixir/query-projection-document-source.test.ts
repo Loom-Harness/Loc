@@ -171,8 +171,8 @@ describe("elixir — query-time projection over a `shape: document` source", () 
     expect(mod).toContain(
       [
         "    rows =",
-        "      from(record in D.C.Note, where: record.stars > 1)",
-        "      |> Repo.all()",
+        "      from(record in D.C.Note.base_query(), where: record.stars > 1)",
+        "      |> Repo.all(current_user: current_user)",
         "    Enum.map(rows, fn record ->",
         "      %{",
         "        line: record.body",

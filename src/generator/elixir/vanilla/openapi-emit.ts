@@ -1,3 +1,4 @@
+import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
 import {
   createInputFields,
   forApiRead,
@@ -80,8 +81,9 @@ import {
 import { workflowParamPayloads } from "../../_payload/workflow-param-payloads.js";
 import type { ApiRoute } from "../api-emit.js";
 import { servedOperationEntries, servesHistory } from "./api-emit.js";
+import { routesPolymorphicRead } from "./base-reader.js";
 import { denialOverrides, denialStatus } from "./denial.js";
-import { isAbstractBase } from "./inheritance-emit.js";
+import { isAbstractBase, isTphBase } from "./inheritance-emit.js";
 import { emitsRestDelete } from "./rest-surface.js";
 
 /** Substitute a literal 404 with the `httpStatus`-resolved `NotFound` status.
@@ -331,16 +333,31 @@ export function emitOpenApiSpec(args: OpenApiEmitArgs): OpenApiEmitResult {
 
   // Aggregate response + list response + create request + operation requests
   for (const { ctx, agg } of allAggregates) {
-    // Response
+    // Response — an abstract base's is the tagged union of its concretes'.
+    const poly = isAbstractBase(agg) ? polymorphicReadFor(agg, ctx.aggregates) : undefined;
     files.set(
       `${schemaDir}/${snake(agg.name)}_response.ex`,
-      renderAggregateResponseSchema(agg, webModule, ctx.payloads),
+      poly
+        ? renderPolymorphicResponseSchema(
+            agg,
+            poly.variants.map((v) => v.tag),
+            webModule,
+          )
+        : renderAggregateResponseSchema(agg, webModule, ctx.payloads),
     );
-    // List response
-    files.set(
-      `${schemaDir}/${snake(agg.name)}_list_response.ex`,
-      renderAggregateListResponseSchema(agg, webModule),
-    );
+    if (poly) {
+      files.set(
+        `${schemaDir}/${snake(agg.name)}_paged.ex`,
+        renderAggregatePagedResponseSchema(agg, `${agg.name}Paged`, webModule, true),
+      );
+    }
+    // List response — an abstract base's list is the paged envelope instead.
+    if (!poly) {
+      files.set(
+        `${schemaDir}/${snake(agg.name)}_list_response.ex`,
+        renderAggregateListResponseSchema(agg, webModule),
+      );
+    }
     // Paged envelope schema — emitted when this aggregate's implicit
     // `findAll` (or an explicit find) returns the `paged` wire, so the list
     // endpoint's 200 references `<Agg>Paged` (an object envelope) instead of
@@ -751,8 +768,14 @@ function renderApiSpec(
 ${pagingQueryParams()}
           ],`
       : "";
-    pathEntries.push(
-      `      "/${aggSlug}" => %OpenApiSpex.PathItem{
+    // The polymorphic base read: documented iff the router mounts it.
+    if (isAbstractBase(agg)) {
+      pathEntries.push(
+        ...polymorphicPathEntries(agg, ctx, aggSlug, schemasModule, idParamSchema(agg.idValueType)),
+      );
+    } else
+      pathEntries.push(
+        `      "/${aggSlug}" => %OpenApiSpex.PathItem{
         get: %OpenApiSpex.Operation{
           summary: "List ${agg.name}",
           operationId: "${camelId(opList(agg.name))}",
@@ -772,7 +795,7 @@ ${pagingQueryParams()}
           }
         }${createPost}
       }`,
-      `      "/${aggSlug}/{id}" => %OpenApiSpex.PathItem{
+        `      "/${aggSlug}/{id}" => %OpenApiSpex.PathItem{
         get: %OpenApiSpex.Operation{
           summary: "Get ${agg.name} by id",
           operationId: "${camelId(opGetById(agg.name))}",
@@ -807,7 +830,7 @@ ${pagingQueryParams()}
             : ""
         }
       }`,
-    );
+      );
 
     // Entity history (docs/audit.md) — `GET /<plural>/{id}/history`, declared
     // off the SAME `servesHistory` predicate that mounts the route, so this
@@ -1524,6 +1547,95 @@ end
 `;
 }
 
+/** `<Base>Response` — the tagged union of the concretes' responses: each row
+ *  is one concrete's own body plus its `type` tag (docs/payloads.md). */
+function renderPolymorphicResponseSchema(
+  base: AggregateIR,
+  tags: readonly string[],
+  webModule: string,
+): string {
+  const moduleName = `${webModule}.Api.Schemas.${base.name}Response`;
+  const arms = tags.map(
+    (t) => `      %OpenApiSpex.Schema{
+        allOf: [
+          %OpenApiSpex.Reference{"$ref": "#/components/schemas/${t}Response"},
+          %OpenApiSpex.Schema{
+            type: :object,
+            properties: %{type: %OpenApiSpex.Schema{type: :string, enum: ["${t}"]}},
+            required: [:type]
+          }
+        ]
+      }`,
+  );
+  return `# Auto-generated.
+defmodule ${moduleName} do
+  @moduledoc "OpenApiSpex schema for #{__MODULE__}."
+
+  require OpenApiSpex
+
+  OpenApiSpex.schema(%{
+    title: "${base.name}Response",
+    anyOf: [
+${arms.join(",\n")}
+    ]
+  })
+end
+`;
+}
+
+/** The documented polymorphic base read: `GET /<bases>` (paged, `page` /
+ *  `pageSize` only — the read has one global `id` order) and, on TPH,
+ *  `GET /<bases>/{id}`.  Empty when the router does not mount it
+ *  (`routesPolymorphicRead`). */
+function polymorphicPathEntries(
+  base: EnrichedAggregateIR,
+  ctx: EnrichedBoundedContextIR,
+  aggSlug: string,
+  schemasModule: string,
+  /** The `{id}` path-parameter schema (`idParamSchema`). */
+  idSchema: string,
+): string[] {
+  if (!routesPolymorphicRead(base, ctx)) return [];
+  const pageParams = pagingQueryParams().split(",\n").slice(0, 2).join(",\n");
+  const out = [
+    `      "/${aggSlug}" => %OpenApiSpex.PathItem{
+        get: %OpenApiSpex.Operation{
+          summary: "List ${base.name}",
+          operationId: "${camelId(opList(base.name))}",
+          tags: ["${aggSlug}"],
+          parameters: [
+${pageParams}
+          ],
+          responses: %{
+            200 => %OpenApiSpex.Response{
+              description: "OK",
+              content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${schemasModule}.${base.name}Paged}}
+            }${statusResponseEntries([422], schemasModule)}
+          }
+        }
+      }`,
+  ];
+  if (isTphBase(base, ctx.aggregates)) {
+    out.push(`      "/${aggSlug}/{id}" => %OpenApiSpex.PathItem{
+        get: %OpenApiSpex.Operation{
+          summary: "Get ${base.name} by id",
+          operationId: "${camelId(opGetById(base.name))}",
+          tags: ["${aggSlug}"],
+          parameters: [
+            %OpenApiSpex.Parameter{name: :id, in: :path, required: true, schema: ${idSchema}}
+          ],
+          responses: %{
+            200 => %OpenApiSpex.Response{
+              description: "OK",
+              content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${schemasModule}.${base.name}Response}}
+            }${statusResponseEntries([404, 422], schemasModule)}
+          }
+        }
+      }`);
+  }
+  return out;
+}
+
 /** The `<Agg>Paged` schema name if any of this aggregate's repository finds
  *  (the implicit `all` included) returns the `paged` wire, else null.  Every
  *  paged find over one aggregate shares the same `<Agg>Paged` envelope, so one
@@ -1565,6 +1677,9 @@ function renderAggregatePagedResponseSchema(
   agg: AggregateIR,
   pagedName: string,
   webModule: string,
+  /** Reference the item schema by module atom, so OpenApiSpex registers it
+   *  even where no other operation names it (a TPC base has no by-id read). */
+  atomItems = false,
 ): string {
   const moduleName = `${webModule}.Api.Schemas.${pagedName}`;
   return `# Auto-generated.
@@ -1579,7 +1694,7 @@ defmodule ${moduleName} do
     properties: %{
       items: %OpenApiSpex.Schema{
         type: :array,
-        items: %OpenApiSpex.Reference{"$ref": "#/components/schemas/${agg.name}Response"}
+        items: ${atomItems ? `${webModule}.Api.Schemas.${agg.name}Response` : `%OpenApiSpex.Reference{"$ref": "#/components/schemas/${agg.name}Response"}`}
       },
       page: %OpenApiSpex.Schema{type: :integer},
       pageSize: %OpenApiSpex.Schema{type: :integer},

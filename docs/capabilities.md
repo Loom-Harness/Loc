@@ -281,13 +281,22 @@ and elixir has no `document` shape at all.  See *Deferred cases* below.
   (`src/generator/java/capability-filter.ts` `restrictionHostFor`).  A
   restricted aggregate's `findById` is a JPQL query: a primary-key `find` of
   a row the session already manages runs no SQL, so no restriction applies.
-- **Phoenix / Ecto** — a `where` clause AND-ed into each generated read
-  in the context module — the platform analog of `HasQueryFilter`
-  (`src/generator/elixir/domain-emit.ts`).  A **principal** predicate
-  renders as `where: r.<field> == ^current_user.<field>` with the current
-  user threaded onto every read.  An **`embedded`** root rides the same
-  `where` (its root attributes are real columns; `document` is not
-  an elixir shape).
+- **Phoenix / Ecto** — the schema module hosts the read scope
+  (`src/generator/elixir/vanilla/read-scope-emit.ts`): `base_query/0`
+  carries the TPH `kind` and the restrictions no `ignoring` can drop, and
+  every repository read, retrieval and query projection starts from it;
+  each bypassable or principal-bound filter is a `__loom_filter__/3` clause
+  the generated `Repo.prepare_query/3` applies to every query of the schema
+  (preloads excepted), so no read spells one.  `ignoring` is the
+  `skip_filters:` Repo option (`[:soft_deletable]`, or `:all`).  A
+  **principal** predicate pins `^(current_user && current_user.<claim>)`
+  against the read's `current_user:` option or the ambient principal
+  (`default_options/1`, Ecto's multi-tenancy guide) and **raises** when
+  neither is set; `Repo.async/1` carries the principal into a task.  A TPH
+  root's schema hosts its subtypes' own filters guarded by `kind`.  A join
+  is not reached by `prepare_query`, so a joined read keeps an explicit
+  predicate.  An **`embedded`** root rides the same scope; a `document`
+  aggregate filters in-app over the rehydrated embed.
 
 A filter that is *exactly* one named `criterion` (`filter NotDeleted`)
 **reifies** rather than inlining: the IR carries the reference in

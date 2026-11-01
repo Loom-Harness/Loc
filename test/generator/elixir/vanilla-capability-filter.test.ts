@@ -2,18 +2,16 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
-// Capability `filter` on the vanilla (plain Ecto) foundation.
+// Capability `filter` on the plain-Ecto backend.
 //
-// The Ash foundation installs a `filter <expr>` capability once via the
-// resource `base_filter`; plain Ecto has no global query filter, so the
-// generated vanilla modules must AND the predicate into EVERY root read of the
-// aggregate — `list/0`, `find_by_id/1`, each custom find, and every retrieval.
-// (Before this, a vanilla capability filter was silently dropped,
-// so reads returned soft-deleted / out-of-scope rows.)
+// A bare `filter <expr>` no `ignoring` can drop lives in the schema's
+// `base_query/0`, and EVERY root read of the aggregate — `list`,
+// `find_by_id`, each custom find, every retrieval — starts from it, so none
+// spells the predicate itself (read-scope-emit.ts; the corpus-wide census is
+// elixir-read-scope-census.test.ts).
 //
 // Predicates render under the `record` Ecto binding (`!this.archived` →
-// `not record.archived`).  Principal-referencing (tenancy) filters stay gated
-// on vanilla (no ambient actor in plain Ecto).
+// `not record.archived`).
 // ---------------------------------------------------------------------------
 
 const SOURCE = `
@@ -55,49 +53,55 @@ function file(files: Map<string, string>, suffix: string): string {
   return files.get(key!)!;
 }
 
-describe("vanilla capability filter — AND-ed into every read", () => {
-  it("scopes list/0 and find_by_id/1 in the repository", async () => {
-    const repo = file(await gen(), "/shop/order_repository.ex");
-    // Paged-by-default: list's base query carries the capability `where`.
-    expect(repo).toContain("query = from(record in Api.Shop.Order, where: not record.archived)");
-    // find_by_id/1 can't carry a `where` on Repo.get, so it becomes Repo.one.
-    expect(repo).toContain(
-      "Repo.one(from(record in Api.Shop.Order, where: record.id == ^id and (not record.archived)))",
+describe("vanilla capability filter — every read starts from base_query/0", () => {
+  it("hosts the bare filter in the schema's base_query/0", async () => {
+    const schema = file(await gen(), "/shop/order.ex");
+    expect(schema).toContain(
+      "def base_query, do: Ecto.Query.from(record in __MODULE__, where: not record.archived)",
     );
-    // The Ecto import is pulled in for the `from(...)` reads.
-    expect(repo).toContain("import Ecto.Query");
+    // Nothing bypassable: prepare_query has no clause to apply.
+    expect(schema).toContain("def __loom_filters__, do: []");
   });
 
-  it("conjoins the filter into a custom find's own where", async () => {
+  it("starts list and find_by_id from base_query/0", async () => {
     const repo = file(await gen(), "/shop/order_repository.ex");
-    expect(repo).toContain("where: (record.customer_id == ^customer_id) and (not record.archived)");
+    expect(repo).toContain("query = Api.Shop.Order.base_query()");
+    expect(repo).toContain(
+      "Repo.one(from(record in Api.Shop.Order.base_query(), where: record.id == ^id))",
+    );
+    expect(repo).not.toContain("not record.archived");
   });
 
-  it("conjoins the filter into a retrieval", async () => {
-    const files = await gen();
-    const ret = file(files, "/shop/retrievals/big_orders.ex");
-    // A retrieval applies the capability filter as a SEPARATE `where` pipe
-    // stage (so a call-site `ignoring` can gate it per-origin); the base
-    // `where:` carries only the retrieval's own predicate.  A bare/hand-written
-    // `filter` (origin undefined) is unconditional — no `ignore_*` gate.
-    expect(ret).toContain("query = from(record in Api.Shop.Order, where: record.total >= ^min)");
-    expect(ret).toContain("query = where(query, [record], not record.archived)");
+  it("starts a custom find from base_query/0 with only its own where", async () => {
+    const repo = file(await gen(), "/shop/order_repository.ex");
+    expect(repo).toContain(
+      "from(record in Api.Shop.Order.base_query(), where: record.customer_id == ^customer_id)",
+    );
   });
 
-  it("leaves a filter-free aggregate's reads unscoped (byte-identical)", async () => {
+  it("starts a retrieval from base_query/0 with only its own where", async () => {
+    const ret = file(await gen(), "/shop/retrievals/big_orders.ex");
+    expect(ret).toContain(
+      "query = from(record in Api.Shop.Order.base_query(), where: record.total >= ^min)",
+    );
+    expect(ret).not.toContain("not record.archived");
+  });
+
+  it("gives a filter-free aggregate a bare base_query/0", async () => {
     const noFilter = SOURCE.replace("        filter !this.archived\n", "");
-    const repo = file(await generateSystemFiles(noFilter), "/shop/order_repository.ex");
-    // Paged-by-default: the base query is unscoped (no `where`).
-    expect(repo).toContain("query = from(record in Api.Shop.Order)");
-    expect(repo).toContain("case Repo.get(Api.Shop.Order, id) do");
+    const files = await generateSystemFiles(noFilter);
+    expect(file(files, "/shop/order.ex")).toContain(
+      "def base_query, do: Ecto.Query.from(record in __MODULE__)",
+    );
+    expect(file(files, "/shop/order_repository.ex")).toContain(
+      "query = Api.Shop.Order.base_query()",
+    );
   });
 
-  // Regression (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/repo-code-review-2026-07.md E3): a money/decimal
-  // capability filter must render with the NATIVE Ecto-query form
+  // A money/decimal filter must render with the NATIVE Ecto-query form
   // (`record.total > 10.00`), not the in-memory `Decimal.compare(...) == :gt`
   // struct API — the latter is not a valid Ecto query expression and fails
-  // `mix compile`.  Only bool/id/string/enum render identically in both modes,
-  // which is why the missing `filterArgs` went unnoticed until money.
+  // `mix compile`.  Only bool/id/string/enum render identically in both modes.
   it("renders a money capability filter as native Ecto, not Decimal.compare", async () => {
     const src = `
 system Bill {
@@ -122,8 +126,8 @@ system Bill {
     port: 4000
   }
 }`;
-    const repo = file(await generateSystemFiles(src), "/ledger/invoice_repository.ex");
-    expect(repo).toContain("where: record.total > 10.00");
-    expect(repo).not.toContain("Decimal.compare");
+    const schema = file(await generateSystemFiles(src), "/ledger/invoice.ex");
+    expect(schema).toContain("where: record.total > 10.00");
+    expect(schema).not.toContain("Decimal.compare");
   });
 });

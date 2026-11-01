@@ -696,11 +696,20 @@ export const LOCATORS: Record<VariantId, Locator> = {
   },
 
   // ── Phoenix + Ecto ────────────────────────────────────────────────────────
+  //
+  // A relational aggregate's restrictions are hosted on its SCHEMA module
+  // (`base_query/0` + the `__loom_filter__/3` clauses `Repo.prepare_query/3`
+  // applies to every query of the schema), so a read over `<Agg>.base_query()`
+  // carries each hosted conjunct unless its `skip_filters:` option lifts that
+  // conjunct's capability (`:all` lifts every one).  A TPH root's schema hosts
+  // each subtype's own restriction guarded by `kind`.  An in-app (document)
+  // read and the write scope's load carry theirs inline.
   elixir: {
     files: (p) => p.endsWith(".ex") && !/(^|\/)(test|priv)\//.test(p),
     openers: [/^[ \t]*defp?\s+(\w+[?!]?)/m],
     reads: [
-      /\bfrom\(\s*\w+\s+in\s+([\w.]+)/,
+      /\b([A-Z][\w.]*?)\.base_query\(\)/,
+      /\bfrom\(\s*\w+\s+in\s+([\w.]+)(?=[\s,)])/,
       /\bRepo\.(?:get|get_by|one|all)\(\s*([A-Z][\w.]+)/,
       /\bEcto\.Query\.(?:order_by|where|select|limit)\(\s*([A-Z][\w.]+)/,
       /^\s*([A-Z][\w.]+)\s*\n\s*\|>[^\n]*\n?(?:\s*\|>[^\n]*\n?)*?\s*\|>\s*Repo\.all\(\)/m,
@@ -714,13 +723,73 @@ export const LOCATORS: Record<VariantId, Locator> = {
       },
     ],
     classify: exClassify,
-    carries: (f, site) =>
-      f.kind === "deny"
-        ? /fragment\("false"\)|Enum\.member\?\(\[\],/.test(site.window) ||
-          INAPP_FALSE.test(site.window)
-        : carriesClaims(site.window, f, (c) => new RegExp(`\\bcurrent_user\\.${esc(snake(c))}\\b`)),
+    carries: (f, site, agg, files) => {
+      const spell = (c: string): RegExp => new RegExp(`\\bcurrent_user\\.${esc(snake(c))}\\b`);
+      const carriesIn = (text: string): boolean =>
+        f.kind === "deny"
+          ? /fragment\("false"\)|Enum\.member\?\(\[\],/.test(text) || INAPP_FALSE.test(text)
+          : carriesClaims(text, f, spell);
+      if (carriesIn(site.window)) return true;
+      const skip = exSkipFilters(site.window);
+      return exHostedScope(site.storage, files).some(
+        (c) =>
+          (c.guard === undefined || c.guard === agg.name) &&
+          carriesIn(c.text) &&
+          !(c.key !== undefined && (skip === "all" || skip.has(c.key))),
+      );
+    },
   },
 };
+
+/** One restriction an Ecto schema module hosts. */
+interface ExHosted {
+  readonly text: string;
+  /** The subtype whose rows alone it constrains (`kind != "<guard>"`). */
+  readonly guard?: string;
+  /** The `skip_filters:` key that lifts it; undefined for `base_query/0`'s,
+   *  which nothing lifts. */
+  readonly key?: string;
+}
+
+/** The restrictions the schema module `storage` (`D.Fleet.Car`) hosts — read
+ *  off the emitted module, so a mutation of it is what the census sees. */
+function exHostedScope(storage: string, files: ReadonlyMap<string, string>): ExHosted[] {
+  const schema = [...files.values()].find((t) =>
+    new RegExp(`^defmodule ${esc(storage)} do$`, "m").test(t),
+  );
+  if (!schema) return [];
+  const out: ExHosted[] = [];
+  const guardOf = (text: string): string | undefined =>
+    /^\(?record\.kind != "(\w+)" or/.exec(text)?.[1];
+  const base = /def base_query, do: Ecto\.Query\.from\(record in __MODULE__, where: (.*)\)$/m.exec(
+    schema,
+  )?.[1];
+  for (const part of base ? base.split(/\) and \(/) : []) {
+    const g = guardOf(part);
+    out.push({ text: part, ...(g ? { guard: g } : {}) });
+  }
+  for (const m of schema.matchAll(
+    /def __loom_filter__\(query, :(\w+), _?current_user\),\s*do: Ecto\.Query\.where\(query, \[record\], (.*)\)$/gm,
+  )) {
+    // A clause conjoins every restriction sharing its key.
+    for (const part of m[2]!.split(/\) and \(/)) {
+      const g = guardOf(part);
+      out.push({
+        text: part,
+        ...(g ? { guard: g } : {}),
+        ...(m[1] === "loom_filter" ? {} : { key: m[1]! }),
+      });
+    }
+  }
+  return out;
+}
+
+/** The `skip_filters:` a read passes: `"all"`, or the keys it names. */
+function exSkipFilters(window: string): "all" | Set<string> {
+  if (/skip_filters: :all\b/.test(window)) return "all";
+  const m = /skip_filters: \[([^\]]*)\]/.exec(window);
+  return new Set([...(m?.[1] ?? "").matchAll(/:(\w+)/g)].map((x) => x[1]!));
+}
 
 function PY_PRINCIPAL(claim: string): RegExp {
   return new RegExp(

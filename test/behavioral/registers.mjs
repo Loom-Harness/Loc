@@ -355,14 +355,6 @@ export const BEHAVIOURAL_XFAIL = {
       reason:
         "the workflow 409 `detail` names no aggregate or id, and per-call persistence bumps the document `version` twice",
     },
-    // Elixir passes every block, the routed TPH base by-id read included; the
-    // case has no wire golden until the node oracle routes that read too.
-    "inheritance-base-reads": {
-      issue: "#3959",
-      expect: "wire",
-      reason:
-        "every block passes on elixir, but its routed TPH base by-id read answers the base fields only — no `type` tag and no concrete's own columns, where node answers the tagged concrete row",
-    },
   },
 };
 

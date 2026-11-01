@@ -303,12 +303,15 @@ describe("projection comprehension — Hono emission", () => {
     expect(mod, "elixir query-projection module emitted").toBeDefined();
     // Source find over the aggregate, with the `where IsConfirmed` predicate
     // inlined (enum → dumped declared string under the Ecto query context).
-    expect(mod).toContain("from(record in D.Orders.Order,");
-    expect(mod).toContain("|> Repo.all()");
+    // Both reads start from their aggregate's scoped `base_query/0`.
+    expect(mod).toContain(
+      'from(record in D.Orders.Order.base_query(), where: record.status == ^"Confirmed")',
+    );
+    expect(mod).toContain("|> Repo.all(current_user: current_user)");
     // `join Customer as c on o.customerId` → a batched id→struct map…
     expect(mod).toContain("customer_by_id =");
     expect(mod).toContain(
-      "from(row in D.Orders.Customer, where: row.id in ^Enum.map(rows, fn record -> record.customer_id end))",
+      "from(row in D.Orders.Customer.base_query(), where: row.id in ^Enum.map(rows, fn record -> record.customer_id end))",
     );
     expect(mod).toContain("|> Map.new(&{&1.id, &1})");
     // …and the `select customerName = c.name` reads through the loaded map —

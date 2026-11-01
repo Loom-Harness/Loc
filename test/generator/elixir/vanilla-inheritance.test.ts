@@ -98,20 +98,27 @@ describe("vanilla aggregate inheritance — TPH (sharedTable)", () => {
   });
 
   it("a concrete repository filters every read by kind and stamps kind on insert", async () => {
-    const repo = file(await generateSystemFiles(TPH), "/parties/customer_repository.ex");
+    const files = await generateSystemFiles(TPH);
+    const repo = file(files, "/parties/customer_repository.ex");
+    // The discriminator lives in the schema's `base_query/0`, which every read
+    // of the subtype starts from.
+    expect(file(files, "/parties/customer.ex")).toContain(
+      'def base_query, do: Ecto.Query.from(record in __MODULE__, where: record.kind == "Customer")',
+    );
     // list + find_by_id scope to this subtype's rows on the shared table.
     // An inheritance subtype keeps the bare `list` (M-T2.6 excludes polymorphic
     // hierarchies from the paged findAll — the `find all <Base>` reader
     // concatenates each subtype's list, which a per-subtype page can't compose).
-    expect(repo).toMatch(/def list do[\s\S]*where: record\.kind == "Customer"/);
-    expect(repo).toMatch(/def find_by_id\(id\)[\s\S]*record\.kind == "Customer"/);
+    expect(repo).toMatch(/def list do[\s\S]*Api\.Parties\.Customer\.base_query\(\)/);
+    expect(repo).toMatch(/def find_by_id\(id\)[\s\S]*Api\.Parties\.Customer\.base_query\(\)/);
     // insert stamps the discriminator so the shared-table row is routable back.
     expect(repo).toContain('Ecto.Changeset.put_change(:kind, "Customer")');
     // a custom find ALSO scopes to the subtype.
-    expect(repo).toMatch(/def by_email\([\s\S]*record\.kind == "Customer"/);
+    expect(repo).toMatch(/def by_email\([\s\S]*Api\.Parties\.Customer\.base_query\(\)/);
+    expect(repo).not.toContain("record.kind ==");
   });
 
-  it("the abstract base emits a read-only polymorphic reader that delegates to the concrete repositories", async () => {
+  it("the abstract base emits a read-only polymorphic reader over the shared table", async () => {
     const files = await generateSystemFiles(TPH);
     // The base schema declares the UNION of every subtype's columns + kind.
     const base = file(files, "/parties/party.ex");
@@ -120,14 +127,14 @@ describe("vanilla aggregate inheritance — TPH (sharedTable)", () => {
     expect(base).toContain("field :credit_limit, :integer");
     expect(base).toContain("field :rating, :integer");
     // The base reader is read-only (list/find_by_id, no insert/update/delete)
-    // and NEVER reads the shared table itself: each concrete repository owns the
-    // `kind` conjunct and every capability/inline filter, so a direct
-    // `Repo.all(Party)` would serve rows those filters exclude.
+    // and reads the shared table once, from the root's scoped `base_query/0`,
+    // loading each row as its concrete by `kind`.
     const repo = file(files, "/parties/party_repository.ex");
-    expect(repo).toContain("Api.Parties.CustomerRepository.list()");
-    expect(repo).toContain("Api.Parties.VendorRepository.find_by_id(id)");
-    expect(repo).not.toContain("Repo.all(");
-    expect(repo).not.toContain("Repo.get(");
+    expect(repo).toContain(
+      '@kinds %{"Customer" => Api.Parties.Customer, "Vendor" => Api.Parties.Vendor}',
+    );
+    expect(repo).toContain("from(record in Api.Parties.Party.base_query(),");
+    expect(repo).not.toContain("CustomerRepository");
     expect(repo).not.toContain("def insert");
     expect(repo).not.toContain("def delete");
     // No changeset is emitted for the abstract base.
@@ -153,15 +160,16 @@ describe("vanilla aggregate inheritance — TPC (ownTable) unchanged + base read
     expect(machine).not.toContain("field :kind");
   });
 
-  it("the TPC abstract base emits no schema and a delegating read-only reader", async () => {
+  it("the TPC abstract base emits no schema and a merging read-only reader", async () => {
     const files = await generateSystemFiles(TPC);
     // No `assets` table exists, so no Asset schema is emitted (a schema over the
     // phantom `assets` table would 500 on read).
     expect([...files.keys()].some((k) => k.endsWith("/assets/asset.ex"))).toBe(false);
     const repo = file(files, "/assets/asset_repository.ex");
-    // Delegates to each concrete repository (the polymorphic find-all reader).
-    expect(repo).toContain("Api.Assets.MachineRepository");
-    expect(repo).toContain("Api.Assets.VehicleRepository");
+    // Merges each concrete's scoped read in the global `id` order.
+    expect(repo).toContain("query = Api.Assets.Machine.base_query()");
+    expect(repo).toContain("query = Api.Assets.Vehicle.base_query()");
+    expect(repo).toContain("|> Enum.sort_by(& &1.id)");
     // Read-only — no write seam.
     expect(repo).not.toContain("def insert");
   });

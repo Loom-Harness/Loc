@@ -353,7 +353,9 @@ describe("elixir", () => {
     expect(mod).toContain(
       "select: %{orders: count(record.id), revenue: sum(record.total), avgLines: avg(record.line_count)}",
     );
-    expect(mod).toContain("|> Repo.one()");
+    // From the source's scoped `base_query/0`, one row back from SQL.
+    expect(mod).toContain("from(record in Api.Orders.Order.base_query(), where:");
+    expect(mod).toContain("|> Repo.one(current_user: current_user)");
     expect(mod).not.toContain("Repo.all(");
   });
 
