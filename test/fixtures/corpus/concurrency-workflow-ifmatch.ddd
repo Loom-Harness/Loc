@@ -1,0 +1,74 @@
+// A workflow's saves are never checked against the request's `If-Match`
+// (`checksVersion`, src/ir/enrich/version-check.ts): a workflow body is not a
+// request about one row, so each row it loaded is saved against the version ITS
+// handle loaded — `handle` — and the header belongs to an operation route alone.
+//
+// The block drives the shape a request-wide expected version breaks: a workflow
+// loads two rows at DIFFERENT versions and the request carries a stale tag that
+// matches neither.  Checked against the header, every save is stale and the
+// workflow answers 409 (the pre-fix .NET); checked against each handle, both
+// land.  The case first sends one current-tag operation write so the wire tier's
+// two-writer probe (`wire-differential.mjs`) replays an operation, never the
+// workflow.
+system ConcurrencyWorkflowIfMatchSystem {
+  subdomain Docs {
+    context Docs {
+      aggregate Doc with crudish {
+        title: string
+
+        operation rename(t: string) { title := t }
+      }
+      repository DocRepo for Doc { }
+
+      // Both rows are loaded and changed by the one body.
+      workflow renameBoth {
+        create(a: Doc id, b: Doc id, t: string) {
+          let first = DocRepo.getById(a)
+          let second = DocRepo.getById(b)
+          first.rename(t)
+          second.rename(t)
+        }
+      }
+    }
+  }
+  api DocsApi from Docs
+  storage pg { type: postgres }
+  resource docsState { for: Docs, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Docs]
+    dataSources: [docsState]
+    serves: DocsApi
+    port: 4000
+  }
+
+  test e2e "a workflow's saves ignore the request's stale If-Match" against d {
+    let a = api.docs.create({ title: "a" })
+    let b = api.docs.create({ title: "b" })
+    let aRead = api.docs.getById(a)
+
+    // `a` moves to version 2; `b` stays at 1.  The tag below is 1: stale for
+    // `a`, current for `b` — the header cannot be the version of both.
+    api.docs.rename(a, { t: "a2" }, { ifMatch: aRead.version })
+
+    api.renameBoth.run({ a: a.id, b: b.id, t: "both" }, { ifMatch: aRead.version })
+
+    let aAfter = api.docs.getById(a)
+    let bAfter = api.docs.getById(b)
+    expect(aAfter.title).toBe("both")
+    expect(aAfter.version).toBe(aRead.version + 2)
+    expect(bAfter.title).toBe("both")
+    expect(bAfter.version).toBe(aRead.version + 1)
+
+    // The same stale tag on the operation route itself IS refused: the header
+    // is the operation's, not the workflow's.
+    expect(api.docs.rename(a, { t: "lost" }, { ifMatch: aRead.version })).toThrow(409)
+
+    // The rest of the derived surface, so every route has a caller.
+    api.docs.update(b, { title: "edited" })
+    let docs = api.docs.all()
+    expect(docs.total).toBe(2)
+    api.docs.destroy(a)
+    api.docs.destroy(b)
+  }
+}

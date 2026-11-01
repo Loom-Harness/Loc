@@ -1,3 +1,4 @@
+import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
 import { unionInstanceName } from "../../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
@@ -18,6 +19,7 @@ import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
 import { unionMembers } from "../../_payload/union-wire.js";
 import { maskNamer, projectEntityExpr, projectToResponse, wireType } from "../dto-mapping.js";
+import { IF_MATCH_EXPECTED_VERSION_CS } from "../emit/version-check-cs.js";
 import { renderCommand, renderCommandHandler } from "../emit.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "../render-expr.js";
 import { renderCreateValidator, renderOperationValidator } from "../validator-emit.js";
@@ -562,13 +564,19 @@ export function emitOperationCommandAndHandler(
             .map((t) => `global::${ns}.Domain.${plural(agg.name)}.${returnUnion}_${t}`)
             .join(" or ")}) return result;\n`
         : "";
+    // The operation's own save is the one write path that reads the client's
+    // `If-Match` (the `checksVersion` fact says `if-match`); every other save
+    // checks the version its handle was loaded at.
+    const saveArgs = readsIfMatch(operationVersionCheck(agg, op))
+      ? `${IF_MATCH_EXPECTED_VERSION_CS}, cancellationToken`
+      : "cancellationToken";
     const handlerBody = returnUnion
       ? loadLine +
         auditBefore +
         `        var result = aggregate.${upperFirst(op.name)}(${callArgs});\n` +
         errorGuard +
         auditStage +
-        `        await _repo.SaveAsync(aggregate, cancellationToken);\n` +
+        `        await _repo.SaveAsync(aggregate, ${saveArgs});\n` +
         `        return result;\n`
       : scalarWireType
         ? // Scalar return (BUG-003): capture the domain value, save, then project
@@ -579,13 +587,13 @@ export function emitOperationCommandAndHandler(
           auditBefore +
           `        var result = aggregate.${upperFirst(op.name)}(${callArgs});\n` +
           auditStage +
-          `        await _repo.SaveAsync(aggregate, cancellationToken);\n` +
+          `        await _repo.SaveAsync(aggregate, ${saveArgs});\n` +
           `        return ${projectToResponse("result", op.returnType!, ctx)};\n`
         : loadLine +
           auditBefore +
           `        aggregate.${upperFirst(op.name)}(${callArgs});\n` +
           auditStage +
-          `        await _repo.SaveAsync(aggregate, cancellationToken);\n` +
+          `        await _repo.SaveAsync(aggregate, ${saveArgs});\n` +
           `        return Unit.Value;\n`;
     // An AUDITED returning op's handler imports `Application.<Agg>.Responses`
     // (for the `<Agg>Response.From(...)` before/after snapshots) beside

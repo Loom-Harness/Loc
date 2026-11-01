@@ -4802,6 +4802,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `e2e: 'api.${p.slug}.${p.verb}(id, body, options)' — the optional third argument must be ` +
     `exactly '{ ifMatch: <version> }', which sends the 'If-Match' precondition header. No other ` +
     `key and no fourth argument is read, so anything else would be silently dropped.`,
+  "loom.e2e-call-options#workflow-shape": (p: { slug: unknown }) =>
+    `e2e: 'api.${p.slug}.run(body, options)' — the optional second argument must be exactly ` +
+    `'{ ifMatch: <version> }', which sends the 'If-Match' header. No other key and no third ` +
+    `argument is read, so anything else would be silently dropped.`,
   "loom.e2e-call-options#if-match-scope": (p: {
     slug: unknown;
     verb: unknown;
