@@ -16,8 +16,8 @@ import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { allContexts } from "../../src/ir/types/loom-ir.js";
-import { PROJECTION_READ_FRAMEWORKS } from "../../src/ir/validate/checks/system-checks.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
+import { TARGET_CAPABILITIES } from "../../src/util/target-capabilities.js";
 import { parseString } from "../_helpers/parse.js";
 
 /** Codes reported for `src`, lowered + enriched + IR-validated (phase ⑦).
@@ -350,11 +350,17 @@ describe("loom.ui-projection-read-unsupported — the FRAMEWORK half", () => {
   // is the thing to revisit.
   it("still FIRES for a framework outside the set — proven by removing one", async () => {
     expect(await codes(onFrontend("flutter"))).not.toContain("loom.ui-projection-read-unsupported");
-    PROJECTION_READ_FRAMEWORKS.delete("flutter");
+    // Flip flutter's capability-table row; the check reads the row on every call.
+    const flutterRow = TARGET_CAPABILITIES.flutter.ui!.constructs as Record<string, unknown>;
+    const supported = flutterRow["read:projection@body"];
+    flutterRow["read:projection@body"] = {
+      verdict: "owned",
+      code: "loom.ui-projection-read-unsupported",
+    };
     try {
       expect(await codes(onFrontend("flutter"))).toContain("loom.ui-projection-read-unsupported");
     } finally {
-      PROJECTION_READ_FRAMEWORKS.add("flutter");
+      flutterRow["read:projection@body"] = supported;
     }
     expect(await codes(onFrontend("flutter"))).not.toContain("loom.ui-projection-read-unsupported");
   });

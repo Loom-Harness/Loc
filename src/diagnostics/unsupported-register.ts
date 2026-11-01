@@ -45,7 +45,7 @@
 // fires for nothing that exists; and some backend gates fire only for a
 // context no backend deployable hosts at all.  The frontend gates are kept as
 // the seam the NEXT frontend gates on until it ports, the pattern
-// PROJECTION_READ_FRAMEWORKS documents at ui-framework-checks.ts.  (There is deliberately no
+// the projection-read capability row documents at ui-framework-checks.ts.  (There is deliberately no
 // BACKEND support set naming all five backends: such a set gates nothing, and
 // when partial support appears the validator code is the honest place for
 // it.  A backend gate that remains does so for its reachable no-backend arm.)
@@ -566,7 +566,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.ui-gate-expr-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/ui-framework-checks.ts:1122",
+    site: "src/ir/validate/checks/ui-framework-checks.ts:1098",
     what:
       "a page `requires <expr>` gate outside the client-evaluable subset all THREE closed gate " +
       "renderers implement (`_frontend/gate-expr.ts` for React/Vue/Svelte/Angular, " +

@@ -31,15 +31,19 @@ import {
 } from "../../src/ir/validate/checks/target-capability-checks.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import {
+  ALL_UI_CONSTRUCTS,
   BACKEND_CONSTRUCTS,
   type BackendConstruct,
   type CapabilityVerdict,
+  OWNED_UI_CONSTRUCTS,
+  type OwnedUiConstruct,
+  type RefusableUiConstruct,
   TARGET_CAPABILITIES,
   UI_CONSTRUCT_REFUSAL,
   UI_CONSTRUCTS,
   type UiConstruct,
 } from "../../src/util/target-capabilities.js";
-import { generateSystemFiles, parseValid } from "../_helpers/index.js";
+import { generateSystemFiles, parseString, parseValid } from "../_helpers/index.js";
 
 // --- witnesses ---------------------------------------------------------------
 
@@ -78,7 +82,7 @@ system W {
 }
 `;
 
-const UI_WITNESSES: Readonly<Record<UiConstruct, (framework: string) => string>> = {
+const UI_WITNESSES: Readonly<Record<RefusableUiConstruct, (framework: string) => string>> = {
   "primitive:DataGrid@body": (fw) =>
     uiWitness(
       fw,
@@ -102,6 +106,124 @@ const UI_WITNESSES: Readonly<Record<UiConstruct, (framework: string) => string>>
       "",
       "audited with crudish ",
     ),
+  "stmt:match-await-standard-op@action": (fw) =>
+    ownedWitness(fw, {
+      contextExtra: `error Rejected { reason: string }`,
+      aggBody: `operation confirm(): Customer or Rejected { name := "c" }`,
+      pageExtra: `state { message: string = "" }
+      action go() {
+        match await Sales.Customer.delete() {
+          Customer o => { message := o.name }
+          Rejected r => { message := r.reason }
+        }
+      }`,
+      body: `Button { "go", onClick: go }`,
+    }),
+};
+
+// --- owned-construct witnesses -------------------------------------------------
+
+interface OwnedSpec {
+  readonly body?: string;
+  readonly aggBody?: string;
+  readonly contextExtra?: string;
+  readonly uiExtra?: string;
+  readonly pageExtra?: string;
+  /** Needs a signed-in user: `auth: ui` on a frontend, `auth: required` on a
+   *  LiveView host. */
+  readonly auth?: boolean;
+}
+
+/** A system exercising one owned construct on `framework`.  The auth topology
+ *  mirrors what each framework family can state: a frontend deployable guards
+ *  itself (`auth: ui`) over an `auth: required` node backend; a LiveView host
+ *  is fullstack, so `auth: required` sits on the host itself. */
+function ownedWitness(framework: string, spec: OwnedSpec): string {
+  const lv = framework === "phoenixLiveView";
+  const host = framework === "feliz" || framework === "flutter" ? framework : "static";
+  const deployables = lv
+    ? `deployable app { platform: elixir, contexts: [Orders], dataSources: [st], serves: SalesApi, ui: WebApp { Sales: app }, port: 4000${spec.auth ? ", auth: required" : ""} }`
+    : `deployable api { platform: node, contexts: [Orders], dataSources: [st], serves: SalesApi, port: 3000${spec.auth ? ", auth: required" : ""} }
+  deployable web { platform: ${host}, targets: api, port: 3001, ui: WebApp { Sales: api }${spec.auth ? ", auth: ui" : ""} }`;
+  return `
+system W {
+  ${spec.auth ? "user { id: string  role: string }" : ""}
+  subdomain Sales {
+    context Orders {
+      aggregate Customer { name: string  ${spec.aggBody ?? ""} }
+      repository Customers for Customer { }
+      ${spec.contextExtra ?? ""}
+    }
+  }
+  api SalesApi from Sales
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  ui WebApp {
+    framework: ${framework}
+    api Sales: SalesApi
+    ${spec.uiExtra ?? ""}
+    page X {
+      route: "/x/:id"
+      title: "X"
+      ${spec.pageExtra ?? ""}
+      body: ${spec.body ?? `Heading { "x" }`}
+    }
+  }
+  ${deployables}
+}
+`;
+}
+
+const OWNED_WITNESSES: Readonly<Record<OwnedUiConstruct, (framework: string) => string>> = {
+  "read:projection@body": (fw) =>
+    ownedWitness(fw, {
+      contextExtra: `projection Totals { n: int  from Customer as c  select n = count }`,
+      body: `QueryView { of: Sales.Totals, data: t => Stat { "N", t.n } }`,
+    }),
+  "primitive:Table-filter@body": (fw) =>
+    ownedWitness(fw, {
+      pageExtra: `state { q: string = ""  pageNum: int = 1 }`,
+      body: `QueryView { of: Sales.Customer.all, paged: true, data: rows => Table { rows: rows.items, page: pageNum, totalPages: rows.totalPages, filter: q, Column { "Name", o => Text { o.name } } } }`,
+    }),
+  "primitive:Modal-open-op-form@body": (fw) =>
+    ownedWitness(fw, {
+      aggBody: `operation activate() { }`,
+      pageExtra: `state { showModal: bool = false }`,
+      body: `Tabs { Tab { "Ops", Modal { open: showModal, title: "Activate", OperationForm { of: Customer, op: activate } } } }`,
+    }),
+  "decl:extern-component@ui": (fw) =>
+    ownedWitness(fw, {
+      uiExtra: `component P(head: slot) extern from "widgets/p"`,
+      body: `Stack { P(head: Text { "hi" }) }`,
+    }),
+  "gate:page-requires-full-expr@page": (fw) =>
+    // A `null` literal: the closed gate tables refuse it (Feliz and Flutter
+    // throw on it), the HEEx general expression renderer takes it.
+    ownedWitness(fw, { auth: true, pageExtra: `requires currentUser.role != null` }),
+  "stmt:backend-body@ui-body": (fw) =>
+    ownedWitness(fw, {
+      pageExtra: `state { n: int = 0 }
+      action bump() { return 1 }`,
+      body: `Button { "bump", onClick: bump }`,
+    }),
+  "handler:live-event@ui": (fw) =>
+    ownedWitness(fw, {
+      contextExtra: `event Placed { customer: Customer id, at: datetime }
+      channel Lifecycle { carries: Placed  delivery: broadcast  retention: ephemeral }`,
+      uiExtra: `channel Live: Orders.Lifecycle
+    on Live.Placed(e) { toast("placed") }`,
+    }),
+  "auth:ui-guard@deployable": (fw) => {
+    // A LiveView ui reaches the `auth: ui` gate only as a bundle served by a
+    // separate deployable, so the witness hosts it the same way.
+    if (fw !== "phoenixLiveView") return ownedWitness(fw, { auth: true });
+    return ownedWitness("phoenixLiveView", { auth: true }).replace(
+      /deployable app \{[^\n]*\n?/,
+      `deployable api { platform: node, contexts: [Orders], dataSources: [st], serves: SalesApi, port: 3000, auth: required }
+  deployable web { platform: elixir, targets: api, ui: WebApp { Sales: api }, port: 3001, auth: ui }
+`,
+    );
+  },
 };
 
 /** An event-sourced aggregate whose create carries a `requires`, hosted on
@@ -137,9 +259,15 @@ system W {
 
 interface Cell {
   readonly id: string;
+  /** Parse without the phase-④ validators.  Only for a cell whose owning IR
+   *  check sits behind an earlier grammar-level refusal (see its use). */
+  readonly lenient?: boolean;
   readonly verdict: CapabilityVerdict;
   readonly source: string;
 }
+
+const isOwnedConstruct = (c: UiConstruct): c is OwnedUiConstruct =>
+  (OWNED_UI_CONSTRUCTS as readonly string[]).includes(c);
 
 function cells(): Cell[] {
   const out: Cell[] = [];
@@ -147,11 +275,14 @@ function cells(): Cell[] {
     // `static` shares React's table object; one pass over it is enough.
     if (platform === "static") continue;
     for (const fw of table.ui?.frameworks ?? []) {
-      for (const c of UI_CONSTRUCTS) {
+      for (const c of ALL_UI_CONSTRUCTS) {
         out.push({
           id: `${fw}|${c}`,
           verdict: table.ui!.constructs[c],
-          source: UI_WITNESSES[c](fw),
+          source: isOwnedConstruct(c) ? OWNED_WITNESSES[c](fw) : UI_WITNESSES[c](fw),
+          // `auth: ui` on a LiveView deployable is already a phase-④ error; the
+          // IR check is the backstop behind it, reached only without that tier.
+          lenient: c === "auth:ui-guard@deployable" && fw === "phoenixLiveView",
         });
       }
     }
@@ -166,8 +297,11 @@ function cells(): Cell[] {
   return out;
 }
 
-async function validateSource(src: string) {
-  return validateLoomModel(enrichLoomModel(lowerModel(await parseValid(src))));
+async function validateSource(src: string, lenient = false) {
+  const model = lenient
+    ? (await parseString(src, { validate: false })).model
+    : await parseValid(src);
+  return validateLoomModel(enrichLoomModel(lowerModel(model)));
 }
 
 const OWNED_CODES = (): string[] =>
@@ -221,7 +355,7 @@ describe("capability table — every cell is implemented (with a witness) or ref
       });
     } else {
       it(`${cell.id}: owned — raises ${v.code}`, async () => {
-        const diags = await validateSource(cell.source);
+        const diags = await validateSource(cell.source, cell.lenient);
         expect(diags.map((d) => d.code)).toContain(v.code);
       });
     }
