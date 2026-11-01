@@ -5688,8 +5688,8 @@ for the missing-field sentence.
 ## D-CODEC — how a value is encoded on the wire, in a column, in memory and in a lineage comes from one IR fact
 
 **Status:** PINNED (encodes RS-4, RS-12, RS-24, RS-37, RS-38, RS-42,
-D-LONG-AVG-DEFAULTS and the owner ruling on #3527; fact landed for #3593
-item 5).
+D-LONG-AVG-DEFAULTS, the owner ruling on #3527 and the four owner rulings on
+#3593; fact landed for #3593 item 5).
 
 **Question.** Each backend picked the encoding of `money`, `decimal`, the
 integers and `datetime` itself, at each read path, column and lineage write.
@@ -5710,20 +5710,34 @@ collection, id, enum, value object) onto it:
   migrations builder reads it.
 - **Memory** (`MemoryHint`): what the in-memory value must hold exactly, and
   whether arithmetic is exact decimal.
-- **Lineage** (`LineageEncoding`): `money` and the integers are written in
-  their wire encoding (#3527). Every other scalar is `unruled`.
+- **Lineage** (`LineageEncoding`): every scalar is written in its wire
+  encoding — `money` the RS-12 string (#3527), `decimal` the RS-24 number,
+  `datetime` the RS-38 instant.
+- **Channel envelope** (`envelopeInstantWire`): a `datetime` inside a channel
+  (CloudEvents) envelope — its `time` and a datetime in `data` — and in a
+  realtime frame is the RS-38 instant, because events cross deployables and
+  backends.
+- **Value object in a relational field** (`valueObjectStorage`): the flat
+  `<field>_<member>` columns of the one shared migration are canonical. Each
+  ORM maps them idiomatically; elixir regrouping them into a `:map` is its
+  spelling of the same columns, not a divergence.
 
-What the fact does not rule is listed in `UNRULED`, one owner question per
-entry, and no backend is moved onto a value for those.
+The owner decisions that completed the table are listed in `RULINGS`, each with
+the RS-rule or decision it extends. `UNRULED` holds any open owner question;
+no backend is moved onto a value for one. It is empty.
 
 **Consequences.** The generator-layer numeric decision table
 (`_numeric/codec.ts`) and `money-scale.ts` now derive from the fact. node/Hono
 spells it in `src/generator/typescript/codec-spelling.ts` and
 `numeric-codec.ts`, and `test/generator/hono/codec-census.test.ts` fails on a
 scale, range bound, column factory, money grammar or ISO-8601 trim that a node
-emitter chooses itself. The other four backends move onto the fact one at a
-time. Until each does, it boots `corpus/provenance-money` as a tracked
-expected failure (`BEHAVIOURAL_XFAIL`, #3527).
+emitter chooses itself. python/FastAPI spells it in
+`src/generator/python/codec-spelling.ts` and `numeric-codec.ts`, guarded the
+same way by `test/generator/python/codec-census.test.ts` (SQLAlchemy column
+types, money grammar and bounds, `.isoformat()`). The other three backends
+move onto the fact one at a time. Until each does, it boots
+`corpus/provenance-money` as a tracked expected failure (`BEHAVIOURAL_XFAIL`,
+#3527).
 
 java/Spring renders the fact through `src/generator/java/wire-policy-java.ts`
 (`test/generator/java/wire-policy-census.test.ts` is its census, with the

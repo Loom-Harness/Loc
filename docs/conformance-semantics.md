@@ -1829,11 +1829,15 @@ nothing and the test passes vacuously.
   first proposed contradicts RS-4 (PINNED): a whole-second instant keeps the
   `…00Z` form, and "exactly three digits" applies only when a fraction is
   present.
-- **Not part of the guarantee (named).** The rule covers the HTTP wire. The
-  channel / realtime envelope encodings still spell a datetime their own way on
-  python (`isoformat()`) and elixir (`to_iso8601` of a `utc_now()`), and node's
-  channel envelope uses a bare `toISOString()` (`.000Z` on a whole second); none
-  is goldened. Elixir's framework columns (`inserted_at`, the audit/provenance
+- **Extended by owner ruling (#3593, D-CODEC).** The same form applies to a
+  `datetime` in a provenance lineage and inside a channel (CloudEvents)
+  envelope or realtime frame. The lineage half is booted by
+  `corpus/provenance-money` (node, python; .NET, java and elixir are tracked
+  expected failures there on their money lineage first). In the envelope, node
+  spells `time` canonically but still serializes a `datetime` in `data` and in
+  a realtime frame with `JSON.stringify` (`.000Z` on a whole second); python
+  spells all three through `iso()`; .NET and elixir still put sub-millisecond
+  digits there (#3394). None of the envelope is goldened. Elixir's framework columns (`inserted_at`, the audit/provenance
   `at`) stay `:utc_datetime` — second precision, canonically spelled. A deployed
   elixir database created before this rule keeps its `timestamp(0)` columns until
   an operator alters them — see [`migrations.md`](migrations.md).

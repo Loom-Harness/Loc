@@ -26,6 +26,7 @@ import type { EventIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.j
 import { lines } from "../../../util/code-builder.js";
 import { type BrokerBinding, kafkaStartsAtEarliest } from "../../_channels/bindings.js";
 import { decodeField, type WireValueObjectFields } from "../../_channels/wire-codec.js";
+import { tsEnvelopeInstant } from "../codec-spelling.js";
 import { TS_WIRE_DECODE } from "../wire-codec.js";
 
 /** The per-binding driver pick in `createChannelTransports` — a direct
@@ -601,7 +602,7 @@ export function renderChannelsModule(
       "    id: __loomEventId ?? `${Date.now().toString(36)}-${process.pid.toString(36)}-${counter.toString(36)}`,",
       "    type: `${context}.${type}`,",
       "    source: `/loom/${context}`,",
-      "    time: new Date().toISOString(),",
+      `    time: ${tsEnvelopeInstant("new Date()")},`,
       '    datacontenttype: "application/json",',
       "    loomchannel: address,",
       ...(carriesOrigin ? ["    ...originAttributes(currentEventOrigin()),"] : []),

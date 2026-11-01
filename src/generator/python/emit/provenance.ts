@@ -1,5 +1,6 @@
 import type { AggregateIR, BoundedContextIR, FieldIR } from "../../../ir/types/loom-ir.js";
 import { snake } from "../../../util/naming.js";
+import { pyInstantColumnType } from "../codec-spelling.js";
 
 // ---------------------------------------------------------------------------
 // Python provenance runtime — the FastAPI / SQLAlchemy counterpart of the
@@ -179,7 +180,7 @@ class ProvenanceRecord(Base):
     field: Mapped[str] = mapped_column(Text)
     inputs: Mapped[object] = mapped_column(JSONB)
     computed_value: Mapped[object | None] = mapped_column(JSONB)
-    at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    at: Mapped[datetime] = mapped_column(${pyInstantColumnType()})
     correlation_id: Mapped[str | None] = mapped_column(Text)
     scope_id: Mapped[str | None] = mapped_column(Text)
     actor_id: Mapped[str | None] = mapped_column(Text)

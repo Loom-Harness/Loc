@@ -290,18 +290,34 @@ change to the lineage half is now visible to the wire diff.  It equally rides
 bolted-on sibling key did not.
 
 **A lineage value is encoded by the `Codec` fact** (`src/ir/enrich/codec.ts`,
-D-CODEC).  A `money` input or `computedValue` is written in its wire
-encoding, the RS-12 fixed-scale-4 string (`"3000.3000"`, never `3000.3` or
-`"3000.3"`), and an `int` / `long` is written as its wire number.  Any other
-type's lineage encoding is not ruled yet (`UNRULED` in the fact), so each
-backend records its domain value as it does today.  node writes money through
-the wire encoder.  The other four backends boot `corpus/provenance-money` as
-tracked expected failures (#3527) until each one is moved onto the fact.
+D-CODEC).  Every scalar input or `computedValue` is written in its wire
+encoding: a `money` as the RS-12 fixed-scale-4 string (`"3000.3000"`, never
+`3000.3` or `"3000.3"`), a `decimal` as the RS-24 number, a `datetime` as the
+RS-38 instant (`"2024-03-01T10:20:30Z"`, never `…30.000Z`), and an `int` /
+`long` as its wire number (owner rulings on #3527 and #3593).  node and python
+write each value through their wire encoders.  The other three backends boot
+`corpus/provenance-money` as tracked expected failures (#3527) until each one
+is moved onto the fact.
+
+```ddd
+market: money provenanced
+reviewedAt: datetime provenanced
+operation assess(comparable: money, units: int) { market := comparable * units }
+operation review(at: datetime) { reviewedAt := at }
+```
 
 ```ts
-// node, `market := comparable * units` on a `money provenanced` field
+// node
 const __prov_0 = [{ path: "comparable", value: (comparable == null ? null : comparable.toFixed(4)) }, { path: "units", value: units }];
 const __lin_0: ProvLineage = { …, inputs: __prov_0, computedValue: (this._market == null ? null : this._market.toFixed(4)) };
+const __prov_0 = [{ path: "at", value: (at == null ? null : at.toISOString().replace(/\.000Z$/, "Z")) }];
+```
+
+```python
+# python — the lineage is bound to a JSONB column through `json.dumps`, which
+# refuses a raw `Decimal` or `datetime`
+__prov_0 = [ProvInput(path="comparable", value=(None if comparable is None else money_str(comparable))), ProvInput(path="units", value=units)]
+__prov_0 = [ProvInput(path="at", value=(None if at is None else iso(at)))]
 ```
 
 **Storage is unchanged.** The row still carries a typed value column plus a
