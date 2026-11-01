@@ -131,7 +131,9 @@ describe("MikroORM transactional outbox", () => {
       "await em.nativeUpdate(LoomOutboxRow, { id: row.id }, { dispatchedAt: new Date() });",
     );
     // Failure path: bump the attempt counter, dead-letter once at the ceiling.
-    expect(wf).toContain("await em.nativeUpdate(LoomOutboxRow, { id: row.id }, { attempts, deadAt: dead ? new Date() : null });");
+    expect(wf).toContain(
+      "await em.nativeUpdate(LoomOutboxRow, { id: row.id }, { attempts, deadAt: dead ? new Date() : null });",
+    );
     expect(wf).toContain('event: "event_dead_lettered"');
   });
 
