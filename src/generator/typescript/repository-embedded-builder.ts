@@ -13,6 +13,7 @@ import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { lines } from "../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst, plural } from "../../util/naming.js";
+import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "./paged-locals.js";
@@ -130,7 +131,9 @@ export function buildEmbeddedRepositoryFile(
   const rootEntries: string[] = [`id: aggregate.id as string`];
   for (const f of agg.fields) {
     if (isRefCollection(f.type)) {
-      rootEntries.push(`${f.name}: aggregate.${f.name}.map((x) => x as string)`);
+      rootEntries.push(
+        `${f.name}: aggregate.${escapeTargetFieldMember("ts", f.name)}.map((x) => x as string)`,
+      );
       continue;
     }
     for (const e of projectFieldEntries(f, "aggregate", ctx)) {
@@ -140,17 +143,19 @@ export function buildEmbeddedRepositoryFile(
   for (const c of agg.contains) {
     const toDoc = `${lowerFirst(c.partName)}ToDoc`;
     if (c.collection) {
-      rootEntries.push(`${c.name}: aggregate.${c.name}.map((e) => ${toDoc}(e))`);
+      rootEntries.push(
+        `${c.name}: aggregate.${escapeTargetFieldMember("ts", c.name)}.map((e) => ${toDoc}(e))`,
+      );
     } else if (c.optional) {
       // Optional single containment serialises to a nullable jsonb cell.
       rootEntries.push(
-        `${c.name}: aggregate.${c.name} == null ? null : ${toDoc}(aggregate.${c.name})`,
+        `${c.name}: aggregate.${escapeTargetFieldMember("ts", c.name)} == null ? null : ${toDoc}(aggregate.${escapeTargetFieldMember("ts", c.name)})`,
       );
     } else {
       // Required single containment — the domain getter is typed `Part | null`
       // (defaulted on create); assert before serialising (parity with .NET's
       // `= default!` owned entity).
-      rootEntries.push(`${c.name}: ${toDoc}(aggregate.${c.name}!)`);
+      rootEntries.push(`${c.name}: ${toDoc}(aggregate.${escapeTargetFieldMember("ts", c.name)}!)`);
     }
   }
   const rootRow = `{ ${rootEntries.join(", ")} }`;

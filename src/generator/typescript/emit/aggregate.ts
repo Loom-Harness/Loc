@@ -551,10 +551,14 @@ function renderEntity(
     );
   }
   for (const c of e.contains) {
-    getters.push(`  get ${c.name}(): ${containsGetterType(c)} { return this._${c.name}; }`);
+    getters.push(
+      `  get ${escapeTargetFieldMember("ts", c.name)}(): ${containsGetterType(c)} { return this._${c.name}; }`,
+    );
   }
   for (const d of e.derived) {
-    getters.push(`  get ${d.name}(): ${renderTsType(d.type)} { return ${renderTsExpr(d.expr)}; }`);
+    getters.push(
+      `  get ${escapeTargetFieldMember("ts", d.name)}(): ${renderTsType(d.type)} { return ${renderTsExpr(d.expr)}; }`,
+    );
   }
   // Host-language debug-string hooks delegate to the `inspect` getter
   // emitted by the loop above.  Two slots: `toString()` for

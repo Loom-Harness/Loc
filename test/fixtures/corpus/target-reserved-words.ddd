@@ -193,6 +193,24 @@ system TargetReservedWords {
         kind: Keyword
       }
 
+      valueobject Ctor {
+        constructor: string
+        k: int
+        derived constructor2: string = constructor
+      }
+
+      aggregate Members with crudish {
+        name: string
+        tag: Ctor
+        contains constructor: Slot[]
+        derived self: string = name
+        derived constructor2: string = tag.constructor
+
+        entity Slot {
+          constructor: string
+        }
+      }
+
       aggregate Verbs with crudish {
         tally: int
         operation after(after: int) { tally := after }

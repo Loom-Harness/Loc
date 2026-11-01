@@ -60,8 +60,8 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
     // list so the same diff-sync (insert new / update existing / delete removed)
     // applies uniformly.
     const itemsRef = c.collection
-      ? `${ownerExpr}.${c.name}`
-      : `(${ownerExpr}.${c.name} ? [${ownerExpr}.${c.name}] : [])`;
+      ? `${ownerExpr}.${escapeTargetFieldMember("ts", c.name)}`
+      : `(${ownerExpr}.${escapeTargetFieldMember("ts", c.name)} ? [${ownerExpr}.${escapeTargetFieldMember("ts", c.name)}] : [])`;
     const body = `${indent}  `;
     return [
       "",
@@ -128,7 +128,13 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
   const valueCollectionBlocks = valueCollectionsFor(agg).flatMap((vc) => {
     const vo = findValueObjectInScope(ctx, vc.voName);
     const voEntries = (vo?.fields ?? []).flatMap((vf) =>
-      projectValueEntries(vf.name, vf.type, `e.${vf.name}`, ctx, vf.optional),
+      projectValueEntries(
+        vf.name,
+        vf.type,
+        `e.${escapeTargetFieldMember("ts", vf.name)}`,
+        ctx,
+        vf.optional,
+      ),
     );
     const rowFields = [
       `parentId: aggregate.id as string`,
@@ -463,7 +469,7 @@ function projectValueEntries(
         projectValueEntries(
           `${fieldName}_${vf.name}`,
           vf.type,
-          `${valueExpr}!.${vf.name}`,
+          `${valueExpr}!.${escapeTargetFieldMember("ts", vf.name)}`,
           ctx,
           false,
         ).map((e) => ({ fieldName: e.fieldName, expr: `(${guard} ? null : ${e.expr})` })),
@@ -473,7 +479,7 @@ function projectValueEntries(
       projectValueEntries(
         `${fieldName}_${vf.name}`,
         vf.type,
-        `${valueExpr}.${vf.name}`,
+        `${valueExpr}.${escapeTargetFieldMember("ts", vf.name)}`,
         ctx,
         false,
       ),

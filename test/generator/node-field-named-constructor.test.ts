@@ -15,6 +15,14 @@ system S { subdomain D { context C {
     contains items: Item[]
     entity Item { constructor: string  q: int }
   }
+  valueobject V { constructor: string  k: int  derived constructor2: string = constructor }
+  aggregate B with crudish {
+    name: string
+    tag: V
+    contains constructor: Slot[]
+    derived constructor2: string = name
+    entity Slot { constructor: string }
+  }
 } }
   storage p { type: postgres }
   resource r { for: C, kind: state, use: p }
@@ -37,5 +45,23 @@ describe("node: a field named `constructor`", () => {
     // The wire contract and the column stay `constructor`.
     expect(files.get("api/http/a.routes.ts")!).toContain("constructor: z.string()");
     expect(files.get("api/db/schema.ts")!).toContain('constructor: text("constructor")');
+  });
+
+  it("escapes value-object fields, containments and derived members the same way", async () => {
+    const files = await generateSystemFiles(SRC);
+    const vo = files.get("api/domain/value-objects.ts")!;
+    expect(vo).toContain("readonly constructor_: string;");
+    expect(vo).toContain("this.constructor_ = constructor;");
+    expect(vo).toContain("this.constructor_ === other.constructor_");
+    expect(vo).not.toMatch(/readonly constructor:/);
+
+    const b = files.get("api/domain/b.ts")!;
+    expect(b).toContain("get constructor_(): readonly Slot[]");
+    expect(b).not.toMatch(/get constructor\(/);
+
+    const wire = files.get("api/db/repositories/b-repository.ts")!;
+    expect(wire).toContain("constructor: root.constructor_.map(");
+    expect(wire).toContain("constructor: e.constructor_");
+    expect(wire).toContain("constructor: root.tag.constructor_");
   });
 });
