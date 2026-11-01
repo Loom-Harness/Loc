@@ -28,11 +28,7 @@ async function diagnose(source: string): Promise<LoomDiagnostic[]> {
 
 /** Every command gated admin-only; the reads gated only when `readGate` is
  *  given (the policy line), so without it the by-id read is ungated. */
-function vault(opts: {
-  enforcement: string;
-  authRequired?: boolean;
-  readGate?: string;
-}): string {
+function vault(opts: { enforcement: string; authRequired?: boolean; readGate?: string }): string {
   return `
 system S {
   user { id: guid  role: string }

@@ -24,7 +24,7 @@
 // OpenAPI declaration on five backends at once.
 
 import { describe, expect, it } from "vitest";
-import type { BoundedContextIR, LoomModel } from "../../src/ir/types/loom-ir.js";
+import type { BoundedContextIR, FindIR, LoomModel } from "../../src/ir/types/loom-ir.js";
 import {
   type ApiOperationIR,
   absenceUnionAbsent,
@@ -165,12 +165,11 @@ describe("api-surface — 422 follows the PARSED request part, not the kind (F6)
     const all = deriveContextOperations(orders(model)).find((o) => o.kind === "find")!.find!;
     expect(all.name).toBe("all");
     expect(findValidatesRequest(all), "paged return").toBe(true);
-    const ORDER = { kind: "entity", name: "Order" } as const;
-    const byCode = {
+    const byCode: FindIR = {
       name: "byCode",
       params: [{ name: "code", type: { kind: "primitive", name: "string" } }],
-      returnType: { kind: "optional", inner: ORDER },
-    } as const;
+      returnType: { kind: "optional", inner: { kind: "entity", name: "Order" } },
+    };
     expect(findValidatesRequest(byCode), "declares a param").toBe(true);
     expect(findValidatesRequest({ ...byCode, params: [] }), "neither").toBe(false);
   });

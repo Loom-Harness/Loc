@@ -109,8 +109,6 @@ describe("unions — monomorphization (P4b)", () => {
     // the named union already covers the shape.
     expect(payloads.some((p) => p.name === "OrderPlacedOrOrderCancelled")).toBe(false);
   });
-
-
 });
 
 describe("unions — stdlib helpers (P4a)", () => {

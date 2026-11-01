@@ -174,6 +174,8 @@ describe("block-body function — non-queryable", () => {
       }`,
       ),
     );
-    expect(codes.join(" ")).toMatch(/loom\.(criterion-not-selectable|retrieval-where-not-queryable)/);
+    expect(codes.join(" ")).toMatch(
+      /loom\.(criterion-not-selectable|retrieval-where-not-queryable)/,
+    );
   });
 });
