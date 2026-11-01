@@ -1,8 +1,8 @@
 // Auth gate for the Python backend (docs/auth.md): `auth: required`
 // emits the User dataclass + verifier registry + middleware; a
 // `requires`-guarded operation denies with 403 (ForbiddenError), a
-// currentUser-scoped find threads the actor into the repository
-// predicate, and a guarded workflow binds the actor before its guard.
+// currentUser-scoped criterion read (`scaffoldGet(of: Mine)`) reads the
+// actor into the repository predicate, and a guarded workflow binds the actor before its guard.
 system AuthSys {
   user {
     id: string
@@ -14,7 +14,7 @@ system AuthSys {
   subdomain Sales {
     permissions { ordersCancel }
 
-    context Orders {
+    context Orders with scaffoldGet(of: Mine) {
       aggregate Order {
         customerId: string
         status: string
@@ -30,9 +30,8 @@ system AuthSys {
           expect(o.status).toBe("cancelled")
         }
       }
-      repository Orders for Order {
-        find mine(): Order? where customerId == currentUser.customerId
-      }
+      repository Orders for Order
+      criterion Mine of Order = customerId == currentUser.customerId
 
       workflow CancelOrder {
         create(order: Order id) {
@@ -44,7 +43,7 @@ system AuthSys {
     }
   }
 
-  api OrdersApi from Sales
+  api OrdersApi with scaffoldGetApi(of: Mine) from Sales
 
   storage pg { type: postgres }
   resource ordersState { for: Orders, kind: state, use: pg }
