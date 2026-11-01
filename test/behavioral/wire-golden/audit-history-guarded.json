@@ -196,14 +196,20 @@
       "method": "GET",
       "path": "/api/payslips",
       "status": 200,
-      "body": [
-        {
-          "amount": 3000,
-          "id": "<volatile:key>",
-          "period": "2026-10",
-          "version": 1
-        }
-      ]
+      "body": {
+        "items": [
+          {
+            "amount": 3000,
+            "id": "<volatile:key>",
+            "period": "2026-10",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
     },
     {
       "seq": 9,
@@ -488,14 +494,20 @@
       "method": "GET",
       "path": "/api/payslips",
       "status": 200,
-      "body": [
-        {
-          "amount": 3000,
-          "id": "<volatile:key>",
-          "period": "2026-10",
-          "version": 1
-        }
-      ]
+      "body": {
+        "items": [
+          {
+            "amount": 3000,
+            "id": "<volatile:key>",
+            "period": "2026-10",
+            "version": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
     },
     {
       "seq": 26,

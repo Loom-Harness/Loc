@@ -197,12 +197,7 @@ function corpusFixtures(): { name: string; source: string }[] {
  *  expected; every other error still fails, and an entry that stops firing must
  *  be deleted. */
 const INJECTED_HANDLER_REFUSALS: Record<string, readonly string[]> = {
-  "api-call.ddd": ["queryHandler 'ByCodeOrder' returns 'Order option'"],
   "paged.ddd": ["queryHandler 'AllOrder' returns 'Order paged'"],
-  "union-find-absence.ddd": [
-    "queryHandler 'ByCodeOrder' returns 'Order or NotFound'",
-    "queryHandler 'MaybeFirstOrder' returns 'Order option'",
-  ],
 };
 
 async function census(): Promise<{

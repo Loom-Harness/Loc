@@ -1,5 +1,5 @@
 // Printer arms for the `ignoring` filter-bypass clause (named-filter-bypass.md
-// §11): find (print-structural) and the inline read (print-expr).  Each case
+// §11) on an inline read (print-expr): single-row and list.  Each case
 // round-trips through parse → print → re-parse with stable bypass fields,
 // guarding `print-completeness` against the grammar attachments.
 
@@ -45,22 +45,28 @@ async function printAndReparse(source: string): Promise<{ printed: string; model
 }
 
 describe("ignoring filter-bypass printer", () => {
-  it("find: `ignoring <Cap>` round-trips", async () => {
+  it("single-row read: `Repo.find(C) ignoring <Cap>` round-trips", async () => {
     const { printed } = await printAndReparse(
-      wrap(`repository R for Order {
-        find recent(): Order? where this.total > 0 ignoring softDeletable
-      }`),
+      wrap(`repository R for Order
+        workflow Peek {
+          create(x: int) {
+            let o = R.find(BigOrders()) ignoring softDeletable
+          }
+        }`),
     );
-    expect(printed).toContain("ignoring softDeletable");
+    expect(printed).toContain("R.find(BigOrders()) ignoring softDeletable");
   });
 
-  it("find: `ignoring *` round-trips", async () => {
+  it("single-row read: `Repo.findById(id) ignoring *` round-trips", async () => {
     const { printed } = await printAndReparse(
-      wrap(`repository R for Order {
-        find allRows(): Order? ignoring *
-      }`),
+      wrap(`repository R for Order
+        workflow Peek {
+          create(id: Order id) {
+            let o = R.findById(id) ignoring *
+          }
+        }`),
     );
-    expect(printed).toContain("ignoring *");
+    expect(printed).toContain("R.findById(id) ignoring *");
   });
 
   it("inline read: `Repo.findAll(...) ignoring <Cap>` round-trips", async () => {

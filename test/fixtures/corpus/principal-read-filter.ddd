@@ -54,7 +54,7 @@
 system FieldOps {
   user { id: guid  role: string }
   subdomain Field {
-    context Work {
+    context Work with scaffoldGet(of: MineTitled) {
       aggregate WorkOrder with crudish {
         technicianUserId: guid
         title: string
@@ -65,12 +65,12 @@ system FieldOps {
           technicianUserId := currentUser.id
         }
       }
-      repository WorkOrders for WorkOrder {
-        // The same predicate on a REPOSITORY find, whose query handler threads
-        // the principal into the repository call.  Two rows share the title
-        // "Boiler", so only the principal half makes the read unique.
-        find mineTitled(t: string): WorkOrder? where technicianUserId == currentUser.id && title == t
-      }
+      repository WorkOrders for WorkOrder
+      // The same predicate on a SINGLE-ROW read (`scaffoldGet` — the criterion's
+      // first match), whose handler threads the principal into the repository
+      // call.  Two rows share the title "Boiler", so only the principal half
+      // makes the read unique.
+      criterion MineTitled(t: string) of WorkOrder = technicianUserId == currentUser.id && title == t
       // THE SUBJECT — an author-written predicate over the principal.
       criterion WorkOrdersMine of WorkOrder = this.technicianUserId == currentUser.id
       queryHandler ListWorkOrdersMine(): WorkOrder[] {
@@ -98,7 +98,7 @@ system FieldOps {
       }
     }
   }
-  api WorkApi from Field {
+  api WorkApi with scaffoldGetApi(of: MineTitled) from Field {
     route GET "/mine_work_orders" -> Work.ListWorkOrdersMine
     route GET "/work_orders/mine_by_state/{d}" -> Work.ListWorkOrdersMineByState
     route GET "/work_orders/by_title/{t}" -> Work.ListWorkOrdersByTitle
@@ -130,9 +130,9 @@ system FieldOps {
     expect(api.work.listWorkOrdersMineByState(true).first().title).toBe("Pump")
     // The principal-free find beside it sees BOTH "Boiler" rows.
     expect(api.work.listWorkOrdersByTitle("Boiler").count()).toBe(2)
-    // The repository find reads the same principal.
-    expect(api.work_orders.mineTitled({ t: "Boiler" }).technicianUserId).toBe("00000000-0000-0000-0000-000000000000")
-    expect(api.work_orders.mineTitled({ t: "Pump" }).done).toBe(true)
+    // The single-row read reads the same principal.
+    expect(api.work.getWorkOrderByMineTitled("Boiler").technicianUserId).toBe("00000000-0000-0000-0000-000000000000")
+    expect(api.work.getWorkOrderByMineTitled("Pump").done).toBe(true)
 
     // The caller claims the other technician's row: the operation body writes
     // the principal's id, and every filter follows.

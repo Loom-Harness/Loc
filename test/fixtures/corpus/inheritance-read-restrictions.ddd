@@ -41,7 +41,7 @@ system InheritanceReadRestrictions {
   tenancy by user.tenantId of Organization
 
   subdomain Fleet {
-    context Fleet with scaffoldGet(of: ByPlate), scaffoldGet(of: ByPlateAll), scaffoldGet(of: ByPlateAnyTenant), scaffoldGet(of: ByName), scaffoldGet(of: ByNameAll) {
+    context Fleet with scaffoldGet(of: ByPlate), scaffoldGet(of: ByName) {
       // ── TPH: one shared `vehicles` table, discriminated by `kind` ────────
       abstract aggregate Vehicle inheritanceUsing: sharedTable with tenantOwned {
         plate: string
@@ -70,10 +70,22 @@ system InheritanceReadRestrictions {
       // No clause: every conjunct (kind, seats, not-deleted, tenant).
       criterion ByPlate(p: string) of Car = this.plate == p
       // Drops ONLY the not-deleted conjunct.
-      criterion ByPlateAll(p: string) of Car = this.plate == p
+      queryHandler GetCarByPlateAll(p: string): Car {
+        if let x = Cars.find(ByPlate(p)) ignoring softDeletable {
+          return x
+        } else {
+          notFound "not_found"
+        }
+      }
       // Drops ONLY the tenant conjunct.  Deliberate for this fixture: it is
       // the one surface where tenant `globex` must SEE acme's row.
-      criterion ByPlateAnyTenant(p: string) of Car = this.plate == p
+      queryHandler GetCarByPlateAnyTenant(p: string): Car {
+        if let x = Cars.find(ByPlate(p)) ignoring tenantOwned {
+          return x
+        } else {
+          notFound "not_found"
+        }
+      }
       repository Trucks for Truck { }
 
       // ── TPC: one table per concrete, per-concrete ids ─────────────────────
@@ -92,7 +104,13 @@ system InheritanceReadRestrictions {
       }
       repository Drivers for Driver { }
       criterion ByName(n: string) of Driver = this.name == n
-      criterion ByNameAll(n: string) of Driver = this.name == n
+      queryHandler GetDriverByNameAll(n: string): Driver {
+        if let x = Drivers.find(ByName(n)) ignoring softDeletable {
+          return x
+        } else {
+          notFound "not_found"
+        }
+      }
       repository Dispatchers for Dispatcher { }
     }
 
@@ -105,7 +123,11 @@ system InheritanceReadRestrictions {
     }
   }
 
-  api FleetApi with scaffoldGetApi(of: ByPlate), scaffoldGetApi(of: ByPlateAll), scaffoldGetApi(of: ByPlateAnyTenant), scaffoldGetApi(of: ByName), scaffoldGetApi(of: ByNameAll) from Fleet
+  api FleetApi with scaffoldGetApi(of: ByPlate), scaffoldGetApi(of: ByName) from Fleet {
+    route GET "/cars/by_plate_all" -> Fleet.GetCarByPlateAll
+    route GET "/cars/by_plate_any_tenant" -> Fleet.GetCarByPlateAnyTenant
+    route GET "/drivers/by_name_all" -> Fleet.GetDriverByNameAll
+  }
 
   storage pg { type: postgres }
   resource fleetState { for: Fleet, kind: state, use: pg }

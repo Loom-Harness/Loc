@@ -340,8 +340,6 @@ export const AUTHZ_LADDERS = {
       // The compiler-derived by-id read, gated by the fixture's
       // `policy { read Order requires … }`.
       { label: "gated by-id read", method: "GET", path: "/api/orders/{id}" },
-      // …and the same declared find's own route, under the same gate.
-      { label: "gated byId find route", method: "GET", path: "/api/orders/by_id?id={id}" },
     ],
     arms: { anonymous: null, unauthorized: 403, authorized: 200 },
     anonymousNote: "dev-stub verifier accepts every request — no anonymous caller exists",
@@ -830,7 +828,7 @@ export const AUTHZ_LADDERS = {
         rowVisible: { otherTenant: false, authorized: true },
       },
       {
-        label: "relational — a foreign tenant's clause-less find",
+        label: "relational — a foreign tenant's clause-less single-row read",
         seed: { path: "/api/orders", body: { code: "LADDER-O3", total: "1.00" } },
         method: "GET",
         path: "/api/orders/scoped?c=LADDER-O3",
@@ -866,29 +864,6 @@ export const AUTHZ_LADDERS = {
         path: "/api/notes",
         arms: { anonymous: null, unauthorized: 200, otherTenant: 200, authorized: 200 },
         rowVisible: { otherTenant: false, authorized: true },
-      },
-      {
-        label: "document — a foreign tenant's clause-less find",
-        seed: { path: "/api/notes", body: { body: "LADDER-N3" } },
-        method: "GET",
-        path: "/api/notes/scoped_note?b=LADDER-N3",
-        arms: { anonymous: null, unauthorized: 200, otherTenant: 404, authorized: 200 },
-      },
-      {
-        label: "document — `ignoring tenantOwned` lets a foreign tenant see the row",
-        seed: { path: "/api/notes", body: { body: "LADDER-N4" } },
-        method: "GET",
-        path: "/api/notes/any_tenant_note?b=LADDER-N4",
-        arms: { anonymous: null, unauthorized: 200, otherTenant: 200, authorized: 200 },
-        rowVisible: { otherTenant: true, authorized: true },
-      },
-      {
-        label: "document — `ignoring *` lets a foreign tenant see the row",
-        seed: { path: "/api/notes", body: { body: "LADDER-N5" } },
-        method: "GET",
-        path: "/api/notes/unfiltered_note?b=LADDER-N5",
-        arms: { anonymous: null, unauthorized: 200, otherTenant: 200, authorized: 200 },
-        rowVisible: { otherTenant: true, authorized: true },
       },
     ],
     arms: { anonymous: null, unauthorized: 200, authorized: 200 },
