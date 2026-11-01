@@ -60,6 +60,8 @@ describe("typescript generator — reified criteria (repository reads)", () => {
     // `InRegion` is read by `GetInRegion` and retrieval `ByRegion` — one fn.
     const decls = repo.match(/const inRegionCriterion = /g) ?? [];
     expect(decls.length).toBe(1);
-    expect(repo).toMatch(/async runByRegion\(rgn: string[\s\S]*?\.where\(inRegionCriterion\(rgn\)\)/);
+    expect(repo).toMatch(
+      /async runByRegion\(rgn: string[\s\S]*?\.where\(inRegionCriterion\(rgn\)\)/,
+    );
   });
 });

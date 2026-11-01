@@ -126,9 +126,11 @@ describe("mikroorm repositories — reads state only their own where", () => {
     expect(cars).toContain('{ filters: { "tenantOwned": false } }');
     // …each on its own widened read…
     expect(cars).toContain(
-      'async findFirstByPlateIgnoringSoftDeletable(p: string): Promise<Car | null> {',
+      "async findFirstByPlateIgnoringSoftDeletable(p: string): Promise<Car | null> {",
     );
-    expect(cars).toContain('async findFirstByPlateIgnoringTenantOwned(p: string): Promise<Car | null> {');
+    expect(cars).toContain(
+      "async findFirstByPlateIgnoringTenantOwned(p: string): Promise<Car | null> {",
+    );
     // …while the plain criterion read states no switch at all.
     expect(cars).toMatch(
       /async runFindAllByByPlate\([^)]*\)[^{]*\{\n[^\n]*\n\s+const rows = await em\.find\(CarRow, \{ plate: p \}, \{ limit: page\?\.limit, offset: page\?\.offset \}\);/,

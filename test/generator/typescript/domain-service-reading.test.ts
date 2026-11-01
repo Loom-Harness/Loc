@@ -4,9 +4,9 @@
 // A `reading`-tier operation runs read-only repository queries (lowered to
 // `repo-read` Calls).  Its generated declaration gains a READ-PORT parameter per
 // repository it reads (`accounts: AccountRepository`), the body renders the read
-// against that handle (`await accounts.runFindAllByAccountsByHolder(holder)`), and the orchestrating
-// workflow supplies the handle at the call site.  A PURE-tier service stays
-// byte-identical (no port, no `async`, no `await`).
+// against that handle (`await accounts.runFindAllByAccountsByHolder(holder)`),
+// and the orchestrating workflow supplies the handle at the call site.  A
+// PURE-tier service stays byte-identical (no port, no `async`, no `await`).
 
 import { describe, expect, it } from "vitest";
 import { generateHono } from "../../_helpers/generate.js";

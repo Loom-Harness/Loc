@@ -49,7 +49,9 @@ describe("typescript generator — capability filter (contextFilters)", () => {
     expect(repo).toMatch(
       /runFindAllByDocsBySubject[\s\S]*?\.where\(and\(docsBySubjectCriterion\(s\), docScope\(\)\)\)/,
     );
-    expect(repo).toContain("const docsBySubjectCriterion = (s: string) => eq(schema.docs.subject, s);");
+    expect(repo).toContain(
+      "const docsBySubjectCriterion = (s: string) => eq(schema.docs.subject, s);",
+    );
     // … and the repository spells the predicate nowhere itself.
     expect(repo).not.toContain("not(eq(schema.docs.isDeleted, true))");
     expect(repo).toContain('import { docScope } from "../read-scopes";');

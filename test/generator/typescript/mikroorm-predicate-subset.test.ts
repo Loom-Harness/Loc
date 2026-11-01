@@ -195,12 +195,14 @@ describe("a principal-referencing criterion read agrees with its caller", () => 
     expect(calls).toHaveLength(2);
     for (const args of calls) {
       const n = args.split(/,(?![^{]*\})/).filter((x) => x.trim().length > 0).length;
-      expect(n, `route calls runFindAllByMine(${args}) but it declares (${decl})`).toBeGreaterThanOrEqual(
-        required,
-      );
-      expect(n, `route calls runFindAllByMine(${args}) but it declares (${decl})`).toBeLessThanOrEqual(
-        params.length,
-      );
+      expect(
+        n,
+        `route calls runFindAllByMine(${args}) but it declares (${decl})`,
+      ).toBeGreaterThanOrEqual(required);
+      expect(
+        n,
+        `route calls runFindAllByMine(${args}) but it declares (${decl})`,
+      ).toBeLessThanOrEqual(params.length);
     }
   });
 

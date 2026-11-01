@@ -42,10 +42,7 @@ describe("typescript generator — single-result read hydrates in place", () => 
     const model = await parseValid(SRC);
     const files = generateHono(model);
 
-    const warehouses = method(
-      files.get("db/repositories/warehouse-repository.ts")!,
-      "findByCode",
-    );
+    const warehouses = method(files.get("db/repositories/warehouse-repository.ts")!, "findByCode");
     // The redundant re-fetch is gone.
     expect(warehouses).not.toContain("await this.findById(rootRows[0]!.id");
     // The row in hand is hydrated directly, and its containment is bulk-loaded
