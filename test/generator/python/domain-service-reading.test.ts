@@ -5,7 +5,7 @@
 // A `reading`-tier operation runs read-only repository queries (lowered to
 // `repo-read` Calls).  Its generated declaration gains a READ-PORT parameter per
 // repository it reads (`accounts: AccountRepository`), AHEAD of the user params;
-// the body renders the read against that handle (`await accounts.by_holder(...)`),
+// the body renders the read against that handle (`await accounts.run_find_all_by_accounts_by_holder(...)`),
 // the op becomes `async def`, and the orchestrating workflow constructs the repo
 // and supplies the handle at the call site.  A PURE-tier service stays
 // byte-identical (no port, no `async`, no `await`).
@@ -24,7 +24,7 @@ const READING = `system PyReading {
         balance: Money
       }
 
-      repository Accounts for Account { }
+      repository Accounts for Account
       criterion AccountsByHolder(holder: string) of Account = this.holder == holder
 
       // reading tier — read-only repo query, orchestrator-only.
@@ -83,8 +83,11 @@ describe("python generator — domainService reading tier", () => {
       "async def both_available(accounts: AccountRepositoryPort, source: str, dest: str) -> bool:",
     );
     // The `repo-read` arm renders against the threaded handle, await-wrapped.
-    expect(svc!).toContain("await accounts.by_holder(source)");
-    expect(svc!).toContain("await accounts.by_holder(dest)");
+    // `find(C)` is the criterion's first match (or None).
+    expect(svc!).toContain(
+      "((lambda __r: __r[0] if __r else None)(await accounts.run_find_all_by_accounts_by_holder(source))) is None",
+    );
+    expect(svc!).toContain("await accounts.run_find_all_by_accounts_by_holder(dest)");
     // The PORT Protocol is imported from the domain layer — the concrete
     // `app.db.repositories` class is NOT (that backward edge is the S7 defect).
     expect(svc!).toContain("from app.domain.repository_ports import AccountRepositoryPort");
@@ -125,8 +128,8 @@ describe("python generator — pure domainService stays byte-identical", () => {
         error CouponExpired { code: string }
         aggregate Customer { tier: string }
         aggregate Cart { subtotal: money }
-        repository Customers for Customer { }
-        repository Carts for Cart { }
+        repository Customers for Customer
+        repository Carts for Cart
         domainService Pricing {
           operation quote(cart: Cart, customer: Customer): money {
             return cart.subtotal
