@@ -7,7 +7,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // The Ash foundation installs a `filter <expr>` capability once via the
 // resource `base_filter`; plain Ecto has no global query filter, so the
 // generated vanilla modules must AND the predicate into EVERY root read of the
-// aggregate — `list/0`, `find_by_id/1`, each custom find, and every retrieval.
+// aggregate — `list/0`, `find_by_id/1`, each criterion find, and every retrieval.
 // (Before this, a vanilla capability filter was silently dropped,
 // so reads returned soft-deleted / out-of-scope rows.)
 //
@@ -19,7 +19,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 const SOURCE = `
 system Catalog {
   subdomain Core {
-    context Shop {
+    context Shop with scaffoldPaged(of: OrdersByCustomer) {
       aggregate Order {
         customerId: string
         total: int
@@ -31,7 +31,7 @@ system Catalog {
       retrieval BigOrders(min: int) of Order { where: total >= min  sort: [total desc] }
     }
   }
-  api CatalogApi from Core
+  api CatalogApi with scaffoldPagedApi(of: OrdersByCustomer) from Core
   storage pg { type: postgres }
   resource orderState { for: Shop, kind: state, use: pg }
   deployable api {
@@ -67,8 +67,10 @@ describe("vanilla capability filter — AND-ed into every read", () => {
     expect(repo).toContain("import Ecto.Query");
   });
 
-  it("conjoins the filter into a custom find's own where", async () => {
+  it("conjoins the filter into a criterion find's own where", async () => {
+    // `scaffoldPaged` synthesises the repository's `find_all_by_<criterion>`.
     const repo = file(await gen(), "/shop/order_repository.ex");
+    expect(repo).toContain("def find_all_by_orders_by_customer(customer_id,");
     expect(repo).toContain("where: (record.customer_id == ^customer_id) and (not record.archived)");
   });
 
