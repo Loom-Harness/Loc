@@ -75,9 +75,8 @@ describe("validation — scalar intrinsic calls", () => {
     const src = `
       context C {
         aggregate Product { name: string }
-        repository Products for Product {
-          find bad(q: string): Product? where this.name.substring(0, 3) == q
-        }
+        repository Products for Product { }
+        criterion ProductsBad(q: string) of Product = this.name.substring(0, 3) == q
       }
     `;
     const { model, errors } = await parseString(src);
@@ -157,11 +156,10 @@ describe("validation — scalar intrinsic calls", () => {
     const src = `
       context C {
         aggregate Product { qty: int amount: decimal }
-        repository Products for Product {
-          find q1(n: int): Product? where this.qty.abs() > n
-          find q2(a: decimal): Product? where this.amount.round(2) == a
-          find q3(a: decimal): Product? where this.amount.min(a) == a
-        }
+        repository Products for Product { }
+        criterion ProductsQ1(n: int) of Product = this.qty.abs() > n
+        criterion ProductsQ2(a: decimal) of Product = this.amount.round(2) == a
+        criterion ProductsQ3(a: decimal) of Product = this.amount.min(a) == a
       }
     `;
     const { model, errors } = await parseString(src);
@@ -254,9 +252,8 @@ describe("validation — scalar intrinsic calls", () => {
     const src = `
       context C {
         aggregate Product { name: string }
-        repository Products for Product {
-          find byName(q: string): Product? where this.name.trim().toLower() == q
-        }
+        repository Products for Product { }
+        criterion ProductsByName(q: string) of Product = this.name.trim().toLower() == q
       }
     `;
     const { errors } = await parseString(src);

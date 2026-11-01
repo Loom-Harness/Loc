@@ -22,7 +22,7 @@
 // layouts.  Keep it that way.
 system Parties {
   subdomain Registry {
-    context Parties {
+    context Parties with scaffoldGet(of: ByEmail) {
       valueobject SiteCode {
         region: string
         code: string
@@ -39,15 +39,14 @@ system Parties {
       abstract aggregate Asset inheritanceUsing: ownTable { label: string }
       aggregate Machine extends Asset { serial: string  site: SiteCode }
       aggregate Vehicle extends Asset { plate: string }
-      repository Customers for Customer {
-        find byEmail(email: string): Customer? where this.email == email
-      }
+      repository Customers for Customer { }
+      criterion ByEmail(email: string) of Customer = this.email == email
       repository Vendors for Vendor { }
       repository Machines for Machine { }
       repository Vehicles for Vehicle { }
     }
   }
-  api PartiesApi from Registry
+  api PartiesApi with scaffoldGetApi(of: ByEmail) from Registry
   storage pg { type: postgres }
   resource partiesState { for: Parties, kind: state, use: pg }
   deployable d {
@@ -79,7 +78,7 @@ system Parties {
     api.customers.raiseLimit(c, { by: 50 })
     let raised = api.customers.getById(c)
     expect(raised.creditLimit).toBe(300)
-    let found = api.customers.byEmail({ email: "a@x.com" })
+    let found = api.parties.getCustomerByEmail("a@x.com")
     expect(found.creditLimit).toBe(300)
 
     // NOTE — there is deliberately no `api.parties.getById(...)` here, and the
@@ -127,7 +126,7 @@ system Parties {
     // column must stop answering.
     api.customers.destroy(c)
     expect(api.customers.getById(c)).toThrow(404)
-    expect(api.customers.byEmail({ email: "a@x.com" })).toThrow(404)
+    expect(api.parties.getCustomerByEmail("a@x.com")).toThrow(404)
     let afterDelete = api.customers.all()
     expect(afterDelete.length).toBe(0)
   }

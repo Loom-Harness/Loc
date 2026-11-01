@@ -69,9 +69,8 @@ system Shop {
         sku: string
         name: string
       }
-      repository Products for Product {
-        find bySku(sku: string): Product? where this.sku == sku
-      }
+      repository Products for Product { }
+      criterion ProductsBySku(sku: string) of Product = this.sku == sku
     }
   }
   storage pg { type: postgres }

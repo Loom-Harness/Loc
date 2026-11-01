@@ -266,10 +266,10 @@ describe("mikroorm — widened find predicates (bare boolean / unary NOT)", () =
       }
       repository Orders for Order {
         find live(): Order? where this.active
-        find inactive(): Order? where !this.active
-        find liveOrArchived(): Order? where this.active || this.archived
-        find complex(): Order? where this.active && !this.archived
       }
+      criterion OrdersInactive of Order = !this.active
+      criterion OrdersLiveOrArchived of Order = this.active || this.archived
+      criterion OrdersComplex of Order = this.active && !this.archived
     }
   }
   storage pg { type: postgres }
@@ -395,9 +395,8 @@ describe("mikroorm — principal-referencing (tenancy) `filter` predicates", () 
         balance: int
         filter this.tenantId == currentUser.tenantId
       }
-      repository Accounts for Account {
-        find byMinBalance(min: int): Account? where this.balance >= min
-      }
+      repository Accounts for Account { }
+      criterion AccountsByMinBalance(min: int) of Account = this.balance >= min
     }
   }
   storage pg { type: postgres }
@@ -1093,9 +1092,8 @@ describe("mikroorm — shape: document (wave 3)", () => {
           sections += Section { heading: heading, body: body }
         }
       }
-      repository Articles for Article {
-        find popular(min: int): Article? where this.viewCount >= min
-      }
+      repository Articles for Article { }
+      criterion ArticlesPopular(min: int) of Article = this.viewCount >= min
     }
   }
   storage pg { type: postgres }

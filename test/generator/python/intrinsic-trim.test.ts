@@ -27,9 +27,8 @@ system Shop {
   subdomain Catalog {
     context Catalog {
       aggregate Product { name: string }
-      repository Products for Product {
-        find byName(q: string): Product? where this.name == q.trim()
-      }
+      repository Products for Product { }
+      criterion ProductsByName(q: string) of Product = this.name == q.trim()
     }
   }
   api CatalogApi from Catalog
@@ -56,9 +55,8 @@ system Shop {
         name: string
         derived slug: string = name.trim().toLower()
       }
-      repository Products for Product {
-        find byNameCi(q: string): Product? where this.name.toLower() == q
-      }
+      repository Products for Product { }
+      criterion ProductsByNameCi(q: string) of Product = this.name.toLower() == q
     }
   }
   api CatalogApi from Catalog
@@ -100,12 +98,11 @@ system Shop {
         derived weightRounded: decimal = weight.round(1)
         derived weightCeil: decimal = weight.ceil()
       }
-      repository Products for Product {
-        find byRoundedPrice(q: money): Product? where this.price.round(2) == q
-        find byWholeWeight(q: decimal): Product? where this.weight.round() == q
-        find byMinQty(q: int): Product? where this.qty.min(5) == q
-        find byNormalizedWeight(q: decimal): Product? where this.weight == q.round(1)
-      }
+      repository Products for Product { }
+      criterion ProductsByRoundedPrice(q: money) of Product = this.price.round(2) == q
+      criterion ProductsByWholeWeight(q: decimal) of Product = this.weight.round() == q
+      criterion ProductsByMinQty(q: int) of Product = this.qty.min(5) == q
+      criterion ProductsByNormalizedWeight(q: decimal) of Product = this.weight == q.round(1)
     }
   }
   api CatalogApi from Catalog

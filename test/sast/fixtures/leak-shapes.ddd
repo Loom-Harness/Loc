@@ -35,14 +35,12 @@ system LeakShapes {
 
       repository Organizations for Organization { }
 
-      repository Secrets for Secret {
-        find byCode(c: string): Secret? where this.code == c
-        find everything(c: string): Secret? where this.code == c ignoring *
-      }
+      repository Secrets for Secret { }
+      criterion SecretsByCode(c: string) of Secret = this.code == c
+      criterion SecretsEverything(c: string) of Secret = this.code == c
 
-      repository Orders for Order {
-        find allTenants(c: string): Order? where this.code == c ignoring *
-      }
+      repository Orders for Order { }
+      criterion OrdersAllTenants(c: string) of Order = this.code == c
 
       projection OrderVolume {
         total: int

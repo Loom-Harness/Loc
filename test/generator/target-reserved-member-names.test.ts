@@ -345,7 +345,6 @@ const TS_RESERVED_SRC = `
 
         repository Things for Thing {
           find byClass(class: string, new: int): Thing? where this.class == class && this.new >= new
-          find viaClass(class: string): Thing? where InClass(class)
         }
 
         domainService Calc {

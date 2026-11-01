@@ -16,9 +16,8 @@ const SRC = `
       party: Pokemon id[]
       caught: Pokemon id[]
     }
-    repository Trainers for Trainer {
-      find holdingInParty(pokemon: Pokemon id): Trainer? where this.party.contains(pokemon)
-    }
+    repository Trainers for Trainer { }
+    criterion TrainersHoldingInParty(pokemon: Pokemon id) of Trainer = this.party.contains(pokemon)
   }
 `;
 
@@ -79,9 +78,8 @@ describe("reference-collection join tables (TS/Hono)", () => {
       context Roster {
         aggregate Pokemon { species: string }
         aggregate Trainer { name: string  party: Pokemon id[] }
-        repository Trainers for Trainer {
-          find holding(pokemon: Pokemon id): Trainer? where this.party.contains(pokemon)
-        }
+        repository Trainers for Trainer { }
+        criterion TrainersHolding(pokemon: Pokemon id) of Trainer = this.party.contains(pokemon)
       }
     `;
     const ok = toLoomModel((await parseString(okSrc)).model);
@@ -91,9 +89,8 @@ describe("reference-collection join tables (TS/Hono)", () => {
       context Roster {
         aggregate Pokemon { species: string }
         aggregate Trainer { name: string  party: Pokemon id[] }
-        repository Trainers for Trainer {
-          find big(): Trainer? where this.party.count > 0
-        }
+        repository Trainers for Trainer { }
+        criterion TrainersBig of Trainer = this.party.count > 0
       }
     `;
     const bad = toLoomModel((await parseString(badSrc)).model);

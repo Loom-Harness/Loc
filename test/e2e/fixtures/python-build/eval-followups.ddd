@@ -38,8 +38,8 @@ system PyEvalFollowups {
       }
       repository Folders for Folder {
         find all(): Folder[] where ownerUserId == currentUser.id
-        find byTitle(t: string): Folder? where title == t
       }
+      criterion FoldersByTitle(t: string) of Folder = title == t
 
       aggregate Memo shape: embedded with crudish {
         title: string
@@ -47,8 +47,8 @@ system PyEvalFollowups {
       }
       repository Memos for Memo {
         find all(): Memo[] where archived == false
-        find byTitle(t: string): Memo? where title == t
       }
+      criterion MemosByTitle(t: string) of Memo = title == t
 
       event Opened { account: Account id, owner: string }
       event Deposited { account: Account id, amount: int }
@@ -77,8 +77,8 @@ system PyEvalFollowups {
       }
       repository Accounts for Account {
         find all(): Account[] where balance > 0
-        find byOwner(owner: string): Account? where this.owner == owner
       }
+      criterion AccountsByOwner(owner: string) of Account = this.owner == owner
 
       event OrderPlaced { order: WorkOrder id, at: datetime }
       channel Lifecycle { carries: OrderPlaced  delivery: broadcast  retention: ephemeral }

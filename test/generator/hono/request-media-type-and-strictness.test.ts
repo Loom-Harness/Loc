@@ -31,9 +31,8 @@ system Acme {
           placedAt := at
         }
       }
-      repository Orders for Order {
-        find byQty(min: int): Order? where this.qty >= min
-      }
+      repository Orders for Order { }
+      criterion OrdersByQty(min: int) of Order = this.qty >= min
       workflow reorder {
         create(qty: int) {
           precondition qty > 0

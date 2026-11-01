@@ -33,9 +33,8 @@ system Acme {
         derived display: string = subject
         operation reschedule(when_: datetime) { at := when_ }
       }
-      repository Tickets for Ticket {
-        find openOnes(): Ticket? where open == true
-      }
+      repository Tickets for Ticket { }
+      criterion TicketsOpenOnes of Ticket = open == true
       policy { read Ticket requires true }
     }
   }

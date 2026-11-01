@@ -26,8 +26,8 @@ system Shop {
       repository Items for Item {
         find all(): Item[]
         find bySku(sku: string): Item? where this.sku == sku
-        find maybeFirst(sku: string): Item option where this.sku == sku
       }
+      criterion ItemsMaybeFirst(sku: string) of Item = this.sku == sku
     }
   }
   api CatalogApi from Sales

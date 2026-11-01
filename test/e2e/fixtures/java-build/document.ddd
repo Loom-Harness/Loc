@@ -11,9 +11,8 @@ system DOC {
         }
         operation bump() { viewCount := viewCount + 1 }
       }
-      repository Articles for Article {
-        find popular(min: int): Article? where this.viewCount >= min
-      }
+      repository Articles for Article { }
+      criterion ArticlesPopular(min: int) of Article = this.viewCount >= min
     }
   }
   api A from D

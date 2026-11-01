@@ -32,13 +32,12 @@ system Bank {
         derived clamped: money = balance.min(cap)
         derived atLeast: int = qty.max(0)
       }
-      repository Accounts for Account {
-        find byRound(q: money): Account? where this.balance.round(2) > q
-        find byRoundNoPlaces(q: money): Account? where this.balance.round() > q
-        find byAbsQty(n: int): Account? where this.qty.abs() > n
-        find byMinBal(q: money): Account? where this.balance.min(this.cap) == q
-        find byCeil(q: money): Account? where this.balance.ceil() >= q
-      }
+      repository Accounts for Account { }
+      criterion AccountsByRound(q: money) of Account = this.balance.round(2) > q
+      criterion AccountsByRoundNoPlaces(q: money) of Account = this.balance.round() > q
+      criterion AccountsByAbsQty(n: int) of Account = this.qty.abs() > n
+      criterion AccountsByMinBal(q: money) of Account = this.balance.min(this.cap) == q
+      criterion AccountsByCeil(q: money) of Account = this.balance.ceil() >= q
     }
   }
   api LedgerApi from Banking

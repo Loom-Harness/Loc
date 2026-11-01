@@ -10,7 +10,7 @@
 // fallback.
 system NullableLoad {
   subdomain D {
-    context Shop {
+    context Shop with scaffoldGet(of: ByCode) {
       aggregate Order {
         code: string
         status: string
@@ -23,14 +23,13 @@ system NullableLoad {
         text: string
         create(text: string) { text := text }
       }
-      repository Orders for Order {
-        find byCode(c: string): Order? where this.code == c
-      }
+      repository Orders for Order { }
+      criterion ByCode(c: string) of Order = this.code == c
       repository Notes for Note { }
 
       workflow Labeller {
         create(c: string) {
-          let o = Orders.byCode(c)
+          let o = Orders.find(ByCode(c))
           let text = o != null ? o.status : "missing"
           let n = Note.create({ text: text })
         }
@@ -38,13 +37,13 @@ system NullableLoad {
 
       domainService Lookup {
         operation status(c: string): string {
-          let o = Orders.byCode(c)
+          let o = Orders.find(ByCode(c))
           return o != null ? o.status : "missing"
         }
       }
 
       queryHandler CodeStatus(c: string): string {
-        let o = Orders.byCode(c)
+        let o = Orders.find(ByCode(c))
         return o != null ? o.status : "missing"
       }
       queryHandler ServiceStatus(c: string): string {
@@ -53,7 +52,7 @@ system NullableLoad {
       }
     }
   }
-  api A from D {
+  api A with scaffoldGetApi(of: ByCode) from D {
     route GET "/status/{c}" -> Shop.CodeStatus
     route GET "/service-status/{c}" -> Shop.ServiceStatus
   }
@@ -70,8 +69,8 @@ system NullableLoad {
   test e2e "a nullable load is read behind its guard in every body" against d {
     let o = api.orders.create({ code: "A1", status: "open" })
     expect(api.orders.getById(o).status).toBe("open")
-    expect(api.orders.byCode({ c: "A1" }).status).toBe("open")
-    expect(api.orders.byCode({ c: "ZZ" })).toThrow(404)
+    expect(api.shop.getOrderByCode("A1").status).toBe("open")
+    expect(api.shop.getOrderByCode("ZZ")).toThrow(404)
     expect(api.orders.all().total).toBe(1)
 
     expect(api.shop.codeStatus("A1")).toBe("open")

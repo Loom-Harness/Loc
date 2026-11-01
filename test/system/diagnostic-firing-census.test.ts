@@ -1908,7 +1908,8 @@ system P {
       select queue = t.queue, breached = count(t.breached) }`),
   // A single-row find on `number`, which no `unique (number)` covers.
   "loom.single-row-find-not-unique": repoOnly(`    aggregate Ticket with crudish { number: string }
-    repository Tickets for Ticket { find byNumber(number: string): Ticket? }`),
+    repository Tickets for Ticket { }
+    criterion TicketsByNumber(number: string) of Ticket = this.number == number`),
   "loom.persisted-table-collision": repoOnly(`    aggregate Sweep with crudish { at: datetime }
     repository Sweeps for Sweep { }
     event Tick { sweep: Sweep id }

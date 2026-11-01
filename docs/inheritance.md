@@ -131,9 +131,9 @@ aggregate Car extends Vehicle with tenantOwned, softDeletable, softDelete {
   filter this.seats > 0
 }
 repository Cars for Car {
-  find byPlate(p: string): Car? where this.plate == p
   find byPlateAll(p: string): Car? where this.plate == p ignoring softDeletable
 }
+criterion CarsByPlate(p: string) of Car = this.plate == p
 ```
 
 ```ts

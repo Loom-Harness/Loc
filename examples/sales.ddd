@@ -116,15 +116,13 @@ context Sales {
     }
   }
 
-  repository Orders for Order {
-    // Convention: when no `where` is given, parameters are matched to
-    // aggregate properties of the same name (here `customerId`).
-    find byCustomer(customerId: Customer id): Order?
-    // Explicit predicate over the aggregate root — `this` refers to the
-    // root, parameters are bare identifiers.
-    find activeForCustomer(forCustomer: Customer id): Order?
-      where this.customerId == forCustomer && this.status == Draft
-  }
+  repository Orders for Order { }
+  // Convention: when no `where` is given, parameters are matched to
+  // aggregate properties of the same name (here `customerId`).
+  criterion OrdersByCustomer(customerId: Customer id) of Order = this.customerId == customerId
+  // Explicit predicate over the aggregate root — `this` refers to the
+  // root, parameters are bare identifiers.
+  criterion OrdersActiveForCustomer(forCustomer: Customer id) of Order = this.customerId == forCustomer && this.status == Draft
 
   // Context-level orchestration: validate the customer exists, build a
   // fresh draft order from the request, persist it.  Non-transactional

@@ -288,9 +288,8 @@ system D {
         customer: string
         tags: Tag id[]
       }
-      repository Orders for Order {
-        find withTag(tag: Tag id): Order? where this.tags.contains(tag)
-      }
+      repository Orders for Order { }
+      criterion OrdersWithTag(tag: Tag id) of Order = this.tags.contains(tag)
       repository Tags for Tag { }
     }
   }
@@ -1216,9 +1215,9 @@ system D {
       }
       aggregate Org with crudish { name: string }
       repository Invoices for Invoice {
-        find byNumber(n: string): Invoice? where this.number == n
         find mine(): Invoice? where this.createdBy == currentUser.id
       }
+      criterion InvoicesByNumber(n: string) of Invoice = this.number == n
       repository Orgs for Org { }
     }
   }

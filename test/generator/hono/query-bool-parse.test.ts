@@ -31,9 +31,8 @@ system Shop {
         flagged: bool
         operation mark(wanted: bool) { flagged := wanted }
       }
-      repository Orders for Order {
-        find byFlag(f: bool): Order? where this.flagged == f
-      }
+      repository Orders for Order { }
+      criterion OrdersByFlag(f: bool) of Order = this.flagged == f
       queryHandler CountFlagged(wanted: bool): int {
         let all = Orders.findAll()
         return all.count()

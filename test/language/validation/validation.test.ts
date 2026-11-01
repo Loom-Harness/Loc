@@ -1748,10 +1748,8 @@ describe("Loom IR validation (post-lowering)", async () => {
           customerId: string
           status: OrderStatus
         }
-        repository Orders for Order {
-          find activeForCustomer(c: string): Order?
-            where this.customerId == c && this.status == Open
-        }
+        repository Orders for Order { }
+        criterion OrdersActiveForCustomer(c: string) of Order = this.customerId == c && this.status == Open
       }
     `);
     const diags = validateLoomModel(loom).filter((d) => d.severity === "error");
@@ -1972,9 +1970,8 @@ describe("Loom IR validation (post-lowering)", async () => {
     const loom = await loomFrom(`
       context T {
         aggregate Task { name: string  derived display: string = name }
-        repository Tasks for Task {
-          find byUnknown(p: string): Task? where this.unknownField == p
-        }
+        repository Tasks for Task { }
+        criterion TasksByUnknown(p: string) of Task = this.unknownField == p
       }
     `);
     const diags = validateLoomModel(loom);

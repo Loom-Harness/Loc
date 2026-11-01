@@ -21,7 +21,7 @@
 // --warnings-as-errors — not just an emitted-string assertion.
 system AuditingSystem {
   subdomain Ordering {
-    context Ordering {
+    context Ordering with scaffoldGet(of: ByReference), scaffoldGet(of: ByCode) {
       // Aggregate-wide: create, cancel and destroy all audited; `recalc` is
       // private and therefore never audited.
       aggregate Order audited {
@@ -44,9 +44,8 @@ system AuditingSystem {
         }
         destroy { }
       }
-      repository Orders for Order {
-        find byReference(reference: string): Order? where this.reference == reference
-      }
+      repository Orders for Order { }
+      criterion ByReference(reference: string) of Order = this.reference == reference
 
       // Per-command form: only `dispatch` is audited.  `retag` is deliberately
       // unmarked so the emitted output distinguishes the two on one aggregate.
@@ -60,12 +59,11 @@ system AuditingSystem {
           code := code
         }
       }
-      repository Shipments for Shipment {
-        find byCode(code: string): Shipment? where this.code == code
-      }
+      repository Shipments for Shipment { }
+      criterion ByCode(code: string) of Shipment = this.code == code
     }
   }
-  api OrderingApi from Ordering
+  api OrderingApi with scaffoldGetApi(of: ByReference), scaffoldGetApi(of: ByCode) from Ordering
   storage primary { type: postgres }
   resource orderingState { for: Ordering, kind: state, use: primary }
   deployable d {
@@ -97,7 +95,7 @@ system AuditingSystem {
     expect(read.reference).toBe("R1")
     expect(read.status).toBe(3)
     // The declared find over the column the audited create wrote.
-    let byRef = api.orders.byReference({ reference: "R1" })
+    let byRef = api.ordering.getOrderByReference("R1")
     expect(byRef.status).toBe(3)
 
     // The LIST route — an ordinary read, and audit writes only on COMMANDS, so
@@ -115,7 +113,7 @@ system AuditingSystem {
     // here; a backend that failed the audit insert fails the delete with it.
     api.orders.destroy(o)
     expect(api.orders.getById(o)).toThrow(404)
-    expect(api.orders.byReference({ reference: "R1" })).toThrow(404)
+    expect(api.ordering.getOrderByReference("R1")).toThrow(404)
     let empty = api.orders.all()
     expect(empty.items.length).toBe(0)
     expect(empty.total).toBe(0)
@@ -147,7 +145,7 @@ system AuditingSystem {
     let updated = api.shipments.getById(s)
     expect(updated.code).toBe("SH-3")
     expect(updated.dispatched).toBe(true)
-    let found = api.shipments.byCode({ code: "SH-3" })
+    let found = api.ordering.getShipmentByCode("SH-3")
     expect(found.dispatched).toBe(true)
     // The list route on the per-command form: `Shipment` is NOT aggregate-wide
     // audited, so nothing on this read touches `audit_records` at all.
@@ -160,7 +158,7 @@ system AuditingSystem {
     // the one command that removes its own subject.
     api.shipments.destroy(s)
     expect(api.shipments.getById(s)).toThrow(404)
-    expect(api.shipments.byCode({ code: "SH-3" })).toThrow(404)
+    expect(api.ordering.getShipmentByCode("SH-3")).toThrow(404)
     let empty = api.shipments.all()
     expect(empty.items.length).toBe(0)
     expect(empty.total).toBe(0)

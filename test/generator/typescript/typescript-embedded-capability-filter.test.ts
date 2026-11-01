@@ -23,7 +23,8 @@ system EmbFilter {
         operation archive() { archived := true }
         entity WishItem { sku: string }
       }
-      repository Wishlists for Wishlist { find byLabel(l: string): Wishlist? where label == l }
+      repository Wishlists for Wishlist { }
+      criterion WishlistsByLabel(l: string) of Wishlist = label == l
     }
   }
   api ShopApi from Sales
@@ -97,7 +98,8 @@ system EmbTenancy {
         entity Item { sku: string }
         operation addItem(sku: string) { items += Item { sku: sku } }
       }
-      repository Orders for Order { find byCode(code: string): Order? where this.code == code }
+      repository Orders for Order { }
+      criterion OrdersByCode(code: string) of Order = this.code == code
     }
   }
   api A from D

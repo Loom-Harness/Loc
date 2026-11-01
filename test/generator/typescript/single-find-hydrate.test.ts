@@ -19,9 +19,8 @@ const SRC = `
     repository Warehouses for Warehouse {
       find byCode(code: string): Warehouse? where this.code == code
     }
-    repository Skus for Sku {
-      find byName(name: string): Sku? where this.name == name
-    }
+    repository Skus for Sku { }
+    criterion SkusByName(name: string) of Sku = this.name == name
   }
 `;
 

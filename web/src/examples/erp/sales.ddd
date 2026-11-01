@@ -150,9 +150,8 @@ subdomain Sales {
       sort:  [placedAt desc]
     }
 
-    repository Customers for Customer {
-      find byEmail(email: string): Customer? where this.contact.email == email
-    }
+    repository Customers for Customer { }
+    criterion CustomersByEmail(email: string) of Customer = this.contact.email == email
     criterion CustomersActive of Customer = this.active == true
     repository SalesOrders for SalesOrder { }
     criterion SalesOrdersByCustomer(customerId: Customer id) of SalesOrder = this.customerId == customerId

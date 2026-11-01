@@ -188,9 +188,8 @@ system Bank {
         balance: int
         filter this.tenantId == currentUser.tenantId
       }
-      repository Accounts for Account {
-        find rich(min: int): Account? where balance >= min
-      }
+      repository Accounts for Account { }
+      criterion AccountsRich(min: int) of Account = balance >= min
     }
   }
   api LedgerApi from Core

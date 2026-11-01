@@ -38,8 +38,8 @@ system Shop {
       repository Orders for Order {
         find byCode(code: string): Order? where this.code == code
         find confirmed(): Order? where this.status == confirmed
-        find inCity(city: string): Order? where this.shipTo.city == city
       }
+      criterion OrdersInCity(city: string) of Order = this.shipTo.city == city
       repository Customers for Customer { }
       repository Tags for Tag { }
     }

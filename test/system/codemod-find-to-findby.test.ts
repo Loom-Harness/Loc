@@ -17,20 +17,17 @@ const SRC = `system S { subdomain M { context C {
   repository Products for Product {
     // Looks a product up by its SKU.
     find bySku(s: string): Product? where this.sku == s
-    find mustSku(s: string): Product envelope where s == this.sku
-    find listing(n: string, r: string): Product where name == n && this.region == r
-    find maybeListing(region: string, name: string): Product option ignoring softDeletable
   }
   domainService Q {
     operation taken(s: string): bool { return Products.bySku(s) != null }
   }
   workflow w {
     create(s: string, n: string, r: string) {
-      let a = Products.mustSku(s)
+      let a = Products.getBy(sku: s)
       a.reprice(1)
-      let b = Products.listing(n, r)
+      let b = Products.getBy(name: n, region: r)
       b.reprice(2)
-      if let c = Products.maybeListing(r, n) { c.reprice(3) }
+      if let c = Products.findBy(region: r, name: n) ignoring softDeletable { c.reprice(3) }
       if let d = Products.bySku(s) { d.reprice(4) }
     }
   }
@@ -79,9 +76,9 @@ describe("codemod-find-to-findby", () => {
     // An order of an owner.
     find byOwner(o: string): Order? where this.owner == o
     find big(t: int): Order? where Big(t)
-    find above(t: int): Order option where this.total > t
     find locate(c: string): Order or OrderNotFound where this.code == c
   }
+  criterion OrdersAbove(t: int) of Order = this.total > t
   domainService Q {
     operation owns(o: string): bool { return Orders.byOwner(o) != null }
   }
@@ -89,7 +86,7 @@ describe("codemod-find-to-findby", () => {
     create(o: string, t: int) {
       if let x = Orders.byOwner(o) { x.bump() }
       if let y = Orders.big(t) { y.bump() }
-      if let z = Orders.above(t) { z.bump() }
+      if let z = Orders.find(OrdersAbove(t)) { z.bump() }
     }
   }
 }}}
@@ -116,13 +113,12 @@ describe("codemod-find-to-findby", () => {
     const src = `system S { subdomain M { context C {
   aggregate Order with crudish { total: int  operation bump() { total := total + 1 } }
   repository Orders for Order {
-    find byId2(id: Order id): Order
     find maybe(oid: Order id): Order? where this.id == oid
   }
   domainService Q {
     operation has(oid: Order id): bool { return Orders.maybe(oid) != null }
   }
-  workflow w { create(oid: Order id) { let o = Orders.byId2(oid)
+  workflow w { create(oid: Order id) { let o = Orders.getById(oid)
     o.bump() } }
 }}}
 `;
@@ -170,17 +166,15 @@ describe("codemod-find-to-findby", () => {
     total: int
     operation bump() { total := total + 1 }
   }
-  repository Orders for Order {
-    find scoped(o: string): Order? where this.owner == o ignoring *
-    find anyById(oid: Order id): Order? where this.id == oid ignoring softDeletable
-  }
+  repository Orders for Order { }
+  criterion OrdersScoped(o: string) of Order = this.owner == o
   domainService Q {
-    operation had(oid: Order id): bool { return Orders.anyById(oid) != null }
-    operation owned(o: string): bool { return Orders.scoped(o) == null }
+    operation had(oid: Order id): bool { return Orders.findById(oid) ignoring softDeletable != null }
+    operation owned(o: string): bool { return Orders.find(OrdersScoped(o)) ignoring * == null }
   }
   workflow w {
     create(o: string) {
-      if let x = Orders.scoped(o) { x.bump() }
+      if let x = Orders.find(OrdersScoped(o)) ignoring * { x.bump() }
     }
   }
 }}}
@@ -262,12 +256,13 @@ describe("codemod-find-to-findby", () => {
   aggregate Product with crudish { sku: string  unique (sku) }
   aggregate Order with crudish { total: int
     operation bump() { total := total + 1 } }
-  repository Customers for Customer { find byEmail(e: string): Customer? where this.email == e }
+  repository Customers for Customer { }
+  criterion CustomersByEmail(e: string) of Customer = this.email == e
   repository Products for Product { find bySku(s: string): Product? where this.sku == s }
   repository Orders for Order { find maybe(oid: Order id): Order? where this.id == oid }
   workflow w {
     create(e: string, s: string, oid: Order id) {
-      let c = Customers.byEmail(e)
+      let c = Customers.find(CustomersByEmail(e))
       precondition c != null
       let p = Products.bySku(s)
       requires p == null

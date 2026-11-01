@@ -142,7 +142,8 @@ system EnumXCtx {
         test "neg" { expect(Away.create({ g: A, title: "x" })).toThrow() }
         test "pos" { let a = Away.create({ g: Grade.B, title: "abc" })  expect(a.g).toBe(B) }
       }
-      repository RA for Away { find byGrade(k: Grade): Away? where this.g == k }
+      repository RA for Away { }
+      criterion AwaysByGrade(k: Grade) of Away = this.g == k
     }
   }
   storage primary { type: postgres }

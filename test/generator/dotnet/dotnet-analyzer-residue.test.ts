@@ -50,9 +50,8 @@ system Probe {
         }
       }
       criterion XItem of Item = this.name.startsWith("q")
-      repository Items for Item {
-        find xs(): Item? where this.name.startsWith("w")
-      }
+      repository Items for Item { }
+      criterion ItemsXs of Item = this.name.startsWith("w")
     }
   }
   api SalesApi from Shop

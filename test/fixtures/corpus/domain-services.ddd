@@ -14,7 +14,7 @@
 // (`from`/`to` are reserved).
 system DomainSvc {
   subdomain Accounts {
-    context Accounts {
+    context Accounts with scaffoldGet(of: ByHolder) {
 
       valueobject Money {
         amount: decimal
@@ -79,9 +79,8 @@ system DomainSvc {
         }
       }
 
-      repository Accounts for Account {
-        find byHolder(holder: string): Account? where this.holder == holder
-      }
+      repository Accounts for Account { }
+      criterion ByHolder(holder: string) of Account = this.holder == holder
 
       // ── pure tier ── params only; callable from anywhere, no infrastructure.
       domainService FeeQuote {
@@ -121,7 +120,7 @@ system DomainSvc {
       // workflow orchestrates it as a precondition.
       domainService Registration {
         operation isHolderFree(holder: string): bool {
-          return Accounts.byHolder(holder) == null
+          return Accounts.find(ByHolder(holder)) == null
         }
       }
 
@@ -156,7 +155,7 @@ system DomainSvc {
     }
   }
 
-  api AccountsApi from Accounts
+  api AccountsApi with scaffoldGetApi(of: ByHolder) from Accounts
   storage primary { type: postgres }
   resource accountsState { for: Accounts, kind: state, use: primary }
   deployable d {
@@ -174,7 +173,7 @@ system DomainSvc {
   // save-at-exit persists both.
   test e2e "byHolder returns the account the reading service would find" against d {
     let a = api.accounts.create({ holder: "alice", balance: { amount: 100, currency: "USD" } })
-    let found = api.accounts.byHolder({ holder: "alice" })
+    let found = api.accounts.getAccountByHolder("alice")
     expect(found.holder).toBe("alice")
 
     // The canonical `update` writes the SAME `holder` column the reading
@@ -185,7 +184,7 @@ system DomainSvc {
     api.accounts.update(a, { holder: "alice2", balance: { amount: 100, currency: "USD" } })
     let read = api.accounts.getById(a)
     expect(read.holder).toBe("alice2")
-    let moved = api.accounts.byHolder({ holder: "alice2" })
+    let moved = api.accounts.getAccountByHolder("alice2")
     expect(moved.holder).toBe("alice2")
 
     // The two DOMAIN OPERATIONS over the HTTP routes.  Their arithmetic is
@@ -207,7 +206,7 @@ system DomainSvc {
     // service, and persists both at exit — a transfer is only right if BOTH
     // balances moved.
     api.registerAccount.run({ holder: "bob", balance: { amount: 40, currency: "USD" } })
-    let bob = api.accounts.byHolder({ holder: "bob" })
+    let bob = api.accounts.getAccountByHolder("bob")
     expect(bob.balance.amount).toBe(40)
     api.moveMoney.run({ source: a.id, dest: bob.id, amount: { amount: 15, currency: "USD" } })
     expect(api.accounts.getById(a).balance.amount).toBe(85)
@@ -221,7 +220,7 @@ system DomainSvc {
     api.accounts.destroy(bob.id)
     api.accounts.destroy(a)
     expect(api.accounts.getById(a)).toThrow(404)
-    expect(api.accounts.byHolder({ holder: "alice2" })).toThrow(404)
+    expect(api.accounts.getAccountByHolder("alice2")).toThrow(404)
     let empty = api.accounts.all()
     expect(empty.items.length).toBe(0)
     expect(empty.total).toBe(0)

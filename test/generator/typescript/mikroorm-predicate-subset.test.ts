@@ -208,9 +208,8 @@ const MEMBERSHIP_SYSTEM = `
           tags: Tag id[]
         }
         repository Tags for Tag { }
-        repository Docs for Doc {
-          find tagged(t: Tag id): Doc? where this.tags.contains(t)
-        }
+        repository Docs for Doc { }
+        criterion DocsTagged(t: Tag id) of Doc = this.tags.contains(t)
     `;
 
 describe("reference-collection membership lowers on MikroORM", () => {

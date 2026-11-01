@@ -21,7 +21,8 @@ system DocFilter {
         filter !this.isDeleted
         operation softDelete() { isDeleted := true }
       }
-      repository Carts for Cart { find byLabel(l: string): Cart? where label == l }
+      repository Carts for Cart { }
+      criterion CartsByLabel(l: string) of Cart = label == l
     }
   }
   api ShopApi from Sales
@@ -75,7 +76,8 @@ system DocTenancy {
         filter this.tenantId == currentUser.tenantId
         operation rename(code: string) { code := code }
       }
-      repository Orders for Order { find byCode(c: string): Order? where code == c }
+      repository Orders for Order { }
+      criterion OrdersByCode(c: string) of Order = code == c
     }
   }
   api ShopApi from Sales

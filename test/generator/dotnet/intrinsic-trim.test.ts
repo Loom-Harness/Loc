@@ -14,9 +14,8 @@ describe("dotnet generator — string.trim() intrinsic (stdlib A1 pilot)", () =>
     const src = `
       context Catalog {
         aggregate Product { name: string }
-        repository Products for Product {
-          find byName(q: string): Product? where this.name == q.trim()
-        }
+        repository Products for Product { }
+        criterion ProductsByName(q: string) of Product = this.name == q.trim()
       }
     `;
     const model = await parseValid(src);

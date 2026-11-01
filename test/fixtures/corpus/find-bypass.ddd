@@ -51,7 +51,7 @@ system FindBypass {
   tenancy by user.tenantId of Organization
 
   subdomain Sales {
-    context Orders {
+    context Orders with scaffoldGet(of: Scoped), scaffoldGet(of: AnyTenant), scaffoldGet(of: Unfiltered) {
       // RELATIONAL: the predicates are columns, so each backend pushes them
       // into the query it emits for the find.
       // `softDelete` owns the destroy, so `crudish` drops to `updateOnly`
@@ -75,14 +75,13 @@ system FindBypass {
         }
       }
 
-      repository Orders for Order {
-        // No clause: BOTH conjuncts.
-        find scoped(c: string): Order? where this.code == c
-        // Named bypass: the tenant conjunct goes, not-deleted stays.
-        find anyTenant(c: string): Order? where this.code == c ignoring tenantOwned
-        // `ignoring *`: both conjuncts go.
-        find unfiltered(c: string): Order? where this.code == c ignoring *
-      }
+      repository Orders for Order { }
+      // No clause: BOTH conjuncts.
+      criterion Scoped(c: string) of Order = this.code == c
+      // Named bypass: the tenant conjunct goes, not-deleted stays.
+      criterion AnyTenant(c: string) of Order = this.code == c
+      // `ignoring *`: both conjuncts go.
+      criterion Unfiltered(c: string) of Order = this.code == c
 
       repository Notes for Note {
         find scopedNote(b: string): Note? where this.body == b
@@ -99,7 +98,7 @@ system FindBypass {
     }
   }
 
-  api OrdersApi from Sales
+  api OrdersApi with scaffoldGetApi(of: Scoped), scaffoldGetApi(of: AnyTenant), scaffoldGetApi(of: Unfiltered) from Sales
 
   storage pg { type: postgres }
   resource ordersState { for: Orders, kind: state, use: pg }
@@ -115,18 +114,18 @@ system FindBypass {
 
   test e2e "a bypassing find drops exactly the conjuncts it names, on both persistence shapes" against d {
     let o = api.orders.create({ code: "O-1", total: "5.00" })
-    expect(api.orders.scoped({ c: "O-1" }).code).toBe("O-1")
-    expect(api.orders.anyTenant({ c: "O-1" }).code).toBe("O-1")
-    expect(api.orders.unfiltered({ c: "O-1" }).code).toBe("O-1")
+    expect(api.orders.getOrderByScoped("O-1").code).toBe("O-1")
+    expect(api.orders.getOrderByAnyTenant("O-1").code).toBe("O-1")
+    expect(api.orders.getOrderByUnfiltered("O-1").code).toBe("O-1")
     api.orders.update(o, { code: "O-2", total: "6.00" })
     expect(api.orders.getById(o).code).toBe("O-2")
 
     api.orders.softDelete(o)
-    expect(api.orders.scoped({ c: "O-2" })).toThrow(404)
+    expect(api.orders.getOrderByScoped("O-2")).toThrow(404)
     // `ignoring tenantOwned` keeps the not-deleted conjunct…
-    expect(api.orders.anyTenant({ c: "O-2" })).toThrow(404)
+    expect(api.orders.getOrderByAnyTenant("O-2")).toThrow(404)
     // …`ignoring *` drops it…
-    expect(api.orders.unfiltered({ c: "O-2" }).code).toBe("O-2")
+    expect(api.orders.getOrderByUnfiltered("O-2").code).toBe("O-2")
     // …and the clause-less root reads keep it whatever another find bypasses.
     expect(api.orders.getById(o)).toThrow(404)
     expect(api.orders.all().items.length).toBe(0)

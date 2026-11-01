@@ -15,9 +15,8 @@ system DocumentFilter {
         filter !this.isDeleted
         operation softDelete() { isDeleted := true }
       }
-      repository Carts for Cart {
-        find first(l: string): Cart? where label == l
-      }
+      repository Carts for Cart { }
+      criterion CartsFirst(l: string) of Cart = label == l
       criterion CartsByLabel(l: string) of Cart = label == l
 
       aggregate Wishlist shape: embedded {

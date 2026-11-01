@@ -366,9 +366,8 @@ system Shop {
       aggregate Cart shape: document with crudish {
         reference: string
       }
-      repository Carts for Cart {
-        find byRef(reference: string): Cart or NotFound where this.reference == reference
-      }
+      repository Carts for Cart { }
+      criterion CartsByRef(reference: string) of Cart = this.reference == reference
     }
   }
   storage pg { type: postgres }

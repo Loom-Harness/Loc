@@ -122,14 +122,16 @@ describe("vanilla — workflow body lowering (repo-let / custom find routes thro
                 label := "found"
               }
             }
-            repository Items for Item {
-              find byLabel(label: string): Item where this.label == label
-            }
+            repository Items for Item { }
+            criterion ItemsByLabel(label: string) of Item = this.label == label
 
             workflow findThenMark transactional {
               create(wanted: string) {
-                let i = Items.byLabel(wanted)
-                i.markFound()
+                if let i = Items.find(ItemsByLabel(wanted)) {
+                  i.markFound()
+                } else {
+                  notFound
+                }
               }
             }
           }

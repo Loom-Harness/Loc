@@ -105,14 +105,13 @@ const LEAK_SHAPES = `system LeakShapes {
       // criterion takes it per call, at each \`Repo.run\`), so the bypass
       // shapes stay finds.
       repository Secrets for Secret {
-        find byCode(c: string): Secret? where this.code == c
-        find anyTenant(c: string): Secret? where this.code == c ignoring tenantOwned
         find everything(c: string): Secret? where this.code == c ignoring *
       }
+      criterion SecretsByCode(c: string) of Secret = this.code == c
+      criterion SecretsAnyTenant(c: string) of Secret = this.code == c
 
-      repository Orders for Order {
-        find allTenants(c: string): Order? where this.code == c ignoring *
-      }
+      repository Orders for Order { }
+      criterion OrdersAllTenants(c: string) of Order = this.code == c
 
       projection OrderVolume {
         total: int

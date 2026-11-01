@@ -26,9 +26,8 @@ system Catalog {
         archived: bool
         filter !this.archived
       }
-      repository Orders for Order {
-        find byCustomer(customerId: string): Order? where this.customerId == customerId
-      }
+      repository Orders for Order { }
+      criterion OrdersByCustomer(customerId: string) of Order = this.customerId == customerId
       retrieval BigOrders(min: int) of Order { where: total >= min  sort: [total desc] }
     }
   }

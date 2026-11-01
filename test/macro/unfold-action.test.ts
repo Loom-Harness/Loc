@@ -301,9 +301,8 @@ context Sales {
   aggregate Order with softDeletable {
     subject: string
   }
-  repository Orders for Order {
-    find bySubject(s: string): Order? where this.subject == s ignoring softDeletable
-  }
+  repository Orders for Order { }
+  criterion OrdersBySubject(s: string) of Order = this.subject == s
 }
 `;
     await expect(unfold(source, "softDeletable", "Unfold capability")).rejects.toThrow(

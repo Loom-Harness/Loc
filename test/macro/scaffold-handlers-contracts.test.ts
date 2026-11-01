@@ -61,9 +61,8 @@ const SRC = `
           operation cancel() { status := "cancelled" }
           destroy { }
         }
-        repository Orders for Order {
-          find byStatus(status: string): Order? where this.status == status
-        }
+        repository Orders for Order { }
+        criterion OrdersByStatus(status: string) of Order = this.status == status
       }
     }
     api SalesApi with scaffoldApi(of: Sales)

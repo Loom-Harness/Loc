@@ -36,10 +36,10 @@ system S {
       }
       repository Accounts for Account {
         find byMinBalance(min: int): Account? where this.balance >= min
-        find bySeq(lowest: long): Account? where this.seq >= lowest
-        find byRate(floor: decimal): Account? where this.rate >= floor
-        find byHolder(who: string): Account? where this.holder == who
       }
+      criterion AccountsBySeq(lowest: long) of Account = this.seq >= lowest
+      criterion AccountsByRate(floor: decimal) of Account = this.rate >= floor
+      criterion AccountsByHolder(who: string) of Account = this.holder == who
 
       // The SECOND emitter that annotates a route signature. It reads the same
       // params off its own file template, which is how the .NET \`NoNulChar\`

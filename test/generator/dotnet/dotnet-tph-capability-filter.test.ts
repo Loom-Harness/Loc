@@ -220,9 +220,8 @@ describe(".NET TPH × capability filter", () => {
             aggregate Car extends Vehicle with tenantOwned { doors: int }
             aggregate Truck extends Vehicle { payloadKg: int }
             repository Cars for Car { }
-            repository Trucks for Truck {
-              find anyTenant(): Truck? where this.payloadKg > 0 ignoring tenantOwned
-            }
+            repository Trucks for Truck { }
+            criterion TrucksAnyTenant of Truck = this.payloadKg > 0
           }
         }
         storage primary { type: postgres }

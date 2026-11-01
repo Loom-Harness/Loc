@@ -44,13 +44,13 @@ system RosterSys {
 
     repository Owners for Owner {
       find byTier(tier: string): Owner where this.tier == tier
-      find byLabel(label: string): Owner? where this.label == label
     }
+    criterion OwnersByLabel(label: string) of Owner = this.label == label
 
     domainService Roster {
       // 'named' — a DECLARED find carries its own return type.
       operation declaredSingle(t: string): bool { let f = Owners.byTier(t)  return f.label == "" }
-      operation declaredOptional(l: string): bool { let f = Owners.byLabel(l)  return f == null }
+      operation declaredOptional(l: string): bool { let f = Owners.find(OwnersByLabel(l))  return f == null }
       // 'named' — the BUILT-IN verbs every repository auto-emits.  None is in
       // 'finds', so none has a declared return type to read, and they do NOT
       // share one shape.  Two axes, not one: getById/findById load a single row

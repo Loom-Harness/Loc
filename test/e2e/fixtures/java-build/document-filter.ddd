@@ -16,10 +16,9 @@ system DocFilter {
         entity Section { heading: string  body: string }
         operation softDelete() { isDeleted := true }
       }
-      repository Articles for Article {
-        find byTitle(t: string): Article? where this.title == t
-        find first(t: string): Article? where this.title == t
-      }
+      repository Articles for Article { }
+      criterion ArticlesByTitle(t: string) of Article = this.title == t
+      criterion ArticlesFirst(t: string) of Article = this.title == t
     }
   }
   api A from D

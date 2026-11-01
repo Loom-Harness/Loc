@@ -24,9 +24,8 @@ describe("elixir generator — string.trim() intrinsic (stdlib A1 pilot)", () =>
         subdomain Core {
           context Catalog {
             aggregate Product with crudish { name: string }
-            repository Products for Product {
-              find byName(q: string): Product? where this.name == q.trim()
-            }
+            repository Products for Product { }
+            criterion ProductsByName(q: string) of Product = this.name == q.trim()
           }
         }
         api CatalogApi from Core
@@ -59,9 +58,8 @@ system Shop {
         name: string
         derived slug: string = name.trim().toLower()
       }
-      repository Products for Product {
-        find byNameCi(q: string): Product? where this.name.toLower() == q
-      }
+      repository Products for Product { }
+      criterion ProductsByNameCi(q: string) of Product = this.name.toLower() == q
     }
   }
   api CatalogApi from Core
@@ -108,15 +106,14 @@ system Shop {
         derived rateUp: decimal = rate.ceil()
         derived amountLo: money = amount.min(amount)
       }
-      repository Products for Product {
-        find byRoundedRate(q: decimal): Product? where this.rate.round(2) == q
-        find byWholeRate(q: decimal): Product? where this.rate.round() == q
-        find byAbsQty(q: int): Product? where this.qty.abs() == q
-        find byMinCap(cap: money): Product? where this.amount.min(cap) == cap
-        find byMaxQty(q: int): Product? where this.qty.max(q) == q
-        find byFloorAmount(q: money): Product? where this.amount.floor() == q
-        find byCeilRate(q: decimal): Product? where this.rate.ceil() == q
-      }
+      repository Products for Product { }
+      criterion ProductsByRoundedRate(q: decimal) of Product = this.rate.round(2) == q
+      criterion ProductsByWholeRate(q: decimal) of Product = this.rate.round() == q
+      criterion ProductsByAbsQty(q: int) of Product = this.qty.abs() == q
+      criterion ProductsByMinCap(cap: money) of Product = this.amount.min(cap) == cap
+      criterion ProductsByMaxQty(q: int) of Product = this.qty.max(q) == q
+      criterion ProductsByFloorAmount(q: money) of Product = this.amount.floor() == q
+      criterion ProductsByCeilRate(q: decimal) of Product = this.rate.ceil() == q
     }
   }
   api CatalogApi from Core

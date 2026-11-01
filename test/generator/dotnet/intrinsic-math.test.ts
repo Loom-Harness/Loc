@@ -36,14 +36,13 @@ const SRC = `
         amount := amount.max(delta).round(2)
       }
     }
-    repository Invoices for Invoice {
-      find pricierThan(q: money): Invoice? where this.amount.round(2) > q
-      find wholeAbove(q: money): Invoice? where this.amount.round() > q
-      find byAbsQty(n: int): Invoice? where this.qty.abs() > n
-      find cappedAt(q: money): Invoice? where this.amount.min(q) == q
-      find byMaxBig(l: long): Invoice? where this.big.max(l) == l
-      find byRateBand(r: decimal): Invoice? where this.rate.floor() <= r && this.rate.ceil() >= r
-    }
+    repository Invoices for Invoice { }
+    criterion InvoicesPricierThan(q: money) of Invoice = this.amount.round(2) > q
+    criterion InvoicesWholeAbove(q: money) of Invoice = this.amount.round() > q
+    criterion InvoicesByAbsQty(n: int) of Invoice = this.qty.abs() > n
+    criterion InvoicesCappedAt(q: money) of Invoice = this.amount.min(q) == q
+    criterion InvoicesByMaxBig(l: long) of Invoice = this.big.max(l) == l
+    criterion InvoicesByRateBand(r: decimal) of Invoice = this.rate.floor() <= r && this.rate.ceil() >= r
   }
 `;
 

@@ -26,8 +26,8 @@ const SRC = `system Es {
       repository Evts for Evt {
         find pick(): Evt
         find everything(): Evt?
-        find byLabel(l: string): Evt? where this.label == l
       }
+      criterion EvtsByLabel(l: string) of Evt = this.label == l
     }
   }
   api MainApi from Core

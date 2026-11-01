@@ -21,9 +21,8 @@ const SRC = `
       derived branded: bool = name.startsWith("ACME") || name.endsWith("!") || name.contains("-")
       invariant name.substring(0, 3).length <= 3
     }
-    repository Products for Product {
-      find byNormalizedName(q: string): Product? where this.name.toLower() == q
-    }
+    repository Products for Product { }
+    criterion ProductsByNormalizedName(q: string) of Product = this.name.toLower() == q
   }
 `;
 

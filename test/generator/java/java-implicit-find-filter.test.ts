@@ -33,10 +33,9 @@ system FieldOps {
         slug: string
         body: string
       }
-      repository Notes for Note {
-        find bySlug(slug: string): Note?
-        find bodies(body: string): Note?
-      }
+      repository Notes for Note { }
+      criterion NotesBySlug(slug: string) of Note = this.slug == slug
+      criterion NotesBodies(body: string) of Note = this.body == body
     }
     context Accounts {
       event Opened { account: Account id, owner: string }
@@ -45,9 +44,8 @@ system FieldOps {
         create open(owner: string) { emit Opened { account: id, owner: owner } }
         apply(e: Opened) { owner := e.owner }
       }
-      repository Accounts for Account {
-        find byOwner(owner: string): Account?
-      }
+      repository Accounts for Account { }
+      criterion AccountsByOwner(owner: string) of Account = this.owner == owner
     }
   }
   api OpsApi from Ops
