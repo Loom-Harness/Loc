@@ -303,6 +303,12 @@ context Sales {
   }
   repository Orders for Order { }
   criterion OrdersBySubject(s: string) of Order = this.subject == s
+  workflow Sweep {
+    create(s: string) {
+      let xs = Orders.findAll(OrdersBySubject(s)) ignoring softDeletable
+      for o in xs { }
+    }
+  }
 }
 `;
     await expect(unfold(source, "softDeletable", "Unfold capability")).rejects.toThrow(
