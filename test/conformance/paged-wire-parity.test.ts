@@ -30,7 +30,7 @@ const CANONICAL = genericShape("paged")
 const CONTEXT = `
   context Orders {
     aggregate Order { code: string  region: string }
-    repository Orders for Order { find all(): Order paged }
+    repository Orders for Order
   }
 `;
 
@@ -41,7 +41,7 @@ system PagedShop {
   subdomain Sales {
     context Orders {
       aggregate Order { code: string  region: string }
-      repository Orders for Order { find all(): Order paged }
+      repository Orders for Order
     }
   }
   api OrdersApi from Sales

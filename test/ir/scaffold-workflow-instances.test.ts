@@ -21,7 +21,7 @@ const SRC = `
           status: FulfillmentStatus
           create(o: Order id) { let x = 1 }
         }
-        repository Orders for Order { }
+        repository Orders for Order
       }
     }
     ui App with scaffold(workflows: [Fulfillment]) { }
@@ -102,7 +102,7 @@ describe("scaffold — observable workflow instance pages", () => {
               status: FulfillmentStatus
               create(o: Order id) { let x = 1 }
             }
-            repository Orders for Order { }
+            repository Orders for Order
           }
         }
         ui App with scaffold(workflows: [Fulfillment]) { }
@@ -142,9 +142,7 @@ describe("the scaffolded pages inherit the gate their route is guarded by", () =
       subdomain Sales {
         context Orders {
           aggregate Order with crudish { subject: string }
-          repository Orders for Order {
-            find all(): Order[]
-          }
+          repository Orders for Order
           policy { read Order requires currentUser.role == "agent" }
           workflow Fulfillment requires currentUser.role == "supervisor" {
             orderId: Order id

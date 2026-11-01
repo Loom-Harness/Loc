@@ -26,12 +26,8 @@ system ShopArity {
         number: string
         amount: int
       }
-      repository Orders for Order {
-        find all(): Order[]
-      }
-      repository Invoices for Invoice {
-        find all(): Invoice paged
-      }
+      repository Orders for Order
+      repository Invoices for Invoice
     }
   }
   api ShopApi from Sales

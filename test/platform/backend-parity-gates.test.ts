@@ -109,7 +109,7 @@ system OrderingSystem {
         total: int provenanced
         operation reprice(price: int) { total := price }
       }
-      repository Orders for Order { }
+      repository Orders for Order
     }
   }
   api OrderingApi from Ordering
@@ -126,7 +126,7 @@ system Shop {
         status: string
         operation cancel() audited { status := "cancelled" }
       }
-      repository Orders for Order { }
+      repository Orders for Order
     }
   }
   storage pg { type: postgres }
@@ -145,7 +145,7 @@ system Ledger {
         operation deposit(amount: int) { emit Deposited { account: id, amount: amount } }
         apply(e: Deposited) { balance := balance + e.amount }
       }
-      repository Accounts for Account { }
+      repository Accounts for Account
     }
   }
   storage pg { type: postgres }
@@ -160,8 +160,8 @@ system TPH {
       abstract aggregate Vehicle { name: string }
       aggregate Car extends Vehicle { doors: int }
       aggregate Truck extends Vehicle { payloadKg: int }
-      repository Cars for Car { }
-      repository Trucks for Truck { }
+      repository Cars for Car
+      repository Trucks for Truck
     }
   }
   api A from D
@@ -180,7 +180,7 @@ system PQH {
   subdomain Sales {
     context Orders {
       aggregate Order { code: string  region: string }
-      repository Orders for Order { }
+      repository Orders for Order
       criterion InRegion(rgn: string) of Order = region == rgn
       queryHandler ListInRegion(rgn: string): Order paged {
         let r = Orders.run(InRegion(rgn))
@@ -202,7 +202,7 @@ system QTP {
   subdomain Sales {
     context Orders {
       aggregate Order { code: string  total: int }
-      repository Orders for Order { }
+      repository Orders for Order
       projection LiveTotals {
         code: string
         total: int
@@ -226,7 +226,7 @@ system WTA {
   subdomain Sales {
     context Orders {
       aggregate Order { code: string  total: int }
-      repository Orders for Order { }
+      repository Orders for Order
       projection OrderVolume {
         orders: int
         from Order as o
@@ -248,7 +248,7 @@ system GBP {
   subdomain Sales {
     context Orders {
       aggregate Order { code: string  region: string  total: int }
-      repository Orders for Order { }
+      repository Orders for Order
       projection ByRegion {
         region: string
         orders: int
@@ -272,7 +272,7 @@ const workflowSourceProjectionDdd = (platform: string): string => `
 system WSP {
   subdomain D { context C {
     aggregate Order { total: int  operation place() { emit OrderPlaced { order: id } } }
-    repository Orders for Order { }
+    repository Orders for Order
     event OrderPlaced { order: Order id }
     event Paid { order: Order id }
     workflow Fulfil {
@@ -301,7 +301,7 @@ const projectionSourceProjectionDdd = (platform: string): string => `
 system PSP {
   subdomain D { context C {
     aggregate Order { total: int  operation place() { emit OrderPlaced { order: id, total: 1 } } }
-    repository Orders for Order { }
+    repository Orders for Order
     event OrderPlaced { order: Order id  total: int }
     projection OrderTotals keyed by orderId {
       orderId: Order id
@@ -338,7 +338,7 @@ system Masked {
         name: string
         salary: int mask unless currentUser.role == "admin"
       }
-      repository Employees for Employee { }
+      repository Employees for Employee
     }
   }
   api A from People
@@ -360,7 +360,7 @@ system ShopLc {
         create(status: string) audited { this.status := status }
         destroy() audited { }
       }
-      repository Orders for Order { }
+      repository Orders for Order
     }
   }
   storage pg { type: postgres }
@@ -377,7 +377,7 @@ const eventSourcedWorkflowDdd = (platform: string): string => `
 system ESWF {
   subdomain D { context C {
     aggregate Order { total: int  operation place() { emit OrderPlaced { order: id } } }
-    repository Orders for Order { }
+    repository Orders for Order
     event OrderPlaced { order: Order id }
     event Paid { order: Order id, amount: int }
     workflow Fulfil eventSourced {
@@ -402,7 +402,7 @@ system GC {
   subdomain Sales {
     context Shop {
       aggregate Order { ref: string }
-      repository Orders for Order { find all(): Order paged }
+      repository Orders for Order
     }
   }
   api A from Sales
@@ -442,7 +442,7 @@ system WG {
         status: string
         operation cancel() when this.status != "shipped" { status := "cancelled" }
       }
-      repository Orders for Order { }
+      repository Orders for Order
     }
   }
   api A from Sales
@@ -463,7 +463,7 @@ system UR {
         code: string
         operation reject(): string or NotFound { return NotFound { resource: code } }
       }
-      repository Orders for Order { }
+      repository Orders for Order
     }
   }
   api A from D

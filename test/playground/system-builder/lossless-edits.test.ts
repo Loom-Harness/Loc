@@ -67,7 +67,6 @@ const SRC = `system Shop {
     // Reads over the order book.
     repository Orders for Order {
       /* the whole book */
-      find all(): Order[]
     }
     // one customer's own orders
     criterion OrdersByCustomer(customerId: Customer id) of Order = this.customerId == customerId

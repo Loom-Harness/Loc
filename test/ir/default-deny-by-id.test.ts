@@ -80,8 +80,8 @@ system S {
     abstract aggregate Vehicle { name: string }
     aggregate Car extends Vehicle { doors: int }
     aggregate Van extends Vehicle { volume: int }
-    repository Cars for Car { }
-    repository Vans for Van { }
+    repository Cars for Car
+    repository Vans for Van
   } }
   api Api from Fleet
   storage pg { type: postgres }

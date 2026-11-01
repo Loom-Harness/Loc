@@ -36,7 +36,7 @@ system P {
       enum Priority { low  high }
       valueobject Money { amount: decimal  currency: string }
 ${agg}
-      repository Orders for Order { }
+      repository Orders for Order
     }
   }
   storage pg { type: postgres }
@@ -58,10 +58,7 @@ system P {
       enum Priority { low  high }
       valueobject Money { amount: decimal  currency: string }
 ${agg}
-      repository Orders for Order {
-        find all(): Order[]
-        find byId(id: Order id): Order?
-      }
+      repository Orders for Order
       policy { read Order requires true }
     }
   }

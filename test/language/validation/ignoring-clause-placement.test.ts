@@ -38,8 +38,8 @@ const withProjection = (clauses: string) => `
           customerId: Customer id
           derived display: string = code
         }
-        repository Orders for Order { }
-        repository Customers for Customer { }
+        repository Orders for Order
+        repository Customers for Customer
         projection SalesByStatus {
           status: OrderStatus
           orders: int
@@ -157,7 +157,7 @@ describe("loom.ignoring-clause-placement — the bypass clause only where it is 
             total: int
             operation bump() { total := total + 1 }
           }
-          repository Orders for Order { }
+          repository Orders for Order
           domainService Q {
             operation probe(id: Order id, min: int): bool { ${svcBody} }
           }

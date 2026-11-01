@@ -31,9 +31,7 @@ system PG {
       aggregate Widget ${shape}with crudish {
         grade: Grade
       }
-      repository Widgets for Widget {
-        find all(): Widget paged
-      }
+      repository Widgets for Widget
     }
   }
   api A from S

@@ -44,7 +44,7 @@ system Shop {
           lineItems += LineItem { sku: sku, qty: qty, price: price }
         }
       }
-      repository Orders for Order { }
+      repository Orders for Order
       criterion OrdersByCode(code: string) of Order = this.code == code
     }
   }
@@ -138,7 +138,7 @@ system S {
         name: string
         apiKey: string secret
       }
-      repository Squads for Squad { }
+      repository Squads for Squad
     }
   }
   api A from Core
@@ -298,7 +298,7 @@ system Demo {
         handle: string
         invariant handle.length > 0
       }
-      repository Accounts for Account { }
+      repository Accounts for Account
     }
   }
   api AccountApi from S
@@ -404,9 +404,7 @@ system Abs {
     context C {
       error Missing { resource: string }
       aggregate Order with crudish { code: string }
-      repository Orders for Order {
-        find all(): Order[]
-      }
+      repository Orders for Order
       criterion OrdersOptionFind(code: string) of Order = this.code == code
       criterion OrdersNullableFind(code: string) of Order = this.code == code
       criterion OrdersErrorFind(code: string) of Order = this.code == code

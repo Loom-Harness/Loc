@@ -5190,7 +5190,7 @@ aggregate disagree about who may read it.
 `policy { }` block, beside the `allow` / `deny` ladder:
 
 ```ddd
-repository Orders for Order {}
+repository Orders for Order
 policy { read Order requires currentUser.role == "clerk" }
 ```
 

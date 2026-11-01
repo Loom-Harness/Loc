@@ -40,12 +40,10 @@ system Shop {
         }
         destroy() { }
       }
-      repository Orders for Order { }
+      repository Orders for Order
       criterion OrdersByCode(code: string) of Order = this.code == code
       aggregate Note with crudish { text: string }
-      repository Notes for Note {
-        find all(): Note[]
-      }
+      repository Notes for Note
       workflow placeOrder {
         create(code: string) {
           requires currentUser.permissions.length > 0

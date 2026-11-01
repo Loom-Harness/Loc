@@ -26,9 +26,7 @@ system Shop {
         code: string
         region: string
       }
-      repository Orders for Order {
-        find all(): Order[]
-      }
+      repository Orders for Order
     }
   }
   api OrdersApi from Sales
@@ -112,7 +110,7 @@ system Shop {
           return NotFound { resource: code }
         }
       }
-      repository Orders for Order { }
+      repository Orders for Order
     }
   }
   api OrdersApi from Sales
@@ -168,7 +166,7 @@ system Shop {
           return NotFound { resource: code }
         }
       }
-      repository Orders for Order { }
+      repository Orders for Order
     }
   }
   api OrdersApi from Sales
@@ -221,7 +219,7 @@ system Shop {
         operation total(): money { return price }
         operation touch() { code := code }
       }
-      repository Orders for Order { }
+      repository Orders for Order
     }
   }
   api OrdersApi from Sales
@@ -281,7 +279,7 @@ system Shop {
     context Orders {
       error OrderNotFound { }
       aggregate Order { code: string }
-      repository Orders for Order { }
+      repository Orders for Order
       criterion OrdersLocate(code: string) of Order = this.code == code
     }
   }
@@ -322,9 +320,9 @@ system S {
   subdomain O {
     context O {
       aggregate Order { status: string  operation place() { status := "P"  emit OrderPlaced { order: id } } }
-      repository Orders for Order { }
+      repository Orders for Order
       aggregate Shipment { orderRef: Order id  status: string  operation mark() { status := "T" } }
-      repository Shipments for Shipment { }
+      repository Shipments for Shipment
       event OrderPlaced { order: Order id }
       event ShipmentRequested { shipment: Shipment id, order: Order id }
       channel L { carries: OrderPlaced, ShipmentRequested  delivery: broadcast  retention: ephemeral }
@@ -399,7 +397,7 @@ system Nul {
         expiresAt: datetime?
         grade: Grade?
       }
-      repository Widgets for Widget { }
+      repository Widgets for Widget
     }
   }
   api CatApi from Cat

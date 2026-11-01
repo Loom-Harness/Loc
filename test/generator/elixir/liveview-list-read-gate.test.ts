@@ -27,9 +27,7 @@ system Shop {
         code: string
         derived display: string = code
       }
-      repository Orders for Order {
-        find all(): Order[]
-      }
+      repository Orders for Order
       ${gate ? `policy { read Order${gate} }` : ""}
     }
   }

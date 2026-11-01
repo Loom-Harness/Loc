@@ -15,9 +15,7 @@ import { parseString } from "../../_helpers/parse.js";
 const SRC = `
   context Inventory {
     aggregate Warehouse { code: string  region: string }
-    repository Warehouses for Warehouse {
-      find all(): Warehouse paged
-    }
+    repository Warehouses for Warehouse
   }
 `;
 

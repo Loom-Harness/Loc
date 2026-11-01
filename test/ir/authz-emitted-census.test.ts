@@ -104,12 +104,12 @@ const LEAK_SHAPES = `system LeakShapes {
       // Single-row finds: an \`ignoring\` is a per-METHOD fact on a find (a
       // criterion takes it per call, at each \`Repo.run\`), so the bypass
       // shapes stay finds.
-      repository Secrets for Secret { }
+      repository Secrets for Secret
       criterion SecretsEverything(c: string) of Secret = this.code == c
       criterion SecretsByCode(c: string) of Secret = this.code == c
       criterion SecretsAnyTenant(c: string) of Secret = this.code == c
 
-      repository Orders for Order { }
+      repository Orders for Order
       criterion OrdersAllTenants(c: string) of Order = this.code == c
 
       projection OrderVolume {
@@ -181,9 +181,7 @@ const GATE_SHAPES = `system GateShapes {
           open := true
         }
       }
-      repository Tickets for Ticket {
-        find all(): Ticket[]
-      }
+      repository Tickets for Ticket
       criterion TicketsOpenOnes of Ticket = this.open == true
       policy { read Ticket requires currentUser.role == "auditor" }
       projection OpenCount requires currentUser.role == "lead" {

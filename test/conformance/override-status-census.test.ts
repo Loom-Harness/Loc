@@ -137,7 +137,6 @@ system Census {
         destroy { }
       }
       repository Items for Item {
-        find all(): Item[]
         find openOnes(): Item? where this.status == "open"
         find byName(n: string): Item? where this.name == n
       }
@@ -147,7 +146,7 @@ system Census {
         amount: int
         create(item: Item id, amount: int) { }
       }
-      repository Lines for Line { }
+      repository Lines for Line
     }
   }
   api A from S ${apiBody}

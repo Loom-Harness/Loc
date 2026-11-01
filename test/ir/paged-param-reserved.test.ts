@@ -1,7 +1,7 @@
 // `loom.paged-param-reserved` — a paged read's own parameter may not reuse a
 // paging query key (`PAGED_QUERY_PARAMS`: page / pageSize / sort / dir).
 //
-// Before the gate, `find byRank(page: int): Thing paged` generated on every
+// Before the gate, a paged read with a `page` parameter generated on every
 // backend with the key twice: `byRank(page: number, page: number, pageSize…)`
 // (TS2300), `byRank(int page, int page, …)` (javac "already defined"),
 // `def by_rank(self, page: int, page: int, …)` (Python "duplicate argument"),
@@ -17,24 +17,7 @@ import { parseString } from "../_helpers/parse.js";
 
 const CODE = "loom.paged-param-reserved";
 
-function findModel(param: string, ret = "Thing paged"): string {
-  return `
-system S {
-  subdomain Core {
-    context Shop {
-      aggregate Thing with crudish { name: string  rank: int }
-      repository Things for Thing {
-        find byRank(${param}: int): ${ret} where this.rank == ${param}
-      }
-    }
-  }
-  storage pg { type: postgres }
-  resource s { for: Shop, kind: state, use: pg }
-  deployable d { platform: node  contexts: [Shop]  dataSources: [s]  port: 3000 }
-}`;
-}
-
-function handlerModel(handlerParam: string, criterionParam: string): string {
+function handlerModel(handlerParam: string, criterionParam: string, ret = "Thing paged"): string {
   return `
 system S {
   subdomain Core {
@@ -42,7 +25,7 @@ system S {
       aggregate Thing with crudish { name: string  rank: int }
       repository Things for Thing { }
       criterion Ranked(${criterionParam}: int) of Thing = rank == ${criterionParam}
-      queryHandler ListRanked(${handlerParam}: int): Thing paged {
+      queryHandler ListRanked(${handlerParam}: int): ${ret} {
         let r = Things.run(Ranked(${handlerParam}))
         return r
       }
@@ -55,6 +38,9 @@ system S {
 }`;
 }
 
+/** A paged read whose own (handler) parameter is `param`. */
+const findModel = (param: string, ret = "Thing paged") => handlerModel(param, "min", ret);
+
 async function reserved(src: string) {
   const { model } = await parseString(src, { validate: false });
   return validateLoomModel(enrichLoomModel(lowerModel(model))).filter((d) => d.code === CODE);
@@ -65,7 +51,7 @@ describe("loom.paged-param-reserved", () => {
     expect([...PAGED_QUERY_PARAMS]).toEqual(["page", "pageSize", "sort", "dir"]);
   });
 
-  it.each([...PAGED_QUERY_PARAMS])("refuses a paged find parameter named '%s'", async (name) => {
+  it.each([...PAGED_QUERY_PARAMS])("refuses a paged read parameter named '%s'", async (name) => {
     const diags = await reserved(findModel(name));
     expect(diags).toHaveLength(1);
     expect(diags[0]!.severity).toBe("error");
@@ -86,8 +72,7 @@ describe("loom.paged-param-reserved", () => {
     expect(diags[0]!.message).toContain(`paging query parameter '${key}'`);
   });
 
-  it("does not fire on a NON-paged find with a parameter named 'page'", async () => {
-    expect(await reserved(findModel("page", "Thing?"))).toEqual([]);
+  it("does not fire on a NON-paged read with a parameter named 'page'", async () => {
     expect(await reserved(findModel("page", "Thing[]"))).toEqual([]);
   });
 
@@ -97,7 +82,7 @@ describe("loom.paged-param-reserved", () => {
     "direction",
     "rank",
     "pages",
-  ])("does not fire on a paged find parameter named '%s'", async (name) => {
+  ])("does not fire on a paged read parameter named '%s'", async (name) => {
     expect(await reserved(findModel(name))).toEqual([]);
   });
 

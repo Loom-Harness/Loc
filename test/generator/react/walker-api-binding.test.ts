@@ -34,7 +34,7 @@ describe("api binding + walker hook injection", () => {
         subdomain Sales {
           context Orders {
             aggregate Customer { name: string }
-            repository Customers for Customer { }
+            repository Customers for Customer
           }
         }
         api SalesApi from Sales
@@ -69,7 +69,7 @@ describe("api binding + walker hook injection", () => {
         subdomain Sales {
           context Orders {
             aggregate Customer { name: string }
-            repository Customers for Customer { }
+            repository Customers for Customer
           }
         }
         api SalesApi from Sales
@@ -174,7 +174,7 @@ describe("api binding + walker hook injection", () => {
         subdomain Sales {
           context Orders {
             aggregate Customer { name: string }
-            repository Customers for Customer { }
+            repository Customers for Customer
           }
         }
         api SalesApi from Sales
@@ -211,7 +211,7 @@ describe("api binding + walker hook injection", () => {
         subdomain Sales {
           context Orders {
             aggregate Customer { name: string }
-            repository Customers for Customer { }
+            repository Customers for Customer
           }
         }
         api SalesApi from Sales

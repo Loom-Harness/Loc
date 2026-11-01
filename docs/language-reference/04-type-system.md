@@ -306,7 +306,7 @@ aggregate Patient {
     nextVisit := visit
   }
 }
-repository Patients for Patient { }
+repository Patients for Patient
 criterion PatientsBornBefore(cutoff: date) of Patient = this.birthDate < cutoff
 ```
 
@@ -685,7 +685,6 @@ option(T)   → the 2-variant union  union[T, none]  (an untagged 200 / 404 as a
 
 ```ddd
 repository OrderRepo for Order {
-  find all(): Order paged
   find audit(): Order envelope
   find byRef(ref: string): Order option where this.ref == ref
 }

@@ -29,8 +29,8 @@ system Shop {
                 }
                 derived display: string = "Order"
             }
-            repository Customers for Customer { }
-            repository Orders for Order { }
+            repository Customers for Customer
+            repository Orders for Order
             workflow placeOrder {
                 create(customerId: Customer id) {
                     let order = Order.create({

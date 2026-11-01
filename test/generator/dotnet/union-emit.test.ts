@@ -107,9 +107,7 @@ const ABSENCE_SRC = `
   context Orders {
     aggregate Order { code: string }
     error Missing { resource: string }
-    repository Orders for Order {
-      find all(): Order[]
-    }
+    repository Orders for Order
     criterion OrdersOptionFind(code: string) of Order = this.code == code
     criterion OrdersNullableFind(code: string) of Order = this.code == code
     criterion OrdersErrorFind(code: string) of Order = this.code == code

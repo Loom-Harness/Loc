@@ -105,7 +105,7 @@ describe("generics — position restriction (P3b)", () => {
   it("allows a carrier as a queryHandler return (paged read exposed through the read-only port)", async () => {
     const { diagnostics } = await parseString(`context C {
       aggregate Order { region: string }
-      repository Orders for Order { }
+      repository Orders for Order
       criterion InRegion(rgn: string) of Order = region == rgn
       queryHandler ListInRegion(rgn: string): Order paged {
         let r = Orders.run(InRegion(rgn))

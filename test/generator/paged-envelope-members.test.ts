@@ -35,7 +35,7 @@ system S {
   subdomain Sales {
     context Orders {
       aggregate Product { name: string }
-      repository Products for Product { }
+      repository Products for Product
     }
   }
   api SalesApi from Sales
@@ -155,9 +155,7 @@ system S {
   subdomain Sales {
     context Orders {
       aggregate Product { name: string }
-      repository Products for Product {
-        find all(): Product[]
-      }
+      repository Products for Product
     }
   }
   api SalesApi from Sales

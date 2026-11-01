@@ -53,7 +53,7 @@ system Shop {
   subdomain Sales {
     context Shop {
       aggregate Cart shape: document with crudish { total: int }
-      repository Carts for Cart { }
+      repository Carts for Cart
     }
   }
   storage pg { type: postgres }
@@ -90,7 +90,7 @@ system Shop {
       aggregate Cart shape: document with crudish {
         reference: string
       }
-      repository Carts for Cart { }
+      repository Carts for Cart
       criterion CartsByReference(reference: string) of Cart = this.reference == reference
     }
   }
@@ -111,7 +111,7 @@ system Shop {
         total: int
         operation bump() { total := total + 1 }
       }
-      repository Carts for Cart { }
+      repository Carts for Cart
     }
   }
   storage pg { type: postgres }
@@ -135,7 +135,7 @@ system Shop {
           total := total + 1
         }
       }
-      repository Carts for Cart { }
+      repository Carts for Cart
     }
   }
   storage pg { type: postgres }
@@ -161,7 +161,7 @@ system Shop {
           total := total - price.amount
         }
       }
-      repository Carts for Cart { }
+      repository Carts for Cart
       criterion CartsPricey of Cart = this.price.amount > 100
     }
   }
@@ -186,7 +186,7 @@ system Shop {
           lines += OrderLine { sku: sku, qty: qty }
         }
       }
-      repository Orders for Order { }
+      repository Orders for Order
     }
   }
   storage pg { type: postgres }
@@ -206,7 +206,7 @@ system Shop {
         total: int
         operation bump() audited { total := total + 1 }
       }
-      repository Carts for Cart { }
+      repository Carts for Cart
     }
   }
   storage pg { type: postgres }
@@ -232,7 +232,7 @@ system Shop {
           total := total + 1
         }
       }
-      repository Carts for Cart { }
+      repository Carts for Cart
     }
   }
   storage pg { type: postgres }
@@ -267,7 +267,7 @@ system Shop {
           total := total + 1
         }
       }
-      repository Orders for Order { }
+      repository Orders for Order
     }
   }
   storage pg { type: postgres }
@@ -294,8 +294,8 @@ system Shop {
         operation count() { total := tagIds.count }
         operation weigh() { total := tagIds.filter(t => t != null).count }
       }
-      repository Orders for Order { }
-      repository Tags for Tag { }
+      repository Orders for Order
+      repository Tags for Tag
     }
   }
   storage pg { type: postgres }
@@ -324,7 +324,7 @@ system Shop {
         derived doubled: int = total * 2
         operation sync() { total := doubled }
       }
-      repository Carts for Cart { }
+      repository Carts for Cart
     }
   }
   storage pg { type: postgres }
@@ -343,9 +343,7 @@ system Shop {
       aggregate Cart shape: document with crudish {
         reference: string
       }
-      repository Carts for Cart {
-        find all(): Cart paged
-      }
+      repository Carts for Cart
       criterion CartsByRef(reference: string) of Cart = this.reference == reference
     }
   }
@@ -366,7 +364,7 @@ system Shop {
       aggregate Cart shape: document with crudish {
         reference: string
       }
-      repository Carts for Cart { }
+      repository Carts for Cart
       criterion CartsByRef(reference: string) of Cart = this.reference == reference
     }
   }
@@ -384,7 +382,7 @@ system Shop {
   subdomain Sales {
     context Shop {
       aggregate Cart shape: document with crudish { reference: string }
-      repository Carts for Cart { }
+      repository Carts for Cart
     }
   }
   storage pg { type: postgres }
@@ -411,7 +409,7 @@ system Shop {
         unitPrice: int
 ${body}
       }
-      repository Carts for Cart { }
+      repository Carts for Cart
     }
   }
   storage pg { type: postgres }
@@ -456,7 +454,7 @@ system Shop {
           qty := qty + 1
         }
       }
-      repository Carts for Cart { }
+      repository Carts for Cart
     }
   }
   storage pg { type: postgres }

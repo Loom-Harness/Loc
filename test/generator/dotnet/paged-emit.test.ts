@@ -19,9 +19,7 @@ import { parseValid } from "../../_helpers/parse.js";
 const SRC = `
   context Orders {
     aggregate Order { ref: string  region: string }
-    repository Orders for Order {
-      find all(): Order paged
-    }
+    repository Orders for Order
     criterion InRegion(region: string) of Order = this.region == region
     queryHandler ListInRegion(region: string): Order paged {
       let r = Orders.run(InRegion(region))
@@ -124,9 +122,7 @@ system Shop {
   subdomain Sales {
     context Orders {
       aggregate Order with crudish { code: string  region: string }
-      repository Orders for Order {
-        find all(): Order paged
-      }
+      repository Orders for Order
       criterion InRegion(region: string) of Order = this.region == region
       queryHandler ListInRegion(region: string): Order paged {
         let r = Orders.run(InRegion(region))

@@ -395,9 +395,7 @@ system Census {
       aggregate Item audited with crudish {
         name: string
       }
-      repository Items for Item {
-        find all(): Item[]
-      }
+      repository Items for Item
       policy { read Item requires currentUser.level > 2 }
     }
   }

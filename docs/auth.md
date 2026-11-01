@@ -54,7 +54,7 @@ escape — else `loom.default-deny-ungated` fires.  Covered:
   block (see [Read gates](#read-gates)):
 
   ```ddd
-  repository Secrets for Secret {}
+  repository Secrets for Secret
   policy { read Secret requires currentUser.role == "admin" }
   ```
 
@@ -201,9 +201,7 @@ repository Orders for Order {
 }
 
 // after
-repository Orders for Order {
-  find byId(id: Order id): Order?
-}
+repository Orders for Order
 policy { read Order requires currentUser.role == "clerk" }
 ```
 
@@ -274,7 +272,7 @@ system Acme {
         }
       }
 
-      repository Orders for Order { }
+      repository Orders for Order
     }
   }
 
@@ -412,7 +410,7 @@ single-row find's `where`); the renderer reads the resolved User
 inside the generated repository method:
 
 ```ddd
-repository Orders for Order { }
+repository Orders for Order
 criterion OrdersMine of Order = customerId == currentUser.customerId
 ```
 
@@ -819,7 +817,7 @@ subdomain Sales {
         status := OrderStatus.Approved
       }
     }
-    repository Orders for Order { }
+    repository Orders for Order
   }
 }
 ```
@@ -1043,7 +1041,7 @@ Who may read an aggregate is one line in its context's `policy` block, beside
 the `allow` / `deny` ladder:
 
 ```ddd
-repository Tickets for Ticket { }
+repository Tickets for Ticket
 policy {
   read Ticket requires currentUser.role == "agent"
   read Product requires true          // intentionally public

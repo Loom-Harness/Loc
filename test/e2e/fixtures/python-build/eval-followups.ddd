@@ -30,7 +30,7 @@ system PyEvalFollowups {
         entity Photo { url: string }
         entity Note { text: string }
       }
-      repository WorkOrders for WorkOrder { }
+      repository WorkOrders for WorkOrder
 
       aggregate Folder shape: document with crudish {
         title: string

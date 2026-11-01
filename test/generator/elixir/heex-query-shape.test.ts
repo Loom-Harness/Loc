@@ -34,7 +34,7 @@ const phoenixSystem = (route: string, uiBody: string): string => `
           find named(name: string): Doc? where this.name == name
         }
         aggregate Note shape: document, with crudish { title: string  derived display: string = title }
-        repository Notes for Note { find all(): Note[] }
+        repository Notes for Note
       }
     }
     api DemoApi from M

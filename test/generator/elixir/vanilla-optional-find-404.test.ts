@@ -23,9 +23,7 @@ system Shop {
         name: string
         sku: string
       }
-      repository Items for Item {
-        find all(): Item[]
-      }
+      repository Items for Item
       criterion ItemsBySku(sku: string) of Item = this.sku == sku
       criterion ItemsMaybeFirst(sku: string) of Item = this.sku == sku
     }

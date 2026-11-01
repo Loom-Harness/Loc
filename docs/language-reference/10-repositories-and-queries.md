@@ -186,7 +186,7 @@ A single-row read is `T` (`getById`, `getBy` — a miss answers the standard Pro
 A paged read auto-gains `page`/`pageSize`/`sort`/`dir` parameters and a `total`/`totalPages` count query (the same shape the auto-`findAll` and a paged `queryHandler` use).  Those four names are therefore **reserved** on a paged read: a declared parameter spelled `page`, `pageSize`, `sort` or `dir` — compared in snake form, so `page_size` and `Dir` too — on a paged `queryHandler`, or a criterion a paged `queryHandler` runs is refused (`loom.paged-param-reserved`), since it would be a second value for the same query key and a duplicate parameter in every generated signature. Rename it (`pageNo`, `sortKey`, …):
 
 ```ddd
-repository Orders for Order { }
+repository Orders for Order
 criterion OrdersForCustomer(c: string) of Order = this.customer == c
 queryHandler ListForCustomer(c: string): Order paged {
   let r = Orders.run(OrdersForCustomer(c))

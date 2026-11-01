@@ -28,7 +28,6 @@ system Sales {
       }
       repository Orders for Order {
         // NOT `paged` — the whole point of this fixture.
-        find all(): Order[]
       }
     }
   }

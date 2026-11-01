@@ -31,7 +31,6 @@ const SYSTEM = `
           plain: string
         }
         repository Circles for Circle {
-          find all(): Circle[]
           find byMember(member: string): Circle? where this.member == member
         }
       }

@@ -47,7 +47,7 @@ const SRC = `system S {
         }
         operation rename(name: string) { name := name }
       }
-      repository Employees for Employee { }
+      repository Employees for Employee
       criterion EmployeesByName(name: string) of Employee = this.name == name
 
       aggregate Plain with crudish {

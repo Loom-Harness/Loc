@@ -62,7 +62,7 @@ import type {
 } from "../types/loom-ir.js";
 import { isShorthandProjection } from "../types/loom-ir.js";
 import { explicitRouteSlot } from "../util/api-surface.js";
-import { AUDIT_HISTORY_FIND, aggServesHistory, buildHistoryFind } from "../util/audit-history.js";
+import { aggServesHistory, buildHistoryFind } from "../util/audit-history.js";
 import { isTpcConcrete, isTphConcrete } from "../util/inheritance.js";
 import { pagedRunFindName, pagedRunStmt } from "../util/paged-run.js";
 import {
@@ -2156,11 +2156,10 @@ function ensureFindAll(
   return out;
 }
 
-/** Every AUDITED aggregate additionally gets an implicit `find history(id):
- *  AuditEntry[]` — the per-entity read over the module's `audit_records` rows
- *  (docs/audit.md).  Same slot and same rule as the auto-`findAll` above: a
- *  synthesized addition in the one pure pass, and an author-declared find named
- *  `history` wins.
+/** Every AUDITED aggregate additionally gets an implicit `history(id):
+ *  AuditEntry[]` read — the per-entity read over the module's `audit_records`
+ *  rows (docs/audit.md).  Same slot as the auto-`findAll` above: a synthesized
+ *  addition in the one pure pass.
  *
  *  ── The gate it inherits ────────────────────────────────────────────────
  *  History is a read of the SAME rows the entity read covers, only replayed
@@ -2193,12 +2192,13 @@ function ensureHistoryFind(
     // `ensureFindAll` runs first and creates a repository for every concrete
     // aggregate, so this is defensive rather than reachable.
     if (!repo) continue;
-    // An author-declared `find history(...)` wins — same rule as `all`.  Their
-    // find keeps its own route; no `historyFind` is derived beside it, so the
-    // aggregate serves exactly one `history` read and it is theirs.
-    if (repo.finds.some((f) => f.name === AUDIT_HISTORY_FIND)) continue;
     const listRead = repo.finds.find((f) => f.name === "all");
-    const history = buildHistoryFind(agg, listRead?.requires);
+    // Its own node: IR nodes are not shared (a pass that rewrites one gate in
+    // place must not rewrite the other).
+    const history = buildHistoryFind(
+      agg,
+      listRead?.requires ? structuredClone(listRead.requires) : undefined,
+    );
     if (listRead?.bypassAll) history.bypassAll = true;
     if (listRead?.bypassCaps) history.bypassCaps = [...listRead.bypassCaps];
     repo.historyFind = history;

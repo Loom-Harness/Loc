@@ -14,7 +14,7 @@ system Helpdesk {
   subdomain Support {
     context Tickets {
       aggregate Ticket with crudish { subject: string }
-      repository Tickets for Ticket { }
+      repository Tickets for Ticket
     }
   }
   storage primary { type: postgres }

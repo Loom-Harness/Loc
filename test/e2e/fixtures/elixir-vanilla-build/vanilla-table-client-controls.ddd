@@ -34,7 +34,6 @@ system Sales {
         // NOT paged — this is what puts the frontend in client mode.  A paged
         // `find all` would emit the server leg instead (already covered by
         // `vanilla-list-read-gate.ddd`).
-        find all(): Order[]
       }
     }
   }

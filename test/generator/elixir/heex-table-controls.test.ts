@@ -28,7 +28,7 @@ system Shop {
         name: string
         derived display: string = sku
       }
-      repository Products for Product { }
+      repository Products for Product
     }
   }
   api ShopApi from M
@@ -52,7 +52,7 @@ system Shop {
         sku: string
         derived display: string = sku
       }
-      repository Products for Product { }
+      repository Products for Product
     }
   }
   api ShopApi from M
@@ -95,9 +95,7 @@ system Sales {
         qty: int
         derived display: string = code
       }
-      repository Orders for Order {
-        find all(): Order[]
-      }
+      repository Orders for Order
     }
   }
   api SalesApi from M

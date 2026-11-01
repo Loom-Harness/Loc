@@ -36,9 +36,7 @@ system Sales {
         total: money
         derived display: string = code
       }
-      repository Orders for Order {
-        find all(): Order[]
-      }
+      repository Orders for Order
     }
   }
   api SalesApi from M
@@ -67,9 +65,7 @@ system Shop {
         name: string
         derived display: string = sku
       }
-      repository Products for Product {
-        find all(): Product[]
-      }
+      repository Products for Product
     }
   }
   api ShopApi from M
@@ -114,7 +110,7 @@ system Depot {
         code: string
         derived display: string = code
       }
-      repository Crates for Crate { }
+      repository Crates for Crate
     }
   }
   api DepotApi from M
