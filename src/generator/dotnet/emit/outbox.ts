@@ -9,6 +9,13 @@
 // `event_dead_lettered`.  Ephemeral channels keep the inline at-most-once
 // path byte-identically.
 
+import {
+  OUTBOX_PURGE_INTERVAL_SECONDS,
+  OUTBOX_RETENTION_DEFAULT_DAYS,
+  OUTBOX_RETENTION_ENV,
+} from "../../../util/channels.js";
+import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
+
 /** The EF entity + configuration mapped onto `__loom_outbox` (the table
  *  itself ships via the shared MigrationsIR — EF only maps it). */
 export function renderOutboxMessage(ns: string): string {
@@ -29,6 +36,7 @@ public sealed class OutboxMessage
     public string Payload { get; set; } = "";
     public DateTime? DispatchedAt { get; set; }
     public int Attempts { get; set; }
+    public DateTime? DeadAt { get; set; }
 }
 
 public sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<OutboxMessage>
@@ -43,6 +51,7 @@ public sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outbox
         builder.Property(x => x.Payload).HasColumnName("payload").HasColumnType("jsonb");
         builder.Property(x => x.DispatchedAt).HasColumnName("dispatched_at");
         builder.Property(x => x.Attempts).HasColumnName("attempts");
+        builder.Property(x => x.DeadAt).HasColumnName("dead_at");
     }
 }
 `;
@@ -64,6 +73,52 @@ export function outboxOriginFrame(ns: string, carriesOrigin: boolean, payload: s
   return carriesOrigin
     ? `\n                using var __origin = global::${ns}.Auth.User.EnterEventOrigin(global::${ns}.Auth.EventOriginPayload.Read(${payload}));`
     : "";
+}
+
+/** The relays' retention members (shared by the EF and Dapper relays): the
+ *  purge cadence, the window read once from the environment (a missing,
+ *  non-numeric or non-positive value falls back to the default), and
+ *  `MaybePurgeAsync`, which runs `purge` (an awaitable over `cutoff`) at most
+ *  once per interval.  The timestamp advances before the delete, so a failing
+ *  purge is logged and retried next interval — it never blocks delivery. */
+export function outboxRetentionMembers(purge: string): string {
+  const purgeFailed = renderDotnetLogCall("outboxRelayError", [
+    { name: "error", valueExpr: "ex.Message" },
+  ]);
+  return `    private static readonly TimeSpan PurgeInterval = TimeSpan.FromSeconds(${OUTBOX_PURGE_INTERVAL_SECONDS});
+    private static readonly int RetentionDays =
+        int.TryParse(Environment.GetEnvironmentVariable("${OUTBOX_RETENTION_ENV}"), out var days) && days > 0 ? days : ${OUTBOX_RETENTION_DEFAULT_DAYS};
+    private DateTime _lastPurge = DateTime.UtcNow;
+
+    private async Task MaybePurgeAsync(CancellationToken cancellationToken)
+    {
+        if (DateTime.UtcNow - _lastPurge < PurgeInterval) return;
+        _lastPurge = DateTime.UtcNow;
+        var cutoff = _lastPurge.AddDays(-RetentionDays);
+        try
+        {
+${purge}
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            ${purgeFailed}
+        }
+    }`;
+}
+
+/** The relays' dead-letter line: one `event_dead_lettered` warning per row,
+ *  carrying the row id an operator replays it by. */
+export function outboxDeadLetteredLog(row: { id: string; type: string; attempts: string }): string {
+  return renderDotnetLogCall("eventDeadLettered", [
+    { name: "id", valueExpr: row.id },
+    { name: "type", valueExpr: row.type },
+    { name: "attempts", valueExpr: row.attempts },
+    { name: "error", valueExpr: "ex.Message" },
+  ]);
 }
 
 /** The outbox-recording dispatcher: durable events INSERT into the outbox
@@ -261,14 +316,18 @@ ${channelsUsing}using ${ns}.Infrastructure.Persistence;
 
 namespace ${ns}.Infrastructure.Events;
 
-/// <summary>Drains __loom_outbox at-least-once — consumers must tolerate
-/// redelivery.  Rows that exhaust MaxAttempts stay in the table and log
-/// event_dead_lettered once.</summary>
+/// <summary>Drains the pending __loom_outbox rows at-least-once — consumers
+/// must tolerate redelivery.  A row that exhausts MaxAttempts is stamped
+/// dead_at (it leaves the poll) and logs event_dead_lettered once; dispatched
+/// rows older than the retention window are purged.</summary>
 public sealed class OutboxRelayService : BackgroundService
 {
     private const int MaxAttempts = 5;
     private const int BatchSize = 50;
     private static readonly TimeSpan Interval = TimeSpan.FromMilliseconds(500);
+${outboxRetentionMembers(`            await using var scope = _scopes.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.LoomOutbox.Where(m => m.DispatchedAt < cutoff).ExecuteDeleteAsync(cancellationToken);`)}
 
     private readonly IServiceScopeFactory _scopes;${transportsField}
     private readonly ILogger<OutboxRelayService> _log;
@@ -285,6 +344,7 @@ public sealed class OutboxRelayService : BackgroundService
         {
             try
             {
+                await MaybePurgeAsync(stoppingToken);
                 await DrainAsync(stoppingToken);
                 await Task.Delay(Interval, stoppingToken);
             }
@@ -300,7 +360,7 @@ public sealed class OutboxRelayService : BackgroundService
         await using var scope = _scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();${innerResolve}
         var rows = await db.LoomOutbox
-            .Where(m => m.DispatchedAt == null && m.Attempts < MaxAttempts)
+            .Where(m => m.DispatchedAt == null && m.DeadAt == null)
             .OrderBy(m => m.OccurredAt)
             .Take(BatchSize)
             .ToListAsync(cancellationToken);
@@ -321,7 +381,8 @@ public sealed class OutboxRelayService : BackgroundService
                 row.Attempts++;
                 if (row.Attempts >= MaxAttempts)
                 {
-                    _log.LogWarning("{Event} type={Type} attempts={Attempts} error={Error}", "event_dead_lettered", row.Type, row.Attempts, ex.Message);
+                    row.DeadAt = DateTime.UtcNow;
+                    ${outboxDeadLetteredLog({ id: "row.Id", type: "row.Type", attempts: "row.Attempts" })}
                 }
             }
             await db.SaveChangesAsync(cancellationToken);

@@ -20,6 +20,7 @@ import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { isValueCollectionType, valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, upperFirst } from "../../util/naming.js";
+import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import { aggregateIsAudited, stampInsertCall, stampUpdateCall } from "./emit/audit-stamp.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
@@ -59,8 +60,8 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
     // list so the same diff-sync (insert new / update existing / delete removed)
     // applies uniformly.
     const itemsRef = c.collection
-      ? `${ownerExpr}.${c.name}`
-      : `(${ownerExpr}.${c.name} ? [${ownerExpr}.${c.name}] : [])`;
+      ? `${ownerExpr}.${escapeTargetFieldMember("ts", c.name)}`
+      : `(${ownerExpr}.${escapeTargetFieldMember("ts", c.name)} ? [${ownerExpr}.${escapeTargetFieldMember("ts", c.name)}] : [])`;
     const body = `${indent}  `;
     return [
       "",
@@ -127,7 +128,13 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
   const valueCollectionBlocks = valueCollectionsFor(agg).flatMap((vc) => {
     const vo = findValueObjectInScope(ctx, vc.voName);
     const voEntries = (vo?.fields ?? []).flatMap((vf) =>
-      projectValueEntries(vf.name, vf.type, `e.${vf.name}`, ctx, vf.optional),
+      projectValueEntries(
+        vf.name,
+        vf.type,
+        `e.${escapeTargetFieldMember("ts", vf.name)}`,
+        ctx,
+        vf.optional,
+      ),
     );
     const rowFields = [
       `parentId: aggregate.id as string`,
@@ -370,7 +377,13 @@ export function projectFieldEntries(
   varExpr: string,
   ctx: BoundedContextIR,
 ): { fieldName: string; expr: string }[] {
-  return projectValueEntries(f.name, f.type, `${varExpr}.${f.name}`, ctx, f.optional);
+  return projectValueEntries(
+    f.name,
+    f.type,
+    `${varExpr}.${escapeTargetFieldMember("ts", f.name)}`,
+    ctx,
+    f.optional,
+  );
 }
 
 function projectValueEntries(
@@ -456,7 +469,7 @@ function projectValueEntries(
         projectValueEntries(
           `${fieldName}_${vf.name}`,
           vf.type,
-          `${valueExpr}!.${vf.name}`,
+          `${valueExpr}!.${escapeTargetFieldMember("ts", vf.name)}`,
           ctx,
           false,
         ).map((e) => ({ fieldName: e.fieldName, expr: `(${guard} ? null : ${e.expr})` })),
@@ -466,7 +479,7 @@ function projectValueEntries(
       projectValueEntries(
         `${fieldName}_${vf.name}`,
         vf.type,
-        `${valueExpr}.${vf.name}`,
+        `${valueExpr}.${escapeTargetFieldMember("ts", vf.name)}`,
         ctx,
         false,
       ),

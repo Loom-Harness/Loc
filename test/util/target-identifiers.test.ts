@@ -36,11 +36,7 @@ const FIXTURE = resolve(REPO_ROOT, "test/fixtures/corpus/target-reserved-words.d
 /** Words a backend still cannot spell in one position, each with the mission
  *  that drains it.  A stale entry fails below. */
 const KNOWN_GAPS: Record<"field" | "enum" | "op" | "param", Record<string, string>> = {
-  field: {
-    constructor:
-      "ts: a field's getter cannot be named `constructor` (TS1341); escaping it moves every " +
-      "aggregate read site — #4213",
-  },
+  field: {},
   enum: {},
   op: {},
   param: {},

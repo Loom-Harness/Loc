@@ -583,6 +583,7 @@ function renderOutboxModel(): string {
     `    payload: Mapped[object] = mapped_column(${PG.JSONB})`,
     `    dispatched_at: Mapped[${PY.datetime} | None] = mapped_column(${SA.DateTime}(timezone=True))`,
     `    attempts: Mapped[int] = mapped_column(${SA.Integer}, server_default=${SA.text}("0"))`,
+    `    dead_at: Mapped[${PY.datetime} | None] = mapped_column(${SA.DateTime}(timezone=True))`,
   );
 }
 
