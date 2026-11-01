@@ -10,20 +10,6 @@ import { allContexts } from "../../src/ir/types/loom-ir.js";
 import { parseString, parseValid } from "../_helpers/parse.js";
 
 describe("root-level payloads — surface + resolution", () => {
-  it("resolves an ambient `error` in a find `or`-union variant (no per-context redeclare)", async () => {
-    const { errors } = await parseString(
-      `
-      error NotFound { resource: string }
-      context Shop {
-        aggregate Order { code: string }
-        repository Orders for Order { find recent(): Order or NotFound }
-      }
-    `,
-      { validate: true },
-    );
-    expect(errors).toEqual([]);
-  });
-
   it("resolves an ambient `error` as an operation-return variant + builder-call construction", async () => {
     const { errors } = await parseString(
       `
@@ -62,7 +48,8 @@ describe("root-level payloads — lowering + enrichment", () => {
     error NotFound { resource: string }
     context Shop {
       aggregate Order { code: string }
-      repository Orders for Order { find recent(): Order or NotFound }
+      repository Orders for Order
+      aggregate Probe { code: string  operation lookup(): string or NotFound { return NotFound { resource: code } } }
     }
   `;
 
@@ -87,7 +74,8 @@ describe("root-level payloads — lowering + enrichment", () => {
           context Shop {
             error NotFound { what: string }
             aggregate Order { code: string }
-            repository Orders for Order { find recent(): Order or NotFound }
+            repository Orders for Order
+            aggregate Probe { code: string  operation lookup(): string or NotFound { return NotFound { what: code } } }
           }
         `),
       ),

@@ -30,18 +30,18 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/index.js";
 
-function system(pageBody: string, extraFinds = ""): string {
+/** `unpaged`: a `shape: document` aggregate, whose implicit `all` is a bare
+ *  array rather than the paged envelope. */
+function system(pageBody: string, unpaged = false): string {
   return `
     system Demo {
       subdomain Sales {
         context Sales {
-          aggregate Order {
+          aggregate Order${unpaged ? " shape: document" : ""} {
             qty: int
             label: string
           }
-          repository Orders for Order {
-            ${extraFinds}
-          }
+          repository Orders for Order
         }
       }
       api SalesApi from Sales
@@ -67,8 +67,8 @@ function system(pageBody: string, extraFinds = ""): string {
   `;
 }
 
-async function detailTsx(pageBody: string, extraFinds = ""): Promise<string> {
-  return (await generateSystemFiles(system(pageBody, extraFinds))).get(
+async function detailTsx(pageBody: string, unpaged = false): Promise<string> {
+  return (await generateSystemFiles(system(pageBody, unpaged))).get(
     "web_app/src/pages/detail.tsx",
   )!;
 }
@@ -125,7 +125,7 @@ describe("page-body read lambda binding carries the record type", () => {
         loading: Loader {},
         empty: Empty { "none" },
         data: rows => For { each: rows, o => Text { string(o.qty + 1) } }}`,
-      "find all(): Order[]",
+      true,
     );
     expect(tsx).toContain("String((o.qty + 1))");
     expect(tsx).not.toContain("String(1)");
@@ -142,7 +142,7 @@ describe("page-body read lambda binding carries the record type", () => {
         loading: Loader {},
         empty: Empty { "none" },
         data: rows => Table { rows: rows, Column { field: "qty" } }}`,
-      "find all(): Order[]",
+      true,
     );
     expect(tsx).toContain("orderAll.data");
   });

@@ -33,6 +33,7 @@ system S {
         operation touch() { qty := qty + 1 }
       }
       criterion ByEmail(e: string) of Customer = email == e
+      criterion OrderCode(c: string) of Order = code == c
       repository Customers for Customer { }
       repository Orders for Order { }
       command C { e: string  oid: Order id  code: string }
@@ -141,7 +142,7 @@ describe("a guarded optional binding is clean in every body", () => {
     const src = sys({
       handler: `let b = Orders.findById(oid)
         let k = Orders.findBy(code: code)
-        let d = Orders.byCode(code)
+        let d = Orders.find(OrderCode(code))
         precondition b == null
         if let o = k { o.touch() } else { if let p = d { p.touch() } }`,
       service: "let o = Orders.findById(oid)\n          return o != null ? o.qty > 0 : false",
@@ -185,7 +186,7 @@ describe("an un-narrowed optional binding is refused when dereferenced", () => {
   it("an op-call in a handler, and in the else branch of an `if let`", async () => {
     for (const handler of [
       "let x = Customers.find(ByEmail(e))\n        x.touch()",
-      "let x = Orders.byCode(code)\n        if let y = Orders.findById(oid) { y.touch() } else { x.touch() }",
+      "let x = Orders.find(OrderCode(code))\n        if let y = Orders.findById(oid) { y.touch() } else { x.touch() }",
     ]) {
       expect(await errorCodes(sys({ handler })), handler).toContain(NULLABLE);
     }

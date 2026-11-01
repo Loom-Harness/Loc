@@ -3939,8 +3939,8 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `reactor '${p.reactor}' runs on timer '${p.timer}', which has no tenant, but reads the ` +
     `tenant-owned aggregate '${p.agg}' through \`${p.read}\`.  The read's tenant filter would match ` +
-    `nothing.  Make the cross-tenant read explicit: declare it as a \`find\` (or an inline ` +
-    `\`Repo.run\`) with \`ignoring tenantOwned\`.`,
+    `nothing.  Make the cross-tenant read explicit: widen the read with \`ignoring tenantOwned\` ` +
+    `(\`Repo.run(C) ignoring tenantOwned\`, \`Repo.getBy(…) ignoring tenantOwned\`).`,
   "loom.user-reserved-field": (p: { name: unknown; fName: unknown }) =>
     `system '${p.name}': user block declares field '${p.fName}', but that name is reserved for the ` +
     `built-in system principal (\`currentUser.isSystem\`, and \`causedBy\` — the originating user an ` +
