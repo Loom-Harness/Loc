@@ -5809,8 +5809,8 @@ was never built.
 **Consequences.** A variant `match` over a `T?` subject is a presence check on
 every backend (the `T` arm on present, `none` or `else` on absent). A remote
 `api` call to a `T?` find answers `null` on its 404, exactly as a local find.
-An unguarded member read on a `T?` is `loom.nullable-receiver`. A workflow,
-handler or domain-service body that bound an `option` find with a plain `let`
-now meets the nullable-load refusal that every `T?` find meets there; it
-branches with `if let x = R.find(…) { … } else { … }`, or reads a `T or
-<Error>` find through a `match`.
+An unguarded member read on a `T?` is `loom.nullable-receiver`. A plain `let`
+of an `option` find, in a workflow, handler or domain-service body, binds the
+`T?` exactly as a find declared `T?` does: the binding may be null, and its
+reads go through `?.`, `??` or an `if let x = R.find(…) { … } else { … }`
+branch.
