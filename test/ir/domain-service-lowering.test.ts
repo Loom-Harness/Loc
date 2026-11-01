@@ -91,7 +91,7 @@ describe("lowering — domainService", () => {
     const ctx = allContexts(loom).find((c) => c.name === "Banking")!;
     const reg = ctx.domainServices.find((s) => s.name === "Registration")!;
     const op = reg.operations.find((o) => o.name === "isTaken")!;
-    // `return Accounts.byHolder(holder) == null` — the read is the LHS of the
+    // `return Accounts.find(AccountsByHolder(holder)) == null` — the read is the LHS of the
     // binary equality on the returned value.
     const ret = op.body.find((s) => s.kind === "return")! as Extract<
       (typeof op.body)[number],
@@ -106,10 +106,12 @@ describe("lowering — domainService", () => {
     expect(read.repoRead).toEqual({
       repo: "Accounts",
       aggregate: "Account",
-      method: "byHolder",
-      op: "declared-find",
+      method: "find",
+      op: "select-one",
+      retrievalName: "findAllByAccountsByHolder",
+      synthCriterion: { name: "AccountsByHolder" },
     });
-    expect(read.name).toBe("byHolder");
+    expect(read.name).toBe("find");
     expect(read.args.length).toBe(1);
   });
 });

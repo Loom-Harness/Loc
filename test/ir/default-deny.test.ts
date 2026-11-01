@@ -104,8 +104,8 @@ describe("default-deny enforcement", () => {
 
   // --- Creates + workflows (the command surface beyond operations/destroys) ---
 
-  /** A system with an aggregate `create`, a command-triggered `workflow`, and a
-   *  read `find` — commands gated by `gate`, the find by `findGate` (each a
+  /** A system with an aggregate `create` and a command-triggered `workflow` —
+   *  commands gated by `gate`, the aggregate's reads by `findGate` (each a
    *  `requires …` clause, or "" for ungated). */
   function commandSys(gate: string, findGate = ""): string {
     return `
@@ -122,7 +122,6 @@ system Helpdesk {
       repository Tickets for Ticket {
         ${findGate ? reads("Ticket", findGate) : ""}
       }
-      criterion TicketsOpenOnes of Ticket = open == true
       workflow openTicket {
         create(s: string) { ${gate}let t = Ticket.register(s) }
       }
@@ -149,17 +148,12 @@ system Helpdesk {
     expect(errs.some((m) => m.includes("workflow 'openTicket'"))).toBe(true);
   });
 
-  it("rejects an ungated repository find under denyByDefault", async () => {
-    const errs = await denyErrors(commandSys(""));
-    expect(errs.some((m) => m.includes("find 'Tickets.openOnes'"))).toBe(true);
-  });
-
-  it("accepts gated creates + workflows + finds (requires on every reachable endpoint)", async () => {
+  it("accepts gated creates + workflows + reads (requires on every reachable endpoint)", async () => {
     const errs = await denyErrors(commandSys(OP_GATE, FIND_GATE));
     expect(errs).toEqual([]);
   });
 
-  it("accepts `requires true` on a find as the intentionally-public escape", async () => {
+  it("accepts a `requires true` read gate as the intentionally-public escape", async () => {
     const errs = await denyErrors(commandSys(OP_GATE, "requires true "));
     expect(errs).toEqual([]);
   });
@@ -203,9 +197,6 @@ system Helpdesk {
     const byId = warnings.find((d) => d.code === "loom.default-deny-by-id-ungated")!;
     expect(byId.message).toContain("/api/tickets/{id}");
     expect(byId.message).toContain("policy { read Ticket requires <expr> }");
-    // A DECLARED-but-ungated `find all` is the same hole: reported once.
-    const declared = await allDiags(src("find all(): Ticket[]"));
-    expect(declared.filter((d) => d.code === "loom.default-deny-list-ungated")).toHaveLength(1);
     // Gated (here: the explicit public escape), both are satisfied.
     const gated = await allDiags(src(reads("Ticket")));
     expect(gated.filter((d) => d.severity === "error")).toEqual([]);

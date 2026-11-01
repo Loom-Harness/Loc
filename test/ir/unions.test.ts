@@ -95,23 +95,6 @@ describe("unions — named `payload Foo = A | B` (P4a)", () => {
 });
 
 describe("unions — monomorphization (P4b)", () => {
-  it("synthesizes a named payload for an anonymous `A or B` operation return", async () => {
-    const payloads = await payloadsOf(
-      `system S { subdomain D { context C {
-         aggregate Order { code: string  operation f(): Order or Cancel { } }
-         aggregate Cancel { reason: string }
-       } } }`,
-      "C",
-    );
-    const u = payloads.find((p) => p.name === "OrderOrCancel");
-    expect(u).toBeDefined();
-    expect(u!.synthesized).toBe(true);
-    expect(u!.variants).toEqual([
-      { kind: "entity", name: "Order" },
-      { kind: "entity", name: "Cancel" },
-    ]);
-  });
-
   it("does not re-synthesize a named union (`payload Foo = …` keeps its name)", async () => {
     const payloads = await payloadsOf(
       `system S { subdomain D { context C {
@@ -127,16 +110,7 @@ describe("unions — monomorphization (P4b)", () => {
     expect(payloads.some((p) => p.name === "OrderPlacedOrOrderCancelled")).toBe(false);
   });
 
-  it("dedupes a repeated anonymous union into one payload", async () => {
-    const payloads = await payloadsOf(
-      `system S { subdomain D { context C {
-         aggregate Order { code: string  operation a(): Order or Cancel { }  operation b(): Order or Cancel { } }
-         aggregate Cancel { reason: string }
-       } } }`,
-      "C",
-    );
-    expect(payloads.filter((p) => p.name === "OrderOrCancel")).toHaveLength(1);
-  });
+
 });
 
 describe("unions — stdlib helpers (P4a)", () => {

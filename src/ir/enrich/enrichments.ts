@@ -960,7 +960,7 @@ export function enrichContext(
   // `PayloadIR` carrying `variants` — sibling to the generic monomorphization
   // above.  Named unions (`payload Foo = A | B`) already carry `variants` from
   // lowering, so they pass through `withGenerics` and are skipped here by name.
-  const unions = monomorphizeUnions(aggregates, valueObjects, repositories, withGenerics);
+  const unions = monomorphizeUnions(aggregates, valueObjects, withGenerics);
   const payloads = [...withGenerics, ...unions];
   // Derive each workflow's tail-position success type once, so the backends
   // can narrow `{:ok, term()}` to a concrete `{:ok, T}` instead of re-walking
@@ -1594,7 +1594,6 @@ export function deriveEventSubscriptions(
 function monomorphizeUnions(
   aggregates: EnrichedAggregateIR[],
   valueObjects: EnrichedValueObjectIR[],
-  repositories: RepositoryIR[],
   existing: PayloadIR[],
 ): PayloadIR[] {
   const found = new Map<string, TypeIR[]>();
@@ -1620,12 +1619,6 @@ function monomorphizeUnions(
     for (const part of agg.parts) scanAggregateLike(part);
   }
   for (const vo of valueObjects) scanAggregateLike(vo);
-  for (const repo of repositories) {
-    for (const find of repo.finds) {
-      scan(find.returnType);
-      for (const p of find.params) scan(p.type);
-    }
-  }
   for (const p of existing) {
     for (const f of p.fields) scan(f.type);
     for (const v of p.variants ?? []) scan(v);

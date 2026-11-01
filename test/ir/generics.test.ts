@@ -183,15 +183,15 @@ describe("generics — monomorphization (P3b)", () => {
     });
   });
 
-  it("synthesizes from a repository find return", async () => {
+  it("synthesizes from the repository's paged list read", async () => {
     const payloads = await payloadsOf(
       `system S { subdomain D { context C {
          aggregate Order { ref: string }
-         repository Orders for Order { find all(): Order id paged }
+         repository Orders for Order
        } } }`,
       "C",
     );
-    expect(payloads.some((p) => p.name === "OrderIdPaged")).toBe(true);
+    expect(payloads.some((p) => p.name === "OrderPaged")).toBe(true);
   });
 
   it("marks monomorphized payloads with their generic origin (ctor + arg)", async () => {

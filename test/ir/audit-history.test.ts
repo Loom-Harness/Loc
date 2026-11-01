@@ -136,17 +136,11 @@ describe("entity history — the diff boundary (security)", () => {
 });
 
 describe("entity history — inherited read gate", () => {
-  const gated = (clause: string) =>
-    SRC.replace(
-      "find byName(name: string): Employee? where this.name == name",
-      `find all(): Employee[] ${clause}\n        find byName(name: string): Employee? where this.name == name`,
-    );
-
   it("copies the list read's gate — the policy `read Employee requires …`", async () => {
     const ctx = await contextOf(
       SRC.replace(
-        "find byName(name: string): Employee? where this.name == name",
-        'find byName(name: string): Employee? where this.name == name\n      }\n      policy { read Employee requires currentUser.role == "hr"',
+        "      criterion EmployeesByName(name: string) of Employee = this.name == name",
+        `      criterion EmployeesByName(name: string) of Employee = this.name == name\n      policy { read Employee requires currentUser.role == "hr" }`,
       ),
     );
     const history = repoFor(ctx, "Employee").historyFind;
@@ -157,11 +151,6 @@ describe("entity history — inherited read gate", () => {
     expect(JSON.stringify(history?.requires)).toEqual(
       JSON.stringify(repoFor(ctx, "Employee").finds.find((f) => f.name === "all")?.requires),
     );
-  });
-
-  it("copies the list read's `ignoring` stance so capability filters cannot diverge", async () => {
-    const ctx = await contextOf(gated("ignoring *"));
-    expect(repoFor(ctx, "Employee").historyFind?.bypassAll).toBe(true);
   });
 
   it("carries no gate when the list read carries none (the ungated case is a phase-⑦ error)", async () => {
@@ -190,8 +179,8 @@ describe("entity history — denyByDefault", () => {
 
   it("clears once the list read is gated — history inherits it", async () => {
     const gated = withEnforcement(SRC).replace(
-      "find byName(name: string): Employee? where this.name == name",
-      'find byName(name: string): Employee? where this.name == name\n      }\n      policy { read Employee requires currentUser.role == "hr"',
+      "      criterion EmployeesByName(name: string) of Employee = this.name == name",
+      `      criterion EmployeesByName(name: string) of Employee = this.name == name\n      policy { read Employee requires currentUser.role == "hr" }`,
     );
     expect(await codesFor(gated)).not.toContain("loom.audit-history-ungated");
   });
