@@ -62,23 +62,36 @@ import { COVERED_ELSEWHERE, UNCOVERED } from "./diagnostic-firing-census.data.js
 // pins it with a reason.  Nobody has to remember to run a sweep.
 // ---------------------------------------------------------------------------
 
-/** A minimal system whose only defect is the one under test. */
-const unionMatch = (subjectAndArms: string) => `
+/** A minimal system whose only defect is the one under test: a page action
+ *  that awaits an `or`-returning operation and discriminates its result — the
+ *  position an `or`-union value reaches a variant `match` in. */
+const unionMatch = (arms: string) => `
 system S {
   subdomain D { context Shop {
     error NotFound { resource: string }
     error Other { resource: string }
-    aggregate Order with crudish { code: string }
-    repository Orders for Order {
-      find byCode(code: string): Order or NotFound where this.code == code
+    aggregate Order with crudish {
+      code: string
+      operation confirm(): Order or NotFound { return NotFound { resource: code } }
     }
-    workflow resolve {
-      create(code: string) {
-        let outcome = Orders.byCode(code)
-        let label = match ${subjectAndArms}
-      }
-    }
+    repository Orders for Order
   } }
+  api ShopApi from D
+  ui WebApp {
+    api Shop: ShopApi
+    page OrderDetail {
+      route: "/orders/:id"
+      state { message: string = "" }
+      action submit() {
+        match await Shop.Order.confirm() { ${arms} }
+      }
+      body: Stack { Button { "Confirm", onClick: submit } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: Shop, kind: state, use: pg }
+  deployable api { platform: node contexts: [Shop] dataSources: [st] serves: ShopApi port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { Shop: api } port: 3001 }
 }`;
 
 const uiWith = (clause: string) => `
@@ -731,15 +744,14 @@ system TimerTenant {
       aggregate Job with tenantOwned, crudish {
         code: string
         done: bool
+        unique (code)
         operation close() { done := true }
       }
-      repository Jobs for Job {
-        find byCode(c: string): Job where this.code == c
-      }
+      repository Jobs for Job
       workflow sweepRun {
         sweep: Sweep id
         create(t: SweepTick) by t.sweep {
-          let j = Jobs.byCode("x")
+          let j = Jobs.getBy(code: "x")
           j.close()
         }
       }
@@ -1258,28 +1270,10 @@ system S {
     }
     repository Orders for Order`),
 
-  // A list find: a criterion replaces it.
-  "loom.list-find-removed": repoOnly(`    aggregate Thing with crudish { name: string }
-    repository Things for Thing {
-      find byName(n: string): Thing[] where this.name == n
-    }`),
-
   "loom.criterion-retrieval-name-clash": repoOnly(`    aggregate Thing with crudish { name: string }
     repository Things for Thing
     criterion Named(n: string) of Thing = this.name == n
     retrieval Named(n: string) of Thing { where: this.name == n  sort: [name asc] }`),
-
-  // A clause-less find whose parameter names no field: dropped from the query,
-  // the lookup answered with an arbitrary row.
-  "loom.find-param-unbound": repoOnly(`    aggregate Thing with crudish { name: string }
-    repository Things for Thing {
-      find byName(n: string): Thing?
-    }`),
-
-  "loom.duplicate-find": repoOnly(`    aggregate Thing with crudish { name: string }
-    repository Things for Thing
-    criterion ThingsByName(n: string) of Thing = this.name == n
-    criterion ThingsByName2(n: string) of Thing = this.name == n`),
 
   // An abstract inheritance base owning its own `contains`.  The part's table
   // would have no reader and no writer — the base has no repository and the
@@ -1321,37 +1315,43 @@ system S {
     repoOnly(`    aggregate Product with crudish { region: string  name: string  unique (region, name) }
     repository Products for Product
     workflow w { create(n: string) { if let p = Products.findBy(name: n) { } } }`),
+  // A repository read by a name no contract verb spells.
+  "loom.repo-unknown-read": repoOnly(`    aggregate Order with crudish { code: string }
+    repository Orders for Order
+    domainService Q {
+      operation taken(c: string): bool { return Orders.findByID(c) != null }
+    }`),
 
   // --- variant match (structural-checks + the AST-level subject rule) ------
   "loom.match-unknown-variant": unionMatch(
-    `outcome { Order o => o.code, Other x => x.resource, else => "" }`,
+    `Order o => { message := o.code }, Other x => { message := x.resource }, else => { message := "" }`,
   ),
   "loom.match-duplicate-variant": unionMatch(
-    `outcome { Order o => o.code, Order p => p.code, NotFound => "" }`,
+    `Order o => { message := o.code }, Order p => { message := p.code }, NotFound => { message := "" }`,
   ),
-  "loom.match-non-exhaustive": unionMatch(`outcome { Order o => o.code }`),
-  // M-T5.1 A4 — reading straight through a union find's `Order or NotFound`
-  // without a variant `match` (an unguarded dereference on all five backends).
-  "loom.union-read-undiscriminated": `
-system S {
-  subdomain D { context Shop {
-    error NotFound { resource: string }
-    aggregate Order with crudish { code: string }
-    aggregate Note with crudish { text: string }
-    repository Orders for Order
-    criterion OrdersByCode(code: string) of Order = this.code == code
-    repository Notes for Note
-    workflow label {
-      create(code: string) {
-        let outcome = Orders.find(OrdersByCode(code))
-        let n = Note.create({ text: outcome.code })
+  "loom.match-non-exhaustive": unionMatch(`Order o => { message := o.code }`),
+  // Reading straight through an `or`-returning operation's result without a
+  // variant `match` (an unguarded dereference on all five backends).
+  "loom.union-read-undiscriminated": repoOnly(`    error NotFound { resource: string }
+    aggregate Order with crudish {
+      code: string
+      operation probe(): Order or NotFound { return NotFound { resource: code } }
+      operation touch() {
+        let r = probe()
+        code := r.code
       }
     }
-  } }
-}`,
-  "loom.match-subject-not-simple": unionMatch(
-    `Orders.byCode(code) { Order o => o.code, NotFound => "" }`,
-  ),
+    repository Orders for Order`),
+  // The AST-level subject rule: a call subject is refused before its type is
+  // asked, so a by-id read (no union at all) reaches it.
+  "loom.match-subject-not-simple": repoOnly(`    error NotFound { resource: string }
+    aggregate Order with crudish { code: string }
+    repository Orders for Order
+    workflow resolve {
+      create(id: Order id) {
+        let label = match Orders.getById(id) { Order o => o.code, NotFound => "" }
+      }
+    }`),
 
   // --- retrieval `where` --------------------------------------------------
   "loom.retrieval-where-unknown-field": repoOnly(`    aggregate Thing with crudish {
@@ -1687,12 +1687,10 @@ system S {
   // (the detector wants the whole chain), so no read port is threaded in and
   // every backend emits the bare repository name.
   "loom.domain-service-read-unsupported":
-    repoOnly(`    aggregate Customer with crudish { tier: string }
-    repository Customers for Customer {
-      find byTier(tier: string): Customer? where this.tier == tier
-    }
+    repoOnly(`    aggregate Customer with crudish { tier: string  unique (tier) }
+    repository Customers for Customer
     domainService Lookup {
-      operation tierOf(t: string): string { return Customers.byTier(t).tier }
+      operation tierOf(t: string): string { return Customers.getBy(tier: t).tier }
     }`),
 
   // The parse-but-no-emit meta-warning (M-T5.9).  `connection:` reaches the IR
@@ -1904,10 +1902,6 @@ system P {
       from Ticket as t
       group by t.queue
       select queue = t.queue, breached = count(t.breached) }`),
-  // A single-row find on `number`, which no `unique (number)` covers.
-  "loom.single-row-find-not-unique": repoOnly(`    aggregate Ticket with crudish { number: string }
-    repository Tickets for Ticket
-    criterion TicketsByNumber(number: string) of Ticket = this.number == number`),
   "loom.persisted-table-collision": repoOnly(`    aggregate Sweep with crudish { at: datetime }
     repository Sweeps for Sweep
     event Tick { sweep: Sweep id }
@@ -3445,12 +3439,15 @@ system P {
     "",
     `    page Home {
       route: "/"
-      body: QueryView { of: Sales.Order.byCode(), loading: Text { "l" }, error: Text { "e" }, empty: Text { "n" }, data: rows => Text { "x" } }
+      body: QueryView { of: Order.findAllByByCode(), loading: Text { "l" }, error: Text { "e" }, empty: Text { "n" }, data: rows => Text { "x" } }
     }`,
-  ).replace(
-    "repository Orders for Order",
-    "repository Orders for Order { find byCode(code: string): Order[] where this.code == code }",
-  ),
+  )
+    .replace("context Orders {", "context Orders with scaffoldPaged(of: ByCode) {")
+    .replace(
+      "repository Orders for Order",
+      "repository Orders for Order\n    criterion ByCode(code: string) of Order = this.code == code",
+    )
+    .replace("api SalesApi from Sales", "api SalesApi with scaffoldPagedApi(of: ByCode) from Sales"),
   "loom.ui-body-feature-unsupported": flutterUi(
     `    page Detail(id: Order id) {
       route: "/orders/:id"
