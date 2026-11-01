@@ -6,7 +6,7 @@
 //     ONE jsonb column — plain domain class (no JPA bindings), a
 //     JdbcTemplate repository with a field-visibility Jackson mapper
 //     (package-private fields, transient _domainEvents excluded),
-//     version-bumping upserts, in-memory find folds.
+//     version-bumping upserts, in-memory criterion-read folds.
 //   - `shape: embedded`: the root stays a queryable @Entity (scalar
 //     columns + JPQL finds) but containments fold into jsonb columns
 //     via Hibernate's JSON FormatMapper, swapped for a field-visibility
@@ -64,16 +64,17 @@ describe("java generator — shape: document", () => {
     expect(impl).toContain("return JSON.readValue(data, Article.class);");
   });
 
-  it("finds fold rehydrated documents in memory (accessor-rendered filters)", async () => {
+  it("criterion reads fold rehydrated documents in memory (accessor-rendered filters)", async () => {
     const files = await generateSystemFiles(DOC);
     const impl = files.get(
       "doc_api/src/main/java/com/loom/docapi/features/articles/ArticleRepositoryImpl.java",
     )!;
+    // The paged `ListPopular` read: filter, then sort + page in memory.
     expect(impl).toContain(
-      "var result = findAll().stream().filter(x -> x.viewCount() >= min).findFirst().orElse(null);",
+      "var all = findAll().stream().filter(x -> x.viewCount() >= min).toList();",
     );
     expect(impl).toContain(
-      'CatalogLog.event("find_executed", "debug", "aggregate", "Article", "find", "popular", "rows", result == null ? 0 : 1);',
+      'CatalogLog.event("find_executed", "debug", "aggregate", "Article", "find", "findAllByArticlesPopular", "rows", all.size());',
     );
   });
 });
