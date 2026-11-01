@@ -200,6 +200,7 @@ export async function run() {
     delete globalThis.__loomUnit;
   }
 
+  __releaseDispatch();
   await pglite.close?.();
 
   // Definition-of-Done rollup: join these outcomes onto the generated
