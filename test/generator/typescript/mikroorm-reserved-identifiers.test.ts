@@ -15,11 +15,21 @@
 // column object, dapper quotes explicitly), so this pins the third one.
 
 import { describe, expect, it } from "vitest";
+import { criterionReadOfFind } from "../../_helpers/criterion-read.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // `end` / `group` / `limit` are Postgres reserved words (categories R/T);
 // `total` is the CONTROL — an unreserved column must stay bare, which is the
 // whole argument for reserved-only quoting: existing output does not move.
+const READS = [
+  "find rooted(p: string): Ticket? where this.end.startsWith(p)",
+  "find trimmed(g: string): Ticket? where this.group.trim() == g",
+  "find capped(n: int): Ticket? where this.limit.abs() == n",
+  "find totalled(n: int): Ticket? where this.total.abs() == n",
+]
+  .map((f) => criterionReadOfFind(f, "Ticket", "Tickets").members)
+  .join("\n");
+
 const SOURCE = (persistence: string) => `
 system ReservedSys {
   subdomain Sales {
@@ -30,12 +40,8 @@ system ReservedSys {
         limit: int
         total: int
       }
-      repository Tickets for Ticket {
-        find rooted(p: string): Ticket? where this.end.startsWith(p)
-        find trimmed(g: string): Ticket? where this.group.trim() == g
-        find capped(n: int): Ticket? where this.limit.abs() == n
-        find totalled(n: int): Ticket? where this.total.abs() == n
-      }
+      repository Tickets for Ticket
+${READS}
     }
   }
   api SalesApi from Sales
