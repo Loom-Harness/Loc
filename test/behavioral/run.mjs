@@ -203,6 +203,7 @@ export async function run() {
     delete globalThis.__loomUnit;
   }
   } finally {
+    __releaseDispatch();
     await pglite.close?.();
   }
 
