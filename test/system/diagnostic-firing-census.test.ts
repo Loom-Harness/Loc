@@ -1239,6 +1239,19 @@ system S {
     }
     repository Orders for Order { }`),
 
+  "loom.not-found-placement": repoOnly(`    aggregate Order with crudish {
+      code: string
+      operation touch() { notFound }
+    }
+    repository Orders for Order { }`),
+
+  "loom.not-found-unreachable": repoOnly(`    aggregate Order with crudish { code: string }
+    repository Orders for Order { }
+    commandHandler Touch(code: string) {
+      notFound
+      precondition code != ""
+    }`),
+
   "loom.if-let-placement": repoOnly(`    aggregate Order with crudish {
       code: string
       operation touch() { if let c = code { code := c } }
@@ -1393,23 +1406,6 @@ system S {
     aggregate Thing with crudish { name: string }
   } }
 }`,
-
-  // --- handler body (#2659) -----------------------------------------------
-  // An OPTIONAL repository read bound in a handler body.  The shared workflow
-  // statement vocabulary the body renders through has no null-handling arm, so
-  // before the gate this emitted an unguarded dereference (TS18047 / CS8602) in
-  // the generated project.  The workflow twin refuses the same load.
-  "loom.handler-load-nullable-unsupported": deployed(`      aggregate Order {
-        code: string
-        status: string
-      }
-      repository Orders2 for Order {
-        find byCode(c: string): Order? where code == c
-      }
-      queryHandler CodeStatus(c: string): string {
-        let o = Orders2.byCode(c)
-        return o.status
-      }`),
 
   // --- lifecycle gates (M-T3.16) ------------------------------------------
   // These three arrived on `main` AFTER the 2026-08-13 census and were caught

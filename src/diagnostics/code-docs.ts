@@ -192,6 +192,8 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
     "06-behavior-and-statements.md#match--the-effect-form-variant-match",
   "loom.for-placement": "06-behavior-and-statements.md#for--if-let--workflow-bodies-only",
   "loom.if-let-placement": "06-behavior-and-statements.md#for--if-let--workflow-bodies-only",
+  "loom.not-found-placement": "06-behavior-and-statements.md#notfound--the-not-found-answer",
+  "loom.not-found-unreachable": "06-behavior-and-statements.md#notfound--the-not-found-answer",
   "loom.vanilla-op-call-actor": "06-behavior-and-statements.md#operation--a-mutating-method",
   "loom.repository-access-outside-workflow":
     "06-behavior-and-statements.md#operation--a-mutating-method",

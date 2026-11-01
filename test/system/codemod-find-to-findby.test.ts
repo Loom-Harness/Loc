@@ -139,19 +139,16 @@ describe("codemod-find-to-findby", () => {
   aggregate Order with crudish { code: string  total: int  owner: string
     operation bump() { total := total + 1 } }
   repository Orders for Order {
-    find mustOwner(o: string): Order where this.owner == o
     find locate(c: string): Order or OrderNotFound where this.code == c
-    find maybe(oid: Order id): Order? where this.id == oid
     find latest(): Order?
-    find scoped(o: string): Order? where this.owner == o ignoring *
+    find mustById(oid: Order id): Order where this.id == oid ignoring *
   }
   workflow w {
-    create(o: string, c: string, oid: Order id) {
-      let m = Orders.mustOwner(o)
-      m.bump()
+    create(c: string, oid: Order id) {
       let l = Orders.locate(c)
       match l { Order x => { x.bump() } OrderNotFound e => { } }
-      if let q = Orders.maybe(oid) { q.bump() }
+      let k = Orders.mustById(oid)
+      k.bump()
     }
   }
 }}}
@@ -161,11 +158,133 @@ describe("codemod-find-to-findby", () => {
     expect(text).toBe(src);
     const byFind = (name: string) =>
       report.filter((r) => r.includes(`Orders.${name} —`)).join("\n");
-    expect(byFind("mustOwner")).toContain("no else-branch statement answers a 404");
     expect(byFind("locate")).toContain("matches on the error variant");
-    expect(byFind("maybe")).toContain("is an 'if let' source, which findById is not");
     expect(byFind("latest")).toContain("it reads an arbitrary row");
-    expect(byFind("scoped")).toContain("Repo.find(<Criterion>) carries no 'ignoring'");
+    expect(byFind("mustById")).toContain("getById carries no 'ignoring'");
+  });
+
+  it("moves a criterion / by-id find's `ignoring` to the find(C) / findById call", async () => {
+    const src = `system S { subdomain M { context C {
+  aggregate Order with crudish, softDeletable {
+    owner: string
+    total: int
+    operation bump() { total := total + 1 }
+  }
+  repository Orders for Order {
+    find scoped(o: string): Order? where this.owner == o ignoring *
+    find anyById(oid: Order id): Order? where this.id == oid ignoring softDeletable
+  }
+  domainService Q {
+    operation had(oid: Order id): bool { return Orders.anyById(oid) != null }
+    operation owned(o: string): bool { return Orders.scoped(o) == null }
+  }
+  workflow w {
+    create(o: string) {
+      if let x = Orders.scoped(o) { x.bump() }
+    }
+  }
+}}}
+`;
+    const { text, report } = migrateSource(src, "m.ddd");
+    expect(report).toEqual([]);
+    expect(text).toContain("criterion OrdersScoped(o: string) of Order = this.owner == o");
+    expect(text).toContain("if let x = Orders.find(OrdersScoped(o)) ignoring * { x.bump() }");
+    expect(text).toContain("return Orders.find(OrdersScoped(o)) ignoring * == null");
+    expect(text).toContain("return Orders.findById(oid) ignoring softDeletable != null");
+    expect(await errorCodes(text)).toEqual([]);
+  });
+
+  it("rewrites a must-exist criterion read to `if let … else { notFound }`", async () => {
+    const src = `system S { subdomain M { context C {
+  aggregate Order with crudish { total: int  owner: string
+    operation bump() { total := total + 1 } }
+  repository Orders for Order {
+    find mustOwner(o: string): Order where this.owner == o
+  }
+  commandHandler Bump(o: string) {
+    let m: Order = Orders.mustOwner(o)
+    // the rest of the block moves into the then-branch
+    m.bump()
+  }
+  workflow w {
+    create(o: string) {
+      let m = Orders.mustOwner(o)
+    }
+  }
+}}}
+`;
+    const { text, report } = migrateSource(src, "m.ddd");
+    expect(report).toEqual([]);
+    expect(text).toContain("criterion OrdersMustOwner(o: string) of Order = this.owner == o");
+    expect(text).toContain(`  commandHandler Bump(o: string) {
+    if let m = Orders.find(OrdersMustOwner(o)) {
+      // the rest of the block moves into the then-branch
+      m.bump()
+    } else {
+      notFound
+    }
+  }`);
+    expect(text).toContain(`      if let m = Orders.find(OrdersMustOwner(o)) {
+      } else {
+        notFound
+      }`);
+    expect(await errorCodes(text)).toEqual([]);
+    expect(migrateSource(text, "m.ddd").changed).toBe(0);
+  });
+
+  it("reports a must-exist criterion read that cannot become `if let … else { notFound }`", () => {
+    const src = `system S { subdomain M { context C {
+  aggregate Order with crudish { total: int  owner: string }
+  repository Orders for Order {
+    find mustOwner(o: string): Order where this.owner == o
+  }
+  queryHandler Total(o: string): int {
+    let m = Orders.mustOwner(o)
+    return m.total
+  }
+  commandHandler Probe(o: string) {
+    precondition Orders.mustOwner(o) != null
+  }
+}}}
+`;
+    const { changed, report } = migrateSource(src, "m.ddd");
+    expect(changed).toBe(0);
+    const lines = report.join("\n");
+    expect(lines).toContain("is followed by a 'return'");
+    expect(lines).toContain("where only a 'let' can become 'if let … else { notFound }'");
+  });
+
+  it("rewrites a let-bound T? read, and a findById `if let` source", async () => {
+    // A `let` binds a `T?` read, and `findById` is an `if let` source, so
+    // neither call site blocks its find any more.
+    const src = `system S { subdomain M { context C {
+  aggregate Customer with crudish { email: string }
+  aggregate Product with crudish { sku: string  unique (sku) }
+  aggregate Order with crudish { total: int
+    operation bump() { total := total + 1 } }
+  repository Customers for Customer { find byEmail(e: string): Customer? where this.email == e }
+  repository Products for Product { find bySku(s: string): Product? where this.sku == s }
+  repository Orders for Order { find maybe(oid: Order id): Order? where this.id == oid }
+  workflow w {
+    create(e: string, s: string, oid: Order id) {
+      let c = Customers.byEmail(e)
+      precondition c != null
+      let p = Products.bySku(s)
+      requires p == null
+      let r = Orders.maybe(oid)
+      if let q = Orders.maybe(oid) { q.bump() }
+      if let t = r { t.bump() }
+    }
+  }
+}}}
+`;
+    const { text, report } = migrateSource(src, "m.ddd");
+    expect(report).toEqual([]);
+    expect(text).toContain("let c = Customers.find(CustomersByEmail(e))");
+    expect(text).toContain("let p = Products.findBy(sku: s)");
+    expect(text).toContain("let r = Orders.findById(oid)");
+    expect(text).toContain("if let q = Orders.findById(oid) { q.bump() }");
+    expect(await errorCodes(text)).toEqual([]);
   });
 
   it("migrates a must-exist find nothing calls", () => {

@@ -11,7 +11,11 @@
 //     method);
 //   - a `domainService` reading op (`findBy(…) != null`, `find(C) == null`);
 //   - a criterion read with `Repo.find(<Criterion>)`, the target for a key no
-//     `unique (…)` declares.
+//     `unique (…)` declares;
+//   - `ignoring …` on `find(C)` (an `if let` source in a workflow, a
+//     commandHandler and a correlated event reactor; a domainService read) and on
+//     `findById` (a domainService read) — each widened read calls a method of
+//     its own that skips the `softDeletable` filter.
 // Compiled by each backend's `LOOM_*_BUILD` gate.
 system KeyShop {
   subdomain Sales {
@@ -40,11 +44,45 @@ system KeyShop {
         operation regionEmpty(region: string): bool {
           return Products.find(ProductsInRegion(region)) == null
         }
+        operation regionEverUsed(region: string): bool {
+          return Products.find(ProductsInRegion(region)) ignoring * != null
+        }
+        operation everExisted(id: Product id): bool {
+          return Products.findById(id) ignoring softDeletable != null
+        }
       }
 
       workflow repriceFirstInRegion {
         create(region: string, to: int) {
           if let p = Products.find(ProductsInRegion(region)) { p.reprice(to) }
+        }
+      }
+
+      workflow repriceFirstInRegionEvenDeleted {
+        create(region: string, to: int) {
+          if let p = Products.find(ProductsInRegion(region)) ignoring softDeletable {
+            p.reprice(to)
+          }
+        }
+      }
+
+      workflow archiveFirstInRegionEver {
+        create(region: string) {
+          if let p = Products.find(ProductsInRegion(region)) ignoring * { p.archive() }
+        }
+      }
+
+      // A correlated reactor (`on(…) by …`) — its body renders through each
+      // backend's event-dispatch path, not the command path.
+      event ListingWatched { product: Product id, region: string }
+      event ListingClosed { product: Product id, region: string }
+      workflow ListingWatch {
+        productId: Product id
+        create(w: ListingWatched) by w.product { }
+        on(c: ListingClosed) by c.product {
+          if let p = Products.find(ProductsInRegion(c.region)) ignoring softDeletable {
+            p.archive()
+          }
         }
       }
 
@@ -79,6 +117,13 @@ system KeyShop {
         return p.id
       }
 
+      commandHandler ArchiveFirstInRegion(region: string): int {
+        if let p = Products.find(ProductsInRegion(region)) ignoring softDeletable {
+          p.archive()
+        }
+        return 0
+      }
+
       commandHandler ArchiveListing(name: string, region: string): int {
         if let p = Products.findBy(region: region, name: name) {
           p.archive()
@@ -92,6 +137,7 @@ system KeyShop {
     route GET  "/products/any-by-sku/{sku}"      -> Catalog.AnyProductBySku
     route POST "/products/listing/reprice"       -> Catalog.RepriceListing
     route POST "/products/listing/archive"       -> Catalog.ArchiveListing
+    route POST "/products/region/archive"        -> Catalog.ArchiveFirstInRegion
   }
   storage pg { type: postgres }
   resource st { for: Catalog, kind: state, use: pg }

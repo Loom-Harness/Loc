@@ -35,6 +35,7 @@ import { renderTsStatements } from "../../../generator/typescript/render-stmt.js
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
 import { tsNotFoundThrow } from "../../../generator/typescript/wire-policy-ts.js";
 import {
+  notFoundStmtDetail,
   reasonPhrase,
   wireFixedDetail,
   wireStatus,
@@ -2413,6 +2414,7 @@ function collectRepoRefs(st: WorkflowStmtIR, seen: Map<string, string>): void {
     case "op-call":
     case "resource-call":
     case "domain-service-call":
+    case "not-found":
       // Name no repository of their own.
       break;
     default: {
@@ -2467,6 +2469,14 @@ export function honoWorkflowStmtTarget(
       return [`${indent}const ${escapeTsIdent(st.name)} = ${st.aggName}.create({ ${fields} });`];
     },
     repoLet: (st, indent) => {
+      // A criterion read (`let c = Repo.find(<Criterion>)`) runs the shared
+      // retrieval for one row and binds it or `null`, exactly as the `if let`
+      // over the same source does.
+      if (st.op === "select-one" && st.retrievalName) {
+        return [
+          `${indent}const ${escapeTsIdent(st.name)} = ${firstRowOf(st.repoName, st.retrievalName, st.args.map(renderArg))};`,
+        ];
+      }
       const args = st.args.map(renderArg).join(", ");
       return [
         `${indent}const ${escapeTsIdent(st.name)} = await ${lowerFirst(st.repoName)}.${st.method}(${args});`,
@@ -2590,12 +2600,19 @@ export function honoWorkflowStmtTarget(
       // then-branch; each branch's dirty bindings save INSIDE that branch.  A
       // declared optional find (`findMethod`) already answers `Agg | null`, so
       // it is awaited directly.
+      // `findById` answers `Agg | null` under that name; a `bound` source
+      // narrows an optional binding already in scope.
       const inner = `${indent}  `;
       const args = st.retrievalArgs.map(renderArg);
       const repoVar = lowerFirst(st.repoName);
-      const lookup = st.findMethod
-        ? `await ${repoVar}.${st.findMethod}(${args.join(", ")})`
-        : `(await ${repoVar}.run${upperFirst(st.retrievalName)}(${[...args, "{ limit: 1 }"].join(", ")}))[0] ?? null`;
+      const lookup =
+        st.op === "bound"
+          ? args.join(", ")
+          : st.op === "load-optional"
+            ? `await ${repoVar}.findById(${args.join(", ")})`
+            : st.findMethod
+              ? `await ${repoVar}.${st.findMethod}(${args.join(", ")})`
+              : firstRowOf(st.repoName, st.retrievalName, args);
       const thenSaves = st.savesInThen.map(
         (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,
       );
@@ -2624,7 +2641,18 @@ export function honoWorkflowStmtTarget(
     // emit as a statement.  The mutated aggregate args persist via the
     // workflow's exit-saves (`savesAtExit`), emitted after the body.
     domainServiceCall: (st, indent) => [`${indent}${renderArg(st.call)};`],
+    // The by-id read's own absence error, so the router's
+    // `AggregateNotFoundError` arm answers the identical ProblemDetails.
+    notFound: (st, indent) => [
+      `${indent}throw new AggregateNotFoundError(${JSON.stringify(notFoundStmtDetail(st))});`,
+    ],
   };
+}
+
+/** The first row of a criterion retrieval run, or `null` — the single-result
+ *  read behind `Repo.find(<Criterion>)` in a `let` and an `if let`. */
+function firstRowOf(repoName: string, retrievalName: string, args: readonly string[]): string {
+  return `(await ${lowerFirst(repoName)}.run${upperFirst(retrievalName)}(${[...args, "{ limit: 1 }"].join(", ")}))[0] ?? null`;
 }
 
 function lookupOp(

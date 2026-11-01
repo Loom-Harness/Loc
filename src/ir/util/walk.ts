@@ -243,6 +243,8 @@ export function walkWorkflowStmtChildren(s: WorkflowStmtIR, v: WorkflowStmtChild
       for (const st of s.thenBody) wf?.(st);
       for (const st of s.elseBody ?? []) wf?.(st);
       break;
+    case "not-found":
+      break;
     default: {
       const _exhaustive: never = s;
       void _exhaustive;
