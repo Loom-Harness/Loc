@@ -605,7 +605,7 @@ function timerRunsRowEntity(): { block: string; schemaName: string } {
  *    - `occurredAt` / `attempts` are written by the capture site too, so they
  *      need no DDL default (the drizzle table has `defaultNow()` / `default(0)`
  *      because its INSERT omits them).
- *  `dispatchedAt` NULL is the undispatched marker the relay's drain filters on,
+ *  `dispatchedAt` and `deadAt` both NULL mark the pending rows the relay drains,
  *  exactly as on drizzle. */
 
 function outboxRowEntity(): { block: string; schemaName: string } {
@@ -616,6 +616,7 @@ function outboxRowEntity(): { block: string; schemaName: string } {
     JSONB("payload", false),
     TIMESTAMPTZ("dispatchedAt", { nullable: true }),
     INT("attempts"),
+    TIMESTAMPTZ("deadAt", { nullable: true }),
   ]);
 }
 

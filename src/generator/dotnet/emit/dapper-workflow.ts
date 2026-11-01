@@ -30,6 +30,7 @@ import {
   type TypeIR,
   type WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
+import { OUTBOX_PENDING_PREDICATE, OUTBOX_PURGE_BATCH } from "../../../util/channels.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
 import {
@@ -46,7 +47,12 @@ import {
 import { type DapperColumn, fieldColumn, sqlIdent } from "./dapper.js";
 import { dapperAmbientTxClassFq, dapperOpenConn } from "./dapper-session.js";
 import { eventRecordClass, renderEventRecordPoco } from "./event-store.js";
-import { outboxOriginFrame, outboxPayloadExpr } from "./outbox.js";
+import {
+  outboxDeadLetteredLog,
+  outboxOriginFrame,
+  outboxPayloadExpr,
+  outboxRetentionMembers,
+} from "./outbox.js";
 
 /** A projection that persists a KEYED read-model row (the IReadModelStore /
  *  DbSchema-table users) — materialized + keyed.  Query-time / singleton
@@ -597,15 +603,21 @@ using ${ns}.Domain.Events;
 ${channelsUsing}
 namespace ${ns}.Infrastructure.Events;
 
-/// <summary>Drains __loom_outbox through the in-process dispatcher
-/// (at-least-once — consumers must tolerate redelivery).  Rows that exhaust
-/// MaxAttempts stay in the table and log event_dead_lettered once.  Raw-Npgsql
+/// <summary>Drains the pending __loom_outbox rows through the in-process
+/// dispatcher (at-least-once — consumers must tolerate redelivery).  A row
+/// that exhausts MaxAttempts is stamped dead_at (it leaves the poll) and logs
+/// event_dead_lettered once; dispatched rows older than the retention window
+/// are purged in bounded batches.  Raw-Npgsql
 /// sibling of the EF OutboxRelayService (persistence: dapper).</summary>
 public sealed class OutboxRelayService : BackgroundService
 {
     private const int MaxAttempts = 5;
     private const int BatchSize = 50;
     private static readonly TimeSpan Interval = TimeSpan.FromMilliseconds(500);
+${outboxRetentionMembers(`            await using var conn = await _db.OpenConnectionAsync(cancellationToken);
+            await conn.ExecuteAsync(new CommandDefinition(
+                "DELETE FROM __loom_outbox WHERE id IN (SELECT id FROM __loom_outbox WHERE dispatched_at < @cutoff LIMIT ${OUTBOX_PURGE_BATCH})",
+                new { cutoff }, cancellationToken: cancellationToken));`)}
 
     private readonly IServiceScopeFactory _scopes;
     private readonly NpgsqlDataSource _db;${transportsField}
@@ -624,6 +636,7 @@ public sealed class OutboxRelayService : BackgroundService
         {
             try
             {
+                await MaybePurgeAsync(stoppingToken);
                 await DrainAsync(stoppingToken);
                 await Task.Delay(Interval, stoppingToken);
             }
@@ -648,8 +661,8 @@ public sealed class OutboxRelayService : BackgroundService
         await using (var conn = await _db.OpenConnectionAsync(cancellationToken))
         {
             rows = (await conn.QueryAsync<OutboxRow>(new CommandDefinition(
-                "SELECT id, type, payload, attempts FROM __loom_outbox WHERE dispatched_at IS NULL AND attempts < @max ORDER BY occurred_at LIMIT @take",
-                new { max = MaxAttempts, take = BatchSize }, cancellationToken: cancellationToken))).ToList();
+                "SELECT id, type, payload, attempts FROM __loom_outbox WHERE ${OUTBOX_PENDING_PREDICATE} ORDER BY occurred_at LIMIT @take",
+                new { take = BatchSize }, cancellationToken: cancellationToken))).ToList();
         }
         foreach (var row in rows)
         {
@@ -670,13 +683,14 @@ public sealed class OutboxRelayService : BackgroundService
             catch (Exception ex)
             {
                 var attempts = row.attempts + 1;
+                var dead = attempts >= MaxAttempts;
                 await using var bump = await _db.OpenConnectionAsync(cancellationToken);
                 await bump.ExecuteAsync(new CommandDefinition(
-                    "UPDATE __loom_outbox SET attempts = @attempts WHERE id = @id",
-                    new { attempts, id = row.id }, cancellationToken: cancellationToken));
-                if (attempts >= MaxAttempts)
+                    "UPDATE __loom_outbox SET attempts = @attempts, dead_at = CASE WHEN @dead THEN now() END WHERE id = @id",
+                    new { attempts, dead, id = row.id }, cancellationToken: cancellationToken));
+                if (dead)
                 {
-                    _log.LogWarning("{Event} type={Type} attempts={Attempts} error={Error}", "event_dead_lettered", row.type, attempts, ex.Message);
+                    ${outboxDeadLetteredLog({ id: "row.id", type: "row.type", attempts: "attempts" })}
                 }
             }
         }

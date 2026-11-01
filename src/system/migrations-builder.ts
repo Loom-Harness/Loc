@@ -82,6 +82,7 @@ import {
   AUDIT_RECORDS_PK,
   AUDIT_RECORDS_TABLE,
 } from "../util/audit-records-table.js";
+import { OUTBOX_PENDING_PREDICATE } from "../util/channels.js";
 import {
   legacyWorkflowStateTableName,
   snake,
@@ -443,19 +444,23 @@ function outboxTableShape(ownerModule: string): TableShape {
       { name: "payload", type: { kind: "json" }, nullable: false },
       { name: "dispatched_at", type: { kind: "datetime" }, nullable: true },
       { name: "attempts", type: { kind: "int" }, nullable: false, default: "0" },
+      // Set by the relay when a row exhausts its attempts: a dead-lettered row
+      // leaves the poll and is never purged, until an operator replays it.
+      { name: "dead_at", type: { kind: "datetime" }, nullable: true },
     ],
     primaryKey: ["id"],
     foreignKeys: [],
-    // The relay's poll is `WHERE dispatched_at IS NULL AND attempts < max
-    // ORDER BY occurred_at`; dispatched rows accumulate, so index only the
-    // pending ones — the scan stays proportional to the backlog, not the table.
+    // The relay polls `WHERE <OUTBOX_PENDING_PREDICATE> ORDER BY occurred_at`;
+    // dispatched rows linger until the retention purge and dead rows forever,
+    // so index only the pending ones — the scan stays proportional to the
+    // backlog, not the table.
     indexes: [
       {
         name: "__loom_outbox_pending_idx",
         table: "__loom_outbox",
         columns: ["occurred_at"],
         unique: false,
-        predicate: "dispatched_at IS NULL",
+        predicate: OUTBOX_PENDING_PREDICATE,
       },
     ],
   };
