@@ -25,13 +25,13 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 const SRC = `
 system Shop {
   subdomain Sales {
-    context Ordering {
+    context Ordering with scaffoldPaged(of: OrdersByFlag) {
       aggregate Order {
         code: string
         flagged: bool
         operation mark(wanted: bool) { flagged := wanted }
       }
-      repository Orders for Order { }
+      repository Orders for Order
       criterion OrdersByFlag(f: bool) of Order = this.flagged == f
       queryHandler CountFlagged(wanted: bool): int {
         let all = Orders.findAll()
@@ -39,7 +39,7 @@ system Shop {
       }
     }
   }
-  api SalesApi from Sales {
+  api SalesApi with scaffoldPagedApi(of: OrdersByFlag) from Sales {
     route GET "/orders/flagged/{wanted}" -> Ordering.CountFlagged
   }
   storage pg { type: postgres }
@@ -87,10 +87,11 @@ describe("the emitted textual-bool schema parses text, never `Boolean(input)`", 
 });
 
 describe("every textual-bool slot uses it — query params and path segments", () => {
-  it("a `bool` find parameter is not coerced", async () => {
-    const routes = await file("http/order.routes.ts");
-    expect(routes).toContain(`f: ${QUERY_BOOL}`);
-    expect(routes, "no query/path slot may coerce a bool").not.toContain("z.coerce.boolean()");
+  it("a `bool` QUERY parameter is not coerced", async () => {
+    // `GET /orders/projections/orders_by_flag?f=…` — the criterion's param.
+    const router = await file("http/salesApi-routes.ts");
+    expect(router).toContain(`f: ${QUERY_BOOL}`);
+    expect(router, "no query/path slot may coerce a bool").not.toContain("z.coerce.boolean()");
   });
 
   it("a `bool` PATH segment is not coerced either", async () => {
