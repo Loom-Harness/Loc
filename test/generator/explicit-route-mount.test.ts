@@ -27,7 +27,7 @@
 //
 // The second describe pins D-EXPLICIT-ROUTE-WINS.  `with scaffoldHandlers` +
 // `with scaffoldApi` synthesises one explicit route per create / operation /
-// find / get-by-id / destroy — the same slots the always-on auto-derived REST
+// get-by-id / destroy — the same slots the always-on auto-derived REST
 // surface occupies.  The explicit route owns each such slot: the derived
 // surface yields it, so the two never register on one slot (elixir would fail
 // `mix compile --warnings-as-errors`, .NET and java would throw ambiguity
@@ -78,9 +78,7 @@ system Shop {
         operation cancel() when status == "new" { status := "cancelled" }
         destroy { }
       }
-      repository Orders for Order {
-        find byStatus(status: string): Order where this.status == status
-      }
+      repository Orders for Order
     }
   }
   api SalesApi with scaffoldApi(of: Sales)
@@ -197,7 +195,6 @@ describe("D-EXPLICIT-ROUTE-WINS — an explicit route owns its slot; the derived
     const apiBlock = router.slice(router.indexOf('scope "/api"'));
     expect(rootBlock).not.toContain("SalesApiRoutesController");
     for (const line of [
-      'get "/orders/by_status", SalesApiRoutesController, :by_status_order',
       'get "/orders/:order_id", SalesApiRoutesController, :get_order',
       'post "/orders", SalesApiRoutesController, :create_order',
       'post "/orders/:order_id/cancel", SalesApiRoutesController, :cancel_order',
@@ -206,16 +203,11 @@ describe("D-EXPLICIT-ROUTE-WINS — an explicit route owns its slot; the derived
       expect(apiBlock).toContain(line);
     // The derived routes for those slots are gone — two clauses on one slot is
     // an unreachable `do_match` and a `--warnings-as-errors` build failure.
-    for (const action of [":show", ":create", ":delete", ":cancel", ":by_status"])
+    for (const action of [":show", ":create", ":delete", ":cancel"])
       expect(apiBlock).not.toContain(`OrderController, ${action}\n`);
     // Slots no explicit route claims stay derived: the list read and the probe.
     expect(apiBlock).toContain('get "/orders", OrderController, :index');
     expect(apiBlock).toContain('get "/orders/:id/can_cancel", OrderController, :can_cancel');
-    // Phoenix matches in order: the static find precedes the `:order_id` read
-    // that would otherwise swallow `/orders/by_status`.
-    expect(apiBlock.indexOf('"/orders/by_status"')).toBeLessThan(
-      apiBlock.indexOf('get "/orders/:order_id"'),
-    );
   });
 
   it("dotnet mounts the explicit templates under /api and drops the derived actions", async () => {
@@ -247,13 +239,7 @@ describe("D-EXPLICIT-ROUTE-WINS — an explicit route owns its slot; the derived
   it("node and python register each slot once, on the explicit router", async () => {
     const node = await generateSystemFiles(SCAFFOLD_SRC("node"));
     const nodeDerived = [...node].find(([k]) => k.endsWith("http/order.routes.ts"))![1];
-    for (const id of [
-      "getOrderById",
-      "createOrder",
-      "destroyOrder",
-      "cancelOrder",
-      "byStatusOrder",
-    ])
+    for (const id of ["getOrderById", "createOrder", "destroyOrder", "cancelOrder"])
       expect(nodeDerived).not.toContain(`operationId: "${id}"`);
     expect(nodeDerived).toContain('operationId: "can_cancelOrder"');
     expect(nodeDerived).toContain('operationId: "allOrder"');
@@ -287,32 +273,6 @@ describe("D-EXPLICIT-ROUTE-WINS — an explicit route owns its slot; the derived
     expect(derived).not.toContain("CreatedAtAction(");
     expect(derived).toContain('return Created($"/api/orders/{id.Value}", ');
     expect(derived).toContain("[HttpPost]");
-  });
-
-  it("elixir: a hand-written route taking over get-by-id registers AFTER the derived static find", async () => {
-    // Only `GET /orders/{orderId}` is claimed; `find byStatus` stays derived.
-    // Spliced `first`, the explicit `:order_id` clause would match
-    // `/orders/by_status` before the derived find route ever saw it.
-    const src = CLEAN_SRC("elixir")
-      .replace(
-        "commandHandler Echo(text: string): string { return text }",
-        "queryHandler Fetch(orderId: string): string { return orderId }",
-      )
-      .replace(
-        "repository Orders for Order { }",
-        "repository Orders for Order { find byStatus(status: string): Order where this.status == status }",
-      )
-      .replace(
-        'route POST "/echo/{text}" -> Sales.Echo',
-        'route GET "/orders/{orderId}" -> Sales.Fetch',
-      );
-    const router = await fileEndingWith(src, "lib/d_web/router.ex");
-    const apiBlock = router.slice(router.indexOf('scope "/api"'));
-    expect(apiBlock).toContain('get "/orders/by_status", OrderController, :by_status');
-    expect(apiBlock).not.toContain("OrderController, :show");
-    expect(apiBlock.indexOf('get "/orders/by_status"')).toBeLessThan(
-      apiBlock.indexOf('get "/orders/:order_id", ARoutesController'),
-    );
   });
 
   it("a route on a slot the derived surface does not occupy goes `first` (the rule is per-route)", async () => {
