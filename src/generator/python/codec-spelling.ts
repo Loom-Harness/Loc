@@ -37,7 +37,7 @@ const ISO = pyRef("app.db.wire", "iso");
 /** The SQLAlchemy column type expression for a codec column type — the same
  *  Postgres type the shared migration creates.  A `uuid` maps with
  *  `as_uuid=False`, so the python side holds the id as a `str`. */
-export function pySaColumnType(c: ColumnType): string {
+function pySaColumnType(c: ColumnType): string {
   switch (c.kind) {
     case "int":
       return "Integer";
@@ -110,7 +110,7 @@ export function pyIntColumnType(): string {
 
 /** A `datetime` expression → its RS-4 + RS-38 wire string, through the
  *  runtime `iso` helper. */
-export function pyInstantWire(expr: string): string {
+function pyInstantWire(expr: string): string {
   return `${ISO}(${expr})`;
 }
 
@@ -164,11 +164,6 @@ export function pyMoneyIntegerDigits(): number {
 export function pyMoneyColumnLabel(): string {
   const c = scalarCodec("money").column;
   return c.kind === "decimal" ? `NUMERIC(${c.precision},${c.scale})` : "NUMERIC";
-}
-
-/** `money`'s wire scale, for prose in emitted code. */
-export function pyMoneyScale(): number {
-  return moneyWire().scale;
 }
 
 /** The inclusive range of an integral scalar, for a pydantic check. */
