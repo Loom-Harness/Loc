@@ -77,6 +77,7 @@
 // again.  A picker binding is safe to SHARE where a mutation handle is not:
 // every form wants the same list of options off the same query.
 
+import { frameworksWithScope } from "../../util/target-capabilities.js";
 import type { ExprIR, UiIR } from "../types/loom-ir.js";
 import { walkExprDeep } from "./walk.js";
 
@@ -84,7 +85,9 @@ import { walkExprDeep } from "./walk.js";
  *  their forms through different machinery (Elmish messages, Riverpod
  *  notifiers, `handle_event` clauses) and are NOT covered here — a gate that
  *  named them would be a refusal nobody verified. */
-export const FORM_LOCAL_FRAMEWORKS = new Set(["react", "vue", "svelte"]);
+export const FORM_LOCAL_FRAMEWORKS: ReadonlySet<string> = frameworksWithScope(
+  "forms:shared-local-scope",
+);
 
 /** One form primitive found in a body, reduced to the identity that decides
  *  collisions.  `kind` separates the naming families — an operation form never

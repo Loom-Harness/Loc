@@ -35,6 +35,8 @@
 // FileUpload all landed this way, so they are absent from both sets below.
 // ---------------------------------------------------------------------------
 
+import { TARGET_CAPABILITIES } from "./target-capabilities.js";
+
 /** Pack primitive-template ids the flutter pack does NOT ship as a template.
  *  Subtracted from the `flutter` required surface by `required-primitives.ts`.
  *
@@ -80,7 +82,9 @@ export const FLUTTER_INLINE_OR_DEFERRED: ReadonlySet<string> = new Set([
  *  `platform: flutter` target.  STRICT SUBSET of {@link FLUTTER_INLINE_OR_DEFERRED}.
  *  Currently EMPTY (every page primitive renders); kept as a dormant safety net
  *  the gate re-arms from the moment any primitive is added back. */
-export const FLUTTER_UNRENDERED_PRIMITIVES: ReadonlySet<string> = new Set<string>([]);
+export const FLUTTER_UNRENDERED_PRIMITIVES: ReadonlySet<string> = new Set<string>(
+  TARGET_CAPABILITIES.flutter.ui?.unrenderedPrimitives ?? [],
+);
 
 // Maps each UNRENDERED pack-template id to the walker builder-call NAME(s) that
 // emit through it — the PascalCase names that appear in a page body.  Every id

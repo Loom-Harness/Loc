@@ -30,6 +30,7 @@ system TargetReservedWords {
         cond: string
         const: string
         constraint: string
+        constructor: string
         continue: string
         copy: string
         covariant: string

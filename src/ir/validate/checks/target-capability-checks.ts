@@ -20,9 +20,9 @@ import {
   type BackendConstruct,
   backendCapability,
   type CapabilityVerdict,
+  type RefusableUiConstruct,
   type TargetRefusalSlug,
   UI_CONSTRUCTS,
-  type UiConstruct,
   uiCapability,
 } from "../../../util/target-capabilities.js";
 import type {
@@ -39,7 +39,7 @@ import { dataGridHosts } from "../../util/data-grid.js";
 import { entityHistoryReadHosts } from "../../util/entity-history-read.js";
 import { aggregateIsEventSourced } from "../../util/resolve-datasource.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
-import { mountedUis } from "./ui-framework-checks.js";
+import { mountedUis, standardOpAwaitUses } from "./ui-framework-checks.js";
 
 /** One use of a construct: where it sits, and the message parameters its
  *  refusal names besides the deployable and target. */
@@ -65,7 +65,7 @@ function uiBodies(ui: UiIR): Array<{ what: string; body: ExprIR | undefined; ori
 }
 
 /** Where each UI construct is used. */
-export const UI_DETECTORS: Readonly<Record<UiConstruct, UiDetector>> = {
+export const UI_DETECTORS: Readonly<Record<RefusableUiConstruct, UiDetector>> = {
   "primitive:DataGrid@body": (ui) =>
     dataGridHosts(ui).map((what) => ({ what, source: `${ui.name}/${what}` })),
   "primitive:Chart@body": (ui) =>
@@ -82,6 +82,11 @@ export const UI_DETECTORS: Readonly<Record<UiConstruct, UiDetector>> = {
       source: `${ui.name}/${what}`,
     }));
   },
+  "stmt:match-await-standard-op@action": (ui, sys) =>
+    standardOpAwaitUses(sys, ui).map((u) => ({
+      what: `${u.where} (\`match await ${u.name}()\`)`,
+      source: `${ui.name}/${u.where}`,
+    })),
 };
 
 /** Where each backend construct is used, per hosted context. */
@@ -107,7 +112,7 @@ export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetecto
 /** How the check looks a verdict up.  The default reads the shipped table; a
  *  test passes its own to prove every detector bites. */
 export interface CapabilityLookup {
-  ui(framework: string, construct: UiConstruct): CapabilityVerdict;
+  ui(framework: string, construct: RefusableUiConstruct): CapabilityVerdict;
   backend(platform: Platform, construct: BackendConstruct): CapabilityVerdict | undefined;
 }
 
@@ -144,6 +149,17 @@ function refuse(
       refused(
         diags,
         diagMessage("loom.target-unsupported#entity-history-read", {
+          what: use.what,
+          dName,
+          target: t,
+        }),
+        use,
+      );
+      return;
+    case "match-await-standard-op":
+      refused(
+        diags,
+        diagMessage("loom.target-unsupported#match-await-standard-op", {
           what: use.what,
           dName,
           target: t,

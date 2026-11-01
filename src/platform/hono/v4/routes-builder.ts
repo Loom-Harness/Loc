@@ -581,20 +581,22 @@ export function buildRoutesFile(
   // gate set comes from `callerGates` rather than a local re-enumeration, so a
   // sixth gate site cannot reintroduce the hole; the `when` state gates and the
   // find read-gates render into the same file and join it.
-  const gateServices = domainServiceNamesInExprs([
+  const gateExprs = [
     ...callerGates(agg).map((g) => g.expr),
     ...agg.operations.map((o) => o.when),
     ...(repo?.finds ?? []).map((f) => f.requires),
-  ]);
+  ];
+  const gateServices = domainServiceNamesInExprs(gateExprs);
   if (gateServices.length > 0) {
     lines.push(`import { ${gateServices.join(", ")} } from "../domain/services";`);
   }
-  // `when` gates (and their auto-exposed can-query companions) render enum
-  // values like `OrderStatus.Shipped` in the route file; import those enums
-  // from value-objects so the predicate type-checks (else TS2304).
+  // Every gate that renders into this file (`when` state gates, their
+  // can-query companions, hoisted `requires` gates, find read-gates) may spell
+  // an enum value like `OrderStatus.Shipped`; import those enums from
+  // value-objects so the predicate type-checks (else TS2304).
   const whenEnums = new Set<string>();
-  for (const op of agg.operations) {
-    walkExpr(op.when, (e) => {
+  for (const gate of gateExprs) {
+    walkExpr(gate, (e) => {
       if (e.kind === "ref" && e.refKind === "enum-value" && e.enumName) {
         whenEnums.add(e.enumName);
       }

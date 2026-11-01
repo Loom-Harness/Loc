@@ -20,6 +20,7 @@ import { isValueCollectionType } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
+import { escapeTargetFieldMember } from "../../../util/target-identifiers.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "../paged-locals.js";
 import { synthProjectionFinds } from "../projection-finds.js";
 import { isRefCollection } from "../repository-associations-builder.js";
@@ -123,17 +124,25 @@ export function renderMikroEmbeddedRepository(
       rootEntries.push(`${e.fieldName}: ${e.expr}`);
   for (const f of agg.fields)
     if (isRefCollection(f.type))
-      rootEntries.push(`${f.name}: aggregate.${f.name}.map((x) => x as string)`);
+      rootEntries.push(
+        `${f.name}: aggregate.${escapeTargetFieldMember("ts", f.name)}.map((x) => x as string)`,
+      );
   for (const f of valueCollFieldsOf(agg))
-    rootEntries.push(`${f.name}: ${serializeField(f.type, `aggregate.${f.name}`, ctx)}`);
+    rootEntries.push(
+      `${f.name}: ${serializeField(f.type, `aggregate.${escapeTargetFieldMember("ts", f.name)}`, ctx)}`,
+    );
   for (const c of agg.contains) {
     const toDoc = `${lowerFirst(c.partName)}ToDoc`;
-    if (c.collection) rootEntries.push(`${c.name}: aggregate.${c.name}.map((e) => ${toDoc}(e))`);
+    if (c.collection)
+      rootEntries.push(
+        `${c.name}: aggregate.${escapeTargetFieldMember("ts", c.name)}.map((e) => ${toDoc}(e))`,
+      );
     else if (c.optional)
       rootEntries.push(
-        `${c.name}: aggregate.${c.name} == null ? null : ${toDoc}(aggregate.${c.name})`,
+        `${c.name}: aggregate.${escapeTargetFieldMember("ts", c.name)} == null ? null : ${toDoc}(aggregate.${escapeTargetFieldMember("ts", c.name)})`,
       );
-    else rootEntries.push(`${c.name}: ${toDoc}(aggregate.${c.name}!)`);
+    else
+      rootEntries.push(`${c.name}: ${toDoc}(aggregate.${escapeTargetFieldMember("ts", c.name)}!)`);
   }
   const rootRow = `{ ${rootEntries.join(", ")} }`;
 

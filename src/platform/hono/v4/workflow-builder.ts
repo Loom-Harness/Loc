@@ -93,7 +93,12 @@ import {
 } from "../../../ir/util/walk.js";
 import { commandCreateResult, emitsCommandRoute } from "../../../ir/util/workflow-command-route.js";
 import { workflowCorrIdValueType } from "../../../ir/util/workflow-instances.js";
-import { LOOM_OUTBOX_ORIGIN_KEY } from "../../../util/channels.js";
+import {
+  LOOM_OUTBOX_ORIGIN_KEY,
+  OUTBOX_PURGE_INTERVAL_SECONDS,
+  OUTBOX_RETENTION_DEFAULT_DAYS,
+  OUTBOX_RETENTION_ENV,
+} from "../../../util/channels.js";
 import {
   escapeTsIdent,
   lowerFirst,
@@ -1556,13 +1561,49 @@ function emitSubscriptionHandlers(
   return out;
 }
 
+/** The relay's dead-letter line: one `event_dead_lettered` warning per row,
+ *  carrying the row id an operator replays it by. */
+const TS_DEAD_LETTERED_LOG = `baseLogger.warn({ event: "event_dead_lettered", id: row.id, type: row.type, attempts, error: err instanceof Error ? err.message : String(err) });`;
+
+/** `outboxRetentionDays()` — the retention window read from the environment,
+ *  falling back to the default on a missing, non-numeric or non-positive value. */
+function emitOutboxRetention(): string[] {
+  return [
+    `/** Days a dispatched outbox row is kept before the relay purge deletes it. */`,
+    `function outboxRetentionDays(): number {`,
+    `  const days = Number.parseInt(process.env.${OUTBOX_RETENTION_ENV} ?? "", 10);`,
+    `  return Number.isFinite(days) && days > 0 ? days : ${OUTBOX_RETENTION_DEFAULT_DAYS};`,
+    `}`,
+  ];
+}
+
+/** The drain pass's retention step: at most once per purge interval, delete
+ *  the dispatched rows older than the retention window (`del` is the store's
+ *  delete over `cutoff`).  A failed purge is logged and retried next interval
+ *  — it never blocks delivery. */
+function outboxPurgeStep(del: string): string[] {
+  return [
+    `      if (Date.now() - lastPurge >= ${OUTBOX_PURGE_INTERVAL_SECONDS * 1000}) {`,
+    `        lastPurge = Date.now();`,
+    `        const cutoff = new Date(lastPurge - retentionMs);`,
+    `        try {`,
+    `          await ${del};`,
+    `        } catch (err) {`,
+    `          baseLogger.warn({ event: "outbox_relay_error", error: err instanceof Error ? err.message : String(err) });`,
+    `        }`,
+    `      }`,
+  ];
+}
+
 /** Transactional-outbox tier (dispatch-delivery-semantics.md): events carried
  *  by a channel with `retention: log | work` are recorded in `__loom_outbox`
  *  (same control-flow point the inline dispatch sat at) instead of being
- *  dispatched in-process; `startOutboxRelay` drains undispatched rows through
- *  the in-process dispatcher — at-least-once, so consumers must tolerate
- *  redelivery.  Exhausted rows (attempts ≥ maxAttempts) stay in the table and
- *  log `event_dead_lettered` once.
+ *  dispatched in-process; `startOutboxRelay` drains the pending rows
+ *  (undispatched, not dead) through the in-process dispatcher — at-least-once,
+ *  so consumers must tolerate redelivery.  A row whose attempts reach
+ *  maxAttempts is stamped `deadAt` (it leaves the poll) and logs
+ *  `event_dead_lettered` once; dispatched rows older than the retention window
+ *  are purged every few minutes, dead ones never.
  *
  *  `usingMikro` swaps the store for the EntityManager + `LoomOutboxRow`
  *  EntitySchema (M-T6.23) — same table, same at-least-once contract,
@@ -1597,6 +1638,8 @@ function emitOutboxMachinery(
   out.push(
     `export const DURABLE_EVENT_TYPES: ReadonlySet<string> = new Set([${types.join(", ")}]);`,
   );
+  out.push(``);
+  out.push(...emitOutboxRetention());
   out.push(``);
   if (usingMikro) {
     out.push(...emitMikroOutboxMachinery(captured, redeliver));
@@ -1645,16 +1688,23 @@ function emitOutboxMachinery(
   out.push(`  const intervalMs = opts.intervalMs ?? 500;`);
   out.push(`  const maxAttempts = opts.maxAttempts ?? 5;`);
   out.push(`  const batchSize = opts.batchSize ?? 50;`);
+  out.push(`  const retentionMs = outboxRetentionDays() * 86_400_000;`);
+  out.push(`  let lastPurge = Date.now();`);
   out.push(`  let draining = false;`);
   out.push(`  const drain = async (): Promise<void> => {`);
   out.push(`    if (draining) return;`);
   out.push(`    draining = true;`);
   out.push(`    try {`);
+  out.push(
+    ...outboxPurgeStep(
+      "db.delete(schema.loomOutbox).where(lt(schema.loomOutbox.dispatchedAt, cutoff))",
+    ),
+  );
   out.push(`      const rows = await db`);
   out.push(`        .select()`);
   out.push(`        .from(schema.loomOutbox)`);
   out.push(
-    `        .where(and(isNull(schema.loomOutbox.dispatchedAt), lt(schema.loomOutbox.attempts, maxAttempts)))`,
+    `        .where(and(isNull(schema.loomOutbox.dispatchedAt), isNull(schema.loomOutbox.deadAt)))`,
   );
   out.push(`        .orderBy(asc(schema.loomOutbox.occurredAt))`);
   out.push(`        .limit(batchSize);`);
@@ -1669,13 +1719,12 @@ function emitOutboxMachinery(
   );
   out.push(`        } catch (err) {`);
   out.push(`          const attempts = row.attempts + 1;`);
+  out.push(`          const dead = attempts >= maxAttempts;`);
   out.push(
-    `          await db.update(schema.loomOutbox).set({ attempts }).where(eq(schema.loomOutbox.id, row.id));`,
+    `          await db.update(schema.loomOutbox).set({ attempts, deadAt: dead ? new Date() : null }).where(eq(schema.loomOutbox.id, row.id));`,
   );
-  out.push(`          if (attempts >= maxAttempts) {`);
-  out.push(
-    `            baseLogger.warn({ event: "event_dead_lettered", type: row.type, attempts, error: err instanceof Error ? err.message : String(err) });`,
-  );
+  out.push(`          if (dead) {`);
+  out.push(`            ${TS_DEAD_LETTERED_LOG}`);
   out.push(`          }`);
   out.push(`        }`);
   out.push(`      }`);
@@ -1722,6 +1771,7 @@ function emitMikroOutboxMachinery(
     `          payload: ${captured},`,
     `          dispatchedAt: null,`,
     `          attempts: 0,`,
+    `          deadAt: null,`,
     `        });`,
     `        return; // the relay delivers`,
     `      }`,
@@ -1747,6 +1797,7 @@ function emitMikroOutboxMachinery(
     `          payload: ${captured},`,
     `          dispatchedAt: null,`,
     `          attempts: 0,`,
+    `          deadAt: null,`,
     `        });`,
     `      }`,
     `      return events.filter((e) => !DURABLE_EVENT_TYPES.has(e.type));`,
@@ -1762,15 +1813,18 @@ function emitMikroOutboxMachinery(
     `  const intervalMs = opts.intervalMs ?? 500;`,
     `  const maxAttempts = opts.maxAttempts ?? 5;`,
     `  const batchSize = opts.batchSize ?? 50;`,
+    `  const retentionMs = outboxRetentionDays() * 86_400_000;`,
+    `  let lastPurge = Date.now();`,
     `  let draining = false;`,
     `  const drain = async (): Promise<void> => {`,
     `    if (draining) return;`,
     `    draining = true;`,
     `    try {`,
     `      const em = db.fork();`,
+    ...outboxPurgeStep(`em.nativeDelete(${ROW}, { dispatchedAt: { $lt: cutoff } })`),
     `      const rows = await em.find(`,
     `        ${ROW},`,
-    `        { dispatchedAt: null, attempts: { $lt: maxAttempts } },`,
+    `        { dispatchedAt: null, deadAt: null },`,
     `        { orderBy: { occurredAt: "asc" }, limit: batchSize },`,
     `      );`,
     `      for (const row of rows) {`,
@@ -1782,9 +1836,10 @@ function emitMikroOutboxMachinery(
     `          await em.nativeUpdate(${ROW}, { id: row.id }, { dispatchedAt: new Date() });`,
     `        } catch (err) {`,
     `          const attempts = row.attempts + 1;`,
-    `          await em.nativeUpdate(${ROW}, { id: row.id }, { attempts });`,
-    `          if (attempts >= maxAttempts) {`,
-    `            baseLogger.warn({ event: "event_dead_lettered", type: row.type, attempts, error: err instanceof Error ? err.message : String(err) });`,
+    `          const dead = attempts >= maxAttempts;`,
+    `          await em.nativeUpdate(${ROW}, { id: row.id }, { attempts, deadAt: dead ? new Date() : null });`,
+    `          if (dead) {`,
+    `            ${TS_DEAD_LETTERED_LOG}`,
     `          }`,
     `        }`,
     `      }`,

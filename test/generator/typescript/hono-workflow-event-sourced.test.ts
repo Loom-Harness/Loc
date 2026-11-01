@@ -98,4 +98,15 @@ describe("hono event-sourced workflows", () => {
     expect(wf).toContain("() => tallyStartOrderPlaced(db, dispatcher, event));");
     expect(wf).toContain("() => tallyOnPaymentReceived(db, dispatcher, event));");
   });
+
+  it("types a `string[]` state field as `string[]` so the applier's `+=` compiles", async () => {
+    const src = SRC.replace("total: int\n", "total: int\n    tags: string[]\n").replace(
+      "apply(pr: PaymentReceived) { total := total + pr.amount }",
+      'apply(pr: PaymentReceived) { total := total + pr.amount\n tags += "x" }',
+    );
+    const wf = file(await generateSystemFiles(src), "http/workflows.ts");
+    expect(wf).toContain("  tags: string[];");
+    expect(wf).not.toContain("  tags: string;");
+    expect(wf).toContain('state.tags.push("x");');
+  });
 });
