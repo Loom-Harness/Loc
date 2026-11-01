@@ -80,7 +80,8 @@ describe("dotnet: a find named like a built-in repository method is escaped", ()
     const impl = fileEndingWith(files, "Infrastructure/Repositories/OrderRepository.cs");
     // The built-ins keep their names, once each.
     expect(count(port, " GetByIdAsync(")).toBe(1);
-    expect(count(port, " SaveAsync(")).toBe(1);
+    // Two overloads of the one built-in: the handle-checked save and the if-match one.
+    expect(count(port, " SaveAsync(")).toBe(2);
     expect(count(port, " DeleteAsync(")).toBe(1);
     // The finds are escaped on the port and the implementation alike.
     for (const m of [

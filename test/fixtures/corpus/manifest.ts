@@ -786,6 +786,14 @@ export const CORPUS: readonly CorpusFeature[] = [
     note: "Minted with the `checksVersion` fact (#3593 item 6).  Node and elixir read `If-Match` only on the canonical `update`, so a stale tag on any other operation overwrote newer data with a 204 (#3531); java's guarded save let two simultaneous writers carrying the same tag both land (#3521).  The `test e2e` block drives the sequential half; the wire tier's two-writer probe replays the block's first `If-Match` write as concurrent pairs.",
   },
   {
+    id: "concurrency-workflow-ifmatch",
+    title:
+      "a workflow's saves are checked against the version each handle loaded, never the request's `If-Match` — a stale tag on a workflow that changes two rows at different versions still lands",
+    doc: "capabilities",
+    backends: ALL,
+    note: "Minted with the .NET move onto the `checksVersion` fact (#4324).  .NET carried the request's `If-Match` as an ambient expected version, so every save in the request — a workflow's included — was checked against the header and one of two rows at different versions answered a spurious 409.  Runs on every leg: the other four read `If-Match` only on a named-operation route, so a workflow body never sees it.",
+  },
+  {
     id: "workflow-two-handles-document-eventlog",
     title:
       "two handles on one `shape: document` row or one `persistedAs: eventLog` stream inside a workflow — the stale save answers the RS-40 409",

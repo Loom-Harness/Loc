@@ -1112,7 +1112,19 @@ function renderWorkflowCall(wf: WorkflowIR, call: ApiCallShape, ctx: RenderCtx):
     // One argument, and it IS the body: the facade's `create` params by name,
     // exactly like `api.<aggs>.create({…})`.
     const body = call.args[0] ? renderE2EExpr(call.args[0], ctx) : "{}";
-    return `await __post(\`\${base}${prefix}/workflows/${slug}\`, ${body})`;
+    const url = `\`\${base}${prefix}/workflows/${slug}\``;
+    // The optional second argument sends an `If-Match` header the workflow's
+    // saves must not act on (validated as `loom.e2e-call-options`).
+    const options = readE2eCallOptions(call.args[1]);
+    if (options === "malformed") {
+      throw new Error(
+        `e2e: api.${call.aggregateSlug}.run(body, options) — options must be { ifMatch: <version> }`,
+      );
+    }
+    if (options) {
+      return `await __postIfMatch(${url}, ${body}, ${renderE2EExpr(options.ifMatch, ctx)})`;
+    }
+    return `await __post(${url}, ${body})`;
   }
   if (call.method === "instances" || call.method === "instance") {
     if (!emitsInstanceRoutes(wf)) {

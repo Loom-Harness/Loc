@@ -1,4 +1,5 @@
 import { deriveEventSubscriptions, enrichLoomModel } from "../../ir/enrich/enrichments.js";
+import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { lowerModel } from "../../ir/lower/lower.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
@@ -57,7 +58,6 @@ import {
 } from "../../ir/util/resolve-datasource.js";
 import { hierarchyRegistry } from "../../ir/util/tenant-stance.js";
 import { hasValueObjectInvariants } from "../../ir/util/value-object-invariants.js";
-import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import type { Model } from "../../language/generated/ast.js";
 import { apiRoutePrefix } from "../../util/api-base.js";
 import { emissionSink, rewrite } from "../../util/emission-sink.js";
@@ -2150,7 +2150,7 @@ function emitProject(
   // Optimistic concurrency (`versioned`): the ambient carrier grows a settable
   // `ExpectedVersion` (from the request's `If-Match` header) that the versioned
   // repository save reads.  Gated so a version-free project is byte-identical.
-  const hasVersioned = ctx.aggregates.some(aggregateIsVersioned);
+  const hasVersioned = anyRouteReadsIfMatch(ctx.aggregates);
   out.set(
     "Domain/Common/RequestContext.cs",
     renderRequestContext(ns, {

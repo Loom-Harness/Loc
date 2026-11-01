@@ -104,9 +104,7 @@ describe("dapper persistence adapter — dotnet (Phase 5c)", () => {
     // version 1 on INSERT, bumps version = version + 1 on conflict, and CASes
     // the conflict branch on the expected version (client `If-Match`, else the
     // loaded aggregate's own version, read ambiently exactly as the EF path).
-    expect(repo).toContain(
-      "var __expected = RequestContext.Current?.ExpectedVersion ?? aggregate.Version;",
-    );
+    expect(repo).toContain("var __expected = expectedVersion ?? aggregate.Version;");
     expect(repo).toContain(
       "VALUES (@id, @customer, @status, @total::jsonb, @note, 1) ON CONFLICT (id) DO UPDATE SET customer = excluded.customer, status = excluded.status, total = excluded.total, note = excluded.note, version = orders.version + 1 WHERE orders.version = @ExpectedVersion",
     );
