@@ -43,7 +43,9 @@ describe("elixir vanilla — actor param on a bypassing read (M-T6.54 F18)", () 
       repo.indexOf("def find_first_by_code_ignoring_tenant_owned("),
       repo.indexOf("@spec find_first_by_code_ignoring_all("),
     );
-    expect(body).toContain("def find_first_by_code_ignoring_tenant_owned(c, _current_user \\\\ nil) do");
+    expect(body).toContain(
+      "def find_first_by_code_ignoring_tenant_owned(c, _current_user \\\\ nil) do",
+    );
     expect(body).not.toContain("tenant_id");
     // The non-principal capability it did NOT name survives.
     expect(body).toContain("not record.is_deleted");
@@ -52,14 +54,19 @@ describe("elixir vanilla — actor param on a bypassing read (M-T6.54 F18)", () 
   it("`ignoring *` drops both conjuncts", async () => {
     const repo = (await generateSystemFiles(SRC)).get(REPO)!;
     const body = repo.slice(repo.indexOf("def find_first_by_code_ignoring_all("));
-    expect(body.slice(0, 400)).toContain("def find_first_by_code_ignoring_all(c, _current_user \\\\ nil) do");
+    expect(body.slice(0, 400)).toContain(
+      "def find_first_by_code_ignoring_all(c, _current_user \\\\ nil) do",
+    );
     expect(body.slice(0, 400)).not.toContain("tenant_id");
     expect(body.slice(0, 400)).not.toContain("is_deleted");
   });
 
   it("the arity is unchanged — every bypassing read still takes the actor positionally", async () => {
     const repo = (await generateSystemFiles(SRC)).get(REPO)!;
-    for (const name of ["find_first_by_code_ignoring_tenant_owned", "find_first_by_code_ignoring_all"]) {
+    for (const name of [
+      "find_first_by_code_ignoring_tenant_owned",
+      "find_first_by_code_ignoring_all",
+    ]) {
       expect(repo).toMatch(new RegExp(`@spec ${name}\\(term\\(\\), map\\(\\) \\| nil\\)`));
     }
   });

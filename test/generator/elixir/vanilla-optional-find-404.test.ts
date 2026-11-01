@@ -47,9 +47,7 @@ describe("vanilla Phoenix — single-row read absence → 404", () => {
     expect(handler).toContain('{:error, {:not_found, "not_found"}}');
     // The routes controller routes the handler's result through `respond/2`…
     const ctrl = file(files, "/controllers/catalog_api_routes_controller.ex");
-    expect(ctrl).toContain(
-      "respond(conn, D.Catalog.Handlers.GetItemByItemsBySku.run(params))",
-    );
+    expect(ctrl).toContain("respond(conn, D.Catalog.Handlers.GetItemByItemsBySku.run(params))");
     // …whose not-found clause is the shared 404 producer, `detail` passed through.
     expect(ctrl).toMatch(
       /def respond\(conn, \{:error, \{:not_found, detail\}\}\),\s+do: ProblemDetails\.problem_response\(conn, 404, "Not Found", detail\)/,

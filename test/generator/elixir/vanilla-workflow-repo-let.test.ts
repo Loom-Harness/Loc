@@ -148,7 +148,9 @@ describe("vanilla — workflow body lowering (criterion read routes through cont
     const wf = files.get(
       [...files.keys()].find((k) => k.endsWith("/workflows/find_then_mark.ex"))!,
     )!;
-    expect(wf).toContain("i = case Context.run_find_all_by_items_by_label_item(wanted, limit: 1) do");
+    expect(wf).toContain(
+      "i = case Context.run_find_all_by_items_by_label_item(wanted, limit: 1) do",
+    );
     expect(wf).toContain(`%{"wanted" => wanted} = params`);
     expect(wf).not.toContain("# TODO: lower workflow statement kind 'repo-let'");
     // The op-call on the narrowed binding `i` must route to the right
