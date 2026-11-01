@@ -1,7 +1,7 @@
 // A2 string batch of the scalar-intrinsic catalogue (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md)
 // on the Java/Spring backend — in-memory rendering in derived bodies,
 // JPQL rendering for the queryable rows (toUpper/toLower) in a
-// `find … where` position, and the Criteria/Specification path for a
+// criterion position (the paged `queryHandler`'s `@Query`), and the Criteria/Specification path for a
 // reified criterion.  Catalogue rows in src/util/intrinsics.ts; Java
 // snippets in render-expr.ts (JAVA_INTRINSIC_RENDERERS), render-jpql.ts
 // (JPQL_INTRINSIC_SQL), render-criteria.ts (JAVA_CRITERIA_INTRINSICS).
@@ -21,6 +21,10 @@ system Shop {
       }
       repository Products for Product { }
       criterion ProductsByNameCi(q: string) of Product = this.name.toLower() == q
+      queryHandler ListByNameCi(q: string): Product paged {
+        let r = Products.run(ProductsByNameCi(q))
+        return r
+      }
     }
   }
   api CatalogApi from Sales
@@ -50,7 +54,7 @@ describe("java generator — string intrinsics batch (stdlib A2)", () => {
     expect(domain).toContain("this.name.trim().toLowerCase(java.util.Locale.ROOT)");
   });
 
-  it("renders toLower as JPQL lower() in the find where-clause (column side)", async () => {
+  it("renders toLower as JPQL lower() in the paged criterion read (column side)", async () => {
     const files = await generateSystemFiles(SRC);
     const jpa = files.get(`${ROOT}/features/products/ProductJpaRepository.java`)!;
     expect(jpa).toContain('@Query("select e from Product e where lower(e.name) = :q")');
@@ -58,8 +62,8 @@ describe("java generator — string intrinsics batch (stdlib A2)", () => {
 
   it("renders toUpper as JPQL upper() (value side too — works on parameters)", async () => {
     const src = SRC.replace(
-      "find byNameCi(q: string): Product? where this.name.toLower() == q",
-      "find byNameUc(q: string): Product? where this.name.toUpper() == q.toUpper()",
+      "of Product = this.name.toLower() == q",
+      "of Product = this.name.toUpper() == q.toUpper()",
     );
     const { errors } = await parseString(src);
     expect(errors).toEqual([]);

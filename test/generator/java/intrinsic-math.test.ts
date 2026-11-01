@@ -4,7 +4,7 @@
 // bodies (Math.* for the primitive receivers, the BigDecimal method API
 // for decimal/money — RoundingMode.HALF_UP is Java's half-away-from-zero,
 // the catalogue's commercial-rounding contract), JPQL rendering in
-// queryable `find … where` positions (abs/round/floor/ceiling +
+// queryable criterion positions (a paged `queryHandler`'s `@Query`) (abs/round/floor/ceiling +
 // two-value least/greatest), and the Criteria/Specification path
 // (cb.abs / JPA 3.1's cb.round + cb.function("least", …) for a reified
 // criterion).  Catalogue rows in src/util/intrinsics.ts; Java snippets in
@@ -34,13 +34,35 @@ system Bank {
       }
       repository Accounts for Account { }
       criterion AccountsByRound(q: money) of Account = this.balance.round(2) > q
+      queryHandler ListAccountsByRound(q: money): Account paged {
+        let r = Accounts.run(AccountsByRound(q))
+        return r
+      }
       criterion AccountsByRoundNoPlaces(q: money) of Account = this.balance.round() > q
+      queryHandler ListAccountsByRoundNoPlaces(q: money): Account paged {
+        let r = Accounts.run(AccountsByRoundNoPlaces(q))
+        return r
+      }
       criterion AccountsByAbsQty(n: int) of Account = this.qty.abs() > n
+      queryHandler ListAccountsByAbsQty(n: int): Account paged {
+        let r = Accounts.run(AccountsByAbsQty(n))
+        return r
+      }
       criterion AccountsByMinBal(q: money) of Account = this.balance.min(this.cap) == q
+      queryHandler ListAccountsByMinBal(q: money): Account paged {
+        let r = Accounts.run(AccountsByMinBal(q))
+        return r
+      }
       criterion AccountsByCeil(q: money) of Account = this.balance.ceil() >= q
+      queryHandler ListAccountsByCeil(q: money): Account paged {
+        let r = Accounts.run(AccountsByCeil(q))
+        return r
+      }
     }
   }
-  api LedgerApi from Banking
+  api LedgerApi from Banking {
+    route GET "/accounts/by_round" -> Ledger.ListAccountsByRound
+  }
   storage primary { type: postgres }
   resource ledgerState { for: Ledger, kind: state, use: primary }
   deployable bankApi {
@@ -86,7 +108,7 @@ describe("java generator — math intrinsics batch (stdlib A3)", () => {
     expect(jpa).toContain('@Query("select e from Account e where round(e.balance) > :q")');
   });
 
-  it("renders abs / two-value least / ceiling as JPQL in find where-clauses", async () => {
+  it("renders abs / two-value least / ceiling as JPQL in criterion where-clauses", async () => {
     const files = await generateSystemFiles(SRC);
     const jpa = files.get(`${ROOT}/features/accounts/AccountJpaRepository.java`)!;
     expect(jpa).toContain('@Query("select e from Account e where abs(e.qty) > :n")');
@@ -95,9 +117,9 @@ describe("java generator — math intrinsics batch (stdlib A3)", () => {
     expect(jpa).toContain('@Query("select e from Account e where ceiling(e.balance) >= :q")');
   });
 
-  it("imports java.math.BigDecimal in the controller for money find params", async () => {
+  it("imports java.math.BigDecimal in the routes controller for a money handler param", async () => {
     const files = await generateSystemFiles(SRC);
-    const controller = files.get(`${ROOT}/features/accounts/AccountsController.java`)!;
+    const controller = files.get(`${ROOT}/api/LedgerApiRoutesController.java`)!;
     expect(controller).toContain("import java.math.BigDecimal;");
     expect(controller).toContain("@RequestParam BigDecimal q");
   });
