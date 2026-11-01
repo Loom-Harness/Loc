@@ -37,10 +37,10 @@ const AGG = `
 const source = () => `
 system L {
   subdomain Core {
-    context Accounts {${AGG}
+    context Accounts with scaffoldPaged(of: AccountsByOwner) {${AGG}
     }
   }
-  api A from Core
+  api A with scaffoldPagedApi(of: AccountsByOwner) from Core
   storage pg { type: postgres }
   resource evtLog { for: Accounts, kind: eventLog, use: pg }
   deployable api {
@@ -126,8 +126,10 @@ describe("vanilla — Slice P4.2 event-sourcing emit", () => {
     // event <-> JSONB round-trip
     expect(repo).toContain('defp event_type(%Api.Accounts.Events.Opened{}), do: "Opened"');
     expect(repo).toContain('defp row_to_event(%{type: "Deposited", data: d})');
-    // in-memory find (no queryable state columns)
-    expect(repo).toContain("def by_owner(owner)");
+    // a criterion's find runs in memory over the folded rows (no queryable
+    // state columns)
+    expect(repo).toContain("def find_all_by_accounts_by_owner(owner,");
+    expect(repo).toContain("matched = Enum.filter(all, fn a -> a.owner == owner end)");
     // unused-alias hygiene (`--warnings-as-errors`): aliases are referenced short.
     expect(repo).not.toMatch(
       /alias Api\.Accounts\.AccountFold\n[\s\S]*Api\.Accounts\.AccountFold\.from_events/,
