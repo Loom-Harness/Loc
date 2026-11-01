@@ -224,7 +224,7 @@ function idParam(): ApiOperationParamIR {
   return { name: "id", type: { kind: "primitive", name: "guid" }, location: "path" };
 }
 
-/** The success aggregate of an ABSENCE union (`Order option` / `Order or
+/** The success aggregate of an absence response (`Order?` / `Order or
  *  NotFound`), or undefined when the type is not one.
  *
  *  This is the one union shape a client has to treat specially, and the reason
@@ -238,6 +238,8 @@ function idParam(): ApiOperationParamIR {
  *  same answer, and five copies of a rule is how this feature already shipped
  *  the same defect five times over. */
 export function absenceUnionSuccess(t: TypeIR | undefined): string | undefined {
+  // `Order?` (and `Order option`, which lowers to it) is the same wire.
+  if (t?.kind === "optional") return t.inner.kind === "entity" ? t.inner.name : undefined;
   if (t?.kind !== "union" || t.variants.length !== 2) return undefined;
   const entity = t.variants.find((v) => v.kind === "entity");
   const absent = t.variants.find((v) => v.kind !== "entity");
