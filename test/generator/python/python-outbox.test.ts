@@ -80,7 +80,8 @@ describe("python durable-channel outbox", () => {
     const files = await build();
     const dispatch = files.get("api/app/dispatch.py")!;
     expect(dispatch).toContain("def _event_to_payload(event: DomainEvent) -> dict[str, object]:");
-    expect(dispatch).toContain('return {"order": event.order, "at": event.at.isoformat()}');
+    // The payload datetime is the RS-38 wire instant (`Codec` ruling 4).
+    expect(dispatch).toContain('return {"order": event.order, "at": iso(event.at)}');
     expect(dispatch).toContain(
       "def _event_from_payload(event_type: str, payload: dict[str, object]) -> DomainEvent:",
     );

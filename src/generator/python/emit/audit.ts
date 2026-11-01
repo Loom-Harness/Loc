@@ -2,6 +2,7 @@ import type { EnrichedBoundedContextIR, UserIR } from "../../../ir/types/loom-ir
 import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
+import { pyInstantColumnType } from "../codec-spelling.js";
 import { renderPyAuditHistoryModule } from "./audit-history.js";
 
 /** The `current_user_var` import line, spliced in only on an authed system. */
@@ -108,7 +109,7 @@ function renderPyAudit(user: UserIR | undefined): string {
     // READ side (entity history) must be able to type it as absent.
     `    before: Mapped[object | None] = mapped_column(JSONB)`,
     `    after: Mapped[object | None] = mapped_column(JSONB)`,
-    `    at: Mapped[datetime] = mapped_column(DateTime(timezone=True))`,
+    `    at: Mapped[datetime] = mapped_column(${pyInstantColumnType()})`,
     `    status: Mapped[str] = mapped_column(Text)`,
     `    correlation_id: Mapped[str | None] = mapped_column(Text)`,
     `    scope_id: Mapped[str | None] = mapped_column(Text)`,

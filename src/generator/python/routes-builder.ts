@@ -74,6 +74,7 @@ import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/serve
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { numericEncode } from "../_numeric/target.js";
 import { findUnionSpec } from "../_payload/union-wire.js";
+import { pyCalendarDateWire } from "./codec-spelling.js";
 import { pyCommandBodyParam } from "./command-body.js";
 import { pyHistoryMapperName, renderPyHistoryMapper } from "./emit/audit-history.js";
 import { paramPyType, requestPyType, responsePyType, wireModelRef } from "./emit/http-models.js";
@@ -1159,7 +1160,7 @@ function pyScalarReturnToWire(expr: string, t: TypeIR): string {
       inner.name === "money"
         ? numericEncode(PY_NUMERIC, "money", "dto-map", expr)
         : inner.name === "date"
-          ? `${expr}.isoformat()`
+          ? pyCalendarDateWire(expr)
           : `${H.iso}(${expr})`;
     return t.kind === "optional" ? `${wire} if ${expr} is not None else None` : wire;
   }

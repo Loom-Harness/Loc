@@ -4,6 +4,7 @@ import { pythonIdent } from "../../util/naming.js";
 import { type BrokerBinding, kafkaStartsAtEarliest } from "../_channels/bindings.js";
 import { pyModule, pyRef } from "../_imports/python.js";
 import { ref } from "../_imports/symbol.js";
+import { pyEnvelopeInstant } from "./codec-spelling.js";
 import { fromPayload, type PyVoFields, toPayload } from "./dispatch-builder.js";
 import { PY } from "./py-symbols.js";
 
@@ -592,7 +593,7 @@ export function buildPyChannelsFile(
     '        "id": event_id if event_id is not None else str(uuid7()),',
     '        "type": f"{context}.{event.type}",',
     '        "source": f"/loom/{context}",',
-    '        "time": datetime.now(UTC).isoformat(),',
+    `        "time": ${pyEnvelopeInstant("datetime.now(UTC)")},`,
     '        "datacontenttype": "application/json",',
     '        "loomchannel": address,',
     ...(hasKafka ? ['        "data": data,'] : ['        "data": _event_to_data(event),']),

@@ -15,6 +15,7 @@ import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { numericEncode } from "../_numeric/target.js";
+import { pyCalendarDateWire } from "./codec-spelling.js";
 import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
 import { PY_NUMERIC, pyEventSourcedDecimalDecode } from "./numeric-codec.js";
 import { contextEventRowClassName } from "./py-columns.js";
@@ -359,7 +360,7 @@ function toWireStub(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
       continue;
     }
     if (inner.kind === "primitive" && inner.name === "date") {
-      pairs.push(`"${wf.name}": ${access}.isoformat()`);
+      pairs.push(`"${wf.name}": ${pyCalendarDateWire(access)}`);
       continue;
     }
     if (inner.kind === "primitive" && inner.name === "money") {
