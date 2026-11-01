@@ -35,7 +35,7 @@ import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { serverInitSeed } from "../../../ir/util/server-init-seed.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
-import { escapeTargetMember } from "../../../util/target-identifiers.js";
+import { escapeTargetFieldMember, escapeTargetMember } from "../../../util/target-identifiers.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { constructionSeededFields } from "../../construction-default.js";
@@ -541,7 +541,9 @@ function renderEntity(
     );
   }
   for (const f of e.fields) {
-    getters.push(`  get ${f.name}(): ${renderTsType(f.type)} { return this._${f.name}; }`);
+    getters.push(
+      `  get ${escapeTargetFieldMember("ts", f.name)}(): ${renderTsType(f.type)} { return this._${f.name}; }`,
+    );
   }
   for (const f of provFields) {
     getters.push(

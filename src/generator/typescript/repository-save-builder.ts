@@ -20,6 +20,7 @@ import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { isValueCollectionType, valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, upperFirst } from "../../util/naming.js";
+import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import { aggregateIsAudited, stampInsertCall, stampUpdateCall } from "./emit/audit-stamp.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
@@ -370,7 +371,13 @@ export function projectFieldEntries(
   varExpr: string,
   ctx: BoundedContextIR,
 ): { fieldName: string; expr: string }[] {
-  return projectValueEntries(f.name, f.type, `${varExpr}.${f.name}`, ctx, f.optional);
+  return projectValueEntries(
+    f.name,
+    f.type,
+    `${varExpr}.${escapeTargetFieldMember("ts", f.name)}`,
+    ctx,
+    f.optional,
+  );
 }
 
 function projectValueEntries(
