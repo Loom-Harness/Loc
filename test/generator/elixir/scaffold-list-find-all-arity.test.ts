@@ -1,13 +1,12 @@
 // ---------------------------------------------------------------------------
-// Scaffolded list page × an AUTHOR-DECLARED `find all` (M-T6.40).
+// Scaffolded list page × the aggregate's `all` read shape (M-T6.40).
 //
 // The scaffold's server-paged list body calls `all(pageNum, 10, sortKey,
 // sortDir)` and unwraps `.items`.  Whether that's right is a property of the
-// aggregate's `all` READ — and `aggregateHasPagedFindAll`
-// (src/macros/stdlib/scaffold/_pages.ts) used to answer it purely from the
-// enrichment's IMPLICIT-findAll exclusions, never asking whether the author had
-// already declared `find all` themselves.  A declared non-paged `find all(): T[]`
-// therefore produced:
+// aggregate's `all` READ: a plain relational aggregate's `all` is the paged
+// envelope, while a `shape: document` aggregate's is a bare `T[]`
+// (`ensureFindAll`, src/ir/enrich/enrichments.ts).  A scaffold that asked the
+// wrong question produced:
 //
 //   defdelegate list_orders(), to: …OrderRepository, as: :list          # 0-arity
 //   case Api1.Shop.list_orders(socket.assigns.page_num, 10, …) do        # /4
@@ -17,9 +16,8 @@
 // against the delegate.  These tests do exactly that comparison, on both sides
 // of the fact:
 //
-//   * declared non-paged `T[]`  → bare `list_orders()`  == bare defdelegate
-//   * declared paged `T paged`  → 4-arg call            == 4-arg defdelegate
-//   * NO declared `all`         → the synthesised paged findAll, unchanged
+//   * unpaged `T[]` (document) → bare `list_orders()`  == bare defdelegate
+//   * paged (relational)       → 4-arg call            == 4-arg defdelegate
 //
 // The derivation lives at the macro layer, so this is not an Elixir-only bug —
 // the react leg is pinned here too (`useAllOrders()` was emitted 0-param and
@@ -30,16 +28,15 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
-/** The repro system, parametrized on the repository's `all` declaration. */
-const elixirSystem = (findAll: string) => `system ArityRepro {
+/** The repro system, parametrized on the aggregate's persistence shape. */
+const elixirSystem = (shape: string) => `system ArityRepro {
   subdomain D {
     context Shop {
-      aggregate Order with crudish {
+      aggregate Order${shape} with crudish {
         code: string
         total: int
       }
-      repository Orders for Order {${findAll}
-      }
+      repository Orders for Order
     }
   }
   api A from D
@@ -53,6 +50,8 @@ const elixirSystem = (findAll: string) => `system ArityRepro {
     ui: Web { Shop: api1 }, port: 8081
   }
 }`;
+
+const DOCUMENT = " shape: document,";
 
 const CONTEXT = "api1/lib/api1/shop.ex";
 const LIST_LIVE = "api1/lib/api1_web/live/order_list_live.ex";
@@ -73,13 +72,12 @@ function delegateParams(context: string): string {
 const arity = (list: string): number => (list.trim() === "" ? 0 : list.split(",").length);
 
 describe("elixir — scaffolded list call arity == context delegate arity (M-T6.40)", () => {
-  it("a declared NON-paged `find all(): T[]` gets a bare call, matching the bare delegate", async () => {
-    const files = await generateSystemFiles(elixirSystem("\n        find all(): Order[]"));
+  it("an unpaged `all` (document) gets a bare call, matching the bare delegate", async () => {
+    const files = await generateSystemFiles(elixirSystem(DOCUMENT));
     const params = delegateParams(files.get(CONTEXT)!);
     const calls = callArgs(files.get(LIST_LIVE)!);
-    // The page really does read the list (three sites: first load, sort/page
-    // control, realtime refetch) — an empty match set would make the arity
-    // comparison below vacuous.
+    // The page really does read the list — an empty match set would make the
+    // arity comparison below vacuous.
     expect(calls.length).toBeGreaterThan(0);
     expect(arity(params)).toBe(0);
     for (const a of calls) expect(arity(a)).toBe(0);
@@ -87,16 +85,7 @@ describe("elixir — scaffolded list call arity == context delegate arity (M-T6.
     expect(files.get(LIST_LIVE)).not.toContain(".items");
   });
 
-  it("a declared PAGED `find all(): T paged` keeps the 4-arg call, matching the 4-arg delegate", async () => {
-    const files = await generateSystemFiles(elixirSystem("\n        find all(): Order paged"));
-    const params = delegateParams(files.get(CONTEXT)!);
-    const calls = callArgs(files.get(LIST_LIVE)!);
-    expect(calls.length).toBeGreaterThan(0);
-    expect(arity(params)).toBe(4);
-    for (const a of calls) expect(arity(a)).toBe(4);
-  });
-
-  it("NO declared `all` keeps the synthesised paged findAll (unchanged)", async () => {
+  it("the paged `all` (relational) keeps the 4-arg call, matching the 4-arg delegate", async () => {
     const files = await generateSystemFiles(elixirSystem(""));
     const params = delegateParams(files.get(CONTEXT)!);
     const calls = callArgs(files.get(LIST_LIVE)!);
@@ -111,15 +100,14 @@ describe("elixir — scaffolded list call arity == context delegate arity (M-T6.
 // wrong answer is a wrong answer on every frontend.  Pinned here beside the
 // Elixir cases so a future "fix" that only patches the LiveView emitter can't
 // look complete.
-const reactSystem = (findAll: string) => `system ArityReproNode {
+const reactSystem = (shape: string) => `system ArityReproNode {
   subdomain D {
     context Shop {
-      aggregate Order with crudish {
+      aggregate Order${shape} with crudish {
         code: string
         total: int
       }
-      repository Orders for Order {${findAll}
-      }
+      repository Orders for Order
     }
   }
   api A from D
@@ -133,8 +121,8 @@ const reactSystem = (findAll: string) => `system ArityReproNode {
 }`;
 
 describe("react — scaffolded list hook arity == generated hook signature (M-T6.40)", () => {
-  it("a declared NON-paged `find all(): T[]` calls the 0-param hook with no arguments", async () => {
-    const files = await generateSystemFiles(reactSystem("\n        find all(): Order[]"));
+  it("an unpaged `all` (document) calls the 0-param hook with no arguments", async () => {
+    const files = await generateSystemFiles(reactSystem(DOCUMENT));
     // `export function useAllOrders(<params>)` — the client the page imports.
     const sig = /export function useAllOrders\(([^)]*)\)/.exec(files.get("web/src/api/order.ts")!);
     expect(sig).not.toBeNull();
@@ -143,21 +131,7 @@ describe("react — scaffolded list hook arity == generated hook signature (M-T6
     expect(files.get("web/src/pages/orders/list.tsx")).toContain("useAllOrders()");
   });
 
-  it("a declared PAGED `find all(): T paged` still passes the page/sort state through", async () => {
-    const files = await generateSystemFiles(reactSystem("\n        find all(): Order paged"));
-    // A DECLARED paged `all` with no params emits the query-object hook
-    // (`useAllOrders(query: AllQueryInput = {})`) rather than the synthesised
-    // findAll's positional one — so the assertion is that the page passes the
-    // page/sort state in the shape this hook takes, not a fixed arity.
-    const sig = /export function useAllOrders\(([^)]*)\)/.exec(files.get("web/src/api/order.ts")!);
-    expect(sig).not.toBeNull();
-    expect(sig![1]).toContain("AllQueryInput");
-    expect(files.get("web/src/pages/orders/list.tsx")).toContain(
-      "useAllOrders({ page: pageNum, pageSize: 10, sort: sortKey, dir: sortDir })",
-    );
-  });
-
-  it("NO declared `all` keeps the synthesised paged findAll's query-object hook", async () => {
+  it("the paged `all` (relational) passes the page/sort state to its query-object hook", async () => {
     const files = await generateSystemFiles(reactSystem(""));
     const sig = /export function useAllOrders\(([^)]*)\)/.exec(files.get("web/src/api/order.ts")!);
     expect(sig).not.toBeNull();
