@@ -1,8 +1,8 @@
 // Field / parameter names that are Elixir RESERVED WORDS on the vanilla Phoenix
 // backend.  `after`, `end`, `fn`, `do`, `nil`, `not`, … were always legal `.ddd`
 // identifiers (they are not Loom keywords), but no fixture named one, and the
-// emitter bound operation / find / retrieval params as bare locals — `end =
-// Map.get(params, "end")`, `def by_end(end) do`, `ensure(end >= after, …)` —
+// emitter bound operation / criterion / retrieval params as bare locals — `end =
+// Map.get(params, "end")`, `def run(end, opts) do`, `ensure(end >= after, …)` —
 // which is a SYNTAX error, not a warning.  `escapeElixirIdent` (`end` → `end_`)
 // already covered `let`/lambda locals; these pin the param binding sites AND
 // their reads (render-expr's `param` arm) escaping in lockstep, while the
@@ -48,6 +48,10 @@ system ExWords {
       }
       repository Kws for Kw { }
       criterion KwsByEnd(end: int) of Kw = this.end == end
+      queryHandler KwsEndingAt(end: int): Kw[] {
+        let r = Kws.findAll(KwsByEnd(end))
+        return r
+      }
     }
   }
   api HostileApi from Words
@@ -88,17 +92,21 @@ describe("phoenix generator — Elixir reserved words as field / param names", (
     expect(ctx).toContain("ensure(not_ or and_,");
     expect(ctx).toContain("record = %{record | end: end_}");
     expect(ctx).toContain("record = %{record | do: do_ <> fn_}");
-    // The find's facade delegate head.
-    expect(ctx).toContain("defdelegate by_end_kw(end_), to:");
+    // The criterion retrieval's facade delegate head.
+    expect(ctx).toContain("defdelegate run_find_all_by_kws_by_end_kw(end_, opts \\\\ []), to:");
     // No bare reserved word is ever bound as a local.
     expect(ctx).not.toMatch(/^\s+(after|end|fn|do|nil|not|and) = /m);
     expect(ctx).not.toMatch(/\{:ok, (after|end|fn|do|nil|not|and)\} <-/);
   });
 
-  it("escapes a find's param in the repository head and its Ecto pin", async () => {
-    const repo = bySuffix(await generateSystemFiles(SRC), "lib/api/hostile/kw_repository.ex");
-    expect(repo).toContain("def by_end(end_) do");
-    expect(repo).toContain("where: record.end == ^end_");
+  it("escapes a criterion param in the retrieval head, its Ecto pin and the handler's bind", async () => {
+    const files = await generateSystemFiles(SRC);
+    const retrieval = bySuffix(files, "lib/api/hostile/retrievals/find_all_by_kws_by_end.ex");
+    expect(retrieval).toContain("def run(end_, opts \\\\ []) do");
+    expect(retrieval).toContain("where: record.end == ^end_");
+    const handler = bySuffix(files, "lib/api/hostile/handlers/kws_ending_at.ex");
+    expect(handler).toContain(`%{"end" => end_} = params`);
+    expect(handler).toContain("Context.run_find_all_by_kws_by_end_kw(end_)");
   });
 
   it("drops the Jason derive only on a schema module with a `fn` property", async () => {
