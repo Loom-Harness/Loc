@@ -167,13 +167,14 @@ export const LogEvents = {
     level: "error",
     fields: ["handler", "event_type", "event_id", "error"],
   },
-  /** The outbox relay exhausted its retries for a durable event — the row
-   *  stays in __loom_outbox (attempts ≥ max) for manual inspection
-   *  (dispatch-delivery-semantics.md, the dead-letter surface). */
+  /** The outbox relay exhausted its retries for a durable event — the row is
+   *  stamped `dead_at`, leaves the poll and stays in __loom_outbox (never
+   *  purged) until an operator replays it by `id` (channels.md, dead letters).
+   *  Logged once per row. */
   eventDeadLettered: {
     event: "event_dead_lettered",
     level: "warn",
-    fields: ["type", "attempts", "error"],
+    fields: ["id", "type", "attempts", "error"],
   },
   // Outbox relay lifecycle (dispatch-delivery-semantics.md).  The background
   // relay that drains __loom_outbox announces its start, and logs a recoverable
