@@ -8,11 +8,13 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
+// `Customer` is `shape: document`, so its `all` is an unpaged list the Table
+// pages client-side.
 const SCAFFOLD = `
   subdomain Sales {
     context Orders {
-      aggregate Customer { name: string }
-      repository Customers for Customer { find recent(): Customer }
+      aggregate Customer shape: document { name: string }
+      repository Customers for Customer
     }
   }
   api SalesApi from Sales
@@ -43,7 +45,7 @@ async function genPage(body: string, state = `state { pageNum: int = 1 }`) {
 describe("Table client-side pagination (React)", () => {
   it("a paged Table slices rows to the page window + emits a pager", async () => {
     const content = await genPage(
-      `QueryView { of: Sales.Customer.recent, data: rows => Table(
+      `QueryView { of: Sales.Customer.all, data: rows => Table(
         Column("Name", o => o.name),
         rows: rows, page: pageNum, pageSize: 25) }`,
     );
@@ -62,7 +64,7 @@ describe("Table client-side pagination (React)", () => {
       `t("chrome.pageOf", "Page {page} of {pages}", { page: pageNum, pages: Math.max(1, Math.ceil(`,
     );
     expect(content).toContain(
-      "disabled={pageNum >= Math.max(1, Math.ceil(((customerRecent.data) ?? []).length / 25))}",
+      "disabled={pageNum >= Math.max(1, Math.ceil(((customerAll.data) ?? []).length / 25))}",
     );
     // The page state is declared via useState<number>.
     expect(content).toMatch(/const \[pageNum, setPageNum\] = useState<number>\(1\)/);
@@ -70,7 +72,7 @@ describe("Table client-side pagination (React)", () => {
 
   it("pageSize defaults to 10 when omitted", async () => {
     const content = await genPage(
-      `QueryView { of: Sales.Customer.recent, data: rows => Table(
+      `QueryView { of: Sales.Customer.all, data: rows => Table(
         Column("Name", o => o.name),
         rows: rows, page: pageNum) }`,
     );
@@ -79,7 +81,7 @@ describe("Table client-side pagination (React)", () => {
 
   it("sort + pagination compose — the window slices the sorted rows", async () => {
     const content = await genPage(
-      `QueryView { of: Sales.Customer.recent, data: rows => Table(
+      `QueryView { of: Sales.Customer.all, data: rows => Table(
         Column("Name", o => o.name, sortable: true),
         rows: rows, sortKey: sortKey, sortDir: sortDir, page: pageNum, pageSize: 10) }`,
       `state { sortKey: string = ""  sortDir: string = "asc"  pageNum: int = 1 }`,
@@ -90,7 +92,7 @@ describe("Table client-side pagination (React)", () => {
 
   it("a Table without page: is unaffected (no slice, no pager)", async () => {
     const content = await genPage(
-      `QueryView { of: Sales.Customer.recent, data: rows => Table(
+      `QueryView { of: Sales.Customer.all, data: rows => Table(
         Column("Name", o => o.name),
         rows: rows) }`,
       `state { }`,
