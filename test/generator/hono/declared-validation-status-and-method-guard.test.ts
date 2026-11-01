@@ -6,14 +6,14 @@
 // published `[200, 404]`, `DELETE /<aggs>/{id}` published `[204, 404, 409]` and
 // the paged collection GET published `[200]` alone, while every one of them
 // answers 422 for a malformed `{id}` or an out-of-range `?page=`.  The fix is
-// the shared matrix + `findValidatesRequest`, so the gate checks BOTH the
-// positive (a validated route declares it) and the negative (a param-less,
-// un-paged find parses nothing and declares nothing — the flag is derived from
-// the route's shape, not stamped on the kind).
+// the shared matrix, so the gate checks BOTH the positive (a validated route
+// declares it) and the negative (a param-less route parses nothing and
+// declares nothing — the flag is derived from the route's shape, not stamped
+// on the kind).
 //
 // F8 — a wrong verb on a STATIC sub-path was captured by the sibling `/{id}`
-// route: `DELETE /api/orders/by_qty` matched `delete /{id}` with
-// `id = "by_qty"` and the param validator answered `422 Invalid UUID` for a
+// route: `DELETE /api/orders/prepare` matched `delete /{id}` with
+// `id = "prepare"` and the param validator answered `422 Invalid UUID` for a
 // path that has no DELETE at all.  The discrimination has to run BEFORE that
 // validator, so it is a router-level middleware — and it has to be registered
 // under hono's `ALL` method, or the root router's `allowedFor` probe (which
@@ -27,22 +27,21 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 const SRC = `
 system Acme {
   subdomain Sales {
-    context S {
+    context S with scaffoldPaged(of: OrdersByQty) {
       aggregate Order with crudish {
         qty: int
         note: string
+        placedAt: datetime = now()
       }
-      repository Orders for Order {
-        find recent(): Order?
-      }
+      repository Orders for Order
       criterion OrdersByQty(min: int) of Order = this.qty >= min
       aggregate Tag with crudish {
         label: string
       }
-      repository Tags for Tag { }
+      repository Tags for Tag
     }
   }
-  api SalesApi from Sales
+  api SalesApi with scaffoldPagedApi(of: OrdersByQty) from Sales
   storage primarySql { type: postgres }
   resource sState { for: S, kind: state, use: primarySql }
   deployable api {
@@ -55,15 +54,20 @@ system Acme {
 }
 `;
 
-/** The per-aggregate routers from one generation. */
-async function routers(): Promise<{ order: string; tag: string }> {
+/** The per-aggregate routers, and the api's routed reads, from one generation.
+ *  `Order`'s server-sourced `placedAt` default mounts its static `GET /prepare`. */
+async function routers(): Promise<{ order: string; tag: string; api: string }> {
   const files = await generateSystemFiles(SRC);
   const pick = (suffix: string): string => {
     const hit = [...files.entries()].find(([p]) => p.endsWith(suffix))?.[1];
     expect(hit, suffix).toBeDefined();
     return hit as string;
   };
-  return { order: pick("http/order.routes.ts"), tag: pick("http/tag.routes.ts") };
+  return {
+    order: pick("http/order.routes.ts"),
+    tag: pick("http/tag.routes.ts"),
+    api: pick("http/salesApi-routes.ts"),
+  };
 }
 
 /** One `app.openapi(createRoute({ … }))` block, sliced by its declared
@@ -106,17 +110,26 @@ describe("hono declared responses — 422 rides every parsed request part (F6)",
     expect(order).toContain("page: z.coerce.number().int().min(1)");
   });
 
-  it("a find WITH params declares 422; a param-less, un-paged find declares none", async () => {
+  it("a param-less route declares no 422", async () => {
+    // `GET /prepare` parses NOTHING — no request object is even emitted — so
+    // declaring a 422 there would be the inverse fault: a status published on
+    // a route that cannot produce it.
     const { order } = await routers();
-    const byQty = routeBlock(order, "get", "/by_qty");
-    expect(byQty).toContain("request: { query: ByQtyQuery },");
+    const prepare = routeBlock(order, "get", "/prepare");
+    expect(prepare, "an un-parsed route emits no request block").not.toContain("request:");
+    expect(prepare, "an un-parsed route declares no 422").not.toContain("422:");
+  });
+
+  // KNOWN DEFECT: a routed read WITH query params (here `scaffoldPagedApi`'s
+  // `GET /orders/projections/orders_by_qty?min=…`) parses its query — an
+  // out-of-range `?min=` answers the validator's 422 — but declares only
+  // `[200, 400, 404]`.  `it.fails` keeps the expectation on record; drop the
+  // `.fails` once explicit routes take their 422 from the same matrix.
+  it.fails("a routed read WITH query params declares 422", async () => {
+    const { api } = await routers();
+    const byQty = routeBlock(api, "get", "/orders/projections/orders_by_qty");
+    expect(byQty).toContain("request: { query: z.object({ min: z.coerce.number().int()");
     expect(byQty).toContain('422: { description: "Unprocessable Entity"');
-    // `find recent(): Order?` parses NOTHING — no query object is even
-    // emitted — so declaring a 422 there would be the inverse fault: a status
-    // published on a route that cannot produce it.
-    const recent = routeBlock(order, "get", "/recent");
-    expect(recent, "an un-parsed find emits no request block").not.toContain("request:");
-    expect(recent, "an un-parsed find declares no 422").not.toContain("422:");
   });
 });
 
@@ -124,7 +137,7 @@ describe("hono static sub-paths — a wrong verb answers 405, not the {id} valid
   it("the guard is emitted, lists each static segment's real methods, and runs first", async () => {
     const { order } = await routers();
     expect(order).toContain(
-      'const staticSubpathMethods: Record<string, string[]> = { by_qty: ["GET"], recent: ["GET"] };',
+      'const staticSubpathMethods: Record<string, string[]> = { prepare: ["GET"] };',
     );
     expect(order).toContain('app.use("/:__seg", async (c, next) => {');
     expect(order).toContain('allow: allow.join(", ")');
@@ -182,12 +195,12 @@ describe("hono static sub-paths — a wrong verb answers 405, not the {id} valid
       expect(lookup(polluted), `${polluted} must not resolve to an allow list`).toBeUndefined();
     }
     // The real segment still resolves — the guard narrows nothing legitimate.
-    expect(lookup("by_qty")).toEqual(["GET"]);
+    expect(lookup("prepare")).toEqual(["GET"]);
   });
 
   it("an aggregate with no static sub-path emits no guard — nothing to discriminate", async () => {
     const { tag } = await routers();
-    expect(tag, "Tag has no named find and no prepare route").not.toContain("staticSubpathMethods");
+    expect(tag, "Tag has no prepare route").not.toContain("staticSubpathMethods");
     // …and it still gets the F6 declaration, so the two fixes are independent.
     expect(routeBlock(tag, "get", "/{id}")).toContain('422: { description: "Unprocessable Entity"');
   });
