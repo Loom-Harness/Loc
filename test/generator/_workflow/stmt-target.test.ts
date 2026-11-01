@@ -55,6 +55,7 @@ function recordingTarget(): {
     repoDelete: leaf("repo-delete"),
     resourceCall: leaf("resource-call"),
     domainServiceCall: leaf("domain-service-call"),
+    notFound: leaf("not-found"),
     forEach: (_st, indent, renderedBody) => {
       calls.push({ kind: "for-each", indent });
       return [`${indent}for {`, ...renderedBody, `${indent}}`];
@@ -97,6 +98,7 @@ describe("renderWorkflowStmts — shared workflow-statement spine", () => {
       stmt("repo-delete", { repoName: "R", aggName: "A", entity: EXPR }),
       stmt("resource-call", { call: EXPR }),
       stmt("domain-service-call", { service: "S", op: "run", call: EXPR }),
+      stmt("not-found", { detail: "gone" }),
     ];
 
     const lines = renderWorkflowStmts(stmts, target, "");
@@ -114,6 +116,7 @@ describe("renderWorkflowStmts — shared workflow-statement spine", () => {
       "repo-delete",
       "resource-call",
       "domain-service-call",
+      "not-found",
     ]);
     // Flat one-line-per-leaf output at the top-level indent.
     expect(lines).toEqual(calls.map((c) => c.kind));
