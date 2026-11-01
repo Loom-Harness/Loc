@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { validate } from "../../src/api/index.js";
+import { criterionRead } from "../_helpers/criterion-read.js";
 import { generateSystemFilesUnchecked } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
@@ -8,9 +9,10 @@ import { generateSystemFilesUnchecked } from "../_helpers/generate.js";
 // a placeholder.
 //
 // `test/ir/find-predicate-position-census.test.ts` proved this for ONE
-// position, a repository `find … where`, over the four relational adapters.
-// The same predicate sublanguage also reaches three other lowerings, and none
-// of them was in that census:
+// position over the four relational adapters: the predicate a repository read
+// runs — now a `criterion`, read by a `queryHandler` through the repository's
+// `findAllBy<Criterion>`.  The same predicate sublanguage also reaches three
+// other lowerings, and none of them was in that census:
 //
 //   * an aggregate capability `filter <P>` (applied to every read; drizzle,
 //     `mikroorm-filter.ts`, dapper `whereToSql`, …);
@@ -47,15 +49,15 @@ const ADAPTERS = {
 } as const;
 type Adapter = keyof typeof ADAPTERS;
 
-type Position = "find" | "capability-filter" | "projection-where" | "aggregation-where";
+type Position = "criterion-read" | "capability-filter" | "projection-where" | "aggregation-where";
 const POSITIONS: readonly Position[] = [
-  "find",
+  "criterion-read",
   "capability-filter",
   "projection-where",
   "aggregation-where",
 ];
 
-/** `$` stands for the row receiver: `this` in a find / filter, the `from`
+/** `$` stands for the row receiver: `this` in a criterion / filter, the `from`
  *  alias in a projection. Every shape is a predicate the target-neutral
  *  oracle ADMITS today. The census asks whether each lowering renders it. */
 const SHAPES: readonly { name: string; pred: string }[] = [
@@ -87,14 +89,13 @@ const FIELDS = `code: string
 function bodyFor(position: Position, shapes: readonly number[]): string {
   const at = (i: number, recv: string): string => SHAPES[i]?.pred.replaceAll("$", recv) ?? "";
   switch (position) {
-    case "find":
+    case "criterion-read":
       return `
         aggregate Order with crudish {
           ${FIELDS}
         }
-        repository Orders for Order {
-${shapes.map((i) => `          find ${tag(i)}(): Order[] where ${at(i, "this")}`).join("\n")}
-        }`;
+        repository Orders for Order
+${shapes.map((i) => criterionRead(tag(i), "", at(i, "this"), "Order", "Orders").members).join("\n")}`;
     case "capability-filter":
       return shapes
         .map(
