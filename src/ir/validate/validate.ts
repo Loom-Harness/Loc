@@ -145,6 +145,7 @@ import {
 import { validateUiBodies, validateUiPageIdentity } from "./checks/ui-checks.js";
 import { validatePageGates } from "./checks/ui-gate-checks.js";
 import { validateUnionReads } from "./checks/union-read-checks.js";
+import { validateUnknownRepositoryReads } from "./checks/unknown-repo-read-checks.js";
 import { validateUpdateGateSuggestions } from "./checks/update-gate-suggestion-checks.js";
 import { validateEventChannelAmbiguous, validateWorkflows } from "./checks/workflow-checks.js";
 import { validateWorkflowUnusedParams } from "./checks/workflow-unused-param-checks.js";
@@ -341,6 +342,7 @@ export function validateLoomModel(
     validateRetrievals(c, diags);
     validateRawSeedColumns(c, diags);
     validatePagedParamNames(c, diags);
+    validateUnknownRepositoryReads(c, diags);
     validatePersistedTableCollisions(c, diags);
     validateEntityPartParams(c, diags);
     validateAggregateTestBodies(c, diags);

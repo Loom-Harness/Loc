@@ -3911,7 +3911,8 @@ export type ExprIR =
         method: string;
         /** What the read does (`util/repository-contract.ts`): `load` /
          *  `load-optional` by id, `select-one` / `select-many` over a criterion
-         *  or retrieval (or the whole collection), or a `declared-find`.
+         *  or retrieval (or the whole collection), or an `unknown-read`
+         *  (a name no verb spells — refused).
          *  Backends dispatch on it, never on `method`. */
         op: Exclude<RepoOp, "remove">;
         /** The retrieval a criterion / retrieval read runs against — mirrors the

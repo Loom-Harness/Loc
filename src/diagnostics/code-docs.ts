@@ -163,6 +163,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.bare-statement-invalid": "06-behavior-and-statements.md#assignment-----",
   "loom.retrieval-where-not-criterion": "10-repositories-and-queries.md#retrieval",
   "loom.paged-param-reserved": "10-repositories-and-queries.md#return-shapes",
+  "loom.repo-unknown-read": "10-repositories-and-queries.md#repository--the-read-contract",
   "loom.repo-key-not-unique": "10-repositories-and-queries.md#natural-key-reads--getby--findby",
   "loom.repo-key-incomplete": "10-repositories-and-queries.md#natural-key-reads--getby--findby",
   "loom.paged-query-handler-shape":

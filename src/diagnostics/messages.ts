@@ -5189,6 +5189,8 @@ export const DIAGNOSTIC_MESSAGES = {
     otherContext: unknown;
   }) =>
     `${p.where}: repository '${p.repoName}' is declared in context '${p.otherContext}', not in this workflow's own context '${p.ownContext}' — a workflow orchestrates the aggregates of ONE context, so it may only load through its own repositories. No backend can emit this read: the repository is never constructed and the call is never awaited, so the generated code references a name that does not exist. Cross-context data crosses at the context's PUBLIC surface instead: fetch it through '${p.otherContext}''s api (a 'resource { kind: api }' binding gives a typed in-system call), or read a local projection folded over '${p.otherContext}''s published events (via a channel), and pass the value in as a parameter. If the two aggregates really do change together in one transaction, they belong in the SAME context — move one across, or move this workflow into '${p.otherContext}'.`,
+  "loom.repo-unknown-read": (p: { repoName: unknown; method: unknown; suggestion?: unknown }) =>
+    `repository '${p.repoName}' has no method '${p.method}'.${didYouMean(p.suggestion)}  A repository declares no reads of its own: read with getById / findById, getBy / findBy over a declared \`unique (…)\` key, or find / findAll / run over a criterion.`,
   "loom.workflow-unknown-repository-method": (p: {
     name: unknown;
     repoName: unknown;
