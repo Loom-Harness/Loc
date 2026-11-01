@@ -13,7 +13,6 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
-import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
@@ -198,7 +197,7 @@ export function renderMikroEmbeddedRepository(
       // the schema filters keep the ambient accessor, because they ride reads
       // that have no such parameter.  A clause-less find still filters — by its
       // implicit key match.
-      const own = effectiveFindFilter(f, agg);
+      const own = f.filter;
       filter = own
         ? whereToMikroFilter(own, usesUser ? "currentUser" : AMBIENT_PRINCIPAL, agg.associations)
         : "{}";

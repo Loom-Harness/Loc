@@ -3,7 +3,6 @@ import {
   aggregateUsesPrincipalContextFilter,
   exprUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
-import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { tableNameFor } from "../../../util/storage-names.js";
@@ -175,7 +174,7 @@ export function renderJavaDocumentRepositoryImpl(
     );
     const params = f.params.map((p) => `${renderJavaType(p.type)} ${localOf(locals, p.name)}`);
     // A clause-less find still filters — by its implicit key match.
-    const own = effectiveFindFilter(f, agg);
+    const own = f.filter;
     const ownFilter = own
       ? `.filter(x -> ${renderJavaExpr(own, { thisName: "x", agg, accessorProps: true, ...inMemoryParamExpr(locals) })})`
       : "";

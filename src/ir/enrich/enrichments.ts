@@ -83,7 +83,6 @@ import { walkExprDeep, walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "../u
 import { type BypassRead, synthesizeBypassReadFinds } from "./bypass-read-finds.js";
 import { applyDefaultDenyReads } from "./default-deny-reads.js";
 import { applyDemoTenantSeed } from "./demo-tenant.js";
-import { bindFindParams } from "./find-param-bindings.js";
 import { inheritBaseCapabilities } from "./inherited-capabilities.js";
 import { type KeyLookupRead, synthesizeKeyLookupFinds } from "./key-lookup-finds.js";
 import { applyPolicyReadGates } from "./policy-read-gates.js";
@@ -898,31 +897,28 @@ export function enrichContext(
   // on top of the auto-`findAll` repositories; the synthesized find is flagged
   // so the aggregate router does NOT auto-expose it (the queryHandler's own
   // route is the exposure).
-  const repositories = bindFindParams(
-    synthesizeBypassReadFinds(
-      synthesizeKeyLookupFinds(
-        synthesizePagedQueryHandlerFinds(
-          // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
-          // find's gate + `ignoring` stance, so the implicit `all` must exist first.
-          // `applyPolicyReadGates` sits between them: it puts the
-          // `policy { read X requires … }` gate on the injected `all` (and every
-          // declared find), which history then copies.
-          ensureHistoryFind(
-            aggregates,
-            applyPolicyReadGates(ensureFindAll(aggregates, ctx.repositories), ctx.policyReadGates),
-          ),
-          ctx.queryHandlers,
-          ctx.criteria,
-          ctx.retrievals,
+  const repositories = synthesizeBypassReadFinds(
+    synthesizeKeyLookupFinds(
+      synthesizePagedQueryHandlerFinds(
+        // `ensureHistoryFind` layers on top of `ensureFindAll` — it reads the `all`
+        // find's gate + `ignoring` stance, so the implicit `all` must exist first.
+        // `applyPolicyReadGates` sits between them: it puts the
+        // `policy { read X requires … }` gate on the injected `all`, which
+        // history then copies.
+        ensureHistoryFind(
+          aggregates,
+          applyPolicyReadGates(ensureFindAll(aggregates, ctx.repositories), ctx.policyReadGates),
         ),
-        aggregates,
-        keyLookupReads(ctx),
+        ctx.queryHandlers,
+        ctx.criteria,
+        ctx.retrievals,
       ),
       aggregates,
-      ctx.criteria,
-      bypassReads(ctx),
+      keyLookupReads(ctx),
     ),
     aggregates,
+    ctx.criteria,
+    bypassReads(ctx),
   );
   // P2 (payload-transport-layer.md): give every concrete aggregate's wire
   // shape a named, referenceable `<Agg>Wire` payload.  Purely additive IR

@@ -7,7 +7,6 @@ import type {
   RetrievalIR,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
-import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
 import type { AggPool } from "../../ir/util/inheritance.js";
 import { upperFirst } from "../../util/naming.js";
 import { canEmitToExpressionFor } from "./criteria-emit.js";
@@ -217,13 +216,7 @@ function filterClauseFor(find: FindIR, agg: EnrichedAggregateIR, ctx?: BoundedCo
     // `render-expr.ts:renderMethodCall`.
     return `.Where(${x} => ${renderCsExpr(find.filter, { thisName: x, agg, efQuery: true })})`;
   }
-  if (find.params.length === 0) return "";
-  const conditions: string[] = [];
-  for (const { param: p, field: matchedField } of implicitFindMatches(find, agg)) {
-    conditions.push(`${x}.${upperFirst(matchedField.name)} == ${p.name}`);
-  }
-  if (conditions.length === 0) return "";
-  return `.Where(${x} => ${conditions.join(" && ")})`;
+  return "";
 }
 
 function projectionClauseFor(t: TypeIR, ct: string): string {

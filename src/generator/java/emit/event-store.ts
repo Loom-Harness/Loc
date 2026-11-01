@@ -1,5 +1,4 @@
 import type { EnrichedAggregateIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
-import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import { lines } from "../../../util/code-builder.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
@@ -78,7 +77,7 @@ export function renderJavaEventSourcedRepositoryImpl(
     );
     const params = f.params.map((p) => `${renderJavaType(p.type)} ${localOf(locals, p.name)}`);
     // A clause-less find still filters — by its implicit key match.
-    const own = effectiveFindFilter(f, agg);
+    const own = f.filter;
     const filter = own
       ? `.filter(x -> ${renderJavaExpr(own, { thisName: "x", agg, accessorProps: true, ...inMemoryParamExpr(locals) })})`
       : "";

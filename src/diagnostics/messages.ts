@@ -883,17 +883,6 @@ export const DIAGNOSTIC_MESSAGES = {
       : `policy function '${p.name}' expects ${p.want} argument${p.want2}, but ${p.got} ${p.got2} supplied.`,
 
   // ----------------------------------------------------------------------
-  // src/language/validators/repository.ts
-  // ----------------------------------------------------------------------
-  "loom.list-find-removed": (p: { name: unknown }) =>
-    `repository find '${p.name}' returns a list, and list finds are removed — declare a ` +
-    `'criterion' (run it with Repo.run(<Criterion>(args))) or a 'retrieval' instead, and put ` +
-    `it on the wire with 'scaffoldPaged(of: <it>)' on the context plus ` +
-    `'scaffoldPagedApi(of: <it>)' on the api when a client must call it; ` +
-    `'node scripts/codemod-list-find-to-criterion.mjs <path>' rewrites it. (A unique-key ` +
-    `find returning a single 'T' / 'T?' stays fine.)`,
-
-  // ----------------------------------------------------------------------
   // src/language/validators/seed.ts
   // ----------------------------------------------------------------------
   "loom.seed-foreign-aggregate": (p: { name: unknown; aggCtxName: unknown; ownCtxName: unknown }) =>
@@ -1425,22 +1414,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `enforced per concrete table (${p.concretes}) — each subtype rejects its own duplicates, but ` +
     `the same value can still exist once in EACH sibling table.  If the key must be unique ` +
     `across the whole hierarchy, map it to one shared table: \`inheritanceUsing: sharedTable\`.`,
-  "loom.find-reserved-name": (p: { name: unknown; findName: unknown }) =>
-    `repository '${p.name}' find '${p.findName}': '${p.findName}' is a built-in repository verb of the Loom language, ` +
-    `so '${p.name}.${p.findName}(...)' would already mean the built-in. Choose a different find name (e.g. 'byRef', 'lookup').`,
-  "loom.find-param-unbound": (p: {
-    name: unknown;
-    findName: unknown;
-    param: unknown;
-    aggName: unknown;
-  }) =>
-    `repository '${p.name}' find '${p.findName}' declares no 'where', so each parameter ` +
-    `filters on the field of '${p.aggName}' it names — but '${p.param}' names no field ` +
-    `(nor a '<field>Id' spelling of one). The find would ignore it and answer with an ` +
-    `arbitrary row. Rename the parameter to the field it should match, or add a ` +
-    `'where' clause that uses it.`,
-  "loom.duplicate-find": (p: { name: unknown; findName: unknown }) =>
-    `repository '${p.name}' declares find '${p.findName}' more than once.`,
   "loom.paged-param-reserved#find": (p: {
     name: unknown;
     findName: unknown;
@@ -1473,15 +1446,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `the paging query parameter '${p.key}' every paged read adds (${p.reserved}) — the request would ` +
     `carry two values for one query key, and the generated handler / route signature a duplicate ` +
     `parameter.  Rename the parameter (e.g. '${p.param}Filter').`,
-  "loom.union-find-shape-unsupported": (p: {
-    name: unknown;
-    repoName: unknown;
-    why: unknown;
-    aggregateName: unknown;
-  }) =>
-    `find '${p.name}' on repository '${p.repoName}': ${p.why}. Supported v1 shape: ` +
-    `\`find ${p.name}(...): ${p.aggregateName} or <Error>\` (absence → the error's ` +
-    `HTTP status) or \`: ${p.aggregateName} option\` (absence → 404).`,
   // --- M-T5.34 / #2864 D6, decision D-2 -----------------------------------
   // An entity-PART-typed parameter on a public action.  The materialization
   // step has a value-object arm (`new LineVO(e.sku, e.qty)`) and no entity arm,
@@ -5009,16 +4973,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `context '${p.name}': workflow '${p.wfName}' is declared more than once.`,
   "loom.workflow-name-collision": (p: { name: unknown; wfName: unknown; clash: unknown }) =>
     `context '${p.name}': workflow '${p.wfName}' collides with the ${p.clash} of the same name.`,
-  "loom.single-row-find-not-unique": (p: {
-    repo: unknown;
-    find: unknown;
-    agg: unknown;
-    cols: unknown;
-  }) =>
-    `repository '${p.repo}': find '${p.find}' returns a single '${p.agg}' by (${p.cols}), but no ` +
-    `'unique (${p.cols})' makes that a natural key — when two rows share it, every backend ` +
-    `returns whichever row the database yields first. Declare 'unique (${p.cols})' on '${p.agg}' ` +
-    `(it also derives the DB unique index and the 409 on a duplicate), or read every match through a criterion (Repo.run).`,
   "loom.persisted-table-collision": (p: {
     ctx: unknown;
     first: unknown;
