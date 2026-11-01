@@ -2284,7 +2284,7 @@ describe("Loom IR validation (post-lowering)", async () => {
       diags.some(
         (d) =>
           d.severity === "error" &&
-          /returns an array; v1 supports only single non-nullable aggregates/.test(d.message),
+          /returns an array; a 'let' over a repository read binds a single row/.test(d.message),
       ),
       JSON.stringify(diags),
     ).toBe(true);

@@ -39,6 +39,7 @@ export const PY = {
   event_origin_frame: pyRef("app.auth.user", "event_origin_frame"),
   DomainError: pyRef("app.domain.errors", "DomainError"),
   ForbiddenError: pyRef("app.domain.errors", "ForbiddenError"),
+  AggregateNotFoundError: pyRef("app.domain.errors", "AggregateNotFoundError"),
   DisallowedError: pyRef("app.domain.errors", "DisallowedError"),
   ValueObjectInvariantError: pyRef("app.domain.errors", "ValueObjectInvariantError"),
   log: pyRef("app.obs.log", "log"),

@@ -75,7 +75,11 @@ const CEILINGS: Record<string, number> = {
   // 2900 → 3100 (#3263): the money-comparison pins (money-compare-leftovers.test.ts)
   // assert each emitter's spelling across 5 backends + 6 frontends; the runtime proof
   // is the money-nullable corpus fixture and money-compare-ui.
-  "(cross-target)": 3100,
+  // 3100 → 3300 (#4261): repo-bypass-read.test.ts pins, per backend + Dapper, that a
+  // widened find(C)/findById read omits exactly the capability predicate it names —
+  // an absence in the emitted SQL no compile gate sees; the key-lookup fixture
+  // compiles the same reads on all five backends.
+  "(cross-target)": 3300,
   _expr: 200,
   _frontend: 400,
   _i18n: 200,

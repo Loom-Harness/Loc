@@ -5297,8 +5297,10 @@ first (`loom.single-row-find-not-unique` was only advisory). And
   validator and the lowerer alike; the contract rows are `getBy` →
   `load-by-key` and `findBy` → `load-by-key-optional`.
 - A `getBy` miss answers the standard ProblemDetails 404 (`"not_found"`) on
-  every backend. `findBy` is an `if let` source; bound by a plain `let` it is
-  the nullable-load refusal every `T?` read gets.
+  every backend. `findBy` is an `if let` source, and a plain `let` binds it
+  as `T?` — like every `T?` read (#4258: `find(C)`, `findById`, a `T?` find),
+  read through a null test or narrowed by `if let`, its un-narrowed
+  dereference being `loom.nullable-receiver`.
 - Capability filters apply as on any read. A trailing `ignoring …` widens one
   call — on a `let` or an `if let` source, the two positions that bind a read.
 - Each backend emits one repository method per used (verb, tuple, `ignoring`
@@ -5322,7 +5324,7 @@ first (`loom.single-row-find-not-unique` was only advisory). And
   the repository (an existing one reused) and `Repo.find(<Criterion>(args))`.
   A clause-less find binding its parameters by name counts as the equality
   conjunction. A find moves only when every call site takes its target; a
-  `T?` read is accepted as an `if let` source or in a domain-service
+  `T?` read is accepted as an `if let` source, a `let` or in a domain-service
   expression, and a must-exist find over a non-unique key has no target (no
   `else` statement answers a 404), so those call sites are reported and the
   find stays. `--add-unique` declares the key instead; never by default.

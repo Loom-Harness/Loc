@@ -10,6 +10,7 @@ import { hasDocker as dockerAvailable } from "./support/docker-probe.js";
 import { type HexMirror, startHexMirror } from "./support/hex-mirror.js";
 import { mixDepsGet, mixLocalInstall } from "./support/mix-retry.js";
 import { installGeneratedProject } from "./support/npm-install.js";
+import { installPlaywrightChromium } from "./support/playwright-install.js";
 
 // ---------------------------------------------------------------------------
 // Runtime auth UI-gate smoke — proves the auth gate WORKS at runtime, not just
@@ -145,7 +146,7 @@ function runGateSpec(project: string, baseUrl: string): void {
   }
   fs.copyFileSync(sharedSpec, path.join(e2e, "auth-gate.spec.ts"));
   installGeneratedProject(e2e, { timeout: 900_000 });
-  run("npx playwright install --with-deps chromium", e2e);
+  installPlaywrightChromium(e2e);
   run("npx playwright test auth-gate.spec.ts", e2e, {
     E2E_BASE_URL: baseUrl,
     AUTH_GATE_JOB_BODY: jobBodyFor(project),

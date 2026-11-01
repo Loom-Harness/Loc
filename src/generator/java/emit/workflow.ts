@@ -1,3 +1,4 @@
+import { notFoundStmtDetail } from "../../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
 import type {
   EnrichedBoundedContextIR,
@@ -239,6 +240,7 @@ function reposInBodies(
           case "assign":
           case "resource-call":
           case "domain-service-call":
+          case "not-found":
             // No repository of their own.
             break;
           default: {
@@ -366,6 +368,20 @@ export function javaWorkflowStmtTarget(
       // and the wrap re-wraps an argument that is ALREADY an `<Agg>Id` whenever
       // the caller passes an `Agg id` param — `getById(new OrderId(orderId))`
       // where `orderId` is an `OrderId`, which does not compile.
+      // The two optional reads that do not answer `T`-or-null directly: a
+      // criterion read runs the shared retrieval for one row (the `if let`
+      // lookup), and `findById` answers `Optional<T>`.
+      if (s.op === "select-one" && s.retrievalName) {
+        const rendered = s.args.map((a) => renderJavaExpr(a, renderCtx));
+        return [
+          `${indent}var ${bound(s.name)} = ${firstRowOf(repoField(s.aggName), s.retrievalName, rendered)};`,
+        ];
+      }
+      if (s.op === "load-optional") {
+        return [
+          `${indent}var ${bound(s.name)} = ${repoField(s.aggName)}.findById(${args}).orElse(null);`,
+        ];
+      }
       return [`${indent}var ${bound(s.name)} = ${repoField(s.aggName)}.${s.method}(${args});`];
     },
     exprLet: (s, indent) => {
@@ -487,9 +503,16 @@ export function javaWorkflowStmtTarget(
       const args = s.retrievalArgs.map((a) => renderJavaExpr(a, renderCtx));
       // A declared optional find (`findMethod`) is emitted on the repository
       // under its own name and answers the aggregate or `null` directly.
-      const lookup = s.findMethod
-        ? `${repoField(s.aggName)}.${s.findMethod}(${args.join(", ")})`
-        : `${repoField(s.aggName)}.run${upperFirst(s.retrievalName)}(${[...args, "null", "1"].join(", ")}).stream().findFirst().orElse(null)`;
+      // `findById` answers `Optional<T>`; a `bound` source narrows an optional
+      // binding already in scope.
+      const lookup =
+        s.op === "bound"
+          ? args.join(", ")
+          : s.op === "load-optional"
+            ? `${repoField(s.aggName)}.findById(${args.join(", ")}).orElse(null)`
+            : s.findMethod
+              ? `${repoField(s.aggName)}.${s.findMethod}(${args.join(", ")})`
+              : firstRowOf(repoField(s.aggName), s.retrievalName, args);
       const inner = `${indent}    `;
       const thenSaves = s.savesInThen.flatMap((sv) => saveLines(inner, sv));
       const elseSaves = s.savesInElse.flatMap((sv) => saveLines(inner, sv));
@@ -520,7 +543,19 @@ export function javaWorkflowStmtTarget(
     domainServiceCall: (s, indent) => {
       return [`${indent}${renderJavaExpr(s.call, renderCtx)};`];
     },
+    // The exception a by-id miss throws, so the advice's not-found arm renders
+    // the identical ProblemDetails.
+    notFound: (s, indent) => [
+      `${indent}throw new AggregateNotFoundException(${JSON.stringify(notFoundStmtDetail(s))});`,
+    ],
   };
+}
+
+/** The first row of a criterion retrieval run, or `null` — the single-result
+ *  read behind `Repo.find(<Criterion>)` in a `let` and an `if let`: the
+ *  `(…, offset, limit)` overload capped at 1. */
+function firstRowOf(field: string, retrievalName: string, args: readonly string[]): string {
+  return `${field}.run${upperFirst(retrievalName)}(${[...args, "null", "1"].join(", ")}).stream().findFirst().orElse(null)`;
 }
 
 /** Publish what a just-saved aggregate drained (`pullEvents()`) on Spring's
@@ -637,6 +672,7 @@ export function workflowBoundNames(bodies: readonly (readonly WorkflowStmtIR[])[
           case "assign":
           case "resource-call":
           case "domain-service-call":
+          case "not-found":
             break;
           default: {
             const _exhaustive: never = s;
