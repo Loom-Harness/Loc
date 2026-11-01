@@ -760,7 +760,7 @@ export const CORPUS: readonly CorpusFeature[] = [
       "a provenanced field's lineage — `inputs[].value` and `computedValue` carry money as the RS-12 wire string, a decimal as the RS-24 number and a datetime as the RS-38 instant",
     doc: "provenance",
     backends: MONEY_LINEAGE_WIRE,
-    note: "The `Codec` fact (`src/ir/enrich/codec.ts`) rules every scalar's lineage encoding to be its wire encoding (owner rulings on #3527 and #3593).  node and python write it through their wire encoders; the other three legs boot it as tracked expected failures (`BEHAVIOURAL_XFAIL`, #3527) until each is moved onto the fact — java and .NET send money as a JSON number, elixir as an unscaled Decimal string.  The money assertions come first, so those legs fail on them before the decimal and datetime writes",
+    note: "The `Codec` fact (`src/ir/enrich/codec.ts`) rules every scalar's lineage encoding to be its wire encoding (owner rulings on #3527 and #3593).  node and python write it through their wire encoders; the other three legs boot it as tracked expected failures (`BEHAVIOURAL_XFAIL`, #4402) until each is moved onto the fact — java and .NET send money as a JSON number, elixir as an unscaled Decimal string.  The money assertions come first, so those legs fail on them before the decimal and datetime writes",
   },
   {
     id: "audited",

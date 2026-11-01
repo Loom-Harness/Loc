@@ -5737,7 +5737,7 @@ same way by `test/generator/python/codec-census.test.ts` (SQLAlchemy column
 types, money grammar and bounds, `.isoformat()`). The other three backends
 move onto the fact one at a time. Until each does, it boots
 `corpus/provenance-money` as a tracked expected failure (`BEHAVIOURAL_XFAIL`,
-#3527).
+#4402).
 
 java/Spring renders the fact through `src/generator/java/wire-policy-java.ts`
 (`test/generator/java/wire-policy-census.test.ts` is its census, with the

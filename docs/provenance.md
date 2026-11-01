@@ -296,7 +296,7 @@ encoding: a `money` as the RS-12 fixed-scale-4 string (`"3000.3000"`, never
 RS-38 instant (`"2024-03-01T10:20:30Z"`, never `…30.000Z`), and an `int` /
 `long` as its wire number (owner rulings on #3527 and #3593).  node and python
 write each value through their wire encoders.  The other three backends boot
-`corpus/provenance-money` as tracked expected failures (#3527) until each one
+`corpus/provenance-money` as tracked expected failures (#4402) until each one
 is moved onto the fact.
 
 ```ddd

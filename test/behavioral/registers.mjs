@@ -239,7 +239,7 @@ function baseReads({ passes = [], pins = {} } = {}) {
  *  elixir with an unscaled Decimal string. */
 const MONEY_LINEAGE_BLOCK = "a provenanced money lineage carries money at the wire scale";
 const moneyLineage = (re) => ({
-  issue: "#3527",
+  issue: "#4402",
   expect: "fail",
   tests: { [MONEY_LINEAGE_BLOCK]: re },
   reason: "a money value in a provenance lineage is the RS-12 wire string (Codec fact); this leg still writes the domain value",
