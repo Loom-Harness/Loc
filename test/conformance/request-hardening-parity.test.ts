@@ -44,9 +44,8 @@ system Fulfil {
         orderRef: Order id
         status: string
       }
-      repository Shipments for Shipment {
-        find byOrder(order: Order id): Shipment? where this.orderRef == order
-      }
+      repository Shipments for Shipment { }
+      criterion ShipmentsByOrder(order: Order id) of Shipment = this.orderRef == order
     }
   }
   api FApi from F

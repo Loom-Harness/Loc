@@ -24,14 +24,13 @@ const READING = `system PyReading {
         balance: Money
       }
 
-      repository Accounts for Account {
-        find byHolder(holder: string): Account? where this.holder == holder
-      }
+      repository Accounts for Account { }
+      criterion AccountsByHolder(holder: string) of Account = this.holder == holder
 
       // reading tier — read-only repo query, orchestrator-only.
       domainService Registration {
         operation bothAvailable(source: string, dest: string): bool {
-          return Accounts.byHolder(source) == null && Accounts.byHolder(dest) == null
+          return Accounts.find(AccountsByHolder(source)) == null && Accounts.find(AccountsByHolder(dest)) == null
         }
       }
 

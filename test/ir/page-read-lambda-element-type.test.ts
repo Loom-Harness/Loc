@@ -41,7 +41,6 @@ function system(pageBody: string, extraFinds = ""): string {
           }
           repository Orders for Order {
             ${extraFinds}
-            find byId(id: Order id): Order?
           }
         }
       }

@@ -221,9 +221,8 @@ const A32 = `
         }
         // NON-optional, so the handler body dereferences it directly; list
         // finds are removed.
-        repository Orders for Order {
-          find byStatus(status: string): Order where this.status == status
-        }
+        repository Orders for Order { }
+        criterion OrdersByStatus(status: string) of Order = this.status == status
       }
     }
     api SalesApi with scaffoldApi(of: Sales)

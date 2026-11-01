@@ -44,20 +44,21 @@ system Sales {
         customerId: Customer id
         status: OrderStatus
       }
-      repository Customers for Customer {
-        find byEmail(email: string): Customer? where this.email == email
-        // Non-nullable sibling for the workflow repo-let below; the nullable
-        // byEmail above is what the repository tests pin.
-        find requireByEmail(email: string): Customer where this.email == email
-      }
-      repository Orders for Order {
-        find byCustomer(customerId: Customer id): Order?
-        find byStatus(s: OrderStatus): Order? where this.status == s
-      }
+      repository Customers for Customer { }
+      criterion CustomersByEmail(email: string) of Customer = this.email == email
+      // Non-nullable sibling for the workflow repo-let below; the nullable
+      // byEmail above is what the repository tests pin.
+      criterion CustomersRequireByEmail(email: string) of Customer = this.email == email
+      repository Orders for Order { }
+      criterion OrdersByCustomer(customerId: Customer id) of Order = this.customerId == customerId
+      criterion OrdersByStatus(s: OrderStatus) of Order = this.status == s
 
       workflow tagFirstByEmail {
         create(needle: string) {
-          let c = Customers.requireByEmail(needle)
+          if let c = Customers.find(CustomersRequireByEmail(needle)) {
+          } else {
+            notFound
+          }
         }
       }
     }

@@ -89,9 +89,8 @@ const PREFIX = system(`
           title: string
           filter UnderRoot
         }
-        repository Docs for Doc {
-          find under(prefix: string): Doc? where this.path.startsWith(prefix)
-        }
+        repository Docs for Doc { }
+        criterion DocsUnder(prefix: string) of Doc = this.path.startsWith(prefix)
 `);
 
 describe("a queryable intrinsic lowers through a raw() fragment", () => {

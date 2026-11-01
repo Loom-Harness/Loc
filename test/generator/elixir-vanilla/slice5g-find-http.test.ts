@@ -15,9 +15,9 @@ system S {
     context Shop {
       aggregate Order with crudish { customerId: string  total: int }
       repository Orders for Order {
-        find byCustomer(customerId: string): Order? where this.customerId == customerId
         find latest(): Order?
       }
+      criterion OrdersByCustomer(customerId: string) of Order = this.customerId == customerId
     }
   }
   api A from Core

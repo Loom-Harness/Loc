@@ -46,9 +46,8 @@ system ExWords {
           and := and
         }
       }
-      repository Kws for Kw {
-        find byEnd(end: int): Kw? where this.end == end
-      }
+      repository Kws for Kw { }
+      criterion KwsByEnd(end: int) of Kw = this.end == end
     }
   }
   api HostileApi from Words

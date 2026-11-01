@@ -41,9 +41,8 @@ const SRC = `
         aggregate Note shape: document, with crudish, tenantOwned {
           body: string
         }
-        repository Things for Thing {
-          find byLabel(l: string): Thing? where this.label == l
-        }
+        repository Things for Thing { }
+        criterion ThingsByLabel(l: string) of Thing = this.label == l
         repository Notes for Note { }
         policy {
           allow deep on Thing

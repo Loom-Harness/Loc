@@ -74,11 +74,10 @@ const SRC = `system Shop {
     repository Orders for Order {
       // one customer's own orders
       find byCustomer(customerId: Customer id): Order?
-      find drafts(forCustomer: Customer id): Order?
-        where this.customerId == forCustomer
-      find secured(): Order? where this.total > 0 ignoring tenantOwned
       find everything(): Order? ignoring *
     }
+    criterion OrdersDrafts(forCustomer: Customer id) of Order = this.customerId == forCustomer
+    criterion OrdersSecured of Order = this.total > 0
     policy { read Order requires currentUser.isAdmin }
   }
 }`;

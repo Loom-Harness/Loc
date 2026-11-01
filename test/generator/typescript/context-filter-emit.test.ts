@@ -19,9 +19,8 @@ const SRC = `
       isDeleted: bool
       filter !this.isDeleted
     }
-    repository Docs for Doc {
-      find bySubject(s: string): Doc? where subject == s
-    }
+    repository Docs for Doc { }
+    criterion DocsBySubject(s: string) of Doc = subject == s
   }
 `;
 
@@ -69,9 +68,8 @@ describe("typescript generator — capability filter (contextFilters)", () => {
           isDeleted: bool
           filter NotDeleted
         }
-        repository Docs for Doc {
-          find bySubject(s: string): Doc? where subject == s
-        }
+        repository Docs for Doc { }
+        criterion DocsBySubject(s: string) of Doc = subject == s
       }
     `);
     const files = generateHono(model);
@@ -158,9 +156,8 @@ system T {
     const model = await parseValid(`
       context Sales {
         aggregate Plain { subject: string }
-        repository Plains for Plain {
-          find bySubject(s: string): Plain? where subject == s
-        }
+        repository Plains for Plain { }
+        criterion PlainsBySubject(s: string) of Plain = subject == s
       }
     `);
     const files = generateHono(model);

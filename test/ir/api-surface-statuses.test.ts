@@ -74,7 +74,8 @@ describe("api-surface — resolved error statuses", () => {
       SYS(`
       error NotFound { resource: string }
       aggregate Order { code: string }
-      repository Orders for Order { find byCode(code: string): Order or NotFound }
+      repository Orders for Order { }
+      criterion OrdersByCode(code: string) of Order = this.code == code
     `),
     );
     const find = opByKey(deriveContextOperations(orders(model)), "get", "/api/orders/by_code");
@@ -91,9 +92,8 @@ describe("api-surface — resolved error statuses", () => {
       SYS(`
       error NotFound { resource: string }
       aggregate Order { code: string }
-      repository Orders for Order {
-        find byCode(code: string): Order or NotFound
-      }
+      repository Orders for Order { }
+      criterion OrdersByCode(code: string) of Order = this.code == code
       policy { read Order requires currentUser.role == "admin" }
     `),
     );
@@ -109,7 +109,8 @@ describe("api-surface — resolved error statuses", () => {
         `
       error NotFound { resource: string }
       aggregate Order { code: string }
-      repository Orders for Order { find byCode(code: string): Order or NotFound }
+      repository Orders for Order { }
+      criterion OrdersByCode(code: string) of Order = this.code == code
     `,
         "{ httpStatus NotFound -> 410 }",
       ),
@@ -199,9 +200,9 @@ describe("api-surface — 422 follows the PARSED request part, not the kind (F6)
       SYS(`
       aggregate Order with crudish { code: string }
       repository Orders for Order {
-        find byCode(code: string): Order?
         find recent(): Order?
       }
+      criterion OrdersByCode(code: string) of Order = this.code == code
     `),
     );
     const ops = deriveContextOperations(orders(model));
@@ -219,9 +220,9 @@ describe("api-surface — 422 follows the PARSED request part, not the kind (F6)
       SYS(`
       aggregate Order with crudish { code: string }
       repository Orders for Order {
-        find byCode(code: string): Order?
         find recent(): Order?
       }
+      criterion OrdersByCode(code: string) of Order = this.code == code
     `),
     );
     const byName = new Map(
@@ -299,7 +300,8 @@ system P {
         status: string
         operation cancel() when status == "Open" { status := "Cancelled" }
       }
-      repository Orders for Order { find byCode(code: string): Order option }
+      repository Orders for Order { }
+      criterion OrdersByCode(code: string) of Order = this.code == code
     `),
     );
     const ops = deriveContextOperations(orders(model));
@@ -320,7 +322,8 @@ describe("api-surface — render helpers for the unification slices", () => {
         status: string
         operation cancel() when status == "Open" { status := "Cancelled" }
       }
-      repository Orders for Order { find byCode(code: string): Order option }
+      repository Orders for Order { }
+      criterion OrdersByCode(code: string) of Order = this.code == code
     `),
     );
     const ops = deriveContextOperations(orders(model));

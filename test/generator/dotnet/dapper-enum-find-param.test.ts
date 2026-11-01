@@ -50,10 +50,9 @@ system Shop {
         code: string
         status: Status
       }
-      repository Orders for Order {
-        find byStatus(s: Status): Order? where this.status == s
-        find byCode(c: string): Order? where this.code == c
-      }
+      repository Orders for Order { }
+      criterion OrdersByStatus(s: Status) of Order = this.status == s
+      criterion OrdersByCode(c: string) of Order = this.code == c
     }
   }
   storage pg { type: postgres }

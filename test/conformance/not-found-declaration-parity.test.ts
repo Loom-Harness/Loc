@@ -54,10 +54,9 @@ system NotFoundDecl {
         text: string
         create(text: string) { }
       }
-      repository Wallets for Wallet {
-        find byRef(r: string): Wallet where this.ownerRef == r
-        find maybeByRef(r: string): Wallet? where this.ownerRef == r
-      }
+      repository Wallets for Wallet { }
+      criterion WalletsByRef(r: string) of Wallet = this.ownerRef == r
+      criterion WalletsMaybeByRef(r: string) of Wallet = this.ownerRef == r
       repository Notes for Note { }
 
       workflow spend transactional {
@@ -68,8 +67,11 @@ system NotFoundDecl {
       }
       workflow spendByRef transactional {
         create(ref: string, amount: decimal) {
-          let w = Wallets.byRef(ref)
-          w.debit(amount)
+          if let w = Wallets.find(WalletsByRef(ref)) {
+            w.debit(amount)
+          } else {
+            notFound
+          }
         }
       }
       workflow jot transactional {

@@ -39,8 +39,8 @@ system BypassShop {
       repository Deeps for Deep {
         find allDeep(): Deep? ignoring *
         find justCap(): Deep? ignoring owned
-        find scoped(): Deep? where this.label != "x"
       }
+      criterion DeepsScoped of Deep = this.label != "x"
     }
   }
   api CatalogApi from Sales

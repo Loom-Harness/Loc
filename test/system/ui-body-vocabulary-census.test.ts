@@ -302,11 +302,10 @@ system Census {
           return OrderMissing { missingRef: customerId }
         }
       }
-      repository Orders for Order {
-        find byCustomer(customerId: string): Order? where this.customerId == customerId
-        find byCustomers(ids: string[]): Order? where this.customerId != ""
-        find customerNames(): string? where this.customerId != ""
-      }
+      repository Orders for Order { }
+      criterion OrdersByCustomer(customerId: string) of Order = this.customerId == customerId
+      criterion OrdersByCustomers(ids: string[]) of Order = this.customerId != ""
+      criterion OrdersCustomerNames of Order = this.customerId != ""
     }
   }
   api A from S { httpStatus OrderMissing -> 404 }

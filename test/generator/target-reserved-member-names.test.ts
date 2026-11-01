@@ -343,9 +343,8 @@ const TS_RESERVED_SRC = `
           invariant new >= 0
         }
 
-        repository Things for Thing {
-          find byClass(class: string, new: int): Thing? where this.class == class && this.new >= new
-        }
+        repository Things for Thing { }
+        criterion ThingsByClass(class: string, new: int) of Thing = this.class == class && this.new >= new
 
         domainService Calc {
           operation sum(new: int, default: int): int {
@@ -479,9 +478,8 @@ describe("byte-identity: a model with no reserved names keeps its node bindings"
                 this.title := t
               }
             }
-            repository Notes for Note {
-              find byTitle(title: string): Note? where this.title == title
-            }
+            repository Notes for Note { }
+            criterion NotesByTitle(title: string) of Note = this.title == title
           }
         }
         storage pg { type: postgres }

@@ -29,15 +29,13 @@ const COLLIDING = `
         aggregate Order {
           status: string
         }
-        repository Orders for Order {
-          find byStatus(status: string): Order? where this.status == status
-        }
+        repository Orders for Order { }
+        criterion OrdersByStatus(status: string) of Order = this.status == status
         aggregate Customer {
           status: string
         }
-        repository Customers for Customer {
-          find byStatus(status: string): Customer? where this.status == status
-        }
+        repository Customers for Customer { }
+        criterion CustomersByStatus(status: string) of Customer = this.status == status
       }
     }
     api SalesApi with scaffoldApi(of: Sales)

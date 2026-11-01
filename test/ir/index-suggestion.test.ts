@@ -69,9 +69,8 @@ describe("loom.index-suggestion", () => {
         subdomain Sales {
           context Ordering {
             aggregate Customer with crudish { email: string  status: string }
-            repository Customers for Customer {
-              find byStatus(status: string): Customer? where this.status == status
-            }
+            repository Customers for Customer { }
+            criterion CustomersByStatus(status: string) of Customer = this.status == status
           }
         }
         api SalesApi from Sales

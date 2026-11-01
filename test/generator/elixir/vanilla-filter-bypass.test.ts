@@ -24,10 +24,10 @@ system Catalog {
         total: int
       }
       repository Orders for Order {
-        find recent(): Order? where this.total > 0 ignoring softDeletable
         find allRows(): Order? ignoring *
-        find normal(): Order? where this.total > 0
       }
+      criterion OrdersRecent of Order = this.total > 0
+      criterion OrdersNormal of Order = this.total > 0
       workflow Sweep {
         create(min: int) {
           let xs = Orders.findAll(BigOrders()) ignoring softDeletable

@@ -674,9 +674,8 @@ system D {
         contains lineItems: LineItem[]
         entity LineItem { sku: string }
       }
-      repository Orders for Order {
-        find byCustomer(customer: string): Order? where this.customer == customer
-      }
+      repository Orders for Order { }
+      criterion OrdersByCustomer(customer: string) of Order = this.customer == customer
       repository Tags for Tag { }
     }
   }
@@ -831,9 +830,8 @@ system D {
         contains lines: CartLine[]
         entity CartLine { sku: string  qty: int }
       }
-      repository Carts for Cart {
-        find byCustomer(customer: string): Cart? where this.customer == customer
-      }
+      repository Carts for Cart { }
+      criterion CartsByCustomer(customer: string) of Cart = this.customer == customer
     }
   }
   storage pg { type: postgres }
@@ -897,9 +895,8 @@ system D {
         entity CartLine { sku: string  qty: int  kind: LineKind  price: Money }
         entity Coupon { code: string  percent: int }
       }
-      repository Carts for Cart {
-        find byCustomer(customer: string): Cart? where this.customer == customer
-      }
+      repository Carts for Cart { }
+      criterion CartsByCustomer(customer: string) of Cart = this.customer == customer
     }
   }
   storage pg { type: postgres }
@@ -958,9 +955,8 @@ system D {
         operation raiseLimit(by: int) { creditLimit := creditLimit + by }
       }
       aggregate Vendor extends Party with crudish { rating: int }
-      repository Customers for Customer {
-        find byEmail(email: string): Customer? where this.email == email
-      }
+      repository Customers for Customer { }
+      criterion CustomersByEmail(email: string) of Customer = this.email == email
       repository Vendors for Vendor { }
     }
   }
@@ -1068,9 +1064,8 @@ system D {
         operation raiseLimit(by: int) { creditLimit := creditLimit + by }
       }
       aggregate Vendor extends Party with crudish { rating: int  active: bool }
-      repository Customers for Customer {
-        find byEmail(email: string): Customer? where this.email == email
-      }
+      repository Customers for Customer { }
+      criterion CustomersByEmail(email: string) of Customer = this.email == email
       repository Vendors for Vendor { }
     }
   }

@@ -24,12 +24,11 @@ const SRC = `
   context Banking {
     valueobject Money { amount: decimal currency: string invariant amount >= 0 }
     aggregate Account with crudish { holder: string balance: Money }
-    repository Accounts for Account {
-      find byHolder(holder: string): Account? where this.holder == holder
-    }
+    repository Accounts for Account { }
+    criterion AccountsByHolder(holder: string) of Account = this.holder == holder
     domainService Registration {
       operation isEmailAvailable(holder: string): bool {
-        return Accounts.byHolder(holder) == null
+        return Accounts.find(AccountsByHolder(holder)) == null
       }
     }
     domainService FeeQuote {
@@ -84,9 +83,8 @@ system Banking {
     context Banking {
       valueobject Money { amount: decimal currency: string invariant amount >= 0 }
       aggregate Account with crudish { holder: string balance: Money }
-      repository Accounts for Account {
-        find byHolder(holder: string): Account? where this.holder == holder
-      }
+      repository Accounts for Account { }
+      criterion AccountsByHolder(holder: string) of Account = this.holder == holder
       domainService Lookup {
         operation holderOf(a: Account id): string {
           let one = Accounts.getById(a)

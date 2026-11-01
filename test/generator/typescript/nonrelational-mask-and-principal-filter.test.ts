@@ -102,9 +102,8 @@ system TenancyDocMikro {
         balance: int
         filter this.tenantId == currentUser.tenantId
       }
-      repository Accounts for Account {
-        find byMinBalance(min: int): Account? where this.balance >= min
-      }
+      repository Accounts for Account { }
+      criterion AccountsByMinBalance(min: int) of Account = this.balance >= min
     }
   }
   api LedgerApi from Core

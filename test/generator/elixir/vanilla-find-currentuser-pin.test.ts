@@ -41,8 +41,8 @@ system H {
       }
       repository WorkOrders for WorkOrder {
         find mine(): WorkOrder? where this.technicianUserId == currentUser.id
-        find byTitle(t: string): WorkOrder? where this.title == t
       }
+      criterion WorkOrdersByTitle(t: string) of WorkOrder = this.title == t
       retrieval MyWorkOrders() of WorkOrder {
         where: this.technicianUserId == currentUser.id
       }

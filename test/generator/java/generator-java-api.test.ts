@@ -44,9 +44,8 @@ system Shop {
           lineItems += LineItem { sku: sku, qty: qty, price: price }
         }
       }
-      repository Orders for Order {
-        find byCode(code: string): Order? where this.code == code
-      }
+      repository Orders for Order { }
+      criterion OrdersByCode(code: string) of Order = this.code == code
     }
   }
   api OrdersApi from Sales
@@ -407,10 +406,10 @@ system Abs {
       aggregate Order with crudish { code: string }
       repository Orders for Order {
         find all(): Order[]
-        find optionFind(code: string): Order option where this.code == code
-        find nullableFind(code: string): Order? where this.code == code
-        find errorFind(code: string): Order or Missing where this.code == code
       }
+      criterion OrdersOptionFind(code: string) of Order = this.code == code
+      criterion OrdersNullableFind(code: string) of Order = this.code == code
+      criterion OrdersErrorFind(code: string) of Order = this.code == code
     }
   }
   api A from S

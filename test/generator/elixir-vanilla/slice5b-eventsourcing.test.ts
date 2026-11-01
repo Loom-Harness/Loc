@@ -31,7 +31,8 @@ const AGG = `
         apply(e: Opened) { owner := e.owner  balance := 0 }
         apply(e: Deposited) { balance := balance + e.amount }
       }
-      repository Accounts for Account { find byOwner(owner: string): Account? where this.owner == owner }`;
+      repository Accounts for Account { }
+      criterion AccountsByOwner(owner: string) of Account = this.owner == owner`;
 
 const source = () => `
 system L {

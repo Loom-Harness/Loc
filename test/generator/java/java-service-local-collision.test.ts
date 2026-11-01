@@ -49,9 +49,8 @@ system Collide {
           found := found
         }
       }
-      repository Tickets for Ticket {
-        find byFound(found: int): Ticket? where this.found == found
-      }
+      repository Tickets for Ticket { }
+      criterion TicketsByFound(found: int) of Ticket = this.found == found
 
       aggregate Counter {
         result: int
@@ -65,9 +64,8 @@ system Collide {
           return result
         }
       }
-      repository Counters for Counter {
-        find byResult(result: int): Counter? where this.result == result
-      }
+      repository Counters for Counter { }
+      criterion CountersByResult(result: int) of Counter = this.result == result
     }
   }
   api CoreApi from Core

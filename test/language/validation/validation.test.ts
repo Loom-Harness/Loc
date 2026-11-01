@@ -1700,9 +1700,8 @@ describe("Loom IR validation (post-lowering)", async () => {
           contains lines: OrderLine[]
           entity OrderLine { qty: int }
         }
-        repository Orders for Order {
-          find big(): Order? where this.lines.count > 0
-        }
+        repository Orders for Order { }
+        criterion OrdersBig of Order = this.lines.count > 0
       }
     `);
     const diags = validateLoomModel(loom);
@@ -1725,9 +1724,8 @@ describe("Loom IR validation (post-lowering)", async () => {
           contains lines: OrderLine[]
           entity OrderLine { qty: int }
         }
-        repository Orders for Order {
-          find anyBig(): Order? where this.lines.any(l => l.qty > 5)
-        }
+        repository Orders for Order { }
+        criterion OrdersAnyBig of Order = this.lines.any(l => l.qty > 5)
       }
     `);
     const diags = validateLoomModel(loom);
@@ -1988,9 +1986,8 @@ describe("Loom IR validation (post-lowering)", async () => {
     const loom = await loomFrom(`
       context T {
         aggregate Task { name: string, alt: string  derived display: string = name }
-        repository Tasks for Task {
-          find both(): Task? where this.name == this.alt
-        }
+        repository Tasks for Task { }
+        criterion TasksBoth of Task = this.name == this.alt
       }
     `);
     const diags = validateLoomModel(loom);

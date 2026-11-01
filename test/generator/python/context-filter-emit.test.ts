@@ -24,9 +24,8 @@ system Shop {
         isDeleted: bool
         filter !this.isDeleted
       }
-      repository Customers for Customer {
-        find byName(n: string): Customer? where name == n
-      }
+      repository Customers for Customer { }
+      criterion CustomersByName(n: string) of Customer = name == n
     }
   }
   api SalesApi from Sales
@@ -76,9 +75,8 @@ system Shop {
       aggregate Plain {
         name: string
       }
-      repository Plains for Plain {
-        find byName(n: string): Plain? where name == n
-      }
+      repository Plains for Plain { }
+      criterion PlainsByName(n: string) of Plain = name == n
     }
   }
   api SalesApi from Sales

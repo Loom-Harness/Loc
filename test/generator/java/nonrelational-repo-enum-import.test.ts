@@ -103,9 +103,8 @@ system PG {
         create make(grade: Grade) { emit Graded { widget: id, grade: grade } }
         apply(e: Graded) { grade := e.grade }
       }
-      repository Widgets for Widget {
-        find byGrade(grade: Grade): Widget? where this.grade == grade
-      }
+      repository Widgets for Widget { }
+      criterion WidgetsByGrade(grade: Grade) of Widget = this.grade == grade
     }
   }
   api A from S

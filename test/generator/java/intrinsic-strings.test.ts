@@ -19,9 +19,8 @@ system Shop {
         name: string
         derived slug: string = name.trim().toLower()
       }
-      repository Products for Product {
-        find byNameCi(q: string): Product? where this.name.toLower() == q
-      }
+      repository Products for Product { }
+      criterion ProductsByNameCi(q: string) of Product = this.name.toLower() == q
     }
   }
   api CatalogApi from Sales

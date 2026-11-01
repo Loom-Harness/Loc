@@ -120,9 +120,9 @@ system Helpdesk {
         create register(s: string) { ${gate}subject := s open := true }
       }
       repository Tickets for Ticket {
-        find openOnes(): Ticket? where open == true
         ${findGate ? reads("Ticket", findGate) : ""}
       }
+      criterion TicketsOpenOnes of Ticket = open == true
       workflow openTicket {
         create(s: string) { ${gate}let t = Ticket.register(s) }
       }

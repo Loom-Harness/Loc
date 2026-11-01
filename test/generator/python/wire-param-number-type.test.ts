@@ -34,9 +34,8 @@ system S {
         seq: long
         rate: decimal
       }
-      repository Accounts for Account {
-        find byMinBalance(min: int): Account? where this.balance >= min
-      }
+      repository Accounts for Account { }
+      criterion AccountsByMinBalance(min: int) of Account = this.balance >= min
       criterion AccountsBySeq(lowest: long) of Account = this.seq >= lowest
       criterion AccountsByRate(floor: decimal) of Account = this.rate >= floor
       criterion AccountsByHolder(who: string) of Account = this.holder == who

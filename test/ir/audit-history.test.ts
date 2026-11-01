@@ -47,9 +47,8 @@ const SRC = `system S {
         }
         operation rename(name: string) { name := name }
       }
-      repository Employees for Employee {
-        find byName(name: string): Employee? where this.name == name
-      }
+      repository Employees for Employee { }
+      criterion EmployeesByName(name: string) of Employee = this.name == name
 
       aggregate Plain with crudish {
         code: string

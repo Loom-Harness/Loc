@@ -50,9 +50,8 @@ const DEEP_AND_DENY = `system PD {
       aggregate Note shape: document, with crudish, tenantOwned {
         body: string
       }
-      repository Things for Thing {
-        find byLabel(l: string): Thing? where this.label == l
-      }
+      repository Things for Thing { }
+      criterion ThingsByLabel(l: string) of Thing = this.label == l
       repository Notes for Note { }
       policy {
         allow deep on Thing
@@ -89,9 +88,8 @@ const NON_PRINCIPAL = `system SD {
       aggregate Doc shape: document, with crudish, softDeletable {
         label: string
       }
-      repository Docs for Doc {
-        find byLabel(l: string): Doc? where this.label == l
-      }
+      repository Docs for Doc { }
+      criterion DocsByLabel(l: string) of Doc = this.label == l
     }
   }
   api MainApi from Core
@@ -119,11 +117,10 @@ const DOC_IGNORING = `system DI {
         label: string
         note: string
       }
-      repository Docs for Doc {
-        find byLabel(l: string): Doc? where this.label == l
-        find byLabelAll(l: string): Doc? where this.label == l ignoring softDeletable
-        find byNoteAny(n: string): Doc? where this.note == n ignoring *
-      }
+      repository Docs for Doc { }
+      criterion DocsByLabel(l: string) of Doc = this.label == l
+      criterion DocsByLabelAll(l: string) of Doc = this.label == l
+      criterion DocsByNoteAny(n: string) of Doc = this.note == n
     }
   }
   api MainApi from Core

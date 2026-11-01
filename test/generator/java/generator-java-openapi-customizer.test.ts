@@ -40,9 +40,8 @@ system Shop {
         }
         destroy() { }
       }
-      repository Orders for Order {
-        find byCode(code: string): Order? where this.code == code
-      }
+      repository Orders for Order { }
+      criterion OrdersByCode(code: string) of Order = this.code == code
       aggregate Note with crudish { text: string }
       repository Notes for Note {
         find all(): Note[]

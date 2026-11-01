@@ -22,9 +22,8 @@ system S {
     context Shop {
       error NotFound { resource: string }
       aggregate Order with crudish { customerId: string }
-      repository Orders for Order {
-        find locate(ref: string): Order or NotFound where this.customerId == ref
-      }
+      repository Orders for Order { }
+      criterion OrdersLocate(ref: string) of Order = this.customerId == ref
     }
   }
   api A from Core

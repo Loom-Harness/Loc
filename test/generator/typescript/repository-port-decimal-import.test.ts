@@ -19,9 +19,8 @@ system Shop {
         name: string
         price: money
       }
-      repository Products for Product {
-        find byFloorPrice(whole: money): Product? where this.price.floor() == whole
-      }
+      repository Products for Product { }
+      criterion ProductsByFloorPrice(whole: money) of Product = this.price.floor() == whole
     }
   }
   api ShopApi from Sales

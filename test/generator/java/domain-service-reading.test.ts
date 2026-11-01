@@ -27,13 +27,12 @@ system Banking {
         holder: string
         balance: Money
       }
-      repository Accounts for Account {
-        find byHolder(holder: string): Account? where this.holder == holder
-      }
+      repository Accounts for Account { }
+      criterion AccountsByHolder(holder: string) of Account = this.holder == holder
       // reading tier — read-only repo query, orchestrated by a workflow.
       domainService Registration {
         operation isEmailAvailable(holder: string): bool {
-          return Accounts.byHolder(holder) == null
+          return Accounts.find(AccountsByHolder(holder)) == null
         }
       }
       // pure tier — no infrastructure; stays byte-identical.

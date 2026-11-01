@@ -33,9 +33,8 @@ system S {
       // field can be derived from a row that is not there
       // (loom.union-find-shape-unsupported).
       error OrderNotFound { resource: string }
-      repository Orders for Order {
-        find locate(code: string): Order or OrderNotFound where this.code == code
-      }
+      repository Orders for Order { }
+      criterion OrdersLocate(code: string) of Order = this.code == code
       repository Customers for Customer { }
       criterion ActiveOrder of Order = status != Cancelled
       event OrderMissing { code: string }

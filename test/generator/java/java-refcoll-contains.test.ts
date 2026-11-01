@@ -23,10 +23,8 @@ system Pokedex {
         name: string
         party: Pokemon id[]
       }
-      repository Trainers for Trainer {
-        find holdingInParty(pokemon: Pokemon id): Trainer?
-            where this.party.contains(pokemon)
-      }
+      repository Trainers for Trainer { }
+      criterion TrainersHoldingInParty(pokemon: Pokemon id) of Trainer = this.party.contains(pokemon)
     }
   }
   api RosterApi from Battles

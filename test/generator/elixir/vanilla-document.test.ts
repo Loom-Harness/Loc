@@ -177,10 +177,9 @@ system Carting {
           status := checkedOut
         }
       }
-      repository Carts for Cart {
-        find byReference(reference: string): Cart? where this.reference == reference
-        find checkedOutOnes(): Cart? where this.status == checkedOut
-      }
+      repository Carts for Cart { }
+      criterion CartsByReference(reference: string) of Cart = this.reference == reference
+      criterion CartsCheckedOutOnes of Cart = this.status == checkedOut
     }
   }
   api CartsApi from Sales
@@ -392,9 +391,8 @@ system Shop {
       aggregate Cart shape: document with crudish {
         reference: string
       }
-      repository Carts for Cart {
-        find byRef(reference: string): Cart or NotFound where this.reference == reference
-      }
+      repository Carts for Cart { }
+      criterion CartsByRef(reference: string) of Cart = this.reference == reference
     }
   }
   api ShopApi from Sales

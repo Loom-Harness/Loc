@@ -17,10 +17,10 @@ const SRC = `
     subdomain D { context C {
       aggregate Order with softDeletable { total: int }
       repository OrderRepo for Order {
-        find recent(): Order? where this.total > 0 ignoring softDeletable
         find allRows(): Order? ignoring *
-        find normal(): Order? where this.total > 0
       }
+      criterion OrdersRecent of Order = this.total > 0
+      criterion OrdersNormal of Order = this.total > 0
     }}
     storage primary { type: postgres }
     resource cState { for: C, kind: state, use: primary }

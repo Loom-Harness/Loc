@@ -262,11 +262,7 @@ system DevPlatform {
                 derived display: string = name
             }
 
-            repository Projects for Project {
-                // Union-returning find (absence → the error variant) — the
-                // subject a VariantArm `match` narrows.
-                find locate(name: string): Project or ProjectNotFound where this.name == name
-            }
+            repository Projects for Project
 
             // Non-transactional workflow.  The guard references the module
             // permission catalogue (permissions.manageProjects → the runtime
@@ -290,13 +286,14 @@ system DevPlatform {
               }
             }
 
-            // VariantArm — narrow a union-returning find via `match`.
+            // A natural-key read answers absence (`T?`): `if let` narrows it,
+            // and the `else` answers the miss as a 404.
             workflow resolveProject {
               create(name: string) {
-                  let outcome = Projects.locate(name)
-                  let label = match outcome {
-                      Project p => p.name,
-                      ProjectNotFound => "not found"
+                  if let p = Projects.findBy(name: name) {
+                      p.addPipeline("resolved")
+                  } else {
+                      notFound
                   }
               }
             }

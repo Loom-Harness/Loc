@@ -20,9 +20,8 @@ system Shop {
         derived cleanName: string = name.trim()
         invariant name.trim().length > 0
       }
-      repository Products for Product {
-        find byExactName(q: string): Product? where this.name.trim() == q
-      }
+      repository Products for Product { }
+      criterion ProductsByExactName(q: string) of Product = this.name.trim() == q
     }
   }
   api CatalogApi from Sales

@@ -11,9 +11,8 @@ const SRC = `
   system S {
     subdomain D { context C {
       aggregate Order with crudish { total: int }
-      repository OrderRepo for Order {
-        find byMin(m: int): Order? where this.total > m
-      }
+      repository OrderRepo for Order { }
+      criterion OrdersByMin(m: int) of Order = this.total > m
     }}
     storage primary { type: postgres }
     resource cState { for: C, kind: state, use: primary }

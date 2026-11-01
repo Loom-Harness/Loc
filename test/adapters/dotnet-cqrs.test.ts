@@ -32,9 +32,8 @@ system Sys {
           status := 1
         }
       }
-      repository Orders for Order {
-        find byName(name: string): Order? where this.name == name
-      }
+      repository Orders for Order { }
+      criterion OrdersByName(name: string) of Order = this.name == name
     }
   }
   storage primary { type: postgres }

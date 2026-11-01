@@ -202,9 +202,8 @@ system FindShadow {
         title: string
         done: bool
       }
-      repository WorkOrders for WorkOrder {
-        find byTrace(id: string): WorkOrder? where this.title == id
-      }
+      repository WorkOrders for WorkOrder { }
+      criterion WorkOrdersByTrace(id: string) of WorkOrder = this.title == id
     }
   }
   storage pg { type: postgres }

@@ -68,7 +68,8 @@ describe("find parameter → field binding", () => {
       context Fleet {
         abstract aggregate Vehicle { plate: string }
         aggregate Truck extends Vehicle { payload: int }
-        repository Trucks for Truck { find byPlate(plate: string): Truck? }
+        repository Trucks for Truck { }
+        criterion TrucksByPlate(plate: string) of Truck = this.plate == plate
       }
     `,
       "a loose context has no TPH host, which phase ⑦ refuses",

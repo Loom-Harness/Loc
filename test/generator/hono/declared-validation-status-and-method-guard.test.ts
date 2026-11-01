@@ -33,9 +33,9 @@ system Acme {
         note: string
       }
       repository Orders for Order {
-        find byQty(min: int): Order? where this.qty >= min
         find recent(): Order?
       }
+      criterion OrdersByQty(min: int) of Order = this.qty >= min
       aggregate Tag with crudish {
         label: string
       }

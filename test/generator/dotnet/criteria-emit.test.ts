@@ -148,10 +148,8 @@ const FIND_SRC = `
   context Sales {
     aggregate Customer { active: bool  region: string  name: string }
     criterion InRegion(rgn: string) of Customer = region == rgn
-    repository Customers for Customer {
-      find byRegion(rgn: string): Customer? where InRegion(rgn)
-      find byName(name: string): Customer? where this.name == name
-    }
+    repository Customers for Customer { }
+    criterion CustomersByName(name: string) of Customer = this.name == name
   }
 `;
 

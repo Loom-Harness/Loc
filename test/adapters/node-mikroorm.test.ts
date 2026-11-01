@@ -264,9 +264,8 @@ describe("mikroorm — widened find predicates (bare boolean / unary NOT)", () =
         active: bool
         archived: bool
       }
-      repository Orders for Order {
-        find live(): Order? where this.active
-      }
+      repository Orders for Order { }
+      criterion OrdersLive of Order = this.active
       criterion OrdersInactive of Order = !this.active
       criterion OrdersLiveOrArchived of Order = this.active || this.archived
       criterion OrdersComplex of Order = this.active && !this.archived
@@ -308,9 +307,8 @@ describe("mikroorm — `filter` capability predicates", () => {
         filter this.status == Status.Active
         filter !this.deleted
       }
-      repository Orders for Order {
-        find byCustomer(customer: string): Order? where this.customer == customer
-      }
+      repository Orders for Order { }
+      criterion OrdersByCustomer(customer: string) of Order = this.customer == customer
     }
   }
   storage pg { type: postgres }
@@ -350,11 +348,10 @@ describe("mikroorm — `filter` capability predicates", () => {
       aggregate Order with crudish, softDeletable {
         customer: string
       }
-      repository Orders for Order {
-        find active(customer: string): Order? where this.customer == customer
-        find withDeleted(customer: string): Order? where this.customer == customer ignoring softDeletable
-        find reallyAll(customer: string): Order? where this.customer == customer ignoring *
-      }
+      repository Orders for Order { }
+      criterion OrdersActive(customer: string) of Order = this.customer == customer
+      criterion OrdersWithDeleted(customer: string) of Order = this.customer == customer
+      criterion OrdersReallyAll(customer: string) of Order = this.customer == customer
     }
   }
   storage pg { type: postgres }
@@ -443,9 +440,8 @@ describe("mikroorm — reference-collection associations (Id[] pivot tables)", (
         party: Pokemon id[]
       }
       repository Pokemons for Pokemon { }
-      repository Trainers for Trainer {
-        find byName(name: string): Trainer? where this.name == name
-      }
+      repository Trainers for Trainer { }
+      criterion TrainersByName(name: string) of Trainer = this.name == name
     }
   }
   storage pg { type: postgres }
@@ -1398,9 +1394,8 @@ describe("mikroorm — shape: embedded + Id[] reference collections (fold)", () 
         entity Badge { label: string }
       }
       repository Players for Player { }
-      repository Teams for Team {
-        find byName(name: string): Team? where this.name == name
-      }
+      repository Teams for Team { }
+      criterion TeamsByName(name: string) of Team = this.name == name
     }
   }
   storage pg { type: postgres }

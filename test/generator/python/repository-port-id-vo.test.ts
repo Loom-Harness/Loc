@@ -21,9 +21,8 @@ const SRC = `
         ref: RefId
         total: int
       }
-      repository OrderRepo for Order {
-        find byRef(r: RefId): Order? where this.ref == r
-      }
+      repository OrderRepo for Order { }
+      criterion OrdersByRef(r: RefId) of Order = this.ref == r
     }}
     storage primary { type: postgres }
     resource cState { for: C, kind: state, use: primary }

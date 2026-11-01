@@ -109,10 +109,10 @@ const ABSENCE_SRC = `
     error Missing { resource: string }
     repository Orders for Order {
       find all(): Order[]
-      find optionFind(code: string): Order option
-      find nullableFind(code: string): Order?
-      find errorFind(code: string): Order or Missing
     }
+    criterion OrdersOptionFind(code: string) of Order = this.code == code
+    criterion OrdersNullableFind(code: string) of Order = this.code == code
+    criterion OrdersErrorFind(code: string) of Order = this.code == code
   }
 `;
 

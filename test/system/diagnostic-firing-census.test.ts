@@ -1277,10 +1277,9 @@ system S {
     }`),
 
   "loom.duplicate-find": repoOnly(`    aggregate Thing with crudish { name: string }
-    repository Things for Thing {
-      find byName(n: string): Thing? where this.name == n
-      find byName(n: string): Thing? where this.name == n
-    }`),
+    repository Things for Thing { }
+    criterion ThingsByName(n: string) of Thing = this.name == n
+    criterion ThingsByName2(n: string) of Thing = this.name == n`),
 
   // An abstract inheritance base owning its own `contains`.  The part's table
   // would have no reader and no writer — the base has no repository and the
@@ -1339,13 +1338,12 @@ system S {
     error NotFound { resource: string }
     aggregate Order with crudish { code: string }
     aggregate Note with crudish { text: string }
-    repository Orders for Order {
-      find byCode(code: string): Order or NotFound where this.code == code
-    }
+    repository Orders for Order { }
+    criterion OrdersByCode(code: string) of Order = this.code == code
     repository Notes for Note { }
     workflow label {
       create(code: string) {
-        let outcome = Orders.byCode(code)
+        let outcome = Orders.find(OrdersByCode(code))
         let n = Note.create({ text: outcome.code })
       }
     }
@@ -2286,15 +2284,14 @@ system S {
   subdomain Sub {
     context Billing {
       aggregate Customer { name: string }
-      repository Customers for Customer {
-        find byName(name: string): Customer? where this.name == name
-      }
+      repository Customers for Customer { }
+      criterion CustomersByName(name: string) of Customer = this.name == name
     }
     context Ordering {
       aggregate Order { ref: string }
       repository Orders for Order { }
       domainService Naming {
-        operation isFree(r: string): bool { return Customers.byName(r) == null }
+        operation isFree(r: string): bool { return Customers.find(CustomersByName(r)) == null }
       }
     }
   }

@@ -139,9 +139,8 @@ system S {
         private operation recalc() { status := 0 }
         destroy { }
       }
-      repository Carts for Cart {
-        find byLabel(label: string): Cart? where this.label == label
-      }
+      repository Carts for Cart { }
+      criterion CartsByLabel(label: string) of Cart = this.label == label
     }
   }
   storage pg { type: postgres }

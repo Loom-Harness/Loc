@@ -2249,8 +2249,7 @@ context Sales {
         }
     }
 
-    repository Orders for Order {
-        find byNumber(number: string): Order?
-    }
+    repository Orders for Order { }
+    criterion OrdersByNumber(number: string) of Order = this.number == number
 }
 ```

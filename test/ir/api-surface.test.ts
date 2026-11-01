@@ -66,9 +66,8 @@ system Acme {
           status := status
         }
       }
-      repository Orders for Order {
-        find byCode(c: string): Order? where code == c
-      }
+      repository Orders for Order { }
+      criterion OrdersByCode(c: string) of Order = code == c
     }
   }
   storage primary { type: postgres }

@@ -30,9 +30,8 @@ const wrap = (members: string) => `system Sys {
     context Tickets {
       aggregate Ticket { subject: string  open: bool }
       aggregate Product { name: string }
-      repository Tickets for Ticket {
-        find openOnes(): Ticket? where open == true
-      }
+      repository Tickets for Ticket { }
+      criterion TicketsOpenOnes of Ticket = open == true
       ${members}
     }
   }

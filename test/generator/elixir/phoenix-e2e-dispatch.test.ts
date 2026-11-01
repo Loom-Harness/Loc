@@ -24,7 +24,7 @@ const repoRoot = path.resolve(here, "..", "..", "..");
 const FIXTURE_SOURCE = `system PhoenixShop {
 
   subdomain Store {
-    context Store {
+    context Store with scaffoldGet(of: ByName) {
       aggregate Item {
         name: string
         derived display: string = name
@@ -34,13 +34,12 @@ const FIXTURE_SOURCE = `system PhoenixShop {
           price := 0
         }
       }
-      repository Items for Item {
-        find byName(name: string): Item? where this.name == name
-      }
+      repository Items for Item { }
+      criterion ByName(name: string) of Item = this.name == name
     }
   }
 
-  api StoreApi from Store
+  api StoreApi with scaffoldGetApi(of: ByName) from Store
 
   storage pg { type: postgres }
   resource storeState { for: Store, kind: state, use: pg }
@@ -65,7 +64,7 @@ const FIXTURE_SOURCE = `system PhoenixShop {
   }
 
   test e2e "find items by name" against shopBackend {
-    let result = api.items.byName({ name: "Gadget" })
+    let result = api.store.getItemByName("Gadget")
   }
 }
 `;

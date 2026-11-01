@@ -281,9 +281,8 @@ system Shop {
     context Orders {
       error OrderNotFound { }
       aggregate Order { code: string }
-      repository Orders for Order {
-        find locate(code: string): Order or OrderNotFound where this.code == code
-      }
+      repository Orders for Order { }
+      criterion OrdersLocate(code: string) of Order = this.code == code
     }
   }
   api OrdersApi from Sales {

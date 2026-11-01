@@ -25,10 +25,9 @@ system S {
       operation locate(): Order or NotFound { return NotFound { resource: "Order" } }
     }
     aggregate Note with crudish { text: string }
-    repository Orders for Order {
-      find byCode(code: string): Order or NotFound where this.code == code
-      find maybe(code: string): Order option where this.code == code
-    }
+    repository Orders for Order { }
+    criterion OrdersByCode(code: string) of Order = this.code == code
+    criterion OrdersMaybe(code: string) of Order = this.code == code
     repository Notes for Note { }
 ${body}
   } }

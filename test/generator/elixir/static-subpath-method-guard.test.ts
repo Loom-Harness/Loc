@@ -31,10 +31,9 @@ system Blog {
         owner: string
         operation publish() { title := title }
       }
-      repository Articles for Article {
-        find byOwner(who: string): Article? where this.owner == who
-        find recent(): Article? where this.title != ""
-      }
+      repository Articles for Article { }
+      criterion ArticlesByOwner(who: string) of Article = this.owner == who
+      criterion ArticlesRecent of Article = this.title != ""
     }
   }
   api ContentApi from Writing

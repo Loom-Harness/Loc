@@ -10,9 +10,8 @@ import { parseValid } from "../../_helpers/parse.js";
 const SRC = `
   context Sales {
     aggregate Customer { active: bool  region: string }
-    repository Customers for Customer {
-      find inRegionViaCriterion(r: string): Customer? where ActiveCustomer && InRegion(r)
-    }
+    repository Customers for Customer { }
+    criterion CustomersInRegionViaCriterion(r: string) of Customer = ActiveCustomer && InRegion(r)
     criterion CustomersInRegionInline(r: string) of Customer = active == true && region == r
     criterion ActiveCustomer of Customer = active == true
     criterion InRegion(rgn: string) of Customer = region == rgn

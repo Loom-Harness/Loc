@@ -128,18 +128,17 @@ const FINDS = `
         aggregate Item with crudish {
           qty: int
         }
-        repository Items for Item {
-          find ltRight(): Item? where 100 < this.qty
-          find ltLeft(): Item? where this.qty > 100
-          find lteRight(): Item? where 100 <= this.qty
-          find lteLeft(): Item? where this.qty >= 100
-          find gtRight(): Item? where 100 > this.qty
-          find gtLeft(): Item? where this.qty < 100
-          find gteRight(): Item? where 100 >= this.qty
-          find gteLeft(): Item? where this.qty <= 100
-          find eqRight(): Item? where 100 == this.qty
-          find eqLeft(): Item? where this.qty == 100
-        }
+        repository Items for Item { }
+        criterion ItemsLtRight of Item = 100 < this.qty
+        criterion ItemsLtLeft of Item = this.qty > 100
+        criterion ItemsLteRight of Item = 100 <= this.qty
+        criterion ItemsLteLeft of Item = this.qty >= 100
+        criterion ItemsGtRight of Item = 100 > this.qty
+        criterion ItemsGtLeft of Item = this.qty < 100
+        criterion ItemsGteRight of Item = 100 >= this.qty
+        criterion ItemsGteLeft of Item = this.qty <= 100
+        criterion ItemsEqRight of Item = 100 == this.qty
+        criterion ItemsEqLeft of Item = this.qty == 100
 `;
 
 const TWINS = [
@@ -190,9 +189,7 @@ const POSITIONS = `
         retrieval Bulk() of Item {
           where: 500 <= this.qty
         }
-        repository Items for Item {
-          find cheap(): Item? where Cheap()
-        }
+        repository Items for Item { }
 `;
 
 describe("drizzle: the other lowering positions commute", () => {

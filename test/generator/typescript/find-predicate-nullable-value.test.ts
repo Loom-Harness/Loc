@@ -27,10 +27,10 @@ system X {
     repository WorkOrders for WorkOrder {
       find mine(): WorkOrder? where this.technicianId == currentUser.technicianId
       find notMine(): WorkOrder? where currentUser.technicianId != this.technicianId
-      find byTech(t: Technician id?): WorkOrder? where this.technicianId == t
-      find above(p: int?): WorkOrder? where this.priority > p
-      find exact(t: Technician id): WorkOrder? where this.technicianId == t
     }
+    criterion WorkOrdersByTech(t: Technician id?) of WorkOrder = this.technicianId == t
+    criterion WorkOrdersAbove(p: int?) of WorkOrder = this.priority > p
+    criterion WorkOrdersExact(t: Technician id) of WorkOrder = this.technicianId == t
     policy { read WorkOrder requires true }
   } }
   storage p { type: postgres }

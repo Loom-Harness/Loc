@@ -66,13 +66,12 @@ const SRC = `system Shop {
 
     // Reads over the order book.
     repository Orders for Order {
-      // one customer's own orders
-      find byCustomer(customerId: Customer id): Order?
       /* the whole book */
       find all(): Order[]
-      find drafts(forCustomer: Customer id): Order?
-        where this.customerId == forCustomer
     }
+    // one customer's own orders
+    criterion OrdersByCustomer(customerId: Customer id) of Order = this.customerId == customerId
+    criterion OrdersDrafts(forCustomer: Customer id) of Order = this.customerId == forCustomer
   }
 
   deployable api {

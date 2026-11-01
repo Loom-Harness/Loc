@@ -33,12 +33,11 @@ const SRC = `
 const READING_SRC = `
   context Banking {
     aggregate Account { holder: string }
-    repository Accounts for Account {
-      find byHolder(holder: string): Account? where this.holder == holder
-    }
+    repository Accounts for Account { }
+    criterion AccountsByHolder(holder: string) of Account = this.holder == holder
     domainService Registration {
       operation isTaken(holder: string): bool {
-        return Accounts.byHolder(holder) == null
+        return Accounts.find(AccountsByHolder(holder)) == null
       }
     }
   }

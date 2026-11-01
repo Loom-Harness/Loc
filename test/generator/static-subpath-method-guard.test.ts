@@ -58,9 +58,8 @@ const CTX = `
       email: string
       name: string
     }
-    repository Customers for Customer {
-      find byEmail(email: string): Customer?
-    }
+    repository Customers for Customer { }
+    criterion CustomersByEmail(email: string) of Customer = this.email == email
   }
 `;
 

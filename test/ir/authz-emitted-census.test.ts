@@ -104,9 +104,8 @@ const LEAK_SHAPES = `system LeakShapes {
       // Single-row finds: an \`ignoring\` is a per-METHOD fact on a find (a
       // criterion takes it per call, at each \`Repo.run\`), so the bypass
       // shapes stay finds.
-      repository Secrets for Secret {
-        find everything(c: string): Secret? where this.code == c ignoring *
-      }
+      repository Secrets for Secret { }
+      criterion SecretsEverything(c: string) of Secret = this.code == c
       criterion SecretsByCode(c: string) of Secret = this.code == c
       criterion SecretsAnyTenant(c: string) of Secret = this.code == c
 

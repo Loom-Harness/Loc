@@ -35,10 +35,9 @@ system Shop {
       }
       aggregate Customer { name: string }
       aggregate Tag { label: string }
-      repository Orders for Order {
-        find byCode(code: string): Order? where this.code == code
-        find confirmed(): Order? where this.status == confirmed
-      }
+      repository Orders for Order { }
+      criterion OrdersByCode(code: string) of Order = this.code == code
+      criterion OrdersConfirmed of Order = this.status == confirmed
       criterion OrdersInCity(city: string) of Order = this.shipTo.city == city
       repository Customers for Customer { }
       repository Tags for Tag { }

@@ -30,9 +30,8 @@ system Parties {
         creditLimit: int
       }
       aggregate Vendor extends Party { rating: int }
-      repository Customers for Customer {
-        find byEmail(email: string): Customer? where this.email == email
-      }
+      repository Customers for Customer { }
+      criterion CustomersByEmail(email: string) of Customer = this.email == email
       repository Vendors for Vendor { }
     }
   }

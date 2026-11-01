@@ -22,13 +22,12 @@ system FieldOps {
         region: string
         site: Site id
       }
-      repository WorkOrders for WorkOrder {
-        find byReference(reference: string): WorkOrder?
-        find byRegionAndRef(region: string, reference: string): WorkOrder?
-        find bySite(siteId: Site id): WorkOrder?
-        find inRegion(region: string): WorkOrder?
-        find explicitRef(r: string): WorkOrder? where this.reference == r
-      }
+      repository WorkOrders for WorkOrder { }
+      criterion WorkOrdersByReference(reference: string) of WorkOrder = this.reference == reference
+      criterion WorkOrdersByRegionAndRef(region: string, reference: string) of WorkOrder = this.region == region && this.reference == reference
+      criterion WorkOrdersBySite(siteId: Site id) of WorkOrder = this.site == siteId
+      criterion WorkOrdersInRegion(region: string) of WorkOrder = this.region == region
+      criterion WorkOrdersExplicitRef(r: string) of WorkOrder = this.reference == r
       aggregate Note shape: document {
         slug: string
         body: string

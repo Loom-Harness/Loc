@@ -45,12 +45,11 @@ system Probe {
         operation poke(case: int) extern { precondition case > 0 }
         function hits(do: string): int = tags.where(t => t == do).count
       }
-      repository Orders for Order {
-        find byRegion(case: string): Order? where this.region == case
-      }
+      repository Orders for Order { }
+      criterion OrdersByRegion(case: string) of Order = this.region == case
       domainService Lookup {
         operation isFree(case: string): bool {
-          return Orders.byRegion(case) == null
+          return Orders.find(OrdersByRegion(case)) == null
         }
         operation pure(do: int, x: int): int {
           let y = [1, 2].where(y => y > do).count
@@ -107,10 +106,9 @@ system Probe2 {
         category: string
         price: int
       }
-      repository Products for Product {
-        find byCategory(case: string): Product? where this.category == case
-        find byPrice(x: int): Product? where this.price == x
-      }
+      repository Products for Product { }
+      criterion ProductsByCategory(case: string) of Product = this.category == case
+      criterion ProductsByPrice(x: int) of Product = this.price == x
       retrieval Cheap(case: string, x: int) of Product {
         where: category == case && price <= x
         sort:  [price asc]
@@ -123,9 +121,8 @@ system Probe2 {
         }
         apply(e: Opened) { owner := e.owner }
       }
-      repository Accounts for Account {
-        find byOwner(final: string): Account? where this.owner == final
-      }
+      repository Accounts for Account { }
+      criterion AccountsByOwner(final: string) of Account = this.owner == final
     }
   }
   api CatalogApi from Core

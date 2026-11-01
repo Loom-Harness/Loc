@@ -47,10 +47,9 @@ system HeexRead {
         st: St
         derived display: string = name
       }
-      repository Items for Item {
-        find byState(state: St): Item? where this.st == state
-        find byName(n: string): Item? where this.name == n
-      }
+      repository Items for Item { }
+      criterion ItemsByState(state: St) of Item = this.st == state
+      criterion ItemsByName(n: string) of Item = this.name == n
       criterion LiveItems of Item = st == Live
     }
   }

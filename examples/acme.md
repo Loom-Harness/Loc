@@ -51,9 +51,8 @@ aggregate Product {
     invariant sku.length > 0
 }
 
-repository Products for Product {
-    find bySku(sku: string): Product? where this.sku == sku
-}
+repository Products for Product { }
+criterion ProductsBySku(sku: string) of Product = this.sku == sku
 ```
 
 What you get from these 13 lines:

@@ -48,13 +48,12 @@ system Probe {
           qty := qty + n
         }
       }
-      repository Orders for Order {
-        find byRegion(rgn: string): Order? where this.region == rgn
-      }
+      repository Orders for Order { }
+      criterion OrdersByRegion(rgn: string) of Order = this.region == rgn
       criterion OrdersAllByRegion(rgn: string) of Order = this.region == rgn
       domainService Lookup {
         operation isFree(ordersRepository: string): bool {
-          return Orders.byRegion(ordersRepository) == null
+          return Orders.find(OrdersByRegion(ordersRepository)) == null
         }
         operation isFree2(rgn: string): bool {
           let ordersRepository = Orders.run(OrdersAllByRegion(rgn))

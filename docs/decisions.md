@@ -5274,9 +5274,8 @@ went with the hard error.
 ## D-REPO-KEY-LOOKUP — a natural-key read is `getBy` / `findBy` over a declared `unique (…)` tuple
 
 **Status:** PINNED (owner ruling on #3949, 2026-10-25; slice 3 of #3949, #3951).
-The two verbs, their diagnostics, the emission on all five backends and the
-codemod hold now. Removing `FindDecl` from the grammar follows once the list
-finds are gone (#4049).
+The two verbs, their diagnostics and the emission on all five backends hold
+now; `FindDecl` itself is gone (D-FINDDECL-REMOVED).
 
 **Question.** A single-row lookup by a natural key was a repository `find`
 the author wrote by hand — `find bySku(s: string): Product? where this.sku ==
@@ -5335,6 +5334,53 @@ needs a routed `queryHandler` over the read. What the codemod reports (route
 reads, must-exist finds over non-unique keys, variant matches on a
 `T or <Error>` read, row-less finds) is what the `FindDecl` removal still has
 to settle by hand.
+
+## D-FINDDECL-REMOVED — a repository declares no reads of its own; `find` declarations are gone
+
+**Status:** APPLIED (#3951 item 5, hard cutover per the #3608 ruling; slice 3
+of #3949).
+
+**Question.** After D-LIST-FIND-REMOVED and D-REPO-KEY-LOOKUP every read a
+`find` declaration could express had a contract spelling, but the grammar
+still parsed `FindDecl`, so a repository body could still mint a bespoke
+method — with its own route, client hook, param-binding convention, union
+return shapes and a dozen `loom.find-*` diagnostics.
+
+**Decision.**
+
+- `FindDecl` is out of the grammar. A repository is `repository X for T`, with
+  an optional empty `{ }`. A `find` left in a repository body is a parse error,
+  `loom.parse-error#find-removed`, naming the replacements at the stray `find`.
+  There is no warning window.
+- Every read is the repository contract (`src/util/repository-contract.ts`):
+  `getById` / `findById`, `getBy` / `findBy` over a declared `unique (…)`
+  tuple, `find(C)` (first match, `T?`), `findAll(C)` / `run(C | R)` over a
+  `criterion` or `retrieval`, and the paged `all`. A name no verb spells is op
+  `unknown-read` and is always refused.
+- `find all` goes too: the list read is always the implicit `all` (paged for
+  a plain relational aggregate). A filtered or widened list read is a
+  `criterion` read with `findAll(C) [ignoring …]` / `run(C)`, put on the wire
+  with `scaffoldPaged` or a routed `queryHandler`; who may read is
+  `policy { read T requires … }`.
+- A single-row read a client calls keeps its URL through `scaffoldGet` /
+  `scaffoldGetApi` (docs/scaffold-macros.md), or a routed `queryHandler`.
+- `T or <Error>` finds are dropped (2026-10-25 ruling): a miss is `T?`, and a
+  must-exist miss answers the standard ProblemDetails 404.
+- The compiler-synthesised `FindIR`s stay as the internal carrier of every
+  repository method enrichment derives: the auto `all`, key lookups, widened
+  reads, the paged `findAllBy<C>` finds behind `run` / `scaffoldPaged`, and
+  audit `history`.
+
+**Consequences.** The declared-find lowering, the `if let` / `let` declared-find
+sources, the `scaffoldHandlers` find target, the list-find check and the
+workflow currentUser-find check are removed. The three find codemods
+(`codemod-find-to-findby`, `codemod-list-find-to-criterion`,
+`codemod-find-gate-to-policy`) parse with the grammar they migrate FROM, so
+they cannot run after the cutover and are removed with it; a project still
+carrying `find`s runs them from the toolchain before this change (the parent
+of the commit that removed them). The per-backend find-ROUTE emission (a
+non-synthesised, non-`all` find's `GET /<aggs>/<find>`) has no producer left;
+its removal is tracked separately so this cutover stays reviewable.
 
 ## D-TARGET-MATRIX-FROZEN — no new backends or frontends: the target set is five backends and six frontends
 

@@ -10,14 +10,11 @@ import { buildLoomModel } from "../_helpers/index.js";
 const SRC = `
   context Sales {
     aggregate Customer { active: bool  region: string }
-    repository Customers for Customer {
-      find activeInline(): Customer? where active
-      find activeViaCriterion(): Customer? where ActiveCustomer
-      find inRegionInline(r: string): Customer? where region == r
-      find inRegionViaCriterion(r: string): Customer? where InRegion(r)
-      find eligibleViaCriterion(r: string): Customer? where ActiveCustomer && InRegion(r)
-      find eligibleInline(r: string): Customer? where active && region == r
-    }
+    repository Customers for Customer { }
+    criterion CustomersActiveInline of Customer = active
+    criterion CustomersInRegionInline(r: string) of Customer = region == r
+    criterion CustomersEligibleViaCriterion(r: string) of Customer = ActiveCustomer && InRegion(r)
+    criterion CustomersEligibleInline(r: string) of Customer = active && region == r
     criterion ActiveCustomer of Customer = active
     criterion InRegion(rgn: string) of Customer = region == rgn
   }
