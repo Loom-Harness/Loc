@@ -66,3 +66,42 @@ describe("dotnet Requests validators declare the usings their predicates need", 
     );
   });
 });
+
+const ENUM_SRC = `
+system RS3 {
+  subdomain S {
+    context C {
+      enum Effect { Points, Require }
+      valueobject Rule {
+        key: string
+        effect: Effect
+        amount: int?
+        invariant amount != null when effect == Require
+      }
+      aggregate RuleSet with crudish { name: string  rules: Rule[] }
+      repository R for RuleSet { }
+    }
+  }
+  storage primary { type: postgres }
+  resource st { for: C, kind: state, use: primary }
+  deployable api {
+    platform: dotnet
+    contexts: [C]
+    dataSources: [st]
+    port: 8080
+  }
+}
+`;
+
+describe("dotnet Requests validators import the enum namespace for enum-guarded rules", () => {
+  it("emits Domain.Enums beside an `Effect.Require` predicate", async () => {
+    const files = await generateSystemFiles(ENUM_SRC);
+    const key = [...files.keys()].find((k) => k.endsWith("Requests/RuleSetRequestValidators.cs"));
+    expect(key, "no Requests validator file was emitted").toBeDefined();
+    const src = files.get(key!)!;
+    expect(src, "the guard should render the unqualified enum value").toContain("Effect.Require");
+    expect(src, "Effect.Require is emitted without its namespace (CS0103)").toContain(
+      "using Api.Domain.Enums;",
+    );
+  });
+});

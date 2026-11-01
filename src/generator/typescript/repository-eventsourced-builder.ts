@@ -195,7 +195,13 @@ export function buildEventSourcedRepositoryFile(
     .replace(/"(?:\\.|[^"\\])*"/g, '""')
     .replace(/'(?:\\.|[^'\\])*'/g, "''")
     .replace(/`(?:\\.|[^`\\])*`/g, "``");
-  const voOrEnumImports = [...collectValueObjects(agg, ctx), ...collectEnums(agg, ctx)];
+  // The stream (de)serialisers spell the event fields' types too, so those
+  // types count as references alongside the aggregate's own fields.
+  const eventFieldTypes = streamEvents.flatMap((e) => e.fields.map((f) => f.type));
+  const voOrEnumImports = [
+    ...collectValueObjects(agg, ctx, eventFieldTypes),
+    ...collectEnums(agg, ctx, eventFieldTypes),
+  ];
   const isValueUsed = (n: string): boolean =>
     new RegExp(`new\\s+${n}\\(|\\b${n}\\.\\w`).test(bodyScan);
   const voOrEnumReferenced = voOrEnumImports.filter((n) => new RegExp(`\\b${n}\\b`).test(bodyScan));
