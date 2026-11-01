@@ -20,14 +20,15 @@ const SRC = (persistence: string) => `
     subdomain D { context C {
       criterion AnyCode() of Secret = this.code != ""
       aggregate Secret with softDeletable2 { code: string }
-      repository SecretRepo for Secret {
-        find allIgnoring(c: string): Secret? where this.code == c ignoring *
-        find normal(c: string): Secret? where this.code == c
-      }
+      criterion AllIgnoring(c: string) of Secret = this.code == c
+      criterion Normal(c: string) of Secret = this.code == c
+      repository SecretRepo for Secret
       workflow Sweep {
-        create(x: int) {
+        create(c: string) {
           let xs = SecretRepo.findAll(AnyCode()) ignoring *
           for o in xs { }
+          if let a = SecretRepo.find(AllIgnoring(c)) ignoring * { }
+          if let n = SecretRepo.find(Normal(c)) { }
         }
       }
       policy { deny on Secret }
@@ -48,9 +49,11 @@ async function files(persistence: string): Promise<Map<string, string>> {
   return f;
 }
 
-/** The emitted repository, each statement's `<Agg>Scope.<member>` resolved to the SQL it holds. */
-async function repo(persistence: string): Promise<string> {
-  return inlineDapperScope(await rawRepo(persistence));
+/** The emitted repository, each statement's `<Agg>Scope.<member>` resolved to the
+ *  SQL it holds (with `runtime`, a `Runtime(bypass)` tail resolved to every
+ *  conjunct an un-widened call applies). */
+async function repo(persistence: string, opts: { runtime?: boolean } = {}): Promise<string> {
+  return inlineDapperScope(await rawRepo(persistence), opts);
 }
 
 async function rawRepo(persistence: string): Promise<string> {
@@ -62,8 +65,8 @@ async function rawRepo(persistence: string): Promise<string> {
   return f.get(key!)!;
 }
 
-/** One emitted repository method, so an assertion about `allIgnoring` can't be
- *  satisfied by SQL/LINQ belonging to `normal`. */
+/** One emitted repository method, so an assertion about `AllIgnoring` can't be
+ *  satisfied by SQL/LINQ belonging to `Normal`. */
 function method(src: string, signatureFragment: string): string {
   const start = src.indexOf(signatureFragment);
   expect(start, `method ${signatureFragment} not emitted`).toBeGreaterThan(-1);
@@ -74,16 +77,25 @@ function method(src: string, signatureFragment: string): string {
 describe("policy deny survives `ignoring *` — dapper", () => {
   const DAPPER = "dotnet { persistence: dapper }";
 
-  it("`find … ignoring *` KEEPS the always-false deny conjunct", async () => {
-    const all = method(await repo(DAPPER), "public async Task<Secret?> AllIgnoring(");
+  it("`find(C) … ignoring *` KEEPS the always-false deny conjunct", async () => {
+    const all = method(
+      await repo(DAPPER),
+      "public async Task<Secret?> FindFirstAllIgnoringIgnoringAll(",
+    );
     expect(all).toContain("1 = 0");
   });
 
   it("`ignoring *` still drops the bypassable capability predicate", async () => {
-    const all = method(await repo(DAPPER), "public async Task<Secret?> AllIgnoring(");
+    const all = method(
+      await repo(DAPPER),
+      "public async Task<Secret?> FindFirstAllIgnoringIgnoringAll(",
+    );
     expect(all).not.toContain("is_deleted = FALSE");
     // …while a plain read carries both conjuncts.
-    const normal = method(await repo(DAPPER), "public async Task<Secret?> Normal(");
+    const normal = method(
+      await repo(DAPPER, { runtime: true }),
+      "public async Task<IReadOnlyList<Secret>> RunFindAllByNormalAsync(",
+    );
     expect(normal).toContain("is_deleted = FALSE");
     expect(normal).toContain("1 = 0");
   });
@@ -114,8 +126,8 @@ describe("policy deny survives `ignoring *` — efcore", () => {
     expect(src).not.toContain("IgnoreQueryFilters()");
   });
 
-  it("`find … ignoring *` bypasses only the NAMED bypassable filters", async () => {
-    const all = method(await repo(EF), "public async Task<Secret?> AllIgnoring(");
+  it("`find(C) … ignoring *` bypasses only the NAMED bypassable filters", async () => {
+    const all = method(await repo(EF), "public async Task<Secret?> FindFirstAllIgnoringIgnoringAll(");
     expect(all).toContain('IgnoreQueryFilters(["IsDeletedFilter"])');
   });
 
