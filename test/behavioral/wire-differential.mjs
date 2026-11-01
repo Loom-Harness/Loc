@@ -295,6 +295,11 @@ const __ifMatched = [];
 // concurrently: their completion order is a race, so the probe records them
 // itself, in a canonical order.
 let __rawDispatch = null;
+// Drops the dispatch the recorder holds.  An in-process runner imports each
+// case's bundle as an ES module, which is never unloaded, so a dispatch left
+// here keeps that case's app, its db and the database's memory alive for the
+// rest of the run.
+const __releaseDispatch = () => { __rawDispatch = null; };
 // Outcomes of the probes that assert (rather than only record), appended to the
 // runner's results so the expected-failure register settles them per test.
 const __probeResults = [];
