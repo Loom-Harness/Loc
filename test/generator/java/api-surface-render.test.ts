@@ -178,43 +178,4 @@ system P {
     const published = [...scrapeCustomizerRoutes(files).keys()];
     expect(published.some((k) => k.startsWith("delete "))).toBe(false);
   });
-
-  it("a genuinely-single find declares the 404 its own controller throws", async () => {
-    // NAMED FIX (iii) said the opposite — `findSingle` → [], "matching what the
-    // controller answers on the happy path".  The happy path was the whole
-    // error: read two lines further and this same controller says
-    //
-    //     var response = service.newest();
-    //     if (response == null) throw new AggregateNotFoundException("not_found");
-    //
-    // so the route it declared `[]` for answers 404 on every miss.  The premise
-    // that "the ladder's 404 belongs to ABSENCE-capable returns" inverts the
-    // rule: a NON-optional return is the one with nowhere to PUT an absence, so
-    // it can only throw.  Corrected with F13 —
-    // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/schemathesis-findings-2026-08.md — which also brought .NET
-    // (EF `FirstAsync` → 500) and elixir (`json(conn, nil)` → `200 null`) onto
-    // the same answer.  Cross-backend coverage:
-    // test/conformance/not-found-declaration-parity.test.ts.
-    const src = `
-system P {
-  subdomain D {
-    context Orders {
-      aggregate Order with crudish {
-        code: string
-        status: string
-      }
-      repository Orders for Order {
-        find newest(): Order
-      }
-    }
-  }
-  storage pg { type: postgres }
-  resource st { for: Orders, kind: state, use: pg }
-  deployable d { platform: java contexts: [Orders] dataSources: [st] port: 3000 }
-}
-`;
-    const files = await generateSystemFiles(src);
-    const published = scrapeCustomizerRoutes(files);
-    expect(published.get("get /api/orders/newest")).toEqual([404]);
-  });
 });
