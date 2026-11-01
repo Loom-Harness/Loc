@@ -36,6 +36,10 @@ system R {
       }
       repository Clms for Clm { }
       criterion ClmsByKind(k: Kind) of Clm = this.kind == k
+      queryHandler ListClmsByKind(k: Kind): Clm[] {
+        let r = Clms.run(ClmsByKind(k))
+        return r
+      }
       event Opened { clm: Clm id, kind: Kind }
       channel L { carries: Opened  delivery: broadcast  retention: ephemeral }
       workflow Track eventSourced {
