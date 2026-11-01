@@ -317,6 +317,22 @@ export function validateRetrievals(ctx: BoundedContextIR, diags: LoomDiagnostic[
           origin: r.origin,
         });
       }
+      // The refusal the shape gate defers until the column is known to exist
+      // (`bareColumnPredicateLeaf`): a non-boolean column standing alone in
+      // predicate position (`criterion C of T = this.code`).
+      const bareLeaf = unknown ? null : bareColumnPredicateLeaf(r.where);
+      if (bareLeaf) {
+        diags.push({
+          severity: "error",
+          code: "loom.retrieval-where-not-queryable",
+          message: diagMessage("loom.retrieval-where-not-queryable", {
+            name: r.name,
+            offending: bareLeaf,
+          }),
+          source: src,
+          origin: r.origin,
+        });
+      }
       const bothCols = firstColumnVsColumn(r.where);
       if (bothCols) {
         diags.push({

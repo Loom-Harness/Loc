@@ -37,30 +37,28 @@ const OWNER: TypeIR = { kind: "entity", name: "Owner" };
 const SRC = `
 system RosterSys {
   subdomain Fleet { context Fleet {
-    aggregate Owner with crudish { tier: string  label: string }
+    aggregate Owner with crudish { tier: string  label: string  unique (tier) }
 
     criterion InTier(tier: string) of Owner = this.tier == tier
     retrieval TopOwners of Owner { where: InTier("gold") }
 
-    repository Owners for Owner {
-      find byTier(tier: string): Owner where this.tier == tier
-    }
+    repository Owners for Owner
     criterion OwnersByLabel(label: string) of Owner = this.label == label
 
     domainService Roster {
-      // 'named' — a DECLARED find carries its own return type.
-      operation declaredSingle(t: string): bool { let f = Owners.byTier(t)  return f.label == "" }
-      operation declaredOptional(l: string): bool { let f = Owners.find(OwnersByLabel(l))  return f == null }
-      // 'named' — the BUILT-IN verbs every repository auto-emits.  None is in
-      // 'finds', so none has a declared return type to read, and they do NOT
+      // the natural-key reads over the declared unique (tier): getBy throws on
+      // a miss (the bare row), findBy returns absent (T?).
+      operation keySingle(t: string): bool { let f = Owners.getBy(tier: t)  return f.label == "" }
+      operation keyOptional(t: string): bool { let f = Owners.findBy(tier: t)  return f == null }
+      operation criterionByLabel(l: string): bool { let f = Owners.find(OwnersByLabel(l))  return f == null }
+      // 'named' — the BUILT-IN verbs every repository auto-emits.  They do NOT
       // share one shape.  Two axes, not one: getById/findById load a single row
       // where findAll/all return the whole collection, AND getById THROWS on a
       // miss where findById RETURNS ABSENT — so findById binds an OPTIONAL
       // Owner, not a bare one.  Collapsing either axis reintroduces the bug for
       // the other half: bind findAll as one aggregate and .count emits verbatim;
       // bind findById as non-null and every backend dereferences it unguarded
-      // (and .NET/elixir emit a method name that does not even exist, since only
-      // DECLARED finds are emitted under their own names).
+      // (and .NET/elixir emit a method name that does not even exist).
       operation builtinGetById(o: Owner id): string { let f = Owners.getById(o)  return f.label }
       operation builtinFindById(o: Owner id): string { let f = Owners.findById(o)  return f != null ? f.label : "" }
       operation builtinFindAll(): bool { let f = Owners.findAll()  return f.count > 0 }
@@ -117,8 +115,9 @@ function bindingType(svc: DomainServiceIR, opName: string): TypeIR | undefined {
 describe("domainService: the IR type of a let-bound repository read (F1)", () => {
   it.each([
     // op                  expected binding type
-    ["declaredSingle", OWNER],
-    ["declaredOptional", { kind: "optional", inner: OWNER }],
+    ["keySingle", OWNER],
+    ["keyOptional", { kind: "optional", inner: OWNER }],
+    ["criterionByLabel", { kind: "optional", inner: OWNER }],
     ["builtinGetById", OWNER],
     // findById is the RETURN-ABSENT sibling of the throwing getById.  This row
     // pinned a bare OWNER — the defect, not the contract.
@@ -148,12 +147,18 @@ describe("domainService: the IR type of a let-bound repository read (F1)", () =>
     // `lower-workflow.ts` lowers these same shapes on its own path (`repo-run` /
     // `repo-let`).  The two tiers reading one repository differently is the
     // drift this shared rule exists to prevent, so pin the agreement.
-    const ir = await lower();
+    const SRC_WF = SRC.replace(
+      "    domainService Roster {",
+      "    workflow Probe { create(t: string) { let f = Owners.getBy(tier: t) } }\n    domainService Roster {",
+    );
+    const doc = await parse(SRC_WF, { validation: true });
+    const ir = lowerModel(doc.parseResult.value);
     const ctx = ir.systems[0]!.subdomains[0]!.contexts[0]!;
-    const repo = ctx.repositories.find((r) => r.name === "Owners");
-    expect(repo?.finds.find((f) => f.name === "byTier")?.returnType).toEqual(OWNER);
-    expect(bindingType(serviceFrom(ir, "Roster"), "declaredSingle")).toEqual(
-      repo?.finds.find((f) => f.name === "byTier")?.returnType,
+    const wf = ctx.workflows.find((w) => w.name === "Probe")!;
+    const repoLet = wf.statements.find((x) => x.kind === "repo-let");
+    const svc = serviceFrom(ir, "Roster");
+    expect(repoLet && "returnType" in repoLet ? repoLet.returnType : undefined).toEqual(
+      bindingType(svc, "keySingle"),
     );
   });
 });

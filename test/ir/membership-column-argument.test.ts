@@ -21,8 +21,8 @@
 //
 // It is reachable only from a query-time `projection … where`, because that is
 // the one predicate position with no parameters to bind — which is exactly why
-// a repository-find test alone would not have caught it.  Both sites are
-// asserted below for that reason.
+// a criterion test alone would not have caught it.  Both sites are asserted
+// below for that reason.
 //
 // The CONTROL matters as much as the refusal: membership with a bindable
 // argument must still be accepted everywhere, or this gate would have closed a
@@ -57,10 +57,8 @@ system Shop {
       code: string
       tags: Tag id[]
     }
-    repository Orders for Order {
-      ${body.includes("find ") ? body : ""}
-    }
-    ${body.includes("projection ") ? body : ""}
+    repository Orders for Order
+    ${body}
   } }
   api SalesApi from S
   storage pg { type: postgres }
@@ -85,13 +83,24 @@ const PROJECTION_COLUMN_ARG = `projection MyTotals {
       select orders = count
     }`;
 
-/** The same shape in a repository find — reached through a `this.<field>`
- *  argument rather than an alias, since a find HAS parameters and would
- *  otherwise never produce it. */
-const FIND_COLUMN_ARG = `find weird(): Order[] where this.tags.contains(this.id)`;
+/** The same shape in a criterion a repository read runs — reached through a
+ *  `this.<field>` argument rather than an alias, since a criterion HAS
+ *  parameters and would otherwise never produce it. */
+const CRITERION_COLUMN_ARG = `criterion Weird of Order = this.tags.contains(this.id)
+    queryHandler ListWeird(): Order[] {
+      let r = Orders.run(Weird)
+      return r
+    }`;
 
 /** The CONTROL — a bindable argument.  Must stay accepted on every target. */
-const FIND_BOUND_ARG = `find byTag(t: Tag id): Order[] where this.tags.contains(t)`;
+const CRITERION_BOUND_ARG = `criterion ByTag(t: Tag id) of Order = this.tags.contains(t)
+    queryHandler ListByTag(t: Tag id): Order[] {
+      let r = Orders.run(ByTag(t))
+      return r
+    }`;
+
+/** The code the criterion read refuses the column argument with. */
+const REFUSAL = "loom.retrieval-where-not-queryable";
 
 async function errorCodes(source: string): Promise<string[]> {
   // `parseErrorsOf`, not the `errors` off a `{ validate: false }` parse: Langium
@@ -115,14 +124,14 @@ describe("a reference-collection membership needs a BINDABLE argument", () => {
       expect(codes).toContain("loom.projection-where-not-queryable");
     });
 
-    it(`${platform}: a column argument is refused in a find where`, async () => {
-      const codes = await errorCodes(sys(platform, FIND_COLUMN_ARG));
-      expect(codes).toContain("loom.find-where-not-queryable");
+    it(`${platform}: a column argument is refused in a criterion a read runs`, async () => {
+      const codes = await errorCodes(sys(platform, CRITERION_COLUMN_ARG));
+      expect(codes, JSON.stringify(codes)).toContain(REFUSAL);
     });
 
     it(`${platform}: a BOUND argument is still accepted (control)`, async () => {
-      const codes = await errorCodes(sys(platform, FIND_BOUND_ARG));
-      expect(codes).not.toContain("loom.find-where-not-queryable");
+      const codes = await errorCodes(sys(platform, CRITERION_BOUND_ARG));
+      expect(codes).toEqual([]);
       // The per-adapter code no longer exists at all (packet 2n): the
       // refusal is neutral, so the adapter-keyed spelling must never come back.
       expect(codes).not.toContain("loom.find-predicate-unsupported");

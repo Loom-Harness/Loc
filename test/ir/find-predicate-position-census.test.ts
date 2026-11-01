@@ -11,6 +11,8 @@
 //   find f4(): Order? where currentUser.isAdmin   (a bool CLAIM)
 //   find f5(): Order? where true                  (a literal)
 //
+// (each row is now a `criterion` a paged-less `queryHandler` runs — the
+// repository read a predicate reaches since `find` declarations were removed)
 // so the row was never an adapter narrowing.  It was `firstNonQueryableNode`
 // being position-BLIND: it answers "could this node reach SQL at all", which is
 // the right question for a comparison OPERAND and the wrong one for the
@@ -33,7 +35,7 @@ import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { parseString } from "../_helpers/parse.js";
 
-/** The four relational adapters a find predicate can be lowered by. */
+/** The four relational adapters a criterion predicate can be lowered by. */
 const ADAPTERS = [
   ["drizzle", "node"],
   ["mikroorm", "node { persistence: mikroorm }"],
@@ -44,7 +46,8 @@ const ADAPTERS = [
 type Shape = {
   /** Census label — names the `ExprIR` kind / position under test. */
   readonly name: string;
-  /** The `find` declaration, verbatim. */
+  /** The predicate, spelled as the `find` it was first measured on; `readOf`
+   *  turns it into the criterion + handler that read it now. */
   readonly find: string;
   /** true when every adapter must ACCEPT and emit it. */
   readonly admitted: boolean;
@@ -143,6 +146,30 @@ const SHAPES: readonly Shape[] = [
 
 const ADMITTED = SHAPES.filter((s) => s.admitted);
 
+/** The criterion a census row's predicate becomes, and a `queryHandler` that
+ *  runs it through the repository (`findAllBy<Criterion>`). */
+function readOf(find: string): { name: string; members: string } {
+  const m = /^find (\w+)\(([^)]*)\): Order\? where (.+)$/.exec(find);
+  if (!m) throw new Error(`census row is not a find: ${find}`);
+  const [, raw, params, where] = m;
+  const name = `Census${raw![0]!.toUpperCase()}${raw!.slice(1)}`;
+  const args = params!
+    .split(",")
+    .map((x) => x.split(":")[0]!.trim())
+    .filter(Boolean)
+    .join(", ");
+  return {
+    name,
+    members: [
+      `criterion ${name}${params ? `(${params})` : ""} of Order = ${where}`,
+      `queryHandler List${name}(${params}): Order[] {`,
+      `  let r = Orders.run(${name}(${args}))`,
+      `  return r`,
+      `}`,
+    ].join("\n"),
+  };
+}
+
 function source(platform: string, finds: string): string {
   return `
     system S {
@@ -157,9 +184,8 @@ function source(platform: string, finds: string): string {
             live:  bool
             flags: Flags
           }
-          repository Orders for Order {
+          repository Orders for Order
 ${finds}
-          }
         }
       }
       storage pg { type: postgres }
@@ -191,7 +217,7 @@ describe("find-predicate position census (wave C2 / M-T6.35)", () => {
     it(`all four adapters agree on: ${shape.name}`, async () => {
       const perAdapter = new Map<string, string[]>();
       for (const [adapter, platform] of ADAPTERS) {
-        perAdapter.set(adapter, await errorsFor(platform, `            ${shape.find}`));
+        perAdapter.set(adapter, await errorsFor(platform, readOf(shape.find).members));
       }
       for (const [adapter, errs] of perAdapter) {
         if (shape.admitted) {
@@ -200,7 +226,7 @@ describe("find-predicate position census (wave C2 / M-T6.35)", () => {
           expect(
             errs.join("\n"),
             `${adapter} must REFUSE '${shape.name}' through the target-neutral gate`,
-          ).toContain("loom.find-where-not-queryable");
+          ).toMatch(/loom\.(retrieval-where-not-queryable|criterion-not-selectable)/);
         }
       }
       // No adapter may refuse through a per-adapter narrowing: that code is
@@ -238,12 +264,11 @@ describe("find-predicate position census (wave C2 / M-T6.35)", () => {
   ];
   for (const [adapter, platform] of ADAPTERS) {
     it(`${adapter} emits a real query for every admitted predicate`, async () => {
-      const finds = ADMITTED.map((s) => `            ${s.find}`).join("\n");
+      const finds = ADMITTED.map((s) => readOf(s.find).members).join("\n");
       const files = await generateSystemFiles(source(platform, finds));
       const all = [...files.values()].join("\n");
       for (const s of ADMITTED) {
-        const name = /find (\w+)\(/.exec(s.find)?.[1];
-        expect(name, `census row '${s.name}' has no find name`).toBeTruthy();
+        const name = `findAllBy${readOf(s.find).name}`;
         expect(
           all.toLowerCase(),
           `${adapter} emitted no method for '${s.name}' (${name})`,

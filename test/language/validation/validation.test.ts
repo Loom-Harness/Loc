@@ -1702,6 +1702,7 @@ describe("Loom IR validation (post-lowering)", async () => {
         }
         repository Orders for Order { }
         criterion OrdersBig of Order = this.lines.count > 0
+        workflow w { create(x: string) { if let o = Orders.find(OrdersBig) { } } }
       }
     `);
     const diags = validateLoomModel(loom);
@@ -1709,7 +1710,7 @@ describe("Loom IR validation (post-lowering)", async () => {
       diags.some(
         (d) =>
           d.severity === "error" &&
-          /find 'big': where-clause is not queryable/.test(d.message) &&
+          /where-clause is not queryable/.test(d.message) &&
           /collection projection '\.count'/.test(d.message),
       ),
       JSON.stringify(diags),
@@ -1726,14 +1727,12 @@ describe("Loom IR validation (post-lowering)", async () => {
         }
         repository Orders for Order { }
         criterion OrdersAnyBig of Order = this.lines.any(l => l.qty > 5)
+        workflow w { create(x: string) { if let o = Orders.find(OrdersAnyBig) { } } }
       }
     `);
     const diags = validateLoomModel(loom);
     expect(
-      diags.some(
-        (d) =>
-          d.severity === "error" && /find 'anyBig': where-clause is not queryable/.test(d.message),
-      ),
+      diags.some((d) => d.severity === "error" && /where-clause is not queryable/.test(d.message)),
       JSON.stringify(diags),
     ).toBe(true);
   });
@@ -1752,59 +1751,6 @@ describe("Loom IR validation (post-lowering)", async () => {
     `);
     const diags = validateLoomModel(loom).filter((d) => d.severity === "error");
     expect(diags).toEqual([]);
-  });
-
-  // `loom.find-reserved-name` reserves only the repository verbs of the Loom
-  // LANGUAGE (a declared find of that name makes `Repo.<name>(…)` ambiguous);
-  // no name is reserved because of a target backend.
-  const findNameModel = (name: string) => `
-      context T {
-        aggregate Order { sku: string  derived display: string = sku }
-        repository Orders for Order {
-          find ${name}(s: string): Order? where this.sku == s
-        }
-      }
-    `;
-
-  it.each([
-    "getById",
-    "findById",
-    "findAll",
-    "run",
-    "save",
-    "insert",
-    "update",
-    "delete",
-    "add",
-    "remove",
-    "commit",
-  ])("rejects find name '%s' (a built-in repository verb of the language)", async (name) => {
-    const diags = validateLoomModel(await loomFrom(findNameModel(name)));
-    expect(
-      diags.some(
-        (d) =>
-          d.severity === "error" &&
-          d.code === "loom.find-reserved-name" &&
-          d.message.includes(`find '${name}': '${name}' is a built-in repository verb`),
-      ),
-      JSON.stringify(diags),
-    ).toBe(true);
-  });
-
-  it.each([
-    // Formerly reserved by one backend's emitter, which now escapes the name.
-    "saveAsync",
-    "getByIdAsync",
-    "get",
-    "read",
-    // The documented way to gate the list read: a declared `all` replaces it.
-    "all",
-  ])("accepts find name '%s' on every backend", async (name) => {
-    const diags = validateLoomModel(await loomFrom(findNameModel(name)));
-    expect(
-      diags.filter((d) => d.code === "loom.find-reserved-name"),
-      JSON.stringify(diags),
-    ).toEqual([]);
   });
 
   it("rejects mutating statements inside aggregate-level test blocks", async () => {
@@ -1970,6 +1916,7 @@ describe("Loom IR validation (post-lowering)", async () => {
         aggregate Task { name: string  derived display: string = name }
         repository Tasks for Task { }
         criterion TasksByUnknown(p: string) of Task = this.unknownField == p
+        workflow w { create(x: string) { if let t = Tasks.find(TasksByUnknown(x)) { } } }
       }
     `);
     const diags = validateLoomModel(loom);
@@ -1988,6 +1935,7 @@ describe("Loom IR validation (post-lowering)", async () => {
         aggregate Task { name: string, alt: string  derived display: string = name }
         repository Tasks for Task { }
         criterion TasksBoth of Task = this.name == this.alt
+        workflow w { create(x: string) { if let t = Tasks.find(TasksBoth) { } } }
       }
     `);
     const diags = validateLoomModel(loom);
@@ -2263,9 +2211,7 @@ describe("Loom IR validation (post-lowering)", async () => {
           derived display: string = name
           tier: string
         }
-        repository Customers for Customer {
-          find all(): Customer[]
-        }
+        repository Customers for Customer
         workflow w {
       create(tier: string) {
           let cs = Customers.all()
@@ -2565,47 +2511,6 @@ describe("Loom IR validation (post-lowering)", async () => {
     const errors = validateLoomModel(loom).filter((d) => d.severity === "error");
     expect(errors, JSON.stringify(errors)).toEqual([]);
   });
-
-  it("rejects workflow calls to a currentUser-bound find", async () => {
-    const loom = await loomFrom(`
-      system Acme {
-        user { id: string, customerId: string }
-        subdomain M {
-          context T {
-            aggregate Customer {
-              name: string
-              derived display: string = name
-              creditLimit: decimal
-              operation addCredit(amount: decimal) {
-                precondition amount > 0
-                creditLimit := creditLimit + amount
-              }
-            }
-            repository Customers for Customer {
-              find me(): Customer where id == currentUser.id
-            }
-            workflow doIt {
-      create() {
-              let c = Customers.me()
-              c.addCredit(1.0)
-            }
-    }
-          }
-        }
-      }
-    `);
-    const diags = validateLoomModel(loom);
-    expect(
-      diags.some(
-        (d) => d.severity === "error" && /references a currentUser-bound find/.test(d.message),
-      ),
-      JSON.stringify(diags),
-    ).toBe(true);
-  });
-
-  // -------------------------------------------------------------------------
-  // per-module `permissions { ... }`
-  // -------------------------------------------------------------------------
 
   it("lowers permissions.X to its '<module>.<name>' runtime string", async () => {
     const loom = await loomFrom(`
