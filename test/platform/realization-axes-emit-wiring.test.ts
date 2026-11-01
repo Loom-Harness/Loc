@@ -36,9 +36,7 @@ system Sys {
         name: string
         invariant name.length > 0
       }
-      repository Orders for Order {
-        find byName(name: string): Order? where this.name == name
-      }
+      repository Orders for Order
     }
   }
   storage primary { type: postgres }
