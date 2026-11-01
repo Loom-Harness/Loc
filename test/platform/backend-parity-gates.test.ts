@@ -61,9 +61,7 @@ system Crit {
         archived: bool
         filter !this.archived
       }
-      repository Orders for Order {
-        find recent(): Order? where this.code == "x"
-      }
+      repository Orders for Order
     }
   }
   api OrdersApi from Sales
@@ -411,25 +409,6 @@ system GC {
   deployable d { platform: ${platform}, contexts: [Shop], dataSources: [shopState], serves: A, port: 4000 }
 }`;
 
-// Discriminated unions via `T option`, which lowers
-// to `union(Order, none)`.  `Order or Cancel` is NOT usable here: a union find
-// must be the repo's aggregate plus `none`/an `error` payload
-// (`loom.union-find-shape-unsupported`), which would make the row test the wrong
-// gate.  Markers name each backend's absence-producing read.
-const unionDdd = (platform: string): string => `
-system UN {
-  subdomain Sales {
-    context Shop {
-      aggregate Order { code: string }
-      repository Orders for Order { find f(): Order option }
-    }
-  }
-  api A from Sales
-  storage pg { type: postgres }
-  resource shopState { for: Shop, kind: state, use: pg }
-  deployable d { platform: ${platform}, contexts: [Shop], dataSources: [shopState], serves: A, port: 4000 }
-}`;
-
 // `when` canCommand gate — the predicate evaluated
 // before the body (409 Disallowed) plus the side-effect-free
 // `GET /{id}/can_<op>` probe.  An unenforced state gate is a correctness hole,
@@ -452,8 +431,8 @@ system WG {
 }`;
 
 // Union operation RETURN — `operation f(): T or E` and the RFC-7807
-// translation of the error variant.  A separate emit path from the union find
-// above, so the marker is the error-variant ARM of the response mapping.
+// translation of the error variant.  The marker is the error-variant ARM of
+// the response mapping.
 const unionReturnDdd = (platform: string): string => `
 system UR {
   subdomain D {
@@ -474,8 +453,8 @@ system UR {
 
 // `ignoring <Cap>` filter bypass.  The emitted proof
 // is a NEGATIVE one — the bypassing read must OMIT the capability predicate —
-// so each marker is the bypassed find's exact predicate WITHOUT the
-// `is_deleted` conjunct that the sibling `normal()` find still carries.  A
+// so each marker is the bypassed read's exact predicate WITHOUT the
+// `is_deleted` conjunct that the sibling `GetNormal` read still carries.  A
 // backend that "supported" the clause while silently keeping the filter loses
 // the marker, which is precisely the regression this row exists to catch.
 //
@@ -495,9 +474,21 @@ system BypassShop {
         name: string
         price: int
       }
-      repository Products for Product {
-        find recent(): Product? where this.name != "" ignoring softDeletable
-        find normal(): Product? where this.name != ""
+      repository Products for Product
+      criterion Named of Product = this.name != ""
+      queryHandler GetRecent(): Product {
+        if let x = Products.find(Named()) ignoring softDeletable {
+          return x
+        } else {
+          notFound "not_found"
+        }
+      }
+      queryHandler GetNormal(): Product {
+        if let x = Products.find(Named()) {
+          return x
+        } else {
+          notFound "not_found"
+        }
       }
     }
   }
@@ -753,17 +744,6 @@ const FEATURES: readonly Feature[] = [
     },
   },
   {
-    name: "discriminated union (`T option` find — tagged wire + absence producer)",
-    ddd: unionDdd,
-    marker: {
-      node: "async f(): Promise<Order | null> {",
-      dotnet: "Task<Order?> F(CancellationToken cancellationToken = default);",
-      java: "return found == null ? null : OrderResponse.from(found);",
-      python: "if (found := await repo.f()) is None:",
-      elixir: "case Shop.f_order() do",
-    },
-  },
-  {
     name: "`when` canCommand gate (409 Disallowed + `GET /{id}/can_<op>`)",
     ddd: whenGateDdd,
     // An unenforced state gate is a correctness hole, so the marker is the probe
@@ -793,15 +773,16 @@ const FEATURES: readonly Feature[] = [
     name: "`ignoring <Cap>` filter bypass (the read OMITS the capability predicate)",
     ddd: filterBypassDdd,
     // every backend emits it.  Uniquely on this
-    // table the emitted proof is NEGATIVE: the bypassing `recent()` must carry
-    // its own `name != ""` predicate and NOTHING else, while the sibling
-    // `normal()` still AND-s `is_deleted = false`.  A backend that accepted
+    // table the emitted proof is NEGATIVE: the bypassing `GetRecent` read must
+    // carry its own `name != ""` predicate and NOTHING else, while the sibling
+    // `GetNormal` read still AND-s `is_deleted = false`.  A backend that accepted
     // `ignoring` while silently keeping the filter loses the marker — which is
     // the exact regression the gate-set comment warns about, and the one a
     // "does it compile" check can never see.
     marker: {
-      node: '.from(schema.products).where(ne(schema.products.name, "")).orderBy(asc(schema.products.id)).limit(1);',
-      dotnet: '_db.Products.IgnoreQueryFilters(["IsDeletedFilter"]).Where(x => x.Name != "")',
+      node: ".from(schema.products).where(namedCriterion()).orderBy(asc(schema.products.id)).limit(1);",
+      dotnet:
+        '_db.Products.IgnoreQueryFilters(["IsDeletedFilter"]).Where(new NamedCriterion().ToExpression())',
       // ^ the SINGLETON list is load-bearing: it also pins that the model under
       // test carries exactly one capability filter (see the fixture note above).
       java: '__session.disableFilter("softDeletable");',
