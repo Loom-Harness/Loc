@@ -13,12 +13,12 @@
 //     the SAME Postgres call the drizzle twin makes (`MIKRO_INTRINSIC_SQL`,
 //     listed in `intrinsic-completeness.test.ts` — its absence there is what
 //     let the narrowing sit unexamined while five other SQL renderers had arms).
-//  2. **`currentUser.<field>`** ("no principal accessor on the MikroORM find
-//     path").  The STATED reason was never true — `filterValue` has always
-//     rendered `requireCurrentUser().<claim>`.  The real defect was one layer
-//     out: three of the four repository variants did not declare the trailing
-//     `currentUser: User` parameter the Hono route passes, so the GENERATED
-//     project failed `tsc` with TS2554 — which no descriptor could have named.
+//  2. **`currentUser.<field>`** ("no principal accessor on the MikroORM read
+//     path").  The STATED reason was never true — `filterValue` renders
+//     `requireCurrentUser().<claim>`.  The real hazard is one layer out: the
+//     route CALL and the repository SIGNATURE must agree on arity, or the
+//     GENERATED project fails `tsc` with TS2554 — which no descriptor could
+//     have named.
 //
 // (2) is why this suite asserts the route CALL and the repository SIGNATURE
 // together: each half is individually plausible and only their disagreement is
@@ -91,6 +91,10 @@ const PREFIX = system(`
         }
         repository Docs for Doc { }
         criterion DocsUnder(prefix: string) of Doc = this.path.startsWith(prefix)
+        queryHandler ListDocsUnder(prefix: string): Doc[] {
+          let r = Docs.findAll(DocsUnder(prefix))
+          return r
+        }
 `);
 
 describe("a queryable intrinsic lowers through a raw() fragment", () => {
@@ -99,7 +103,7 @@ describe("a queryable intrinsic lowers through a raw() fragment", () => {
   });
 
   it("`startsWith` in PREDICATE position is a standalone raw() entry", async () => {
-    // The find's own `where` — the prefix is a PARAMETER, so it binds.
+    // The criterion read's own `where` — the prefix is a PARAMETER, so it binds.
     const src = await file(PREFIX, "db/repositories/doc-repository.ts");
     expect(src).toContain('[raw("starts_with(path, ?)", [prefix])]: []');
     expect(src).toContain('import { raw } from "@mikro-orm/core";');
@@ -129,7 +133,7 @@ describe("a queryable intrinsic lowers through a raw() fragment", () => {
 });
 
 // ---------------------------------------------------------------------------
-// (2) `currentUser.<field>` in a find predicate
+// (2) `currentUser.<field>` in a criterion predicate
 // ---------------------------------------------------------------------------
 
 const PRINCIPAL = system(`
@@ -137,47 +141,67 @@ const PRINCIPAL = system(`
           owner: string
           title: string
         }
-        repository Docs for Doc {
-          find mine(): Doc? where this.owner == currentUser.tenantId
+        repository Docs for Doc { }
+        criterion Mine of Doc = this.owner == currentUser.tenantId
+        queryHandler ListMine(): Doc[] {
+          let r = Docs.findAll(Mine())
+          return r
         }
-`);
+        queryHandler GetMine(): Doc {
+          if let x = Docs.find(Mine()) { return x } else { notFound "not_found" }
+        }
+`).replace(
+  "api A from D",
+  'api A from D {\n      route GET "/docs/mine" -> C.ListMine\n      route GET "/docs/my_one" -> C.GetMine\n    }',
+);
 
-describe("a principal-referencing find declares the parameter its caller passes", () => {
+describe("a principal-referencing criterion read agrees with its caller", () => {
   it("no longer refuses the shape at validation", async () => {
     expect(await errors(PRINCIPAL)).toEqual([]);
   });
 
-  it("the repository method takes `currentUser: User` and reads it", async () => {
+  it("the repository method reads the principal through the ambient accessor", async () => {
     const src = await file(PRINCIPAL, "db/repositories/doc-repository.ts");
-    expect(src).toContain("async mine(currentUser: User): Promise<Doc | null>");
-    expect(src).toContain("em.findOne(DocRow, { owner: currentUser.tenantId })");
-    // The `User` import goes with it — omitting it is TS2304 in the generated
-    // project, the same class of miss as the `mask unless` one (M-T9.29 F3).
-    expect(src).toContain('import type { User } from "../../auth/user-types";');
+    expect(src).toContain(
+      "async runFindAllByMine(page?: { offset?: number; limit?: number }): Promise<Doc[]>",
+    );
+    expect(src).toContain("em.find(DocRow, { owner: requireCurrentUser().tenantId }");
+    // The accessor import goes with it — omitting it is TS2304 in the
+    // generated project.
+    expect(src).toContain('import { requireCurrentUser } from "../../auth/middleware";');
   });
 
-  it("the route CALL and the method SIGNATURE agree on arity", async () => {
-    // The half neither side can check alone, so it is asserted as an EQUALITY
-    // rather than two independent `toContain`s: the route emits
-    // `repo.mine(currentUser)` whenever `findUsesCurrentUser` is true, and a
-    // method that declared no parameter was TS2554 "Expected 0 arguments, but
-    // got 1" in the GENERATED project — green in this repo's own `tsc`, red
-    // only in the `hono-build` tier.  Either side alone reads as correct.
+  it("the route CALLS and the method SIGNATURE agree on arity", async () => {
+    // The half neither side can check alone: a call passing more arguments
+    // than the method declares, or fewer than it requires, is TS2554 in the
+    // GENERATED project — green in this repo's own `tsc`, red only in the
+    // `hono-build` tier.  Either side alone reads as correct.
     const files = await generateSystemFiles(PRINCIPAL);
     const pick = (suffix: string): string => {
       const key = [...files.keys()].find((k) => k.endsWith(suffix));
       expect(key, `${suffix} not emitted`).toBeDefined();
       return files.get(key!)!;
     };
-    const callArgs = /await repo\.mine\(([^)]*)\)/.exec(pick("http/doc.routes.ts"))?.[1];
-    const declParams = /async mine\(([^)]*)\)/.exec(pick("db/repositories/doc-repository.ts"))?.[1];
-    expect(callArgs, "the route does not call repo.mine(...)").toBeDefined();
-    expect(declParams, "the repository declares no mine(...)").toBeDefined();
-    const count = (s: string): number => s.split(",").filter((x) => x.trim().length > 0).length;
-    expect(
-      count(declParams!),
-      `route calls mine(${callArgs}) but the repository declares mine(${declParams})`,
-    ).toBe(count(callArgs!));
+    const decl = /async runFindAllByMine\(((?:[^()]|\{[^}]*\})*)\)/.exec(
+      pick("db/repositories/doc-repository.ts"),
+    )?.[1];
+    expect(decl, "the repository declares no runFindAllByMine(...)").toBeDefined();
+    const params = decl!.split(/,(?![^{]*\})/).filter((x) => x.trim().length > 0);
+    const required = params.filter((x) => !/^\s*\w+\?:/.test(x)).length;
+    const calls = [
+      ...pick("http/a-routes.ts").matchAll(/await docs\.runFindAllByMine\(([^)]*)\)/g),
+    ].map((m) => m[1]!);
+    // Both handlers call it: the list read and the single-row read.
+    expect(calls).toHaveLength(2);
+    for (const args of calls) {
+      const n = args.split(/,(?![^{]*\})/).filter((x) => x.trim().length > 0).length;
+      expect(n, `route calls runFindAllByMine(${args}) but it declares (${decl})`).toBeGreaterThanOrEqual(
+        required,
+      );
+      expect(n, `route calls runFindAllByMine(${args}) but it declares (${decl})`).toBeLessThanOrEqual(
+        params.length,
+      );
+    }
   });
 
   it("a capability filter still uses the AMBIENT accessor, not the parameter", async () => {
@@ -209,6 +233,10 @@ const MEMBERSHIP_SYSTEM = `
         repository Tags for Tag { }
         repository Docs for Doc { }
         criterion DocsTagged(t: Tag id) of Doc = this.tags.contains(t)
+        queryHandler ListDocsTagged(t: Tag id): Doc[] {
+          let r = Docs.findAll(DocsTagged(t))
+          return r
+        }
     `;
 
 describe("reference-collection membership lowers on MikroORM", () => {
@@ -228,6 +256,6 @@ describe("reference-collection membership lowers on MikroORM", () => {
     );
     // …and it must NOT have fallen through to the adapter's runtime-throwing
     // stub, which is what the narrowing produced before the gate was added.
-    expect(src).not.toContain("this find's predicate is not yet supported");
+    expect(src).not.toContain("not yet supported");
   });
 });
