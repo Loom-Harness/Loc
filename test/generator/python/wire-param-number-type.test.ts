@@ -3,7 +3,7 @@
 //
 // `?min=6` reaches FastAPI as the STRING "6" — a URL has no types — so the
 // guard that refuses a `str` for a field the contract calls a number refused
-// every well-formed read of a numeric find. Measured on the booted behavioral
+// every well-formed read of a numeric query parameter. Measured on the booted behavioral
 // app, both corpus fixtures that declare one:
 //
 //   GET /api/articles/popular?min=6        422  "Input should be a valid number"
@@ -27,18 +27,19 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 const src = `
 system S {
   subdomain D {
-    context C {
+    context C with scaffoldGet(of: ByMinBalance), scaffoldGet(of: BySeq),
+                   scaffoldGet(of: ByRate), scaffoldGet(of: ByHolder) {
       aggregate Account with crudish {
         holder: string
         balance: int
         seq: long
         rate: decimal
       }
-      repository Accounts for Account { }
-      criterion AccountsByMinBalance(min: int) of Account = this.balance >= min
-      criterion AccountsBySeq(lowest: long) of Account = this.seq >= lowest
-      criterion AccountsByRate(floor: decimal) of Account = this.rate >= floor
-      criterion AccountsByHolder(who: string) of Account = this.holder == who
+      repository Accounts for Account
+      criterion ByMinBalance(min: int) of Account = this.balance >= min
+      criterion BySeq(lowest: long) of Account = this.seq >= lowest
+      criterion ByRate(floor: decimal) of Account = this.rate >= floor
+      criterion ByHolder(who: string) of Account = this.holder == who
 
       // The SECOND emitter that annotates a route signature. It reads the same
       // params off its own file template, which is how the .NET \`NoNulChar\`
@@ -54,7 +55,8 @@ system S {
       }
     }
   }
-  api A from D {
+  api A with scaffoldGetApi(of: ByMinBalance), scaffoldGetApi(of: BySeq),
+           scaffoldGetApi(of: ByRate), scaffoldGetApi(of: ByHolder) from D {
     route GET "/richer" -> C.ListRicher
   }
   storage pg { type: postgres }
@@ -82,15 +84,15 @@ function signature(routes: string, fn: string): string {
 }
 
 describe("a numeric path/query parameter is not guarded as if it were JSON", () => {
-  it("an int find parameter takes the unguarded bounded alias", async () => {
-    const routes = await file("app/http/account_routes.py");
-    expect(signature(routes, "by_min_balance_accounts")).toContain("min: Int32Param");
+  it("an int query parameter takes the unguarded bounded alias", async () => {
+    const routes = await file("app/http/a_routes.py");
+    expect(signature(routes, "get_account_by_min_balance_route")).toContain("min: Int32Param");
   });
 
   it("a long and a decimal parameter take the bare python types", async () => {
-    const routes = await file("app/http/account_routes.py");
-    expect(signature(routes, "by_seq_accounts")).toContain("lowest: int");
-    expect(signature(routes, "by_rate_accounts")).toContain("floor: float");
+    const routes = await file("app/http/a_routes.py");
+    expect(signature(routes, "get_account_by_seq_route")).toContain("lowest: int");
+    expect(signature(routes, "get_account_by_rate_route")).toContain("floor: float");
   });
 
   it("Int32Param is Int32 minus the guard — the int4 bound and format stay", async () => {
@@ -107,8 +109,8 @@ describe("a numeric path/query parameter is not guarded as if it were JSON", () 
     // The narrowing that must NOT be dropped along with the numeric one: a
     // query string arrives as a string, so `WireStr`'s NUL guard (F20) applies
     // to it exactly as it does to a body field.
-    const routes = await file("app/http/account_routes.py");
-    expect(signature(routes, "by_holder_accounts")).toContain("who: WireStr");
+    const routes = await file("app/http/a_routes.py");
+    expect(signature(routes, "get_account_by_holder_route")).toContain("who: WireStr");
   });
 
   it("no route SIGNATURE anywhere annotates a guarded numeric alias", async () => {

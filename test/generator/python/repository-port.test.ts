@@ -12,8 +12,12 @@ const SRC = `
   system S {
     subdomain D { context C {
       aggregate Order with crudish { total: int }
-      repository OrderRepo for Order { }
+      repository OrderRepo for Order
       criterion OrdersByMin(m: int) of Order = this.total > m
+      queryHandler ListOrdersByMin(m: int): Order[] {
+        let r = OrderRepo.run(OrdersByMin(m))
+        return r
+      }
     }}
     storage primary { type: postgres }
     resource cState { for: C, kind: state, use: primary }
@@ -42,7 +46,10 @@ describe("python repository ports (audit S7)", () => {
       "async def save(self, aggregate: Order, expected_version: int | None = None) -> None: ...",
     );
     expect(port).toContain("async def delete(self, id: OrderId) -> None: ...");
-    expect(port).toContain("async def by_min(self, m: int) -> Order | None: ...");
+    // A criterion read the context runs is part of the port.
+    expect(port).toContain(
+      "async def run_find_all_by_orders_by_min(self, m: int, offset: int | None = None, limit: int | None = None) -> list[Order]: ...",
+    );
   });
 
   it("the Protocol is ORM-neutral (no SQLAlchemy) and excludes presentation (to_wire) + helpers", async () => {
