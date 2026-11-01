@@ -110,7 +110,6 @@ describe("F-022 — a field named after an F# keyword", () => {
     expect(src).not.toContain('| "member" -> compare a.member b.member');
   });
 
-
   it("escapes a component's props field, its binding, and the call site", async () => {
     const src = await appFs();
     expect(src).toMatch(/let Row .*\{\| ``member``: string/);

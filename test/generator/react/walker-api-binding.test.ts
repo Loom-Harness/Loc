@@ -275,7 +275,9 @@ describe("api binding + walker hook injection", () => {
     // The emitted hook signature takes the read's query OBJECT
     // (`use<Find><Agg>(query: <Find>Query)` — api-builder.ts), so the
     // hoist builds `{ email: email, … }` from the positional DSL args.
-    expect(content).toContain("const customerFindAllByWithEmail = useFindAllByWithEmailCustomer({ email: email");
+    expect(content).toContain(
+      "const customerFindAllByWithEmail = useFindAllByWithEmailCustomer({ email: email",
+    );
   });
 
   it("UI without api parameters: existing behaviour unchanged (no hook injection)", async () => {
