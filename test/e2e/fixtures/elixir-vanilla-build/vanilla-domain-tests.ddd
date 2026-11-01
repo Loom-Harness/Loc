@@ -42,21 +42,21 @@ system Shop {
 
         // Create relying on the field default (F6) + an invariant rejection.
         test "a fresh order takes its defaults" {
-          let o = Order.create({ customer: "acme" })
+          let o = Order.create(customer: "acme")
           expect(o.status).toBe("open")
           expect(o.total).toBe(0)
         }
         test "blank customer is rejected" {
-          expect(Order.create({ customer: "" })).toThrow()
+          expect(Order.create(customer: "")).toThrow()
         }
         // Operation happy-path (state threaded) + precondition rejection.
         test "confirming an open order makes it confirmed" {
-          let o = Order.create({ customer: "acme" })
+          let o = Order.create(customer: "acme")
           o.confirm()
           expect(o.status).toBe("confirmed")
         }
         test "confirming a confirmed order is rejected" {
-          let o = Order.create({ customer: "acme", status: "confirmed" })
+          let o = Order.create(customer: "acme", status: "confirmed")
           expect(o.confirm()).toThrow()
         }
         // F5 — value-object invariant enforced at construction AND through the
@@ -69,7 +69,7 @@ system Shop {
           expect(m.currency).toBe("USD")
         }
         test "an order with a negative price is rejected" {
-          expect(Order.create({ customer: "acme", price: Money { amount: -5.0, currency: "USD" } })).toThrow()
+          expect(Order.create(customer: "acme", price: Money { amount: -5.0, currency: "USD" })).toThrow()
         }
         // F2 — an `<Agg> id` / `datetime` LITERAL passed to an operation
         // parameter.  The op's PURE CORE (the Repo-free entry point this suite
@@ -82,13 +82,13 @@ system Shop {
         // ISO-8601 text, a leaked binary is.  (Not `dispatchedAt.year` — a
         // `datetime` has no fields, `loom.unknown-primitive-member`.)
         test "an id and a datetime literal reach an operation parameter" {
-          let o = Order.create({ customer: "acme" })
+          let o = Order.create(customer: "acme")
           o.dispatch("00000000-0000-0000-0000-000000000002", "2026-02-02T12:30:00Z")
           expect(o.clerkId).toBe("00000000-0000-0000-0000-000000000002")
           expect(o.dispatchedAt).toBe("2026-02-02T12:30:00Z")
         }
         test "an order with a valid price is created" {
-          let o = Order.create({ customer: "acme", price: Money { amount: 5.0, currency: "USD" } })
+          let o = Order.create(customer: "acme", price: Money { amount: 5.0, currency: "USD" })
           expect(o.customer).toBe("acme")
         }
       }

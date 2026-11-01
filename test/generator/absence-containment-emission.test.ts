@@ -46,7 +46,7 @@ system Probe {
         tags: string[] = []
 
         test "absence and containment" {
-          let d = Doc.create({ title: "Ship it" })
+          let d = Doc.create(title: "Ship it")
           expect(d.estimate).toBeNull()
           expect(d.title).toContain("Ship")
           expect(d.tags).toContain("urgent")

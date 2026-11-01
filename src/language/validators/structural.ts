@@ -310,7 +310,7 @@ function checkWorkflow(wf: Workflow, accept: ValidationAcceptor): void {
   // failed the emitted backend. Wire the SAME shared checks the aggregate body
   // gets, under each executable member's lexical env (`envForNode` binds its
   // params + threaded lets). Emit statements can nest inside if/for blocks, so
-  // they're found by streaming the member. (`Agg.create({ … })` create-input
+  // they're found by streaming the member. (`Agg.create(…)` create-input
   // VALUES are already covered model-wide by `checkFactoryCreateFieldTypes`.)
   for (const m of wf.members) {
     if (isWorkflowCreateDecl(m) || isOnDecl(m) || isApply(m)) {

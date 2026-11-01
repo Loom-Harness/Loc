@@ -41,7 +41,7 @@ async function errors(wf: string): Promise<{ codes: string[]; messages: string[]
 
 const TYPE = "loom.create-field-type";
 const create = (fields: string, params = "s: string", gate = "requires true") =>
-  `create(${params}) { ${gate}\n let t = Ticket.create({ subject: s, ${fields} }) }`;
+  `create(${params}) { ${gate}\n let t = Ticket.create(subject: s, ${fields}) }`;
 
 describe("loom.create-field-type — nullable value into a non-optional create field (H-24)", () => {
   it("rejects a `currentUser.<T? claim>` even behind a `requires … != null` gate", async () => {

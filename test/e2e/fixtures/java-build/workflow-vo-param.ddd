@@ -30,7 +30,7 @@ system WalletSys {
       workflow topUp transactional {
         create(amount: Money) {
           precondition amount.amount > 0
-          let acct = Account.create({ balance: amount, threshold: 0 })
+          let acct = Account.create(balance: amount, threshold: 0)
         }
       }
     }

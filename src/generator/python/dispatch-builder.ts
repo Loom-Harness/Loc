@@ -387,7 +387,7 @@ export function buildPyDispatchFile(
       : []),
   );
   const eventNames = [...new Set(subs.map((s) => s.event))].sort();
-  // `let x = Agg.create({...})` constructs the domain class directly.
+  // `let x = Agg.create(…)` constructs the domain class directly.
   const factoryAggs = [
     ...new Set(
       subs.flatMap((sub) => {

@@ -79,7 +79,7 @@ system Probe {
           let n = [1, 2].where(final => final > 0).count
           let case = Orders.getById(do)
           case.bump(final + n)
-          let new = Order.create({ status: "s", qty: final, region: "r" })
+          let new = Order.create(status: "s", qty: final, region: "r")
           let default = Orders.run(ByReg("r"))
           for final in default {
             final.bump(1)

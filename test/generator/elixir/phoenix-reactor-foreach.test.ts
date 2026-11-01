@@ -41,7 +41,7 @@ const SRC = `system S { subdomain D { context Community {
     on(e: PostPublished) by e.post {
       let fs = Follows.run(FollowersOf(e.author), page: { offset: 0, limit: 100 })
       for f in fs {
-        let n = Note.create({ member: f.follower, post: e.post })
+        let n = Note.create(member: f.follower, post: e.post)
       }
     }
   }
@@ -129,7 +129,7 @@ const RICH = `system S { subdomain D { context Community {
       let fs = Follows.run(FollowersOf(e.author), page: { offset: 0, limit: 100 })
       for f in fs {
         precondition fanned >= 0
-        let n = Note.create({ member: f.follower, post: e.post, seen: false })
+        let n = Note.create(member: f.follower, post: e.post, seen: false)
         emit Notified { post: e.post, member: f.follower }
       }
     }

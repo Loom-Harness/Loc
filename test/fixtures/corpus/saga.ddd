@@ -16,11 +16,11 @@ system FulfillmentSaga {
         // is rejected (`toThrow`).  Adds precondition-rejection coverage that
         // core-domain lacks; the `emit` effect is stripped in the pure core.
         test "place transitions a draft order and rejects a non-draft one" {
-          let o = Order.create({ customerId: "C1", status: "Draft" })
+          let o = Order.create(customerId: "C1", status: "Draft")
           expect(o.status).toBe("Draft")
           o.place()
           expect(o.status).toBe("Placed")
-          let bad = Order.create({ customerId: "C2", status: "Shipped" })
+          let bad = Order.create(customerId: "C2", status: "Shipped")
           expect(bad.place()).toThrow()
         }
       }
@@ -50,7 +50,7 @@ system FulfillmentSaga {
         create(p: OrderPlaced) by p.order {
           attempts := 1
           attempts += 1
-          let ship = Shipment.create({ orderRef: p.order, status: "Pending" })
+          let ship = Shipment.create(orderRef: p.order, status: "Pending")
           emit ShipmentRequested { shipment: ship.id, order: p.order, at: now() }
         }
         on(s: ShipmentRequested) by s.order {

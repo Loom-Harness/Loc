@@ -37,8 +37,8 @@ const DOMAIN = `
       repository Items for Item { }
       aggregate Note { text: string }
       repository Notes for Note { }
-      workflow makeItem { create(name: string) { let i = Item.create({ name: name }) } }
-      workflow otherItem { create(name: string) { let i = Item.create({ name: name }) } }
+      workflow makeItem { create(name: string) { let i = Item.create(name: name) } }
+      workflow otherItem { create(name: string) { let i = Item.create(name: name) } }
     }
   }
   api Api from S

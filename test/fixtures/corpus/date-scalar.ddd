@@ -39,7 +39,7 @@ system DateScalar {
 
 
         test "a date's components and day distance" {
-          let p = Patient.create({ name: "Ada", birthDate: "2024-02-28", nextVisit: null })
+          let p = Patient.create(name: "Ada", birthDate: "2024-02-28", nextVisit: null)
           expect(p.birthYear).toBe(2024)
           expect(p.birthMonth).toBe(2)
           expect(p.birthDay).toBe(28)

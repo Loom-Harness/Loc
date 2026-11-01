@@ -197,7 +197,7 @@ function coerceLiteralToCsType(type: TypeIR | undefined, v: ExprIR, rendered: st
   return coerceTestLiteral(type, v, rendered, CS_TEST_LITERAL);
 }
 
-/** Render an aggregate `Agg.create({...})` factory call as a named-arg
+/** Render an aggregate `Agg.create(…)` factory call as a named-arg
  *  `Agg.Create(...)` — the same shape the workflow `factory-let` emitter
  *  produces.  Emits the inputs the test author named, plus an explicit value
  *  for each omitted input the factory has NO C# default for.

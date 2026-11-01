@@ -31,15 +31,15 @@ system Shop {
         invariant customer.length > 0
         operation confirm() { precondition status == "open" status := "confirmed" }
         test "blank customer is rejected" {
-          expect(Order.create({ customer: "", status: "open", price: Money { amount: 1.0, currency: "USD" } })).toThrow()
+          expect(Order.create(customer: "", status: "open", price: Money { amount: 1.0, currency: "USD" })).toThrow()
         }
         test "confirming makes it confirmed" {
-          let o = Order.create({ customer: "acme", status: "open", price: Money { amount: 1.0, currency: "USD" } })
+          let o = Order.create(customer: "acme", status: "open", price: Money { amount: 1.0, currency: "USD" })
           o.confirm()
           expect(o.status).toBe("confirmed")
         }
         test "confirming a confirmed order is rejected" {
-          let o = Order.create({ customer: "acme", status: "confirmed", price: Money { amount: 1.0, currency: "USD" } })
+          let o = Order.create(customer: "acme", status: "confirmed", price: Money { amount: 1.0, currency: "USD" })
           expect(o.confirm()).toThrow()
         }
         test "money builds" {
@@ -128,7 +128,7 @@ system G {
         status := "cancelled"
       }
       test "an admin can cancel" {
-        let o = Order.create({ customer: "acme" })
+        let o = Order.create(customer: "acme")
         o.cancel("done")
         expect(o.status).toBe("cancelled")
       }
@@ -179,7 +179,7 @@ system Van {
       derived isDraft: bool = status == Status.Draft
       operation place() { status := Status.Placed }
       test "a fresh order is a draft" {
-        let o = Order.create({ status: Draft })
+        let o = Order.create(status: Draft)
         expect(o.isDraft).toBe(true)
         o.place()
         expect(o.isDraft).toBe(false)

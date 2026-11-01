@@ -46,7 +46,7 @@ system Faults {
       repository Jobs for Job { }
       workflow RunJob {
         create(label: string) {
-          let j = Job.create({ label: label })
+          let j = Job.create(label: label)
           j.finish()
         }
       }

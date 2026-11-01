@@ -89,7 +89,7 @@ system DecimalExact {
         }
 
         test "decimal arithmetic is exact, not binary floating point" {
-          let s = Sample.create({ a: 0.1, b: 0.2, c: 1.1, d: 0.3, tie: 1.005, total: 0.1 })
+          let s = Sample.create(a: 0.1, b: 0.2, c: 1.1, d: 0.3, tie: 1.005, total: 0.1)
           expect(s.sum).toBe(0.3)
           expect(s.cube).toBe(1.331)
           // `3.0`, not `3`: java's unit-test emitter renders an INT literal

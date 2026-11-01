@@ -54,31 +54,31 @@ system PyMoneyScaling {
         }
 
         test "a decimal rate scales money" {
-          let t = Ticket.create({ label: "A", basePrice: money("10.00"), seats: 2 })
+          let t = Ticket.create(label: "A", basePrice: money("10.00"), seats: 2)
           t.applyRate(1.5)
           expect(t.basePrice).toBe(money("15.00"))
         }
 
         test "a decimal rate scales money from the left" {
-          let t = Ticket.create({ label: "B", basePrice: money("10.00"), seats: 2 })
+          let t = Ticket.create(label: "B", basePrice: money("10.00"), seats: 2)
           t.applyRateReversed(1.5)
           expect(t.basePrice).toBe(money("15.00"))
         }
 
         test "money divides by a decimal rate" {
-          let t = Ticket.create({ label: "C", basePrice: money("10.00"), seats: 2 })
+          let t = Ticket.create(label: "C", basePrice: money("10.00"), seats: 2)
           t.divideByRate(4.0)
           expect(t.basePrice).toBe(money("2.50"))
         }
 
         test "an int ratio widens to decimal and still scales money" {
-          let t = Ticket.create({ label: "D", basePrice: money("10.00"), seats: 2 })
+          let t = Ticket.create(label: "D", basePrice: money("10.00"), seats: 2)
           t.applyRatio(5, 2)
           expect(t.basePrice).toBe(money("25.00"))
         }
 
         test "money times an int seat count needs no lift" {
-          let t = Ticket.create({ label: "E", basePrice: money("10.00"), seats: 3 })
+          let t = Ticket.create(label: "E", basePrice: money("10.00"), seats: 3)
           t.scaleBySeats()
           expect(t.basePrice).toBe(money("30.00"))
         }

@@ -1646,7 +1646,7 @@ describe("mikroorm — workflow (saga) correlation store is persistence-neutral"
         orderId: Order id
         attempts: int
         create(p: OrderPlaced) by p.order {
-          let ship = Shipment.create({ orderRef: p.order, status: "Pending" })
+          let ship = Shipment.create(orderRef: p.order, status: "Pending")
           emit ShipmentRequested { shipment: ship.id, order: p.order, at: now() }
         }
         on(s: ShipmentRequested) by s.order {
