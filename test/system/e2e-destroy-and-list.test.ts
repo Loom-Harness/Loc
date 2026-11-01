@@ -187,9 +187,11 @@ describe("e2e `all` — the auto-findAll at the bare collection root", () => {
     expect(e2e).not.toContain("/api/orders/all");
   });
 
-  it("still renders a DECLARED find under its own path segment", async () => {
+  it("still renders a named single-row read (`scaffoldGet`) under its own path segment", async () => {
     const e2e = await e2eOf(SYS);
-    expect(e2e).toContain('await __getQuery(`${base}/api/orders/by_status`, ({ status: "Open" }))');
+    expect(e2e).toContain(
+      'await __route("GET", __qs(`${base}/api/orders/by_status`, { status: "Open" }))',
+    );
   });
 
   it("passes an argument object through as the query string (page / pageSize / sort)", async () => {
