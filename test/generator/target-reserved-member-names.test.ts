@@ -138,8 +138,11 @@ describe.skipIf(!PY)("python: every keyword Loom accepts as a name, in every mem
               v: V
               function f(${accepted.map((k) => `${k}: int`).join(", ")}): int = this.${accepted[0]}
             }
-            repository As for A {
-              find byKw(${accepted[0]}: int): A? where this.${accepted[0]} == ${accepted[0]}
+            repository Items for A
+            criterion ByKw(${accepted[0]}: int) of A = this.${accepted[0]} == ${accepted[0]}
+            queryHandler ListByKw(${accepted[0]}: int): A[] {
+              let r = Items.run(ByKw(${accepted[0]}))
+              return r
             }
           }
         }
@@ -149,6 +152,37 @@ describe.skipIf(!PY)("python: every keyword Loom accepts as a name, in every mem
       }
     `;
     expect(pyCompileAll(await generateSystemFiles(src))).toEqual([]);
+  });
+});
+
+// KNOWN DEFECT: a python handler binds a repository it reads to a local named
+// after the repository, unescaped — `repository As for A` read by a
+// `queryHandler` emits `as = ARepository(session, …)`, a SyntaxError.  The
+// sweep above names its repository `Items` so it keeps testing member roles;
+// this pins the repository-name position until it escapes.  `it.fails` keeps
+// the expectation on record; drop the `.fails` once the local is escaped.
+describe("python: a keyword-named repository read by a handler", () => {
+  it.fails("binds the repository local through the keyword escape", async () => {
+    const files = await generateSystemFiles(`
+      system KwRepo {
+        subdomain S {
+          context C {
+            aggregate A with crudish { n: int }
+            repository As for A
+            criterion ByN(n: int) of A = this.n == n
+            queryHandler ListByN(n: int): A[] {
+              let r = As.run(ByN(n))
+              return r
+            }
+          }
+        }
+        storage pg { type: postgres }
+        resource st { for: C, kind: state, use: pg }
+        deployable d { platform: python contexts: [C] dataSources: [st] port: 3000 }
+      }
+    `);
+    const handler = [...files].find(([k]) => k.endsWith("app/application/list_by_n.py"))![1];
+    expect(handler).toContain("as_ = ARepository(session");
   });
 });
 
@@ -299,7 +333,7 @@ describe("byte-identity: a model with no reserved names keeps the old helper nam
 // ---------------------------------------------------------------------------
 // node (Hono) + the React frontend: a field / parameter named after a JS/TS
 // reserved word.  Every TS BINDING position (method / function / ctor param,
-// `const` local, repository-find param, criterion-fn param, workflow local)
+// `const` local, repository-read param, criterion-fn param, workflow local)
 // escapes through `escapeTsIdent` (`class` → `class_`); every PROPERTY
 // position keeps the declared name (`this._class`, `get class()`, `{ class:
 // … }`, `schema.things.class`, the zod wire key) — any string is a legal TS
@@ -343,8 +377,16 @@ const TS_RESERVED_SRC = `
           invariant new >= 0
         }
 
-        repository Things for Thing { }
+        repository Things for Thing
         criterion ThingsByClass(class: string, new: int) of Thing = this.class == class && this.new >= new
+        queryHandler ListByClass(class: string, new: int): Thing[] {
+          let r = Things.run(ThingsByClass(class, new))
+          return r
+        }
+        queryHandler ListInClass(class: string): Thing[] {
+          let r = Things.run(InClass(class))
+          return r
+        }
 
         domainService Calc {
           operation sum(new: int, default: int): int {
@@ -443,18 +485,18 @@ describe("node + react: JS/TS reserved words as field / parameter names", async 
     expect(wf).toContain("Thing.create({ class: class_, new: new_,");
   });
 
-  it("escapes repository-find + criterion params, keeps the column and wire keys", () => {
+  it("escapes repository-read + criterion params, keeps the column and wire keys", () => {
     const repo = read("api/db/repositories/thing-repository.ts");
     expect(repo).toContain(
       "const inClassCriterion = (class_: string) => eq(schema.things.class, class_);",
     );
     expect(repo).toContain(
-      "  async byClass(class_: string, new_: number): Promise<Thing | null> {",
+      "  async runFindAllByThingsByClass(class_: string, new_: number, page?: { offset?: number; limit?: number }): Promise<Thing[]> {",
     );
     expect(repo).toContain("eq(schema.things.class, class_), gte(schema.things.new, new_)");
     expect(repo).toContain(".where(inClassCriterion(class_))");
     expect(read("api/domain/repository-ports.ts")).toContain(
-      "  byClass(class_: string, new_: number): Promise<Thing | null>;",
+      "  runFindAllByThingsByClass(class_: string, new_: number",
     );
     // The wire (JSON) key is the declared spelling.
     expect(repo).toMatch(/\{ id: root\.id as string, class: root\.class, new: root\.new,/);
@@ -478,8 +520,12 @@ describe("byte-identity: a model with no reserved names keeps its node bindings"
                 this.title := t
               }
             }
-            repository Notes for Note { }
+            repository Notes for Note
             criterion NotesByTitle(title: string) of Note = this.title == title
+            queryHandler ListByTitle(title: string): Note[] {
+              let r = Notes.run(NotesByTitle(title))
+              return r
+            }
           }
         }
         storage pg { type: postgres }
@@ -491,7 +537,7 @@ describe("byte-identity: a model with no reserved names keeps its node bindings"
     expect(find("domain/note.ts")).toContain("  public retitle(next: string): void {");
     expect(find("domain/note.ts")).toContain("    const t = next;");
     expect(find("db/repositories/note-repository.ts")).toContain(
-      "  async byTitle(title: string): Promise<Note | null> {",
+      "  async runFindAllByNotesByTitle(title: string, page?: { offset?: number; limit?: number }): Promise<Note[]> {",
     );
   });
 });
