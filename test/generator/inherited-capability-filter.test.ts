@@ -1,7 +1,8 @@
 // A capability on an abstract base applies to every concrete subtype
 // (D-INHERITED-CAPABILITIES).  `Truck extends Vehicle`, `Vehicle with
 // softDeletable`: every Truck read must hide soft-deleted rows, and
-// `ignoring softDeletable` on a Truck find must lift exactly that filter.
+// `ignoring softDeletable` on a Truck read (here the natural-key
+// `Trucks.getBy(plate: …)`) must lift exactly that filter.
 //
 // The base's filter used to reach no concrete on node, python, java, elixir or
 // Dapper — the subtype carried the `is_deleted` column and nothing read it —
@@ -25,12 +26,15 @@ system Fleets {
       abstract aggregate Vehicle inheritanceUsing: ${layout} with softDeletable {
         name: string
         plate: string
+        unique (plate)
       }
       aggregate Car extends Vehicle { seats: int }
       aggregate Truck extends Vehicle { payload: int }
-      repository Cars for Car { }
-      repository Trucks for Truck {
-        find byPlateAll(plate: string): Truck? where this.plate == plate ignoring softDeletable
+      repository Cars for Car
+      repository Trucks for Truck
+      queryHandler PlateAll(plate: string): Truck {
+        let t = Trucks.getBy(plate: plate) ignoring softDeletable
+        return t
       }
       ${extra}
     }
@@ -82,7 +86,7 @@ describe.each<Layout>(["sharedTable", "ownTable"])("inherited softDeletable — 
       /"softDeletable": \{ name: "softDeletable", cond: \(\) => \(\{ isDeleted: false \}\)/g,
     );
     expect(declared).toHaveLength(layout === "sharedTable" ? 1 : 2);
-    // So no read carries it by hand, and the bypassing find switches it off by name.
+    // So no read carries it by hand, and the bypassing read switches it off by name.
     expect(lineWith(repo, "em.find(", "{ id: { $in: ids")).not.toContain("isDeleted");
     expect(lineWith(repo, "{ plate: plate }")).toContain('{ filters: { "softDeletable": false } }');
   });
