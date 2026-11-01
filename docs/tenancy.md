@@ -333,19 +333,18 @@ copies the tenancy claim and `orgPath` from the principal of the request that
 raised the event, so a reactor reads and writes in exactly the tenant its event
 came from. A `timerSource` tick has no originating request and therefore **no
 tenant** — a tenant-owned read in a timer-driven reactor would match nothing —
-so it must be explicitly cross-tenant: declare it as a `find` (or an inline
-`Repo.run`) with `ignoring tenantOwned`, or `loom.timer-tenant-read` (error)
-refuses it.
+so it must be explicitly cross-tenant: widen the read with `ignoring
+tenantOwned` (`Repo.run(C) ignoring tenantOwned`, `Repo.getBy(…) ignoring
+tenantOwned`), or `loom.timer-tenant-read` (error) refuses it.
 
 ```ddd
-repository Jobs for Job {
-  find anyTenant(c: string): Job where this.code == c ignoring tenantOwned
-}
+repository Jobs for Job
+criterion ByCode(c: string) of Job = this.code == c
 workflow sweepRun {
   sweep: Sweep id
   create(t: SweepTick) by t.sweep {
-    let j = Jobs.anyTenant("x")      // `Jobs.byCode("x")` here: loom.timer-tenant-read
-    j.close()
+    let js = Jobs.findAll(ByCode("x")) ignoring tenantOwned   // without `ignoring`: loom.timer-tenant-read
+    for j in js { j.close() }
   }
 }
 ```

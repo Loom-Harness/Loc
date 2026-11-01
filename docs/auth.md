@@ -178,39 +178,21 @@ policy { read Order requires currentUser.role == "clerk" }
 `loom.default-deny-list-ungated` for the list read and
 `loom.default-deny-by-id-ungated` for the by-id read.  Both warnings become
 **errors** in a later release (target ~2026-11-01), so treat them as a to-do
-list now.  A *declared* find of an aggregate with no read gate is already an
-error (`loom.default-deny-ungated`).
+list now.
 
-### Migration: `find … requires` moved to the policy block
+### Read gates live in the policy block
 
-A repository `find` no longer carries a `requires` clause — `find … requires`
-does not parse.  Who may read an aggregate is an access fact, not a property of
-one collection query, so it lives beside the `allow` / `deny` ladder and covers
-every read at once ([D-READ-GATE-IN-POLICY](decisions.md)).  The codemod moves
-each gate:
-
-```bash
-node scripts/codemod-find-gate-to-policy.mjs <dir-or-file>...   # --check / --list write nothing; --embedded also rewrites .ts/.md/.yml
-```
+A repository declares no reads of its own, so there is no per-read `requires`:
+who may read an aggregate is an access fact, not a property of one query, so it
+lives beside the `allow` / `deny` ladder and covers every read at once
+([D-READ-GATE-IN-POLICY](decisions.md)):
 
 ```ddd
-// before
-repository Orders for Order {
-  find all(): Order paged requires currentUser.role == "clerk"
-  find byId(id: Order id): Order? requires currentUser.role == "clerk"
-}
-
-// after
 repository Orders for Order
 policy { read Order requires currentUser.role == "clerk" }
 ```
 
-It deletes a find left identical to the one the compiler injects
-(`find all(): T paged`) and keeps every other find, so the wire surface is
-unchanged.  Where one repository's finds carried **different** gates, there is
-no one-to-one translation — the gate is per aggregate now; the codemod keeps the
-list read's gate, writes a review comment naming the dropped ones, and reports
-the file.  Two reads of one aggregate that must answer to different principals
+Two reads of one aggregate that must answer to different principals
 belong on different aggregates (or behind an exposure gate:
 `scaffoldPaged(requires:)`, a route / handler `requires`).
 

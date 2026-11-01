@@ -204,11 +204,9 @@ Orders.findBy(code: c.code) { … }` over an aggregate declaring `unique (code)`
 The generated code calls the repository's `findByCode` method (derived from the
 call; no retrieval is synthesised) and branches on presence, exactly as above;
 the same form works in a `commandHandler` / `queryHandler` body, and a trailing
-`ignoring …` widens the read.  A declared optional find (`find byCode(c:
-string): Order?`) is the older spelling of the same source, and
-`if let o = Orders.findById(c.oid) { … }` reads by id.  Any other source
-(`getById`, `getBy`, a non-optional or union-valued find, a binding that is not
-optional) is `loom.iflet-bad-source`.  A row the body must have reads with
+`ignoring …` widens the read.  `if let o = Orders.findById(c.oid) { … }` reads
+by id.  Any other source (`getById`, `getBy`, a binding that is not optional)
+is `loom.iflet-bad-source`.  A row the body must have reads with
 `let o = Orders.getBy(code: c.code)` — a miss answers the standard 404.
 
 A criterion read has no uniqueness guarantee, so there is no must-exist
