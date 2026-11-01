@@ -27,7 +27,7 @@ system TenancyShop {
     claims: { tenantId: "tenant_id" }
   }
   subdomain Core {
-    context Ledger {
+    context Ledger with scaffoldPaged(of: AccountsByMinBalance) {
       aggregate Account {
         tenantId: string
         balance: int
@@ -40,7 +40,7 @@ system TenancyShop {
   }
   storage pg { type: postgres }
   resource ledgerState { for: Ledger, kind: state, use: pg }
-  api LedgerApi from Core
+  api LedgerApi with scaffoldPagedApi(of: AccountsByMinBalance) from Core
   deployable api {
     platform: elixir
     contexts: [Ledger]
@@ -73,8 +73,10 @@ describe("vanilla tenancy — principal filter threaded + pinned", () => {
     expect(repo).toContain(`where: record.tenant_id == ${PIN}`);
     expect(repo).toContain("def find_by_id(id, current_user \\\\ nil) when is_binary(id) do");
     expect(repo).toContain(`where: record.id == ^id and (record.tenant_id == ${PIN})`);
-    // Custom find carries the actor too.
-    expect(repo).toContain("def by_min_balance(min, current_user \\\\ nil) do");
+    // A criterion's find carries the actor too.
+    expect(repo).toContain(
+      'def find_all_by_accounts_by_min_balance(min, page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc", current_user \\\\ nil) do',
+    );
     expect(repo).toContain(`(record.balance >= ^min) and (record.tenant_id == ${PIN})`);
   });
 
@@ -84,7 +86,9 @@ describe("vanilla tenancy — principal filter threaded + pinned", () => {
       'defdelegate list_accounts(page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc", current_user \\\\ nil)',
     );
     expect(ctx).toContain("defdelegate get_account(id, current_user \\\\ nil)");
-    expect(ctx).toContain("defdelegate by_min_balance_account(min, current_user \\\\ nil)");
+    expect(ctx).toContain(
+      'defdelegate find_all_by_accounts_by_min_balance_account(min, page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc", current_user \\\\ nil)',
+    );
   });
 
   it("extracts conn.assigns.current_user in the controller and passes it to reads", async () => {
@@ -144,7 +148,7 @@ system EmbTenancy {
     claims: { tenantId: "tenant_id" }
   }
   subdomain D {
-    context Shop {
+    context Shop with scaffoldPaged(of: OrdersByCode) {
       aggregate Order shape: embedded {
         tenantId: string
         code: string
@@ -157,7 +161,7 @@ system EmbTenancy {
       criterion OrdersByCode(code: string) of Order = this.code == code
     }
   }
-  api A from D
+  api A with scaffoldPagedApi(of: OrdersByCode) from D
   storage pg { type: postgres }
   resource st { for: Shop, kind: state, use: pg }
   deployable api {
@@ -180,7 +184,8 @@ describe("vanilla embedded principal (tenancy) capability filter (DEBT-02 Slice 
     expect(repo).toContain("def list(current_user \\\\ nil) do");
     expect(repo).toContain(`where: record.tenant_id == ${PIN}`);
     expect(repo).toContain(`where: record.id == ^id and (record.tenant_id == ${PIN})`);
-    // The custom find carries the actor too.
+    // A criterion's find carries the actor too.
+    expect(repo).toContain("def find_all_by_orders_by_code(code,");
     expect(repo).toContain(`(record.code == ^code) and (record.tenant_id == ${PIN})`);
   });
 });
