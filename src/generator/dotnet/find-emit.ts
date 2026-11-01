@@ -14,6 +14,7 @@ import { canEmitToExpressionFor } from "./criteria-emit.js";
 import { bypassedFilterNames, hasNonBypassableFilter } from "./emit/efcore.js";
 import { csLocalNamer, csReadOwnParams } from "./local-names.js";
 import { collectCsExprUsings, renderCsExpr } from "./render-expr.js";
+import { csFindAbsentException } from "./wire-policy-cs.js";
 
 /** The `.IgnoreQueryFilters(…)` clause for an `ignoring`-bearing read
  *  (named-filter-bypass.md §11), inserted on the `_db.<Set>` IQueryable BEFORE
@@ -243,5 +244,5 @@ function projectionClauseFor(t: TypeIR, ct: string): string {
   // collections) and to the corpus (no case reads a single find that misses).
   // `"not_found"` is the canonical find-miss detail token on every backend
   // (RS-27 scopes the by-id sentence out of a find).
-  return `.FirstOrDefaultAsync(${ct}) ?? throw new AggregateNotFoundException("not_found")`;
+  return `.FirstOrDefaultAsync(${ct}) ?? throw ${csFindAbsentException()}`;
 }

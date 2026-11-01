@@ -42,7 +42,9 @@ describe("__loom_outbox pending-row index", () => {
       const marker = platform === "elixir" ? "create index(:__loom_outbox, [:occurred_at]" : INDEX;
       const hits = [...files.entries()].filter(([p, c]) => /migrat/i.test(p) && c.includes(marker));
       expect(hits.length, `no migration mentions ${marker}`).toBeGreaterThan(0);
-      expect(hits.map(([, c]) => c).join("\n")).toMatch(/dispatched_at IS NULL/);
+      expect(hits.map(([, c]) => c).join("\n")).toContain(
+        "dispatched_at IS NULL AND dead_at IS NULL",
+      );
     });
   }
 });

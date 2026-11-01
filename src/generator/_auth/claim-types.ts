@@ -54,6 +54,20 @@ function collectIdTargets(t: TypeIR, into: Set<string>): void {
   }
 }
 
+/** Enum names a user-claim field's type names, sorted + deduped.  The enum
+ *  type is emitted into the DOMAIN tree, so an auth module that spells it
+ *  (`tier: Tier`) must import it.  Looks through `optional` and `array`. */
+export function claimEnumNames(fields: readonly FieldIR[]): string[] {
+  const out = new Set<string>();
+  const visit = (t: TypeIR): void => {
+    if (t.kind === "enum") out.add(t.name);
+    else if (t.kind === "optional") visit(t.inner);
+    else if (t.kind === "array") visit(t.element);
+  };
+  for (const f of fields) visit(f.type);
+  return [...out].sort();
+}
+
 /** The IdP claim path projected onto a `user { … }` field.
  *
  * An explicit `claims: { field: "path" }` mapping wins; otherwise `id` reads

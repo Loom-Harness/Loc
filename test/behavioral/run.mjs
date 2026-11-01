@@ -23,11 +23,11 @@
 // requirement is FAILING in the rollup.
 
 import { build, transform } from "esbuild";
-import { execFileSync } from "node:child_process";
+import { execFileSync, fork } from "node:child_process";
 import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { AUTHZ_LADDERS, declaresE2e, DEV_CLAIMS, featureCases, mountsFileRoutes, otherTenantCredentials, sharedSystemCases, unauthorizedCredentials } from "./cases.mjs";
 import { makeCaseLoop } from "./case-loop.mjs";
 import { authzLadderTail, makeWireGate, recorderPreamble } from "./wire-differential.mjs";
@@ -43,6 +43,20 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "..", "..");
 const WORK = join(HERE, ".work");
 const SHIM = join(HERE, "vitest-shim.mjs");
+const WORKER = join(HERE, "case-worker.mjs");
+
+// Memory ceilings, in MB.  Each case runs in its own worker process, so neither
+// number grows with the corpus; past either one the leg fails by name instead
+// of growing until the CI runner is killed with no failing test.  Measured over
+// the full node leg: one case peaks at ≤ 0.85 GB (PGlite's WASM heap is most
+// of it), the runner stays under 0.1 GB.  In ONE process the same corpus keeps
+// a ~230 MB database alive per leaking case (module-level state in the bundle
+// — the recorder's dispatch, the generated auth module's `routeProbe` — reaches
+// the app), which the runner ceiling catches within a few dozen cases.
+const CASE_RSS_LIMIT_MB = Number(process.env.LOOM_BH_CASE_RSS_LIMIT_MB ?? 1536);
+const RUNNER_RSS_LIMIT_MB = Number(process.env.LOOM_BH_RUNNER_RSS_LIMIT_MB ?? 1024);
+/** The last worker's peak RSS, for the `LOOM_BH_MEMLOG` line. */
+let lastCaseMaxRssMb = null;
 
 /** The in-process mock OIDC issuer, started on demand when the corpus contains
  *  an `auth {}` (OIDC) system.  `null` until then; runCase reads its token. */
@@ -156,6 +170,9 @@ const SHIM = ${J(SHIM)};
 
 export async function run() {
   const pglite = new PGlite();
+  const out = [];
+  // try/finally: a case that throws must still release its WASM Postgres.
+  try {
   const db = drizzle(pglite, { schema });
   ${applyMigrationsStmt(deplDir)}
   ${seedRun}
@@ -170,7 +187,6 @@ export async function run() {
     return { ok: true, response: { status: r.status, statusText: r.statusText, headers, body: await r.text() }, durationMs: 0 };
   });
 
-  const out = [];
   if (E2E_FILE) {
     const compile = async (ts) => (await esbuildTransform(ts, { loader: "ts", format: "cjs" })).code;
     const cases = await loadApiTests({ source: readFileSync(E2E_FILE, "utf8"), compile, dispatch, env: { E2E_DEV_CLAIMS: DEV_CLAIMS, LOOM_TEST_RESET_TOKEN: process.env.LOOM_TEST_RESET_TOKEN${bearerEnv} } });
@@ -199,8 +215,10 @@ export async function run() {
     for (const r of await runTests(harness.tests)) out.push({ tier: "unit", ...r });
     delete globalThis.__loomUnit;
   }
-
-  await pglite.close?.();
+  } finally {
+    __releaseDispatch();
+    await pglite.close?.();
+  }
 
   // Definition-of-Done rollup: join these outcomes onto the generated
   // requirements graph (.loom/traceability.json) via the same
@@ -233,6 +251,51 @@ export async function run() {
   return { results: out, verification, wire: __wire };
 }
 `;
+}
+
+/** Import + run one case's bundle in a fresh child process (case-worker.mjs)
+ *  and resolve with its `run()` result.  The process exits after the case, so
+ *  the case's module graph and PGlite heap are released before the next case
+ *  starts — in-process, every bundle stayed in the ESM cache for the whole run
+ *  and the leg was OOM-killed partway through the corpus.  A `run()` throw
+ *  re-throws here with the same message; a worker that dies without answering
+ *  is a case error naming its exit code/signal. */
+function runInWorker(bundle) {
+  return new Promise((resolve, reject) => {
+    const child = fork(WORKER, [bundle], { cwd: HERE, stdio: "inherit", serialization: "advanced" });
+    let reply = null;
+    child.once("message", (m) => {
+      reply = m;
+      lastCaseMaxRssMb = m?.maxRssMb ?? null;
+    });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (reply && reply.maxRssMb > CASE_RSS_LIMIT_MB) {
+        reject(new Error(`case peaked at ${reply.maxRssMb} MB RSS, over the ${CASE_RSS_LIMIT_MB} MB per-case ceiling (LOOM_BH_CASE_RSS_LIMIT_MB)`));
+      } else if (reply?.ok) resolve(reply.out);
+      else if (reply) reject(new Error(reply.message));
+      else reject(new Error(`case worker exited without a result (code ${code}, signal ${signal})`));
+    });
+  });
+}
+
+/** After each case: print its memory under `LOOM_BH_MEMLOG=1`, and fail the leg
+ *  by name once the runner's own RSS passes RUNNER_RSS_LIMIT_MB.  Every case's
+ *  bundle and database live and die in its worker, so growth HERE means
+ *  something a case produced is being kept in this process again. */
+function assertRunnerBounded(caseName, ms) {
+  const rss = Math.round(process.memoryUsage().rss / 1048576);
+  if (process.env.LOOM_BH_MEMLOG) {
+    process.stdout.write(`  [mem] ${caseName} ms=${ms} caseMaxRss=${lastCaseMaxRssMb ?? "-"} runnerRss=${rss}\n`);
+  }
+  lastCaseMaxRssMb = null;
+  if (rss <= RUNNER_RSS_LIMIT_MB) return;
+  process.stdout.write(
+    `\n✗ the runner's RSS is ${rss} MB after ${caseName}, over the ${RUNNER_RSS_LIMIT_MB} MB ceiling ` +
+      "(LOOM_BH_RUNNER_RSS_LIMIT_MB): memory is accumulating across cases in run.mjs itself; " +
+      "a case's bundle and database must not outlive its worker process (case-worker.mjs)\n",
+  );
+  process.exit(1);
 }
 
 /** Load the typed feature corpus (`test/fixtures/corpus/manifest.ts`) via a
@@ -299,8 +362,7 @@ async function runCase(c) {
       seedFile, mountsFiles,
     }));
     await build({ entryPoints: [entry], outfile: bundle, bundle: true, platform: "node", format: "esm", target: "node20", packages: "external", logLevel: "warning" });
-    const { run } = await import(pathToFileURL(bundle).href);
-    return await run();
+    return await runInWorker(bundle);
   } finally {
     rmSync(genDir, { recursive: true, force: true });
   }
@@ -381,7 +443,9 @@ for (const c of corpus) {
   // runner skips unit-only cases entirely (their `declaresE2e` arm), and the
   // static coverage gates require goldens only of e2e-declaring cases.  One
   // rule, all seven legs.
+  const t0 = Date.now();
   await loop.run(c, runCase, { header: "node", compareWire: declaresE2e(c.source), extra: requirementFailures });
+  assertRunnerBounded(c.name, Date.now() - t0);
 }
 
 await oidc?.stop();

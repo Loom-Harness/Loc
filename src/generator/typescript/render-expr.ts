@@ -5,7 +5,7 @@ import { isPrincipalIsSystem } from "../../ir/util/system-principal.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import { escapeTsIdent, lowerFirst, upperFirst, workflowFnCamel } from "../../util/naming.js";
-import { escapeTargetMember } from "../../util/target-identifiers.js";
+import { escapeTargetFieldMember, escapeTargetMember } from "../../util/target-identifiers.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
 import { tsCodePointLength } from "../_expr/code-point.js";
 import { JS_COLLECTION_RENDERERS } from "../_expr/js-collection-ops.js";
@@ -78,6 +78,25 @@ export interface TsRenderContext {
   paramExpr?: (name: string) => string | undefined;
 }
 
+/** True for the coalesce shape the lowerer builds: `left == null ? x : left`
+ *  where the else-branch is the identical `left` node of the null test. */
+function isCoalesce(e: Extract<ExprIR, { kind: "ternary" }>): boolean {
+  const c = e.cond;
+  return (
+    c.kind === "binary" &&
+    c.op === "==" &&
+    c.right.kind === "literal" &&
+    c.right.lit === "null" &&
+    c.left === e.otherwise
+  );
+}
+
+/** `??` cannot mix with `||` / `&&` unparenthesised; keep plain
+ *  identifier/member/call chains bare and parenthesise anything else. */
+function nullishOperand(text: string): string {
+  return /^[\w$.]+(\([^()]*\))?$/.test(text) ? text : `(${text})`;
+}
+
 const DEFAULT: TsRenderContext = { thisName: "this" };
 
 const TS_TARGET: ExprTarget<TsRenderContext> = {
@@ -117,7 +136,13 @@ const TS_TARGET: ExprTarget<TsRenderContext> = {
     // native operator.
     op === "-" && unaryOperandIsMoney(e) ? `${operand}.neg()` : `${op}${operand}`,
   binary: renderBinary,
-  ternary: (cond, then, otherwise) => `${cond} ? ${then} : ${otherwise}`,
+  ternary: (cond, then, otherwise, e) =>
+    e && isCoalesce(e)
+      ? // `a ?? b` lowers to `a == null ? b : a`, reusing the SAME left node.
+        // Rendering it as a ternary evaluates a call-shaped left twice and
+        // leaves tsc unable to narrow; JS `??` evaluates it once.
+        `(${nullishOperand(otherwise)} ?? ${nullishOperand(then)})`
+      : `${cond} ? ${then} : ${otherwise}`,
   convert: (value, e) => renderTsConvert(e.target, e.from, value),
   // Transparent i18n wrapper (M-T1.11) — drop the format, emit the operand.
   i18nFormat: (inner) => inner,
@@ -274,11 +299,13 @@ function renderRef(e: RefExpr, ctx: TsRenderContext): string {
       // Inside the aggregate class: read the private backing field.
       // Outside (projection reads, e.g. row `r`): use the public
       // getter, which is just the bare name on the runtime instance.
-      return fromOutside ? `${ctx.thisName}.${e.name}` : `this._${e.name}`;
+      return fromOutside
+        ? `${ctx.thisName}.${escapeTargetFieldMember("ts", e.name)}`
+        : `this._${e.name}`;
     case "this-vo-prop":
-      return fromOutside ? `${ctx.thisName}.${e.name}` : `this.${e.name}`;
+      return `${fromOutside ? ctx.thisName : "this"}.${escapeTargetFieldMember("ts", e.name)}`;
     case "this-derived":
-      return fromOutside ? `${ctx.thisName}.${e.name}` : `this.${e.name}`;
+      return `${fromOutside ? ctx.thisName : "this"}.${escapeTargetFieldMember("ts", e.name)}`;
     case "helper-fn":
       return fromOutside
         ? `${ctx.thisName}.${escapeTargetMember("ts", lowerFirst(e.name))}`
@@ -340,7 +367,7 @@ function renderMember(recv: string, e: MemberExpr): string {
   ) {
     return tsCodePointLength(recv);
   }
-  return `${recv}.${e.member}`;
+  return `${recv}.${escapeTargetFieldMember("ts", e.member)}`;
 }
 
 // Scalar-intrinsic snippet table — MOVED to `../_expr/js-intrinsics.ts` and

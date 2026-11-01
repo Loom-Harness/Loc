@@ -39,6 +39,8 @@ import {
   isProperty,
   isSystem,
   isTestBlock,
+  isTypeAtom,
+  isTypeRef,
   isUi,
   isValueObject,
   isWorkflow,
@@ -215,6 +217,22 @@ const PROVIDERS: Record<string, FixHintProvider> = {
       summary: "Reference the aggregate by id.",
       patch: { op: "replace", target, source },
     };
+  },
+
+  // `find f(): Order option` → `find f(): Order?` (and `Order option?` →
+  // `Order?`).  `option` lowers to `T?`, so the spelling swap changes nothing
+  // the program means.  An `option[]` element has no `T?[]` spelling to move
+  // to, so it is left to the author.
+  "loom.option-deprecated": (d, doc, node) => {
+    if (!(isTypeRef(node) || isTypeAtom(node)) || node.array) return undefined;
+    if (node.ctors[node.ctors.length - 1] !== "option") return undefined;
+    const member = enclosingMember(node);
+    const window = member ? flagged(d, doc, member) : undefined;
+    if (!member || !window) return undefined;
+    const left = window.text.slice(0, window.start).replace(/[ \t]+$/, "");
+    const right = window.text.slice(window.end);
+    const source = node.optional ? left + right : `${left}?${right}`;
+    return replaceNode(member, source, "Write `T?` instead of `T option`.");
   },
 
   // NOT PROVIDED — `loom.cross-aggregate-entity-part` (`line: Line` where the

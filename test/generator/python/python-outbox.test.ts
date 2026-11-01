@@ -96,11 +96,11 @@ describe("python durable-channel outbox", () => {
       "async def _drain_outbox(max_attempts: int, batch_size: int) -> None:",
     );
     expect(dispatch).toContain(".where(LoomOutboxRow.dispatched_at.is_(None))");
-    expect(dispatch).toContain(".where(LoomOutboxRow.attempts < max_attempts)");
+    expect(dispatch).toContain(".where(LoomOutboxRow.dead_at.is_(None))");
     expect(dispatch).toContain(".order_by(LoomOutboxRow.occurred_at.asc())");
     expect(dispatch).toContain("token = _current_event_id.set(event_id)");
     expect(dispatch).toContain(".values(dispatched_at=datetime.now(UTC))");
-    expect(dispatch).toContain("if next_attempts >= max_attempts:");
+    expect(dispatch).toContain("dead = next_attempts >= max_attempts");
     expect(dispatch).toContain('"event_dead_lettered"');
     expect(dispatch).toContain('def start_outbox_relay() -> "asyncio.Task[None]":');
     expect(dispatch).toContain("return asyncio.create_task(_run_outbox_relay())");
