@@ -4,7 +4,8 @@
 // `filter !this.isDeleted`) must be AND-ed into EVERY root-table read in
 // the generated Drizzle repository — unlike EF Core's global
 // HasQueryFilter, Drizzle has no automatic filter, so each read site
-// (findById, findManyByIds, every find) carries the predicate explicitly.
+// (findById, findManyByIds, every criterion read) carries the predicate
+// explicitly.
 // Half-applying it would be a soft-delete correctness hole.
 
 import { describe, expect, it } from "vitest";
@@ -21,6 +22,10 @@ const SRC = `
     }
     repository Docs for Doc { }
     criterion DocsBySubject(s: string) of Doc = subject == s
+    queryHandler ListBySubject(s: string): Doc[] {
+      let r = Docs.findAll(DocsBySubject(s))
+      return r
+    }
   }
 `;
 
@@ -40,9 +45,12 @@ describe("typescript generator — capability filter (contextFilters)", () => {
     expect(repo).toMatch(
       /findManyByIds[\s\S]*?\.where\(and\(inArray\(schema\.docs\.id, ids\), docScope\(\)\)\)/,
     );
-    // The named find: its own `where` AND-ed with the scope.
+    // The criterion read: its own `where` AND-ed with the scope.
     expect(repo).toMatch(
-      /bySubject[\s\S]*?\.where\(and\(eq\(schema\.docs\.subject, s\), docScope\(\)\)\)/,
+      /runFindAllByDocsBySubject[\s\S]*?\.where\(and\(docsBySubjectCriterion\(s\), docScope\(\)\)\)/,
+    );
+    expect(repo).toContain(
+      "const docsBySubjectCriterion = (s: string) => eq(schema.docs.subject, s);",
     );
     // … and the repository spells the predicate nowhere itself.
     expect(repo).not.toContain("not(eq(schema.docs.isDeleted, true))");
@@ -58,8 +66,9 @@ describe("typescript generator — capability filter (contextFilters)", () => {
   it("a filter that is exactly one named criterion is inlined in the scope helper", async () => {
     // The scope helper (`db/read-scopes.ts`) is a project-level module, so it
     // cannot call a criterion fn that lives in a repository file: the criterion's
-    // body is rendered into the helper, and the repository's finds and retrievals
-    // that consume the same criterion keep their module-level predicate fn.
+    // body is rendered into the helper, and the repository's criterion reads and
+    // retrievals that consume the same criterion keep their module-level
+    // predicate fn.
     const model = await parseValid(`
       context Sales {
         criterion NotDeleted of Doc = !this.isDeleted
@@ -70,6 +79,10 @@ describe("typescript generator — capability filter (contextFilters)", () => {
         }
         repository Docs for Doc { }
         criterion DocsBySubject(s: string) of Doc = subject == s
+        queryHandler ListBySubject(s: string): Doc[] {
+          let r = Docs.findAll(DocsBySubject(s))
+          return r
+        }
       }
     `);
     const files = generateHono(model);
@@ -79,7 +92,7 @@ describe("typescript generator — capability filter (contextFilters)", () => {
       /findById[\s\S]*?\.where\(and\(eq\(schema\.docs\.id, id\), docScope\(\)\)\)/,
     );
     expect(repo).toMatch(
-      /bySubject[\s\S]*?\.where\(and\(eq\(schema\.docs\.subject, s\), docScope\(\)\)\)/,
+      /runFindAllByDocsBySubject[\s\S]*?\.where\(and\(docsBySubjectCriterion\(s\), docScope\(\)\)\)/,
     );
     expect(repo).not.toContain("not(eq(schema.docs.isDeleted, true))");
     // The criterion body appears exactly once: in the helper.

@@ -7,10 +7,10 @@
 //   - **drizzle** pulled the column off EITHER operand but never mirrored the
 //     operator, so `100 < this.qty` emitted `lt(qty, 100)` — the exact
 //     opposite read, silently, with a 200.
-//   - **mikroorm** required the column on the LEFT and threw, which the find
-//     emitter turned into `throw new Error("mikroorm v1: this find's predicate
-//     is not yet supported")` — a 500 on every call of a model the validator
-//     had accepted, and a narrowing `MIKROORM_SUBSET` never declared.
+//   - **mikroorm** required the column on the LEFT and threw, which the read
+//     emitter turned into a `throw new Error("… not yet supported")` stub — a
+//     500 on every call of a model the validator had accepted, and a narrowing
+//     `MIKROORM_SUBSET` never declared.
 //
 // Both now go through one normalizer (`src/ir/util/comparison-operands.ts`),
 // so the two spellings of one predicate are asserted as EQUAL output rather
@@ -64,18 +64,39 @@ async function repo(src: string): Promise<string> {
   return files.get(key!)!;
 }
 
-/** The single emitted line for `find <name>` — the read's predicate. */
-function readLine(src: string, find: string): string {
-  const idx = src.split("\n").findIndex((l) => l.includes(`async ${find}(`));
-  expect(idx, `find ${find} not emitted`).toBeGreaterThan(-1);
-  const line = src
-    .split("\n")
+/** The predicate criterion `crit`'s read (`runFindAllBy<crit>`) narrows by:
+ *  the emitted read line, or — where drizzle reifies the criterion into a
+ *  module-level `<crit>Criterion` fn the line calls — that fn's body. */
+function readLine(src: string, crit: string): string {
+  const lines = src.split("\n");
+  const idx = lines.findIndex((l) => l.includes(`async runFindAllBy${crit}(`));
+  expect(idx, `read of ${crit} not emitted`).toBeGreaterThan(-1);
+  const line = lines
     .slice(idx + 1, idx + 6)
     .find(
       (l) => l.includes("this.db.select()") || l.includes("em.find(") || l.includes("em.findOne("),
     );
-  expect(line, `no read emitted for ${find}`).toBeDefined();
-  return line!.trim();
+  expect(line, `no read emitted for ${crit}`).toBeDefined();
+  const reified = /\.where\((\w+Criterion)\(\)\)/.exec(line!);
+  if (!reified) return line!.trim();
+  const decl = lines.find((l) => l.startsWith(`const ${reified[1]} = () => `));
+  expect(decl, `${reified[1]} not declared`).toBeDefined();
+  return decl!.slice(`const ${reified[1]} = () => `.length).trim();
+}
+
+/** Criteria over `Item`, each read by a `findAll` handler so its repository
+ *  read is emitted. */
+function criterionReads(criteria: Record<string, string>): string {
+  return Object.entries(criteria)
+    .map(
+      ([name, where]) => `
+        criterion ${name} of Item = ${where}
+        queryHandler List${name}(): Item[] {
+          let r = Items.findAll(${name}())
+          return r
+        }`,
+    )
+    .join("");
 }
 
 // ---------------------------------------------------------------------------
@@ -129,24 +150,26 @@ const FINDS = `
           qty: int
         }
         repository Items for Item { }
-        criterion ItemsLtRight of Item = 100 < this.qty
-        criterion ItemsLtLeft of Item = this.qty > 100
-        criterion ItemsLteRight of Item = 100 <= this.qty
-        criterion ItemsLteLeft of Item = this.qty >= 100
-        criterion ItemsGtRight of Item = 100 > this.qty
-        criterion ItemsGtLeft of Item = this.qty < 100
-        criterion ItemsGteRight of Item = 100 >= this.qty
-        criterion ItemsGteLeft of Item = this.qty <= 100
-        criterion ItemsEqRight of Item = 100 == this.qty
-        criterion ItemsEqLeft of Item = this.qty == 100
+${criterionReads({
+  LtRight: "100 < this.qty",
+  LtLeft: "this.qty > 100",
+  LteRight: "100 <= this.qty",
+  LteLeft: "this.qty >= 100",
+  GtRight: "100 > this.qty",
+  GtLeft: "this.qty < 100",
+  GteRight: "100 >= this.qty",
+  GteLeft: "this.qty <= 100",
+  EqRight: "100 == this.qty",
+  EqLeft: "this.qty == 100",
+})}
 `;
 
 const TWINS = [
-  ["ltRight", "ltLeft"],
-  ["lteRight", "lteLeft"],
-  ["gtRight", "gtLeft"],
-  ["gteRight", "gteLeft"],
-  ["eqRight", "eqLeft"],
+  ["LtRight", "LtLeft"],
+  ["LteRight", "LteLeft"],
+  ["GtRight", "GtLeft"],
+  ["GteRight", "GteLeft"],
+  ["EqRight", "EqLeft"],
 ] as const;
 
 describe("drizzle: a value-on-left comparison commutes with its operator", () => {
@@ -154,22 +177,21 @@ describe("drizzle: a value-on-left comparison commutes with its operator", () =>
     expect(await errors(system(FINDS, "drizzle"))).toEqual([]);
   });
 
-  it("each value-on-left find reads exactly what its column-on-left twin reads", async () => {
+  it("each value-on-left read narrows exactly as its column-on-left twin does", async () => {
     const src = await repo(system(FINDS, "drizzle"));
     for (const [right, left] of TWINS) {
-      const rightLine = readLine(src, right).replace(right, "<find>");
-      const leftLine = readLine(src, left).replace(left, "<find>");
+      const rightLine = readLine(src, right).replace(right, "<read>");
+      const leftLine = readLine(src, left).replace(left, "<read>");
       expect(rightLine, `${right} and ${left} are the same predicate`).toBe(leftLine);
     }
   });
 
   it("`100 < this.qty` is gt, not lt — the inversion, spelled out", async () => {
     const src = await repo(system(FINDS, "drizzle"));
-    expect(readLine(src, "ltRight")).toContain("gt(schema.items.qty, 100)");
-    expect(readLine(src, "ltRight")).not.toContain("lt(schema.items.qty, 100)");
-    expect(readLine(src, "lteRight")).toContain("gte(schema.items.qty, 100)");
-    expect(readLine(src, "gtRight")).toContain("lt(schema.items.qty, 100)");
-    expect(readLine(src, "gteRight")).toContain("lte(schema.items.qty, 100)");
+    expect(readLine(src, "LtRight")).toBe("gt(schema.items.qty, 100);");
+    expect(readLine(src, "LteRight")).toBe("gte(schema.items.qty, 100);");
+    expect(readLine(src, "GtRight")).toBe("lt(schema.items.qty, 100);");
+    expect(readLine(src, "GteRight")).toBe("lte(schema.items.qty, 100);");
   });
 });
 
@@ -190,6 +212,10 @@ const POSITIONS = `
           where: 500 <= this.qty
         }
         repository Items for Item { }
+        queryHandler ListCheap(): Item[] {
+          let r = Items.findAll(Cheap())
+          return r
+        }
 `;
 
 describe("drizzle: the other lowering positions commute", () => {
@@ -217,11 +243,11 @@ describe("drizzle: the other lowering positions commute", () => {
 
   it("a `criterion` body written value-on-left commutes", async () => {
     const src = await repo(system(POSITIONS, "drizzle"));
-    // The criterion is reified into its own helper, which the find AND-s in;
-    // `10 > this.qty` → qty < 10 inside that helper.
-    expect(readLine(src, "cheap")).toContain("cheapCriterion()");
-    const helper = src.split("\n").find((l) => l.includes("lt(schema.items.qty, 10)"));
-    expect(helper, "the criterion helper did not commute `10 > this.qty`").toBeDefined();
+    // The criterion is reified into its own helper, which its read AND-s with
+    // the scope; `10 > this.qty` → qty < 10 inside that helper.
+    const read = src.split("\n").find((l) => l.includes("and(cheapCriterion(), itemScope())"));
+    expect(read, "the criterion read does not narrow by its helper").toBeDefined();
+    expect(src).toContain("const cheapCriterion = () => lt(schema.items.qty, 10);");
     expect(src).not.toContain("gt(schema.items.qty, 10)");
   });
 
@@ -242,22 +268,22 @@ describe("mikroorm: a value-on-left comparison is a real FilterQuery, not a stub
     expect(await errors(system(FINDS, "mikroorm"))).toEqual([]);
   });
 
-  it("no find lowers to the `not yet supported` runtime-throwing stub", async () => {
+  it("no read lowers to the `not yet supported` runtime-throwing stub", async () => {
     const src = await repo(system(FINDS, "mikroorm"));
     expect(src).not.toContain("not yet supported");
   });
 
-  it("each value-on-left find reads exactly what its column-on-left twin reads", async () => {
+  it("each value-on-left read narrows exactly as its column-on-left twin does", async () => {
     const src = await repo(system(FINDS, "mikroorm"));
     for (const [right, left] of TWINS) {
-      const rightLine = readLine(src, right).replace(right, "<find>");
-      const leftLine = readLine(src, left).replace(left, "<find>");
+      const rightLine = readLine(src, right).replace(right, "<read>");
+      const leftLine = readLine(src, left).replace(left, "<read>");
       expect(rightLine, `${right} and ${left} are the same predicate`).toBe(leftLine);
     }
   });
 
   it("`100 < this.qty` is $gt, not $lt", async () => {
     const src = await repo(system(FINDS, "mikroorm"));
-    expect(readLine(src, "ltRight")).toContain("{ qty: { $gt: 100 } }");
+    expect(readLine(src, "LtRight")).toContain("{ qty: { $gt: 100 } }");
   });
 });
