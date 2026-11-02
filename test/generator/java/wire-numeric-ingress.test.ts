@@ -68,9 +68,10 @@ describe("java money ingress (M-T6.48)", () => {
 
   it("declares node's grammar and node's message, character for character", async () => {
     const { ex } = await filesFor();
-    // Compiled and RUN standalone against JDK 21: all 11 shared cases agree
-    // with node, .NET and python on accept/reject AND on the message text.
-    expect(ex).toContain('Pattern.compile("^-?\\\\d+(\\\\.\\\\d+)?$")');
+    // The Codec fact's grammar as written: java.util.regex reads `[0-9]` as
+    // ASCII only, so all 11 shared cases agree with node, .NET and python on
+    // accept/reject AND on the message text.
+    expect(ex).toContain('Pattern.compile("^-?[0-9]+(\\\\.[0-9]+)?$")');
     expect(ex).toContain(
       'throw new WireFormatException(pointer, "Invalid decimal: " + quote(value));',
     );
