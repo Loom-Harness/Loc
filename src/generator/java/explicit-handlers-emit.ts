@@ -53,7 +53,11 @@ import {
   domainServicesCalled,
   isReadingServiceOp,
 } from "../../ir/util/domain-service-read-ports.js";
-import { normalizeHandlerReturn, requestRecordFor } from "../../ir/util/handler-contracts.js";
+import {
+  normalizeHandlerReturn,
+  requestRecordFor,
+  routedAbsenceAnswers404,
+} from "../../ir/util/handler-contracts.js";
 import {
   pagedRunFindName,
   pagedRunGates,
@@ -69,7 +73,7 @@ import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { javaRef } from "../_imports/java.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
-import { javaPagedQueryParams } from "./emit/common.js";
+import { JAVA_FIND_ABSENCE_THROW, javaPagedQueryParams } from "./emit/common.js";
 import { domainToWire, javaIdValueType } from "./emit/wire.js";
 import {
   boundLocal,
@@ -871,6 +875,9 @@ export function emitExplicitRouteController(
   // Set when any route binds an enum-typed path / query param — the action
   // signature names the domain enum, so the header imports its package.
   let usesEnumParam = false;
+  // Set when a route answers a `T?` miss as the find-absence 404 — the action
+  // throws `AggregateNotFoundException`, so the header imports it.
+  let usesNotFound = false;
   for (const r of routes) {
     const ctx = byName.get(r.target.context);
     if (!ctx) continue;
@@ -986,15 +993,23 @@ export function emitExplicitRouteController(
     // Every other type (int, bool, BigDecimal, a response DTO) already routes to
     // Jackson, which is why only this arm needs it.
     if (isBareString) usesJsonString = true;
+    // A `T?` entity return answers its miss as the find-absence 404.
+    const absentIs404 = routedAbsenceAnswers404(h, ctx);
+    if (absentIs404) usesNotFound = true;
+    const absentGuard = absentIs404
+      ? [`        if (result == null) throw ${JAVA_FIND_ABSENCE_THROW};`]
+      : [];
     const callLines = retType
       ? isBareString
         ? [
             `        var result = ${field}.handle(${callArgs});`,
+            ...absentGuard,
             `        return ResponseEntity.ok().contentType(${javaRef("org.springframework.http", "MediaType")}.APPLICATION_JSON)`,
             `            .body(JSON.writeValueAsString(${projectReturn(retType, ctx, responsePkgOf, responsePkgs)}));`,
           ]
         : [
             `        var result = ${field}.handle(${callArgs});`,
+            ...absentGuard,
             `        return ResponseEntity.ok(${projectReturn(retType, ctx, responsePkgOf, responsePkgs)});`,
           ]
       : [
@@ -1035,6 +1050,7 @@ export function emitExplicitRouteController(
       `import ${basePkg}.domain.ids.*;`,
       // Paged-run queryHandler routes return the `Paged<>` envelope.
       usesPaged ? `import ${basePkg}.domain.common.Paged;` : null,
+      usesNotFound ? `import ${basePkg}.domain.common.AggregateNotFoundException;` : null,
       // Body records reference domain value objects / enums by their wildcard
       // packages (Money, etc.), and an enum path / query param names its enum
       // in the action signature; each is pulled in only when used, so a header

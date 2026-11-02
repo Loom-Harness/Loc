@@ -658,6 +658,14 @@ export function renderJavaRepositoryImpl(
     needsEntityManager = true;
     return wrapWithFilterBypass(caps, body);
   };
+  // find_executed (debug) per criterion/retrieval run, labelled with the run
+  // method (`run<Name>`) as python's `run_<name>` runs are: a list read, so
+  // `rows` is the size.
+  const runLogged = (r: RetrievalIR, call: string): string[] => [
+    `        var result = ${call};`,
+    `        CatalogLog.event(${javaLogEvent("findExecuted")}, "aggregate", "${agg.name}", "find", "run${upperFirst(r.name)}", "rows", result.size());`,
+    `        return result;`,
+  ];
   const retrievalDelegates = retrievals.flatMap((r) => {
     const retrievalBypass = ctx.bypassByRetrieval?.get(r.name);
     // The paged overload declares its own `offset` / `limit` beside the
@@ -687,14 +695,17 @@ export function renderJavaRepositoryImpl(
         `    @Override`,
         `    public List<${agg.name}> run${upperFirst(r.name)}(${params}) {`,
         ...wrapBypass(retrievalBypass, [
-          `        return jpa.findAll(${spec}, ${springSort(r.sort)});`,
+          ...runLogged(r, `jpa.findAll(${spec}, ${springSort(r.sort)})`),
         ]),
         `    }`,
         ``,
         `    @Override`,
         `    public List<${agg.name}> run${upperFirst(r.name)}(${pagedParams}) {`,
         ...wrapBypass(retrievalBypass, [
-          `        return jpa.findAll(${spec}, new ${offsetLimitPageRequest}(offset, limit, ${springSort(r.sort)})).getContent();`,
+          ...runLogged(
+            r,
+            `jpa.findAll(${spec}, new ${offsetLimitPageRequest}(offset, limit, ${springSort(r.sort)})).getContent()`,
+          ),
         ]),
         `    }`,
         ``,
@@ -705,14 +716,17 @@ export function renderJavaRepositoryImpl(
       `    @Override`,
       `    public List<${agg.name}> run${upperFirst(r.name)}(${params}) {`,
       ...wrapBypass(retrievalBypass, [
-        `        return jpa.run${upperFirst(r.name)}(${jpaArgs(`${PAGEABLE}.unpaged()`)});`,
+        ...runLogged(r, `jpa.run${upperFirst(r.name)}(${jpaArgs(`${PAGEABLE}.unpaged()`)})`),
       ]),
       `    }`,
       ``,
       `    @Override`,
       `    public List<${agg.name}> run${upperFirst(r.name)}(${pagedParams}) {`,
       ...wrapBypass(retrievalBypass, [
-        `        return jpa.run${upperFirst(r.name)}(${jpaArgs(`new ${offsetLimitPageRequest}(offset, limit, ${SORT}.unsorted())`)});`,
+        ...runLogged(
+          r,
+          `jpa.run${upperFirst(r.name)}(${jpaArgs(`new ${offsetLimitPageRequest}(offset, limit, ${SORT}.unsorted())`)})`,
+        ),
       ]),
       `    }`,
       ``,

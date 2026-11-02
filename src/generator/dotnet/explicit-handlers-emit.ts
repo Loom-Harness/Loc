@@ -52,7 +52,11 @@ import type {
 import { handlerUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import { domainServicesCalled } from "../../ir/util/domain-service-read-ports.js";
-import { normalizeHandlerReturn, requestRecordFor } from "../../ir/util/handler-contracts.js";
+import {
+  normalizeHandlerReturn,
+  requestRecordFor,
+  routedAbsenceAnswers404,
+} from "../../ir/util/handler-contracts.js";
 import {
   pagedRunFindName,
   pagedRunGates,
@@ -67,8 +71,14 @@ import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../util/na
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
-import { csIdValueClrType, projectEntityExpr, projectToResponse } from "./dto-mapping.js";
-import { csPagedQueryParams } from "./emit/common.js";
+import {
+  csIdValueClrType,
+  projectEntityExpr,
+  projectToResponse,
+  wireToCommandArgument,
+  wireType,
+} from "./dto-mapping.js";
+import { csPagedQueryParams, dotnetFindAbsenceThrow } from "./emit/common.js";
 import { csFindMethodName } from "./find-method-name.js";
 import {
   API_CLIENT_CLASS,
@@ -84,6 +94,11 @@ import {
 } from "./workflow-emit.js";
 
 const INDENT = "        ";
+
+/** The action-body local holding the mediator's answer.  Double-underscored so
+ *  a query / path param named `result` (bound by the action signature) cannot
+ *  redeclare it (CS0136). */
+const RESULT_LOCAL = "__result";
 
 /** The `<ns>.Domain.Common` types a routed action's emitted text can name. */
 const DOMAIN_COMMON_TYPE_REF = /\b(?:Provenanced|ProvLineage|RequestContext|Paged|FileRef)\b/;
@@ -791,7 +806,13 @@ function pathActionParam(p: ParamIR): { actionParam: string; commandArg: string 
  *  the query string in exactly this shape. */
 export function queryActionParam(
   p: ParamIR,
-  opts: { bindRequired?: boolean } = {},
+  opts: {
+    bindRequired?: boolean;
+    /** The routed-handler context: a `money` param then binds as the wire
+     *  STRING and parses through the RS-42 grammar guard, so `"12,50"` answers
+     *  the shared 422 instead of reading as 1250 through `decimal` binding. */
+    wire?: { ns: string; ctx: EnrichedBoundedContextIR };
+  } = {},
 ): { actionParam: string; commandArg: string } {
   const t: TypeIR = p.type;
   const n = escapeCsharpIdent(p.name);
@@ -809,6 +830,15 @@ export function queryActionParam(
     return {
       actionParam: `[FromQuery] ${bind}${wire} ${n}`,
       commandArg: `new ${t.targetName}Id(${n})`,
+    };
+  }
+  if (opts.wire && wireTypeInfo(t, "request").primitive === "money") {
+    return {
+      actionParam: `[FromQuery] ${bind}${wireType(t, opts.wire.ctx, "request")} ${n}`,
+      commandArg: wireToCommandArgument(n, t, opts.wire.ctx, {
+        ns: opts.wire.ns,
+        pointer: `/${p.name}`,
+      }),
     };
   }
   return { actionParam: `[FromQuery] ${bind}${renderCsType(t)} ${n}`, commandArg: n };
@@ -861,7 +891,7 @@ export function emitExplicitRouteController(
       const bind = new Map(
         h.params.map((p) => [
           p.name,
-          pathNames.has(p.name) ? pathActionParam(p) : queryActionParam(p),
+          pathNames.has(p.name) ? pathActionParam(p) : queryActionParam(p, { wire: { ns, ctx } }),
         ]),
       );
       const actionParams = [
@@ -879,7 +909,7 @@ export function emitExplicitRouteController(
         `    [HttpGet("${explicitRoutePath(r)}")]\n` +
           routedResponseDecls("    [ProducesResponseType(200)]", false, ctx) +
           `    public async Task<IActionResult> ${h.name}(${actionParams})\n` +
-          `    {\n        var result = await _mediator.Send(new ${h.name}Query(${queryArgs}));\n        return Ok(result);\n    }`,
+          `    {\n        var ${RESULT_LOCAL} = await _mediator.Send(new ${h.name}Query(${queryArgs}));\n        return Ok(${RESULT_LOCAL});\n    }`,
       );
       continue;
     }
@@ -907,7 +937,9 @@ export function emitExplicitRouteController(
     const urlArg = new Map(
       urlParams.map((p) => [
         p.name,
-        source(p) === "path" ? pathActionParam(p) : queryActionParam(p, { bindRequired: true }),
+        source(p) === "path"
+          ? pathActionParam(p)
+          : queryActionParam(p, { bindRequired: true, wire: { ns, ctx } }),
       ]),
     );
 
@@ -952,7 +984,7 @@ export function emitExplicitRouteController(
       // serialises the contract, not the raw domain entity. Scalar / id returns
       // serialise as-is.
       const info = wireTypeInfo(retType, "response");
-      let okExpr = "result";
+      let okExpr: string = RESULT_LOCAL;
       // Extern handlers own their return shape (no home aggregate to project
       // through) — serialise the impl's value as-is.
       if (!h.extern && info.refKind === "entity") {
@@ -960,7 +992,7 @@ export function emitExplicitRouteController(
           ctx.aggregates.find((a) => a.name === info.base) ??
           ctx.aggregates.find((a) => a.parts.some((p) => p.name === info.base));
         if (owning) {
-          okExpr = projectToResponse("result", retType, ctx);
+          okExpr = projectToResponse(RESULT_LOCAL, retType, ctx);
           nsUsings.add(`${ns}.Application.${plural(owning.name)}.Responses`);
           if (!info.isCollection)
             successDecl = `    [ProducesResponseType(typeof(${info.base}Response), 200)]`;
@@ -974,7 +1006,7 @@ export function emitExplicitRouteController(
       // fixture (M-T9.42 slice 2) — the per-backend string test pinned
       // `return Ok(result);` and passed.
       if (!h.extern && (info.refKind === "primitive" || info.refKind === "id")) {
-        okExpr = projectToResponse("result", retType, ctx);
+        okExpr = projectToResponse(RESULT_LOCAL, retType, ctx);
       }
       // A bare CLR `string` return must be sent as JSON EXPLICITLY (M-T6.73).
       // `Ok(<string>)` is the one value shape ASP.NET does not serialise as
@@ -986,10 +1018,16 @@ export function emitExplicitRouteController(
       // so this stays narrow: `renderCsType` naming `string` is exactly the set
       // that formatter intercepts.
       const csRet = renderCsType(retType).replace(/\?$/, "");
+      // A `T?` entity return answers its miss as the find-absence 404 (the
+      // shared exception filter renders it), never an empty-bodied 200.
+      const absentGuard =
+        !h.extern && routedAbsenceAnswers404(h, ctx)
+          ? `\n        if (${RESULT_LOCAL} is null) ${dotnetFindAbsenceThrow(ns)}`
+          : "";
       sendBlock =
         csRet === "string"
-          ? `        var result = await _mediator.Send(new ${rec}(${ctorArgs}));\n        return new JsonResult(${okExpr});`
-          : `        var result = await _mediator.Send(new ${rec}(${ctorArgs}));\n        return Ok(${okExpr});`;
+          ? `        var ${RESULT_LOCAL} = await _mediator.Send(new ${rec}(${ctorArgs}));${absentGuard}\n        return new JsonResult(${okExpr});`
+          : `        var ${RESULT_LOCAL} = await _mediator.Send(new ${rec}(${ctorArgs}));${absentGuard}\n        return Ok(${okExpr});`;
     } else {
       sendBlock = `        await _mediator.Send(new ${rec}(${ctorArgs}));\n        return NoContent();`;
     }
@@ -1007,6 +1045,9 @@ export function emitExplicitRouteController(
   // exactly when something in the file needs it.
   if (DOMAIN_COMMON_TYPE_REF.test(`${actions.join("\n")}\n${bodyRecords.join("\n")}`))
     nsUsings.add(`${ns}.Domain.Common`);
+  // A money query param's grammar-guarded parse names `NumberStyles` / `CultureInfo`.
+  if (/\b(?:NumberStyles|CultureInfo)\b/.test(actions.join("\n")))
+    nsUsings.add("System.Globalization");
   const usings = [...nsUsings].sort().map((u) => `using ${u};`);
   const className = `${apiName}RoutesController`;
   const bodyBlock = bodyRecords.length > 0 ? `${bodyRecords.join("\n")}\n\n` : "";
