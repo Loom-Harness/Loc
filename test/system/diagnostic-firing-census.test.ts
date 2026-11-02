@@ -2060,8 +2060,11 @@ system S {
 }`,
   // `T option` is the deprecated spelling of `T?`.
   "loom.option-deprecated": repoOnly(`    aggregate Order with crudish { code: string }
-    repository Orders for Order {
-      find byCode(code: string): Order option where this.code == code
+    repository Orders for Order
+    criterion OrderByCode(code: string) of Order = this.code == code
+    queryHandler ByCode(code: string): Order option {
+      let r = Orders.find(OrderByCode(code))
+      return r
     }`),
   // A dropped `or E` result: the call statement throws the `error` case away.
   "loom.unhandled-result": repoOnly(`    error Rejected { reason: string }

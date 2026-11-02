@@ -169,8 +169,11 @@ describe("fix-hints", () => {
   it("option-deprecated: `T option` becomes `T?` (round-trip clean)", async () => {
     const OPT = `context Sales {
   aggregate Order { code: string }
-  repository Orders for Order {
-    find byCode(code: string): Order option where this.code == code
+  repository Orders for Order
+  criterion OrderByCode(code: string) of Order = this.code == code
+  queryHandler ByCode(code: string): Order option {
+    let r = Orders.find(OrderByCode(code))
+    return r
   }
 }`;
     const { doc, model, diagnostics } = await parseString(OPT);
@@ -186,7 +189,7 @@ describe("fix-hints", () => {
     expect(hint?.fixHint?.kind).toBe("replace-text");
     const applied = await applyPatches(OPT, [hint?.fixHint?.patch as ModelPatch]);
     expect(applied.ok).toBe(true);
-    expect(applied.text).toContain("find byCode(code: string): Order? where this.code == code");
+    expect(applied.text).toContain("queryHandler ByCode(code: string): Order? {");
     const { diagnostics: after, errors } = await parseString(applied.text);
     expect(after.some((d) => d.code === "loom.option-deprecated")).toBe(false);
     expect(errors).toEqual([]);
