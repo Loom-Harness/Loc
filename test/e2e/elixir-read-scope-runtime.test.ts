@@ -147,9 +147,13 @@ describe.skipIf(!ENABLED)(
           shell: "/bin/bash",
         });
         pg = await startPostgres("read-scope-elixir");
+        // A database of its own: under LOOM_TENANCY_PG_URL every e2e shares one
+        // server, and the tenancy test's migrations carry the same Ecto version
+        // numbers (`20260101000000…`), so a shared `schema_migrations` would let
+        // whichever migrates second skip its own tables.
         const env = {
           ...process.env,
-          DATABASE_URL: `ecto://${pg.user}:${pg.password}@${pg.host}:${pg.port}/${pg.db}`,
+          DATABASE_URL: `ecto://${pg.user}:${pg.password}@${pg.host}:${pg.port}/${pg.db}_read_scope`,
           MIX_ENV: "dev",
         };
         execSync("mix ecto.create && mix ecto.migrate", {
