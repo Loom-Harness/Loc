@@ -24,6 +24,7 @@ import type {
   OperationIR,
   ProvSite,
   StmtIR,
+  TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { valueCollectionsFor } from "../../../ir/util/value-collections.js";
@@ -50,6 +51,7 @@ import { opBodyStmtsDeep, opUsesCurrentUser, stmtUsesParam } from "../domain/pre
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { exErrorVariant } from "../wire-policy-ex.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
+import { exLineageValue } from "./codec-spelling-ex.js";
 import {
   appModuleOf,
   denialClause,
@@ -1341,7 +1343,7 @@ export function renderReturningStmt(
       // backing column AND the per-process trace buffer (drained in the save
       // transaction).
       if (rc.captureProvenance && s.prov) {
-        return renderProvenancedAssign(field, s.prov, s.value, rc, index);
+        return renderProvenancedAssign(field, s.prov, s.value, s.targetType, rc, index);
       }
       return write;
     }
@@ -1476,6 +1478,7 @@ function renderProvenancedAssign(
   field: string,
   prov: ProvSite,
   value: ExprIR,
+  fieldType: TypeIR,
   rc: RenderCtx,
   index: number,
 ): string {
@@ -1486,8 +1489,12 @@ function renderProvenancedAssign(
   const inputsVar = `loom_prov_inputs_${index}`;
   const linVar = `loom_lineage_${index}`;
   const inputs = collectVanillaLeaves(value, rc)
-    .map((l) => `%{path: ${JSON.stringify(l.path)}, value: ${l.value}}`)
+    .map(
+      (l) =>
+        `%{path: ${JSON.stringify(l.path)}, value: ${exLineageValue(l.value, l.type, appModule)}}`,
+    )
     .join(", ");
+  const computed = exLineageValue(`record.${field}`, fieldType, appModule);
   const targetLit = `%{type: ${JSON.stringify(prov.target.type)}, field: ${JSON.stringify(prov.target.field)}}`;
   return [
     `    ${inputsVar} = [${inputs}]`,
@@ -1498,7 +1505,7 @@ function renderProvenancedAssign(
     // (`<field>_provenance`) is the documented snake_case exception; the
     // `provenance_records` COLUMNS stay snake_case, which is a SQL name, not a
     // wire one.
-    `    ${linVar} = %{snapshotId: ${JSON.stringify(prov.snapshotId)}, target: ${targetLit}, inputs: ${inputsVar}, computedValue: record.${field}}`,
+    `    ${linVar} = %{snapshotId: ${JSON.stringify(prov.snapshotId)}, target: ${targetLit}, inputs: ${inputsVar}, computedValue: ${computed}}`,
     `    record = %{record | ${provColumn(field)}: ${linVar}}`,
     `    _ = ${appModule}.Provenance.record(${linVar})`,
   ].join("\n");

@@ -1,0 +1,300 @@
+// The Elixir / Ecto / Phoenix SPELLING of the IR `Codec` fact
+// (`src/ir/enrich/codec.ts`).
+//
+// The fact decides how a scalar is written on the wire, stored in a column,
+// recorded in a provenance lineage and carried inside a channel envelope; this
+// file only says how Elixir, Ecto and Jason write that decision down.  Every
+// elixir emitter asks here — or `numeric-codec.ts` for the numeric leaves, or
+// `datetime-type-emit.ts` for the `Loom.Datetime` Ecto type itself — instead
+// of choosing an encoding itself.  `test/generator/elixir/codec-census.test.ts`
+// fails on an Ecto column type, a migration type, a scale, a range bound or an
+// ISO-8601 spelling chosen anywhere else.
+
+import {
+  envelopeInstantWire,
+  idColumn,
+  instantWire,
+  integerWire,
+  lineageUsesWire,
+  moneyIntegerDigits,
+  moneyWire,
+  scalarCodec,
+  scalarCodecOf,
+} from "../../../ir/enrich/codec.js";
+import type { IdValueType, PrimitiveName, TypeIR } from "../../../ir/types/loom-ir.js";
+import type { ColumnType } from "../../../ir/types/migrations-ir.js";
+import { numericEncode } from "../../_numeric/target.js";
+import { LOOM_DATETIME_MODULE } from "./datetime-type-emit.js";
+import { ELIXIR_NUMERIC } from "./numeric-codec.js";
+
+// ---------------------------------------------------------------------------
+// Migration columns — `add :col, <type><opts>`
+// ---------------------------------------------------------------------------
+
+/** The Ecto migration type of a codec column.  Nested inside `{:array, …}`
+ *  for an array column, so it never carries options (see
+ *  `exMigrationColumnOpts`). */
+export function exMigrationColumnType(c: ColumnType): string {
+  switch (c.kind) {
+    case "uuid":
+      return ":uuid";
+    case "int":
+      return ":integer";
+    case "bigint":
+      return ":bigint";
+    case "bigserial":
+      // Ecto's `:bigserial` — bigint + owned sequence (an event log's `seq`).
+      return ":bigserial";
+    case "text":
+      return ":text";
+    case "bool":
+      return ":boolean";
+    case "decimal":
+      return ":decimal";
+    case "date":
+      return ":date";
+    case "datetime":
+      // `timestamptz`: a microsecond UTC instant the `Loom.Datetime` field type
+      // reads back at the wire's millisecond precision (RS-38).
+      return ":timestamptz";
+    case "json":
+      return ":map";
+    case "array":
+      return `{:array, ${exMigrationColumnType(c.inner)}}`;
+  }
+}
+
+/** The bounded-numeric options an Ecto `add` / `modify` needs beyond the type
+ *  atom — the fact's money column is `NUMERIC(19,4)`; a plain `decimal` stays
+ *  unbounded.  Kept out of `exMigrationColumnType` because that atom is also
+ *  nested inside `{:array, …}`, where trailing options would not parse. */
+export function exMigrationColumnOpts(c: ColumnType): string {
+  return c.kind === "decimal" && c.precision !== undefined && c.scale !== undefined
+    ? `, precision: ${c.precision}, scale: ${c.scale}`
+    : "";
+}
+
+/** The migration type of a primary key / FK reference.  A text key is Ecto's
+ *  `:string` (varchar(255)) by the string-PK convention; every other key is
+ *  its column type. */
+export function exMigrationKeyType(c: ColumnType): string {
+  return c.kind === "text" ? ":string" : exMigrationColumnType(c);
+}
+
+/** The migration type of a synthetic row id (a value-collection child row, a
+ *  table that names no `id` column) — a `guid`'s column. */
+export function exMigrationRowIdType(): string {
+  return exMigrationKeyType(idColumn("guid"));
+}
+
+// ---------------------------------------------------------------------------
+// Schema fields — `field :name, <type>`
+// ---------------------------------------------------------------------------
+
+/** The Ecto schema type of a codec column.  A `datetime` is the millisecond
+ *  `Loom.Datetime` type (RS-38), a `uuid` `Ecto.UUID` (a string in memory),
+ *  a `bigint` Ecto's arbitrary-precision `:integer`. */
+function exSchemaType(c: ColumnType): string {
+  switch (c.kind) {
+    case "int":
+    case "bigint":
+      return ":integer";
+    case "decimal":
+      return ":decimal";
+    case "text":
+      return ":string";
+    case "bool":
+      return ":boolean";
+    case "date":
+      return ":date";
+    case "datetime":
+      return LOOM_DATETIME_MODULE;
+    case "uuid":
+      return "Ecto.UUID";
+    case "json":
+      return ":map";
+    case "bigserial":
+    case "array":
+      throw new Error(`codec-spelling: '${c.kind}' is not a scalar column`);
+  }
+}
+
+/** The Ecto schema / cast type of a declared primitive.  `duration` is
+ *  expression-only and never a column; it falls back to the text type. */
+export function exEctoScalarType(name: PrimitiveName): string {
+  return exSchemaType(scalarCodec(name === "duration" ? "string" : name).column);
+}
+
+/** The Ecto type of an `X id` / primary key of this value type: a guid key is
+ *  `:binary_id` (the uuid column, autogenerated), a string key `:string`, an
+ *  integral key `:integer`. */
+export function exEctoIdType(valueType: IdValueType): string {
+  const c = idColumn(valueType);
+  return c.kind === "uuid" ? ":binary_id" : exSchemaType(c);
+}
+
+/** The JSON form of an id held inside a jsonb value (an `X id[]` state
+ *  field): a guid or string key is a JSON string, an integral one a number —
+ *  never Ecto's 16-byte `:binary_id` dump, which Jason cannot encode. */
+export function exEctoIdJsonType(valueType: IdValueType): string {
+  const c = idColumn(valueType);
+  return c.kind === "int" || c.kind === "bigint" ? exSchemaType(c) : ":string";
+}
+
+/** The Ecto type of a JSON column (a `json` / `File` field, a value object or
+ *  collection stored as one value). */
+export function exEctoJsonType(): string {
+  return exSchemaType(scalarCodec("json").column);
+}
+
+/** The Ecto type of a framework `datetime` column the backend owns itself —
+ *  `inserted_at` / `updated_at`, an audit or provenance row's `at`.  Not a
+ *  declared scalar, so not the codec's instant: second precision, which Jason
+ *  prints canonically (no fraction). */
+export function exFrameworkTimestampType(): string {
+  return ":utc_datetime";
+}
+
+/** The value written into an `exFrameworkTimestampType` column. */
+export function exFrameworkNow(): string {
+  return "DateTime.utc_now() |> DateTime.truncate(:second)";
+}
+
+/** The Ecto type of an outbox / event-log time column (`occurred_at`,
+ *  `dispatched_at`, `dead_at`): microsecond, never on a domain wire. */
+export function exLogInstantType(): string {
+  return ":utc_datetime_usec";
+}
+
+// ---------------------------------------------------------------------------
+// Wire — money, integers, datetime, date
+// ---------------------------------------------------------------------------
+
+/** The money column's SQL spelling, `NUMERIC(19,4)`, for the emitted comments
+ *  that explain the range guard. */
+export function exMoneyColumnSql(): string {
+  const c = scalarCodec("money").column;
+  if (c.kind !== "decimal" || c.precision === undefined || c.scale === undefined)
+    throw new Error("codec-spelling: the money column is not a bounded decimal");
+  return `NUMERIC(${c.precision},${c.scale})`;
+}
+
+/** The exclusive magnitude bound a money value must stay under to fit its
+ *  column, as the `Decimal.new/1` string literal (`"1000000000000000"`). */
+export function exMoneyMaxExclusive(): string {
+  return JSON.stringify(`1${"0".repeat(moneyIntegerDigits())}`);
+}
+
+/** The money ingress grammar as the emitted `~r` regex.  Spelled with `\d`
+ *  and a bare `$` as it always has been; a fact that changed the grammar
+ *  would need a new spelling here, so it throws. */
+export function exMoneyGrammarRegex(): string {
+  if (moneyWire().grammar !== "^-?[0-9]+(\\.[0-9]+)?$")
+    throw new Error("codec-spelling: the money grammar is no longer the one elixir spells");
+  return "~r/^-?\\d+(\\.\\d+)?$/";
+}
+
+/** The inclusive wire range of `int` (RS-42). */
+export function exInt32Range(): { min: number; max: number } {
+  const { min, max } = integerWire("int");
+  return { min, max };
+}
+
+/** The inclusive wire range of an integral scalar (RS-42, D-LONG-AVG-DEFAULTS). */
+export function exIntegerRange(name: "int" | "long"): { min: number; max: number } {
+  const { min, max } = integerWire(name);
+  return { min, max };
+}
+
+/** A `DateTime` expression → its RS-4 + RS-38 wire string, through
+ *  `Loom.Datetime.wire/1` (nil-safe; `datetime-type-emit.ts`). */
+export function exInstantWire(expr: string): string {
+  return `${LOOM_DATETIME_MODULE}.wire(${expr})`;
+}
+
+/** A `Date` expression → its `YYYY-MM-DD` wire string. */
+export function exCalendarDateWire(expr: string): string {
+  if (scalarCodec("date").wire.form !== "calendar-date")
+    throw new Error("codec-spelling: a date is no longer a calendar date on the wire");
+  return `Date.to_iso8601(${expr})`;
+}
+
+// ---------------------------------------------------------------------------
+// Lineage — a provenance lineage's `inputs[].value` / `computedValue`
+// ---------------------------------------------------------------------------
+
+/** The emitted lineage-wire module, nested under the app's `Provenance`. */
+function provWireModule(appModule: string): string {
+  return `${appModule}.Provenance.Wire`;
+}
+
+/** The module's function per wire form: the scalars whose Elixir domain value
+ *  does not already encode to its wire form.  Jason writes a `%Decimal{}` as
+ *  its unscaled string (money must be the RS-12 fixed-scale string, a decimal
+ *  the RS-24 number) and a `DateTime` at whatever precision it carries.  A
+ *  `%Date{}` already encodes to `YYYY-MM-DD`; it is spelled anyway so the
+ *  lineage does not lean on Jason's choice. */
+const LINEAGE_FN = {
+  "fixed-scale-decimal": "money",
+  float64: "decimal",
+  instant: "instant",
+  "calendar-date": "date",
+} as const;
+
+/** A value as it is written into a provenance lineage: a scalar in its wire
+ *  encoding (`lineageUsesWire` — the fact's `RULINGS`).  Every function is
+ *  nil-safe, so one call serves a plain and an optional value.  A non-scalar
+ *  is recorded as the domain value it is. */
+export function exLineageValue(expr: string, type: TypeIR | undefined, appModule: string): string {
+  if (!type || !lineageUsesWire(type)) return expr;
+  const form = scalarCodecOf(type)?.wire.form;
+  const fn = form === undefined ? undefined : (LINEAGE_FN as Record<string, string>)[form];
+  return fn === undefined ? expr : `${provWireModule(appModule)}.${fn}(${expr})`;
+}
+
+/** The `<App>.Provenance.Wire` module: one function per wire form, each
+ *  spelled through the same encoders the wire uses.  A money or decimal leaf
+ *  may arrive as a `%Decimal{}` (a column, a coerced param), a binary (a value
+ *  object's money subfield as the changeset cast stored it) or a JSON number. */
+export function exProvWireModule(appModule: string): string {
+  const money = (e: string): string => numericEncode(ELIXIR_NUMERIC, "money", "projection-read", e);
+  const decimal = (e: string): string => numericEncode(ELIXIR_NUMERIC, "decimal", "dto-map", e);
+  return `defmodule ${provWireModule(appModule)} do
+  @moduledoc """
+  Writes a scalar into a provenance lineage in its WIRE encoding (the Codec
+  fact's lineage rule): money as the fixed-scale string, a decimal as the
+  number, a datetime as the canonical instant, a date as YYYY-MM-DD.
+  """
+
+  def money(nil), do: nil
+  def money(%Decimal{} = v), do: ${money("v")}
+  def money(v) when is_binary(v) or is_integer(v), do: money(Decimal.new(v))
+  def money(v) when is_float(v), do: money(Decimal.from_float(v))
+  def money(v), do: v
+
+  def decimal(nil), do: nil
+  def decimal(%Decimal{} = v), do: ${decimal("v")}
+  def decimal(v) when is_binary(v), do: decimal(Decimal.new(v))
+  def decimal(v), do: v
+
+  def instant(v), do: ${exInstantWire("v")}
+
+  def date(%Date{} = v), do: ${exCalendarDateWire("v")}
+  def date(v), do: v
+end
+`;
+}
+
+// ---------------------------------------------------------------------------
+// Channel envelope — the CloudEvents `time` and the datetimes of `data`
+// ---------------------------------------------------------------------------
+
+/** A `DateTime` expression as it is written inside a channel envelope — the
+ *  RS-38 wire instant (the fact's `envelopeInstantWire`). */
+export function exEnvelopeInstant(expr: string): string {
+  // The fact rules the envelope instant to BE the wire instant; a fact that
+  // ever split them would need a spelling of its own here.
+  if (JSON.stringify(envelopeInstantWire()) !== JSON.stringify(instantWire()))
+    throw new Error("codec-spelling: the envelope instant is no longer the wire instant");
+  return exInstantWire(expr);
+}
