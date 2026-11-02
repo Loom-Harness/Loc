@@ -6,7 +6,7 @@
 // criterion from the request's principal on every ORM execution — the
 // ambient `ContextVar[User | None]` the auth middleware sets — and adds it
 // with `with_loader_criteria` to every read of the row class: the auto
-// find_by_id / all / find_many_by_ids and every custom find alike.  No read
+// find_by_id / all / find_many_by_ids and every criterion read alike.  No read
 // method gains a parameter and none spells the predicate.  With no principal
 // the criterion is `false()`: a read matches no row.  The java analogue is
 // test/generator/java/generator-java-tenancy-filter.test.ts.

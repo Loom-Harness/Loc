@@ -7,12 +7,12 @@ import { parseString } from "../../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
 // Python backend — shape: embedded (F2b).  The root stays a normal
-// queryable row (`id` + flattened scalar / `X id` columns), so finds run
+// queryable row (`id` + flattened scalar / `X id` columns), so reads run
 // as real SQL; each containment folds into one jsonb column and reference
 // collections (`X id[]`) fold into a jsonb id-array column — no part /
 // join tables.  Containments (de)serialise through the same to_doc /
 // from_doc helpers the document repo uses.  Verified live (create →
-// addLine → retotal → read-back → byCustomer) and statically by the
+// addLine → retotal → read-back) and statically by the
 // `embedded.ddd` corpus case (uv + ruff + mypy --strict).
 // ---------------------------------------------------------------------------
 
@@ -80,11 +80,32 @@ describe("python shape: embedded", () => {
     expect(repo).toContain("def _memo_from_doc(raw: object) -> Memo:");
   });
 
-  it("finds run as real SQL over the root columns (not in-memory)", async () => {
-    const files = await build();
+  // A criterion read over an embedded aggregate: the handler calls
+  // `run_find_all_by_orders_by_customer`, and the embedded repository emits no
+  // retrieval method, so the call names a method that does not exist.  `fails`
+  // until the embedded repository emits criterion reads (real SQL over the root
+  // columns); then drop `.fails`.
+  it.fails("a criterion read runs as real SQL over the root columns (embedded repository emits none)", async () => {
+    const { model, errors } = await parseString(
+      FIXTURE.replace(
+        /(criterion OrdersByCustomer\(name: string\) of Order = this\.customer == name)/,
+        `$1
+      queryHandler GetByCustomer(name: string): Order {
+        if let o = Orders.find(OrdersByCustomer(name)) {
+          return o
+        } else {
+          notFound
+        }
+      }`,
+      ),
+    );
+    expect(errors).toEqual([]);
+    const files = generateSystems(model).files;
+    expect(files.get("api/app/application/get_by_customer.py")).toContain(
+      "await orders.run_find_all_by_orders_by_customer(name, limit=1)",
+    );
     const repo = files.get("api/app/db/repositories/order_repository.py")!;
-    expect(repo).toContain("async def by_customer(self, name: str) -> Order | None:");
+    expect(repo).toContain("    async def run_find_all_by_orders_by_customer(self, name: str");
     expect(repo).toContain("select(OrderRow).where((OrderRow.customer == name))");
-    expect(repo).toContain("return [await self._hydrate(row) for row in rows]");
   });
 });

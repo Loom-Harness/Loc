@@ -2,7 +2,8 @@
 // backend — the sales-shaped cell of the LOOM_PYTHON_BUILD corpus.
 system PySales {
   subdomain Sales {
-    context Sales {
+    context Sales with scaffoldGet(of: ByStatus), scaffoldGet(of: CheaperThan),
+                       scaffoldGet(of: WatchedBy), scaffoldGet(of: ByName) {
       enum OrderStatus { Draft, Confirmed, Shipped }
 
       valueobject Money {
@@ -89,15 +90,16 @@ system PySales {
           invariant quantity > 0
         }
       }
-      repository Orders for Order {
-        find recent(): Order?
-      }
-      criterion OrdersByStatus(status: OrderStatus) of Order = this.status == status
-      criterion OrdersCheaperThan(limit: money) of Order = this.unitBudget <= limit
-      criterion OrdersWatchedBy(customerId: Customer id) of Order = this.watchers.contains(customerId)
+      repository Orders for Order
+      // Single-row reads on the wire (`scaffoldGet` / `scaffoldGetApi` below):
+      // GET /orders/by_status, /orders/cheaper_than, /orders/watched_by,
+      // /customers/by_name — each the criterion's first match, or 404.
+      criterion ByStatus(status: OrderStatus) of Order = this.status == status
+      criterion CheaperThan(ceiling: money) of Order = this.unitBudget <= ceiling
+      criterion WatchedBy(customerId: Customer id) of Order = this.watchers.contains(customerId)
       criterion OrdersFirstDraft of Order = this.status == Draft
-      repository Customers for Customer { }
-      criterion CustomersByName(name: string) of Customer = this.name == name
+      repository Customers for Customer
+      criterion ByName(name: string) of Customer = this.name == name
 
       // Reusable predicate + named query bundle (criterion.md / retrieval.md).
       criterion StatusIs(s: OrderStatus) of Order = this.status == s
@@ -117,7 +119,8 @@ system PySales {
     }
   }
 
-  api SalesApi from Sales
+  api SalesApi with scaffoldGetApi(of: ByStatus), scaffoldGetApi(of: CheaperThan),
+                    scaffoldGetApi(of: WatchedBy), scaffoldGetApi(of: ByName) from Sales
 
   storage pg { type: postgres }
   resource salesState { for: Sales, kind: state, use: pg }

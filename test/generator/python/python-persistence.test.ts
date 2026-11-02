@@ -183,13 +183,16 @@ describe("python repository emission", () => {
     const repo = files.get("api/app/db/repositories/order_repository.py")!;
     expect(repo).toContain('"unitBudget": money_str(root.unit_budget),');
     // Request side: the wire string re-parses into Decimal for the domain
-    // (the money-typed find param crosses as `str` and converts at the call).
+    // (a money-typed query param crosses as `str` and converts at the call).
     const routes = files.get("api/app/http/order_routes.py")!;
     expect(routes).toContain("unitBudget: str");
-    // `MoneyStr` since M-T6.48 — the wire-format guard that makes the
-    // downstream `Decimal(limit)` total (was a bare `str`, and a 500).
-    expect(routes).toContain("async def cheaper_than_orders(limit: MoneyStr, session: SessionDep)");
-    expect(routes).toContain("await repo.cheaper_than(Decimal(limit))");
+    // `MoneyStr`, the wire-format guard that makes the downstream
+    // `Decimal(ceiling)` total — a bare `str` would answer a 500.
+    const read = files.get("api/app/http/sales_api_routes.py")!;
+    expect(read).toContain(
+      "async def get_order_by_cheaper_than_route(ceiling: MoneyStr, session: SessionDep)",
+    );
+    expect(read).toContain("await get_order_by_cheaper_than(session, Decimal(ceiling))");
   });
 });
 

@@ -24,8 +24,12 @@ system Shop {
         isDeleted: bool
         filter !this.isDeleted
       }
-      repository Customers for Customer { }
+      repository Customers for Customer
       criterion CustomersByName(n: string) of Customer = name == n
+      queryHandler ListCustomersByName(n: string): Customer[] {
+        let r = Customers.run(CustomersByName(n))
+        return r
+      }
     }
   }
   api SalesApi from Sales

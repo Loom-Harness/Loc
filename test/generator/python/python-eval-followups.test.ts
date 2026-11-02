@@ -13,8 +13,6 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // - B-A3a a value-object workflow-state field: the row flattens it to leaf
 //         columns, yet allocation wrote `total=""` and the handler / instance
 //         route read and wrote `row.total` — an attribute no column backs.
-// - B-A1  a declared `find all() where <pred>` on the document, embedded and
-//         event-sourced shapes: `all()` returned every row.
 //
 // Each positive assertion names the emitted line the fix produces; each
 // negative one names the exact pre-fix shape, so a regression fails on it.
@@ -92,35 +90,5 @@ describe("B-A3a — a value-object workflow-state field agrees with its columns"
     );
     expect(dispatch).not.toContain('total=""');
     expect(dispatch).not.toContain('ship=""');
-  });
-});
-
-describe("B-A1 — a declared `find all() where` keeps its filter on every python shape", () => {
-  it("document: filters in-app with the ambient principal, finds read a raw load", () => {
-    const repo = file("/app/db/repositories/folder_repository.py");
-    const all = method(repo, "all");
-    expect(all).toContain("        current_user = require_current_user()");
-    expect(all).toContain("if (x.owner_user_id == current_user.id)]");
-    expect(all).not.toContain("        return [_folder_from_doc(r.data, r.version) for r in rows]");
-    expect(repo).toMatch(/from app\.auth\.user import [^\n]*\brequire_current_user\b/);
-    // `by_title` must not layer on the now-narrowed `all()`.
-    const byTitle = method(repo, "by_title");
-    expect(byTitle).not.toContain("await self.all()");
-    expect(byTitle).toContain("select(FolderRow).order_by(FolderRow.id)");
-  });
-
-  it("embedded: ANDs the predicate into the SQL `where`", () => {
-    const all = method(file("/app/db/repositories/memo_repository.py"), "all");
-    expect(all).toContain("select(MemoRow).where((MemoRow.archived == False))");
-    expect(all).not.toContain("execute(select(MemoRow))).scalars()");
-  });
-
-  it("event-sourced: filters the fold, finds read the unfiltered fold", () => {
-    const repo = file("/app/db/repositories/account_repository.py");
-    expect(method(repo, "all")).toContain(
-      "        return [a for a in await self._all_unfiltered() if a.balance > 0]",
-    );
-    expect(repo).toContain("    async def _all_unfiltered(self) -> list[Account]:");
-    expect(method(repo, "by_owner")).toContain("await self._all_unfiltered() if a.owner == owner]");
   });
 });

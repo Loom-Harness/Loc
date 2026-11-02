@@ -12,9 +12,8 @@
 //     bound once before each read (the ambient ContextVar accessor; no read-
 //     method parameter — `auth: required` emits the accessor).
 //
-// A custom find (`find popular`) reads a RAW load and AND-s the (bypass-aware)
-// capability predicate with its own `where`, so the principal scoping holds on
-// every read path.  Decisive check that the document reads + the principal
+// The principal scoping holds on every read path (find_by_id, all,
+// find_many_by_ids).  Decisive check that the document reads + the principal
 // accessor stay ruff- and mypy --strict-clean under the python-build gate.
 system DocTenancy {
   user { id: guid  tenantId: string }
@@ -37,7 +36,7 @@ system DocTenancy {
         }
         operation bump() { viewCount := viewCount + 1 }
       }
-      repository Articles for Article { }
+      repository Articles for Article
       criterion ArticlesPopular(min: int) of Article = this.viewCount >= min
     }
   }
