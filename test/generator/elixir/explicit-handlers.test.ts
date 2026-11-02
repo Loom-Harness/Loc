@@ -379,3 +379,83 @@ describe("elixir — a routed handler matches its params by wire name", () => {
     expect(hAt).not.toMatch(/"commit_sha"|"build_id"/);
   });
 });
+
+// Phoenix hands a routed action every query/path value as a binary, and
+// nothing between the router and `run/1` checks it: a missing required param
+// is a MatchError in `run/1`'s destructure (500), a malformed int a raise in
+// the coercion (500), and a paged criterion param reaches the query as a raw
+// string.  Each action checks its query/path params against the published
+// type first (the `field-invalid` 422), then hands `run/1` / the paged find the
+// coerced values, keyed by the wire name the router binds.
+const CHECKED_SRC = `
+system Catalog {
+  subdomain Core {
+    context Shop with scaffoldPaged(of: OrdersOver), scaffoldGet(of: ByCustomer) {
+      aggregate Order with crudish {
+        customerId: string
+        total: int
+      }
+      repository Orders for Order
+      criterion OrdersOver(minTotal: int) of Order = this.total >= minTotal
+      criterion ByCustomer(customerId: string) of Order = this.customerId == customerId
+      queryHandler Sum(leftValue: int, rightValue: int, note: string?): int { return leftValue + rightValue }
+    }
+  }
+  api CatalogApi with scaffoldPagedApi(of: OrdersOver), scaffoldGetApi(of: ByCustomer) from Core {
+    route GET "/sum/{leftValue}" -> Shop.Sum
+  }
+  storage pg { type: postgres }
+  resource orderState { for: Shop, kind: state, use: pg }
+  deployable api { platform: elixir, contexts: [Shop], dataSources: [orderState], serves: CatalogApi, port: 4000 }
+}
+`;
+
+/** The body of `def <action>(conn, params) do … end`. */
+function actionBody(ctrl: string, action: string): string {
+  const m = ctrl.match(
+    new RegExp(`  def ${action}\\(conn, params\\) do\\n([\\s\\S]*?)\\n  end\\n`),
+  );
+  expect(m, `action ${action} not emitted`).not.toBeNull();
+  return m![1]!;
+}
+
+describe("elixir — a routed action checks and coerces its query/path params", () => {
+  it("checks every query/path param before run/1 and coerces by wire name", async () => {
+    const m = await generateSystemFiles(CHECKED_SRC);
+    const ctrl = fileEndingWith(m, "lib/api_web/controllers/catalog_api_routes_controller.ex");
+    const sum = actionBody(ctrl, "sum");
+    expect(sum).toContain(
+      'case __check_find_params(params, [{"leftValue", {:integer, -2147483648, 2147483647}, true}, {"rightValue", {:integer, -2147483648, 2147483647}, true}, {"note", :string, false}]) do',
+    );
+    expect(sum).toContain("ProblemDetails.validation_errors_response(conn, param_errors)");
+    // The path param is keyed by its wire name, as the router binds it; an
+    // absent optional param is bound to nil so run/1's destructure matches.
+    expect(sum).toContain(
+      'params = Map.merge(params, %{"leftValue" => __find_int(params["leftValue"]), "rightValue" => __find_int(params["rightValue"]), "note" => params["note"]})',
+    );
+    expect(sum).not.toMatch(/"left_value"|String\.to_integer/);
+    expect(sum.indexOf("__check_find_params")).toBeLessThan(sum.indexOf(".run(params)"));
+
+    const get = actionBody(ctrl, "get_order_by_customer");
+    expect(get).toContain('case __check_find_params(params, [{"customerId", :string, true}]) do');
+
+    const paged = actionBody(ctrl, "list_order_by_orders_over");
+    expect(paged).toContain(
+      'case __check_find_params(params, [{"minTotal", {:integer, -2147483648, 2147483647}, true}]) do',
+    );
+    expect(paged).toContain('__find_int(params["minTotal"]),');
+
+    expect(ctrl).toContain("defp __check_find_params(params, specs) do");
+    expect(ctrl).toContain("defp __find_int(v) when is_binary(v) do");
+    const pd = fileEndingWith(m, "lib/api_web/problem_details.ex");
+    expect(pd).toContain("def validation_errors_response(conn, errors) when is_list(errors) do");
+  });
+
+  it("a body-carrying route checks only its path params", async () => {
+    const m = await generateSystemFiles(SRC);
+    const ctrl = fileEndingWith(m, "lib/api_web/controllers/sales_api_routes_controller.ex");
+    expect(actionBody(ctrl, "cancel_order")).toContain(
+      'case __check_find_params(params, [{"orderId", :uuid, true}]) do',
+    );
+  });
+});
