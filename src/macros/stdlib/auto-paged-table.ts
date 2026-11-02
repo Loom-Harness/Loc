@@ -41,9 +41,9 @@
 
 import { type AstNode, AstUtils } from "langium";
 import type {
+  Aggregate,
   BuilderCall,
   BuilderEntry,
-  Aggregate,
   Expression,
   Lambda,
   Model,
