@@ -33,7 +33,7 @@ export default defineMacro({
   late: true,
   apiVersion: 1,
   description:
-    "Emits a route per operation, create, find, and get-by-id read of every " +
+    "Emits a route per operation, create, and get-by-id read of every " +
     "aggregate in the named subdomain — POST for writes, GET for reads — " +
     "targeting the handler scaffoldHandlers emits for it.",
   params: {
@@ -43,15 +43,7 @@ export default defineMacro({
     const sub = args.of as Subdomain;
     const out: Route[] = [];
     for (const ctx of sub.contexts ?? []) {
-      const targets = handlerTargets(ctx);
-      const ordered = targets.flatMap((t) =>
-        t.kind === "getById"
-          ? [...targets.filter((f) => f.kind === "find" && f.agg === t.agg), t]
-          : t.kind === "find"
-            ? []
-            : [t],
-      );
-      for (const t of ordered) {
+      for (const t of handlerTargets(ctx)) {
         out.push(route(targetMethod(t), targetPath(t), handlerRef(ctx.name, targetHandlerName(t))));
       }
     }

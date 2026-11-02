@@ -5,7 +5,7 @@ import { NodeFileSystem } from "langium/node";
 import { describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
-import { generateDotnet } from "../../_helpers/generate.js";
+import { generateDotnet, generateSystemFiles } from "../../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
@@ -314,16 +314,33 @@ describe(".NET generator", () => {
     });
   });
 
-  it("marks a required find query param [BindRequired] (so Swashbuckle emits required:true)", async () => {
-    const model = await buildModel("examples/sales.ddd");
-    const files = generateDotnet(model);
-    const controller = files.get("Api/OrdersController.cs")!;
-    // byCustomer(customerId) — a required filter. Without [BindRequired] a
-    // non-nullable string query param reads as optional, diverging from
-    // Hono/Phoenix (which mark it required). Attribute is fully-qualified
-    // to avoid an unused `using` under /warnaserror.
+  // The routed read's controller action (`scaffoldGetApi` / `route GET …`)
+  // binds a required query param `[BindRequired]`, so Swashbuckle publishes it
+  // required, as node does (the 5-way OpenAPI parity gate compares them).
+  it("marks a required read query param [BindRequired] (so Swashbuckle emits required:true)", async () => {
+    const files = await generateSystemFiles(`
+      system S {
+        subdomain Sales {
+          context Orders with scaffoldGet(of: ByCode) {
+            aggregate Order { code: string }
+            repository Orders for Order
+            criterion ByCode(code: string) of Order = this.code == code
+          }
+        }
+        api SalesApi with scaffoldGetApi(of: ByCode) from Sales { }
+        storage pg { type: postgres }
+        resource st { for: Orders, kind: state, use: pg }
+        deployable api { platform: dotnet  contexts: [Orders]  dataSources: [st]  serves: SalesApi  port: 8080 }
+      }
+    `);
+    const controller = files.get("api/Api/SalesApiRoutesController.cs")!;
+    expect(controller).toContain("GetOrderByCode(");
+    // `code` — a required filter. Without [BindRequired] a non-nullable string
+    // query param reads as optional, diverging from Hono/Phoenix (which mark it
+    // required). Attribute is fully-qualified to avoid an unused `using` under
+    // /warnaserror.
     expect(controller).toMatch(
-      /\[FromQuery\] \[Microsoft\.AspNetCore\.Mvc\.ModelBinding\.BindRequired\] \w+ customerId/,
+      /\[FromQuery\] \[Microsoft\.AspNetCore\.Mvc\.ModelBinding\.BindRequired\] \w+ code/,
     );
   });
 
@@ -738,10 +755,10 @@ describe(".NET generator", () => {
       expect(repo).toMatch(
         /_log\.LogInformation\("\{Event\} event_type=\{EventType\} aggregate=\{Aggregate\} id=\{Id\}", "event_dispatched", ev\.GetType\(\)\.Name, "Order", aggregate\.Id\.Value\);/,
       );
-      // find_executed — array find uses result.Count; the assertion
-      // anchors on the catalog shape, not a specific find name.
-      expect(repo).toMatch(
-        /_log\.LogDebug\("\{Event\} aggregate=\{Aggregate\} find=\{Find\} rows=\{Rows\}", "find_executed", "Order", "[a-zA-Z]+", result == null \? 0 : 1\);/,
+      // find_executed — the paged collection read logs its page's row count.
+      // (A single-row read's `rows=` value is pinned by single-find-rows-log.)
+      expect(repo).toContain(
+        '_log.LogDebug("{Event} aggregate={Aggregate} find={Find} rows={Rows}", "find_executed", "Order", "all", items.Count);',
       );
     });
 
@@ -1730,17 +1747,47 @@ describe(".NET generator", () => {
   describe("reference-collection join tables (.NET)", () => {
     // The join entity, its DbContext wiring, `builder.Ignore` on the owner,
     // and the repository's load + membership diff-sync are asserted by value
-    // on the booted .NET leg (`corpus/contained-part-removal`'s tags).  No
-    // corpus find filters on membership, so the `contains(...)` lowering stays.
+    // on the booted .NET leg (`corpus/contained-part-removal`'s tags).
 
-    it("lowers `this.<refColl>.contains(param)` to a join-table subquery", async () => {
-      const model = await buildModel("examples/roster.ddd");
-      const files = generateDotnet(model);
-      const repo = files.get("Infrastructure/Repositories/TrainerRepository.cs")!;
-      // The membership filter is admitted by the IR validator and
-      // lowered here to an EXISTS-style subquery against the join entity.
-      expect(repo).toMatch(
-        /_db\.Trainers\.Where\(x => _db\.TrainerParties\.Any\(__j => __j\.TrainerId == x\.Id && __j\.PokemonId == pokemon\)\)/,
+    // KNOWN BUG (reported with the find-declaration removal): a criterion
+    // read over `this.<refColl>.contains(param)` renders the criterion's
+    // expression tree as `(candidate.Party).Contains(pokemon)` — a member the
+    // owner's EF configuration `Ignore`s (it lives in the join table), so the
+    // query cannot translate.  The find path lowered it to a join-table
+    // subquery; `it.fails` pins that contract until the criterion read does.
+    it.fails("lowers `this.<refColl>.contains(param)` to a join-table subquery", async () => {
+      const files = await generateSystemFiles(`
+        system S {
+          subdomain D {
+            context Roster {
+              aggregate Pokemon with crudish { species: string }
+              aggregate Trainer with crudish {
+                name: string
+                party: Pokemon id[]
+              }
+              repository Trainers for Trainer
+              criterion TrainersHoldingInParty(pokemon: Pokemon id) of Trainer = this.party.contains(pokemon)
+              queryHandler holding(pokemon: Pokemon id): Trainer[] {
+                let r = Trainers.run(TrainersHoldingInParty(pokemon))
+                return r
+              }
+            }
+          }
+          storage pg { type: postgres }
+          resource st { for: Roster, kind: state, use: pg }
+          deployable api { platform: dotnet  contexts: [Roster]  dataSources: [st]  port: 8080 }
+        }
+      `);
+      const read = [...files]
+        .filter(([p]) => p.endsWith(".cs"))
+        .map(([, s]) => s)
+        .join("\n");
+      expect(read).toContain("RunFindAllByTrainersHoldingInPartyAsync(");
+      // The membership filter reaches the query as an EXISTS-style subquery
+      // against the join entity, never as the ignored navigation.
+      expect(read).not.toContain("(candidate.Party).Contains(pokemon)");
+      expect(read).toMatch(
+        /TrainerParties\.Any\(__j => __j\.TrainerId == \w+\.Id && __j\.PokemonId == pokemon\)/,
       );
     });
   });

@@ -22,9 +22,10 @@
 //     fixture (`test/fixtures/corpus/prefix-filter.ddd`, which asserts the
 //     resulting ROWS on all five backends).
 //
-// Both queryable positions are covered per backend: an inline `find … where`
-// (find/JPQL/Drizzle path) and a reusable `criterion` installed as a capability
-// `filter` (Specification / `@SQLRestriction` / static path).
+// Both queryable positions are covered per backend: a parameterised
+// `criterion` read through `Repo.run` (the repository's `findAllBy<C>` query,
+// with the operand a bound parameter) and a `criterion` installed as a
+// capability `filter` (Specification / `@SQLRestriction` / static path).
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
@@ -39,8 +40,11 @@ system Tree {
         path: string
         filter UnderRoot
       }
-      repository Docs for Doc {
-        find under(prefix: string): Doc? where this.path.startsWith(prefix)
+      repository Docs for Doc
+      criterion Under(prefix: string) of Doc = this.path.startsWith(prefix)
+      queryHandler ListUnder(prefix: string): Doc[] {
+        let r = Docs.run(Under(prefix))
+        return r
       }
     }
   }
@@ -73,7 +77,7 @@ describe("startsWith — the queryable prefix-match operator", () => {
 
   it("node/drizzle emits an anchored strpos, never a LIKE", async () => {
     const out = await emitAll("node");
-    // The find's bound parameter and the criterion's literal, both anchored.
+    // The run's bound parameter and the filter's literal, both anchored.
     expect(out).toContain("strpos(${schema.docs.path}, ${prefix}) = 1");
     expect(out).toContain('strpos(${schema.docs.path}, ${"root"}) = 1');
     expect(out).not.toMatch(/like\(schema\.docs\.path/);
@@ -94,9 +98,9 @@ describe("startsWith — the queryable prefix-match operator", () => {
     expect(out).not.toMatch(/like\(record\.path/);
   });
 
-  it("java emits JPQL locate() in the find and cb.locate() in the Specification", async () => {
+  it("java emits cb.locate() in each criterion's Specification", async () => {
     const out = await emitAll("java");
-    expect(out).toContain("locate(:prefix, e.path) = 1");
+    expect(out).toContain('cb.equal(cb.locate(root.<String>get("path"), prefix), 1)');
     expect(out).toContain('cb.equal(cb.locate(root.<String>get("path"), "root"), 1)');
     // The capability filter's static face — Hibernate's @SQLRestriction, which
     // renders raw Postgres text and threw `unsupported` on any method-call

@@ -53,7 +53,7 @@ describe("notFound — lowering", () => {
   it("makes a workflow that says it declare the not-found rung", async () => {
     const ctx = enrichedContexts(await buildLoomModel(on("node"))).find((c) => c.name === "Desk")!;
     const wf = ctx.workflows.find((w) => w.name === "escalateFirst")!;
-    expect(workflowCanAnswerNotFound(wf, ctx.repositories)).toBe(true);
+    expect(workflowCanAnswerNotFound(wf)).toBe(true);
   });
 });
 

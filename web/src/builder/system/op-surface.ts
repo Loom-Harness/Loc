@@ -1,13 +1,11 @@
 import { AstUtils, CstUtils, GrammarUtils, type AstNode } from "langium";
 import type {
   Aggregate,
-  FindDecl,
   LetStmt,
   Model,
   NameRef,
   Operation,
   Parameter,
-  Repository,
   TypeRef,
 } from "../../../../src/language/generated/ast.js";
 import { applyEdits, type TextEdit } from "../edit-engine";
@@ -16,20 +14,19 @@ import {
   baseLabel,
   baseSpecOf,
   typeInputText,
+  type BaseSpec,
   type TypeInput,
   type TypeSpec,
 } from "./fields";
-import type { ParamInfo } from "./find-params";
 import { IDENTIFIER } from "./rename";
 
 // ---------------------------------------------------------------------------
-// Operation / find HEADER editing — the signature surface around a body:
-// parameters, return type, the `requires` / `when` gates, the `private` /
-// `extern` / `audited` modifiers, and a find's `ignoring`
-// clause.  `body.ts` owns everything INSIDE the braces; this module owns
-// everything before them.
+// Operation HEADER editing — the signature surface around a body:
+// parameters, return type, the `requires` / `when` gates, and the `private` /
+// `extern` / `audited` modifiers.  `body.ts` owns everything INSIDE the
+// braces; this module owns everything before them.
 //
-// Same discipline as `fields.ts` / `find-params.ts`: parse → locate → splice
+// Same discipline as `fields.ts`: parse → locate → splice
 // the SMALLEST span that expresses the change → re-parse to validate
 // (`ifParses`), `null` on failure.  Nothing outside the spliced span moves, so
 // comments, blank lines and hand-spacing survive byte-for-byte — in particular
@@ -38,7 +35,6 @@ import { IDENTIFIER } from "./rename";
 // The grammar order of the header is fixed:
 //
 //   [private] operation name(params) [extern] [audited] [: T] [requires e] [when e] { … }
-//   find name(params): T [where e] [ignoring * | A, B]
 //
 // so adding a clause is an insertion at the END of the last preceding element
 // (never "somewhere after the parens"), and removing one deletes from that same
@@ -47,7 +43,7 @@ import { IDENTIFIER } from "./rename";
 
 /** A type given either structurally (the pickers' `TypeSpec`) or as raw
  *  `.ddd` text (`"Order[]"`) — both spellings splice identically.  Defined in
- *  `fields.ts` (the field / find / op setters all take it); re-exported here
+ *  `fields.ts` (the field / op setters both take it); re-exported here
  *  because this module's own signatures are its main consumer. */
 export type { TypeInput };
 
@@ -65,13 +61,6 @@ function findAggregate(ast: Model, name: string): Aggregate | null {
   return null;
 }
 
-function findRepo(ast: Model, name: string): Repository | null {
-  for (const n of AstUtils.streamAst(ast)) {
-    if (n.$type === "Repository" && (n as Repository).name === name) return n as Repository;
-  }
-  return null;
-}
-
 function operationOf(ast: Model, agg: string, op: string): Operation | null {
   const node = findAggregate(ast, agg);
   if (!node) return null;
@@ -82,10 +71,6 @@ function operationOf(ast: Model, agg: string, op: string): Operation | null {
   );
 }
 
-function findDeclOf(ast: Model, repo: string, find: string): FindDecl | null {
-  return findRepo(ast, repo)?.finds.find((f) => f.name === find) ?? null;
-}
-
 /** The shared prologue: re-parse and resolve.  Null on a syntactically invalid
  *  source (an edit on top of broken text would splice at offsets the recovery
  *  parser invented) or an unknown aggregate / operation. */
@@ -93,12 +78,6 @@ function locateOp(source: string, agg: string, op: string): Operation | null {
   const fresh = parseDdd(source);
   if (fresh.parserErrors.length > 0) return null;
   return operationOf(fresh.ast, agg, op);
-}
-
-function locateFind(source: string, repo: string, find: string): FindDecl | null {
-  const fresh = parseDdd(source);
-  if (fresh.parserErrors.length > 0) return null;
-  return findDeclOf(fresh.ast, repo, find);
 }
 
 // --- own-token lookup ------------------------------------------------------
@@ -133,6 +112,15 @@ const lastToken = (tokens: Token[], text: string): Token | undefined =>
   [...tokens].reverse().find((t) => t.text === text);
 
 // --- read surface ----------------------------------------------------------
+
+/** One parameter as the inspector shows it. */
+export interface ParamInfo {
+  name: string;
+  base: BaseSpec;
+  baseLabel: string;
+  array: boolean;
+  optional: boolean;
+}
 
 const paramInfo = (p: Parameter): ParamInfo => {
   const base = baseSpecOf(p.type);
@@ -179,31 +167,6 @@ export function opSurface(ast: Model, agg: string, op: string): OpSurface | null
     private: node.private === true,
     extern: node.extern === true,
     audited: node.audited === true,
-  };
-}
-
-/** Everything the inspector shows on a repository `find` header. */
-export interface FindSurface {
-  name: string;
-  params: ParamInfo[];
-  returnType: TypeSpec;
-  returnTypeText: string;
-  where: string | null;
-  /** `"*"` for `ignoring *`, the capability names for `ignoring A, B`, null
-   *  when the clause is absent. */
-  ignoring: "*" | string[] | null;
-}
-
-export function findSurface(ast: Model, repo: string, find: string): FindSurface | null {
-  const node = findDeclOf(ast, repo, find);
-  if (!node) return null;
-  return {
-    name: node.name,
-    params: node.params.map(paramInfo),
-    returnType: specOf(node.returnType),
-    returnTypeText: node.returnType.$cstNode?.text.trim() ?? "",
-    where: node.filter?.$cstNode?.text.trim() ?? null,
-    ignoring: node.bypassAll ? "*" : node.bypass.length > 0 ? [...node.bypass] : null,
   };
 }
 
@@ -433,65 +396,4 @@ export function setOpModifier(
         ? (firstToken(tokens, "extern")?.end ?? close.end)
         : close.end;
   return ifParses(applyEdits(source, [{ offset: at, end: at, newText: ` ${modifier}` }]));
-}
-
-// --- find header -----------------------------------------------------------
-
-/** End offset of the last `find` header element before the `ignoring`
- *  clause (a find carries no gate: who may read the aggregate is
- *  `policy { read X requires … }`). */
-function findAnchorBefore(find: FindDecl): number | null {
-  let at = find.returnType.$cstNode?.end;
-  if (at === undefined) return null;
-  if (find.filter?.$cstNode) at = find.filter.$cstNode.end;
-  return at;
-}
-
-/** Span of an existing `ignoring …` clause — the keyword through its last
- *  name / the `*`.  The names are plain `ID`s (capabilities are resolved by
- *  the expander's inventory, not by Langium scoping), so their CST nodes come
- *  from the property lookup rather than from a cross-reference. */
-function ignoringRange(find: FindDecl): { offset: number; end: number } | null {
-  const keyword = firstToken(ownTokens(find), "ignoring");
-  if (!keyword) return null;
-  let end = keyword.end;
-  const cst = find.$cstNode;
-  if (find.bypassAll) {
-    const star = GrammarUtils.findNodeForProperty(cst, "bypassAll");
-    if (star) end = Math.max(end, star.end);
-  }
-  for (const n of GrammarUtils.findNodesForProperty(cst, "bypass")) end = Math.max(end, n.end);
-  return { offset: keyword.offset, end };
-}
-
-/** Add / replace / remove a find's `ignoring` clause: `"*"` bypasses every
- *  capability filter, a name list bypasses exactly those, `null` drops it. */
-export function setFindIgnoring(
-  source: string,
-  repo: string,
-  find: string,
-  spec: "*" | readonly string[] | null,
-): string | null {
-  const node = locateFind(source, repo, find);
-  if (!node) return null;
-  const existing = ignoringRange(node);
-  const names = spec === null || spec === "*" ? [] : spec.map((s) => s.trim()).filter(Boolean);
-  // An empty name list is the same request as "drop the clause".
-  const drop = spec === null || (spec !== "*" && names.length === 0);
-  if (drop) {
-    if (!existing) return source;
-    const from = findAnchorBefore(node);
-    if (from === null) return null;
-    return ifParses(applyEdits(source, [{ offset: from, end: existing.end, newText: "" }]));
-  }
-  if (names.some((n) => !IDENTIFIER.test(n))) return null;
-  const clause = `ignoring ${spec === "*" ? "*" : names.join(", ")}`;
-  if (existing) {
-    return ifParses(
-      applyEdits(source, [{ offset: existing.offset, end: existing.end, newText: clause }]),
-    );
-  }
-  const at = findAnchorBefore(node);
-  if (at === null) return null;
-  return ifParses(applyEdits(source, [{ offset: at, end: at, newText: ` ${clause}` }]));
 }

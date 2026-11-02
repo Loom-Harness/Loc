@@ -93,8 +93,6 @@ export type ViewKind =
   // operation gets; the root banner takes the member's own create / destroy /
   // apply tint (see `bodyStepKind`).
   | "body"
-  // a single repository find — the leaf of a repository view
-  | "find"
   // aggregate-level invariant — a synthetic node (Invariant has no name; the
   // node carries a preview of its expression as `name`)
   | "invariant"
@@ -265,7 +263,6 @@ const DRILLABLE: ReadonlySet<ViewKind> = new Set([
   "entity",
   "operation",
   "workflow",
-  "repository",
   // Containment leaves drill into the entity they reference (see VNode.drillTo).
   "containment",
   // Read-only drill-ins: a domain service opens its operation list, a
@@ -418,8 +415,7 @@ const TITLE_Y_OFFSET = 200;
 
 /** ViewKinds that act as the *structural pivot* of their containing view —
  *  the "core" children of the root (context → workflows + aggregates,
- *  aggregate → state fields, module → contexts, repository → finds,
- *  system → modules). These get centre-routed `contains` edges so the
+ *  aggregate → state fields, module → contexts, system → modules). These get centre-routed `contains` edges so the
  *  root↔pivot link forms the visible structural backbone; the supporting /
  *  infrastructure tiers (repos, views, events) side-route around. */
 const PIVOT_CONTAINS_KINDS: ReadonlySet<ViewKind> = new Set<ViewKind>([
@@ -429,7 +425,6 @@ const PIVOT_CONTAINS_KINDS: ReadonlySet<ViewKind> = new Set<ViewKind>([
   "containment",
   "subdomain",
   "context",
-  "find",
 ]);
 
 /** ViewKinds for which we skip the `contains` backdrop entirely. These
@@ -491,7 +486,7 @@ function withRoot(
   // ones that would just add noise:
   //   - PIVOT children (workflow + aggregate + valueobject in the context view;
   //     fields / containments in the aggregate view; modules / contexts in the
-  //     system view; finds in the repository view) get a straight-down edge
+  //     system view) get a straight-down edge
   //     from the root's BOTTOM handle. This keeps the primary structural link
   //     visually prominent in the centre column.
   //   - Anything else gets routed via the root's LEFT/RIGHT handle as a faint
@@ -1997,51 +1992,6 @@ function projectionView(ast: Model, name: string): ViewGraph {
   );
 }
 
-function findRepository(ast: Model, name: string): Repository | undefined {
-  const visit = (members: ContextMember[]): Repository | undefined => {
-    for (const cm of members) {
-      if (cm.$type === "Repository" && (cm as Repository).name === name) return cm as Repository;
-    }
-    return undefined;
-  };
-  for (const m of ast.members) {
-    if (m.$type === "BoundedContext") {
-      const r = visit((m as BoundedContext).members);
-      if (r) return r;
-    } else if (m.$type === "System") {
-      for (const sm of (m as System).members) {
-        if (sm.$type === "BoundedContext") {
-          const r = visit((sm as BoundedContext).members);
-          if (r) return r;
-        }
-        if (sm.$type === "Subdomain") {
-          for (const c of (sm as Subdomain).contexts) {
-            const r = visit(c.members);
-            if (r) return r;
-          }
-        }
-      }
-    }
-  }
-  return undefined;
-}
-
-function repositoryView(ast: Model, name: string): ViewGraph {
-  const repo = findRepository(ast, name);
-  if (!repo) return { title: `repository ${name}`, nodes: [], edges: [] };
-  const items: RawItem[] = repo.finds.map((f) => ({
-    id: nid("find", f.name),
-    kind: "find" as const,
-    name: f.name,
-  }));
-  return withRoot(
-    { title: `repository ${name}`, nodes: layout(items, ["find"]), edges: [] },
-    "repository",
-    name,
-    { connectAll: true },
-  );
-}
-
 /** Per-call view options the drill path itself can't express. */
 export interface ViewOptions {
   /** Which statement-bearing member of the workflow at the path leaf to open —
@@ -2089,8 +2039,6 @@ export function buildViewGraph(ast: Model, path: ViewPath, opts: ViewOptions = {
     }
     case "workflow":
       return workflowView(ast, last.name, opts.workflowMember);
-    case "repository":
-      return repositoryView(ast, last.name);
     case "domainservice":
       return domainServiceView(ast, last.name);
     case "projection":

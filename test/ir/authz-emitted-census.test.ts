@@ -79,7 +79,7 @@ import { loadPopulation } from "./authz-gate-census-population.js";
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** The two historical leaks' SHAPES, which no corpus fixture combines:
- *  `policy { deny }` + `find … ignoring *` on one aggregate (F2-ADP-1), and a
+ *  `policy { deny }` + a read `ignoring *` on one aggregate (F2-ADP-1), and a
  *  query-time aggregation over a `tenantOwned` source — whole-table, grouped,
  *  and one that `ignoring`s the tenant floor (audit A1). */
 const LEAK_SHAPES = `system LeakShapes {
@@ -101,17 +101,28 @@ const LEAK_SHAPES = `system LeakShapes {
         status: OrderStatus
       }
 
-      // Single-row finds: an \`ignoring\` is a per-METHOD fact on a find (a
-      // criterion takes it per call, at each \`Repo.run\`), so the bypass
-      // shapes stay finds.
-      repository Secrets for Secret {
-        find byCode(c: string): Secret? where this.code == c
-        find anyTenant(c: string): Secret? where this.code == c ignoring tenantOwned
-        find everything(c: string): Secret? where this.code == c ignoring *
-      }
+      // Single-row widened reads: each \`find(C) ignoring …\` derives a
+      // repository method of its own carrying the stance, beside the
+      // unwidened read of the same criterion.
+      repository Secrets for Secret
+      criterion SecretsEverything(c: string) of Secret = this.code == c
+      criterion SecretsByCode(c: string) of Secret = this.code == c
+      criterion SecretsAnyTenant(c: string) of Secret = this.code == c
 
-      repository Orders for Order {
-        find allTenants(c: string): Order? where this.code == c ignoring *
+      repository Orders for Order
+      criterion OrdersAllTenants(c: string) of Order = this.code == c
+
+      queryHandler Everything(c: string): Secret {
+        if let x = Secrets.find(SecretsEverything(c)) ignoring * { return x } else { notFound "not_found" }
+      }
+      queryHandler ByCode(c: string): Secret {
+        if let x = Secrets.find(SecretsByCode(c)) { return x } else { notFound "not_found" }
+      }
+      queryHandler AnyTenant(c: string): Secret {
+        if let x = Secrets.find(SecretsAnyTenant(c)) ignoring tenantOwned { return x } else { notFound "not_found" }
+      }
+      queryHandler AllTenants(c: string): Order {
+        if let x = Orders.find(OrdersAllTenants(c)) ignoring tenantOwned { return x } else { notFound "not_found" }
       }
 
       projection OrderVolume {
@@ -166,9 +177,10 @@ const LEAK_SHAPES = `system LeakShapes {
 
 /** Every `requires` surface class in one system: two operations guarded by
  *  the SAME predicate (so a dropped gate cannot hide behind its twin's detail
- *  literal), a gated `find all` (which the audit-history read inherits), a
- *  gated named find, a gated query-time projection, a workflow's instance-read
- *  header gate and its command-entry gate, and a route-bound command handler. */
+ *  literal), the aggregate's read gate (`policy { read … }`, which the list
+ *  and the audit-history read inherit), a gated query-time projection, a
+ *  workflow's instance-read header gate and its command-entry gate, and a
+ *  route-bound command handler. */
 const GATE_SHAPES = `system GateShapes {
   user { id: string  role: string }
   subdomain Desk {
@@ -183,9 +195,7 @@ const GATE_SHAPES = `system GateShapes {
           open := true
         }
       }
-      repository Tickets for Ticket {
-        find all(): Ticket[]
-      }
+      repository Tickets for Ticket
       criterion TicketsOpenOnes of Ticket = this.open == true
       policy { read Ticket requires currentUser.role == "auditor" }
       projection OpenCount requires currentUser.role == "lead" {
@@ -579,9 +589,9 @@ function seed(files: ReadonlyMap<string, string>, edits: readonly Edit[]): Map<s
   return out;
 }
 
-/** F2-ADP-1 (#2668 wave 1): `find … ignoring *` on a `policy { deny }` aggregate
+/** F2-ADP-1 (#2668 wave 1): a read `ignoring *` on a `policy { deny }` aggregate
  *  lifts the deny carve-out with the bypass.  Seeded in each backend's own
- *  spelling of the `everything` read — for .NET, literally the two shipped
+ *  spelling of the `everything` read (`find(SecretsEverything(c)) ignoring *`) — for .NET, literally the two shipped
  *  defects (EF's parameterless `IgnoreQueryFilters()`, Dapper's dropped
  *  `AND 1 = 0`); for java, whose deny is an entity-level `@SQLRestriction`
  *  nothing can lift, the only way the bypass could reach it: the carve-out
@@ -590,9 +600,9 @@ const LEAK_DENY: Record<VariantId, Edit[]> = {
   node: [
     {
       file: /secret-repository\.ts$/,
-      after: "async everything(",
-      from: 'and(eq(schema.secrets.code, c), secretScope({ ignoring: "*" }))',
-      to: "eq(schema.secrets.code, c)",
+      after: "async findFirstSecretsEverythingIgnoringAll(",
+      from: 'and(secretsEverythingCriterion(c), secretScope({ ignoring: "*" }))',
+      to: "secretsEverythingCriterion(c)",
     },
   ],
   // The deny carve-out is a named default filter (`loom.deny`) no `ignoring`
@@ -600,7 +610,7 @@ const LEAK_DENY: Record<VariantId, Edit[]> = {
   mikroorm: [
     {
       file: /secret-repository\.ts$/,
-      after: "async everything(",
+      after: "async findFirstSecretsEverythingIgnoringAll(",
       from: '{ filters: { "tenantOwned": false } }',
       to: '{ filters: { "tenantOwned": false, "loom.deny": false } }',
     },
@@ -608,7 +618,7 @@ const LEAK_DENY: Record<VariantId, Edit[]> = {
   dotnet: [
     {
       file: /Repositories\/SecretRepository\.cs$/,
-      after: " Everything(",
+      after: " FindFirstSecretsEverythingIgnoringAll(",
       from: 'IgnoreQueryFilters(["TenantIdFilter"])',
       to: "IgnoreQueryFilters()",
     },
@@ -616,7 +626,7 @@ const LEAK_DENY: Record<VariantId, Edit[]> = {
   dapper: [
     {
       file: /Repositories\/SecretRepository\.cs$/,
-      after: " Everything(",
+      after: " FindFirstSecretsEverythingIgnoringAll(",
       from: 'WHERE (code = @c) AND " + SecretScope.WhereIgnoringAll',
       to: 'WHERE (code = @c)"',
     },
@@ -629,9 +639,9 @@ const LEAK_DENY: Record<VariantId, Edit[]> = {
     },
     {
       file: /SecretRepositoryImpl\.java$/,
-      after: "everything(String c)",
-      from: "var result = jpa.everything(c);",
-      to: 'em.unwrap(org.hibernate.Session.class).disableFilter("deny");\n        var result = jpa.everything(c);',
+      after: "findFirstSecretsEverythingIgnoringAll(String c)",
+      from: "var result = jpa.findFirstSecretsEverythingIgnoringAll(c,",
+      to: 'em.unwrap(org.hibernate.Session.class).disableFilter("deny");\n            var result = jpa.findFirstSecretsEverythingIgnoringAll(c,',
     },
   ],
   // The deny is a hook criterion no `ignoring` gates; seeded as the one way the
@@ -647,7 +657,7 @@ const LEAK_DENY: Record<VariantId, Edit[]> = {
   elixir: [
     {
       file: /secret_repository\.ex$/,
-      after: "def everything(",
+      after: "def find_first_secrets_everything_ignoring_all(",
       from: '(record.code == ^c) and (fragment("false"))',
       to: "record.code == ^c",
     },
@@ -795,8 +805,8 @@ const MASK_LEAK: Record<VariantId, Edit[]> = {
   python: [
     {
       file: /employee_routes\.py$/,
-      from: "return repo.to_wire_masked(found)",
-      to: "return repo.to_wire(found)",
+      from: "return repo.to_wire_masked(await repo.get_by_id(EmployeeId(id)))",
+      to: "return repo.to_wire(await repo.get_by_id(EmployeeId(id)))",
     },
   ],
   elixir: [

@@ -21,10 +21,10 @@ describe("System builder — rename with reference updates", () => {
     // merely starts with "Customer", is left alone).
     expect(src).toMatch(/repository Customers for Client\b/);
 
-    // `Customer id` part-type references followed; the field decl + find
+    // `Customer id` part-type references followed; the field decl + criterion
     // params now point at the renamed aggregate.
     expect(src).toMatch(/customerId: Client id/);
-    expect(src).toMatch(/find byCustomer\(customerId: Client id\)/);
+    expect(src).toMatch(/criterion OrdersByCustomer\(customerId: Client id\)/);
 
     // No real reference to the old name survives in code (comments, which can
     // mirror the field syntax verbatim, are not references and stay intact).

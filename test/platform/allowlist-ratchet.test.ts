@@ -77,7 +77,12 @@ const REGISTERED: Ratchet[] = [
     //
     // 15 -> 14: -HandleDecl — the workflow `handle` member left the grammar
     // (D-HANDLE-REMOVAL), so there is no kind left to allowlist.
-    max: 14,
+    //
+    // 14 -> 12: -MacroArgString (`scaffoldGet(of:, key: "…")` covers it),
+    // -Route, -HandlerRef (`scaffoldGetApi` synthesises the route binding),
+    // +VariantArm (its witness matched a union find's result; union finds are
+    // gone, see D-FINDDECL-REMOVED).
+    max: 12,
   },
   // Walker primitives with a TSX renderer but no HEEx one.  Empty: the last
   // entry — `ProvenanceInfo`, the provenance "?" disclosure — landed its HEEx
@@ -387,7 +392,9 @@ const REGISTERED: Ratchet[] = [
     // register, re-derive the bound from the merged register's row count.
     // 17 → 18: `optional-let`, a compile-tier row (the emitted null-handling
     // form of a `let`-bound optional read); its booted block is #4335.
-    max: 18,
+    // 18 → 17: `envelope` — the carrier's BY-DESIGN row named the single-row
+    // `T envelope` find, which no longer exists, so its corpus case went too.
+    max: 17,
   },
 ];
 

@@ -1,130 +1,73 @@
 # 10. Repositories, queries & projections
 
-Reading data: the `repository` container and its `find` operations, the natural-key reads `getBy` / `findBy` over a declared `unique (…)` key, the restricted "queryable subset" a `where` clause admits, reusable `criterion` predicate specifications, `Repo.run(<Criterion>)` and `retrieval` query bundles with `sort`/`loads`, the `paged`/`envelope`/`option` return shapes, the `ignoring` capability-filter bypass, and — the read-model surface that replaced the removed `view` — `projection` in its two flavours: **query-time** (`from … where … join … group by … select …`, computed on every read) and **folded** (`keyed by` + `on(e: Event) { … }`, a materialized read-model table). Reach for it when you need to know exactly what SQL a read lowers to on each backend, why a `where` is rejected, or which read shape (find / criterion / retrieval / projection) to pick.
+Reading data: the `repository` and its read contract, the natural-key reads `getBy` / `findBy` over a declared `unique (…)` key, the restricted "queryable subset" a `where` clause admits, reusable `criterion` predicate specifications, `Repo.find(<Criterion>)` / `Repo.run(<Criterion>)` and `retrieval` query bundles with `sort`/`loads`, the `paged` read shape, the `ignoring` capability-filter bypass, and — the read-model surface that replaced the removed `view` — `projection` in its two flavours: **query-time** (`from … where … join … group by … select …`, computed on every read) and **folded** (`keyed by` + `on(e: Event) { … }`, a materialized read-model table). Reach for it when you need to know exactly what SQL a read lowers to on each backend, why a `where` is rejected, or which read shape (contract verb / criterion / retrieval / projection) to pick.
 
-> **Grammar:** `Repository`, `FindDecl`, `IgnoringClause` (fragment), `Criterion`, `Retrieval`, `RetrievalLiteral`, `SortItem`, `LoadPath`, `Projection`, `ProjectionMember`, `ProjectionOn`, `ProjectionJoin`, `ProjectionSelect`, `QueryHandler` · **Validators:** `loom.find-where-not-queryable` / `-unknown-field` / `-column-column`, `loom.find-reserved-name`, `loom.duplicate-find`, `loom.find-param-unbound`, `loom.repo-key-not-unique`, `loom.repo-key-incomplete`, `loom.list-find-removed`, `loom.policy-read-gate-not-current-user`, `loom.index-suggestion`, `loom.findall-*`, `loom.criterion-*` (incl. `loom.criterion-retrieval-name-clash`), `loom.retrieval-*`, `loom.filter-bypass-*`, `loom.ignoring-clause-placement`, `loom.projection-*` (30 codes), `loom.field-mask-projection-source`, `loom.read-context-repo-write`, `loom.paged-query-handler-shape`, `loom.paged-param-reserved` (queryable oracle: `firstNonQueryableNode` + `firstNonQueryablePredicate` in `src/ir/validate/checks/shared.ts`) · **Docs:** [`../criterion.md`](../criterion.md), [`../scaffold-macros.md`](../scaffold-macros.md) (`scaffoldPaged`, `scaffoldDashboard`)
+> **Grammar:** `Repository`, `IgnoringClause` (fragment), `Criterion`, `Retrieval`, `RetrievalLiteral`, `SortItem`, `LoadPath`, `Projection`, `ProjectionMember`, `ProjectionOn`, `ProjectionJoin`, `ProjectionSelect`, `QueryHandler` · **Validators:** `loom.parse-error#find-removed`, `loom.repo-key-not-unique`, `loom.repo-key-incomplete`, `loom.policy-read-gate-not-current-user`, `loom.index-suggestion`, `loom.findall-*`, `loom.criterion-*` (incl. `loom.criterion-retrieval-name-clash`), `loom.retrieval-*`, `loom.filter-bypass-*`, `loom.ignoring-clause-placement`, `loom.projection-*` (30 codes), `loom.field-mask-projection-source`, `loom.read-context-repo-write`, `loom.paged-query-handler-shape`, `loom.paged-param-reserved` (queryable oracle: `firstNonQueryableNode` + `firstNonQueryablePredicate` in `src/ir/validate/checks/shared.ts`) · **Docs:** [`../criterion.md`](../criterion.md), [`../scaffold-macros.md`](../scaffold-macros.md) (`scaffoldGet`, `scaffoldPaged`, `scaffoldDashboard`)
 
 All multi-backend examples below are generated from one scratch `system` (`Catalog` context: `Product`, `Customer`, `Order with softDeletable`) once per backend pin; output is excerpted.
 
-## `repository` & `find`
+## `repository` — the read contract
 
-A `repository` binds reads to one aggregate (`repository Name for Agg`). It contains `find` operations — each `find name(params): T [where <expr>] [ignoring …]`. The return type `T` is an ordinary [type reference](04-type-system.md): a single aggregate, an option `T?`, a collection `T[]`, or a transport carrier (`T paged` / `T envelope` / `T option`). Every repository also gets two reads for free without declaring them: a by-primary-key lookup (`findById` / `getById`) and a **paged, sortable** load-all (`all(page, pageSize, sort, dir)` — auto-`findAll` is derived in enrichment, phase ⑥, and is paged by default), so a bare `repository Foo for Foo { }` is already queryable. A declared find may not take the name of a built-in repository verb of the language — `getById`, `findById`, `getBy`, `findBy`, `findAll`, `run`, or a write verb (`save`, `insert`, `update`, `delete`, `add`, `remove`, `commit`) — because `Repo.<name>(…)` already means the built-in (`loom.find-reserved-name`); nor may it repeat itself (`loom.duplicate-find`). A declared `find all` is allowed and replaces the auto-paged load-all. No name is reserved because of a target backend: each emitter escapes a find whose rendered method would collide with one it emits itself (on .NET, `getByIdAsync` → `GetByIdAsyncFind`).
+A `repository` binds reads to one aggregate: `repository Name for Agg`, with an optional, empty `{ }`. It declares no reads of its own. Every read is one of the contract verbs (`src/util/repository-contract.ts`), each generated on every repository that is called with it:
 
-```ddd
-aggregate Product with crudish { sku: string  name: string  price: money }
+| Call | Reads | Yields |
+|---|---|---|
+| `Repo.getById(id)` | the row with that id | `T` — a miss answers the standard ProblemDetails 404 |
+| `Repo.findById(id)` | the row with that id | `T?` |
+| `Repo.getBy(<col>: v, …)` | the row with a declared `unique (…)` key | `T` — a miss answers 404 |
+| `Repo.findBy(<col>: v, …)` | the row with a declared `unique (…)` key | `T?` |
+| `Repo.find(<Criterion>(args))` | the first row a criterion matches, in id order | `T?` |
+| `Repo.findAll(<Criterion>(args))` / `Repo.run(<Criterion \| Retrieval>(args))` | every matching row (paged with `page:` / by a paged `queryHandler`) | `T[]` |
+| `Repo.all` | every row — paged (`page`, `pageSize`, `sort`, `dir`) for a plain relational aggregate | `T paged` |
 
-repository Products for Product {
-  find bySku(s: string): Product?      where this.sku == s
-}
-```
-
-`bySku` returns `Product?` (zero-or-one):
-
-::: tabs backend
-== node
-```ts
-// db/repositories/product-repository.ts — Drizzle
-async bySku(s: string): Promise<Product | null> {
-  const rootRows = await this.db.select().from(schema.products).where(eq(schema.products.sku, s)).limit(1);
-  if (rootRows.length === 0) return null;
-  return Product._rehydrate({ id: Ids.ProductId(rootRows[0]!.id), sku: rootRows[0]!.sku, name: rootRows[0]!.name, price: new Decimal(rootRows[0]!.price), version: rootRows[0]!.version });
-}
-
-// free reads
-async findById(id: Ids.ProductId): Promise<Product | null> { /* … */ }
-async all(page: number, pageSize: number, sort: string, dir: string): Promise<{ items: Product[]; page: number; pageSize: number; total: number; totalPages: number }> { /* … */ }
-```
-== dotnet
-```csharp
-// Infrastructure/Repositories/ProductRepository.cs — EF Core
-public async Task<Product?> BySku(string s, CancellationToken cancellationToken = default)
-{
-    var result = await _db.Products.Where(x => x.Sku == s).FirstOrDefaultAsync(cancellationToken);
-    return result;
-}
-```
-== java
-```java
-// features/products/ProductJpaRepository.java — JPQL per find
-@Query("select e from Product e where e.sku = :s")
-Product bySku(@Param("s") String s);
-```
-== python
-```python
-# app/db/repositories/product_repository.py — SQLAlchemy
-async def by_sku(self, s: str) -> Product | None:
-    row = (await self._session.execute(select(ProductRow).where((ProductRow.sku == s)))).scalars().first()
-    if row is None:
-        return None
-    return await self._hydrate(row)
-```
-== elixir
-```elixir
-# lib/d/catalog/product_repository.ex — Ecto
-def by_sku(s) do
-  query = from(record in D.Catalog.Product, where: record.sku == ^s)
-  {:ok, Repo.one(query)}
-end
-```
-::: end
-
-The comparison binds **one column against one value** (a parameter, literal, or enum value) on every backend — that constraint is what makes the clause selectable, and it is enforced (see the queryable subset below).
-
-### A find without `where` — key lookup by parameter name
-
-A find with no `where` filters on the fields its parameters name: each parameter
-equals the field of the same name, or the field whose `<field>Id` spelling it is
-(`siteId` → `site`). The pairing is resolved once in enrichment and stored on
-the find, so every backend filters on the same keys. A parameter that names no
-field is refused (`loom.find-param-unbound`) — it would otherwise be dropped
-from the query, and the find would answer every lookup with an arbitrary row.
+A `T?` read is an `if let` source, and a plain `let` binds it as `T?`. A trailing `ignoring …` widens one call past the capability filters (see [`ignoring`](#ignoring--capability-filter-bypass)). A name no verb spells — `Orders.byCode(c)` — is refused (`loom.workflow-unknown-repository-method` in a workflow, an unresolved member elsewhere).
 
 ```ddd
-repository Products for Product {
-  find bySku(sku: string): Product?     // ≡ where this.sku == sku
-  find bySkuOops(s: string): Product?   // loom.find-param-unbound: 's' names no field
+aggregate Product with crudish { sku: string  name: string  price: money  unique (sku) }
+repository Products for Product
+
+criterion Pricey(floor: money) of Product = this.price >= floor
+
+let p = Products.getBy(sku: s)                       // Product
+if let q = Products.find(Pricey(floor)) { … }        // Product? — the first match
+let xs = Products.run(Pricey(floor))                  // Product[]
+```
+
+### `find` declarations are removed
+
+Before the repository contract, a repository body declared its own reads — `find byCode(c: string): Order? where this.code == c`, `find all(): Order[]`. That declaration is gone ([D-FINDDECL-REMOVED](../decisions.md)); a `find` left in a repository body is a parse error at the `find`:
+
+```ddd
+repository Orders for Order {
+  find byCode(c: string): Order? where this.code == c
 }
 ```
 
-```ts
-// node — product-repository.ts
-async bySku(sku: string): Promise<Product | null> {
-  const rootRows = await this.db.select().from(schema.products).where(eq(schema.products.sku, sku)).limit(1);
+```
+error  loom.parse-error
+A repository declares no `find`s any more: read 'Order' through the repository contract instead —
+`Orders.findById(id)` / `getById(id)`, `Orders.findBy(<column>: v)` / `getBy(…)` over a declared
+`unique (…)` key, or a `criterion` read with `Orders.find(C)` (the first match), `findAll(C)` or
+`run(C)`. A read a client calls is a `queryHandler` or `scaffoldGet`. Leave the repository body
+empty (`repository Orders for Order`).
 ```
 
-### List finds are removed
+Each old shape has one replacement:
 
-A find returning a list is an **error** — `loom.list-find-removed`:
-
-```ddd
-repository Products for Product {
-  find pricey(floor: money): Product[] where this.price >= floor
-}
-```
-
-```
-error  loom.list-find-removed
-repository find 'pricey' returns a list, and list finds are removed — declare a 'criterion'
-(run it with Repo.run(<Criterion>(args))) or a 'retrieval' instead, and put it on the wire with
-'scaffoldPaged(of: <it>)' on the context plus 'scaffoldPagedApi(of: <it>)' on the api when a
-client must call it; 'node scripts/codemod-list-find-to-criterion.mjs <path>' rewrites it.
-```
-
-The list read is a criterion, run through the repository:
-
-```ddd
-repository Products for Product { }
-criterion ProductsPricey(floor: money) of Product = this.price >= floor
-// … let xs = Products.run(ProductsPricey(floor))
-```
-
-Every find returning `T[]` or `T paged` gets it, in every context, except `find all(…)` — the author's override of the repository's list endpoint ([`criterion.md`](../criterion.md#advisories--the-compiler-steers-you-toward-criteria)). A unique-key reconstitution find returning `T` / `T?` stays fine — provided the key really is unique: a single-row find keyed by equality on fields that no `unique (…)` covers gets the advisory `loom.single-row-find-not-unique` (declare `unique (number)` beside `find byNumber(number: string): Ticket?`). The compiler-synthesised reads (auto-`findAll`, `scaffoldPaged`'s paged find) are exempt. The replacements are §[`criterion`](#criterion), §[`Repo.run` / paged `queryHandler`](#reporun--the-paged-queryhandler) and §[`projection`](#projection--the-read-model). A query that filters an un-indexed column — a `find … where`, a `criterion` body or a `retrieval`'s `where` — also gets an advisory `loom.index-suggestion` pointing at the `resource … { index: [Agg.col] }` hatch ([chapter 14](14-apis-storage-resources-channels.md#resource)).
-
-`node scripts/codemod-list-find-to-criterion.mjs <path>` makes that migration ([D-LIST-FIND-REMOVED](../decisions.md)): one criterion per list find beside its repository, named `<Plural><Find>`, with the find's `where` as its body (or, for a find written without `where`, the parameter-name convention spelled out — `this.customerId == customerId`); each `Repo.<find>(args)` call becomes `Repo.run(<Criterion>(args))`.  A parameterless, filterless list find read every row, so it becomes the repository's `find all`.  When a `test e2e` reads the find's route (`api.<plural>.<find>(…)`), the codemod keeps it on the wire as a routed `queryHandler List<Criterion>` over `Repo.run` on the same path (each parameter a `{token}`), and repoints the read to `api.<context>.list<Criterion>(…)`.  What it cannot rewrite — a page reading the route, a find with no api in the same source — it lists.
+| Was | Is |
+|---|---|
+| `find byId(id: Order id): Order?` | `Orders.findById(id)` / `getById(id)` |
+| `find bySku(sku: string): Product?` over a unique key | `unique (sku)` on the aggregate + `Products.findBy(sku: s)` / `getBy(…)` |
+| `find byCode(c): Order? where <predicate>` | `criterion ByCode(c: string) of Order = <predicate>` + `Orders.find(ByCode(c))` |
+| `find x(…): T[]` / `T paged` (a list) | a `criterion` / `retrieval` + `Orders.run(C(…))` — §[`Repo.run`](#reporun--the-paged-queryhandler) |
+| `find all(): T[]` / `T paged` | the implicit `all` (paged for a plain relational aggregate) |
+| `… ignoring <Cap>` on a find | `ignoring <Cap>` on the call (`Orders.find(C) ignoring softDeletable`) |
+| `T or <Error>` / `T option` / `T envelope` returns | `T?` (a miss is absence) / `T` (a miss is the standard 404) |
+| the find's route `GET /<aggs>/<find>` | `scaffoldGet` + `scaffoldGetApi` (same URL — [`scaffold-macros.md`](../scaffold-macros.md)) or a routed `queryHandler` |
 
 ## Natural-key reads — `getBy` / `findBy`
 
-A read by a natural key needs no `find`. When the aggregate declares the key `unique (…)`, the repository answers it through two contract verbs ([D-REPO-KEY-LOOKUP](../decisions.md)):
+When the aggregate declares the key `unique (…)`, the repository answers it through two contract verbs ([D-REPO-KEY-LOOKUP](../decisions.md)):
 
 ```ddd
 aggregate Product with crudish, softDeletable {
@@ -132,7 +75,7 @@ aggregate Product with crudish, softDeletable {
   unique (sku)
   unique (region, name)
 }
-repository Products for Product { }
+repository Products for Product
 
 let p = Products.getBy(sku: s)                        // Product — a miss answers the standard 404
 if let q = Products.findBy(name: n, region: r) { … }  // Product? — any argument order
@@ -215,51 +158,35 @@ end
 ```
 ::: end
 
-`node scripts/codemod-find-to-findby.mjs [--add-unique] <path>` migrates every single-row find (`T?` / `T option`, `T` / `T envelope`, `T or <Error>` — a miss is `T?`) to one of three targets, deleting the declaration:
-
-- a key equal to a declared `unique (…)` tuple → `Repo.findBy(<col>: arg, …)` / `Repo.getBy(…)`, carrying the find's `ignoring` (as do `findById` and `find(C)`; `getById` does not);
-- the aggregate's `id` → the built-in `Repo.findById(arg)` / `Repo.getById(arg)`;
-- any other key or queryable `where` → a `criterion <Plural><Find>(params) of <Agg> = <where>` beside the repository (an existing criterion is reused when the `where` is exactly one), read with `Repo.find(<Criterion>(args))` — the first match, `T?`.
-
-A clause-less find binds its parameters to the fields they name, so it counts as that equality conjunction. A find is migrated only when every call site can take its target: a `T?` read (`findBy`, `findById`, `find(C)`, each optionally widened with `ignoring`) is accepted as an `if let` source, a `let` (it binds `T?`) or in a domain-service expression; and a must-exist (`T`) find over a non-unique key becomes `if let … else { notFound }` where the call site is a `let` the rest of its block can move under. Other call sites are reported and the find stays, as are a `T or <Error>` call site that matches on the error variant, a must-exist by-id find with `ignoring` (`getById` cannot carry it), a `where` that reads `currentUser`, a find with neither `where` nor parameters, and a find whose route a client reads. `--add-unique` declares the key instead of writing a criterion; it never runs by default.
-
 ## The queryable subset
 
-A `find … where` (and a `retrieval` `where`, a `projection` `where`, a capability `filter`) is **not** a general expression — it must lower to SQL. The oracle `firstNonQueryableNode` admits exactly: comparisons (`== != < <= > >=`), `&& || !`, parenthesised groups, `this.<column>` (or the projection alias `o.<column>`) and one-level `this.<vo>.<sub>` flattened value-object refs, `currentUser.<field>`, parameter refs, literals and enum values, a named `criterion` reference, membership over a reference collection (`this.<refColl>.contains(x)` — an `EXISTS` subquery), and the bool-returning queryable intrinsics with the **column as receiver** (`this.path.startsWith(p)` → a prefix filter). Everything richer is rejected — lambdas, collection projections (`.count` / `.first`), arithmetic, value-object construction, calls, ternaries, `match`, conversions, and column-vs-column comparisons.
+A `criterion` body (and a `retrieval` `where`, a `projection` `where`, a capability `filter`) is **not** a general expression — it must lower to SQL. The oracle `firstNonQueryableNode` admits exactly: comparisons (`== != < <= > >=`), `&& || !`, parenthesised groups, `this.<column>` (or the projection alias `o.<column>`) and one-level `this.<vo>.<sub>` flattened value-object refs, `currentUser.<field>`, parameter refs, literals and enum values, a named `criterion` reference, membership over a reference collection (`this.<refColl>.contains(x)` — an `EXISTS` subquery), and the bool-returning queryable intrinsics with the **column as receiver** (`this.path.startsWith(p)` → a prefix filter). Everything richer is rejected — lambdas, collection projections (`.count` / `.first`), arithmetic, value-object construction, calls, ternaries, `match`, conversions, and column-vs-column comparisons.
 
 ```ddd
-repository Orders for Order {
-  // rejected: `.count` on a list is a projection needing a subquery
-  find busy(): Order? where this.lines.count > 0
-}
+// rejected: `.count` on a list is a projection needing a subquery
+criterion Busy of Order = this.lines.count > 0
+// … if let o = Orders.find(Busy) { … }
 ```
 
 ```
-error  loom.find-where-not-queryable
-repository 'Orders' find 'busy': where-clause is not queryable (collection projection
-'.count' on a list). Allowed: comparisons, &&/||/!, parens, 'this.<column>' /
-'this.<vo>.<sub>' refs, parameter refs, literals.
+error  loom.retrieval-where-not-queryable
+retrieval 'findAllByBusy': where-clause is not queryable (collection projection '.count' on a
+list). Allowed: comparisons, &&/||/!, parens, 'this.<column>' / 'this.<vo>.<sub>' refs,
+parameter refs, literals.
 ```
 
-Sibling codes for the same position: `loom.find-where-unknown-field` (a `this.<x>` that isn't a real column), `loom.find-where-column-column` (both sides of a comparison are columns — `eq()` needs one column and one value), and the `loom.retrieval-where-*` / `loom.projection-where-not-queryable` / `loom.criterion-not-selectable` twins for the other three positions. There is no per-backend escape hatch: rejecting at the IR layer means no backend silently emits broken SQL, and as of wave C2 packet 2n there is no per-ADAPTER one either — every relational adapter lowers the same subset, and the per-adapter descriptor table that once claimed otherwise is gone.
+Sibling codes: `loom.criterion-not-selectable`, the `loom.retrieval-where-*` twins and `loom.projection-where-not-queryable` for the other positions. There is no per-backend escape hatch: rejecting at the IR layer means no backend silently emits broken SQL, and every relational adapter lowers the same subset.
 
 The oracle comes in two halves, because a predicate and a value are different questions. `firstNonQueryableNode` asks "could this node reach SQL at all", which is right for a comparison OPERAND. `firstNonQueryablePredicate` (same file) asks the PREDICATE question: every leaf must TEST a column — a comparison with a column-rooted operand, a bare boolean column (`this.active`, `this.flags.active`), a `.contains(<value>)` membership, a bool-returning queryable intrinsic (`this.path.startsWith(p)`), or an authorization sentinel — combined with `&&` / `||` / `!`. So `where true`, `where f` (a `bool` parameter), `where currentUser.isAdmin` and `where 1 == 1` are refused: every relational lowerer's output vocabulary is `<fn>(<column>, <value>)`, with no bare-value position for them to land in.
 
 ## Return shapes
 
-| `find` return | Cardinality | Method shape |
-|---|---|---|
-| `T` | exactly one (404 ProblemDetails on miss) | `getById`-style |
-| `T?` | zero-or-one | returns `T \| null` |
-| `T[]` | collection — `find all` only (`loom.list-find-removed` otherwise) | returns a list |
-| `T paged` | a page of `T` — `find all` only | takes `page`/`pageSize`/`sort`/`dir`, returns `{ items, page, pageSize, total, totalPages }` |
-| `T envelope` | `{ id, ts, body }` wrapper | see [Type system → carriers](04-type-system.md#generic-carriers--paged-envelope-option) |
-| `T?` / `T or <Error>` | the absence shape (`T option` is a deprecated spelling of `T?`) | untagged: `T` at 200, 404 / the error's status on miss — [chapter 9](09-payloads-and-unions.md#union-finds--the-untagged-exception) |
+A single-row read is `T` (`getById`, `getBy` — a miss answers the standard ProblemDetails 404) or `T?` (`findById`, `findBy`, `find(C)`). A list read is `T[]` (`findAll`, `run`) or the `paged` envelope `{ items, page, pageSize, total, totalPages }` — the implicit `all` of a plain relational aggregate, `run` with `page:`, and a paged `queryHandler`.
 
-A paged read auto-gains `page`/`pageSize`/`sort`/`dir` parameters and a `total`/`totalPages` count query (the same shape the auto-`findAll` and a paged `queryHandler` use).  Those four names are therefore **reserved** on a paged read: a declared parameter spelled `page`, `pageSize`, `sort` or `dir` — compared in snake form, so `page_size` and `Dir` too — on a paged `find all`, a paged `queryHandler`, or a criterion a paged `queryHandler` runs is refused (`loom.paged-param-reserved`), since it would be a second value for the same query key and a duplicate parameter in every generated signature. Rename it (`pageNo`, `sortKey`, …):
+A paged read auto-gains `page`/`pageSize`/`sort`/`dir` parameters and a `total`/`totalPages` count query (the same shape the auto-`findAll` and a paged `queryHandler` use).  Those four names are therefore **reserved** on a paged read: a declared parameter spelled `page`, `pageSize`, `sort` or `dir` — compared in snake form, so `page_size` and `Dir` too — on a paged `queryHandler`, or a criterion a paged `queryHandler` runs is refused (`loom.paged-param-reserved`), since it would be a second value for the same query key and a duplicate parameter in every generated signature. Rename it (`pageNo`, `sortKey`, …):
 
 ```ddd
-repository Orders for Order { }
+repository Orders for Order
 criterion OrdersForCustomer(c: string) of Order = this.customer == c
 queryHandler ListForCustomer(c: string): Order paged {
   let r = Orders.run(OrdersForCustomer(c))
@@ -335,18 +262,16 @@ end
 
 ### Gating a read — `policy { read X requires … }`
 
-A find carries no authorization gate. Who may read an aggregate is one line in its context's `policy` block, and it gates **every** read of the aggregate — the list and by-id routes, each find's route, the audit history read. It runs **before** the query, so it may only read `currentUser` (and constants) — `this.<field>` there is `loom.policy-read-gate-not-current-user`; use `where` to scope rows and the read gate to allow/deny the caller. The enforcement story (403, `denyByDefault`, the scaffolded List page inheriting the gate) is in [chapter 17](17-auth.md#read--who-may-read-an-aggregate) and [`../auth.md`](../auth.md).
+Who may read an aggregate is one line in its context's `policy` block, and it gates **every** read of the aggregate — the list and by-id routes, a `scaffoldGet` route, the audit history read. It runs **before** the query, so it may only read `currentUser` (and constants) — `this.<field>` there is `loom.policy-read-gate-not-current-user`; use a criterion to scope rows and the read gate to allow/deny the caller. The enforcement story (403, `denyByDefault`, the scaffolded List page inheriting the gate) is in [chapter 17](17-auth.md#read--who-may-read-an-aggregate) and [`../auth.md`](../auth.md).
 
 ```ddd
-repository Orders for Order {
-  find mine(c: string): Order? where this.code == c
-}
+repository Orders for Order
 policy { read Order requires currentUser.role == "agent" }
 ```
 
 ```ts
-// node — http/order.routes.ts, GET /orders/mine
-if (!(currentUser.role === "agent")) throw new ForbiddenError("Forbidden: find mine");
+// node — http/order.routes.ts, GET /orders
+if (!(currentUser.role === "agent")) throw new ForbiddenError("Forbidden: list orders");
 ```
 
 A projection keeps its own header gate (`projection P requires <expr> { … }`).
@@ -361,7 +286,7 @@ criterion HighValue(min: money) of Order = total >= min
 criterion Confirmed of Order as o = o.status == OrderStatus.Confirmed
 ```
 
-A criterion reference is **inlined** wherever a boolean expression is expected (a `projection where`, an `invariant`, a `find where` composed with other terms) — it produces exactly the same lowered SQL as the hand-written filter. But when a `find`'s, `retrieval`'s or `filter`'s predicate is *exactly* one named criterion, it **reifies**: the backend emits a named predicate object the query consumes. The rule is simply "if it has a name." See [`../criterion.md`](../criterion.md) for the full validation table.
+A criterion reference is **inlined** wherever a boolean expression is expected (a `projection where`, an `invariant`, a criterion body composed with other terms) — it produces exactly the same lowered SQL as the hand-written filter. But when a `retrieval`'s or `filter`'s predicate is *exactly* one named criterion, it **reifies**: the backend emits a named predicate object the query consumes. The rule is simply "if it has a name." See [`../criterion.md`](../criterion.md) for the full validation table.
 
 The reification target differs per backend — this is `HighValue` reified:
 
@@ -546,55 +471,16 @@ A read position (an api `GET`/`HEAD` route, a `queryHandler`, a `reading` servic
 A trailing `ignoring` clause on a read skips the query-filters a capability contributed (soft-delete row hiding, tenancy scoping, a `filter` capability), keyed on the **capability** name. `ignoring *` bypasses every capability filter on the aggregate; `ignoring A, B` bypasses exactly those. `ignoring` is a soft keyword (fields/params named `ignoring` keep parsing). All five backends honour it:
 
 ```ddd
-repository Orders for Order {
-  find all(): Order[] ignoring softDeletable
-}
+criterion Big of Order = this.total > 1000
+// … let xs = Orders.findAll(Big()) ignoring softDeletable   — no `not is_deleted` term
 ```
 
-::: tabs backend
-== node
-```ts
-async all(): Promise<Order[]> {
-  const rootRows = await this.db.select().from(schema.orders);   // no `not(isDeleted)` term
-  // …
-}
-```
-== dotnet
-```csharp
-public async Task<List<Order>> All(CancellationToken cancellationToken = default)
-{
-    var result = await _db.Orders.IgnoreQueryFilters(["IsDeletedFilter"]).ToListAsync(cancellationToken);
-    return result;
-}
-```
-== java
-```java
-public List<Order> findAll() {
-    var __session = em.unwrap(org.hibernate.Session.class);
-    __session.disableFilter("softDeletable");
-    try { return jpa.findAll(); } finally { __session.enableFilter("softDeletable"); }
-}
-```
-== python
-```python
-async def all(self) -> list[Order]:
-    rows = (await self._session.execute(select(OrderRow))).scalars().all()   # no not_(is_deleted)
-    return [await self._hydrate(row) for row in rows]
-```
-== elixir
-```elixir
-def all() do
-  query = from(record in D.Catalog.Order)
-  {:ok, Repo.all(query)}
-end
-```
-::: end
+The per-backend output of a widened read is under [Widened single-row reads](#widened-single-row-reads) below; each backend drops exactly the named capabilities' filters (`IgnoreQueryFilters(["IsDeletedFilter"])` on .NET, a disabled Hibernate filter on Java, the term left out of the `where` on node / Python / Elixir).
 
 `ignoring` is read back only in these positions; anywhere else it parses, binds to the wrong expression, is never read back — and is an error (`loom.ignoring-clause-placement`):
 
 | Position | Spelling |
 |---|---|
-| a repository `find` | `find recent(): Order[] where … ignoring softDeletable` |
 | a query-time projection's `where` slot — **before** `join` / `group by` / `select` | `from Order as o ignoring softDeletable  group by …` |
 | an inline read bound by a `let` (`findAll`, `run`, `getBy`, `findBy`) | `let xs = Orders.findAll(Big()) ignoring *` |
 | an `if let` source (`find(<Criterion>)`, `findBy`) | `if let o = Orders.find(ByRef(r)) ignoring softDeletable { … }` |

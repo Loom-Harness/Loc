@@ -61,14 +61,31 @@ describe("python shape: document capability filter", () => {
     );
   });
 
-  it("applies the capability predicate BEFORE a custom find's own where (raw load)", async () => {
-    const r = await repo();
-    // Custom find reads a RAW load (not the already-filtered all()) and AND-s
-    // the capability predicate with its own where, so bypass can drop a conjunct.
-    expect(r).toContain("items = [_article_from_doc(r.data, r.version) for r in rows]");
-    expect(r).toContain(
-      "matches = [x for x in items if ((not x.archived) and " +
-        "(x.tenant_id == current_user.tenant_id)) and (x.view_count >= min)]",
+  // A criterion read over a document aggregate: the handler calls
+  // `run_find_all_by_articles_popular`, and the document repository emits no
+  // retrieval method, so the call names a method that does not exist.  `fails`
+  // until the document repository emits criterion reads (capability predicate
+  // AND-ed with the criterion over a raw load); then drop `.fails`.
+  it.fails("a criterion read's repository method exists (document repository emits none)", async () => {
+    const { model, errors } = await parseString(
+      FIXTURE.replace(
+        /(criterion ArticlesPopular\(min: int\) of Article = this\.viewCount >= min)/,
+        `$1
+      queryHandler GetPopular(min: int): Article {
+        if let a = Articles.find(ArticlesPopular(min)) {
+          return a
+        } else {
+          notFound
+        }
+      }`,
+      ),
     );
+    expect(errors).toEqual([]);
+    const files = generateSystems(model).files;
+    expect(files.get("api/app/application/get_popular.py")).toContain(
+      "await articles.run_find_all_by_articles_popular(min, limit=1)",
+    );
+    const r = files.get("api/app/db/repositories/article_repository.py")!;
+    expect(r).toContain("    async def run_find_all_by_articles_popular(self, min: int");
   });
 });

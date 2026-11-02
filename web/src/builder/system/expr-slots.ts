@@ -7,7 +7,6 @@ import {
   type DerivedProp,
   type EmitStmt,
   type Expression,
-  type FindDecl,
   type ForStmt,
   type FunctionDecl,
   type IfLetStmt,
@@ -16,7 +15,6 @@ import {
   type Model,
   type Operation,
   type Parameter,
-  type Repository,
   type BinaryChain,
   type Lambda,
   type MatchExpr,
@@ -69,7 +67,6 @@ export type ExprSlot =
   | { kind: "function"; owner: string; name: string }
   | { kind: "derived"; owner: string; name: string }
   | { kind: "invariant"; owner: string; index: number }
-  | { kind: "findFilter"; owner: string; name: string }
   // `index` is the TOP-LEVEL statement; `path` (when present) descends from it
   // into a `for` / `if let` / `match` block, so a nested statement's expression
   // is addressable too.  `member` addresses one statement-bearing member of the
@@ -269,13 +266,6 @@ function findWorkflow(ast: Model, name: string): Workflow | null {
   return null;
 }
 
-function findRepo(ast: Model, name: string): Repository | null {
-  for (const n of AstUtils.streamAst(ast)) {
-    if (n.$type === "Repository" && (n as Repository).name === name) return n as Repository;
-  }
-  return null;
-}
-
 /** The statement list a statement slot addresses into: an aggregate member
  *  (operation by name, or any `listBodies` key) or a workflow member. */
 function slotStatements(ast: Model, slot: ExprSlot): readonly Statement[] {
@@ -293,10 +283,6 @@ function slotStatements(ast: Model, slot: ExprSlot): readonly Statement[] {
 }
 
 export function slotExpr(ast: Model, slot: ExprSlot): Expression | null {
-  if (slot.kind === "findFilter") {
-    const find = findRepo(ast, slot.owner)?.finds.find((f: FindDecl) => f.name === slot.name);
-    return find?.filter ?? null;
-  }
   if (slot.kind === "stmtExpr" || slot.kind === "wfStmt") {
     const stmt = statementAt(slotStatements(ast, slot), slotAddr(slot.index, slot.path));
     return stmt ? stmtSlotExpr(stmt, slot.field) : null;
@@ -418,19 +404,6 @@ export function workflowSlotOptions(node: AstNode): SlotOption[] {
   return out;
 }
 
-/** Expression slots on a repository: each `find` decl's `where` filter. */
-export function repoSlotOptions(node: AstNode): SlotOption[] {
-  if (node.$type !== "Repository") return [];
-  const repo = node as Repository;
-  return repo.finds
-    .filter((f) => f.filter)
-    .map((f) => ({
-      value: `find:${f.name}`,
-      label: `find ${f.name} where: ${printExpr(f.filter!)}`,
-      slot: { kind: "findFilter", owner: repo.name, name: f.name },
-    }));
-}
-
 export function editExprSlot(source: string, slot: ExprSlot, text: string): string | null {
   const cst = slotExpr(parseDdd(source).ast, slot)?.$cstNode;
   if (!cst) return null;
@@ -438,17 +411,9 @@ export function editExprSlot(source: string, slot: ExprSlot, text: string): stri
   return parseDdd(next).parserErrors.length === 0 ? next : null;
 }
 
-function findAgg(ast: Model, name: string | undefined): Aggregate | null {
-  if (!name) return null;
-  for (const n of AstUtils.streamAst(ast)) {
-    if (n.$type === "Aggregate" && (n as Aggregate).name === name) return n as Aggregate;
-  }
-  return null;
-}
-
 // Build the IR name-resolution environment for a slot's expression, mirroring
 // how `lower.ts` sets up each construct (aggregate/VO members, view filters on
-// the source aggregate, find filters on the repo's aggregate + param locals).
+// the source aggregate).
 // The IR's own builders (`newEnv`/`inAggregate`/`withLocal`) and rules
 // (`inScopeNames`) are reused so scope knowledge stays in one place.
 function withParamsAndLets(env: Env, params: string[], lets: string[]): Env {
@@ -521,12 +486,7 @@ function slotEnv(ast: Model, slot: ExprSlot): Env | null {
   let lets: string[] = [];
   let ctxNode: AstNode | null = null;
 
-  if (slot.kind === "findFilter") {
-    const repo = findRepo(ast, slot.owner);
-    owner = findAgg(ast, repo?.aggregate?.$refText);
-    params = repo?.finds.find((f) => f.name === slot.name)?.params ?? [];
-    ctxNode = repo;
-  } else {
+  {
     owner = findOwner(ast, slot.owner);
     ctxNode = owner;
     if (slot.kind === "function") {

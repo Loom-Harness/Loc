@@ -21,7 +21,6 @@ import {
   camelId,
   opCreate,
   opDestroy,
-  opFind,
   opGetById,
   opList,
   opOperation,
@@ -90,7 +89,6 @@ import {
   isEnumDecl,
   isEventDecl,
   isExpression,
-  isFindDecl,
   isForStmt,
   isFunctionDecl,
   isIdRef,
@@ -451,7 +449,6 @@ export class Elaborator {
       isWorkflowCreateDecl(node) ||
       isCommandHandler(node) ||
       isQueryHandler(node) ||
-      isFindDecl(node) ||
       isPolicyDecl(node) ||
       isActionDecl(node)
     ) {
@@ -1011,15 +1008,11 @@ export class Elaborator {
       const agg = this.index.find("aggregate", m, of);
       if (agg) {
         const row = Ty.record({ of: "aggregate", ref: agg });
-        const repo = this.repositoryFor(agg);
         // The implicit `all` is paged by default (M-T2.6): admit the page
         // metadata the walker re-roots onto an auto-paged binding.
-        if (verb === "all" && !repo?.finds.some((f) => f.name === "all"))
-          return { kind: "array", element: row, pagedMeta: true };
-        if (verb === undefined || verb === "all" || verb === "findAll") return Ty.array(row);
+        if (verb === "all") return { kind: "array", element: row, pagedMeta: true };
+        if (verb === undefined || verb === "findAll") return Ty.array(row);
         if (verb === "byId") return row;
-        const find = repo?.finds.find((f) => f.name === verb);
-        if (find) return this.resolveType(find.returnType, scope);
         // An operation invoked through the handle (`match await
         // Sales.Order.placeOrder()`) answers its declared return type — the
         // `or`-union a variant match discriminates; a void one, nothing.
@@ -1084,14 +1077,9 @@ export class Elaborator {
       for (const agg of ctx.members) {
         if (!isAggregate(agg) || agg.isAbstract) continue;
         const row = Ty.record({ of: "aggregate", ref: agg });
-        const repo = this.repositoryFor(agg);
         if (opId === camelId(opCreate(agg.name)) || opId === camelId(opGetById(agg.name)))
           return row;
         if (opId === camelId(opDestroy(agg.name))) return Ty.never;
-        for (const f of repo?.finds ?? []) {
-          if (opId === camelId(opFind(agg.name, f.name)))
-            return this.resolveType(f.returnType, scope);
-        }
         if (opId === camelId(opList(agg.name))) {
           // The implicit `all` is paged by default, except for the shapes the
           // enrichment keeps unbounded (an event log, a document / embedded
@@ -1113,11 +1101,6 @@ export class Elaborator {
       }
     }
     return undefined;
-  }
-
-  private repositoryFor(agg: Aggregate): import("../generated/ast.js").Repository | undefined {
-    const ctx = agg.$container;
-    return ctx.members.find((m) => isRepository(m) && m.aggregate?.ref === agg) as never;
   }
 
   // ---- lambdas --------------------------------------------------------------
@@ -1282,7 +1265,7 @@ export class Elaborator {
         const agg = repo.aggregate?.ref;
         this.synthArgs(ms.args, scope);
         return {
-          t: agg ? this.repoReadType(repo, agg, ms, scope) : Ty.unknown("unresolved-type"),
+          t: agg ? this.repoReadType(agg, ms) : Ty.unknown("unresolved-type"),
           consumed: 1,
         };
       }
@@ -1311,18 +1294,10 @@ export class Elaborator {
 
   /** The value a repository read yields — ONE rule for every container, read
    *  off the declared repository contract (`util/repository-contract.ts`), the
-   *  same table the IR's `repoReadResultType` reads: a declared find is its own
-   *  declared type, otherwise the verb's result shape (the row, an optional
-   *  row, or a list).  A write verb yields no value. */
-  private repoReadType(
-    repo: import("../generated/ast.js").Repository,
-    agg: Aggregate,
-    ms: MemberSuffix,
-    scope: Scope,
-  ): Ty {
+   *  same table the IR's `repoReadResultType` reads: the verb's result shape
+   *  (the row, an optional row, or a list).  A write verb yields no value. */
+  private repoReadType(agg: Aggregate, ms: MemberSuffix): Ty {
     const row = Ty.record({ of: "aggregate", ref: agg });
-    const declared = repo.finds.find((f) => f.name === ms.member);
-    if (declared) return this.resolveType(declared.returnType, scope);
     switch (repositoryVerb(String(ms.member))?.result) {
       case "row":
         return row;

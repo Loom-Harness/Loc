@@ -86,7 +86,6 @@ import {
   matchFindAllCall,
   matchFindCall,
   matchKeyLookupCall,
-  matchOptionalFindCall,
   matchRepoCall,
   matchRetrievalRunCall,
   runCriterionMatcher,
@@ -643,8 +642,8 @@ function lowerWorkflowStatementInner(
   }
   if (isIfLetStmt(stmt)) {
     // `if let <var> = Repo.find(<Criterion>) { then } else { else }`
-    // (criterion.md, use site 3), or `if let <var> = Repo.<find>(args)` over a
-    // declared optional find.  Any other source leaves both
+    // (criterion.md, use site 3), `Repo.findBy(…)`, `Repo.findById(id)`, or an
+    // optional binding already in scope.  Any other source leaves both
     // `synthCriterion.name` and `findMethod` empty for the validator
     // (`loom.iflet-bad-source`) — still naming the repository's aggregate when
     // the source called one, so the binder is typed and no phantom `Unknown`
@@ -653,24 +652,18 @@ function lowerWorkflowStatementInner(
     // in `elseBody`.
     const findCall = matchFindCall(stmt.source, reposByName);
     // A natural-key `Repo.findBy(…)` is the third source form: the backends
-    // call its synthesised nullable method exactly like a declared optional
-    // find's.  (`getBy` never answers absence, so it is not an `if let`
+    // call its synthesised nullable method by name.  (`getBy` never answers absence, so it is not an `if let`
     // source — it falls through to `loom.iflet-bad-source`.)
     const keyFind = findCall ? undefined : matchKeyLookupCall(stmt.source, reposByName);
     const keySource = keyFind?.op === "load-by-key-optional" ? keyFind : undefined;
-    const declaredFind =
-      findCall || keyFind ? undefined : matchOptionalFindCall(stmt.source, reposByName, env);
     // `Repo.findById(id)` — the by-id read that answers absence.
     const anyRepoCall = matchRepoCall(stmt.source, reposByName);
     const byIdFind =
-      findCall || keyFind || declaredFind || anyRepoCall?.method !== "findById"
-        ? undefined
-        : anyRepoCall;
+      findCall || keyFind || anyRepoCall?.method !== "findById" ? undefined : anyRepoCall;
     // `if let o = x` over an optional binding already in scope (`let x =
     // Repo.find…`): no read, only the narrowing.
-    const boundLocal =
-      findCall || keyFind || declaredFind || byIdFind ? undefined : localOf(stmt.source, env);
-    const repo = findCall?.repo ?? keyFind?.repo ?? declaredFind?.repo ?? anyRepoCall?.repo;
+    const boundLocal = findCall || keyFind || byIdFind ? undefined : localOf(stmt.source, env);
+    const repo = findCall?.repo ?? keyFind?.repo ?? anyRepoCall?.repo;
     const aggName = repo?.aggregate?.ref?.name ?? boundLocal?.aggName ?? "Unknown";
     const repoName = repo?.name ?? (boundLocal ? (repoForAgg.get(aggName) ?? "") : "");
     const saveRepoName = repoForAgg.get(aggName) ?? plural(aggName);
@@ -713,13 +706,11 @@ function lowerWorkflowStatementInner(
         var: stmt.var,
         op: keySource
           ? "load-by-key-optional"
-          : declaredFind
-            ? "declared-find"
-            : byIdFind
-              ? "load-optional"
-              : boundLocal
-                ? "bound"
-                : "select-one",
+          : byIdFind
+            ? "load-optional"
+            : boundLocal
+              ? "bound"
+              : "select-one",
         repoName,
         aggName,
         // A widened criterion source calls its own method, not the shared
@@ -728,12 +719,10 @@ function lowerWorkflowStatementInner(
         retrievalArgs: (
           findCall?.criterionArgs ??
           keySource?.args ??
-          declaredFind?.args ??
           byIdFind?.args ??
           (boundLocal ? [stmt.source] : [])
         ).map((a) => lowerExpr(a, env)),
         synthCriterion: { name: findCall?.criterionName ?? "" },
-        ...(declaredFind ? { findMethod: declaredFind.method } : {}),
         ...(keySource ? { findMethod: keySource.method, key: keyLookupIR(keySource) } : {}),
         ...(findCall?.bypassRead
           ? { findMethod: bypassReadMethod(findCall.bypassRead), bypassRead: findCall.bypassRead }
@@ -958,14 +947,9 @@ function lowerWorkflowStatementInner(
           name: stmt.name,
           repoName: repo.name,
           aggName,
-          // A name that is neither a declared find nor a by-name contract verb
-          // rides `declared-find`; `loom.workflow-unknown-repository-method`
-          // reports it.
-          op:
-            namedRepoCallOp(
-              repoCall.method,
-              repo.finds.some((f) => f.name === repoCall.method),
-            ) ?? "declared-find",
+          // A name that is no by-name contract verb rides `unknown-read`;
+          // `loom.workflow-unknown-repository-method` reports it.
+          op: namedRepoCallOp(repoCall.method) ?? "unknown-read",
           method: repoCall.method,
           args,
           returnType,

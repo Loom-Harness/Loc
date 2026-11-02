@@ -33,22 +33,15 @@ guards.
 > loads: […] }, page?)` — the call-site twin of a declared `retrieval`; `findAll`
 > and bare-criterion `run` stay the un-shaped spellings, shaping lives on the
 > (named or anonymous) retrieval.  Its `where:` is a criterion reference in this
-> release.  **A *list* `find` on a repository is removed**
-> (`loom.list-find-removed`, an error): a `find byX(...): T[]` /
-> `T paged` is a bespoke list finder — pass a criterion to `run`
-> (`Repo.run(<Criterion>(args))`) or name a `retrieval` instead of accreting a
-> method per query, and expose it with `scaffoldPaged(of: …)` +
-> `scaffoldPagedApi(of: …)` when a client must call it.
-> `node scripts/codemod-list-find-to-criterion.mjs <path>` rewrites the old form
-> (see [D-LIST-FIND-REMOVED](decisions.md)).  A **unique-key reconstitution** find (returning a single
-> `T` / `T?` by identity) is *not* a list query and stays legal, and so does
-> `find all(…)`, the override of the repository's list endpoint.  Over a declared
-> `unique (…)` key it needs no declaration at all — `Repo.getBy(<col>: v)` /
-> `Repo.findBy(…)` read it ([D-REPO-KEY-LOOKUP](decisions.md);
-> `node scripts/codemod-find-to-findby.mjs` migrates the finds).  A key that is
-> not unique is a query: a criterion, read with `Repo.find(<Criterion>)` — the
-> same codemod writes `criterion <Plural><Find>` for such a find and points its
-> call sites at `find(C)`.  The
+> release.  A repository declares **no reads of its own** — `find`
+> declarations are removed ([D-FINDDECL-REMOVED](decisions.md); a leftover
+> `find` is a parse error).  A list read is a criterion passed to `run` /
+> `findAll` (or a named `retrieval`), exposed with `scaffoldPaged(of: …)` +
+> `scaffoldPagedApi(of: …)` when a client must call it; a single-row read over
+> a declared `unique (…)` key is `Repo.getBy(<col>: v)` / `Repo.findBy(…)`
+> ([D-REPO-KEY-LOOKUP](decisions.md)), and over any other predicate a
+> criterion read with `Repo.find(<Criterion>)` (exposed with `scaffoldGet`).  The
+call sites at `find(C)`.  The
 > single-result `Repo.find(<Criterion>)` is **shipped on every backend** as the
 > source of an `if let` workflow statement — `if let x = Repo.find(<Criterion>)
 > { … } else { … }` — which binds the first match (non-null) in the then-branch
@@ -137,10 +130,9 @@ criterion CustomersActive of Customer = ActiveCustomer
 // A criterion body (composed + parameterised):
 criterion CustomersActiveInRegion(r: string) of Customer = ActiveCustomer && InRegion(r)
 
-// A single-row find filter:
-repository Customers for Customer {
-  find activeByEmail(e: string): Customer? where ActiveCustomer && this.email == e
-}
+// A single-row read — the first active customer with that email:
+criterion ActiveByEmail(e: string) of Customer = ActiveCustomer && this.email == e
+// … if let c = Customers.find(ActiveByEmail(e)) { … }
 
 // Invariants and operation preconditions inline criteria the same way.
 ```
@@ -152,11 +144,12 @@ lowered expression** (and therefore the same generated SQL) as the
 equivalent hand-written inline filter. No backend query-engine change is
 involved; criteria ride the existing `where`→SQL path on every backend.
 
-## Reification (retrieval and find criteria)
+## Reification (retrieval criteria)
 
 There are positions where a criterion is **not** dissolved into its host:
-when a [`retrieval`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/retrieval.md)'s `where`, or a repository
-`find`'s `where`, is *exactly* a named criterion reference. There the
+when a [`retrieval`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/retrieval.md)'s `where` (including the
+retrieval a `Repo.run(<Criterion>)` / `find(<Criterion>)` runs) is *exactly* a
+named criterion reference. There the
 criterion **reifies** — the backend emits a named, constructed predicate
 object (the Specification pattern made real in generated code) that the
 query method consumes, the functional analog of inlining lifted into a

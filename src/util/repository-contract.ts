@@ -14,8 +14,8 @@
 // validation) consume it, and the pipeline layering forbids either importing
 // the other upward.
 //
-// A name that is not a contract verb is either a DECLARED find (a `find` in the
-// repository body, called by its own name; op `declared-find`) or one of the
+// A repository declares no reads of its own, so a name that is not a contract
+// verb is either unknown (op `unknown-read`, refused) or one of the
 // persistence names the contract does not offer (`save`, `insert`, …), which
 // classify as writes.
 
@@ -31,8 +31,8 @@
  *  - `select-many`   — every row matching a criterion / retrieval, or the whole
  *                      collection when none is given (`T[]`).
  *  - `remove`        — delete the given aggregate.
- *  - `declared-find` — a find declared in the repository body, called by its
- *                      own name; its declaration carries the result type. */
+ *  - `unknown-read`  — a read name no contract verb recognises; it carries no
+ *                      result type and is always refused. */
 export type RepoOp =
   | "load"
   | "load-optional"
@@ -41,7 +41,7 @@ export type RepoOp =
   | "select-one"
   | "select-many"
   | "remove"
-  | "declared-find";
+  | "unknown-read";
 
 /** Whether a call reads or mutates persistence. */
 export type RepoFace = "read" | "write";
@@ -302,8 +302,7 @@ export function repoOpVerb(op: RepoOp, args?: RepoArgShape): string {
  *  find wins (it is the repository's own contract and is called under its own
  *  name), otherwise the contract verb's op.  `undefined` for a name that is
  *  neither. */
-export function namedRepoCallOp(name: string, isDeclaredFind: boolean): RepoOp | undefined {
-  if (isDeclaredFind) return "declared-find";
+export function namedRepoCallOp(name: string): RepoOp | undefined {
   const c = BY_VERB.get(name);
   // A verb whose argument is a criterion / retrieval REFERENCE is that verb
   // only when the reference is recognised (the reference matchers in
@@ -315,9 +314,8 @@ export function namedRepoCallOp(name: string, isDeclaredFind: boolean): RepoOp |
   return c.op;
 }
 
-/** The result shape of a canonical op.  `declared-find` has none of its own —
- *  its declaration carries the type. */
-export function repoOpResult(op: Exclude<RepoOp, "declared-find">): RepoResultShape {
+/** The result shape of a canonical op.  `unknown-read` has none. */
+export function repoOpResult(op: Exclude<RepoOp, "unknown-read">): RepoResultShape {
   const hit = REPOSITORY_CONTRACT.find((c) => c.op === op);
   if (!hit) throw new Error(`repository contract has no verb for op '${op}'`);
   return hit.result;

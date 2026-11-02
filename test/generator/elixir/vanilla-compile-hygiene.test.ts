@@ -19,8 +19,8 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // Exercises the datetime op-param coercion (`operation reschedule(when_:
-// datetime)`), an `at: datetime` field, and a `requires true` find — the three
-// shapes above, in one model.
+// datetime)`), an `at: datetime` field, and a `requires true` read policy
+// (gating the `all` / by-id routes) — the three shapes above, in one model.
 const SOURCE = `
 system Acme {
   user { id: string  role: string }
@@ -33,9 +33,7 @@ system Acme {
         derived display: string = subject
         operation reschedule(when_: datetime) { at := when_ }
       }
-      repository Tickets for Ticket {
-        find openOnes(): Ticket? where open == true
-      }
+      repository Tickets for Ticket { }
       policy { read Ticket requires true }
     }
   }
@@ -124,7 +122,8 @@ describe("elixir vanilla — compiles under --warnings-as-errors", () => {
     // offender list means "clean", not "nothing generated".
     const all = [...files.values()].join("\n");
     expect(all).toContain("DateTime.from_iso8601");
-    expect(all).toContain("open_ones_ticket");
+    // The `requires true` policy gates the read routes, which are emitted.
+    expect(all).toContain("Tickets.list_tickets(");
     // …and the detector finds a planted offender.
     expect(underscoredButRead("x = case v do\n  __s when is_binary(__s) -> __s\nend")).toContain(
       "__s",

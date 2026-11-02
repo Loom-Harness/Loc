@@ -1,6 +1,6 @@
 // A1 pilot for the scalar-intrinsic catalogue (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md):
 // `string.trim()` end-to-end on the Hono backend — in-memory rendering in
-// domain bodies AND SQL rendering in a queryable `find … where` position.
+// domain bodies AND SQL rendering in a queryable criterion read.
 // The catalogue row lives in src/util/intrinsics.ts; the TS snippet in
 // render-expr.ts (TS_INTRINSIC_RENDERERS); the SQL snippet in
 // repository-find-predicate.ts (DRIZZLE_INTRINSIC_SQL).
@@ -22,9 +22,8 @@ describe("typescript generator — A2 string intrinsics end-to-end", () => {
         derived initial: string = name.substring(0, 1).toUpper()
         derived tagCount: int = name.split(",").count
       }
-      repository Products for Product {
-        find byNameCi(q: string): Product? where this.name.toLower() == q.toLower()
-      }
+      repository Products for Product { }
+      criterion ProductsByNameCi(q: string) of Product = this.name.toLower() == q.toLower()
     }
   `;
 
@@ -49,10 +48,21 @@ describe("typescript generator — A3 math intrinsics end-to-end", () => {
         derived whole: decimal = amount.floor()
         derived cappedPrice: money = price.min(price.round()).max(price.ceil().abs())
       }
-      repository Invoices for Invoice {
-        find pricier(m: money): Invoice? where this.price.round(2) > m
-        find qtyNear(n: int): Invoice? where this.qty.abs() == n.abs()
-        find capped(a: decimal): Invoice? where this.amount.min(a) == a
+      repository Invoices for Invoice { }
+      criterion InvoicesPricier(m: money) of Invoice = this.price.round(2) > m
+      criterion InvoicesQtyNear(n: int) of Invoice = this.qty.abs() == n.abs()
+      criterion InvoicesCapped(a: decimal) of Invoice = this.amount.min(a) == a
+      queryHandler ListPricier(m: money): Invoice[] {
+        let r = Invoices.findAll(InvoicesPricier(m))
+        return r
+      }
+      queryHandler ListQtyNear(n: int): Invoice[] {
+        let r = Invoices.findAll(InvoicesQtyNear(n))
+        return r
+      }
+      queryHandler ListCapped(a: decimal): Invoice[] {
+        let r = Invoices.findAll(InvoicesCapped(a))
+        return r
       }
     }
   `;

@@ -1144,7 +1144,7 @@ with `loom.slot-out-of-position`.  Member access on a slot ref is also
 rejected (`loom.slot-member-access`) — slots are opaque values, not
 records.  See [`page-metamodel.md`](page-metamodel.md) §5.2.
 
-> Query results and projections are exempt — `find byEmail(e: string): Customer?`
+> Query results and projections are exempt — `Customers.findBy(email: e)`
 > and `derived owner: Customer = ...` may legitimately reference an
 > aggregate as a domain object.  The check only fires in storage /
 > wire-data positions.
@@ -1901,8 +1901,8 @@ table above is what a verb *lowers to*, not a promise that the route is
 there: `POST /<plural>` appears only when the aggregate declares a
 canonical `create` (by hand or via `with crudish`), `DELETE /{id}` only
 when it declares an unnamed `destroy`, `GET /<plural>/{id}/history` only
-when it is `auditable`, and a find route only for a *declared* find (a
-compiler-synthesized retrieval has none).  Calling a verb whose route the
+when it is `auditable` (a compiler-synthesized retrieval has no route of its
+own).  Calling a verb whose route the
 model does not emit is `loom.e2e-unrouted-verb` — a phase-⑦ error naming
 the aggregate, the verb and the fix.  The check resolves each verb against
 `deriveAggregateOperations`, the same derivation every backend's route
@@ -2021,44 +2021,34 @@ Playwright config in that directory (`npx playwright test` from
 ## Repositories
 
 ```ddd
-repository Orders for Order {
-    // unique-key reconstitution: parameter names match aggregate properties.
-    find byNumber(number: string): Order?
-
-}
-// explicit predicate; `this` refers to the aggregate root.
+aggregate Order with crudish { number: string  customerId: Customer id  status: Status  unique (number) }
+repository Orders for Order
+// a single-row or list read over any other predicate is a criterion
 criterion OrdersActiveForCustomer(forCustomer: Customer id) of Order = this.customerId == forCustomer && this.status == Draft
 ```
 
-The full form is `find name(params): T | T? | T or NotFound | T[] | T paged
-[where Expr] [ignoring Cap, … | ignoring *]` — a find carries no authorization
-gate (who may read the aggregate is `policy { read X requires Expr }`, which
-covers every find), and `ignoring` bypasses a capability's contributed query
-filter (e.g. `softDeletable`).  Each `find` declaration becomes a method
-on the generated repository plus a Mediator query in the .NET backend.
+A repository declares no reads of its own (`find` declarations were removed —
+[D-FINDDECL-REMOVED](decisions.md); a leftover `find` is a parse error).  Every
+read is a contract verb, generated on every backend: `getById` / `findById`,
+`getBy(<col>: v)` / `findBy(…)` over a declared `unique (…)` key,
+`find(<Criterion>)` (the first match, `T?`), `findAll(<Criterion>)` /
+`run(<Criterion | Retrieval>)` (the rows), and the implicit list read `all`.  A
+trailing `ignoring Cap, …` / `ignoring *` on the call bypasses a capability's
+contributed query filter (e.g. `softDeletable`); who may read the aggregate is
+`policy { read X requires Expr }`, which covers every read.  The full reference
+is [chapter 10](language-reference/10-repositories-and-queries.md).
 
-> **List finds are an error.**  A `find` returning a collection (`T[]` /
-> `T paged`), other than `find all`, is `loom.list-find-removed`: the list
-> read-path is `Repo.run(<Criterion>(args))` / a named `retrieval`
-> (composable, page-able, SQL-inlined — see [`criterion.md`](criterion.md)),
-> which is why `activeForCustomer` above is a criterion.  A unique-key find
-> returning `T` / `T?` is the intended shape.
-> `node scripts/codemod-list-find-to-criterion.mjs <path>` rewrites a source.
-
-- **TypeScript**: when no `where` is given, parameters are equality-
-  matched against aggregate columns and lowered to a Drizzle
-  `where(eq(...))`.  When `where` is given, the IR expression is
-  lowered to Drizzle operators (`eq`/`ne`/`lt`/`lte`/`gt`/`gte`/
-  `and`/`or`/`not`/`inArray`) over `this.<col>` and
-  `this.<vo>.<sub>` references, including the membership form
-  `this.<refColl>.contains(param)` against an `X id[]` join table.
-  The queryable-subset validator rejects shapes that don't fit (e.g.
-  `.count`, `.any`, lambdas) with a clear diagnostic.
-- **.NET**: both forms lower to a LINQ `.Where(x => …)` predicate and
-  pass through EF Core to SQL.
+- **TypeScript**: a criterion's predicate is lowered to Drizzle operators
+  (`eq`/`ne`/`lt`/`lte`/`gt`/`gte`/`and`/`or`/`not`/`inArray`) over
+  `this.<col>` and `this.<vo>.<sub>` references, including the membership form
+  `this.<refColl>.contains(param)` against an `X id[]` join table.  The
+  queryable-subset validator rejects shapes that don't fit (e.g. `.count`,
+  `.any`, lambdas) with a clear diagnostic.
+- **.NET**: the same predicate lowers to a LINQ `.Where(x => …)` and passes
+  through EF Core to SQL.
 
 **Null semantics.** A comparison against a *nullable value* — a
-`currentUser.<claim>` declared `T?`, or a find parameter typed `T?` — is
+`currentUser.<claim>` declared `T?`, or a criterion parameter typed `T?` — is
 null-aware on every backend: `this.col == v` with `v` null matches the rows
 whose `col` IS NULL, `!=` matches the rows where it is NOT NULL, and an
 ordering (`<`, `>`, …) against null matches no row.  So
@@ -2067,7 +2057,7 @@ matches the unassigned orders for a principal with no `technicianId` rather
 than none (or, on Ecto, a raised `ArgumentError`).  An absent principal stays
 fail-closed.
 
-A query filter (a criterion body, a find's `where`) may use
+A query filter (a criterion body, a retrieval's `where`) may use
 `this.<refColl>.contains(param)` to query membership over an `X id[]`
 reference collection — for example, `criterion HoldingInParty(pokemon:
 Pokemon id) of Trainer = this.party.contains(pokemon)`.  The TypeScript backend lowers this to
@@ -2075,34 +2065,24 @@ an `inArray(...subquery...)` against the field's join table; other
 collection operations (`.count`, `.any`, `.where`, …) remain rejected
 by the queryable-subset validator.
 
-`findById` and `getById` are auto-generated for every aggregate
-(no need to declare them in the repository).  An auto-included
-`find all(): T paged` is also added to every aggregate's repository (a bare
-`T[]` for an event-sourced, `document`/`embedded`-shaped or `extends`
-subtype aggregate, whose rows cannot page), so
-all five backends always expose `GET /<plural>` and every frontend
-(react, vue, svelte, angular, feliz, flutter) always has a list page to
-render.  Declaring your own `find all(...)` in the DSL overrides the
-implicit one, and its declared return type is the wire contract:
-`find all(): T paged` keeps the `Paged<T>` envelope; `find all(): T[]`
-answers a bare JSON array.  The list is gated by the context's
+The implicit list read `all` is paged (`Paged<T>`) on every aggregate — a bare
+`T[]` for an event-sourced, `document`/`embedded`-shaped or `extends` subtype
+aggregate, whose rows cannot page — so all five backends always expose
+`GET /<plural>` and every frontend (react, vue, svelte, angular, feliz, flutter)
+always has a list page to render.  The list is gated by the context's
 `policy { read T requires <expr> }`, like every other read of `T`.
 
-**Absence, in a body.**  `getById` and a find declared `: T` load a single
-row and answer the declared **404** when it is not there — on the GET route,
-an operation route and a workflow step alike (the not-found-on-load policy;
-the binding is a plain `T`).  To BRANCH on the absent row instead, declare the
-find `: T or NotFound` (or `: T?`) and read the binding through a variant
-`match` (`match r { Order o => o.code, NotFound => "–" }`).  Reading such a
-binding straight through — `r.code`, `r.touch()` — is refused with
-`loom.union-read-undiscriminated`.  A `T?` read — a `: T?` find,
+**Absence, in a body.**  `getById` and `getBy` load a single row and answer the
+standard **404** when it is not there — on the GET route, an operation route and
+a workflow step alike (the binding is a plain `T`).  A `T?` read —
 `Repo.find(<Criterion>)`, `Repo.findById(id)`, `Repo.findBy(col: v)` — stays a
 native nullable: `let c = Customers.find(ByEmail(e))` binds `Customer?`, read
 through a null test (`c == null`, `c ?? d`) or narrowed by
 `if let x = c { … } else { … }` (an `if let` takes the read itself as its
 source too: `if let o = Orders.findById(id) { o.touch() }`).  A member read or
 an op-call on the binding before it is narrowed is `loom.nullable-receiver`.
-See [`payloads.md`](payloads.md) → "Union finds".
+A body that must have the row of a criterion read answers the miss itself:
+`if let o = Orders.find(C(x)) { … } else { notFound }`.
 
 ---
 
@@ -2298,8 +2278,7 @@ context Sales {
         }
     }
 
-    repository Orders for Order {
-        find byNumber(number: string): Order?
-    }
+    repository Orders for Order
+    criterion OrdersByNumber(number: string) of Order = this.number == number
 }
 ```

@@ -1,37 +1,37 @@
 // ---------------------------------------------------------------------------
-// A declared find with an ENUM param on a non-relational java aggregate emitted
-// a repository impl that does not compile.
+// A repository read with an ENUM param on a non-relational java aggregate must
+// emit a repository impl that compiles.
 //
-//     find byGrade(grade: Grade): Widget? …      // on `shape: document`
+//     criterion ByGrade(grade: Grade) of Widget = …   // on `shape: document`
 //
-//   → public List<Widget> byGrade(Grade grade) {  // WidgetRepositoryImpl.java
-//     javac: cannot find symbol / symbol: class Grade
+//   → public List<Widget> runFindAllByByGrade(Grade grade) {  // WidgetRepositoryImpl.java
+//     javac without the import: cannot find symbol / symbol: class Grade
 //
 // `renderJavaType` spells an enum param as the bare enum name, and the RELATIONAL
 // impl imports `<base>.domain.enums.*` for exactly that reason
 // (`emit/repository.ts:305`).  The document and event-store impls assembled their
-// own import list and both omitted it — so a model that compiles on the default
-// saving shape stops compiling when the aggregate is `shape: document` or
-// `persistedAs: eventLog`, with zero diagnostics.
-//
-// FOUND BY COMPILING, not by reading: the F2-W-07 fixture was run through
-// `gradle testClasses bootJar` in `gradle:9-jdk25` and failed here, on a file
-// that fix never touched.  The defect predates it and is independent of paging —
-// a NON-paged list find fails identically.
+// own import list, and each must carry it too — or a model that compiles on the
+// default saving shape stops compiling when the aggregate is `shape: document`
+// or `persistedAs: eventLog`, with zero diagnostics.  Paged or not, the read
+// names the enum the same way.
 //
 // This is a static test because the compile tier cannot reach the shape: no
-// corpus fixture pairs a non-relational saving shape with an enum-typed find
-// param.  Adding the import is the fix; asserting it is the pin.
+// corpus fixture pairs a non-relational saving shape with an enum-typed read
+// param.  The import is the fix; asserting it is the pin.
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
-/** A single-row find over the enum param, or (`paged`) a criterion over it run
- *  by a paged queryHandler — read through the synthesised `findAllBy<Criterion>`. */
+/** A single-row criterion read over the enum param, or (`paged`) the same
+ *  criterion run by a paged queryHandler — read through the synthesised
+ *  `findAllBy<Criterion>`. */
 const READS = {
-  single: `repository Widgets for Widget {
-        find byGrade(grade: Grade): Widget? where this.grade == grade
+  single: `repository Widgets for Widget { }
+      criterion ByGrade(grade: Grade) of Widget = this.grade == grade
+      queryHandler FirstByGrade(grade: Grade): Widget? {
+        let w = Widgets.find(ByGrade(grade))
+        return w
       }`,
   paged: `repository Widgets for Widget { }
       criterion ByGrade(grade: Grade) of Widget = this.grade == grade
@@ -80,7 +80,7 @@ describe("non-relational java repository impls import the enums they name", () =
   for (const [name, shape, ret] of cases) {
     it(`${name}: names Grade in the signature and imports it`, async () => {
       const impl = await repoImpl(src(shape, ret));
-      expect(impl, "the find must still take the enum param").toContain("Grade grade");
+      expect(impl, "the read must still take the enum param").toContain("Grade grade");
       expect(impl, "…and nothing else in the file declares Grade").toContain(
         "import com.loom.dj.domain.enums.*;",
       );
@@ -103,8 +103,11 @@ system PG {
         create make(grade: Grade) { emit Graded { widget: id, grade: grade } }
         apply(e: Graded) { grade := e.grade }
       }
-      repository Widgets for Widget {
-        find byGrade(grade: Grade): Widget? where this.grade == grade
+      repository Widgets for Widget { }
+      criterion WidgetsByGrade(grade: Grade) of Widget = this.grade == grade
+      queryHandler FirstByGrade(grade: Grade): Widget? {
+        let w = Widgets.find(WidgetsByGrade(grade))
+        return w
       }
     }
   }
@@ -113,7 +116,7 @@ system PG {
   resource st { for: C, kind: eventLog, use: pg }
   deployable dj { platform: java, contexts: [C], dataSources: [st], serves: A, port: 4000 }
 }`);
-    expect(impl).toContain("Grade grade");
+    expect(impl).toContain("runFindAllByWidgetsByGrade(Grade grade)");
     expect(impl).toContain("import com.loom.dj.domain.enums.*;");
   });
 });

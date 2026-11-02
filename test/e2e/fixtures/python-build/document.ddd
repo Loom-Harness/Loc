@@ -1,9 +1,8 @@
 // shape: document for the Python backend: the whole aggregate tree
 // (root + contained parts) round-trips ONE jsonb column (id, data,
 // version) instead of the normalised table-per-entity tree.  Operations
-// load the blob, mutate the rehydrated domain instance, and re-serialise;
-// finds evaluate in-memory over the rehydrated documents.  Verified live
-// (create → addSection → bump → read-back → find popular).
+// load the blob, mutate the rehydrated domain instance, and re-serialise.
+// Verified live (create → addSection → bump → read-back).
 system DocSys {
   subdomain Cms {
     context Cms {
@@ -17,9 +16,8 @@ system DocSys {
         }
         operation bump() { viewCount := viewCount + 1 }
       }
-      repository Articles for Article {
-        find popular(min: int): Article? where this.viewCount >= min
-      }
+      repository Articles for Article
+      criterion ArticlesPopular(min: int) of Article = this.viewCount >= min
     }
   }
   api CmsApi from Cms

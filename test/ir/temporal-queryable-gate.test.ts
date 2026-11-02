@@ -19,12 +19,16 @@ import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { toLoomModel } from "../_helpers/ir.js";
 import { parseString } from "../_helpers/parse.js";
 
-/** A `find … where` over a datetime column, with `pred` as the predicate. */
+/** A criterion over a datetime column, with `pred` as the predicate, run by
+ *  a `queryHandler`. */
 const sys = (pred: string) => `
   context Billing {
     aggregate Invoice { dueDate: datetime }
-    repository Invoices for Invoice {
-      find w(q: datetime): Invoice? where ${pred}
+    repository Invoices for Invoice
+    criterion W(q: datetime) of Invoice = ${pred}
+    queryHandler ListW(q: datetime): Invoice[] {
+      let r = Invoices.run(W(q))
+      return r
     }
   }
 `;

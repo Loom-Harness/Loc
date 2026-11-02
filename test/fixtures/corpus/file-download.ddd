@@ -26,17 +26,16 @@
 // for no added coverage.
 system FileStore {
   subdomain Docs {
-    context Attachments {
+    context Attachments with scaffoldGet(of: ByTitle) {
       aggregate Attachment with crudish {
         title: string
         doc: File?
       }
-      repository Attachments for Attachment {
-        find byTitle(title: string): Attachment? where this.title == title
-      }
+      repository Attachments for Attachment { }
+      criterion ByTitle(title: string) of Attachment = this.title == title
     }
   }
-  api DocsApi from Docs
+  api DocsApi with scaffoldGetApi(of: ByTitle) from Docs
   storage primary { type: postgres }
   storage uploads { type: localDisk }
   resource docsState { for: Attachments, kind: state, use: primary, index: [Attachment.title] }
@@ -56,7 +55,7 @@ system FileStore {
     expect(read.title).toBe("spec.pdf")
     expect(read.doc).toBe(null)
 
-    let found = api.attachments.byTitle({ title: "spec.pdf" })
+    let found = api.attachments.getAttachmentByTitle("spec.pdf")
     expect(found.title).toBe("spec.pdf")
 
     let listed = api.attachments.all()

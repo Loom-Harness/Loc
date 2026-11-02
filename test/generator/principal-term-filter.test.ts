@@ -36,8 +36,8 @@ system Desk {
       }
       criterion HasSubject of Ticket = subject != ""
       retrieval Recent of Ticket { where: HasSubject }
-      repository Tickets for Ticket { find all(): Ticket[] }
-      repository Customers for Customer { find all(): Customer[] }
+      repository Tickets for Ticket
+      repository Customers for Customer
     }
   }
   storage primary { type: postgres }

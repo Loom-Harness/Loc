@@ -29,8 +29,8 @@ system Shop {
                 }
                 derived display: string = "Order"
             }
-            repository Customers for Customer { }
-            repository Orders for Order { }
+            repository Customers for Customer
+            repository Orders for Order
             workflow placeOrder {
                 create(customerId: Customer id) {
                     let order = Order.create(
@@ -198,7 +198,7 @@ describe("svelte generator — project shape", () => {
         subdomain Sales {
           context Orders {
             aggregate Item { name: string }
-            repository Items for Item { find byId(id: string): Item? }
+            repository Items for Item
           }
         }
         ui WebApp {

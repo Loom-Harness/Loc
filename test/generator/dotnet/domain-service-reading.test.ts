@@ -17,19 +17,19 @@ import { describe, expect, it } from "vitest";
 import { generateDotnet, generateSystemFiles } from "../../_helpers/generate.js";
 import { parseValid } from "../../_helpers/parse.js";
 
-// A reading service (`Registration.isEmailAvailable` reads `Accounts.byHolder`),
+// A reading service (`Registration.isEmailAvailable` reads
+// `Accounts.find(AccountsByHolder(…))`),
 // a PURE service (`FeeQuote.forAmount`), and a workflow that calls the reading
 // service in a precondition.  Avoids the reserved params `from`/`to`.
 const SRC = `
   context Banking {
     valueobject Money { amount: decimal currency: string invariant amount >= 0 }
     aggregate Account with crudish { holder: string balance: Money }
-    repository Accounts for Account {
-      find byHolder(holder: string): Account? where this.holder == holder
-    }
+    repository Accounts for Account { }
+    criterion AccountsByHolder(holder: string) of Account = this.holder == holder
     domainService Registration {
       operation isEmailAvailable(holder: string): bool {
-        return Accounts.byHolder(holder) == null
+        return Accounts.find(AccountsByHolder(holder)) == null
       }
     }
     domainService FeeQuote {
@@ -84,9 +84,8 @@ system Banking {
     context Banking {
       valueobject Money { amount: decimal currency: string invariant amount >= 0 }
       aggregate Account with crudish { holder: string balance: Money }
-      repository Accounts for Account {
-        find byHolder(holder: string): Account? where this.holder == holder
-      }
+      repository Accounts for Account { }
+      criterion AccountsByHolder(holder: string) of Account = this.holder == holder
       domainService Lookup {
         operation holderOf(a: Account id): string {
           let one = Accounts.getById(a)
@@ -142,9 +141,12 @@ describe(".NET generator — reading-tier domainService (domain-services.md rev.
     expect(svc).toMatch(
       /public async Task<bool> IsEmailAvailableAsync\(string holder, CancellationToken cancellationToken = default\)/,
     );
-    // The `repo-read` Call (`Accounts.byHolder(holder)`) renders against the
-    // injected `_accounts` field — the real repository method `ByHolder`, awaited.
-    expect(svc).toMatch(/\(await _accounts\.ByHolder\(holder, cancellationToken\)\) == null/);
+    // The `repo-read` Call (`Accounts.find(AccountsByHolder(holder))`) renders
+    // against the injected `_accounts` field — the criterion's retrieval, awaited,
+    // its first row taken by list pattern.
+    expect(svc).toContain(
+      "return ((await _accounts.RunFindAllByAccountsByHolderAsync(holder, cancellationToken: cancellationToken)) switch { [var __first, ..] => __first, _ => null }) == null;",
+    );
   });
 
   it("injects the reading SERVICE into the workflow handler and calls it via the instance", async () => {
@@ -184,13 +186,13 @@ describe(".NET generator — reading-tier domainService (domain-services.md rev.
     expect(svc).not.toMatch(/var one = \(await _accounts\.GetByIdAsync\(a, cancellationToken\)\);/);
   });
 
-  it("leaves a DECLARED find's nullability alone — only getById is contractually non-null", async () => {
-    // `byHolder` is declared `Account?`, so it is legitimately nullable and must
-    // NOT acquire a throw: the existing `== null` comparison is a valid use of a
-    // nullable read.  This is the byte-identical half of the guard.
+  it("leaves a find(C)'s nullability alone — only getById is contractually non-null", async () => {
+    // `find(C)` is `Account?`, so it is legitimately nullable and must NOT
+    // acquire a throw: the `== null` comparison is a valid use of a nullable
+    // read.  This is the byte-identical half of the guard.
     const svc = (await files()).get("Domain/Services/Registration.cs")!;
-    expect(svc).toMatch(/\(await _accounts\.ByHolder\(holder, cancellationToken\)\) == null/);
-    expect(svc).not.toMatch(/ByHolder\([^)]*\) \?\? throw/);
+    expect(svc).toContain("_ => null }) == null;");
+    expect(svc).not.toContain("?? throw");
   });
 
   it("keeps a PURE service a static class with a static, un-awaited call site (byte-identical)", async () => {

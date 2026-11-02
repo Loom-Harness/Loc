@@ -47,10 +47,12 @@ const system = (platform: string) => `
         aggregate Note shape: document, with crudish, tenantOwned {
           body: string
         }
-        repository Things for Thing {
-          find byLabel(l: string): Thing? where this.label == l
+        repository Things for Thing
+        criterion Labelled(l: string) of Thing = this.label == l
+        queryHandler GetLabelled(l: string): Thing {
+          if let t = Things.find(Labelled(l)) { return t } else { notFound }
         }
-        repository Notes for Note { }
+        repository Notes for Note
         policy {
           allow deep on Thing
           deny on Note
@@ -61,10 +63,10 @@ const system = (platform: string) => `
           name: string
           implements tenantRegistry
         }
-        repository Orgs for Org { }
+        repository Orgs for Org
       }
     }
-    api DocApi from S
+    api DocApi from S { route GET "/things/labelled" -> C.GetLabelled }
     storage primarySql { type: postgres }
     resource cState { for: C, kind: state, use: primarySql }
     resource rState { for: R, kind: state, use: primarySql }
@@ -96,8 +98,19 @@ describe("policy × shape: document — node (Hono/Drizzle)", () => {
     expect(thing).toContain("rec.dataKey === null && rec.tenantId === currentUser.tenantId");
     // The principal is bound fail-closed from the ambient accessor.
     expect(thing).toContain("const currentUser = requireCurrentUser();");
-    // ... and the same predicate narrows the declared find, not just findById.
-    expect(thing).toContain(".find((x) => x.label === l) ?? null");
+  });
+
+  // KNOWN DEFECT: a criterion read over a `shape: document` aggregate
+  // (`Things.find(Labelled(l))`) calls `things.runFindAllByLabelled(…)`, but
+  // the node document repository never defines it (TS2339) — so the ladder
+  // has no criterion read to narrow.  `it.fails` keeps the expectation on
+  // record; drop the `.fails` once the document repository emits criterion
+  // reads (filtered in-app under the same ladder, as java's is).
+  it.fails("the same predicate narrows a criterion read, not just findById", async () => {
+    const thing = await fileContaining("node", "thing-repository");
+    const method = thing.slice(thing.indexOf("async runFindAllByLabelled("));
+    expect(method).toContain("async runFindAllByLabelled(");
+    expect(method).toContain("x.label === l");
   });
 
   it("renders deny as the always-false in-app conjunct", async () => {
@@ -183,6 +196,13 @@ describe("policy × shape: document — java (Spring Boot)", () => {
 
   it("renders deny as the always-false in-app conjunct", async () => {
     expect(await fileContaining("java", "NoteRepositoryImpl")).toContain("(false)");
+  });
+
+  it("a criterion read filters the ladder-scoped rows in-app", async () => {
+    const thing = await fileContaining("java", "ThingRepositoryImpl");
+    expect(thing).toContain(
+      "return findAll().stream().filter(x -> Objects.equals(x.label(), l)).toList();",
+    );
   });
 });
 

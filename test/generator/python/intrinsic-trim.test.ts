@@ -1,7 +1,7 @@
 // A1 pilot for the scalar-intrinsic catalogue (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md):
 // `string.trim()` end-to-end on the Python backend — in-memory rendering in
 // domain bodies (`.strip()`, NOT the snake-cased fallthrough `.trim()`) AND
-// SQL rendering in a queryable `find … where` position (`func.trim(col)`).
+// SQL rendering in a queryable criterion position (`func.trim(col)`).
 // The catalogue row lives in src/util/intrinsics.ts; the Python snippet in
 // render-expr.ts (PY_INTRINSIC_RENDERERS); the SQL snippet in
 // find-predicate.ts (SQLALCHEMY_INTRINSIC_SQL).  The node analogue is
@@ -27,8 +27,11 @@ system Shop {
   subdomain Catalog {
     context Catalog {
       aggregate Product { name: string }
-      repository Products for Product {
-        find byName(q: string): Product? where this.name == q.trim()
+      repository Products for Product
+      criterion ProductsByName(q: string) of Product = this.name == q.trim()
+      queryHandler ListByName(q: string): Product[] {
+        let r = Products.run(ProductsByName(q))
+        return r
       }
     }
   }
@@ -45,7 +48,7 @@ system Shop {
 });
 
 // A2 string batch — chained case-mapping in a domain body plus the queryable
-// `toLower` in a find where-clause (`func.lower(col)`), mirroring the trim
+// `toLower` in a criterion (`func.lower(col)`), mirroring the trim
 // pilot above.
 describe("python generator — string case intrinsics (stdlib A2)", () => {
   const SRC_A2 = `
@@ -56,9 +59,8 @@ system Shop {
         name: string
         derived slug: string = name.trim().toLower()
       }
-      repository Products for Product {
-        find byNameCi(q: string): Product? where this.name.toLower() == q
-      }
+      repository Products for Product
+      criterion ProductsByNameCi(q: string) of Product = this.name.toLower() == q
     }
   }
   api CatalogApi from Catalog
@@ -100,11 +102,26 @@ system Shop {
         derived weightRounded: decimal = weight.round(1)
         derived weightCeil: decimal = weight.ceil()
       }
-      repository Products for Product {
-        find byRoundedPrice(q: money): Product? where this.price.round(2) == q
-        find byWholeWeight(q: decimal): Product? where this.weight.round() == q
-        find byMinQty(q: int): Product? where this.qty.min(5) == q
-        find byNormalizedWeight(q: decimal): Product? where this.weight == q.round(1)
+      repository Products for Product
+      criterion ProductsByRoundedPrice(q: money) of Product = this.price.round(2) == q
+      criterion ProductsByWholeWeight(q: decimal) of Product = this.weight.round() == q
+      criterion ProductsByMinQty(q: int) of Product = this.qty.min(5) == q
+      criterion ProductsByNormalizedWeight(q: decimal) of Product = this.weight == q.round(1)
+      queryHandler ListByRoundedPrice(q: money): Product[] {
+        let r = Products.run(ProductsByRoundedPrice(q))
+        return r
+      }
+      queryHandler ListByWholeWeight(q: decimal): Product[] {
+        let r = Products.run(ProductsByWholeWeight(q))
+        return r
+      }
+      queryHandler ListByMinQty(q: int): Product[] {
+        let r = Products.run(ProductsByMinQty(q))
+        return r
+      }
+      queryHandler ListByNormalizedWeight(q: decimal): Product[] {
+        let r = Products.run(ProductsByNormalizedWeight(q))
+        return r
       }
     }
   }
@@ -135,7 +152,7 @@ system Shop {
     expect(domain).toContain("from decimal import Decimal");
   });
 
-  it("renders queryable math as func.round/least in the find where-clauses", async () => {
+  it("renders queryable math as func.round/least in the criterion where-clauses", async () => {
     const repo = (await build(SRC_A3)).get(REPO)!;
     expect(repo).toContain("select(ProductRow).where((func.round(ProductRow.price, 2) == q))");
     expect(repo).toContain("select(ProductRow).where((func.round(ProductRow.weight) == q))");

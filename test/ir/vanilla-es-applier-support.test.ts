@@ -15,9 +15,13 @@ import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
-import { parseString } from "../_helpers/parse.js";
+import { parseRawResult, parseString } from "../_helpers/parse.js";
 
+/** The IR-level error codes.  Every assertion here is a NEGATIVE, so a source
+ *  that stopped parsing would pass them all on its recovered remainder — the
+ *  parse is required clean first. */
 async function errorCodes(source: string): Promise<string[]> {
+  expect(parseRawResult(source).parserErrors).toEqual([]);
   const { model } = await parseString(source, { validate: false });
   return validateLoomModel(enrichLoomModel(lowerModel(model)))
     .filter((d) => d.severity === "error")
@@ -47,9 +51,7 @@ system Shop {
         apply(e: Placed) { customer := e.customer }
         apply(e: Boxed) { ${applierAdd} }
       }
-      repository Orders for Order {
-        find byCustomer(customer: string): Order[] where this.customer == customer
-      }
+      repository Orders for Order
     }
   }
   api OrdersApi from Sales

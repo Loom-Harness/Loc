@@ -36,6 +36,7 @@
 // (single or `.Select(...).ToList()`) at the boundary.
 // ---------------------------------------------------------------------------
 
+import { wireStatus } from "../../ir/enrich/wire-policy.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -83,6 +84,31 @@ import {
 } from "./workflow-emit.js";
 
 const INDENT = "        ";
+
+/** The `<ns>.Domain.Common` types a routed action's emitted text can name. */
+const DOMAIN_COMMON_TYPE_REF = /\b(?:Provenanced|ProvLineage|RequestContext|Paged|FileRef)\b/;
+
+/** A routed action's declared responses: its success line, then the RFC 7807
+ *  set node's routed handler declares — 400 for a malformed request, the
+ *  context's not-found status, and 415 only where a JSON body is read.  The
+ *  `ProblemDetailsResponsesFilter` moves each onto `application/problem+json`. */
+function routedResponseDecls(
+  successDecl: string,
+  hasBody: boolean,
+  ctx: EnrichedBoundedContextIR,
+): string {
+  const statuses = [
+    wireStatus("malformed-body"),
+    wireStatus("not-found", ctx.structuralErrorStatuses),
+    ...(hasBody ? [wireStatus("unsupported-media-type")] : []),
+  ];
+  return [
+    successDecl,
+    ...statuses.map((s) => `    [ProducesResponseType(typeof(ProblemDetails), ${s})]`),
+  ]
+    .map((l) => `${l}\n`)
+    .join("");
+}
 
 type Handler = CommandHandlerIR | QueryHandlerIR;
 
@@ -758,18 +784,29 @@ function pathActionParam(p: ParamIR): { actionParam: string; commandArg: string 
  *  coerced with `new <Agg>Id(...)`; scalar → the rendered domain type verbatim.
  *  Shared with the query-time-projection controller, whose parameters bind from
  *  the query string in exactly this shape. */
-export function queryActionParam(p: ParamIR): { actionParam: string; commandArg: string } {
+export function queryActionParam(
+  p: ParamIR,
+  opts: { bindRequired?: boolean } = {},
+): { actionParam: string; commandArg: string } {
   const t: TypeIR = p.type;
   const n = escapeCsharpIdent(p.name);
+  // A required param of a routed handler binds required, so Swashbuckle
+  // publishes `required: true` as node / phoenix do: a non-nullable reference
+  // type alone reads as optional.  Fully qualified to avoid an unused `using`
+  // under /warnaserror.
+  const bind =
+    opts.bindRequired && t.kind !== "optional"
+      ? "[Microsoft.AspNetCore.Mvc.ModelBinding.BindRequired] "
+      : "";
   if (t.kind === "id") {
     // Same shared derivation as `pathActionParam` — see the note there.
     const wire = csIdValueClrType(t.valueType);
     return {
-      actionParam: `[FromQuery] ${wire} ${n}`,
+      actionParam: `[FromQuery] ${bind}${wire} ${n}`,
       commandArg: `new ${t.targetName}Id(${n})`,
     };
   }
-  return { actionParam: `[FromQuery] ${renderCsType(t)} ${n}`, commandArg: n };
+  return { actionParam: `[FromQuery] ${bind}${renderCsType(t)} ${n}`, commandArg: n };
 }
 
 const HTTP_ATTR: Record<string, string> = {
@@ -835,6 +872,7 @@ export function emitExplicitRouteController(
       ].join(", ");
       actions.push(
         `    [HttpGet("${explicitRoutePath(r)}")]\n` +
+          routedResponseDecls("    [ProducesResponseType(200)]", false, ctx) +
           `    public async Task<IActionResult> ${h.name}(${actionParams})\n` +
           `    {\n        var result = await _mediator.Send(new ${h.name}Query(${queryArgs}));\n        return Ok(result);\n    }`,
       );
@@ -864,7 +902,7 @@ export function emitExplicitRouteController(
     const urlArg = new Map(
       urlParams.map((p) => [
         p.name,
-        source(p) === "path" ? pathActionParam(p) : queryActionParam(p),
+        source(p) === "path" ? pathActionParam(p) : queryActionParam(p, { bindRequired: true }),
       ]),
     );
 
@@ -895,6 +933,14 @@ export function emitExplicitRouteController(
       ctx,
     );
     let sendBlock: string;
+    // The success response the action DECLARES: a single entity return names its
+    // `<Agg>Response` schema (the same `[ProducesResponseType]` the derived read
+    // actions carry), any other return an untyped 200, and a void handler 204.
+    // `IActionResult` is opaque to Swashbuckle, so without the attribute the
+    // spec publishes no body schema where node publishes one.
+    let successDecl = retType
+      ? "    [ProducesResponseType(200)]"
+      : "    [ProducesResponseType(204)]";
     if (retType) {
       // An aggregate/entity return is projected to its wire-shape `<Agg>Response`
       // — the same projection the auto-derived read endpoints use — so the route
@@ -911,6 +957,8 @@ export function emitExplicitRouteController(
         if (owning) {
           okExpr = projectToResponse("result", retType, ctx);
           nsUsings.add(`${ns}.Application.${plural(owning.name)}.Responses`);
+          if (!info.isCollection)
+            successDecl = `    [ProducesResponseType(typeof(${info.base}Response), 200)]`;
         }
       }
       // A scalar / id return crosses the same wire boundary.  An `<Agg> id` is a
@@ -942,11 +990,18 @@ export function emitExplicitRouteController(
     }
     actions.push(
       `    [${attr}("${explicitRoutePath(r)}")]\n` +
+        routedResponseDecls(successDecl, bodyParams.length > 0, ctx) +
         `    public async Task<IActionResult> ${h.name}(${actionParams})\n` +
         `    {\n${sendBlock}\n    }`,
     );
   }
   if (actions.length === 0) return;
+  // An action's response projection can name a `Domain.Common` type — a
+  // provenanced field's `Provenanced<T>`, a masked field's `RequestContext`
+  // principal read.  Scanned off the emitted text, so the using is present
+  // exactly when something in the file needs it.
+  if (DOMAIN_COMMON_TYPE_REF.test(`${actions.join("\n")}\n${bodyRecords.join("\n")}`))
+    nsUsings.add(`${ns}.Domain.Common`);
   const usings = [...nsUsings].sort().map((u) => `using ${u};`);
   const className = `${apiName}RoutesController`;
   const bodyBlock = bodyRecords.length > 0 ? `${bodyRecords.join("\n")}\n\n` : "";

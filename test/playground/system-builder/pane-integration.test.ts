@@ -37,9 +37,7 @@ import {
   slotExpr,
 } from "../../../web/src/builder/system/expr-slots.js";
 import {
-  findSurface,
   opSurface,
-  setFindIgnoring,
   setOpGate,
   setOpReturnType,
 } from "../../../web/src/builder/system/op-surface.js";
@@ -77,9 +75,8 @@ const SRC = `system Shop {
       }
     }
 
-    repository Orders for Order {
-      find byStatus(s: string): Order? where status == s
-    }
+    repository Orders for Order { }
+    criterion OrdersByStatus(s: string) of Order = status == s
   }
 }`;
 
@@ -304,43 +301,5 @@ describe("operation inspector — the setter conventions the fields rely on", ()
     const typed = setOpReturnType(SRC, "Order", "confirm", "decimal") as string;
     expect(surface(typed)?.returnTypeText).toBe("decimal");
     expect(setOpReturnType(typed, "Order", "confirm", "decimal")).toBe(typed);
-  });
-});
-
-describe("find inspector — the ignoring text→spec mapping", () => {
-  // The pane maps the field's text: "" → null (drop), "*" → "*", else a
-  // comma-split name list.
-  const specOf = (text: string): "*" | string[] | null => {
-    const t = text.trim();
-    return t === "" ? null : t === "*" ? "*" : t.split(",").map((s) => s.trim());
-  };
-  const surface = (src: string) => findSurface(parse(src), "Orders", "byStatus");
-
-  it("starts with no ignoring clause", () => {
-    expect(surface(SRC)?.ignoring).toBeNull();
-    expect(surface(SRC)?.where).toBe("status == s");
-  });
-
-  it("a bare * bypasses every capability filter", () => {
-    const next = setFindIgnoring(SRC, "Orders", "byStatus", specOf("*"));
-    expect(surface(next as string)?.ignoring).toBe("*");
-  });
-
-  it("a comma list bypasses exactly those, whitespace and all", () => {
-    const next = setFindIgnoring(
-      SRC,
-      "Orders",
-      "byStatus",
-      specOf(" tenantOwned , softDeletable "),
-    );
-    expect(surface(next as string)?.ignoring).toEqual(["tenantOwned", "softDeletable"]);
-  });
-
-  it("emptying the field drops the clause and leaves the where filter intact", () => {
-    const set = setFindIgnoring(SRC, "Orders", "byStatus", specOf("*")) as string;
-    const cleared = setFindIgnoring(set, "Orders", "byStatus", specOf("")) as string;
-    expect(surface(cleared)?.ignoring).toBeNull();
-    expect(surface(cleared)?.where).toBe("status == s");
-    expect(cleared).toBe(SRC);
   });
 });

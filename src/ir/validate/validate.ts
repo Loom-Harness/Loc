@@ -20,7 +20,6 @@ import { validateCustomDesignPacks } from "./checks/design-pack-checks.js";
 import type { LoomDiagnostic } from "./checks/diagnostic.js";
 import { validateDomainServices } from "./checks/domain-service-checks.js";
 import { validateEntityPartParams } from "./checks/entity-part-param-checks.js";
-import { validateSingleRowFindUniqueness } from "./checks/find-uniqueness-checks.js";
 import { validateIfStatementPlacement } from "./checks/if-stmt-checks.js";
 import { validateIndexSuggestions } from "./checks/index-suggestion-checks.js";
 import { validateMemberResolution } from "./checks/member-resolution-checks.js";
@@ -63,15 +62,12 @@ import {
   validateExprIntegrity,
   validateExternOperations,
   validateFieldDefaults,
-  validateFindNameCollisions,
-  validateFindParamBindings,
   validateFunctionBlockBodies,
   validateLifecycleBodyDropped,
   validateNamedLifecycleDropped,
   validatePermissionRefs,
   validateReservedStructuralErrorNames,
   validateUiPermissionRefs,
-  validateUnionFindShapes,
   validateUniqueColumns,
   validateUniqueTpcBase,
   validateUnmappedErrorStatuses,
@@ -149,6 +145,7 @@ import {
 import { validateUiBodies, validateUiPageIdentity } from "./checks/ui-checks.js";
 import { validatePageGates } from "./checks/ui-gate-checks.js";
 import { validateUnionReads } from "./checks/union-read-checks.js";
+import { validateUnknownRepositoryReads } from "./checks/unknown-repo-read-checks.js";
 import { validateUpdateGateSuggestions } from "./checks/update-gate-suggestion-checks.js";
 import { validateEventChannelAmbiguous, validateWorkflows } from "./checks/workflow-checks.js";
 import { validateWorkflowUnusedParams } from "./checks/workflow-unused-param-checks.js";
@@ -344,11 +341,9 @@ export function validateLoomModel(
     validateWorkflowInstanceReadGates(c, diags);
     validateRetrievals(c, diags);
     validateRawSeedColumns(c, diags);
-    validateFindNameCollisions(c, diags);
-    validateFindParamBindings(c, diags);
     validatePagedParamNames(c, diags);
+    validateUnknownRepositoryReads(c, diags);
     validatePersistedTableCollisions(c, diags);
-    validateSingleRowFindUniqueness(c, diags);
     validateEntityPartParams(c, diags);
     validateAggregateTestBodies(c, diags);
     validateTestStatementVocabulary(c, diags);
@@ -393,7 +388,6 @@ export function validateLoomModel(
     validateContainmentCycles(c, diags);
     validatePermissionRefs(c, diags);
     validateResourceOpPlacement(c, diags);
-    validateUnionFindShapes(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateLifecycleBodyDropped(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateNamedLifecycleDropped(c, diags);
     validateUnmappedErrorStatuses(c, diags);

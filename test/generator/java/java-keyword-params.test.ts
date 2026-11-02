@@ -6,7 +6,7 @@
 //     identifiers) were declared RAW at several sites while every use went
 //     through the `jid()` keyword escape: extern port / handler params,
 //     explicit-route body records + path params, domain-service params,
-//     criterion factory params, document / event-store find params, the
+//     criterion factory params, document / event-store criterion params, the
 //     JPA retrieval delegate's argument list, workflow request components and
 //     the spine's repo / factory / for-each / if-let bindings.  Declaration
 //     and use now share one spelling (`jid`, or a `javaLocals` collision
@@ -45,12 +45,11 @@ system Probe {
         operation poke(case: int) extern { precondition case > 0 }
         function hits(do: string): int = tags.where(t => t == do).count
       }
-      repository Orders for Order {
-        find byRegion(case: string): Order? where this.region == case
-      }
+      repository Orders for Order { }
+      criterion OrdersByRegion(case: string) of Order = this.region == case
       domainService Lookup {
         operation isFree(case: string): bool {
-          return Orders.byRegion(case) == null
+          return Orders.find(OrdersByRegion(case)) == null
         }
         operation pure(do: int, x: int): int {
           let y = [1, 2].where(y => y > do).count
@@ -107,9 +106,16 @@ system Probe2 {
         category: string
         price: int
       }
-      repository Products for Product {
-        find byCategory(case: string): Product? where this.category == case
-        find byPrice(x: int): Product? where this.price == x
+      repository Products for Product { }
+      criterion ProductsByCategory(case: string) of Product = this.category == case
+      criterion ProductsByPrice(x: int) of Product = this.price == x
+      queryHandler FirstByCategory(case: string): Product? {
+        let p = Products.find(ProductsByCategory(case))
+        return p
+      }
+      queryHandler FirstByPrice(x: int): Product? {
+        let p = Products.find(ProductsByPrice(x))
+        return p
       }
       retrieval Cheap(case: string, x: int) of Product {
         where: category == case && price <= x
@@ -123,8 +129,11 @@ system Probe2 {
         }
         apply(e: Opened) { owner := e.owner }
       }
-      repository Accounts for Account {
-        find byOwner(final: string): Account? where this.owner == final
+      repository Accounts for Account { }
+      criterion AccountsByOwner(final: string) of Account = this.owner == final
+      queryHandler FirstByOwner(final: string): Account? {
+        let a = Accounts.find(AccountsByOwner(final))
+        return a
       }
     }
   }
@@ -169,7 +178,7 @@ describe("java — reserved-word param / binding names: declaration and use agre
   it("domain-service params mangle", async () => {
     const s = await file(SOURCE, "Lookup.java");
     expect(s).toMatch(/public (static )?boolean isFree\(String case_\)/);
-    expect(s).toContain("byRegion(case_)");
+    expect(s).toContain("runFindAllByOrdersByRegion(case_)");
     expect(s).toContain("public int pure(int do_, int x) {");
     // A pure (static-utility) service too — its lambda moves off the param.
     const c = await file(SOURCE, "Calc.java");
@@ -203,16 +212,16 @@ describe("java — reserved-word param / binding names: declaration and use agre
     expect(w).toContain("private int letWTwice(int case_) {");
   });
 
-  it("document / event-store find and in-memory retrieval params mangle (and `x` moves off the predicate lambda)", async () => {
+  it("document / event-store criterion and in-memory retrieval params mangle (and `x` moves off the predicate lambda)", async () => {
     const p = await file(DOC_SOURCE, "ProductRepositoryImpl.java");
-    expect(p).toContain("public Product byCategory(String case_) {");
+    expect(p).toContain("public List<Product> runFindAllByProductsByCategory(String case_) {");
     expect(p).toContain("Objects.equals(x.category(), case_)");
     expect(p).toContain("public List<Product> runCheap(String case_, int x_) {");
     expect(p).toContain("x.price() <= x_");
-    expect(p).toContain("public Product byPrice(int x_) {");
+    expect(p).toContain("public List<Product> runFindAllByProductsByPrice(int x_) {");
     expect(p).toContain("filter(x -> x.price() == x_)");
     const a = await file(DOC_SOURCE, "AccountRepositoryImpl.java");
-    expect(a).toContain("public Account byOwner(String final_) {");
+    expect(a).toContain("public List<Account> runFindAllByAccountsByOwner(String final_) {");
     expect(a).toContain("Objects.equals(x.owner(), final_)");
   });
 });

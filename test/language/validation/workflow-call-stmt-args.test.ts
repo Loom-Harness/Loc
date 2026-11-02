@@ -38,9 +38,11 @@ system Demo {
     context C {
       aggregate Order with crudish {
         qty: int
+        code: string
+        unique (code)
         operation bump(n: int) { qty := qty + n }
       }
-      repository Orders for Order { ${finds} }
+      repository Orders for Order ${finds}
       workflow W { create(label: string) { ${body} } }
     }
   }
@@ -98,9 +100,9 @@ describe("workflow-body operation-call statement args (M-T6.18 gap #3 follow-on)
     expect(c).not.toContain(COUNT);
   });
 
-  it("flags a wrong-typed operation-call on a declared-find-loaded receiver", async () => {
-    // A declared `find mine(): Order` yields its return type (single Order).
-    const src = sysWith("find mine(): Order", 'let o = Orders.mine()  o.bump("x")');
+  it("flags a wrong-typed operation-call on a natural-key-loaded receiver", async () => {
+    // `getBy` over a declared `unique (…)` key yields the single row.
+    const src = sysWith("", 'let o = Orders.getBy(code: "c")  o.bump("x")');
     const { diagnostics } = await parseString(src, { validate: true });
     expect(lspCodes(diagnostics)).toContain(TYPE);
   });

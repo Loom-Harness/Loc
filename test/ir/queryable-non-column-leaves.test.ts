@@ -40,10 +40,15 @@ import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
+import { criterionReadOfFind } from "../_helpers/criterion-read.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { parseErrorsOf, parseString } from "../_helpers/parse.js";
 
-function sys(finds: string): string {
+/** The predicate a census row spells as a find, as the criterion read that
+ *  carries it now. */
+const read = (find: string) => criterionReadOfFind(find, "Customer", "Customers");
+
+function sys(find: string): string {
   return `
 system Shop {
   subdomain S { context Sales {
@@ -51,9 +56,8 @@ system Shop {
       name: string
       dueDate: datetime
     }
-    repository Customers for Customer {
-      ${finds}
-    }
+    repository Customers for Customer
+    ${read(find).members}
   } }
   api SalesApi from S
   storage pg { type: postgres }
@@ -104,14 +108,14 @@ const REFUSED: ReadonlyArray<{ leaf: string; find: string; says: RegExp }> = [
 
 describe("queryable gate — leaves no query renderer emits are refused, not crashed on", () => {
   for (const { leaf, find, says } of REFUSED) {
-    it(`${leaf} in a find where is refused by loom.find-where-not-queryable`, async () => {
-      expect(await errorCodes(sys(find))).toContain("loom.find-where-not-queryable");
+    it(`${leaf} in a criterion a read runs is refused by loom.retrieval-where-not-queryable`, async () => {
+      expect(await errorCodes(sys(find))).toContain("loom.retrieval-where-not-queryable");
     });
 
     it(`${leaf}: the message names WHY, not just "not queryable"`, async () => {
       const { model } = await parseString(sys(find), { validate: false });
       const text = validateLoomModel(enrichLoomModel(lowerModel(model)))
-        .filter((d) => d.code === "loom.find-where-not-queryable")
+        .filter((d) => d.code === "loom.retrieval-where-not-queryable")
         .map((d) => d.message)
         .join("\n");
       expect(text).toMatch(says);
@@ -125,13 +129,16 @@ describe("queryable gate — leaves no query renderer emits are refused, not cra
   const TEMPORAL = "find dueBefore(q: datetime): Customer? where this.dueDate < q + days(2)";
 
   it("control: datetime ± days(n) is still queryable", async () => {
-    expect(await errorCodes(sys(TEMPORAL))).not.toContain("loom.find-where-not-queryable");
+    expect(await errorCodes(sys(TEMPORAL))).toEqual([]);
   });
 
   it("control: datetime ± days(n) still generates a repository on node", async () => {
     const files = await generateSystemFiles(sys(TEMPORAL));
     const key = [...files.keys()].find((k) => k.endsWith("db/repositories/customer-repository.ts"));
     expect(key, "customer-repository.ts not emitted").toBeDefined();
-    expect(files.get(key!)).toContain("dueBefore");
+    // The criterion reifies into the repository module, temporal arithmetic and all.
+    expect(files.get(key!)).toContain(
+      "lt(schema.customers.dueDate, sql`${q}::timestamptz + make_interval(days => ${2})`)",
+    );
   });
 });

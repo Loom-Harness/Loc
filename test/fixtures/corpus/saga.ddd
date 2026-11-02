@@ -1,7 +1,7 @@
 // In-process event dispatch / saga (channels.md) with persisted correlation.
 system FulfillmentSaga {
   subdomain Fulfillment {
-    context Fulfillment {
+    context Fulfillment with scaffoldGet(of: ByOrder) {
       aggregate Order with crudish {
         customerId: string
         status: string
@@ -30,9 +30,8 @@ system FulfillmentSaga {
         status: string
         operation markTracked() { status := "Tracked" }
       }
-      repository Shipments for Shipment {
-        find byOrder(order: Order id): Shipment? where this.orderRef == order
-      }
+      repository Shipments for Shipment { }
+      criterion ByOrder(order: Order id) of Shipment = this.orderRef == order
       event OrderPlaced { order: Order id, at: datetime }
       event ShipmentRequested { shipment: Shipment id, order: Order id, at: datetime }
       channel Lifecycle {
@@ -61,7 +60,7 @@ system FulfillmentSaga {
       }
     }
   }
-  api FulfillmentApi from Fulfillment
+  api FulfillmentApi with scaffoldGetApi(of: ByOrder) from Fulfillment
   storage pg { type: postgres }
   resource fulfillmentState { for: Fulfillment, kind: state, use: pg }
   deployable d {
@@ -78,7 +77,7 @@ system FulfillmentSaga {
   test e2e "saga cascade creates and tracks a shipment" against d {
     let ord = api.orders.create({ customerId: "c1", status: "Draft" })
     api.orders.place(ord)
-    let ship = api.shipments.byOrder({ order: ord.id })
+    let ship = api.fulfillment.getShipmentByOrder(ord.id)
     expect(ship.status).toBe("Tracked")
     // The shipment the SAGA created — not a client create — read back through
     // its own by-id route.  Proves the correlation id the workflow persisted

@@ -1,8 +1,9 @@
-// The NON-PAGED `find all` paired with a scaffolded list page, COMPILED.
+// The NON-PAGED `all` paired with a scaffolded list page, COMPILED.
 //
-// The paged pairing is `vanilla-list-read-gate.ddd`.  This is its twin: an
-// author-declared `find all(): Order[]` (no `paged`) exposes `list_orders/0`,
-// so the scaffold's `all` QueryView is CLIENT-paged — `serverPaged:` absent.
+// The paged pairing is `vanilla-list-read-gate.ddd`.  This is its twin: a
+// `shape: document` aggregate's `all` is a bare `T[]` (no `paged`) and exposes
+// `list_orders/0`, so the scaffold's `all` QueryView is CLIENT-paged —
+// `serverPaged:` absent.
 //
 // Two things have to hold and only a compiler proves the first:
 //
@@ -21,15 +22,14 @@
 system Sales {
   subdomain Sales {
     context Sales {
-      aggregate Order {
+      aggregate Order shape: document {
         code: string
         total: money
         derived display: string = code
       }
-      repository Orders for Order {
-        // NOT `paged` — the whole point of this fixture.
-        find all(): Order[]
-      }
+      // `shape: document`: the `all` is NOT paged — the whole point of this
+      // fixture.
+      repository Orders for Order
     }
   }
 

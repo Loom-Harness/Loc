@@ -24,24 +24,27 @@
 // does this as a macro.  And macros emit FINAL AST, so `unfold` ejects real
 // `.ddd` source the author can edit; a walker-level rewrite would be invisible.
 //
-// WHY IT CAN DECIDE PAGED-NESS HERE.  `ensureFindAll` (enrichment) synthesises
-// the paged `all` only when the repository declares none — so either the repo
-// declares `find all` and its return type is right there in the AST, or the
-// read is the synthesised paged one.  No type resolution needed.
+// WHY IT CAN DECIDE PAGED-NESS HERE.  `all` is the implicit list read, and
+// whether it pages is a pure function of the aggregate's declaration: only a
+// plain single-table relational aggregate pages; event-sourced,
+// `shape: document` / `shape: embedded` and `extends`-subtype aggregates keep a
+// bare `T[]` (`aggregateHasPagedFindAll`, the same predicate the scaffold list
+// body uses).  Rewriting a bare-array read as server-paged emits a call the
+// backend does not serve.  No type resolution needed.
 //
 // THE OPT-OUT IS TAKING CONTROL.  A `Table` that already carries `page:` or
 // `serverPaged:`, a `QueryView` that already declares `paged:`, a read that
-// already passes arguments, or a table over a plain array find — all left
+// already passes arguments, or a table over a bare-array `all` — all left
 // exactly as written.  Scaffolded pages carry their controls already, so they
 // pass through this untouched and byte-identical.
 // ---------------------------------------------------------------------------
 
 import { type AstNode, AstUtils } from "langium";
 import type {
+  Aggregate,
   BuilderCall,
   BuilderEntry,
   Expression,
-  FindDecl,
   Lambda,
   Model,
   Page,
@@ -50,13 +53,13 @@ import type {
   Ui,
 } from "../../language/generated/ast.js";
 import {
+  isAggregate,
   isArea,
   isBuilderCall,
   isLambda,
   isNameRef,
   isPage,
   isPostfixChain,
-  isRepository,
   isStateBlock,
   isUi,
 } from "../../language/generated/ast.js";
@@ -64,6 +67,7 @@ import { mkBuilderEntry, mkMemberSuffix } from "../api/_mk.js";
 import { memberAccess } from "../api/factories.js";
 import { _setContainer, _tag } from "../api/factories-internals.js";
 import { boolLit, intLit, nameRefExpr, stateBlock, stringLit } from "../api/ui-factories.js";
+import { aggregateHasPagedFindAll } from "./scaffold/_pages.js";
 
 /** Rows per page the synthesised read requests.  Matches the backend's own
  *  `PAGED_DEFAULT_PAGE_SIZE`, so the first render asks for exactly what an
@@ -147,20 +151,19 @@ function bareRead(of: Expression): { aggregate: string; operation: string } | un
   return aggregate ? { aggregate, operation } : undefined;
 }
 
-/** Does `<aggregate>.all` return the paged envelope?  True unless the model
- *  declares its own `find all` with a non-paged return — see the header note on
- *  `ensureFindAll`. */
+/** Does `<aggregate>.all` return the paged envelope?  True for a plain
+ *  relational aggregate; false for one whose `all` is a bare `T[]`.  An
+ *  aggregate the model does not declare is left to the rewrite (the paged
+ *  default). */
 function allIsPaged(model: Model, aggregate: string): boolean {
-  let declared: FindDecl | undefined;
+  let decl: Aggregate | undefined;
   for (const node of AstUtils.streamAllContents(model)) {
-    if (!isRepository(node) || node.aggregate?.$refText !== aggregate) continue;
-    for (const f of node.finds) {
-      if (f.name === "all") declared = f;
+    if (isAggregate(node) && node.name === aggregate) {
+      decl = node;
+      break;
     }
   }
-  // No user-declared `all` ⇒ enrichment synthesises the paged auto-`findAll`.
-  if (!declared) return true;
-  return (declared.returnType?.ctors ?? []).includes("paged");
+  return decl ? aggregateHasPagedFindAll(decl) : true;
 }
 
 /** Merge the paging state fields into a page's `state {}`, creating the block

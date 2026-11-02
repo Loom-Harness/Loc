@@ -47,7 +47,7 @@ import type { Diagnostic } from "vscode-languageserver-types";
 import { misplacedDeclaration } from "./misplaced-declaration.js";
 import {
   accessModifierAfterDefault,
-  findRequiresMoved,
+  findDeclRemoved,
   refineParseErrorOffset,
   reservedDeclarationName,
   ruleParserOf,
@@ -105,7 +105,7 @@ export class DddDocumentValidator extends DefaultDocumentValidator {
       refineParseErrorOffset(first, text, ruleParserOf(this.coreServices)) ??
       storageConfigKey(first, text) ??
       reservedDeclarationName(first, text) ??
-      findRequiresMoved(first, text) ??
+      findDeclRemoved(first, text) ??
       workflowHandleRemoved(first, text) ??
       accessModifierAfterDefault(first, text) ??
       misplacedDeclaration(first, text);

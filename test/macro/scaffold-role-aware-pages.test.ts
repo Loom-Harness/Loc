@@ -51,11 +51,9 @@ const DOMAIN = `
       weight: int
       operation bump() { requires true  weight := weight + 1 }
     }
-    repository Customers for Customer { }
-    repository Tags for Tag { }
-    repository Tickets for Ticket {
-      find all(): Ticket[]
-    }
+    repository Customers for Customer
+    repository Tags for Tag
+    repository Tickets for Ticket
     criterion TicketsUnassigned of Ticket = status == Open
     criterion TicketsMine of Ticket = customer == currentUser.customerId
     criterion TicketsBySubject(s: string) of Ticket = subject == s

@@ -11,7 +11,8 @@
 //
 // PascalCase positions (`Case`, `Do`, `Lock`) are safe by construction — every
 // C# keyword is lowercase — so the gate targets the lowerCamel/snake positions:
-// operation + factory parameters and their uses, the create-command named
+// operation + factory parameters and their uses, a criterion read's parameter
+// (repository port, specification, routed query), the create-command named
 // arguments, the Dapper row DTO + its hydration + the save anon-object members,
 // and the Dapper query-projection row DTO.
 
@@ -20,15 +21,14 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const SRC = (persistence: string) => `
   system S {
-    subdomain D { context C {
+    subdomain D { context C with scaffoldGet(of: ByCase) {
       aggregate Ticket with crudish {
         case: string
         do: int
         lock: string
       }
-      repository Tickets for Ticket {
-        find byCase(case: string): Ticket? where this.case == case
-      }
+      repository Tickets for Ticket
+      criterion ByCase(case: string) of Ticket = this.case == case
       projection Volume {
         tickets: int
         do: int
@@ -36,9 +36,10 @@ const SRC = (persistence: string) => `
         select tickets = count(), do = sum(t.do)
       }
     }}
+    api CApi with scaffoldGetApi(of: ByCase) from D { }
     storage primary { type: postgres }
     resource cState { for: C, kind: state, use: primary }
-    deployable d { platform: ${persistence}  contexts: [C]  dataSources: [cState]  port: 3000 }
+    deployable d { platform: ${persistence}  contexts: [C]  dataSources: [cState]  serves: CApi  port: 3000 }
   }
 `;
 
@@ -85,17 +86,22 @@ describe.each([
     expect(bareKeywordUses(entity)).toEqual([]);
   });
 
-  it("a repository find's parameter and its uses", async () => {
+  it("a criterion read's parameter and its uses", async () => {
     const repo = file(await files(persistence), "Infrastructure/Repositories/TicketRepository.cs");
     const port = file(await files(persistence), "Domain/Tickets/ITicketRepository.cs");
-    expect(port).toContain("ByCase(string @case,");
-    expect(repo).toContain("ByCase(string @case,");
+    const criterion = file(await files(persistence), "Domain/Criteria/ByCaseCriterion.cs");
+    expect(port).toContain("RunFindAllByByCaseAsync(string @case,");
+    expect(repo).toContain("RunFindAllByByCaseAsync(string @case,");
+    expect(criterion).toContain("public ByCaseCriterion(string @case)");
     expect(bareKeywordUses(port)).toEqual([]);
-    // …and the controller action that binds it from the query string, plus the
+    expect(bareKeywordUses(criterion)).toEqual([]);
+    // …and the scaffoldGet route that binds it from the query string, plus the
     // query record it constructs.
-    const controller = file(await files(persistence), "Api/TicketsController.cs");
-    expect(controller).toContain("] string @case)");
-    expect(controller).toContain("new ByCaseQuery(@case)");
+    const controller = file(await files(persistence), "Api/CApiRoutesController.cs");
+    expect(controller).toContain(
+      "[FromQuery] [Microsoft.AspNetCore.Mvc.ModelBinding.BindRequired] string @case)",
+    );
+    expect(controller).toContain("new GetTicketByCaseQuery(@case)");
     expect(bareKeywordUses(controller)).toEqual([]);
   });
 

@@ -38,7 +38,7 @@ system MaskedAudit {
   user { id: string  role: string  permissions: string[] }
   subdomain People {
     permissions { unmask }
-    context Staff {
+    context Staff with scaffoldGet(of: ByName) {
       aggregate Employee audited with crudish {
         name: string
         // Two masked fields: both wraps land in the SAME projection expression.
@@ -60,12 +60,11 @@ system MaskedAudit {
           grade := newGrade
         }
       }
-      repository Employees for Employee {
-        find byName(name: string): Employee? where this.name == name
-      }
+      repository Employees for Employee { }
+      criterion ByName(name: string) of Employee = this.name == name
     }
   }
-  api StaffApi from People
+  api StaffApi with scaffoldGetApi(of: ByName) from People
   storage primary { type: postgres }
   resource staffState { for: Staff, kind: state, use: primary, index: [Employee.name] }
   deployable d {
@@ -121,7 +120,7 @@ system MaskedAudit {
 
     // A DECLARED FIND — a third projection site, and the one that returns the
     // row through a repository query rather than the by-id read.
-    let found = api.employees.byName({ name: "Ada" })
+    let found = api.staff.getEmployeeByName("Ada")
     expect(found.nationalId).toBe(null)
     expect(found.grade).toBe(5)
 

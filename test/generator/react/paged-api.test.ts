@@ -1,7 +1,7 @@
 // React API-client coverage for the paged list read (payload-transport-layer.md,
-// P3b emission — React slice).  A paged `all` (the auto-findAll, or a declared
-// `find all(): <Agg> paged`) emits a `<Agg>Paged` response schema, adds 1-based
-// `page`/`pageSize` to its query schema, and the generated React Query hook
+// P3b emission — React slice).  The paged `all` (the auto-findAll) emits a
+// `<Agg>Paged` response schema, adds 1-based `page`/`pageSize` to its query
+// schema, and the generated React Query hook
 // parses the paged envelope — so a hono-served react frontend consumes the same
 // wire shape the backend emits.
 
@@ -15,9 +15,7 @@ import { parseString } from "../../_helpers/parse.js";
 const SRC = `
   context Inventory {
     aggregate Warehouse { code: string  region: string }
-    repository Warehouses for Warehouse {
-      find all(): Warehouse paged
-    }
+    repository Warehouses for Warehouse
   }
 `;
 

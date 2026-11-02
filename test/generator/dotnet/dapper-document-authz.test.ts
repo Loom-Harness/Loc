@@ -41,10 +41,8 @@ const SRC = `
         aggregate Note shape: document, with crudish, tenantOwned {
           body: string
         }
-        repository Things for Thing {
-          find byLabel(l: string): Thing? where this.label == l
-        }
-        repository Notes for Note { }
+        repository Things for Thing
+        repository Notes for Note
         policy {
           allow deep on Thing
           deny on Note
@@ -52,7 +50,7 @@ const SRC = `
       }
       context R {
         aggregate Org with crudish { name: string  implements tenantRegistry }
-        repository Orgs for Org { }
+        repository Orgs for Org
       }
     }
     api MainApi from D
@@ -132,18 +130,23 @@ describe("the Dapper document repository carries the authorization ladder", () =
     expect(repo).toContain("private static bool _WriteScopeAllows(Thing x) =>");
   });
 
-  it("applies the capability read filter on ALL THREE read paths", async () => {
+  it("applies the capability read filter on EVERY read path", async () => {
     const repo = await file("Infrastructure/Repositories/ThingRepository.cs");
     expect(repo).toContain("private static bool _CapabilityVisible(Thing x) =>");
     // GetByIdAsync — an out-of-scope row reads as missing (→ 404), matching
     // what the relational adapter's spliced WHERE does to the same lookup.
     expect(repo).toContain("return _CapabilityVisible(__rec) ? __rec : null;");
-    // FindManyByIdsAsync + every author find fold through `.Where(...)`.
-    const guarded = repo.split("\n").filter((l) => l.includes(".Where(_CapabilityVisible)"));
-    expect(
-      guarded.length,
-      "FindManyByIdsAsync, findAll and byLabel must each narrow to the visible set",
-    ).toBeGreaterThanOrEqual(3);
+    // FindManyByIdsAsync and the collection read fold through `.Where(...)`.
+    const methodOf = (name: string): string => {
+      const start = repo.indexOf(` ${name}(`);
+      expect(start, `no ${name} in ThingRepository.cs`).toBeGreaterThan(-1);
+      return repo.slice(start, repo.indexOf("\n    }", start));
+    };
+    for (const name of ["FindManyByIdsAsync", "All"]) {
+      expect(methodOf(name), `${name} must narrow to the visible set`).toContain(
+        ".Where(_CapabilityVisible)",
+      );
+    }
   });
 
   it("the subtree (`allow deep`) rung reaches the predicate, not just the flat floor", async () => {

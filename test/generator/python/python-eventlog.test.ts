@@ -9,7 +9,7 @@ import { parseString } from "../../_helpers/index.js";
 // Python backend — event sourcing (plan S14, appliers A2).  Verified
 // live against Postgres during the slice: create→Opened, ops append
 // gap-free versions, state folds (100-30=70), overdraw precondition
-// 400, in-memory find over the folded set.
+// 400.
 // ---------------------------------------------------------------------------
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -80,8 +80,34 @@ describe("python event sourcing", () => {
     // Wire round-trip dispatchers.
     expect(repo).toContain('if row.type == "Opened":');
     expect(repo).toContain("def _event_to_data(self, ev: DomainEvent) -> dict[str, object]:");
-    // Finds filter the folded set in memory.
-    expect(repo).toContain("[a for a in await self.all() if a.owner == owner]");
+  });
+
+  // A criterion read over an event-sourced aggregate: the handler calls
+  // `run_find_all_by_accounts_by_owner`, and the event-store repository emits
+  // no retrieval method, so the call names a method that does not exist.
+  // `fails` until the event-store repository emits criterion reads (in memory
+  // over the folded set); then drop `.fails`.
+  it.fails("a criterion read's repository method exists (event-store repository emits none)", async () => {
+    const { model, errors } = await parseString(
+      FIXTURE.replace(
+        /(criterion AccountsByOwner\(owner: string\) of Account = this\.owner == owner)/,
+        `$1
+      queryHandler GetByOwner(owner: string): Account {
+        if let a = Accounts.find(AccountsByOwner(owner)) {
+          return a
+        } else {
+          notFound
+        }
+      }`,
+      ),
+    );
+    expect(errors).toEqual([]);
+    const files = generateSystems(model).files;
+    expect(files.get("api/app/application/get_by_owner.py")).toContain(
+      "await accounts.run_find_all_by_accounts_by_owner(owner, limit=1)",
+    );
+    const repo = files.get("api/app/db/repositories/account_repository.py")!;
+    expect(repo).toContain("    async def run_find_all_by_accounts_by_owner(self, owner: str");
   });
 
   it("the create route takes the create ACTION's params", async () => {

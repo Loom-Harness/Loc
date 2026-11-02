@@ -8,17 +8,16 @@
 // backends while every compile tier stayed green — because a missing guard is
 // not a syntax error anywhere:
 //
-//   1. `find all(): T[] requires <expr>` — the LIST endpoint (`GET /<aggs>`).
-//      node/Hono and .NET emit a route per repository find and picked it up for
-//      free; java/python/elixir each special-case `all` out of that loop and
-//      emitted the bespoke list route without reading its `requires`.
+//   1. the LIST endpoint (`GET /<aggs>`), gated by `policy { read T requires
+//      <expr> }`.  node/Hono and .NET emit it through their find-route loop;
+//      java/python/elixir each special-case `all` out of that loop and once
+//      emitted the bespoke list route without reading its gate.
 //   2. a FOLDED (materialized) projection's gate — `GET /projections/<p>` and
 //      `.../{key}`, over the read-model table the fold upserts.
 //   3. a QUERY-TIME projection's gate — `GET /projections/<p>`, the
 //      comprehension evaluated per read.
-//   4. the BY-ID read `GET /<aggs>/{id}` (M-T3.19) — compiler-derived, gated by
-//      a declared `find byId(id: T id): T? requires <expr>`.  Before M-T3.19
-//      it had no gate surface at all on any backend.
+//   4. the BY-ID read `GET /<aggs>/{id}` — compiler-derived, gated by the same
+//      policy line.
 //
 // What this fixture buys that a unit test cannot, in two tiers:
 //
@@ -55,16 +54,10 @@ system ReadGates {
           emit OrderPlaced { orderRef: id, code: code }
         }
       }
-      repository Orders for Order {
-        // (1) The LIST read, gated.  An author-declared `find all` wins over
-        // the enrichment-injected one, gate included.
-        find all(): Order[]
-        // (4) The BY-ID read, gated (M-T3.19).  `GET /api/orders/{id}` is
-        // compiler-derived; declaring the by-id SHAPE here is its gate surface,
-        // and every backend renders the gate on the `/{id}` route before the
-        // load.
-        find byId(id: Order id): Order?
-      }
+      repository Orders for Order
+      // (1) The LIST read and (4) the BY-ID read, both gated by this one line:
+      // every backend renders the gate on `GET /orders` and `GET /orders/{id}`
+      // before the load.
       policy { read Order requires currentUser.role == "agent" }
       // NB: the correlation column is `orderRef`, not `order` — `order` is a
       // reserved SQL word and identifier quoting in the projection read-model
@@ -126,7 +119,7 @@ system ReadGates {
 
     // (1) the gated LIST read
     let listed = api.orders.all()
-    expect(listed.length).toBe(2)
+    expect(listed.total).toBe(2)
 
     // (2) the gated FOLDED projection — `place()` folded exactly one row
     let folded = api.orderBook.byKey(b)
@@ -146,17 +139,12 @@ system ReadGates {
     // declared gates and not from a guard applied aggregate-wide.
     let read = api.orders.getById(a)
     expect(read.code).toBe("O-1")
-    // The declared `find byId` also serves its own `GET /orders/by_id` route,
-    // under the same gate.  It is written without a `where`, so this reads the
-    // SECOND order — a filterless optional find would answer the first row.
-    let viaFind = api.orders.byId({ id: b.id })
-    expect(viaFind.code).toBe("O-2")
     api.orders.update(a, { code: "O-1b", total: money("10.00"), open: true })
     let updated = api.orders.getById(a)
     expect(updated.code).toBe("O-1b")
     api.orders.destroy(a)
     expect(api.orders.getById(a)).toThrow(404)
     let remaining = api.orders.all()
-    expect(remaining.length).toBe(1)
+    expect(remaining.total).toBe(1)
   }
 }

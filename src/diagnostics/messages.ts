@@ -878,17 +878,6 @@ export const DIAGNOSTIC_MESSAGES = {
       : `policy function '${p.name}' expects ${p.want} argument${p.want2}, but ${p.got} ${p.got2} supplied.`,
 
   // ----------------------------------------------------------------------
-  // src/language/validators/repository.ts
-  // ----------------------------------------------------------------------
-  "loom.list-find-removed": (p: { name: unknown }) =>
-    `repository find '${p.name}' returns a list, and list finds are removed — declare a ` +
-    `'criterion' (run it with Repo.run(<Criterion>(args))) or a 'retrieval' instead, and put ` +
-    `it on the wire with 'scaffoldPaged(of: <it>)' on the context plus ` +
-    `'scaffoldPagedApi(of: <it>)' on the api when a client must call it; ` +
-    `'node scripts/codemod-list-find-to-criterion.mjs <path>' rewrites it. (A unique-key ` +
-    `find returning a single 'T' / 'T?' stays fine.)`,
-
-  // ----------------------------------------------------------------------
   // src/language/validators/seed.ts
   // ----------------------------------------------------------------------
   "loom.seed-foreign-aggregate": (p: { name: unknown; aggCtxName: unknown; ownCtxName: unknown }) =>
@@ -1420,22 +1409,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `enforced per concrete table (${p.concretes}) — each subtype rejects its own duplicates, but ` +
     `the same value can still exist once in EACH sibling table.  If the key must be unique ` +
     `across the whole hierarchy, map it to one shared table: \`inheritanceUsing: sharedTable\`.`,
-  "loom.find-reserved-name": (p: { name: unknown; findName: unknown }) =>
-    `repository '${p.name}' find '${p.findName}': '${p.findName}' is a built-in repository verb of the Loom language, ` +
-    `so '${p.name}.${p.findName}(...)' would already mean the built-in. Choose a different find name (e.g. 'byRef', 'lookup').`,
-  "loom.find-param-unbound": (p: {
-    name: unknown;
-    findName: unknown;
-    param: unknown;
-    aggName: unknown;
-  }) =>
-    `repository '${p.name}' find '${p.findName}' declares no 'where', so each parameter ` +
-    `filters on the field of '${p.aggName}' it names — but '${p.param}' names no field ` +
-    `(nor a '<field>Id' spelling of one). The find would ignore it and answer with an ` +
-    `arbitrary row. Rename the parameter to the field it should match, or add a ` +
-    `'where' clause that uses it.`,
-  "loom.duplicate-find": (p: { name: unknown; findName: unknown }) =>
-    `repository '${p.name}' declares find '${p.findName}' more than once.`,
   "loom.paged-param-reserved#find": (p: {
     name: unknown;
     findName: unknown;
@@ -1468,15 +1441,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `the paging query parameter '${p.key}' every paged read adds (${p.reserved}) — the request would ` +
     `carry two values for one query key, and the generated handler / route signature a duplicate ` +
     `parameter.  Rename the parameter (e.g. '${p.param}Filter').`,
-  "loom.union-find-shape-unsupported": (p: {
-    name: unknown;
-    repoName: unknown;
-    why: unknown;
-    aggregateName: unknown;
-  }) =>
-    `find '${p.name}' on repository '${p.repoName}': ${p.why}. Supported v1 shape: ` +
-    `\`find ${p.name}(...): ${p.aggregateName} or <Error>\` (absence → the error's ` +
-    `HTTP status) or \`: ${p.aggregateName} option\` (absence → 404).`,
   // --- M-T5.34 / #2864 D6, decision D-2 -----------------------------------
   // An entity-PART-typed parameter on a public action.  The materialization
   // step has a value-object arm (`new LineVO(e.sku, e.qty)`) and no entity arm,
@@ -4001,8 +3965,8 @@ export const DIAGNOSTIC_MESSAGES = {
   }) =>
     `reactor '${p.reactor}' runs on timer '${p.timer}', which has no tenant, but reads the ` +
     `tenant-owned aggregate '${p.agg}' through \`${p.read}\`.  The read's tenant filter would match ` +
-    `nothing.  Make the cross-tenant read explicit: declare it as a \`find\` (or an inline ` +
-    `\`Repo.run\`) with \`ignoring tenantOwned\`.`,
+    `nothing.  Make the cross-tenant read explicit: widen the read with \`ignoring tenantOwned\` ` +
+    `(\`Repo.run(C) ignoring tenantOwned\`, \`Repo.getBy(…) ignoring tenantOwned\`).`,
   "loom.user-reserved-field": (p: { name: unknown; fName: unknown }) =>
     `system '${p.name}': user block declares field '${p.fName}', but that name is reserved for the ` +
     `built-in system principal (\`currentUser.isSystem\`, and \`causedBy\` — the originating user an ` +
@@ -5039,16 +5003,6 @@ export const DIAGNOSTIC_MESSAGES = {
     `context '${p.name}': workflow '${p.wfName}' is declared more than once.`,
   "loom.workflow-name-collision": (p: { name: unknown; wfName: unknown; clash: unknown }) =>
     `context '${p.name}': workflow '${p.wfName}' collides with the ${p.clash} of the same name.`,
-  "loom.single-row-find-not-unique": (p: {
-    repo: unknown;
-    find: unknown;
-    agg: unknown;
-    cols: unknown;
-  }) =>
-    `repository '${p.repo}': find '${p.find}' returns a single '${p.agg}' by (${p.cols}), but no ` +
-    `'unique (${p.cols})' makes that a natural key — when two rows share it, every backend ` +
-    `returns whichever row the database yields first. Declare 'unique (${p.cols})' on '${p.agg}' ` +
-    `(it also derives the DB unique index and the 409 on a duplicate), or read every match through a criterion (Repo.run).`,
   "loom.persisted-table-collision": (p: {
     ctx: unknown;
     first: unknown;
@@ -5284,18 +5238,15 @@ export const DIAGNOSTIC_MESSAGES = {
     otherContext: unknown;
   }) =>
     `${p.where}: repository '${p.repoName}' is declared in context '${p.otherContext}', not in this workflow's own context '${p.ownContext}' — a workflow orchestrates the aggregates of ONE context, so it may only load through its own repositories. No backend can emit this read: the repository is never constructed and the call is never awaited, so the generated code references a name that does not exist. Cross-context data crosses at the context's PUBLIC surface instead: fetch it through '${p.otherContext}''s api (a 'resource { kind: api }' binding gives a typed in-system call), or read a local projection folded over '${p.otherContext}''s published events (via a channel), and pass the value in as a parameter. If the two aggregates really do change together in one transaction, they belong in the SAME context — move one across, or move this workflow into '${p.otherContext}'.`,
+  "loom.repo-unknown-read": (p: { repoName: unknown; method: unknown; suggestion?: unknown }) =>
+    `repository '${p.repoName}' has no method '${p.method}'.${didYouMean(p.suggestion)}  A repository declares no reads of its own: read with getById / findById, getBy / findBy over a declared \`unique (…)\` key, or find / findAll / run over a criterion.`,
   "loom.workflow-unknown-repository-method": (p: {
     name: unknown;
     repoName: unknown;
     method: unknown;
-    finds: unknown;
     suggestion?: unknown;
   }) =>
-    `workflow '${p.name}': repository '${p.repoName}' has no method '${p.method}'.${didYouMean(p.suggestion)}  Available: getById, ${p.finds}.`,
-  "loom.workflow-currentuser-find": (p: { name: unknown; repoName: unknown; method: unknown }) =>
-    `workflow '${p.name}': '${p.repoName}.${p.method}(...)' references a currentUser-bound find, ` +
-    `which workflows don't yet pass the user into.  Use 'getById' with an explicit id parameter, ` +
-    `or call the user-aware find from the route layer instead.`,
+    `workflow '${p.name}': repository '${p.repoName}' has no method '${p.method}'.${didYouMean(p.suggestion)}  A repository declares no reads of its own: read with getById / findById, getBy / findBy over a declared \`unique (…)\` key, or find / findAll / run over a criterion.`,
   "loom.workflow-load-array-unsupported": (p: {
     name: unknown;
     repoName: unknown;
@@ -5640,13 +5591,16 @@ export const DIAGNOSTIC_MESSAGES = {
   // below.  Say the order (`src/language/parse-errors.ts`).
   "loom.parse-error#access-modifier-after-default": (p: { modifier: unknown; fixed: unknown }) =>
     `The access modifier '${p.modifier}' goes before the default: \`${p.fixed}\`.`,
-  // A `requires` gate on a repository find — the clause moved to the policy
-  // block (`src/language/parse-errors.ts`).
-  "loom.parse-error#find-requires-moved": (p: { aggregate: unknown }) =>
-    `A repository find carries no \`requires\` gate: who may read an aggregate is ` +
-    `\`policy { read ${p.aggregate} requires <expr> }\` in its context, and it gates every ` +
-    `read of '${p.aggregate}'. Move the gate there (\`node scripts/codemod-find-gate-to-policy.mjs\` ` +
-    `does it for a whole project).`,
+  // A `find` declared in a repository body — the declaration was removed
+  // (D-FINDDECL-REMOVED): every read is the repository contract
+  // (`src/language/parse-errors.ts`).
+  "loom.parse-error#find-removed": (p: { repository: unknown; aggregate: unknown }) =>
+    `A repository declares no \`find\`s any more: read '${p.aggregate}' through the ` +
+    `repository contract instead — \`${p.repository}.findById(id)\` / \`getById(id)\`, ` +
+    `\`${p.repository}.findBy(<column>: v)\` / \`getBy(…)\` over a declared \`unique (…)\` key, ` +
+    `or a \`criterion\` read with \`${p.repository}.find(C)\` (the first match), ` +
+    `\`findAll(C)\` or \`run(C)\`. A read a client calls is a \`queryHandler\` or ` +
+    `\`scaffoldGet\`. Leave the repository body empty (\`repository ${p.repository} for ${p.aggregate}\`).`,
   // A workflow `handle` member — the declaration was removed (D-HANDLE-REMOVAL):
   // it had no correlation surface and no backend ever routed it.  The named
   // command entry is a context-level `commandHandler` (`src/language/parse-errors.ts`).

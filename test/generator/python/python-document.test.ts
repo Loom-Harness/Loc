@@ -8,9 +8,8 @@ import { parseString } from "../../_helpers/index.js";
 // ---------------------------------------------------------------------------
 // Python backend — shape: document (F2a).  A document aggregate persists
 // as ONE jsonb column (id, data, version); the repo serialises the
-// domain getters to a dict and rebuilds through `_rehydrate`, finds run
-// in-memory over the rehydrated documents.  Verified live (create →
-// addSection → bump → read-back → find popular) and statically by the
+// domain getters to a dict and rebuilds through `_rehydrate`.  Verified
+// live (create → addSection → bump → read-back) and statically by the
 // `document.ddd` corpus case (uv + ruff + mypy --strict).
 // ---------------------------------------------------------------------------
 
@@ -61,17 +60,32 @@ describe("python shape: document", () => {
     expect(repo).toContain('Article._rehydrate(id=ArticleId(cast(str, d["id"]))');
   });
 
-  it("finds evaluate in-memory over the rehydrated documents", async () => {
-    const files = await build();
-    const repo = files.get("api/app/db/repositories/article_repository.py")!;
-    expect(repo).toContain("async def popular(self, min: int) -> Article | None:");
-    expect(repo).toContain("items = await self.all()");
-    expect(repo).toContain("matches = [x for x in items if (lambda x: x.view_count >= min)(x)]");
-    // find_executed (S5) — rows is the post-filter cardinality.
-    expect(repo).toContain(
-      'log("debug", "find_executed", aggregate="Article", find="popular", rows=len(matches))',
+  // A criterion read over a document aggregate: the handler calls
+  // `run_find_all_by_articles_popular`, and the document repository emits no
+  // retrieval method, so the call names a method that does not exist.  `fails`
+  // until the document repository emits criterion reads (in-memory over the
+  // rehydrated documents); then drop `.fails`.
+  it.fails("a criterion read's repository method exists (document repository emits none)", async () => {
+    const { model, errors } = await parseString(
+      FIXTURE.replace(
+        /(criterion ArticlesPopular\(min: int\) of Article = this\.viewCount >= min)/,
+        `$1
+      queryHandler GetPopular(min: int): Article {
+        if let a = Articles.find(ArticlesPopular(min)) {
+          return a
+        } else {
+          notFound
+        }
+      }`,
+      ),
     );
-    expect(repo).toContain("        return matches[0] if matches else None");
+    expect(errors).toEqual([]);
+    const files = generateSystems(model).files;
+    expect(files.get("api/app/application/get_popular.py")).toContain(
+      "await articles.run_find_all_by_articles_popular(min, limit=1)",
+    );
+    const repo = files.get("api/app/db/repositories/article_repository.py")!;
+    expect(repo).toContain("    async def run_find_all_by_articles_popular(self, min: int");
   });
 });
 

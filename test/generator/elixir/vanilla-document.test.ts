@@ -13,7 +13,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // and an operation's re-embed (scalar bump and containment append alike) are
 // asserted by value on the elixir behavioural leg (`corpus/document`).  What
 // stays here is what that case does not reach: the schema and migration
-// shapes, the version/conflict mapping, finds, union and paged finds, audited
+// shapes, the version/conflict mapping, criterion and paged finds, audited
 // and returning ops, and the guard denials.
 // ---------------------------------------------------------------------------
 
@@ -153,10 +153,10 @@ describe("vanilla shape: document persistence (DEBT-07)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Scalar custom finds + named operations on a document aggregate (DEBT-07).
-// A document row has no flattened columns, so a find filters IN MEMORY over the
-// jsonb `data` map and a named op runs its body over that map, persisting via
-// the document repo's `update/2`.
+// Scalar criterion finds + named operations on a document aggregate (DEBT-07).
+// A document row has no flattened columns, so a criterion's repository find
+// filters IN MEMORY over the rehydrated embed and a named op runs its body over
+// that struct, persisting via the document repo's `update/2`.
 // ---------------------------------------------------------------------------
 const DOC_OPS = `
 system Carting {
@@ -177,9 +177,11 @@ system Carting {
           status := checkedOut
         }
       }
-      repository Carts for Cart {
-        find byReference(reference: string): Cart? where this.reference == reference
-        find checkedOutOnes(): Cart? where this.status == checkedOut
+      repository Carts for Cart { }
+      criterion CartsCheckedOutOnes of Cart = this.status == checkedOut
+      queryHandler ListCheckedOut(): Cart paged {
+        let r = Carts.run(CartsCheckedOutOnes())
+        return r
       }
     }
   }
@@ -197,20 +199,18 @@ system Carting {
 `;
 
 describe("vanilla shape: document scalar finds + named ops (Route A slice 2 — struct mode)", () => {
-  it("emits in-memory custom finds that read the rehydrated embed struct", async () => {
+  it("emits in-memory criterion finds that read the rehydrated embed struct", async () => {
     const repo = file(await generateSystemFiles(DOC_OPS), "/carts/cart_repository.ex");
     // The predicate reads the rehydrated `%<Agg>.Data{}` embed bound as
     // `record` (struct access, no docMap fork), enums compared as their stored
     // strings.
-    expect(repo).toContain("def checked_out_ones() do");
+    expect(repo).toContain(
+      'def find_all_by_carts_checked_out_ones(page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc") do',
+    );
     expect(repo).toContain("|> Repo.all()");
     expect(repo).toContain("|> Enum.filter(fn row ->");
     expect(repo).toContain("record = row.data");
     expect(repo).toContain('record.status == "checkedOut"');
-    // A single-return find (`Cart?`) yields the first match (or nil).
-    expect(repo).toContain("def by_reference(reference) do");
-    expect(repo).toContain("record.reference == reference");
-    expect(repo).toContain("{:ok, List.first(results)}");
     // The docMap normaliser helper is gone.
     expect(repo).not.toContain("__doc_data");
   });
@@ -235,7 +235,7 @@ describe("vanilla shape: document scalar finds + named ops (Route A slice 2 — 
     expect(ctx).toContain('record = %{record | status: "checkedOut"}');
     // The find defdelegates front the repository fns.
     expect(ctx).toContain(
-      "defdelegate by_reference_cart(reference), to: Api.Carts.CartRepository, as: :by_reference",
+      'defdelegate find_all_by_carts_checked_out_ones_cart(page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc"), to: Api.Carts.CartRepository, as: :find_all_by_carts_checked_out_ones',
     );
     // The docMap fork is gone — no `data = ... Map.from_struct` map bind, no Map.put.
     expect(ctx).not.toContain('Map.put(data, "item_count"');
@@ -380,53 +380,6 @@ system Shop {
     // The paged read still reads the embed (struct-mode predicate).
     expect(repo).toContain("record = row.data");
     expect(repo).toContain("record.status == status");
-  });
-});
-
-describe("vanilla shape: document union finds (Route A slice 4d)", () => {
-  const DOC_UNION = `
-system Shop {
-  subdomain Sales {
-    context Shop {
-      error NotFound { }
-      aggregate Cart shape: document with crudish {
-        reference: string
-      }
-      repository Carts for Cart {
-        find byRef(reference: string): Cart or NotFound where this.reference == reference
-      }
-    }
-  }
-  api ShopApi from Sales
-  storage pg { type: postgres }
-  resource shopState { for: Shop, kind: state, use: pg }
-  deployable api { platform: elixir, contexts: [Shop], dataSources: [shopState], serves: ShopApi, port: 4000 }
-}
-`;
-
-  it("returns the single-get {:ok, nil}/{:ok, record} tuple the union controller reads", async () => {
-    const files = await generateSystemFiles(DOC_UNION);
-    const repo = file(files, "/shop/cart_repository.ex");
-    // A union find is a single-return in-memory filter → first match or nil.
-    expect(repo).toContain(
-      "@spec by_ref(term()) :: {:ok, Api.Shop.Cart.t() | nil} | {:error, term()}",
-    );
-    expect(repo).toContain("def by_ref(reference) do");
-    expect(repo).toContain("record = row.data");
-    expect(repo).toContain("record.reference == reference");
-    expect(repo).toContain("{:ok, List.first(results)}");
-  });
-
-  it("translates the absent variant to the tagged union wire in the controller", async () => {
-    const ctrl = file(await generateSystemFiles(DOC_UNION), "/cart_controller.ex");
-    // Found → 200 body (untagged success variant); absent → RFC-7807 via the
-    // shared problem_variant/5 responder (NotFound → 404).
-    expect(ctrl).toContain("def by_ref(conn, params) do");
-    expect(ctrl).toContain("{:ok, nil} ->");
-    expect(ctrl).toContain("problem_variant(conn, 404,");
-    expect(ctrl).toContain("{:ok, record} ->");
-    expect(ctrl).toContain("json(conn, serialize(record))");
-    expect(ctrl).toContain("defp problem_variant(conn, status, type, title, data) do");
   });
 });
 

@@ -301,8 +301,13 @@ context Sales {
   aggregate Order with softDeletable {
     subject: string
   }
-  repository Orders for Order {
-    find bySubject(s: string): Order? where this.subject == s ignoring softDeletable
+  repository Orders for Order { }
+  criterion OrdersBySubject(s: string) of Order = this.subject == s
+  workflow Sweep {
+    create(s: string) {
+      let xs = Orders.findAll(OrdersBySubject(s)) ignoring softDeletable
+      for o in xs { }
+    }
   }
 }
 `;

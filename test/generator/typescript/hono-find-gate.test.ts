@@ -1,55 +1,72 @@
-// The policy read gate on a find route, Hono (D-AUTH-OIDC / default-deny).  A
-// `policy { read T requires <expr> }` over a `find f(…): T? where <pred>` on a repository emits an
-// in-handler 403 gate at the top of the GET /<plural>/<f> route — the read-side
-// twin of the view gate — evaluated against the request's currentUser before
-// the query runs.  An ungated find emits no gate.
+// The policy read gate on a single-row read route, Hono (D-AUTH-OIDC /
+// default-deny).  A `policy { read T requires <expr> }` over a
+// `scaffoldGet(of: <Criterion>)` read emits an in-handler 403 gate at the top
+// of the GET /<plural>/<read> route — the read-side twin of the view gate —
+// evaluated against the request's currentUser before the query runs.  An
+// ungated aggregate's read emits no gate.
 
 import { describe, expect, it } from "vitest";
 import { generateSystems } from "../../../src/system/index.js";
 import { parseValid } from "../../_helpers/parse.js";
 
-function sys(findClause: string): string {
+function sys(readClause: string): string {
   return `
   system Sys {
     user { id: string role: string }
     subdomain S {
-      context Tickets {
+      context Tickets with scaffoldGet(of: BySubject) {
         aggregate Ticket { subject: string open: bool }
-        repository Tickets for Ticket {
-          find bySubject(s: string): Ticket? where this.subject == s${findClause ? `\n}\npolicy { read Ticket ${findClause}` : ""}
-        }
+        repository Tickets for Ticket
+        criterion BySubject(s: string) of Ticket = this.subject == s${readClause ? `\n        policy { read Ticket ${readClause}}` : ""}
       }
     }
     storage primary { type: postgres }
     resource st { for: Tickets, kind: state, use: primary }
-    api Api from S
+    api Api with scaffoldGetApi(of: BySubject) from S
     deployable api { platform: node  contexts: [Tickets]  serves: Api  dataSources: [st]  port: 3000  auth: required }
   }
 `;
 }
 
-async function routesFile(findClause: string): Promise<string> {
-  const files = (await generateSystems(await parseValid(sys(findClause)))).files;
-  const path = [...files.keys()].find((k) => k.endsWith("ticket.routes.ts"));
-  expect(path, "ticket.routes.ts not emitted").toBeDefined();
-  return files.get(path!)!;
+async function routesFile(readClause: string): Promise<string> {
+  const files = (await generateSystems(await parseValid(sys(readClause)))).files;
+  const path = [...files.keys()].find((k) => k.endsWith("http/api-routes.ts"));
+  expect(path, "api-routes.ts not emitted").toBeDefined();
+  const rf = files.get(path!)!;
+  expect(rf).toContain('path: "/tickets/by_subject",');
+  return rf;
 }
 
-describe("Hono find requires gate", () => {
-  it("emits a 403 ForbiddenError gate evaluated against currentUser, before the query", async () => {
+describe("Hono single-row read requires gate", () => {
+  it("emits the 403 gate before the query", async () => {
     const rf = await routesFile('requires currentUser.role == "agent" ');
-    expect(rf).toContain('.get("currentUser")');
     expect(rf).toContain(
-      'if (!(currentUser.role === "agent")) throw new ForbiddenError("Forbidden: find bySubject");',
+      'if (!(currentUser.role === "agent")) throw new ForbiddenError("Forbidden: currentUser.role == \\"agent\\"");',
     );
     const gateIdx = rf.indexOf("throw new ForbiddenError");
-    const queryIdx = rf.indexOf("await repo.bySubject(");
+    const queryIdx = rf.indexOf("await tickets.runFindAllByBySubject(s, { limit: 1 })");
     expect(gateIdx).toBeGreaterThan(0);
     expect(queryIdx).toBeGreaterThan(gateIdx);
   });
 
-  it("emits no gate for an ungated find", async () => {
+  // A routed queryHandler's `requires currentUser…` gate (the one `scaffoldGet`
+  // splices, or a hand-written one) reads `currentUser`, so the route must bind
+  // it from the request context or the project does not type-check.
+  it("binds currentUser from the request before the gate reads it", async () => {
+    const rf = await routesFile('requires currentUser.role == "agent" ');
+    expect(rf).toContain('.get("currentUser")');
+    expect(rf).toContain(
+      'if (!(currentUser.role === "agent")) throw new ForbiddenError("Forbidden: currentUser.role == \\"agent\\"");',
+    );
+    const gateIdx = rf.indexOf("throw new ForbiddenError");
+    const queryIdx = rf.indexOf("await tickets.runFindAllByBySubject(s, { limit: 1 })");
+    expect(gateIdx).toBeGreaterThan(0);
+    expect(queryIdx).toBeGreaterThan(gateIdx);
+  });
+
+  it("emits no gate for an ungated read", async () => {
     const rf = await routesFile("");
+    expect(rf).toContain("await tickets.runFindAllByBySubject(s, { limit: 1 })");
     expect(rf).not.toContain("throw new ForbiddenError");
   });
 

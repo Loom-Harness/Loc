@@ -147,7 +147,7 @@ describe("pipeline fuzz — a crash on a valid model is always a bug", () => {
       "operation touch()",
       "precondition ",
       "enum Status",
-      "find by",
+      ".find(", // a single-row criterion read
       " id\n", // a cross-aggregate `X id` field
     ]) {
       expect(corpus, `the generator never emitted \`${shape}\``).toContain(shape);

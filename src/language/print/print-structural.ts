@@ -22,7 +22,6 @@ import type {
   EntityPart,
   EnumDecl,
   EventDecl,
-  FindDecl,
   FunctionDecl,
   Invariant,
   Layout,
@@ -304,8 +303,6 @@ export function printStructural(node: AstNode): string {
       return printUiNotification(node as import("../generated/ast.js").UiNotification);
     case "UiFunction":
       return printUiFunction(node as import("../generated/ast.js").UiFunction);
-    case "FindDecl":
-      return printFindDecl(node as FindDecl);
     case "Criterion":
       return printCriterion(node as import("../generated/ast.js").Criterion);
     case "DomainService":
@@ -879,24 +876,17 @@ function printTimerSource(node: import("../generated/ast.js").TimerSource): stri
   return block(`timerSource ${node.name}`, () => items);
 }
 
+/** A repository declares no reads of its own, so it prints as its header. */
 function printRepository(node: Repository): string {
-  return block(`repository ${node.name} for ${node.aggregate.$refText}`, () =>
-    node.finds.map(printFindDecl),
-  );
+  return `repository ${node.name} for ${node.aggregate.$refText}`;
 }
 
 /** ` ignoring *` / ` ignoring A, B` — the trailing filter-bypass clause shared
- *  by find / inline-read printing (named-filter-bypass.md §11).  Returns
+ *  by inline-read printing (named-filter-bypass.md §11).  Returns
  *  "" when the read bypasses nothing, so it spreads cleanly onto the tail. */
 export function printIgnoringClause(node: { bypassAll?: boolean; bypass?: string[] }): string {
   if (node.bypassAll) return " ignoring *";
   return node.bypass && node.bypass.length > 0 ? ` ignoring ${node.bypass.join(", ")}` : "";
-}
-
-function printFindDecl(node: FindDecl): string {
-  const params = node.params.map(printParameter).join(", ");
-  const where = node.filter ? ` where ${printExpr(node.filter)}` : "";
-  return `find ${node.name}(${params}): ${printTypeRef(node.returnType)}${where}${printIgnoringClause(node)}`;
 }
 
 /** `criterion <Name>[(<params>)] of <T> = <expr>` — the single-line form

@@ -168,138 +168,20 @@ def reserve_order_result(conn, {:error, "OutOfStock", data}),
 
 So whatever the host-language representation — a Zod discriminated union, a `JsonPolymorphic` C# base, a Jackson sealed interface, or a tagged dict — the success JSON is the same: `{ "type": "string", "value": "…" }`. The error variant does not ride the tagged wire at all: it becomes a ProblemDetails response (below).
 
-## Union finds — the untagged exception
+## Union finds are removed
 
-A repository `find` may return a union, but only in the constrained **absence** shape: exactly two variants, the repository's own aggregate plus an `error` payload carrying at most `resource: string`. (`Order or none` is `Order?`, the plain nullable find.) Anything else is `loom.union-find-shape-unsupported`.
-
-```ddd
-error NotFound { resource: string }
-repository Orders for Order {
-  find byCode(code: string): Order or NotFound where this.code == code
-  find maybe(code: string):  Order?           where this.code == code
-}
-```
-
-This is **not** the tagged wire: the hit is returned directly as `OrderResponse` at `200`, and the miss rides its own status — an `error` variant → its mapped ProblemDetails status with `resource` filled in, `none` → a bare 404. There is no `type` discriminator and no `oneOf` in the OpenAPI schema, so a union find is wire-identical to `Order?`. All five backends agree:
-
-::: tabs backend
-== node
-```ts
-// http/order.routes.ts
-responses: { 200: { … schema: OrderResponse }, 404: { … "application/problem+json": { schema: ProblemDetails } } },
-// byCode — the error variant
-const result = await repo.byCode(params.code);
-if (result == null) {
-  return c.json({ resource: "Order", type: "/errors/not-found", title: "Not Found", status: 404, detail: "Not Found", instance: c.req.path }, 404, { "content-type": "application/problem+json" });
-}
-return c.json(repo.toWire(result) as z.infer<typeof OrderResponse>, 200);
-// maybe — the `none` variant
-if (result == null) throw new AggregateNotFoundError("not_found");
-```
-== dotnet
-```csharp
-// Api/OrdersController.cs
-public async Task<ActionResult<OrderResponse>> ByCodeOrder([FromQuery] string code)
-{
-    var result = await _mediator.Send(new ByCodeQuery(code));
-    if (result is null)
-    {
-        var problem = new ProblemDetails { Status = 404, Title = "Not Found", Type = "/errors/not-found", Detail = "Not Found", Instance = HttpContext.Request.Path };
-        return new ObjectResult(problem) { StatusCode = 404, ContentTypes = { "application/problem+json" } };
-    }
-    // …Ok(OrderResponse)
-}
-```
-== java
-```java
-// features/orders/OrdersController.java
-public ResponseEntity<?> byCodeOrder(@RequestParam String code) {
-    var r = service.byCode(code);
-    if (r == null) {
-        var problem = ProblemDetail.forStatus(404);
-        // title / type / detail / resource extension …
-        return ResponseEntity.status(404).contentType(MediaType.APPLICATION_PROBLEM_JSON).body(problem);
-    }
-    // …ResponseEntity.ok(OrderResponse)
-}
-```
-== python
-```python
-# app/http/order_routes.py
-@router.get("/by_code", response_model=OrderResponse, operation_id="byCodeOrder", responses={404: {"model": ProblemDetails, …}})
-async def by_code_orders(code: str, request: Request, session: SessionDep):
-    if (found := await repo.by_code(code)) is None:
-        return JSONResponse(
-            {"resource": "Order", "type": "/errors/not-found", "title": "Not Found", "status": 404, "detail": "Not Found", "instance": request.url.path},
-            status_code=404, media_type="application/problem+json")
-    return repo.to_wire(found)
-```
-== elixir
-```elixir
-# lib/d_web/controllers/order_controller.ex
-def by_code(conn, params) do
-  case Orders.by_code_order(params["code"]) do
-    {:ok, nil} -> problem_variant(conn, 404, "/errors/not-found", "Not Found", %{resource: "Order"})
-    # {:ok, record} -> json(conn, serialize(record))
-  end
-end
-def maybe(conn, params) do
-  case Orders.maybe_order(params["code"]) do
-    {:ok, nil} -> ProblemDetails.problem_response(conn, 404, "Not Found", "not_found")
-    # …
-  end
-end
-```
-::: end
-
-> **Why the split.** A find's absent case is an *edge* (the row wasn't there), not a domain-modelled alternative the producer chose — so it belongs at a status code, exactly like an optional find's miss. An operation return is producer-selected variant data, so it carries the tag.
+A repository `find` once returned the absence shape `Order or NotFound` / `Order option`, answered untagged at a status code.  `find` declarations are removed ([D-FINDDECL-REMOVED](../decisions.md)) and the 2026-10-25 ruling dropped the shape: a miss is `T?` (`findById`, `findBy`, `find(<Criterion>)`), and a must-exist read (`getById`, `getBy`) answers the standard ProblemDetails 404.  The tagged union wire is for operation returns.
 
 ### Reading a union in a body — `match` first
 
-A union find binds ONE of its variants, so a body reads it through a variant `match` — never straight through. The arm binding is narrowed to its variant; every backend lowers the absence shape to a presence check:
+An `or`-returning operation binds ONE of its variants, so a body reads the
+result through a variant `match` — never straight through
+(`loom.union-read-undiscriminated`).  The arm binding is narrowed to its
+variant:
 
 ```ddd
-workflow label {
-  create(code: string) {
-    let r = Orders.byCode(code)                                  // Order or NotFound
-    let t = match r { Order o => o.code, NotFound => "missing" }
-    let n = Note.create(text: t)
-  }
-}
+let t = match r { Order o => o.code, NotFound => "missing" }
 ```
-
-::: tabs backend
-== node
-```ts
-const r = await orders.byCode(code);
-const t = r !== null ? r.code : "missing";
-```
-== dotnet
-```csharp
-var r = await _orders.ByCode(command.Code, cancellationToken);
-var t = r is not null ? r.Code : "missing";
-```
-== java
-```java
-var r = ordersRepository.byCode(code);
-var t = switch (r) {
-  case null -> "missing";
-  case Order o -> r.code();
-};
-```
-== python
-```python
-r = await orders.by_code(code)
-t = (r.code if r is not None else "missing")
-```
-== elixir
-```elixir
-with {:ok, r} <- Context.by_code_order(code),
-     t <- ((if r != nil, do: r.code, else: "missing")),
-```
-::: end
-
-Reading through the union — `r.code`, or an operation call `r.touch()` — is refused with `loom.union-read-undiscriminated`: it is an unguarded dereference of a value each backend types as nullable (TS18047 on node, CS8602 on .NET, a 500 on java/python/elixir). The same rule covers an `or`-returning operation's result. To answer 404 instead of branching, declare the find `: Order` (or load with `getById`) — the absent row is then the not-found-on-load policy, never a value in the body.
 
 ## Named union — `payload Foo = A | B`
 

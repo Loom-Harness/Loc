@@ -511,7 +511,6 @@ describe("(e) audit-names — AUDIT_HISTORY_FIND has exactly one spelling", () =
       "src/generator/feliz/wire.ts",
       "src/generator/feliz/feliz-target.ts",
       "src/ir/util/audit-history.ts",
-      "src/ir/enrich/enrichments.ts",
       "src/language/validators/_shared.ts",
     ];
     for (const file of consumers) {
@@ -522,12 +521,5 @@ describe("(e) audit-names — AUDIT_HISTORY_FIND has exactly one spelling", () =
         `=== "${AUDIT_HISTORY_FIND}"`,
       );
     }
-  });
-
-  it("the enrichment guard uses the constant, so an author-declared `history` still wins", () => {
-    // Documented: "an author-declared find of the same name wins, exactly as
-    // with `all`" — implemented as a skip-if-already-present guard.
-    const enrich = read("src/ir/enrich/enrichments.ts");
-    expect(enrich).toContain("repo.finds.some((f) => f.name === AUDIT_HISTORY_FIND)");
   });
 });

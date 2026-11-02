@@ -61,9 +61,7 @@ system Crit {
         archived: bool
         filter !this.archived
       }
-      repository Orders for Order {
-        find recent(): Order? where this.code == "x"
-      }
+      repository Orders for Order
     }
   }
   api OrdersApi from Sales
@@ -109,7 +107,7 @@ system OrderingSystem {
         total: int provenanced
         operation reprice(price: int) { total := price }
       }
-      repository Orders for Order { }
+      repository Orders for Order
     }
   }
   api OrderingApi from Ordering
@@ -126,7 +124,7 @@ system Shop {
         status: string
         operation cancel() audited { status := "cancelled" }
       }
-      repository Orders for Order { }
+      repository Orders for Order
     }
   }
   storage pg { type: postgres }
@@ -145,7 +143,7 @@ system Ledger {
         operation deposit(amount: int) { emit Deposited { account: id, amount: amount } }
         apply(e: Deposited) { balance := balance + e.amount }
       }
-      repository Accounts for Account { }
+      repository Accounts for Account
     }
   }
   storage pg { type: postgres }
@@ -160,8 +158,8 @@ system TPH {
       abstract aggregate Vehicle { name: string }
       aggregate Car extends Vehicle { doors: int }
       aggregate Truck extends Vehicle { payloadKg: int }
-      repository Cars for Car { }
-      repository Trucks for Truck { }
+      repository Cars for Car
+      repository Trucks for Truck
     }
   }
   api A from D
@@ -180,7 +178,7 @@ system PQH {
   subdomain Sales {
     context Orders {
       aggregate Order { code: string  region: string }
-      repository Orders for Order { }
+      repository Orders for Order
       criterion InRegion(rgn: string) of Order = region == rgn
       queryHandler ListInRegion(rgn: string): Order paged {
         let r = Orders.run(InRegion(rgn))
@@ -202,7 +200,7 @@ system QTP {
   subdomain Sales {
     context Orders {
       aggregate Order { code: string  total: int }
-      repository Orders for Order { }
+      repository Orders for Order
       projection LiveTotals {
         code: string
         total: int
@@ -226,7 +224,7 @@ system WTA {
   subdomain Sales {
     context Orders {
       aggregate Order { code: string  total: int }
-      repository Orders for Order { }
+      repository Orders for Order
       projection OrderVolume {
         orders: int
         from Order as o
@@ -248,7 +246,7 @@ system GBP {
   subdomain Sales {
     context Orders {
       aggregate Order { code: string  region: string  total: int }
-      repository Orders for Order { }
+      repository Orders for Order
       projection ByRegion {
         region: string
         orders: int
@@ -272,7 +270,7 @@ const workflowSourceProjectionDdd = (platform: string): string => `
 system WSP {
   subdomain D { context C {
     aggregate Order { total: int  operation place() { emit OrderPlaced { order: id } } }
-    repository Orders for Order { }
+    repository Orders for Order
     event OrderPlaced { order: Order id }
     event Paid { order: Order id }
     workflow Fulfil {
@@ -301,7 +299,7 @@ const projectionSourceProjectionDdd = (platform: string): string => `
 system PSP {
   subdomain D { context C {
     aggregate Order { total: int  operation place() { emit OrderPlaced { order: id, total: 1 } } }
-    repository Orders for Order { }
+    repository Orders for Order
     event OrderPlaced { order: Order id  total: int }
     projection OrderTotals keyed by orderId {
       orderId: Order id
@@ -338,7 +336,7 @@ system Masked {
         name: string
         salary: int mask unless currentUser.role == "admin"
       }
-      repository Employees for Employee { }
+      repository Employees for Employee
     }
   }
   api A from People
@@ -360,7 +358,7 @@ system ShopLc {
         create(status: string) audited { this.status := status }
         destroy() audited { }
       }
-      repository Orders for Order { }
+      repository Orders for Order
     }
   }
   storage pg { type: postgres }
@@ -377,7 +375,7 @@ const eventSourcedWorkflowDdd = (platform: string): string => `
 system ESWF {
   subdomain D { context C {
     aggregate Order { total: int  operation place() { emit OrderPlaced { order: id } } }
-    repository Orders for Order { }
+    repository Orders for Order
     event OrderPlaced { order: Order id }
     event Paid { order: Order id, amount: int }
     workflow Fulfil eventSourced {
@@ -402,26 +400,7 @@ system GC {
   subdomain Sales {
     context Shop {
       aggregate Order { ref: string }
-      repository Orders for Order { find all(): Order paged }
-    }
-  }
-  api A from Sales
-  storage pg { type: postgres }
-  resource shopState { for: Shop, kind: state, use: pg }
-  deployable d { platform: ${platform}, contexts: [Shop], dataSources: [shopState], serves: A, port: 4000 }
-}`;
-
-// Discriminated unions via `T option`, which lowers
-// to `union(Order, none)`.  `Order or Cancel` is NOT usable here: a union find
-// must be the repo's aggregate plus `none`/an `error` payload
-// (`loom.union-find-shape-unsupported`), which would make the row test the wrong
-// gate.  Markers name each backend's absence-producing read.
-const unionDdd = (platform: string): string => `
-system UN {
-  subdomain Sales {
-    context Shop {
-      aggregate Order { code: string }
-      repository Orders for Order { find f(): Order option }
+      repository Orders for Order
     }
   }
   api A from Sales
@@ -442,7 +421,7 @@ system WG {
         status: string
         operation cancel() when this.status != "shipped" { status := "cancelled" }
       }
-      repository Orders for Order { }
+      repository Orders for Order
     }
   }
   api A from Sales
@@ -452,8 +431,8 @@ system WG {
 }`;
 
 // Union operation RETURN — `operation f(): T or E` and the RFC-7807
-// translation of the error variant.  A separate emit path from the union find
-// above, so the marker is the error-variant ARM of the response mapping.
+// translation of the error variant.  The marker is the error-variant ARM of
+// the response mapping.
 const unionReturnDdd = (platform: string): string => `
 system UR {
   subdomain D {
@@ -463,7 +442,7 @@ system UR {
         code: string
         operation reject(): string or NotFound { return NotFound { resource: code } }
       }
-      repository Orders for Order { }
+      repository Orders for Order
     }
   }
   api A from D
@@ -474,8 +453,8 @@ system UR {
 
 // `ignoring <Cap>` filter bypass.  The emitted proof
 // is a NEGATIVE one — the bypassing read must OMIT the capability predicate —
-// so each marker is the bypassed find's exact predicate WITHOUT the
-// `is_deleted` conjunct that the sibling `normal()` find still carries.  A
+// so each marker is the bypassed read's exact predicate WITHOUT the
+// `is_deleted` conjunct that the sibling `GetNormal` read still carries.  A
 // backend that "supported" the clause while silently keeping the filter loses
 // the marker, which is precisely the regression this row exists to catch.
 //
@@ -495,9 +474,21 @@ system BypassShop {
         name: string
         price: int
       }
-      repository Products for Product {
-        find recent(): Product? where this.name != "" ignoring softDeletable
-        find normal(): Product? where this.name != ""
+      repository Products for Product
+      criterion Named of Product = this.name != ""
+      queryHandler GetRecent(): Product {
+        if let x = Products.find(Named()) ignoring softDeletable {
+          return x
+        } else {
+          notFound "not_found"
+        }
+      }
+      queryHandler GetNormal(): Product {
+        if let x = Products.find(Named()) {
+          return x
+        } else {
+          notFound "not_found"
+        }
       }
     }
   }
@@ -753,17 +744,6 @@ const FEATURES: readonly Feature[] = [
     },
   },
   {
-    name: "`T option` find (lowers to `T?` — the absence producer)",
-    ddd: unionDdd,
-    marker: {
-      node: "async f(): Promise<Order | null> {",
-      dotnet: "Task<Order?> F(CancellationToken cancellationToken = default);",
-      java: "return found == null ? null : OrderResponse.from(found);",
-      python: "found = await repo.f()\n    if found is None:",
-      elixir: "case Shop.f_order() do",
-    },
-  },
-  {
     name: "`when` canCommand gate (409 Disallowed + `GET /{id}/can_<op>`)",
     ddd: whenGateDdd,
     // An unenforced state gate is a correctness hole, so the marker is the probe
@@ -793,15 +773,16 @@ const FEATURES: readonly Feature[] = [
     name: "`ignoring <Cap>` filter bypass (the read OMITS the capability predicate)",
     ddd: filterBypassDdd,
     // every backend emits it.  Uniquely on this
-    // table the emitted proof is NEGATIVE: the bypassing `recent()` must carry
-    // its own `name != ""` predicate and NOTHING else, while the sibling
-    // `normal()` still AND-s `is_deleted = false`.  A backend that accepted
+    // table the emitted proof is NEGATIVE: the bypassing `GetRecent` read must
+    // carry its own `name != ""` predicate and NOTHING else, while the sibling
+    // `GetNormal` read still AND-s `is_deleted = false`.  A backend that accepted
     // `ignoring` while silently keeping the filter loses the marker — which is
     // the exact regression the gate-set comment warns about, and the one a
     // "does it compile" check can never see.
     marker: {
-      node: '.from(schema.products).where(ne(schema.products.name, "")).orderBy(asc(schema.products.id)).limit(1);',
-      dotnet: '_db.Products.IgnoreQueryFilters(["IsDeletedFilter"]).Where(x => x.Name != "")',
+      node: ".from(schema.products).where(namedCriterion()).orderBy(asc(schema.products.id)).limit(1);",
+      dotnet:
+        '_db.Products.IgnoreQueryFilters(["IsDeletedFilter"]).Where(new NamedCriterion().ToExpression())',
       // ^ the SINGLETON list is load-bearing: it also pins that the model under
       // test carries exactly one capability filter (see the fixture note above).
       java: '__session.disableFilter("softDeletable");',

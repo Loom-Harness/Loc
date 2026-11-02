@@ -70,27 +70,10 @@ export function areaForAggregate(agg: Aggregate, ui: Ui): Area {
  *     (`extends`) aggregates keep the unbounded `T[]` (their read path can't be
  *     a plain SQL `LIMIT/OFFSET` page), so their scaffold list stays
  *     CLIENT-paged. */
-function aggregateHasPagedFindAll(agg: Aggregate): boolean {
-  const declaredAll = declaredFindAll(agg);
-  if (declaredAll) return declaredAll.returnType.ctors?.includes("paged") ?? false;
+export function aggregateHasPagedFindAll(agg: Aggregate): boolean {
   return (
     agg.persistedAs !== "eventLog" && (agg.shape ?? "relational") === "relational" && !agg.superType
   );
-}
-
-/** The aggregate's AUTHOR-DECLARED `find all`, if its context declares a
- *  repository for it that spells one out.  Macro-time twin of the context
- *  emitters' `(ctx.repositories ?? []).find(r => r.aggregateName === agg.name)
- *  ?.finds?.find(f => f.name === "all")`, so the scaffolded call site and the
- *  emitted delegate read the SAME declaration. */
-function declaredFindAll(agg: Aggregate): { returnType: { ctors?: string[] } } | undefined {
-  for (const m of agg.$container.members) {
-    if (m.$type !== "Repository") continue;
-    if (m.aggregate.ref?.name !== agg.name && m.aggregate.$refText !== agg.name) continue;
-    const all = m.finds.find((f) => f.name === "all");
-    if (all) return all;
-  }
-  return undefined;
 }
 
 export function pagesForAggregate(agg: Aggregate, ui: Ui): Page[] {

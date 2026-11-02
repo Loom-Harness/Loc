@@ -1,16 +1,15 @@
 // Where an `ignoring` capability-filter bypass may be WRITTEN (M-T5.25).
 //
-// The clause has three kinds of legal home, each read by its own lowerer:
+// The clause has two kinds of legal home, each read by its own lowerer:
 //
-//   1. a repository `find … ignoring …`        (`FindDecl`, lower.ts)
-//   2. a query-time projection's `where` slot  (`ProjectionQueryClauses`,
+//   1. a query-time projection's `where` slot  (`ProjectionQueryClauses`,
 //      `from <Agg> [where …] ignoring … join … group by … select …`,
 //      lower-projection.ts)
-//   3. an inline repository read               (`let xs = Repo.findAll(…)
+//   2. an inline repository read               (`let xs = Repo.findAll(…)
 //      ignoring …`, `if let o = Repo.find(C) ignoring …`, lower-workflow.ts /
 //      repo-read.ts)
 //
-// (3) is the one that needs a gate.  It rides `PostfixExpr`, which admits a
+// (2) is the one that needs a gate.  It rides `PostfixExpr`, which admits a
 // trailing `IgnoringClause` on ANY postfix chain — and a postfix chain is
 // admissible anywhere an `Expression` is.  So `group by o.status ignoring
 // softDeletable` parses clean, binds the clause to the GROUPING expression, and

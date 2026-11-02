@@ -891,7 +891,8 @@ describe("pack-chrome i18n — select placeholder", () => {
 // walk-context fact the target-agnostic extraction pass cannot see.  The last
 // two tests are that gate in both directions.
 
-/** A one-page system whose body is a client-paged `Table`.
+/** A one-page system whose body is a client-paged `Table` (`Customer` is
+ *  `shape: document`, so its `all` is an unpaged list the Table pages).
  *
  *  The column header is a STATE ref rather than the literal `"Name"` it used to
  *  be: a `Column` header became a user-visible slot (`columnHeader`, M-T1.11),
@@ -903,8 +904,8 @@ const PAGED_TABLE = (platform: string, design: string, extra = "", framework = "
   system S {
     subdomain Sales {
       context Orders {
-        aggregate Customer { name: string }
-        repository Customers for Customer { find recent(): Customer }
+        aggregate Customer shape: document { name: string }
+        repository Customers for Customer
       }
     }
     api SalesApi from Sales
@@ -915,7 +916,7 @@ const PAGED_TABLE = (platform: string, design: string, extra = "", framework = "
       page X {
         route: "/x"
         state { pageNum: int = 1 colHeader: string = "Name" }
-        body: Stack { ${extra}QueryView { of: Sales.Customer.recent, data: rows => Table(
+        body: Stack { ${extra}QueryView { of: Sales.Customer.all, data: rows => Table(
           Column(colHeader, o => o.name),
           rows: rows,
           page: pageNum,

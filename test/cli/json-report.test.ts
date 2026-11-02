@@ -45,11 +45,8 @@ describe("ddd parse --json", () => {
 
     expect(report.ok).toBe(true);
     expect(report.summary.errors).toBe(0);
-    // The one advisory: `byCustomer` is a single-row find on a non-unique
-    // column (list finds are removed, so the example reads one row).
-    expect(report.diagnostics.map((d) => [d.code, d.severity])).toEqual([
-      ["loom.single-row-find-not-unique", "warning"],
-    ]);
+    // Clean means clean: no error, and no advisory either.
+    expect(report.diagnostics.map((d) => [d.code, d.severity])).toEqual([]);
     expect(report.loomVersion).toMatch(/^\d+\.\d+\.\d+$/);
 
     const sales = report.outline.contexts.find((c) => c.name === "Sales");

@@ -62,23 +62,36 @@ import { COVERED_ELSEWHERE, UNCOVERED } from "./diagnostic-firing-census.data.js
 // pins it with a reason.  Nobody has to remember to run a sweep.
 // ---------------------------------------------------------------------------
 
-/** A minimal system whose only defect is the one under test. */
-const unionMatch = (subjectAndArms: string) => `
+/** A minimal system whose only defect is the one under test: a page action
+ *  that awaits an `or`-returning operation and discriminates its result — the
+ *  position an `or`-union value reaches a variant `match` in. */
+const unionMatch = (arms: string) => `
 system S {
   subdomain D { context Shop {
     error NotFound { resource: string }
     error Other { resource: string }
-    aggregate Order with crudish { code: string }
-    repository Orders for Order {
-      find byCode(code: string): Order or NotFound where this.code == code
+    aggregate Order with crudish {
+      code: string
+      operation confirm(): Order or NotFound { return NotFound { resource: code } }
     }
-    workflow resolve {
-      create(code: string) {
-        let outcome = Orders.byCode(code)
-        let label = match ${subjectAndArms}
-      }
-    }
+    repository Orders for Order
   } }
+  api ShopApi from D
+  ui WebApp {
+    api Shop: ShopApi
+    page OrderDetail {
+      route: "/orders/:id"
+      state { message: string = "" }
+      action submit() {
+        match await Shop.Order.confirm() { ${arms} }
+      }
+      body: Stack { Button { "Confirm", onClick: submit } }
+    }
+  }
+  storage pg { type: postgres }
+  resource st { for: Shop, kind: state, use: pg }
+  deployable api { platform: node contexts: [Shop] dataSources: [st] serves: ShopApi port: 3000 }
+  deployable web { platform: static targets: api ui: WebApp { Shop: api } port: 3001 }
 }`;
 
 const uiWith = (clause: string) => `
@@ -103,7 +116,7 @@ const uiPage = (body: string) => `
 system S {
   subdomain Catalog { context Stock {
     aggregate Item with crudish { sku: string  price: money }
-    repository Items for Item { }
+    repository Items for Item
   } }
   api StockApi from Catalog
   storage pg { type: postgres }
@@ -126,7 +139,7 @@ system P {
   subdomain D {
     context Orders {
 ${agg}
-      repository Orders for Order { }
+      repository Orders for Order
     }
   }
   storage pg { type: postgres }
@@ -142,7 +155,7 @@ const spaMissingUi = (platform: string) => `
 system P {
   subdomain D { context Orders {
     aggregate Order with crudish { name: string }
-    repository Orders for Order { }
+    repository Orders for Order
   } }
   storage pg { type: postgres }
   resource st { for: Orders, kind: state, use: pg }
@@ -157,7 +170,7 @@ const systemScope = (members: string): string => `
 system S {
   subdomain D { context C {
     aggregate Thing with crudish { name: string }
-    repository Things for Thing { }
+    repository Things for Thing
   } }
 ${members}
 }`;
@@ -171,7 +184,7 @@ system S {
     aggregate Thing ${modifiers} {
 ${members}
     }
-    repository Things for Thing { }
+    repository Things for Thing
   } }
 }`;
 
@@ -182,7 +195,7 @@ const resourced = (resources: string): string => `
 system S {
   subdomain D { context C {
     aggregate Thing with crudish { name: string }
-    repository Things for Thing { }
+    repository Things for Thing
   } }
   storage pg { type: postgres }
   storage kv { type: redis }
@@ -195,7 +208,7 @@ const requirements = (decls: string): string => `
 system S {
   subdomain D { context C {
     aggregate Thing with crudish { name: string }
-    repository Things for Thing { }
+    repository Things for Thing
   } }
 }
 ${decls}`;
@@ -206,7 +219,7 @@ const matcherTest = (expectStmt: string): string => `
 system S {
   subdomain D { context C {
     aggregate Thing with crudish { name: string  total: int }
-    repository Things for Thing { }
+    repository Things for Thing
     test "matcher" for Thing {
       ${expectStmt}
     }
@@ -227,7 +240,7 @@ system P {
       tag: Tag
       ${member}
     }
-    repository Orders for Order { }
+    repository Orders for Order
   } }
 }`;
 
@@ -241,7 +254,7 @@ system S {
   }
   subdomain Sub { context C {
     aggregate Thing with crudish { name: string }
-    repository Things for Thing { }
+    repository Things for Thing
   } }
 }`;
 
@@ -252,7 +265,7 @@ const uiMembers = (members: string, opts: { layouts?: string } = {}): string => 
 system S {
   subdomain Sub { context C {
     aggregate Thing with crudish { name: string }
-    repository Things for Thing { }
+    repository Things for Thing
   } }
   api SubApi from Sub
 ${opts.layouts ? `  ${opts.layouts}` : ""}
@@ -279,7 +292,7 @@ system P {
       derived label: string = name
       ${members}
     }
-    repository Orders for Order { }
+    repository Orders for Order
   } }
 }`;
 
@@ -312,13 +325,13 @@ system P {
   subdomain D {
     context Orders {
       aggregate Order with crudish { name: string }
-      repository Orders for Order { }
+      repository Orders for Order
     }${
       opts.secondContext
         ? `
     context Billing {
       aggregate Invoice with crudish { total: int }
-      repository Invoices for Invoice { }
+      repository Invoices for Invoice
     }`
         : ""
     }
@@ -357,7 +370,7 @@ const uiPages = (withClause: string, uiBody: string) => `
 system S {
   subdomain Sales { context Orders {
     aggregate Order { code: string  derived display: string = code }
-    repository Orders for Order { }
+    repository Orders for Order
     workflow ship {
       create(code: string) { precondition code.length > 0 }
     }
@@ -380,7 +393,7 @@ const heexUi = (uiBody: string) => `
 system S {
   subdomain Sales { context Orders {
     aggregate Order { code: string  derived display: string = code }
-    repository Orders for Order { }
+    repository Orders for Order
   } }
   api SalesApi from Sales
   storage pg { type: postgres }
@@ -403,7 +416,7 @@ system S {
       code: string
       operation confirm(): Order or Rejected { code := "c" }
     }
-    repository Orders for Order { }
+    repository Orders for Order
   } }
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
@@ -456,7 +469,7 @@ ${opts.unitBody}
 }
       }
 
-      repository WorkOrders for WorkOrder { }
+      repository WorkOrders for WorkOrder
 ${
   opts.contextTest
     ? `
@@ -498,7 +511,7 @@ const workflowResult = (members: string, header = "") => `
 system S {
   subdomain D { context Bank {
     aggregate Account with crudish { number: string  balance: int }
-    repository Accounts for Account { }
+    repository Accounts for Account
     event Opened { account: Account id }
     workflow w${header} {
       ${members}
@@ -526,15 +539,15 @@ migration "m" { Gone -> Missing }`,
   "loom.migration-step-ambiguous": `
 system S {
   subdomain D {
-    context A { aggregate Thing with crudish { name: string }  repository Things for Thing { } }
-    context B { aggregate Thing with crudish { name: string }  repository Things for Thing { } }
+    context A { aggregate Thing with crudish { name: string }  repository Things for Thing }
+    context B { aggregate Thing with crudish { name: string }  repository Things for Thing }
   }
 }
 migration "m" { Old -> Thing }`,
   "loom.migration-move-across-databases": `
 system S {
-  subdomain D1 { context A { aggregate Keep with crudish { name: string }  repository Keeps for Keep { } } }
-  subdomain D2 { context B { aggregate Note with crudish { name: string }  repository Notes for Note { } } }
+  subdomain D1 { context A { aggregate Keep with crudish { name: string }  repository Keeps for Keep } }
+  subdomain D2 { context B { aggregate Note with crudish { name: string }  repository Notes for Note } }
   deployable one { platform: node, contexts: [A], port: 3000 }
   deployable two { platform: node, contexts: [B], port: 3001 }
 }
@@ -545,7 +558,7 @@ migration "m" { A.Note -> B.Note }`,
 system GridOnFlutter {
   subdomain Sales { context Orders {
     aggregate Customer with crudish { name: string }
-    repository Customers for Customer { }
+    repository Customers for Customer
   } }
   api SalesApi from Sales
   storage pg { type: postgres }
@@ -675,7 +688,7 @@ system S {
   user { id: guid  role: string }
   subdomain D { context Vault {
     aggregate Secret { body: string  open: bool }
-    repository Secrets for Secret { }
+    repository Secrets for Secret
     policy { read Secret requires open == true }
   } }
 }`,
@@ -687,7 +700,7 @@ system S {
   user { id: guid  role: string }
   subdomain D { context Vault {
     aggregate Secret { body: string }
-    repository Secrets for Secret { }
+    repository Secrets for Secret
     policy { view Secret requires true }
   } }
 }`,
@@ -706,7 +719,7 @@ system ReactorGate {
           done := true
         }
       }
-      repository Orders for Order { }
+      repository Orders for Order
       event Shipped { order: Order id, at: datetime }
       workflow closeOrder {
         orderRef: Order id
@@ -731,15 +744,14 @@ system TimerTenant {
       aggregate Job with tenantOwned, crudish {
         code: string
         done: bool
+        unique (code)
         operation close() { done := true }
       }
-      repository Jobs for Job {
-        find byCode(c: string): Job where this.code == c
-      }
+      repository Jobs for Job
       workflow sweepRun {
         sweep: Sweep id
         create(t: SweepTick) by t.sweep {
-          let j = Jobs.byCode("x")
+          let j = Jobs.getBy(code: "x")
           j.close()
         }
       }
@@ -799,7 +811,7 @@ system Ledger {
         return owner
       }
     }
-    repository Accounts for Account { }
+    repository Accounts for Account
   } }
 }`,
   // A workflow fold constructing an entity part of an aggregate: nothing
@@ -814,7 +826,7 @@ system WFN {
       entity Line { sku: string }
       lines: Line[]
     }
-    repository Orders for Order { }
+    repository Orders for Order
     event Started { order: Order id }
     event Added { order: Order id, sku: string }
     workflow Track eventSourced {
@@ -843,7 +855,7 @@ system TestVocab {
 system PagedParam {
   subdomain S { context Shop {
     aggregate Thing with crudish { rank: int }
-    repository Things for Thing { }
+    repository Things for Thing
     criterion ThingsByRank(page: int) of Thing = this.rank == page
     queryHandler ListThingsByRank(page: int): Thing paged {
       let r = Things.run(ThingsByRank(page))
@@ -899,8 +911,8 @@ system OrgCtx {
         operation note() { scope := organizationContext.tenantId }
       }
       aggregate Org with crudish { name: string  implements tenantRegistry }
-      repository Accounts for Account { }
-      repository Orgs for Org { }
+      repository Accounts for Account
+      repository Orgs for Org
     }
   }
   storage primary { type: postgres }
@@ -922,8 +934,8 @@ system OrgCtx {
         operation stampScope() { scope := organizationContext.orgPath }
       }
       aggregate Org { name: string  implements tenantRegistry }
-      repository Notes for Note { }
-      repository Orgs for Org { }
+      repository Notes for Note
+      repository Orgs for Org
     }
   }
   storage primary { type: postgres }
@@ -942,7 +954,7 @@ system Billder {
   subdomain Billing {
     context Accounts {
       aggregate Organization { name: string }
-      repository Organizations for Organization { }
+      repository Organizations for Organization
     }
   }
   storage primary { type: postgres }
@@ -961,7 +973,7 @@ system P {
       operation quote(base: int) audited : int { return base }
     }
     aggregate Thing { name: string }
-    repository Things for Thing { }
+    repository Things for Thing
   } }
 }`,
   // A declared `create(…)` is the create input, so a param must BE a
@@ -973,7 +985,7 @@ system P {
       name: string?
       create(n: string) { }
     }
-    repository Things for Thing { }
+    repository Things for Thing
   } }
 }`,
   // A narrowed `create(…)` leaves out a required, undefaulted field — nothing
@@ -986,7 +998,7 @@ system P {
       secret: string
       create(name: string) { }
     }
-    repository Things for Thing { }
+    repository Things for Thing
   } }
 }`,
   // --- phase ⑦ IR validate, elixir-only -----------------------------------
@@ -1034,7 +1046,7 @@ system UpdateGate {
         status := Approved
       }
     }
-    repository Invoices for Invoice { }
+    repository Invoices for Invoice
   } }
   api BillingApi from Core
   storage pg { type: postgres }
@@ -1047,7 +1059,7 @@ system UpdateGate {
 system HardDelete {
   subdomain Core { context Ledger {
     aggregate Account with softDeletable, crudish { number: string }
-    repository Accounts for Account { }
+    repository Accounts for Account
   } }
   api LedgerApi from Core
   storage pg { type: postgres }
@@ -1063,14 +1075,14 @@ system HardDelete {
 system Alpha {
   subdomain S { context Ops {
     aggregate Job { name: string }
-    repository Jobs for Job { }
+    repository Jobs for Job
   } }
 }
 
 system Beta {
   subdomain T { context Other {
     aggregate Task { title: string }
-    repository Tasks for Task { }
+    repository Tasks for Task
   } }
 }`,
   // --- phase ① parse ------------------------------------------------------
@@ -1082,7 +1094,7 @@ system Beta {
 system S {
   subdomain Sub { context C {
     aggregate Thing with crudish { name: string }
-    repository Things for Thing { }
+    repository Things for Thing
   } }
   ui WebApp with scaffold(subdomains: [Sub]) { }
   storage pg { type: postgres }
@@ -1105,7 +1117,7 @@ system S {
       }
     }
     criterion Open() of Task = this.status != Done
-    repository Tasks for Task { }`),
+    repository Tasks for Task`),
 
   // A `money("…")` literal whose string is not a decimal.  One grammar rule now
   // serves both `money("10.50")` (the literal) and `money(x)` (the conversion)
@@ -1116,7 +1128,7 @@ system S {
       subtotal: money
       derived floor: money = money("USD 2.50")
     }
-    repository Invoices for Invoice { }`),
+    repository Invoices for Invoice`),
 
   // --- create call sites ---------------------------------------------------
   // An invariant over a CONTAINED collection cannot be satisfied from the create
@@ -1133,7 +1145,7 @@ system S {
         expect(o.display).toBe("EUR")
       }
     }
-    repository Orders for Order { }`),
+    repository Orders for Order`),
 
   // A create call site that omits a REQUIRED create-input field.  The factory
   // input is the field-derived contract, so the emitted `.test.ts` fails the
@@ -1148,7 +1160,7 @@ system S {
         expect(p.display).toBe("a")
       }
     }
-    repository Parts for Part { }`),
+    repository Parts for Part`),
 
   // --- structural ---------------------------------------------------------
   // Two entity parts that contain each other.  `contains` is ownership, so the
@@ -1167,7 +1179,7 @@ system S {
       entity X { contains ys: Y[] }
       entity Y { contains zs: X[] }
     }
-    repository As for A { }`),
+    repository As for A`),
 
   // A cross-aggregate invariant that reads through a repository.  It validated
   // clean and emitted `Technicians.getById(...)` into the per-instance floor —
@@ -1178,8 +1190,8 @@ system S {
       technicianId: Technician id
       invariant Technicians.getById(technicianId).skill.length > 0
     }
-    repository Technicians for Technician { }
-    repository WorkOrders for WorkOrder { }`),
+    repository Technicians for Technician
+    repository WorkOrders for WorkOrder`),
 
   // A block-bodied `function` that mutates aggregate state.  The purity gate had
   // no catalog entry and no firing proof at all until W4.1 — the scanner never
@@ -1191,7 +1203,7 @@ system S {
         return q
       }
     }
-    repository Counters for Counter { }`),
+    repository Counters for Counter`),
 
   // A `when` gate that reads an operation parameter.  The companion
   // `GET /{id}/can_<op>` route takes no arguments, so the gate can only be a
@@ -1200,7 +1212,7 @@ system S {
       total: int
       operation addLine(qty: int) when qty > 0 { total := total + qty }
     }
-    repository Orders for Order { }`),
+    repository Orders for Order`),
 
   // M-T5.28 — the three positional statements, each written in the one place
   // its lowerer does NOT reach.  All three used to validate clean: the `match`
@@ -1217,23 +1229,23 @@ system S {
         }
       }
     }
-    repository Orders for Order { }`),
+    repository Orders for Order`),
 
   "loom.for-placement": repoOnly(`    aggregate Order with crudish {
       code: string
       notes: string[]
       operation touch() { for n in notes { code := n } }
     }
-    repository Orders for Order { }`),
+    repository Orders for Order`),
 
   "loom.not-found-placement": repoOnly(`    aggregate Order with crudish {
       code: string
       operation touch() { notFound }
     }
-    repository Orders for Order { }`),
+    repository Orders for Order`),
 
   "loom.not-found-unreachable": repoOnly(`    aggregate Order with crudish { code: string }
-    repository Orders for Order { }
+    repository Orders for Order
     commandHandler Touch(code: string) {
       notFound
       precondition code != ""
@@ -1243,31 +1255,12 @@ system S {
       code: string
       operation touch() { if let c = code { code := c } }
     }
-    repository Orders for Order { }`),
-
-  // A list find: a criterion replaces it.
-  "loom.list-find-removed": repoOnly(`    aggregate Thing with crudish { name: string }
-    repository Things for Thing {
-      find byName(n: string): Thing[] where this.name == n
-    }`),
+    repository Orders for Order`),
 
   "loom.criterion-retrieval-name-clash": repoOnly(`    aggregate Thing with crudish { name: string }
-    repository Things for Thing { }
+    repository Things for Thing
     criterion Named(n: string) of Thing = this.name == n
     retrieval Named(n: string) of Thing { where: this.name == n  sort: [name asc] }`),
-
-  // A clause-less find whose parameter names no field: dropped from the query,
-  // the lookup answered with an arbitrary row.
-  "loom.find-param-unbound": repoOnly(`    aggregate Thing with crudish { name: string }
-    repository Things for Thing {
-      find byName(n: string): Thing?
-    }`),
-
-  "loom.duplicate-find": repoOnly(`    aggregate Thing with crudish { name: string }
-    repository Things for Thing {
-      find byName(n: string): Thing? where this.name == n
-      find byName(n: string): Thing? where this.name == n
-    }`),
 
   // An abstract inheritance base owning its own `contains`.  The part's table
   // would have no reader and no writer — the base has no repository and the
@@ -1283,7 +1276,7 @@ system S {
       entity Address { street: string }
     }
     aggregate Customer extends Party with crudish { creditLimit: int }
-    repository Customers for Customer { }`),
+    repository Customers for Customer`),
 
   // M-T5.25 — an `ignoring` bypass written on a `group by` operand.  It parses
   // (a postfix chain admits the trailing clause anywhere an expression is
@@ -1291,7 +1284,7 @@ system S {
   // read keeps applying every capability filter the author asked it to skip.
   "loom.ignoring-clause-placement":
     repoOnly(`    aggregate Order with crudish, softDeletable { code: string  total: int }
-    repository Orders for Order { }
+    repository Orders for Order
     projection TotalsByCode {
       code: string
       orders: int
@@ -1303,55 +1296,60 @@ system S {
   // --- natural-key reads (repo-key-lookup) ---------------------------------
   "loom.repo-key-not-unique":
     repoOnly(`    aggregate Product with crudish { sku: string  name: string  unique (sku) }
-    repository Products for Product { }
+    repository Products for Product
     workflow w { create(n: string) { if let p = Products.findBy(name: n) { } } }`),
   "loom.repo-key-incomplete":
     repoOnly(`    aggregate Product with crudish { region: string  name: string  unique (region, name) }
-    repository Products for Product { }
+    repository Products for Product
     workflow w { create(n: string) { if let p = Products.findBy(name: n) { } } }`),
+  // A repository read by a name no contract verb spells.
+  "loom.repo-unknown-read": repoOnly(`    aggregate Order with crudish { code: string }
+    repository Orders for Order
+    domainService Q {
+      operation taken(c: string): bool { return Orders.findByID(c) != null }
+    }`),
 
   // --- variant match (structural-checks + the AST-level subject rule) ------
   "loom.match-unknown-variant": unionMatch(
-    `outcome { Order o => o.code, Other x => x.resource, else => "" }`,
+    `Order o => { message := o.code }, Other x => { message := x.resource }, else => { message := "" }`,
   ),
   "loom.match-duplicate-variant": unionMatch(
-    `outcome { Order o => o.code, Order p => p.code, NotFound => "" }`,
+    `Order o => { message := o.code }, Order p => { message := p.code }, NotFound => { message := "" }`,
   ),
-  "loom.match-non-exhaustive": unionMatch(`outcome { Order o => o.code }`),
-  // M-T5.1 A4 — reading straight through a union find's `Order or NotFound`
-  // without a variant `match` (an unguarded dereference on all five backends).
-  "loom.union-read-undiscriminated": `
-system S {
-  subdomain D { context Shop {
-    error NotFound { resource: string }
-    aggregate Order with crudish { code: string }
-    aggregate Note with crudish { text: string }
-    repository Orders for Order {
-      find byCode(code: string): Order or NotFound where this.code == code
-    }
-    repository Notes for Note { }
-    workflow label {
-      create(code: string) {
-        let outcome = Orders.byCode(code)
-        let n = Note.create(text: outcome.code)
+  "loom.match-non-exhaustive": unionMatch(`Order o => { message := o.code }`),
+  // Reading straight through an `or`-returning operation's result without a
+  // variant `match` (an unguarded dereference on all five backends).
+  "loom.union-read-undiscriminated": repoOnly(`    error NotFound { resource: string }
+    aggregate Order with crudish {
+      code: string
+      operation probe(): Order or NotFound { return NotFound { resource: code } }
+      operation touch() {
+        let r = probe()
+        code := r.code
       }
     }
-  } }
-}`,
-  "loom.match-subject-not-simple": unionMatch(
-    `Orders.byCode(code) { Order o => o.code, NotFound => "" }`,
-  ),
+    repository Orders for Order`),
+  // The AST-level subject rule: a call subject is refused before its type is
+  // asked, so a by-id read (no union at all) reaches it.
+  "loom.match-subject-not-simple": repoOnly(`    error NotFound { resource: string }
+    aggregate Order with crudish { code: string }
+    repository Orders for Order
+    workflow resolve {
+      create(id: Order id) {
+        let label = match Orders.getById(id) { Order o => o.code, NotFound => "" }
+      }
+    }`),
 
   // --- retrieval `where` --------------------------------------------------
   "loom.retrieval-where-unknown-field": repoOnly(`    aggregate Thing with crudish {
       name: string
       derived shouty: string = name
     }
-    repository Things for Thing { }
+    repository Things for Thing
     retrieval Loud() of Thing { where: this.shouty == "X" }`),
   "loom.retrieval-where-column-column":
     repoOnly(`    aggregate Thing with crudish { name: string  other: string }
-    repository Things for Thing { }
+    repository Things for Thing
     retrieval Same() of Thing { where: name == other }`),
 
   // --- projection `where` -------------------------------------------------
@@ -1362,7 +1360,7 @@ system S {
   // the filter silently (an endpoint returning every row) until this gate.
   "loom.projection-where-not-queryable":
     repoOnly(`    aggregate Order with crudish { lineCount: int }
-    repository Orders for Order { }
+    repository Orders for Order
     projection SalesTotals {
       orders: int
       from Order as o
@@ -1380,7 +1378,7 @@ system S {
       size: int
       operation measure() { size := this.path.length }
     }
-    repository Things for Thing { }`),
+    repository Things for Thing`),
 
   // --- macro expansion (phase ②) ------------------------------------------
   "loom.macro-arg-missing": uiWith("scaffoldAggregate()"),
@@ -1430,7 +1428,7 @@ system S {
       limit: money
       invariant limit.amount > 0
     }
-    repository Covers for Cover { }
+    repository Covers for Cover
   } }
 }`,
   "loom.unknown-user-claim": `
@@ -1441,7 +1439,7 @@ system S {
       name: string
       operation touch() { requires currentUser.totallyBogusField == "x" }
     }
-    repository Widgets for Widget { }
+    repository Widgets for Widget
   } }
 }`,
   // --- workflow instance-read gate (M-T3.15 §A2) --------------------------
@@ -1454,7 +1452,7 @@ system S {
   user { id: guid  role: string }
   subdomain Sales { context Orders {
     aggregate Order { code: string }
-    repository Orders for Order { }
+    repository Orders for Order
     workflow Fulfilment requires stage == "started" {
       orderId: Order id
       stage: string
@@ -1485,7 +1483,7 @@ system S {
       name: string
       derived big: long = 9007199254740993
     }
-    repository Things for Thing { }
+    repository Things for Thing
   } }
   api Api from D
   storage pg { type: postgres }
@@ -1503,7 +1501,7 @@ system S {
 system S {
   subdomain Sales { context Orders {
     aggregate Order with crudish { code: string  total: money }
-    repository Orders for Order { }
+    repository Orders for Order
     projection SalesTotals {
       avgTotal: decimal
       from Order as o
@@ -1524,7 +1522,7 @@ system S {
 system S {
   subdomain Sales { context Orders {
     aggregate Order shape: document, with crudish { code: string  total: int }
-    repository Orders for Order { }
+    repository Orders for Order
     projection OrderVolume {
       revenue: int
       from Order as o
@@ -1550,8 +1548,8 @@ system S {
   subdomain Sales { context Orders {
     aggregate Tenant with tenantRegistry, crudish { slug: string }
     aggregate Order shape: document, with tenantOwned, softDeletable, crudish { code: string }
-    repository Tenants for Tenant { }
-    repository Orders for Order { }
+    repository Tenants for Tenant
+    repository Orders for Order
     projection OrderVolume {
       rows: int
       from Order as o
@@ -1577,8 +1575,8 @@ system S {
     aggregate Org with crudish { title: string }
     abstract aggregate Vehicle with tenantOwned { name: string }
     aggregate Car extends Vehicle crossTenant with crudish { doors: int }
-    repository Cars for Car { }
-    repository Orgs for Org { }
+    repository Cars for Car
+    repository Orgs for Org
   } }
   api Api from Fleet
   storage pg { type: postgres }
@@ -1596,11 +1594,11 @@ system S {
 system S {
   subdomain One { context A {
     aggregate Alpha with crudish { code: string  derived display: string = code }
-    repository Alphas for Alpha { }
+    repository Alphas for Alpha
   } }
   subdomain Two { context B {
     aggregate Beta with crudish { label: string  derived display: string = label }
-    repository Betas for Beta { }
+    repository Betas for Beta
   } }
   api OneApi from One
   api TwoApi from Two
@@ -1623,11 +1621,11 @@ system S {
 system S {
   subdomain One { context A {
     aggregate Alpha with crudish { code: string }
-    repository Alphas for Alpha { }
+    repository Alphas for Alpha
   } }
   subdomain Two { context B {
     aggregate Beta with crudish { label: string }
-    repository Betas for Beta { }
+    repository Betas for Beta
   } }
   api OneApi from One
   api TwoApi from Two
@@ -1676,12 +1674,10 @@ system S {
   // (the detector wants the whole chain), so no read port is threaded in and
   // every backend emits the bare repository name.
   "loom.domain-service-read-unsupported":
-    repoOnly(`    aggregate Customer with crudish { tier: string }
-    repository Customers for Customer {
-      find byTier(tier: string): Customer? where this.tier == tier
-    }
+    repoOnly(`    aggregate Customer with crudish { tier: string  unique (tier) }
+    repository Customers for Customer
     domainService Lookup {
-      operation tierOf(t: string): string { return Customers.byTier(t).tier }
+      operation tierOf(t: string): string { return Customers.getBy(tier: t).tier }
     }`),
 
   // The parse-but-no-emit meta-warning (M-T5.9).  `connection:` reaches the IR
@@ -1691,7 +1687,7 @@ system S {
 system S {
   subdomain Sub { context C {
     aggregate Thing with crudish { name: string }
-    repository Things for Thing { }
+    repository Things for Thing
   } }
   storage pg { type: postgres, connection: env("DB_URL") }
   resource st { for: C, kind: state, use: pg }
@@ -1706,7 +1702,7 @@ system S {
       ssn: string sensitive(pii)
       salary: money sensitive(pii) mask unless currentUser.role == "hr"
     }
-    repository People for Person { }`),
+    repository People for Person`),
 
   // `shape:` is read nowhere on an event-sourced aggregate — every backend's
   // schema emitter short-circuits on `persistedAs: eventLog` first — so the
@@ -1717,7 +1713,7 @@ system S {
       create open(owner: string) { emit Opened { account: id, owner: owner } }
       apply(e: Opened) { owner := e.owner }
     }
-    repository Accounts for Account { }`),
+    repository Accounts for Account`),
 
   // `Slot { }` is a placement contract — only a `component` body has a caller
   // whose children it can render; in a PAGE body it is an unbound reference.
@@ -1753,7 +1749,7 @@ system S {
       create open(owner: string) { emit Opened { account: id, owner: owner } }
       apply(e: Opened) { owner := e.owner }
     }
-    repository Accounts for Account { }`),
+    repository Accounts for Account`),
   "loom.provenanced-backend-unsupported": repoOnly(`    aggregate Order with crudish {
       total: int provenanced
     }`),
@@ -1775,7 +1771,7 @@ system S {
       code: string
       total: int mask unless currentUser.role == "admin"
     }
-    repository Orders for Order { }
+    repository Orders for Order
   } }
 }`,
   // Needs the DEPLOYMENT side, and specifically a JAVA one: the same field is
@@ -1792,7 +1788,7 @@ system P {
       operation line(sku: string) { lines += Line { sku: sku } }
       entity Line { sku: string }
     }
-    repository Orders for Order { }
+    repository Orders for Order
   } }
   api A from D
   storage pg { type: postgres }
@@ -1802,7 +1798,7 @@ system P {
   // --- reserved-field-name-checks.ts ---------------------------------------
   // Universal: a dunder field (Ecto's `__meta__`), on any backend.
   "loom.dunder-field-name": repoOnly(`    aggregate Thing with crudish { __meta__: string }
-    repository Things for Thing { }`),
+    repository Things for Thing`),
   // Needs an ELIXIR deployable and a RELATIONAL part (the default shape): the
   // part schema's bundled `timestamps()` already defines `inserted_at`.
   "loom.elixir-part-timestamp-field": `
@@ -1813,7 +1809,7 @@ system P {
       contains lines: Line[]
       entity Line { sku: string  inserted_at: string }
     }
-    repository Orders for Order { }
+    repository Orders for Order
   } }
   api A from D
   storage pg { type: postgres }
@@ -1832,7 +1828,7 @@ system P {
       function doubled(): int = qty * 2
       stamp onCreate { total := doubled() }
     }
-    repository Orders for Order { }
+    repository Orders for Order
   } }
   api A from D
   storage pg { type: postgres }
@@ -1849,7 +1845,7 @@ system P {
   // enum / event / repository, and a workflow named after an aggregate trips
   // only the second.  The other three are confirmed preempted and pinned below.
   "loom.duplicate-workflow": repoOnly(`    aggregate Thing with crudish { name: string }
-    repository Things for Thing { }
+    repository Things for Thing
     workflow Dup { create(n: string) { precondition n.length > 0 } }
     workflow Dup { create(n: string) { precondition n.length > 0 } }`),
   // F-114.  An aggregate with no `create`, no `with crudish`, nothing that
@@ -1858,39 +1854,36 @@ system P {
   // `with crudish`, so exactly one of the two is flagged.
   "loom.aggregate-not-constructible":
     repoOnly(`    aggregate Claim with crudish { reference: string }
-    repository Claims for Claim { }
+    repository Claims for Claim
     aggregate Policy { code: string }
-    repository Policies for Policy { }`),
+    repository Policies for Policy`),
   // F-113.  A PARTIALLY-wired command body: `reference` is read (the control —
   // it proves the gate is not a blanket "a create has params"), `notes` is
   // not, so the emitted request schema publishes `notes` as required and the
   // body throws it away.  A wholly empty body is deliberately NOT this shape;
   // see the check's header.
   "loom.workflow-param-unused": repoOnly(`    aggregate Claim with crudish { reference: string }
-    repository Claims for Claim { }
+    repository Claims for Claim
     workflow file {
       create(reference: string, notes: string) {
         let c = Claim.create(reference: reference)
       }
     }`),
   "loom.workflow-name-collision": repoOnly(`    aggregate Thing with crudish { name: string }
-    repository Things for Thing { }
+    repository Things for Thing
     workflow Thing { create(n: string) { precondition n.length > 0 } }`),
   // Declared names differ only in case, so the namespace gate above passes —
   // but both derive the table `sweeps`.
   // `count` takes no column; the grouped select passes one.
   "loom.projection-aggregate-arity":
     repoOnly(`    aggregate Ticket with crudish { queue: string  breached: bool }
-    repository Tickets for Ticket { }
+    repository Tickets for Ticket
     projection ByQueue { queue: string  breached: int
       from Ticket as t
       group by t.queue
       select queue = t.queue, breached = count(t.breached) }`),
-  // A single-row find on `number`, which no `unique (number)` covers.
-  "loom.single-row-find-not-unique": repoOnly(`    aggregate Ticket with crudish { number: string }
-    repository Tickets for Ticket { find byNumber(number: string): Ticket? }`),
   "loom.persisted-table-collision": repoOnly(`    aggregate Sweep with crudish { at: datetime }
-    repository Sweeps for Sweep { }
+    repository Sweeps for Sweep
     event Tick { sweep: Sweep id }
     workflow sweep { sweep: Sweep id  create(t: Tick) by t.sweep { } }`),
   // F58 / M-T6.62.  A correlation field exists, but the COMMAND create supplies
@@ -1899,7 +1892,7 @@ system P {
   // unbound receiver on all five backends.
   "loom.workflow-create-correlation-unsupplied":
     repoOnly(`    aggregate Order with crudish { name: string }
-    repository Orders for Order { }
+    repository Orders for Order
     workflow W {
       orderId: Order id
       status: string
@@ -1909,7 +1902,7 @@ system P {
   // is kept, so the write is unaddressable.
   "loom.workflow-uncorrelated-state-write":
     repoOnly(`    aggregate Order with crudish { name: string }
-    repository Orders for Order { }
+    repository Orders for Order
     workflow Tally {
       total: int
       create(n: int) { total := n }
@@ -1917,7 +1910,7 @@ system P {
   // The read twin: the create reads state the workflow keeps no row for.
   "loom.workflow-uncorrelated-state-read":
     repoOnly(`    aggregate Order with crudish { name: string }
-    repository Orders for Order { }
+    repository Orders for Order
     workflow Tally {
       total: int
       create(n: int) { precondition total == 0 }
@@ -1927,7 +1920,7 @@ system P {
       name: string
       operation rename(n: string): string { name := n  return n }
     }
-    repository Orders for Order { }
+    repository Orders for Order
     workflow W {
       create(oid: Order id) {
         let o = Orders.getById(oid)
@@ -1945,7 +1938,7 @@ system P {
     }`),
   // A factory call with more positions than the create input has.
   "loom.create-args": repoOnly(`    aggregate Order with crudish { name: string }
-    repository Orders for Order { }
+    repository Orders for Order
     workflow W {
       create(n: string) {
         let o = Order.create(n, n)
@@ -1957,7 +1950,7 @@ system P {
       name: string
       operation rename(n: string) { name := n }
     }
-    repository Orders for Order { }
+    repository Orders for Order
     workflow W {
       create(oid: Order id) {
         let o = Orders.getById(oid)
@@ -1972,9 +1965,9 @@ system P {
   // "a repository name appears in this workflow".
   "loom.workflow-inline-repository-call":
     repoOnly(`    aggregate Thing with crudish { name: string  otherId: Other id }
-    repository Things for Thing { }
+    repository Things for Thing
     aggregate Other with crudish { label: string }
-    repository Others for Other { }
+    repository Others for Other
     workflow W {
       create(tid: Thing id) {
         let t = Things.getById(tid)
@@ -1995,7 +1988,7 @@ system P {
       create open(owner: string) { emit Opened { account: id, owner: owner, bogus: owner } }
       apply(e: Opened) { owner := e.owner }
     }
-    repository Accounts for Account { }`),
+    repository Accounts for Account`),
 
   // --- the M-T9.56 drain of `src/language/validators/statements.ts` --------
   // 22 uncoded sites: the three "modifier on a private operation" warnings,
@@ -2050,14 +2043,17 @@ system P {
 system S {
   subdomain D { context Orders {
     aggregate Order with crudish { total: int }
-    repository Orders for Order { }
+    repository Orders for Order
     queryHandler Q(n: int): int { if n > 0 { return 1 } else { return 2 } }
   } }
 }`,
   // `T option` is the deprecated spelling of `T?`.
   "loom.option-deprecated": repoOnly(`    aggregate Order with crudish { code: string }
-    repository Orders for Order {
-      find byCode(code: string): Order option where this.code == code
+    repository Orders for Order
+    criterion OrderByCode(code: string) of Order = this.code == code
+    queryHandler ByCode(code: string): Order option {
+      let r = Orders.find(OrderByCode(code))
+      return r
     }`),
   // A dropped `or E` result: the call statement throws the `error` case away.
   "loom.unhandled-result": repoOnly(`    error Rejected { reason: string }
@@ -2072,7 +2068,7 @@ system S {
 system S {
   subdomain Sales { context Orders {
     aggregate Order with crudish { code: string  region: string }
-    repository Orders for Order { }
+    repository Orders for Order
     criterion ActiveOrder of Order = region != ""
     command C { region: string }
     workflow W {
@@ -2087,7 +2083,7 @@ system S {
 system S {
   subdomain Sales { context Orders {
     aggregate Order with crudish { code: string  region: string }
-    repository Orders for Order { }
+    repository Orders for Order
     criterion InRegion(rgn: string) of Order = region == rgn
     retrieval ByRegion(rgn: string) of Order { where: InRegion(rgn)  sort: [code asc] }
     queryHandler ListViaRetrieval(rgn: string): Order paged {
@@ -2099,7 +2095,7 @@ system S {
 }`,
 
   "loom.workflow-emit-unknown-field": repoOnly(`    aggregate Thing with crudish { name: string }
-    repository Things for Thing { }
+    repository Things for Thing
     event Happened { thing: Thing id, label: string }
     workflow W {
       create(n: string) { emit Happened { thing: id, label: n, bogus: n } }
@@ -2113,7 +2109,7 @@ system S {
     repoOnly(`    aggregate Order with crudish { code: string  archived: bool }
     criterion Active of Order = !this.archived
     retrieval ActiveOrders() of Order { where: Active  sort: [code asc] }
-    repository Orders for Order { }
+    repository Orders for Order
     workflow W {
       create(n: string) { let batch = Orders.run(Nope()) }
     }`),
@@ -2129,7 +2125,7 @@ system S {
       create open(owner: string) { emit Opened { account: id } }
       apply(e: Opened) { touch() }
     }
-    repository Accounts for Account { }`),
+    repository Accounts for Account`),
 
   // A resource op whose capability the bound storage does not offer.
   // `localDisk` offers objectStore{blob,list}; `signedUrl` is s3-only — so the
@@ -2139,7 +2135,7 @@ system S {
 system S {
   subdomain Sub { context C {
     aggregate Doc with crudish { name: string }
-    repository Docs for Doc { }
+    repository Docs for Doc
     workflow W {
       create(k: string) { let u = Blobs.signedUrl(k) }
     }
@@ -2158,7 +2154,7 @@ system S {
 system S {
   subdomain Sub { context C {
     aggregate Order with crudish { code: string  buyer: Ghost id }
-    repository Orders for Order { }
+    repository Orders for Order
   } }
   api A from Sub
   storage pg { type: postgres }
@@ -2195,7 +2191,7 @@ system S {
 system S {
   subdomain Sub { context C {
     aggregate Order { code: string  operation place() { code := "x" } }
-    repository Orders for Order { }
+    repository Orders for Order
   } }
   api Api from Sub
   ui WebApp {
@@ -2256,7 +2252,7 @@ system S {
       name: string
       operation archive() { files.put("t/" + this.name, this.name) }
     }
-    repository Things for Thing { }
+    repository Things for Thing
   } }
   api Api from Sub
   storage pg { type: postgres }
@@ -2279,15 +2275,14 @@ system S {
   subdomain Sub {
     context Billing {
       aggregate Customer { name: string }
-      repository Customers for Customer {
-        find byName(name: string): Customer? where this.name == name
-      }
+      repository Customers for Customer
+      criterion CustomersByName(name: string) of Customer = this.name == name
     }
     context Ordering {
       aggregate Order { ref: string }
-      repository Orders for Order { }
+      repository Orders for Order
       domainService Naming {
-        operation isFree(r: string): bool { return Customers.byName(r) == null }
+        operation isFree(r: string): bool { return Customers.find(CustomersByName(r)) == null }
       }
     }
   }
@@ -2301,14 +2296,14 @@ system S {
   subdomain Sub {
     context Directory {
       aggregate Technician with crudish { skills: string[] }
-      repository Technicians for Technician { }
+      repository Technicians for Technician
     }
     context Dispatch {
       aggregate WorkOrder with crudish {
         status: string
         operation assign() { status := "Assigned" }
       }
-      repository WorkOrders for WorkOrder { }
+      repository WorkOrders for WorkOrder
       workflow scheduleWorkOrder transactional {
         create(workOrderId: WorkOrder id, assignTo: Technician id) {
           let tech = Technicians.getById(assignTo)
@@ -2328,7 +2323,7 @@ system S {
 system S {
   subdomain Sub { context Ops {
     aggregate Technician { name: string }
-    repository Technicians for Technician { }
+    repository Technicians for Technician
     aggregate Job {
       technicianId: Technician id
       assignedName: string
@@ -2337,7 +2332,7 @@ system S {
         assignedName := Technicians.getById(assignTo).name
       }
     }
-    repository Jobs for Job { }
+    repository Jobs for Job
   } }
 }`,
 
@@ -2480,7 +2475,7 @@ system S {
 system S {
   subdomain Sub { context C {
     aggregate Product with crudish { name: string }
-    repository Products for Product { }
+    repository Products for Product
   } }
   api Api from Sub
   ui WebApp {
@@ -2502,7 +2497,7 @@ system S {
 system S {
   subdomain Sub { context C {
     aggregate Item with crudish { name: string  operation activate() { } }
-    repository Items for Item { }
+    repository Items for Item
   } }
   api Api from Sub
   ui WebApp {
@@ -2523,7 +2518,7 @@ system S {
 system S {
   subdomain Sub { context C {
     aggregate Note { text: string }
-    repository Notes for Note { }
+    repository Notes for Note
   } }
   api Api from Sub
   ui WebApp {
@@ -2653,7 +2648,7 @@ system S {
 system S {
   subdomain D { context C {
     aggregate Thing with crudish { name: string }
-    repository Things for Thing { }
+    repository Things for Thing
   } }
   api Api from D
   storage pg { type: postgres }
@@ -2857,7 +2852,7 @@ system P {
 system P {
   subdomain D { context Orders {
     aggregate Order with crudish { name: string }
-    repository Orders for Order { }
+    repository Orders for Order
   } }
   ui WebApp { }
   storage pg { type: postgres }
@@ -2896,7 +2891,7 @@ system S {
 system S {
   subdomain D { context C {
     aggregate Note with versioned, crudish { text: string }
-    repository Notes for Note { }
+    repository Notes for Note
   } }
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
@@ -2916,7 +2911,7 @@ system S {
 system S {
   subdomain D { context Sales {
     aggregate Order with crudish { code: string }
-    repository Orders for Order { }
+    repository Orders for Order
     queryHandler Sum(a: int, b: int): int { return a + b }
   } }
   api A from D { route GET "/sum/{a}/{b}" -> Sales.Sum }
@@ -3441,12 +3436,18 @@ system P {
     "",
     `    page Home {
       route: "/"
-      body: QueryView { of: Sales.Order.byCode(), loading: Text { "l" }, error: Text { "e" }, empty: Text { "n" }, data: rows => Text { "x" } }
+      body: QueryView { of: Order.findAllByByCode(), loading: Text { "l" }, error: Text { "e" }, empty: Text { "n" }, data: rows => Text { "x" } }
     }`,
-  ).replace(
-    "repository Orders for Order { }",
-    "repository Orders for Order { find byCode(code: string): Order[] where this.code == code }",
-  ),
+  )
+    .replace("context Orders {", "context Orders with scaffoldPaged(of: ByCode) {")
+    .replace(
+      "repository Orders for Order",
+      "repository Orders for Order\n    criterion ByCode(code: string) of Order = this.code == code",
+    )
+    .replace(
+      "api SalesApi from Sales",
+      "api SalesApi with scaffoldPagedApi(of: ByCode) from Sales",
+    ),
   "loom.ui-body-feature-unsupported": flutterUi(
     `    page Detail(id: Order id) {
       route: "/orders/:id"
@@ -3479,12 +3480,12 @@ system P {
   // Each of these parsed 0 errors / 0 warnings before the rule existed and
   // then produced a DIFFERENT wrong artefact per backend.
   "loom.seed-dataset-name-collision": repoOnly(`    aggregate Widget with crudish { name: string }
-    repository Widgets for Widget { }
+    repository Widgets for Widget
     seed default { Widget { name: "a" } }
     seed Default { Widget { name: "b" } }`),
   "loom.seed-raw-document-shape":
     repoOnly(`    aggregate Article shape: document, with crudish { title: string }
-    repository Articles for Article { }
+    repository Articles for Article
     seed wired raw { Article { id: "11111111-1111-1111-1111-111111111111", title: "Anchor" } }`),
   "loom.seed-raw-eventsourced": repoOnly(`    event Opened { account: Account id, owner: string }
     aggregate Account persistedAs: eventLog {
@@ -3492,7 +3493,7 @@ system P {
       create open(owner: string) { emit Opened { account: id, owner: owner } }
       apply(e: Opened) { owner := e.owner }
     }
-    repository Accounts for Account { }
+    repository Accounts for Account
     seed wired raw { Account { id: "11111111-1111-1111-1111-111111111111", owner: "seeded-alice" } }`),
   "loom.seed-eventsourced-no-create":
     repoOnly(`    event Opened { account: Account id, owner: string }
@@ -3500,7 +3501,7 @@ system P {
       owner: string
       apply(e: Opened) { owner := e.owner }
     }
-    repository Accounts for Account { }
+    repository Accounts for Account
     seed default { Account { owner: "seeded-alice" } }`),
   // A locator matcher (`toHaveText` / `toHaveCount` / `toBeVisible`) reads a
   // DOM node, so its receiver has to be a field read on a row the test has on
@@ -3508,7 +3509,7 @@ system P {
   // `generate system` from `renderExpectStmt` (audit 2026-09-03 F6); a plain
   // string literal is the smallest receiver that can never be a locator.
   "loom.locator-matcher-receiver": repoOnly(`    aggregate Thing with crudish { name: string }
-    repository Things for Thing { }
+    repository Things for Thing
     test "a locator matcher needs a page read" for Thing {
       expect("x").toHaveText("x")
     }`),
@@ -3524,7 +3525,7 @@ system S {
       invariant name.length > 0
       derived display: string = name
     }
-    repository Technicians for Technician { }
+    repository Technicians for Technician
   } }
 
   ui WebApp with scaffold(subdomains: [D]) { }
@@ -3586,7 +3587,7 @@ system S {
       name: string
       derived display: string = name
     }
-    repository Technicians for Technician { }
+    repository Technicians for Technician
   } }
 
   ui WebApp with scaffold(subdomains: [D]) { }
@@ -3604,7 +3605,7 @@ system S {
 }`,
   "loom.seed-abstract-aggregate": repoOnly(`    abstract aggregate Base { name: string }
     aggregate Child extends Base with crudish { extra: int }
-    repository Children for Child { }
+    repository Children for Child
     seed default { Base { name: "x" } }`),
   "loom.seed-tenant-owned-needs-raw": `
 system S {
@@ -3613,7 +3614,7 @@ system S {
   subdomain Sub { context C {
     aggregate Invoice with tenantOwned, crudish { label: string }
     aggregate Org with crudish { name: string }
-    repository Invoices for Invoice { }
+    repository Invoices for Invoice
     seed default { Invoice { label: "Seeded" } }
   } }
 }`,
@@ -3636,8 +3637,8 @@ system S {
       invariant members.count <= 6
     }
     aggregate Member { nick: string }
-    repository Orders for Order { }
-    repository Members for Member { }
+    repository Orders for Order
+    repository Members for Member
   } }
   storage pg { type: postgres }
   resource st { for: Shop, kind: state, use: pg }
@@ -3683,7 +3684,7 @@ system S {
   auth { enforcement: denyByDefault  oidc { issuer: "https://idp.example.com"  clientId: "app" } }
   subdomain D { context Vault {
     aggregate Secret { body: string  create() { requires currentUser.role == "admin" } }
-    repository Secrets for Secret { }
+    repository Secrets for Secret
   } }
   api Api from D
   storage pg { type: postgres }
@@ -3710,9 +3711,7 @@ system S {
       create(owner: string) { emit Opened { account: id, owner: owner } }
       apply(e: Opened) { owner := e.owner }
     }
-    repository Accounts for Account {
-      find all(): Account[]
-    }
+    repository Accounts for Account
     policy { read Account requires currentUser.role == "admin" }
   } }
   api Api from D
@@ -3734,8 +3733,8 @@ system S {
   subdomain Ops { context Work {
     aggregate Org with crudish { name: string }
     aggregate WorkOrder with tenantOwned, crudish { ref: string  amount: money }
-    repository Orgs for Org { }
-    repository WorkOrders for WorkOrder { }
+    repository Orgs for Org
+    repository WorkOrders for WorkOrder
     projection PlatformRevenue {
       revenue: money
       from WorkOrder as w ignoring tenantOwned
@@ -3760,7 +3759,7 @@ system S {
     permissions { manage }
     context Stock {
       aggregate Item with crudish { sku: string }
-      repository Items for Item { }
+      repository Items for Item
     }
   }
   api StockApi from Warehouse
@@ -3817,7 +3816,7 @@ system S {
 }`,
   // V2 — a default on a callable site whose lowerer drops it.
   "loom.param-default-unsupported": repoOnly(`    aggregate Thing with crudish { n: int }
-    repository Things for Thing { }
+    repository Things for Thing
     domainService Calc {
       operation twice(x: int = 3): int { return x * 2 }
     }`),
@@ -3837,7 +3836,7 @@ system S {
       entity Line { sku: string  qty: int }
       operation replaceLines(newLines: Line[]) { lines := newLines }
     }
-    repository Orders for Order { }
+    repository Orders for Order
   } }
 }`,
   // Reactors, no starter.  The event IS carried by a channel, so
@@ -3847,7 +3846,7 @@ system S {
 system S {
   subdomain D { context Ops {
     aggregate Order { ref: string }
-    repository Orders for Order { }
+    repository Orders for Order
     event OrderPaid { order: Order id }
     channel bus { carries: OrderPaid  delivery: broadcast  retention: ephemeral }
     workflow Settle {

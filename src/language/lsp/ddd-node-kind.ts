@@ -36,8 +36,6 @@ export class DddNodeKindProvider extends DefaultNodeKindProvider {
         return SymbolKind.Method;
       case "Repository":
         return SymbolKind.Interface;
-      case "FindDecl":
-        return SymbolKind.Method;
       case "Subdomain":
       case "BoundedContext":
         return SymbolKind.Module;
@@ -72,8 +70,6 @@ export class DddNodeKindProvider extends DefaultNodeKindProvider {
       case "FunctionDecl":
         return CompletionItemKind.Function;
       case "Operation":
-        return CompletionItemKind.Method;
-      case "FindDecl":
         return CompletionItemKind.Method;
       case "Subdomain":
       case "BoundedContext":

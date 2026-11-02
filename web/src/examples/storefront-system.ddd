@@ -55,7 +55,7 @@ system StorefrontSystem {
   }
 
   subdomain Storefront {
-    context Storefront {
+    context Storefront with scaffoldGet(of: ByEmail) {
 
       enum OrderStatus { Draft, Confirmed, Shipped, Cancelled }
       enum WalletStatus { Open, Frozen, Closed }
@@ -180,9 +180,8 @@ system StorefrontSystem {
         }
       }
 
-      repository Customers for Customer {
-        find byEmail(email: string): Customer? where this.email == email
-      }
+      repository Customers for Customer { }
+      criterion ByEmail(email: string) of Customer = this.email == email
       repository Products for Product { }
       repository Wallets for Wallet { }
       criterion WalletsByOwner(owner: Customer id) of Wallet = this.ownerId == owner
@@ -224,7 +223,7 @@ system StorefrontSystem {
 
   // A criterion has no route of its own: the two owner-scoped reads the e2e
   // drives are routed queryHandlers over them.
-  api StorefrontApi from Storefront {
+  api StorefrontApi with scaffoldGetApi(of: ByEmail) from Storefront {
     route GET "/wallets/by_owner/{owner}" -> Storefront.ListWalletsByOwner
     route GET "/wallets/open_by_owner/{owner}" -> Storefront.ListWalletsOpenByOwner
   }
@@ -266,7 +265,7 @@ system StorefrontSystem {
   // route-registration-order bug.
   test e2e "find a customer by its static by_email route" against api {
     let cust = api.customers.create({ name: "Email Lookup", email: "lookup@acme.test" })
-    let found = api.customers.byEmail({ email: "lookup@acme.test" })
+    let found = api.storefront.getCustomerByEmail("lookup@acme.test")
     expect(found.id).toBe(cust.id)
     expect(found.name).toBe("Email Lookup")
 
@@ -282,7 +281,7 @@ system StorefrontSystem {
     // …and the DELETE, on the one customer no wallet or order references.
     api.customers.destroy(cust)
     expect(api.customers.getById(cust)).toThrow(404)
-    expect(api.customers.byEmail({ email: "lookup@acme.test" })).toThrow(404)
+    expect(api.storefront.getCustomerByEmail("lookup@acme.test")).toThrow(404)
     let empty = api.customers.all()
     expect(empty.items.length).toBe(0)
     expect(empty.total).toBe(0)

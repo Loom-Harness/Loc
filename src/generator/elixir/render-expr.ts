@@ -458,10 +458,18 @@ export function optionalReadLookup(
       hit: "{:ok, [hit | _]}",
     };
   }
+  // A declared find takes the actor positionally after its own params (its
+  // context facade is `<find>_<agg>(args…, current_user \\ nil)`).
+  const findArgs = passActor && !isByIdOp(read.op) ? [...args, "current_user"] : args;
   return {
-    call: `${contextModule}.${contextFindFnFor(read.op, read.method, read.aggregate)}(${args.join(", ")})`,
+    call: `${contextModule}.${contextFindFnFor(read.op, read.method, read.aggregate)}(${findArgs.join(", ")})`,
     hit: "{:ok, hit}",
   };
+}
+
+/** The by-id reads, whose `get_<agg>` facade takes no actor argument here. */
+function isByIdOp(op: RepoOp): boolean {
+  return op === "load" || op === "load-optional";
 }
 
 /**

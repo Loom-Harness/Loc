@@ -600,7 +600,7 @@ function workflowRoute(
       [],
       conflictResolver(ctx),
       {
-        readsAggregate: workflowCanAnswerNotFound(wf, ctx.repositories),
+        readsAggregate: workflowCanAnswerNotFound(wf),
       },
     )})`,
     // A route-invoked workflow runs in a child frame under the request root, so

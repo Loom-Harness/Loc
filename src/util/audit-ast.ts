@@ -25,7 +25,6 @@
 // -------------------------------------------------------------------------
 
 import type { Aggregate, Property } from "../language/generated/ast.js";
-import { AUDIT_HISTORY_FIND } from "./audit-names.js";
 
 /** Whether this aggregate carries the DERIVED `history(id)` read — the
  *  macro-/validator-time (AST) mirror of the enrichment's `aggServesHistory`
@@ -57,7 +56,6 @@ export function aggregateServesHistory(agg: Aggregate): boolean {
   if (agg.isAbstract) return false;
   if (!aggregateHasAuditedCommand(agg)) return false;
   if (!agg.members.some(isHistoryDiffProperty)) return false;
-  if (aggregateHasDeclaredHistoryFind(agg)) return false;
   return true;
 }
 
@@ -80,15 +78,4 @@ function isHistoryDiffProperty(m: { $type: string }): boolean {
   if (m.$type !== "Property") return false;
   const access = (m as Property).access;
   return access !== "internal" && access !== "secret" && access !== "managed" && access !== "token";
-}
-
-/** An author-declared `find history(...)` on this aggregate's repository — the
- *  one that WINS over the synthesized read (same rule as `all`). */
-function aggregateHasDeclaredHistoryFind(agg: Aggregate): boolean {
-  for (const m of agg.$container.members) {
-    if (m.$type !== "Repository") continue;
-    if (m.aggregate.ref?.name !== agg.name && m.aggregate.$refText !== agg.name) continue;
-    if (m.finds.some((f) => f.name === AUDIT_HISTORY_FIND)) return true;
-  }
-  return false;
 }

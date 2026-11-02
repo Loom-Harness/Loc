@@ -1,23 +1,12 @@
 // ---------------------------------------------------------------------------
 // An `X id` PICKER must read the shape its target's list route actually serves.
 //
-// `docs/auth.md`: "Declaring an explicit `find all(): T[] requires <expr>` gates
-// that route, and does so on all five backends."  That is the ONLY documented
-// way to put an authorization gate on a list read.  Declaring it also changes
-// the WIRE — correctly: the signature says `T[]`, so the route returns a bare
-// array and the client parses `z.array(TResponse)` instead of the `TPaged`
-// envelope the auto-`findAll` (M-T2.6) serves.
-//
-// Every frontend's picker assumed the envelope anyway:
-//
-//   react/vue/svelte  `({{hookVar}}.data?.items ?? []).map(…)`   — 12 pack templates
-//   angular           `{{hookVar}}.data()?.items ?? []`          — 3 style arms
-//   feliz             `Decode.field "items" (Decode.list …)`
-//   flutter           `(jsonDecode(body) as Map)['items']`
-//
-// So you could have the gate on `GET /docs`, or a working frontend, not both.
-// And the two halves fail differently, which is why this is worth a test rather
-// than a build gate alone:
+// The implicit `all` list read is paged for a plain relational aggregate — the
+// route serves the `TPaged` envelope and the client parses it — but a
+// `shape: document` aggregate's `all` is a bare array (`z.array(TResponse)`).
+// A picker that always reads `.items` breaks on the bare array, and the two
+// halves fail differently, which is why this is worth a test rather than a
+// build gate alone:
 //
 //   * on a TYPED client it is a compile error — `Property 'items' does not
 //     exist on type '{ id: string; … }[]'` plus an implicit-any on the map
@@ -28,14 +17,10 @@
 //     are worse still: both compile clean and fail only at RUNTIME, on the
 //     decode.
 //
-// THE FIX KEEPS THE WIRE CONTRACT.  The alternative — making a declared
-// `find all(): T[]` return the envelope anyway so the page's `.items` is
-// always right — would mean a route whose response contradicts the return type
-// the author wrote, on all five backends, in `wire-spec.json`, and for every
-// non-Loom consumer of that API.  The page emitter is the half that was
-// guessing, so the page emitter is the half that asks: `isPagedAllRead`
-// (`src/ir/util/paged-all.ts`), one detector, same fact the client emitter
-// (`_frontend/api-module.ts`) and the walker (`_walker/paged-query.ts`) read.
+// The wire contract is the model's; the page emitter is the half that asks:
+// `isPagedAllRead` (`src/ir/util/paged-all.ts`), one detector, same fact the
+// client emitter (`_frontend/api-module.ts`) and the walker
+// (`_walker/paged-query.ts`) read.
 // ---------------------------------------------------------------------------
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -44,17 +29,18 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 /** A system whose workflow takes a `Doc id` — so every frontend renders the
- *  picker — with `Doc`'s list read spelled either way. */
-function system(frontend: string, design: string | null, declaredFindAll: boolean): string {
-  const find = declaredFindAll ? `find all(): Doc[]` : "";
+ *  picker — with `Doc`'s `all` either a bare array (`unpaged`: a
+ *  `shape: document` aggregate) or the paged envelope. */
+function system(frontend: string, design: string | null, unpaged: boolean): string {
+  const shape = unpaged ? " shape: document" : "";
   return `
 system FindAllShape {
   user { id: string  role: string }
   auth { enforcement: opt  oidc { issuer: env("I") clientId: env("C") } }
   subdomain S {
     context C {
-      aggregate Doc { title: string  derived display: string = title }
-      repository Docs for Doc { ${find} }
+      aggregate Doc${shape} { title: string  derived display: string = title }
+      repository Docs for Doc
       workflow touch { create(doc: Doc id) { let d = Docs.getById(doc) } }
     }
   }
@@ -79,7 +65,7 @@ describe("the X id picker reads the target's ACTUAL list shape", () => {
     ["svelte", "shadcnSvelte"],
     ["angular", "angularMaterial"],
   ] as const)(
-    "%s: a declared `find all(): T[]` picker maps the bare array, not `.items`",
+    "%s: a bare-array `all` picker maps the array, not `.items`",
     async (frontend, design) => {
       const src = all(await generateSystemFiles(system(frontend, design, true)));
       // The picker's own option source — matched by the testid the page object
@@ -104,7 +90,7 @@ describe("the X id picker reads the target's ACTUAL list shape", () => {
     ["svelte", "shadcnSvelte"],
     ["angular", "angularMaterial"],
   ] as const)(
-    "%s: the paged-by-default auto-findAll picker still reads `.items`",
+    "%s: the paged `all` picker still reads `.items`",
     async (frontend, design) => {
       const src = all(await generateSystemFiles(system(frontend, design, false)));
       const picker = src
@@ -113,7 +99,7 @@ describe("the X id picker reads the target's ACTUAL list shape", () => {
         .join("\n");
       expect(
         picker,
-        `${frontend}: the auto-\`findAll\` DOES serve the {items, …} envelope — dropping ` +
+        `${frontend}: the paged \`all\` DOES serve the {items, …} envelope — dropping ` +
           `\`.items\` here would empty every picker in the shipped corpus`,
       ).toMatch(/\.items/);
     },
@@ -121,19 +107,19 @@ describe("the X id picker reads the target's ACTUAL list shape", () => {
   );
 
   it("feliz decodes the bare array, and still decodes the envelope when there is one", async () => {
-    const declared = all(await generateSystemFiles(system("feliz", null, true)));
-    expect(declared).toContain("Decode.fromString (Decode.list Decoders.doc)");
-    expect(declared).not.toContain('Decode.field "items" (Decode.list Decoders.doc)');
+    const bare = all(await generateSystemFiles(system("feliz", null, true)));
+    expect(bare).toContain("Decode.fromString (Decode.list Decoders.doc)");
+    expect(bare).not.toContain('Decode.field "items" (Decode.list Decoders.doc)');
     const auto = all(await generateSystemFiles(system("feliz", null, false)));
     expect(auto).toContain('Decode.field "items" (Decode.list Decoders.doc)');
   }, 180_000);
 
   it("flutter decodes the bare array rather than casting it to a Map", async () => {
-    const declared = all(await generateSystemFiles(system("flutter", null, true)));
-    expect(declared).toContain("final items = jsonDecode(res.body) as List<dynamic>;");
+    const bare = all(await generateSystemFiles(system("flutter", null, true)));
+    expect(bare).toContain("final items = jsonDecode(res.body) as List<dynamic>;");
     // The Map cast is a `_TypeError` on the first load — `flutter analyze`
     // cannot see a wrong JSON shape, so this is the only place it is caught.
-    expect(declared).not.toContain("final body = jsonDecode(res.body) as Map<String, dynamic>;");
+    expect(bare).not.toContain("final body = jsonDecode(res.body) as Map<String, dynamic>;");
     const auto = all(await generateSystemFiles(system("flutter", null, false)));
     expect(auto).toContain("LoomPage.fromJson(res.body, Doc.fromJson)");
   }, 180_000);

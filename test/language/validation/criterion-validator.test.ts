@@ -80,11 +80,9 @@ describe("validator — criterion", () => {
     const { errors } = await parseString(`
       context Sales {
         aggregate Customer { active: bool }
-        aggregate Order { total: int }
+        aggregate Order { total: int  invariant ActiveCustomer }
         repository Customers for Customer { }
-        repository Orders for Order {
-          find bad(): Order? where ActiveCustomer
-        }
+        repository Orders for Order { }
         criterion ActiveCustomer of Customer = active
       }
     `);

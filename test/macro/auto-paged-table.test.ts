@@ -149,19 +149,6 @@ describe("auto-paged table", () => {
     expect(tsx).not.toContain("pageNum");
   });
 
-  it("leaves a table over a NON-paged find alone", async () => {
-    const tsx = await pageTsx(
-      `QueryView {
-        of: T.Task.ranked(1),
-        data: rows => Table { rows: rows, Column { "Title", o => Text { o.title } } }
-      }`,
-      "find ranked(min: int): Task? where rank > min",
-    );
-    // A plain array find is complete in one response — nothing to page.
-    expect(tsx).not.toContain("pageNum");
-    expect(tsx).not.toContain('data-testid="pager"');
-  });
-
   it("leaves a body that is not a bare Table over the binding alone", async () => {
     const tsx = await pageTsx(`QueryView {
       of: T.Task.all,

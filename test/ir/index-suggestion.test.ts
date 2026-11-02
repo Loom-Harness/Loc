@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { type LoomDiagnostic, validateLoomModel } from "../../src/ir/validate/validate.js";
+import { criterionReadOfFind } from "../_helpers/criterion-read.js";
 import { parseString } from "../_helpers/parse.js";
 
 // The lint rides the normal `validateLoomModel` gate now (uniqueness-and-
@@ -21,13 +22,18 @@ async function suggestions(source: string): Promise<LoomDiagnostic[]> {
   return indexSuggestions(enrichLoomModel(lowerModel(model)));
 }
 
+/** The read a row spells as a find, as the criterion + handler that run it. */
+const read = (find: string) =>
+  find ? criterionReadOfFind(find, "Customer", "Customers").members : "";
+
 const sys = (agg: string, repo: string, extra = "") => `
   system Shop {
     ${extra}
     subdomain Sales {
       context Ordering {
         ${agg}
-        repository Customers for Customer { ${repo} }
+        repository Customers for Customer
+        ${read(repo)}
       }
     }
     api SalesApi from Sales
@@ -38,7 +44,7 @@ const sys = (agg: string, repo: string, extra = "") => `
 `;
 
 describe("loom.index-suggestion", () => {
-  it("suggests an index for a finder-filtered scalar column with no index", async () => {
+  it("suggests an index for a criterion-filtered scalar column with no index", async () => {
     const d = await suggestions(
       sys(
         `aggregate Customer with crudish { email: string  status: string }`,
@@ -69,9 +75,8 @@ describe("loom.index-suggestion", () => {
         subdomain Sales {
           context Ordering {
             aggregate Customer with crudish { email: string  status: string }
-            repository Customers for Customer {
-              find byStatus(status: string): Customer? where this.status == status
-            }
+            repository Customers for Customer { }
+            criterion CustomersByStatus(status: string) of Customer = this.status == status
           }
         }
         api SalesApi from Sales
@@ -115,8 +120,11 @@ describe("loom.index-suggestion", () => {
           context Accounts {
             aggregate Org with crudish { name: string }
             aggregate Invoice with crudish, tenantOwned { number: string }
-            repository Invoices for Invoice {
-              find byTenant(): Invoice? where this.tenantId == currentUser.tenantId
+            repository Invoices for Invoice
+            criterion ForTenant(t: string) of Invoice = this.tenantId == t
+            queryHandler ListForTenant(t: string): Invoice[] {
+              let r = Invoices.run(ForTenant(t))
+              return r
             }
           }
         }
@@ -130,27 +138,26 @@ describe("loom.index-suggestion", () => {
     );
   });
 
-  it("suggests nothing when no finder filters an uncovered column", async () => {
+  it("suggests nothing when no read filters an uncovered column", async () => {
     const d = await suggestions(sys(`aggregate Customer with crudish { email: string }`, ``));
     expect(d).toEqual([]);
   });
 });
 
 // ---------------------------------------------------------------------------
-// A `find` migrated to the criterion / retrieval spelling that
-// `loom.list-find-removed` asks for still filters the same columns —
-// so it must still earn the same suggestion.  Before this, the collector ran
-// over `repo.finds` + `agg.contextFilters` only, and the advice vanished on
-// exactly the migration the tool told you to make (audit 2026-09-10 §D7).
+// A criterion / retrieval filters columns as a find once did, so it must earn
+// the same suggestion.  Before this, the collector ran over `repo.finds` +
+// `agg.contextFilters` only, and the advice vanished on exactly the migration
+// the tool told you to make (audit 2026-09-10 §D7).
 // ---------------------------------------------------------------------------
 
-const CATALOG = (members: string, repo = "") => `
+const CATALOG = (members: string) => `
   system Shop {
     subdomain Sales {
       context Catalog {
         enum Stock { Active, Retired }
         aggregate Product with crudish { sku: string  status: Stock  stockOnHand: int }
-        repository Products for Product { ${repo} }
+        repository Products for Product
         ${members}
       }
     }
@@ -161,18 +168,11 @@ const CATALOG = (members: string, repo = "") => `
   }
 `;
 
-describe("loom.index-suggestion — survives the find → criterion migration", () => {
+describe("loom.index-suggestion — over criteria and retrievals", () => {
   const columns = (d: LoomDiagnostic[]): (string | undefined)[] =>
     d.map((x) => x.message.match(/index: (Product\.\w+)/)?.[1]).sort();
 
-  it("suggests both filtered columns for the deprecated `find … where` spelling", async () => {
-    const d = await suggestions(
-      CATALOG("", "find sellable(): Product[] where this.status == Active && this.stockOnHand > 0"),
-    );
-    expect(columns(d)).toEqual(["Product.status", "Product.stockOnHand"]);
-  });
-
-  it("keeps both suggestions after migrating that find to a criterion + retrieval", async () => {
+  it("suggests both columns a criterion + retrieval filter", async () => {
     const d = await suggestions(
       CATALOG(`criterion Sellable of Product = status == Active && stockOnHand > 0
                retrieval SellableProducts of Product { where: Sellable  sort: [sku asc] }`),

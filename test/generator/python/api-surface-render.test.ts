@@ -35,9 +35,8 @@ system P {
         status: string
         operation cancel() when status == "Open" { status := "Cancelled" }
       }
-      repository Orders for Order {
-        find byRef(ref: string): Order or Missing where this.code == ref
-      }
+      repository Orders for Order { }
+      criterion OrdersByRef(ref: string) of Order = this.code == ref
       criterion OrdersByCode(code: string) of Order = this.code == code
       policy { read Order requires currentUser.role == "admin" }
     }

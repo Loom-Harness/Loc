@@ -14,9 +14,7 @@ import { parseValid } from "../../_helpers/parse.js";
 const SRC = `
   context Inventory {
     aggregate Warehouse { code: string  region: string }
-    repository Warehouses for Warehouse {
-      find all(): Warehouse paged
-    }
+    repository Warehouses for Warehouse
     criterion InRegion(region: string) of Warehouse = this.region == region
     queryHandler ListInRegion(region: string): Warehouse paged {
       let r = Warehouses.run(InRegion(region))

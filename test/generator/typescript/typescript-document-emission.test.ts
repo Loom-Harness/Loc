@@ -76,13 +76,12 @@ describe("Hono/Drizzle document-persistence emission (normalised(false))", () =>
     expect(repo).toContain('throw new ConcurrencyError("Cart", aggregate.id as string)');
   });
 
-  it("finds evaluate in-memory over rehydrated documents", () => {
+  it("reads evaluate in-memory over rehydrated documents", () => {
     const repo = files.get("db/repositories/cart-repository.ts")!;
     expect(repo).toContain(
       "const all = rows.map((r) => cartFromDoc(r.data as CartDoc, r.version));",
     );
-    expect(repo).toContain("const result = all.find((x) => x.customerId === customerId) ?? null;");
-    // No Drizzle column predicate against the document table for the find.
+    // No Drizzle column predicate against the document table.
     expect(repo).not.toContain("schema.carts.customerId");
   });
 
@@ -100,7 +99,7 @@ describe("Hono/Drizzle document-persistence emission (normalised(false))", () =>
   });
 
   // shape: embedded: queryable root columns + containment folded into a
-  // jsonb column.  Unlike document, finds are REAL SQL on the root.
+  // jsonb column.  Unlike document, root reads are REAL SQL on the root.
   it("embedded: root columns + one jsonb containment column, no part table", () => {
     const schema = files.get("db/schema.ts")!;
     expect(schema).toContain('export const wishlists = pgTable("wishlists", {');
@@ -110,7 +109,7 @@ describe("Hono/Drizzle document-persistence emission (normalised(false))", () =>
     expect(schema).not.toContain('pgTable("wish_items"');
   });
 
-  it("embedded: root via columns, containment via jsonb; finds are real SQL", () => {
+  it("embedded: root via columns, containment via jsonb; root reads are real SQL", () => {
     const repo = files.get("db/repositories/wishlist-repository.ts")!;
     // Root hydrated from columns + items rebuilt from the jsonb column.
     expect(repo).toContain(
@@ -126,8 +125,6 @@ describe("Hono/Drizzle document-persistence emission (normalised(false))", () =>
       ".where(and(eq(schema.wishlists.id, aggregate.id), eq(schema.wishlists.version, expected)))",
     );
     expect(repo).toContain('throw new ConcurrencyError("Wishlist", aggregate.id as string)');
-    // byCustomer is a real indexed SQL WHERE on the root column — NOT in-memory.
-    expect(repo).toContain(".where(eq(schema.wishlists.customerId, customerId))");
     expect(repo).not.toContain("FromDoc(row.data");
   });
 });

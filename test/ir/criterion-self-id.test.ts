@@ -5,15 +5,15 @@
 // many words, because "the key is a real stored column on every backend" — and
 // then every way of using it was refused:
 //
-//     repository Parts for Part { find byId2(i: Part id): Part? where ById(i) }
-//     -> loom.find-where-unknown-field: unknown field 'this.id' on aggregate 'Part'
+//     queryHandler ListById(i: Part id): Part[] { let r = Parts.run(ById(i))  return r }
+//     -> loom.retrieval-where-unknown-field: unknown field 'this.id' on aggregate 'Part'
 //
 // So you could declare the predicate and not call it (F-003).  The one lookup
 // an author most wants to express — "the row with this FK" — was expressible
 // and unusable.
 //
 // The strictness was not arbitrary: `firstUnknownColumnRef`'s `allowSelfId`
-// option says find/retrieval `where`s stay strict because "a workflow-instance
+// option once said retrieval `where`s stay strict because "a workflow-instance
 // read-model source has no `id` column".  True — but such a source is not an
 // aggregate, so `agg` never resolves for it and the branch does not run.  Where
 // `agg` DOES resolve it came from `ctx.aggregates`, and every aggregate carries
@@ -54,9 +54,9 @@ describe("a criterion on `this.id` is usable, not just declarable", () => {
     expect(await errors(sys(`${CRITERION}\n      repository Parts for Part { }`))).toEqual([]);
   });
 
-  it("USING it from a find is accepted too", async () => {
+  it("USING it from a repository read is accepted too", async () => {
     const src = sys(
-      `${CRITERION}\n      repository Parts for Part { find byId2(i: Part id): Part? where ById(i) }`,
+      `${CRITERION}\n      repository Parts for Part\n      queryHandler ListById(i: Part id): Part[] {\n        let r = Parts.run(ById(i))\n        return r\n      }`,
     );
     expect(await errors(src)).toEqual([]);
   });
@@ -72,7 +72,7 @@ describe("a criterion on `this.id` is usable, not just declarable", () => {
     // Acceptance is worth nothing if the generated query is wrong — this is the
     // half that says the relaxation was safe rather than merely quiet.
     const src = sys(
-      `${CRITERION}\n      repository Parts for Part { find byId2(i: Part id): Part? where ById(i) }`,
+      `${CRITERION}\n      repository Parts for Part\n      queryHandler ListById(i: Part id): Part[] {\n        let r = Parts.run(ById(i))\n        return r\n      }`,
     );
     const files = await generateSystemFiles(src);
     const repo = [...files].find(([p]) => p.endsWith("part-repository.ts"))![1];
@@ -84,7 +84,7 @@ describe("a criterion on `this.id` is usable, not just declarable", () => {
     // strict field-list check that stops the generator emitting SQL against a
     // column that does not exist.
     const src = sys(
-      `      criterion Bogus() of Part = this.nope == "x"\n      repository Parts for Part { find b(): Part[] where Bogus() }`,
+      `      criterion Bogus() of Part = this.nope == "x"\n      repository Parts for Part\n      queryHandler ListBogus(): Part[] {\n        let r = Parts.run(Bogus())\n        return r\n      }`,
     );
     const codes = await errors(src);
     expect(codes.length).toBeGreaterThan(0);

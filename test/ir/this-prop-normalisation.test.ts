@@ -1,6 +1,6 @@
 // `this.<prop>` and the bare `<prop>` are one source meaning; in domain-logic
 // bodies (derived / invariant / function / operation) both lower to the same
-// `this-prop` / `this-derived` ref.  Query positions (`find` where, criterion)
+// `this-prop` / `this-derived` ref.  Query positions (a criterion body)
 // keep `member(this, …)` — their consumers root a column path at it.
 
 import { describe, expect, it } from "vitest";
@@ -22,9 +22,7 @@ const SOURCE = `
           operation bump(by: int = this.total) { total := this.total + by }
         }
         criterion Big of Order = this.total > 10
-        repository Orders for Order {
-          find byTotal(t: int): Order[] where this.total == t
-        }
+        repository Orders for Order
       }
     }
   }

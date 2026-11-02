@@ -9,8 +9,6 @@
 //     'string'`, once per guid field per decoder / encoder / form site;
 //   * `fsZeroValue` falls through to `""`, so a `state { x: guid }` cell
 //     initialised a `System.Guid` from a string literal;
-//   * `findParamQueryValue` passes a guid find parameter straight into the
-//     query string, i.e. as a `string`;
 //   * an `X id` — a guid on every backend — already lowered to `string`.
 //
 // The other frontends never had the split: react/vue/svelte/angular emit
@@ -35,9 +33,7 @@ system Track {
         batch: guid?
         operation retag(serial: guid) { this.serial := serial }
       }
-      repository Assets for Asset {
-        find bySerial(serial: guid): Asset?
-      }
+      repository Assets for Asset
     }
   }
   storage db { type: postgres }
@@ -51,9 +47,9 @@ system Track {
         Heading { "Assets", level: 1 },
         Field { "Serial", bind: lookup },
         QueryView {
-          of: Track.Asset.bySerial(lookup),
-          empty: Text { "No match" },
-          data: a => Text { a.label }
+          of: Track.Asset.all,
+          empty: Text { "No assets" },
+          data: rows => For { each: rows, a => Text { a.label } }
         },
         CreateForm { of: Asset }
       }
@@ -113,13 +109,10 @@ describe("feliz guid wire type", () => {
     expect(await appFs()).not.toContain("System.Guid");
   });
 
-  it("carries a guid through the op form and the find query string as text", async () => {
+  it("carries a guid through the op form as text", async () => {
     const app = await appFs();
     // Form cells are strings on every Feliz form; a Guid-typed record field
     // made the `prop.value` binding and the encoder disagree with them.
     expect(recordBody(app, "RetagAssetOpForm")).toMatch(/^\s+serial\s*:\s*string$/m);
-    // …and the find's query-string value is passed verbatim, which only
-    // typechecks because the parameter is a string.
-    expect(app).toMatch(/serial=.*serial/);
   });
 });

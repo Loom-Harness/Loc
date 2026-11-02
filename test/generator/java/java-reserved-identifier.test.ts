@@ -23,7 +23,7 @@
 //   * JSON     — `@JsonProperty("case")` on the request / response / event /
 //                projection-row / workflow-instance record component
 //   * OpenAPI  — springdoc reads Jackson, so the published schema key follows
-//   * query    — `@RequestParam("case")` on a find parameter
+//   * query    — `@RequestParam("case")` on a routed handler parameter
 //   * pointer  — the advice's `pointerOf` inverts the mangle, so a 422 names
 //                `/case` (Spring binding paths never go through Jackson)
 //   * column   — `@Column(name = "`case`")` is unchanged (the SQL half was
@@ -50,7 +50,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
  *  refuse, in one model: aggregate field (scalar / bool / money / VO / VO array
  *  / `X id`), derived field, containment part field, operation name, operation
  *  parameter, helper-function name and parameter, value-object field, event
- *  field, repository find + its filter column, enum VALUE, projection state
+ *  field, criterion read + its filter column + its routed query param, enum VALUE, projection state
  *  field and workflow state field. */
 const SOURCE = (platform: string): string => `
 system RW {
@@ -79,12 +79,17 @@ system RW {
         }
         invariant do >= 0
       }
-      repository Tickets for Ticket {
-        find byCase(case: string): Ticket? where this.case == case
+      repository Tickets for Ticket
+      criterion ByCase(case: string) of Ticket = this.case == case
+      queryHandler ListByCase(case: string): Ticket paged {
+        let r = Tickets.run(ByCase(case))
+        return r
       }
     }
   }
-  api A from S
+  api A from S {
+    route GET "/tickets/by_case" -> C.ListByCase
+  }
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable d {
@@ -111,7 +116,7 @@ const file = async (path: string): Promise<string> => {
 const ENTITY = "d/src/main/java/com/loom/d/features/tickets/Ticket.java";
 const RESPONSE = "d/src/main/java/com/loom/d/features/tickets/TicketResponse.java";
 const CREATE_REQ = "d/src/main/java/com/loom/d/features/tickets/CreateTicketRequest.java";
-const CONTROLLER = "d/src/main/java/com/loom/d/features/tickets/TicketsController.java";
+const ROUTES = "d/src/main/java/com/loom/d/api/ARoutesController.java";
 const REPO_IMPL = "d/src/main/java/com/loom/d/features/tickets/TicketRepositoryImpl.java";
 const JPA_REPO = "d/src/main/java/com/loom/d/features/tickets/TicketJpaRepository.java";
 const EVENT = "d/src/main/java/com/loom/d/domain/events/Switched.java";
@@ -158,7 +163,7 @@ describe("M-T6.36 — a java reserved word is emitted, mangled, with the wire pi
   });
 
   it("names the query parameter explicitly so `?case=` does not become `?case_=`", async () => {
-    expect(await file(CONTROLLER)).toContain('@RequestParam("case") String case_');
+    expect(await file(ROUTES)).toContain('@RequestParam("case") String case_');
   });
 
   it("translates the `?sort=` wire key to the JPA property in one place", async () => {

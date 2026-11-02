@@ -37,7 +37,6 @@ import type {
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
-import { effectiveFindFilter } from "../../../ir/util/implicit-find-filter.js";
 import { type PrincipalTerm, principalTerm } from "../../../ir/util/principal-term.js";
 import { refCollectionFieldName } from "../../../ir/util/ref-collection.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
@@ -1797,7 +1796,7 @@ export function renderDapperRepository(
     // with a `where this.f == x` throws on an unbound `@x` at runtime.
     const allFindParamsSuffix = allFindParams.length > 0 ? `, ${allFindParams.join(", ")}` : "";
     // A clause-less find still filters — by its implicit key match.
-    const own = effectiveFindFilter(f, agg);
+    const own = f.filter;
     let where = "";
     try {
       where = own ? ` WHERE ${whereToSql(own, sqlCtx)}` : "";

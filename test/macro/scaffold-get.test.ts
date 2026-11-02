@@ -118,7 +118,10 @@ const QUERY_BINDING: Record<(typeof BACKENDS)[number], string[]> = {
   node: ["request: { query: z.object({ code: z.string() }) }", "const code = __query.code;"],
   python: ["async def get_order_by_code_route(code: WireStr, session: SessionDep)"],
   java: ['@GetMapping("/api/orders/by_code")', "@RequestParam String code"],
-  dotnet: ['[HttpGet("/api/orders/by_code")]', "GetOrderByCode([FromQuery] string code)"],
+  dotnet: [
+    '[HttpGet("/api/orders/by_code")]',
+    "GetOrderByCode([FromQuery] [Microsoft.AspNetCore.Mvc.ModelBinding.BindRequired] string code)",
+  ],
   // Phoenix merges the query string into `params`; the handler destructures it.
   elixir: ['get "/orders/by_code", SalesApiRoutesController, :get_order_by_code'],
 };

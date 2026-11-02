@@ -35,10 +35,21 @@ system Shop {
       }
       aggregate Customer { name: string }
       aggregate Tag { label: string }
-      repository Orders for Order {
-        find byCode(code: string): Order? where this.code == code
-        find confirmed(): Order? where this.status == confirmed
-        find inCity(city: string): Order? where this.shipTo.city == city
+      repository Orders for Order { }
+      criterion OrdersByCode(code: string) of Order = this.code == code
+      queryHandler ListByCode(code: string): Order paged {
+        let r = Orders.run(OrdersByCode(code))
+        return r
+      }
+      criterion OrdersConfirmed of Order = this.status == confirmed
+      queryHandler ListConfirmed(): Order paged {
+        let r = Orders.run(OrdersConfirmed())
+        return r
+      }
+      criterion OrdersInCity(city: string) of Order = this.shipTo.city == city
+      queryHandler ListInCity(city: string): Order paged {
+        let r = Orders.run(OrdersInCity(city))
+        return r
       }
       repository Customers for Customer { }
       repository Tags for Tag { }
@@ -134,7 +145,7 @@ describe("java generator — JPA mapping (S4)", () => {
 });
 
 describe("java generator — repository triple (S4)", () => {
-  it("domain port: save / findById / getById / findAll / delete + declared finds", async () => {
+  it("domain port: save / findById / getById / findAll / delete + criterion reads", async () => {
     const port = (await files()).get(`${ROOT}/features/orders/OrderRepository.java`)!;
     expect(port).toContain("@org.jmolecules.ddd.annotation.Repository");
     expect(port).toContain("public interface OrderRepository {");
@@ -142,13 +153,17 @@ describe("java generator — repository triple (S4)", () => {
     expect(port).toContain("Optional<Order> findById(OrderId id);");
     expect(port).toContain("Order getById(OrderId id);");
     expect(port).toContain("List<Order> findAll();");
-    expect(port).toContain("Order byCode(String code);");
+    expect(port).toContain(
+      "Paged<Order> findAllByOrdersByCode(String code, int page, int pageSize, String sort, String dir);",
+    );
   });
 
-  it("Spring Data interface renders IR-derived finds as @Query JPQL", async () => {
+  it("Spring Data interface renders the paged criterion reads as @Query JPQL", async () => {
     const jpa = (await files()).get(`${ROOT}/features/orders/OrderJpaRepository.java`)!;
     expect(jpa).toContain(
-      "public interface OrderJpaRepository extends JpaRepository<Order, OrderId> {",
+      // A criterion is reified as a Specification, so the interface also
+      // extends the Specification executor.
+      "public interface OrderJpaRepository extends JpaRepository<Order, OrderId>, JpaSpecificationExecutor<Order> {",
     );
     expect(jpa).toContain('@Query("select e from Order e where e.code = :code")');
     // Enum literal — fully qualified, as JPQL requires.
@@ -157,7 +172,9 @@ describe("java generator — repository triple (S4)", () => {
     );
     // VO sub-column navigates the embedded path.
     expect(jpa).toContain('@Query("select e from Order e where e.shipTo.city = :city")');
-    expect(jpa).toContain('Order byCode(@Param("code") String code);');
+    expect(jpa).toContain(
+      'Page<Order> findAllByOrdersByCode(@Param("code") String code, Pageable pageable);',
+    );
   });
 
   it("impl maps the getById miss to AggregateNotFoundException", async () => {

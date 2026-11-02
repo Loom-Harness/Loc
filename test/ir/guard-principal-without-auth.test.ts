@@ -78,15 +78,13 @@ describe("validator — a principal guard on a deployable with no auth", () => {
     expect(diag.message).toContain("Doc.publish");
   });
 
-  it("covers a find gate, not just an operation", async () => {
+  it("covers a read gate, not just an operation", async () => {
     const codes = await codesFor(`
 system P {
   subdomain D {
     context C {
       aggregate Doc { title: string }
-      repository Docs for Doc {
-        find byTitle(t: string): Doc? where title == t
-      }
+      repository Docs for Doc
       policy { read Doc requires currentUser.role == "editor" }
     }
   }

@@ -2,10 +2,10 @@
 //
 // Lowering puts the rule on the context (`policyReadGates`); enrichment puts
 // its gate on every read of X through the carrier the emitters already read —
-// each declared find and the injected list read `all`, from which the by-id
-// route (`byIdRouteFind`) and the audit history read take it.  Phase ⑦ keeps
-// the old find gate's restriction (it runs before the load, so `currentUser`
-// and constants only) and rejects a duplicate or unknown target.
+// the injected list read `all`, from which the by-id route (`byIdRouteFind`)
+// and the audit history read take it.  Phase ⑦ restricts it (it runs before
+// the load, so `currentUser` and constants only) and rejects a duplicate or
+// unknown target.
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
@@ -15,15 +15,13 @@ import { byIdRouteFind, listReadGate } from "../../src/ir/util/read-gates.js";
 import { type LoomDiagnostic, validateLoomModel } from "../../src/ir/validate/validate.js";
 import { parseString } from "../_helpers/parse.js";
 
-const src = (policy: string, repoBody = "find openOnes(): Ticket[] where open == true") => `
+const src = (policy: string) => `
 system Sys {
   user { id: string role: string }
   subdomain S {
     context Tickets {
       aggregate Ticket audited with crudish { subject: string open: bool }
-      repository Tickets for Ticket {
-        ${repoBody}
-      }
+      repository Tickets for Ticket
       ${policy}
     }
   }
@@ -52,15 +50,12 @@ describe("policy read gate — lowering and enrichment", () => {
     expect(ctx.policyReadGates).toHaveLength(1);
     expect(ctx.policyReadGates![0]!.aggregate).toBe("Ticket");
     expect(ctx.policyReadGates![0]!.gate.kind).toBe("binary");
-    // A find declares no gate of its own.
-    expect(ctx.repositories[0]!.finds[0]!.requires).toBeUndefined();
   });
 
-  it("gates every read of the aggregate: each find, the list, the by-id and history", async () => {
+  it("gates every read of the aggregate: the list, the by-id and history", async () => {
     const ctx = (await enriched(src(GATE))).systems[0]!.subdomains[0]!.contexts[0]!;
     const repo = ctx.repositories.find((r) => r.aggregateName === "Ticket")!;
     const gate = JSON.stringify(ctx.policyReadGates![0]!.gate);
-    expect(JSON.stringify(repo.finds.find((f) => f.name === "openOnes")!.requires)).toBe(gate);
     expect(JSON.stringify(listReadGate(repo))).toBe(gate);
     expect(JSON.stringify(repo.historyFind?.requires)).toBe(gate);
     const byId = byIdRouteFind(repo, "guid");
@@ -74,7 +69,7 @@ describe("policy read gate — lowering and enrichment", () => {
   it("each carrier is its own node (IR nodes are not shared)", async () => {
     const ctx = (await enriched(src(GATE))).systems[0]!.subdomains[0]!.contexts[0]!;
     const repo = ctx.repositories.find((r) => r.aggregateName === "Ticket")!;
-    expect(listReadGate(repo)).not.toBe(repo.finds.find((f) => f.name === "openOnes")!.requires);
+    expect(listReadGate(repo)).not.toBe(repo.historyFind?.requires);
   });
 
   it("leaves another aggregate's reads alone, and an ungated model ungated", async () => {

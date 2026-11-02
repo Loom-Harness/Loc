@@ -165,14 +165,6 @@ describe("e2e route contract — the rest of the verb table stays reachable", ()
       ),
     ).toEqual([]);
   });
-
-  it("a declared find resolves to its GET /<aggs>/<find> route", async () => {
-    expect(
-      await codesFor("Order with crudish", `let xs = api.orders.byCode({ code: "c" })`, {
-        repo: "repository Orders for Order { find byCode(code: string): Order? where this.code == code }",
-      }),
-    ).toEqual([]);
-  });
 });
 
 describe("e2e route contract — it does not fire on what it cannot route-check", () => {

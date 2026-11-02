@@ -1,9 +1,11 @@
-// `ignoring` filter-bypass clause (named-filter-bypass.md §11) on .NET — the
-// only backend that honors it this slice (EF `IgnoreQueryFilters`).  Compiles
-// all three read sites under `dotnet build /warnaserror`:
-//   - a repository find that bypasses a named capability filter (`ignoring softDeletable`)
-//   - a repository find that bypasses ALL filters (`ignoring *`)
-//   - an inline `Repo.findAll(...) ignoring …` in a workflow body
+// `ignoring` filter-bypass clause (named-filter-bypass.md §11) on .NET (the
+// EF `IgnoreQueryFilters`).  Compiles every read site under
+// `dotnet build /warnaserror`:
+//   - a single-row `if let … = Repo.find(C) ignoring softDeletable` (a named
+//     capability filter), which derives its own repository method
+//   - a single-row `if let … = Repo.find(C) ignoring *` (ALL filters)
+//   - an inline `Repo.findAll(...) ignoring …` in a workflow body, which passes
+//     a runtime `FilterBypass` to the criterion's retrieval
 //
 // `softDeletable` contributes the EF `IsDeletedFilter` named query filter (via
 // `HasQueryFilter("IsDeletedFilter", …)`); each bypass resolves to it and emits
@@ -20,9 +22,7 @@ system PS {
       aggregate Order with softDeletable {
         total: int
       }
-      repository Orders for Order {
-        find all(): Order[] ignoring *
-      }
+      repository Orders for Order
       criterion OrdersRecent of Order = this.total > 0
       criterion OrdersNormal of Order = this.total > 0
       workflow Sweep {
@@ -31,6 +31,8 @@ system PS {
           let everything = Orders.findAll(BigOrders()) ignoring *
           for o in scoped { }
           for o in everything { }
+          if let recent = Orders.find(OrdersRecent()) ignoring softDeletable { }
+          if let normal = Orders.find(OrdersNormal()) ignoring * { }
         }
       }
     }

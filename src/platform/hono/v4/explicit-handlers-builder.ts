@@ -236,7 +236,7 @@ function emitPagedRunHandler(
   out.push(`    method: "${method}",`);
   out.push(`    path: "${route.path}",`);
   out.push(`    tags: ["${apiName}"],`);
-  out.push(`    operationId: "${lowerFirst(ctx.name)}${h.name}",`);
+  out.push(`    operationId: "${lowerFirst(h.name)}",`);
   const reqParts: string[] = [];
   if (pathParams.length > 0) {
     reqParts.push(
@@ -396,7 +396,10 @@ function emitRouteHandler(
   out.push(`    method: "${method}",`);
   out.push(`    path: "${route.path}",`);
   out.push(`    tags: ["${apiName}"],`);
-  out.push(`    operationId: "${lowerFirst(ctx.name)}${h.name}",`);
+  // The bare lower-first handler name — the operationId .NET (action name),
+  // python (`operation_id=`) and java (method name) publish for the same route,
+  // which the 5-way OpenAPI parity gate compares exactly.
+  out.push(`    operationId: "${lowerFirst(h.name)}",`);
   const reqParts: string[] = [];
   if (pathSlots.length > 0) {
     reqParts.push(

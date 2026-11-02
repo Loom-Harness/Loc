@@ -6,14 +6,16 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // the repository "mechanism" debug trio —
 //   aggregate_loaded {aggregate, id, found}  at getById
 //   repository_save   {aggregate, id}        at the save path
-//   find_executed     {aggregate, find, rows} at each declared find
+//   find_executed     {aggregate, find, rows} at each single-row find
 // — must be emitted by the Python (FastAPI/SQLAlchemy) and Java (Spring/JPA)
 // repositories.  Hono/.NET already emit all three (their byte-for-byte
 // placement is the reference, not re-asserted here).  All three are `debug`;
 // the catalog-coupling guard (catalog-parity.test.ts) pins the name+level.
 // ---------------------------------------------------------------------------
 
-// A `find` is declared so the find_executed seam is exercised on both backends.
+// A `findBy(customerId: …)` natural-key read synthesises the repository's
+// `findByCustomerId` method, so the find_executed seam is exercised on both
+// backends.
 const sysFor = (platform: "python" | "java", port: number): string => `
 system S {
   subdomain M {
@@ -21,9 +23,11 @@ system S {
       aggregate Order {
         customerId: string
         status: string
+        unique (customerId)
       }
-      repository Orders for Order {
-        find byCustomer(customerId: string): Order? where this.customerId == customerId
+      repository Orders for Order
+      queryHandler ForCustomer(customerId: string): Order {
+        if let o = Orders.findBy(customerId: customerId) { return o } else { notFound }
       }
     }
   }
@@ -60,9 +64,9 @@ describe("S5 — repository mechanism debug events", () => {
       expect(py).toContain(
         'log("debug", "repository_save", aggregate="Order", id=str(aggregate.id))',
       );
-      // declared find — rows is the integer cardinality.
+      // natural-key find — rows is the integer cardinality.
       expect(py).toContain(
-        'log("debug", "find_executed", aggregate="Order", find="byCustomer", rows=0 if row is None else 1)',
+        'log("debug", "find_executed", aggregate="Order", find="findByCustomerId", rows=0 if row is None else 1)',
       );
       // the facade is imported.
       expect(py).toContain("from app.obs.log import");
@@ -80,7 +84,7 @@ describe("S5 — repository mechanism debug events", () => {
         'CatalogLog.event("repository_save", "debug", "aggregate", "Order", "id", String.valueOf(saved.id().value()));',
       );
       expect(java).toContain(
-        'CatalogLog.event("find_executed", "debug", "aggregate", "Order", "find", "byCustomer", "rows", result == null ? 0 : 1);',
+        'CatalogLog.event("find_executed", "debug", "aggregate", "Order", "find", "findByCustomerId", "rows", result == null ? 0 : 1);',
       );
       // CatalogLog is imported into the repository impl file.
       expect(java).toMatch(/import [\w.]+\.config\.CatalogLog;/);

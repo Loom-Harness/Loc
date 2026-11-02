@@ -13,7 +13,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 //
 // The fail-closed pin `^(current_user && current_user.<claim>)` used to be
 // applied by a post-pass in `capability-filter.ts`, which only ever saw the
-// DERIVED capability/tenancy predicates — an author's `find … where` /
+// DERIVED capability/tenancy predicates — an author's `criterion` /
 // `retrieval … where:` went out unpinned.  It now comes from `renderMember`
 // under `ctx.filterArgs`, the one seam every Ecto read path shares.
 //
@@ -22,7 +22,8 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // bound nothing and the pinned expression named an undefined variable
 // (`error: undefined variable "current_user"`).  `findUsesPrincipal` now ORs the
 // find's / retrieval's own predicate in, which threads the actor through the
-// repository fn, the context defdelegate, and the controller call.
+// repository fn (here a criterion's `scaffoldPaged` find), the context
+// defdelegate, and the controller call.
 //
 // Non-vacuity: the correct shape is asserted positively (pin AND binding AND the
 // full call chain), and the derived tenancy filter on the SAME aggregate is
@@ -34,21 +35,20 @@ const SOURCE = `
 system H {
   user { id: guid  role: string }
   subdomain Field {
-    context Work {
+    context Work with scaffoldPaged(of: Mine), scaffoldPaged(of: ByTitle) {
       aggregate WorkOrder with crudish {
         technicianUserId: guid
         title: string
       }
-      repository WorkOrders for WorkOrder {
-        find mine(): WorkOrder? where this.technicianUserId == currentUser.id
-        find byTitle(t: string): WorkOrder? where this.title == t
-      }
+      repository WorkOrders for WorkOrder
+      criterion Mine of WorkOrder = this.technicianUserId == currentUser.id
+      criterion ByTitle(t: string) of WorkOrder = this.title == t
       retrieval MyWorkOrders() of WorkOrder {
         where: this.technicianUserId == currentUser.id
       }
     }
   }
-  api WorkApi from Field
+  api WorkApi with scaffoldPagedApi(of: Mine), scaffoldPagedApi(of: ByTitle) from Field
   storage primary { type: postgres }
   resource workState { for: Work, kind: state, use: primary }
   deployable api {
@@ -92,26 +92,43 @@ describe("vanilla — an author-written `currentUser` read filter (F-013)", () =
 
   it("binds the actor in the find's head so the pin is not an undefined variable", async () => {
     const body = await file("/lib/api/work/work_order_repository.ex");
-    expect(body).toContain("def mine(current_user \\\\ nil) do");
-    expect(body).toContain("@spec mine(map() | nil) ::");
+    expect(body).toContain(
+      'def find_all_by_mine(page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc", current_user \\\\ nil) do',
+    );
+    expect(body).toContain(
+      "@spec find_all_by_mine(pos_integer(), pos_integer(), String.t(), String.t(), map() | nil) ::",
+    );
   });
 
   it("leaves a find that does NOT read the principal at its original arity", async () => {
     const body = await file("/lib/api/work/work_order_repository.ex");
-    expect(body).toContain("def by_title(t) do");
-    expect(body).not.toContain("def by_title(t, current_user");
+    expect(body).toContain(
+      'def find_all_by_by_title(t, page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc") do',
+    );
+    expect(body).not.toMatch(/def find_all_by_by_title\([^)]*current_user/);
   });
 
   it("carries the actor through the context defdelegate", async () => {
     const body = await file("/lib/api/work.ex");
-    expect(body).toContain("defdelegate mine_work_order(current_user \\\\ nil)");
-    expect(body).toContain("defdelegate by_title_work_order(t)");
+    expect(body).toContain(
+      'defdelegate find_all_by_mine_work_order(page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc", current_user \\\\ nil)',
+    );
+    expect(body).toContain(
+      'defdelegate find_all_by_by_title_work_order(t, page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc"),',
+    );
   });
 
   it("reads the actor off conn.assigns and passes it at the controller call", async () => {
-    const body = await file("/lib/api_web/controllers/work_order_controller.ex");
-    expect(body).toContain("current_user = Map.get(conn.assigns, :current_user)");
-    expect(body).toContain("Work.mine_work_order(current_user)");
+    const body = await file("/lib/api_web/controllers/work_api_routes_controller.ex");
+    const mine = body.slice(
+      body.indexOf("def list_work_order_by_mine("),
+      body.indexOf("def list_work_order_by_by_title("),
+    );
+    expect(mine).toContain("Api.Work.find_all_by_mine_work_order(");
+    expect(mine).toContain("Map.get(conn.assigns, :current_user)");
+    // The non-principal read passes no actor.
+    const byTitle = body.slice(body.indexOf("def list_work_order_by_by_title("));
+    expect(byTitle.slice(0, byTitle.indexOf(") do"))).not.toContain(":current_user");
   });
 
   it("pins AND binds the principal in a retrieval's own `where:`", async () => {

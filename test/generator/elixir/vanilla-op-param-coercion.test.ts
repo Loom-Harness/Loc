@@ -41,10 +41,9 @@ system Shop {
         operation reprice(amount: money) { price := amount }
         operation rename(to: string) { name := to }
       }
-      repository Items for Item {
-        find popular(min: int): Item? where this.viewCount >= min
-        find named(label: string): Item? where this.name == label
-      }
+      repository Items for Item { }
+      criterion ItemsPopular(min: int) of Item = this.viewCount >= min
+      criterion ItemsNamed(label: string) of Item = this.name == label
     }
   }
   api CatalogApi from Sales

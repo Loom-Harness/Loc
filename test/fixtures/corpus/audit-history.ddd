@@ -55,7 +55,7 @@ system AuditHistorySystem {
     stamp onUpdate { updatedAt := now() }
   }
   subdomain Ordering {
-    context Ordering {
+    context Ordering with scaffoldGet(of: ByReference) {
       aggregate Order audited with versioned {
         implements timestamped
         reference: string
@@ -92,9 +92,8 @@ system AuditHistorySystem {
       // it differently per backend.  The success arm is the crossing this
       // fixture exists to pin.
       error NotFound { resource: string }
-      repository Orders for Order {
-        find byReference(reference: string): Order? where this.reference == reference
-      }
+      repository Orders for Order { }
+      criterion ByReference(reference: string) of Order = this.reference == reference
       // The REACHABILITY witness.  `softDeletable` puts a not-deleted predicate
       // on every read of the row, and the history route resolves the entity
       // through that same read before it touches `audit_records` — so a hidden
@@ -120,7 +119,7 @@ system AuditHistorySystem {
       repository Invoices for Invoice { }
     }
   }
-  api OrderingApi from Ordering
+  api OrderingApi with scaffoldGetApi(of: ByReference) from Ordering
   storage primary { type: postgres }
   resource orderingState { for: Ordering, kind: state, use: primary }
   deployable d {
@@ -162,7 +161,7 @@ system AuditHistorySystem {
     expect(read.reference).toBe("R1")
     expect(read.quantity).toBe(5)
     expect(read.status).toBe(7)
-    let byRef = api.orders.byReference({ reference: "R1" })
+    let byRef = api.ordering.getOrderByReference("R1")
     expect(byRef.status).toBe(7)
 
     // The audited RETURNING operation, driven AFTER the assertions above so the

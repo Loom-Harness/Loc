@@ -1,17 +1,9 @@
 // Workflow ↔ repository call-site alignment on .NET (generated-code-ddd-review
-// P0s #2/#3):
-//
-//  - `if let x = Repo.find(<Criterion>)` runs through the repo's synthetic
-//    Run<Retrieval>Async method, so the handler must DI-inject that repository
-//    even when the workflow contains no other repo statement — the
-//    constructor-dependency scan has to recurse into the if-let (and its
-//    branches), like the sibling for-each arm.
-//
-//  - `let x = Repo.<find>(…)` must call the method by the NAME the repository
-//    interface actually emits: custom DSL finds carry NO Async suffix
-//    (`Task<Order?> Locate(...)` — see emit/repository.ts), only the built-in
-//    getById / FindManyByIds / Run* methods do.  `_orders.LocateAsync(...)`
-//    is a CS1061 under /warnaserror.
+// P0 #2): `if let x = Repo.find(<Criterion>)` runs through the repo's
+// synthetic Run<Retrieval>Async method, so the handler must DI-inject that
+// repository even when the workflow contains no other repo statement — the
+// constructor-dependency scan has to recurse into the if-let (and its
+// branches), like the sibling for-each arm.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
@@ -29,14 +21,8 @@ system S {
         name: string
         operation touch() { name := name }
       }
-      // An absence-mapped error may only carry resource: string — no other
-      // field can be derived from a row that is not there
-      // (loom.union-find-shape-unsupported).
-      error OrderNotFound { resource: string }
-      repository Orders for Order {
-        find locate(code: string): Order or OrderNotFound where this.code == code
-      }
-      repository Customers for Customer { }
+      repository Orders for Order
+      repository Customers for Customer
       criterion ActiveOrder of Order = status != Cancelled
       event OrderMissing { code: string }
       command C { region: string, cust: Customer id }
@@ -76,19 +62,6 @@ describe(".NET workflow handler — repository call sites", () => {
     // by recursing into the if-let's bodies.
     expect(src).toContain("private readonly ICustomerRepository _customers;");
     expect(src).toContain("await _customers.GetByIdAsync(");
-  });
-
-  it("calls a custom (union) find by its interface name — no Async suffix", async () => {
-    const src = await handler(
-      `let outcome = Orders.locate(c.region)
-       let label = match outcome {
-         Order o => o.code,
-         OrderNotFound => "missing"
-       }`,
-    );
-    // Interface emits `Task<Order?> Locate(...)`; the call site must match.
-    expect(src).toContain("await _orders.Locate(");
-    expect(src).not.toContain("LocateAsync");
   });
 });
 

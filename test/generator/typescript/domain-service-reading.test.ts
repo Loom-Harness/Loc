@@ -4,9 +4,9 @@
 // A `reading`-tier operation runs read-only repository queries (lowered to
 // `repo-read` Calls).  Its generated declaration gains a READ-PORT parameter per
 // repository it reads (`accounts: AccountRepository`), the body renders the read
-// against that handle (`await accounts.byHolder(holder)`), and the orchestrating
-// workflow supplies the handle at the call site.  A PURE-tier service stays
-// byte-identical (no port, no `async`, no `await`).
+// against that handle (`await accounts.runFindAllByAccountsByHolder(holder)`),
+// and the orchestrating workflow supplies the handle at the call site.  A
+// PURE-tier service stays byte-identical (no port, no `async`, no `await`).
 
 import { describe, expect, it } from "vitest";
 import { generateHono } from "../../_helpers/generate.js";
@@ -19,12 +19,11 @@ const READING_SRC = `
       holder: string
       balance: Money
     }
-    repository Accounts for Account {
-      find byHolder(holder: string): Account? where this.holder == holder
-    }
+    repository Accounts for Account { }
+    criterion AccountsByHolder(holder: string) of Account = this.holder == holder
     domainService Registration {
       operation isEmailAvailable(holder: string): bool {
-        return Accounts.byHolder(holder) == null
+        return Accounts.find(AccountsByHolder(holder)) == null
       }
     }
     domainService FeeQuote {
@@ -54,7 +53,9 @@ describe("typescript generator — domainService reading tier", () => {
       "export async function isEmailAvailable(accounts: AccountRepositoryPort, holder: string): Promise<boolean>",
     );
     // The `repo-read` arm renders against the threaded handle, await-wrapped.
-    expect(services).toContain("return (await accounts.byHolder(holder)) === null;");
+    expect(services).toContain(
+      "return ((await accounts.runFindAllByAccountsByHolder(holder))[0] ?? null) === null;",
+    );
     // The PORT is imported from the domain layer — the concrete `db/repositories`
     // class is NOT (that backward edge is the S7 defect being fixed).
     expect(services).toContain('import type { AccountRepositoryPort } from "./repository-ports";');

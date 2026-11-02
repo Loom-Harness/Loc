@@ -164,8 +164,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.bare-statement-invalid": "06-behavior-and-statements.md#assignment-----",
   "loom.retrieval-where-not-criterion": "10-repositories-and-queries.md#retrieval",
   "loom.paged-param-reserved": "10-repositories-and-queries.md#return-shapes",
-  "loom.find-param-unbound":
-    "10-repositories-and-queries.md#a-find-without-where--key-lookup-by-parameter-name",
+  "loom.repo-unknown-read": "10-repositories-and-queries.md#repository--the-read-contract",
   "loom.repo-key-not-unique": "10-repositories-and-queries.md#natural-key-reads--getby--findby",
   "loom.repo-key-incomplete": "10-repositories-and-queries.md#natural-key-reads--getby--findby",
   "loom.paged-query-handler-shape":
@@ -225,8 +224,6 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.projection-aggregate-arg-not-columnar": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-aggregate-arity":
     "10-repositories-and-queries.md#whole-table-aggregation--the-singleton",
-  "loom.single-row-find-not-unique": "10-repositories-and-queries.md#list-finds-are-removed",
-  "loom.list-find-removed": "10-repositories-and-queries.md#list-finds-are-removed",
   "loom.persisted-table-collision": "13-workflows.md#13-workflows",
   "loom.projection-aggregate-type-mismatch": "10-repositories-and-queries.md#grouped--group-by",
   "loom.projection-groupby-join-invalid": "10-repositories-and-queries.md#grouped--group-by",
@@ -430,7 +427,6 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   "loom.auth-oidc-no-audience": "17-auth.md#auth-----oidc-config",
   "loom.auth-without-user": "17-auth.md#auth-required--per-deployable-middleware--verifier-seam",
   "loom.currentuser-not-in-request-scope": "17-auth.md#currentuser--claim-access-in-domain-logic",
-  "loom.workflow-currentuser-find": "17-auth.md#currentuser--claim-access-in-domain-logic",
   "loom.auth-unknown-provider": "17-auth.md#errors",
   "loom.duplicate-permission": "17-auth.md#permissions--a-typed-catalogue-with-implies",
   "loom.unknown-permission": "17-auth.md#permissions--a-typed-catalogue-with-implies",

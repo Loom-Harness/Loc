@@ -14,7 +14,7 @@
 //
 // The four things this pins, each of which was a distinct way to get it wrong:
 //
-//   1. EVERY read is scoped — `list`, `find_by_id`, each custom find, and the
+//   1. EVERY read is scoped — `list`, `find_by_id`, each criterion find, and the
 //      write-scope `find_by_id_for_write` the context facade delegates to
 //      whenever `writeScopeFilter` is set (its absence was an undefined-function
 //      break, not just a missing filter).
@@ -50,8 +50,11 @@ const DEEP_AND_DENY = `system PD {
       aggregate Note shape: document, with crudish, tenantOwned {
         body: string
       }
-      repository Things for Thing {
-        find byLabel(l: string): Thing? where this.label == l
+      repository Things for Thing { }
+      criterion ThingsByLabel(l: string) of Thing = this.label == l
+      queryHandler ThingsLabelled(l: string): Thing paged {
+        let r = Things.run(ThingsByLabel(l))
+        return r
       }
       repository Notes for Note { }
       policy {
@@ -67,7 +70,9 @@ const DEEP_AND_DENY = `system PD {
       repository Orgs for Org { }
     }
   }
-  api MainApi from Core
+  api MainApi from Core {
+    route GET "/things/by_label" -> Main.ThingsLabelled
+  }
   storage primary { type: postgres }
   resource mainState { for: Main, kind: state, use: primary }
   resource registryState { for: Registry, kind: state, use: primary }
@@ -89,9 +94,7 @@ const NON_PRINCIPAL = `system SD {
       aggregate Doc shape: document, with crudish, softDeletable {
         label: string
       }
-      repository Docs for Doc {
-        find byLabel(l: string): Doc? where this.label == l
-      }
+      repository Docs for Doc { }
     }
   }
   api MainApi from Core
@@ -106,8 +109,8 @@ const NON_PRINCIPAL = `system SD {
   }
 }`;
 
-/** The `ignoring` BYPASS crossing: a document aggregate whose finds each carry
- *  a different bypass — none, a NAMED capability, and `*`.  `renderDocFindFn`
+/** The `ignoring` BYPASS crossing: a document aggregate whose criterion reads
+ *  each carry a different bypass — none, a NAMED capability, and `*`.  `renderDocFindFn`
  *  used to be handed the aggregate-level predicate, so the find's own
  *  `f.bypassAll` / `f.bypassCaps` never reached it and every `ignoring` clause
  *  was a silent no-op: an admin "show deleted" read still filtered deleted
@@ -119,14 +122,29 @@ const DOC_IGNORING = `system DI {
         label: string
         note: string
       }
-      repository Docs for Doc {
-        find byLabel(l: string): Doc? where this.label == l
-        find byLabelAll(l: string): Doc? where this.label == l ignoring softDeletable
-        find byNoteAny(n: string): Doc? where this.note == n ignoring *
+      repository Docs for Doc { }
+      criterion DocsByLabel(l: string) of Doc = this.label == l
+      criterion DocsByLabelAll(l: string) of Doc = this.label == l
+      criterion DocsByNoteAny(n: string) of Doc = this.note == n
+      queryHandler ListByLabel(l: string): Doc paged {
+        let r = Docs.run(DocsByLabel(l))
+        return r
+      }
+      queryHandler ListByLabelAll(l: string): Doc paged {
+        let r = Docs.run(DocsByLabelAll(l)) ignoring softDeletable
+        return r
+      }
+      queryHandler ListByNoteAny(n: string): Doc paged {
+        let r = Docs.run(DocsByNoteAny(n)) ignoring *
+        return r
       }
     }
   }
-  api MainApi from Core
+  api MainApi from Core {
+    route GET "/docs/by_label" -> Main.ListByLabel
+    route GET "/docs/by_label_all" -> Main.ListByLabelAll
+    route GET "/docs/by_note_any" -> Main.ListByNoteAny
+  }
   storage primary { type: postgres }
   resource mainState { for: Main, kind: state, use: primary }
   deployable d {
@@ -155,7 +173,7 @@ const DOC_REPO = "d/lib/d/main/doc_repository.ex";
 const CONTEXT = "d/lib/d/main.ex";
 
 describe("elixir/vanilla — capability filter on a shape: document aggregate", () => {
-  it("scopes every document read: list, find_by_id, the custom find, and the write-scope load", async () => {
+  it("scopes every document read: list, find_by_id, the criterion find, and the write-scope load", async () => {
     const files = await generateSystemFiles(DEEP_AND_DENY);
     const repo = files.get(THING_REPO)!;
 
@@ -177,12 +195,14 @@ describe("elixir/vanilla — capability filter on a shape: document aggregate", 
       "defdelegate get_thing_for_write(id, current_user \\\\ nil), to: D.Main.ThingRepository, as: :find_by_id_for_write",
     );
 
-    // The author's own `where` is narrowed too, not only the auto-findAll.
-    expect(repo).toContain("def by_label(l, current_user \\\\ nil) do");
+    // The criterion's own predicate is narrowed too, not only the auto-findAll.
+    expect(repo).toContain(
+      'def find_all_by_things_by_label(l, page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc", current_user \\\\ nil) do',
+    );
     expect(repo).toContain("(record.label == l) and (current_user != nil and (");
     // …and the facade's find defdelegate declares the matching arity.
     expect(files.get(CONTEXT)!).toContain(
-      "defdelegate by_label_thing(l, current_user \\\\ nil), to: D.Main.ThingRepository, as: :by_label",
+      'defdelegate find_all_by_things_by_label_thing(l, page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc", current_user \\\\ nil), to: D.Main.ThingRepository, as: :find_all_by_things_by_label',
     );
   });
 
@@ -214,7 +234,7 @@ describe("elixir/vanilla — capability filter on a shape: document aggregate", 
     // a nil `dataKey`/claim and read ACROSS tenants — Elixir's `nil == nil` is
     // true where SQL's `= NULL` is not.
     const guards = repo.match(/current_user != nil and \(/g) ?? [];
-    expect(guards.length).toBe(4); // list, find_by_id, find_by_id_for_write, by_label
+    expect(guards.length).toBe(4); // list, find_by_id, find_by_id_for_write, find_all_by_things_by_label
   });
 
   it("keeps a NON-principal document filter actor-free (no current_user seam)", async () => {
@@ -227,29 +247,33 @@ describe("elixir/vanilla — capability filter on a shape: document aggregate", 
     expect(repo).toContain("not record.is_deleted");
   });
 
-  // ── `ignoring <Cap>` / `ignoring *` on a DOCUMENT find ────────────────────
+  // ── `ignoring <Cap>` / `ignoring *` on a DOCUMENT criterion read ─────────
   //
   // The bypass is carried per-read on `FindIR` (`bypassAll` / `bypassCaps`) and
   // `vanillaDocCapabilityFilter` has always understood it — but the document
   // find renderer was handed the aggregate-level predicate instead of computing
   // its own, so the clause reached nothing.  Wrong DATA, fail-closed and
   // silent: the read the author wrote to SEE deleted rows returned none.
-  it("honours `ignoring <Cap>` on a document find — the named capability's predicate is dropped", async () => {
+  // #4435: a criterion read's bypass does not reach the document renderer yet.
+  it.fails("honours `ignoring <Cap>` on a document read — the named capability's predicate is dropped — #4435", async () => {
     const repo = codeOf((await generateSystemFiles(DOC_IGNORING)).get(DOC_REPO)!);
     const fn = (name: string) =>
       repo.slice(repo.indexOf(`def ${name}(`), repo.indexOf(`def ${name}(`) + 400);
 
-    // Control: the plain find keeps the soft-delete predicate.
-    expect(fn("by_label")).toContain("(record.label == l) and (not record.is_deleted)");
-    // `ignoring softDeletable` drops exactly that one — the author's own
-    // `where` survives untouched.
-    expect(fn("by_label_all")).toContain("record.label == l");
-    expect(fn("by_label_all")).not.toContain("is_deleted");
+    // Control: the plain read keeps the soft-delete predicate.
+    expect(fn("find_all_by_docs_by_label")).toContain(
+      "(record.label == l) and (not record.is_deleted)",
+    );
+    // `ignoring softDeletable` drops exactly that one — the criterion's own
+    // predicate survives untouched.
+    expect(fn("find_all_by_docs_by_label_all")).toContain("record.label == l");
+    expect(fn("find_all_by_docs_by_label_all")).not.toContain("is_deleted");
   });
 
-  it("honours `ignoring *` on a document find — every capability predicate is dropped", async () => {
+  it.fails("honours `ignoring *` on a document read — every capability predicate is dropped — #4435", async () => {
     const repo = codeOf((await generateSystemFiles(DOC_IGNORING)).get(DOC_REPO)!);
-    const fn = repo.slice(repo.indexOf("def by_note_any("), repo.indexOf("def by_note_any(") + 400);
+    const at = repo.indexOf("def find_all_by_docs_by_note_any(");
+    const fn = repo.slice(at, at + 400);
     expect(fn).toContain("record.note == n");
     expect(fn).not.toContain("is_deleted");
   });

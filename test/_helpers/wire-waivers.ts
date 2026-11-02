@@ -207,7 +207,6 @@ export const WIRE_WAIVERS: readonly WireWaiver[] = [
       "tph",
       "transactional-workflow-event-rollback",
       "transactional-workflow-post-commit-dispatch",
-      "union-find-absence",
       "validation-messages",
       "vo-cross-context",
       "vo-id-reference",

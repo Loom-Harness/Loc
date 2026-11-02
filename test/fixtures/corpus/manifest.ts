@@ -197,7 +197,6 @@ export const CORPUS: readonly CorpusFeature[] = [
   { id: "core-domain", title: "enum/VO/event/containment/derived/invariant/operation/find", doc: "language", backends: ALL },
   { id: "state-gate", title: "`when` canCommand state gate + GET can-query companion", doc: "criterion", backends: ALL },
   { id: "operation-returns", title: "exception-less `T or Error` operation returns", doc: "payloads", backends: ALL },
-  { id: "union-find-absence", title: "union-returning finds (`Order or NotFound`, `Order option`)", doc: "payloads", backends: ALL },
   {
     id: "scaffold-get",
     title:
@@ -208,11 +207,12 @@ export const CORPUS: readonly CorpusFeature[] = [
   },
   {
     id: "scaffold-get-find",
-    title: "the declared-find original of `scaffold-get` — `find byCode` / `find bySku` routes over the same requests",
+    title:
+      "the codemod's migration of the declared-find original of `scaffold-get` — its golden was recorded from the `find byCode` / `find bySku` routes and still holds",
     doc: "scaffold-macros",
     backends: ALL,
   },
-  { id: "paged", title: "pagination — `find ... paged` Paged<T> envelope", doc: "payloads", backends: ALL },
+  { id: "paged", title: "pagination — the implicit `all` returns the Paged<T> envelope", doc: "payloads", backends: ALL },
   {
     id: "implicit-find-filter",
     title:
@@ -220,13 +220,6 @@ export const CORPUS: readonly CorpusFeature[] = [
     doc: "language",
     backends: ALL,
     note: "minted by the 2026-10-04 testability re-audit (N2): every other corpus find spells its `where` out, so no booted leg ran the documented unique-key form.  Java's JPA `@Query`, Dapper's SQL and MikroORM's `em.find` filter all carried no predicate for it — a miss answered 200 with another row, two rows a non-unique 500 — while validating, compiling and passing the generated unit tests.  The pairing is the shared `implicitFindMatches` rule (`src/ir/util/implicit-find-filter.ts`)",
-  },
-  {
-    id: "envelope",
-    title: "`find … : T envelope` — the single-row find carrier (M-T6.57)",
-    doc: "payloads",
-    backends: ALL,
-    note: "Minted by audit F57.  NO `.ddd` in the repo instantiated `envelope` before this fixture, so every compile gate was blind to the carrier by construction — java emitted an UNDECLARED `Envelope<Order>` in three signatures (port, Spring-Data interface, impl) and dotnet returned a bare `Order` from a `Task<Envelope<Order>>` (CS0029), while elixir `Repo.all`-ed EVERY row and answered a JSON array against its own single-object OpenAPI.  The carrier is ratified as a single-row find, so the point of the fixture is that `T envelope` emits exactly what `T` emits.",
   },
   {
     id: "paged-nonrelational",

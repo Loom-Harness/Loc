@@ -8,8 +8,6 @@
 //         optional): the row flattens them to leaf columns, so the handler's
 //         `state.total = Money(…)` / the instance route's `row.total` named no
 //         column (mypy attr-defined) and allocation wrote `total=""`.
-// - B-A1  a declared `find all() where <pred>` on the document, embedded and
-//         event-sourced shapes — `all()` used to drop the predicate.
 system PyEvalFollowups {
   user { id: string  role: string }
 
@@ -30,25 +28,21 @@ system PyEvalFollowups {
         entity Photo { url: string }
         entity Note { text: string }
       }
-      repository WorkOrders for WorkOrder { }
+      repository WorkOrders for WorkOrder
 
       aggregate Folder shape: document with crudish {
         title: string
         ownerUserId: string
       }
-      repository Folders for Folder {
-        find all(): Folder[] where ownerUserId == currentUser.id
-        find byTitle(t: string): Folder? where title == t
-      }
+      repository Folders for Folder
+      criterion FoldersByTitle(t: string) of Folder = title == t
 
       aggregate Memo shape: embedded with crudish {
         title: string
         archived: bool
       }
-      repository Memos for Memo {
-        find all(): Memo[] where archived == false
-        find byTitle(t: string): Memo? where title == t
-      }
+      repository Memos for Memo
+      criterion MemosByTitle(t: string) of Memo = title == t
 
       event Opened { account: Account id, owner: string }
       event Deposited { account: Account id, amount: int }
@@ -75,10 +69,8 @@ system PyEvalFollowups {
           balance := balance + e.amount
         }
       }
-      repository Accounts for Account {
-        find all(): Account[] where balance > 0
-        find byOwner(owner: string): Account? where this.owner == owner
-      }
+      repository Accounts for Account
+      criterion AccountsByOwner(owner: string) of Account = this.owner == owner
 
       event OrderPlaced { order: WorkOrder id, at: datetime }
       channel Lifecycle { carries: OrderPlaced  delivery: broadcast  retention: ephemeral }

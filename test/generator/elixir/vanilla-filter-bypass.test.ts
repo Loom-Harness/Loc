@@ -8,8 +8,9 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // Plain Ecto has no global query filter, so a capability `filter` is AND-ed
 // into every read.  An `ignoring` read OMITS the named capability's `where:`
 // predicate from its conjunction — for that read only.  CRUD reads + a
-// non-bypassing find keep the full conjunction; a bare/hand-written filter is
-// never bypassable.  Inline `Repo.findAll(...) ignoring …` rides as
+// non-bypassing criterion find keep the full conjunction; a bare/hand-written
+// filter is never bypassable.  A single-row `find(C) ignoring …` is its own
+// repository function (`find_first_<criterion>_ignoring_<cap>`).  Inline `Repo.findAll(...) ignoring …` rides as
 // `ignore_filters` / `ignore_all_filters` opts onto the gated retrieval stages.
 // ---------------------------------------------------------------------------
 
@@ -17,16 +18,29 @@ const SOURCE = `
 system Catalog {
   capability softDeletable { isDeleted: bool  filter this.isDeleted == false }
   subdomain Core {
-    context Shop {
+    context Shop with scaffoldPaged(of: Normal) {
       criterion BigOrders() of Order = this.total > 0
       aggregate Order with softDeletable {
         customerId: string
         total: int
       }
-      repository Orders for Order {
-        find recent(): Order? where this.total > 0 ignoring softDeletable
-        find allRows(): Order? ignoring *
-        find normal(): Order? where this.total > 0
+      repository Orders for Order
+      criterion Recent of Order = this.total > 0
+      criterion AllRows of Order = this.total >= 0
+      criterion Normal of Order = this.total > 0
+      queryHandler GetRecent(): Order {
+        if let x = Orders.find(Recent()) ignoring softDeletable {
+          return x
+        } else {
+          notFound "not_found"
+        }
+      }
+      queryHandler GetAnyRow(): Order {
+        if let x = Orders.find(AllRows()) ignoring * {
+          return x
+        } else {
+          notFound "not_found"
+        }
       }
       workflow Sweep {
         create(min: int) {
@@ -38,7 +52,7 @@ system Catalog {
       }
     }
   }
-  api CatalogApi from Core
+  api CatalogApi with scaffoldPagedApi(of: Normal) from Core
   storage pg { type: postgres }
   resource orderState { for: Shop, kind: state, use: pg }
   deployable api {
@@ -64,7 +78,8 @@ function file(files: Map<string, string>, suffix: string): string {
 }
 
 function defBody(src: string, name: string): string {
-  // `def list do` (no parens) and `def recent()` / `def find_by_id(id)` both occur.
+  // `def list(…)` and `def find_first_recent_ignoring_soft_deletable()` /
+  // `def find_by_id(id)` all occur.
   const re = new RegExp(`def ${name}(\\(| )`);
   const m = re.exec(src);
   expect(m, `def ${name} not found`).not.toBeNull();
@@ -76,21 +91,21 @@ function defBody(src: string, name: string): string {
 describe("vanilla ignoring filter-bypass — predicate omission", () => {
   it("`ignoring <Cap>` drops the bypassed `where:` conjunct from that find", async () => {
     const repo = file(await gen(), "/shop/order_repository.ex");
-    const recent = defBody(repo, "recent");
+    const recent = defBody(repo, "find_first_recent_ignoring_soft_deletable");
     expect(recent).toContain("from(record in Api.Shop.Order, where: record.total > 0)");
     expect(recent).not.toContain("is_deleted");
   });
 
-  it("`ignoring *` drops ALL capability conjuncts (bare `from`)", async () => {
+  it("`ignoring *` drops ALL capability conjuncts (only the criterion's own `where`)", async () => {
     const repo = file(await gen(), "/shop/order_repository.ex");
-    const allRows = defBody(repo, "all_rows");
-    expect(allRows).toContain("from(record in Api.Shop.Order)");
+    const allRows = defBody(repo, "find_first_all_rows_ignoring_all");
+    expect(allRows).toContain("from(record in Api.Shop.Order, where: record.total >= 0)");
     expect(allRows).not.toContain("is_deleted");
   });
 
   it("a non-bypassing find keeps the full capability conjunction", async () => {
     const repo = file(await gen(), "/shop/order_repository.ex");
-    expect(defBody(repo, "normal")).toContain(
+    expect(defBody(repo, "find_all_by_normal")).toContain(
       "where: (record.total > 0) and (record.is_deleted == false)",
     );
   });

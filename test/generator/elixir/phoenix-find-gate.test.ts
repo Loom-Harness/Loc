@@ -1,23 +1,21 @@
-// The policy read gate on a find route, Phoenix (D-AUTH-OIDC / default-deny).  A
-// `policy { read T requires <expr> }` over a `find f(…): T? where <pred>` emits a 403 gate at the top of
-// the find's controller action — the read-side twin of the view gate —
+// The policy read gate on a read route, Phoenix (D-AUTH-OIDC / default-deny).  A
+// `policy { read T requires <expr> }` emits a 403 gate at the top of the `all`
+// read's controller action (`index`) — the read-side twin of the view gate —
 // evaluated against `conn.assigns.current_user` before the query.  A failure
-// returns an RFC-7807 403 ProblemDetails; an ungated find emits no gate.
+// returns an RFC-7807 403 ProblemDetails; an ungated read emits no gate.
 // (`platform: elixir` is plain Phoenix LiveView on Ecto.)
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
-function system(findClause: string): string {
+function system(readClause: string): string {
   return `
 system Acme {
   user { id: string  role: string }
   subdomain Sales {
     context Tickets {
       aggregate Ticket { subject: string  open: bool }
-      repository Tickets for Ticket {
-        find bySubject(s: string): Ticket? where this.subject == s${findClause ? `\n}\npolicy { read Ticket ${findClause}` : ""}
-      }
+      repository Tickets for Ticket${readClause ? `\n      policy { read Ticket ${readClause}}` : ""}
     }
   }
   api SalesApi from Sales
@@ -35,28 +33,28 @@ system Acme {
 `;
 }
 
-async function controller(findClause: string): Promise<string> {
-  const files = await generateSystemFiles(system(findClause));
+async function controller(readClause: string): Promise<string> {
+  const files = await generateSystemFiles(system(readClause));
   const ctrl = files.get("api/lib/api_web/controllers/ticket_controller.ex");
   expect(ctrl, "ticket controller not emitted").toBeDefined();
   return ctrl!;
 }
 
-describe("phoenix — find requires gate", () => {
+describe("phoenix — read requires gate", () => {
   it("emits a 403 ProblemDetails gate evaluated against current_user before the query", async () => {
     const ctrl = await controller('requires currentUser.role == "agent" ');
     expect(ctrl).toContain("current_user = Map.get(conn.assigns, :current_user)");
     expect(ctrl).toContain('if not (current_user.role == "agent") do');
     expect(ctrl).toContain(
-      'ApiWeb.ProblemDetails.problem_response(conn, 403, "Forbidden", "Forbidden: find bySubject")',
+      'ApiWeb.ProblemDetails.problem_response(conn, 403, "Forbidden", "Forbidden: find all")',
     );
     const gateIdx = ctrl.indexOf("problem_response(conn, 403");
-    const queryIdx = ctrl.indexOf("Tickets.by_subject_ticket(");
+    const queryIdx = ctrl.indexOf("Tickets.list_tickets(");
     expect(gateIdx).toBeGreaterThan(0);
     expect(queryIdx).toBeGreaterThan(gateIdx);
   });
 
-  it("emits no gate for an ungated find", async () => {
+  it("emits no gate for an ungated read", async () => {
     const ctrl = await controller("");
     expect(ctrl).not.toContain("problem_response(conn, 403");
   });
@@ -83,8 +81,8 @@ describe("phoenix — find requires gate", () => {
     const ctrl = await controller("requires true ");
     expect(ctrl).not.toContain("if not (true)");
     expect(ctrl).not.toContain("problem_response(conn, 403");
-    // …and the find itself is still emitted and still reachable.
-    expect(ctrl).toContain("Tickets.by_subject_ticket(");
+    // …and the read itself is still emitted and still reachable.
+    expect(ctrl).toContain("Tickets.list_tickets(");
     // Byte-identical to the ungated spelling — the guard is absent, not inverted.
     expect(await controller("requires true ")).toBe(await controller(""));
   });

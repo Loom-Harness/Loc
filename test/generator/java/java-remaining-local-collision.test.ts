@@ -48,13 +48,12 @@ system Probe {
           qty := qty + n
         }
       }
-      repository Orders for Order {
-        find byRegion(rgn: string): Order? where this.region == rgn
-      }
+      repository Orders for Order { }
+      criterion OrdersByRegion(rgn: string) of Order = this.region == rgn
       criterion OrdersAllByRegion(rgn: string) of Order = this.region == rgn
       domainService Lookup {
         operation isFree(ordersRepository: string): bool {
-          return Orders.byRegion(ordersRepository) == null
+          return Orders.find(OrdersByRegion(ordersRepository)) == null
         }
         operation isFree2(rgn: string): bool {
           let ordersRepository = Orders.run(OrdersAllByRegion(rgn))
@@ -261,7 +260,9 @@ describe("java — reading domain service / query projection params vs injected 
   it("a reading service param or let named like its repository field moves", async () => {
     const s = await file("Lookup.java");
     expect(s).toContain("public boolean isFree(String ordersRepository_) {");
-    expect(s).toContain("return ordersRepository.byRegion(ordersRepository_) == null;");
+    expect(s).toContain(
+      "return ordersRepository.runFindAllByOrdersByRegion(ordersRepository_).stream().findFirst().orElse(null) == null;",
+    );
     expect(s).toContain(
       "var ordersRepository_ = ordersRepository.runFindAllByOrdersAllByRegion(rgn);",
     );

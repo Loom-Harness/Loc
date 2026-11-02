@@ -265,18 +265,6 @@ export const BEHAVIOURAL_XFAIL = {
     "provenance-money": moneyLineage('to be "3000\\.3000"'),
   },
   dapper: {
-    // The document-shape read path keeps the filters an `ignoring` clause names;
-    // the relational `Order` on the same leg honours both clauses.
-    "find-bypass": {
-      issue: "#4223",
-      expect: "fail",
-      tests: {
-        "a bypassing find drops exactly the conjuncts it names": "unfiltered_note\\?b=N-2 → 404",
-        "document — `ignoring tenantOwned` lets a foreign tenant see the row — cross-tenant → 200": "expected 200, got 404",
-        "document — `ignoring *` lets a foreign tenant see the row — cross-tenant → 200": "expected 200, got 404",
-      },
-      reason: "`find … ignoring` on a `shape: document` aggregate still applies the filters it names on Dapper",
-    },
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
     "provenance-money": moneyLineage('to be "3000\\.3000"'),
   },
@@ -344,7 +332,7 @@ export const BEHAVIOURAL_XFAIL = {
       issue: "#4224",
       expect: "fail",
       tests: {
-        "a bypassing find drops exactly the conjuncts it names": "POST [^ ]*/api/notes → 422",
+        "a bypassing read drops exactly the conjuncts it names": "POST [^ ]*/api/notes → 422",
         "document — ": "seed POST /api/notes → 422",
       },
       reason: "an author-declared create on a `shape: document` + `softDeletable` aggregate answers 422 `Required /data/isDeleted`",

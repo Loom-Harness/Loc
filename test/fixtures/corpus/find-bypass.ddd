@@ -1,6 +1,6 @@
-// Repository `find … ignoring <Cap>` / `ignoring *` — the capability-filter
-// BYPASS on the row-shaped read path, crossed with the two filter shapes a
-// backend has to implement differently:
+// A single-row read `Repo.find(<Criterion>) ignoring <Cap>` / `ignoring *` —
+// the capability-filter BYPASS on the row-shaped read path, crossed with the two
+// filter shapes a backend has to implement differently:
 //
 //   * a NON-PRINCIPAL capability (`softDeletable` → `not is_deleted`), which
 //     rides a static always-on device on the SQL backends (Hibernate
@@ -8,13 +8,15 @@
 //   * a PRINCIPAL one (`tenantOwned` → `tenant_id = <caller's claim>`), which
 //     has no static form and must be AND-ed into each query at request time.
 //
-// …and with the two PERSISTENCE shapes, because a document aggregate has no
-// queryable columns at all: every predicate is evaluated in-app over the
-// rehydrated blob, off a SHARED rehydrate the bypassing read must not inherit.
+// …and with the document PERSISTENCE shape's root reads, because a document
+// aggregate has no queryable columns at all: every predicate is evaluated
+// in-app over the rehydrated blob.  (A document aggregate's single-row
+// criterion read has no generated handler on every backend, so its bypassing
+// half has no routed form here.)
 //
 // This crossing is what no other corpus fixture made.  `projection-agg-filters`
 // covers `ignoring` on a query-time PROJECTION; the tenancy fixtures cover the
-// filters with no bypass anywhere.  The row-shaped `find … ignoring` on a
+// filters with no bypass anywhere.  The row-shaped `… ignoring` read on a
 // principal filter was therefore unwitnessed — and Java kept the tenant
 // conjunct on BOTH read surfaces (the relational `@Query` JPQL and the
 // document `findAll()`), so the same `.ddd` returned a different row set there
@@ -24,12 +26,12 @@
 //   * `ignoring tenantOwned` must drop the TENANT conjunct and KEEP the
 //     not-deleted one,
 //   * `ignoring *` must drop BOTH,
-//   * a find with no clause must keep BOTH,
+//   * a read with no clause must keep BOTH,
 //   * and the root reads (`findAll` / by-id) — which carry no clause — must
 //     keep BOTH no matter what any OTHER read on the same aggregate bypasses.
 //     That last one is the fail-OPEN direction: hoisting a bypassable predicate
 //     out of the shared read is how a soft-deleted row becomes visible through
-//     `GET /<plural>` because some unrelated find said `ignoring`.
+//     `GET /<plural>` because some unrelated read said `ignoring`.
 //
 // `softDelete` gives the not-deleted conjunct an api write, so each arm is
 // observable at runtime:
@@ -39,7 +41,7 @@
 //     `ignoring tenantOwned` hide the row, `ignoring *` returns it;
 //   * the authz ladder (`AUTHZ_LADDERS["find-bypass"]`,
 //     test/behavioral/cases.mjs) seeds a row as that tenant and reads it as
-//     ANOTHER — the row is absent from the clause-less finds, the collection
+//     ANOTHER — the row is absent from the clause-less read, the collection
 //     and the by-id read, and present under `ignoring tenantOwned` and
 //     `ignoring *`.
 //
@@ -51,9 +53,9 @@ system FindBypass {
   tenancy by user.tenantId of Organization
 
   subdomain Sales {
-    context Orders {
+    context Orders with scaffoldGet(of: Scoped) {
       // RELATIONAL: the predicates are columns, so each backend pushes them
-      // into the query it emits for the find.
+      // into the query it emits for the read.
       // `softDelete` owns the destroy, so `crudish` drops to `updateOnly`
       // and the create is author-declared.
       aggregate Order with tenantOwned, crudish(updateOnly: true), softDeletable, softDelete {
@@ -66,8 +68,7 @@ system FindBypass {
       }
 
       // DOCUMENT: one jsonb blob, no queryable columns — every predicate is
-      // evaluated in-app over the rehydrated aggregate, and the bypassing find
-      // needs an unfiltered rehydrate that is NOT the scoped root read.
+      // evaluated in-app over the rehydrated aggregate.
       aggregate Note shape: document with tenantOwned, crudish(updateOnly: true), softDeletable, softDelete {
         body: string
         create(body: string) {
@@ -75,20 +76,28 @@ system FindBypass {
         }
       }
 
-      repository Orders for Order {
-        // No clause: BOTH conjuncts.
-        find scoped(c: string): Order? where this.code == c
-        // Named bypass: the tenant conjunct goes, not-deleted stays.
-        find anyTenant(c: string): Order? where this.code == c ignoring tenantOwned
-        // `ignoring *`: both conjuncts go.
-        find unfiltered(c: string): Order? where this.code == c ignoring *
+      repository Orders for Order
+      // No clause: BOTH conjuncts (`scaffoldGet` reads it as declared).
+      criterion Scoped(c: string) of Order = this.code == c
+      criterion ByCode(c: string) of Order = this.code == c
+      // Named bypass: the tenant conjunct goes, not-deleted stays.
+      queryHandler GetOrderByAnyTenant(c: string): Order {
+        if let x = Orders.find(ByCode(c)) ignoring tenantOwned {
+          return x
+        } else {
+          notFound "not_found"
+        }
+      }
+      // `ignoring *`: both conjuncts go.
+      queryHandler GetOrderByUnfiltered(c: string): Order {
+        if let x = Orders.find(ByCode(c)) ignoring * {
+          return x
+        } else {
+          notFound "not_found"
+        }
       }
 
-      repository Notes for Note {
-        find scopedNote(b: string): Note? where this.body == b
-        find anyTenantNote(b: string): Note? where this.body == b ignoring tenantOwned
-        find unfilteredNote(b: string): Note? where this.body == b ignoring *
-      }
+      repository Notes for Note
     }
     context Accounts {
       // The tenant registry only has to exist for `tenancy … of Organization`;
@@ -99,7 +108,10 @@ system FindBypass {
     }
   }
 
-  api OrdersApi from Sales
+  api OrdersApi with scaffoldGetApi(of: Scoped) from Sales {
+    route GET "/orders/any_tenant" -> Orders.GetOrderByAnyTenant
+    route GET "/orders/unfiltered" -> Orders.GetOrderByUnfiltered
+  }
 
   storage pg { type: postgres }
   resource ordersState { for: Orders, kind: state, use: pg }
@@ -113,32 +125,29 @@ system FindBypass {
     auth: required
   }
 
-  test e2e "a bypassing find drops exactly the conjuncts it names, on both persistence shapes" against d {
+  test e2e "a bypassing read drops exactly the conjuncts it names; the root reads keep both" against d {
     let o = api.orders.create({ code: "O-1", total: "5.00" })
-    expect(api.orders.scoped({ c: "O-1" }).code).toBe("O-1")
-    expect(api.orders.anyTenant({ c: "O-1" }).code).toBe("O-1")
-    expect(api.orders.unfiltered({ c: "O-1" }).code).toBe("O-1")
+    expect(api.orders.getOrderByScoped("O-1").code).toBe("O-1")
+    expect(api.orders.getOrderByAnyTenant("O-1").code).toBe("O-1")
+    expect(api.orders.getOrderByUnfiltered("O-1").code).toBe("O-1")
     api.orders.update(o, { code: "O-2", total: "6.00" })
     expect(api.orders.getById(o).code).toBe("O-2")
 
     api.orders.softDelete(o)
-    expect(api.orders.scoped({ c: "O-2" })).toThrow(404)
+    expect(api.orders.getOrderByScoped("O-2")).toThrow(404)
     // `ignoring tenantOwned` keeps the not-deleted conjunct…
-    expect(api.orders.anyTenant({ c: "O-2" })).toThrow(404)
+    expect(api.orders.getOrderByAnyTenant("O-2")).toThrow(404)
     // …`ignoring *` drops it…
-    expect(api.orders.unfiltered({ c: "O-2" }).code).toBe("O-2")
-    // …and the clause-less root reads keep it whatever another find bypasses.
+    expect(api.orders.getOrderByUnfiltered("O-2").code).toBe("O-2")
+    // …and the clause-less root reads keep it whatever another read bypasses.
     expect(api.orders.getById(o)).toThrow(404)
     expect(api.orders.all().items.length).toBe(0)
     expect(api.orders.restore(o)).toThrow(404)
 
     let n = api.notes.create({ body: "N-1" })
-    expect(api.notes.scopedNote({ b: "N-1" }).body).toBe("N-1")
+    expect(api.notes.getById(n).body).toBe("N-1")
     api.notes.update(n, { body: "N-2" })
     api.notes.softDelete(n)
-    expect(api.notes.scopedNote({ b: "N-2" })).toThrow(404)
-    expect(api.notes.anyTenantNote({ b: "N-2" })).toThrow(404)
-    expect(api.notes.unfilteredNote({ b: "N-2" }).body).toBe("N-2")
     expect(api.notes.getById(n)).toThrow(404)
     expect(api.notes.all().length).toBe(0)
     expect(api.notes.restore(n)).toThrow(404)

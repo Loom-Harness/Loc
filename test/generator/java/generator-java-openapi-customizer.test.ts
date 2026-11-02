@@ -40,13 +40,11 @@ system Shop {
         }
         destroy() { }
       }
-      repository Orders for Order {
-        find byCode(code: string): Order? where this.code == code
-      }
-      aggregate Note with crudish { text: string }
-      repository Notes for Note {
-        find all(): Note[]
-      }
+      repository Orders for Order
+      // A document aggregate's list read is a bare array (only a plain
+      // relational aggregate pages), so it carries the list wrapper.
+      aggregate Note shape: document with crudish { text: string }
+      repository Notes for Note
       workflow placeOrder {
         create(code: string) {
           requires currentUser.permissions.length > 0
@@ -101,7 +99,7 @@ describe("java OpenApiCustomizer — list array wrappers", () => {
     );
   });
 
-  it("retargets a `find all(): T[]` list to the list wrapper", async () => {
+  it("retargets an unpaged `T[]` list read to the list wrapper", async () => {
     const c = await customizer();
     expect(c).toContain(
       'new Route("get", "/api/notes", "NoteListResponse", new int[] {}, null, 0)',
@@ -157,14 +155,6 @@ describe("java OpenApiCustomizer — RFC 7807 error responses", () => {
     const c = await customizer();
     expect(c).toContain(
       'new Route("post", "/api/workflows/place_order", null, new int[] {400, 403, 415, 422}, "placeOrderWorkflow", 0)',
-    );
-  });
-
-  it("an optional find → 404", async () => {
-    const c = await customizer();
-    // The find declares a `code` query param, so it parses one — +422 (F6).
-    expect(c).toContain(
-      'new Route("get", "/api/orders/by_code", null, new int[] {404, 422}, null, 0)',
     );
   });
 });

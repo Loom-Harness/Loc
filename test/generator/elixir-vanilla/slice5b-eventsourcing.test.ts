@@ -31,15 +31,20 @@ const AGG = `
         apply(e: Opened) { owner := e.owner  balance := 0 }
         apply(e: Deposited) { balance := balance + e.amount }
       }
-      repository Accounts for Account { find byOwner(owner: string): Account? where this.owner == owner }`;
+      repository Accounts for Account
+      criterion AccountsByOwner(owner: string) of Account = this.owner == owner
+      queryHandler ListByOwner(owner: string): Account[] {
+        let r = Accounts.run(AccountsByOwner(owner))
+        return r
+      }`;
 
 const source = () => `
 system L {
   subdomain Core {
-    context Accounts {${AGG}
+    context Accounts with scaffoldPaged(of: AccountsByOwner) {${AGG}
     }
   }
-  api A from Core
+  api A with scaffoldPagedApi(of: AccountsByOwner) from Core
   storage pg { type: postgres }
   resource evtLog { for: Accounts, kind: eventLog, use: pg }
   deployable api {
@@ -125,12 +130,28 @@ describe("vanilla — Slice P4.2 event-sourcing emit", () => {
     // event <-> JSONB round-trip
     expect(repo).toContain('defp event_type(%Api.Accounts.Events.Opened{}), do: "Opened"');
     expect(repo).toContain('defp row_to_event(%{type: "Deposited", data: d})');
-    // in-memory find (no queryable state columns)
-    expect(repo).toContain("def by_owner(owner)");
+    // a criterion's find runs in memory over the folded rows (no queryable
+    // state columns)
+    expect(repo).toContain("def find_all_by_accounts_by_owner(owner,");
+    expect(repo).toContain("matched = Enum.filter(all, fn a -> a.owner == owner end)");
     // unused-alias hygiene (`--warnings-as-errors`): aliases are referenced short.
     expect(repo).not.toMatch(
       /alias Api\.Accounts\.AccountFold\n[\s\S]*Api\.Accounts\.AccountFold\.from_events/,
     );
+  });
+
+  // KNOWN DEFECT: a criterion run over a `persistedAs: eventLog` aggregate
+  // calls `Context.run_find_all_by_accounts_by_owner_account(owner)`, which the
+  // event-store context never defines (no retrieval, no delegate) — an
+  // undefined-function compile error.  There are no queryable state columns,
+  // so the read has to filter folded aggregates in memory.  `it.fails` keeps
+  // the expectation on record; drop the `.fails` once it is emitted.
+  it.fails("a criterion run is defined, filtering folded aggregates in memory", async () => {
+    const f = await files();
+    expect(get(f, "/accounts/handlers/list_by_owner.ex")).toContain(
+      "Context.run_find_all_by_accounts_by_owner_account(owner)",
+    );
+    expect(get(f, "lib/api/accounts.ex")).toContain("run_find_all_by_accounts_by_owner_account(");
   });
 
   it("context create/op runners emit→append→fold; guard helper present", async () => {

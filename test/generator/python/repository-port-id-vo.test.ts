@@ -21,8 +21,11 @@ const SRC = `
         ref: RefId
         total: int
       }
-      repository OrderRepo for Order {
-        find byRef(r: RefId): Order? where this.ref == r
+      repository OrderRepo for Order
+      criterion OrdersByRef(r: RefId) of Order = this.ref == r
+      queryHandler ListOrdersByRef(r: RefId): Order[] {
+        let x = OrderRepo.run(OrdersByRef(r))
+        return x
       }
     }}
     storage primary { type: postgres }
@@ -42,7 +45,9 @@ describe("python repository ports — id-suffixed value object import routing", 
   it("imports a `*Id` value object from value_objects, never from app.domain.ids", async () => {
     const port = await portsFile();
     // The VO is referenced in a port signature.
-    expect(port).toContain("async def by_ref(self, r: RefId) -> Order | None: ...");
+    expect(port).toContain(
+      "async def run_find_all_by_orders_by_ref(self, r: RefId, offset: int | None = None, limit: int | None = None) -> list[Order]: ...",
+    );
     // …and imported from the module it actually lives in.
     expect(port).toContain("from app.domain.value_objects import RefId");
     // The ids import must carry only the real aggregate id, not the VO.

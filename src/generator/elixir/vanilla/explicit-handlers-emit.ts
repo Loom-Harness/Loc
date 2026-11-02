@@ -61,7 +61,11 @@ import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
 import { claimsDerivedSlot, pathParamNames } from "../../_api/explicit-route-mount.js";
 import type { ApiRoute } from "../api-emit.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
-import { aggregateUsesPrincipalContextFilter, findUsesPrincipal } from "./capability-filter.js";
+import {
+  aggregateUsesPrincipalContextFilter,
+  customFindReadsActor,
+  findUsesPrincipal,
+} from "./capability-filter.js";
 import { renderControllerSerialize } from "./controller-serialize.js";
 import {
   contextsHaveWireDenials,
@@ -400,6 +404,10 @@ function handlerTakesActor(h: Handler, ctx: EnrichedBoundedContextIR): boolean {
 function handlerThreadsActor(h: Handler, ctx: EnrichedBoundedContextIR): boolean {
   if (h.extern) return false;
   const reads = (name: string | undefined): boolean => !!name && retrievalReadsActor(name, ctx);
+  // A declared (or `ignoring`-synthesized) repository find that still scopes by
+  // the actor — the optional-read lookup passes `current_user` to it.
+  const findReads = (aggName: string, method: string | undefined): boolean =>
+    !!method && customFindReadsActor(ctx, aggName, method);
   let found = false;
   for (const top of h.statements) {
     walkWorkflowStmtsDeep(top, (st) => {
@@ -407,11 +415,15 @@ function handlerThreadsActor(h: Handler, ctx: EnrichedBoundedContextIR): boolean
       if (
         st.kind === "repo-let" &&
         st.returnType.kind === "optional" &&
-        st.op === "select-one" &&
-        reads(st.retrievalName)
+        (st.retrievalName ? reads(st.retrievalName) : findReads(st.aggName, st.method))
       )
         found = true;
-      if (st.kind === "if-let" && st.op === "select-one" && reads(st.retrievalName)) found = true;
+      if (
+        st.kind === "if-let" &&
+        st.op !== "bound" &&
+        (st.retrievalName ? reads(st.retrievalName) : findReads(st.aggName, st.findMethod))
+      )
+        found = true;
     });
   }
   return found;

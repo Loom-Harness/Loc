@@ -17,7 +17,7 @@ system Helpdesk {
   subdomain Support {
     context Tickets {
       aggregate Ticket with crudish { subject: string }
-      repository Tickets for Ticket { }
+      repository Tickets for Ticket
     }
   }
   storage primary { type: postgres }
@@ -104,7 +104,7 @@ describe("vue menu-link gate", () => {
 // M-T3.15-C3 — the DEFAULT sidebar (no explicit `menu { … }`) must gate its
 // entries too.  The default entries were assumed to be scaffold pages with no
 // `requires`; `scaffold/_pages.ts` now CLONES the aggregate's
-// `find all … requires` gate onto the scaffolded List page — the gate that
+// read gate (`policy { read T requires … }`) onto the scaffolded List page — the gate that
 // guards the very read that page makes — so the ungated sidebar advertised a
 // route the backend answers with 403.  Angular's default branch was already
 // the reference implementation.
@@ -117,7 +117,7 @@ system Helpdesk {
   subdomain Support {
     context Tickets {
       aggregate Ticket with crudish { subject: string }
-      repository Tickets for Ticket { ${gated ? "find all(): Ticket[]" : ""} }
+      repository Tickets for Ticket
       ${gated ? 'policy { read Ticket requires currentUser.role == "agent" }' : ""}
     }
   }

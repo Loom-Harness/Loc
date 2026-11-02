@@ -49,9 +49,7 @@ system S {
       aggregate Order with crudish { code: string  archived: bool }
       criterion Active of Order = !this.archived
       retrieval ActiveOrders() of Order { where: Active  sort: [code asc] }
-      repository Orders for Order {
-        find byCode(code: string): Order[] where this.code == code
-      }
+      repository Orders for Order
 ${extraMembers}
       domainService Probe reading {
         operation peek(): int {
@@ -86,10 +84,12 @@ ${extraMembers}
 }
 
 describe("matchRepoRead — the four read shapes", () => {
-  it("recognises a NAMED find and carries its args", async () => {
+  it("rides a name no contract verb spells as an `unknown-read`, args carried", async () => {
+    // A repository declares no reads of its own, so the name resolves to
+    // nothing — its validator refuses it.
     const { expr, repos } = await exprOf(`Orders.byCode("A1")`);
     const m = matchRepoRead(expr, repos);
-    expect(m?.op).toBe("declared-find");
+    expect(m?.op).toBe("unknown-read");
     expect(m?.method).toBe("byCode");
     expect(m?.args).toHaveLength(1);
   });
@@ -203,8 +203,8 @@ describe("runCriterionMatcher — `run` over a criterion vs a retrieval", () => 
 // against a parsed read, because each row has a different consumer that breaks
 // when it moves: `findAll`/`run` → a collection (`.count` → `.length`); `find` /
 // built-in `findById` → `T?` (the nullable gates and the `if let` source);
-// `getById` → the bare aggregate (throws → 404); a DECLARED find → its
-// declaration verbatim.
+// `getById` → the bare aggregate (throws → 404); an unknown name → the bare
+// aggregate (refused by its validator).
 // ---------------------------------------------------------------------------
 
 describe("repoReadResultType — the type a let-bound read produces", () => {
@@ -230,8 +230,8 @@ describe("repoReadResultType — the type a let-bound read produces", () => {
     expect(await typeOf(`Orders.find(Active)`)).toEqual({ kind: "optional", inner: ORDER });
   });
 
-  it("a DECLARED find wins verbatim (`byCode(): Order[]` → array)", async () => {
-    expect(await typeOf(`Orders.byCode("A1")`)).toEqual({ kind: "array", element: ORDER });
+  it("an unknown named read falls back to the bare aggregate", async () => {
+    expect(await typeOf(`Orders.byCode("A1")`)).toEqual(ORDER);
   });
 
   it("the built-ins split by shape: findAll()/all() array, findById optional, getById bare", async () => {

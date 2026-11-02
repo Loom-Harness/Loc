@@ -1,7 +1,7 @@
 // A1 pilot for the scalar-intrinsic catalogue (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md):
 // `string.trim()` end-to-end on the Elixir/Phoenix (vanilla Ecto) backend —
 // in-memory rendering in domain-evaluated bodies AND SQL-fragment rendering in
-// a queryable `find … where` position.  The catalogue row lives in
+// a queryable position (a `criterion` predicate, run as its retrieval).  The catalogue row lives in
 // src/util/intrinsics.ts; the in-memory snippet in render-expr.ts
 // (ELIXIR_INTRINSIC_RENDERERS → `String.trim(...)`); the Ecto where-fragment in
 // the same file (ECTO_INTRINSIC_FRAGMENTS → `fragment("btrim(?)", ...)`).
@@ -17,6 +17,14 @@ function fileEndingWith(files: Map<string, string>, suffix: string): string {
   return files.get(key!)!;
 }
 
+/** Every criterion retrieval module the system emits, concatenated — the
+ *  queryable position each `criterion` predicate lowers into. */
+function retrievals(files: Map<string, string>): string {
+  const out = [...files].filter(([k]) => k.includes("/retrievals/")).map(([, v]) => v);
+  expect(out.length, "no retrieval module emitted").toBeGreaterThan(0);
+  return out.join("\n");
+}
+
 describe("elixir generator — string.trim() intrinsic (stdlib A1 pilot)", () => {
   it("renders a value-side trim (param receiver) as a fragment over the pinned param", async () => {
     const files = await generateSystemFiles(`
@@ -24,8 +32,11 @@ describe("elixir generator — string.trim() intrinsic (stdlib A1 pilot)", () =>
         subdomain Core {
           context Catalog {
             aggregate Product with crudish { name: string }
-            repository Products for Product {
-              find byName(q: string): Product? where this.name == q.trim()
+            repository Products for Product { }
+            criterion ProductsByName(q: string) of Product = this.name == q.trim()
+            queryHandler ListProductsByName(q: string): Product[] {
+              let r = Products.run(ProductsByName(q))
+              return r
             }
           }
         }
@@ -44,13 +55,13 @@ describe("elixir generator — string.trim() intrinsic (stdlib A1 pilot)", () =>
     // Inside an Ecto `where:` the value side is still query territory — a
     // `String.trim(^q)` call would be invalid there, so the fragment form
     // applies to a pinned param receiver too.
-    const repo = fileEndingWith(files, "/product_repository.ex");
+    const repo = retrievals(files);
     expect(repo).toContain('record.name == fragment("btrim(?)", ^q)');
   });
 });
 
 // A2 string batch — chained intrinsics in-memory + the queryable toLower in a
-// find where-clause (SQL lower() fragment).
+// criterion predicate (SQL lower() fragment).
 const A2_SRC = `
 system Shop {
   subdomain Core {
@@ -59,8 +70,11 @@ system Shop {
         name: string
         derived slug: string = name.trim().toLower()
       }
-      repository Products for Product {
-        find byNameCi(q: string): Product? where this.name.toLower() == q
+      repository Products for Product { }
+      criterion ProductsByNameCi(q: string) of Product = this.name.toLower() == q
+      queryHandler ListProductsByNameCi(q: string): Product[] {
+        let r = Products.run(ProductsByNameCi(q))
+        return r
       }
     }
   }
@@ -108,14 +122,41 @@ system Shop {
         derived rateUp: decimal = rate.ceil()
         derived amountLo: money = amount.min(amount)
       }
-      repository Products for Product {
-        find byRoundedRate(q: decimal): Product? where this.rate.round(2) == q
-        find byWholeRate(q: decimal): Product? where this.rate.round() == q
-        find byAbsQty(q: int): Product? where this.qty.abs() == q
-        find byMinCap(cap: money): Product? where this.amount.min(cap) == cap
-        find byMaxQty(q: int): Product? where this.qty.max(q) == q
-        find byFloorAmount(q: money): Product? where this.amount.floor() == q
-        find byCeilRate(q: decimal): Product? where this.rate.ceil() == q
+      repository Products for Product { }
+      criterion ProductsByRoundedRate(q: decimal) of Product = this.rate.round(2) == q
+      queryHandler ListProductsByRoundedRate(q: decimal): Product[] {
+        let r = Products.run(ProductsByRoundedRate(q))
+        return r
+      }
+      criterion ProductsByWholeRate(q: decimal) of Product = this.rate.round() == q
+      queryHandler ListProductsByWholeRate(q: decimal): Product[] {
+        let r = Products.run(ProductsByWholeRate(q))
+        return r
+      }
+      criterion ProductsByAbsQty(q: int) of Product = this.qty.abs() == q
+      queryHandler ListProductsByAbsQty(q: int): Product[] {
+        let r = Products.run(ProductsByAbsQty(q))
+        return r
+      }
+      criterion ProductsByMinCap(cap: money) of Product = this.amount.min(cap) == cap
+      queryHandler ListProductsByMinCap(cap: money): Product[] {
+        let r = Products.run(ProductsByMinCap(cap))
+        return r
+      }
+      criterion ProductsByMaxQty(q: int) of Product = this.qty.max(q) == q
+      queryHandler ListProductsByMaxQty(q: int): Product[] {
+        let r = Products.run(ProductsByMaxQty(q))
+        return r
+      }
+      criterion ProductsByFloorAmount(q: money) of Product = this.amount.floor() == q
+      queryHandler ListProductsByFloorAmount(q: money): Product[] {
+        let r = Products.run(ProductsByFloorAmount(q))
+        return r
+      }
+      criterion ProductsByCeilRate(q: decimal) of Product = this.rate.ceil() == q
+      queryHandler ListProductsByCeilRate(q: decimal): Product[] {
+        let r = Products.run(ProductsByCeilRate(q))
+        return r
       }
     }
   }
@@ -180,9 +221,9 @@ describe("elixir generator — numeric intrinsics batch (stdlib A3)", () => {
     expect(ctrl).toContain('"rateUp" => __decimal_num(Decimal.round(record.rate, 0, :ceiling))');
   });
 
-  it("renders queryable ops as SQL fragments in the find where-clause", async () => {
+  it("renders queryable ops as SQL fragments in the criterion where-clause", async () => {
     const files = await generateSystemFiles(A3_SRC);
-    const repo = fileEndingWith(files, "/product_repository.ex");
+    const repo = retrievals(files);
     // round — with places (two-hole fragment) and without (single-hole).
     expect(repo).toContain(
       'from(record in Api.Catalog.Product, where: fragment("round(?, ?)", record.rate, 2) == ^q)',
@@ -207,7 +248,7 @@ describe("elixir generator — numeric intrinsics batch (stdlib A3)", () => {
 
   it("renders int abs in filter position as the fragment, not Kernel abs", async () => {
     const files = await generateSystemFiles(A3_SRC);
-    const repo = fileEndingWith(files, "/product_repository.ex");
+    const repo = retrievals(files);
     expect(repo).toContain(
       'from(record in Api.Catalog.Product, where: fragment("abs(?)", record.qty) == ^q)',
     );

@@ -35,12 +35,15 @@ system PyParties {
         plate: string
       }
 
-      repository Customers for Customer {
-        find byEmail(email: string): Customer? where this.email == email
+      repository Customers for Customer
+      criterion CustomersByEmail(email: string) of Customer = this.email == email
+      queryHandler ListCustomersByEmail(email: string): Customer[] {
+        let r = Customers.run(CustomersByEmail(email))
+        return r
       }
-      repository Vendors for Vendor { }
-      repository Machines for Machine { }
-      repository Vehicles for Vehicle { }
+      repository Vendors for Vendor
+      repository Machines for Machine
+      repository Vehicles for Vehicle
     }
   }
 

@@ -58,7 +58,7 @@ system AuditHistoryGuarded {
           salary := salary + amount
         }
       }
-      repository Employees for Employee { }
+      repository Employees for Employee
 
       // The GATED history: no own `requires` — it inherits the list read's.
       // Gated AND masked, so one route reads the principal twice — once to
@@ -72,9 +72,7 @@ system AuditHistoryGuarded {
           amount := amount
         }
       }
-      repository Payslips for Payslip {
-        find all(): Payslip[]
-      }
+      repository Payslips for Payslip
       policy { read Payslip requires currentUser.role == "agent" }
 
       // The UNAUDITED sibling — same context, same deployable, no history.
@@ -82,7 +80,7 @@ system AuditHistoryGuarded {
         label: string
         create(label: string) { label := label }
       }
-      repository Desks for Desk { }
+      repository Desks for Desk
     }
   }
   api OpsApi from Ops
@@ -155,7 +153,7 @@ system AuditHistoryGuarded {
     expect(slips.first().changes.count).toBe(2)
     expect(slips.first().changes.where(c => c.field == "amount").first().after).toBe(3000)
     let allSlips = api.payslips.all()
-    expect(allSlips.count).toBe(1)
+    expect(allSlips.total).toBe(1)
     expect(api.payslips.getById(p).amount).toBe(3000)
 
     // The unaudited sibling round-trips like any aggregate; its (absent)

@@ -229,8 +229,8 @@ The generated route and repository code for every backend are in
 
 ### `scaffoldGet` / `scaffoldGetApi` — one row on the wire
 
-The single-row twin of the pair above, and the route a declared repository
-`find` used to give for free.  `scaffoldGet` (target `context`) emits a
+The single-row twin of the pair above, and the route a repository `find`
+declaration gave before `find` was removed ([D-FINDDECL-REMOVED](decisions.md)).  `scaffoldGet` (target `context`) emits a
 `queryHandler` that answers one row or 404; `scaffoldGetApi` (target `api`)
 mounts it on the URL a find of the same name had — `GET /<aggs>/<read>`, its
 params on the query string — so a client of the find keeps its URL, query
@@ -273,8 +273,17 @@ The path is the aggregate's collection route plus the read's snake-cased name
 after the find (`find byCode` → `criterion ByCode`) keeps its URL.  The miss
 answers the find-absence `detail` (`"not_found"`) a find's route answered.  The
 `scaffold-get` / `scaffold-get-find` corpus pair runs the same requests through
-both on every backend, and `test/behavioral/scaffold-get-wire.test.ts` holds
-their wire goldens equal.
+both on every backend (`scaffold-get-find` is the codemod's migration of the
+find original; its golden was recorded from the finds), and
+`test/behavioral/scaffold-get-wire.test.ts` holds their wire goldens equal.
+
+A read `scaffoldGet` cannot express — one that widens the capability filters
+(`ignoring …`), or one over a `shape: document` / `persistedAs: eventLog`
+aggregate, which has no generated single-row handler read on every backend —
+is a hand-written routed `queryHandler`: `if let x = Orders.find(C(c)) ignoring
+tenantOwned { return x } else { notFound "not_found" }` plus
+`route GET "/orders/any_tenant" -> Shop.GetOrderByAnyTenant` keeps the URL
+(`test/fixtures/corpus/find-bypass.ddd`).
 
 Generated (node, `http/shopApi-routes.ts`):
 

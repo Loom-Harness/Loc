@@ -95,27 +95,24 @@ const UNPARSEABLE = [
   // file IS the evidence; when the grammar accepts the chained form this pin
   // goes stale and the check below says so.
   "test/fixtures/eval-models/eval/repro/wf-for-let-d.ddd",
-] as const;
-
-/** Parses, but is INVALID ON PURPOSE — the subject of a negative test. Its own
- *  name says so; `test/cli/*` asserts the diagnostics it produces, and the
- *  `stmt-placement-*` trio is the refusal corpus of M-T5.28
- *  (`test/language/validators/stmt-placement.test.ts`) — one file per gated
- *  statement, each carrying the one construct its code refuses.  They live
- *  beside their gate rather than in `test/fixtures/corpus/` because that corpus
- *  is a POSITIVE matrix: every fixture there must GENERATE on each backend its
- *  manifest row declares, so it has no shape for an expected-diagnostic source.
- *  The `it("still rejects …")` control below therefore also asserts all four
- *  keep refusing — a gate deleted by accident fails here too. */
-const DELIBERATELY_INVALID = [
-  "test/cli/fixtures/bad-model.ddd",
   // Evaluation models — frozen evidence of what the evaluated toolchain
-  // accepted — that declare LIST finds, which `loom.list-find-removed` now
-  // refuses.  They are kept as recorded, not migrated; the control below fails
-  // on any of them that stops refusing.
+  // accepted — that declare repository `find`s.  `find` declarations are out of
+  // the grammar (D-FINDDECL-REMOVED), so each is now a parse error at its first
+  // `find` (`loom.parse-error#find-removed`).  They are kept as recorded, not
+  // migrated: the register entries they evidence cite them as written.  Two of
+  // them were negative fixtures until the cutover — `eval-fieldops/repro/
+  // H-rowlevel-currentuser.ddd` and the helpdesk H-24 pair (`eval-helpdesk/v2|v3/
+  // main.ddd`, refused by `loom.create-field-type`); a parse error now stops them
+  // before that gate, so they leave DELIBERATELY_INVALID rather than pass its
+  // control vacuously.
+  "eval-helpdesk/repro/find-all-array-picker.ddd",
+  "eval-helpdesk/v2/main.ddd",
+  "eval-helpdesk/v3/main.ddd",
   "test/fixtures/eval-models/eval-clinica/repro/r05-criterion-join-system.ddd",
   "test/fixtures/eval-models/eval-clinica/repro/r08-retrieval-no-route.ddd",
+  "test/fixtures/eval-models/eval-fieldops/repro/H-rowlevel-currentuser.ddd",
   "test/fixtures/eval-models/eval-fieldops/repro/H2-rowlevel-denormalized.ddd",
+  "test/fixtures/eval-models/eval-fieldops/repro/I-byid-gate.ddd",
   "test/fixtures/eval-models/eval-fieldops/repro/broken/09-unqueryable-filter.ddd",
   "test/fixtures/eval-models/eval/commons/breadth.ddd",
   "test/fixtures/eval-models/eval/commons/s4.ddd",
@@ -140,9 +137,29 @@ const DELIBERATELY_INVALID = [
   "test/fixtures/eval-models/eval/matrix/fe-vue.ddd",
   "test/fixtures/eval-models/eval/phase0/main.ddd",
   "test/fixtures/eval-models/eval/probe/search.ddd",
+  "test/fixtures/eval-models/eval/repro/F006-denybydefault-list-reads-open.ddd",
+  "test/fixtures/eval-models/eval/repro/VERIFIED-GOOD-mask-holds-on-audit-history.ddd",
   "test/fixtures/eval-models/eval/repro/broken/b08-unsupported-expr.ddd",
+  "test/fixtures/eval-models/eval/repro/create-gate.ddd",
+  "test/fixtures/eval-models/eval/repro/crudish-vs-denybydefault.ddd",
   "test/fixtures/eval-models/eval/repro/elixir-currentuser-find.ddd",
   "test/fixtures/eval-models/eval/repro/nullable-claim-find.ddd",
+  "test/fixtures/eval-models/eval/repro/paged-vs-array-picker.ddd",
+  "test/fixtures/eval-models/eval/repro/scaffold-gate-permissions.ddd",
+] as const;
+
+/** Parses, but is INVALID ON PURPOSE — the subject of a negative test. Its own
+ *  name says so; `test/cli/*` asserts the diagnostics it produces, and the
+ *  `stmt-placement-*` trio is the refusal corpus of M-T5.28
+ *  (`test/language/validators/stmt-placement.test.ts`) — one file per gated
+ *  statement, each carrying the one construct its code refuses.  They live
+ *  beside their gate rather than in `test/fixtures/corpus/` because that corpus
+ *  is a POSITIVE matrix: every fixture there must GENERATE on each backend its
+ *  manifest row declares, so it has no shape for an expected-diagnostic source.
+ *  The `it("still rejects …")` control below therefore also asserts all four
+ *  keep refusing — a gate deleted by accident fails here too. */
+const DELIBERATELY_INVALID = [
+  "test/cli/fixtures/bad-model.ddd",
   // The #2922 audit's F-014 repro: a `valueobject Money` constructed with
   // `currency` omitted.  Before #2923 this validated CLEAN — a record named
   // after a walker primitive skipped construction validation entirely — and
@@ -164,16 +181,16 @@ const DELIBERATELY_INVALID = [
   // regression net for the eight diagnostics the evaluation measured.  If a
   // validator change ever made one of these validate clean, that control fails.
   //
-  // Only the AST-level nine are listed.  Two of the ten are absent on purpose:
-  // `broken/08-page-wrong-aggregate.ddd` and `broken/09-unqueryable-filter.ddd`
-  // are refused at the IR layer (phase (7)), which this census does not run.
+  // Only the AST-level ones are listed.  Two of the ten are absent on purpose:
+  // `broken/08-page-wrong-aggregate.ddd` is refused at the IR layer (phase
+  // (7)), which this census does not run, and `broken/09-unqueryable-filter.ddd`
+  // declares a `find`, so it is pinned in UNPARSEABLE.
   //
   // `broken/05-cyclic-containment.ddd` joined this list when F-020 was fixed, as
   // the earlier revision of this comment said it must: it used to validate clean
   // and crash the generator with a `RangeError` naming an `out/**.js` frame, and
   // now `checkContainmentCycles` refuses it at the AST layer with a real
   // file:line ("Cyclic containment in aggregate 'A': X -> Y -> X").
-  "test/fixtures/eval-models/eval-fieldops/repro/H-rowlevel-currentuser.ddd",
   "test/fixtures/eval-models/eval-fieldops/repro/broken/05-cyclic-containment.ddd",
   // Joined when F-003 was fixed, for the same reason as 05: the cross-aggregate
   // `invariant Technicians.getById(...)` used to validate clean and emit an
@@ -241,13 +258,6 @@ const DELIBERATELY_INVALID = [
   "test/fixtures/eval-models/eval/adversarial/05-missing-ctor-field.ddd",
   "test/fixtures/eval-models/eval/probe/rowlevel.ddd",
   "test/fixtures/eval-models/eval/probe/searchstore.ddd",
-  // The helpdesk evaluation's H-24, kept as written: `openTicket` passes the
-  // `Customer id?` claim `currentUser.customerId` into the non-optional
-  // `Ticket.requester` behind a `requires … != null` that does not narrow.  It
-  // validated clean while the generated .NET failed CS1503; `loom.create-field-type`
-  // now refuses it at that line, and the control below keeps that refusal live.
-  "eval-helpdesk/v2/main.ddd",
-  "eval-helpdesk/v3/main.ddd",
 ] as const;
 
 // A third exclusion list used to sit here — `PROJECT_MEMBER_NOT_IMPORTED`,

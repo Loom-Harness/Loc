@@ -25,9 +25,7 @@ system Gatekeeper {
           status := "approved"
         }
       }
-      repository Jobs for Job {
-        find byId(id: Job id): Job?
-      }
+      repository Jobs for Job
       // Every read of Job is intentionally public (denyByDefault).
       policy { read Job requires true }
     }

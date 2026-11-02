@@ -34,7 +34,7 @@
 system WireContract {
 
   subdomain Catalog {
-    context Catalog {
+    context Catalog with scaffoldGet(of: BySku) {
 
       enum Availability { InStock, BackOrdered, Discontinued }
 
@@ -69,13 +69,12 @@ system WireContract {
         }
       }
 
-      repository Listings for Listing {
-        find bySku(sku: string): Listing? where this.sku == sku
-      }
+      repository Listings for Listing { }
+      criterion BySku(sku: string) of Listing = this.sku == sku
     }
   }
 
-  api CatalogApi from Catalog
+  api CatalogApi with scaffoldGetApi(of: BySku) from Catalog
   storage primary { type: postgres }
   resource catalogState { for: Catalog, kind: state, use: primary }
 
@@ -114,7 +113,7 @@ system WireContract {
     expect(updated.tags.length).toBe(0)
     // The declared find over the column the update moved — the one query on
     // this system, and previously uncalled.
-    let found = api.listings.bySku({ sku: "SKU-1B" })
+    let found = api.catalog.getListingBySku("SKU-1B")
     expect(found.note).toBe("clearance")
   }
 
@@ -134,7 +133,7 @@ system WireContract {
     // and is counted in the next one.
     api.listings.destroy(l)
     expect(api.listings.getById(l)).toThrow(404)
-    expect(api.listings.bySku({ sku: "SKU-2" })).toThrow(404)
+    expect(api.catalog.getListingBySku("SKU-2")).toThrow(404)
   }
 
   // (3) RS-15 — the DOMAIN FLOOR.  The first `discontinue` succeeds; the second

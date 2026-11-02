@@ -1,12 +1,10 @@
 // The pooled `domain/repository-ports.ts` narrows its imports to the domain
-// types the member signatures reference.  A `find` with a `money` / `decimal`
-// parameter (or result) spells `Decimal` in its signature — and until the
-// wave C3 3d fold nothing in the corpus had one, so the port file never learned
-// to import it: the generated Hono project failed `tsc` with
-// `TS2304: Cannot find name 'Decimal'` on the `intrinsics` fixture
-// (`find byFloorPrice(whole: money)`), caught only by the corpus × tsc leg.
-// This pins the import where the fast suite runs, and its absence when no
-// signature needs it (an unused import fails the generated-code lint gate).
+// types the member signatures reference.  A criterion read with a `money` /
+// `decimal` parameter spells `Decimal` in its port signature, so the port file
+// must import it — without it the generated Hono project fails `tsc` with
+// `TS2304: Cannot find name 'Decimal'`.  This pins the import where the fast
+// suite runs, and its absence when no signature needs it (an unused import
+// fails the generated-code lint gate).
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
@@ -19,8 +17,11 @@ system Shop {
         name: string
         price: money
       }
-      repository Products for Product {
-        find byFloorPrice(whole: money): Product? where this.price.floor() == whole
+      repository Products for Product { }
+      criterion ProductsByFloorPrice(whole: money) of Product = this.price.floor() == whole
+      queryHandler ListByFloorPrice(whole: money): Product[] {
+        let r = Products.findAll(ProductsByFloorPrice(whole))
+        return r
       }
     }
   }
@@ -37,10 +38,15 @@ system Shop {
 }
 `;
 
-const withoutMoneyFind = withMoneyFind.replace(
-  "find byFloorPrice(whole: money): Product? where this.price.floor() == whole",
-  "find byName(q: string): Product? where this.name == q",
-);
+const withoutMoneyFind = withMoneyFind
+  .replace(
+    "criterion ProductsByFloorPrice(whole: money) of Product = this.price.floor() == whole",
+    "criterion ProductsByName(q: string) of Product = this.name == q",
+  )
+  .replace(
+    "ListByFloorPrice(whole: money): Product[] {\n        let r = Products.findAll(ProductsByFloorPrice(whole))",
+    "ListByName(q: string): Product[] {\n        let r = Products.findAll(ProductsByName(q))",
+  );
 
 function portsFile(files: Map<string, string>): string {
   const key = [...files.keys()].find((k) => k.endsWith("domain/repository-ports.ts"));
@@ -48,15 +54,19 @@ function portsFile(files: Map<string, string>): string {
   return files.get(key)!;
 }
 
-describe("Hono repository ports — a money find parameter imports Decimal", () => {
+describe("Hono repository ports — a money read parameter imports Decimal", () => {
   it("imports the decimal.js type when a port signature spells Decimal", async () => {
     const src = portsFile(await generateSystemFiles(withMoneyFind));
-    expect(src).toContain("byFloorPrice(whole: Decimal): Promise<Product | null>;");
+    expect(src).toContain(
+      "runFindAllByProductsByFloorPrice(whole: Decimal, page?: { offset?: number; limit?: number }): Promise<Product[]>;",
+    );
     expect(src).toContain('import type Decimal from "decimal.js";');
   });
 
   it("does not import it when no signature needs it", async () => {
+    expect(withoutMoneyFind).not.toContain("money)");
     const src = portsFile(await generateSystemFiles(withoutMoneyFind));
+    expect(src).toContain("runFindAllByProductsByName(q: string");
     expect(src).not.toMatch(/\bDecimal\b/);
   });
 });

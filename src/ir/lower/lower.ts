@@ -126,7 +126,6 @@ import type {
   EventIR,
   ExprIR,
   FieldIR,
-  FindIR,
   IdValueType,
   LayoutIR,
   LoadPlanIR,
@@ -168,7 +167,6 @@ import { lit } from "../types/loom-ir.js";
 import { type ApiOperationIR, deriveContextOperations } from "../util/api-surface.js";
 import { classifyPage, type PageKind, type PageNameCtx } from "../util/page-kind.js";
 import { computePermissionClosures, type PermissionEdge } from "../util/permission-closure.js";
-import { isByIdReadShape } from "../util/read-gates.js";
 import { lowerAuth } from "./lower-auth.js";
 import type { ContextLevelCapabilities } from "./lower-capabilities.js";
 import {
@@ -177,7 +175,6 @@ import {
   collectFilters,
   collectStamps,
   EMPTY_CONTEXT_CAPABILITIES,
-  resolveBypass,
 } from "./lower-capabilities.js";
 import { lowerDeployable } from "./lower-deployment.js";
 import { lowerDomainService } from "./lower-domain-service.js";
@@ -1364,7 +1361,7 @@ function lowerContext(
     else if (isEventDecl(m)) events.push(lowerEvent(m));
     else if (isPayloadDecl(m)) payloads.push(lowerPayload(m, env));
     else if (isAggregate(m)) aggregates.push(lowerAggregate(m, env, ctxCaps));
-    else if (isRepository(m)) repositories.push(lowerRepository(m, user, modulePermissions));
+    else if (isRepository(m)) repositories.push(lowerRepository(m));
     else if (isDomainService(m)) domainServices.push(lowerDomainService(m, env));
     else if (isCriterion(m)) criteria.push(lowerCriterion(m, env));
     else if (isChannel(m)) channels.push(lowerChannel(m));
@@ -1803,62 +1800,14 @@ function lowerAggregate(
   };
 }
 
-function lowerRepository(
-  repo: Repository,
-  user?: UserIR,
-  modulePermissions?: PermissionDeclIR[],
-): RepositoryIR {
+/** A repository declares no reads of its own: its `finds` start empty, and
+ *  enrichment adds the ones the contract and the context's reads imply (the
+ *  auto `all`, key lookups, widened reads, paged-run finds, `history`). */
+function lowerRepository(repo: Repository): RepositoryIR {
   return {
     name: repo.name,
     aggregateName: repo.aggregate?.ref?.name ?? "Unknown",
-    finds: repo.finds.map((f) => {
-      const aggRoot = repo.aggregate?.ref;
-      // Build env: each find param + the aggregate's properties as
-      // `this`-rooted refs so the filter can reference them by name.
-      // `user` is threaded so `currentUser` resolves to a typed ref —
-      // the validator (`validateAuth`) then rejects any current-user
-      // reference inside a where filter, since row-level filtering by
-      // user is not supported there.
-      let env = newEnv(repo.$container as BoundedContext, user, modulePermissions);
-      if (aggRoot) env = inAggregate(env, aggRoot);
-      for (const p of f.params) {
-        env = withLocal(env, p.name, "param", lowerType(p.type));
-      }
-      // A find carries no gate of its own: enrichment puts the aggregate's
-      // `policy { read X requires … }` gate on it (`applyPolicyReadGates`).
-      const lowered: FindIR = {
-        name: f.name,
-        params: f.params.map((p) => ({ name: p.name, type: lowerType(p.type) })),
-        returnType: lowerType(f.returnType),
-        filter: f.filter ? lowerExpr(f.filter, env) : undefined,
-        criterionRef: criterionRefOf(f.filter, env),
-        ...resolveBypass(f),
-      };
-      // The by-id read (`find byId(id: T id): T?`) is written without a
-      // `where`; supply the one filter its shape means, so
-      // the find's own route + repository method read THE row (a filterless
-      // optional find reads the table's first row).  Spelled exactly as the
-      // author's `where this.id == id` would lower.
-      if (!lowered.filter && aggRoot && isByIdReadShape(lowered, aggRoot.name)) {
-        const param = lowered.params[0]!;
-        lowered.filter = {
-          kind: "binary",
-          op: "==",
-          left: {
-            kind: "member",
-            receiver: { kind: "this" },
-            member: "id",
-            receiverType: { kind: "entity", name: aggRoot.name },
-            memberType: param.type,
-          },
-          right: { kind: "ref", name: param.name, refKind: "param", type: param.type },
-          leftType: param.type,
-          rightType: param.type,
-          resultType: { kind: "primitive", name: "bool" },
-        };
-      }
-      return lowered;
-    }),
+    finds: [],
     origin: originFor(repo),
   };
 }

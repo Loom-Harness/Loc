@@ -141,36 +141,47 @@ describe(".NET generator — reified criteria (Slice 2b: retrieval Specification
   });
 });
 
-// Slice 2b (find): a repository `find … where C` whose `where` is exactly a
-// named, eligible criterion consumes that criterion's `ToExpression()` —
-// symmetric to the retrieval path. Inline / composed filters stay inline.
+// Slice 2b (single-row reads): `Repo.find(C)` reads through the criterion's
+// retrieval, whose Spec consumes `C`'s `ToExpression()` — symmetric to the
+// retrieval path.  A key lookup (`Repo.findBy(col: v)`) is no criterion, so its
+// filter stays an inline lambda.
 const FIND_SRC = `
   context Sales {
-    aggregate Customer { active: bool  region: string  name: string }
+    aggregate Customer { active: bool  region: string  name: string  unique (name) }
     criterion InRegion(rgn: string) of Customer = region == rgn
-    repository Customers for Customer {
-      find byRegion(rgn: string): Customer? where InRegion(rgn)
-      find byName(name: string): Customer? where this.name == name
+    repository Customers for Customer
+    queryHandler firstInRegion(rgn: string): Customer? {
+      let c = Customers.find(InRegion(rgn))
+      return c
+    }
+    queryHandler byName(name: string): Customer? {
+      let c = Customers.findBy(name: name)
+      return c
     }
   }
 `;
 
-describe(".NET generator — reified criteria (Slice 2b: find consumes ToExpression)", () => {
-  async function repo() {
-    const out = await generateDotnet(await parseValid(FIND_SRC));
-    return out.get("Infrastructure/Repositories/CustomerRepository.cs")!;
+describe(".NET generator — reified criteria (Slice 2b: single-row reads)", () => {
+  async function files() {
+    return generateDotnet(await parseValid(FIND_SRC));
   }
 
-  it("a find whose `where` is a named criterion consumes ToExpression()", async () => {
-    const r = await repo();
-    expect(r).toMatch(/using Sales\.Domain\.Criteria;/);
-    expect(r).toMatch(/_db\.Customers\.Where\(new InRegionCriterion\(rgn\)\.ToExpression\(\)\)/);
+  it("find(C) reads through a Spec that consumes ToExpression()", async () => {
+    const out = await files();
+    const spec = out.get("Domain/Customers/FindAllByInRegionSpec.cs")!;
+    expect(spec).toMatch(/using Sales\.Domain\.Criteria;/);
+    expect(spec).toMatch(/Query\.Where\(new InRegionCriterion\(rgn\)\.ToExpression\(\)\);/);
+    expect(out.get("Infrastructure/Repositories/CustomerRepository.cs")!).toMatch(
+      /WithSpecification\(new FindAllByInRegionSpec\(rgn\)\)/,
+    );
   });
 
-  it("a find with an inline `where` stays inline", async () => {
-    const r = await repo();
-    const body = r.slice(r.indexOf("ByName"));
-    expect(body).toMatch(/\.Where\(x => x\.Name == name\)/);
-    expect(body.split("ByRegion")[0]).not.toMatch(/new \w+Criterion\(/);
+  it("a key lookup's filter stays inline", async () => {
+    const r = (await files()).get("Infrastructure/Repositories/CustomerRepository.cs")!;
+    const at = r.indexOf("FindByName(");
+    expect(at).toBeGreaterThan(-1);
+    const body = r.slice(at, r.indexOf("\n    }", at));
+    expect(body).toMatch(/_db\.Customers\.Where\(x => x\.Name == name\)\.FirstOrDefaultAsync/);
+    expect(body).not.toMatch(/new \w+Criterion\(/);
   });
 });

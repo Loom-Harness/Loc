@@ -194,21 +194,13 @@ system Helpdesk {
         sort: [createdAt asc]
       }
 
-      repository Customers for Customer {
-        find all(): Customer[]
-      }
+      repository Customers for Customer
       policy { read Customer requires currentUser.role == "agent" }
-      repository Agents for Agent {
-        find all(): Agent[]
-      }
+      repository Agents for Agent
       policy { read Agent requires currentUser.role == "agent" }
-      repository SlaSweeps for SlaSweep {
-        find all(): SlaSweep[]
-      }
+      repository SlaSweeps for SlaSweep
       policy { read SlaSweep requires currentUser.role == "agent" }
-      repository Tickets for Ticket {
-        find all(): Ticket[]
-      }
+      repository Tickets for Ticket
       criterion TicketsMyQueue of Ticket = assignee == currentUser.agentId && status != Resolved && status != Closed
       criterion TicketsUnassigned of Ticket = assignee == null && status == Open
       criterion TicketsMine of Ticket = customer == currentUser.customerId

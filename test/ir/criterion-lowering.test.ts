@@ -1,7 +1,7 @@
 // Lowering coverage for `criterion`: the IR record on the context, and
-// the inline-equivalence contract — a criterion reference in a `where`
-// clause lowers to *exactly* the same ExprIR as the equivalent inline
-// predicate, with parameters substituted and `&&` composing for free.
+// the inline-equivalence contract — a criterion reference in another
+// criterion's body lowers to *exactly* the same ExprIR as the equivalent
+// inline predicate, with parameters substituted and `&&` composing for free.
 
 import { describe, expect, it } from "vitest";
 import { allContexts, type ExprIR } from "../../src/ir/types/loom-ir.js";
@@ -10,24 +10,27 @@ import { buildLoomModel } from "../_helpers/index.js";
 const SRC = `
   context Sales {
     aggregate Customer { active: bool  region: string }
-    repository Customers for Customer {
-      find activeInline(): Customer? where active
-      find activeViaCriterion(): Customer? where ActiveCustomer
-      find inRegionInline(r: string): Customer? where region == r
-      find inRegionViaCriterion(r: string): Customer? where InRegion(r)
-      find eligibleViaCriterion(r: string): Customer? where ActiveCustomer && InRegion(r)
-      find eligibleInline(r: string): Customer? where active && region == r
-    }
+    repository Customers for Customer { }
+    criterion ActiveInline of Customer = active
+    criterion ActiveViaCriterion of Customer = ActiveCustomer
+    criterion InRegionInline(r: string) of Customer = region == r
+    criterion InRegionViaCriterion(r: string) of Customer = InRegion(r)
+    criterion EligibleViaCriterion(r: string) of Customer = ActiveCustomer && InRegion(r)
+    criterion EligibleInline(r: string) of Customer = active && region == r
     criterion ActiveCustomer of Customer = active
     criterion InRegion(rgn: string) of Customer = region == rgn
   }
 `;
 
+/** Each criterion's lowered body, by its name with the first letter lowered
+ *  (`activeViaCriterion` → `ActiveViaCriterion`). */
 async function finds() {
   const loom = await buildLoomModel(SRC);
   const ctx = allContexts(loom).find((c) => c.name === "Sales")!;
-  const repo = ctx.repositories.find((r) => r.aggregateName === "Customer")!;
-  const byName = (n: string) => repo.finds.find((f) => f.name === n)!;
+  const byName = (n: string) => {
+    const c = ctx.criteria.find((x) => x.name === n[0]!.toUpperCase() + n.slice(1))!;
+    return { filter: c.body };
+  };
   return { ctx, byName };
 }
 
@@ -88,7 +91,9 @@ describe("lowering — criterion", () => {
   it("records criteria on the bounded-context IR", async () => {
     const loom = await buildLoomModel(SRC);
     const ctx = allContexts(loom).find((c) => c.name === "Sales")!;
-    expect(ctx.criteria.map((c) => c.name).sort()).toEqual(["ActiveCustomer", "InRegion"]);
+    expect(ctx.criteria.map((c) => c.name)).toEqual(
+      expect.arrayContaining(["ActiveCustomer", "InRegion"]),
+    );
     const active = ctx.criteria.find((c) => c.name === "ActiveCustomer")!;
     expect(active.targetType).toEqual({ kind: "entity", name: "Customer" });
     expect(active.body).toMatchObject({ kind: "ref", refKind: "this-prop", name: "active" });

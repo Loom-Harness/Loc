@@ -19,7 +19,6 @@ import {
   type TypeIR,
   type WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
-import { implicitFindMatches } from "../../ir/util/implicit-find-filter.js";
 import { findRaisesNotFound } from "../../ir/util/key-lookup.js";
 import { defaultSortOrder } from "../../ir/util/sortable-fields.js";
 import { pyConflictRaise, pyNotFoundRaise } from "./wire-policy-py.js";
@@ -464,7 +463,7 @@ export function relationalFindMethod(
         `find '${find.name}' on '${agg.name}'`,
         lowerToSqlAlchemy(find.filter, agg, ctx),
       )
-    : conventionPredicate(agg, find);
+    : null;
   // A `find … ignoring <Cap>`/`ignoring *` drops the named restrictions for
   // this read only, through the read-scope hook's execution option.
   const where = `${whereClause(pred)}${pyIgnoringOption(find)}`;
@@ -600,19 +599,6 @@ export function findExecutedLine(
   rowsExpr: string,
 ): string {
   return `        ${PY.log}("debug", "find_executed", aggregate=${JSON.stringify(agg.name)}, find=${JSON.stringify(findName)}, rows=${rowsExpr})`;
-}
-
-/** Convention matching for clause-less finds: each param pairs with the
- *  column of the same name (or its `<field>Id` spelling). */
-function conventionPredicate(agg: EnrichedAggregateIR, find: FindIR): PyPredicate | null {
-  const root = schemaRow(rowClassName(agg.name));
-  const clauses: string[] = [];
-  for (const { param: p, field: matched } of implicitFindMatches(find, agg)) {
-    clauses.push(`${root}.${pythonIdent(matched.name)} == ${pythonIdent(p.name)}`);
-  }
-  if (clauses.length === 0) return null;
-  if (clauses.length === 1) return { expr: clauses[0]!, ops: new Set() };
-  return { expr: `${R.and_}(${clauses.join(", ")})`, ops: new Set(["and_"]) };
 }
 
 /** The `.where(...)` suffix of a root read's own predicate (its find /

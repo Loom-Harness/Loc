@@ -46,9 +46,7 @@ system Shop {
   subdomain S {
     context Sales {
       aggregate Order with crudish { code: string }
-      repository Orders for Order {
-        find recent(): Order?
-      }
+      repository Orders for Order
     }
   }
   api SalesApi from S

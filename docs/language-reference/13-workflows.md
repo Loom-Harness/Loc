@@ -312,20 +312,19 @@ The workflow body draws from a narrowed statement set — distinct from an aggre
 | `let x = Repo.find(<Criterion>)` / `Repo.findById(id)` / `Repo.findBy(col: v)` / a declared `T?` find | An optional read: `x` is `T?` (the first match, or none). It is read through a null test (`x == null`, `x ?? y`) or narrowed by `if let`; a member read or an op-call on it un-narrowed is `loom.nullable-receiver`. |
 | `let xs = Repo.run(<Retrieval>(args), page?)` / `Repo.findAll(<Criterion>, page?)` | Bind an aggregate **array** — consumable only by a `for` loop. |
 | `for x in xs { … }` | Iterate an aggregate array; per-iteration op-calls save inside the loop. |
-| `if let x = Repo.find(<Criterion>) { … } else { … }` / `if let x = Repo.findById(id) { … }` / `if let x = y { … }` | Single-result lookup — a criterion, `findById`, `findBy`, a declared optional `find` (`T?`), or an optional binding already in scope; `x` bound (non-null) only in the then-branch. |
+| `if let x = Repo.find(<Criterion>) { … } else { … }` / `if let x = Repo.findById(id) { … }` / `if let x = y { … }` | Single-result lookup — a criterion, `findById`, `findBy`, or an optional binding already in scope; `x` bound (non-null) only in the then-branch. |
 | `name.op(args)` | Invoke a public operation on a let-bound aggregate (its own preconditions / invariants run inside the call). `private` ops are rejected (`loom.workflow-private-operation`). |
 | `precondition Expr` / `requires Expr` | Guard → 400 (`DomainError`) / 403 (`ForbiddenError`). |
 | `emit Event { … }` | Workflow-level event; drains after all saves (after commit when `transactional`). |
 
-A `let` over a declared `T?` find, read behind its guard:
+A `let` over a `T?` read, read behind its guard:
 
 ```ddd
-repository Orders for Order {
-  find byCode(c: string): Order? where this.code == c
-}
+repository Orders for Order
+criterion ByCode(c: string) of Order = this.code == c
 workflow Labeller {
   create(c: string) {
-    let o = Orders.byCode(c)
+    let o = Orders.find(ByCode(c))
     let text = o != null ? o.status : "missing"
     let n = Note.create(text: text)
   }
@@ -333,7 +332,7 @@ workflow Labeller {
 ```
 ```ts
 // http/workflows.ts (node)
-const o = await orders.byCode(c);
+const o = (await orders.runFindAllByByCode(c, { limit: 1 }))[0] ?? null;
 const text = o !== null ? o.status : "missing";
 const n = Note.create({ text: text });
 await notes.save(n);

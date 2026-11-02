@@ -21,7 +21,7 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 const SRC = `
 system Acme {
   subdomain Sales {
-    context S {
+    context S with scaffoldPaged(of: OrdersByQty) {
       aggregate Order with crudish {
         placedAt: datetime
         qty: int
@@ -31,9 +31,8 @@ system Acme {
           placedAt := at
         }
       }
-      repository Orders for Order {
-        find byQty(min: int): Order? where this.qty >= min
-      }
+      repository Orders for Order
+      criterion OrdersByQty(min: int) of Order = this.qty >= min
       workflow reorder {
         create(qty: int) {
           precondition qty > 0
@@ -42,7 +41,7 @@ system Acme {
       }
     }
   }
-  api SalesApi from Sales
+  api SalesApi with scaffoldPagedApi(of: OrdersByQty) from Sales
   storage primarySql { type: postgres }
   resource sState { for: S, kind: state, use: primarySql }
   deployable api {
@@ -55,15 +54,20 @@ system Acme {
 }
 `;
 
-/** `http/order.routes.ts` + `http/workflows.ts` from one generation. */
-async function routers(): Promise<{ agg: string; workflows: string }> {
+/** `http/order.routes.ts`, `http/workflows.ts` and the api's routed reads
+ *  (`http/salesApi-routes.ts`) from one generation. */
+async function routers(): Promise<{ agg: string; workflows: string; api: string }> {
   const files = await generateSystemFiles(SRC);
   const pick = (suffix: string): string => {
     const hit = [...files.entries()].find(([p]) => p.endsWith(suffix))?.[1];
     expect(hit, suffix).toBeDefined();
     return hit as string;
   };
-  return { agg: pick("http/order.routes.ts"), workflows: pick("http/workflows.ts") };
+  return {
+    agg: pick("http/order.routes.ts"),
+    workflows: pick("http/workflows.ts"),
+    api: pick("http/salesApi-routes.ts"),
+  };
 }
 
 /** The `const <name> = z.object({ … })` block, up to its `.openapi("<name>")`
@@ -156,8 +160,9 @@ describe("hono request boundary — body validators are strict (F7)", () => {
   });
 
   it("a QUERY parameter keeps its coercion — the value really is a string there", async () => {
-    const { agg } = await routers();
-    expect(schemaBlock(agg, "ByQtyQuery")).toContain("min: z.coerce.number().int()");
+    const { agg, api } = await routers();
+    // `GET /orders/projections/orders_by_qty?min=…` — the criterion's param.
+    expect(api).toContain("request: { query: z.object({ min: z.coerce.number().int()");
     // And a path id stays the uuid-format string it already was.
     expect(agg).toContain("z.object({ id: UuidString })");
   });

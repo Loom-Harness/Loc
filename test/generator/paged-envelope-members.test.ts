@@ -35,7 +35,7 @@ system S {
   subdomain Sales {
     context Orders {
       aggregate Product { name: string }
-      repository Products for Product { }
+      repository Products for Product
     }
   }
   api SalesApi from Sales
@@ -148,16 +148,13 @@ describe("paged envelope — page metadata off the QueryView binding", () => {
     expect(page).toContain("productAll.items.isEmpty");
   });
 
-  // A ui with no paged read must not pay for any of this.
-  it("a non-paged read keeps flutter's plain List<T> provider", async () => {
-    const files = await generateSystemFiles(`
+  /** A ui whose only read is a `shape: document` aggregate's bare-array `all`. */
+  const UNPAGED = `
 system S {
   subdomain Sales {
     context Orders {
-      aggregate Product { name: string }
-      repository Products for Product {
-        find all(): Product[]
-      }
+      aggregate Product shape: document { name: string }
+      repository Products for Product
     }
   }
   api SalesApi from Sales
@@ -177,8 +174,21 @@ system S {
   deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
   deployable web { platform: flutter, targets: api, port: 3001, ui: WebApp { Sales: api } }
 }
-`);
-    // A declared `find all(): Product[]` is a bare row list: the binding reads
+`;
+
+  it("a bare-array `all` gets flutter's plain List<T> provider", async () => {
+    const files = await generateSystemFiles(UNPAGED);
+    const reads = files.get("web/lib/reads.dart") ?? "";
+    expect(reads).toContain("final productAllProvider = FutureProvider<List<Product>>(");
+  });
+
+  // A ui with no paged read must not pay for any of this.  Over a
+  // `shape: document` aggregate (whose `all` is a bare array) the page and
+  // `reads.dart` must agree: the plain `FutureProvider<List<Product>>`, never a
+  // `productAllProvider(state.pageNum, 20, …)` watch reading `.items`.
+  it("a non-paged read keeps flutter's plain List<T> provider", async () => {
+    const files = await generateSystemFiles(UNPAGED);
+    // A `shape: document` aggregate's `all` is a bare row list: the binding reads
     // `.isEmpty` / `.map` straight off it, where the paged sibling goes
     // through `.items`.
     const page = files.get("web/lib/pages/product_list_page.dart") ?? "";

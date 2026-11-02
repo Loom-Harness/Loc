@@ -79,15 +79,14 @@ const SRC = `
       // the service column must match.
       operation inAggregate(t: string, oid: Owner id) {
         let arr = Owners.run(OwnersByTier(t))
-        let maybeOwner = Owners.byLabel(t)
+        let maybeOwner = Owners.find(OwnersByLabel(t))
         let one = Owners.getById(oid)
         label := t
       }
     }
 
-    repository Owners for Owner {
-      find byLabel(label: string): Owner? where this.label == label
-    }
+    repository Owners for Owner { }
+    criterion OwnersByLabel(label: string) of Owner = this.label == label
     criterion OwnersByTier(tier: string) of Owner = this.tier == tier
 
     domainService Probe {
@@ -95,7 +94,7 @@ const SRC = `
       // 'domainService' operation instead.
       operation inService(t: string, oid: Owner id): bool {
         let arr = Owners.run(OwnersByTier(t))
-        let maybeOwner = Owners.byLabel(t)
+        let maybeOwner = Owners.find(OwnersByLabel(t))
         let one = Owners.getById(oid)
         return t != null
       }

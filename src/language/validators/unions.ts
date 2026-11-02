@@ -19,7 +19,6 @@ import { diagMessage } from "../../diagnostics/messages.js";
 import type { Model, TypeAtom, TypeRef } from "../generated/ast.js";
 import {
   isDomainServiceOperation,
-  isFindDecl,
   isOperation,
   isPayloadDecl,
   isProperty,
@@ -40,7 +39,7 @@ export function checkUnions(model: Model, accept: ValidationAcceptor): void {
 }
 
 /** An inline `A or B` union is a transport shape (like a generic carrier) — it
- *  may only appear as a repository find's or an operation's return type, not
+ *  may only appear as an operation's return type, not
  *  as a stored property / parameter elsewhere.  This keeps the `union` TypeIR
  *  out of the storage-side emitters (drizzle columns, migrations) that don't
  *  render it.  A *named* union (`payload Foo = A | B`) is referenced by name
@@ -52,7 +51,6 @@ export function checkUnions(model: Model, accept: ValidationAcceptor): void {
  *  every backend's wire-DTO emitter with nothing to render it as. */
 function checkUnionPosition(t: TypeRef, accept: ValidationAcceptor): void {
   const container = t.$container;
-  if (isFindDecl(container)) return;
   if (isProperty(container) && isPayloadDecl(container.$container)) {
     accept("error", diagMessage("loom.union-position#payload-field"), {
       node: t,

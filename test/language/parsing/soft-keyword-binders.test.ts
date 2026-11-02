@@ -20,12 +20,14 @@ const body = (stmts: string) => `context C {
       ${stmts}
     }
   }
-  repository As for A { find byN(n: int): A? where this.n == n }
+  repository As for A { }
+  criterion AsByN(n: int) of A = this.n == n
 }`;
 
 const handler = (stmts: string) => `context C {
   aggregate A { n: int  operation bump(k: int) { n := n + k } }
-  repository As for A { find byN(n: int): A? where this.n == n }
+  repository As for A { }
+  criterion AsByN(n: int) of A = this.n == n
   commandHandler H(q: int) {
     ${stmts}
   }

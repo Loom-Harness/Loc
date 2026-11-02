@@ -13,12 +13,13 @@ import type { PayloadIR, TypeIR } from "../../src/ir/types/loom-ir.js";
 import { allContexts } from "../../src/ir/types/loom-ir.js";
 import { parseString } from "../_helpers/parse.js";
 
-/** Lower (link-free, validation-skipped) and return the single find's return
- *  type in context `C`. */
+/** Lower (link-free, validation-skipped) and return `Order.f`'s return type
+ *  in context `C` — an operation's return is a union's transport position. */
 async function findReturn(src: string): Promise<TypeIR> {
   const { model } = await parseString(src, { validate: false });
   const ctx = allContexts(lowerModel(model)).find((c) => c.name === "C")!;
-  return ctx.repositories[0]!.finds[0]!.returnType;
+  const order = ctx.aggregates.find((a) => a.name === "Order")!;
+  return order.operations.find((o) => o.name === "f")!.returnType!;
 }
 
 /** Lower + enrich and return a context's payloads. */
@@ -30,9 +31,8 @@ async function payloadsOf(src: string, ctxName: string): Promise<PayloadIR[]> {
 
 const REPO = (ret: string): string => `
   context C {
-    aggregate Order { code: string }
+    aggregate Order { code: string  operation f(): ${ret} { } }
     aggregate Cancel { reason: string }
-    repository Orders for Order { find f(): ${ret} }
   }
 `;
 
@@ -94,24 +94,6 @@ describe("unions — named `payload Foo = A | B` (P4a)", () => {
 });
 
 describe("unions — monomorphization (P4b)", () => {
-  it("synthesizes a named payload for an anonymous `A or B` find return", async () => {
-    const payloads = await payloadsOf(
-      `system S { subdomain D { context C {
-         aggregate Order { code: string }
-         aggregate Cancel { reason: string }
-         repository Orders for Order { find f(): Order or Cancel }
-       } } }`,
-      "C",
-    );
-    const u = payloads.find((p) => p.name === "OrderOrCancel");
-    expect(u).toBeDefined();
-    expect(u!.synthesized).toBe(true);
-    expect(u!.variants).toEqual([
-      { kind: "entity", name: "Order" },
-      { kind: "entity", name: "Cancel" },
-    ]);
-  });
-
   it("does not re-synthesize a named union (`payload Foo = …` keeps its name)", async () => {
     const payloads = await payloadsOf(
       `system S { subdomain D { context C {
@@ -125,18 +107,6 @@ describe("unions — monomorphization (P4b)", () => {
     // No anonymous-union payload (`OrderPlacedOrOrderCancelled`) synthesized —
     // the named union already covers the shape.
     expect(payloads.some((p) => p.name === "OrderPlacedOrOrderCancelled")).toBe(false);
-  });
-
-  it("dedupes a repeated anonymous union into one payload", async () => {
-    const payloads = await payloadsOf(
-      `system S { subdomain D { context C {
-         aggregate Order { code: string }
-         aggregate Cancel { reason: string }
-         repository Orders for Order { find a(): Order or Cancel  find b(): Order or Cancel }
-       } } }`,
-      "C",
-    );
-    expect(payloads.filter((p) => p.name === "OrderOrCancel")).toHaveLength(1);
   });
 });
 

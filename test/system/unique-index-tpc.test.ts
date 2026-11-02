@@ -93,17 +93,22 @@ describe("TPC base `unique (…)` → a per-concrete unique index", () => {
     expect(all).toContain('unique_constraint(:email, name: "suppliers_email_uq")');
   });
 
-  it("a by-key find over the inherited key, and the polymorphic base reader, still generate", async () => {
+  it("a by-key read over the inherited key, and the polymorphic base reader, still generate", async () => {
     // An abstract TPC base owns no repository (`find all <Base>` is the
-    // delegating polymorphic reader); a by-key lookup lives on the concrete.
+    // delegating polymorphic reader); a by-key lookup lives on the concrete,
+    // over the key the base declares (inherited tuples count).
     const src = system("node").replace(
       "repository Customers for Customer { }",
-      "repository Customers for Customer { find byEmail(e: string): Customer? where this.email == e }",
+      "repository Customers for Customer { }\n" +
+        "      queryHandler CustomerByEmail(e: string): Customer {\n" +
+        "        let c = Customers.getBy(email: e)\n" +
+        "        return c\n" +
+        "      }",
     );
     const files = await generateSystemFiles(src);
     expect(createsIndex(files, "customers_email_uq")).not.toEqual([]);
     const all = [...files.values()].join("\n");
-    expect(all).toContain("byEmail");
+    expect(all).toContain("getByEmail");
     expect([...files.keys()].some((p) => /party-repository\.ts$/.test(p))).toBe(true);
   });
 });

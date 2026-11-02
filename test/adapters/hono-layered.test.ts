@@ -20,9 +20,8 @@ system Sys {
         name: string
         invariant name.length > 0
       }
-      repository Orders for Order {
-        find byName(name: string): Order? where this.name == name
-      }
+      repository Orders for Order { }
+      criterion OrdersByName(name: string) of Order = this.name == name
     }
   }
   storage primary { type: postgres }
@@ -78,9 +77,9 @@ describe("layered StyleAdapter — hono (real)", () => {
     expect(a.category).toBe("http-routes");
     expect(a.aggregateName).toBe("Order");
     // Spot-check the produced source — `buildRoutesFile` emits an
-    // OpenAPIHono router that surfaces the user-declared find.
+    // OpenAPIHono router carrying the aggregate's reads.
     expect(a.content).toContain("OpenAPIHono");
-    expect(a.content).toContain("byName");
+    expect(a.content).toContain('operationId: "allOrder"');
   });
 
   it("per-op emitEndpoint + emitHandlerOrService throw until F6d decomposes buildRoutesFile", async () => {

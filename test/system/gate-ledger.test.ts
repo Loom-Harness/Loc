@@ -110,8 +110,6 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
   resources: "objectStore / queue / api / mailer clients need their containers — #4212",
   "api-call":
     "in-system api call; needs both deployables booted.  BY DESIGN for the corpus tier, which boots one deployable per case: the `api-call-e2e` leg boots both and gates the runtime half",
-  envelope:
-    "BY DESIGN: `T envelope` carries no wire shape of its own — `test/generator/envelope-carrier.test.ts` asserts the emitted project is byte-identical to the same source with the carrier spelled away, so a booted block would replay the single-row find `core-domain` and its siblings already boot.  The defect class it was minted for (java naming an undeclared `Envelope<Order>`, dotnet returning a bare `Order` from `Task<Envelope<Order>>`) is a compile failure the five corpus compile legs read directly",
 };
 
 describe("gate ledger", () => {

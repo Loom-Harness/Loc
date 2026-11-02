@@ -41,7 +41,7 @@ system InheritanceReadRestrictions {
   tenancy by user.tenantId of Organization
 
   subdomain Fleet {
-    context Fleet {
+    context Fleet with scaffoldGet(of: ByPlate), scaffoldGet(of: ByName) {
       // ── TPH: one shared `vehicles` table, discriminated by `kind` ────────
       abstract aggregate Vehicle inheritanceUsing: sharedTable with tenantOwned {
         plate: string
@@ -66,14 +66,25 @@ system InheritanceReadRestrictions {
         payloadKg: int = 0
       }
 
-      repository Cars for Car {
-        // No clause: every conjunct (kind, seats, not-deleted, tenant).
-        find byPlate(p: string): Car? where this.plate == p
-        // Drops ONLY the not-deleted conjunct.
-        find byPlateAll(p: string): Car? where this.plate == p ignoring softDeletable
-        // Drops ONLY the tenant conjunct.  Deliberate for this fixture: it is
-        // the one surface where tenant `globex` must SEE acme's row.
-        find byPlateAnyTenant(p: string): Car? where this.plate == p ignoring tenantOwned
+      repository Cars for Car { }
+      // No clause: every conjunct (kind, seats, not-deleted, tenant).
+      criterion ByPlate(p: string) of Car = this.plate == p
+      // Drops ONLY the not-deleted conjunct.
+      queryHandler GetCarByPlateAll(p: string): Car {
+        if let x = Cars.find(ByPlate(p)) ignoring softDeletable {
+          return x
+        } else {
+          notFound "not_found"
+        }
+      }
+      // Drops ONLY the tenant conjunct.  Deliberate for this fixture: it is
+      // the one surface where tenant `globex` must SEE acme's row.
+      queryHandler GetCarByPlateAnyTenant(p: string): Car {
+        if let x = Cars.find(ByPlate(p)) ignoring tenantOwned {
+          return x
+        } else {
+          notFound "not_found"
+        }
       }
       repository Trucks for Truck { }
 
@@ -91,9 +102,14 @@ system InheritanceReadRestrictions {
       aggregate Dispatcher extends Crew inheritanceUsing: ownTable with tenantOwned, crudish {
         desk: int = 0
       }
-      repository Drivers for Driver {
-        find byName(n: string): Driver? where this.name == n
-        find byNameAll(n: string): Driver? where this.name == n ignoring softDeletable
+      repository Drivers for Driver { }
+      criterion ByName(n: string) of Driver = this.name == n
+      queryHandler GetDriverByNameAll(n: string): Driver {
+        if let x = Drivers.find(ByName(n)) ignoring softDeletable {
+          return x
+        } else {
+          notFound "not_found"
+        }
       }
       repository Dispatchers for Dispatcher { }
     }
@@ -107,7 +123,11 @@ system InheritanceReadRestrictions {
     }
   }
 
-  api FleetApi from Fleet
+  api FleetApi with scaffoldGetApi(of: ByPlate), scaffoldGetApi(of: ByName) from Fleet {
+    route GET "/cars/by_plate_all" -> Fleet.GetCarByPlateAll
+    route GET "/cars/by_plate_any_tenant" -> Fleet.GetCarByPlateAnyTenant
+    route GET "/drivers/by_name_all" -> Fleet.GetDriverByNameAll
+  }
 
   storage pg { type: postgres }
   resource fleetState { for: Fleet, kind: state, use: pg }
@@ -133,7 +153,7 @@ system InheritanceReadRestrictions {
     // The subtype-only-column filter hides the zero-seat Car on every Car read…
     expect(api.cars.all().length).toBe(1)
     expect(api.cars.getById(empty)).toThrow(404)
-    expect(api.cars.byPlate({ p: "C-0" })).toThrow(404)
+    expect(api.fleet.getCarByPlate("C-0")).toThrow(404)
     // …and must not reach Truck, whose rows carry NULL in `seats`.
     expect(api.trucks.all().length).toBe(1)
     expect(api.trucks.getById(truck).payloadKg).toBe(900)
@@ -149,15 +169,15 @@ system InheritanceReadRestrictions {
     // Soft delete: the row stays in the shared table, only the filter hides it.
     api.cars.softDelete(car)
     expect(api.cars.getById(car)).toThrow(404)
-    expect(api.cars.byPlate({ p: "C-1" })).toThrow(404)
+    expect(api.fleet.getCarByPlate("C-1")).toThrow(404)
     expect(api.cars.all().length).toBe(0)
 
     // `ignoring softDeletable` drops exactly that conjunct: the deleted Car
     // returns, the zero-seat one (a different filter) stays hidden.
-    expect(api.cars.byPlateAll({ p: "C-1" }).seats).toBe(5)
-    expect(api.cars.byPlateAll({ p: "C-0" })).toThrow(404)
+    expect(api.fleet.getCarByPlateAll("C-1").seats).toBe(5)
+    expect(api.fleet.getCarByPlateAll("C-0")).toThrow(404)
     // `ignoring tenantOwned` keeps the not-deleted conjunct.
-    expect(api.cars.byPlateAnyTenant({ p: "C-1" })).toThrow(404)
+    expect(api.fleet.getCarByPlateAnyTenant("C-1")).toThrow(404)
 
     // `restore()` addresses a row the capability's own read filter hides, and
     // every backend narrows an operation's load by that filter (RS-27, the
@@ -176,13 +196,13 @@ system InheritanceReadRestrictions {
     let d1 = api.drivers.create({ name: "Ada", licence: "L-1" })
     let disp = api.dispatchers.create({ name: "Bob", desk: 3 })
 
-    expect(api.drivers.byName({ n: "Ada" }).licence).toBe("L-1")
+    expect(api.fleet.getDriverByName("Ada").licence).toBe("L-1")
     api.drivers.update(d1, { licence: "L-2" })
     api.drivers.softDelete(d1)
     expect(api.drivers.getById(d1)).toThrow(404)
-    expect(api.drivers.byName({ n: "Ada" })).toThrow(404)
+    expect(api.fleet.getDriverByName("Ada")).toThrow(404)
     expect(api.drivers.all().length).toBe(0)
-    expect(api.drivers.byNameAll({ n: "Ada" }).licence).toBe("L-2")
+    expect(api.fleet.getDriverByNameAll("Ada").licence).toBe("L-2")
     expect(api.drivers.restore(d1)).toThrow(404)
 
     expect(api.dispatchers.all().length).toBe(1)

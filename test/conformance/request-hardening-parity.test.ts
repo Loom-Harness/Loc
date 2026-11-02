@@ -31,25 +31,25 @@ import { PAGED_MAX_PAGE, PAGED_MAX_PAGE_SIZE } from "../../src/ir/stdlib/generic
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 /** One context, five deployables.  `Shipment.orderRef` is the reference field
- *  under test (F2, in the create/update body) and `find byOrder(order: Order
- *  id)` is the same reference as a query parameter (F3); the auto-`findAll` on
- *  each aggregate is paged, which carries the `page`/`pageSize` controls (F4). */
+ *  under test (F2, in the create/update body) and the routed single-row read
+ *  `scaffoldGet(of: ShipmentsByOrder)` takes the same reference as a query
+ *  parameter (F3); the auto-`findAll` on each aggregate is paged, which carries
+ *  the `page`/`pageSize` controls (F4). */
 const SRC = `
 system Fulfil {
   subdomain F {
-    context F {
+    context F with scaffoldGet(of: ShipmentsByOrder) {
       aggregate Order with crudish { code: string }
       repository Orders for Order { }
       aggregate Shipment with crudish {
         orderRef: Order id
         status: string
       }
-      repository Shipments for Shipment {
-        find byOrder(order: Order id): Shipment? where this.orderRef == order
-      }
+      repository Shipments for Shipment { }
+      criterion ShipmentsByOrder(order: Order id) of Shipment = this.orderRef == order
     }
   }
-  api FApi from F
+  api FApi with scaffoldGetApi(of: ShipmentsByOrder) from F
   storage pg { type: postgres }
   resource st { for: F, kind: state, use: pg }
   deployable nodeApi   { platform: node,   contexts: [F], dataSources: [st], serves: FApi, port: 3000 }
@@ -86,9 +86,9 @@ describe("request hardening — reference fields are uuid-validated (F2/F3)", ()
     expect(requestBlocks).not.toMatch(/orderRef: z\.string\(\),/);
   });
 
-  it("node: the find's reference QUERY parameter is uuid-validated too (F3)", async () => {
-    const routes = await fileMatching(/shipment\.routes\.ts$/);
-    expect(routes).toMatch(/const ByOrderQuery = z\.object\(\{\s*order: UuidString/);
+  it("node: the routed read's reference QUERY parameter is uuid-validated too (F3)", async () => {
+    const routes = await fileMatching(/fApi-routes\.ts$/);
+    expect(routes).toContain("request: { query: z.object({ order: UuidString }) },");
   });
 
   it("python: reference fields annotate the shared UuidStr, which publishes format: uuid", async () => {
@@ -99,23 +99,27 @@ describe("request hardening — reference fields are uuid-validated (F2/F3)", ()
 
     const routes = await fileMatching(/shipment_routes\.py$/);
     expect(routes).toMatch(/^from app\.http\.wire_models import [^\n]*\bUuidStr\b/m);
-    // Body field (F2) and find query parameter (F3) both take the constraint.
+    // Body field (F2) and the routed read's query parameter (F3) both take
+    // the constraint.
     expect(routes).toMatch(/^\s+orderRef: UuidStr$/m);
-    expect(routes).toMatch(/by_order_shipments\(order: UuidStr/);
+    const handlerRoutes = await fileMatching(/f_api_routes\.py$/);
+    expect(handlerRoutes).toMatch(/get_shipment_by_shipments_by_order_route\(order: UuidStr/);
   });
 
   it(".NET binds the reference as Guid (type-level validation + Swashbuckle format: uuid)", async () => {
     const requests = await fileMatching(/Shipments\/Requests\/ShipmentRequests\.cs$/);
     expect(requests).toMatch(/record CreateShipmentRequest\(.*Guid OrderRef/);
-    const ctrl = await fileMatching(/ShipmentsController\.cs$/);
-    expect(ctrl).toMatch(/ByOrderShipment\(\[FromQuery\].*Guid order\)/);
+    const ctrl = await fileMatching(/FApiRoutesController\.cs$/);
+    expect(ctrl).toContain(
+      "GetShipmentByShipmentsByOrder([FromQuery] [Microsoft.AspNetCore.Mvc.ModelBinding.BindRequired] Guid order)",
+    );
   });
 
   it("java binds the reference as UUID (type-level validation + springdoc format: uuid)", async () => {
     const req = await fileMatching(/CreateShipmentRequest\.java$/);
     expect(req).toContain("UUID orderRef");
-    const ctrl = await fileMatching(/ShipmentsController\.java$/);
-    expect(ctrl).toContain("byOrderShipment(@RequestParam UUID order)");
+    const ctrl = await fileMatching(/FApiRoutesController\.java$/);
+    expect(ctrl).toContain("getShipmentByShipmentsByOrder(@RequestParam UUID order)");
   });
 
   it("elixir publishes format: :uuid for the reference field and casts it as :binary_id", async () => {

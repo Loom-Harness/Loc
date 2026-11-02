@@ -740,14 +740,6 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: true,
   },
   {
-    code: "loom.union-find-shape-unsupported",
-    kind: "scope",
-    site: "src/ir/validate/checks/structural-checks.ts:443",
-    what: "repository finds returning a union — v1 shape only",
-    mission: "#3369",
-    verified: true,
-  },
-  {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
     site: "src/ir/validate/checks/workflow-checks.ts:1638",
