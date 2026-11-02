@@ -96,7 +96,11 @@ import {
   orderValueObjectsByDependency,
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
-import { type RoutedParamSource, routedParamSource } from "../../../ir/util/routed-handler.js";
+import {
+  type RoutedParamSource,
+  routedErrorStatuses,
+  routedParamSource,
+} from "../../../ir/util/routed-handler.js";
 import { walkExprDeep, walkWorkflowStmtExprsDeep } from "../../../ir/util/walk.js";
 import { escapeTsIdent, lowerFirst, plural, snake } from "../../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
@@ -159,9 +163,6 @@ function pathParamZod(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
   }
   if (t.kind === "primitive") {
     switch (t.name) {
-      case "int":
-      case "long":
-        return "z.coerce.number().int()";
       case "bool":
         // A path segment is a string, so `z.coerce.boolean()` bound
         // `/flag/false` to `true`.  Same four-spelling parse as a query bool.
@@ -169,7 +170,8 @@ function pathParamZod(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
       default:
         // A path segment is text, exactly like a query value: parse it with the
         // query schema, so a `datetime` / `money` / `decimal` arrives as the
-        // domain type the handler takes (`z.string()` handed the raw text on).
+        // domain type the handler takes (`z.string()` handed the raw text on),
+        // and an `int` / `long` carries the column bound its query schema does.
         return zodFor(t, "query");
     }
   }
@@ -258,14 +260,7 @@ function emitPagedRunHandler(
   out.push(
     `      200: { description: "OK", content: { "application/json": { schema: z.unknown() } } },`,
   );
-  out.push(
-    `      ${wireStatus("malformed-body")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("malformed-body")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
-  );
-  out.push(
-    `      ${wireStatus("not-found", ctx.structuralErrorStatuses)}: { description: ${JSON.stringify(
-      wireTitle("not-found", ctx.structuralErrorStatuses),
-    )}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
-  );
+  out.push(...routedProblemResponseLines(route, h, ctx));
   out.push(`    },`);
   out.push(`  }),`);
   out.push(`  async (httpCtx) => {`);
@@ -316,6 +311,24 @@ function emitPagedRunHandler(
   out.push(`  },`);
   out.push(`);`);
   return out;
+}
+
+/** The declared non-2xx `responses:` lines of a routed route — the shared
+ *  `routedErrorStatuses` set (415 exactly where the `requireJsonContentType`
+ *  guard is emitted, 422 wherever a request part is zod-validated through the
+ *  `defaultHook`), each a ProblemDetails body.  The not-found rung is titled
+ *  as its runtime arm titles it. */
+function routedProblemResponseLines(
+  route: RouteIR,
+  h: Handler,
+  ctx: EnrichedBoundedContextIR,
+): string[] {
+  const notFound = wireStatus("not-found", ctx.structuralErrorStatuses);
+  return routedErrorStatuses(route, h, ctx).map((s) => {
+    const description =
+      s === notFound ? wireTitle("not-found", ctx.structuralErrorStatuses) : reasonPhrase(s);
+    return `      ${s}: { description: ${JSON.stringify(description)}, content: { "application/problem+json": { schema: ProblemDetails } } },`;
+  });
 }
 
 /** Emit one `app.openapi(createRoute({...}), async (httpCtx) => {...})` block
@@ -429,22 +442,7 @@ function emitRouteHandler(
   } else {
     out.push(`      204: { description: "No content" },`);
   }
-  out.push(
-    `      ${wireStatus("malformed-body")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("malformed-body")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
-  );
-  out.push(
-    `      ${wireStatus("not-found", ctx.structuralErrorStatuses)}: { description: ${JSON.stringify(
-      wireTitle("not-found", ctx.structuralErrorStatuses),
-    )}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
-  );
-  // 415 only where there IS a body to refuse — declared under exactly the
-  // condition the handler's `requireJsonContentType` guard is emitted.  Last
-  // so the declared set stays in ascending status order.
-  if (bodySlots.length > 0) {
-    out.push(
-      `      ${wireStatus("unsupported-media-type")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("unsupported-media-type")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
-    );
-  }
+  out.push(...routedProblemResponseLines(route, h, ctx));
   out.push(`    },`);
   out.push(`  }),`);
   out.push(`  async (httpCtx) => {`);

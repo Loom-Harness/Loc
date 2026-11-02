@@ -120,12 +120,10 @@ describe("hono declared responses — 422 rides every parsed request part (F6)",
     expect(prepare, "an un-parsed route declares no 422").not.toContain("422:");
   });
 
-  // KNOWN DEFECT: a routed read WITH query params (here `scaffoldPagedApi`'s
+  // A routed read WITH query params (here `scaffoldPagedApi`'s
   // `GET /orders/projections/orders_by_qty?min=…`) parses its query — an
-  // out-of-range `?min=` answers the validator's 422 — but declares only
-  // `[200, 400, 404]`.  `it.fails` keeps the expectation on record; drop the
-  // `.fails` once explicit routes take their 422 from the same matrix.
-  it.fails("a routed read WITH query params declares 422", async () => {
+  // out-of-range `?min=` answers the validator's 422 — so it declares it.
+  it("a routed read WITH query params declares 422", async () => {
     const { api } = await routers();
     const byQty = routeBlock(api, "get", "/orders/projections/orders_by_qty");
     expect(byQty).toContain("request: { query: z.object({ min: z.coerce.number().int()");

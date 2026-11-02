@@ -39,7 +39,6 @@
 // raw SQLAlchemy row.  Id / scalar / void returns are unchanged.
 // ---------------------------------------------------------------------------
 
-import { wireStatus } from "../../ir/enrich/wire-policy.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -61,7 +60,7 @@ import {
   pagedRunSortDefault,
   requirePagedRunStmt,
 } from "../../ir/util/paged-run.js";
-import { routedParamSource } from "../../ir/util/routed-handler.js";
+import { routedErrorStatuses, routedParamSource } from "../../ir/util/routed-handler.js";
 import { walkWorkflowStmtChildren, walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { walkExpr } from "../../ir/validate/checks/shared.js";
 import { lines } from "../../util/code-builder.js";
@@ -581,7 +580,7 @@ function emitPagedRunRoute(r: RouteIR, h: Handler, ctx: EnrichedBoundedContextIR
     "dir",
   ].join(", ");
   return lines(
-    `@router.${method}("${path}", operation_id="${opId}"${routedResponsesKwarg(undefined, false, ctx)})`,
+    `@router.${method}("${path}", operation_id="${opId}"${routedResponsesKwarg(undefined, r, h, ctx)})`,
     `async def ${routeName}(${sig}) -> dict[str, object]:`,
     usesUser ? PY_USER_BIND : null,
     `    return await ${handlerFnRef(h.name)}(${callArgs})`,
@@ -605,21 +604,17 @@ function routedResponseModel(h: Handler, ctx: EnrichedBoundedContextIR): string 
     : undefined;
 }
 
-/** The FastAPI `responses=` kwarg a routed path-op declares — the set node's
- *  routed handler publishes: the 200 body model for a single entity return,
- *  400 for a malformed request, the context's not-found status, and 415 only
- *  where a JSON body is read.  Documentation only: the route still returns
- *  the handler's projected value as-is (`-> Any`). */
+/** The FastAPI `responses=` kwarg a routed path-op declares: the 200 body
+ *  model for a single entity return, then the shared `routedErrorStatuses`
+ *  set every backend publishes for the route.  Documentation only: the route
+ *  still returns the handler's projected value as-is (`-> Any`). */
 function routedResponsesKwarg(
   model: string | undefined,
-  hasBody: boolean,
+  r: RouteIR,
+  h: Handler,
   ctx: EnrichedBoundedContextIR,
 ): string {
-  const statuses = [
-    wireStatus("malformed-body"),
-    wireStatus("not-found", ctx.structuralErrorStatuses),
-    ...(hasBody ? [wireStatus("unsupported-media-type")] : []),
-  ];
+  const statuses = routedErrorStatuses(r, h, ctx);
   const entries = [
     ...(model ? [`200: {"model": ${model}, "description": "OK"}`] : []),
     ...statuses.map((st) => pyProblemResponseEntry(st, H.ProblemDetails)),
@@ -723,7 +718,8 @@ export function emitPyExplicitRouteRouter(
 
     const responses = routedResponsesKwarg(
       hasReturn && !h.extern ? routedResponseModel(h, ctx) : undefined,
-      bodyParams.length > 0,
+      r,
+      h,
       ctx,
     );
     if (hasReturn) {
