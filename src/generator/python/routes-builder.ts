@@ -1167,6 +1167,22 @@ function pyScalarReturnToWire(expr: string, t: TypeIR): string {
   return expr;
 }
 
+/** The success answer of a union-returning operation route.  The aggregate's
+ *  own arm (`return this`) carries only its tag from the domain method; the
+ *  route answers the aggregate's wire projection under that tag. */
+function hostArmReturn(agg: EnrichedAggregateIR, op: OperationIR): string[] {
+  const rt = op.returnType;
+  const host =
+    rt?.kind === "union" && rt.variants.some((v) => v.kind === "entity" && v.name === agg.name);
+  if (!host) return ["    return result"];
+  const tag = JSON.stringify(agg.name);
+  return [
+    `    if result["type"] == ${tag}:`,
+    `        return {"type": ${tag}, **repo.to_wire(found)}`,
+    "    return result",
+  ];
+}
+
 function operationRoute(
   agg: EnrichedAggregateIR,
   op: OperationIR,
@@ -1224,7 +1240,7 @@ function operationRoute(
       vsave.save,
       op.audited ? "    __after = repo.to_wire(found)" : null,
       ...(op.audited ? auditRecordCall(agg, op) : []),
-      "    return result",
+      ...hostArmReturn(agg, op),
     );
   }
   // currentUser-gated ops read the actor the auth middleware stashed on
@@ -1254,10 +1270,14 @@ function operationRoute(
   // it to wire, and answer 200 with the value declared as `response_model` (so
   // it lands in the OpenAPI spec), instead of the 204 that discarded it.
   if (op.returnType) {
+    // An operation answering its own aggregate (`return this`) answers the
+    // aggregate's wire projection, as the GET route does.
+    const hostReturn = op.returnType.kind === "entity" && op.returnType.name === agg.name;
     const wireType = responsePyType(op.returnType, ctx);
+    const annotation = hostReturn ? "dict[str, object]" : wireType;
     return lines(
       `@router.post("${relativeOpPath(apiOp)}", response_model=${wireType}, operation_id="${camelId(opOperation(agg.name, op.name))}"${derivedResponsesKwarg(apiOp)})`,
-      `async def ${snake(op.name)}_${snake(agg.name)}(${opSig}) -> ${wireType}:`,
+      `async def ${snake(op.name)}_${snake(agg.name)}(${opSig}) -> ${annotation}:`,
       usesUser || gateUsesUser || stampUpdateUsesUser ? PY_USER_BIND : null,
       "    repo = _repo(session)",
       `    found = await repo.${cmdLoad(agg)}(${pyIdType(agg.name)}(id))`,
@@ -1272,7 +1292,9 @@ function operationRoute(
       vsave.save,
       op.audited ? "    __after = repo.to_wire(found)" : null,
       ...(op.audited ? auditRecordCall(agg, op) : []),
-      `    return ${pyScalarReturnToWire("result", op.returnType)}`,
+      hostReturn
+        ? "    return repo.to_wire(found)"
+        : `    return ${pyScalarReturnToWire("result", op.returnType)}`,
     );
   }
   return lines(

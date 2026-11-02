@@ -1940,6 +1940,7 @@ function auditProvTxLines(args: {
   errorTags?: readonly string[];
 }): string[] {
   const { agg, op, ctx, audit, prov, usingMikro, check, mutation } = args;
+  const answer = hostReturnProjection(agg, op, "__result", "repoTx", "aggregate");
   const out: string[] = [];
   if (audit) {
     // Actor = the principal's declared shape (`auditActor`, null when no
@@ -2011,10 +2012,32 @@ function auditProvTxLines(args: {
     );
     out.push(`      }`);
   }
-  if (args.capture) out.push(`      return __result;`);
+  if (args.capture) out.push(`      return ${answer};`);
   out.push(`    });`);
   out.push(`    await __deferred.flush();`);
   return out;
+}
+
+/** The 200 body of an operation whose result is (or has an arm that is) its
+ *  own aggregate.  The domain method hands back `this` (tagged for a union
+ *  arm), whose private fields are not the wire; the route answers the
+ *  aggregate's projection through the repository's `toWire`, as every CRUD
+ *  read does.  Any other result is answered as returned. */
+function hostReturnProjection(
+  agg: AggregateIR,
+  op: OperationIR,
+  result: string,
+  repo: string,
+  aggregate: string,
+): string {
+  const rt = op.returnType;
+  const isHost = (t: TypeIR) => t.kind === "entity" && t.name === agg.name;
+  if (rt && isHost(rt)) return `${repo}.toWire(${aggregate})`;
+  if (rt?.kind === "union" && rt.variants.some(isHost)) {
+    const tag = JSON.stringify(agg.name);
+    return `(${result}.type === ${tag} ? { type: ${tag} as const, ...(${repo}.toWire(${aggregate}) as Record<string, unknown>) } : ${result})`;
+  }
+  return result;
 }
 
 function emitOperationRoute(
@@ -2311,9 +2334,14 @@ function emitReturningOperationRoute(
     op.returnType?.kind === "primitive" &&
     (op.returnType as { name?: string }).name === "money";
   if (!(audit || prov)) out.push(checkedSaveLine(operationVersionCheck(agg, op), "repo", "    "));
+  // An operation answering its own aggregate (`return this`) answers the
+  // aggregate's wire projection; the audited path projected it inside the
+  // transaction already.
   const successResult = scalarMoneyReturn
     ? `result === null ? null : ${numericEncode(TS_NUMERIC, "money", "dto-map", "result")}`
-    : "result";
+    : audit || prov
+      ? "result"
+      : hostReturnProjection(agg, op, "result", "repo", "aggregate");
   out.push(`    return c.json(${successResult}, 200);`);
   out.push(`  },`);
   out.push(`);`);

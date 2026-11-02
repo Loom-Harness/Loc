@@ -18,7 +18,13 @@ import {
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
 import { unionMembers } from "../../_payload/union-wire.js";
-import { maskNamer, projectEntityExpr, projectToResponse, wireType } from "../dto-mapping.js";
+import {
+  maskNamer,
+  projectEntityArgs,
+  projectEntityExpr,
+  projectToResponse,
+  wireType,
+} from "../dto-mapping.js";
 import { IF_MATCH_EXPECTED_VERSION_CS } from "../emit/version-check-cs.js";
 import { renderCommand, renderCommandHandler } from "../emit.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "../render-expr.js";
@@ -570,6 +576,22 @@ export function emitOperationCommandAndHandler(
     const saveArgs = readsIfMatch(operationVersionCheck(agg, op))
       ? `${IF_MATCH_EXPECTED_VERSION_CS}, cancellationToken`
       : "cancellationToken";
+    // A success arm that is the aggregate itself (`return this`) is answered
+    // as the aggregate's wire projection read AFTER the save, as a plain
+    // `: Agg` return is; the domain method cannot project its own response.
+    const hostTag = variants.some((v) => v.kind === "entity" && v.name === agg.name)
+      ? unionMembers(variants, ctx).find((_, i) => {
+          const v = variants[i]!;
+          return v.kind === "entity" && v.name === agg.name;
+        })?.tag
+      : undefined;
+    const hostArmProjection =
+      returnUnion && hostTag
+        ? (() => {
+            const arm = `global::${ns}.Domain.${plural(agg.name)}.${returnUnion}_${hostTag}`;
+            return `        if (result is ${arm}) result = new ${arm}(${projectEntityArgs("aggregate", agg as EnrichedAggregateIR, ctx, { unionVariant: true })});\n`;
+          })()
+        : "";
     const handlerBody = returnUnion
       ? loadLine +
         auditBefore +
@@ -577,6 +599,7 @@ export function emitOperationCommandAndHandler(
         errorGuard +
         auditStage +
         `        await _repo.SaveAsync(aggregate, ${saveArgs});\n` +
+        hostArmProjection +
         `        return result;\n`
       : scalarWireType
         ? // Scalar return (BUG-003): capture the domain value, save, then project
