@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  matchFindAllCall,
+  matchAllCall,
   matchFindCall,
   matchRepoCall,
   matchRepoRead,
-  matchRetrievalRunCall,
   repoReadResultType,
-  runCriterionMatcher,
 } from "../../../src/ir/lower/repo-read.js";
 import {
   type BoundedContext,
@@ -18,6 +16,7 @@ import {
   isSystem,
   type Repository,
 } from "../../../src/language/generated/ast.js";
+import { classifyRepoArg, type QueryNames, queryNamesOf } from "../../../src/language/repo-query-arg.js";
 import { parseString } from "../../_helpers/parse.js";
 
 // `repo-read.ts` is the single source of truth for "is this expression a
@@ -41,7 +40,12 @@ import { parseString } from "../../_helpers/parse.js";
 async function exprOf(
   bodyExpr: string,
   extraMembers = "",
-): Promise<{ expr: Expression; repos: Map<string, Repository>; ctx: BoundedContext }> {
+): Promise<{
+  expr: Expression;
+  repos: Map<string, Repository>;
+  ctx: BoundedContext;
+  names: QueryNames;
+}> {
   const src = `
 system S {
   subdomain Sub {
@@ -80,7 +84,13 @@ ${extraMembers}
   const stmt = (svc.operations?.[0]?.stmts ?? [])[0] as { expr?: Expression } | undefined;
   const expr = stmt?.expr;
   if (!expr) throw new Error(`no let-initialiser parsed for: ${bodyExpr}`);
-  return { expr, repos, ctx };
+  return { expr, repos, ctx, names: queryNamesOf(ctx) };
+}
+
+/** The positional argument of a single-suffix `<Repo>.<verb>(arg)` call. */
+function argOf(expr: Expression): Expression | undefined {
+  const chain = expr as { suffixes?: { args?: { name?: string; value: Expression }[] }[] };
+  return chain.suffixes?.[0]?.args?.find((a) => !a.name)?.value;
 }
 
 describe("matchRepoRead — the four read shapes", () => {
@@ -94,7 +104,7 @@ describe("matchRepoRead — the four read shapes", () => {
     expect(m?.args).toHaveLength(1);
   });
 
-  it("recognises `getById` as the by-id `load`", async () => {
+  it("recognises `get` as the by-id `load`", async () => {
     const { expr, repos } = await exprOf(`Orders.get("id")`);
     expect(matchRepoRead(expr, repos)?.op).toBe("load");
   });
@@ -102,22 +112,22 @@ describe("matchRepoRead — the four read shapes", () => {
   it("recognises `find(<Criterion>)` and CARRIES the criterion name", async () => {
     // The load-bearing assertion: dropping `criterionName` is not a crash, it
     // is a read that silently returns every row.
-    const { expr, repos } = await exprOf(`Orders.find(Active)`);
-    const m = matchRepoRead(expr, repos);
+    const { expr, repos, names } = await exprOf(`Orders.find(Active)`);
+    const m = matchRepoRead(expr, repos, names);
     expect(m?.op).toBe("select-one");
     expect(m?.criterionName).toBe("Active");
   });
 
-  it("recognises `findAll(<Criterion>)` and carries the criterion name", async () => {
-    const { expr, repos } = await exprOf(`Orders.all(Active)`);
-    const m = matchRepoRead(expr, repos);
+  it("recognises `all(<Criterion>)` and carries the criterion name", async () => {
+    const { expr, repos, names } = await exprOf(`Orders.all(Active)`);
+    const m = matchRepoRead(expr, repos, names);
     expect(m?.op).toBe("select-many");
     expect(m?.criterionName).toBe("Active");
   });
 
-  it("recognises `run(<Retrieval>())` and carries the retrieval name", async () => {
-    const { expr, repos } = await exprOf(`Orders.all(ActiveOrders())`);
-    const m = matchRepoRead(expr, repos);
+  it("recognises `all(<Retrieval>())` and carries the retrieval name", async () => {
+    const { expr, repos, names } = await exprOf(`Orders.all(ActiveOrders())`);
+    const m = matchRepoRead(expr, repos, names);
     expect(m?.op).toBe("select-many");
     expect(m?.retrievalName).toBe("ActiveOrders");
     expect(m?.criterionName).toBeUndefined();
@@ -142,39 +152,39 @@ describe("matchRepoRead — the four read shapes", () => {
   });
 });
 
-describe("runCriterionMatcher — `run` over a criterion vs a retrieval", () => {
-  it("says a plain criterion IS a criterion-run", async () => {
-    const { ctx } = await exprOf(`1`);
-    // `Active` is a criterion and not a retrieval.
-    expect(runCriterionMatcher(ctx)("Active")).toBe(true);
+describe("classifyRepoArg — a criterion vs a retrieval vs an id", () => {
+  it("says a plain criterion IS a criterion", async () => {
+    const { names, expr } = await exprOf(`Orders.all(Active)`);
+    expect(names.criteria.has("Active")).toBe(true);
+    expect(classifyRepoArg(argOf(expr), names)).toBe(
+      "criterion",
+    );
   });
 
   it("gives RETRIEVAL precedence for a name that is both", async () => {
-    // The documented back-compat rule: a declared retrieval keeps its meaning,
-    // so `run` only re-routes a name that is a criterion and NOT a retrieval.
-    const { ctx } = await exprOf(
-      `1`,
+    // A declared retrieval keeps its meaning, so a name that is both a
+    // criterion and a retrieval reads as the retrieval.
+    const { expr, names } = await exprOf(
+      `Orders.all(Dual)`,
       `      criterion Dual of Order = !this.archived
       retrieval Dual() of Order { where: Active  sort: [code asc] }`,
     );
-    expect(runCriterionMatcher(ctx)("Dual")).toBe(false);
+    expect(classifyRepoArg(argOf(expr), names)).toBe("retrieval");
   });
 
-  it("says an unknown name is not a criterion-run", async () => {
-    const { ctx } = await exprOf(`1`);
-    expect(runCriterionMatcher(ctx)("Ghost")).toBe(false);
-    expect(runCriterionMatcher(ctx)("ActiveOrders")).toBe(false);
+  it("says an unknown name is a plain value (an id)", async () => {
+    const { expr, names } = await exprOf(`Orders.find(Ghost)`);
+    expect(classifyRepoArg(argOf(expr), names)).toBe("value");
   });
 
-  it("an UNDEFINED context never matches — the system-level `test e2e` case", () => {
-    // Documented in the function's own comment: no enclosing context means
-    // `run` keeps its retrieval-only meaning.
-    expect(runCriterionMatcher(undefined)("Active")).toBe(false);
+  it("an UNDEFINED context declares nothing — the system-level `test e2e` case", async () => {
+    const { expr } = await exprOf(`Orders.all(Active)`);
+    expect(classifyRepoArg(argOf(expr), queryNamesOf(undefined))).toBe("value");
   });
 
-  it("re-routes a criterion `run` to the findAllBy<Criterion> shape", async () => {
-    const { expr, repos, ctx } = await exprOf(`Orders.all(Active)`);
-    const m = matchRepoRead(expr, repos, runCriterionMatcher(ctx));
+  it("routes a criterion `all` to the findAllBy<Criterion> shape", async () => {
+    const { expr, repos, names } = await exprOf(`Orders.all(Active)`);
+    const m = matchRepoRead(expr, repos, names);
     expect(m?.op).toBe("select-many");
     // The criterion rides as `criterionName`, not `retrievalName` — that is
     // what makes the backend synthesise `findAllByActive` instead of looking
@@ -183,9 +193,9 @@ describe("runCriterionMatcher — `run` over a criterion vs a retrieval", () => 
     expect(m?.retrievalName).toBeUndefined();
   });
 
-  it("WITHOUT the predicate, the same `run(Active)` is not a criterion run", async () => {
-    // Proves the predicate is load-bearing rather than decorative: the same
-    // source parsed the same way answers differently when it is omitted.
+  it("WITHOUT the declared names, the same `all(Active)` is not a criterion read", async () => {
+    // Proves the names are load-bearing rather than decorative: the same
+    // source parsed the same way answers differently when they are omitted.
     const { expr, repos } = await exprOf(`Orders.all(Active)`);
     const m = matchRepoRead(expr, repos);
     expect(m?.criterionName).toBeUndefined();
@@ -211,8 +221,8 @@ describe("repoReadResultType — the type a let-bound read produces", () => {
   const ORDER = { kind: "entity", name: "Order" } as const;
 
   async function typeOf(body: string, extra = "") {
-    const { expr, repos, ctx } = await exprOf(body, extra);
-    const m = matchRepoRead(expr, repos, runCriterionMatcher(ctx));
+    const { expr, repos, names } = await exprOf(body, extra);
+    const m = matchRepoRead(expr, repos, names);
     expect(m, `not recognised as a read: ${body}`).toBeDefined();
     return repoReadResultType(m!);
   }
@@ -247,55 +257,41 @@ describe("repoReadResultType — the type a let-bound read produces", () => {
 describe("the matchers' argument shapes", () => {
   const BY_CODE = `      criterion ByCode(c: string) of Order = this.code == c`;
 
-  it("findAll carries a criterion's ARGUMENTS and a `page:` offset/limit", async () => {
-    const { expr, repos } = await exprOf(
+  it("all(<Criterion>(args)) carries the criterion's ARGUMENTS and a `page:` offset/limit", async () => {
+    const { expr, repos, names } = await exprOf(
       `Orders.all(ByCode("A1"), page: { offset: 10, limit: 20 })`,
       BY_CODE,
     );
-    const m = matchFindAllCall(expr, repos);
-    expect(m?.criterionName).toBe("ByCode");
-    expect(m?.criterionArgs).toHaveLength(1);
+    const m = matchAllCall(expr, repos, names);
+    expect(m?.retrievalName).toBe("");
+    expect(m?.anon?.criterionName).toBe("ByCode");
+    expect(m?.anon?.criterionArgs).toHaveLength(1);
     expect(m?.pageOffset).toBeDefined();
     expect(m?.pageLimit).toBeDefined();
-    // …and the collapsed form keeps the args.
-    expect(matchRepoRead(expr, repos)?.args).toHaveLength(1);
+    // The collapsed form reads the args off the ANON half, not the (empty)
+    // retrieval half — dropping them would run the criterion unparameterised.
+    expect(matchRepoRead(expr, repos, names)?.args).toHaveLength(1);
   });
 
-  it("findAll with no `page:` leaves both page bounds unset", async () => {
-    const { expr, repos } = await exprOf(`Orders.all(Active)`);
-    const m = matchFindAllCall(expr, repos);
-    expect(m?.criterionName).toBe("Active");
+  it("all(<Criterion>) with no `page:` leaves both page bounds unset", async () => {
+    const { expr, repos, names } = await exprOf(`Orders.all(Active)`);
+    const m = matchAllCall(expr, repos, names);
+    expect(m?.anon?.criterionName).toBe("Active");
     expect(m?.pageOffset).toBeUndefined();
     expect(m?.pageLimit).toBeUndefined();
   });
 
-  it("run(<Criterion>(args)) rides the anonymous synthetic-criterion path WITH its args", async () => {
-    const { expr, repos, ctx } = await exprOf(
-      `Orders.all(ByCode("A1"), page: { limit: 5 })`,
-      BY_CODE,
-    );
-    const m = matchRetrievalRunCall(expr, repos, runCriterionMatcher(ctx));
-    expect(m?.retrievalName).toBe("");
-    expect(m?.anon?.criterionName).toBe("ByCode");
-    expect(m?.anon?.criterionArgs).toHaveLength(1);
-    expect(m?.pageLimit).toBeDefined();
-    expect(m?.pageOffset).toBeUndefined();
-    // The collapsed form reads the args off the ANON half, not the (empty)
-    // retrieval half — dropping them would run the criterion unparameterised.
-    expect(matchRepoRead(expr, repos, runCriterionMatcher(ctx))?.args).toHaveLength(1);
-  });
-
-  it("run(retrieval { where: <Criterion> }) — the anonymous literal carries the criterion", async () => {
-    const { expr, repos } = await exprOf(`Orders.all(Active, sort: [code asc])`);
-    const m = matchRetrievalRunCall(expr, repos);
+  it("all(<Criterion>, sort: […]) carries the criterion and its sort terms", async () => {
+    const { expr, repos, names } = await exprOf(`Orders.all(Active, sort: [code asc])`);
+    const m = matchAllCall(expr, repos, names);
     expect(m?.anon?.criterionName).toBe("Active");
     expect(m?.anon?.sort).toHaveLength(1);
-    expect(matchRepoRead(expr, repos)?.criterionName).toBe("Active");
+    expect(matchRepoRead(expr, repos, names)?.criterionName).toBe("Active");
   });
 
-  it("a bare parameterless retrieval `run(Name)` keeps a sibling `page:`", async () => {
-    const { expr, repos } = await exprOf(`Orders.all(ActiveOrders, page: { limit: 20 })`);
-    const m = matchRetrievalRunCall(expr, repos);
+  it("a bare parameterless retrieval `all(Name)` keeps a sibling `page:`", async () => {
+    const { expr, repos, names } = await exprOf(`Orders.all(ActiveOrders, page: { limit: 20 })`);
+    const m = matchAllCall(expr, repos, names);
     expect(m?.retrievalName).toBe("ActiveOrders");
     expect(m?.pageLimit).toBeDefined();
   });
@@ -308,7 +304,7 @@ describe("the matchers' argument shapes", () => {
   it("a chained call (two suffixes) is not a repository call", async () => {
     const { expr, repos } = await exprOf(`Orders.all(Active).count`);
     expect(matchRepoCall(expr, repos)).toBeUndefined();
-    expect(matchFindAllCall(expr, repos)).toBeUndefined();
+    expect(matchAllCall(expr, repos)).toBeUndefined();
     expect(matchRepoRead(expr, repos)).toBeUndefined();
   });
 
