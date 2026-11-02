@@ -71,3 +71,38 @@ describe("elixir vanilla — actor param on a bypassing read (M-T6.54 F18)", () 
     }
   });
 });
+
+// The CALLER side.  A routed handler's `if let x = Repo.find(C) ignoring <cap>`
+// calls the synthesized repository find, which still scopes by the actor when
+// the bypass left a principal capability in place.  The handler has to bind
+// the conn's `current_user` and pass it; passing none compares
+// `tenant_id == ^nil`, which Ecto refuses at runtime (a 500 on every request).
+const READS_SRC = corpusSourceFor("inheritance-read-restrictions", "vanilla");
+const HANDLERS = "d/lib/d/fleet/handlers";
+const CONTROLLER = "d/lib/d_web/controllers/fleet_api_routes_controller.ex";
+
+describe("elixir vanilla — a routed handler passes the actor to a bypassing find", () => {
+  it("`ignoring softDeletable` on a tenantOwned TPH / TPC subtype passes current_user", async () => {
+    const files = await generateSystemFiles(READS_SRC);
+    const car = files.get(`${HANDLERS}/get_car_by_plate_all.ex`)!;
+    expect(car).toContain("def run(params, current_user \\\\ nil) when is_map(params) do");
+    expect(car).toContain(
+      "Context.find_first_by_plate_ignoring_soft_deletable_car(p, current_user)",
+    );
+    const driver = files.get(`${HANDLERS}/get_driver_by_name_all.ex`)!;
+    expect(driver).toContain(
+      "Context.find_first_by_name_ignoring_soft_deletable_driver(n, current_user)",
+    );
+    const controller = files.get(CONTROLLER)!;
+    expect(controller).toContain(
+      "GetCarByPlateAll.run(params, Map.get(conn.assigns, :current_user))",
+    );
+  });
+
+  it("`ignoring tenantOwned` reads no actor, so none is threaded", async () => {
+    const files = await generateSystemFiles(READS_SRC);
+    const h = files.get(`${HANDLERS}/get_car_by_plate_any_tenant.ex`)!;
+    expect(h).toContain("def run(params) when is_map(params) do");
+    expect(h).toContain("Context.find_first_by_plate_ignoring_tenant_owned_car(p)");
+  });
+});

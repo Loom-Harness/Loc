@@ -23,7 +23,7 @@
 // variable in scope.
 // ---------------------------------------------------------------------------
 
-import type { AggregateIR, ExprIR } from "../../../ir/types/loom-ir.js";
+import type { AggregateIR, ExprIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
 import {
   aggregateUsesPrincipalContextFilter,
   exprUsesCurrentUser,
@@ -56,6 +56,35 @@ export { aggregateUsesPrincipalContextFilter };
  *  rendered one — "undefined variable current_user" at `mix compile`. */
 export function findUsesPrincipal(f: { filter?: ExprIR }): boolean {
   return !!f.filter && exprUsesCurrentUser(f.filter);
+}
+
+/** Does the repository find `method` on `aggName` read the request actor once
+ *  its own `ignoring` clause is applied?  The repository renders that find's
+ *  capability filter with the bypass, so `… ignoring softDeletable` on a
+ *  `tenantOwned` aggregate still scopes by `tenant_id == ^current_user…`
+ *  while `… ignoring tenantOwned` reads no actor at all.  A caller holding the
+ *  actor passes it exactly when this holds; one that does not compares
+ *  `tenant_id` against `^nil`, which Ecto refuses at runtime. */
+export function customFindReadsActor(
+  ctx: {
+    aggregates: readonly AggregateIR[];
+    repositories?: readonly RepositoryIR[];
+  },
+  aggName: string,
+  method: string,
+): boolean {
+  const agg = ctx.aggregates.find((a) => a.name === aggName);
+  const f = (ctx.repositories ?? [])
+    .find((r) => r.aggregateName === aggName)
+    ?.finds.find((x) => x.name === method);
+  if (!agg || !f) return false;
+  if (!aggregateUsesPrincipalContextFilter(agg)) return false;
+  if (findUsesPrincipal(f)) return true;
+  const cap = vanillaCapabilityFilter(agg, "", {
+    actor: true,
+    bypass: { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps },
+  });
+  return !!cap && /\bcurrent_user\b/.test(cap);
 }
 
 /** True when the aggregate's LIST read (`list/…`, fronting the `all` find)

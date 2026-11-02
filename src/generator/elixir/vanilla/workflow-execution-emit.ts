@@ -108,6 +108,7 @@ import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { internalCreateFn, internalDeleteFn } from "../lifecycle-seam.js";
 import { optionalReadLookup, type RenderCtx, renderExpr } from "../render-expr.js";
 import { stateDefault, stateDefaultDecls } from "../state-default.js";
+import { customFindReadsActor } from "./capability-filter.js";
 import {
   contextsHaveWireDenials,
   denialOverrides,
@@ -121,20 +122,20 @@ import { renderRequiredParamsPlug, requiredWireParams } from "./problem-details-
 import { retrievalReadsActor } from "./retrieval-emit.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
 
-/** Does this criterion read pass the request actor to its retrieval?  Only
- *  where the body binds `current_user` (`repoRunActor`) and the retrieval
- *  reads it (a principal filter on its target, or a `currentUser` where). */
+/** Does this read pass the request actor?  Only where the body binds
+ *  `current_user` (`repoRunActor`) and the read consumes it: a criterion
+ *  read's retrieval with a principal filter or a `currentUser` where, or a
+ *  repository find whose bypass-applied capability filter still scopes by the
+ *  actor (`… ignoring softDeletable` on a `tenantOwned` aggregate). */
 function readPassesActor(
   retrievalName: string | undefined,
   renderCtx: RenderCtx,
   ctx: BoundedContextIR | undefined,
+  find?: { aggName: string; method: string | undefined },
 ): boolean {
-  return !!(
-    renderCtx.repoRunActor &&
-    ctx &&
-    retrievalName &&
-    retrievalReadsActor(retrievalName, ctx)
-  );
+  if (!renderCtx.repoRunActor || !ctx) return false;
+  if (retrievalName) return retrievalReadsActor(retrievalName, ctx);
+  return !!find?.method && customFindReadsActor(ctx, find.aggName, find.method);
 }
 
 /** The aggregate a workflow step targets, for the lifecycle-seam decision (which
@@ -543,7 +544,10 @@ function lowerStatement(
           },
           st.args.map((a) => renderExpr(a, renderCtx)),
           contextModule,
-          readPassesActor(st.retrievalName, renderCtx, ctx),
+          readPassesActor(st.retrievalName, renderCtx, ctx, {
+            aggName: st.aggName,
+            method: st.method,
+          }),
         );
         const { pattern, bindName } = tupleBind(st.name, rest, reads);
         return [
@@ -804,7 +808,10 @@ function lowerStatement(
                 },
                 args,
                 contextModule,
-                readPassesActor(st.retrievalName, renderCtx, ctx),
+                readPassesActor(st.retrievalName, renderCtx, ctx, {
+                  aggName: st.aggName,
+                  method: st.findMethod,
+                }),
               ),
             );
       const renderBranch = (all: WorkflowStmtIR[], present: string): string[] => {
