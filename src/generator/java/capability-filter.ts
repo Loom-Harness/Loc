@@ -57,6 +57,7 @@ import {
   tableOwnerName,
   tphConcretesOf,
 } from "../../ir/util/inheritance.js";
+import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import {
   type FilterParam,
   renderSqlFilterCondition,
@@ -103,24 +104,21 @@ function nonPrincipalCapabilityOrigins(agg: AggregateIR): string[] {
 }
 
 /** Collect the `ignoring`-bearing inline `Repo.findAll`/`run` reads in a
- *  workflow-statement body (descends into `for-each` + `if-let` bodies),
+ *  workflow-statement body (descends into every nested body),
  *  pairing each bypass spec with the aggregate it targets. */
 function collectRepoRunBypasses(
   stmts: readonly WorkflowStmtIR[],
   out: { aggName: string; bypass: FilterBypass }[],
 ): void {
-  for (const s of stmts) {
-    if (s.kind === "repo-run" && (s.bypassAll || (s.bypassCaps?.length ?? 0) > 0)) {
-      out.push({
-        aggName: s.aggName,
-        bypass: { bypassAll: s.bypassAll, bypassCaps: s.bypassCaps },
-      });
-    }
-    if (s.kind === "for-each") collectRepoRunBypasses(s.body, out);
-    if (s.kind === "if-let") {
-      collectRepoRunBypasses(s.thenBody, out);
-      collectRepoRunBypasses(s.elseBody ?? [], out);
-    }
+  for (const root of stmts) {
+    walkWorkflowStmtsDeep(root, (s) => {
+      if (s.kind === "repo-run" && (s.bypassAll || (s.bypassCaps?.length ?? 0) > 0)) {
+        out.push({
+          aggName: s.aggName,
+          bypass: { bypassAll: s.bypassAll, bypassCaps: s.bypassCaps },
+        });
+      }
+    });
   }
 }
 
@@ -182,19 +180,16 @@ export function inlineRunBypassesByRetrieval(
 ): Map<string, FilterBypass> {
   const runs: { aggName: string; bypass: FilterBypass; retrievalName?: string }[] = [];
   const collect = (stmts: readonly WorkflowStmtIR[]): void => {
-    for (const s of stmts) {
-      if (s.kind === "repo-run" && (s.bypassAll || (s.bypassCaps?.length ?? 0) > 0)) {
-        runs.push({
-          aggName: s.aggName,
-          bypass: { bypassAll: s.bypassAll, bypassCaps: s.bypassCaps },
-          retrievalName: s.retrievalName,
-        });
-      }
-      if (s.kind === "for-each") collect(s.body);
-      if (s.kind === "if-let") {
-        collect(s.thenBody);
-        collect(s.elseBody ?? []);
-      }
+    for (const root of stmts) {
+      walkWorkflowStmtsDeep(root, (s) => {
+        if (s.kind === "repo-run" && (s.bypassAll || (s.bypassCaps?.length ?? 0) > 0)) {
+          runs.push({
+            aggName: s.aggName,
+            bypass: { bypassAll: s.bypassAll, bypassCaps: s.bypassCaps },
+            retrievalName: s.retrievalName,
+          });
+        }
+      });
     }
   };
   for (const wf of ctx.workflows) {

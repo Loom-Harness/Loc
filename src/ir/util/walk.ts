@@ -39,11 +39,12 @@ export interface ExprChildVisitor {
 
 /** Callbacks for {@link walkWorkflowStmtChildren}.  A workflow statement's
  *  children are expressions PLUS the nested workflow-statement bodies that
- *  `for-each` / `if-let` carry. */
+ *  `for-each` / `if-let` / `variant-match` carry. */
 export interface WorkflowStmtChildVisitor {
   /** Every immediate child expression. */
   expr?: (child: ExprIR) => void;
-  /** Every immediate nested workflow statement (for-each / if-let bodies). */
+  /** Every immediate nested workflow statement (for-each / if-let /
+   *  variant-match bodies). */
   workflowStmt?: (child: WorkflowStmtIR) => void;
 }
 
@@ -198,7 +199,8 @@ export function walkStmtChildren(
  *
  * Exhaustive over every `WorkflowStmtIR.kind`.  Unlike the operation-body
  * `StmtIR`, three kinds nest further workflow statements (`for-each.body`,
- * `if-let.thenBody`/`elseBody`), delivered through the `workflowStmt` channel;
+ * `if-let.thenBody`/`elseBody`, `variant-match` arm / else bodies), delivered
+ * through the `workflowStmt` channel;
  * expression children go through `expr`.  The trailing `never` makes a new
  * workflow-statement kind a compile error until wired.
  */
@@ -241,6 +243,11 @@ export function walkWorkflowStmtChildren(s: WorkflowStmtIR, v: WorkflowStmtChild
     case "if-let":
       for (const a of s.retrievalArgs) expr?.(a);
       for (const st of s.thenBody) wf?.(st);
+      for (const st of s.elseBody ?? []) wf?.(st);
+      break;
+    case "variant-match":
+      expr?.(s.subject);
+      for (const arm of s.arms) for (const st of arm.body) wf?.(st);
       for (const st of s.elseBody ?? []) wf?.(st);
       break;
     case "not-found":
@@ -445,7 +452,7 @@ export function walkExprStmtsDeep(e: ExprIR | undefined, visit: (s: StmtIR) => v
 }
 
 /** Visit every expression reachable from a workflow-body statement, descending
- *  through `for-each` / `if-let` nested bodies. */
+ *  through `for-each` / `if-let` / `variant-match` nested bodies. */
 export function walkWorkflowStmtExprsDeep(s: WorkflowStmtIR, visit: (e: ExprIR) => void): void {
   walkWorkflowStmtChildren(s, {
     expr: (c) => walkExprDeep(c, visit),
@@ -454,7 +461,8 @@ export function walkWorkflowStmtExprsDeep(s: WorkflowStmtIR, visit: (e: ExprIR) 
 }
 
 /** Visit every expression reachable from `s`'s OWN expression slots, without
- *  descending into the workflow statements a `for-each` / `if-let` nests.  The
+ *  descending into the workflow statements a `for-each` / `if-let` /
+ *  `variant-match` nests.  The
  *  per-statement half of {@link walkWorkflowStmtExprsDeep}, for a consumer that
  *  visits the nested statements itself (because it attributes each expression
  *  to the statement — or the scope — that holds it). */
@@ -463,7 +471,7 @@ export function walkWorkflowStmtOwnExprsDeep(s: WorkflowStmtIR, visit: (e: ExprI
 }
 
 /** Visit `s` and every workflow-body statement nested inside it, descending
- *  through the `for-each` / `if-let` bodies.
+ *  through the `for-each` / `if-let` / `variant-match` bodies.
  *
  *  The statement-level twin of {@link walkWorkflowStmtExprsDeep}: that one
  *  yields EXPRESSIONS (and is what an expression scan wants), this one yields
@@ -476,7 +484,7 @@ export function walkWorkflowStmtsDeep(s: WorkflowStmtIR, visit: (s: WorkflowStmt
 }
 
 /** Every `emit` statement anywhere in a workflow body — top level, `for-each`
- *  bodies, and both `if-let` branches — in source order.
+ *  bodies, both `if-let` branches and every `match` arm — in source order.
  *
  *  The one answer to "does this workflow emit, and which events?".  A
  *  top-level-only `statements.some((st) => st.kind === "emit")` missed an

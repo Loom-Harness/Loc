@@ -657,13 +657,14 @@ const WAIVERS: Record<string, Waiver> = {
   // events never reach the log — and `operation credit(n): int { emit …
   // return n }` drops the return value; `ddd parse` reports `0 error(s)` for
   // both.  The ES discipline (structural-checks.ts) refuses only direct
-  // mutation, and `variant-match` is refused by `loom.variant-match-placement`.
+  // mutation, and a statement `match` in an elixir-hosted body is refused by
+  // `loom.elixir-match-stmt-unsupported`.
   // Rendering a self-call means folding the callee's events into the caller's
   // list (and its state into the next guard) — runner work, not a census
   // migration.
   "src/generator/elixir/vanilla/eventsourced-emit.ts#renderCommandRunner": {
     deferred:
-      "PROVEN silent: `default: break` drops a self-`call` (the callee's events never reach the stream — `events = []`) and a `return` value in an event-sourced command on a `0 error(s)` model. The ES discipline refuses only assign/add/remove; `variant-match` is refused by `loom.variant-match-placement`. Needs the runner to fold a callee's events, or a refusal",
+      "PROVEN silent: `default: break` drops a self-`call` (the callee's events never reach the stream — `events = []`) and a `return` value in an event-sourced command on a `0 error(s)` model. The ES discipline refuses only assign/add/remove; a statement `match` is refused on elixir by `loom.elixir-match-stmt-unsupported`. Needs the runner to fold a callee's events, or a refusal",
     reviewUntil: "2026-12-31",
   },
   // PROVEN silent: `on(pr: PaymentRegistered) { let o = Orders.getById(pr.order) … }`

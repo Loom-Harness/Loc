@@ -1169,13 +1169,11 @@ export const DIAGNOSTIC_MESSAGES = {
   // ----------------------------------------------------------------------
   // src/language/validators/stmt-placement.ts
   // ----------------------------------------------------------------------
-  // Two PERMANENT placement refusals and one HONEST GAP (M-T5.28, ruling
-  // D-FOR-IN-DOMAIN).  The two permanent messages deliberately prescribe no
-  // replacement construct: a placement rule that will never change reads
-  // better as a statement of where the construct lives than as advice that
-  // later goes stale.
+  // Placement rulings D-FOR-IN-DOMAIN (amended by D-FAILURE-MODEL).  The
+  // design-rule messages state where the construct lives rather than advising
+  // a construct that may later move.
   "loom.variant-match-placement": (p: { owner: unknown }) =>
-    `A 'match' used for its EFFECTS (arms that run statements) is frontend-only — it lowers to a page / component / store 'action' handler and has no backend form — but this one is in ${p.owner}, which runs on the backend. Move the effect into the 'action' that invokes it. This is a permanent placement rule, not a missing feature.`,
+    `A 'match' used for its EFFECTS (arms that run statements) is not available in ${p.owner}: a fold ('apply', a projection 'on') is a straight-line state transition and a 'function' computes a value, so neither has a statement form of it. Use the value form instead — 'let x = match r { A a => …, else => … }' — or move the effect into the operation, workflow or handler that calls it, where a statement 'match' is legal.`,
   "loom.if-let-placement": (p: { owner: unknown }) =>
     `'if let' binds the optional result of a repository read and branches on its presence; only a workflow body ('create' / 'on') or a top-level 'commandHandler' / 'queryHandler' lowers it. This one is in ${p.owner}, which has no such lowering — do the optional read in a workflow or handler and pass the resolved value in. This is a permanent placement rule, not a missing feature.`,
   "loom.not-found-placement": (p: { owner: unknown }) =>
@@ -1255,6 +1253,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `Workflow '${p.workflow}': 'return' in '${p.create}' must be the last top-level statement of the ` +
     `body. The result is answered after every step (and the transaction) completes, so an earlier or ` +
     `nested 'return' would not stop the steps after it.`,
+  "loom.workflow-return-not-last#match-arm": (p: { workflow: unknown; create: unknown }) =>
+    `Workflow '${p.workflow}': 'return' in '${p.create}' sits inside a 'match' arm.  An arm runs ` +
+    `statements; the result is answered once, after every step (and the transaction) completes. ` +
+    `Compute the result with the value form — 'let r = match x { A a => …, B b => … }' — and end ` +
+    `the body with 'return r'.`,
   "loom.workflow-return-untyped": (p: { workflow: unknown; create: unknown }) =>
     `Workflow '${p.workflow}': '${p.create}' ends in 'return' but declares no result type. ` +
     `Annotate it — 'create(…): T { … return <expr> }' — so the route publishes what it answers.`,
@@ -1787,6 +1790,11 @@ export const DIAGNOSTIC_MESSAGES = {
     `${p.label} is declared to return '${p.declared}' but not every path ends in a \`return\`. ` +
     `End each branch with \`return <value>\` (an \`if\` needs an \`else\` that returns too).`,
 
+  "loom.handler-return-not-last#match-arm": (p: { label: unknown }) =>
+    `${p.label}: 'return' sits inside a 'match' arm.  An arm runs statements; a handler answers ` +
+    `once, after its body has run, so a 'return' in an arm would not stop the statements after ` +
+    `the 'match'.  Compute the answer with the value form — 'let r = match x { A a => …, ` +
+    `B b => … }' — and end the body with 'return r'.`,
   "loom.handler-return-not-last": (p: { label: unknown }) =>
     `${p.label}: 'return' must be the last top-level statement of the body, or the whole ` +
     `then-branch of a final 'if let … { return x } else { … notFound }'. A handler answers ` +
@@ -2748,6 +2756,14 @@ export const DIAGNOSTIC_MESSAGES = {
   // What is left are three sub-shapes that rendering cannot express; each says
   // which one, because "rewrite it as a ternary" is the wrong advice for two of
   // them.
+  "loom.elixir-match-stmt-unsupported": (p: { where: unknown; name: unknown }) =>
+    `A statement \`match\` (arms that run statements) is used in ${p.where}, whose context is ` +
+    `hosted by the Phoenix/Elixir deployable '${p.name}'.  Node, .NET, Java and Python render it; ` +
+    `the Phoenix emitters do not yet — an Elixir operation body rebinds its \`record\` through a ` +
+    `value-producing expression and a workflow body is a \`with\`-chain, so the statement needs ` +
+    `its own \`case\` form there.  Until it lands, compute the value with an expression ` +
+    `\`match\` (\`let x = match r { … }\`) and act on it with \`if\`, or host this context on ` +
+    `another backend.  This is a GAP on one backend, not a design rule.`,
   "loom.elixir-if-stmt-unsupported#return-in-branch": (p: { where: unknown; name: unknown }) =>
     `A \`return\` appears inside an \`if\` branch in ${p.where}, whose context is hosted ` +
     `by the Phoenix/Elixir deployable '${p.name}'.  The \`if\` STATEMENT itself renders on ` +
@@ -5346,6 +5362,13 @@ export const DIAGNOSTIC_MESSAGES = {
     op: unknown;
   }) =>
     `workflow '${p.name}': in 'if let ${p.var}', '${p.target}.${p.op}(...)' references unknown binding '${p.target}'.`,
+  "loom.workflow-foreach-unknown-binding#workflow-in-match-references": (p: {
+    name: unknown;
+    var: unknown;
+    target: unknown;
+    op: unknown;
+  }) =>
+    `workflow '${p.name}': in the 'match' arm '${p.var}', '${p.target}.${p.op}(...)' references unknown binding '${p.target}'.`,
   "loom.iflet-bad-source": (p: { name: unknown; var: unknown }) =>
     `workflow '${p.name}': 'if let ${p.var} = ...' must bind 'Repo.find(<Criterion>)' or a declared optional find 'Repo.<find>(args)' (one returning 'T?').`,
   "loom.iflet-bad-source#handler": (p: { kind: unknown; name: unknown; var: unknown }) =>

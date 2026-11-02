@@ -1,4 +1,6 @@
+import { isScalarVariant, typeKey, unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
 import type { StmtIR } from "../../ir/types/loom-ir.js";
+import { walkStmtExprsDeep } from "../../ir/util/walk.js";
 
 // ---------------------------------------------------------------------------
 // The shared operation-body statement spine — the `StmtIR` analogue of the
@@ -6,23 +8,22 @@ import type { StmtIR } from "../../ir/types/loom-ir.js";
 // `_workflow/stmt-target.ts`.
 //
 // Every domain-logic backend's `render-stmt.ts` walks the same body: the
-// 11-kind `StmtIR` sequence in declaration order, one chunk per statement,
+// 12-kind `StmtIR` sequence in declaration order, one chunk per statement,
 // joined with `"\n"`.  Only the per-kind *spelling* diverges (the expression
 // renderer, the indent, the throw/append/push idiom, the per-backend render
 // context) plus the temp-name index model.  Without this seam each backend
-// re-implements the whole switch, the `map`/`join` chunking pair, and the
-// `variant-match` guard.
+// re-implements the whole switch and the `map`/`join` chunking pair.
 //
 // `renderStmtChunksWith` owns the dispatch + the index bookkeeping once; each
 // backend supplies a `StmtTarget` leaf table.  A new `StmtIR` kind is a compile
 // error here (exhaustive switch) AND in every target (the interface), exactly
 // like adding an `ExprIR.kind`.
 //
-// NOTE: `if` is the ONE backend-body kind that nests a statement list
-// (`variant-match` nests too, but it is frontend-only and never reaches a
-// backend), so — like `renderWorkflowStmts` and its `for-each` / `if-let` — the
-// spine owns that one recursion, and the temp-name counters run across the
-// whole body so a nested branch never re-uses an enclosing scope's temp name.
+// NOTE: `if` and `variant-match` are the backend-body kinds that nest
+// statement lists, so — like `renderWorkflowStmts` and its `for-each` /
+// `if-let` — the spine owns that recursion and hands each leaf the rendered
+// bodies, and the temp-name counters run across the whole body so a nested
+// branch never re-uses an enclosing scope's temp name.
 //
 // NOTE: the *indent* is deliberately NOT part of the contract.  Three backends
 // hold it as a module constant and Python threads it per call; either way it is
@@ -34,6 +35,45 @@ import type { StmtIR } from "../../ir/types/loom-ir.js";
 // ---------------------------------------------------------------------------
 
 type ByKind<K extends StmtIR["kind"]> = Extract<StmtIR, { kind: K }>;
+
+/** One arm of a statement `match` over a TAGGED union, with its body already
+ *  rendered by the spine at the target's own base indent. */
+export interface RenderedStmtArm {
+  /** The variant's wire tag (`variantTag`) — the TS / Python discriminator
+   *  value and the `<Union>_<Tag>` carrier suffix on .NET / Java. */
+  tag: string;
+  /** Source-level type name of the variant (entity / value object / enum
+   *  name, else the tag). */
+  variantTypeName: string;
+  /** The arm's binding — present only when the arm binds one AND its body
+   *  reads it, so no backend declares a local nothing uses (ruff F841). */
+  binding?: string;
+  /** True when the variant travels as a scalar carrier (`isScalarVariant`):
+   *  the binding is the carrier's value, not the carrier. */
+  scalar: boolean;
+  /** True when the variant is an `error` record. */
+  isError: boolean;
+  /** The arm body, rendered. */
+  body: string;
+  /** True when the body's last statement is a `return`, so no statement
+   *  after it (a `break`) can run. */
+  returns: boolean;
+}
+
+/** A statement `match` over a TAGGED union, arms pre-rendered. */
+export interface RenderedStmtMatch {
+  /** `unionInstanceName` of the subject's variants — the stem of the
+   *  `<Union>_<Tag>` carrier records on the nominally-typed backends. */
+  unionName: string;
+  arms: RenderedStmtArm[];
+  /** The `else` body, rendered; undefined when the source had no `else`. */
+  else?: string;
+  /** True when the `else` body's last statement is a `return`. */
+  elseReturns: boolean;
+  /** True when the arms name every variant of the subject's union, so the
+   *  dispatch needs no fall-through case of its own. */
+  exhaustive: boolean;
+}
 
 /**
  * Temp-name indices for the statement being rendered — the `N` in a traced
@@ -78,7 +118,7 @@ export type StmtIndexing = "positional" | "per-kind";
  * method returns the statement's whole — possibly multi-line — chunk.
  */
 export interface StmtTarget {
-  /** Backend name spliced into the `variant-match` guard's message
+  /** Backend name for diagnostics raised while rendering
    *  (`"TS"` / `".NET"` / `"Java"` / `"Python"`). */
   readonly backendName: string;
 
@@ -106,6 +146,23 @@ export interface StmtTarget {
    *  its indent rather than taking one (see the note above).  `renderedElse`
    *  is undefined when the source had no `else`. */
   if(s: ByKind<"if">, ix: StmtIndex, renderedThen: string, renderedElse?: string): string;
+  /** `match <subject> { V b => { … } … }` over a TAGGED union: the leaf
+   *  dispatches on the subject's variant (its own native idiom), declares each
+   *  arm's `binding` at the head of the arm, and places the pre-rendered
+   *  bodies one level in (`indentNested`), as the `if` leaf does. */
+  variantMatch(s: ByKind<"variant-match">, ix: StmtIndex, m: RenderedStmtMatch): string;
+  /** `match <subject> { T x => { … } none => { … } }` over a `T?` subject
+   *  (`subjectShape: "absence"`): a presence if/else.  The arm bindings were
+   *  aliased to the subject at lowering, so nothing is declared.
+   *  `renderedPresent` / `renderedAbsent` are the bodies that run on each side
+   *  (the `else` body fills a side no arm names); undefined when neither an
+   *  arm nor `else` covers that side. */
+  presenceMatch(
+    s: ByKind<"variant-match">,
+    ix: StmtIndex,
+    renderedPresent: string | undefined,
+    renderedAbsent: string | undefined,
+  ): string;
 }
 
 /** Render a statement body to the pre-joined whole — exactly
@@ -196,27 +253,8 @@ function renderStmt(s: StmtIR, target: StmtTarget, ix: StmtIndex, counter: StmtC
         renderStmtChunks(s.thenBody, target, counter).join("\n"),
         s.elseBody ? renderStmtChunks(s.elseBody, target, counter).join("\n") : undefined,
       );
-    case "variant-match": {
-      // UNREACHABLE.  The effect form of `match` (`match await op() { … }`,
-      // async-actions-and-effects.md Stage 2) is frontend-only: it renders in a
-      // page / component / store action body and has no backend form.  Until
-      // M-T5.28 this arm was the ONLY thing standing between a domain-body
-      // `match` and the emitters, so a valid-looking source validated clean
-      // (`0 error(s), 0 warning(s)`) and then threw a stack trace on all five
-      // backends.  `loom.variant-match-placement` (phase ④,
-      // `src/language/validators/stmt-placement.ts`) now refuses that source
-      // before lowering, so reaching here means the validator was BYPASSED —
-      // a caller that generated without validating, or a check that regressed.
-      //
-      // Kept as an assertion rather than deleted or softened to a silent skip:
-      // a skip would drop the statement's effects on the floor, which is the
-      // failure mode the whole mission exists to remove.  The `default` arm
-      // below keeps the switch exhaustive the same way it was before.
-      throw new Error(
-        `internal: a 'variant-match' statement reached the ${target.backendName} statement renderer; ` +
-          `loom.variant-match-placement refuses this source at phase ④, so the validator was bypassed`,
-      );
-    }
+    case "variant-match":
+      return renderVariantMatch(s, target, ix, counter);
     default: {
       // A new `StmtIR.kind` with no arm is a COMPILE error here (and in every
       // `StmtTarget` leaf table), exactly as it was before this arm existed.
@@ -224,4 +262,68 @@ function renderStmt(s: StmtIR, target: StmtTarget, ix: StmtIndex, counter: StmtC
       throw new Error(`internal: unhandled StmtIR kind ${JSON.stringify(unreachable)}`);
     }
   }
+}
+
+/** A statement `match`: a presence if/else over a `T?` subject, else a
+ *  dispatch over the union's variants.  Bodies render in source order (arms,
+ *  then `else`), so the temp counters stay unique across them. */
+function renderVariantMatch(
+  s: ByKind<"variant-match">,
+  target: StmtTarget,
+  ix: StmtIndex,
+  counter: StmtCounter,
+): string {
+  const body = (stmts: readonly StmtIR[]) => renderStmtChunks(stmts, target, counter).join("\n");
+  if (s.subjectShape === "absence") {
+    // The `T` arm runs on present; the `none` arm (an `error` variant cannot
+    // occur on a `T?`) on absent; `else` fills whichever side no arm names.
+    const isAbsentArm = (a: (typeof s.arms)[number]) => a.varType.kind === "none" || a.isError;
+    const presentArm = s.arms.find((a) => !isAbsentArm(a));
+    const absentArm = s.arms.find(isAbsentArm);
+    const present = presentArm ? body(presentArm.body) : undefined;
+    const absent = absentArm ? body(absentArm.body) : undefined;
+    const otherwise = s.elseBody ? body(s.elseBody) : undefined;
+    // An absent side with nothing to run renders no `else` at all.
+    const onAbsent = absent ?? otherwise;
+    return target.presenceMatch(
+      s,
+      ix,
+      present ?? otherwise,
+      onAbsent === "" ? undefined : onAbsent,
+    );
+  }
+  const arms = s.arms.map(
+    (a): RenderedStmtArm => ({
+      tag: variantTag(a.varType),
+      variantTypeName:
+        a.varType.kind === "entity" || a.varType.kind === "valueobject" || a.varType.kind === "enum"
+          ? a.varType.name
+          : variantTag(a.varType),
+      ...(a.binding && readsBinding(a.body, a.binding) ? { binding: a.binding } : {}),
+      scalar: isScalarVariant(a.varType),
+      isError: a.isError ?? false,
+      body: body(a.body),
+      returns: a.body.at(-1)?.kind === "return",
+    }),
+  );
+  const variants = s.subjectType?.kind === "union" ? s.subjectType.variants : [];
+  const named = new Set(s.arms.map((a) => typeKey(a.varType)));
+  return target.variantMatch(s, ix, {
+    unionName: variants.length > 0 ? unionInstanceName(variants) : "",
+    arms,
+    ...(s.elseBody ? { else: body(s.elseBody) } : {}),
+    elseReturns: s.elseBody?.at(-1)?.kind === "return",
+    exhaustive: variants.length > 0 && variants.every((v) => named.has(typeKey(v))),
+  });
+}
+
+/** Whether any statement in `body` reads the arm binding `name`. */
+function readsBinding(body: readonly StmtIR[], name: string): boolean {
+  let found = false;
+  for (const st of body) {
+    walkStmtExprsDeep(st, (e) => {
+      if (e.kind === "ref" && e.refKind === "match-binding" && e.name === name) found = true;
+    });
+  }
+  return found;
 }

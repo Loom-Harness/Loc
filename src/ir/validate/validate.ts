@@ -19,6 +19,7 @@ import { validateCrudishHardDelete } from "./checks/crudish-hard-delete-checks.j
 import { validateCustomDesignPacks } from "./checks/design-pack-checks.js";
 import type { LoomDiagnostic } from "./checks/diagnostic.js";
 import { validateDomainServices } from "./checks/domain-service-checks.js";
+import { validateElixirMatchStatements } from "./checks/elixir-match-stmt-checks.js";
 import { validateEntityPartParams } from "./checks/entity-part-param-checks.js";
 import { validateIfStatementPlacement } from "./checks/if-stmt-checks.js";
 import { validateIndexSuggestions } from "./checks/index-suggestion-checks.js";
@@ -442,6 +443,7 @@ export function validateLoomModel(
   // elixir-hosted context and every ui body are refused here rather than
   // silently dropped by an emitter.
   validateIfStatementPlacement(loom, diags);
+  validateElixirMatchStatements(loom, diags);
   return dropCascadedWarnings(diags);
 }
 

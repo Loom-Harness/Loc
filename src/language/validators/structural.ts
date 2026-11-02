@@ -44,6 +44,7 @@ import {
   isWorkflowCreateDecl,
   type WorkflowCreateDecl,
 } from "../generated/ast.js";
+import { inMatchArm } from "../handler-return.js";
 import {
   envForNode,
   isAssignable,
@@ -410,7 +411,12 @@ function checkWorkflowCreateReturn(c: WorkflowCreateDecl, accept: ValidationAcce
     if (!isReturnStmt(n) || n === last) continue;
     accept(
       "error",
-      diagMessage("loom.workflow-return-not-last", { workflow: wfName, create: label }),
+      inMatchArm(n)
+        ? diagMessage("loom.workflow-return-not-last#match-arm", {
+            workflow: wfName,
+            create: label,
+          })
+        : diagMessage("loom.workflow-return-not-last", { workflow: wfName, create: label }),
       { node: n, code: "loom.workflow-return-not-last" },
     );
   }

@@ -17,8 +17,8 @@ import type { StmtIR } from "../../../src/ir/types/loom-ir.js";
 // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/generator-code-review-2026-08-17.md).
 //
 // Two things are gated:
-//   1. COVERAGE — every `StmtIR` kind is either a `StmtTarget` method or the
-//      spine's `variant-match` guard.  The exhaustive `switch` + the interface
+//   1. COVERAGE — every `StmtIR` kind is a `StmtTarget` method.  The
+//      exhaustive `switch` + the interface
 //      already make a new kind a COMPILE error in `src/`, but `test/` is not in
 //      the `tsc -b` project, so this reads both source files and pins the sets
 //      textually: a new kind that nobody wired fails here even if someone
@@ -54,34 +54,18 @@ function stmtTargetKinds(): string[] {
 }
 
 describe("StmtTarget — exhaustive StmtIR kind coverage", () => {
-  it("every StmtIR kind is a target method, except the frontend-only variant-match", () => {
+  it("every StmtIR kind is a target method", () => {
     const irKinds = stmtIrKinds();
     expect(irKinds.length).toBeGreaterThan(5); // the slice actually found the union
-    const covered = new Set([...stmtTargetKinds(), "variant-match"]);
+    const covered = new Set(stmtTargetKinds());
     const missing = irKinds.filter((k) => !covered.has(k));
-    expect(
-      missing,
-      "a new StmtIR kind needs a StmtTarget method (or an explicit guard in renderStmt)",
-    ).toEqual([]);
+    expect(missing, "a new StmtIR kind needs a StmtTarget method").toEqual([]);
   });
 
   it("declares no target method for a kind the IR no longer has", () => {
     const irKinds = new Set(stmtIrKinds());
     const orphaned = stmtTargetKinds().filter((k) => !irKinds.has(k));
     expect(orphaned, "StmtTarget method for a removed StmtIR kind").toEqual([]);
-  });
-
-  it("dispatches the shared spine's variant-match guard, naming the backend", () => {
-    // M-T5.28 turned this from the ONLY thing standing between a domain-body
-    // `match` and the emitters into an internal-invariant assertion: phase ④'s
-    // `loom.variant-match-placement` now refuses that source, so reaching here
-    // means the validator was bypassed.  The guard still THROWS (a silent skip
-    // would drop the statement's effects), still names the backend, and now
-    // names the code whose absence let the statement through.
-    const { target } = recordingTarget("positional");
-    expect(() => renderStmtsWith([stmt("variant-match")], target)).toThrow(
-      /'variant-match' statement reached the MOCK statement renderer; loom\.variant-match-placement/,
-    );
   });
 });
 
@@ -123,6 +107,18 @@ function recordingTarget(indexing: StmtTarget["indexing"]): {
       return elseSrc === undefined
         ? `if#${ix.pre}/${ix.prov}[${thenSrc}]`
         : `if#${ix.pre}/${ix.prov}[${thenSrc}][${elseSrc}]`;
+    },
+    variantMatch: (_s, ix, m) => {
+      calls.push({ kind: "variant-match", ix });
+      const arms = m.arms.map(
+        (a) => `${a.tag}${a.binding ? ` ${a.binding}` : ""}${a.scalar ? "!" : ""}[${a.body}]`,
+      );
+      const tail = m.else === undefined ? "" : `else[${m.else}]`;
+      return `match#${ix.pre}/${ix.prov}<${m.unionName}>${arms.join("")}${tail}${m.exhaustive ? "*" : ""}`;
+    },
+    presenceMatch: (_s, ix, present, absent) => {
+      calls.push({ kind: "presence-match", ix });
+      return `present#${ix.pre}/${ix.prov}[${present ?? "-"}][${absent ?? "-"}]`;
     },
   };
   return { target, calls };
@@ -288,5 +284,90 @@ describe("renderStmtsWith — `if` branch recursion", () => {
     );
     const pres = calls.filter((c) => c.kind === "precondition").map((c) => c.ix.pre);
     expect(new Set(pres).size, `duplicate temp indices: ${pres.join(",")}`).toBe(pres.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `variant-match` — the statement `match`, the other nesting kind.
+// ---------------------------------------------------------------------------
+
+const RC = { kind: "entity", name: "Receipt" } as const;
+const REJ = { kind: "entity", name: "Rejected" } as const;
+const STR = { kind: "primitive", name: "string" } as const;
+const readOf = (name: string) =>
+  stmt("assign", {
+    value: { kind: "ref", name, refKind: "match-binding", type: STR },
+  });
+
+describe("renderStmtsWith — `variant-match` dispatch", () => {
+  it("hands a tagged match its arms pre-rendered, with tag, binding and scalar flag", () => {
+    const { target, calls } = recordingTarget("positional");
+    const out = renderStmtsWith(
+      [
+        stmt("variant-match", {
+          subject: { kind: "ref", name: "r", refKind: "let" },
+          subjectType: { kind: "union", variants: [STR, REJ] },
+          arms: [
+            { varType: STR, binding: "s", body: [readOf("s")] },
+            { varType: REJ, binding: "e", isError: true, body: [stmt("emit", { fields: [] })] },
+          ],
+        }),
+      ],
+      target,
+    );
+    // Arm bodies render first, through the same table; the arm read by its
+    // body keeps its binding, the one whose body never reads it drops it.
+    expect(calls.map((c) => c.kind)).toEqual(["assign", "emit", "variant-match"]);
+    expect(out).toBe("match#0/0<stringOrRejected>string s![assign#1/1]Rejected[emit#2/2]*");
+  });
+
+  it("passes the else body and marks a match that leaves a variant out", () => {
+    const { target } = recordingTarget("positional");
+    const out = renderStmtsWith(
+      [
+        stmt("variant-match", {
+          subject: { kind: "ref", name: "r", refKind: "let" },
+          subjectType: { kind: "union", variants: [RC, REJ] },
+          arms: [{ varType: RC, body: [stmt("emit")] }],
+          elseBody: [stmt("return")],
+        }),
+      ],
+      target,
+    );
+    expect(out).toBe("match#0/0<ReceiptOrRejected>Receipt[emit#1/1]else[return#2/2]");
+  });
+
+  it("renders a `T?` subject as a presence split, the else filling the side no arm names", () => {
+    const { target, calls } = recordingTarget("positional");
+    const out = renderStmtsWith(
+      [
+        stmt("variant-match", {
+          subject: { kind: "ref", name: "n", refKind: "param" },
+          subjectType: { kind: "optional", inner: STR },
+          subjectShape: "absence",
+          arms: [{ varType: STR, binding: "s", body: [stmt("assign")] }],
+          elseBody: [stmt("emit")],
+        }),
+      ],
+      target,
+    );
+    expect(calls.map((c) => c.kind)).toEqual(["assign", "emit", "presence-match"]);
+    expect(out).toBe("present#0/0[assign#1/1][emit#2/2]");
+  });
+
+  it("passes `undefined` for a presence side nothing covers", () => {
+    const { target } = recordingTarget("positional");
+    const out = renderStmtsWith(
+      [
+        stmt("variant-match", {
+          subject: { kind: "ref", name: "n", refKind: "param" },
+          subjectType: { kind: "optional", inner: STR },
+          subjectShape: "absence",
+          arms: [{ varType: STR, body: [stmt("assign")] }],
+        }),
+      ],
+      target,
+    );
+    expect(out).toBe("present#0/0[assign#1/1][-]");
   });
 });

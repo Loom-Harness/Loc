@@ -15,7 +15,7 @@ const PROV = {
   record: prov("record"),
 } as const;
 
-import { renderPyExpr, renderPyNegatedGuard } from "./render-expr.js";
+import { renderPyExpr, renderPyNegatedGuard, renderPyType } from "./render-expr.js";
 
 // ---------------------------------------------------------------------------
 // Statement LEAF TABLE for the Python backend.  The 11-kind `StmtIR` dispatch,
@@ -262,6 +262,55 @@ function pyStmtTarget(i: string, ctx: PyStmtCtx): StmtTarget {
       const head = [`${i}if ${renderPyExpr(s.cond)}:`, body(thenSrc)].join("\n");
       if (elseSrc === undefined) return head;
       return [head, `${i}else:`, body(elseSrc)].join("\n");
+    },
+
+    // `if <subject>["type"] == "<Tag>":` / `elif …` / `else:` — a union value
+    // is the tagged dict, so each arm probes its `type` and binds the dict (a
+    // scalar variant binds its `"value"`, cast to the variant's type).  A binding is declared only when the
+    // arm reads it (ruff F841), and an arm with nothing to run gets a `pass`.
+    variantMatch: (s, _ix, m) => {
+      const subject = renderPyExpr(s.subject);
+      const suite = (decl: string | undefined, src: string): string => {
+        const lines = [
+          ...(decl ? [`${sub}${decl}`] : []),
+          ...(src === "" ? [] : [indentNested(src, "    ")]),
+        ];
+        return lines.length > 0 ? lines.join("\n") : `${sub}pass`;
+      };
+      const out: string[] = [];
+      // An exhaustive match with no `else` takes its last arm unconditionally:
+      // no other variant can arrive, and mypy then sees every path of a body
+      // whose arms all `return` end in one.
+      const tailArm = m.exhaustive && m.else === undefined && m.arms.length > 1;
+      m.arms.forEach((a, n) => {
+        const kw = n === 0 ? "if" : "elif";
+        out.push(
+          tailArm && n === m.arms.length - 1
+            ? `${i}else:`
+            : `${i}${kw} ${subject}["type"] == ${JSON.stringify(a.tag)}:`,
+        );
+        // The tagged dict is `dict[str, object]`, so a scalar's `"value"` is
+        // cast to the variant's type for mypy.
+        const decl = a.binding
+          ? `${a.binding} = ${a.scalar ? `${PY.cast}(${renderPyType(s.arms[n]!.varType)}, ${subject}["value"])` : subject}`
+          : undefined;
+        out.push(suite(decl, a.body));
+      });
+      if (m.else !== undefined) {
+        if (out.length === 0) return suite(undefined, m.else).replace(/^ {4}/gm, "");
+        out.push(`${i}else:`, suite(undefined, m.else));
+      }
+      return out.join("\n");
+    },
+
+    // `if <subject> is not None:` / `else:` — the arm bindings read the subject
+    // itself.
+    presenceMatch: (s, _ix, present, absent) => {
+      const body = (src: string | undefined): string =>
+        !src ? `${sub}pass` : indentNested(src, "    ");
+      const head = [`${i}if ${renderPyExpr(s.subject)} is not None:`, body(present)].join("\n");
+      if (absent === undefined) return head;
+      return [head, `${i}else:`, body(absent)].join("\n");
     },
 
     return: (s) => {

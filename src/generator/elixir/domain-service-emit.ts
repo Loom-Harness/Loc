@@ -522,8 +522,16 @@ function renderStatement(
     case "add":
     case "remove":
     case "emit":
-    case "variant-match":
       return `    # unreachable: ${s.kind} rejected by the domain-service validator floor`;
+    case "variant-match":
+      // A statement `match` is legal in a domain-service body, but has no
+      // Phoenix rendering yet: `loom.elixir-match-stmt-unsupported` refuses it
+      // at phase ⑦, so reaching here means the validator was bypassed.  A
+      // comment would compile and drop the statement's effects silently.
+      throw new Error(
+        "internal: a statement 'match' reached the Elixir domain-service renderer; " +
+          "loom.elixir-match-stmt-unsupported refuses this source at phase ⑦, so the validator was bypassed",
+      );
     case "if":
       // M-T6.59 — a domain-service body is a TAIL-VALUE body (nothing is
       // appended after `bodyLines`), so the `if` renders as a plain

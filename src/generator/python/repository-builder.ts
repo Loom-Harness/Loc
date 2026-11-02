@@ -52,6 +52,7 @@ import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
+import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
@@ -653,8 +654,10 @@ function inlineRunBypassesByRetrieval(
   aggName: string,
 ): Map<string, FilterBypass> {
   const acc = new Map<string, { bypassAll: boolean; caps: Set<string> }>();
+  // Every statement, nested ones included (a loop body, an `if let` branch, a
+  // `match` arm).
   const collect = (stmts: readonly WorkflowStmtIR[]): void => {
-    for (const s of stmts) {
+    for (const s of stmts.flatMap(allStmts)) {
       if (
         s.kind === "repo-run" &&
         s.aggName === aggName &&
@@ -664,11 +667,6 @@ function inlineRunBypassesByRetrieval(
         if (s.bypassAll) cur.bypassAll = true;
         for (const c of s.bypassCaps ?? []) cur.caps.add(c);
         acc.set(s.retrievalName, cur);
-      }
-      if (s.kind === "for-each") collect(s.body);
-      if (s.kind === "if-let") {
-        collect(s.thenBody);
-        collect(s.elseBody ?? []);
       }
     }
   };
@@ -1921,4 +1919,11 @@ export function partWireMethod(
     wireProjection(p, "e", ctx).map((pair) => `            ${pair},`),
     "        }",
   );
+}
+
+/** `root` and every workflow statement nested inside it. */
+function allStmts(root: WorkflowStmtIR): WorkflowStmtIR[] {
+  const out: WorkflowStmtIR[] = [];
+  walkWorkflowStmtsDeep(root, (s) => out.push(s));
+  return out;
 }

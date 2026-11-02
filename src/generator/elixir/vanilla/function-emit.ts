@@ -132,7 +132,7 @@ function renderPureBlock(stmts: StmtIR[], rc: RenderCtx): string[] {
             "loom.function-block-impure refuses it at validation.",
         );
       case "variant-match":
-        // The effect form of `match` is frontend-only: `loom.variant-match-placement`.
+        // A statement `match` is refused in a `function` body: `loom.variant-match-placement`.
         throw new Error(
           "internal: a 'variant-match' statement reached the vanilla function emitter; " +
             "loom.variant-match-placement refuses it at validation.",

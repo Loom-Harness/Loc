@@ -2056,6 +2056,39 @@ export type WorkflowStmtIR =
       origin?: OriginRef;
     }
   | {
+      // `match <subject> { V b => { … } … else => { … } }` used for its
+      // effects in a workflow / handler body — the statement twin of the
+      // `match` ExprIR.  The subject is a value the body already holds (a
+      // param, a `let`, a read's `T?` result); each arm runs a statement block
+      // with `binding` narrowed to its variant.  A `T?` subject is a presence
+      // check (`subjectShape: "absence"`): the `T` arm runs on present, with
+      // its binding an alias of the subject, and the `none` arm (or `else`)
+      // on absent.
+      //
+      // Like `if-let`, each branch saves what it creates or mutates at its
+      // own end (`savesInArm` / `savesInElse`): a conditional branch cannot
+      // hoist its saves to the flat `savesAtExit`.
+      kind: "variant-match";
+      subject: ExprIR;
+      /** Resolved type of the subject — an `or`-union, or `T?`. */
+      subjectType?: TypeIR;
+      /** `"absence"` when the subject is `T?` (or carries the absence runtime
+       *  shape): the backends render a presence check, not a discriminator
+       *  probe. */
+      subjectShape?: "absence";
+      arms: {
+        varType: TypeIR;
+        binding?: string;
+        /** True when the variant is an `error` record. */
+        isError: boolean;
+        body: WorkflowStmtIR[];
+        savesInArm: { name: string; aggName: string; repoName: string }[];
+      }[];
+      elseBody?: WorkflowStmtIR[];
+      savesInElse: { name: string; aggName: string; repoName: string }[];
+      origin?: OriginRef;
+    }
+  | {
       // `field := value` — assignment to one of the workflow's OWN state
       // fields inside a `create`/`on` body (workflow.md, "own-state
       // mutation").  The `target` PathIR resolves to a `this-prop`
@@ -3548,22 +3581,29 @@ export type StmtIR =
    */
   | { kind: "expression"; expr: ExprIR; origin?: OriginRef }
   /**
-   * Effect-form variant `match` (async-actions-and-effects.md Stage 2) — a
-   * `match SUBJECT { Variant b => <stmts> }` used for its side effects, where
-   * each arm runs a statement block rather than yielding a value (the statement
-   * twin of the `match` ExprIR).  Emitted for `match await op() { … }` in a
-   * frontend action body: the `subject` is the awaited remote call (a
-   * `call`/`method-call` ExprIR with `awaited: true`) whose `or`-union result is
-   * discriminated; the frontend walker renders the async envelope (await the
+   * Effect-form variant `match` — a `match SUBJECT { Variant b => <stmts> }`
+   * used for its side effects, where each arm runs a statement block rather
+   * than yielding a value (the statement twin of the `match` ExprIR).
+   *
+   * Two homes.  In a frontend action body the subject is usually an awaited
+   * remote call (`match await op() { … }`, a `call`/`method-call` ExprIR with
+   * `awaited: true`), and the walker renders the async envelope (await the
    * mutation, reify the thrown error into the error variant) + a discriminant
-   * switch.  Gated to frontend action/component bodies — backends never receive
-   * it (a backend render-stmt hits its default arm).
+   * switch.  In an operation / `create` / `destroy` / domain-service body the
+   * subject is a value the body already holds, and the shared `_stmt/target.ts`
+   * spine hands each backend the rendered arm bodies.  A `T?` subject is a
+   * presence check (`subjectShape: "absence"`): its arm bindings are aliased
+   * to the subject at lowering, so the backends render an if/else.
    */
   | {
       kind: "variant-match";
       subject: ExprIR;
-      /** Resolved `or`-union TypeIR of the subject — the variant set. */
+      /** Resolved TypeIR of the subject — an `or`-union (the variant set), or
+       *  `T?`. */
       subjectType?: TypeIR;
+      /** `"absence"` when the subject is `T?`: a presence check, not a
+       *  discriminator probe (mirrors the `match` ExprIR's field). */
+      subjectShape?: "absence";
       arms: {
         varType: TypeIR;
         binding?: string;
@@ -3576,11 +3616,11 @@ export type StmtIR =
       origin?: OriginRef;
     }
   /**
-   * `if <cond> { … } else { … }` — the plain boolean conditional.  The one
-   * NESTING statement a backend body can contain (`variant-match` nests too
-   * but is frontend-only), so the shared `_stmt/target.ts` spine recurses into
-   * the two branches and hands each backend the rendered blocks, exactly as
-   * `renderWorkflowStmts` does for `for-each` / `if-let`.
+   * `if <cond> { … } else { … }` — the plain boolean conditional.  One of the
+   * two NESTING statements a backend body can contain (with `variant-match`),
+   * so the shared `_stmt/target.ts` spine recurses into the two branches and
+   * hands each backend the rendered blocks, exactly as `renderWorkflowStmts`
+   * does for `for-each` / `if-let`.
    *
    * `else if` chains lower to a single-statement `elseBody` holding the next
    * `if` — there is no separate else-if node, so every consumer sees one

@@ -1,5 +1,6 @@
 import { notFoundStmtDetail } from "../../ir/enrich/wire-policy.js";
 import { createInputFields, createOmissionValue } from "../../ir/enrich/wire-projection.js";
+import { isScalarVariant, unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
 import {
   type EnrichedBoundedContextIR,
   type EventSubscriptionIR,
@@ -57,7 +58,13 @@ import {
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../_workflow/create-state.js";
-import { renderWorkflowStmtChunks, type WorkflowStmtTarget } from "../_workflow/stmt-target.js";
+import {
+  nestedSaves,
+  type PresenceSide,
+  presenceSides,
+  renderWorkflowStmtChunks,
+  type WorkflowStmtTarget,
+} from "../_workflow/stmt-target.js";
 import { dotnetResourceAdapterFor, resourceClassName } from "./adapters/resource-clients.js";
 import {
   collectWireUsings,
@@ -551,13 +558,10 @@ function analyseStmts(
       hasEmit = true;
       return;
     }
-    if (st.kind === "for-each") {
-      for (const sv of st.savesPerIteration) repos.set(sv.repoName, sv.aggName);
-    } else if (st.kind === "if-let") {
-      repos.set(st.repoName, st.aggName);
-      for (const sv of st.savesInThen) repos.set(sv.repoName, sv.aggName);
-      for (const sv of st.savesInElse) repos.set(sv.repoName, sv.aggName);
-    }
+    // The if-let single-row lookup reads through its repo; every nesting
+    // statement saves through the repos its branches stage.
+    if (st.kind === "if-let") repos.set(st.repoName, st.aggName);
+    for (const sv of nestedSaves(st)) repos.set(sv.repoName, sv.aggName);
     walkWorkflowStmtChildren(st, { workflowStmt: walk });
   };
   for (const st of statements) walk(st);
@@ -637,14 +641,17 @@ function renderEventReactorHandler(
   // pipeline, so ExecutionContextBehavior has already opened its frame — the
   // staged row's correlation / scope / parent ids resolve from RequestContext.
   const auditAggs = new Set<string>();
+  // Every op-call in the body, nested ones included (a loop body, an `if let`
+  // branch, a `match` arm): an audited one injects the audit writer.
   const collectAuditAggs = (sts: WorkflowStmtIR[]): void => {
-    for (const s of sts) {
-      if (s.kind === "op-call") {
+    for (const root of sts) {
+      walkWorkflowStmtsDeep(root, (s) => {
+        if (s.kind !== "op-call") return;
         const o = ctx.aggregates
           .find((a) => a.name === s.aggName)
           ?.operations.find((x) => x.name === s.op);
         if (o?.audited && !o.extern) auditAggs.add(s.aggName);
-      } else if (s.kind === "for-each") collectAuditAggs(s.body);
+      });
     }
   };
   collectAuditAggs(statements);
@@ -1062,14 +1069,17 @@ function renderMergedEventSourcedHandler(
     ctorAssigns.push(`${fieldName} = ${fieldName.replace(/^_/, "")}`);
   }
   const auditAggs = new Set<string>();
+  // Every op-call in the body, nested ones included (a loop body, an `if let`
+  // branch, a `match` arm): an audited one injects the audit writer.
   const collectAuditAggs = (sts: WorkflowStmtIR[]): void => {
-    for (const s of sts) {
-      if (s.kind === "op-call") {
+    for (const root of sts) {
+      walkWorkflowStmtsDeep(root, (s) => {
+        if (s.kind !== "op-call") return;
         const o = ctx.aggregates
           .find((a) => a.name === s.aggName)
           ?.operations.find((x) => x.name === s.op);
         if (o?.audited && !o.extern) auditAggs.add(s.aggName);
-      } else if (s.kind === "for-each") collectAuditAggs(s.body);
+      });
     }
   };
   collectAuditAggs(mergedStatements);
@@ -1237,17 +1247,12 @@ function analyseWorkflow(wf: WorkflowIR): WorkflowUsage {
       hasEmit = true;
       return;
     }
-    if (st.kind === "for-each") {
-      for (const sv of st.savesPerIteration) repos.set(sv.repoName, sv.aggName);
-    } else if (st.kind === "if-let") {
-      // The if-let single-row lookup dereferences its repo (`Run…Async`) and
-      // saves per branch — register the repo + its branch saves and recurse
-      // both branches, else the handler references `_<repo>` without
-      // injecting it (CS0103). Mirrors `collectReadingServices`.
-      repos.set(st.repoName, st.aggName);
-      for (const sv of st.savesInThen) repos.set(sv.repoName, sv.aggName);
-      for (const sv of st.savesInElse) repos.set(sv.repoName, sv.aggName);
-    }
+    // The if-let single-row lookup dereferences its repo (`Run…Async`), and
+    // every nesting statement saves per branch — register the repo + the
+    // branch saves, else the handler references `_<repo>` without injecting it
+    // (CS0103). Mirrors `collectReadingServices`.
+    if (st.kind === "if-let") repos.set(st.repoName, st.aggName);
+    for (const sv of nestedSaves(st)) repos.set(sv.repoName, sv.aggName);
     walkWorkflowStmtChildren(st, { workflowStmt: walk });
   };
   for (const st of wf.statements) walk(st);
@@ -1464,14 +1469,17 @@ function renderHandler(
   // projection (`new <Agg>Response(...)`) need, when any audited op-call is
   // present.  Provenance needs nothing here — it already flushes inside SaveAsync.
   const auditAggs = new Set<string>();
+  // Every op-call in the body, nested ones included (a loop body, an `if let`
+  // branch, a `match` arm): an audited one injects the audit writer.
   const collectAuditAggs = (sts: WorkflowStmtIR[]): void => {
-    for (const s of sts) {
-      if (s.kind === "op-call") {
+    for (const root of sts) {
+      walkWorkflowStmtsDeep(root, (s) => {
+        if (s.kind !== "op-call") return;
         const o = ctx.aggregates
           .find((a) => a.name === s.aggName)
           ?.operations.find((x) => x.name === s.op);
         if (o?.audited && !o.extern) auditAggs.add(s.aggName);
-      } else if (s.kind === "for-each") collectAuditAggs(s.body);
+      });
     }
   };
   collectAuditAggs(wf.statements);
@@ -2132,6 +2140,91 @@ export function csWorkflowStmtTarget(
       } else {
         out.push(`${indent}}`);
       }
+      return out;
+    },
+    variantMatch: (st, indent, armLines, elseLines) => {
+      // A `T?` subject: `if (x is not null) { var b = x; … } else { … }`.  A
+      // tagged union: a switch STATEMENT over the `<Union>_<Tag>` carrier
+      // records — each section its own scope, so two arms may bind one name
+      // (CS0128 otherwise).  A scalar variant's binding reads its carrier's
+      // `Value`.  Each branch saves what it dirtied at its own end, as an
+      // `if let` branch does.
+      const subject = renderArg(st.subject);
+      const savesAt = (pad: string, saves: readonly { name: string; repoName: string }[]) =>
+        saves.map((sv) => {
+          const f = `_${sv.repoName.charAt(0).toLowerCase() + sv.repoName.slice(1)}`;
+          return `${pad}await ${f}.SaveAsync(${sv.name}, cancellationToken);`;
+        });
+      if (st.subjectShape === "absence") {
+        const inner = `${indent}    `;
+        const { present, absent } = presenceSides(st, armLines, elseLines);
+        const lines = (side: PresenceSide | undefined) =>
+          side
+            ? [
+                ...(side.binding
+                  ? [`${inner}var ${escapeCsharpIdent(side.binding)} = ${subject};`]
+                  : []),
+                ...side.lines,
+                ...savesAt(inner, side.saves),
+              ]
+            : [];
+        const out = [`${indent}if (${subject} is not null)`, `${indent}{`, ...lines(present)];
+        if (absent) out.push(`${indent}}`, `${indent}else`, `${indent}{`, ...lines(absent));
+        out.push(`${indent}}`);
+        return out;
+      }
+      const unionName =
+        st.subjectType?.kind === "union" ? unionInstanceName(st.subjectType.variants) : "";
+      const shift = (ls: readonly string[]) => ls.map((l) => (l.length > 0 ? `    ${l}` : l));
+      const inner = `${indent}        `;
+      const section = (
+        label: string,
+        decl: string | undefined,
+        body: readonly string[],
+        saves: readonly { name: string; repoName: string }[],
+        ends: boolean,
+      ): string[] => [
+        `${indent}    ${label}`,
+        `${indent}    {`,
+        ...(decl ? [`${inner}${decl}`] : []),
+        ...shift(body),
+        ...savesAt(inner, saves),
+        ...(ends ? [] : [`${inner}break;`]),
+        `${indent}    }`,
+      ];
+      const out = [`${indent}switch (${subject})`, `${indent}{`];
+      st.arms.forEach((arm, i) => {
+        const carrier = `${unionName}_${variantTag(arm.varType)}`;
+        const ends = arm.body.at(-1)?.kind === "not-found";
+        if (!arm.binding) {
+          out.push(...section(`case ${carrier}:`, undefined, armLines[i]!, arm.savesInArm, ends));
+        } else if (!isScalarVariant(arm.varType)) {
+          out.push(
+            ...section(
+              `case ${carrier} ${arm.binding}:`,
+              undefined,
+              armLines[i]!,
+              arm.savesInArm,
+              ends,
+            ),
+          );
+        } else {
+          out.push(
+            ...section(
+              `case ${carrier} __${arm.binding}Carrier:`,
+              `var ${arm.binding} = __${arm.binding}Carrier.Value;`,
+              armLines[i]!,
+              arm.savesInArm,
+              ends,
+            ),
+          );
+        }
+      });
+      if (st.elseBody) {
+        const ends = st.elseBody.at(-1)?.kind === "not-found";
+        out.push(...section("default:", undefined, elseLines, st.savesInElse, ends));
+      }
+      out.push(`${indent}}`);
       return out;
     },
     // 4c: bare resource-op statement (`files.put(k, v)`) → awaited async

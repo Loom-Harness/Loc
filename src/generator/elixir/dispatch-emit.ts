@@ -1373,6 +1373,8 @@ function renderStmt(
       ];
       return [{ kind: "with-clause", text: lines.join("\n") }];
     }
+    case "variant-match":
+      throw new Error(MATCH_STMT_BYPASSED);
     default: {
       const _exhaustive: never = st;
       throw new Error(
@@ -1526,3 +1528,11 @@ function renderReactorNestedBody(
     `end`,
   ];
 }
+
+/** The statement `match` has no Phoenix workflow rendering yet; phase ⑦
+ *  refuses it on a body an Elixir deployable hosts
+ *  (`loom.elixir-match-stmt-unsupported`), so an emitter that meets one was
+ *  reached past the validator. */
+const MATCH_STMT_BYPASSED =
+  "internal: a statement 'match' reached the Elixir workflow renderer; " +
+  "loom.elixir-match-stmt-unsupported refuses this source at phase ⑦, so the validator was bypassed";

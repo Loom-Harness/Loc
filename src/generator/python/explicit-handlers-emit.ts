@@ -75,7 +75,7 @@ import {
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { hasMarkers } from "../_imports/symbol.js";
-import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
+import { nestedSaves, renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { paramPyType, requestPyType } from "./emit/http-models.js";
 import { withFieldConstraint } from "./emit/wire-constraints.js";
 import { type PyRenderContext, renderPyExpr, renderPyType } from "./render-expr.js";
@@ -236,11 +236,7 @@ function collectRepos(h: Handler): Map<string, string> {
     }
     if (s.kind === "if-let") repos.set(s.repoName, s.aggName);
     walkWorkflowStmtChildren(s, { workflowStmt: walk });
-    if (s.kind === "for-each") {
-      for (const sv of s.savesPerIteration) repos.set(sv.repoName, sv.aggName);
-    } else if (s.kind === "if-let") {
-      for (const sv of [...s.savesInThen, ...s.savesInElse]) repos.set(sv.repoName, sv.aggName);
-    }
+    for (const sv of nestedSaves(s)) repos.set(sv.repoName, sv.aggName);
   };
   for (const s of h.statements) walk(s);
   for (const save of h.savesAtExit) repos.set(save.repoName, save.aggName);

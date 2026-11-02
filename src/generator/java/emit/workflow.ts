@@ -1,5 +1,11 @@
 import { notFoundStmtDetail } from "../../../ir/enrich/wire-policy.js";
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
+import {
+  isScalarVariant,
+  typeKey,
+  unionInstanceName,
+  variantTag,
+} from "../../../ir/stdlib/unions.js";
 import type {
   EnrichedBoundedContextIR,
   ExprIR,
@@ -39,6 +45,8 @@ import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../../_workflow/create-state.js";
 import {
   collectUnionFindLets,
+  type PresenceSide,
+  presenceSides,
   renderWorkflowStmtChunks,
   type WorkflowStmtTarget,
 } from "../../_workflow/stmt-target.js";
@@ -231,6 +239,10 @@ function reposInBodies(
             // The retrieval itself reads through the repo (`Repo.find(...)`).
             aggs.add(s.aggName);
             for (const sv of s.savesInThen) aggs.add(sv.aggName);
+            for (const sv of s.savesInElse) aggs.add(sv.aggName);
+            break;
+          case "variant-match":
+            for (const arm of s.arms) for (const sv of arm.savesInArm) aggs.add(sv.aggName);
             for (const sv of s.savesInElse) aggs.add(sv.aggName);
             break;
           case "precondition":
@@ -529,6 +541,72 @@ export function javaWorkflowStmtTarget(
       }
       return out;
     },
+    variantMatch: (s, indent, armLines, elseLines) => {
+      // A `T?` subject: `if (x != null) { var b = x; … } else { … }`.  A tagged
+      // union: an arrow switch over the sealed union's `<Union>_<Tag>` carrier
+      // records — each case its own block, so two arms may bind one name; a
+      // pattern needs a binder even when the arm reads none (`_` is
+      // preview-only on Java 21), a scalar variant's binding reads its
+      // carrier's `value()`, and a switch that leaves a variant out with no
+      // `else` gets an empty `default` (a pattern switch must be exhaustive).
+      // Each branch saves what it dirtied at its own end.
+      const subject = renderJavaExpr(s.subject, renderCtx);
+      const inner = `${indent}    `;
+      const savesAt = (pad: string, saves: readonly { name: string; aggName: string }[]) =>
+        saves.flatMap((sv) => saveLines(pad, sv));
+      if (s.subjectShape === "absence") {
+        const { present, absent } = presenceSides(s, armLines, elseLines);
+        const lines = (side: PresenceSide | undefined) =>
+          side
+            ? [
+                ...(side.binding ? [`${inner}var ${bound(side.binding)} = ${subject};`] : []),
+                ...side.lines,
+                ...savesAt(inner, side.saves),
+              ]
+            : [];
+        const out = [`${indent}if (${subject} != null) {`, ...lines(present)];
+        if (absent) out.push(`${indent}} else {`, ...lines(absent));
+        out.push(`${indent}}`);
+        return out;
+      }
+      const variants = s.subjectType?.kind === "union" ? s.subjectType.variants : [];
+      const unionName = unionInstanceName(variants);
+      const shift = (ls: readonly string[]) => ls.map((l) => (l.length > 0 ? `    ${l}` : l));
+      const caseInner = `${indent}        `;
+      const out = [`${indent}switch (${subject}) {`];
+      s.arms.forEach((arm, i) => {
+        const carrier = `${unionName}_${variantTag(arm.varType)}`;
+        const scalar = isScalarVariant(arm.varType);
+        const binder =
+          arm.binding && !scalar
+            ? jid(arm.binding)
+            : arm.binding
+              ? `${jid(arm.binding)}Carrier`
+              : `unusedArm${i}`;
+        out.push(
+          `${indent}    case ${carrier} ${binder} -> {`,
+          ...(arm.binding && scalar
+            ? [`${caseInner}var ${jid(arm.binding)} = ${binder}.value();`]
+            : []),
+          ...shift(armLines[i]!),
+          ...savesAt(caseInner, arm.savesInArm),
+          `${indent}    }`,
+        );
+      });
+      const named = new Set(s.arms.map((a) => typeKey(a.varType)));
+      if (s.elseBody) {
+        out.push(
+          `${indent}    default -> {`,
+          ...shift(elseLines),
+          ...savesAt(caseInner, s.savesInElse),
+          `${indent}    }`,
+        );
+      } else if (!variants.every((v) => named.has(typeKey(v)))) {
+        out.push(`${indent}    default -> { }`);
+      }
+      out.push(`${indent}}`);
+      return out;
+    },
     // Bare resource-op statement (`files.put(k, v)`) — the expression
     // renderer's `resource-op` arm dispatches through resourceClasses.
     resourceCall: (s, indent) => {
@@ -663,6 +741,13 @@ export function workflowBoundNames(bodies: readonly (readonly WorkflowStmtIR[])[
           case "for-each":
           case "if-let":
             out.add(s.var);
+            break;
+          // The present arm of a `T?` match declares its binding as a local; a
+          // tagged arm's binding is a pattern variable, not a `let`.
+          case "variant-match":
+            if (s.subjectShape === "absence") {
+              for (const arm of s.arms) if (arm.binding) out.add(arm.binding);
+            }
             break;
           case "repo-delete":
           case "op-call":

@@ -502,13 +502,19 @@ function collectMutationTargets(
     } else if (st.kind === "if-let") {
       collectMutationTargets(st.thenBody, saveResolver, opCallTargets, serviceMutated);
       collectMutationTargets(st.elseBody ?? [], saveResolver, opCallTargets, serviceMutated);
+    } else if (st.kind === "variant-match") {
+      for (const arm of st.arms) {
+        collectMutationTargets(arm.body, saveResolver, opCallTargets, serviceMutated);
+      }
+      collectMutationTargets(st.elseBody ?? [], saveResolver, opCallTargets, serviceMutated);
     }
   }
 }
 
 /** Compute the bindings to save for a statement list (the dirtiness
  *  rule): every `factory-let` always, every `repo-let` only when an
- *  op-call (at this level OR nested in a `for-each`/`if-let` body) targets it.
+ *  op-call (at this level OR nested in a `for-each` / `if-let` / `match` arm
+ *  body) targets it.
  *  When `loopVar` is supplied (a `for-each` body), the loop variable itself is
  *  saved if it is the target of any op-call in that body — the per-iteration
  *  save.  Top-level callers pass no loopVar; the result is the flat

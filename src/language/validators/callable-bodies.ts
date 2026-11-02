@@ -35,7 +35,7 @@ import {
   type Statement,
   type TypeRef,
 } from "../generated/ast.js";
-import { allowedHandlerReturns } from "../handler-return.js";
+import { allowedHandlerReturns, inMatchArm } from "../handler-return.js";
 import { envForNode, isAssignable, resolveTypeRef, typeOf, typeToString } from "../type-system.js";
 import type { Ty } from "../typing/ty.js";
 import { canPromoteLiteralTo, warnSensitivityDrop } from "./_shared.js";
@@ -162,10 +162,13 @@ function checkHandlerReturnPlacement(
   const allowed = allowedHandlerReturns(h.body);
   for (const n of AstUtils.streamAllContents(h)) {
     if (!isReturnStmt(n) || owningCallable(n) !== h || allowed.has(n)) continue;
-    accept("error", diagMessage("loom.handler-return-not-last", { label: callableLabel(h) }), {
-      node: n,
-      code: "loom.handler-return-not-last",
-    });
+    accept(
+      "error",
+      inMatchArm(n)
+        ? diagMessage("loom.handler-return-not-last#match-arm", { label: callableLabel(h) })
+        : diagMessage("loom.handler-return-not-last", { label: callableLabel(h) }),
+      { node: n, code: "loom.handler-return-not-last" },
+    );
   }
 }
 

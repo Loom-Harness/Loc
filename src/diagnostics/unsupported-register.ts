@@ -110,6 +110,22 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     mission: "#3333",
   },
   {
+    code: "loom.elixir-match-stmt-unsupported",
+    kind: "gap",
+    site: "src/ir/validate/checks/elixir-match-stmt-checks.ts:67",
+    what:
+      "the statement `match` (arms that run statements) in an operation / `create` / `destroy` / " +
+      "domain-service / workflow / handler body an elixir deployable hosts.  Node, .NET, Java " +
+      "and Python render it through the shared `_stmt/target.ts` / `_workflow/stmt-target.ts` " +
+      "spines; the Phoenix operation renderer threads a rebound `record` through a " +
+      "value-producing expression (the `if` statement's `record = if … do … end`) and a " +
+      "workflow body is a `with`-chain, so the statement needs a `case` form in both " +
+      "(`record = case subj do {:ok, b} -> …; record … end` beside `vanilla/if-stmt-emit.ts`, " +
+      "and a `case` clause beside the `if-let` arms of `workflow-execution-emit.ts`).  The " +
+      "emitters' `variant-match` arms throw behind this gate",
+    mission: "#3367",
+  },
+  {
     code: "loom.workflow-return-type-unsupported",
     kind: "scope",
     site: "src/language/validators/structural.ts:438",
@@ -742,7 +758,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.workflow-load-array-unsupported",
     kind: "scope",
-    site: "src/ir/validate/checks/workflow-checks.ts:1638",
+    site: "src/ir/validate/checks/workflow-checks.ts:1665",
     what: "workflow load of an array result — a `let` binds one row",
     mission: "#3376",
     verified: true,

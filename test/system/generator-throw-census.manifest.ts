@@ -261,10 +261,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/_stmt/target.ts
   "src/generator/_stmt/target.ts#renderStmt": {
-    guardedBy: ["loom.variant-match-placement"],
-    note: "A match statement outside a frontend zone (action/page/component/store/ui) is rejected, and backend statement renderers never see frontend bodies.",
-  },
-  "src/generator/_stmt/target.ts#renderStmt$2": {
     invariant: "Exhaustive `never` default over StmtIR kinds. (src/generator/_stmt/target.ts:221)",
   },
 
@@ -583,6 +579,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "foldImpurity is a fail-closed allowlist of assign/add/remove/let applied to every projection on() statement, so every kind in this throw arm is an error at validation.",
   },
   "src/generator/elixir/dispatch-emit.ts#renderStmt": {
+    guardedBy: ["loom.elixir-match-stmt-unsupported"],
+    note: "validateElixirMatchStatements refuses a statement match in every workflow / handler body of a context an elixir deployable hosts.",
+  },
+  "src/generator/elixir/dispatch-emit.ts#renderStmt$2": {
     invariant:
       "Exhaustive-switch `never` default: the reactor renderer has an arm for every WorkflowStmtIR kind, measured per kind by test/system/body-statement-census.test.ts. (src/generator/elixir/dispatch-emit.ts renderStmt; src/ir/types/loom-ir.ts WorkflowStmtIR)",
   },
@@ -591,6 +591,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/elixir/domain-service-emit.ts#renderOperation": {
     invariant:
       "A read-port can only name a repository of the service's own context because lowerDomainService builds serviceRepos from its own context, so readingIsSingleContext is always true (cross-context reads lower to an unresolved ref refused by loom.domain-service-cross-context-read). (src/ir/lower/lower-domain-service.ts:29-33 (serviceRepos built from env.ctx.members only))",
+  },
+  "src/generator/elixir/domain-service-emit.ts#renderStatement": {
+    guardedBy: ["loom.elixir-match-stmt-unsupported"],
+    note: "validateElixirMatchStatements refuses a statement match in every domain-service operation of a context an elixir deployable hosts.",
   },
   "src/generator/elixir/domain-service-emit.ts#renderOperation$2": {
     guardedBy: ["loom.elixir-if-stmt-unsupported"],
@@ -689,6 +693,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "The event-sourced pure core reads the same command body as the ES command runner; validateElixirIfSupport refuses ANY `if` in an event-sourced command body (operations, creates and destroys) on an elixir-hosted context (`#event-sourced`).",
   },
   "src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt$2": {
+    guardedBy: ["loom.elixir-match-stmt-unsupported"],
+    note: "validateElixirMatchStatements refuses a statement match in every operation / create / destroy of an elixir-hosted context, event-sourced or not.",
+  },
+  "src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt$3": {
     invariant:
       "Exhaustive `never` default: every StmtIR kind has an arm above it. (src/generator/elixir/vanilla/domain-core-emit.ts#forEachEsCoreStmt)",
   },
@@ -697,6 +705,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/elixir/vanilla/eventsourced-emit.ts#renderCommandRunner": {
     guardedBy: ["loom.elixir-if-stmt-unsupported"],
     note: "validateElixirIfSupport refuses ANY `if` in an event-sourced command body — operations, creates and destroys alike — on an elixir-hosted context (`#event-sourced`).",
+  },
+  "src/generator/elixir/vanilla/eventsourced-emit.ts#renderCommandRunner$2": {
+    guardedBy: ["loom.elixir-match-stmt-unsupported"],
+    note: "validateElixirMatchStatements refuses a statement match in every operation / create / destroy of an elixir-hosted context, event-sourced or not.",
   },
 
   // src/generator/elixir/vanilla/fold-stmt-emit.ts
@@ -753,8 +765,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   // src/generator/elixir/vanilla/operation-returns-emit.ts
   "src/generator/elixir/vanilla/operation-returns-emit.ts#renderReturningStmt": {
-    guardedBy: ["loom.variant-match-placement"],
-    note: "The effect form of `match` is refused everywhere outside the frontend zone, so a variant-match never reaches a backend statement renderer.",
+    guardedBy: ["loom.elixir-match-stmt-unsupported", "loom.variant-match-placement"],
+    note: "validateElixirMatchStatements refuses a statement match in every operation / create / destroy of a context an elixir deployable hosts; a pure fold or function is refused by the placement rule on every backend.",
   },
   "src/generator/elixir/vanilla/operation-returns-emit.ts#renderReturningStmt$2": {
     guardedBy: ["loom.elixir-if-stmt-unsupported"],
@@ -804,11 +816,27 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     guardedBy: ["loom.workflow-unknown-binding", "loom.workflow-unknown-operation"],
     note: "An op-call whose binding is not an own-context aggregate or whose op does not exist on it is an error (verified: an op-call on a foreign-context factory-let -> loom.workflow-unknown-binding).",
   },
+  "src/generator/elixir/vanilla/workflow-execution-emit.ts#renderBranch": {
+    guardedBy: ["loom.elixir-match-stmt-unsupported"],
+    note: "validateElixirMatchStatements refuses a statement match in every workflow / handler body of a context an elixir deployable hosts.",
+  },
+  "src/generator/elixir/vanilla/workflow-execution-emit.ts#lowerStatement": {
+    guardedBy: ["loom.elixir-match-stmt-unsupported"],
+    note: "validateElixirMatchStatements refuses a statement match in every workflow / handler body of a context an elixir deployable hosts.",
+  },
+  "src/generator/elixir/vanilla/workflow-execution-emit.ts#renderLoopBody": {
+    guardedBy: ["loom.elixir-match-stmt-unsupported"],
+    note: "validateElixirMatchStatements refuses a statement match in every workflow / handler body of a context an elixir deployable hosts.",
+  },
   "src/generator/elixir/vanilla/workflow-execution-emit.ts#renderBranchStmt": {
     invariant:
       "The flat branch renderer is only used for branches containing none of the kinds this arm throws on. (src/generator/elixir/vanilla/workflow-execution-emit.ts:677-680 (needsWith routes any branch holding precondition/requires/NESTED_FLOW_KINDS to the with-chain path, which handles those kinds itself at :688-715); NESTED_FLOW_KINDS at :888)",
   },
   "src/generator/elixir/vanilla/workflow-execution-emit.ts#renderBranchStmt$2": {
+    guardedBy: ["loom.elixir-match-stmt-unsupported"],
+    note: "validateElixirMatchStatements refuses a statement match in every workflow / handler body of a context an elixir deployable hosts.",
+  },
+  "src/generator/elixir/vanilla/workflow-execution-emit.ts#renderBranchStmt$3": {
     invariant:
       "Exhaustive-switch `never` default over WorkflowStmtIR. (src/generator/elixir/vanilla/workflow-execution-emit.ts:1236-1239)",
   },

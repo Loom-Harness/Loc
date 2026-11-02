@@ -908,6 +908,8 @@ function lowerStatement(
                 // Pure side-effects / own-state rebinds — run in the do-branch.
                 tail.push(...renderBranchStmt(inner, renderCtx, contextModule, []));
                 break;
+              case "variant-match":
+                throw new Error(MATCH_STMT_BYPASSED);
               default: {
                 const _exhaustive: never = inner;
                 void _exhaustive;
@@ -945,6 +947,8 @@ function lowerStatement(
       ];
       return [{ kind: "with-clause", text: lines.join("\n"), bindName: guard ? v : undefined }];
     }
+    case "variant-match":
+      throw new Error(MATCH_STMT_BYPASSED);
     default: {
       // CR1-f (wave CR1, audit row P0-2b): all 14 `WorkflowStmtIR` kinds are
       // listed above, so this arm is unreachable — the never-check makes that
@@ -1253,6 +1257,8 @@ function renderLoopBody(
         if (b) lastBind = b;
         break;
       }
+      case "variant-match":
+        throw new Error(MATCH_STMT_BYPASSED);
       default: {
         // Exhaustive over WorkflowStmtIR — a new kind is a compile error here
         // rather than a silently-emitted `# TODO` into generated Elixir.
@@ -1419,6 +1425,8 @@ function renderBranchStmt(
         `internal: if-let branch statement kind '${st.kind}' must lower through the ` +
           "with-chain path, not the flat branch renderer. Please file a bug.",
       );
+    case "variant-match":
+      throw new Error(MATCH_STMT_BYPASSED);
     default: {
       // Exhaustive over `WorkflowStmtIR` — a new kind is a compile error here.
       const _never: never = st;
@@ -2161,3 +2169,11 @@ ${respondErrorTail(
 end
 `;
 }
+
+/** The statement `match` has no Phoenix workflow rendering yet; phase ⑦
+ *  refuses it on a body an Elixir deployable hosts
+ *  (`loom.elixir-match-stmt-unsupported`), so an emitter that meets one was
+ *  reached past the validator. */
+const MATCH_STMT_BYPASSED =
+  "internal: a statement 'match' reached the Elixir workflow renderer; " +
+  "loom.elixir-match-stmt-unsupported refuses this source at phase ⑦, so the validator was bypassed";

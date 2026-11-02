@@ -446,8 +446,14 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *
  *  17 -> 16: `loom.scaffold-filter-param-unsupported` is gone with the
  *  scaffolded filter bar it reported on — list finds are an error
- *  (`loom.list-find-removed`), so the bar had nothing left to render. */
-const MAX_OPEN_GAPS = 16;
+ *  (`loom.list-find-removed`), so the bar had nothing left to render.
+ *
+ *  16 -> 17: `loom.elixir-match-stmt-unsupported`, the statement `match` on
+ *  Phoenix.  The four other backends render it through the shared statement
+ *  spines; the Phoenix operation and workflow renderers each need a `case`
+ *  form, and until they have one the emitters' `variant-match` arms would
+ *  throw — the gate turns that crash into a diagnostic. */
+const MAX_OPEN_GAPS = 17;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

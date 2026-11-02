@@ -15,9 +15,9 @@ import { tsLineageValue } from "./codec-spelling.js";
 import { renderTsExpr, renderTsExprWithMarks } from "./render-expr.js";
 
 // ---------------------------------------------------------------------------
-// Statement LEAF TABLE for the Hono / TypeScript backend.  The 11-kind
-// `StmtIR` dispatch, the chunk/join pair and the `variant-match` guard live
-// once in `../_stmt/target.ts`; this file supplies only the per-kind spelling
+// Statement LEAF TABLE for the Hono / TypeScript backend.  The `StmtIR`
+// dispatch and the chunk/join pair live once in `../_stmt/target.ts`; this
+// file supplies only the per-kind spelling
 // (audit finding C1).
 // ---------------------------------------------------------------------------
 
@@ -94,9 +94,7 @@ export { declarationSubRegion, statementSubRegions } from "../_trace/sourcemap.j
  *  ambiguous/missing sibling suppress the rest; two siblings that render to
  *  IDENTICAL text still naturally skip each other, since the shared
  *  one-occurrence `indexOf` anchor can't tell them apart (the same honesty
- *  rule the single-expr case already followed). `variant-match` is
- *  frontend-only (never reaches the TS backend — the shared spine's guard
- *  throws) and any future unhandled kind both fall through to `[]`. */
+ *  rule the single-expr case already followed). */
 function markableExprsOf(s: StmtIR): ExprIR[] {
   switch (s.kind) {
     case "precondition":
@@ -123,10 +121,9 @@ function markableExprsOf(s: StmtIR): ExprIR[] {
       // the shape legal on all five backends and the mark list was not widened
       // with it, so a breakpoint on an `if` condition resolved to nothing.
       return [s.cond];
-    // `variant-match` is frontend-only — it never reaches the TS backend (the
-    // shared spine's guard throws), so it carries no markable expression here.
     case "variant-match":
-      return [];
+      // The subject.  The arm bodies are statements of their own, as for `if`.
+      return [s.subject];
     default: {
       const _exhaustive: never = s;
       void _exhaustive;
@@ -255,6 +252,45 @@ function tsStmtTarget(emitProvenance: boolean, traceCtx: TraceCtx): StmtTarget {
       const head = `${INDENT}if (${renderTsExpr(s.cond)}) {\n${indentNested(thenSrc, "  ")}\n${INDENT}}`;
       if (elseSrc === undefined) return head;
       return `${head} else {\n${indentNested(elseSrc, "  ")}\n${INDENT}}`;
+    },
+
+    // `switch (<subject>.type) { case "<Tag>": { const b = <subject>; … break; } … }`
+    // — the union's `type` discriminator narrows the subject in each case, so
+    // the binding is typed at its variant.  A scalar variant binds its
+    // carrier's `value`.  Each arm is its own block, so two arms may bind the
+    // same name.
+    variantMatch: (s, _ix, m) => {
+      const subject = renderTsExpr(s.subject);
+      const caseBlock = (head: string, binding: string | undefined, body: string) =>
+        [
+          `${INDENT}  ${head} {`,
+          ...(binding ? [`${INDENT}    ${binding}`] : []),
+          ...(body ? [indentNested(body, "    ")] : []),
+          `${INDENT}    break;`,
+          `${INDENT}  }`,
+        ].join("\n");
+      const cases = m.arms.map((a) =>
+        caseBlock(
+          `case ${JSON.stringify(a.tag)}:`,
+          a.binding
+            ? `const ${a.binding} = ${a.scalar ? `${subject}.value` : subject};`
+            : undefined,
+          a.body,
+        ),
+      );
+      if (m.else !== undefined) cases.push(caseBlock("default:", undefined, m.else));
+      return [`${INDENT}switch (${subject}.type) {`, ...cases, `${INDENT}}`].join("\n");
+    },
+
+    // `if (<subject> != null) { … } else { … }` — a `T?` holds its value or
+    // nothing; the loose test treats an absent (`undefined`) optional input the
+    // same as `null`.  The arm bindings read the subject itself.
+    presenceMatch: (s, _ix, present, absent) => {
+      const subject = renderTsExpr(s.subject);
+      const presentSrc = present ? `\n${indentNested(present, "  ")}` : "";
+      const head = `${INDENT}if (${subject} != null) {${presentSrc}\n${INDENT}}`;
+      if (absent === undefined) return head;
+      return `${head} else {\n${indentNested(absent, "  ")}\n${INDENT}}`;
     },
 
     return: (s) => {

@@ -1,4 +1,5 @@
 import { notFoundStmtDetail } from "../../ir/enrich/wire-policy.js";
+import { isScalarVariant, variantTag } from "../../ir/stdlib/unions.js";
 import {
   type EnrichedBoundedContextIR,
   type ExprIR,
@@ -50,7 +51,12 @@ import { LogEvents } from "../_obs/log-events.js";
 import { workflowParamPayloads } from "../_payload/workflow-param-payloads.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../_workflow/create-state.js";
-import { renderWorkflowStmtChunks, type WorkflowStmtTarget } from "../_workflow/stmt-target.js";
+import {
+  type PresenceSide,
+  presenceSides,
+  renderWorkflowStmtChunks,
+  type WorkflowStmtTarget,
+} from "../_workflow/stmt-target.js";
 import { pyCalendarDateWire } from "./codec-spelling.js";
 import { pyCommandBodyParam } from "./command-body.js";
 import { allocateKwargs, zeroFor } from "./dispatch-builder.js";
@@ -499,6 +505,11 @@ export function collectLiveLetNames(
         case "if-let":
           for (const s of [...n.savesInThen, ...n.savesInElse]) live.add(s.name);
           return;
+        case "variant-match":
+          for (const s of [...n.arms.flatMap((a) => a.savesInArm), ...n.savesInElse]) {
+            live.add(s.name);
+          }
+          return;
         case "precondition":
         case "requires":
         case "emit":
@@ -519,6 +530,29 @@ export function collectLiveLetNames(
       }
     });
   return live;
+}
+
+/** Whether a `match` arm (or any arm of `st` — a binding name is scoped to
+ *  its arm, and arms that share one read it the same way) names `binding`:
+ *  an expression read, an operation called on it, or a save of it. */
+function armReads(
+  st: Extract<WorkflowStmtIR, { kind: "variant-match" }>,
+  binding: string,
+): boolean {
+  let found = false;
+  for (const arm of st.arms) {
+    if (arm.binding !== binding) continue;
+    if (arm.savesInArm.some((s) => s.name === binding)) found = true;
+    for (const root of arm.body) {
+      walkWorkflowStmtExprsDeep(root, (e) => {
+        if (e.kind === "ref" && e.name === binding) found = true;
+      });
+      walkWorkflowStmtsDeep(root, (n) => {
+        if (n.kind === "op-call" && n.target === binding) found = true;
+      });
+    }
+  }
+  return found;
 }
 
 /** Postgres `isolation_level` execution-option string for a DSL level. */
@@ -1100,6 +1134,59 @@ export function pyWorkflowStmtTarget(
         ...(thenAll.length > 0 ? thenAll : [`${inner}pass`]),
       ];
       if (elseAll.length > 0) out.push(`${i}else:`, ...elseAll);
+      return out;
+    },
+    variantMatch: (st, i, armLines, elseLines) => {
+      // A `T?` subject: `if x is not None:` / `else:`.  A tagged union value is
+      // the tagged dict, so each arm probes its `type`: `if x["type"] ==
+      // "<Tag>":` / `elif …` / `else:`.  An arm binds the subject (a scalar
+      // variant its `"value"`) only when its body reads the binding (ruff
+      // F841), and saves what it dirtied at its own end.  An empty suite gets
+      // a `pass`.
+      const subject = renderPyExpr(st.subject, rctx);
+      const inner = `${i}    `;
+      const suite = (ls: readonly string[]) => (ls.length > 0 ? [...ls] : [`${inner}pass`]);
+      const saves = (ss: readonly { name: string; aggName: string; repoName: string }[]) =>
+        ss.flatMap((s) => saveLines(s, inner));
+      if (st.subjectShape === "absence") {
+        const { present, absent } = presenceSides(st, armLines, elseLines);
+        const lines = (side: PresenceSide | undefined) =>
+          side
+            ? [
+                ...(side.binding && armReads(st, side.binding)
+                  ? [`${inner}${snake(side.binding)} = ${subject}`]
+                  : []),
+                ...side.lines,
+                ...saves(side.saves),
+              ]
+            : [];
+        const out = [`${i}if ${subject} is not None:`, ...suite(lines(present))];
+        if (absent) out.push(`${i}else:`, ...suite(lines(absent)));
+        return out;
+      }
+      const out: string[] = [];
+      st.arms.forEach((arm, n) => {
+        // The tagged dict is `dict[str, object]`, so a scalar's `"value"` is
+        // cast to the variant's type for mypy.
+        const value = isScalarVariant(arm.varType)
+          ? `${PY.cast}(${renderPyType(arm.varType)}, ${subject}["value"])`
+          : subject;
+        out.push(
+          `${i}${n === 0 ? "if" : "elif"} ${subject}["type"] == ${JSON.stringify(variantTag(arm.varType))}:`,
+          ...suite([
+            ...(arm.binding && armReads(st, arm.binding)
+              ? [`${inner}${pythonIdent(arm.binding)} = ${value}`]
+              : []),
+            ...armLines[n]!,
+            ...saves(arm.savesInArm),
+          ]),
+        );
+      });
+      if (st.elseBody) {
+        const elseAll = [...elseLines, ...saves(st.savesInElse)];
+        if (out.length === 0) return elseAll.map((l) => l.replace(/^ {4}/, ""));
+        out.push(`${i}else:`, ...suite(elseAll));
+      }
       return out;
     },
     // Bare `<resource>.<verb>(...)` statement — render-expr wraps the

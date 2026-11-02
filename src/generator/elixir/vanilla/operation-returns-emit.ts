@@ -1408,15 +1408,14 @@ export function renderReturningStmt(
       return `    ${rc.thisName} = __op_${snake(s.name)}(${[rc.thisName, ...args].join(", ")})`;
     }
     case "variant-match":
-      // UNREACHABLE — the elixir twin of the shared spine's guard in
-      // `src/generator/_stmt/target.ts`.  The effect form of `match` is
-      // frontend-only and is refused at phase ④ by
-      // `loom.variant-match-placement`, so reaching here means the
+      // UNREACHABLE — the statement `match` has no Phoenix operation rendering
+      // yet, and `loom.elixir-match-stmt-unsupported` refuses it at phase ⑦ on
+      // every body an Elixir deployable hosts, so reaching here means the
       // validator was bypassed.  Kept as a throw, not softened to a skip: a
       // skip drops the statement's effects silently.
       throw new Error(
-        "internal: a 'variant-match' statement reached the vanilla Elixir statement renderer; " +
-          "loom.variant-match-placement refuses this source at phase ④, so the validator was bypassed",
+        "internal: a statement 'match' reached the vanilla Elixir statement renderer; " +
+          "loom.elixir-match-stmt-unsupported refuses this source at phase ⑦, so the validator was bypassed",
       );
     case "if": {
       // A value-producing `if`: every arm ends in the threaded
