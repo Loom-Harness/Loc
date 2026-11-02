@@ -174,7 +174,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "find only from projections in the aggregate's own context, so the route called a method " +
       "never emitted.  java and elixir resolve the home context and emit it; the direct-table " +
       "arms work everywhere.",
-    mission: "#3519",
+    mission: "#4595",
   },
   {
     code: "loom.dapper-unsupported",
