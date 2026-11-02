@@ -296,7 +296,7 @@ export const BEHAVIOURAL_XFAIL = {
     // An expected-failure entry point (`T or E`) is refused on Phoenix, so
     // generation stops at phase ⑦ (unsupported register).
     "workflow-expected-failure": {
-      issue: "#3916",
+      issue: "#4571",
       expect: "error",
       match: "loom\\.elixir-entry-result-unsupported",
       reason:

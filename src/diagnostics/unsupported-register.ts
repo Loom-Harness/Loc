@@ -120,7 +120,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "routes have no tagged result to branch on and no `Repo.rollback` seam around the saga " +
       "row and the body, and the bound mutating call most such bodies match is refused " +
       "already (`loom.elixir-bound-mutating-call-unsupported`)",
-    mission: "#3916",
+    mission: "#4571",
   },
   {
     code: "loom.ui-multi-backend-unsupported",
@@ -171,7 +171,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "success variants are those or payloads or aggregates (answered as `<Agg>Response`).  " +
       "(The `eventSourced` refusal is a permanent rule with its own code, " +
       "`loom.workflow-return-event-sourced`.)",
-    mission: "#3916",
+    mission: "#4572",
     verified: false,
   },
   {
