@@ -1177,9 +1177,9 @@ describe("mikroorm — shape: document (wave 3)", () => {
     expect(repo).toContain('throw new ConcurrencyError("Article", aggregate.id as string)');
   });
 
-  // #4405: a document criterion read (`Repo.find(C)` / `findAll(C)`) emits no
-  // repository method yet, so the in-app evaluation this pins has no site.
-  it.fails("evaluates finds in-app over the rehydrated read model (blob fields aren't columns) — #4405", async () => {
+  // A document criterion read (`Repo.find(C)` / `findAll(C)`) runs in-app over
+  // the id-ordered whole-table load.
+  it("evaluates finds in-app over the rehydrated read model (blob fields aren't columns)", async () => {
     const { files } = await emit(DOC_SRC);
     const repo = files.get("api/db/repositories/article-repository.ts")!;
     // The whole-table read carries `orderBy: id` — without it the rows come

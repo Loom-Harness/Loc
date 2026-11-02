@@ -616,12 +616,17 @@ export function findQueryMethod(
  *  in-process access, not the payload.)  Cross-aggregate eager-fetch
  *  (`self.lines[].product`) is the separate v2 hydration concern.  The
  *  regression guard in retrieval-emit.test.ts pins that whole and an
- *  explicit-`loads` retrieval emit the identical body. */
+ *  explicit-`loads` retrieval emit the identical body.
+ *
+ *  `mapRow` replaces the relational bulk-load + hydrate with a per-row
+ *  `(row) => …` mapper: the `shape: embedded` root keeps real columns (so the
+ *  query is this one) but folds its containments into the row's jsonb. */
 export function runMethod(
   agg: EnrichedAggregateIR,
   retrieval: RetrievalIR,
   ctx: EnrichedBoundedContextIR,
   filterPred: string | null = null,
+  mapRow?: string,
 ): string {
   const tableName = repoTableName(agg, ctx);
   const methodName = `run${upperFirst(retrieval.name)}`;
@@ -699,11 +704,15 @@ export function runMethod(
     `      ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${methodName}", rows: 0`)}`,
     `      return [];`,
     `    }`,
-    needsIdsLocal && `    const rootIds = rootRows.map((r) => r.id);`,
-    ...bulkLoadContainmentLines(eagerContains, agg, ctx),
-    associationMapLines(agg, "this.db", "    "),
-    ...bulkLoadValueCollectionLines(agg, ctx),
-    `    const result = rootRows.map((root) => ${hydrateRootForFindAllExpr(agg, "root", ctx)});`,
+    ...(mapRow
+      ? [`    const result = rootRows.map(${mapRow});`]
+      : [
+          needsIdsLocal && `    const rootIds = rootRows.map((r) => r.id);`,
+          ...bulkLoadContainmentLines(eagerContains, agg, ctx),
+          associationMapLines(agg, "this.db", "    "),
+          ...bulkLoadValueCollectionLines(agg, ctx),
+          `    const result = rootRows.map((root) => ${hydrateRootForFindAllExpr(agg, "root", ctx)});`,
+        ]),
     `    ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${methodName}", rows: result.length`)}`,
     `    return result;`,
     `  }`,
