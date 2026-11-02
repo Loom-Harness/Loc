@@ -74,20 +74,20 @@ function file(files: Map<string, string>, suffix: string): string {
 }
 
 describe("elixir/vanilla — abstract base reader applies the concretes' read restrictions", () => {
-  it("TPH: delegates to each concrete repository, threading the actor and draining a paged concrete", async () => {
+  it("TPH: delegates to each concrete repository, threading the actor", async () => {
     const repo = file(await generateSystemFiles(TPH), "/fleet/vehicle_repository.ex");
     // Never the shared table — that read carries no kind / tenant / soft-delete.
     expect(repo).not.toContain("Repo.all(");
     expect(repo).not.toContain("Repo.get(");
     expect(repo).toContain("def list(current_user \\\\ nil) do");
     expect(repo).toContain("def find_by_id(id, current_user \\\\ nil) when is_binary(id) do");
-    // The paged concrete is read page by page with the actor; the other plainly.
-    expect(repo).toContain('Api.Fleet.CarRepository.list(page, 500, "id", "asc", current_user)');
+    // A subtype's `all` is a bare `T[]` (a union of subtype tables cannot be
+    // page-sliced before the merge), so each concrete is read whole, with the
+    // actor.
+    expect(repo).toContain("Api.Fleet.CarRepository.list(current_user)");
     expect(repo).toContain("Api.Fleet.TruckRepository.list(current_user)");
     expect(repo).toContain("Api.Fleet.CarRepository.find_by_id(id, current_user)");
     expect(repo).toContain("Api.Fleet.TruckRepository.find_by_id(id, current_user)");
-    // The envelope is unwrapped, not concatenated as if it were a list.
-    expect(repo).toContain("{:ok, %{items: items, totalPages: total_pages}}");
   });
 
   it("TPH: the façade and the controller agree with the reader's arity", async () => {

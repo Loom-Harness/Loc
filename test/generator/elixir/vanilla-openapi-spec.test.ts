@@ -267,47 +267,6 @@ system Shop {
   });
 });
 
-describe("vanilla OpenAPI spec — union finds", () => {
-  it("declares the absent variant's ProblemDetails status on a union find", async () => {
-    // `find locate(...): Order or OrderNotFound` — absence translates to the
-    // error variant's mapped status (the api block's `httpStatus` override,
-    // as showcase.ddd maps ProjectNotFound), same as Hono's union-find route
-    // and Java's customizer; 200 stays <Agg>Response.
-    const src = `
-system Shop {
-  subdomain Sales {
-    context Orders {
-      error OrderNotFound { }
-      aggregate Order { code: string }
-      repository Orders for Order
-      criterion OrdersLocate(code: string) of Order = this.code == code
-    }
-  }
-  api OrdersApi from Sales {
-    httpStatus OrderNotFound -> 404
-  }
-  storage primary { type: postgres }
-  resource ordersState { for: Orders, kind: state, use: primary }
-  deployable api {
-    platform: elixir
-    contexts: [Orders]
-    dataSources: [ordersState]
-    serves: OrdersApi
-    port: 4000
-  }
-}`;
-    const files = await generateSystemFiles(src);
-    const specKey = [...files.keys()].find((k) => k.endsWith("_spec.ex") && k.includes("/api/"));
-    const spec = files.get(specKey!)!;
-    const start = spec.indexOf('"/api/orders/locate"');
-    expect(start, "locate path present").toBeGreaterThanOrEqual(0);
-    const locate = spec.slice(start, start + 1200);
-    expect(locate).toContain("Schemas.OrderResponse");
-    expect(locate).toContain("404 => %OpenApiSpex.Response{");
-    expect(locate).toContain("Schemas.ProblemDetails");
-  });
-});
-
 // ---------------------------------------------------------------------------
 // Observable-workflow instance surface in the spec — the router already
 // serves GET /workflows/<slug>/instances[/{id}] (workflow-instances-emit.ts);

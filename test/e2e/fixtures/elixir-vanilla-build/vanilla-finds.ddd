@@ -1,21 +1,24 @@
-// Custom-find HTTP surface.  Compiled by build-generated-elixir-vanilla so the
-// emitted `GET /<plural>/<find>` controller actions — list (map each result),
-// single (one-or-nil), and param-less (`_params`) — pass
-// `mix compile --warnings-as-errors`.  A union find stays internal-only.
+// The routed criterion-read HTTP surface.  Compiled by
+// build-generated-elixir-vanilla so the emitted `GET /<plural>/<read>` actions
+// — a paged criterion list (`scaffoldPaged`, mapping each row) and a single-row
+// read (`scaffoldGet`, one row or the 404) with and without params — pass
+// `mix compile --warnings-as-errors`.
 system Catalog {
   subdomain Core {
-    context Shop {
+    context Shop with scaffoldPaged(of: OrdersByCustomer), scaffoldGet(of: Latest),
+                      scaffoldGet(of: ByCustomer) {
       aggregate Order with crudish {
         customerId: string
         total: int
       }
-      repository Orders for Order {
-        find latest(): Order?
-      }
+      repository Orders for Order
       criterion OrdersByCustomer(customerId: string) of Order = this.customerId == customerId
+      criterion ByCustomer(customerId: string) of Order = this.customerId == customerId
+      criterion Latest of Order = this.total >= 0
     }
   }
-  api CatalogApi from Core
+  api CatalogApi with scaffoldPagedApi(of: OrdersByCustomer), scaffoldGetApi(of: Latest),
+                      scaffoldGetApi(of: ByCustomer) from Core
   storage pg { type: postgres }
   resource orderState { for: Shop, kind: state, use: pg }
   deployable api {

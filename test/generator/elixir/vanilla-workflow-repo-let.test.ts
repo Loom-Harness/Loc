@@ -13,10 +13,9 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // `{:error, :not_found}` (controller → 404).  The arg is param-surfaced
 // like any other create-param reference.
 //
-// Custom repository finds (`byEmail`, …) aren't yet exposed through the
-// vanilla context, so a non-getById repo-let stays on the `# TODO`
-// fallthrough — lowering it would emit a call to a fn that doesn't exist
-// and fail `mix compile`.
+// A criterion read (`if let i = Items.find(C(x))`) routes through the
+// criterion retrieval's context defdelegate (`run_find_all_by_<c>_<agg>`,
+// first row).
 // ---------------------------------------------------------------------------
 
 function sys(body: string): string {
@@ -103,14 +102,12 @@ describe("vanilla — workflow body lowering (repo-let / getById)", () => {
   });
 });
 
-describe("vanilla — workflow body lowering (repo-let / custom find routes through context defdelegate)", () => {
-  it("a non-getById repo-let now lowers to a Context.<find>_<agg> with-clause", async () => {
-    // Slice 8 (custom find emission, #PR-this) — the custom find now has a
-    // defdelegate on the context facade, so a workflow's `repo-let` can
-    // route through it just like `getById`.  Self-contained source so the
-    // aggregate carries the field the find's predicate references (the
-    // shared `sys()` helper above hardcodes a `title`/`done` Task that
-    // doesn't expose the field shape we need here).
+describe("vanilla — workflow body lowering (criterion read routes through context defdelegate)", () => {
+  it("an `if let` criterion read lowers to the retrieval's context fn, and the op-call stays in the chain", async () => {
+    // Self-contained source so the aggregate carries the field the
+    // criterion's predicate references (the shared `sys()` helper above
+    // hardcodes a `title`/`done` Task that doesn't expose the field shape we
+    // need here).
     const files = await generateSystemFiles(`
       system Catalog {
         subdomain Inventory {
@@ -151,12 +148,15 @@ describe("vanilla — workflow body lowering (repo-let / custom find routes thro
     const wf = files.get(
       [...files.keys()].find((k) => k.endsWith("/workflows/find_then_mark.ex"))!,
     )!;
-    expect(wf).toContain("{:ok, i} <- Context.by_label_item(wanted)");
+    expect(wf).toContain(
+      "i = case Context.run_find_all_by_items_by_label_item(wanted, limit: 1) do",
+    );
     expect(wf).toContain(`%{"wanted" => wanted} = params`);
     expect(wf).not.toContain("# TODO: lower workflow statement kind 'repo-let'");
-    // The op-call on the custom-find binding `i` must route to the right
-    // aggregate's context fn — not `mark_found_unknown` (the optional return
-    // type `Item?` must unwrap to `Item` for receiver resolution).
+    // The op-call on the narrowed binding `i` must route to the right
+    // aggregate's context fn — not `mark_found_unknown` (the optional read
+    // `Item?` must unwrap to `Item` for receiver resolution) — and its result
+    // must gate the chain: a failed op is the workflow's failure.
     expect(wf).toContain("{:ok, _} <- Context.mark_found_item(i, %{})");
     expect(wf).not.toContain("_unknown(");
   });

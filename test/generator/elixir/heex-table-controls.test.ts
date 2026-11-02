@@ -79,7 +79,8 @@ system Shop {
 }
 `;
 
-/** A scaffolded list page whose author-declared `find all` is NOT paged — so
+/** A scaffolded list page whose `all` is NOT paged (a `shape: document`
+ *  aggregate's bare `T[]`) — so
  *  the scaffold's `all` QueryView is CLIENT-paged (`serverPaged:` absent) and
  *  the repository exposes `list_orders/0`.  The JSX frontends slice and sort
  *  such a list in the browser; wave C2 packet 2m made HEEx do the same in the
@@ -90,7 +91,7 @@ const NON_PAGED_SRC = `
 system Sales {
   subdomain M {
     context C {
-      aggregate Order {
+      aggregate Order shape: document {
         code: string
         qty: int
         derived display: string = code

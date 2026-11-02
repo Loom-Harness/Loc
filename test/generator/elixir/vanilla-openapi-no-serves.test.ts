@@ -28,9 +28,7 @@ system Shop {
         region: string
         operation cancel(reason: string) { }
       }
-      repository Orders for Order {
-        find recent(): Order?
-      }
+      repository Orders for Order
     }
   }
 ${opts.serves ? "  api OrdersApi from Sales\n" : ""}  storage primary { type: postgres }
@@ -114,10 +112,9 @@ describe("vanilla OpenAPI spec — a deployable without `serves:` (F15)", () => 
         `path item ${path} does not declare ${verb}`,
       ).toContain(`${verb}: %OpenApiSpex.Operation{`);
     }
-    // The CRUD + find + operation surface this fixture mounts, spelled out.
+    // The read + operation surface this fixture mounts, spelled out.
     expect(mounted.map(([v, p]) => `${v} ${p}`)).toEqual([
       "get /orders",
-      "get /orders/recent",
       "get /orders/{id}",
       "post /orders/{id}/cancel",
     ]);

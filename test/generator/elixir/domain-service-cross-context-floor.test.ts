@@ -41,12 +41,13 @@ system X {
     context Sales {
       aggregate Customer { name: string }
       repository Customers for Customer { }
+      criterion ByName(n: string) of Customer = name == n
     }
     context Ops {
       aggregate Job { title: string }
       repository Jobs for Job { }
       domainService Naming {
-        operation isFree(r: string): bool { return Customers.byName(r) == null }
+        operation isFree(r: string): bool { return Customers.find(ByName(r)) == null }
       }
     }
   }
@@ -60,9 +61,9 @@ system X {
 // The same service reading its OWN context's repository — the shape that works,
 // and the control that keeps the tautology check from passing vacuously on a
 // model with no read ports at all.
-const LOCAL = CROSSING.replace("Customers.byName(r)", "Jobs.byTitle(r)").replace(
+const LOCAL = CROSSING.replace("Customers.find(ByName(r))", "Jobs.find(ByTitle(r))").replace(
   "repository Jobs for Job { }",
-  "repository Jobs for Job { find byTitle(t: string): Job? where title == t }",
+  "repository Jobs for Job { }\n      criterion ByTitle(t: string) of Job = title == t",
 );
 
 async function ir(source: string) {

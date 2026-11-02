@@ -7,8 +7,9 @@
 //   - a single-context READING service op lowers to a CONTEXT FUNCTION on its
 //     aggregate's context module (`Api.Accounts.is_email_available/1`) so it
 //     has the ambient `Repo` — there is NO read-port handle to thread.
-//   - the body's repo read renders against the sibling context-facade find fn
-//     (`by_holder_account/1`), unwrapping `{:ok, value}`.
+//   - the body's repo read renders against the sibling context-facade
+//     criterion retrieval (`run_find_all_by_accounts_by_holder_account/1`),
+//     taking the first row of `{:ok, rows}`.
 //   - the orchestrating workflow's call site has NO handle argument
 //     (`Context.is_email_available(source)`).
 
@@ -16,7 +17,7 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 /** A Banking system with a `reading` service (`Registration.isEmailAvailable`,
- *  reads the `Accounts.byHolder` find), a `pure` service (`FeeQuote`), and a
+ *  reads `Accounts.find(AccountsByHolder(..))`), a `pure` service (`FeeQuote`), and a
  *  workflow calling the reading service in a precondition.  Params are
  *  `source`/`dest` per the slice-1 convention (`from`/`to` are reserved). */
 const SRC = `
@@ -113,10 +114,12 @@ describe("phoenix vanilla — reading-tier domainService (domain-services.md rev
   it("renders the repo read against the ambient context find fn, unwrapping {:ok, value}", async () => {
     const files = await generateSystemFiles(SRC);
     const context = bySuffix(files, "/accounts.ex");
-    // `Accounts.byHolder(holder) == null` → is_nil over the unwrapped value of
-    // the sibling `by_holder_account/1` context find fn (ambient Repo).
-    expect(context).toContain("by_holder_account(holder)");
-    expect(context).toContain("{:ok, value} -> value");
+    // `Accounts.find(AccountsByHolder(holder)) == null` → is_nil over the
+    // first row of the sibling criterion retrieval's context fn (ambient Repo);
+    // an empty list (or an error) is the absent `nil`.
+    expect(context).toContain("run_find_all_by_accounts_by_holder_account(holder)");
+    expect(context).toContain("{:ok, [value | _]} -> value");
+    expect(context).toContain("_ -> nil");
     expect(context).toContain("is_nil(");
     // No read-port handle param — the ambient Repo is free (decision B).
     expect(context).toMatch(/def is_email_available\(holder\) do/);
@@ -167,9 +170,9 @@ end
     );
   });
 
-  it("leaves a DECLARED find's nil-unwrap alone — only getById is contractually non-null", async () => {
-    // `byHolder` is declared `Account?`, so it is legitimately nullable: the
-    // `{:ok, value} -> value / _ -> nil` unwrap feeding `is_nil(...)` is correct
+  it("leaves a T? read's nil-unwrap alone — only getById is contractually non-null", async () => {
+    // `find(AccountsByHolder(..))` reads `Account?`, so it is legitimately nullable: the
+    // `{:ok, [value | _]} -> value / _ -> nil` unwrap feeding `is_nil(...)` is correct
     // and must stay byte-identical.  Only the getById arm raises.
     const context = bySuffix(await generateSystemFiles(GETBYID_SRC), "/accounts.ex");
     const byHolder = context.slice(context.indexOf("def is_email_available"));
