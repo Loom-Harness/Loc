@@ -42,9 +42,9 @@ import { maskedHistoryFields, unmaskedHistoryFields } from "../../../ir/util/aud
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { javaRef } from "../../_imports/java.js";
+import { javaInstantWire } from "../codec-spelling.js";
 import { renderJavaExpr } from "../render-expr.js";
 import { javaNotFoundThrow } from "./common.js";
-import { javaInstantWire } from "./wire.js";
 
 /** The derived history read for this aggregate, or undefined when it serves
  *  none.  Read off the enrichment-derived `historyFind` (which sits BESIDE

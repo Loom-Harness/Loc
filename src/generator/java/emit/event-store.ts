@@ -2,6 +2,7 @@ import type { EnrichedAggregateIR, RepositoryIR } from "../../../ir/types/loom-i
 import { lines } from "../../../util/code-builder.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
+import { javaJsonSqlType } from "../codec-spelling.js";
 import { javaLocals, localOf } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { javaValueTypeForId, renderJavaExpr, renderJavaType } from "../render-expr.js";
@@ -188,7 +189,7 @@ export function renderJavaEventSourcedRepositoryImpl(
     `                version++;`,
     `                try {`,
     `                    jdbc.update(`,
-    `                        "insert into ${table} (stream_type, stream_id, version, type, data) values (?, ?, ?, ?, ?::jsonb)",`,
+    `                        "insert into ${table} (stream_type, stream_id, version, type, data) values (?, ?, ?, ?, ?::${javaJsonSqlType()})",`,
     `                        "${streamType}", sid, version, ev.getClass().getSimpleName(), JSON.writeValueAsString(ev));`,
     // The (stream_id, version) PK IS the event stream's optimistic-concurrency
     // control: a stale handle's append re-inserts a version that exists and

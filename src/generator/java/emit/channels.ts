@@ -23,10 +23,10 @@ import {
 import { javaRef } from "../../_imports/java.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
+import { javaCalendarDateWire, javaEnvelopeInstant } from "../codec-spelling.js";
 import { jid } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { JAVA_NUMERIC } from "../numeric-codec.js";
-import { javaInstantWire } from "./wire.js";
 
 // ---------------------------------------------------------------------------
 // Broker transport classes (M-T4.4 slices 6b + 7c — the Java/Spring Boot leg
@@ -133,9 +133,8 @@ function toDataExpr(access: string, t: TypeIR, vo?: JavaVoEncode): string {
       vo.used.add(inner.name);
       return `encode${inner.name}(${access})`;
     }
-    if (inner.kind === "primitive" && inner.name === "datetime") return javaInstantWire(access);
-    // `LocalDate.toString()` is ISO `yyyy-MM-dd` — the calendar-date wire form.
-    if (inner.kind === "primitive" && inner.name === "date") return `${access}.toString()`;
+    if (inner.kind === "primitive" && inner.name === "datetime") return javaEnvelopeInstant(access);
+    if (inner.kind === "primitive" && inner.name === "date") return javaCalendarDateWire(access);
     // money pins the FIXED wire scale (RS-12) — a bare `toPlainString()` echoes
     // whatever scale the domain `BigDecimal` happens to carry (the write scale,
     // an arithmetic result's scale), which need not be 4dp: the SAME class of
@@ -1175,12 +1174,12 @@ export function renderJavaChannelFiles(
             `            loomKey = String.valueOf(data.get(bound.key()));`,
             `        }`,
             `        return new LoomEventEnvelope("1.0", id, bound.context() + "." + type,`,
-            `                "/loom/" + bound.context(), Instant.now().toString(), "application/json",`,
+            `                "/loom/" + bound.context(), ${javaEnvelopeInstant("Instant.now()")}, "application/json",`,
             `                address, loomKey, ${carriesOrigin ? "origin == null ? null : origin.tenant(), origin == null ? null : origin.orgPath(),\n                origin == null ? null : origin.causedBy(), " : ""}data);`,
           ]
         : [
             `        return new LoomEventEnvelope("1.0", id, bound.context() + "." + type,`,
-            `                "/loom/" + bound.context(), Instant.now().toString(), "application/json",`,
+            `                "/loom/" + bound.context(), ${javaEnvelopeInstant("Instant.now()")}, "application/json",`,
             `                address, ${carriesOrigin ? "origin == null ? null : origin.tenant(), origin == null ? null : origin.orgPath(),\n                origin == null ? null : origin.causedBy(), " : ""}data);`,
           ]),
       `    }`,

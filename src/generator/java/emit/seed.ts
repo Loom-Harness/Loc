@@ -16,6 +16,7 @@ import {
   usedAggregates,
 } from "../../_persistence/seed-datasets.js";
 import { renderSeedRowInsert } from "../../sql-pg.js";
+import { javaCalendarDateParse } from "../codec-spelling.js";
 import { renderJavaExpr } from "../render-expr.js";
 
 const INSTANT = javaRef("java.time", "Instant");
@@ -196,7 +197,7 @@ function renderSeedValue(value: ExprIR, fieldType: TypeIR): string {
     return `${INSTANT}.parse(${renderJavaExpr(value)})`;
   }
   if (t.kind === "primitive" && t.name === "date" && value.kind === "literal") {
-    return `java.time.LocalDate.parse(${renderJavaExpr(value)})`;
+    return javaCalendarDateParse(renderJavaExpr(value));
   }
   return renderJavaExpr(value);
 }

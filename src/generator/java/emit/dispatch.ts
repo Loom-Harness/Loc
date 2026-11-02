@@ -20,6 +20,7 @@ import { spellMarkers } from "../../_imports/symbol.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../../_workflow/stmt-target.js";
+import { javaJsonSqlType } from "../codec-spelling.js";
 import { javaLocals, localOf } from "../java-ident.js";
 import {
   API_CLIENT_CLASS,
@@ -1027,7 +1028,7 @@ function renderEsHandler(
       `        for (var __e : __events) {`,
       `            __v++;`,
       `            jdbc.update(`,
-      `                "insert into ${table} (stream_type, stream_id, version, type, data) values (?, ?, ?, ?, ?::jsonb)",`,
+      `                "insert into ${table} (stream_type, stream_id, version, type, data) values (?, ?, ?, ?, ?::${javaJsonSqlType()})",`,
       `                "${streamType}", __sid, __v, __e.getClass().getSimpleName(), ${cls}._toData(__e));`,
       `        }`,
       `        for (var __e : __events) events.publishEvent(__e);`,
@@ -1135,7 +1136,7 @@ function esMergedBranchLines(
       `        for (var __e : __events) {`,
       `            __v++;`,
       `            jdbc.update(`,
-      `                "insert into ${table} (stream_type, stream_id, version, type, data) values (?, ?, ?, ?, ?::jsonb)",`,
+      `                "insert into ${table} (stream_type, stream_id, version, type, data) values (?, ?, ?, ?, ?::${javaJsonSqlType()})",`,
       `                "${streamType}", __sid, __v, __e.getClass().getSimpleName(), ${cls}._toData(__e));`,
       `        }`,
       `        for (var __e : __events) events.publishEvent(__e);`,
