@@ -66,7 +66,7 @@ function fileEndingWith(m: Map<string, string>, suffix: string): string {
 }
 
 describe("elixir — explicit commandHandler/queryHandler → plain Ecto/Phoenix", () => {
-  it('splices the explicit routes into `scope "/api"`, ahead of the derived routes (braces → :snake path params)', async () => {
+  it('splices the explicit routes into `scope "/api"`, ahead of the derived routes (braces → :wireName path params)', async () => {
     // M-T6.73 — an explicit route is a DOMAIN route, so it serves under
     // `API_BASE_PATH` like every other route class.  It used to land in the root
     // `scope "/"`, where `POST /api/orders/.../cancellations` (the path every
@@ -81,10 +81,10 @@ describe("elixir — explicit commandHandler/queryHandler → plain Ecto/Phoenix
     const router = fileEndingWith(await files(), "lib/api_web/router.ex");
     const apiBlock = router.slice(router.indexOf('scope "/api"'));
     expect(apiBlock).toContain(
-      'post "/orders/:order_id/cancellations", SalesApiRoutesController, :cancel_order',
+      'post "/orders/:orderId/cancellations", SalesApiRoutesController, :cancel_order',
     );
     expect(apiBlock).toContain(
-      'get "/orders/:order_id/status", SalesApiRoutesController, :get_status',
+      'get "/orders/:orderId/status", SalesApiRoutesController, :get_status',
     );
     // Ahead of the derived aggregate routes.
     expect(apiBlock.indexOf("SalesApiRoutesController")).toBeLessThan(
@@ -96,7 +96,7 @@ describe("elixir — explicit commandHandler/queryHandler → plain Ecto/Phoenix
 });
 
 // Regression (A3.3 review): a scaffolded `destroy` produces an explicit
-// `DELETE /orders/{orderId}` route whose Phoenix path (`/orders/:order_id`) is
+// `DELETE /orders/{orderId}` route whose Phoenix path (`/orders/:orderId`) is
 // identical — param names aside — to the always-on auto-CRUD `DELETE
 // /orders/:id`.  Nesting the explicit route under `scope "/api"` made the
 // auto-CRUD clause shadow it, failing `mix compile --warnings-as-errors`.
@@ -129,7 +129,7 @@ describe("elixir — scaffolded destroy route does not collide with auto-CRUD", 
     const apiBlock = router.slice(router.indexOf('scope "/api"'));
     // The explicit route owns the slot (D-EXPLICIT-ROUTE-WINS) …
     expect(apiBlock).toContain(
-      'delete "/orders/:order_id", SalesApiRoutesController, :destroy_order',
+      'delete "/orders/:orderId", SalesApiRoutesController, :destroy_order',
     );
     expect(rootBlock).not.toContain("SalesApiRoutesController");
     // … so the derived delete is not registered: one clause per slot.
@@ -178,7 +178,7 @@ describe("elixir — scaffolded record-param handlers flatten wire-preservingly"
       "lib/api/ordering/handlers/create_order.ex",
     );
     // The CreateOrderCommand record's fields destructure off the string-keyed
-    // run/1 map by their snake keys (byte-identical to the old flat-param form)…
+    // run/1 map by their wire keys (identical to the flat-param form)…
     expect(h).toContain(
       '%{"code" => code, "status" => status, "priority" => priority, "total" => total} = params',
     );
@@ -198,7 +198,7 @@ describe("elixir — scaffolded record-param handlers flatten wire-preservingly"
     );
     // orderId (path scalar) + newTotal (flattened from RepriceOrderCommand), in
     // declaration order, both off the same string-keyed map.
-    expect(h).toContain('%{"order_id" => order_id, "new_total" => new_total} = params');
+    expect(h).toContain('%{"orderId" => order_id, "newTotal" => new_total} = params');
     expect(h).toContain("with {:ok, o} <- (case Context.get_order(order_id) do");
     // op-call keyed by the DECLARED op param name, valued by the flat local.
     expect(h).toContain('{:ok, _} <- Context.reprice_order(o, %{"newTotal" => new_total})');
@@ -210,8 +210,9 @@ describe("elixir — scaffolded record-param handlers flatten wire-preservingly"
       await generateSystemFiles(SCAFFOLD_SRC),
       "lib/api/ordering/handlers/get_order.ex",
     );
-    // query.orderId → the flat `order_id` off the same key an id param used.
-    expect(h).toContain('%{"order_id" => order_id} = params');
+    // query.orderId → the flat `order_id` off the wire key `orderId`, the same
+    // key an id param uses.
+    expect(h).toContain('%{"orderId" => order_id} = params');
     expect(h).toContain("with {:ok, o} <- (case Context.get_order(order_id) do");
     // The body returns the raw entity (returnType is OrderResponse — normalised
     // back to the entity); the boundary projects it via the controller serialize.
@@ -318,5 +319,63 @@ describe("elixir — paged-run queryHandler over run(criterion)", () => {
     const router = fileEndingWith(m, "lib/d_web/router.ex");
     expect(router).toContain('get "/orders/projections/in_region"');
     expect(router).not.toContain("find_all_by_in_region");
+  });
+});
+
+// A routed handler's `run/1` receives Phoenix's `params` with the keys the client
+// sent, so it must match each param by the name the route's OWN spec publishes —
+// a multi-word query param is `commitSha` on the wire, and matching
+// `"commit_sha"` turned every well-formed request into a MatchError (500).
+const WIRE_KEY_SRC = `
+system Delivery {
+  subdomain Ci {
+    context Builds {
+      aggregate Build with crudish {
+        commitSha: string
+      }
+      repository Builds for Build { }
+      criterion BySha(commitSha: string) of Build = this.commitSha == commitSha
+      queryHandler GetBuildBySha(commitSha: string): Build {
+        if let b = Builds.find(BySha(commitSha)) {
+          return b
+        } else {
+          notFound "not_found"
+        }
+      }
+      queryHandler GetBuildByShaAt(buildId: Build id, commitSha: string): Build {
+        if let b = Builds.find(BySha(commitSha)) {
+          return b
+        } else {
+          notFound "not_found"
+        }
+      }
+    }
+  }
+  api CiApi from Ci {
+    route GET "/builds/by_sha" -> Builds.GetBuildBySha
+    route GET "/builds/{buildId}/by_sha" -> Builds.GetBuildByShaAt
+  }
+  storage pg { type: postgres }
+  resource st { for: Builds, kind: state, use: pg }
+  deployable api { platform: elixir, contexts: [Builds], dataSources: [st], serves: CiApi, port: 5001 }
+}
+`;
+
+describe("elixir — a routed handler matches its params by wire name", () => {
+  it("query and path params bind by the name the router and spec publish", async () => {
+    const files = await generateSystemFiles(WIRE_KEY_SRC);
+    const h = fileEndingWith(files, "handlers/get_build_by_sha.ex");
+    const hAt = fileEndingWith(files, "handlers/get_build_by_sha_at.ex");
+    const router = fileEndingWith(files, "lib/api_web/router.ex");
+    const spec = [...files].find(
+      ([p, c]) => /_spec\.ex$/.test(p) && c.includes("/builds/by_sha"),
+    )?.[1];
+    expect(spec, "the spec module publishes the routed path").toBeDefined();
+    expect(spec).toContain("name: :commitSha, in: :query");
+    expect(h).toContain('%{"commitSha" => commit_sha} = params');
+    // The path segment and the handler agree on the key, too.
+    expect(router).toContain('get "/builds/:buildId/by_sha"');
+    expect(hAt).toContain('"commitSha" => commit_sha');
+    expect(hAt).not.toMatch(/"commit_sha"|"build_id"/);
   });
 });
