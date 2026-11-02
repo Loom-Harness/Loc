@@ -1131,16 +1131,7 @@ function fieldConfigLines(
   const isOptional = f.type.kind === "optional";
   const leaf = f.type.kind === "optional" ? f.type.inner : f.type;
   if (leaf.kind === "id") {
-    const idType = `${leaf.targetName}Id`;
-    // The id is a `readonly record struct`, so `Id?` is `Nullable<Id>` and the
-    // plain inline lambdas bind `v` as the nullable type — `v.Value`/`new Id(v)`
-    // then don't type-check.  The optional form maps `Id?` ⇆ `Provider?`
-    // explicitly, guarding on `HasValue` (an expression-tree lambda can't use
-    // the `?.` null-propagating operator — CS8072).
-    const provider = idValueClrType(leaf.valueType);
-    const conv = isOptional
-      ? `.HasConversion(v => v.HasValue ? v.Value.Value : (${provider}?)null, v => v.HasValue ? (${idType}?)new ${idType}(v.Value) : (${idType}?)null)`
-      : `.HasConversion(v => v.Value, v => new ${idType}(v))`;
+    const conv = idConversion(leaf.targetName, leaf.valueType, isOptional);
     return [`${indent}${builder}.Property(x => x.${upperFirst(f.name)})${conv}${colName};`];
   }
   if (leaf.kind === "enum") {
@@ -1205,6 +1196,25 @@ function fieldConfigLines(
   ];
 }
 
+/** The `.HasConversion(...)` clause for a strongly-typed id property.  The id
+ *  is a `readonly record struct`, so `Id?` is `Nullable<Id>` and the plain
+ *  inline lambdas bind `v` as the nullable type — `v.Value`/`new Id(v)` then
+ *  don't type-check.  The optional form maps `Id?` ⇆ `Provider?` explicitly,
+ *  guarding on `HasValue` (an expression-tree lambda can't use the `?.`
+ *  null-propagating operator — CS8072).  Shared by the root, owned-VO and
+ *  owned-VO-collection property paths. */
+function idConversion(
+  targetName: string,
+  valueType: AssociationIR["valueType"],
+  optional: boolean,
+): string {
+  const idType = `${targetName}Id`;
+  const provider = idValueClrType(valueType);
+  return optional
+    ? `.HasConversion(v => v.HasValue ? v.Value.Value : (${provider}?)null, v => v.HasValue ? (${idType}?)new ${idType}(v.Value) : (${idType}?)null)`
+    : `.HasConversion(v => v.Value, v => new ${idType}(v))`;
+}
+
 /** Configure an owned value object so its (recursively-flattened) columns
  *  are named to the migration's snake convention (`<prefix>_<field>`),
  *  keeping EF's runtime schema in step with the canonical migration. */
@@ -1226,9 +1236,8 @@ function ownedVoLines(
     }
     const sel = `o.Property(x => x.${upperFirst(vf.name)})`;
     if (base.kind === "id") {
-      return [
-        `${inner}${sel}.HasConversion(v => v.Value, v => new ${base.targetName}Id(v)).HasColumnName("${col}");`,
-      ];
+      const conv = idConversion(base.targetName, base.valueType, vf.type.kind === "optional");
+      return [`${inner}${sel}${conv}.HasColumnName("${col}");`];
     }
     if (base.kind === "enum") {
       return [`${inner}${sel}.HasConversion<string>().HasColumnName("${col}");`];
@@ -1326,9 +1335,8 @@ function ownedVoArrayLines(
     }
     const sel = `o.Property(x => x.${upperFirst(vf.name)})`;
     if (base.kind === "id") {
-      return [
-        `${inner}${sel}.HasConversion(v => v.Value, v => new ${base.targetName}Id(v)).HasColumnName("${col}");`,
-      ];
+      const conv = idConversion(base.targetName, base.valueType, vf.type.kind === "optional");
+      return [`${inner}${sel}${conv}.HasColumnName("${col}");`];
     }
     if (base.kind === "enum") {
       return [`${inner}${sel}.HasConversion<string>().HasColumnName("${col}");`];

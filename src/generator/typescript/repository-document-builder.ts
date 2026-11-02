@@ -9,6 +9,7 @@ import type {
   ExprIR,
   FindIR,
   RepositoryIR,
+  RetrievalIR,
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import {
@@ -25,8 +26,10 @@ import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
 import { desugarAuthzFilterInApp } from "../_expr/authz-filter-inapp.js";
 import { numericEncode } from "../_numeric/target.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
+import { runBypassesByRetrieval } from "../_persistence/run-bypass.js";
 import { drizzleImportLine } from "./drizzle-imports.js";
 import { aggregateIsAudited, stampImportLine, stampInsertCall } from "./emit/audit-stamp.js";
+import { inMemoryRunMethod } from "./in-memory-run.js";
 import { TS_NUMERIC } from "./numeric-codec.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "./paged-locals.js";
 import { synthProjectionFinds } from "./projection-finds.js";
@@ -117,6 +120,10 @@ export function buildDocumentRepositoryFile(
   // find paths above.
   const capRec = documentCapabilityBody(agg, ctx, "rec");
   const capX = documentCapabilityBody(agg, ctx, "x");
+  const runMethods = documentRunMethods(agg, ctx, (all) => [
+    `    const rows = await this.db.select().from(schema.${tableName}).orderBy(schema.${tableName}.id);`,
+    `    const ${all} = rows.map((r) => ${fromDocOf("r")});`,
+  ]);
 
   const bodyStr = lines(
     `export class ${agg.name}Repository implements ${repoPortName(agg.name)} {`,
@@ -217,6 +224,7 @@ export function buildDocumentRepositoryFile(
         ]
       : []),
     ...findMethods.flatMap((m) => [m, ""]),
+    ...runMethods.flatMap((m) => [m, ""]),
     toWireMethod(agg, ctx),
     "",
     // `mask unless` response redaction.  The routes call
@@ -299,6 +307,37 @@ export function buildDocumentRepositoryFile(
 }
 
 // --- find methods (in-memory over rehydrated documents) -------------------
+
+/** One `run<Retrieval>` per context retrieval over a `shape: document`
+ *  aggregate, on either adapter — `loadLines` is the adapter's id-ordered
+ *  whole-table load binding the rehydrated documents to `all`.  The load is
+ *  RAW: the runner re-applies the capability conjunct itself, minus what the
+ *  retrieval's call sites name in their `ignoring` clauses (one method serves
+ *  every call site, so it takes their union — `run-bypass.ts`). */
+export function documentRunMethods(
+  agg: EnrichedAggregateIR,
+  ctx: EnrichedBoundedContextIR,
+  loadLines: (all: string) => readonly string[],
+): string[] {
+  const bypasses = runBypassesByRetrieval(ctx, agg.name);
+  return aggregateRetrievals(agg, ctx).map((r) =>
+    inMemoryRunMethod(agg, r, {
+      loadLines,
+      capability: documentCapabilityBody(agg, ctx, "x", bypasses.get(r.name)),
+    }),
+  );
+}
+
+/** The context retrievals whose candidate is `agg` — each is a `run<Name>`
+ *  method on `agg`'s repository, whatever its saving shape. */
+export function aggregateRetrievals(
+  agg: EnrichedAggregateIR,
+  ctx: EnrichedBoundedContextIR,
+): RetrievalIR[] {
+  return (ctx.retrievals ?? []).filter(
+    (r) => r.targetType.kind === "entity" && r.targetType.name === agg.name,
+  );
+}
 
 /** A `shape: document` aggregate stores every field inside the `data` jsonb
  *  column, so a capability `filter` can't be a SQL column predicate — it's
@@ -432,27 +471,9 @@ export function inMemoryPagedTailLines(
   findName: string,
 ): string[] {
   const matchedVar = L.matched;
-  const cmpEntries = sortableFields(agg).map((f) => {
-    const t = wireFieldsForAggregate(agg).find((w) => w.name === f)?.type;
-    const prim = t?.kind === "optional" ? t.inner : t;
-    const name = prim?.kind === "primitive" ? prim.name : undefined;
-    // `Number(...)` covers every ordered scalar this backend represents as a
-    // number-like: int/long/decimal are numbers, money is a decimal.js
-    // `Decimal` (numeric `valueOf`), bool coerces to 0/1, and a `Date` coerces
-    // to its epoch milliseconds.  Everything else (string, enum, json) orders
-    // as text — the same two families the SQL `ORDER BY` collapses to.
-    const numeric =
-      name === "int" ||
-      name === "long" ||
-      name === "decimal" ||
-      name === "money" ||
-      name === "bool" ||
-      name === "datetime";
-    const cmp = numeric
-      ? `Number(a.${f} ?? 0) - Number(b.${f} ?? 0)`
-      : `String(a.${f} ?? "") < String(b.${f} ?? "") ? -1 : String(a.${f} ?? "") > String(b.${f} ?? "") ? 1 : 0`;
-    return `${JSON.stringify(f)}: (a, b) => (${cmp})`;
-  });
+  const cmpEntries = sortableFields(agg).map(
+    (f) => `${JSON.stringify(f)}: (a, b) => (${inMemoryFieldCompare(agg, f)})`,
+  );
   return [
     `    const ${L.__cmps}: Record<string, (a: ${agg.name}, b: ${agg.name}) => number> = { ${cmpEntries.join(", ")} };`,
     `    const ${L.__base} = ${L.__cmps}[sort] ?? ${L.__cmps}["id"]!;`,
@@ -464,6 +485,32 @@ export function inMemoryPagedTailLines(
     `    ${renderHonoStoreLogCall("findExecuted", `aggregate: "${agg.name}", find: "${findName}", rows: ${L.total}`)}`,
     `    return ${pagedEnvelopeLiteral(L)};`,
   ];
+}
+
+/** The ascending three-way comparison of field `f` between two rehydrated
+ *  aggregates bound to `a` and `b` — the in-memory twin of a SQL `ORDER BY` on
+ *  that column, shared by the paged finds and the criterion runner
+ *  (`in-memory-run.ts`).
+ *
+ *  `Number(...)` covers every ordered scalar this backend represents as a
+ *  number-like: int/long/decimal are numbers, money is a decimal.js `Decimal`
+ *  (numeric `valueOf`), bool coerces to 0/1, and a `Date` coerces to its epoch
+ *  milliseconds.  Everything else (string, enum, json) orders as text — the
+ *  same two families the SQL `ORDER BY` collapses to. */
+export function inMemoryFieldCompare(agg: EnrichedAggregateIR, f: string): string {
+  const t = wireFieldsForAggregate(agg).find((w) => w.name === f)?.type;
+  const prim = t?.kind === "optional" ? t.inner : t;
+  const name = prim?.kind === "primitive" ? prim.name : undefined;
+  const numeric =
+    name === "int" ||
+    name === "long" ||
+    name === "decimal" ||
+    name === "money" ||
+    name === "bool" ||
+    name === "datetime";
+  return numeric
+    ? `Number(a.${f} ?? 0) - Number(b.${f} ?? 0)`
+    : `String(a.${f} ?? "") < String(b.${f} ?? "") ? -1 : String(a.${f} ?? "") > String(b.${f} ?? "") ? 1 : 0`;
 }
 
 /** The locals an in-memory paged find declares (the caller's `matched` list

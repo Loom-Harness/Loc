@@ -88,6 +88,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { serverSourcedDefaultFields } from "../../src/generator/_frontend/server-default.js";
+import { handlerReadAggregates } from "../../src/ir/enrich/policy-read-gates.js";
 import { createInputFields, emitsRestCreate } from "../../src/ir/enrich/wire-projection.js";
 import {
   type AggregateIR,
@@ -419,13 +420,26 @@ function surfacesOf(model: LoomModel): Surfaces {
       for (const route of api.routes) {
         const ctx = ctxByName.get(route.target.context);
         if (!ctx || !served.has(ctx.name)) continue;
+        const aggs = new Map(ctx.aggregates.map((a) => [a.name, a]));
         const handler =
           (ctx.commandHandlers ?? []).find((h) => h.name === route.target.handler) ??
           (ctx.queryHandlers ?? []).find((h) => h.name === route.target.handler);
         if (!handler) continue; // no handler of that name
+        // A routed handler is a gated surface on two counts: its own `requires`
+        // statements (which, since enrichment prepends the aggregate's
+        // `policy { read X requires … }` gate to every body that reads X,
+        // include that gate), and the read-seam filters of every aggregate its
+        // body reads — a `policy { allow … / deny }` sentinel or a principal-
+        // referencing tenancy floor narrows the handler's repository read just
+        // as it narrows the derived `GET /<aggs>`.
         const gates: GateKind[] = handler.statements.some((s) => s.kind === "requires")
           ? ["requires"]
           : [];
+        for (const aggName of handlerReadAggregates(handler.statements)) {
+          const reads = aggs.get(aggName)?.contextFilters ?? [];
+          if (reads.some(isAuthzFilter)) gates.push("policy");
+          if (reads.some(isTenancyFilter)) gates.push("tenancy");
+        }
         add(
           "explicitHandler",
           route.method.toUpperCase(),
@@ -833,5 +847,64 @@ describe("authz gate census — mutation proof", () => {
     const { gated } = surfacesOf(await modelOf(MUT_SOURCE));
     expect(gated.map((s) => s.key)).not.toContain("getById GET /api/widgets/{id}");
     expect(gated.map((s) => s.key)).not.toContain("create POST /api/widgets");
+  });
+});
+
+// A routed handler is a gated surface when its body reads an aggregate guarded
+// by `policy { read X requires … }` (enrichment prepends the gate) or by a
+// read-seam filter — not only when it spells a `requires` itself.
+const MUT_HANDLER_SOURCE = `
+system MutHandler {
+  user { id: string  role: string }
+  subdomain Core {
+    context Ops {
+      aggregate Widget with crudish { name: string }
+      aggregate Gadget with crudish { name: string }
+      repository Widgets for Widget
+      repository Gadgets for Gadget
+      criterion ByName(name: string) of Widget = this.name == name
+      policy { read Widget requires currentUser.role == "agent" }
+      queryHandler GetWidget(name: string): Widget {
+        if let w = Widgets.find(ByName(name)) { return w } else { notFound }
+      }
+      queryHandler GetGadget(gadgetId: Gadget id): Gadget {
+        let g = Gadgets.get(gadgetId)
+        return g
+      }
+    }
+  }
+  api OpsApi from Core {
+    route GET "/widgets/by_name/{name}" -> Ops.GetWidget
+    route GET "/gadgets/one/{gadgetId}" -> Ops.GetGadget
+  }
+  storage primary { type: postgres }
+  resource st { for: Ops, kind: state, use: primary }
+  deployable d {
+    platform: node
+    contexts: [Ops]
+    dataSources: [st]
+    serves: OpsApi
+    port: 3000
+    auth: required
+  }
+}
+`;
+
+describe("authz gate census — routed handler reads", () => {
+  it("counts a handler that reads a read-gated aggregate, not one over an ungated aggregate", async () => {
+    const { gated, allRoutes } = surfacesOf(await modelOf(MUT_HANDLER_SOURCE));
+    const keys = gated.map((s) => s.key);
+    expect(keys).toContain("explicitHandler GET /api/widgets/by_name/{name}");
+    expect(keys).not.toContain("explicitHandler GET /api/gadgets/one/{gadgetId}");
+    expect(allRoutes).toContain("GET /api/gadgets/one/{gadgetId}");
+    const failures = censusFailures(
+      { key: "mutation/handler", file: "(inline)" },
+      gated,
+      new Set(),
+      {},
+    );
+    expect(
+      failures.some((f) => f.includes("explicitHandler GET /api/widgets/by_name/{name}")),
+    ).toBe(true);
   });
 });

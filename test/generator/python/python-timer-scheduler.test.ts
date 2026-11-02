@@ -90,7 +90,12 @@ describe("timerSource → Python/FastAPI scheduler", () => {
     expect(scheduler).toContain("timer_app.run_worker_async(");
     expect(scheduler).toContain("install_signal_handlers=False");
     expect(scheduler).toContain('delete_jobs="successful"');
-    expect(scheduler).toContain("await timer_app.schema_manager.apply_schema_async()");
+    // The schema DDL is not re-runnable, so a restart must skip it once the jobs
+    // table exists: apply is guarded by a `to_regclass` presence probe.
+    expect(scheduler).toContain("SELECT to_regclass('procrastinate_jobs') IS NOT NULL AS present");
+    expect(scheduler).toMatch(
+      /if not present\["present"\]:\n\s+await timer_app\.schema_manager\.apply_schema_async\(\)/,
+    );
   });
 
   it("keeps every: (sub-minute) timers in-process with a transaction-scoped advisory lock", async () => {

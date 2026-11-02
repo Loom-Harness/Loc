@@ -268,17 +268,6 @@ export const BEHAVIOURAL_XFAIL = {
   },
   java: {
     "provenance-money": moneyLineage('to be "3000\\.3000"'),
-    // The guarded save flushes the dirty entity (its stale `version` included)
-    // before the `where version = :expected` bump, so two simultaneous writers
-    // carrying one `If-Match` both land.  The sequential stale tag is refused.
-    "concurrency-two-writers": {
-      issue: "#3521",
-      expect: "fail",
-      tests: { [RACE_PROBE_TEST]: "pair \\d+: 204, 204" },
-      race:
-        "the lost write needs both requests to load before either saves, which only the server's own timing decides; a run whose pairs all serialise passes",
-      reason: "RS-46 — two simultaneous writers with one `If-Match` both answer 204 and one write is lost",
-    },
   },
   python: {
     // A routed command handler's body model takes snake_case keys.

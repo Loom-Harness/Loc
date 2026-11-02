@@ -304,7 +304,7 @@ end
 
 ### Gating a read — `policy { read X requires … }`
 
-Who may read an aggregate is one line in its context's `policy` block, and it gates **every** read of the aggregate — the list and by-id routes, a `scaffoldGet` route, the audit history read. It runs **before** the query, so it may only read `currentUser` (and constants) — `this.<field>` there is `loom.policy-read-gate-not-current-user`; use a criterion to scope rows and the read gate to allow/deny the caller. The enforcement story (403, `denyByDefault`, the scaffolded List page inheriting the gate) is in [chapter 17](17-auth.md#read--who-may-read-an-aggregate) and [`../auth.md`](../auth.md).
+Who may read an aggregate is one line in its context's `policy` block, and it gates **every** read of the aggregate — the list and by-id routes, a `scaffoldGet` route, any hand-written `queryHandler` / `commandHandler` that reads the aggregate through its repository, the audit history read. It runs **before** the query, so it may only read `currentUser` (and constants) — `this.<field>` there is `loom.policy-read-gate-not-current-user`; use a criterion to scope rows and the read gate to allow/deny the caller. The enforcement story (403, `denyByDefault`, the scaffolded List page inheriting the gate) is in [chapter 17](17-auth.md#read--who-may-read-an-aggregate) and [`../auth.md`](../auth.md).
 
 ```ddd
 repository Orders for Order

@@ -26,7 +26,7 @@ import {
   aggregatesNeedConcurrency,
 } from "../../ir/util/aggregate-flags.js";
 import { apiResourceBindings } from "../../ir/util/api-resource-binding.js";
-import { deriveContextOperations, staticSubpathRoutes } from "../../ir/util/api-surface.js";
+import { contextStaticSubpathRoutes, deriveContextOperations } from "../../ir/util/api-surface.js";
 import { durableEventTypes, realtimeEventTypes } from "../../ir/util/channels.js";
 import { CONSTANT_FORBIDDEN_DETAIL, echoesDenialDetail } from "../../ir/util/denial-detail.js";
 import { entryResult } from "../../ir/util/entry-result.js";
@@ -573,7 +573,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       hasChannelConsumers,
       hasRealtime,
       hasFileRoutes,
-      staticSubpathRoutes(args.contexts.flatMap(deriveContextOperations)),
+      contextStaticSubpathRoutes(args.contexts),
     ),
   );
   if (hasEmbeddedSpa) {

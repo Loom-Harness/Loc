@@ -237,8 +237,10 @@ params on the query string — so a client of the find keeps its URL, query
 parameters, 200 body and 404.  `of:` is a `criterion` (its first match), or an
 aggregate with `key:` naming the columns of one of its `unique (…)` keys.
 The aggregate's read gate (`policy { read Order requires … }`), which a find's
-route enforced and a handler does not inherit, is spliced ahead of the read, and
-`requires: <Policy>` adds a gate after it, as it does on `scaffoldPaged`:
+route enforced, guards the handler the same way it guards every handler that
+reads the aggregate (it is not spliced into the expansion — enrichment puts it
+ahead of the body), and `requires: <Policy>` adds a gate after it, as it does on
+`scaffoldPaged`:
 
 ```ddd
 context Shop with scaffoldGet(of: ByCode, requires: Clerks),

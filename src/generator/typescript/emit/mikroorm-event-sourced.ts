@@ -15,6 +15,7 @@ import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
+import { eventLogRunMethods } from "../in-memory-run.js";
 import { synthProjectionFinds } from "../projection-finds.js";
 import {
   deserializeField,
@@ -218,6 +219,7 @@ export function renderMikroEventSourcedRepository(
     `    return [...byStream.entries()].map(([id, evs]) => ${agg.name}._fromEvents(Ids.${agg.name}Id(id), evs));`,
     "  }",
     ...findMethods.flatMap((m) => ["", m]),
+    ...eventLogRunMethods(agg, ctx).flatMap((m) => ["", m]),
     "",
     toWireMethod(agg, ctx),
     // Response-boundary read masking (`mask unless`) — the SAME sibling

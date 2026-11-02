@@ -102,7 +102,12 @@ function javaStmtTarget(ctx: JavaRenderContext, traceCtx: JavaTraceCtx): StmtTar
       `${INDENT}var ${ctx.letExpr?.(s.name) ?? escapeJavaIdent(s.name)} = ${renderJavaExpr(s.expr, ctx)};`,
 
     assign: (s, ix) => {
-      const base = `${INDENT}${renderPath(s.target)} = ${renderJavaExpr(s.value, ctx)};`;
+      // A collection field assigned from another collection takes a mutable
+      // copy: the source may be an immutable list (`Stream.toList()`, `List.of`),
+      // and a later `field += v` appends in place.
+      const rhs = renderJavaExpr(s.value, ctx);
+      const value = s.targetType.kind === "array" ? `new java.util.ArrayList<>(${rhs})` : rhs;
+      const base = `${INDENT}${renderPath(s.target)} = ${value};`;
       // NOTE the wrap ORDER: java (like .NET / python) puts `value_computed`
       // INSIDE the provenance capture; node puts it outside.  Preserved.
       return withProvCapture(

@@ -505,7 +505,7 @@ Full semantics, the registry self-scope, and the per-backend seams: [`../tenancy
 
 ### `read` — who may read an aggregate
 
-The same block holds each aggregate's **read gate**: one `read <Aggregate> requires <expr>` line that covers every read of it — the list `GET /<plural>`, the by-id `GET /<plural>/{id}`, each repository find's route, the audit history read, and the scaffolded List page. It is evaluated **before** the load (403, so `/{id}` answers the same for an existing and a missing id — no existence oracle) and may read only `currentUser` and constants. An exposure gate (`scaffoldPaged(requires:)`, a route / handler `requires`) still ANDs on top. A repository `find` carries no `requires` of its own.
+The same block holds each aggregate's **read gate**: one `read <Aggregate> requires <expr>` line that covers every read of it — the list `GET /<plural>`, the by-id `GET /<plural>/{id}`, each repository find's route, the audit history read, the scaffolded List page, and every `queryHandler` / `commandHandler` whose body reads the aggregate (a hand-written routed handler gets the gate as a leading `requires`, so it answers the same 403 as the derived routes; a handler reading several gated aggregates carries one gate per aggregate, in first-read order). It is evaluated **before** the load (403, so `/{id}` answers the same for an existing and a missing id — no existence oracle) and may read only `currentUser` and constants. An exposure gate (`scaffoldPaged(requires:)`, a route / handler `requires`) still ANDs on top. A repository `find` carries no `requires` of its own.
 
 ```ddd
 repository Orders for Order { }

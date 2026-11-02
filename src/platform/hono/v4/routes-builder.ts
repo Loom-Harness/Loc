@@ -111,6 +111,7 @@ import {
   type ApiOperationIR,
   apiStatusContext,
   deriveAggregateOperations,
+  explicitStaticSubpaths,
   findValidatesRequest,
   isAllFind,
   relativeOpPath,
@@ -409,7 +410,13 @@ function honoStaticSubpathMethods(
     emitCreate && serverSourcedDefaultFields(createInputFields(agg)).length > 0
       ? [["prepare", "GET"]]
       : [];
-  return staticSubpathMethods(deriveAggregateOperations(agg, repo, apiStatusContext(ctx)), prepare);
+  const explicit = explicitStaticSubpaths(ctx)
+    .filter((r) => r.aggregate === agg.name)
+    .map((r): [string, string] => [r.segment, r.method]);
+  return staticSubpathMethods(deriveAggregateOperations(agg, repo, apiStatusContext(ctx)), [
+    ...prepare,
+    ...explicit,
+  ]);
 }
 
 /** The router-level guard that turns a wrong verb on a static sub-path into the

@@ -756,6 +756,68 @@ export function staticSubpathRoutes(ops: readonly ApiOperationIR[]): Record<stri
   return out;
 }
 
+/** The explicit `route`s that sit on a STATIC one-segment sub-path of one of
+ *  the context's aggregate collections — `route GET "/customers/by_email"` →
+ *  `{ aggregate: "Customer", segment: "by_email", method: "GET", path:
+ *  "/api/customers/by_email" }`.
+ *
+ *  Such a route is as exposed to the sibling `/{id}` route as a derived static
+ *  path is: a wrong verb on it falls through to `DELETE /{id}` with
+ *  `id = "by_email"` and answers the `{id}` validator's 422.  A read served by
+ *  `scaffoldGetApi` or a routed `queryHandler` is exactly this shape, so the
+ *  405 guard has to see it as well as the derived operations.
+ *
+ *  Read off `BoundedContextIR.explicitRouteSlots` — the slots the apis over this
+ *  context's subdomain declare — so the guard covers the same explicit set the
+ *  derived surface yields to.  A static slot carries no `{}` placeholder, so its
+ *  path is the declared one.  Abstract bases mount no `/{id}`, so nothing can
+ *  shadow a path under them. */
+export function explicitStaticSubpaths(ctx: BoundedContextIR): ExplicitStaticSubpath[] {
+  const bases = new Map<string, string>();
+  for (const agg of ctx.aggregates)
+    if (!agg.isAbstract) bases.set(aggregateSegment(agg.name), agg.name);
+  const out: ExplicitStaticSubpath[] = [];
+  for (const slot of ctx.explicitRouteSlots ?? []) {
+    const space = slot.indexOf(" ");
+    const path = slot.slice(space + 1);
+    if (!path.startsWith(`${API_BASE_PATH}/`)) continue;
+    const m = /^\/([^/{}]+)\/([^/{}]+)$/.exec(path.slice(API_BASE_PATH.length));
+    const aggregate = m ? bases.get(m[1] as string) : undefined;
+    if (!m || aggregate === undefined) continue;
+    out.push({
+      aggregate,
+      segment: m[2] as string,
+      method: slot.slice(0, space).toUpperCase(),
+      path,
+    });
+  }
+  return out;
+}
+
+/** One explicit route on a static aggregate sub-path (`explicitStaticSubpaths`). */
+export interface ExplicitStaticSubpath {
+  /** The aggregate whose collection the path sits under. */
+  readonly aggregate: string;
+  /** The static segment after the collection — `by_email`. */
+  readonly segment: string;
+  /** UPPER-CASE, like every other entry of the guard tables. */
+  readonly method: string;
+  /** Absolute — `/api/customers/by_email`. */
+  readonly path: string;
+}
+
+/** `staticSubpathRoutes` over every context a deployable routes: the derived
+ *  operations' static sub-paths plus the explicit routes on one
+ *  (`explicitStaticSubpaths`) — the whole table an application-pipeline guard
+ *  (python, .NET, java) needs. */
+export function contextStaticSubpathRoutes(
+  contexts: readonly BoundedContextIR[],
+): Record<string, string[]> {
+  const out = staticSubpathRoutes(contexts.flatMap(deriveContextOperations));
+  for (const r of contexts.flatMap(explicitStaticSubpaths)) addMethod(out, r.path, r.method);
+  return out;
+}
+
 function addMethod(table: Record<string, string[]>, key: string, method: string): void {
   const methods = table[key] ?? [];
   const upper = method.toUpperCase();

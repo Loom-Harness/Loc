@@ -521,6 +521,19 @@ function payloadFieldPyType(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
   return responsePyType(t, ctx);
 }
 
+/** The Pydantic declaration of one aggregate create-request field: a
+ *  non-nullable collection with no explicit default defaults to the empty list
+ *  when omitted (the wire twin of the `array` arm of `hasImplicitDefault`; node
+ *  emits `.default([])`).  Pydantic copies the default per instance. */
+function createFieldDecl(
+  f: ReturnType<typeof createInputFields>[number],
+  ctx: EnrichedBoundedContextIR,
+): string {
+  const decl = requestFieldDecl(f.type, f.optional, ctx, f.default);
+  const omittableList = f.type.kind === "array" && !f.optional && f.default === undefined;
+  return omittableList ? `${decl} = []` : decl;
+}
+
 /** Map each create-input field to a Pydantic `Field(...)` expression carrying
  *  the constraints implied by the aggregate's single-field invariants, so an
  *  invalid create is rejected by FastAPI at the request boundary with 422
@@ -556,11 +569,7 @@ function createModels(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): 
     `class Create${agg.name}Request(${H.BaseModel}):`,
     inputs.length > 0
       ? inputs.map((f) =>
-          withFieldConstraint(
-            f.name,
-            requestFieldDecl(f.type, f.optional, ctx, f.default),
-            constraints.get(f.name),
-          ),
+          withFieldConstraint(f.name, createFieldDecl(f, ctx), constraints.get(f.name)),
         )
       : ["    pass"],
     createFieldMessageValidator(agg.invariants, available),

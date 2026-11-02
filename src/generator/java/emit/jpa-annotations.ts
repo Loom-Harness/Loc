@@ -167,6 +167,15 @@ export function jpaFieldAnnotations(
   const t = unwrap(f.type);
   const col = snake(f.name);
 
+  // The `versioned` counter is written by the repository's guarded
+  // `where version = :expected` bump alone.  Were it an ordinary updatable
+  // column, the entity flush that precedes the bump would re-write the HANDLE's
+  // (possibly stale) value, undoing a concurrent writer's bump — and the
+  // second writer's own bump would then match, so both writers land.
+  if (f.access === "token") {
+    return [`    @Column(name = "${hbIdent(col)}", updatable = false)`];
+  }
+
   // Reference collection (`Target id[]`) → the association's join table
   // (relational), or a jsonb id-array column under `shape: embedded`.
   if (t.kind === "array" && t.element.kind === "id") {
