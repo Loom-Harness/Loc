@@ -66,20 +66,22 @@ describe("java projection runtime", () => {
     expect(row).toContain("public void setStatus(OrderStatus status) {");
   });
 
-  it("boxes primitive non-key columns so a NULL read does not fail", async () => {
+  it("boxes a declared-optional column (it can read NULL) and keeps a required one primitive", async () => {
     const src = SRC.replace(
       "    status: OrderStatus\n    on(e: OrderPlaced)",
-      "    status: OrderStatus\n    qty: int\n    paid: bool\n    on(e: OrderPlaced)",
+      "    status: OrderStatus\n    qty: int\n    paid: bool?\n    on(e: OrderPlaced)",
     );
     expect(src).not.toBe(SRC);
     const row = file(
       await generateSystemFiles(src),
       "infrastructure/persistence/OrderBookRow.java",
     );
-    expect(row).toContain("Integer qty;");
+    // `paid: bool?` can hold the NULL a partial row reads.
     expect(row).toContain("Boolean paid;");
-    expect(row).toContain("public Integer qty() {");
     expect(row).toContain("public void setPaid(Boolean paid) {");
-    expect(row).not.toMatch(/\b(int|boolean) (qty|paid)\b/);
+    // `qty: int` stays primitive: a fresh row starts at 0, so a fold's
+    // `qty += n` never unboxes a null (the pure-fold behavioral case).
+    expect(row).toContain("int qty;");
+    expect(row).toContain("public int qty() {");
   });
 });
