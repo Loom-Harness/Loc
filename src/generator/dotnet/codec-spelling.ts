@@ -181,7 +181,7 @@ export function csCalendarDateTryParseExact(expr: string, outVar: string): strin
 // ---------------------------------------------------------------------------
 
 /** The emitted `ProvWire` helper's name (Domain/Common/ProvLineage.cs). */
-export const CS_PROV_WIRE = "ProvWire";
+const CS_PROV_WIRE = "ProvWire";
 
 /** The helper's method per wire form: the scalars whose C# domain value is NOT
  *  already its wire form.  A `decimal` is a `System.Decimal` (the wire is the
