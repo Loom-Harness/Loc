@@ -73,7 +73,7 @@ import { UUID_WIRE_PATTERN } from "../../util/uuid-wire.js";
 import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/server-default.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { numericEncode } from "../_numeric/target.js";
-import { findUnionSpec } from "../_payload/union-wire.js";
+import { findUnionSpec, unionMoneyArms } from "../_payload/union-wire.js";
 import { pyCalendarDateWire } from "./codec-spelling.js";
 import { pyCommandBodyParam } from "./command-body.js";
 import { pyHistoryMapperName, renderPyHistoryMapper } from "./emit/audit-history.js";
@@ -1154,6 +1154,22 @@ function versionedSave(
   };
 }
 
+/** A `money` field of a payload success variant rides as the fixed-scale
+ *  string (RS-12) — the tagged dict holds the `Decimal`. */
+function unionMoneyReturn(variants: TypeIR[], ctx: EnrichedBoundedContextIR): string[] {
+  return unionMoneyArms(variants, ctx).flatMap((arm) => {
+    const enc = arm.keys.map(({ key, optional }) => {
+      const access = `result[${JSON.stringify(key)}]`;
+      const wire = numericEncode(PY_NUMERIC, "money", "dto-map", access);
+      return `${JSON.stringify(key)}: ${optional ? `None if ${access} is None else ${wire}` : wire}`;
+    });
+    return [
+      `    if result["type"] == ${JSON.stringify(arm.tag)}:`,
+      `        return {**result, ${enc.join(", ")}}`,
+    ];
+  });
+}
+
 /** Serialize a scalar operation-return domain value to its wire form —
  *  the same per-scalar handling the repository's `to_wire` projection uses:
  *  money → its canonical decimal string (`money_str`), datetime → ISO-8601
@@ -1233,6 +1249,7 @@ function operationRoute(
       vsave.save,
       op.audited ? "    __after = repo.to_wire(found)" : null,
       ...(op.audited ? auditRecordCall(agg, op) : []),
+      ...unionMoneyReturn(op.returnType.variants, ctx),
       "    return result",
     );
   }

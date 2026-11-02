@@ -32,7 +32,7 @@ import { ref } from "../_imports/symbol.js";
 import { numericEncode } from "../_numeric/target.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { nestedSaves, renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
-import { pyCalendarDateWire, pyEnvelopeInstant } from "./codec-spelling.js";
+import { pyCalendarDateWire, pyEnvelopeInstant, pyMoneyWire } from "./codec-spelling.js";
 import type { OpFragment } from "./emit/aggregate.js";
 import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
 import { PY_NUMERIC, pyEventSourcedDecimalDecode } from "./numeric-codec.js";
@@ -1361,7 +1361,7 @@ function toPayloadValue(expr: string, t: TypeIR, vos: PyVoFields): string {
   // `Codec` fact's `envelopeInstantWire`).
   if (t.kind === "primitive" && t.name === "datetime") return pyEnvelopeInstant(expr);
   if (t.kind === "primitive" && t.name === "date") return pyCalendarDateWire(expr);
-  if (t.kind === "primitive" && t.name === "money") return `str(${expr})`;
+  if (t.kind === "primitive" && t.name === "money") return pyMoneyWire(expr);
   const fields = t.kind === "valueobject" ? vos.get(t.name) : undefined;
   if (t.kind === "valueobject" && fields) {
     // A value object crosses as a DSL-keyed JSON object — the frozen
