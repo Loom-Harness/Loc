@@ -1142,6 +1142,13 @@ export interface RetrievalIR {
   sort: SortTermIR[];
   /** Fetch shape; `{ kind: "whole" }` when no `loads:` clause. */
   loadPlan: LoadPlanIR;
+  /** The `ignoring` stance of a widened list read's own retrieval
+   *  (`widenedRetrievalName`): `ignoring *` → `bypassAll`, `ignoring A, B` →
+   *  `bypassCaps`.  Set only on the retrievals enrichment derives for a
+   *  `Repo.all(…) ignoring …` read; the shared retrieval never carries one.
+   *  See `FindIR.bypassAll`. */
+  bypassAll?: boolean;
+  bypassCaps?: string[];
   /** Provenance back to the `retrieval` declaration — the span its
    *  diagnostics point at. */
   origin?: OriginRef;
@@ -1908,6 +1915,13 @@ export type WorkflowStmtIR =
        *  carry the criterion's arguments.  Absent for every other op. */
       retrievalName?: string;
       synthCriterion?: { name: string };
+      /** A widened single-row read (`let c = Repo.find(<Criterion>) ignoring …`
+       *  / `let o = Repo.find(id) ignoring …`): the source and stance of the
+       *  method `method` names, which enrichment synthesises
+       *  (`synthesizeBypassReadFinds`).  `retrievalName` is then absent — the
+       *  read runs its own method, not the shared retrieval — and a backend
+       *  calls `method` the way it calls an `if let`'s `findMethod`. */
+      bypassRead?: BypassReadIR;
       origin?: OriginRef;
     }
   | {
@@ -2083,9 +2097,10 @@ export type WorkflowStmtIR =
       findMethod?: string;
       /** A natural-key source's tuple + `ignoring` stance (see `repo-let`). */
       key?: KeyLookupIR;
-      /** A `Repo.find(<Criterion>) ignoring …` source: the criterion and the
-       *  stance of the widened read `findMethod` names.  `synthCriterion`
-       *  still names the criterion (it is validated like any criterion read);
+      /** A `Repo.find(<Criterion>) ignoring …` / `Repo.find(id) ignoring …`
+       *  source: the criterion (or id) and the stance of the widened read
+       *  `findMethod` names.  For a criterion source `synthCriterion` still
+       *  names the criterion (it is validated like any criterion read);
        *  `retrievalName` is empty, as the read does not run the shared
        *  retrieval. */
       bypassRead?: BypassReadIR;
@@ -3940,6 +3955,11 @@ export type ExprIR =
        *  the thrown error into the union) around a variant-match on the
        *  result; every other consumer ignores it. */
       awaited?: boolean;
+      /** A context integration test's widened by-id read
+       *  (`let o = Order.find(id) ignoring …`): `member` names the read's own
+       *  method (`bypassReadMethodName`), which enrichment synthesises on the
+       *  aggregate's repository from this source and stance. */
+      bypassRead?: BypassReadIR;
       origin?: OriginRef;
     }
   | {

@@ -95,14 +95,13 @@ describe("node/Drizzle ignoring filter-bypass emission", () => {
     );
   });
 
-  // KNOWN DEFECT: a widened LIST read (`let xs = Repo.findAll(C) ignoring …`,
-  // which the validator accepts as a bypass home) keeps the scope conjunct —
-  // the `ignoring` is silently dropped and the read narrows by
-  // `and(ordersAnyCriterion(), orderScope())`.  Flip to `it` once it widens.
-  it.fails("`findAll(C) ignoring <Cap>` drops the bypassed conjunct from the list read", async () => {
+  // A widened LIST read in a handler runs its own retrieval, named for its
+  // stance, which leaves the bypassed conjunct out; the shared retrieval keeps it.
+  it("`all(C) ignoring <Cap>` in a handler drops the bypassed conjunct from the list read", async () => {
     const r = await repo();
-    expect(r).toContain(".where(ordersAnyCriterion())");
-    expect(r).not.toContain(".where(and(ordersAnyCriterion(), orderScope()))");
+    expect(whereClause(r, "runFindAllByOrdersAnyIgnoringSoftDeletable")).toBe(
+      "ordersAnyCriterion()",
+    );
   });
 
   it("CRUD reads (findById / findManyByIds) keep the capability filter", async () => {

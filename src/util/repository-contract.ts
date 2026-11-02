@@ -365,6 +365,25 @@ export function bypassSuffix(bypass?: ReadBypass): string {
   return caps.length > 0 ? `Ignoring${[...caps].sort().map(capFirst).join("And")}` : "";
 }
 
+/** The retrieval a list read (`Repo.all(<Criterion | Retrieval>)`) runs.  A
+ *  plain read runs the shared retrieval (`findAllBy<C>` / the declared one);
+ *  a widened read runs its own, with the stance in its name, so the filters
+ *  every other caller of the shared retrieval relies on stay on:
+ *
+ *    Orders.all(Big())             → findAllByBig
+ *    Orders.all(Big()) ignoring *  → findAllByBigIgnoringAll
+ *    Orders.all(Recent) ignoring softDeletable → RecentIgnoringSoftDeletable */
+export function widenedRetrievalName(retrieval: string, bypass?: ReadBypass): string {
+  return `${retrieval}${bypassSuffix(bypass)}`;
+}
+
+/** The shared retrieval a widened list read's retrieval derives from — the
+ *  inverse of `widenedRetrievalName`. */
+export function retrievalBaseName(retrieval: string, bypass?: ReadBypass): string {
+  const suffix = bypassSuffix(bypass);
+  return suffix && retrieval.endsWith(suffix) ? retrieval.slice(0, -suffix.length) : retrieval;
+}
+
 /** The repository method a single-row read that widens its capability filters
  *  is emitted as.  The plain reads run against shared methods (`find(C)` the
  *  criterion's `findAllBy<C>` retrieval, `find(id)` the by-id load) whose

@@ -2901,10 +2901,10 @@ export function honoWorkflowStmtTarget(
       const lookup =
         st.op === "bound"
           ? args.join(", ")
-          : st.op === "load-optional"
-            ? `await ${repoVar}.findById(${args.join(", ")})`
-            : st.findMethod
-              ? `await ${repoVar}.${st.findMethod}(${args.join(", ")})`
+          : st.findMethod
+            ? `await ${repoVar}.${st.findMethod}(${args.join(", ")})`
+            : st.op === "load-optional"
+              ? `await ${repoVar}.findById(${args.join(", ")})`
               : firstRowOf(st.repoName, st.retrievalName, args);
       const thenSaves = st.savesInThen.map(
         (sv) => `${inner}await ${lowerFirst(sv.repoName)}.save(${escapeTsIdent(sv.name)});`,

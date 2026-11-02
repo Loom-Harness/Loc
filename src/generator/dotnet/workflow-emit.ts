@@ -1956,9 +1956,10 @@ export function csWorkflowStmtTarget(
       // (`load-optional`) binds it.  A user find (`locate`, `byHandle`) is
       // emitted WITHOUT an `Async` suffix (matching the CQRS query handler's
       // `_repo.<Find>(...)` call convention), so don't append one or the
-      // method won't resolve (CS1061).
+      // method won't resolve (CS1061).  A widened by-id read (`find(id)
+      // ignoring …`) calls its own method under that convention.
       const methodName =
-        st.op === "load" || st.op === "load-optional"
+        (st.op === "load" || st.op === "load-optional") && !st.bypassRead
           ? "GetByIdAsync"
           : csFindMethodName(st.method);
       const call = `await ${fieldName}.${methodName}(${callArgs})`;
@@ -2157,10 +2158,10 @@ export function csWorkflowStmtTarget(
       const lookup =
         st.op === "bound"
           ? [`${indent}var ${st.var} = ${st.retrievalArgs.map(renderArg).join(", ")};`]
-          : st.op === "load-optional"
-            ? byName("GetByIdAsync")
-            : st.findMethod
-              ? byName(csFindMethodName(st.findMethod))
+          : st.findMethod
+            ? byName(csFindMethodName(st.findMethod))
+            : st.op === "load-optional"
+              ? byName("GetByIdAsync")
               : firstRowLines(
                   indent,
                   st.var,

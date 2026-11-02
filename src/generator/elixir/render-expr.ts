@@ -431,9 +431,16 @@ export function renderExpr(e: ExprIR, ctx: RenderCtx = DEFAULT): string {
  *  `get_<agg>/1` (`find_by_id`) facade; a custom find maps to the per-find
  *  `<method>_<agg>` defdelegate.  Both are emitted by `context-emit.ts`, so a
  *  reading service rendered as a context fn (which has the ambient `Repo`)
- *  resolves them as bare same-module calls. */
-export function contextFindFnFor(op: RepoOp, method: string, aggregate: string): string {
-  return op === "load" || op === "load-optional"
+ *  resolves them as bare same-module calls.  A widened by-id read
+ *  (`find(id) ignoring …`) has a method of its own, so it maps to that
+ *  method's delegate, not to `get_<agg>`. */
+export function contextFindFnFor(
+  op: RepoOp,
+  method: string,
+  aggregate: string,
+  widened = false,
+): string {
+  return isByIdOp(op) && !widened
     ? `get_${snake(aggregate)}`
     : elixirFindFacadeFn(method, aggregate);
 }
@@ -446,7 +453,14 @@ export function contextFindFnFor(op: RepoOp, method: string, aggregate: string):
  *  absent row being `{:error, :not_found}` or `{:ok, nil}`).  Shared by the
  *  `let` and the `if let` over the same read. */
 export function optionalReadLookup(
-  read: { op: RepoOp; method: string; aggregate: string; retrievalName?: string },
+  read: {
+    op: RepoOp;
+    method: string;
+    aggregate: string;
+    retrievalName?: string;
+    /** A widened read (`… ignoring …`) calls its own method. */
+    widened?: boolean;
+  },
   args: readonly string[],
   contextModule: string,
   /** The retrieval reads the request actor and the caller has `current_user`
@@ -463,9 +477,10 @@ export function optionalReadLookup(
   }
   // A declared find takes the actor positionally after its own params (its
   // context facade is `<find>_<agg>(args…, current_user \\ nil)`).
-  const findArgs = passActor && !isByIdOp(read.op) ? [...args, "current_user"] : args;
+  const byId = isByIdOp(read.op) && !read.widened;
+  const findArgs = passActor && !byId ? [...args, "current_user"] : args;
   return {
-    call: `${contextModule}.${contextFindFnFor(read.op, read.method, read.aggregate)}(${findArgs.join(", ")})`,
+    call: `${contextModule}.${contextFindFnFor(read.op, read.method, read.aggregate, read.widened)}(${findArgs.join(", ")})`,
     hit: "{:ok, hit}",
   };
 }
@@ -1303,7 +1318,7 @@ function renderCall(args: string[], e: CallExpr, ctx: RenderCtx): string {
           ? `(case ${call} do\n      {:ok, [value | _]} -> value\n      _ -> nil\n    end)`
           : `(case ${call} do\n      {:ok, value} -> value\n      _ -> []\n    end)`;
       }
-      const fn = contextFindFnFor(read.op, read.method, read.aggregate);
+      const fn = contextFindFnFor(read.op, read.method, read.aggregate, !!read.bypassRead);
       const call = `${fn}(${args.join(", ")})`;
       // `getById` is contractually NON-NULL — it throws rather than returning
       // absent (`findById` is the read that answers absence), and
