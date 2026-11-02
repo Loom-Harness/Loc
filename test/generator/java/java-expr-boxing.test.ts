@@ -81,3 +81,13 @@ describe("java — optional primitive equality", () => {
     expect(cond).not.toContain("this.flag == true");
   });
 });
+
+describe("java — numeric literal fallback of ??", () => {
+  it("renders the decimal fallback as a BigDecimal in both ternary branches", async () => {
+    const cond = await file(COND);
+    expect(cond).toContain('return this.upper == null ? new BigDecimal("0") : this.upper;');
+    expect(cond).toContain(
+      '(this.upper == null ? new BigDecimal("0") : this.upper).compareTo(new BigDecimal("5.0")) > 0',
+    );
+  });
+});
