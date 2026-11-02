@@ -45,6 +45,19 @@ const WORK = join(HERE, ".work");
 const SHIM = join(HERE, "vitest-shim.mjs");
 const WORKER = join(HERE, "case-worker.mjs");
 
+// Memory ceilings, in MB.  Each case runs in its own worker process, so neither
+// number grows with the corpus; past either one the leg fails by name instead
+// of growing until the CI runner is killed with no failing test.  Measured over
+// the full node leg: one case peaks at ≤ 0.85 GB (PGlite's WASM heap is most
+// of it), the runner stays under 0.1 GB.  In ONE process the same corpus keeps
+// a ~230 MB database alive per leaking case (module-level state in the bundle
+// — the recorder's dispatch, the generated auth module's `routeProbe` — reaches
+// the app), which the runner ceiling catches within a few dozen cases.
+const CASE_RSS_LIMIT_MB = Number(process.env.LOOM_BH_CASE_RSS_LIMIT_MB ?? 1536);
+const RUNNER_RSS_LIMIT_MB = Number(process.env.LOOM_BH_RUNNER_RSS_LIMIT_MB ?? 1024);
+/** The last worker's peak RSS, for the `LOOM_BH_MEMLOG` line. */
+let lastCaseMaxRssMb = null;
+
 /** The in-process mock OIDC issuer, started on demand when the corpus contains
  *  an `auth {}` (OIDC) system.  `null` until then; runCase reads its token. */
 let oidc = null;
@@ -253,14 +266,36 @@ function runInWorker(bundle) {
     let reply = null;
     child.once("message", (m) => {
       reply = m;
+      lastCaseMaxRssMb = m?.maxRssMb ?? null;
     });
     child.once("error", reject);
     child.once("exit", (code, signal) => {
-      if (reply?.ok) resolve(reply.out);
+      if (reply && reply.maxRssMb > CASE_RSS_LIMIT_MB) {
+        reject(new Error(`case peaked at ${reply.maxRssMb} MB RSS, over the ${CASE_RSS_LIMIT_MB} MB per-case ceiling (LOOM_BH_CASE_RSS_LIMIT_MB)`));
+      } else if (reply?.ok) resolve(reply.out);
       else if (reply) reject(new Error(reply.message));
       else reject(new Error(`case worker exited without a result (code ${code}, signal ${signal})`));
     });
   });
+}
+
+/** After each case: print its memory under `LOOM_BH_MEMLOG=1`, and fail the leg
+ *  by name once the runner's own RSS passes RUNNER_RSS_LIMIT_MB.  Every case's
+ *  bundle and database live and die in its worker, so growth HERE means
+ *  something a case produced is being kept in this process again. */
+function assertRunnerBounded(caseName, ms) {
+  const rss = Math.round(process.memoryUsage().rss / 1048576);
+  if (process.env.LOOM_BH_MEMLOG) {
+    process.stdout.write(`  [mem] ${caseName} ms=${ms} caseMaxRss=${lastCaseMaxRssMb ?? "-"} runnerRss=${rss}\n`);
+  }
+  lastCaseMaxRssMb = null;
+  if (rss <= RUNNER_RSS_LIMIT_MB) return;
+  process.stdout.write(
+    `\n✗ the runner's RSS is ${rss} MB after ${caseName}, over the ${RUNNER_RSS_LIMIT_MB} MB ceiling ` +
+      "(LOOM_BH_RUNNER_RSS_LIMIT_MB): memory is accumulating across cases in run.mjs itself; " +
+      "a case's bundle and database must not outlive its worker process (case-worker.mjs)\n",
+  );
+  process.exit(1);
 }
 
 /** Load the typed feature corpus (`test/fixtures/corpus/manifest.ts`) via a
@@ -408,7 +443,9 @@ for (const c of corpus) {
   // runner skips unit-only cases entirely (their `declaresE2e` arm), and the
   // static coverage gates require goldens only of e2e-declaring cases.  One
   // rule, all seven legs.
+  const t0 = Date.now();
   await loop.run(c, runCase, { header: "node", compareWire: declaresE2e(c.source), extra: requirementFailures });
+  assertRunnerBounded(c.name, Date.now() - t0);
 }
 
 await oidc?.stop();
