@@ -847,6 +847,7 @@ const HEEX_TARGET: ExprTarget<HeexExprCtx> = {
   match: () => interceptedKind("match"),
   matchVariant: () => interceptedKind("match"),
   bindingRefText: () => interceptedKind("match"),
+  scalarVariantValue: () => interceptedKind("match"),
   absenceCheck: () => interceptedKind("match"),
 };
 

@@ -303,6 +303,8 @@ const ELIXIR_TARGET: ExprTarget<RenderCtx> = {
     return `case ${m.subject} do\n${clauses.join("\n")}\n    end`;
   },
   bindingRefText: (binding) => snake(binding),
+  // A success variant arrives bare in `{:ok, value}`; there is no carrier.
+  scalarVariantValue: (carrier) => carrier,
   // Union-find repos yield `record | nil` once the facade's `{:ok, _}`
   // carrier is unwrapped (payloads.md §Union finds).
   absenceCheck: (subject) => `${subject} != nil`,
