@@ -29,26 +29,6 @@ system Demo {
   deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 }
 }`;
 
-// Variant with the extra member injected on the REPOSITORY (for find slots).
-const sysRepo = (finds: string) => `
-system Demo {
-  subdomain S {
-    context C {
-      criterion InRegion(r: string) of Order = region == r
-      aggregate Order with crudish {
-        region: string
-        qty: int
-      }
-      repository Orders for Order {
-        ${finds}
-      }
-    }
-  }
-  storage primary { type: postgres }
-  resource st { for: C, kind: state, use: primary }
-  deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 }
-}`;
-
 async function codes(members: string): Promise<string[]> {
   const { diagnostics } = await parseString(sys(members), { validate: true });
   return lspCodes(diagnostics);
