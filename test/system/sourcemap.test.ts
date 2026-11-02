@@ -874,7 +874,7 @@ describe(".loom/sourcemap.json", () => {
 
     // Each statement region's origin resolves to a span whose text contains
     // that statement's own distinctive token, in source order.
-    const tokens = ["Orders.getById", "order.confirm"];
+    const tokens = ["Orders.get(", "order.confirm"];
     stmtRegions.forEach((r, i) => {
       const resolved = wireSourceOf(r.origin);
       expect(resolved, `stmt region ${i} origin never resolves to a source span`).toBeDefined();
@@ -1009,7 +1009,7 @@ describe(".loom/sourcemap.json", () => {
 
     // Each statement region's origin resolves to a span whose text contains
     // that statement's own distinctive token, in source order.
-    const tokens = ["Orders.getById", "order.confirm"];
+    const tokens = ["Orders.get(", "order.confirm"];
     stmtRegions.forEach((r, i) => {
       const resolved = wireSourceOf(r.origin);
       expect(resolved, `stmt region ${i} origin never resolves to a source span`).toBeDefined();
@@ -1068,7 +1068,7 @@ describe(".loom/sourcemap.json", () => {
     // read `span.start`/`span.end` off a wire span that is a TUPLE: both were
     // `undefined`, so `String.slice` returned the whole source and every
     // `toContain` was vacuous (M-T9.50).
-    const tokens = ["Products.getById", "product.discontinue"];
+    const tokens = ["Products.get(", "product.discontinue"];
     stmtRegions.forEach((r, i) => {
       const resolved = wireSourceOf(r.origin);
       expect(resolved, `stmt region ${i} origin never resolves`).toBeDefined();

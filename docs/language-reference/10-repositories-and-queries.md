@@ -817,7 +817,7 @@ from(record in D.Catalog.Order, where: not record.is_deleted,
 ```
 ::: end
 
-**No paging, no `order by`.** A projection read returns the whole row list — there is no `paged` carrier or sort clause on a projection (the grammar reserves `order by` for a later slice; no `loom.projection-paged-*` code exists). Grouped reads are ordered by their grouping columns; for a paged list, use a paged `queryHandler` ([above](#reporun--the-paged-queryhandler)).
+**No paging, no `order by`.** A projection read returns the whole row list — there is no `paged` carrier or sort clause on a projection (the grammar reserves `order by` for a later slice; no `loom.projection-paged-*` code exists). Grouped reads are ordered by their grouping columns; for a paged list, use a paged `queryHandler` ([above](#repoall--the-paged-queryhandler)).
 
 ### Sources — aggregate, workflow, projection
 

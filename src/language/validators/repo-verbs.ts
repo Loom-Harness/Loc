@@ -101,15 +101,17 @@ function checkCall(
   const names = queryNamesOf(ctx);
   const kind = classifyRepoArg(positional, names);
   const ref = queryRefOf(positional)?.name ?? "";
-  if (verb === "get" && kind !== "value") {
-    accept(
-      "error",
-      diagMessage(
-        kind === "criterion" ? "loom.repo-get-criterion" : "loom.repo-get-criterion#retrieval",
-        { receiver, ref },
-      ),
-      { node: s, code: "loom.repo-get-criterion" },
-    );
+  if (verb === "get" && kind === "criterion") {
+    accept("error", diagMessage("loom.repo-get-criterion", { receiver, ref }), {
+      node: s,
+      code: "loom.repo-get-criterion",
+    });
+  }
+  if (verb === "get" && kind === "retrieval") {
+    accept("error", diagMessage("loom.repo-get-criterion#retrieval", { receiver, ref }), {
+      node: s,
+      code: "loom.repo-get-criterion",
+    });
   }
   if (verb === "find" && kind === "retrieval") {
     accept("error", diagMessage("loom.repo-find-retrieval", { receiver, ref }), {
@@ -123,17 +125,18 @@ function checkCall(
       code: "loom.repo-all-arg",
     });
   }
-  if (s.sorted && !(verb === "all" && kind === "criterion")) {
-    accept(
-      "error",
-      diagMessage(
-        verb === "all" && kind === "retrieval"
-          ? "loom.repo-sort-placement#retrieval"
-          : "loom.repo-sort-placement",
-        { receiver, verb, ref },
-      ),
-      { node: s, property: "sorted", code: "loom.repo-sort-placement" },
-    );
+  if (s.sorted && verb === "all" && kind === "retrieval") {
+    accept("error", diagMessage("loom.repo-sort-placement#retrieval", { receiver, ref }), {
+      node: s,
+      property: "sorted",
+      code: "loom.repo-sort-placement",
+    });
+  } else if (s.sorted && !(verb === "all" && kind === "criterion")) {
+    accept("error", diagMessage("loom.repo-sort-placement", { receiver, verb }), {
+      node: s,
+      property: "sorted",
+      code: "loom.repo-sort-placement",
+    });
   }
 }
 
@@ -147,7 +150,7 @@ export function checkRepoVerbs(model: Model, accept: ValidationAcceptor): void {
           if (isMemberSuffix(x) && x.sorted)
             accept(
               "error",
-              diagMessage("loom.repo-sort-placement", { receiver: "", verb: x.member, ref: "" }),
+              diagMessage("loom.repo-sort-placement", { receiver: "", verb: x.member }),
               { node: x, property: "sorted", code: "loom.repo-sort-placement" },
             );
         continue;
@@ -158,7 +161,7 @@ export function checkRepoVerbs(model: Model, accept: ValidationAcceptor): void {
         if (s.sorted)
           accept(
             "error",
-            diagMessage("loom.repo-sort-placement", { receiver, verb: s.member, ref: "" }),
+            diagMessage("loom.repo-sort-placement", { receiver, verb: s.member }),
             { node: s, property: "sorted", code: "loom.repo-sort-placement" },
           );
         continue;

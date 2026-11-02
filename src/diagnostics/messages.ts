@@ -215,10 +215,10 @@ export const DIAGNOSTIC_MESSAGES = {
     `'${p.receiver}.all(…)' takes a criterion or a retrieval reference ('Active', 'InRegion(r)'), ` +
     "or nothing for the whole collection — not an inline predicate. Declare the predicate as a " +
     "'criterion' and pass its name.",
-  "loom.repo-sort-placement": (p: { receiver: unknown; verb: unknown; ref: unknown }) =>
+  "loom.repo-sort-placement": (p: { receiver: unknown; verb: unknown }) =>
     `'sort:' on '${p.receiver ? `${p.receiver}.` : ""}${p.verb}(…)' is never read: it belongs to a ` +
     "repository read over a criterion — 'Repo.all(<Criterion>, sort: [field desc])'.",
-  "loom.repo-sort-placement#retrieval": (p: { receiver: unknown; verb: unknown; ref: unknown }) =>
+  "loom.repo-sort-placement#retrieval": (p: { receiver: unknown; ref: unknown }) =>
     `'${p.receiver}.all(${p.ref}, sort: …)': '${p.ref}' is a retrieval, which declares its own ` +
     "'sort:'. Change the order on the retrieval, or pass a criterion.",
 
