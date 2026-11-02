@@ -577,6 +577,19 @@ function inertCall(key: string): RegExp {
   );
 }
 
+/** Files of a frontend that renders through plain F# / Dart expressions. */
+const CODE_FILE = /\.(fs|dart)$/;
+
+/** A translation call for `key` SPLICED into a string literal — the inert
+ *  shape on Feliz and Flutter, where a rendered `(I18n.t "k" …)` /
+ *  `t('k', …)` dropped into `prop.text "…"` / `Text('…')` keeps the key but
+ *  prints the call.  Inside the outer literal the call's own quotes are
+ *  escaped, so the key appears as `\"k\"` or `\'k\'`. */
+function splicedCall(key: string): RegExp {
+  const k = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\\\["']${k}\\\\["']`);
+}
+
 function roundTrip(
   files: ReadonlyMap<string, string>,
   t: FrontendTarget,
@@ -614,13 +627,18 @@ function roundTrip(
     }
     const word = new RegExp(`(?<![A-Za-z])${literal}(?![A-Za-z])`);
     const inert = keys.map(inertCall);
+    const spliced = keys.map(splicedCall);
     for (const [file, src] of tree) {
       const markup = MARKUP_FILE.test(file);
+      const code = CODE_FILE.test(file);
       for (const line of src.split("\n")) {
         if (word.test(line) && !keys.some((k) => line.includes(k))) {
           raw.push({ key: keys.join("|"), file, line: line.trim().slice(0, 160) });
         }
-        if (markup && inert.some((re) => re.test(line))) {
+        if (
+          (markup && inert.some((re) => re.test(line))) ||
+          (code && spliced.some((re) => re.test(line)))
+        ) {
           unbound.push({ key: keys.join("|"), file, line: line.trim().slice(0, 160) });
         }
       }
