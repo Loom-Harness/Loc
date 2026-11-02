@@ -343,6 +343,7 @@ function emitRouteHandler(
   route: RouteIR,
   h: Handler,
   ctx: EnrichedBoundedContextIR,
+  usingMikro: boolean,
 ): string[] {
   // paged-run queryHandler: `queryHandler H(...): <Agg> paged { let r =
   // Repo.run(<Criterion>(args)); return r }`.  Handled before the generic path
@@ -572,7 +573,7 @@ function emitRouteHandler(
   );
   const repoVarByAgg = new Map(repos.map((r) => [r.aggName, lowerFirst(r.repoName)]));
   if (er) {
-    out.push(...entryHandlerBody(h, er, ctx, paramExprs, repos));
+    out.push(...entryHandlerBody(h, er, ctx, paramExprs, repos, usingMikro));
     out.push(`  },`);
     out.push(`);`);
     return out;
@@ -646,6 +647,7 @@ function entryHandlerBody(
   ctx: EnrichedBoundedContextIR,
   paramExprs: Map<string, string>,
   repos: readonly { aggName: string; repoName: string }[],
+  usingMikro: boolean,
 ): string[] {
   const out: string[] = [];
   const all = [...repos];
@@ -661,7 +663,7 @@ function entryHandlerBody(
   out.push(`    const __deferred = deferredDispatcher(events);`);
   if (hasEmit) out.push(`    const workflowEvents: Events.DomainEvent[] = [];`);
   out.push(`    try {`);
-  out.push(`      await db.transaction(async (tx) => {`);
+  out.push(`      await db.${usingMikro ? "transactional" : "transaction"}(async (tx) => {`);
   for (const r of all) {
     out.push(
       `        const ${lowerFirst(r.repoName)} = new ${r.aggName}Repository(tx, __deferred);`,
@@ -721,6 +723,9 @@ export function buildExplicitRoutesFile(
    *  same map (and the same derivation) the workflow leg gets.  Defaulted so a
    *  caller with no system context stays byte-identical. */
   resourceSourceTypes: Map<string, string> = new Map(),
+  /** `persistence: mikroorm` — the router's `db` is an `EntityManager`, whose
+   *  transaction seam is `transactional`, not drizzle's `transaction`. */
+  usingMikro = false,
 ): string | undefined {
   const byName = new Map(contexts.map((c) => [c.name, c] as const));
   const routeBlocks: string[][] = [];
@@ -819,7 +824,7 @@ export function buildExplicitRoutesFile(
         );
       }
     }
-    routeBlocks.push(emitRouteHandler(apiName, r, h, ctx));
+    routeBlocks.push(emitRouteHandler(apiName, r, h, ctx, usingMikro));
   }
   if (routeBlocks.length === 0) return undefined;
 

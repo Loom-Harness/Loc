@@ -135,3 +135,22 @@ describe("an operation answering its own aggregate — .NET", () => {
     expect(h).not.toMatch(/^using [\w.]+\.Application\.Accounts\.Responses;$/m);
   });
 });
+
+describe("expected-failure entry result — node on MikroORM", () => {
+  // The router's `db` is an EntityManager there, whose transaction seam is
+  // `transactional`; drizzle's `transaction` does not exist on it.
+  it("runs a routed handler's command in the EntityManager's transaction", async () => {
+    const all = await generateSystemFiles(
+      readFileSync("test/fixtures/corpus/workflow-expected-failure.ddd", "utf8").replace(
+        "__PLATFORM__",
+        "node { persistence: mikroorm }",
+      ),
+    );
+    const key = [...all.keys()].find(
+      (k) => /http\/\w+-routes\.ts$/.test(k) && all.get(k)!.includes("handlerResult"),
+    )!;
+    const routes = all.get(key)!;
+    expect(routes).toContain("await db.transactional(async (tx) => {");
+    expect(routes).not.toContain("await db.transaction(async (tx) => {");
+  });
+});
