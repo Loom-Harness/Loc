@@ -36,6 +36,7 @@
 // (single or `.Select(...).ToList()`) at the boundary.
 // ---------------------------------------------------------------------------
 
+import { wireStatus } from "../../ir/enrich/wire-policy.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -86,6 +87,28 @@ const INDENT = "        ";
 
 /** The `<ns>.Domain.Common` types a routed action's emitted text can name. */
 const DOMAIN_COMMON_TYPE_REF = /\b(?:Provenanced|ProvLineage|RequestContext|Paged|FileRef)\b/;
+
+/** A routed action's declared responses: its success line, then the RFC 7807
+ *  set node's routed handler declares — 400 for a malformed request, the
+ *  context's not-found status, and 415 only where a JSON body is read.  The
+ *  `ProblemDetailsResponsesFilter` moves each onto `application/problem+json`. */
+function routedResponseDecls(
+  successDecl: string,
+  hasBody: boolean,
+  ctx: EnrichedBoundedContextIR,
+): string {
+  const statuses = [
+    wireStatus("malformed-body"),
+    wireStatus("not-found", ctx.structuralErrorStatuses),
+    ...(hasBody ? [wireStatus("unsupported-media-type")] : []),
+  ];
+  return [
+    successDecl,
+    ...statuses.map((s) => `    [ProducesResponseType(typeof(ProblemDetails), ${s})]`),
+  ]
+    .map((l) => `${l}\n`)
+    .join("");
+}
 
 type Handler = CommandHandlerIR | QueryHandlerIR;
 
@@ -849,6 +872,7 @@ export function emitExplicitRouteController(
       ].join(", ");
       actions.push(
         `    [HttpGet("${explicitRoutePath(r)}")]\n` +
+          routedResponseDecls("    [ProducesResponseType(200)]", false, ctx) +
           `    public async Task<IActionResult> ${h.name}(${actionParams})\n` +
           `    {\n        var result = await _mediator.Send(new ${h.name}Query(${queryArgs}));\n        return Ok(result);\n    }`,
       );
@@ -909,6 +933,14 @@ export function emitExplicitRouteController(
       ctx,
     );
     let sendBlock: string;
+    // The success response the action DECLARES: a single entity return names its
+    // `<Agg>Response` schema (the same `[ProducesResponseType]` the derived read
+    // actions carry), any other return an untyped 200, and a void handler 204.
+    // `IActionResult` is opaque to Swashbuckle, so without the attribute the
+    // spec publishes no body schema where node publishes one.
+    let successDecl = retType
+      ? "    [ProducesResponseType(200)]"
+      : "    [ProducesResponseType(204)]";
     if (retType) {
       // An aggregate/entity return is projected to its wire-shape `<Agg>Response`
       // — the same projection the auto-derived read endpoints use — so the route
@@ -925,6 +957,8 @@ export function emitExplicitRouteController(
         if (owning) {
           okExpr = projectToResponse("result", retType, ctx);
           nsUsings.add(`${ns}.Application.${plural(owning.name)}.Responses`);
+          if (!info.isCollection)
+            successDecl = `    [ProducesResponseType(typeof(${info.base}Response), 200)]`;
         }
       }
       // A scalar / id return crosses the same wire boundary.  An `<Agg> id` is a
@@ -956,6 +990,7 @@ export function emitExplicitRouteController(
     }
     actions.push(
       `    [${attr}("${explicitRoutePath(r)}")]\n` +
+        routedResponseDecls(successDecl, bodyParams.length > 0, ctx) +
         `    public async Task<IActionResult> ${h.name}(${actionParams})\n` +
         `    {\n${sendBlock}\n    }`,
     );

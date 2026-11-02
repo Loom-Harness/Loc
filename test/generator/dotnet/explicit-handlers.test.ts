@@ -220,3 +220,38 @@ describe("dotnet — routed read controller imports what its projection names", 
     expect(ctrl).not.toMatch(/^using \w+\.Domain\.Common;$/m);
   });
 });
+
+// A routed action returns `IActionResult`, which Swashbuckle cannot see
+// through, so the action declares its responses the way node's routed handler
+// does: the success body (`<Agg>Response` for a single entity, 204 for a void
+// command), 400, the not-found status, and 415 where a JSON body is read.
+describe("dotnet — a routed action declares its OpenAPI responses", () => {
+  it("a single-entity read declares <Agg>Response at 200 plus 400 / 404", async () => {
+    const ctrl = fileEndingWith(
+      await generateSystemFiles(routedReadSrc("total: int")),
+      "Api/ARoutesController.cs",
+    );
+    const action = ctrl.slice(ctrl.indexOf("[HttpGet("), ctrl.indexOf("public async Task"));
+    expect(action).toContain("[ProducesResponseType(typeof(OrderResponse), 200)]");
+    expect(action).toContain("[ProducesResponseType(typeof(ProblemDetails), 400)]");
+    expect(action).toContain("[ProducesResponseType(typeof(ProblemDetails), 404)]");
+    expect(action).not.toContain(", 415)]");
+  });
+
+  it("a void command with a body declares 204 and 415", async () => {
+    const ctrl = fileEndingWith(
+      await generateSystemFiles(SCAFFOLD_SRC),
+      "Api/SalesApiRoutesController.cs",
+    );
+    const start = ctrl.indexOf('/set_note")]');
+    const head = ctrl.slice(start, ctrl.indexOf("public async Task", start));
+    expect(head).toContain("[ProducesResponseType(204)]");
+    expect(head).toContain("[ProducesResponseType(typeof(ProblemDetails), 415)]");
+  });
+
+  it("a paged-run read declares an untyped 200 plus 400 / 404", async () => {
+    const ctrl = fileEndingWith(await generateSystemFiles(PAGED_SRC), "Api/ARoutesController.cs");
+    expect(ctrl).toContain("[ProducesResponseType(200)]");
+    expect(ctrl).toContain("[ProducesResponseType(typeof(ProblemDetails), 404)]");
+  });
+});
