@@ -1302,6 +1302,28 @@ system S {
     repoOnly(`    aggregate Product with crudish { region: string  name: string  unique (region, name) }
     repository Products for Product
     workflow w { create(n: string) { if let p = Products.findBy(name: n) { } } }`),
+  // --- the repository verbs (repo-verbs) ----------------------------------
+  // A retired verb names its replacement (the hard cutover, D-REPO-VERBS).
+  "loom.repo-verb-renamed": repoOnly(`    aggregate Order with crudish { code: string }
+    repository Orders for Order
+    workflow w { create(id: Order id) { let o = Orders.getById(id) } }`),
+  // `get` takes an id; a criterion read is `find`.
+  "loom.repo-get-criterion": repoOnly(`    aggregate Order with crudish { code: string }
+    repository Orders for Order
+    criterion ByCode(c: string) of Order = this.code == c
+    workflow w { create(c: string) { let o = Orders.get(ByCode(c)) } }`),
+  // A retrieval selects a list, so it goes to `all`, never `find`.
+  "loom.repo-find-retrieval": repoOnly(`    aggregate Order with crudish { code: string }
+    repository Orders for Order
+    criterion ByCode(c: string) of Order = this.code == c
+    retrieval Coded(c: string) of Order { where: ByCode(c)  sort: [code desc] }
+    workflow w { create(c: string) { if let o = Orders.find(Coded(c)) { } } }`),
+  // `sort:` on an `all` over a retrieval, which declares its own order.
+  "loom.repo-sort-placement": repoOnly(`    aggregate Order with crudish { code: string }
+    repository Orders for Order
+    criterion ByCode(c: string) of Order = this.code == c
+    retrieval Coded(c: string) of Order { where: ByCode(c) }
+    workflow w { create(c: string) { let xs = Orders.all(Coded(c), sort: [code desc], page: { limit: 5 }) } }`),
   // A repository read by a name no contract verb spells.
   "loom.repo-unknown-read": repoOnly(`    aggregate Order with crudish { code: string }
     repository Orders for Order
@@ -2062,9 +2084,9 @@ system S {
       operation probe(): Order or Rejected { return Rejected { reason: code } }
       operation touch() { probe() }
     }`),
-  // An anonymous `retrieval { where: … }` whose `where` is a predicate rather
-  // than the criterion reference this release admits.
-  "loom.retrieval-where-not-criterion": `
+  // `all(…)` over an inline predicate rather than a criterion / retrieval
+  // reference.
+  "loom.repo-all-arg": `
 system S {
   subdomain Sales { context Orders {
     aggregate Order with crudish { code: string  region: string }

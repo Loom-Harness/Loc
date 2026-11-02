@@ -126,9 +126,7 @@ describe("lowering", () => {
   it("a body whose only reads are optional cannot answer not-found", async () => {
     const ctx = await ctxOf(sys({}));
     expect(workflowCanAnswerNotFound(ctx.workflows[0]!)).toBe(false);
-    const must = await ctxOf(
-      sys({ workflow: "let o = Orders.get(c.oid)\n          o.touch()" }),
-    );
+    const must = await ctxOf(sys({ workflow: "let o = Orders.get(c.oid)\n          o.touch()" }));
     expect(workflowCanAnswerNotFound(must.workflows[0]!)).toBe(true);
   });
 });

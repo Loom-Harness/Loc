@@ -286,9 +286,7 @@ describe("the matchers' argument shapes", () => {
   });
 
   it("run(retrieval { where: <Criterion> }) — the anonymous literal carries the criterion", async () => {
-    const { expr, repos } = await exprOf(
-      `Orders.all(Active, sort: [code asc])`,
-    );
+    const { expr, repos } = await exprOf(`Orders.all(Active, sort: [code asc])`);
     const m = matchRetrievalRunCall(expr, repos);
     expect(m?.anon?.criterionName).toBe("Active");
     expect(m?.anon?.sort).toHaveLength(1);

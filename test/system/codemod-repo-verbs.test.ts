@@ -91,7 +91,8 @@ describe("codemod-repo-verbs — rewriteRepoVerbs", () => {
   });
 
   it("rewrites a context test's aggregate-rooted reads", () => {
-    const src = "aggregate Order { }\nrepository Orders for Order\nlet o = Order.getById(id)  Order.delete(o)";
+    const src =
+      "aggregate Order { }\nrepository Orders for Order\nlet o = Order.getById(id)  Order.delete(o)";
     const r = rewriteRepoVerbs(src);
     expect(r.text).toContain("Order.get(id)");
     // `delete` is no aggregate-rooted read: only a repository spells it.

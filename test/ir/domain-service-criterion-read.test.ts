@@ -58,9 +58,7 @@ function repoReadCall(body: StmtIR[]): Extract<ExprIR, { kind: "call" }> {
 
 describe("B10 — domain-service criterion read carries the criterion", () => {
   it("lowers findAll(<Criterion>) to a repo-read marked synthCriterion + retrievalName", async () => {
-    const m = await enriched(
-      `operation richOnes(): Account[] { return AccountsRepo.all(Rich) }`,
-    );
+    const m = await enriched(`operation richOnes(): Account[] { return AccountsRepo.all(Rich) }`);
     const call = repoReadCall(opBody(m));
     expect(call.callKind).toBe("repo-read");
     expect(call.repoRead?.op).toBe("select-many");
@@ -70,9 +68,7 @@ describe("B10 — domain-service criterion read carries the criterion", () => {
   });
 
   it("materialises the synthetic retrieval from a domain-service body (not just workflows)", async () => {
-    const m = await enriched(
-      `operation richOnes(): Account[] { return AccountsRepo.all(Rich) }`,
-    );
+    const m = await enriched(`operation richOnes(): Account[] { return AccountsRepo.all(Rich) }`);
     const ret = allContexts(m)[0]!.retrievals.find((r) => r.name === "findAllByRich");
     expect(ret, "findAllByRich retrieval materialised").toBeDefined();
     expect(ret?.targetType).toEqual({ kind: "entity", name: "Account" });

@@ -51,9 +51,7 @@ describe("validator: extern handler ↔ body pairing", () => {
 
   it("rejects an extern handler that declares a body (loom.extern-handler-has-body)", async () => {
     const found = await codes(
-      wrap(
-        `extern commandHandler PlaceOrder(code: string): Order id { let o = Orders.get(code) }`,
-      ),
+      wrap(`extern commandHandler PlaceOrder(code: string): Order id { let o = Orders.get(code) }`),
     );
     expect(found).toContain("loom.extern-handler-has-body");
   });

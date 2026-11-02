@@ -89,9 +89,9 @@ describe("Repo.findAll(<Criterion>) — lowering + enrich", () => {
 
 describe("Repo.findAll(<Criterion>) — validation", () => {
   it("a bounded (paged) findAll is clean; an unbounded one warns", async () => {
-    expect(
-      await codes(`let xs = Orders.all(ActiveOrder, page: { offset: 0, limit: 10 })`),
-    ).toEqual([]);
+    expect(await codes(`let xs = Orders.all(ActiveOrder, page: { offset: 0, limit: 10 })`)).toEqual(
+      [],
+    );
     expect(await codes(`let xs = Orders.all(ActiveOrder)`)).toEqual([
       "warning:loom.findall-no-page",
     ]);
@@ -116,9 +116,7 @@ describe("Repo.findAll(<Criterion>) — validation", () => {
 
 describe("Repo.findAll(<Criterion>) — Hono emission", () => {
   it("emits the reified predicate fn, the run method, and the workflow call", async () => {
-    const files = await generateSystemFiles(
-      SYS(`let regional = Orders.all(InRegion(c.region))`),
-    );
+    const files = await generateSystemFiles(SYS(`let regional = Orders.all(InRegion(c.region))`));
     const repo = [...files].find(([k]) => /order-repository\.ts$/.test(k))?.[1] ?? "";
     const wf = [...files].find(([k]) => /workflows\.ts$/.test(k))?.[1] ?? "";
     expect(repo).toContain("const inRegionCriterion = (rgn: string) =>");
