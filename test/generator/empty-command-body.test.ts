@@ -21,10 +21,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { fieldSentenceSuffix } from "../../src/ir/enrich/wire-policy.js";
 import { commandBodyOptional } from "../../src/ir/util/command-body.js";
-import {
-  MISSING_FIELD_MESSAGE,
-  UNSUPPORTED_MEDIA_TYPE_DETAIL,
-} from "../../src/ir/util/openapi-errors.js";
+import { UNSUPPORTED_MEDIA_TYPE_DETAIL } from "../../src/ir/util/openapi-errors.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 const src = (platform: string): string => `
