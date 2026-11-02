@@ -36,9 +36,13 @@ describe("System builder — rebind a construct's reference", () => {
   it("rebinds a repository's target aggregate", () => {
     const out = rebindReference(sales, "repository", "Orders", "Customer");
     expect(out).toMatch(/repository Orders for Customer\b/);
-    // The find params inside the body (Customer id) are untouched — only the
-    // `for` reference token moved.
-    expect(out).toMatch(/find byCustomer\(customerId: Customer id\)/);
+    // Only the `for` reference token moved: the empty body stays, and the
+    // criterion over `Order` beside it (its `Customer id` param included) is
+    // untouched.
+    expect(out).toMatch(/repository Orders for Customer \{ \}/);
+    expect(out).toMatch(
+      /criterion OrdersByCustomer\(customerId: Customer id\) of Order = this\.customerId == customerId/,
+    );
   });
 
   it("rebinds an api's source module", () => {

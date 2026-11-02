@@ -1,5 +1,5 @@
-// The thirteen frontend-body throw sites of the fail-closed register, one case
-// each, from its repros
+// The frontend-body throw sites of the fail-closed register, one case each
+// (the four Feliz find-read sites share one), from its repros
 // (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/missions/M-T9.77-fail-closed-register.md).  Each `.ddd`
 // reported `0 error(s)` and then crashed `ddd generate system`; now each is
 // refused by a `loom.*` code at `ddd parse`, or (toast) generates.  The
@@ -109,33 +109,22 @@ const CASES: readonly { site: string; src: string; code: string }[] = [
     src: awaitPage("feliz", NESTED),
     code: "loom.ui-body-feature-unsupported",
   },
-  {
-    site: "feliz/wire.ts#findParamQueryValue",
-    src: onePage(
-      "feliz",
-      `body: ${QV('C.Thing.byNames(["a"])')}`,
-      'find byNames(names: string[]): Thing? where this.name != ""',
-    ),
-    code: "loom.ui-body-feature-unsupported",
-  },
+  // The four Feliz find-read sites (`wire.ts#findParamQueryValue`,
+  // `#felizFindRead`, `#felizFindRead$2`, `#walk`) were reached through a
+  // declared `find`.  The only finds a page can read now are synthesized paged
+  // `findAllBy<Criterion>` ones, which Feliz cannot reach (no derived route),
+  // so every such read is refused before any of the four: one repro stands for
+  // them.
   {
     site: "feliz/wire.ts#felizFindRead",
-    src: onePage("feliz", `body: ${QV("C.Thing.names()")}`, "find names(): string?"),
-    code: "loom.ui-body-feature-unsupported",
-  },
-  {
-    site: "feliz/wire.ts#felizFindRead$2",
-    src: onePage("feliz", `body: ${QV("C.Thing.byName()")}`, "find byName(name: string): Thing?"),
-    code: "loom.ui-find-call-arity",
-  },
-  {
-    site: "feliz/wire.ts#walk",
-    src: onePage(
-      "feliz",
-      `body: ${QV("C.Thing.all", `rows => For { each: rows, r => ${QV("C.Thing.byName(r.name)", 'xs2 => Text { "y" }')} }`)}`,
-      "find byName(name: string): Thing?",
-    ),
-    code: "loom.ui-body-feature-unsupported",
+    src: onePage("feliz", `body: ${QV("Thing.findAllByNamed(s)")}`)
+      .replace("context Sales {", "context Sales with scaffoldPaged(of: Named) {")
+      .replace(
+        "repository Things for Thing {  }",
+        "repository Things for Thing\n    criterion Named(name: string) of Thing = this.name == name",
+      )
+      .replace("api SApi from M", "api SApi with scaffoldPagedApi(of: Named) from M"),
+    code: "loom.ui-read-unresolved",
   },
   {
     site: "flutter/riverpod-emit.ts#renderNotifierStmt",

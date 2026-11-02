@@ -14,9 +14,10 @@
 // was green.
 //
 // THE MATRIX is the set of read paths a principal-referencing predicate can
-// reach, because the defect was path-specific: a `find` threads the principal as
-// a parameter and was always correct, while a `retrieval` and a query-time
-// projection have DSL-fixed signatures that take none.  Any future read path
+// reach, because the defect was path-specific: a widened single-row read
+// (`find(C) ignoring …`, its own repository method) threads the principal as a
+// parameter, while a `retrieval` and a query-time projection have DSL-fixed
+// signatures that take none.  Any future read path
 // that forgets the ambient accessor lands here the same way.
 //
 // NON-VACUITY is asserted twice: each case requires the generation to have
@@ -104,22 +105,26 @@ const READ_PATHS: readonly { readonly what: string; readonly body: string }[] = 
     body: `      repository WorkOrders for WorkOrder { }`,
   },
   {
-    what: "a find that DECLARES the principal (its parameter is the binding)",
-    body: `      repository WorkOrders for WorkOrder {
-        find mine(): WorkOrder? where technicianUserId == currentUser.id
+    what: "a widened read that DECLARES the principal (its parameter is the binding)",
+    body: `      criterion Mine() of WorkOrder = this.technicianUserId == currentUser.id
+      repository WorkOrders for WorkOrder
+      queryHandler GetMineAnywhere(): WorkOrder {
+        if let x = WorkOrders.find(Mine()) ignoring * { return x } else { notFound "not_found" }
       }`,
   },
   {
     // THE CASE THAT JUSTIFIES THE PER-`def` UNIT.  Both reads land in one
-    // repository module: the find's method binds `current_user: User`, so the
-    // FILE contains a binding and a file-level check reads green — while the
-    // retrieval's method, two defs down, binds nothing.  Only a per-function
-    // unit separates them, and reverting the fix must still fail HERE.
-    what: "a find and a retrieval in the SAME repository module",
+    // repository module: the widened read's method binds `current_user: User`,
+    // so the FILE contains a binding and a file-level check reads green — while
+    // the retrieval's method, two defs down, binds nothing.  Only a
+    // per-function unit separates them, and reverting the fix must still fail
+    // HERE.
+    what: "a widened read and a retrieval in the SAME repository module",
     body: `      criterion Mine() of WorkOrder = this.technicianUserId == currentUser.id
       retrieval MyOrders() of WorkOrder { where: Mine() }
-      repository WorkOrders for WorkOrder {
-        find mine(): WorkOrder? where technicianUserId == currentUser.id
+      repository WorkOrders for WorkOrder
+      queryHandler GetMineAnywhere(): WorkOrder {
+        if let x = WorkOrders.find(Mine()) ignoring * { return x } else { notFound "not_found" }
       }`,
   },
 ];
@@ -169,8 +174,9 @@ describe("emitted Python never reads `current_user` in a def that never bound it
     const files = await generateSystemFiles(
       system(`      criterion Mine() of WorkOrder = this.technicianUserId == currentUser.id
       retrieval MyOrders() of WorkOrder { where: Mine() }
-      repository WorkOrders for WorkOrder {
-        find mine(): WorkOrder? where technicianUserId == currentUser.id
+      repository WorkOrders for WorkOrder
+      queryHandler GetMineAnywhere(): WorkOrder {
+        if let x = WorkOrders.find(Mine()) ignoring * { return x } else { notFound "not_found" }
       }`),
     );
     const reading = pyReferencingUnits(files, PY_PRINCIPAL_SCOPE);
@@ -178,8 +184,9 @@ describe("emitted Python never reads `current_user` in a def that never bound it
       reading,
       "no emitted python function reads the principal — the sweep is vacuous",
     ).not.toEqual([]);
-    // The find's method is the one that legitimately binds it as a parameter.
-    expect(reading.some((u) => u.endsWith(":: mine"))).toBe(true);
+    // The widened read's method is the one that legitimately binds it as a
+    // parameter.
+    expect(reading.some((u) => u.endsWith(":: find_first_mine_ignoring_all"))).toBe(true);
     // …and the retrieval's method, which binds nothing, must therefore NOT
     // appear as a bare reader: it goes through `require_current_user()`.
     const repo = files.get("ops_svc/app/db/repositories/work_order_repository.py");

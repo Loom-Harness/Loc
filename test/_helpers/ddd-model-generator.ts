@@ -13,8 +13,8 @@
 // seed and the generated source on failure, which is the repro fixture.
 //
 // The generator is deliberately CONSERVATIVE about validity — it only emits
-// type-correct assignments, references that resolve, and finds over filterable
-// types.  That matters more than breadth: an INVALID model proves nothing about
+// type-correct assignments, references that resolve, and criterion reads over
+// filterable types.  That matters more than breadth: an INVALID model proves nothing about
 // behaviour on valid input, and a generator that emits them turns the gate into
 // noise.  Both times this generator produced an invalid model while it was being
 // written (a string literal assigned to a `money` field; `literalFor` returning
@@ -24,7 +24,7 @@
 // Growing it is the point: each new shape is a new region of the input space.
 // Today it covers scalar + enum + `X id` fields, optional fields, `derived`,
 // `invariant`, containments with their part entity, `crudish` vs a hand-written
-// `create`, guarded operations, and declared finds.
+// `create`, guarded operations, and criterion reads.
 function rng(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
@@ -155,12 +155,18 @@ function genShallowModel(seed: number): string {
       ops = `\n        operation touch() {${pre}\n          ${f.name} := ${literalFor(f.type)}\n        }`;
     }
 
-    // A declared find over a filterable field.
+    // A single-row criterion read over a filterable field, through a
+    // queryHandler.
     const filterable = fields.filter((f) => FILTERABLE.has(f.type));
-    let finds = "";
+    let reads = "";
     if (filterable.length > 0 && r() < 0.6) {
       const f = pick(r, filterable);
-      finds = `\n        find by${f.name[0].toUpperCase()}${f.name.slice(1)}(v: ${f.type}): ${agg}? where this.${f.name} == v`;
+      const crit = `${agg}sBy${f.name[0].toUpperCase()}${f.name.slice(1)}`;
+      reads =
+        `\n      criterion ${crit}(v: ${f.type}) of ${agg} = this.${f.name} == v` +
+        `\n      queryHandler Get${crit}(v: ${f.type}): ${agg} {` +
+        `\n        if let x = ${agg}s.find(${crit}(v)) { return x } else { notFound "not_found" }` +
+        `\n      }`;
     }
 
     // An OPTIONAL field — the null-handling path through every wire mapper.
@@ -184,7 +190,7 @@ function genShallowModel(seed: number): string {
 
     parts.push(
       `      aggregate ${agg}${crudish} {\n${decls}${optional}${derived}${invariant}${contains}${create}${ops}\n      }\n` +
-        `      repository ${agg}s for ${agg} {${finds}\n      }`,
+        `      repository ${agg}s for ${agg}${reads}`,
     );
   }
   return `system Fuzz${seed} {
@@ -219,8 +225,8 @@ ${enumDecl}${parts.join("\n")}
 //      walker primitives (`Table`/`Column`/`QueryView`, `CreateForm`, `Stat`,
 //      `Card`, `Heading`, `Text`) plus a `menu {}` block, workflows (a `create`
 //      starter that emits, optionally an `on` reactor correlating on a state
-//      field), and the three find shapes — collection / optional-single /
-//      `paged` — over scalar, enum and OPTIONAL fields.
+//      field), and the three criterion-read shapes — collection /
+//      optional-single / `paged` — over scalar, enum and OPTIONAL fields.
 //
 //   2. It generates a DECISION RECORD (`ModelSpec`), not a string.  The string
 //      is a pure function of that record (`emitModel`).  That is what makes
@@ -245,12 +251,13 @@ export type FieldSpec = { name: string; type: string; optional: boolean };
  *  every backend a different emission path from an aggregate's. */
 export type VoSpec = { name: string; fields: FieldSpec[]; invariants: string[] };
 
-/** A repository find. `field === null` is the unfiltered form (`find recent():
- *  X paged`); `shape` picks collection / optional-single / paged. */
+/** A criterion read over one field; `shape` picks collection (`run` in a
+ *  `T[]` handler) / optional-single (`find(C)` in an `if let`) / paged (`run`
+ *  in a `T paged` handler). */
 export type FindSpec = {
   name: string;
-  field: string | null;
-  fieldType: string | null;
+  field: string;
+  fieldType: string;
   shape: "many" | "single" | "paged";
 };
 
@@ -391,29 +398,26 @@ function emitAgg(agg: AggSpec): string {
       (agg.op.precondition ? `\n          precondition ${agg.op.precondition}` : "") +
       `\n          ${agg.op.field} := ${agg.op.literal}\n        }`
     : "";
-  // A single-row find stays a find.  A list read is a criterion run by a
-  // queryHandler (list finds are refused by `loom.list-find-removed`); its
-  // paged form synthesises the repository's `findAllBy<Criterion>` find.  The
-  // unfiltered paged read is the declared `find all`, which must come first.
+  // Every read is a criterion run through the repository by a queryHandler:
+  // the single-row form is `find(C)` (first match, `T?`) in an `if let`, the
+  // list form `run(C)`; the paged form synthesises the repository's
+  // `findAllBy<Criterion>` find.
   const repo = `${agg.name}s`;
-  const finds = [
-    ...agg.finds
-      .filter((f) => f.field === null)
-      .map(() => `\n        find all(): ${agg.name} paged`),
-    ...agg.finds
-      .filter((f) => f.field !== null && f.shape === "single")
-      .map(
-        (f) =>
-          `\n        find ${f.name}(v: ${f.fieldType}): ${agg.name}? where this.${f.field} == v`,
-      ),
-  ].join("");
   const reads = agg.finds
-    .filter((f) => f.field !== null && f.shape !== "single")
     .map((f) => {
       const crit = `${repo}${f.name[0]!.toUpperCase()}${f.name.slice(1)}`;
+      const head = `\n      criterion ${crit}(v: ${f.fieldType}) of ${agg.name} = this.${f.field} == v`;
+      if (f.shape === "single") {
+        return (
+          head +
+          `\n      queryHandler Get${crit}(v: ${f.fieldType}): ${agg.name} {` +
+          `\n        if let x = ${repo}.find(${crit}(v)) { return x } else { notFound "not_found" }` +
+          `\n      }`
+        );
+      }
       const ret = f.shape === "paged" ? `${agg.name} paged` : `${agg.name}[]`;
       return (
-        `\n      criterion ${crit}(v: ${f.fieldType}) of ${agg.name} = this.${f.field} == v` +
+        head +
         `\n      queryHandler List${crit}(v: ${f.fieldType}): ${ret} {` +
         `\n        let r = ${repo}.run(${crit}(v))\n        return r\n      }`
       );
@@ -422,7 +426,7 @@ function emitAgg(agg: AggSpec): string {
   return (
     `      aggregate ${agg.name}${agg.crudish ? " with crudish" : ""} {\n` +
     `${decls}${derived}${invariant}${part}${create}${op}\n      }\n` +
-    `      repository ${repo} for ${agg.name} {${finds}\n      }${reads}`
+    `      repository ${repo} for ${agg.name}${reads}`
   );
 }
 
@@ -563,10 +567,10 @@ function genDeepSpec(seed: number): ModelSpec {
     const numField = fields.find((f) => f.type === "int" || f.type === "decimal");
     const assignable = fields.filter((f) => literalFor(f.type) !== undefined && !f.optional);
 
-    // Finds — the three return shapes over a filterable field, plus the
-    // unfiltered `paged` form.  Optional fields are filterable too: `where
-    // this.memo == v` against a non-optional parameter is the null-comparison
-    // path through every backend's query builder.
+    // Criterion reads — the three return shapes over a filterable field.
+    // Optional fields are filterable too: `this.memo == v` against a
+    // non-optional parameter is the null-comparison path through every
+    // backend's query builder.
     const filterable = fields.filter((f) => FILTERABLE.has(f.type));
     const finds: FindSpec[] = [];
     for (const f of shuffled(r, filterable).slice(0, int(r, 0, 2))) {
@@ -579,7 +583,10 @@ function genDeepSpec(seed: number): ModelSpec {
         shape,
       });
     }
-    if (r() < 0.4) finds.push({ name: "recent", field: null, fieldType: null, shape: "paged" });
+    // The unfiltered paged read is the implicit `all`, which every aggregate
+    // has; the draw that once chose a declared one is kept so the later draws
+    // — and the corpus they generate — do not move.
+    r();
 
     const crudish = r() < 0.6;
     aggs.push({
@@ -749,7 +756,7 @@ function normalizeOnce(spec: ModelSpec): ModelSpec {
         : has(a.createField)
           ? a.createField
           : ((fields[0]?.name ?? null) as string | null),
-      finds: a.finds.filter((f) => f.field === null || names.has(f.field)),
+      finds: a.finds.filter((f) => names.has(f.field)),
     };
   });
   // `loom.ui-id-ref-no-display` — an HONEST validator gate, not an emitter

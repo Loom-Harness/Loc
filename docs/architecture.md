@@ -347,8 +347,8 @@ nothing else.
 system Acme {
   subdomain Sales {
     context Orders {
-      aggregate Customer { name: string }
-      repository Customers for Customer { find byEmail(email: string): Customer? }
+      aggregate Customer { name: string  email: string  unique (email) }
+      repository Customers for Customer
     }
   }
 

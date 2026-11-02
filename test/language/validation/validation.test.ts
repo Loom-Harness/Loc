@@ -2494,15 +2494,17 @@ describe("Loom IR validation (post-lowering)", async () => {
     expect(errors, JSON.stringify(errors)).toEqual([]);
   });
 
-  it("accepts currentUser inside a repository find filter", async () => {
+  it("accepts currentUser inside a criterion a repository read runs", async () => {
     const loom = await loomFrom(`
       system Acme {
         user { id: string }
         subdomain M {
           context T {
             aggregate Order { customerId: string }
-            repository Orders for Order {
-              find mine(): Order? where customerId == currentUser.id
+            repository Orders for Order
+            criterion Mine of Order = customerId == currentUser.id
+            queryHandler GetMine(): Order {
+              if let x = Orders.find(Mine) { return x } else { notFound "not_found" }
             }
           }
         }

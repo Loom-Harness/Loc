@@ -11,7 +11,7 @@
 //     slice 1 cannot reach: value objects (a wire shape distinct from an
 //     aggregate's on every backend), UI pages with real walker primitives and a
 //     `menu {}` block, workflows and sagas (`create` + `emit` + `on … by`), and
-//     the three find shapes (collection / optional-single / `paged`) over
+//     the three criterion-read shapes (collection / optional-single / `paged`) over
 //     scalar, enum and OPTIONAL fields.
 //
 //   ② ALL FIVE BACKENDS PER SEED — slice 1 spreads its seeds across backends
@@ -274,7 +274,7 @@ describe("deep fuzz harness", () => {
       "emit ",
       "on(e: ",
       " paged",
-      "? where this.", // an optional-single find (`find byX(v: T): Agg? where …`)
+      ".find(", // an optional-single criterion read (`if let x = Repo.find(C(v))`)
       "memo: string?",
       "  ui U {",
       "menu {",

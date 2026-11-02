@@ -79,7 +79,6 @@ const testRoot = path.join(repoRoot, "test");
  */
 const PINNED_HONO: Readonly<Record<string, number>> = {
   "test/conformance/paged-wire-parity.test.ts": 1,
-  "test/conformance/union-wire-parity.test.ts": 1,
   "test/generator/_packs/join-table.test.ts": 3,
   "test/generator/hono/operation-return-route.test.ts": 1,
   "test/generator/hono/projection-aggregation.test.ts": 1,
@@ -122,7 +121,6 @@ const PINNED_HONO: Readonly<Record<string, number>> = {
 const PINNED_DOTNET: Readonly<Record<string, number>> = {
   "test/adapters/dotnet-orchestrator-rewire.test.ts": 1,
   "test/conformance/paged-wire-parity.test.ts": 1,
-  "test/conformance/union-wire-parity.test.ts": 1,
   "test/generator/dotnet/capability.test.ts": 16,
   "test/generator/dotnet/criteria-emit.test.ts": 3,
   "test/generator/dotnet/crudish-document.test.ts": 1,

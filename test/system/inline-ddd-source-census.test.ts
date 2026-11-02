@@ -113,10 +113,6 @@ const DELIBERATELY_UNPARSEABLE: readonly { file: string; contains?: string; why:
     why: "drives the builder over a source being assembled",
   },
   {
-    file: "test/playground/system-builder/model-context.test.ts",
-    why: "the builder's model context is exercised on partial sources",
-  },
-  {
     file: "test/generator/react/extern-functions.test.ts",
     contains: "function f(name: string): string = name",
     why: 'the one negative in a file of valid fixtures — its test is named "a bodied (non-extern) ui-level function does not parse" and asserts the refusal',

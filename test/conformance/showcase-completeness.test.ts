@@ -74,13 +74,11 @@ const UNION_SUPERTYPES = new Set<string>([...abstractSupertypes(), ...REFERENCE_
  * as the first guard runs reveal genuinely uncoverable kinds.
  */
 const ALLOWLIST = new Set<string>([
-  // No stdlib macro declares a `string` / `int` parameter, and macros cannot
-  // be defined in `.ddd` source — so these two macro-argument kinds are
-  // unreachable from ANY `.ddd` fixture (only `bool` / `ref` / `refList`
-  // macro params exist: crudish(updateOnly:), scaffold(subdomains:),
-  // scaffoldView(of:), all exercised in showcase.ddd). Unreachable by
-  // construction, not a coverage gap.
-  "MacroArgString",
+  // No stdlib macro declares an `int` parameter, and macros cannot be defined
+  // in `.ddd` source — so this macro-argument kind is unreachable from ANY
+  // `.ddd` fixture.  Unreachable by construction, not a coverage gap.
+  // (`MacroArgString` left this list when showcase.ddd gained
+  // `scaffoldGet(of: …, key: "…")`.)
   "MacroArgInt",
   // showcase.ddd is the single-file cross-generator conformance fixture; an
   // `import` would make it a multi-file project (a second partial file in
@@ -149,11 +147,19 @@ const ALLOWLIST = new Set<string>([
   // below caught it as stale on its first run.  The hand-authored member is
   // indeed absent, but `scaffoldHandlers` SYNTHESISES a `queryHandler` into the
   // expanded model, and this gate measures the BUILT model (macros run), so the
-  // kind is covered.  `CommandHandler` / `Route` / `HandlerRef` genuinely are
-  // not, and stay.
+  // kind is covered.  `Route` / `HandlerRef` left the same way once showcase.ddd's
+  // single-row reads went through `scaffoldGetApi`, which synthesises the
+  // `route` binding.  `CommandHandler` genuinely is not, and stays.
   "CommandHandler",
-  "Route",
-  "HandlerRef",
+  // The VALUE form of a variant `match` (`let t = match r { Order o => …, … }`).
+  // Its showcase witness matched a union FIND's result, and union finds are
+  // gone; the remaining union value in a domain body is an `or`-returning
+  // operation's result bound by a sibling operation, which
+  // `loom.vanilla-op-call-position` refuses on the elixir deployable this
+  // fixture carries.  Authored instead by
+  // test/language/validators/fixtures/stmt-placement-allowed.ddd (the
+  // clause census's witness).
+  "VariantArm",
   // The `if <cond> { … } else { … }` STATEMENT (M-FT.11).  UNREACHABLE in this
   // fixture BY CONSTRUCTION, not by omission: showcase.ddd's three contexts
   // (Catalog / Builds / People) are each hosted by `phoenixApi`

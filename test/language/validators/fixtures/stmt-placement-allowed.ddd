@@ -2,7 +2,9 @@
 //
 // All three gated statements in the homes that DO lower them, in one source:
 // `for` and `if let` in a workflow `create` body and in a `commandHandler`,
-// and the effect form of `match` in a page `action` (through `match await`).
+// and the effect form of `match` in a page `action` (through `match await`) —
+// plus the value form of `match` in an operation body, the one form a domain
+// body admits.
 // A gate that fires here is refusing valid programs — which is the failure mode
 // a placement rule is most likely to have, so the test asserts the three
 // placement codes are ABSENT rather than that the file is diagnostic-free.
@@ -15,6 +17,13 @@ system AllowedPlacement {
         reserved: bool
         operation place(): Order or NotAllowed { reserved := true  return this }
         operation reserve() { reserved := true }
+        // The VALUE form of a variant `match` — legal in a domain body, unlike
+        // the effect form — over an `or`-returning operation's result.
+        operation describe(): string {
+          let r = place()
+          let t = match r { Order o => o.code, NotAllowed e => e.reason }
+          return t
+        }
       }
       criterion ByCode(code: string) of Order = this.code == code
       retrieval Coded(code: string) of Order { where: ByCode(code) }

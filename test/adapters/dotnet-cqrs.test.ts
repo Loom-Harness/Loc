@@ -96,12 +96,12 @@ describe("cqrs StyleAdapter — dotnet (real)", () => {
       expect(tagged.category).toBeDefined();
     }
     // Spot-check the produced surface: there's a controller, a
-    // create-command, a get-by-id query, and the named find.
+    // create-command, a get-by-id query, and the list query.
     const names = artifacts.map((a) => a.name);
     expect(names.some((n) => n === "OrdersController.cs")).toBe(true);
     expect(names.some((n) => n.startsWith("CreateOrder") && n.endsWith("Command.cs"))).toBe(true);
     expect(names.some((n) => n.startsWith("GetOrderById"))).toBe(true);
-    expect(names.some((n) => n.includes("ByName"))).toBe(true);
+    expect(names.some((n) => n === "AllQuery.cs")).toBe(true);
   });
 
   it("emitForAggregate categorises produced artifacts so the byLayer adapter routes them", async () => {

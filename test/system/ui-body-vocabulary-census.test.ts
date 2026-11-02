@@ -89,7 +89,11 @@ const PROBES: readonly Probe[] = [
     expect: { renders: true },
   },
   { id: "match-await", host: { page: AWAIT("s := o.customerId") }, expect: { renders: true } },
-  { id: "find-scalar", host: { body: QV("C.Order.byCustomer(s)") }, expect: { renders: true } },
+  {
+    id: "find-scalar",
+    host: { body: QV("Order.findAllByOrdersByCustomer(s)") },
+    expect: { renders: true },
+  },
   {
     id: "where-body",
     host: { body: "Stack { For { each: xs.where(x => x > 1), x => Text { string(x) } } }" },
@@ -152,12 +156,12 @@ const PROBES: readonly Probe[] = [
   },
   {
     id: "find-arity-0",
-    host: { body: QV("C.Order.byCustomer()") },
+    host: { body: QV("Order.findAllByOrdersByCustomer()") },
     expect: { refused: "loom.ui-find-call-arity" },
   },
   {
     id: "find-arity-2",
-    host: { body: QV('C.Order.byCustomer(s, "x")') },
+    host: { body: QV('Order.findAllByOrdersByCustomer(s, "x")') },
     expect: { refused: "loom.ui-find-call-arity" },
   },
   {
@@ -216,25 +220,29 @@ const PROBES: readonly Probe[] = [
   },
   {
     id: "find-list-param",
-    host: { body: QV('C.Order.byCustomers(["a"])') },
+    host: { body: QV('Order.findAllByOrdersByCustomers(["a"])') },
     expect: { feature: "find-read-composite-param" },
-  },
-  {
-    id: "find-scalar-return",
-    host: { body: QV("C.Order.customerNames()") },
-    expect: { feature: "find-read-non-aggregate-return" },
   },
   {
     id: "find-row-arg",
     host: {
       body: QV(
         "C.Order.all",
-        `rows => For { each: rows, r => ${QV("C.Order.byCustomer(r.customerId)", 'xs2 => Text { "y" }')} }`,
+        `rows => For { each: rows, r => ${QV("Order.findAllByOrdersByCustomer(r.customerId)", 'xs2 => Text { "y" }')} }`,
       ),
     },
     expect: { feature: "find-read-unbound-arg" },
   },
 ];
+
+/** Features the table still lists that no source can reach any more, so no
+ *  probe can be written.  Each is dead with its emitter path; the entry goes
+ *  when the row does (the test below fails on a stale one). */
+const UNPROBEABLE_FEATURES: Readonly<Partial<Record<UiBodyFeature, string>>> = {
+  "find-read-non-aggregate-return":
+    "every readable find is a synthesized paged `findAllBy<Criterion>` returning the aggregate; " +
+    "a scalar-returning find was only declarable; the row goes with the Feliz find-read route code it guarded",
+};
 
 /** Why a refused feature cell must stay refused even though the emitter does
  *  not crash on it — the silent half of the table.  Keyed `<frontend> × <probe>`. */
@@ -293,7 +301,7 @@ function source(fw: Frontend, indices: readonly number[]): string {
   return `
 system Census {
   subdomain S {
-    context C {
+    context C with scaffoldPaged(of: OrdersByCustomer), scaffoldPaged(of: OrdersByCustomers) {
       error OrderMissing { missingRef: string }
       valueobject Addr { city: string  function label(): string { return city } }
       aggregate Order with crudish {
@@ -302,13 +310,14 @@ system Census {
           return OrderMissing { missingRef: customerId }
         }
       }
-      repository Orders for Order { }
+      repository Orders for Order
       criterion OrdersByCustomer(customerId: string) of Order = this.customerId == customerId
       criterion OrdersByCustomers(ids: string[]) of Order = this.customerId != ""
-      criterion OrdersCustomerNames of Order = this.customerId != ""
     }
   }
-  api A from S { httpStatus OrderMissing -> 404 }
+  api A with scaffoldPagedApi(of: OrdersByCustomer), scaffoldPagedApi(of: OrdersByCustomers) from S {
+    httpStatus OrderMissing -> 404
+  }
   ui Web {
     api C: A
     page Home { route: "/" body: Text { "home" } }
@@ -337,15 +346,32 @@ async function generateOutcome(src: string): Promise<"renders" | `crash: ${strin
 }
 
 /** Cells where one frontend departs from the probe's default expectation:
- *  `renders` or the refusing code.  LiveView's HEEx renderer binds `this` to the
- *  page's `@record` assign, so `loom.ui-this-unbound` exempts it; a LiveView
- *  store is a pure per-process module with no socket, so `match await` there is
- *  a `loom.ui-body-statement-kind` refusal rather than a feature-table one. */
+ *  `renders` or the refusing code (`a+b` when two gates each refuse the cell).
+ *  LiveView's HEEx renderer binds `this` to the page's `@record` assign, so
+ *  `loom.ui-this-unbound` exempts it; a LiveView store is a pure per-process
+ *  module with no socket, so `match await` there is a
+ *  `loom.ui-body-statement-kind` refusal rather than a feature-table one.
+ *
+ *  Every find a page can read is a SYNTHESIZED one (the paged
+ *  `findAllBy<Criterion>` a `scaffoldPaged` handler runs), and Feliz and Flutter
+ *  build their read URLs from the derived find path, which a synthesized find
+ *  has none of — so `loom.ui-read-unresolved` refuses each find-read cell
+ *  there, beside whatever the probe's own gate says. */
 const TARGET_OVERRIDES: Readonly<Record<string, string>> = {
   "phoenixLiveView × this-page": "renders",
   "phoenixLiveView × this-body": "renders",
   "phoenixLiveView × this-store": "renders",
   "phoenixLiveView × store-await": "loom.ui-body-statement-kind",
+  "feliz × find-scalar": "loom.ui-read-unresolved",
+  "feliz × find-arity-0": "loom.ui-read-unresolved+loom.ui-find-call-arity",
+  "feliz × find-arity-2": "loom.ui-read-unresolved+loom.ui-find-call-arity",
+  "feliz × find-list-param": "loom.ui-read-unresolved+loom.ui-body-feature-unsupported",
+  "feliz × find-row-arg": "loom.ui-read-unresolved+loom.ui-body-feature-unsupported",
+  "flutter × find-scalar": "loom.ui-read-unresolved",
+  "flutter × find-arity-0": "loom.ui-read-unresolved+loom.ui-find-call-arity",
+  "flutter × find-arity-2": "loom.ui-read-unresolved+loom.ui-find-call-arity",
+  "flutter × find-list-param": "loom.ui-read-unresolved",
+  "flutter × find-row-arg": "loom.ui-read-unresolved",
 };
 
 function expectedCode(p: Probe, fw: Frontend): string | undefined {
@@ -359,6 +385,13 @@ function expectedCode(p: Probe, fw: Frontend): string | undefined {
       : "loom.ui-body-feature-unsupported";
   }
   return undefined;
+}
+
+/** A refusal is exactly the expected code set — one code, or `a+b` for an
+ *  override where two gates each refuse the cell. */
+function sameCodes(codes: ReadonlySet<string>, want: string): boolean {
+  const wanted = want.split("+");
+  return codes.size === wanted.length && wanted.every((c) => codes.has(c));
 }
 
 async function measure(fw: Frontend): Promise<Map<number, Outcome>> {
@@ -386,9 +419,7 @@ async function measure(fw: Frontend): Promise<Map<number, Outcome>> {
     const want = expectedCode(PROBES[i]!, fw);
     out.set(
       i,
-      want && codes.has(want) && codes.size === 1
-        ? "refused"
-        : `refused-other: ${[...codes].join(",")}`,
+      want && sameCodes(codes, want) ? "refused" : `refused-other: ${[...codes].join(",")}`,
     );
   }
   const admitted = all.filter((i) => !codesByProbe.has(i));
@@ -409,9 +440,10 @@ describe("ui-body census — every frontend × body shape renders or is refused"
         const want = expectedCode(p, fw) ? "refused" : "renders";
         if (outcome !== want) bad.push(`${fw} × ${p.id}: ${outcome} (expected ${want})`);
         // A refused FEATURE must still be needed: the unchecked emitter either
-        // crashes or is pinned as silently wrong.
-        if ("feature" in p.expect && want === "refused") {
-          const key = `${fw} × ${p.id}`;
+        // crashes or is pinned as silently wrong.  A cell an override refuses
+        // is refused for the override's reason, not the table's.
+        const key = `${fw} × ${p.id}`;
+        if ("feature" in p.expect && want === "refused" && !TARGET_OVERRIDES[key]) {
           const raw = await generateOutcome(source(fw, [i]));
           if (raw === "renders" && !REFUSAL_REASON[key]) {
             bad.push(`${key}: refused, but the emitter renders it and no REFUSAL_REASON pins why`);
@@ -444,7 +476,15 @@ describe("ui-body census — every frontend × body shape renders or is refused"
       PROBES.flatMap((p) => ("feature" in p.expect ? [p.expect.feature] : [])),
     );
     expect(
-      Object.keys(UI_BODY_FEATURE_RENDERERS).filter((f) => !probed.has(f as UiBodyFeature)),
+      Object.keys(UI_BODY_FEATURE_RENDERERS).filter(
+        (f) => !probed.has(f as UiBodyFeature) && !(f in UNPROBEABLE_FEATURES),
+      ),
+    ).toEqual([]);
+  });
+
+  it("every unprobeable feature is still in the table (the waiver ratchets)", () => {
+    expect(
+      Object.keys(UNPROBEABLE_FEATURES).filter((f) => !(f in UI_BODY_FEATURE_RENDERERS)),
     ).toEqual([]);
   });
 });

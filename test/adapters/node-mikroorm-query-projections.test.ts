@@ -400,6 +400,10 @@ system M2 {
       repository Tags for Tag { }
       repository Orders for Order { }
       criterion OrdersTagged(t: Tag id) of Order = this.tags.contains(t)
+      queryHandler ListOrdersTagged(t: Tag id): Order[] {
+        let r = Orders.run(OrdersTagged(t))
+        return r
+      }
     }
   }
   storage pg { type: postgres }
