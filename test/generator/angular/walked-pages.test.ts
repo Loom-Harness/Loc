@@ -195,8 +195,14 @@ describe("angular generator — Button + event-handler seam", () => {
     expect(page).toContain("(click)='reset()'");
     expect(page).toContain("inc() { this.count.set((this.count() + 1)); }");
     expect(page).toContain("reset() { this.count.set(0); }");
-    // The JSX arrow wrapper must NOT survive into an Angular event binding.
-    expect(page).not.toContain("() =>");
+    // The JSX arrow wrapper must NOT survive into an Angular event binding.  Scoped
+    // to the template: the class body legitimately carries arrows (the document
+    // title `effect`, `computed` fields).
+    const template = page.slice(
+      page.indexOf("template: `"),
+      page.indexOf("`,", page.indexOf("template: `")),
+    );
+    expect(template).not.toContain("() =>");
   });
 
   it("maps variant → Material button rank and registers MatButtonModule", async () => {

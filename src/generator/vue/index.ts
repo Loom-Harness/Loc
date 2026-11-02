@@ -426,6 +426,7 @@ export function generateVueForContexts(
       // The route table a `navigate(<Page>)` in an ACTION body resolves against
       // (the body walk above already gets it).
       pageRoutes,
+      i18nPrefix: i18nEnabled ? pageKeyPrefix(ui, page) : undefined,
     });
     out.set(renderedPagePath, renderedPageContent);
     // Sibling component files a primitive hoisted out of the page — a Vue SFC

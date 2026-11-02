@@ -174,6 +174,19 @@ function icuTranslateCall(
   return translateCall(ctx, key, icu.display, values);
 }
 
+/** The per-page document-title EXPRESSION (`page X { title: … }`), in the
+ *  target's own language.  A literal under i18n becomes a `t()` call keyed
+ *  `<ctx.i18nPrefix>.title.<hash>` — the key `collectUiMessages` wrote.  An
+ *  interpolated title is never extracted (see there), so it renders as the raw
+ *  expression, as does any title with i18n off. */
+export function localizedPageTitle(title: ExprIR, ctx: WalkContext): string {
+  const literal = literalString(title);
+  if (literal !== undefined && ctx.i18nPrefix) {
+    return translateCall(ctx, messageKey(ctx.i18nPrefix, "title", literal), literal);
+  }
+  return emitExpr(title, ctx);
+}
+
 /** The NAMED-arg twin of {@link localizedRaw} (`Alert.title` → `alertTitle`,
  *  role in `USER_VISIBLE_SLOTS`).  Reads the named arg (`namedArgValue`) rather
  *  than a positional index, then runs the identical literal / ICU-template /

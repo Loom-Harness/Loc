@@ -33,7 +33,10 @@ describe("page title via useEffect(document.title)", () => {
     const content = files.get("web/src/pages/home.tsx")!;
     expect(content).toBeDefined();
     expect(content).toMatch(/import \{ useEffect \} from "react";/);
-    expect(content).toMatch(/useEffect\(\(\) => \{ document\.title = "Acme — Home"; \}, \[\]\);/);
+    // The UI carries translatable strings, so the title reads its catalog key.
+    expect(content).toMatch(
+      /useEffect\(\(\) => \{ document\.title = t\("WebApp\.page\.Home\.title\.\w+", "Acme — Home"\); \}, \[\]\);/,
+    );
   });
 
   it("title interpolating a route param adds it to deps + destructures it", async () => {

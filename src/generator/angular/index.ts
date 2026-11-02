@@ -481,6 +481,7 @@ export function generateAngularForContexts(
             // The route table an action body's `navigate(<Page>)` resolves
             // against (the body walk above already receives it).
             pageRoutes,
+            i18nPrefix: i18nEnabled && ui ? pageKeyPrefix(ui, page) : undefined,
           });
     }
     const pagePath = `src/app/pages/${slug}.component.ts`;

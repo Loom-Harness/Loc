@@ -45,6 +45,7 @@ import { pageFileBase } from "../_frontend/page-identity.js";
 import { usesValueEquals } from "../_frontend/value-equals.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
 import { pageKeyPrefix } from "../_walker/i18n-extract.js";
+import { localizedPageTitle } from "../_walker/i18n-emit.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import type { ApiCallSite } from "../_walker/target.js";
 import { type ApiHookUse, emitExpr, walkBody } from "../_walker/walker-core.js";
@@ -709,6 +710,24 @@ function keepUsedDerived(binds: readonly DerivedBind[], bodyWidget: string): Der
   return kept;
 }
 
+/** Wrap a page's `return Scaffold(…);` lines in a `Title` widget (which sets the
+ *  browser tab / task title) when the page declares a `title:`. */
+function wrapPageTitle(scaffold: readonly string[], titleDart: string | undefined): string {
+  if (titleDart === undefined) return scaffold.join("\n");
+  const inner = scaffold
+    .join("\n")
+    .replace(/^ {4}return /, "")
+    .replace(/;$/, "")
+    .replace(/\n/g, "\n    ");
+  return [
+    "    return Title(",
+    `      title: ${titleDart},`,
+    "      color: Theme.of(context).colorScheme.primary,",
+    `      child: ${inner.trimStart()},`,
+    "    );",
+  ].join("\n");
+}
+
 /** Render one `ui` page into a Flutter `StatelessWidget` whose `build` returns
  *  the widget tree the shared walker produced from the page body. */
 function renderPage(
@@ -803,6 +822,30 @@ function renderPage(
   const derivedCandidates = pageDerivedBinds(page, aggregatesByName, componentParams, ui.apiParams);
   let derivedBinds: DerivedBind[] = [];
   let usesCurrentUser = false;
+  // The page `title:` — rendered through the shared `localizedPageTitle` so a
+  // literal title reads the `<Ui>.page.<Name>.title.<hash>` catalog
+  // key.  It reads state / stores / derived like any body slot, so those join
+  // the page's below.
+  let titleDart: string | undefined;
+  let titleCtx: ReturnType<typeof stateCtx> | undefined;
+  if (page.title) {
+    titleCtx = stateCtx({
+      stateNames,
+      derivedNames: new Set(page.body ? derivedCandidates.map((d) => d.name) : []),
+      aggregatesByName,
+      locals: new Map(),
+      paramNames,
+      apiParamNames: new Map(ui.apiParams.map((p) => [p.name, p.apiName])),
+      userComponents: componentParams,
+    });
+    titleCtx.i18nPrefix = i18nEnabled ? pageKeyPrefix(ui, page) : undefined;
+    try {
+      titleDart = localizedPageTitle(page.title, titleCtx);
+    } catch {
+      // A title shape with no Dart arm keeps the pre-existing drop.
+      titleDart = undefined;
+    }
+  }
   if (page.body) {
     const result = walkBody(
       page.body,
@@ -840,7 +883,7 @@ function renderPage(
     // unused `final` is a `flutter analyze` warning → CI red), and a kept one
     // that dereferences `state` forces the shell's `state` binding — the body
     // alone may never have touched a state cell.
-    derivedBinds = keepUsedDerived(derivedCandidates, bodyWidget);
+    derivedBinds = keepUsedDerived(derivedCandidates, `${bodyWidget}\n${titleDart ?? ""}`);
     if (derivedBinds.some((d) => d.usesState)) usesState = true;
     // A KEPT derived's store reads join the page's — the shell binds one
     // `ref.watch(<store>Provider.select(...))` local per member, above the
@@ -856,6 +899,18 @@ function renderPage(
         }
         for (const m of members) known.add(m);
       }
+    }
+  }
+  if (titleCtx && titleDart !== undefined) {
+    if (titleCtx.usesState) usesState = true;
+    if (titleCtx.usesRouteId) usesRouteId = true;
+    for (const [store, members] of titleCtx.usedStores ?? []) {
+      let known = usedStores.get(store);
+      if (!known) {
+        known = new Set();
+        usedStores.set(store, known);
+      }
+      for (const m of members) known.add(m);
     }
   }
   const derivedLines = derivedBinds.map((d) => `    final ${dartMember(d.name)} = ${d.dart};`);
@@ -891,6 +946,7 @@ function renderPage(
           usedStores,
           storeMembers,
           derivedLines,
+          titleDart,
           pageGate,
           credentialed,
           navMenu,
@@ -907,6 +963,7 @@ function renderPage(
         hostsForm,
         usesComponent,
         derivedLines,
+        titleDart,
         credentialed,
         navMenu,
       });
@@ -961,6 +1018,9 @@ interface ConsumerBindings {
   /** `final <name> = <expr>;` per page `derived` the body reads, in declaration
    *  order (`pageDerivedBinds`). */
   derivedLines: readonly string[];
+  /** The page `title:` as a Dart `String` expression (translated under i18n),
+   *  or `undefined` — the page then wraps its `Scaffold` in a `Title`. */
+  titleDart?: string;
   /** True when this page reads the verified session (a `requires` gate, or a
    *  `currentUser.<claim>` in its body) — the shell then binds `currentUser` and
    *  wraps the body in the gate. */
@@ -1034,6 +1094,9 @@ function renderStatelessPage(
      *  page's derived reach only params / literals — one that read `state` made
      *  the page a `ConsumerWidget` instead. */
     derivedLines: readonly string[];
+    /** The page `title:` as a Dart `String` expression (translated under i18n),
+     *  or `undefined` — the page then wraps its `Scaffold` in a `Title`. */
+    titleDart?: string;
     /** True when the deployable authenticates its api calls — the page shell
      *  then imports the credentialed `api_client.dart` drop-in instead of
      *  `package:http/http.dart`, so an inline `Action(<inst>.<op>)` POST and a
@@ -1070,7 +1133,7 @@ function renderStatelessPage(
   // The formatting / math sniffs run over the hoisted `derived` locals TOO — a
   // derived is an expression like any body slot, so `round(x)` in one pulls
   // `dart:math` exactly as it would inline.
-  const scan = [...opts.derivedLines, bodyWidget].join("\n");
+  const scan = [...opts.derivedLines, bodyWidget, opts.titleDart ?? ""].join("\n");
   if (usesIntl(scan)) imports.push("import 'package:intl/intl.dart';");
   // The generated translation runtime — imported only when a text slot
   // in this page actually resolved to a `t(…)` call.
@@ -1090,12 +1153,17 @@ function renderStatelessPage(
     // `derived` locals after the route args (a derived may read a route param)
     // and before the tree that reads them — Dart locals are not hoisted.
     ...opts.derivedLines,
-    "    return Scaffold(",
-    `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')${opts.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
-    "      body: SingleChildScrollView(",
-    `        child: ${indentContinuation(bodyWidget, 8)},`,
-    "      ),",
-    "    );",
+    wrapPageTitle(
+      [
+        "    return Scaffold(",
+        `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')${opts.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
+        "      body: SingleChildScrollView(",
+        `        child: ${indentContinuation(bodyWidget, 8)},`,
+        "      ),",
+        "    );",
+      ],
+      opts.titleDart,
+    ),
     "  }",
     "}",
   )}\n`;
@@ -1256,7 +1324,7 @@ function renderConsumerPage(
   // config / file_picker.
   // …and over the hoisted `derived` locals, which are expressions like any body
   // slot (a `round(…)` there pulls `dart:math` just the same).
-  const scan = `${projSource}\n${bodyWidget}\n${b.derivedLines.join("\n")}`;
+  const scan = `${projSource}\n${bodyWidget}\n${b.derivedLines.join("\n")}\n${b.titleDart ?? ""}`;
   // The money runtime rides the SAME scan: an `action` body doing
   // money arithmetic lands in the Notifier (projSource), not in the markup.
   if (usesMoney(scan)) imports.push("import '../money.dart';");
@@ -1307,12 +1375,17 @@ function renderConsumerPage(
     "  @override",
     "  Widget build(BuildContext context, WidgetRef ref) {",
     bindings,
-    "    return Scaffold(",
-    `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')${b.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
-    "      body: SingleChildScrollView(",
-    `        child: ${guarded},`,
-    "      ),",
-    "    );",
+    wrapPageTitle(
+      [
+        "    return Scaffold(",
+        `      appBar: AppBar(title: const Text('${escapeDart(page.name)}')${b.navMenu ? `, bottom: const ${FLUTTER_NAV_MENU_WIDGET}()` : ""}),`,
+        "      body: SingleChildScrollView(",
+        `        child: ${guarded},`,
+        "      ),",
+        "    );",
+      ],
+      b.titleDart,
+    ),
     "  }",
     "}",
   )}\n`;
