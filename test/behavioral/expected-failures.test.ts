@@ -200,10 +200,11 @@ describe("BEHAVIOURAL_XFAIL — the register's shape", () => {
     expect(bad.map((x) => `${x.leg}/${x.name}`)).toEqual([]);
   });
 
-  it("the two-writer case is strict on every leg: no leg registers it, so one 2xx and one 409 per pair is required", () => {
+  it("no leg forgives a non-overlapping two-writer run: java (#3521) answers one 2xx and one 409 per pair, strictly", () => {
     for (const leg of LEGS) {
-      expect(XFAIL[leg]?.["concurrency-two-writers"], leg).toBeUndefined();
+      expect(XFAIL[leg]?.["concurrency-two-writers"]?.race, leg).toBeUndefined();
     }
+    expect(XFAIL.java?.["concurrency-two-writers"]).toBeUndefined();
   });
 
   it("a `race` entry still forgives a pair that did not overlap (the mechanism, on a synthetic entry)", () => {
