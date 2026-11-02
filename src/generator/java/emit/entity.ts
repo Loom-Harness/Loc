@@ -37,6 +37,7 @@ import type { UnionMember } from "../../_payload/union-wire.js";
 import type { SourceMapSubRegion } from "../../_trace/sourcemap.js";
 import { constructionSeededFields, serverSeededFields } from "../../construction-default.js";
 import type { RestrictionHost } from "../capability-filter.js";
+import { javaInstantTruncate } from "../codec-spelling.js";
 import { jid } from "../java-ident.js";
 import {
   buildJavaRegexFields,
@@ -1414,7 +1415,7 @@ function javaServerInitSeed(seed: ServerInitSeed, t: TypeIR): string {
   const name = t.kind === "primitive" ? t.name : "";
   switch (seed) {
     case "now":
-      return "java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS)";
+      return javaInstantTruncate("java.time.Instant.now()");
     case "zero":
       return name === "decimal" ? "java.math.BigDecimal.ZERO" : name === "long" ? "0L" : "0";
     case "false":
