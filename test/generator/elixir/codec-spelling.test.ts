@@ -4,6 +4,7 @@
 // #3593 (lineage and channel envelope are wire).
 
 import { describe, expect, it } from "vitest";
+import { numericEncode } from "../../../src/generator/_numeric/target.js";
 import {
   exCalendarDateWire,
   exEctoIdJsonType,
@@ -100,7 +101,7 @@ describe("wire", () => {
   it("reads the money bound, grammar, scale and integer ranges off the fact", () => {
     expect(exMoneyMaxExclusive()).toBe('"1000000000000000"');
     expect(exMoneyGrammarRegex()).toBe("~r/^-?\\d+(\\.\\d+)?$/");
-    expect(ELIXIR_NUMERIC.money["dto-map"]("v")).toBe("Decimal.round(v, 4)");
+    expect(numericEncode(ELIXIR_NUMERIC, "money", "dto-map", "v")).toBe("Decimal.round(v, 4)");
     expect(exInt32Range()).toEqual({ min: -2147483648, max: 2147483647 });
     expect(exIntegerRange("long")).toEqual({ min: -9007199254740991, max: 9007199254740991 });
   });
