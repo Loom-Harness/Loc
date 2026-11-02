@@ -19,6 +19,7 @@ import type {
   AuthBlock,
   DddAstType,
   Deployable,
+  I18nBlock,
   Model,
   Resource,
   Storage,
@@ -54,6 +55,7 @@ import {
   checkFileUploadBinding,
   checkGenericCarriers,
   checkHandlerBodies,
+  checkI18nBlock,
   checkIconOnlyButtonName,
   checkImageAltText,
   checkInheritance,
@@ -488,6 +490,16 @@ export class DddValidator {
           }
         }
         for (const tb of themeBlocks) guard("theme", tb, () => checkTheme(tb, accept));
+        // i18n block: at most one per system, and its source tag must be a
+        // canonicalizable BCP-47 language tag.
+        const i18nBlocks = m.members.filter((sm) => sm.$type === "I18nBlock") as I18nBlock[];
+        for (const ib of i18nBlocks.slice(1)) {
+          accept("error", diagMessage("loom.i18n-duplicate", { name: m.name }), {
+            node: ib,
+            code: "loom.i18n-duplicate",
+          });
+        }
+        for (const ib of i18nBlocks) guard("i18n-block", ib, () => checkI18nBlock(ib, accept));
         // Auth block (D-AUTH-OIDC).  At most one `auth { … }` per
         // system; flag the extras, semantic-check the first.
         const authBlocks = sysMembers.filter((sm) => sm.$type === "AuthBlock") as AuthBlock[];
