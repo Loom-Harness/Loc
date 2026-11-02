@@ -68,7 +68,9 @@ describe("vanilla — T2.c operation-return emit", () => {
   it("controller translates the tagged result to HTTP (200 / ProblemDetails)", async () => {
     const ctl = get(await files(), "/controllers/order_controller.ex");
     expect(ctl).toContain('def reserve(conn, %{"id" => id} = params) do');
-    expect(ctl).toContain("reserve_order_result(conn, Orders.reserve_order(record, attrs))");
+    expect(ctl).toContain(
+      "reserve_order_result(conn, Orders.reserve_order(%{record | version: expected_version || record.version}, attrs))",
+    );
     expect(ctl).toContain("def reserve_order_result(conn, {:ok, success})");
     // NotFound → 404 ProblemDetails via the shared responder
     expect(ctl).toContain('problem_variant(conn, 404, "/errors/not-found", "Not Found", data)');

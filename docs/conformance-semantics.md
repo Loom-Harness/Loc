@@ -2188,8 +2188,8 @@ nothing and the test passes vacuously.
   with a 204 (#3531). Java compared the header with the row it had just loaded
   and then saved without the version guard, so two simultaneous writers both
   landed (#3521).
-- **Conforms.** node, dotnet, python. Targets: java (#3521), elixir (#3531),
-  each a tracked expected failure of the case (`BEHAVIOURAL_XFAIL`). Java's
+- **Conforms.** node, dotnet, python, elixir. Targets: java (#3521), a tracked
+  expected failure of the case (`BEHAVIOURAL_XFAIL`). Java's
   entry is a `race` entry: the lost write needs both requests to load before
   either saves, which only the server's timing decides, so a run whose pairs all
   serialise passes and still settles as expected. `race` is allowed only on the
