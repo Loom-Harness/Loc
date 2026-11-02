@@ -17,9 +17,12 @@
 // and the MVC input formatter files it under the field's JSON path — which is
 // how `ValidationProblem.FromModelState` recognises it.
 
+import { csInt32Range } from "../codec-spelling.js";
 import { csIntegerRangeMessage } from "../wire-policy-cs.js";
 
 export function renderInt32RangeConverter(ns: string): string {
+  // `TryGetInt32` below enforces the CLR int; the fact's int range must be it.
+  csInt32Range();
   return `// Auto-generated.
 using System;
 using System.Buffers;

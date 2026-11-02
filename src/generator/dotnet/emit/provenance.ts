@@ -5,6 +5,7 @@ import {
   PROVENANCE_LINEAGE_FIELD,
   PROVENANCE_VALUE_FIELD,
 } from "../../_payload/provenanced-wire.js";
+import { csJsonSqlType, csProvWireClass } from "../codec-spelling.js";
 
 /** The generic wire-carrier record's C# name — `Provenanced<int> Total`. */
 export const PROVENANCED_CS_RECORD = "Provenanced";
@@ -68,6 +69,7 @@ export function renderProvLineage(ns: string): string {
   return (
     lines(
       "// Auto-generated.",
+      "using System;",
       "using System.Collections.Generic;",
       "using System.Text.Json;",
       "",
@@ -106,6 +108,8 @@ export function renderProvLineage(ns: string): string {
       "{",
       "    public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);",
       "}",
+      "",
+      csProvWireClass(),
     ) + "\n"
   );
 }
@@ -163,8 +167,8 @@ export function renderProvenanceRecordConfiguration(ns: string): string {
       '        builder.Property(x => x.SnapshotId).HasColumnName("snapshot_id");',
       '        builder.Property(x => x.TargetType).HasColumnName("target_type");',
       '        builder.Property(x => x.Field).HasColumnName("field");',
-      '        builder.Property(x => x.Inputs).HasColumnName("inputs").HasColumnType("jsonb");',
-      '        builder.Property(x => x.ComputedValue).HasColumnName("computed_value").HasColumnType("jsonb");',
+      `        builder.Property(x => x.Inputs).HasColumnName("inputs").HasColumnType("${csJsonSqlType()}");`,
+      `        builder.Property(x => x.ComputedValue).HasColumnName("computed_value").HasColumnType("${csJsonSqlType()}");`,
       '        builder.Property(x => x.At).HasColumnName("at");',
       '        builder.Property(x => x.CorrelationId).HasColumnName("correlation_id");',
       '        builder.Property(x => x.ScopeId).HasColumnName("scope_id");',

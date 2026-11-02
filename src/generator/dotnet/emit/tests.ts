@@ -22,6 +22,7 @@ import {
   type TestLiteralTarget,
 } from "../../_test/arg-coercion.js";
 import { csThrowKind } from "../../_test/throw-kind.js";
+import { csCalendarDateParseExact } from "../codec-spelling.js";
 import { renderCsExpr } from "../render-expr.js";
 
 /** C# leaves for the shared test-literal coercion rule
@@ -34,8 +35,7 @@ const CS_TEST_LITERAL: TestLiteralTarget = {
       : `new ${targetName}Id(${rendered})`,
   datetime: (rendered) =>
     `DateTime.Parse(${rendered}, null, System.Globalization.DateTimeStyles.RoundtripKind)`,
-  date: (rendered) =>
-    `DateOnly.ParseExact(${rendered}, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)`,
+  date: (rendered) => csCalendarDateParseExact(rendered),
 };
 
 // A currentUser-gated operation's method signature picks up a trailing

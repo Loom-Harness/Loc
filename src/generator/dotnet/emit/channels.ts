@@ -13,6 +13,11 @@ import {
   type WireDecodeTarget,
 } from "../../_channels/wire-codec.js";
 import { numericEncode } from "../../_numeric/target.js";
+import {
+  csCalendarDateParseExact,
+  csCalendarDateWire,
+  csEnvelopeInstant,
+} from "../codec-spelling.js";
 import { CS_NUMERIC } from "../numeric-codec.js";
 
 // ---------------------------------------------------------------------------
@@ -65,9 +70,16 @@ function toDataExpr(prop: string, t: TypeIR, vos: VoFields = new Map()): string 
     const record = voToDataExpr(prop, voFields, rest);
     return t.kind === "optional" ? `(${prop} is null ? null : ${record})` : record;
   }
-  if (inner.kind === "primitive" && inner.name === "datetime") return `${access}.ToString("o")`;
+  // A datetime / date is its wire form (RS-38) — events cross deployables and
+  // backends.  An optional one is null-guarded on its `.Value`.
+  if (inner.kind === "primitive" && inner.name === "datetime")
+    return t.kind === "optional"
+      ? `(${prop} is null ? null : ${csEnvelopeInstant(`${prop}.Value`)})`
+      : csEnvelopeInstant(prop);
   if (inner.kind === "primitive" && inner.name === "date")
-    return `${access}.ToString("yyyy'-'MM'-'dd", CultureInfo.InvariantCulture)`;
+    return t.kind === "optional"
+      ? `(${prop} is null ? null : ${csCalendarDateWire(`${prop}.Value`, "CultureInfo.InvariantCulture")})`
+      : csCalendarDateWire(prop, "CultureInfo.InvariantCulture");
   // money pins the FIXED wire scale (RS-12) — a bare `.ToString(culture)` echoes
   // whatever scale the domain `decimal` happens to carry rather than the
   // canonical 4dp `projectToResponse` applies on the REST wire (#2549's class;
@@ -106,8 +118,7 @@ function csWireDecode(idValueTypeOf: (target: string) => string): WireDecodeTarg
       money: (e) => `decimal.Parse(${e}.GetString()!, CultureInfo.InvariantCulture)`,
       datetime: (e) =>
         `DateTime.Parse(${e}.GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)`,
-      date: (e) =>
-        `DateOnly.ParseExact(${e}.GetString()!, "yyyy-MM-dd", CultureInfo.InvariantCulture)`,
+      date: (e) => csCalendarDateParseExact(`${e}.GetString()!`, "CultureInfo.InvariantCulture"),
       string: asString,
       guid: asString,
       json: asString,
@@ -1030,7 +1041,7 @@ public static class ChannelEnvelopes
         }
         return new LoomEventEnvelope(
             "1.0", id, $"{bound.Context}.{type}", $"/loom/{bound.Context}",
-            DateTime.UtcNow.ToString("o"), "application/json", address, loomKey, data)${
+            ${csEnvelopeInstant("DateTime.UtcNow")}, "application/json", address, loomKey, data)${
               carriesOrigin
                 ? `
         {
@@ -1043,7 +1054,7 @@ public static class ChannelEnvelopes
             : `
         return new LoomEventEnvelope(
             "1.0", id, $"{bound.Context}.{type}", $"/loom/{bound.Context}",
-            DateTime.UtcNow.ToString("o"), "application/json", address, data)${
+            ${csEnvelopeInstant("DateTime.UtcNow")}, "application/json", address, data)${
               carriesOrigin
                 ? `
         {

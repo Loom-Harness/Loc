@@ -22,6 +22,7 @@
 import type { EnrichedAggregateIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst } from "../../../util/naming.js";
+import { csJsonSqlType } from "../codec-spelling.js";
 
 /** The persistence record (POCO) class name for a context's event log —
  *  `<Ctx>EventRecord`.  ONE per bounded context (not one shared type): EF Core
@@ -114,7 +115,7 @@ export function renderEventRecordConfiguration(
       '        builder.Property(x => x.StreamId).HasColumnName("stream_id");',
       '        builder.Property(x => x.Version).HasColumnName("version");',
       '        builder.Property(x => x.Type).HasColumnName("type");',
-      '        builder.Property(x => x.Data).HasColumnName("data").HasColumnType("jsonb");',
+      `        builder.Property(x => x.Data).HasColumnName("data").HasColumnType("${csJsonSqlType()}");`,
       '        builder.Property(x => x.OccurredAt).HasColumnName("occurred_at");',
       "    }",
       "}",
