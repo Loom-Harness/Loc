@@ -6,10 +6,10 @@
 // binds through `t("chrome.loading", "Loading")` keyed to the merged catalog,
 // and stays byte-identical raw text when the app opts out.
 //
-// The loader `aria-label="Loading"` is the first chrome string wired.  It lives
-// in the shadcn-family packs (shadcn / shadcnVue / shadcnSvelte / spartanNg), so
-// these tests pin one pack per frontend to exercise every attribute-binding
-// form (React `{…}`, Vue `:x="…"`, Svelte `{…}`, Angular `[attr.x]="…"`).
+// That every pack on every frontend binds a page-body chrome string (the
+// loader aria, the grid's control names) is the round-trip gate's job
+// (`_walker/i18n-round-trip.test.ts`); this file pins what that gate cannot
+// see — catalog membership rules and the app-shell / hoisted-child wiring.
 //
 // The `DataGrid` pager block at the bottom is the harder case: its markup is
 // rendered into a HOISTED CHILD component, which on three of the four frontends
@@ -93,65 +93,15 @@ function shellOf(files: Map<string, string>, suffix: string): string {
   return entry[1];
 }
 
-// EVERY shell-rendering pack on EVERY frontend, not just each frontend's
-// default.  The skip-link slice wired 13 packs and missed shadcn v3/v4 — they
-// rendered `{{{notFoundText}}}` and `{{{primaryNavAria}}}` but kept the skip
-// link as raw text, so the string sat in the catalog, got translated, and did
-// nothing on those two packs.  It survived four merged slices because every
-// other assertion in this file pins ONE pack per frontend, which makes a
-// template that forgets a token structurally invisible.
-//
-// One assertion covers all four frameworks because the emitted `t(key, default)`
-// call is IDENTICAL everywhere — only the wrapper around it is framework-shaped
-// (React/Svelte `{…}`, Vue `{{ … }}` / `:attr='…'`, Angular `[attr.x]='…'`).
-// So this gate needs no per-framework binding table and cannot drift from one.
-const SHELL_PACKS: ReadonlyArray<[platform: string, design: string, shell: string]> = [
-  ["react", "mantine", "src/App.tsx"],
-  ["react", "shadcn", "src/App.tsx"],
-  ["react", "mui", "src/App.tsx"],
-  ["react", "chakra", "src/App.tsx"],
-  ["vue", "vuetify", "src/App.vue"],
-  ["vue", "shadcnVue", "src/App.vue"],
-  ["svelte", "flowbite", "(app)/+layout.svelte"],
-  ["svelte", "shadcnSvelte", "(app)/+layout.svelte"],
-  ["angular", "angularMaterial", "src/app/app.component.ts"],
-  ["angular", "primeng", "src/app/app.component.ts"],
-  ["angular", "spartanNg", "src/app/app.component.ts"],
-];
-
-describe("pack-chrome i18n — app-shell chrome, every pack on every frontend", () => {
-  it.each(
-    SHELL_PACKS,
-  )("%s/%s renders every shell-chrome token (no raw string left behind)", async (platform, design, shell) => {
-    const files = await generateSystemFiles(SYSTEM(platform, design, `Heading { "Welcome" }`));
-    const on = shellOf(files, shell);
-    for (const [key, english] of Object.entries(APP_SHELL_CHROME)) {
-      // A pack need not SPELL every chrome string — mui renders no nav
-      // landmark label, only chakra says "Open menu", the Angular packs carry
-      // neither error boundary nor burger.  But whatever it DOES spell must be
-      // bound, never raw.  So the invariant is "not raw", not "present": if
-      // the English appears at all, it appears inside a t() call for its key.
-      if (!on.includes(english)) continue;
-      expect(on, `${platform}/${design} left "${english}" unbound`).toContain(
-        `t(${JSON.stringify(key)}, ${JSON.stringify(english)})`,
-      );
-    }
-  });
-});
-
+// That every shell-rendering pack on every frontend binds its shell chrome —
+// skip link, 404, nav landmark + toggle, error boundaries, back-to-home, at
+// every site a key renders — is the round-trip gate's
+// (`_walker/i18n-round-trip.test.ts`).  What stays here is the wiring that gate
+// cannot read: the `t` import each shell module carries, and the i18n-off bytes.
 describe("pack-chrome i18n — React app-shell chrome", () => {
-  it("binds the 404 + skip-link text through t() and imports t into App.tsx", async () => {
+  it("imports t into App.tsx once the shell binds", async () => {
     const files = await generateSystemFiles(SYSTEM("react", "mantine", `Heading { "Welcome" }`));
-    const app = appOf(files);
-    expect(app).toContain(`import { t } from "./i18n"`);
-    expect(app).toContain(`{t("chrome.notFound", "Not found")}`);
-    expect(app).toContain(`{t("chrome.skipToContent", "Skip to content")}`);
-    // Primary-navigation landmark aria binds through t() too (attribute form).
-    expect(app).toContain(`aria-label={t("chrome.primaryNav", "Primary navigation")}`);
-    const catalog = catalogOf(files);
-    expect(catalog["chrome.notFound"]).toBe("Not found");
-    expect(catalog["chrome.skipToContent"]).toBe("Skip to content");
-    expect(catalog["chrome.primaryNav"]).toBe("Primary navigation");
+    expect(appOf(files)).toContain(`import { t } from "./i18n"`);
   });
 
   it("stays byte-identical (raw shell text, no t import) for a string-less app", async () => {
@@ -172,38 +122,6 @@ describe("pack-chrome i18n — React app-shell chrome", () => {
 // navigation" by the shadcn/flowbite family — two keys, because collapsing them
 // onto one canonical English would re-word a pack and break byte-identical.
 describe("pack-chrome i18n — error-boundary heading", () => {
-  it("React (mantine): binds the `title=` ATTRIBUTE through t()", async () => {
-    const files = await generateSystemFiles(SYSTEM("react", "mantine", `Heading { "Welcome" }`));
-    expect(appOf(files)).toContain(
-      `<Alert color="red" title={t("chrome.somethingWentWrong", "Something went wrong")}>`,
-    );
-    expect(catalogOf(files)["chrome.somethingWentWrong"]).toBe("Something went wrong");
-  });
-
-  it("React (shadcn): binds the TEXT position through t()", async () => {
-    const files = await generateSystemFiles(SYSTEM("react", "shadcn", `Heading { "Welcome" }`));
-    expect(appOf(files)).toContain(
-      `<AlertTitle>{t("chrome.somethingWentWrong", "Something went wrong")}</AlertTitle>`,
-    );
-    expect(catalogOf(files)["chrome.somethingWentWrong"]).toBe("Something went wrong");
-  });
-
-  it("Vue (vuetify): binds the `title=` ATTRIBUTE as :title='t(…)'", async () => {
-    const files = await generateSystemFiles(SYSTEM("vue", "vuetify", `Heading { "Welcome" }`));
-    expect(shellOf(files, "src/App.vue")).toContain(
-      `<v-alert type="error" :title='t("chrome.somethingWentWrong", "Something went wrong")' :text="appError.message" />`,
-    );
-    expect(catalogOf(files)["chrome.somethingWentWrong"]).toBe("Something went wrong");
-  });
-
-  it("Vue (shadcnVue): binds the TEXT position as {{ t(…) }}", async () => {
-    const files = await generateSystemFiles(SYSTEM("vue", "shadcnVue", `Heading { "Welcome" }`));
-    expect(shellOf(files, "src/App.vue")).toContain(
-      `<AlertTitle>{{ t("chrome.somethingWentWrong", "Something went wrong") }}</AlertTitle>`,
-    );
-    expect(catalogOf(files)["chrome.somethingWentWrong"]).toBe("Something went wrong");
-  });
-
   it("stays byte-identical (raw heading, both positions) with i18n off", async () => {
     const mantine = await generateSystemFiles(SYSTEM("react", "mantine", `Text { status }`));
     expect(appOf(mantine)).toContain(`<Alert color="red" title="Something went wrong">`);
@@ -221,40 +139,6 @@ describe("pack-chrome i18n — error-boundary heading", () => {
 });
 
 describe("pack-chrome i18n — nav-toggle aria", () => {
-  it("React (chakra): binds `Open menu` — its own key, not the shadcn wording", async () => {
-    const files = await generateSystemFiles(SYSTEM("react", "chakra", `Heading { "Welcome" }`));
-    const app = appOf(files);
-    expect(app).toContain(`aria-label={t("chrome.openMenu", "Open menu")}`);
-    expect(app).not.toContain("Toggle navigation");
-    expect(catalogOf(files)["chrome.openMenu"]).toBe("Open menu");
-  });
-
-  it("React (shadcn): binds `Toggle navigation`", async () => {
-    const files = await generateSystemFiles(SYSTEM("react", "shadcn", `Heading { "Welcome" }`));
-    expect(appOf(files)).toContain(
-      `aria-label={t("chrome.toggleNavigation", "Toggle navigation")}`,
-    );
-    expect(catalogOf(files)["chrome.toggleNavigation"]).toBe("Toggle navigation");
-  });
-
-  it("Vue (shadcnVue): binds as :aria-label='t(…)'", async () => {
-    const files = await generateSystemFiles(SYSTEM("vue", "shadcnVue", `Heading { "Welcome" }`));
-    expect(shellOf(files, "src/App.vue")).toContain(
-      `data-testid="nav-burger" :aria-label='t("chrome.toggleNavigation", "Toggle navigation")'`,
-    );
-    expect(catalogOf(files)["chrome.toggleNavigation"]).toBe("Toggle navigation");
-  });
-
-  it("Svelte (shadcnSvelte): binds as aria-label={t(…)}", async () => {
-    const files = await generateSystemFiles(
-      SYSTEM("svelte", "shadcnSvelte", `Heading { "Welcome" }`),
-    );
-    expect(shellOf(files, "(app)/+layout.svelte")).toContain(
-      `aria-label={t("chrome.toggleNavigation", "Toggle navigation")}`,
-    );
-    expect(catalogOf(files)["chrome.toggleNavigation"]).toBe("Toggle navigation");
-  });
-
   it("stays byte-identical (raw aria, both wordings) with i18n off", async () => {
     const chakra = await generateSystemFiles(SYSTEM("react", "chakra", `Text { status }`));
     expect(appOf(chakra)).toContain(`aria-label="Open menu"`);
@@ -274,44 +158,6 @@ describe("pack-chrome i18n — nav-toggle aria", () => {
 });
 
 describe("pack-chrome i18n — loader aria-label", () => {
-  it("React (shadcn): binds the spinner aria through t() keyed to chrome.loading", async () => {
-    const files = await generateSystemFiles(
-      SYSTEM("react", "shadcn", `Stack { Heading { "Welcome" }, Loader() }`),
-    );
-    const page = pageOf(files, "home.tsx");
-    expect(page).toContain(`role="status" aria-label={t("chrome.loading", "Loading")}`);
-    expect(catalogOf(files)["chrome.loading"]).toBe("Loading");
-  });
-
-  it("Vue (shadcnVue): binds aria as :aria-label='t(…)'", async () => {
-    const files = await generateSystemFiles(
-      SYSTEM("vue", "shadcnVue", `Stack { Heading { "Welcome" }, Loader() }`),
-    );
-    const page = pageOf(files, "home.vue");
-    expect(page).toContain(`role="status" :aria-label='t("chrome.loading", "Loading")'`);
-    expect(catalogOf(files)["chrome.loading"]).toBe("Loading");
-  });
-
-  it("Svelte (shadcnSvelte): binds aria as aria-label={t(…)}", async () => {
-    const files = await generateSystemFiles(
-      SYSTEM("svelte", "shadcnSvelte", `Stack { Heading { "Welcome" }, Loader() }`),
-    );
-    const page = pageOf(files, "(app)/+page.svelte", "+page.svelte");
-    expect(page).toContain(`role="status" aria-label={t("chrome.loading", "Loading")}`);
-    expect(catalogOf(files)["chrome.loading"]).toBe("Loading");
-  });
-
-  it("Angular (spartanNg): binds aria as [attr.aria-label]='t(…)' with t lifted onto the component", async () => {
-    const files = await generateSystemFiles(
-      SYSTEM("angular", "spartanNg", `Stack { Heading { "Welcome" }, Loader() }`),
-    );
-    const page = pageOf(files, "home.component.ts");
-    expect(page).toContain(`role="status" [attr.aria-label]='t("chrome.loading", "Loading")'`);
-    // Angular resolves template refs against the instance — `t` must be a member.
-    expect(page).toContain("protected readonly t = t;");
-    expect(catalogOf(files)["chrome.loading"]).toBe("Loading");
-  });
-
   it("a chrome primitive alone turns i18n on (used-only chrome is translatable)", async () => {
     // `Loader()` renders pack chrome, so even with no AUTHORED string the page is
     // translatable: the extractor yields `chrome.loading`, the runtime ships, and
@@ -712,37 +558,11 @@ describe("ICU chrome with i18n off — the message re-assembled around its holes
 //     App.tsx, so it can't reuse the app-shell tokens — and its raw string
 //     carries a full stop the in-shell heading doesn't, hence its own key.
 describe("pack-chrome i18n — back-to-home + root error boundary", () => {
-  it("React: one key drives BOTH sites, arrow kept outside the message", async () => {
-    const files = await generateSystemFiles(SYSTEM("react", "mantine", `Heading { "Welcome" }`));
-    const app = appOf(files);
-    // The error boundary's button — bare.
-    expect(app).toContain(`{t("chrome.backToHome", "Back to home")}`);
-    // The 404's anchor — the "← " is decoration OUTSIDE the t() call, so
-    // translators get a clean phrase and RTL/CJK isn't stuck with the glyph.
-    expect(app).toContain(`← {t("chrome.backToHome", "Back to home")}</Anchor>`);
-    expect(catalogOf(files)["chrome.backToHome"]).toBe("Back to home");
-    // One catalog entry, not two.
-    expect(Object.keys(catalogOf(files)).filter((k) => k.startsWith("chrome.backToHome"))).toEqual([
-      "chrome.backToHome",
-    ]);
-  });
-
-  it("Vue: the error boundary's recovery button binds too", async () => {
-    for (const pack of ["vuetify", "shadcnVue"] as const) {
-      const files = await generateSystemFiles(SYSTEM("vue", pack, `Heading { "Welcome" }`));
-      expect(shellOf(files, "src/App.vue")).toContain(
-        `{{ t("chrome.backToHome", "Back to home") }}`,
-      );
-      expect(catalogOf(files)["chrome.backToHome"]).toBe("Back to home");
-    }
-  });
-
-  it("the ROOT ErrorBoundary binds its own key and imports t itself", async () => {
+  it("the ROOT ErrorBoundary imports t itself, under its own key", async () => {
     const files = await generateSystemFiles(SYSTEM("react", "mantine", `Heading { "Welcome" }`));
     const boundary = shellOf(files, "src/ErrorBoundary.tsx");
     // Its own module ⇒ its own gated import (App.tsx's doesn't reach here).
     expect(boundary).toContain(`import { t } from "./i18n";`);
-    expect(boundary).toContain(`{t("chrome.rootErrorTitle", "Something went wrong.")}`);
     expect(catalogOf(files)["chrome.rootErrorTitle"]).toBe("Something went wrong.");
     // Distinct from the IN-SHELL heading, which has no full stop.
     expect(catalogOf(files)["chrome.somethingWentWrong"]).toBe("Something went wrong");

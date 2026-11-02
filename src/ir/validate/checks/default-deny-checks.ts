@@ -65,8 +65,10 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
     }
   }
   if (guarded.size === 0) return;
-  const isGated = (statements: { kind: string }[]): boolean =>
-    statements.some((s) => s.kind === "requires");
+  // A handler's enrichment-added read gate authorizes the read, not the
+  // exposure, so it is not the handler's own `requires`.
+  const isGated = (statements: { kind: string; readGateOf?: string }[]): boolean =>
+    statements.some((s) => s.kind === "requires" && s.readGateOf === undefined);
   for (const sd of sys.subdomains) {
     for (const c of sd.contexts) {
       if (!guarded.has(c.name)) continue;

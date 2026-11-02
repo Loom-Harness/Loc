@@ -347,9 +347,21 @@ export function passTargetSteps(lv: AstNode): TypeIR[] {
  */
 function lowerCoalesceChain(chain: BinaryChain, env: Env): ExprIR {
   const operands = [chain.head, ...chain.rest];
-  let acc = lowerExpr(operands[operands.length - 1]!, env);
+  // A bare numeric literal fallback takes the numeric type of the operand it
+  // stands in for (`decimal? ?? 0` is a decimal `0`): both ternary branches must
+  // share one type on the nominally-typed backends (`cond ? 0 : upper` does not
+  // compile when `upper` is a `BigDecimal`).
+  const lowerFallback = (i: number): ExprIR => {
+    const lowered = lowerExpr(operands[i]!, env);
+    const prev = inferExprType(operands[i - 1]!, env);
+    const anchor = prev.kind === "optional" ? prev.inner : prev;
+    return anchor.kind === "primitive"
+      ? (tryPromoteNumericLit(operands[i]!, anchor.name) ?? lowered)
+      : lowered;
+  };
+  let acc = lowerFallback(operands.length - 1);
   for (let i = operands.length - 2; i >= 0; i--) {
-    const left = lowerExpr(operands[i]!, env);
+    const left = i === 0 ? lowerExpr(operands[i]!, env) : lowerFallback(i);
     const leftType = inferExprType(operands[i]!, env);
     acc = {
       kind: "ternary",

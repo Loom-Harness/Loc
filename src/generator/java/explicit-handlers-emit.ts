@@ -468,7 +468,7 @@ function renderHandlerClass(
     {
       ...handlerRenderCtx(h, ctx, resources?.classes),
       paramExpr: (n) => locals.get(n),
-      unionPkgOf: domainServiceUnionPkgOf(ctx, domainServicePkg),
+      unionPkgOf: domainServiceUnionPkgOf(ctx, domainServicePkg, entityPkgOf),
     },
     workflowBoundNames([h.statements]),
     new Set([...methodNames, ...locals.values()]),

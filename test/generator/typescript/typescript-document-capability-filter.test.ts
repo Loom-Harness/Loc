@@ -125,11 +125,9 @@ describe("node document principal capability filter (DEBT-02 Slice B)", () => {
     expect(r).toContain("all.filter((x) => (x.tenantId === currentUser.tenantId))");
   });
 
-  // KNOWN DEFECT: a document aggregate's plain `Repo.find(C)` read emits no
-  // repository method (a routed handler calls `runFindAllBy<C>` regardless),
-  // so there is no criterion read here to narrow.  Flip to `it` once the
-  // document repository emits it.
-  it.fails("applies the principal capability BEFORE a criterion read's own predicate", async () => {
+  // A document criterion read (`runFindAllBy<C>`) filters in-app: the
+  // principal capability first, then the criterion's own predicate.
+  it("applies the principal capability BEFORE a criterion read's own predicate", async () => {
     const r = await principalRepo();
     const start = r.indexOf("async runFindAllByOrdersByCode(");
     expect(start).toBeGreaterThanOrEqual(0);

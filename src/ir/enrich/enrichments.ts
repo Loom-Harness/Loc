@@ -90,7 +90,7 @@ import { applyDefaultDenyReads } from "./default-deny-reads.js";
 import { applyDemoTenantSeed } from "./demo-tenant.js";
 import { inheritBaseCapabilities } from "./inherited-capabilities.js";
 import { type KeyLookupRead, synthesizeKeyLookupFinds } from "./key-lookup-finds.js";
-import { applyPolicyReadGates } from "./policy-read-gates.js";
+import { applyHandlerReadGates, applyPolicyReadGates } from "./policy-read-gates.js";
 import { buildCreateInput, wireFieldsForAggregate } from "./wire-projection.js";
 
 // ---------------------------------------------------------------------------
@@ -985,8 +985,12 @@ export function enrichContext(
     ctx.commandHandlers,
   );
   const projections = ctx.projections.map((p) => enrichProjection(p, aggregates));
+  const queryHandlers = applyHandlerReadGates(ctx.queryHandlers, ctx.policyReadGates);
+  const commandHandlers = applyHandlerReadGates(ctx.commandHandlers, ctx.policyReadGates);
   return {
     ...ctx,
+    ...(queryHandlers ? { queryHandlers } : {}),
+    ...(commandHandlers ? { commandHandlers } : {}),
     valueObjects,
     enums,
     aggregates,

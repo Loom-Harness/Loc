@@ -64,6 +64,9 @@ export function renderRepositoryInterface(
    *  aggregate's own `<Agg>Id`; a TPH (`sharedTable`) concrete passes its base's
    *  `<Base>Id` (the shared single-table key it inherits). */
   idClass: string = `${agg.name}Id`,
+  /** True when some workflow / handler body drops a tentative change to this
+   *  aggregate (`discardedAggregates`): the interface then carries `Discard`. */
+  discards = false,
 ): string {
   // Union-returning finds (P4c) reach the Domain repository as their optional
   // twin (single-row select returning `Agg?`); the Application query handler
@@ -128,6 +131,15 @@ export function renderRepositoryInterface(
             `    ${bclTask} DeleteAsync(${agg.name} aggregate, CancellationToken cancellationToken = default);`,
           ]
         : []),
+      // Drop a loaded aggregate's unsaved changes, so no later flush writes
+      // them.  A store that writes only on `SaveAsync` has nothing to drop,
+      // hence the no-op default; the EF impl detaches the tracked graph.
+      ...(discards
+        ? [
+            "    /// <summary>Drop the unsaved changes of a loaded aggregate: nothing writes them later.</summary>",
+            `    void Discard(${agg.name} aggregate) { }`,
+          ]
+        : []),
       ...findLines.flat(),
       ...retrievalLines.flat(),
       "}",
@@ -156,6 +168,8 @@ export function renderRepositoryImpl(
     /** True when --trace is in effect — brackets the EF
      *  SaveChangesAsync with tx_begin / tx_commit / tx_rollback. */
     emitTrace?: boolean;
+    /** Emit `Discard` (see `renderRepositoryInterface`'s `discards`). */
+    discards?: boolean;
     /** Context retrievals targeting this aggregate + their LINQ body
      *  fragments — emit a `Run<Name>Async` method each. */
     retrievals?: RetrievalIR[];
@@ -641,6 +655,37 @@ export function renderRepositoryImpl(
             "        var __db = _db.TrackerOf(aggregate);",
             `        __db.${writeSet}.Remove(aggregate);`,
             "        await _db.SaveChangesWithAsync(__db, cancellationToken);",
+            "    }",
+          ]
+        : []),
+      // A tracked entity is written by the next SaveChanges on its context
+      // whether or not it was saved, so a dropped change leaves the tracker:
+      // the root and every loaded containment below it.
+      ...(options?.discards
+        ? [
+            "",
+            `    public void Discard(${agg.name} aggregate)`,
+            "    {",
+            "        var __db = _db.TrackerOf(aggregate);",
+            "        var __pending = new Stack<object>();",
+            "        __pending.Push(aggregate);",
+            "        while (__pending.Count > 0)",
+            "        {",
+            "            var __entry = __db.Entry(__pending.Pop());",
+            "            if (__entry.State == EntityState.Detached) continue;",
+            "            foreach (var __nav in __entry.Navigations)",
+            "            {",
+            "                if (__nav.CurrentValue is System.Collections.IEnumerable __many)",
+            "                {",
+            "                    foreach (var __child in __many) __pending.Push(__child);",
+            "                }",
+            "                else if (__nav.CurrentValue is { } __one)",
+            "                {",
+            "                    __pending.Push(__one);",
+            "                }",
+            "            }",
+            "            __entry.State = EntityState.Detached;",
+            "        }",
             "    }",
           ]
         : []),

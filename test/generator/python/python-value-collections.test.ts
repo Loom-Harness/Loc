@@ -76,14 +76,23 @@ describe("python value-object collection — id-less child-table persistence", (
     expect(repo).toContain(
       "delete(InvoiceChargesRow).where(InvoiceChargesRow.invoice_id == aggregate.id)",
     );
-    expect(repo).toContain("for __i, __e in enumerate(aggregate.charges or []):");
+    expect(repo).toContain("for __i_charges, __e_charges in enumerate(aggregate.charges or []):");
     expect(repo).toContain("insert(InvoiceChargesRow).values(");
     expect(repo).toContain("                    invoice_id=aggregate.id,");
-    expect(repo).toContain("                    ordinal=__i,");
-    expect(repo).toContain("                    amount=Decimal(str(__e.amount)),");
-    expect(repo).toContain("                    currency=__e.currency,");
+    expect(repo).toContain("                    ordinal=__i_charges,");
+    expect(repo).toContain("                    amount=Decimal(str(__e_charges.amount)),");
+    expect(repo).toContain("                    currency=__e_charges.currency,");
     // Optional VO[]? reduces None to the empty list on save.
-    expect(repo).toContain("for __i, __e in enumerate(aggregate.surcharges or []):");
+    expect(repo).toContain(
+      "for __i_surcharges, __e_surcharges in enumerate(aggregate.surcharges or []):",
+    );
+  });
+
+  it("each save loop binds its own variables (mypy --strict forbids rebinding to another element type)", async () => {
+    const files = await build();
+    const repo = files.get("d/app/db/repositories/invoice_repository.py")!;
+    expect(repo).not.toMatch(/for __i, __e in enumerate/);
+    expect(repo.match(/for (__i_\w+), (__e_\w+) in enumerate/g)).toHaveLength(2);
   });
 
   it("hydrate loads child rows ordered by ordinal and rebuilds the VO list", async () => {

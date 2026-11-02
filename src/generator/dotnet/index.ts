@@ -27,6 +27,7 @@ import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
 import { durableEventTypes } from "../../ir/util/channels.js";
 import { directParentName } from "../../ir/util/containment-parent.js";
 import { echoesDenialDetail } from "../../ir/util/denial-detail.js";
+import { discardedAggregates } from "../../ir/util/discards.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
 import {
   foreignValueTypeSeeds,
@@ -1631,6 +1632,9 @@ function emitAggregate(
   // aggregates skip them (their in-memory impls don't compose LINQ query
   // operators, so the interface must not promise one); a paged criterion read
   // reaches them through the synthesised `FindAllBy<Criterion>` find instead.
+  // Some body drops a tentative change to this aggregate → its repository
+  // carries `Discard`.
+  const discards = discardedAggregates(ctx).has(agg.name);
   const aggRetrievals =
     isDoc || isEs
       ? []
@@ -1640,7 +1644,7 @@ function emitAggregate(
   place(
     `I${agg.name}Repository.cs`,
     "repository-interface",
-    renderRepositoryInterface(agg, repoWithViews, ns, aggRetrievals, idClass),
+    renderRepositoryInterface(agg, repoWithViews, ns, aggRetrievals, idClass, discards),
     repoOrigin,
   );
   // Each retrieval emits an Ardalis `Specification<T>` (where + sort) the
@@ -1762,6 +1766,7 @@ function emitAggregate(
         : renderRepositoryImpl(agg, repoWithViews, ns, ctx.aggregates, findBodies, {
             extraUsings: [...repoImplUsings].sort(),
             emitTrace,
+            discards,
             retrievals: aggRetrievals,
             retrievalBodies,
             idClass,

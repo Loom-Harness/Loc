@@ -1819,9 +1819,36 @@ export type IfLetOp =
   | Extract<RepoOp, "select-one" | "load-by-key-optional" | "load-optional">
   | "bound";
 
+/** The local a mutating call statement binds its value to
+ *  (`let r = a.withdraw(x)` / `let r = Transfer.run(…)`).
+ *
+ *  `errorVariants` lists the wire tags of the result union's `error` variants
+ *  (empty when the result has none).  When it is non-empty the call's
+ *  mutations are TENTATIVE (D-FAILURE-MODEL: an operation that answers its
+ *  error leaves no trace): the body must `match` the result, and the
+ *  aggregates the call mutates are saved at the end of each arm that is not an
+ *  error variant — never at the body's exit, and never in an error arm.  Like
+ *  a `match` arm's `isError`, error-ness is resolved where the error
+ *  declarations are in scope (lowering), so it is carried here. */
+export interface CallResultBindingIR {
+  name: string;
+  type: TypeIR;
+  errorVariants: string[];
+}
+
 export type WorkflowStmtIR =
   | { kind: "precondition"; expr: ExprIR; source: string; message?: MessageIR; origin?: OriginRef }
-  | { kind: "requires"; expr: ExprIR; source: string; origin?: OriginRef }
+  | {
+      kind: "requires";
+      expr: ExprIR;
+      source: string;
+      /** Set on the gate enrichment prepends to a handler that reads this
+       *  aggregate (`policy { read X requires … }`, `applyHandlerReadGates`).
+       *  It authorizes the READ only, so `validateDefaultDeny` does not count
+       *  it as the handler's own exposure gate. */
+      readGateOf?: string;
+      origin?: OriginRef;
+    }
   | {
       kind: "emit";
       eventName: string;
@@ -1910,11 +1937,15 @@ export type WorkflowStmtIR =
       origin?: OriginRef;
     }
   | {
+      // `a.withdraw(x)` as a statement, or `let r = a.withdraw(x)` — a call to
+      // an operation of the aggregate the local `target` holds.  Either form
+      // mutates `target`; `result` is present for the `let`-bound form.
       kind: "op-call";
       target: string;
       aggName: string;
       op: string;
       args: ExprIR[];
+      result?: CallResultBindingIR;
       origin?: OriginRef;
     }
   | {
@@ -1975,6 +2006,11 @@ export type WorkflowStmtIR =
       service: string;
       op: string;
       call: ExprIR;
+      /** `let r = Transfer.run(…)` over a `mutating` operation: the local the
+       *  call's value is bound to.  The bound form saves the aggregate args the
+       *  service mutates exactly as the bare statement does.  (A let-bound call
+       *  to a service that mutates nothing rides `expr-let`.) */
+      result?: CallResultBindingIR;
       origin?: OriginRef;
     }
   | {
@@ -2067,7 +2103,10 @@ export type WorkflowStmtIR =
       //
       // Like `if-let`, each branch saves what it creates or mutates at its
       // own end (`savesInArm` / `savesInElse`): a conditional branch cannot
-      // hoist its saves to the flat `savesAtExit`.
+      // hoist its saves to the flat `savesAtExit`.  Over a guarded call's
+      // result (`let r = a.withdraw(x)` with an `error` variant) the non-error
+      // branches also save what the call mutated, and the error branches drop
+      // it (`discardsInArm` / `discardsInElse`).
       kind: "variant-match";
       subject: ExprIR;
       /** Resolved type of the subject — an `or`-union, or `T?`. */
@@ -2083,9 +2122,18 @@ export type WorkflowStmtIR =
         isError: boolean;
         body: WorkflowStmtIR[];
         savesInArm: { name: string; aggName: string; repoName: string }[];
+        /** When the subject is a guarded call's result (`CallResultBindingIR`)
+         *  and this arm is an error variant: the aggregates whose tentative
+         *  change the arm drops.  Absent when the arm drops nothing.  A backend
+         *  whose persistence tracks loaded entities (EF Core, JPA) detaches
+         *  them, so no later flush writes the change; one that writes only on
+         *  an explicit save renders nothing. */
+        discardsInArm?: { name: string; aggName: string; repoName: string }[];
       }[];
       elseBody?: WorkflowStmtIR[];
       savesInElse: { name: string; aggName: string; repoName: string }[];
+      /** `discardsInArm` for the `else` arm. */
+      discardsInElse?: { name: string; aggName: string; repoName: string }[];
       origin?: OriginRef;
     }
   | {

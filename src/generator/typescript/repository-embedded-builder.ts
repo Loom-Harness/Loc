@@ -19,6 +19,7 @@ import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "./paged-locals.js";
 import { synthProjectionFinds } from "./projection-finds.js";
 import {
+  aggregateRetrievals,
   docTypeAlias,
   entityFromDocFn,
   entityToDocFn,
@@ -31,6 +32,7 @@ import {
   readFilterPred,
   reifiableCriterion,
   renderCriterionFn,
+  runMethod,
 } from "./repository-find-builder.js";
 import {
   combinePredicate,
@@ -185,13 +187,30 @@ export function buildEmbeddedRepositoryFile(
   const findMethods = [...(repo?.finds ?? []), ...synthProjectionFinds(agg.name, ctx)].map((find) =>
     embeddedFindMethod(agg, find, ctx, filterPred),
   );
-  // A find whose `where` is exactly one named criterion (every
-  // `findAllBy<Criterion>` a `Repo.run` reads) calls the reified module-level
-  // predicate fn `buildFindWhereClause` names, so the fn is emitted here as on
-  // the relational builder — the root columns are real columns on both.
+  // A criterion read (`Repo.all(C(…))` / `Repo.find(C(…))`) calls
+  // `run<Retrieval>` whatever the saving shape.  The root's scalars are real
+  // columns, so the relational runner's query applies as is (criterion, read
+  // scope, sort, page in SQL); only the hydrate is per row, over the jsonb.
+  const embeddedMapRow = lines(
+    `(row) => {`,
+    ...hydrateLocals(agg, "row", "      "),
+    `      return ${hydrateRootExpr(agg, "row", ctx)};`,
+    `    }`,
+  );
+  const runMethods = aggregateRetrievals(agg, ctx).map((r) =>
+    runMethod(agg, r, ctx, filterPred, embeddedMapRow),
+  );
+  // A find or retrieval whose `where` is exactly one named criterion calls the
+  // reified module-level predicate fn `buildFindWhereClause` / `runMethod`
+  // names, so the fn is emitted here as on the relational builder — the root
+  // columns are real columns on both.
   const criterionFnByName = new Map<string, string>();
-  for (const find of repo?.finds ?? []) {
-    const c = reifiableCriterion(find.criterionRef, ctx, tableName);
+  const reifyingRefs = [
+    ...(repo?.finds ?? []).map((f) => f.criterionRef),
+    ...aggregateRetrievals(agg, ctx).map((r) => r.criterionRef),
+  ];
+  for (const ref of reifyingRefs) {
+    const c = reifiableCriterion(ref, ctx, tableName);
     if (c && !criterionFnByName.has(c.name)) {
       criterionFnByName.set(c.name, renderCriterionFn(c, tableName, ctx));
     }
@@ -278,6 +297,7 @@ export function buildEmbeddedRepositoryFile(
         ]
       : []),
     ...findMethods.flatMap((m) => [m, ""]),
+    ...runMethods.flatMap((m) => [m, ""]),
     toWireMethod(agg, ctx),
     "",
     // `mask unless` response redaction — the routes call

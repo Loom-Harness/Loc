@@ -52,6 +52,7 @@ import { workflowParamPayloads } from "../_payload/workflow-param-payloads.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../_workflow/create-state.js";
 import {
+  nestedSaves,
   type PresenceSide,
   presenceSides,
   renderWorkflowStmtChunks,
@@ -350,8 +351,10 @@ function reposFor(wf: WorkflowIR): RepoNeed[] {
       }
     }
     walkWorkflowStmtChildren(st, { workflowStmt: visit });
-    if (st.kind === "for-each") {
-      for (const s of st.savesPerIteration) {
+    if (st.kind === "for-each" || st.kind === "variant-match") {
+      // A loop iteration's and a match arm's saves (an arm may create an
+      // aggregate no read in the body names).
+      for (const s of nestedSaves(st)) {
         out.set(s.repoName, { repoName: s.repoName, aggName: s.aggName });
       }
     }
@@ -1085,7 +1088,13 @@ export function pyWorkflowStmtTarget(
           `${i}    raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: ${g.source}`)})`,
         ];
       });
-      return [...gateLines, `${i}${snake(st.target)}.${snake(st.op)}(${args})`];
+      // `let r = a.op(…)` binds the call's value (unless nothing reads it —
+      // ruff F841); the bare statement discards it.
+      const bind =
+        st.result && (!usedLets || usedLets.has(st.result.name))
+          ? `${snake(st.result.name)} = `
+          : "";
+      return [...gateLines, `${i}${bind}${snake(st.target)}.${snake(st.op)}(${args})`];
     },
     repoDelete: (st, i) => {
       // `<Repo>.delete(o)` → `await <repo>.delete(<entity>.id)`.  The generated
@@ -1205,7 +1214,11 @@ export function pyWorkflowStmtTarget(
     domainServiceCall: (st, i) => {
       const rendered = renderPyExpr(st.call, rctx);
       const bare = rendered.startsWith("(await ") ? rendered.slice(1, -1) : rendered;
-      return [`${i}${bare}`];
+      const bind =
+        st.result && (!usedLets || usedLets.has(st.result.name))
+          ? `${snake(st.result.name)} = `
+          : "";
+      return [`${i}${bind}${bare}`];
     },
     // The error a by-id miss raises, so the app's not-found handler renders
     // the identical ProblemDetails.

@@ -458,8 +458,16 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  D-ELIXIR-IF-BRANCH once Phoenix rendered the statement (`case` in an
  *  operation / domain service, a `case` with-clause in a workflow / handler);
  *  what stays refused is the `if` statement's four body-building sub-shapes
- *  plus a union of two success variants. */
-const MAX_OPEN_GAPS = 16;
+ *  plus a union of two success variants.
+ *
+ *  16 -> 17: `loom.elixir-bound-mutating-call-unsupported`.  `let r =
+ *  a.withdraw(x)` (and `let r = Transfer.run(…)` over a `mutating` service) in
+ *  a workflow / handler body lowers to the call statement plus a binding; the
+ *  four other backends render it, and Phoenix — whose op calls persist inside
+ *  the context function and match `{:ok, _}` away at every with-chain site —
+ *  refuses it instead of dropping the binding.  Drains when the Phoenix
+ *  with-chain sites bind the call's tuple. */
+const MAX_OPEN_GAPS = 17;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

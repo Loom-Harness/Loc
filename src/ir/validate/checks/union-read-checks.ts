@@ -124,7 +124,11 @@ export function validateUnionReads(loom: EnrichedLoomModel, diags: LoomDiagnosti
             unionLocals.set(st.name, st.returnType);
           } else if (st.kind === "expr-let" && st.type.kind === "union") {
             unionLocals.set(st.name, st.type);
+          } else if (st.kind === "domain-service-call" && st.result?.type.kind === "union") {
+            unionLocals.set(st.result.name, st.result.type);
           } else if (st.kind === "op-call") {
+            // `let r = a.withdraw(x)` binds a union-typed local of its own.
+            if (st.result?.type.kind === "union") unionLocals.set(st.result.name, st.result.type);
             const t = unionLocals.get(st.target);
             if (!t || seen.has(st)) return;
             seen.add(st);

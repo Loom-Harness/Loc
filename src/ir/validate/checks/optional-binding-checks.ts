@@ -38,6 +38,12 @@ function checkBody(
   scope: Set<string>,
   report: (name: string, use: string) => void,
 ): void {
+  // `let r = a.op(…)` / `let r = Svc.op(…)` binds the call's value.
+  const bindResult = (result: { name: string; type: TypeIR } | undefined): void => {
+    if (!result) return;
+    if (isOptional(result.type)) scope.add(result.name);
+    else scope.delete(result.name);
+  };
   for (const st of stmts) {
     switch (st.kind) {
       case "repo-let":
@@ -56,6 +62,7 @@ function checkBody(
         break;
       case "op-call":
         if (scope.has(st.target)) report(st.target, `.${st.op}()`);
+        bindResult(st.result);
         break;
       case "repo-delete":
         if (st.entity.kind === "ref" && scope.has(st.entity.name)) {
@@ -87,12 +94,14 @@ function checkBody(
         checkBody(st.elseBody ?? [], new Set(scope), report);
         break;
       }
+      case "domain-service-call":
+        bindResult(st.result);
+        break;
       case "precondition":
       case "requires":
       case "emit":
       case "assign":
       case "resource-call":
-      case "domain-service-call":
       case "not-found":
         break;
       default: {

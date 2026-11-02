@@ -1,9 +1,9 @@
+import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import type { EnrichedAggregateIR, ExprIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
 import {
   aggregateUsesPrincipalContextFilter,
   exprUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
-import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { lines } from "../../../util/code-builder.js";
 import { tableNameFor } from "../../../util/storage-names.js";
 import { desugarAuthzFilterInApp } from "../../_expr/authz-filter-inapp.js";
@@ -331,7 +331,7 @@ export function renderJavaDocumentRepositoryImpl(
     ``,
     `    @Override`,
     `    public ${javaRef(ctx.entityPkg, agg.name)} save(${agg.name} aggregate) {`,
-    ...(aggregateIsVersioned(agg)
+    ...(rowVersionGuarded(agg)
       ? versionedSaveLines
       : [
           `        try {`,

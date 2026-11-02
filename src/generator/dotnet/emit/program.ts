@@ -1,6 +1,6 @@
 import { wireStatus } from "../../../ir/enrich/wire-policy.js";
 import type { BoundedContextIR, FieldIR } from "../../../ir/types/loom-ir.js";
-import { deriveContextOperations, staticSubpathRoutes } from "../../../ir/util/api-surface.js";
+import { contextStaticSubpathRoutes } from "../../../ir/util/api-surface.js";
 import { readPortsForOperation } from "../../../ir/util/domain-service-read-ports.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
@@ -757,7 +757,7 @@ using (var scope = app.Services.CreateScope())
   // NO body, so the existing status-code responder fills in the same RFC 7807
   // envelope — with its own `method X is not supported for Y` detail — that a
   // framework-originated 405 already gets.  One 405 shape, not two.
-  const staticSubpaths = staticSubpathRoutes(deriveContextOperations(ctx));
+  const staticSubpaths = contextStaticSubpathRoutes([ctx]);
   const staticSubpathEntries = Object.entries(staticSubpaths).sort(([a], [b]) =>
     a.localeCompare(b),
   );
