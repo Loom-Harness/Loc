@@ -51,7 +51,9 @@ describe("malformed body id is a 422 field refusal", () => {
 
   it("elixir: an op's uuid id param is checked before the body runs", async () => {
     const ctx = await find("elixir", "lib/d/shop.ex");
-    expect(ctx).toContain('{:ok, agent} <- __loom_id_param(record, :agent, Map.get(params, "agent"))');
+    expect(ctx).toContain(
+      '{:ok, agent} <- __loom_id_param(record, :agent, Map.get(params, "agent"))',
+    );
     expect(ctx).toContain('field, "Expected UUID.")');
   });
 });
