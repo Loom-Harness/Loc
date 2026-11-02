@@ -1006,6 +1006,10 @@ export interface OperationFormState extends FormStateBase {
    *  through the `chrome.*` catalog key `opDialogChrome` picks (the template
    *  can't reach a WalkContext). */
   cancelLabel?: string;
+  /** The success toast's text, as a target-native VALUE expression (a `t(…)`
+   *  call or a quoted literal): the per-operation whole sentence
+   *  (`chrome.operationSucceeded.<op>`), resolved where a WalkContext exists. */
+  successMessage?: string;
   /** The accessible name of the dialog's close icon, as a target-native VALUE
    *  expression (a `t(…)` call or a quoted literal) for an attribute/prop slot
    *  — never equal to the submit label (`opDialogChrome`).  Read only by the

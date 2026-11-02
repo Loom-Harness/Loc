@@ -46,7 +46,7 @@ import { idTargetHookVar } from "../../_frontend/form-helpers.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
 import { SVELTE_LIB_TOAST_EFFECT_IMPORT, usesToastEffect } from "../../_frontend/toast-effect.js";
 import type { LoadedPack } from "../../_packs/loader.js";
-import { chromeMessage, opDialogChrome } from "../../_walker/i18n-chrome.js";
+import { chromeMessage, opDialogChrome, sentenceChromeName } from "../../_walker/i18n-chrome.js";
 import { storeMemberLocal } from "../../_walker/js-target-helpers.js";
 import {
   addImportToMap,
@@ -279,6 +279,9 @@ function renderFormOpWiring(
     // actually USED (an unused entry is the same dead-catalog bug as an
     // unrendered slot, seen from the other side).  Neither ever equals
     // `humanOp`.
+    successMessage:
+      state.successMessage ??
+      JSON.stringify(chromeMessage(sentenceChromeName("operationSucceeded", op.name))),
     cancelLabel: state.cancelLabel ?? chromeMessage(opDialogChrome(humanize(op.name)).dismiss),
     closeLabelExpr:
       state.closeLabelExpr ??

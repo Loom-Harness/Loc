@@ -27,7 +27,6 @@
                       type="button"
                       className="inline-flex items-center gap-1 font-medium"
                       onClick={h.column.getToggleSortingHandler()}
-                      {{{sortByAria}}}
                     >
                       {flexRender(h.column.columnDef.header, h.getContext())}
                       {h.column.getIsSorted() === "asc" ? " ↑" : h.column.getIsSorted() === "desc" ? " ↓" : ""}

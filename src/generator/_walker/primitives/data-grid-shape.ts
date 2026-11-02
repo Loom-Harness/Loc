@@ -79,9 +79,3 @@ export function gridHasFilterableColumn(grid: ExprIR & { kind: "call" }): boolea
 export function gridHasSelection(grid: ExprIR & { kind: "call" }): boolean {
   return namedArgValue(grid, "selection")?.kind === "ref";
 }
-
-/** True when ANY column of this grid is sortable — the grid-wide switch behind
- *  the pack's sort BUTTON, and therefore behind its "Sort by {column}" name. */
-export function gridHasSortableColumn(grid: ExprIR & { kind: "call" }): boolean {
-  return gridColumns(grid).some(columnIsSortable);
-}

@@ -81,9 +81,9 @@
     "field-input-file": "field-input-file.hbs",
     "primitive-file-upload": "primitive-file-upload.hbs"
   },
+  "sentenceChrome": ["addItem"],
   "chrome": {
     "signOut": "Sign out",
-    "addItem": "Add {item}",
     "arrayUnsupported": "(arrays not yet supported in forms)",
     "boolFalse": "No",
     "boolTrue": "Yes",

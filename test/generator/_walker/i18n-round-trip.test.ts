@@ -326,7 +326,7 @@ const DEAD_KEY_WAIVERS: readonly Waiver[] = [
     id: "D-I18N-2",
     targets: ["flutter"],
     menus: BOTH,
-    key: /^chrome\.delete(Entity|Confirm)$/,
+    key: /^chrome\.delete(Entity|Confirm)\.\w+$/,
     reason:
       '`DestroyForm`\'s button ("Delete Product") renders raw in the Flutter form runtime ' +
       "(`forms.dart`), which owns the widget's label",
@@ -356,16 +356,6 @@ const DEAD_KEY_WAIVERS: readonly Waiver[] = [
     menus: BOTH,
     key: /^chrome\.toggleNavigation$/,
     reason: "the other half of the openMenu/toggleNavigation pair",
-  },
-  {
-    kind: "over-merge",
-    id: "O-sortBy",
-    targets: ["mui", ...HEEX],
-    menus: BOTH,
-    key: /^chrome\.sortBy$/,
-    reason:
-      "TABLE_CONTROLS_CHROME: MUI's grid sorts on a header click with no labelled control, " +
-      "and HEEx has no sortable column in the fixture (it renders no DataGrid)",
   },
   {
     kind: "over-merge",

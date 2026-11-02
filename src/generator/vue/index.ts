@@ -202,17 +202,22 @@ export function generateVueForContexts(
   // Pack-DECLARED chrome rides the SAME already-enabled gate (see the React
   // generator for the rationale) — never flips the runtime on by itself.
   pack.setChromeI18n(i18nEnabled);
+  const formScope = { contexts, sentences: pack.manifest.sentenceChrome ?? [] };
   if (i18nEnabled) {
     // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
     // produced (scoped to this ui's keys, `TODO:` values already dropped by
     // the loader).  The shim imports and registers exactly the locales emitted
     // here, so what the translator wrote is what the app can resolve — with no
     // translator tree the list is empty and the shim is byte-identical.
-    out.set("src/locales/en.json", renderLocaleCatalog(ui, packChromeCatalog(pack.manifest)));
+    out.set(
+      "src/locales/en.json",
+      renderLocaleCatalog(ui, packChromeCatalog(pack.manifest), formScope),
+    );
     const translated = renderTranslatedCatalogs(
       ui,
       options.translations,
       packChromeCatalog(pack.manifest),
+      formScope,
     );
     for (const [locale, content] of translated) {
       out.set(`src/locales/${locale}.json`, content);

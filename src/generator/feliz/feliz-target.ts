@@ -10,10 +10,11 @@
 import type { BoundedContextIR, ExprIR, FieldIR, ParamIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { enumPool } from "../../ir/util/reachable-types.js";
 import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
-import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
+import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
 import { giveUp } from "../_walker/give-up.js";
+import { sentenceChromeName } from "../_walker/i18n-chrome.js";
 import {
   localizedNamedValue,
   localizedPageChromeValue,
@@ -555,16 +556,11 @@ export const felizTarget: WalkerTarget = {
     if (!agg) return null;
     ctx.usesRouteId = true; // the delete dispatches with the route `id`
     // The label and the confirm prompt are emitter-built chrome:
-    // `chrome.deleteEntity` / `chrome.deleteConfirm` with the entity name as an
-    // ICU hole, as on every frontend — and, as there, the delete runs only once
+    // the per-aggregate `chrome.deleteEntity.<Agg>` / `chrome.deleteConfirm.<Agg>`
+    // whole sentences, as on every frontend — and, as there, the delete runs only once
     // the user confirms it.
-    const human = humanize(agg.name);
-    const label = localizedPageChromeValue(ctx, "deleteEntity", [
-      { name: "entity", expr: JSON.stringify(human) },
-    ]);
-    const confirm = localizedPageChromeValue(ctx, "deleteConfirm", [
-      { name: "entity", expr: JSON.stringify(human.toLowerCase()) },
-    ]);
+    const label = localizedPageChromeValue(ctx, sentenceChromeName("deleteEntity", agg.name));
+    const confirm = localizedPageChromeValue(ctx, sentenceChromeName("deleteConfirm", agg.name));
     return `Html.button [ prop.className "btn btn-error"; prop.onClick (fun _ -> if Browser.Dom.window.confirm (${confirm}) then dispatch (Delete${upperFirst(agg.name)} id)); prop.text ${label} ]`;
   },
 
@@ -1077,14 +1073,6 @@ export const felizTarget: WalkerTarget = {
   // VALUE (`localizedNamedValue`, D-I18N-ATTR) is spelled with i18n off.
   // Same escaping as `escapeText`; both land in an F# `"…"` body.
   renderStringLiteral: (text: string) => `"${text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`,
-
-  // A holed message as one F# string expression — `+` over `"…"` literals,
-  // paren-wrapped for the `prop.ariaLabel (…)` argument positions it lands in.
-  // Hole expressions arrive already string-typed (the seam concatenates, it does
-  // not coerce), which is what keeps `("Filter by " + loomText (…))` byte-
-  // identical to the sentence this pack spelled by hand.
-  renderStringConcat: (parts) =>
-    `(${parts.map((p) => ("expr" in p ? p.expr : fsString(p.text))).join(" + ")})`,
 
   // A call into the generated F# translation runtime (M-T1.11).  The JS
   // frontends' `t(key, default, values)` is not F#, so Feliz spells the same

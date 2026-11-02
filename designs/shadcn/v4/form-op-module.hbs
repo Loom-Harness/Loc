@@ -20,7 +20,7 @@ function {{opPascal}}OpModal({ mut{{#if recordVar}}, record{{/if}}{{#if gated}},
             onSubmit={form.handleSubmit(async (vals) => {
               try {
                 await mut.mutateAsync(vals);
-                toast.success({{{chromeValue "operationSucceeded" operation=humanOp}}});
+                toast.success({{{successMessage}}});
                 setOpen(false);
               } catch (e) {
                 const outcome = applyServerErrors({ error: e, setError: form.setError, fieldMap: {} as const });

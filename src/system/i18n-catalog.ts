@@ -54,6 +54,22 @@ function packChromeForUi(sys: EnrichedSystemIR, ui: UiIR): Record<string, string
   return out;
 }
 
+/** The sentence bases (`PackManifest.sentenceChrome`) the packs rendering a UI
+ *  read — the per-operation / per-item-type sentences those packs consume. */
+function packSentencesForUi(sys: EnrichedSystemIR, ui: UiIR): string[] {
+  const out = new Set<string>();
+  for (const dep of sys.deployables) {
+    const design = dep.design;
+    if (!design) continue;
+    if (dep.uiName !== ui.name && !(dep.hostedUiNames ?? []).includes(ui.name)) continue;
+    if (dep.platform === "feliz" || dep.platform === "flutter") continue;
+    if (packFormatForBuiltin(design) === undefined) continue;
+    const manifest = loadPack(resolvePackDir(design, dep.designBaseDir)).manifest;
+    for (const base of manifest.sentenceChrome ?? []) out.add(base);
+  }
+  return [...out].sort();
+}
+
 /** Build the flat, key-sorted `{ key: message }` catalog for a system. */
 export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, string> {
   const byKey = new Map<string, string>();
@@ -71,7 +87,12 @@ export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, strin
   // byte-identical.
   if (byKey.size > 0) {
     for (const [key, message] of Object.entries(chromeMergedWhenEnabled())) byKey.set(key, message);
+    // Per-aggregate / per-operation / per-item-type whole sentences.
+    const contexts = sys.subdomains.flatMap((sub) => sub.contexts);
     for (const ui of sys.uis) {
+      const scope = { contexts, sentences: packSentencesForUi(sys, ui) };
+      for (const [key, message] of Object.entries(chromeMergedWhenEnabled(ui, scope)))
+        byKey.set(key, message);
       for (const [key, message] of Object.entries(packChromeForUi(sys, ui)))
         byKey.set(key, message);
     }

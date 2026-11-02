@@ -17,5 +17,5 @@
 {{/if}}{{/each}}              <Button color="error" size="small" onClick={() => remove{{arrayPascal}}(index)}>{{{chrome "removeItem"}}}</Button>
             </Stack>
           )) }
-          <Button size="small" onClick={() => append{{arrayPascal}}({{{defaultRowJson}}})}>{{{chrome "addItem" item=elementLabel}}}</Button>
+          <Button size="small" onClick={() => append{{arrayPascal}}({{{defaultRowJson}}})}>{{{addItemLabel}}}</Button>
         </Stack>{{else}}<TextField label="{{label}}" InputLabelProps=\{{ shrink: true }} {...register("{{path}}")} data-testid="{{testId}}" {{{chromeAttr "placeholder" "arrayUnsupported"}}} disabled error={!!( {{errorExpr}} )} helperText={ {{errorExpr}} } />{{/if}}

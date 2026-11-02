@@ -30,7 +30,7 @@ import { frontendRequestNames } from "../../_frontend/request-names.js";
 import { serverSourcedDefaultFields } from "../../_frontend/server-default.js";
 import { prepareFormFieldVM } from "../form-fields-vm.js";
 import { GIVE_UP_SENTINEL, giveUp } from "../give-up.js";
-import { opDialogChrome } from "../i18n-chrome.js";
+import { opDialogChrome, sentenceChromeName } from "../i18n-chrome.js";
 import {
   localizedNamedAttr,
   localizedNamedText,
@@ -205,14 +205,12 @@ export function emitDestroyForm(
   // (literals in the .ddd body) nor the pack-chrome slice (.hbs templates) ever
   // saw them — they shipped untranslated on every frontend.  Now stable
   // `chrome.*` keys with the entity name as an ICU hole.
-  const entityLower = { name: "entity", expr: JSON.stringify(humanize(agg.name).toLowerCase()) };
-  const entity = { name: "entity", expr: JSON.stringify(humanize(agg.name)) };
-  const confirmMsg = localizedPageChromeValue(ctx, "deleteConfirm", [entityLower]);
+  const confirmMsg = localizedPageChromeValue(ctx, sentenceChromeName("deleteConfirm", agg.name));
   const onClick = `() => { if (window.confirm(${confirmMsg})) void ${localVar}.mutateAsync(id ?? "").then(() => { ${thenJs}; }); }`;
   const testidNamespace = stringNamed(call, "testid") ?? `${routeSegmentFor(agg.name)}-destroy`;
   ctx.collectedTestids.add(testidNamespace);
   return renderPrimitive(ctx, "primitive-button", {
-    label: localizedPageChromeText(ctx, "deleteEntity", [entity]),
+    label: localizedPageChromeText(ctx, sentenceChromeName("deleteEntity", agg.name)),
     onClick,
     hasOnClick: true,
     disabled: undefined,
@@ -283,12 +281,13 @@ function registerOperationFormChrome(ctx: WalkContext): void {
  *  in `opDialogChrome`. */
 function opDialogChromeLabels(
   ctx: WalkContext,
-  submitLabel: string,
-): { cancelLabel: string; closeLabelExpr: string } {
-  const chrome = opDialogChrome(submitLabel);
+  opName: string,
+): { cancelLabel: string; closeLabelExpr: string; successMessage: string } {
+  const chrome = opDialogChrome(humanize(opName));
   return {
     cancelLabel: localizedPageChromeText(ctx, chrome.dismiss),
     closeLabelExpr: localizedPageChromeValue(ctx, chrome.close),
+    successMessage: localizedPageChromeValue(ctx, sentenceChromeName("operationSucceeded", opName)),
   };
 }
 
@@ -395,7 +394,7 @@ function emitFormOfOperationByName(
     // Pack chrome the op-module TEMPLATE bakes in — resolved HERE because this
     // is where a WalkContext exists (the page-shell that renders the template
     // has only the state + pack).
-    ...opDialogChromeLabels(ctx, humanize(op.name)),
+    ...opDialogChromeLabels(ctx, op.name),
     agg,
     op,
     bc,
@@ -502,7 +501,13 @@ function prepareFormFields(
   // (`ctx.i18nPrefix` is set iff the UI is enabled), so a form can never emit a
   // binding the catalog lacks — nor drag the runtime into an app that has
   // nothing else to translate.
-  const fieldChrome = { selectPlaceholderAttr: selectPlaceholderAttr(ctx) };
+  const fieldChrome = {
+    selectPlaceholderAttr: selectPlaceholderAttr(ctx),
+    // A dynamic-row field's add button reads as one whole sentence per element
+    // type ("Add line"), never an "Add {item}" frame.
+    addItemLabelFor: (element: string) =>
+      localizedPageChromeText(ctx, sentenceChromeName("addItem", element)),
+  };
   const fieldHtmls = fieldVMs.map((vm) => renderFormField(vm, ctx.pack, fieldChrome));
   for (const vm of fieldVMs) ctx.collectedTestids.add(vm.testId);
   // Field-arrays (`X[]` of a value-object) → one `useFieldArray` per field.  The
@@ -921,7 +926,7 @@ function emitFormOfOperation(
     // Pack chrome the op-module TEMPLATE bakes in — resolved HERE because this
     // is where a WalkContext exists (the page-shell that renders the template
     // has only the state + pack).
-    ...opDialogChromeLabels(ctx, humanize(op.name)),
+    ...opDialogChromeLabels(ctx, op.name),
     agg,
     op,
     bc,

@@ -28,7 +28,12 @@ import { iconA11yAttr } from "../_walker/a11y-emit.js";
 import { type DetectedApiCall, tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { giveUpText } from "../_walker/give-up.js";
 import { isEntityHistoryRead } from "../_walker/history-read.js";
-import { chromeKey, chromeMessage, opDialogChrome } from "../_walker/i18n-chrome.js";
+import {
+  chromeKey,
+  chromeMessage,
+  opDialogChrome,
+  sentenceChromeName,
+} from "../_walker/i18n-chrome.js";
 import { lookupBuiltinIcon } from "../_walker/icons.js";
 import { queryShape } from "../_walker/paged-query.js";
 import { simpleAccessorField } from "../_walker/primitives/data-grid-shape.js";
@@ -2061,13 +2066,12 @@ export function renderDestroyForm(
       byId: true,
     });
   }
-  const human = humanize(ofName);
   const testidAttr = testIdAttr(expr, ctx);
-  // The prompt and the button label are emitter-built chrome: the shared
-  // `chrome.deleteConfirm` / `chrome.deleteEntity` messages every frontend
-  // reads, with the entity name substituted for the `{entity}` hole.
-  const confirm = heexChrome(ctx, "deleteConfirm", { entity: human.toLowerCase() });
-  const label = heexChrome(ctx, "deleteEntity", { entity: human });
+  // The prompt and the button label are emitter-built chrome: the per-aggregate
+  // `chrome.deleteConfirm.<Agg>` / `chrome.deleteEntity.<Agg>` whole sentences
+  // every frontend reads.
+  const confirm = heexChrome(ctx, sentenceChromeName("deleteConfirm", ofName));
+  const label = heexChrome(ctx, sentenceChromeName("deleteEntity", ofName));
   const confirmAttr =
     confirm.call !== undefined ? `{${confirm.call}}` : `"${escapeHeexAttr(confirm.english)}"`;
   const labelText =
@@ -2075,23 +2079,15 @@ export function renderDestroyForm(
   return `<.button phx-click="${eventName}" phx-value-id={@id} data-confirm=${confirmAttr} class="btn-danger"${testidAttr}>${labelText}</.button>`;
 }
 
-/** A shared `chrome.<name>` string whose ICU holes take GENERATE-time values
- *  (an entity name).  `english` is the filled sentence; `call` — present under
- *  i18n — the Elixir expression that resolves the message through gettext and
- *  substitutes each hole into the active locale's text. */
-function heexChrome(
-  ctx: WalkContext,
-  name: string,
-  holes: Readonly<Record<string, string>>,
-): { english: string; call?: string } {
-  const message = chromeMessage(name);
-  const english = message.replace(/\{(\w+)\}/g, (whole, hole: string) => holes[hole] ?? whole);
+/** A shared `chrome.<name>` sentence.  `english` is the message; `call` —
+ *  present under i18n — the Elixir expression that resolves it through gettext. */
+function heexChrome(ctx: WalkContext, name: string): { english: string; call?: string } {
+  const english = chromeMessage(name);
   if (!ctx.i18nPrefix) return { english };
-  let call = `pgettext(${elixirI18nString(chromeKey(name))}, ${elixirI18nString(message)})`;
-  for (const [hole, value] of Object.entries(holes)) {
-    call = `String.replace(${call}, ${elixirI18nString(`{${hole}}`)}, ${elixirI18nString(value)})`;
-  }
-  return { english, call };
+  return {
+    english,
+    call: `pgettext(${elixirI18nString(chromeKey(name))}, ${elixirI18nString(english)})`,
+  };
 }
 
 /** `Tabs(Tab(label, body), …)` → a client-side tab switcher.  All panels are

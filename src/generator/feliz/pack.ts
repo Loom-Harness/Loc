@@ -374,12 +374,9 @@ function primitiveDataGrid(c: Ctx): string {
 
   // Per-column filter input, under the header content — only for columns whose
   // `filterable:` survived resolution (`getCanFilter()` is TanStack's answer).
-  // Under i18n an `I18n.tf` call over `chrome.filterBy`; off, the
-  // `renderStringConcat` seam re-spells the same `("Filter by " + loomText …)`
-  // this pack wrote by hand.
-  const filterByAria = String(
-    c.filterByAriaValue ?? '("Filter by " + loomText (h?column?columnDef?header))',
-  );
+  // The input's accessible name is the same whole word as its placeholder; the
+  // header cell it sits in carries which column it filters.
+  const filterByAria = String(c.filterByAriaValue ?? '"Filter"');
   const filterInput = c.hasFilters
     ? `\n                  if unbox<bool> (h?column?getCanFilter()) then\n` +
       `                    Html.input [ prop.type' "search"; prop.className "input input-xs input-bordered mt-1 w-full"; prop.placeholder ${filterPlaceholder}; prop.ariaLabel ${filterByAria}; prop.value (loomText (h?column?getFilterValue())); prop.onChange (fun (v: string) -> loomHandle (h?column?setFilterValue) (box v)) ]`

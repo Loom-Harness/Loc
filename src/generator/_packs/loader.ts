@@ -49,6 +49,11 @@ export type { PackFormat };
 
 /** Manifest schema for `<pack>/pack.json`. */
 export interface PackManifest {
+  /** The per-subject whole sentences (`SENTENCE_CHROME` bases:
+   *  `operationSucceeded`, `addItem`) this pack's templates read through the
+   *  `{{{successMessage}}}` / `{{{addItemLabel}}}` tokens.  A catalog carries
+   *  such a sentence only for a pack that declares its base here. */
+  sentenceChrome?: string[];
   /** Pack family name — informational, e.g. "mantine", "shadcn",
    *  "coreComponents".  Used in error messages; resolution is by
    *  directory layout, not by this field. */
@@ -126,7 +131,7 @@ export interface PackManifest {
    *  because no built-in primitive needs them. */
   imports?: Record<string, ImportSpec[]>;
   /** Optional pack-DECLARED chrome: `role → English`.  The user-visible
-   *  strings this pack bakes into its own templates ("Remove", "Add {item}",
+   *  strings this pack bakes into its own templates ("Remove", "Choose file",
    *  "This operation has no parameters.") — the ones the IR-walking
    *  content-hash extraction pass can never see, because they exist only in a
    *  `.hbs`.  Templates spell them through the `{{{chrome …}}}` /

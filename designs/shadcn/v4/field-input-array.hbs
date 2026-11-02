@@ -31,7 +31,7 @@
 {{/if}}{{/each}}              <Button type="button" variant="ghost" size="sm" onClick={() => remove{{arrayPascal}}(index)}>{{{chrome "removeItem"}}}</Button>
             </div>
           )) }
-          <Button type="button" variant="outline" size="sm" onClick={() => append{{arrayPascal}}({{{defaultRowJson}}})}>{{{chrome "addItem" item=elementLabel}}}</Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => append{{arrayPascal}}({{{defaultRowJson}}})}>{{{addItemLabel}}}</Button>
         </div>{{else}}<FormField
           control={form.control}
           name="{{path}}"
