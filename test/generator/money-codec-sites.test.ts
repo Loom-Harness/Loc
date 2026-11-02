@@ -80,3 +80,33 @@ describe("union-variant money payload (#3544)", () => {
     expect(r).toContain('"extra": None if result["extra"] is None else money_str(result["extra"])');
   });
 });
+
+describe("python outbox / SSE event payload money (#3487)", () => {
+  const EVENTS = `
+      aggregate Account with crudish {
+        owner: string
+        operation charge(amount: money) { emit Charged { account: id, amount: amount, extra: amount } }
+        operation bill(amount: money) { emit Billed { account: id, amount: amount } }
+      }
+      repository Accounts for Account { }
+      event Charged { account: Account id, amount: money, extra: money? }
+      event Billed { account: Account id, amount: money }
+      channel Live { carries: Charged  delivery: broadcast  retention: ephemeral }
+      channel Ledger { carries: Billed  delivery: queue  retention: log }
+      workflow BillingSaga {
+        acct: Account id
+        paid: money
+        create(b: Billed) by b.account { paid := b.amount }
+      }`;
+
+  it("the SSE frame and the outbox payload encode money with money_str()", async () => {
+    const files = await gen(sys("python", EVENTS));
+    const rt = pick(files, /app\/realtime\.py$/);
+    expect(rt).toContain('"amount": money_str(event.amount)');
+    expect(rt).toContain('"extra": (None if event.extra is None else money_str(event.extra))');
+    expect(rt).not.toContain("str(event.amount)\n");
+    const dispatch = pick(files, /app\/dispatch\.py$/);
+    expect(dispatch).toContain('"amount": money_str(event.amount)');
+    expect(dispatch).not.toMatch(/"amount": str\(/);
+  });
+});
