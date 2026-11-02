@@ -1,4 +1,8 @@
-import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
+import {
+  destroyVersionCheck,
+  operationVersionCheck,
+  readsIfMatch,
+} from "../../../ir/enrich/version-check.js";
 import {
   fieldFixedMessage,
   type WireRejectionClass,
@@ -139,7 +143,8 @@ export function renderJavaController(
   // Other routes thread nothing → byte-identical routes.
   const readsIfMatchFor = (op: OperationIR): boolean =>
     readsIfMatch(operationVersionCheck(agg, op));
-  const versioned = agg.operations.some(readsIfMatchFor);
+  const destroyReadsIfMatch = readsIfMatch(destroyVersionCheck(agg));
+  const versioned = agg.operations.some(readsIfMatchFor) || destroyReadsIfMatch;
   //
   // The header binds as a STRING and is parsed by the shared `IfMatch` helper,
   // not as a `@RequestHeader … Integer`.  An entity-tag is a QUOTED string
@@ -151,10 +156,9 @@ export function renderJavaController(
   // so java binding the raw value to a number was the one backend that could
   // not accept what the others do — invisible because no generated client has
   // ever sent the header.
+  const ifMatchHeader = `, @RequestHeader(value = "If-Match", required = false) String ifMatch`;
   const ifMatchHeaderParam = (op: OperationIR): string =>
-    readsIfMatchFor(op)
-      ? `, @RequestHeader(value = "If-Match", required = false) String ifMatch`
-      : "";
+    readsIfMatchFor(op) ? ifMatchHeader : "";
   const ifMatchServiceArg = (op: OperationIR): string =>
     readsIfMatchFor(op) ? ", IfMatch.expectedVersion(ifMatch)" : "";
   // The id's raw value type — `UUID` as an import marker (M-T9.86), so the
@@ -482,8 +486,10 @@ export function renderJavaController(
     ? [
         `    @DeleteMapping("${relativeOpPath(destroyEntry)}")`,
         `    @ResponseStatus(HttpStatus.NO_CONTENT)`,
-        `    public void destroy${agg.name}(@PathVariable ${idJava} id) {`,
-        `        service.destroy${agg.name}(new ${idClass}(id));`,
+        `    public void destroy${agg.name}(@PathVariable ${idJava} id${destroyReadsIfMatch ? ifMatchHeader : ""}) {`,
+        `        service.destroy${agg.name}(new ${idClass}(id)${
+          destroyReadsIfMatch ? ", IfMatch.expectedVersion(ifMatch)" : ""
+        });`,
         `    }`,
         ``,
       ]

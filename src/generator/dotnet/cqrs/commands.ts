@@ -1,4 +1,8 @@
-import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
+import {
+  destroyVersionCheck,
+  operationVersionCheck,
+  readsIfMatch,
+} from "../../../ir/enrich/version-check.js";
 import { unionInstanceName } from "../../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
@@ -23,7 +27,7 @@ import { IF_MATCH_EXPECTED_VERSION_CS } from "../emit/version-check-cs.js";
 import { renderCommand, renderCommandHandler } from "../emit.js";
 import { collectCsExprUsings, renderCsExpr, renderCsType } from "../render-expr.js";
 import { renderCreateValidator, renderOperationValidator } from "../validator-emit.js";
-import { csNotFoundException } from "../wire-policy-cs.js";
+import { csNotFoundException, csSentence } from "../wire-policy-cs.js";
 
 /** The `when` canCommand gate (criterion.md use site 2): evaluate the
  *  predicate against the loaded aggregate before the body runs; false →
@@ -270,6 +274,22 @@ export function emitCreateCommandAndHandler(
   }
 }
 
+/** The `if-match` precondition of a `versioned` row's DELETE: the client's tag
+ *  (parsed once at the HTTP edge into `RequestContext.ExpectedVersion`) must
+ *  equal the loaded row's version; with no tag the loaded version stands.  A
+ *  stale tag throws the exception a stale save throws, so the same filter arm
+ *  answers 409. */
+function destroyIfMatchCheck(agg: AggregateIR, usingDapper?: boolean): string {
+  if (!readsIfMatch(destroyVersionCheck(agg))) return "";
+  const stale = usingDapper
+    ? `new ConcurrencyConflictException(${JSON.stringify(agg.name)}, aggregate.Id.Value)`
+    : `new Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException(${csSentence("version-conflict", `${agg.name} {aggregate.Id.Value}`)})`;
+  return (
+    `        if (${IF_MATCH_EXPECTED_VERSION_CS} is int __ifMatch && __ifMatch != aggregate.Version)\n` +
+    `            throw ${stale};\n`
+  );
+}
+
 /** Canonical hard-delete: `Destroy<Agg>Command(<Agg>Id Id)` + handler that
  * loads (404 if absent), then hard-deletes via the repo.  Mirrors the
  * operation-handler load→act→return shape; crudish's destroy is empty-bodied
@@ -283,6 +303,9 @@ export function emitDestroyCommandAndHandler(
   /** Supplied when the destroy action is `audited` — carries the enclosing
    *  context for the before-snapshot wire projection. */
   auditCtx?: EnrichedBoundedContextIR,
+  /** `persistence: dapper` — names the stale-version exception the repository's
+   *  own guarded save throws, so the DELETE precondition answers the same 409. */
+  usingDapper?: boolean,
 ): void {
   out.set(
     `Application/${aggFolder}/Commands/Destroy${agg.name}Command.cs`,
@@ -361,6 +384,7 @@ export function emitDestroyCommandAndHandler(
         // property: #2450's gate passed a mutation that moved this line below
         // `DeleteAsync`, which denies a delete that already happened.
         destroyGate.body +
+        destroyIfMatchCheck(agg, usingDapper) +
         destroyAuditStage +
         `        await _repo.DeleteAsync(aggregate, cancellationToken);\n` +
         `        return Unit.Value;\n`,
