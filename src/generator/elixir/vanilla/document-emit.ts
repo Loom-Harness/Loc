@@ -82,7 +82,12 @@ import {
   vanillaDocWriteScopeFilter,
 } from "./capability-filter.js";
 import { ectoValidator } from "./changeset-validators.js";
-import { LOOM_DATETIME_MODULE } from "./datetime-type-emit.js";
+import {
+  exEctoIdType,
+  exEctoJsonType,
+  exEctoScalarType,
+  exFrameworkTimestampType,
+} from "./codec-spelling-ex.js";
 import { isVoValuedType, NORMALIZE_KEYS_DEFP, NORMALIZE_VO_KEYS_DEFP } from "./key-normalize.js";
 import { managedTimestampNames } from "./managed-timestamps.js";
 import { paramGuardClause } from "./op-param-guards.js";
@@ -168,32 +173,13 @@ function docRequiredFields(agg: AggregateIR): FieldIR[] {
 function castType(t: TypeIR): string {
   switch (t.kind) {
     case "primitive":
-      switch (t.name) {
-        case "int":
-        case "long":
-          return ":integer";
-        case "decimal":
-        case "money":
-          return ":decimal";
-        case "bool":
-          return ":boolean";
-        case "datetime":
-          return LOOM_DATETIME_MODULE;
-        case "date":
-          return ":date";
-        case "guid":
-          return "Ecto.UUID";
-        case "json":
-          return ":map";
-        default:
-          return ":string";
-      }
+      return exEctoScalarType(t.name);
     case "id":
-      return ":binary_id";
+      return exEctoIdType(t.valueType);
     case "enum":
       return ":string";
     case "valueobject":
-      return ":map";
+      return exEctoJsonType();
     case "array": {
       const inner = castType(t.element);
       return `{:array, ${inner}}`;
@@ -248,7 +234,7 @@ ${prefixLine}
   schema "${tableName}" do
     embeds_one :data, ${moduleName}.Data, on_replace: :update
     field :version, :integer, default: 1
-    timestamps(type: :utc_datetime)
+    timestamps(type: ${exFrameworkTimestampType()})
   end
 ${pureCoreBlock}end
 `;

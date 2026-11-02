@@ -19,7 +19,6 @@ import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import type { ApiOperationIR } from "../../../ir/util/api-surface.js";
 import { enumPool } from "../../../ir/util/reachable-types.js";
 import { snake, upperFirst } from "../../../util/naming.js";
-import { integralWireRange } from "../../../util/numeric-range.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import type { ApiRoute } from "../api-emit.js";
 import { elixirFindFacadeFn } from "../find-facade-name.js";
@@ -27,6 +26,7 @@ import { renderExpr } from "../render-expr.js";
 import { exErrorVariant, exFieldMessage, exLit, exMissingSuffix } from "../wire-policy-ex.js";
 import { plugRelativePath } from "./api-emit.js";
 import { aggregateUsesPrincipalContextFilter, findUsesPrincipal } from "./capability-filter.js";
+import { exIntegerRange } from "./codec-spelling-ex.js";
 import { denialOverrides, denialResponse } from "./denial.js";
 import { effectiveGate } from "./gate.js";
 import { isAbstractBase } from "./inheritance-emit.js";
@@ -216,7 +216,7 @@ function findParamCheck(t: TypeIR, ctx: BoundedContextIR): FindParamCheck {
       switch (info.primitive) {
         case "int":
         case "long":
-          return { kind: "integer", ...integralWireRange(info.primitive) };
+          return { kind: "integer", ...exIntegerRange(info.primitive) };
         case "decimal":
         case "money":
           return { kind: "decimal" };
@@ -237,7 +237,7 @@ function findParamCheck(t: TypeIR, ctx: BoundedContextIR): FindParamCheck {
           return { kind: "uuid" };
         case "int":
         case "long":
-          return { kind: "integer", ...integralWireRange(info.idValueType) };
+          return { kind: "integer", ...exIntegerRange(info.idValueType) };
         default:
           return { kind: "string" };
       }

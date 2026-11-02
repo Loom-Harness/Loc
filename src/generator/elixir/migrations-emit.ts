@@ -1,6 +1,5 @@
 import type {
   ColumnShape,
-  ColumnType,
   IndexShape,
   MigrationStep,
   MigrationsIR,
@@ -16,6 +15,12 @@ import {
   renderRenameIndexSql,
   renderSetSchemaSql,
 } from "../sql-pg.js";
+import {
+  exMigrationColumnOpts,
+  exMigrationColumnType,
+  exMigrationKeyType,
+  exMigrationRowIdType,
+} from "./vanilla/codec-spelling-ex.js";
 
 // ---------------------------------------------------------------------------
 // Phoenix Ecto migration emitter.
@@ -473,7 +478,7 @@ function eventLogColumnLines(table: TableShape): string[] {
   const pk = new Set(table.primaryKey);
   return table.columns.map((c) =>
     pk.has(c.name)
-      ? `add :${c.name}, ${ectoPrimaryKeyType(c.type)}, primary_key: true, null: false`
+      ? `add :${c.name}, ${exMigrationKeyType(c.type)}, primary_key: true, null: false`
       : renderEctoColumn(c, table),
   );
 }
@@ -495,7 +500,7 @@ function stateColumnLines(table: TableShape): string[] {
   const pk = new Set(table.primaryKey);
   const lines = collapseVoGroups(table.columns.filter((c) => !c.valueArrayChildTable)).map((c) =>
     pk.has(c.name)
-      ? `add :${c.name}, ${ectoPrimaryKeyType(c.type)}, primary_key: true, null: false`
+      ? `add :${c.name}, ${exMigrationKeyType(c.type)}, primary_key: true, null: false`
       : renderEctoColumn(c, table),
   );
   const ts = timestampsMacro(table);
@@ -510,7 +515,7 @@ function stateColumnLines(table: TableShape): string[] {
  *  `sql-pg.ts` skip. */
 function entityColumnLines(table: TableShape): string[] {
   const idCol = table.columns.find((c) => c.name === "id");
-  const pkType = idCol ? ectoPrimaryKeyType(idCol.type) : ":uuid";
+  const pkType = idCol ? exMigrationKeyType(idCol.type) : exMigrationRowIdType();
   const otherCols = collapseVoGroups(
     table.columns.filter((c) => c.name !== "id" && !c.valueArrayChildTable),
   );
@@ -534,7 +539,10 @@ function entityColumnLines(table: TableShape): string[] {
  *  byte-identical with every other backend.  Parent FK cascades; `ordinal`
  *  preserves declared order.  No `timestamps()`: the child schema has none. */
 function valueCollectionColumnLines(table: TableShape): string[] {
-  return ["add :id, :uuid, primary_key: true, null: false", ...keyedColumnLines(table, new Set())];
+  return [
+    `add :id, ${exMigrationRowIdType()}, primary_key: true, null: false`,
+    ...keyedColumnLines(table, new Set()),
+  ];
 }
 
 /** A many-to-many join table's columns.  Composite PK on the two FK columns,
@@ -557,8 +565,8 @@ function keyedColumnLines(table: TableShape, pk: ReadonlySet<string>): string[] 
     const pkOpt = pk.has(c.name) ? ", primary_key: true" : "";
     const fk = table.foreignKeys.find((f) => f.column === c.name);
     const decl = fk
-      ? `references(:${fk.refTable}${prefix}, type: ${ectoPrimaryKeyType(c.type)}, on_delete: :${fk.onDelete === "cascade" ? "delete_all" : "restrict"})`
-      : `${ectoColumnType(c.type)}${ectoColumnOpts(c.type)}`;
+      ? `references(:${fk.refTable}${prefix}, type: ${exMigrationKeyType(c.type)}, on_delete: :${fk.onDelete === "cascade" ? "delete_all" : "restrict"})`
+      : `${exMigrationColumnType(c.type)}${exMigrationColumnOpts(c.type)}`;
     return `add :${c.name}, ${decl}, null: ${c.nullable}${pkOpt}${defaultClause}`;
   });
 }
@@ -640,8 +648,8 @@ export function renderEctoStep(step: MigrationStep): string[] {
       const c = step.column;
       const prefix = prefixOpt(step.schema);
       const decl = step.fk
-        ? `references(:${step.fk.refTable}${prefix}, type: ${ectoPrimaryKeyType(c.type)}, on_delete: :${step.fk.onDelete === "cascade" ? "delete_all" : "restrict"})`
-        : `${ectoColumnType(c.type)}${ectoColumnOpts(c.type)}`;
+        ? `references(:${step.fk.refTable}${prefix}, type: ${exMigrationKeyType(c.type)}, on_delete: :${step.fk.onDelete === "cascade" ? "delete_all" : "restrict"})`
+        : `${exMigrationColumnType(c.type)}${exMigrationColumnOpts(c.type)}`;
       // The column's `default` is load-bearing on an ADD, not cosmetic: it is
       // what backfills the pre-existing rows so a NOT-NULL add succeeds at all
       // (M-T2.16 / #2864 G1).  Dropping it here left Phoenix emitting a bare
@@ -671,7 +679,7 @@ export function renderEctoStep(step: MigrationStep): string[] {
     case "alterColumnNullable":
       return [
         `alter table(:${step.table}${prefixOpt(step.schema)}) do`,
-        `  modify :${step.name}, ${ectoColumnType(step.type)}${ectoColumnOpts(step.type)}, null: ${step.nullable}`,
+        `  modify :${step.name}, ${exMigrationColumnType(step.type)}${exMigrationColumnOpts(step.type)}, null: ${step.nullable}`,
         `end`,
       ];
     case "alterColumnType":
@@ -795,65 +803,16 @@ function renderEctoColumn(c: ColumnShape, table: TableShape): string {
   const defaultClause = ectoDefaultClause(c.default);
   const fk = table.foreignKeys.find((f) => f.column === c.name);
   if (fk) {
-    const ref = `references(:${fk.refTable}${prefixOpt(table.schema)}, type: ${ectoPrimaryKeyType(c.type)}, on_delete: :${fk.onDelete === "cascade" ? "delete_all" : "restrict"})`;
+    const ref = `references(:${fk.refTable}${prefixOpt(table.schema)}, type: ${exMigrationKeyType(c.type)}, on_delete: :${fk.onDelete === "cascade" ? "delete_all" : "restrict"})`;
     return `add :${c.name}, ${ref}, null: ${c.nullable}${defaultClause}`;
   }
-  return `add :${c.name}, ${ectoColumnType(c.type)}${ectoColumnOpts(c.type)}, null: ${c.nullable}${defaultClause}`;
+  return `add :${c.name}, ${exMigrationColumnType(c.type)}${exMigrationColumnOpts(c.type)}, null: ${c.nullable}${defaultClause}`;
 }
 
 // ---------------------------------------------------------------------------
-// Type translation.  Regular columns: text → :text, json → :map, etc.
-// Primary keys / FK references: text → :string (Ecto's string-PK
-// convention — varchar(255)), uuid → :uuid.
+// Type translation lives in `vanilla/codec-spelling-ex.ts` — the Ecto
+// spelling of the `Codec` fact's columns.
 // ---------------------------------------------------------------------------
-
-/** The bounded-numeric options an Ecto `add`/`modify` needs beyond the type
- *  atom.  `money` is `NUMERIC(19,4)` (#2549 — an unbounded column stored
- *  whatever scale the writing backend produced); a plain `decimal` stays
- *  unconstrained.  Kept OUT of `ectoColumnType` because that atom is also
- *  nested inside `{:array, …}`, where trailing options would not parse. */
-function ectoColumnOpts(t: ColumnType): string {
-  return t.kind === "decimal" && t.precision !== undefined && t.scale !== undefined
-    ? `, precision: ${t.precision}, scale: ${t.scale}`
-    : "";
-}
-
-function ectoColumnType(t: ColumnType): string {
-  switch (t.kind) {
-    case "uuid":
-      return ":uuid";
-    case "int":
-      return ":integer";
-    case "bigint":
-      return ":bigint";
-    case "bigserial":
-      // Ecto's `:bigserial` — bigint + owned sequence (event-log-architecture.md).
-      return ":bigserial";
-    case "text":
-      return ":text";
-    case "bool":
-      return ":boolean";
-    case "decimal":
-      return ":decimal";
-    case "date":
-      return ":date";
-    case "datetime":
-      // `timestamptz`, the column every other backend uses: a microsecond UTC
-      // instant the `Loom.Datetime` field type reads back at millisecond
-      // precision (RS-38).  `:utc_datetime` was `timestamp(0)` — SECOND
-      // precision, so a written fraction was lost (ledger `F2-W-06`).
-      return ":timestamptz";
-    case "json":
-      return ":map";
-    case "array":
-      return `{:array, ${ectoColumnType(t.inner)}}`;
-  }
-}
-
-function ectoPrimaryKeyType(t: ColumnType): string {
-  if (t.kind === "text") return ":string";
-  return ectoColumnType(t);
-}
 
 // ---------------------------------------------------------------------------
 // Helpers

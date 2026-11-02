@@ -64,7 +64,6 @@ import { commandCreateResult } from "../../../ir/util/workflow-command-route.js"
 import { API_BASE_PATH } from "../../../util/api-base.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { snake, upperFirst } from "../../../util/naming.js";
-import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { isReserved } from "../../../util/target-identifiers.js";
 import {
@@ -82,6 +81,7 @@ import type { ApiRoute } from "../api-emit.js";
 import { exReasonPhrase, exStatus } from "../wire-policy-ex.js";
 import { servedOperationEntries, servesHistory } from "./api-emit.js";
 import { routesPolymorphicRead } from "./base-reader.js";
+import { exInt32Range } from "./codec-spelling-ex.js";
 import { denialOverrides, denialStatus } from "./denial.js";
 import { isAbstractBase, isTphBase } from "./inheritance-emit.js";
 import { emitsRestDelete } from "./rest-surface.js";
@@ -1100,7 +1100,7 @@ end
  *  it is a cross-backend ruling, not this row. */
 const INT32_SCHEMA =
   `%OpenApiSpex.Schema{type: :integer, format: :int32, ` +
-  `minimum: ${INT32_MIN}, maximum: ${INT32_MAX}}`;
+  `minimum: ${exInt32Range().min}, maximum: ${exInt32Range().max}}`;
 
 /** Wire-primitive → OpenApiSpex %Schema{} literal.  Money crosses as
  *  `{type: string, format: decimal}` for cross-backend wire parity
