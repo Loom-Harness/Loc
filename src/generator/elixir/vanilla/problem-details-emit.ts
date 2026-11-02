@@ -12,15 +12,18 @@
 import type { TypeIR } from "../../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
-import {
-  CONCURRENCY_CONFLICT_SUFFIX,
-  MISSING_FIELD_MESSAGE,
-  problemTitle,
-  UNIQUE_CONFLICT_DETAIL,
-} from "../../../ir/util/openapi-errors.js";
 import { elixirString } from "../../../util/naming.js";
-import { UUID_WIRE_MESSAGE } from "../../../util/uuid-wire.js";
 import { renderPhoenixDomainFault, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
+import {
+  exFieldMessage,
+  exFixedDetail,
+  exIngressGuardClauses,
+  exLit,
+  exMissingSuffix,
+  exRejectionAt,
+  exSentence,
+  type StrictIngressField,
+} from "../wire-policy-ex.js";
 
 export function renderVanillaProblemDetailsModule(
   appModule: string,
@@ -80,7 +83,15 @@ export function renderVanillaProblemDetailsModule(
    *  (the default) ⇒ the forbidden rung's body `detail` is the constant
    *  `Forbidden`, while the `forbidden` log line above it keeps the gate. */
   echoForbiddenDetail = false,
+  /** True when some controller checks request values against the fact's ingress
+   *  JSON types (`renderStrictParamsPlug`) — gates `type_mismatches/2`. */
+  hasStrictIngress = false,
 ): string {
+  const conflict409 = exRejectionAt("version-conflict", concurrencyStatus);
+  const unique409 = exRejectionAt("unique-conflict", uniquenessStatus);
+  const notFound404 = exRejectionAt("not-found", notFoundStatus);
+  const invalid422 = exRejectionAt("field-invalid", 422);
+  const conflictSentence = (subject: string): string => exSentence("version-conflict", subject);
   // Ruling D4 (#20).  Every `requires` denial funnels through
   // `problem_response/4` (the `denial.ts` forbidden rung), and the classifier
   // below logs the full `detail` BEFORE the body is built — so the redaction
@@ -155,11 +166,11 @@ export function renderVanillaProblemDetailsModule(
   since the client read it (\`Ecto.StaleEntryError\`, rescued to
   \`{:error, :conflict}\`).  Logs the \`conflict\` catalog event, distinct from
   the \`unique (...)\` 409 (which logs \`disallowed\` via \`problem_response/4\`).
-  The detail names the aggregate and the row (RS-40), the same sentence the
-  other four backends serve: \`"<Aggregate> <id> ${CONCURRENCY_CONFLICT_SUFFIX}"\`.
+  The detail names the aggregate and the row (RS-40), the sentence the
+  \`version-conflict\` wire-policy class owns.
   """
   def conflict_response(conn, kind, id) do
-    send_conflict(conn, "#{kind} #{id} ${CONCURRENCY_CONFLICT_SUFFIX}")
+    send_conflict(conn, ${conflictSentence("#{kind} #{id}")})
   end
 
   @doc """
@@ -170,7 +181,7 @@ export function renderVanillaProblemDetailsModule(
   aggregate and id through that term so it can match the other backends').
   """
   def conflict_response(conn) do
-    send_conflict(conn, "The resource ${CONCURRENCY_CONFLICT_SUFFIX}")
+    send_conflict(conn, ${conflictSentence("The resource")})
   end
 
   defp send_conflict(conn, detail) do
@@ -183,7 +194,7 @@ export function renderVanillaProblemDetailsModule(
     body =
       Jason.encode!(%{
         type: "about:blank",
-        title: ${JSON.stringify(problemTitle(concurrencyStatus))},
+        title: ${exLit(conflict409.title)},
         status: ${concurrencyStatus},
         detail: detail,
         instance: conn.request_path
@@ -246,8 +257,8 @@ export function renderVanillaProblemDetailsModule(
     .map(([status, arm]) => `      ${status} ->\n        ${arm}\n`)
     .join("\n");
   const log422 = renderPhoenixLogCall("domainError", [
-    { name: "message", valueExpr: `"Validation failed"` },
-    { name: "status", valueExpr: "422" },
+    { name: "message", valueExpr: exLit(invalid422.title) },
+    { name: "status", valueExpr: `${invalid422.status}` },
   ]);
   // The 422 body — shared by the plain (no-`unique`) and the unique-aware forms.
   //
@@ -265,7 +276,7 @@ export function renderVanillaProblemDetailsModule(
     : `    send_validation_problem(conn, collect_changeset_errors(changeset, []))`;
   const logBodyVo = renderPhoenixLogCall("domainError", [
     { name: "message", valueExpr: "detail" },
-    { name: "status", valueExpr: `${bodyValueObjects?.status ?? 422}` },
+    { name: "status", valueExpr: `${bodyValueObjects?.status ?? invalid422.status}` },
   ]);
   const bodyValueObjectFns = bodyValueObjects
     ? `
@@ -316,12 +327,40 @@ export function renderVanillaProblemDetailsModule(
   // through it — the changeset path above and, when the app has one, the
   // wire-translatable `precondition` path below (M-T6.20) — so the two can never
   // drift into different titles / details / log events.
+  // The request-ingress check (D-NUMERIC-INGRESS-STRICT).  Ecto's `cast/3`
+  // coerces across JSON types — `"5"` becomes an `:integer`, `12.5` a
+  // `:decimal`, `"true"` a `:boolean` — so a controller checks each such key's
+  // RAW value against the JSON type the wire-policy fact names before the action
+  // runs.  A `null` / absent key is not a type error (the required-params plug
+  // owns absence).
+  const strictIngressFns = hasStrictIngress
+    ? `
+
+  @doc """
+  The keys of \`params\` whose value is not the JSON type the contract names
+  (\`fields\` is a list of \`"<key>:<number|string|boolean>"\`), as \`errors[]\`
+  entries.  Ecto would coerce a string into an integer or a number into a
+  decimal; the wire contract refuses both.
+  """
+  def type_mismatches(params, fields) when is_map(params) do
+    for field <- fields,
+        [key, json] <- [String.split(field, ":")],
+        {:ok, value} <- [Map.fetch(params, key)],
+        not is_nil(value),
+        not json_type_ok?(json, value),
+        do: %{pointer: "/" <> key, message: "Expected " <> json}
+  end
+
+  @doc "Send the 422 for the keys \`type_mismatches/2\` found."
+  def type_mismatches_response(conn, mismatches), do: send_validation_problem(conn, mismatches)
+
+${exIngressGuardClauses()}`
+    : "";
   const sendValidationProblemFn = `
 
   # The §3.2 \`errors[]\` 422 sender — one place, so every rung that answers the
   # WIRE-VALIDATION shape (the changeset path, and the wire-translatable
   # \`precondition\` path) emits byte-identical title / detail / envelope.
-  @missing_field ${JSON.stringify(MISSING_FIELD_MESSAGE)}
 
   @doc """
   The REQUIRED request keys \`params\` leaves out — absent or \`null\` — as
@@ -331,11 +370,12 @@ export function renderVanillaProblemDetailsModule(
   answer, never the 500 a nil reaching the operation body would raise.
   """
   def missing_params(params, required) when is_map(params) do
-    for key <- required, is_nil(Map.get(params, key)), do: %{pointer: "/" <> key, message: @missing_field}
+    for key <- required, is_nil(Map.get(params, key)), do: %{pointer: "/" <> key, message: key <> ${exLit(` ${exMissingSuffix()}`)}}
   end
 
   @doc "Send the 422 for the keys \`missing_params/2\` found absent."
   def missing_params_response(conn, missing), do: send_validation_problem(conn, missing)
+${strictIngressFns}
 
   defp send_validation_problem(conn, pointer_errors) do
     ${log422}
@@ -344,9 +384,9 @@ export function renderVanillaProblemDetailsModule(
     body =
       Jason.encode!(%{
         type: "about:blank",
-        title: "Validation failed",
-        status: 422,
-        detail: "One or more fields are invalid.",
+        title: ${exLit(invalid422.title)},
+        status: ${invalid422.status},
+        detail: ${exFixedDetail("field-invalid")},
         instance: conn.request_path,
         errors: pointer_errors
       })
@@ -356,7 +396,7 @@ export function renderVanillaProblemDetailsModule(
     conn
     |> put_resp_content_type("application/problem+json")
     |> put_resp_header("x-request-id", trace_id)
-    |> send_resp(422, body)
+    |> send_resp(${invalid422.status}, body)
   end`;
   // M-T6.20 — the wire-validation rung for a denial that never builds an
   // `Ecto.Changeset`.  On the other four backends an operation `precondition`
@@ -410,8 +450,8 @@ export function renderVanillaProblemDetailsModule(
       problem_response(
         conn,
         ${uniquenessStatus},
-        ${JSON.stringify(problemTitle(uniquenessStatus))},
-        ${JSON.stringify(UNIQUE_CONFLICT_DETAIL)}
+        ${exLit(unique409.title)},
+        ${exFixedDetail("unique-conflict")}
       )
     else
       validation_failed_response(conn, changeset)
@@ -478,22 +518,22 @@ ${responseFns}${sendValidationProblemFn}${bodyValueObjectFns}${wireErrorsFn}
   parse ("a path \`{id}\` is parsed as a uuid … and a failure answers the same 422
   the body tier does").  Ecto raises \`Ecto.Query.CastError\` out of \`Repo.get/2\`
   on a malformed \`:binary_id\`, and the app-global fault floor answers whatever
-  \`Plug.Exception.status/1\` says — measured on a booted app: \`400 "Bad Request"\`,
-  with NO \`errors[]\` and no pointer.  So the app refused a request its own spec
+  \`Plug.Exception.status/1\` says — measured on a booted app: a 400 carrying the
+  bare reason phrase, with NO \`errors[]\` and no pointer.  So the app refused a request its own spec
   says answers 422, on a rung with nothing a client can bind to.  The
   controller-edge \`__cast_path_id\` plug routes it here instead, so the answer is
   the same §3.2 \`errors[]\` envelope the body tier emits (\`pointer: "/id"\`) and
   the same 422 the other four backends already answer.
   """
   def invalid_path_id_response(conn, param) do
-    send_validation_problem(conn, [%{pointer: pointer_of([param]), message: ${elixirString(UUID_WIRE_MESSAGE)}}])
+    send_validation_problem(conn, [%{pointer: pointer_of([param]), message: ${exFieldMessage("malformed-id")}}])
   end
 
   @doc """
   Send a 404 ProblemDetails response for a missing record.
   """
   def not_found_response(conn, kind, id) do
-    problem_response(conn, ${notFoundStatus}, ${JSON.stringify(problemTitle(notFoundStatus))}, "#{kind} #{id} not found")
+    problem_response(conn, ${notFoundStatus}, ${exLit(notFound404.title)}, ${exSentence("not-found", "#{kind} #{id}")})
   end
 
   @doc """
@@ -607,15 +647,21 @@ ${forbiddenBodyRedaction}
   # field path forward on the \`loom_path\` opt, which is spliced in here so
   # \`/sku/code\` comes out rather than the whole object's \`/sku\`.
   defp render_changeset_error({field, {msg, opts}}, prefix) do
-    # An absent required field reads the same on every backend (RS-39).
-    msg = if Keyword.get(opts, :validation) == :required, do: @missing_field, else: msg
+    segments = prefix ++ [field] ++ Keyword.get(opts, :loom_path, [])
+
+    # An absent required field reads the same on every backend (RS-39):
+    # \`<field> is required\`, the field being the pointer's last key.
+    msg =
+      if Keyword.get(opts, :validation) == :required,
+        do: segment_to_string(List.last(segments)) <> ${exLit(` ${exMissingSuffix()}`)},
+        else: msg
 
     interpolated =
       Enum.reduce(opts, msg, fn {key, value}, acc ->
         String.replace(acc, "%{#{key}}", error_opt_to_string(value))
       end)
 
-    base = %{pointer: pointer_of(prefix ++ [field] ++ Keyword.get(opts, :loom_path, [])), message: ${
+    base = %{pointer: pointer_of(segments), message: ${
       localizeMessages ? "localize(Keyword.get(opts, :loom_code), interpolated)" : "interpolated"
     }}
 
@@ -769,6 +815,40 @@ export function renderRequiredParamsPlug(
     case ${problemDetailsAlias}.missing_params(conn.params, required) do
       [] -> conn
       missing -> halt(${problemDetailsAlias}.missing_params_response(conn, missing))
+    end
+  end
+`;
+}
+
+/** The controller plug that refuses a request value of the wrong JSON type
+ *  (D-NUMERIC-INGRESS-STRICT) with the 422 `errors[]` every other backend's
+ *  request validator answers — before the action runs, so Ecto's lax cast never
+ *  sees the value.  One plug per controller, keyed by action, like
+ *  `renderRequiredParamsPlug`.  Empty when no action has a field to check.
+ *
+ *  @param fields action name → the wire keys to check and their JSON types. */
+export function renderStrictParamsPlug(
+  fields: ReadonlyMap<string, readonly StrictIngressField[]>,
+  problemDetailsAlias = "ProblemDetails",
+): string {
+  const entries = [...fields].filter(([, keys]) => keys.length > 0);
+  if (entries.length === 0) return "";
+  const map = entries
+    .map(([action, keys]) => `${action}: ~w(${keys.map((k) => `${k.key}:${k.json}`).join(" ")})`)
+    .join(", ");
+  const actions = entries.map(([action]) => `:${action}`).join(", ");
+  return `
+  @strict_params %{${map}}
+  plug :require_wire_types when action in [${actions}]
+
+  # A body value of the wrong JSON type answers 422 \`errors[]\` — one entry per
+  # offending key — before the action runs, never Ecto's coercion of it.
+  defp require_wire_types(conn, _opts) do
+    fields = Map.fetch!(@strict_params, action_name(conn))
+
+    case ${problemDetailsAlias}.type_mismatches(conn.params, fields) do
+      [] -> conn
+      bad -> halt(${problemDetailsAlias}.type_mismatches_response(conn, bad))
     end
   end
 `;

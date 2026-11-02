@@ -84,6 +84,7 @@ import {
 } from "../../_payload/union-wire.js";
 import { workflowParamPayloads } from "../../_payload/workflow-param-payloads.js";
 import type { ApiRoute } from "../api-emit.js";
+import { exReasonPhrase, exStatus } from "../wire-policy-ex.js";
 import { servedOperationEntries, servesHistory } from "./api-emit.js";
 import { routesPolymorphicRead } from "./base-reader.js";
 import { denialOverrides, denialStatus } from "./denial.js";
@@ -99,8 +100,11 @@ import { emitsRestDelete } from "./rest-surface.js";
  *  `?? [404]` fallback below, neither of which is lifted into
  *  `deriveContextOperations` (`apiSurfaceCoverage.notLifted`). */
 function withResolvedNotFound(statuses: readonly number[], notFoundStatus: number): number[] {
-  if (notFoundStatus === 404) return [...statuses];
-  return [...new Set(statuses.map((s) => (s === 404 ? notFoundStatus : s)))].sort((a, b) => a - b);
+  const stdlib = exStatus("not-found");
+  if (notFoundStatus === stdlib) return [...statuses];
+  return [...new Set(statuses.map((s) => (s === stdlib ? notFoundStatus : s)))].sort(
+    (a, b) => a - b,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -583,7 +587,7 @@ function statusResponseEntries(
         : `${schemasModule}.ProblemDetails`;
       return `,
             ${s} => %OpenApiSpex.Response{
-              description: "${problemTitle(s)}",
+              description: "${exReasonPhrase(s)}",
               content: %{"${PROBLEM_JSON}" => %OpenApiSpex.MediaType{schema: ${schema}}}
             }`;
     })
@@ -815,7 +819,7 @@ ${pagingQueryParams()}
             200 => %OpenApiSpex.Response{
               description: "OK",
               content: %{"application/json" => %OpenApiSpex.MediaType{schema: ${respMod}}}
-            }${statusResponseEntries(withResolvedNotFound(derivedOps.find((o) => o.kind === "getById")?.errorStatuses ?? [404], notFoundStatus), schemasModule)}
+            }${statusResponseEntries(withResolvedNotFound(derivedOps.find((o) => o.kind === "getById")?.errorStatuses ?? [exStatus("not-found")], notFoundStatus), schemasModule)}
           }
         }${
           // DELETE /<aggs>/{id} — documented iff the ROUTER mounts it: the

@@ -247,9 +247,9 @@ describe("RS-39 — an absent required field: one 422 everywhere; a create with 
     const m = await files("elixir");
     const problem = fileEndingWith(m, "_web/problem_details.ex");
     expect(problem).toContain("def missing_params(params, required) when is_map(params) do");
-    expect(problem).toContain(`@missing_field ${JSON.stringify(MISSING_FIELD_MESSAGE)}`);
-    // The changeset path (create/update) reads the same word for `validate_required`.
-    expect(problem).toContain("if Keyword.get(opts, :validation) == :required, do: @missing_field");
+    expect(problem).toContain('message: key <> " is required"');
+    // The changeset path (create/update) reads the same sentence for `validate_required`.
+    expect(problem).toContain('segment_to_string(List.last(segments)) <> " is required"');
     const order = fileEndingWith(m, "controllers/order_controller.ex");
     expect(order).toContain("@required_params %{rename: ~w(newName)}");
     expect(order).toContain("plug :require_command_params when action in [:rename]");

@@ -108,6 +108,7 @@ import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { internalCreateFn, internalDeleteFn } from "../lifecycle-seam.js";
 import { optionalReadLookup, type RenderCtx, renderExpr } from "../render-expr.js";
 import { stateDefault, stateDefaultDecls } from "../state-default.js";
+import { exLit, exSentence, exValuePrefix, strictIngressFields } from "../wire-policy-ex.js";
 import { customFindReadsActor } from "./capability-filter.js";
 import {
   contextsHaveWireDenials,
@@ -118,7 +119,11 @@ import {
   workflowDenialTerm,
 } from "./denial.js";
 import { renderFunctionBodyLines } from "./function-emit.js";
-import { renderRequiredParamsPlug, requiredWireParams } from "./problem-details-emit.js";
+import {
+  renderRequiredParamsPlug,
+  renderStrictParamsPlug,
+  requiredWireParams,
+} from "./problem-details-emit.js";
 import { skipFiltersOption } from "./read-scope-emit.js";
 import { retrievalReadsActor } from "./retrieval-emit.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
@@ -579,7 +584,7 @@ function lowerStatement(
       // token a declared find's route answers (RS-27) — tagged the same way.
       const missDetail =
         st.op === "load"
-          ? `"${upperFirst(st.aggName)} #{${argList}} not found"`
+          ? exSentence("not-found", `${upperFirst(st.aggName)} #{${argList}}`)
           : st.op === "load-by-key"
             ? JSON.stringify(FIND_ABSENT_DETAIL)
             : undefined;
@@ -1884,7 +1889,7 @@ function renderWorkflowModule(
         {:error,
          {%{}, %{param => :map}}
          |> Ecto.Changeset.change(%{})
-         |> Ecto.Changeset.add_error(param, "Invalid decimal: " <> Jason.encode!(value), loom_path: [field])}
+         |> Ecto.Changeset.add_error(param, ${exLit(`${exValuePrefix("money-grammar")}: `)} <> Jason.encode!(value), loom_path: [field])}
       end
     end)
   end`
@@ -2119,7 +2124,7 @@ defmodule ${webModule}.WorkflowsController do
   HTTP entry points for command-triggered workflows
   (${ctxList}).
   """
-${renderRequiredParamsPlug(new Map(groups.flatMap((g) => g.workflows.map((wf) => [snake(wf.name), requiredWireParams(wf.params)] as const))))}
+${renderRequiredParamsPlug(new Map(groups.flatMap((g) => g.workflows.map((wf) => [snake(wf.name), requiredWireParams(wf.params)] as const))))}${renderStrictParamsPlug(new Map(groups.flatMap((g) => g.workflows.map((wf) => [snake(wf.name), strictIngressFields(wf.params)] as const))))}
 ${actions}
 
   # Shared result handler.  Each workflow's run/1 result flows through

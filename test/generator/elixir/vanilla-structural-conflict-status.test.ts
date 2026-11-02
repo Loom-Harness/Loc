@@ -85,8 +85,8 @@ describe("vanilla structural-conflict status (M-T3.4a)", () => {
       ),
     );
     const pd = file(files, "/problem_details.ex");
-    // unique -> 422 with the matching title
-    expect(pd).toMatch(/problem_response\(\s*conn,\s*422,\s*"Unprocessable Entity"/);
+    // unique -> 422; its title is the wire-policy class's own (`Conflict`), not the new status's phrase
+    expect(pd).toMatch(/problem_response\(\s*conn,\s*422,\s*"Conflict"/);
     // concurrency -> 423 (title tracks the status too)
     expect(pd).toContain("send_resp(423, body)");
     expect(pd).toContain("status: 423,");

@@ -38,13 +38,9 @@ import { elixirString, snake, upperFirst } from "../../../util/naming.js";
 import { INT32_MAX, INT32_MIN } from "../../../util/numeric-range.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { serverSeededFields } from "../../construction-default.js";
-import {
-  MONEY_MAX_EXCLUSIVE,
-  MONEY_PRECISION,
-  MONEY_RANGE_MESSAGE,
-  MONEY_WIRE_SCALE,
-} from "../../money-scale.js";
+import { MONEY_MAX_EXCLUSIVE, MONEY_PRECISION, MONEY_WIRE_SCALE } from "../../money-scale.js";
 import { renderExpr as renderElixirExpr } from "../render-expr.js";
+import { exFieldMessage, exLit, exValuePrefix } from "../wire-policy-ex.js";
 import {
   decimalIngressPaths,
   isStringField,
@@ -62,7 +58,6 @@ import {
   ectoValidator,
   voHasConstraints,
 } from "./changeset-validators.js";
-import { INT32_RANGE_MESSAGE } from "./context-emit.js";
 import { normalizeDatetime } from "./datetime-type-emit.js";
 import { isVanillaDocAgg, renderDocChangeset } from "./document-emit.js";
 import { isEventSourced } from "./eventsourced-emit.js";
@@ -353,7 +348,7 @@ function renderChangeset(
   defp __loom_money_range(field, %Decimal{} = value) do
     if Decimal.lt?(Decimal.abs(value), Decimal.new(${JSON.stringify(MONEY_MAX_EXCLUSIVE)})),
       do: [],
-      else: [{field, ${JSON.stringify(MONEY_RANGE_MESSAGE)}}]
+      else: [{field, ${exLit(`${exValuePrefix("money-range")}: `)} <> Jason.encode!(Decimal.to_string(value))}]
   end
 
   defp __loom_money_range(_field, _value), do: []`
@@ -377,7 +372,7 @@ function renderChangeset(
   const int32RangeLines = int32Columns.map(
     (f) =>
       `    |> validate_number(:${f}, greater_than_or_equal_to: ${INT32_MIN}, ` +
-      `less_than_or_equal_to: ${INT32_MAX}, message: ${JSON.stringify(INT32_RANGE_MESSAGE)})`,
+      `less_than_or_equal_to: ${INT32_MAX}, message: ${exFieldMessage("integer-range")})`,
   );
   const validatorBlock =
     validatorLines.length > 0 || moneyRangeLines.length > 0 || int32RangeLines.length > 0

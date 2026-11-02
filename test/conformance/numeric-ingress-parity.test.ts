@@ -622,7 +622,7 @@ describe("M-T6.48 — malformed numeric input answers a typed 4xx (all five back
 // is the only way a future strictness ruling gets noticed here instead of in a
 // user's integration.  Fixing one means deleting its pin in the same PR.
 describe("M-T6.48 — request-side numeric strictness still diverges (pinned)", () => {
-  it("python and elixir coerce a stringified number where the other three refuse", async () => {
+  it("python coerces a stringified number where the other four refuse", async () => {
     // MEASURED: pydantic 2 lax mode answers `5` for `qty="5"`; Ecto's
     // `cast(:integer, "5")` answers `{:ok, 5}`.  zod, System.Text.Json and
     // Jackson-with-WireNumberStrictness all refuse.
@@ -634,26 +634,17 @@ describe("M-T6.48 — request-side numeric strictness still diverges (pinned)", 
     expect(python, "python request models now declare strict ints — delete this pin").not.toMatch(
       /model_config = ConfigDict\(strict=True\)/,
     );
-    const elixir = scope(await emit("elixir"));
-    expect(elixir, "elixir now guards cast-path ints — delete this pin").not.toMatch(
-      /__loom_int_field/,
-    );
   });
 
-  it("elixir accepts a JSON number for a money field where the other four refuse", async () => {
-    // MEASURED: `Ecto.Type.cast(:decimal, 12.5)` answers
-    // `{:ok, Decimal.new("12.5")}`.  node (`z.string()`), python (`MoneyStr`
-    // is `Annotated[str, …]`), dotnet (`string Price`) and java
-    // (`String price`) all type the request field as a STRING, so a JSON
-    // number is refused before any guard runs.
-    //
-    // Elixir's create/update path casts straight onto the `:decimal` column,
-    // so nothing types the wire value.  RS-12 governs the RESPONSE direction,
-    // which is why no existing gate saw this.
+  it("elixir refuses a stringified number and a JSON-number money at the controller edge", async () => {
+    // Ecto's `cast(:integer, "5")` and `cast(:decimal, 12.5)` both succeed, so
+    // the wire-policy ingress (`ingressFor`) is checked on the RAW value before
+    // the action runs (`require_wire_types`); the key list is derived from the
+    // fact, not written out per field.
     const elixir = scope(await emit("elixir"));
-    expect(elixir, "elixir now guards cast-path money — delete this pin").not.toMatch(
-      /__loom_money_field/,
-    );
+    expect(elixir).toMatch(/@strict_params %\{[^\n]*qty:number/);
+    expect(elixir).toMatch(/@strict_params %\{[^\n]*price:string/);
+    expect(elixir).toContain("plug :require_wire_types when action in [");
   });
 
   it("node refuses a `long` past the declared ceiling; the other four accept it", async () => {

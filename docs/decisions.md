@@ -5796,6 +5796,11 @@ guarded by `test/generator/dotnet/wire-policy-census.test.ts`. A wrong-typed
 JSON value (`"5"` for an `int`, `12.5` for a `money`) is a `field-invalid` 422 at
 the field's pointer, as on node — not the 400 malformed-body answer it used to
 get.
+elixir/Phoenix renders the fact through `src/generator/elixir/wire-policy-ex.ts`
+(`test/generator/elixir/wire-policy-census.test.ts` is its census). Ecto's
+`cast/3` coerces across JSON types, so a controller plug (`require_wire_types`)
+checks each int/long/decimal/money/bool request key's raw value against
+`ingressFor` before the action runs; the key list is derived from the fact.
 
 ## D-FAILURE-MODEL — Loom has no exceptions: each failure kind has one construct, and an expected failure is a value the caller must handle
 
