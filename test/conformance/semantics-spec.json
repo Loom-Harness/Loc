@@ -886,11 +886,11 @@
       "conforms": [
         "node",
         "dotnet",
-        "python"
+        "python",
+        "elixir"
       ],
       "targets": [
-        "java",
-        "elixir"
+        "java"
       ],
       "provenance": [
         "#3593 item 6 (the `checksVersion` fact); #3531, #3521",

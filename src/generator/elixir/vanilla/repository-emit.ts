@@ -30,7 +30,6 @@ import type {
 import { findRaisesNotFound } from "../../../ir/util/key-lookup.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
-import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
@@ -64,6 +63,7 @@ import {
   stampUsesPrincipal,
   stampUsesPrincipalFor,
 } from "./stamp-emit.js";
+import { savesLockVersion } from "./version-check-ex.js";
 
 export function emitVanillaRepositories(
   appModule: string,
@@ -410,7 +410,7 @@ ${listSortArms}${listSortArms ? "\n" : ""}        _ -> :id
   // changeset error), rescued here into `{:error, :conflict}` (→ 409 at the
   // controller).  A non-versioned aggregate keeps the plain `base_changeset`
   // update (byte-identical).
-  const versioned = aggregateIsVersioned(agg);
+  const versioned = savesLockVersion(agg);
   const versionedParam = versioned ? ", expected_version \\\\ nil" : "";
   const versionOverride = versioned
     ? `    record = %{record | version: expected_version || record.version}\n\n`

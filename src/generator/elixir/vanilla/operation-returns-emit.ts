@@ -11,6 +11,7 @@
 // same RFC-7807 §3.2 extension shape the other backends emit).
 // ---------------------------------------------------------------------------
 
+import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
 import { forApiRead, wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
 import { variantTag } from "../../../ir/stdlib/unions.js";
 import type {
@@ -26,7 +27,6 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { valueCollectionsFor } from "../../../ir/util/value-collections.js";
-import { aggregateIsVersioned } from "../../../ir/util/versioned-capability.js";
 import { walkStmtsDeep } from "../../../ir/util/walk.js";
 import { elixirIfRefusal } from "../../../ir/validate/checks/if-stmt-checks.js";
 import {
@@ -68,6 +68,11 @@ import { ELIXIR_NUMERIC } from "./numeric-codec.js";
 import { collectVanillaLeaves, provColumn, provenancedFieldsOf } from "./provenance-emit.js";
 import { isRefCollFieldName, refCollPutAssocValue } from "./ref-collection-emit.js";
 import { valueRowFieldsOf } from "./value-collection-schema-emit.js";
+import {
+  EXPECTED_VERSION_BIND,
+  RECORD_AT_EXPECTED_VERSION,
+  savesLockVersion,
+} from "./version-check-ex.js";
 
 /** One operation body's exact emitted text plus its per-statement
  *  sub-regions — surfaced by `renderReturningOpFunction` (and the sibling
@@ -919,7 +924,7 @@ export function renderReturningOpFunction(
   // plain bump lacks, so a raced returning operation raises
   // `Ecto.StaleEntryError` (rescued to `{:error, :conflict}` → 409 in
   // `persist_change/1`) instead of silently overwriting the other writer.
-  const versionLock = aggregateIsVersioned(agg)
+  const versionLock = savesLockVersion(agg)
     ? "\n      |> Ecto.Changeset.optimistic_lock(:version)"
     : "";
   // A trailing NON-aggregate success return (shape C), re-rendered to sit inside
@@ -1615,7 +1620,7 @@ export function renderReturningOpControllerAction(
     // `{:error, :conflict}`) — map it to the shared 409 responder.  Gated so an
     // unversioned/non-persisting op emits no unreachable clause
     // (`--warnings-as-errors`).
-    ...(persists && aggregateIsVersioned(agg)
+    ...(persists && savesLockVersion(agg)
       ? [
           `  def ${resultFn}(conn, {:error, :conflict}),
     do: ProblemDetails.conflict_response(conn, "${agg.name}", conn.path_params["id"])`,
@@ -1626,20 +1631,24 @@ export function renderReturningOpControllerAction(
   // threaded into the context call (the context fn carries the matching
   // `current_user \\ nil` arity); bind it off `conn.assigns`.
   const opActor = opUsesCurrentUser(op);
+  const opReadsIfMatch = readsIfMatch(operationVersionCheck(agg, op));
   const opCuBind = opActor ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
   const opCallActor = opActor ? ", current_user" : "";
   return `
   def ${elixirOpAction(op.name)}(conn, %{"id" => id} = params) do
     attrs = Map.drop(params, ["id"])
-${opCuBind}    ${renderPhoenixLogCall("operationInvoked", [
-    { name: "aggregate", valueExpr: `"${aggPascal}"` },
-    { name: "op", valueExpr: `"${op.name}"` },
-    { name: "id", valueExpr: "id" },
-  ])}
+${opCuBind}${opReadsIfMatch ? EXPECTED_VERSION_BIND : ""}    ${renderPhoenixLogCall(
+    "operationInvoked",
+    [
+      { name: "aggregate", valueExpr: `"${aggPascal}"` },
+      { name: "op", valueExpr: `"${op.name}"` },
+      { name: "id", valueExpr: "id" },
+    ],
+  )}
     ${renderPhoenixDomainOperation(aggPascal, op.name)}
 
     with {:ok, record} <- ${ctxModule}.get_${aggSnake}(id) do
-      ${resultFn}(conn, ${ctxModule}.${opSnake}_${aggSnake}(record, attrs${opCallActor}))
+      ${resultFn}(conn, ${ctxModule}.${opSnake}_${aggSnake}(${opReadsIfMatch ? RECORD_AT_EXPECTED_VERSION : "record"}, attrs${opCallActor}))
     else
       {:error, :not_found} ->
         ProblemDetails.not_found_response(conn, "${aggPascal}", id)
