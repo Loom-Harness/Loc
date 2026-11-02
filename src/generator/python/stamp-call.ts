@@ -55,7 +55,7 @@ export function stampUsesUser(agg: Stamped, event: StampEvent): boolean {
 export const AMBIENT_PRINCIPAL = pyRef("app.auth.user", "current_user", "ambient_principal");
 
 /** The `let` names a body binds through an aggregate factory
- *  (`let t = Ticket.create({ … })`) — the bindings whose save is an INSERT
+ *  (`let t = Ticket.create(…)`) — the bindings whose save is an INSERT
  *  and so takes the create stamp; every other saved binding was loaded and
  *  takes the update stamp. */
 function factoryLetNames(sts: readonly WorkflowStmtIR[]): Set<string> {

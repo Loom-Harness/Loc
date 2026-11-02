@@ -134,11 +134,11 @@ system StorefrontPhoenix {
         create(customerId: Customer id, walletId: Wallet id, productId: Product id, unitPrice: Money, qty: int) {
           precondition qty > 0
           let wallet = Wallets.getById(walletId)
-          let order = Order.create({
+          let order = Order.create(
             customerId: customerId,
             status: Draft,
             placedAt: now()
-          })
+          )
           order.addLine(productId, unitPrice, qty)
           order.confirm()
           wallet.debit(unitPrice)

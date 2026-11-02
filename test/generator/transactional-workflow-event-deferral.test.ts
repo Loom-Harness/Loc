@@ -40,13 +40,13 @@ const source = (platform: string, transactional: boolean): string => `system R {
     repository Audits for Audit { }
     workflow onDebit {
       a: Acct id
-      create(e: Debited) by e.acct { let x = Audit.create({ note: "debited" }) }
+      create(e: Debited) by e.acct { let x = Audit.create(note: "debited") }
     }
     workflow pay ${transactional ? "transactional " : ""}{
       create(src: Acct id, reference: string) {
         let s = Accts.getById(src)
         s.debit(money("10"))
-        let t = Transfer.create({ reference: reference, source: src })
+        let t = Transfer.create(reference: reference, source: src)
       }
     }
   } }

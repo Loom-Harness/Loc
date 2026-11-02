@@ -249,14 +249,14 @@ system DevPlatform {
                 }
 
                 test "renaming to empty is rejected" verifies TC-001 {
-                    let p = Project.create({
+                    let p = Project.create(
                         name: "demo",
                         visibility: Public,
                         active: true,
                         sequence: 1,
                         budget: 0.0,
                         createdAt: now()
-                    })
+                    )
                     expect(p.rename("")).toThrow()
                 }
                 derived display: string = name
@@ -279,14 +279,14 @@ system DevPlatform {
               create(name: string, visibility: Visibility) {
                 requires currentUser.permissions.contains(permissions.manageProjects)
                   precondition name.length > 0
-                  let proj = Project.create({
+                  let proj = Project.create(
                       name: name,
                       visibility: visibility,
                       active: true,
                       sequence: 0,
                           budget: 0.0,
                       createdAt: now()
-                  })
+                  )
                   proj.addPipeline("default")
               }
             }

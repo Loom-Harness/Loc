@@ -3,7 +3,7 @@
 //
 // These are pure in-process domain tests: they import the generated
 // aggregate / value-object / id classes and call them directly
-// (`Order.create({…})`, `expectThrows order.confirm()`), with no HTTP,
+// (`Order.create(…)`, `expectThrows order.confirm()`), with no HTTP,
 // no DB, no booted runtime.  So we bundle the test + its domain imports
 // (esbuild over the domain VFS, `vitest` aliased to the harness) and run
 // it — runnable straight after Generate, before any Boot.

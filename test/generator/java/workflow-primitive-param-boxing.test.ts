@@ -38,7 +38,7 @@ const SRC = `system S { subdomain Core { context Wallet {
   repository Accounts for Account { }
   workflow topUp {
     create(holder: string, qty: int, serial: long, flag: bool, ratio: decimal, at: datetime, tier: Tier, amount: Money, memo: string?) {
-      let acct = Account.create({ holder: holder, balance: qty, active: flag })
+      let acct = Account.create(holder: holder, balance: qty, active: flag)
     }
   }
 } } api A from Core  storage pg { type: postgres }

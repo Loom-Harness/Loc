@@ -451,7 +451,7 @@ function lowerActionBody(spec: ActionSpec, env: Env): OperationIR {
 // Body statements are parsed using the operation-body Statement rules
 // (precondition, let, emit, AssignOrCallStmt) but the workflow surface
 // is a strict subset:
-//   - LetStmt RHS may be `Agg.create({...})` (factory-let),
+//   - LetStmt RHS may be `Agg.create(…)` (factory-let),
 //     `Repo.method(args)` (repo-let), or any other Expression
 //     (expr-let).
 //   - AssignOrCallStmt is allowed only in its bare-call form

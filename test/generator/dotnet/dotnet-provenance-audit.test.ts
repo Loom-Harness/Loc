@@ -379,7 +379,7 @@ system Shop {
       repository Carts for Cart { }
       workflow buildCart {
         create(name: string) {
-          let cart = Cart.create({ label: name, status: "open" })
+          let cart = Cart.create(label: name, status: "open")
           cart.rename(name)
           cart.close()
         }

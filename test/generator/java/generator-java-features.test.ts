@@ -37,7 +37,7 @@ system Hub {
         create(name: string, visibility: Visibility) {
           requires currentUser.role == "admin"
           precondition name.length > 0
-          let proj = Project.create({ name: name, visibility: visibility, active: true })
+          let proj = Project.create(name: name, visibility: visibility, active: true)
           proj.rename(name)
         }
       }

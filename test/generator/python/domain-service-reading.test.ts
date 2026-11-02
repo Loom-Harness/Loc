@@ -45,7 +45,7 @@ const READING = `system PyReading {
       workflow RegisterAccount transactional {
         create(source: string, dest: string, balance: Money) {
           precondition Registration.bothAvailable(source, dest)
-          let acct = Account.create({ holder: source, balance: balance })
+          let acct = Account.create(holder: source, balance: balance)
         }
       }
     }
