@@ -12,8 +12,9 @@ ENV NODE_EXTRA_CA_CERTS=/etc/ssl/cert.pem NPM_CONFIG_CAFILE=/etc/ssl/cert.pem
 COPY package.json ./
 # Use plain "npm install" rather than "npm ci": the generator emits no
 # package-lock.json so npm ci exits with EUSAGE.  --no-audit --no-fund
-# keeps the build log clean and skips two registry round-trips.
-RUN npm install --no-audit --no-fund
+# keeps the build log clean and skips two registry round-trips.  The fetch-retry flags ride out a transient
+# ECONNRESET from the registry instead of failing the whole image build.
+RUN npm install --no-audit --no-fund --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
 COPY . .
 # Type-check before bundling: tsup strips types without checking them, so
 # without this step a type error in the generated (or hand-edited) sources

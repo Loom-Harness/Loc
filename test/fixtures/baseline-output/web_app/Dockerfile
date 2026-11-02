@@ -13,8 +13,9 @@ COPY package.json .npmrc* ./
 # Use plain "npm install" rather than "npm ci": the generator emits no
 # package-lock.json so npm ci exits with EUSAGE and dumps its whole usage
 # text into the build log.  --no-audit --no-fund keeps the log clean and
-# skips two registry round-trips.
-RUN npm install --no-audit --no-fund
+# skips two registry round-trips.  The fetch-retry flags ride out a transient
+# ECONNRESET from the registry instead of failing the whole image build.
+RUN npm install --no-audit --no-fund --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
 COPY . .
 RUN npm run build
 
