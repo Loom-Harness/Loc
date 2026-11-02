@@ -18,11 +18,11 @@ export default function OrderNew() {
   return (
     <Stack gap="md" data-testid="orders-new-page">
       <Breadcrumbs>
-        <Anchor component={RouterLink} to="/">{t("page.New.anchor.n0mxf2", "Home")}</Anchor>
-        <Anchor component={RouterLink} to="/orders">{t("page.New.anchor.xf3i18", "Orders")}</Anchor>
-        <Text>{t("page.New.text.2ludo1", "New")}</Text>
+        <Anchor component={RouterLink} to="/">{t("WebApp.page.New.anchor.n0mxf2", "Home")}</Anchor>
+        <Anchor component={RouterLink} to="/orders">{t("WebApp.page.New.anchor.xf3i18", "Orders")}</Anchor>
+        <Text>{t("WebApp.page.New.text.2ludo1", "New")}</Text>
       </Breadcrumbs>
-      <Title order={2}>{t("page.New.heading.9g1249", "Create order")}</Title>
+      <Title order={2}>{t("WebApp.page.New.heading.9g1249", "Create order")}</Title>
       <Card withBorder padding="md">
         <form onSubmit={handleSubmit(async (vals) => {
                   try {

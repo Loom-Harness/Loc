@@ -8,7 +8,9 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { extractCatalog } from "../../src/cli/i18n/extract.js";
 import { runI18nCheck, runI18nInit, runI18nStatus, runI18nSync } from "../../src/cli/i18n/index.js";
+import { readNamespaceDir, writeNamespaceDir } from "../../src/cli/i18n/tree.js";
 import { TODO_PREFIX } from "../../src/i18n/merge.js";
+import { joinCatalog, splitCatalog } from "../../src/i18n/namespace.js";
 
 const SOURCE = `
   system S {
@@ -43,6 +45,19 @@ afterEach(() => {
 
 const readJson = (p: string) => JSON.parse(fs.readFileSync(p, "utf8")) as Record<string, string>;
 
+/** The namespaces SOURCE (and its design-pack variants) files keys under. */
+const NAMES = new Set(["C", "WebApp"]);
+/** A locale's whole catalog, joined back to runtime keys across its files. */
+const readLocale = (locale: string) => joinCatalog(readNamespaceDir(path.join(dir, locale)));
+/** Replace a locale's files with `flat`, filed by namespace. */
+const writeLocale = (locale: string, flat: Record<string, string>) =>
+  writeNamespaceDir(path.join(dir, locale), splitCatalog(flat, NAMES));
+/** The lock (BASE), joined across its namespace files. */
+const lockDir = () => path.join(dir, ".loom", "source.lock");
+const readLock = () => joinCatalog(readNamespaceDir(lockDir()));
+const writeLock = (flat: Record<string, string>) =>
+  writeNamespaceDir(lockDir(), splitCatalog(flat, NAMES));
+
 describe("ddd i18n — extract/init/sync", () => {
   it("extractCatalog surfaces user-visible page text keyed by content hash", async () => {
     fs.writeFileSync(ddd, SOURCE);
@@ -55,7 +70,7 @@ describe("ddd i18n — extract/init/sync", () => {
     // the active design pack's DECLARED chrome (`pack.<family>.<role>.<hash>`,
     // D-PACK-CHROME) — neither of which is authored page text.
     const pageKeys = entries.filter(([k]) => !k.startsWith("chrome.") && !k.startsWith("pack."));
-    expect(pageKeys.every(([k]) => /^page\.Welcome\./.test(k))).toBe(true);
+    expect(pageKeys.every(([k]) => /^WebApp\.page\.Welcome\./.test(k))).toBe(true);
     expect(catalog["chrome.notFound"]).toBe("Not found");
   });
 
@@ -63,10 +78,18 @@ describe("ddd i18n — extract/init/sync", () => {
     fs.writeFileSync(ddd, SOURCE);
     await runI18nInit(ddd, "fr", { dir });
 
-    const fr = readJson(path.join(dir, "fr.json"));
+    const fr = readLocale("fr");
     expect(Object.values(fr).every((v) => v.startsWith(TODO_PREFIX))).toBe(true);
+    // One file per namespace: the ui's strings in `WebApp.json` WITHOUT the ui
+    // prefix, the chrome verbatim in `_chrome.json`.
+    expect(Object.keys(readJson(path.join(dir, "fr", "WebApp.json")))).toEqual(
+      expect.arrayContaining([expect.stringMatching(/^page\.Welcome\.heading\./)]),
+    );
+    expect(Object.keys(readJson(path.join(dir, "fr", "_chrome.json")))).toContain(
+      "chrome.notFound",
+    );
 
-    const lock = readJson(path.join(dir, ".loom", "source.lock.json"));
+    const lock = readLock();
     expect(Object.values(lock)).toContain("Welcome");
     // lock == source (BASE snapshot), no TODO prefix.
     expect(Object.values(lock).every((v) => !v.startsWith(TODO_PREFIX))).toBe(true);
@@ -75,36 +98,33 @@ describe("ddd i18n — extract/init/sync", () => {
   it("init leaves an existing locale untouched", async () => {
     fs.writeFileSync(ddd, SOURCE);
     await runI18nInit(ddd, "fr", { dir });
-    const frFile = path.join(dir, "fr.json");
-    const key = Object.keys(readJson(frFile))[0];
-    fs.writeFileSync(frFile, JSON.stringify({ [key]: "Bienvenue" }, null, 2));
+    const key = Object.keys(readLocale("fr"))[0];
+    writeLocale("fr", { [key]: "Bienvenue" });
 
     await runI18nInit(ddd, "fr", { dir });
-    expect(readJson(frFile)).toEqual({ [key]: "Bienvenue" });
+    expect(readLocale("fr")).toEqual({ [key]: "Bienvenue" });
   });
 
   it("sync keeps a human translation and reports no new work when source is unchanged", async () => {
     fs.writeFileSync(ddd, SOURCE);
     await runI18nInit(ddd, "fr", { dir });
-    const frFile = path.join(dir, "fr.json");
     // Provide a human translation for the page string; leave the other keys
     // (the merged app-shell chrome, M-T1.11) as their seeded TODOs so the file
     // is COMPLETE — an unchanged source must then be no new work.
-    const seeded = readJson(frFile);
+    const seeded = readLocale("fr");
     const key = Object.keys(seeded).find((k) => !k.startsWith("chrome."))!;
     seeded[key] = "Bienvenue";
-    fs.writeFileSync(frFile, JSON.stringify(seeded, null, 2));
+    writeLocale("fr", seeded);
 
     await runI18nSync(ddd, { dir });
-    expect(readJson(frFile)).toEqual(seeded);
+    expect(readLocale("fr")).toEqual(seeded);
   });
 
   it("sync adds a fresh TODO when the source grows a new string", async () => {
     fs.writeFileSync(ddd, SOURCE);
     await runI18nInit(ddd, "fr", { dir });
-    const frFile = path.join(dir, "fr.json");
-    const key = Object.keys(readJson(frFile))[0];
-    fs.writeFileSync(frFile, JSON.stringify({ [key]: "Bienvenue" }, null, 2));
+    const key = Object.keys(readLocale("fr"))[0];
+    writeLocale("fr", { [key]: "Bienvenue" });
     await runI18nSync(ddd, { dir });
 
     // Add a second user-visible string, re-extract, re-sync.
@@ -117,7 +137,7 @@ describe("ddd i18n — extract/init/sync", () => {
     );
     await runI18nSync(ddd, { dir });
 
-    const fr = readJson(frFile);
+    const fr = readLocale("fr");
     expect(fr[key]).toBe("Bienvenue"); // old translation preserved
     const todos = Object.values(fr).filter((v) => v.startsWith(TODO_PREFIX));
     expect(todos).toContain(`${TODO_PREFIX}Sign in`);
@@ -164,17 +184,16 @@ describe("ddd i18n sync - design-pack family swap", () => {
   it("carries finished translations from shadcn's keys onto mui's on a pack swap", async () => {
     fs.writeFileSync(ddd, withDesign("shadcn@v4"));
     await runI18nInit(ddd, "de", { dir });
-    const deFile = path.join(dir, "de.json");
 
     // The pack's chrome really is in the catalog under the shadcn family.
-    const seeded = readJson(deFile);
+    const seeded = readLocale("de");
     const shadcnKeys = packKeys(seeded, "shadcn");
     expect(shadcnKeys.length).toBeGreaterThan(0);
 
     // Translate every shadcn chrome string (and nothing else, so the assertions
     // below can't be satisfied by some other key's value).
     for (const k of shadcnKeys) seeded[k] = `DE(${identity(k)})`;
-    fs.writeFileSync(deFile, JSON.stringify(seeded, null, 2));
+    writeLocale("de", seeded);
     await runI18nSync(ddd, { dir });
 
     // Swap the design pack. Nothing else about the model changes.
@@ -185,7 +204,7 @@ describe("ddd i18n sync - design-pack family swap", () => {
     expect(packKeys(after, "shadcn")).toEqual([]);
 
     await runI18nSync(ddd, { dir });
-    const de = readJson(deFile);
+    const de = readLocale("de");
 
     // Every mui key whose (role, hash) shadcn also had keeps the human wording.
     const shadcnIdentities = new Set(shadcnKeys.map(identity));
@@ -215,23 +234,21 @@ describe("ddd i18n sync - design-pack family swap", () => {
     // property that keeps case 5 from becoming "translate once, reuse forever".
     fs.writeFileSync(ddd, withDesign("shadcn@v4"));
     await runI18nInit(ddd, "de", { dir });
-    const deFile = path.join(dir, "de.json");
-    const lockFile = path.join(dir, ".loom", "source.lock.json");
 
-    const seeded = readJson(deFile);
+    const seeded = readLocale("de");
     const shadcnKeys = packKeys(seeded, "shadcn");
     for (const k of shadcnKeys) seeded[k] = `DE(${identity(k)})`;
-    fs.writeFileSync(deFile, JSON.stringify(seeded, null, 2));
+    writeLocale("de", seeded);
     await runI18nSync(ddd, { dir });
 
-    const lock = readJson(lockFile);
+    const lock = readLock();
     for (const k of shadcnKeys) lock[k] = `REPHRASED ${lock[k]}`;
-    fs.writeFileSync(lockFile, JSON.stringify(lock, null, 2));
+    writeLock(lock);
 
     fs.writeFileSync(ddd, withDesign("mui@v7"));
     await runI18nSync(ddd, { dir });
 
-    const de = readJson(deFile);
+    const de = readLocale("de");
     const muiKeys = packKeys(de, "mui");
     expect(muiKeys.length).toBeGreaterThan(0);
     for (const k of muiKeys) {
@@ -251,13 +268,12 @@ describe("ddd i18n sync - design-pack family swap", () => {
     try {
       fs.writeFileSync(ddd, withDesign("shadcn@v4"));
       await runI18nInit(ddd, "de", { dir });
-      const deFile = path.join(dir, "de.json");
 
       // Translate EVERYTHING, so the only thing the swap can disturb is the
       // pack chrome.
-      const seeded = readJson(deFile);
+      const seeded = readLocale("de");
       for (const k of Object.keys(seeded)) seeded[k] = `DE(${k})`;
-      fs.writeFileSync(deFile, JSON.stringify(seeded, null, 2));
+      writeLocale("de", seeded);
       await runI18nSync(ddd, { dir });
 
       exits.length = 0;

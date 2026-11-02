@@ -186,7 +186,7 @@ describe("operation triggers honour a currentUser-only `requires` (U7)", () => {
     [
       "flutter",
       "web/lib/pages/ticket_detail_page.dart",
-      /\(\(currentUser\.role == 'agent'\)\) \? Consumer[^\n]*page\.Detail\.button\.\w+', 'Retitle'/,
+      /\(\(currentUser\.role == 'agent'\)\) \? Consumer[^\n]*\w+\.page\.Detail\.button\.\w+', 'Retitle'/,
     ],
   ];
   for (const [fw, path, gated] of cases) {

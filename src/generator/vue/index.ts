@@ -11,7 +11,7 @@ import type {
   UiIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
-import { contextUsesMoney, uiUsesMoney } from "../../ir/types/loom-ir.js";
+import { contextUsesMoney, sourceLocaleOf, uiUsesMoney } from "../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { backendServesRealtime, realtimeEventTypes } from "../../ir/util/channels.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
@@ -70,7 +70,7 @@ import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
 import { emitShellFiles, emitShellGlobs } from "../_packs/shell-emits.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
-import { collectUiMessages } from "../_walker/i18n-extract.js";
+import { collectUiMessages, componentKeyPrefix, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
 // Framework-neutral pieces that live react-side today (same sharing
 // pattern as the elixir theme-emit): the e2e harness constants, the
@@ -208,16 +208,20 @@ export function generateVueForContexts(
     // the loader).  The shim imports and registers exactly the locales emitted
     // here, so what the translator wrote is what the app can resolve — with no
     // translator tree the list is empty and the shim is byte-identical.
-    out.set("src/locales/en.json", renderLocaleCatalog(ui, packChromeCatalog(pack.manifest)));
+    out.set(
+      `src/locales/${sourceLocaleOf(sys)}.json`,
+      renderLocaleCatalog(ui, packChromeCatalog(pack.manifest)),
+    );
     const translated = renderTranslatedCatalogs(
       ui,
       options.translations,
       packChromeCatalog(pack.manifest),
+      sourceLocaleOf(sys),
     );
     for (const [locale, content] of translated) {
       out.set(`src/locales/${locale}.json`, content);
     }
-    out.set("src/i18n.ts", renderI18nModule([...translated.keys()]));
+    out.set("src/i18n.ts", renderI18nModule([...translated.keys()], sourceLocaleOf(sys)));
   }
 
   // Per-aggregate api modules — 1:1 with the aggregate inventory,
@@ -355,7 +359,7 @@ export function generateVueForContexts(
       ui.stores,
       // i18n key prefix — `component.<Name>` matches the catalog; undefined
       // when the UI has no extractable strings (byte-identical to pre-i18n).
-      i18nEnabled ? `component.${c.name}` : undefined,
+      i18nEnabled ? componentKeyPrefix(ui, c) : undefined,
     );
     if (component.usesFormToast) hasFormToast = true;
     const componentPath = `src/components/${c.name}.vue`;
@@ -394,7 +398,7 @@ export function generateVueForContexts(
       // i18n key prefix — `page.<Name>` matches the catalog (the scaffold's
       // role-scoped `page.name`, e.g. `List`, not the router emit name);
       // undefined when the UI has no extractable strings (byte-identical).
-      i18nEnabled ? `page.${page.name}` : undefined,
+      i18nEnabled ? pageKeyPrefix(ui, page) : undefined,
     );
     if (
       result.formOfs.some(
@@ -1033,6 +1037,7 @@ function prepareIndexHtmlVM(
   return {
     // System name before deployable name — see the react twin (finding E7).
     title: staticTitleOf(page) ?? humanize(sys.name) ?? deployable.name,
+    lang: sourceLocaleOf(sys),
     description: metadata?.description,
     ogImage: metadata?.ogImage,
     canonical: metadata?.canonical,

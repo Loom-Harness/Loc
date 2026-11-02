@@ -33,6 +33,7 @@ import type {
   UiIR,
   WorkflowIR,
 } from "../../ir/types/loom-ir.js";
+import { sourceLocaleOf } from "../../ir/types/loom-ir.js";
 import { backendServesRealtime } from "../../ir/util/channels.js";
 import { type PageNameCtx, pageConstructId, pageEmitName } from "../../ir/util/page-kind.js";
 import { realtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
@@ -43,6 +44,7 @@ import { humanize, upperFirst } from "../../util/naming.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
 import { usesValueEquals } from "../_frontend/value-equals.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
+import { pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import type { ApiCallSite } from "../_walker/target.js";
 import { type ApiHookUse, emitExpr, walkBody } from "../_walker/walker-core.js";
@@ -250,7 +252,7 @@ export function generateFlutterForContexts(
   // pass no prefix, and every literal renders raw.
   const i18nEnabled = ui ? flutterI18nEnabled(ui) : false;
   if (ui && i18nEnabled) {
-    out.set("lib/i18n.dart", renderFlutterI18nModule(ui));
+    out.set("lib/i18n.dart", renderFlutterI18nModule(ui, sourceLocaleOf(sys)));
   }
   if (forms.length > 0) {
     out.set("lib/forms.dart", renderFormsFile(forms, credentialed));
@@ -272,6 +274,7 @@ export function generateFlutterForContexts(
     aggregatesByName,
     bcByAggregate,
     i18nEnabled,
+    uiName: ui?.name ?? "",
   };
   const componentParams: ReadonlyMap<string, readonly ParamIR[]> = ui
     ? emittableComponentParams(ui.components, componentCtx)
@@ -823,7 +826,7 @@ function renderPage(
       // i18n key prefix — `page.<Name>` matches the catalog (the scaffold's
       // role-scoped `page.name`, e.g. `List`, not the router emit name);
       // undefined when the ui has no extractable strings (byte-identical).
-      i18nEnabled ? `page.${page.name}` : undefined,
+      i18nEnabled ? pageKeyPrefix(ui, page) : undefined,
     );
     bodyWidget = result.tsx.trim() || bodyWidget;
     usesState = result.usesState;

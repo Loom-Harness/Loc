@@ -42,7 +42,7 @@ import { areaQualifiedName, classifyPage, type PageNameCtx } from "../../ir/util
 import { menuLinkPage, menuMetaString as readMenuMetaString } from "../../ir/util/page-menu.js";
 import { snake } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
-import { messageKey } from "../_walker/i18n-extract.js";
+import { menuKeyPrefix, messageKey, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { renderGateExpr } from "./gate-expr.js";
 
 /** A page's declared `title:` as a plain string, usable as a default menu
@@ -173,7 +173,9 @@ export function deriveSidebarFromUi(
         label: section.label,
         // Keyed exactly as `collectUiMessages` records it, so the shell's
         // `t()` call and the catalog entry cannot drift (A13b).
-        ...(section.label ? { labelKey: messageKey("menu", "section", section.label) } : {}),
+        ...(section.label
+          ? { labelKey: messageKey(menuKeyPrefix(ui), "section", section.label) }
+          : {}),
         entries: section.links
           .map((link) => navEntryForLink(link, ui, nameCtx, authUi))
           .filter((e): e is NavEntryVM => e !== undefined),
@@ -234,7 +236,7 @@ export function deriveSidebarFromUi(
       // under THAT page's prefix — every page in the group carries the same
       // message, so the first one's key is as good as any (A13b).
       ...(authoredSection && sectionLabel && pages[0]
-        ? { labelKey: messageKey(`page.${pages[0].name}`, "menu.section", sectionLabel) }
+        ? { labelKey: messageKey(pageKeyPrefix(ui, pages[0]), "menu.section", sectionLabel) }
         : {}),
       entries: pages.map((p): NavEntryVM => {
         const metaLabel = readMenuMetaString(p, "label");
@@ -244,7 +246,7 @@ export function deriveSidebarFromUi(
           to: p.route ?? "",
           label,
           ...(metaLabel !== undefined
-            ? { labelKey: messageKey(`page.${p.name}`, "menu.label", metaLabel) }
+            ? { labelKey: messageKey(pageKeyPrefix(ui, p), "menu.label", metaLabel) }
             : {}),
           testId: tIdAndActive.testId,
           activeArgs: tIdAndActive.activeArgs,
@@ -284,7 +286,7 @@ function adoptPageMenuMeta(defaults: readonly NavSectionVM[], ui: UiIR): NavSect
       const metaSection = page && readMenuMetaString(page, "section");
       const keyed: NavEntryVM =
         page && metaLabel !== undefined && entry.label === metaLabel && !entry.labelKey
-          ? { ...entry, labelKey: messageKey(`page.${page.name}`, "menu.label", metaLabel) }
+          ? { ...entry, labelKey: messageKey(pageKeyPrefix(ui, page), "menu.label", metaLabel) }
           : entry;
       let target = out[i]!;
       if (metaSection && metaSection !== section.label) {
@@ -294,7 +296,7 @@ function adoptPageMenuMeta(defaults: readonly NavSectionVM[], ui: UiIR): NavSect
       }
       target.entries.push(keyed);
       if (page && metaSection && target.label === metaSection && !target.labelKey) {
-        target.labelKey = messageKey(`page.${page.name}`, "menu.section", metaSection);
+        target.labelKey = messageKey(pageKeyPrefix(ui, page), "menu.section", metaSection);
       }
     }
   }
@@ -316,7 +318,7 @@ function navEntryForLink(
       external: true,
       href: link.url,
       label: link.label,
-      labelKey: messageKey("menu", "link", link.label),
+      labelKey: messageKey(menuKeyPrefix(ui), "link", link.label),
       testId: `nav-ext-${slugifyLabel(link.label)}`,
       activeArgs: `""`,
     };
@@ -337,9 +339,9 @@ function navEntryForLink(
   // rather than emitting a key that resolves to nothing.
   const labelKey =
     overrideLabel !== undefined
-      ? messageKey("menu", "link", overrideLabel)
+      ? messageKey(menuKeyPrefix(ui), "link", overrideLabel)
       : metaLabel !== undefined
-        ? messageKey(`page.${page.name}`, "menu.label", metaLabel)
+        ? messageKey(pageKeyPrefix(ui, page), "menu.label", metaLabel)
         : undefined;
   // Identify well-known page kinds via `classifyPage` so testid
   // and active-route semantics match main's hardcoded conventions.

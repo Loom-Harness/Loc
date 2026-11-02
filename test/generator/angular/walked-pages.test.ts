@@ -58,10 +58,10 @@ describe("angular generator — walked pages", () => {
     // Text walks through the i18n seam (M-T1.11): the literal becomes a
     // `t(key, default)` interpolation whose default preserves the source string.
     expect(page).toContain(
-      '<h2 data-testid="home-title">{{ t("page.Home.heading.olot10", "Welcome to Loom on Angular") }}</h2>',
+      '<h2 data-testid="home-title">{{ t("Web.page.Home.heading.olot10", "Welcome to Loom on Angular") }}</h2>',
     );
     expect(page).toContain(
-      '<div>{{ t("page.Home.text.iygd5w", "This page rendered through the shared walker.") }}</div>',
+      '<div>{{ t("Web.page.Home.text.iygd5w", "This page rendered through the shared walker.") }}</div>',
     );
   });
 
@@ -128,10 +128,10 @@ describe("angular generator — Material-module primitives (imports aggregation)
     expect(page).toContain("<mat-card>");
     // Card title + inner Text walk through the i18n seam (M-T1.11).
     expect(page).toContain(
-      '<mat-card-title>{{ t("page.Home.cardTitle.i4c62b", "Summary") }}</mat-card-title>',
+      '<mat-card-title>{{ t("Web.page.Home.cardTitle.i4c62b", "Summary") }}</mat-card-title>',
     );
     expect(page).toContain(
-      '<mat-card-content><div>{{ t("page.Home.text.kvsmym", "Inside the card.") }}</div></mat-card-content>',
+      '<mat-card-content><div>{{ t("Web.page.Home.text.kvsmym", "Inside the card.") }}</div></mat-card-content>',
     );
     expect(page).toContain("<mat-divider></mat-divider>");
   });
@@ -263,16 +263,16 @@ describe("angular generator — display + layout primitives", () => {
     expect(page).toContain('<div class="loom-paper">');
     // Badge label + Stat label/value walk through the i18n seam (M-T1.11).
     expect(page).toContain(
-      '<span class="loom-badge">{{ t("page.Home.badge.2ludo1", "New") }}</span>',
+      '<span class="loom-badge">{{ t("Web.page.Home.badge.2ludo1", "New") }}</span>',
     );
     expect(page).toContain(
-      '<div class="loom-stat"><div class="loom-stat-label">{{ t("page.Home.statLabel.xf3i18", "Orders") }}</div><div class="loom-stat-value">{{ t("page.Home.statValue.1pcryb", "42") }}</div></div>',
+      '<div class="loom-stat"><div class="loom-stat-label">{{ t("Web.page.Home.statLabel.xf3i18", "Orders") }}</div><div class="loom-stat-value">{{ t("Web.page.Home.statValue.1pcryb", "42") }}</div></div>',
     );
     expect(page).toContain('<div class="loom-alert loom-alert-yellow" role="alert">');
     // The Alert `title:` named slot walks through the i18n seam (M-T1.11) —
     // Angular renders the text-position title as `{{ t(...) }}` interpolation.
     expect(page).toContain(
-      '<div class="loom-alert-title">{{ t("page.Home.alertTitle.v1ku65", "Heads up") }}</div>',
+      '<div class="loom-alert-title">{{ t("Web.page.Home.alertTitle.v1ku65", "Heads up") }}</div>',
     );
   });
 
@@ -337,16 +337,16 @@ describe("angular generator — inline / media / layout primitives", () => {
   it("walks the inline + media primitives to their markup", async () => {
     const page = await inlinePage();
     // Inline text primitives walk through the i18n seam (M-T1.11).
-    expect(page).toContain('<strong>{{ t("page.Home.bold.prdwty", "bold") }}</strong>');
-    expect(page).toContain('<em>{{ t("page.Home.italic.qw1oq5", "italic") }}</em>');
+    expect(page).toContain('<strong>{{ t("Web.page.Home.bold.prdwty", "bold") }}</strong>');
+    expect(page).toContain('<em>{{ t("Web.page.Home.italic.qw1oq5", "italic") }}</em>');
     expect(page).toContain(
-      '<code class="loom-inline-code">{{ t("page.Home.code.rarma7", ".ddd") }}</code>',
+      '<code class="loom-inline-code">{{ t("Web.page.Home.code.rarma7", ".ddd") }}</code>',
     );
     expect(page).toContain('<div class="loom-key-value-row">');
     expect(page).toContain('<img class="loom-avatar" src="/a.png" alt="user" />');
     expect(page).toContain('<img class="loom-image" src="/logo.png" alt="logo" />');
     expect(page).toContain(
-      '<div class="loom-empty">{{ t("page.Home.empty.j0zoai", "Nothing here yet") }}</div>',
+      '<div class="loom-empty">{{ t("Web.page.Home.empty.j0zoai", "Nothing here yet") }}</div>',
     );
   });
 
@@ -363,7 +363,7 @@ describe("angular generator — inline / media / layout primitives", () => {
     expect(page).toContain("<mat-tab-group>");
     // The tab caption is a user-visible slot (`tabLabel`, M-T1.11), so Angular
     // binds the translated value rather than baking the English into the prop.
-    expect(page).toContain(`<mat-tab [label]='t("page.Home.tabLabel.`);
+    expect(page).toContain(`<mat-tab [label]='t("Web.page.Home.tabLabel.`);
     expect(page).toContain('<mat-progress-spinner mode="indeterminate"');
     expect(page).toContain('import { MatTabsModule } from "@angular/material/tabs";');
     expect(page).toContain(
@@ -425,7 +425,7 @@ describe("angular generator — navigation + format-helper primitives", () => {
     expect(page).toContain('class="loom-breadcrumbs">');
     // Anchor label walks through the i18n seam (M-T1.11); routerLink unchanged.
     expect(page).toContain(
-      '<a class="loom-anchor" [routerLink]=\'"/about"\'>{{ t("page.Home.anchor.onrqou", "About") }}</a>',
+      '<a class="loom-anchor" [routerLink]=\'"/about"\'>{{ t("Web.page.Home.anchor.onrqou", "About") }}</a>',
     );
     expect(page).toContain('[routerLink]=\'"/orders/" + "abc12345def"\'');
     expect(page).toContain('import { RouterLink } from "@angular/router";');
@@ -705,7 +705,7 @@ describe("angular generator — standalone state-bound inputs", () => {
     expect(page).toContain(
       // The label is a user-visible slot (`inputLabel`, M-T1.11) — the caption
       // resolves through the runtime, the binding around it is unchanged.
-      '<mat-slide-toggle [checked]="notify()" (change)="notify.set($event.checked)">{{ t("page.Settings.inputLabel.ec0di2", "Notify me") }}</mat-slide-toggle>',
+      '<mat-slide-toggle [checked]="notify()" (change)="notify.set($event.checked)">{{ t("Web.page.Settings.inputLabel.ec0di2", "Notify me") }}</mat-slide-toggle>',
     );
     expect(page).toContain(
       '<mat-select [value]="size()" (selectionChange)="size.set($event.value)">',

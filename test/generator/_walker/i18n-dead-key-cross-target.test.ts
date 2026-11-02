@@ -142,7 +142,7 @@ describe("A13a — the modal trigger label renders through the catalog key it ow
       const key = keyFor(files, "Confirm it");
       // The key the extractor wrote is a `button` slot on the page — the same
       // role a plain `Button` uses, which is what makes the two agree.
-      expect(key).toMatch(/^page\.Home\.button\./);
+      expect(key).toMatch(/^Web\.page\.Home\.button\./);
       expect(appSource(files)).toContain(CALL[name]!(key, "Confirm it"));
     });
   }
@@ -164,14 +164,14 @@ describe("A13b — sidebar section + link labels render through their catalog ke
     it(`${name}: an internal link's authored label is translated`, async () => {
       const files = await generateSystemFiles(source());
       const key = keyFor(files, "All orders");
-      expect(key).toMatch(/^menu\.link\./);
+      expect(key).toMatch(/^Web\.menu\.link\./);
       expect(appSource(files)).toContain(CALL[name]!(key, "All orders"));
     });
 
     it(`${name}: an external link's label is translated`, async () => {
       const files = await generateSystemFiles(source());
       const key = keyFor(files, "Docs");
-      expect(key).toMatch(/^menu\.link\./);
+      expect(key).toMatch(/^Web\.menu\.link\./);
       expect(appSource(files)).toContain(CALL[name]!(key, "Docs"));
     });
   }
@@ -183,7 +183,7 @@ describe("A13b — sidebar section + link labels render through their catalog ke
     it(`${name}: the section heading is translated`, async () => {
       const files = await generateSystemFiles(source());
       const key = keyFor(files, "Sales");
-      expect(key).toMatch(/^menu\.section\./);
+      expect(key).toMatch(/^Web\.menu\.section\./);
       expect(appSource(files)).toContain(CALL[name]!(key, "Sales"));
     });
   }
@@ -217,7 +217,7 @@ describe("a label with no catalog key stays raw", () => {
     // i18n IS on for this ui (the page heading is an authored string)…
     expect(appSource(files)).toContain('"Welcome aboard"');
     // …but no nav label binds a `menu.*` key, because none exists.
-    expect(shell).not.toContain('t("menu.');
+    expect(shell).not.toContain('t("Web.menu.');
     // The section this ui's own pages land in (M-FT.6 merges them into the
     // shell's defaults; this ui scaffolds nothing, so the empty "Aggregates"
     // heading it used to print over zero links is gone) and the page label

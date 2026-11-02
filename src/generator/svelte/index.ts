@@ -6,6 +6,7 @@ import {
   type EnrichedAggregateIR,
   type EnrichedBoundedContextIR,
   type SystemIR,
+  sourceLocaleOf,
   uiUsesMoney,
 } from "../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
@@ -185,16 +186,20 @@ export function generateSvelteForContexts(
     // the loader).  The shim imports and registers exactly the locales emitted
     // here, so what the translator wrote is what the app can resolve — with no
     // translator tree the list is empty and the shim is byte-identical.
-    out.set("src/lib/locales/en.json", renderLocaleCatalog(ui, packChromeCatalog(pack.manifest)));
+    out.set(
+      `src/lib/locales/${sourceLocaleOf(sys)}.json`,
+      renderLocaleCatalog(ui, packChromeCatalog(pack.manifest)),
+    );
     const translated = renderTranslatedCatalogs(
       ui,
       options.translations,
       packChromeCatalog(pack.manifest),
+      sourceLocaleOf(sys),
     );
     for (const [locale, content] of translated) {
       out.set(`src/lib/locales/${locale}.json`, content);
     }
-    out.set("src/lib/i18n.ts", renderI18nModule([...translated.keys()]));
+    out.set("src/lib/i18n.ts", renderI18nModule([...translated.keys()], sourceLocaleOf(sys)));
   }
 
   // Per-aggregate api modules.
@@ -475,7 +480,10 @@ export function generateSvelteForContexts(
   out.set("src/routes/+layout.ts", SVELTE_LAYOUT_TS);
 
   // Project shell.
-  out.set("src/app.html", pack.render("main", { title: humanize(sys.name) }));
+  out.set(
+    "src/app.html",
+    pack.render("main", { title: humanize(sys.name), lang: sourceLocaleOf(sys) }),
+  );
   out.set("src/app.d.ts", SVELTE_APP_DTS);
   out.set("src/theme.css", pack.render("theme", themeVM(sys)));
   out.set("package.json", pack.render("package-json", { usesMoney, usesCodeBlock }));

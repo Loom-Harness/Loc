@@ -67,6 +67,7 @@ import { diagMessage } from "../../diagnostics/messages.js";
 import type { PackFormat } from "../../util/builtin-formats.js";
 import { contentHash } from "../../util/content-hash.js";
 import { chromeKey, chromeMessage } from "../_walker/i18n-chrome.js";
+import { sourceText } from "../_walker/source-text.js";
 import {
   chromeDeclarationDefects,
   describePackDefects,
@@ -273,7 +274,8 @@ export function chromeHelpers(
         }),
       );
     }
-    return spelling.call(packChromeKey(family, role, message), message, holes);
+    const key = packChromeKey(family, role, message);
+    return spelling.call(key, sourceText(key, message), holes);
   };
 
   return {

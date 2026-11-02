@@ -70,6 +70,6 @@ describe("Table client-side sort (Vue)", () => {
     expect(content).not.toContain("sortRows(");
     expect(content).not.toContain("table-sort");
     // Plain (unsortable) header — still translated, per the `columnHeader` slot.
-    expect(content).toMatch(/>\{\{ t\("page\.\w+\.columnHeader\.\w+", "Name"\) \}\}</);
+    expect(content).toMatch(/>\{\{ t\("\w+\.page\.\w+\.columnHeader\.\w+", "Name"\) \}\}</);
   });
 });

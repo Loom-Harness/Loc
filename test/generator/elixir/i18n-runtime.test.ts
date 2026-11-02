@@ -6,7 +6,7 @@
 // catalog key rides as the gettext CONTEXT while the English rides as the
 // `msgid`:
 //
-//     <%= pgettext("page.Home.heading.<hash>", "Welcome") %>
+//     <%= pgettext("Web.page.Home.heading.<hash>", "Welcome") %>
 //
 // That carries key parity with the other five frontends AND gettext's own
 // "empty translation ⇒ render the msgid" fallback, which is the same
@@ -85,7 +85,7 @@ describe("Phoenix HEEx i18n runtime", () => {
     expect(pot).toBeDefined();
     // msgctxt = the Loom key, msgid = the English, msgstr EMPTY so gettext
     // falls back to the msgid (the source-language behaviour).
-    expect(po).toMatch(/msgctxt "page\.Home\.heading\.\w+"\nmsgid "Storefront"\nmsgstr ""/);
+    expect(po).toMatch(/msgctxt "Web\.page\.Home\.heading\.\w+"\nmsgid "Storefront"\nmsgstr ""/);
     expect(pot).toContain('msgid "Storefront"');
   });
 
@@ -115,9 +115,9 @@ describe("Phoenix HEEx i18n runtime", () => {
     const live = await homeLive(
       SYSTEM(`Stack { Heading { "Orders" }, Text { status } }`, "state { status: string }"),
     );
-    expect(live).toMatch(/pgettext\("page\.Home\.heading\.\w+", "Orders"\)/);
+    expect(live).toMatch(/pgettext\("Web\.page\.Home\.heading\.\w+", "Orders"\)/);
     // `status` is an assign — interpolated, never a pgettext call.
-    expect(live).not.toContain('pgettext("page.Home.text');
+    expect(live).not.toContain('pgettext("Web.page.Home.text');
     expect(live).toContain("@status");
   });
 
@@ -131,7 +131,7 @@ describe("Phoenix HEEx i18n runtime", () => {
       'page Home(code: string) {\n      route: "/:code"',
     );
     const live = await homeLive(src);
-    expect(live).toContain('loom_icu(pgettext("page.Home.heading');
+    expect(live).toContain('loom_icu(pgettext("Web.page.Home.heading');
   });
 
   it("does not emit the runtime for a string-less app", async () => {
@@ -155,7 +155,7 @@ describe("Phoenix HEEx i18n runtime", () => {
     );
     const files = await generateSystemFiles(src);
     const components = fileEndingWith(files, "components/ui_components.ex")!;
-    expect(components).toMatch(/pgettext\("component\.Banner\.text\.\w+", "Shop banner"\)/);
+    expect(components).toMatch(/pgettext\("Web\.component\.Banner\.text\.\w+", "Shop banner"\)/);
     expect(fileEndingWith(files, "priv/gettext/en/LC_MESSAGES/default.po")).toContain(
       'msgid "Shop banner"',
     );

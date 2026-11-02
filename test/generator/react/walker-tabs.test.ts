@@ -56,10 +56,10 @@ describe("Tabs in walker stdlib", () => {
     expect(content).toMatch(/<Tabs defaultValue="overview">/);
     expect(content).toMatch(/<Tabs\.List>/);
     expect(content).toMatch(
-      /<Tabs\.Tab value="overview">\{t\("page\.\w+\.tabLabel\.\w+", "Overview"\)\}<\/Tabs\.Tab>/,
+      /<Tabs\.Tab value="overview">\{t\("\w+\.page\.\w+\.tabLabel\.\w+", "Overview"\)\}<\/Tabs\.Tab>/,
     );
     expect(content).toMatch(
-      /<Tabs\.Tab value="profile">\{t\("page\.\w+\.tabLabel\.\w+", "Profile"\)\}<\/Tabs\.Tab>/,
+      /<Tabs\.Tab value="profile">\{t\("\w+\.page\.\w+\.tabLabel\.\w+", "Profile"\)\}<\/Tabs\.Tab>/,
     );
     expect(content).toMatch(/<Tabs\.Panel value="overview">/);
     expect(content).toMatch(/<Title order=\{2\}>\{t\("[^"]*", "Stats"\)\}<\/Title>/);
@@ -92,10 +92,10 @@ describe("Tabs in walker stdlib", () => {
     const content = files.get("web/src/pages/x.tsx")!;
     expect(content).toMatch(/<Tabs defaultValue="user-settings">/);
     expect(content).toMatch(
-      /<Tabs\.Tab value="user-settings">\{t\("page\.\w+\.tabLabel\.\w+", "User Settings"\)\}<\/Tabs\.Tab>/,
+      /<Tabs\.Tab value="user-settings">\{t\("\w+\.page\.\w+\.tabLabel\.\w+", "User Settings"\)\}<\/Tabs\.Tab>/,
     );
     expect(content).toMatch(
-      /<Tabs\.Tab value="audit-log">\{t\("page\.\w+\.tabLabel\.\w+", "Audit Log"\)\}<\/Tabs\.Tab>/,
+      /<Tabs\.Tab value="audit-log">\{t\("\w+\.page\.\w+\.tabLabel\.\w+", "Audit Log"\)\}<\/Tabs\.Tab>/,
     );
   });
 
@@ -159,7 +159,7 @@ describe("Tabs in walker stdlib", () => {
     const content = files.get("web/src/pages/mixed.tsx")!;
     // First (real) tab still renders.
     expect(content).toMatch(
-      /<Tabs\.Tab value="real">\{t\("page\.\w+\.tabLabel\.\w+", "Real"\)\}<\/Tabs\.Tab>/,
+      /<Tabs\.Tab value="real">\{t\("\w+\.page\.\w+\.tabLabel\.\w+", "Real"\)\}<\/Tabs\.Tab>/,
     );
     // Second positional wasn't a Tab {} call → fallback indexed slug + walked body.
     // The Heading expression renders directly inside the auto-labelled panel.

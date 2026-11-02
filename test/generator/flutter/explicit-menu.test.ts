@@ -48,8 +48,10 @@ async function emitted(framework: "flutter" | "feliz", path: string): Promise<st
 describe("flutter: an explicit menu renders under every page's app bar", () => {
   it("emits lib/nav_menu.dart with the section, translated label, gate and external link", async () => {
     const menu = await emitted("flutter", "lib/nav_menu.dart");
-    expect(menu).toMatch(/Text\(t\('menu\.section\.\w+', 'Main'\)/);
-    expect(menu).toMatch(/_navLink\(context, t\('menu\.link\.\w+', 'Home base'\), '\/public'\)/);
+    expect(menu).toMatch(/Text\(t\('\w+\.menu\.section\.\w+', 'Main'\)/);
+    expect(menu).toMatch(
+      /_navLink\(context, t\('\w+\.menu\.link\.\w+', 'Home base'\), '\/public'\)/,
+    );
     expect(menu).toContain(
       "if (currentUser != null && (currentUser.role == 'admin')) _navLink(context, 'Admin', '/admin'),",
     );
@@ -71,10 +73,10 @@ describe("feliz: an explicit menu replaces the navbar's page list", () => {
   it("renders the section heading, the translated label, the gated link and the external link", async () => {
     const app = await emitted("feliz", "src/App.fs");
     expect(app).toMatch(
-      /Html\.li \[ prop\.className "menu-title"; prop\.text \(I18n\.t "menu\.section\.\w+" "Main"\) \]/,
+      /Html\.li \[ prop\.className "menu-title"; prop\.text \(I18n\.t "\w+\.menu\.section\.\w+" "Main"\) \]/,
     );
     expect(app).toMatch(
-      /Html\.a \[ prop\.href "\/public"; prop\.text \(I18n\.t "menu\.link\.\w+" "Home base"\) \]/,
+      /Html\.a \[ prop\.href "\/public"; prop\.text \(I18n\.t "\w+\.menu\.link\.\w+" "Home base"\) \]/,
     );
     expect(app).toContain(
       '(match model.CurrentUser with Some currentUser when currentUser.Role = "admin" -> Html.li [ prop.children [ Html.a [ prop.href "/admin"; prop.text "Admin" ] ] ] | _ -> Html.none)',

@@ -60,6 +60,7 @@ import type {
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { usesValueEquals } from "../_frontend/value-equals.js";
+import { componentKeyPrefix } from "../_walker/i18n-extract.js";
 import type { ApiCallSite } from "../_walker/target.js";
 import { type ApiHookUse, emitExpr, walkBody } from "../_walker/walker-core.js";
 import { FLUTTER_CHILD_PARAM } from "./dart-expr.js";
@@ -89,6 +90,8 @@ export interface ComponentWalkCtx {
    *  then keys every literal text slot to the catalog (`component.<Name>.…`) and
    *  emits `t(…)`.  False → no prefix, byte-identical to pre-i18n. */
   i18nEnabled?: boolean;
+  /** The hosting ui's name — the leading segment of every catalog key. */
+  uiName: string;
 }
 
 interface ComponentWalkResult {
@@ -151,7 +154,7 @@ function walkComponent(
     new Set(c.derived.map((d) => d.name)),
     false, // authUi
     // i18n key prefix — `component.<Name>` matches the catalog.
-    ctx.i18nEnabled ? `component.${c.name}` : undefined,
+    ctx.i18nEnabled ? componentKeyPrefix({ name: ctx.uiName }, c) : undefined,
   );
   return {
     widget: r.tsx.trim(),

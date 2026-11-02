@@ -61,9 +61,9 @@ describe("flutter — state-controlled Modal", () => {
 
   it("the title is the translated modalTitle slot, and the body is the authored content", async () => {
     const page = fileEndingWith(await files(CONTROLLED), "home_page.dart")!;
-    expect(page).toMatch(/title: Text\(t\('page\.Home\.modalTitle\.\w+', 'Archive'\)\)/);
+    expect(page).toMatch(/title: Text\(t\('\w+\.page\.Home\.modalTitle\.\w+', 'Archive'\)\)/);
     expect(page).toMatch(/child: Column\([^)]*children: <Widget>\[/);
-    expect(page).toMatch(/t\('page\.Home\.text\.\w+', 'Confirm archive\?'\)/);
+    expect(page).toMatch(/t\('\w+\.page\.Home\.text\.\w+', 'Confirm archive\?'\)/);
   });
 
   it("children are COMMA-separated — a Dart list, not juxtaposed JSX", async () => {

@@ -204,7 +204,7 @@ describe("feliz wire layer", () => {
     expect(app).toContain("View.remoteList model.AllProducts");
     // The branch labels are user-visible slots — translated (M-T1.11).
     expect(app).toMatch(
-      /\(Html\.p \[ Html\.text \(\(I18n\.t "page\.\w+\.text\.\w+" "Loading…"\)\) \]\)/,
+      /\(Html\.p \[ Html\.text \(\(I18n\.t "\w+\.page\.\w+\.text\.\w+" "Loading…"\)\) \]\)/,
     );
     expect(app).toContain("(fun allProducts ->");
     // The `For` iterates the bound rows via `yield! … List.map`.

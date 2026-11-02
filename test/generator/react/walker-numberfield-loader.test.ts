@@ -37,7 +37,7 @@ describe("NumberField + Loader primitives", () => {
     expect(content).toMatch(/import \{ NumberInput \} from "@mantine\/core";/);
     expect(content).toMatch(/const \[qty, setQty\] = useState<number>\(1\);/);
     expect(content).toMatch(
-      /<NumberInput label=\{t\("page\.\w+\.inputLabel\.\w+", "Quantity"\)\} value=\{qty\} onChange=\{\(v\) => setQty\(typeof v === "number" \? v : 0\)\} \/>/,
+      /<NumberInput label=\{t\("\w+\.page\.\w+\.inputLabel\.\w+", "Quantity"\)\} value=\{qty\} onChange=\{\(v\) => setQty\(typeof v === "number" \? v : 0\)\} \/>/,
     );
   });
 
@@ -64,7 +64,7 @@ describe("NumberField + Loader primitives", () => {
     const content = files.get("web/src/pages/form.tsx")!;
     expect(content).toMatch(/const \[price, setPrice\] = useState<number>\(9\.99\);/);
     expect(content).toMatch(
-      /<NumberInput label=\{t\("page\.\w+\.inputLabel\.\w+", "Price"\)\} value=\{price\}/,
+      /<NumberInput label=\{t\("\w+\.page\.\w+\.inputLabel\.\w+", "Price"\)\} value=\{price\}/,
     );
   });
 
@@ -88,7 +88,9 @@ describe("NumberField + Loader primitives", () => {
       }
     `);
     const content = files.get("web/src/pages/x.tsx")!;
-    expect(content).toMatch(/<NumberInput label=\{t\("page\.\w+\.inputLabel\.\w+", "Bare"\)\} \/>/);
+    expect(content).toMatch(
+      /<NumberInput label=\{t\("\w+\.page\.\w+\.inputLabel\.\w+", "Bare"\)\} \/>/,
+    );
     expect(content).not.toMatch(/onChange=/);
   });
 

@@ -14,12 +14,12 @@ export default function ProductList() {
   return (
     <Stack gap="md" data-testid="products-list">
       <Breadcrumbs>
-        <Anchor component={RouterLink} to="/">{t("page.List.anchor.n0mxf2", "Home")}</Anchor>
-        <Text>{t("page.List.text.kdfstp", "Products")}</Text>
+        <Anchor component={RouterLink} to="/">{t("WebApp.page.List.anchor.n0mxf2", "Home")}</Anchor>
+        <Text>{t("WebApp.page.List.text.kdfstp", "Products")}</Text>
       </Breadcrumbs>
       <Group justify="space-between" align="center" gap="md" role="toolbar" aria-label="Actions">
-        <Title order={2}>{t("page.List.heading.kdfstp", "Products")}</Title>
-        <Button onClick={() => navigate("/products/new")} data-testid="products-list-create">{t("page.List.button.j7i5mi", "New product")}</Button>
+        <Title order={2}>{t("WebApp.page.List.heading.kdfstp", "Products")}</Title>
+        <Button onClick={() => navigate("/products/new")} data-testid="products-list-create">{t("WebApp.page.List.button.j7i5mi", "New product")}</Button>
       </Group>
       <>
         { productAll.isLoading && (
@@ -30,17 +30,17 @@ export default function ProductList() {
     </Stack>
         ) }
         { productAll.isError && (
-          <Alert color="red" variant="light">{t("page.List.alert.qx0ntz", "Couldn't load products")}</Alert>
+          <Alert color="red" variant="light">{t("WebApp.page.List.alert.qx0ntz", "Couldn't load products")}</Alert>
         ) }
         { productAll.data && productAll.data.items.length === 0 && (
-          <Center mih={200}><Text c="dimmed">{t("page.List.empty.nnvlb2", "No products yet.")}</Text></Center>
+          <Center mih={200}><Text c="dimmed">{t("WebApp.page.List.empty.nnvlb2", "No products yet.")}</Text></Center>
         ) }
         { productAll.data && productAll.data.items.length > 0 && (
           <Paper p="md">
             <><div className="loom-table-scroll" style={{ width: "100%", overflowX: "auto" }}><Table striped highlightOnHover stickyHeader>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "sku") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("sku"); setSortDir("asc"); } }}>{t("page.List.columnHeader.gkg0ca", "Sku")}{sortKey === "sku" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
+                  <Table.Th><button type="button" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer", userSelect: "none" }} onClick={() => { if (sortKey === "sku") { setSortDir(sortDir === "asc" ? "desc" : "asc"); } else { setSortKey("sku"); setSortDir("asc"); } }}>{t("WebApp.page.List.columnHeader.gkg0ca", "Sku")}{sortKey === "sku" ? (sortDir === "asc" ? " ↑" : " ↓") : ""}</button></Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>

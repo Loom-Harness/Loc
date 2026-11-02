@@ -316,7 +316,7 @@ const DEAD_KEY_WAIVERS: readonly Waiver[] = [
     id: "D-I18N-1",
     targets: ["feliz", "flutter"],
     menus: ["derived"],
-    key: /^page\.\w+\.menu\.(label|section)\./,
+    key: /^WebApp\.page\.\w+\.menu\.(label|section)\./,
     reason:
       "a scaffold page's `menu:` sidebar metadata is catalogued, but the Feliz navbar labels " +
       "its links by page name and Flutter emits no navigation at all — the menu-navigation " +

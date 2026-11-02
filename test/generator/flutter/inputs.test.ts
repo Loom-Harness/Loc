@@ -66,10 +66,10 @@ describe("flutter standalone inputs (generate system)", () => {
     // The label is a user-visible slot (`inputLabel`, M-T1.11) — a translated
     // caption is a runtime call, so the `const` follows the label away.
     expect(page).toMatch(
-      /SwitchListTile\(title: Text\(t\('page\.\w+\.inputLabel\.\w+', 'Notifications'\)\), value: state\.enabled, onChanged: \(v\) => setEnabled\(v\)\)/,
+      /SwitchListTile\(title: Text\(t\('\w+\.page\.\w+\.inputLabel\.\w+', 'Notifications'\)\), value: state\.enabled, onChanged: \(v\) => setEnabled\(v\)\)/,
     );
     expect(page).toMatch(
-      /TextFormField\(initialValue: state\.title, decoration: InputDecoration\(labelText: t\('page\.\w+\.inputLabel\.\w+', 'Title'\)\), onChanged: \(v\) => setTitle\(v\)\)/,
+      /TextFormField\(initialValue: state\.title, decoration: InputDecoration\(labelText: t\('\w+\.page\.\w+\.inputLabel\.\w+', 'Title'\)\), onChanged: \(v\) => setTitle\(v\)\)/,
     );
     expect(page).toContain("obscureText: true"); // PasswordField
     expect(page).toContain("minLines: 3, maxLines: 5"); // MultilineField
@@ -130,7 +130,7 @@ describe("flutter NumberField + Tabs (generate system)", () => {
 
     // NumberField widget: numeric keyboard + raw-string dispatch.
     expect(page).toMatch(
-      /TextFormField\(initialValue: '\$\{state\.qty\}', keyboardType: TextInputType\.number, decoration: InputDecoration\(labelText: t\('page\.\w+\.inputLabel\.\w+', 'Qty'\)\), onChanged: \(v\) => setQtyText\(v\)\)/,
+      /TextFormField\(initialValue: '\$\{state\.qty\}', keyboardType: TextInputType\.number, decoration: InputDecoration\(labelText: t\('\w+\.page\.\w+\.inputLabel\.\w+', 'Qty'\)\), onChanged: \(v\) => setQtyText\(v\)\)/,
     );
 
     // Tabs → DefaultTabController + TabBar + a bounded TabBarView.
@@ -138,7 +138,7 @@ describe("flutter NumberField + Tabs (generate system)", () => {
     // The tab captions are a user-visible slot (`tabLabel`) — `Tab(text:)` takes
     // a String, so they arrive as the Dart translation call.
     expect(page).toMatch(
-      /TabBar\(tabs: <Widget>\[ Tab\(text: t\('page\.\w+\.tabLabel\.\w+', 'Numbers'\)\), Tab\(text: t\('page\.\w+\.tabLabel\.\w+', 'Info'\)\) \]\)/,
+      /TabBar\(tabs: <Widget>\[ Tab\(text: t\('\w+\.page\.\w+\.tabLabel\.\w+', 'Numbers'\)\), Tab\(text: t\('\w+\.page\.\w+\.tabLabel\.\w+', 'Info'\)\) \]\)/,
     );
     expect(page).toContain("SizedBox(height: 360, child: TabBarView(children:");
   });
