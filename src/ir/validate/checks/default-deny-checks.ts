@@ -80,7 +80,7 @@ export function validateDefaultDeny(sys: SystemIR, diags: LoomDiagnostic[]): voi
             //
             // The generic arm below names a `requires` the author should write.
             // On an event-sourced aggregate that instruction is UNSATISFIABLE:
-            // write the gate and `loom.lifecycle-guard-event-sourced` refuses it
+            // write the gate and `loom.target-unsupported#lifecycle-guard-event-sourced` refuses it
             // (the ES create body renders into the domain `_init`, which has no
             // principal in scope), omit it and this check errors.  Two
             // validators demanding contradictory things made

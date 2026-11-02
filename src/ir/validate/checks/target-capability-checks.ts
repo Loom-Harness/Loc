@@ -50,7 +50,7 @@ export interface ConstructUse {
 }
 
 type UiDetector = (ui: UiIR, sys: SystemIR) => ConstructUse[];
-type BackendDetector = (ctx: BoundedContextIR) => ConstructUse[];
+type BackendDetector = (ctx: BoundedContextIR, sys: SystemIR) => ConstructUse[];
 
 /** The bodies of a ui a construct can sit in: every page and component. */
 function uiBodies(ui: UiIR): Array<{ what: string; body: ExprIR | undefined; origin?: OriginRef }> {
@@ -89,6 +89,42 @@ export const UI_DETECTORS: Readonly<Record<RefusableUiConstruct, UiDetector>> = 
     })),
 };
 
+/** The `resource` bindings of a context whose kind and storage type satisfy
+ *  `pick`, as uses.  `what` names the resource and the thing it binds. */
+function resourceUses(
+  ctx: BoundedContextIR,
+  sys: SystemIR,
+  pick: (
+    ds: SystemIR["dataSources"][number],
+    storageType: string | undefined,
+  ) => string | undefined,
+): ConstructUse[] {
+  const out: ConstructUse[] = [];
+  for (const ds of sys.dataSources) {
+    if (ds.contextName !== ctx.name) continue;
+    const storageType = sys.storages.find((st) => st.name === ds.storageName)?.type;
+    const detail = pick(ds, storageType);
+    if (detail === undefined) continue;
+    out.push({
+      what: `resource '${ds.name}' (${detail})`,
+      source: `${sys.name}/${ds.name}`,
+    });
+  }
+  return out;
+}
+
+/** The persistence kinds a relational store backs. */
+const RELATIONAL_KINDS: ReadonlySet<string> = new Set(["state", "snapshot", "eventLog"]);
+
+const storageTypeUses =
+  (type: string): BackendDetector =>
+  (ctx, sys) =>
+    resourceUses(ctx, sys, (ds, t) =>
+      t === type && RELATIONAL_KINDS.has(ds.kind)
+        ? `kind: ${ds.kind}, storage '${ds.storageName}' of type: ${type}`
+        : undefined,
+    );
+
 /** Where each backend construct is used, per hosted context. */
 export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetector>> = {
   "stmt:requires@event-sourced-create": (ctx) => {
@@ -107,6 +143,19 @@ export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetecto
     }
     return out;
   },
+  "resource:replica@resource": (ctx, sys) =>
+    resourceUses(ctx, sys, (ds) =>
+      ds.kind === "replica" ? `kind: replica, storage '${ds.storageName}'` : undefined,
+    ),
+  "resource:eventLog-on-kafka@resource": (ctx, sys) =>
+    resourceUses(ctx, sys, (ds, t) =>
+      ds.kind === "eventLog" && t === "kafka"
+        ? `kind: eventLog, storage '${ds.storageName}' of type: kafka`
+        : undefined,
+    ),
+  "storage:mysql@resource": storageTypeUses("mysql"),
+  "storage:sqlite@resource": storageTypeUses("sqlite"),
+  "storage:inMemory@resource": storageTypeUses("inMemory"),
 };
 
 /** How the check looks a verdict up.  The default reads the shipped table; a
@@ -167,6 +216,39 @@ function refuse(
         use,
       );
       return;
+    case "lifecycle-guard-event-sourced":
+      refused(
+        diags,
+        diagMessage("loom.target-unsupported#lifecycle-guard-event-sourced", {
+          what: use.what,
+          dName,
+          target: t,
+        }),
+        use,
+      );
+      return;
+    case "resource-kind-unrealized":
+      refused(
+        diags,
+        diagMessage("loom.target-unsupported#resource-kind-unrealized", {
+          what: use.what,
+          dName,
+          target: t,
+        }),
+        use,
+      );
+      return;
+    case "storage-type-unrealized":
+      refused(
+        diags,
+        diagMessage("loom.target-unsupported#storage-type-unrealized", {
+          what: use.what,
+          dName,
+          target: t,
+        }),
+        use,
+      );
+      return;
     default: {
       const _exhaustive: never = slug;
       void _exhaustive;
@@ -206,7 +288,7 @@ export function validateTargetCapabilities(
       for (const ctxName of d.contextNames) {
         const ctx = ctxByName.get(ctxName);
         if (!ctx) continue;
-        for (const use of BACKEND_DETECTORS[construct](ctx)) {
+        for (const use of BACKEND_DETECTORS[construct](ctx, sys)) {
           refuse(diags, v.slug, use, d, d.platform);
         }
       }

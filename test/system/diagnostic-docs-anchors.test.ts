@@ -183,7 +183,7 @@ describe("the undocumented-codes ratchet", () => {
 // `loom.workflow-load-nullable-unsupported` deleted — a `let` binds a `T?`
 // read now, and its un-narrowed dereference is the documented
 // `loom.nullable-receiver`.
-const UNDOCUMENTED_BASELINE = 347;
+const UNDOCUMENTED_BASELINE = 346;
 
 describe("the undocumented-codes LENGTH ratchet", () => {
   it("only shrinks", () => {
