@@ -198,7 +198,7 @@ describe("svelte generator — project shape", () => {
         subdomain Sales {
           context Orders {
             aggregate Item { name: string }
-            repository Items for Item { find byId(id: string): Item? }
+            repository Items for Item
           }
         }
         ui WebApp {

@@ -1050,20 +1050,21 @@ describe("angular generator — Modal operation-dialog form", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Parameterised find + workflow reads (gap-closure: the api-service
-// layer).  A `QueryView(of: <api>.<Agg>.<find>(arg))` un-stubs and hoists the
-// `use<Find><Agg>(query)` factory, emitted Angular-native (TanStack
-// injectQuery off an @Injectable service).  (ng build-verified separately.)
+// Parameterised reads + workflow reads (the api-service layer).  A
+// `QueryView(of: <Agg>.findAllBy<Criterion>(arg))` over a `scaffoldPaged` read
+// un-stubs and hoists the `use<Find><Agg>(query)` factory, emitted
+// Angular-native (TanStack injectQuery off an @Injectable service).
 // ---------------------------------------------------------------------------
 
 const FIND_SOURCE = `
   system Smoke {
-    api SalesApi from Sales
+    api SalesApi with scaffoldPagedApi(of: InStatus) from Sales
     subdomain Sales {
-      context Orders {
+      context Orders with scaffoldPaged(of: InStatus) {
         enum OrderStatus { Draft, Confirmed, Shipped }
         aggregate Order with crudish { customerId: string  status: OrderStatus }
-        repository Orders for Order { find byStatus(status: OrderStatus): Order? }
+        repository Orders for Order
+        criterion InStatus(status: OrderStatus) of Order = this.status == status
       }
     }
     ui WebApp {
@@ -1072,7 +1073,7 @@ const FIND_SOURCE = `
         route: "/by-status"
         state { status: OrderStatus = Draft }
         body: QueryView {
-          of: Sales.Order.byStatus(status),
+          of: Order.findAllByInStatus(status),
           loading: Loader {},
           error: Alert { "err" },
           empty: Empty { "none" },
@@ -1094,29 +1095,34 @@ async function findFiles(): Promise<Map<string, string>> {
   return out;
 }
 
-describe("angular generator — parameterised find reads", () => {
-  it("un-stubs the find page and hoists the find factory with a REACTIVE getter", async () => {
+describe("angular generator — parameterised reads", () => {
+  it("un-stubs the read page and hoists the find factory with a REACTIVE getter", async () => {
     const page = (await findFiles()).get("src/app/pages/by-status.component.ts")!;
     expect(page).not.toContain("body needs api/forms support");
-    expect(page).toContain('import { useByStatusOrder } from "../../api/order";');
+    expect(page).toContain('import { useFindAllByInStatusOrder } from "../../api/order";');
     // The shared walker renders find args as a `{ <param>: <value> }` object; the
     // state signal read resolves against `this`.  The whole object is wrapped in
     // a getter (`() => (...)`) so the `injectQuery` options re-read it and the
     // query LIVE-REFETCHES when the bound `status` signal changes — a bare
     // `{ status: this.status() }` snapshot would freeze the query at construction.
     expect(page).toContain(
-      "readonly orderByStatus = useByStatusOrder(() => ({ status: this.status() }));",
+      'readonly orderFindAllByInStatus = useFindAllByInStatusOrder(() => ({ status: this.status(), page: 1, pageSize: 20, sort: "id", dir: "asc" }));',
     );
   });
 
   it("emits the find query interface + service method + reactive-getter factory", async () => {
     const api = (await findFiles()).get("src/api/order.ts")!;
-    expect(api).toContain("export interface ByStatusOrderQuery {");
-    expect(api).toContain("byStatus(query: ByStatusOrderQuery) {");
+    expect(api).toContain("export interface FindAllByInStatusOrderQuery {");
+    expect(api).toContain("findAllByInStatus(query: FindAllByInStatusOrderQuery) {");
+    expect(api).toContain("/orders/projections/in_status");
     // The factory takes a getter and re-reads it inside the reactive options.
-    expect(api).toContain("export function useByStatusOrder(query: () => ByStatusOrderQuery) {");
-    expect(api).toContain(`queryKey: ["orders", "find", "by_status", query()] as const,`);
-    expect(api).toContain("queryFn: () => firstValueFrom(service.byStatus(query())),");
+    expect(api).toContain(
+      "export function useFindAllByInStatusOrder(query: () => FindAllByInStatusOrderQuery) {",
+    );
+    expect(api).toContain(
+      `queryKey: ["orders", "find", "find_all_by_in_status", query()] as const,`,
+    );
+    expect(api).toContain("queryFn: () => firstValueFrom(service.findAllByInStatus(query())),");
   });
 });
 

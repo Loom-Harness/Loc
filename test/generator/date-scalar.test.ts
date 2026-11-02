@@ -23,8 +23,11 @@ system Clinic {
         derived year: int = date.year()
         derived gap: int = date.daysUntil(date)
       }
-      repository Patients for Patient {
-        find before(cutoff: date): Patient? where this.date < cutoff
+      repository Patients for Patient
+      criterion Before(cutoff: date) of Patient = this.date < cutoff
+      queryHandler ListBefore(cutoff: date): Patient[] {
+        let r = Patients.run(Before(cutoff))
+        return r
       }
     }
   }

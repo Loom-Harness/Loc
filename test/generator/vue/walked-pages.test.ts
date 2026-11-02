@@ -98,7 +98,7 @@ describe("vue walker — scaffold pages", () => {
         subdomain Sales {
           context Orders {
             aggregate Order { customerId: string }
-            repository Orders for Order { find byId(id: string): Order? }
+            repository Orders for Order
           }
         }
         ui WebApp {

@@ -14,12 +14,8 @@
 //   * no `Msg` case ever carries and no `update` arm ever stores,
 //   * and no `Cmd` ever fetches.
 //
-// The scaffolded FILTER BAR is exactly that shape — `scaffoldList` renders the
-// filtered find's `QueryView` in a `match` arm and the unfiltered `.all` view
-// in `otherwise` — so ANY scaffolded aggregate whose repository declares a
-// filterable find emitted an uncompilable Feliz app (both reads were dropped,
-// not just the filtered one).  A hand-written `match` over page state has the
-// same shape and the same bug.
+// A hand-written `match` over page state whose arms each host a read has
+// exactly that shape: both reads were dropped, not just one.
 //
 // Not proven by compilation here: `dotnet fable` is not available in this
 // container, so these assertions read the emitted F# structurally.
@@ -27,8 +23,8 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
-/** The same shape written by hand — a `match` over a page `state {}` cell whose
- *  arms each host a `QueryView`. */
+/** A `match` over a page `state {}` cell whose arms each host a `QueryView`,
+ *  each over a different aggregate's list. */
 const HAND_WRITTEN_MATCH = `
 system Docs {
   subdomain Knowledge {
@@ -38,9 +34,12 @@ system Docs {
         vis: string
         derived display: string = title
       }
-      repository Docs for Doc {
-        find byVis(vis: string): Doc? where this.vis == vis
+      repository Docs for Doc
+      aggregate Topic {
+        name: string
+        derived display: string = name
       }
+      repository Topics for Topic
     }
   }
   api LibApi from Knowledge
@@ -56,9 +55,9 @@ system Docs {
         Field("Visibility", bind: chosen),
         match {
           chosen != "" => QueryView {
-            of: K.Doc.byVis(chosen),
-            empty: Text { "No docs" },
-            data: rows => For { each: rows, d => Text { d.title } }
+            of: K.Topic.all,
+            empty: Text { "No topics" },
+            data: rows => For { each: rows, s => Text { s.name } }
           }
           else => QueryView {
             of: K.Doc.all,
@@ -93,7 +92,7 @@ function undeclaredModelFields(app: string): string[] {
 describe("feliz reads hosted by a match arm", () => {
   it("a hand-written match over page state wires both arms' reads", async () => {
     const app = await appFs(HAND_WRITTEN_MATCH);
-    expect(app).toContain("DocByVis: Remote<Doc option>");
+    expect(app).toContain("AllTopics: Remote<Topic list>");
     expect(app).toContain("AllDocs: Remote<Doc list>");
     expect(undeclaredModelFields(app)).toEqual([]);
   });

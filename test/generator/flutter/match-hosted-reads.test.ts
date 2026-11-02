@@ -16,9 +16,9 @@ system Shop {
   subdomain Catalog {
     context Cat {
       aggregate Product with crudish { name: string  price: money }
-      repository Products for Product {
-        find byName(name: string): Product?
-      }
+      repository Products for Product
+      aggregate Topic with crudish { name: string }
+      repository Topics for Topic
     }
   }
   storage db { type: postgres }
@@ -33,8 +33,8 @@ system Shop {
         Field("Name", bind: chosen),
         match {
           chosen != "" => QueryView {
-            of: Shop.Product.byName(chosen),
-            data: p => Text { p.name }
+            of: Shop.Topic.all,
+            data: rows => For { each: rows, t => Text { t.name } }
           }
           else => QueryView {
             of: Shop.Product.all,
@@ -58,7 +58,7 @@ describe("flutter reads hosted by a match arm", () => {
     expect(page, "browse page not emitted").toBeDefined();
 
     // Both arms of the `match` are watched by the page…
-    expect(page).toContain("ref.watch(productByNameProvider(");
+    expect(page).toContain("ref.watch(topicAllProvider");
     expect(page).toContain("ref.watch(productAllProvider");
 
     // …so both must be declared — in reads.dart, or (for the page's own

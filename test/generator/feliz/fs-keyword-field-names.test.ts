@@ -9,30 +9,29 @@
 // aggregate NAME (the decoder binding) and an OPERATION PARAMETER (the form
 // record).  This pins the FIELD position and the five further sites it reaches:
 // the wire record, its Thoth decoder, a field READ (view + update paths), the
-// client-side sort comparator, a find PARAMETER binder, and a component's props
-// record / bindings / call site.
+// client-side sort comparator, and a component's props record / bindings / call
+// site.
 //
 // The escape is `fsIdent` (double backticks) — lexically the same identifier, so
-// the JSON key, the query-string key and every `data-testid` stay UNescaped and
-// the wire does not move.
+// the JSON key and every `data-testid` stay UNescaped and the wire does not move.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
+// `shape: document` keeps `Circle`'s `all` an unpaged array, so the scaffold list
+// sorts client-side — the comparator the sort test reads.
 const SYSTEM = `
   system P {
     subdomain S {
       context C {
         valueobject Span { begin: string  end: string }
-        aggregate Circle with crudish {
+        aggregate Circle shape: document, with crudish {
           member: string
           val: string
           span: Span
           plain: string
         }
-        repository Circles for Circle {
-          find byMember(member: string): Circle? where this.member == member
-        }
+        repository Circles for Circle
       }
     }
     ui W with scaffold(subdomains: [S]) {
@@ -43,11 +42,6 @@ const SYSTEM = `
       component Row(member: string, plain: string) {
         derived base: string = member
         body: Stack { Text { member }, Text { plain }, Text { base } }
-      }
-      page Pick {
-        route: "/pick"
-        state { member: string = "" }
-        body: QueryView { of: Circle.byMember(member), data: c => Text { c.plain } }
       }
       page Manual {
         route: "/manual"
@@ -114,14 +108,6 @@ describe("F-022 — a field named after an F# keyword", () => {
     const src = await appFs();
     expect(src).toContain('| "member" -> compare a.``member`` b.``member``');
     expect(src).not.toContain('| "member" -> compare a.member b.member');
-  });
-
-  it("escapes a find PARAMETER binder but NOT the query-string key", async () => {
-    const src = await appFs();
-    expect(src).toMatch(/let circleByMember \(``member``: string\)/);
-    expect(src).not.toMatch(/let circleByMember \(member: string\)/);
-    // The key the backend reads stays the declared name.
-    expect(src).toContain("?member=%s");
   });
 
   it("escapes a component's props field, its binding, and the call site", async () => {

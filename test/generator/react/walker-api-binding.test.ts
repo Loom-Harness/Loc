@@ -105,7 +105,7 @@ describe("api binding + walker hook injection", () => {
         subdomain Sales {
           context Orders {
             aggregate Customer { name: string }
-            repository Customers for Customer { find byId(id: string): Customer? }
+            repository Customers for Customer
           }
         }
         api SalesApi from Sales
@@ -140,7 +140,7 @@ describe("api binding + walker hook injection", () => {
         subdomain Sales {
           context Orders {
             aggregate Customer { name: string }
-            repository Customers for Customer { find byId(id: string): Customer? }
+            repository Customers for Customer
           }
         }
         api SalesApi from Sales
@@ -244,21 +244,22 @@ describe("api binding + walker hook injection", () => {
     expect(content).toMatch(/const customerCreate = useCreateCustomer\(\);/);
   });
 
-  it("custom finder operation: byEmail → useByEmailCustomer with the object-shaped query arg", async () => {
+  it("criterion read: findAllByWithEmail → useFindAllByWithEmailCustomer with the object-shaped query arg", async () => {
     const files = await buildAndGenerate(`
       system S {
         subdomain Sales {
-          context Orders {
+          context Orders with scaffoldPaged(of: WithEmail) {
             aggregate Customer { name: string  email: string }
-            repository Customers for Customer { find byEmail(email: string): Customer? }
+            repository Customers for Customer
+            criterion WithEmail(email: string) of Customer = this.email == email
           }
         }
-        api SalesApi from Sales
+        api SalesApi with scaffoldPagedApi(of: WithEmail) from Sales
         ui WebApp {
           api Sales: SalesApi
           page Lookup(email: string) {
             route: "/lookup/:email"
-            body: Text { Sales.Customer.byEmail(email).isLoading }
+            body: Text { Customer.findAllByWithEmail(email).isLoading }
           }
         }
         storage loomDb { type: postgres }
@@ -268,11 +269,15 @@ describe("api binding + walker hook injection", () => {
       }
     `);
     const content = files.get("web/src/pages/lookup.tsx")!;
-    expect(content).toMatch(/import \{ useByEmailCustomer \} from "\.\.\/api\/customer";/);
-    // The emitted hook signature takes the find's query OBJECT
+    expect(content).toMatch(
+      /import \{ useFindAllByWithEmailCustomer \} from "\.\.\/api\/customer";/,
+    );
+    // The emitted hook signature takes the read's query OBJECT
     // (`use<Find><Agg>(query: <Find>Query)` — api-builder.ts), so the
-    // hoist builds `{ email: email }` from the positional DSL args.
-    expect(content).toMatch(/const customerByEmail = useByEmailCustomer\(\{ email: email \}\);/);
+    // hoist builds `{ email: email, … }` from the positional DSL args.
+    expect(content).toContain(
+      "const customerFindAllByWithEmail = useFindAllByWithEmailCustomer({ email: email",
+    );
   });
 
   it("UI without api parameters: existing behaviour unchanged (no hook injection)", async () => {

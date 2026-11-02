@@ -2,9 +2,9 @@
 // interesting property is that they AGREE, and for a long time they did not.
 //
 // Every aggregate serves one list endpoint (`GET /<aggs>`), backed by the
-// repository find named `all`.  Usually that find is the one enrichment injects,
-// but an author may declare their own; either way the aggregate's read gate
-// lands on it:
+// repository read `all` enrichment injects — paged for a plain relational
+// aggregate, a bare array for a `shape: document` one.  Either way the
+// aggregate's read gate lands on it:
 //
 //     policy { read Order requires currentUser.role == "admin" }
 //
@@ -17,7 +17,7 @@
 // and every compile tier stayed green, because a missing guard is not a syntax
 // error anywhere.
 //
-// Both shapes are pinned: a declared bare `T[]` list and the injected `paged` one, since
+// Both shapes are pinned: the bare `T[]` list and the `paged` one, since
 // each backend renders the two through different arms and the gate has to land
 // in both.  The negative case is pinned too: an ungated aggregate emits no gate
 // machinery at all (no principal binding, no accessor injection, no 403), so
@@ -28,14 +28,13 @@ import { generateSystemFiles } from "../_helpers/index.js";
 
 const GATE = 'requires currentUser.role == "admin"';
 
-const system = (platform: string, findClause: string, gate: string) => `system Shop {
+/** `bare`: a `shape: document` aggregate, whose `all` is an unpaged array. */
+const system = (platform: string, bare: boolean, gate: string) => `system Shop {
   user { id: string role: string }
   subdomain Sales {
     context Orders {
-      aggregate Order { code: string }
-      repository Orders for Order {
-        ${findClause}
-      }
+      aggregate Order${bare ? " shape: document" : ""} { code: string }
+      repository Orders for Order
       ${gate ? `policy { read Order ${gate} }` : ""}
     }
   }
@@ -47,11 +46,11 @@ const system = (platform: string, findClause: string, gate: string) => `system S
 
 async function fileEndingWith(
   platform: string,
-  findClause: string,
+  bare: boolean,
   suffix: string,
   gate = "",
 ): Promise<string> {
-  const files = await generateSystemFiles(system(platform, findClause, gate));
+  const files = await generateSystemFiles(system(platform, bare, gate));
   for (const [path, content] of files) if (path.endsWith(suffix)) return content;
   throw new Error(`no generated file ending with ${suffix} (platform ${platform})`);
 }
@@ -94,11 +93,10 @@ const BACKENDS = [
 ] as const;
 
 for (const shape of ["bare", "paged"] as const) {
-  const decl = shape === "bare" ? "find all(): Order[]" : "";
   describe(`list-read gate — ${shape} list`, () => {
     for (const b of BACKENDS) {
       it(`${b.name}: 403s BEFORE the list query runs`, async () => {
-        const out = await fileEndingWith(b.name, decl, b.file, GATE);
+        const out = await fileEndingWith(b.name, shape === "bare", b.file, GATE);
         const gateAt = out.indexOf(b.guard());
         expect(gateAt, `gate not emitted on ${b.name}`).toBeGreaterThan(-1);
         const readAt = out.indexOf(b.read);
@@ -118,7 +116,7 @@ describe("an UNGATED list read emits no gate machinery", () => {
   // pass every assertion above.
   for (const b of BACKENDS) {
     it(`${b.name}: no 403, no principal binding`, async () => {
-      const out = await fileEndingWith(b.name, "find all(): Order[]", b.file);
+      const out = await fileEndingWith(b.name, true, b.file);
       expect(out).not.toContain("Forbidden: find all");
       expect(out).not.toContain('"admin"');
     });
