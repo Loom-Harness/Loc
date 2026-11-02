@@ -820,6 +820,19 @@ function checkWorkflowPayload(
   diags: LoomDiagnostic[],
 ): void {
   if (call.verb !== "run") return;
+  // The optional SECOND argument — `{ ifMatch: <version> }` — sends the header
+  // the workflow's own saves must ignore (a body is not a request about one row).
+  if (call.args.length > 1) {
+    const options = readE2eCallOptions(call.args[1]);
+    if (call.args.length > 2 || options === "malformed") {
+      diags.push({
+        severity: "error",
+        code: "loom.e2e-call-options",
+        source,
+        message: diagMessage("loom.e2e-call-options#workflow-shape", { slug: call.slug }),
+      });
+    }
+  }
   checkBody(
     call,
     // The command body is argument 0 — `renderWorkflowCall`: `args[0] ?? "{}"`.

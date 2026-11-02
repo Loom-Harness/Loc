@@ -49,9 +49,11 @@ const filesFor = async () => {
 };
 
 describe("python money ingress (M-T6.48)", () => {
-  it("declares the money grammar once, with node's regex character for character", async () => {
+  it("declares the money grammar once, spelled from the Codec fact", async () => {
     const { wire } = await filesFor();
-    expect(wire).toContain('_MONEY_RE = re.compile(r"^-?\\d+(\\.\\d+)?$")');
+    // ASCII `[0-9]` (python's `\d` also matches `"١٢"`) and `\Z` (python's `$`
+    // also matches before a trailing newline, so `"12\n"` would pass).
+    expect(wire).toContain('_MONEY_RE = re.compile(r"^-?[0-9]+(\\.[0-9]+)?\\Z")');
     expect(wire).toContain("MoneyStr = Annotated[");
     expect(wire).toContain("AfterValidator(_money_str),");
   });

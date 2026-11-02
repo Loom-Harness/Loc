@@ -1,11 +1,12 @@
 // The `Codec` fact (src/ir/enrich/codec.ts): each row pinned against the
 // RS-rule or ruling it encodes, the `codecOf` resolution over declared types,
-// and the `UNRULED` list kept in step with the table.
+// and the owner `RULINGS` pinned against the table (with `UNRULED` empty).
 
 import { describe, expect, it } from "vitest";
 import {
   allScalarCodecs,
   codecOf,
+  envelopeInstantWire,
   idColumn,
   instantWire,
   integerWire,
@@ -14,6 +15,7 @@ import {
   MONEY_SCALE,
   moneyIntegerDigits,
   moneyWire,
+  RULINGS,
   scalarCodec,
   scalarCodecOf,
   UNRULED,
@@ -120,7 +122,7 @@ describe("scalar codecs — the cross-backend contract", () => {
   });
 });
 
-describe("lineage encoding (#3527)", () => {
+describe("lineage encoding (#3527, RULINGS)", () => {
   it("money and the integers are written in their wire encoding", () => {
     expect(lineageUsesWire(prim("money"))).toBe(true);
     expect(lineageUsesWire({ kind: "optional", inner: prim("money") } as TypeIR)).toBe(true);
@@ -128,10 +130,32 @@ describe("lineage encoding (#3527)", () => {
     expect(lineageUsesWire(prim("long"))).toBe(true);
   });
 
-  it("the unruled scalars keep each backend's encoding", () => {
-    for (const p of ["decimal", "datetime", "date", "string", "bool", "guid", "json", "File"])
-      expect(lineageUsesWire(prim(p)), p).toBe(false);
+  it("a decimal is its RS-24 number and a datetime its RS-38 instant (rulings 1, 2)", () => {
+    expect(scalarCodec("decimal").lineage).toBe("wire");
+    expect(scalarCodec("decimal").wire).toEqual({ form: "float64", json: "number" });
+    expect(scalarCodec("datetime").lineage).toBe("wire");
+    expect(scalarCodec("datetime").wire).toEqual(instantWire());
+    expect(lineageUsesWire(prim("decimal"))).toBe(true);
+    expect(lineageUsesWire({ kind: "optional", inner: prim("datetime") } as TypeIR)).toBe(true);
+  });
+
+  it("every scalar's lineage is its wire encoding; a collection is not a scalar", () => {
+    for (const c of allScalarCodecs()) expect(c.lineage, c.primitive).toBe("wire");
+    for (const p of ["date", "string", "bool", "guid", "json", "File"])
+      expect(lineageUsesWire(prim(p)), p).toBe(true);
     expect(lineageUsesWire({ kind: "array", element: prim("money") } as TypeIR)).toBe(false);
+  });
+});
+
+describe("channel envelope (ruling 4)", () => {
+  it("a datetime inside the envelope is the RS-38 wire instant", () => {
+    expect(envelopeInstantWire()).toEqual({
+      form: "instant",
+      json: "string",
+      fractionDigits: 3,
+      wholeSecond: "no-fraction",
+      ingressExcess: "truncate",
+    });
   });
 });
 
@@ -196,15 +220,35 @@ describe("codecOf — a declared type", () => {
   });
 });
 
-describe("UNRULED — the owner questions", () => {
-  it("names a lineage scalar only while its lineage is still unruled", () => {
-    for (const u of UNRULED) {
-      const m = /^lineage: (\w+)$/.exec(u.surface);
-      if (m) expect(scalarCodec(m[1] as never).lineage, u.surface).toBe("unruled");
+describe("RULINGS — the owner answers, and UNRULED — the open questions", () => {
+  it("records the four rulings on #3593, each with its RS-rule or decision", () => {
+    expect(RULINGS.map((r) => [r.surface, r.ref])).toEqual([
+      ["lineage: decimal", "RS-24"],
+      ["lineage: datetime", "RS-38"],
+      ["column: value object in a relational field", "D-CODEC"],
+      ["channel envelope: datetime", "RS-38"],
+    ]);
+    for (const r of RULINGS) expect(r.ref, r.surface).toMatch(/^(RS-\d+|D-[A-Z][A-Z-]*)$/);
+  });
+
+  it("each lineage ruling is the table's lineage encoding", () => {
+    for (const r of RULINGS) {
+      const m = /^lineage: (\w+)$/.exec(r.surface);
+      if (m) expect(scalarCodec(m[1] as never).lineage, r.surface).toBe("wire");
     }
   });
 
-  it("each entry asks a question", () => {
-    for (const u of UNRULED) expect(u.question.endsWith("?"), u.surface).toBe(true);
+  it("ruling 3: a value object in a relational field is its flattened columns", () => {
+    expect(RULINGS.some((r) => r.surface.startsWith("column: value object"))).toBe(true);
+    expect(valueObjectStorage("field")).toBe("flattened-columns");
+  });
+
+  it("no question is left open, and none re-asks a ruled surface", () => {
+    expect(UNRULED).toEqual([]);
+    const ruled = new Set(RULINGS.map((r) => r.surface));
+    for (const u of UNRULED) {
+      expect(ruled.has(u.surface), u.surface).toBe(false);
+      expect(u.question.endsWith("?"), u.surface).toBe(true);
+    }
   });
 });

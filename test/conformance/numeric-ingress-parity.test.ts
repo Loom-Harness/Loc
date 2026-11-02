@@ -201,7 +201,7 @@ const BAD_MONEY_STRING: Record<Platform, Seam[]> = {
   python: [
     {
       why: "money format guard",
-      shape: /_MONEY_RE = re\.compile\(r"\^-\?\\d\+\(\\\.\\d\+\)\?\$"\)/,
+      shape: /_MONEY_RE = re\.compile\(r"\^-\?\[0-9\]\+\(\\\.\[0-9\]\+\)\?\\Z"\)/,
     },
     {
       why: "typed pydantic error, not a raise",
