@@ -11,6 +11,7 @@ import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../util/naming.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
+import { eventLogRunMethods } from "./in-memory-run.js";
 import {
   blobGetByIdLines,
   deserializeField,
@@ -70,6 +71,7 @@ export function buildEventSourcedRepositoryFile(
     .filter((e): e is EventIR => e != null);
 
   const findMethods = (repo?.finds ?? []).map((find) => eventSourcedFindMethod(agg, find, ctx));
+  const runMethods = eventLogRunMethods(agg, ctx);
 
   const bodyStr = lines(
     `export class ${agg.name}Repository implements ${repoPortName(agg.name)} {`,
@@ -171,6 +173,7 @@ export function buildEventSourcedRepositoryFile(
     `  }`,
     "",
     ...findMethods.flatMap((m) => [m, ""]),
+    ...runMethods.flatMap((m) => [m, ""]),
     toWireMethod(agg, ctx),
     "",
     // `mask unless` response redaction — the routes call
