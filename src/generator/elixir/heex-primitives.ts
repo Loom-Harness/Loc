@@ -1976,7 +1976,9 @@ export function renderAvatar(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkC
  *  (a single spinner size, like the packs that don't vary it). */
 export function renderLoader(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkContext): string {
   const testidAttr = testIdAttr(expr, ctx);
-  return `<div class="animate-spin h-6 w-6 rounded-full border-2 border-gray-300 border-t-transparent" role="status" aria-label="Loading"${testidAttr}></div>`;
+  const name = heexChrome(ctx, "loading", {});
+  const aria = name.call !== undefined ? `{${name.call}}` : `"${escapeHeexAttr(name.english)}"`;
+  return `<div class="animate-spin h-6 w-6 rounded-full border-2 border-gray-300 border-t-transparent" role="status" aria-label=${aria}${testidAttr}></div>`;
 }
 
 /** `Money(value, currency?, decimals?)` → a money span.  An optional
