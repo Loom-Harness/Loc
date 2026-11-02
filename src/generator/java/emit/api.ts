@@ -1,3 +1,4 @@
+import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
 import {
   fieldFixedMessage,
   type WireRejectionClass,
@@ -25,7 +26,6 @@ import { commandBodyOptional } from "../../../ir/util/command-body.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import { valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { listReadFind } from "../../../ir/util/read-gates.js";
-import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
@@ -152,7 +152,9 @@ export function renderJavaController(
   // not accept what the others do — invisible because no generated client has
   // ever sent the header.
   const ifMatchHeaderParam = (op: OperationIR): string =>
-    readsIfMatchFor(op) ? `, @RequestHeader(value = "If-Match", required = false) String ifMatch` : "";
+    readsIfMatchFor(op)
+      ? `, @RequestHeader(value = "If-Match", required = false) String ifMatch`
+      : "";
   const ifMatchServiceArg = (op: OperationIR): string =>
     readsIfMatchFor(op) ? ", IfMatch.expectedVersion(ifMatch)" : "";
   // The id's raw value type — `UUID` as an import marker (M-T9.86), so the

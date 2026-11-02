@@ -1,9 +1,9 @@
+import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import type { EnrichedAggregateIR, ExprIR, RepositoryIR } from "../../../ir/types/loom-ir.js";
 import {
   aggregateUsesPrincipalContextFilter,
   exprUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
-import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { lines } from "../../../util/code-builder.js";
 import { tableNameFor } from "../../../util/storage-names.js";
 import { desugarAuthzFilterInApp } from "../../_expr/authz-filter-inapp.js";

@@ -1,3 +1,4 @@
+import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
 import {
   createInputFields,
   emitsRestCreate,
@@ -25,7 +26,6 @@ import {
   operationGatesUseCurrentUser,
   type RequiresStmtIR,
 } from "../../../ir/util/op-gates.js";
-import { operationVersionCheck, readsIfMatch } from "../../../ir/enrich/version-check.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";

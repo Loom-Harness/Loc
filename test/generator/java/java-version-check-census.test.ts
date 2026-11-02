@@ -89,9 +89,9 @@ describe("java checksVersion census — emitted routes and saves", () => {
         for (const op of agg.operations) {
           if (op.visibility !== "public") continue;
           const wants = readsIfMatch(operationVersionCheck(agg, op));
-          const route = new RegExp(`public [^\\n]*\\b${op.name}${agg.name}\\(([^\\n]*)\\) \\{`).exec(
-            controller,
-          );
+          const route = new RegExp(
+            `public [^\\n]*\\b${op.name}${agg.name}\\(([^\\n]*)\\) \\{`,
+          ).exec(controller);
           if (!route) continue;
           expect(
             route[1].includes('@RequestHeader(value = "If-Match"'),

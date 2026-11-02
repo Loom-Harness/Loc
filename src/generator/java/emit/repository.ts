@@ -1,3 +1,4 @@
+import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { wireFieldsForAggregate } from "../../../ir/enrich/wire-projection.js";
 import { envelopeReturn } from "../../../ir/stdlib/generics.js";
 import type {
@@ -10,7 +11,6 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { findRaisesNotFound } from "../../../ir/util/key-lookup.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
-import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import { javaRef } from "../../_imports/java.js";
