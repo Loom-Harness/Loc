@@ -253,7 +253,9 @@ describe("java generator — versioned optimistic-concurrency", () => {
           : "@MappedSuperclass",
       );
       expect(base).not.toContain("@Version");
-      expect(base).toMatch(/@Column\(name = "version", updatable = false\)\s*\n\s*protected int version;/);
+      expect(base).toMatch(
+        /@Column\(name = "version", updatable = false\)\s*\n\s*protected int version;/,
+      );
       expect(base).toContain("public void _applyVersion(int next) {");
       expect(base).toContain("this.version = next;");
       // The concrete redeclares neither the field nor the mutator.
