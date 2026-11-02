@@ -519,7 +519,7 @@ function resolveRoute(
  *  route's spec publishes — so the action checks and coerces them
  *  (query-param.ts).  A body param arrives through JSON already typed and is
  *  the RequiredParams / StrictParams plugs' concern. */
-export function routeQueryParams(
+function routeQueryParams(
   r: RouteIR,
   h: Handler,
   ctx: EnrichedBoundedContextIR,
