@@ -295,10 +295,9 @@ encoding: a `money` as the RS-12 fixed-scale-4 string (`"3000.3000"`, never
 `3000.3` or `"3000.3"`), a `decimal` as the RS-24 number, a `datetime` as the
 RS-38 instant (`"2024-03-01T10:20:30Z"`, never `…30.000Z`), and an `int` /
 `long` as its wire number (owner rulings on #3527 and #3593).  node, python,
-.NET (EF Core and Dapper) and elixir write each value through their wire
-encoders (elixir through the emitted `<App>.Provenance.Wire` module).  java
-boots `corpus/provenance-money` as a tracked expected failure (#4402) until it
-is moved onto the fact.
+.NET (EF Core and Dapper), java and elixir write each value through their wire
+encoders (java through the emitted `ProvWire` helper, elixir through the
+emitted `<App>.Provenance.Wire` module).
 
 ```ddd
 market: money provenanced

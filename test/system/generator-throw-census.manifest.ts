@@ -1310,6 +1310,35 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "The Codec fact rules the envelope instant to be the wire instant (`envelopeInstantWire` returns `instantWire()`, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
   },
 
+  // src/generator/java/codec-spelling.ts
+  "src/generator/java/codec-spelling.ts#javaJsonSqlType": {
+    invariant:
+      "The Codec fact stores the `json` scalar in a `json` column (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/java/codec-spelling.ts#javaMoneyColumnLabel": {
+    invariant:
+      "The Codec fact's money column is the bounded `decimal` NUMERIC(19,4) (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/java/codec-spelling.ts#javaIntOutOfRange": {
+    invariant:
+      "The Codec fact's int range is the JVM int (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/java/codec-spelling.ts#instantUnit": {
+    invariant:
+      "The Codec fact's datetime wire form carries exactly three fraction digits and truncates at ingress (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/java/codec-spelling.ts#javaInstantWire": {
+    invariant:
+      "The Codec fact's datetime wire form drops the fraction on a whole second (RS-38, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/java/codec-spelling.ts#assertCalendarDate": {
+    invariant:
+      "The Codec fact's date wire form is `calendar-date` (pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
+  "src/generator/java/codec-spelling.ts#javaEnvelopeInstant": {
+    invariant:
+      "The Codec fact rules the envelope instant to be the wire instant (`envelopeInstantWire` returns `instantWire()`, pinned by test/ir/codec.test.ts); only a change to the fact itself, never a .ddd input, reaches this throw. (src/ir/enrich/codec.ts)",
+  },
   // src/generator/elixir/vanilla/codec-spelling-ex.ts
   "src/generator/elixir/vanilla/codec-spelling-ex.ts#exPgInstantType": {
     invariant:
