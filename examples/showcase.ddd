@@ -466,6 +466,9 @@ system DevPlatform {
         type: redis
         connection: literal("redis://cache:6379")
     }
+    // Covers ServiceConnectionSource (`connection: service(...)`); redis binds a
+    // kind, so declaring it without a use is valid.
+    storage sessionStore { type: redis, connection: service(redisCluster) }
     storage eventBus    { type: kafka,   connection: secret(kafkaUrl) }
 
     // ChannelSource — physical binding of a channel to a transport storage.
