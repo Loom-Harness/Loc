@@ -226,9 +226,35 @@ const OWNED_WITNESSES: Readonly<Record<OwnedUiConstruct, (framework: string) => 
   },
 };
 
-/** An event-sourced aggregate whose create carries a `requires`, hosted on
- *  `platform`. */
+/** A context with one plain aggregate, its resources and a deployable hosting
+ *  it on `platform`.  `storages` / `resources` are the lines under test. */
+const resourceWitness = (platform: string, storages: string, resources: string): string => `
+system W {
+  subdomain Core {
+    context Main {
+      aggregate Thing with crudish { label: string }
+      repository Things for Thing { }
+    }
+  }
+  api MainApi from Core { }
+  ${storages}
+  ${resources}
+  deployable d { platform: ${platform}, contexts: [Main], dataSources: [st], serves: MainApi, port: 3000 }
+}
+`;
+
+/** `state` on a storage of `type`: the persistence-kind cell for a storage
+ *  type. */
+const storageTypeWitness = (platform: string, type: string): string =>
+  resourceWitness(
+    platform,
+    `storage pg { type: ${type} }`,
+    "resource st { for: Main, kind: state, use: pg }",
+  );
+
+/** One witness per backend construct, hosted on `platform`. */
 const BACKEND_WITNESSES: Readonly<Record<BackendConstruct, (platform: string) => string>> = {
+  // An event-sourced aggregate whose create carries a `requires`.
   "stmt:requires@event-sourced-create": (platform) => `
 system W {
   subdomain Core {
@@ -253,6 +279,21 @@ system W {
   deployable d { platform: ${platform}, contexts: [Main], dataSources: [st, es], serves: MainApi, port: 3000, auth: required }
 }
 `,
+  "resource:replica@resource": (platform) =>
+    resourceWitness(
+      platform,
+      "storage pg { type: postgres }",
+      "resource st { for: Main, kind: state, use: pg }\n  resource rd { for: Main, kind: replica, use: pg }",
+    ),
+  "resource:eventLog-on-kafka@resource": (platform) =>
+    resourceWitness(
+      platform,
+      "storage pg { type: postgres }\n  storage kf { type: kafka }",
+      "resource st { for: Main, kind: state, use: pg }\n  resource ev { for: Main, kind: eventLog, use: kf }",
+    ),
+  "storage:mysql@resource": (platform) => storageTypeWitness(platform, "mysql"),
+  "storage:sqlite@resource": (platform) => storageTypeWitness(platform, "sqlite"),
+  "storage:inMemory@resource": (platform) => storageTypeWitness(platform, "inMemory"),
 };
 
 // --- the cells ---------------------------------------------------------------
@@ -329,6 +370,22 @@ describe("capability table — every cell is implemented (with a witness) or ref
     );
   });
 
+  // The `supported` leg below cannot tell a realized storage type from one that
+  // silently falls back to Postgres: the witness validates clean and generates
+  // with no give-up either way.  So a resource-kind / storage-type row may not
+  // be `supported` until a witness proves the generated output differs from the
+  // Postgres default (the migrations, the ORM mapping, the compose service).
+  it("a resource-kind or storage-type row is never `supported` without a realization witness", () => {
+    const unproven: string[] = [];
+    for (const [platform, table] of Object.entries(TARGET_CAPABILITIES)) {
+      for (const c of BACKEND_CONSTRUCTS) {
+        if (!c.startsWith("resource:") && !c.startsWith("storage:")) continue;
+        if (table.backend?.[c].verdict === "supported") unproven.push(`${platform}|${c}`);
+      }
+    }
+    expect(unproven).toEqual([]);
+  });
+
   for (const cell of cells()) {
     const v = cell.verdict;
     if (v.verdict === "supported") {
@@ -389,7 +446,7 @@ describe("loom.target-unsupported — the check reads the table, and every detec
       const model = enrichLoomModel(lowerModel(await parseValid(BACKEND_WITNESSES[c]("node"))));
       const sys = model.systems[0]!;
       const ctx = sys.subdomains[0]!.contexts[0]!;
-      expect(BACKEND_DETECTORS[c](ctx).length, `${c}'s detector misses its witness`).toBe(1);
+      expect(BACKEND_DETECTORS[c](ctx, sys).length, `${c}'s detector misses its witness`).toBe(1);
       const diags: Parameters<typeof validateTargetCapabilities>[1] = [];
       validateTargetCapabilities(sys, diags, {
         ui: () => ({ verdict: "supported" }),

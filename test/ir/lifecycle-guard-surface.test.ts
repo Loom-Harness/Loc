@@ -275,7 +275,7 @@ describe("a lifecycle `requires` may only read what the gate can see", () => {
     //
     // But an ES lifecycle guard cannot be enforced AT ALL — its body renders
     // into a domain `_init` with no principal in scope — so
-    // `loom.lifecycle-guard-event-sourced` refuses the whole construct, and
+    // `loom.target-unsupported#lifecycle-guard-event-sourced` refuses the whole construct, and
     // adding "…and it reads something the gate cannot see" to that is noise
     // about a gate that will never exist.  One clause, one error, the more
     // specific one.  On #2487 alone (before this refusal exists) the same source
@@ -292,7 +292,7 @@ describe("a lifecycle `requires` may only read what the gate can see", () => {
         }
         apply(e: Opened) { }
       }`);
-    expect(codes).toContain("loom.lifecycle-guard-event-sourced");
+    expect(codes).toContain("loom.target-unsupported");
     expect(codes).not.toContain(CODE);
   });
 
@@ -326,7 +326,7 @@ describe("a lifecycle `requires` may only read what the gate can see", () => {
         }
         apply(e: Opened) { owner := e.owner }
       }`);
-    expect(codes).toContain("loom.lifecycle-guard-event-sourced");
+    expect(codes).toContain("loom.target-unsupported");
   });
 
   it("rejects a CREATE guard reading a declared parameter", async () => {
