@@ -55,7 +55,7 @@ export function inlineDapperScope(src: string, opts: { runtime?: boolean } = {})
     )
     .replace(/\{(\w+Scope\.\w+)\}/g, (m, k: string) => consts.get(k) ?? m)
     .replace(/"\s*\+\s*(\w+Scope\.\w+)\s*\+\s*"/g, (m, k: string) => consts.get(k) ?? m)
-    .replace(/"\s*\+\s*(\w+Scope\.\w+)(?=[,)])/g, (m, k: string) =>
+    .replace(/"\s*\+\s*(\w+Scope\.\w+)(?=[,);])/g, (m, k: string) =>
       consts.has(k) ? `${consts.get(k)}"` : m,
     );
 }

@@ -63,8 +63,10 @@ system D {
         note:     string?
         ${body}
       }
-      repository Orders for Order {
-        find byCustomer(customer: string): Order? where this.customer == customer
+      repository Orders for Order
+      criterion ByCustomer(customer: string) of Order = this.customer == customer
+      queryHandler OrderByCustomer(customer: string): Order {
+        if let x = Orders.find(ByCustomer(customer)) { return x } else { notFound "not_found" }
       }
     }
   }
@@ -290,6 +292,10 @@ system D {
       }
       repository Orders for Order { }
       criterion OrdersWithTag(tag: Tag id) of Order = this.tags.contains(tag)
+      queryHandler ListOrdersWithTag(tag: Tag id): Order[] {
+        let r = Orders.run(OrdersWithTag(tag))
+        return r
+      }
       repository Tags for Tag { }
     }
   }
@@ -309,7 +315,7 @@ system D {
     );
     // The id param binds its wrapped `.Value` (Dapper has no strongly-typed id
     // handler), exactly like every other id-typed find param.
-    expect(repo).toContain("new { tag = tag.Value }");
+    expect(repo).toContain('p.Add("tag", tag.Value);');
     // No runtime stub — the predicate is fully lowered.
     expect(repo).not.toContain("Dapper v1 does not support this find's predicate");
   });
@@ -676,6 +682,10 @@ system D {
       }
       repository Orders for Order { }
       criterion OrdersByCustomer(customer: string) of Order = this.customer == customer
+      queryHandler ListOrdersByCustomer(customer: string): Order[] {
+        let r = Orders.run(OrdersByCustomer(customer))
+        return r
+      }
       repository Tags for Tag { }
     }
   }
@@ -832,6 +842,10 @@ system D {
       }
       repository Carts for Cart { }
       criterion CartsByCustomer(customer: string) of Cart = this.customer == customer
+      queryHandler ListCartsByCustomer(customer: string): Cart[] {
+        let r = Carts.run(CartsByCustomer(customer))
+        return r
+      }
     }
   }
   storage pg { type: postgres }
@@ -861,9 +875,11 @@ system D {
     expect(repo).toContain(
       "ON CONFLICT (id) DO UPDATE SET data = excluded.data, version = carts.version + 1 WHERE carts.version = @ExpectedVersion",
     );
-    // Finds run in-memory over the rehydrated documents (no SQL WHERE).
+    // Reads run in-memory over the rehydrated documents (no SQL WHERE).
     expect(repo).toContain("var __all = __rows.Select(__d => Cart.FromSnapshot(");
-    expect(repo).toContain(".Where(x => x.Customer == customer).FirstOrDefault();");
+    // The criterion read the handler makes (`Carts.run(CartsByCustomer(…))`
+    // → `RunFindAllByCartsByCustomerAsync`) is a method the repository has.
+    expect(repo).toContain("RunFindAllByCartsByCustomerAsync(");
     // Snapshot DTOs are emitted; the EF <Agg>Document POCO / configuration are NOT.
     expect(files.has("api/Domain/Carts/CartSnapshots.cs")).toBe(true);
     expect(files.has("api/Domain/Carts/CartDocument.cs")).toBe(false);
@@ -897,6 +913,10 @@ system D {
       }
       repository Carts for Cart { }
       criterion CartsByCustomer(customer: string) of Cart = this.customer == customer
+      queryHandler ListCartsByCustomer(customer: string): Cart[] {
+        let r = Carts.run(CartsByCustomer(customer))
+        return r
+      }
     }
   }
   storage pg { type: postgres }
@@ -957,6 +977,10 @@ system D {
       aggregate Vendor extends Party with crudish { rating: int }
       repository Customers for Customer { }
       criterion CustomersByEmail(email: string) of Customer = this.email == email
+      queryHandler ListCustomersByEmail(email: string): Customer[] {
+        let r = Customers.run(CustomersByEmail(email))
+        return r
+      }
       repository Vendors for Vendor { }
     }
   }
@@ -1066,6 +1090,10 @@ system D {
       aggregate Vendor extends Party with crudish { rating: int  active: bool }
       repository Customers for Customer { }
       criterion CustomersByEmail(email: string) of Customer = this.email == email
+      queryHandler ListCustomersByEmail(email: string): Customer[] {
+        let r = Customers.run(CustomersByEmail(email))
+        return r
+      }
       repository Vendors for Vendor { }
     }
   }
@@ -1147,6 +1175,7 @@ describe("dapper capability filters", () => {
     expect(errors).toEqual([]);
     const repo = inlineDapperScope(
       [...files.entries()].find(([k]) => k.endsWith("Repositories/OrderRepository.cs"))![1],
+      { runtime: true },
     );
     // GetById + FindManyByIds + findAll + the named find all carry it.
     expect(repo).toContain("WHERE id = @id AND (NOT archived)");
@@ -1164,6 +1193,7 @@ describe("dapper capability filters", () => {
     expect(errors).toEqual([]);
     const repo = inlineDapperScope(
       [...files.entries()].find(([k]) => k.endsWith("Repositories/OrderRepository.cs"))![1],
+      { runtime: true },
     );
     // Stamps bind as column params (the entity's fields are `{ get; private
     // set; }`, so the Dapper repo can't mutate them — it computes a local and
@@ -1209,10 +1239,16 @@ system D {
         number: string
       }
       aggregate Org with crudish { name: string }
-      repository Invoices for Invoice {
-        find mine(): Invoice? where this.createdBy == currentUser.id
-      }
+      repository Invoices for Invoice
+      criterion InvoicesMine of Invoice = this.createdBy == currentUser.id
       criterion InvoicesByNumber(n: string) of Invoice = this.number == n
+      queryHandler GetMine(): Invoice {
+        if let x = Invoices.find(InvoicesMine) { return x } else { notFound "not_found" }
+      }
+      queryHandler ListByNumber(n: string): Invoice[] {
+        let r = Invoices.run(InvoicesByNumber(n))
+        return r
+      }
       repository Orgs for Org { }
     }
   }
@@ -1230,12 +1266,13 @@ system D {
     expect(errors).toEqual([]); // both principal gates are lifted
     const repo = inlineDapperScope(
       files.get("api/Infrastructure/Repositories/InvoiceRepository.cs")!,
+      { runtime: true },
     );
     // Principal filter → a `@__cu_tenantId` param bound from the request
     // principal, spliced into every SELECT (GetById shown).
     expect(repo).toContain("WHERE id = @id AND (tenant_id = @__cu_tenantId)");
     expect(repo).toContain("__cu_tenantId = RequestContext.Current!.CurrentUser!.TenantId");
-    // The named find carries it too.
+    // The criterion read carries it too.
     expect(repo).toContain("WHERE (number = @n) AND (tenant_id = @__cu_tenantId)");
     // Member-access principal stamp (tenantId := currentUser.tenantId) → the
     // claim; bare `currentUser` stamp (createdBy/updatedBy := currentUser) → the
@@ -1251,21 +1288,20 @@ system D {
     expect(files.has("api/Infrastructure/Persistence/AuditableInterceptor.cs")).toBe(false);
   });
 
-  it("widens the find-predicate subset: `currentUser.<claim>` in a find `where`", async () => {
+  it("widens the read-predicate subset: `currentUser.<claim>` in a criterion", async () => {
     const { files, errors } = await emit(AUTH_SRC);
-    expect(errors).toEqual([]); // the Dapper find-predicate currentUser gate is lifted
+    expect(errors).toEqual([]); // the Dapper predicate currentUser gate is lifted
     const repo = inlineDapperScope(
       files.get("api/Infrastructure/Repositories/InvoiceRepository.cs")!,
+      { runtime: true },
     );
-    // The find carries the shared interface's `User currentUser` param and binds
-    // its own `@__cu_id` ref + the inherited capability filter's `@__cu_tenantId`
-    // from that parameter (not the ambient accessor).
-    expect(repo).toContain(
-      "public async Task<Invoice?> Mine(User currentUser, CancellationToken cancellationToken = default)",
-    );
+    // The criterion's retrieval binds its own `@__cu_id` ref and the inherited
+    // capability filter's `@__cu_tenantId` from the request principal.
     expect(repo).toContain("WHERE (created_by = @__cu_id) AND (tenant_id = @__cu_tenantId)");
-    expect(repo).toContain("__cu_id = currentUser.Id");
-    expect(repo).toContain("__cu_tenantId = currentUser.TenantId");
+    expect(repo).toContain('p.Add("__cu_id", RequestContext.Current!.CurrentUser!.Id);');
+    expect(repo).toContain(
+      'p.Add("__cu_tenantId", RequestContext.Current!.CurrentUser!.TenantId);',
+    );
   });
 });
 
