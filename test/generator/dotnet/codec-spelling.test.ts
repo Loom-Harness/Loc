@@ -104,9 +104,10 @@ describe("lineage — every scalar is its wire encoding", () => {
     expect(cls).toContain(`Money(decimal? v) => v is null ? null : v.Value.ToString("F4"`);
     expect(cls).toContain("Decimal(decimal? v) => v is null ? null : double.Parse(");
     expect(cls).toContain(`Instant(DateTime? v) => v is null ? null : ${csInstantWire("v.Value")}`);
-    expect(cls).toContain(
-      `Date(DateOnly? v) => v is null ? null : ${csCalendarDateWire("v.Value")}`,
-    );
+    expect(cls).toContain(`Date(IFormattable? v) => ${csCalendarDateWire("v?")}`);
+    // Naming DateOnly would register Dapper's DateOnly handler in every
+    // provenanced project.
+    expect(cls).not.toMatch(/\bDateOnly\b/);
   });
 });
 

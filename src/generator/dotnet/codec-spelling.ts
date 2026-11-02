@@ -224,7 +224,10 @@ export function csProvWireClass(): string {
     `    public static string? Money(decimal? v) => v is null ? null : ${numericEncode(CS_NUMERIC, "money", "dto-map", "v.Value")};`,
     `    public static double? Decimal(decimal? v) => v is null ? null : ${csDecimalToWireDouble("v.Value")};`,
     `    public static string? Instant(DateTime? v) => v is null ? null : ${csInstantWire("v.Value")};`,
-    `    public static string? Date(DateOnly? v) => v is null ? null : ${csCalendarDateWire("v.Value")};`,
+    // IFormattable, not DateOnly?: naming the type would make every provenanced
+    // Dapper project register the DateOnly type handler (wireDapperDateOnlyHandler
+    // keys on the text), and a DateOnly boxes to it.
+    `    public static string? Date(IFormattable? v) => ${csCalendarDateWire("v?")};`,
     "}",
   ].join("\n");
 }

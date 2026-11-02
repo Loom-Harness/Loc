@@ -56,7 +56,7 @@ const FORBIDDEN: { what: string; re: RegExp }[] = [
   },
   {
     what: "a hand-picked scale, precision or integer bound",
-    re: /\b(precision|scale):\s*\d|\bNUMERIC\(\d|\bnumeric\(\d|ToString\(\\?"F\d|2147483|9007199|int\.(Min|Max)Value/,
+    re: /\b(precision|scale):\s*\d|\bNUMERIC\(\d|\bnumeric\(\d|ToString\(\\?"F\d|2147483|9007199|int\.(Min|Max)Value|\b10{12,}m?\b/,
   },
   {
     what: "a hand-written date / datetime wire format",
